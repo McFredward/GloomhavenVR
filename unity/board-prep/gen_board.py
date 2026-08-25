@@ -241,6 +241,150 @@ BACK_ART = {
     },
 }
 
+# ------------------------------------------------ the SIDE relief (ModBuild 280) --
+#
+# "Ich will auch die Seiten, Aufgabe daher noch nicht fertig.  Mach damit weiter."
+#
+# ModBuild 279 answered half of his request: the BACKS' painted ironwork became geometry
+# and the sides were left as one flat vertical wall between two small chamfers.  This is
+# the other half.
+#
+# WHAT A SIDE IS, AND WHY IT IS NOT A THIRD DECORATED FACE.  A board side is the EDGE of
+# the construction the front and the back already establish, so the design is read off
+# those two and not invented.  Measured off the ModBuild 276 back plates
+# (unity/board-prep/out/board_back_<style>.png), at 1 px = 0.3125 mm:
+#
+#   oak     four planks running the LONG axis, three seams, and TWO CROSS BATTENS that
+#           run from plate edge to plate edge -- y 16..1008 px of 1024, i.e. +-155.0 mm
+#           against a back-plate half-width of 158.2 mm.  The battens stop 3.2 mm short,
+#           which is inside the back's own bottom chamfer: they REACH THE RIM.
+#   steel   a riveted plate whose recessed fields span y 38..989 px = +-148.4 mm, so a
+#           9.8 mm BORDER BAND runs unbroken all the way round between them and the rim.
+#           The two vertical straps butt into that band and never reach the side.
+#   bronze  three cast panels at y 75..955 px = +-126.6 mm, so a 31.6 mm BORDER RIB runs
+#           unbroken all the way round.  The two inner stiffening ribs butt into it.
+#
+# So exactly one style has a back feature that crosses its rim, and it is oak.  That is a
+# measurement, not a preference, and it is why only oak gets discrete side features.
+#
+# WHY THE RELIEF IS CUT IN AND NEVER STANDS PROUD.  BOARD-CONTRACT.md fixes the long edge
+# at exactly 0.640 m and the short edge at 0.320 m, and `BoardBuilder` reads those extents
+# to place the seats, the pads and the docks.  A rivet head standing 1 mm off the side
+# would move them.  Every ring below therefore steps INWARD from the 0.640 x 0.320
+# silhouette, and the features that must read as proud -- oak's battens -- are the places
+# where the surrounding field is cut BACK and the feature stays flush with the nominal
+# silhouette.  The bounding box is unchanged by construction.
+#
+# WHY EVERY SIDE STEP IS AT MOST MAX_RIM_TILT_DEG OFF VERTICAL, and this one is not taste
+# either.  img2img/gen_geobuf.py calls a triangle RIM when its normal is within
+# acos(0.5) = 60 deg of the board PLANE, i.e. no more than 30 deg off the thickness
+# direction; steeper than that and an upward-facing step lands in FRONT (which the front
+# pass painted from a camera that never saw it) and a downward-facing one lands in BACK
+# (which tex_backfill paints with the BACK PLATE ART at that texel's board coordinates --
+# the back's planks stretched onto a rim step).  A 45 deg chamfer, the obvious profile,
+# sits at axial = 0.707 and lands in exactly those two wrong groups.  So a side step
+# spends z, not inset: 3.0 mm of rebate costs 5.7 mm of the band's height, which on a
+# 20-26 mm band is most of the budget.  The outcome is checked from the other end as well:
+# after this edit gen_geobuf's FRONT and INTERIOR texel counts are UNCHANGED on all three
+# boards, so nothing leaked out of the RIM group.
+#
+# WHAT IS *NOT* GEOMETRY HERE, and the numbers behind each:
+#
+#   oak's three plank seams (rows 246/493/739, painted 1.6 mm wide).  On the back they
+#     stayed in the normal map because a <=40 deg wall cannot carry depth across 1.6 mm.
+#     On the side the wall limit is different but the resolution is not: the silhouette
+#     carries 26 samples along a 600 mm run and 13 along a 280 mm one, so placing a 2 mm
+#     groove needs ~1 mm perimeter resolution -- ny ~ 320, about 7 000 extra triangles on
+#     its own -- and a groove wide enough to be affordable (5-6 mm) would meet the back's
+#     1.6 mm painted seam at the arris as a step three times too wide.  That is the same
+#     doubled-edge argument that kept them out of the back, reached independently.
+#
+#   steel's rivets.  They are the feature he NAMED, so this is the one that had to be
+#     argued rather than assumed -- and the FIRST argument against them was wrong, which is
+#     worth writing down.  It was a triangle budget: 8.4 mm domes at a 32 mm pitch need
+#     ~6.4 mm of perimeter resolution, i.e. nx ~ 96, and that is ~8 700 triangles on a board
+#     already at 15 716 of 24 000.  But that costing assumes UNIFORM densification, and
+#     `cuts_x` below does not densify uniformly -- 40 rivets at four cuts each is ~160
+#     vertices per ring, about 2 200 triangles, comfortably affordable.  So the budget does
+#     NOT decide this.
+#     What decides it is EVIDENCE: unlike oak's battens, nothing in the steel art puts a
+#     rivet on the rim.  The border band is what meets the side and the rivets sit on its
+#     FACE, 6.6-9.0 mm in.  What the shipped side DOES show is a row of painted rivet
+#     ghosts, and those are a sampling artefact of tex_backfill's rim walk, measured in
+#     ModBuild 278.  Building 40 real rivets to match them would be adapting the object to
+#     the artefact instead of the texture to the object -- which is the same call the
+#     ModBuild 278 record made, reached here from the opposite direction.
+#
+# Every entry is (delta_inset, delta_z, mod_inset) in metres, walked from `widest` -- the
+# true 0.640 x 0.320 ring at the bottom of the front edge roll-over -- down to `low`, the
+# last ring before the back chamfer.  `mod_inset` is the inset the MASKED vertices take on
+# that ring (None = follow the base), so 0.0 holds a crossing feature at the nominal
+# silhouette while the field around it is cut back.  The deltas are asserted to sum to the
+# band's exact height, so a mistuned profile fails the build instead of moving the back
+# plate, and every step is asserted against MAX_RIM_TILT_DEG.
+#
+# THE REBATE IS 3.0 mm AND THE STEPS RUN AT 27.8 DEGREES, ONE MARGIN OFF THE LIMIT, and
+# that is the second try.  The first shipped 2.0 mm at 24 degrees and it was measured
+# through the real shader before being replaced: a rail and a rebate floor have the SAME
+# surface normal -- both are vertical walls -- so the only thing that separates them
+# tonally is the step between them, and against BoardLit's two baked directions a 2 mm step
+# was a quiet band flat-on.  A cavity term was the obvious remedy and it was BUILT
+# (gen_rimao.py bakes real AO into atlas space) and then NOT USED, because the bake says
+# the rebate does not occlude: oak's rails come back 0.9996 against 0.9861 in the rebate,
+# a 1.4 % difference.  A shallow open groove genuinely is not a cavity, and darkening it
+# anyway would be painting shading the geometry does not produce.  So the depth was spent
+# instead, which is the term that does change the picture.
+MAX_RIM_TILT_DEG = 28.0
+
+SIDE_ART = {
+    # A laminated timber edge: the frame stock's 3 mm facing rail, a 5.6 mm plank core set
+    # back 3 mm, a 3 mm base rail -- and the two battens crossing the core flush, which is
+    # what an iron-strapped plank board looks like from the side.
+    "oak": {
+        "profile": [(0.0000, -0.0030, None),       # facing rail
+                    (0.0030, -0.0057, 0.0),        # step in, 27.8 deg off vertical
+                    (0.0000, -0.0056, 0.0),        # the plank core
+                    (-0.0030, -0.0057, None),      # step back out
+                    (0.0000, -0.0030, None)],      # base rail
+        # plate columns 203..339 and 1701..1842 -> board x, verbatim off the art.  Not
+        # symmetric, and the 1.7 mm difference is kept for the same reason BACK_ART keeps
+        # it: the art is the truth the geometry registers to.
+        "cross_x": [(back_x(203.0), back_x(339.0)), (back_x(1701.0), back_x(1842.0))],
+        "cross_ramp": 0.0012,
+    },
+    # Two plate edges sandwiching a recessed core: the front plate's 4 mm rail, a 7.0 mm
+    # edge band set back 3 mm, and the back plate's 4 mm rail -- which is the 9.8 mm border
+    # band of the back art, seen edge-on.
+    "steel": {
+        "profile": [(0.0000, -0.0040, None),
+                    (0.0030, -0.0057, None),
+                    (0.0000, -0.0070, None),
+                    (-0.0030, -0.0057, None),
+                    (0.0000, -0.0040, None)],
+        "cross_x": [],
+        "cross_ramp": 0.0012,
+    },
+    # A sand casting: both mould halves draft away from a PARTING LINE, and the parting
+    # line is the widest point.  `widest` is pinned at inset 0 by the front roll-over, so
+    # the crown is pinned there too and the drafts run inward from both.
+    "bronze": {
+        # Six rings, one more than the other two, and the extra one is the assert's doing:
+        # a five-ring version ended 2.0 mm inside the silhouette and `side_stack`'s
+        # interlock caught that the back chamfer would then have to step OUTWARD, which
+        # folds the back's top-down UV projection.  Bringing the flange back to full width
+        # before the chamfer is both the fix and the better casting: three full-width bands
+        # separated by two drafted grooves, with the parting crown in the middle.
+        "profile": [(0.0020, -0.0040, None),       # upper draft, 26.6 deg
+                    (-0.0020, -0.0040, None),      # up to the parting crown
+                    (0.0000, -0.0016, None),       # the crown band
+                    (0.0020, -0.0040, None),       # lower draft
+                    (-0.0020, -0.0040, None),      # back out to the flange
+                    (0.0000, -0.0024, None)],      # the flange
+        "cross_x": [],
+        "cross_ramp": 0.0012,
+    },
+}
+
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TABLE = os.path.join(REPO, "unity", "GloomhavenVR.Assets", "Assets", "Bundle", "Table")
 OUT = os.path.join(REPO, "unity", "board-prep", "out")
@@ -345,12 +489,23 @@ STYLES = {
 # ----------------------------------------------------------------------- 2D outlines --
 
 
-def rrect(cx, cy, w, h, r, nc, nx, ny):
-    """Rounded rectangle, CCW seen from +Z, with a FIXED vertex count of 2*nx+2*ny+4*nc.
+def rrect(cx, cy, w, h, r, nc, nx, ny, cuts_x=()):
+    """Rounded rectangle, CCW seen from +Z, with a FIXED vertex count of
+    2*nx + 2*ny + 4*nc + 2*len(cuts_x).
 
     The fixed count is what makes an inset trivial: `rrect(cx, cy, w-2d, h-2d, r-d, ...)`
     has a 1:1 vertex correspondence with the original, so a ring bridge between them is
-    pure quads with no bridging heuristics involved."""
+    pure quads with no bridging heuristics involved.
+
+    `cuts_x` inserts an extra vertex at an ABSOLUTE board x on each of the two LONG runs,
+    which is how the side relief puts a crisp edge where oak's cross battens meet the rim
+    without densifying the whole silhouette.  It survives an inset for a reason worth
+    writing down: the run spans `x0 + r` to `x1 - r` = `-(W/2 - d) + (R - d)`, and the two
+    d terms cancel, so BOTH ENDS OF EVERY STRAIGHT RUN ARE INDEPENDENT OF THE INSET.  The
+    uniform samples therefore sit at the same absolute coordinates at every inset, a cut at
+    an absolute x keeps its parameter exactly, and a per-vertex mask indexed by position is
+    valid for the whole ring stack.  `assert_side_cuts()` measures that claim rather than
+    trusting it."""
     r = max(r, 0.0025)   # never collapse a corner to a point: an inset past the radius
                          # mitred bronze's cast bead into a visible diagonal crease
     r = min(r, w / 2 - 1e-5, h / 2 - 1e-5)
@@ -363,20 +518,66 @@ def rrect(cx, cy, w, h, r, nc, nx, ny):
             t = a0 + (a1 - a0) * (i + 0.5) / nc
             pts.append((ax + r * math.cos(t), ay + r * math.sin(t)))
 
-    def run(px, py, qx, qy, n):
-        for i in range(n):
-            t = i / n
+    def run(px, py, qx, qy, n, xcuts=()):
+        ts = [i / n for i in range(n)]
+        if xcuts and abs(qx - px) > 1e-9:
+            for xc in xcuts:
+                t = (xc - px) / (qx - px)
+                assert 1e-6 < t < 1.0 - 1e-6, (
+                    "side cut at x=%.5f falls outside the straight run %.5f..%.5f -- a cut "
+                    "that leaves the run changes the vertex count with the inset" % (xc, px, qx))
+                ts.append(t)
+            ts.sort()
+        for t in ts:
             pts.append((px + (qx - px) * t, py + (qy - py) * t))
 
-    run(x0 + r, y0, x1 - r, y0, nx)                       # bottom
+    run(x0 + r, y0, x1 - r, y0, nx, cuts_x)               # bottom
     arc(x1 - r, y0 + r, -math.pi / 2, 0.0)                # BR
     run(x1, y0 + r, x1, y1 - r, ny)                       # right
     arc(x1 - r, y1 - r, 0.0, math.pi / 2)                 # TR
-    run(x1 - r, y1, x0 + r, y1, nx)                       # top
+    run(x1 - r, y1, x0 + r, y1, nx, cuts_x)               # top
     arc(x0 + r, y1 - r, math.pi / 2, math.pi)             # TL
     run(x0, y1 - r, x0, y0 + r, ny)                       # left
     arc(x0 + r, y0 + r, math.pi, 1.5 * math.pi)           # BL
     return pts
+
+
+def assert_side_cuts(sil, cuts, min_gap=0.0006):
+    """The two claims rrect's cuts rest on, MEASURED on the insets this build uses.
+
+    (1) A ring at any inset has the same vertex count, and (2) every straight-run vertex
+    sits at the same absolute coordinate at every inset, so a per-index mask taken off
+    sil(0.0) means the same board point on every ring.  A silent violation of either would
+    not crash -- it would shear the mask one vertex sideways on some rings, which is a
+    batten with a staircase edge, and nothing downstream would report it.
+
+    The third check is the one a count-stability proof does not cover: two vertices closer
+    than `min_gap` make a sliver quad with a sliver of arclength UV, which is the failure
+    mode strip_uv's own docstring records from the first atlas dump."""
+    if not cuts:
+        return
+    base = sil(0.0)
+    n = len(base)
+    for d in (0.0005, 0.0010, 0.0018, 0.0020, 0.0030):
+        ring = sil(d)
+        assert len(ring) == n, ("silhouette vertex count %d at inset %.4f but %d at 0 -- a "
+                                "cut left its run" % (len(ring), d, n))
+        for i in range(n):
+            if abs(base[i][1]) > SHORT / 2 - 1e-6 or abs(base[i][0]) > LONG / 2 - 1e-6:
+                assert abs(ring[i][0] - base[i][0]) < 1e-9 or \
+                       abs(ring[i][1] - base[i][1]) < 1e-9, \
+                    "straight-run vertex %d moved in BOTH axes between insets 0 and %.4f" % (i, d)
+    worst, worst_i = 1e9, -1
+    for i in range(n):
+        j = (i + 1) % n
+        g = math.hypot(base[j][0] - base[i][0], base[j][1] - base[i][1])
+        if g < worst:
+            worst, worst_i = g, i
+    assert worst >= min_gap, (
+        "silhouette vertices %d and %d are %.3f mm apart (limit %.3f): a cut landed on top "
+        "of a uniform sample and the side wall gets a sliver quad"
+        % (worst_i, (worst_i + 1) % n, worst * 1000.0, min_gap * 1000.0))
+    return worst
 
 
 def circle(cx, cy, r, n):
@@ -622,6 +823,83 @@ class Board:
 
     # ------------------------------------------------------------------- back relief --
 
+    # --------------------------------------------------------------- the side relief --
+
+    def side_mask(self, pts, art):
+        """Per-vertex weight, 1.0 exactly where a BACK feature crosses the rim.
+
+        A masked vertex is held at the NOMINAL 0.640 x 0.320 silhouette while its
+        neighbours are cut back, so the feature reads as proud without a single vertex
+        leaving the contract footprint.  Indexed by position taken off `sil(0.0)`, which is
+        legitimate because rrect's straight runs span the same absolute coordinates at
+        every inset (see rrect's docstring) -- so index i means the same board point on
+        every ring of the stack."""
+        ramp = art["cross_ramp"]
+        out = []
+        for (x, y) in pts:
+            v = 0.0
+            if abs(y) > SHORT / 2 - 1e-6:       # the two LONG straight runs only
+                for (x0, x1) in art["cross_x"]:
+                    if x0 <= x <= x1:
+                        v = 1.0
+                    elif x0 - ramp <= x < x0:
+                        v = max(v, (x - (x0 - ramp)) / ramp)
+                    elif x1 < x <= x1 + ramp:
+                        v = max(v, ((x1 + ramp) - x) / ramp)
+            out.append(v)
+        return out
+
+    def side_stack(self, sil, art, widest, z0, band_h, island):
+        """Walk SIDE_ART's profile from `widest` down to the last ring before the back
+        chamfer.  Returns (loops, last_loop, last_inset).
+
+        Pure ring bridges: the profile never changes the vertex count, so the whole side
+        stays quads and the strip UV stays one island.  Two asserts carry the design:
+        every step is checked against MAX_RIM_TILT_DEG so gen_geobuf keeps calling these
+        faces RIM, and the profile's total drop is checked against the band's real height
+        so a mistuned table fails the build instead of moving the back plate."""
+        mask = self.side_mask(sil(0.0), art)
+        assert abs(sum(dz for (_, dz, _) in art["profile"]) + band_h) < 1e-9, (
+            "side profile drops %.5f m but the band between the front roll-over and the "
+            "back chamfer is %.5f m" % (-sum(dz for (_, dz, _) in art["profile"]), band_h))
+        loops, d, z = [widest], 0.0, z0
+        worst = 0.0
+        for (di, dz, mod) in art["profile"]:
+            tilt = math.degrees(math.atan2(abs(di), abs(dz))) if abs(dz) > 1e-12 else 90.0
+            assert tilt <= MAX_RIM_TILT_DEG + 1e-9, (
+                "side step at %.1f deg off vertical exceeds %.1f: gen_geobuf classifies a "
+                "rim triangle only within acos(0.5) = 60 deg of the board plane, and a "
+                "steeper step lands in FRONT (never painted by the front camera) or BACK "
+                "(painted with the back PLATE art at its own board coordinates)"
+                % (tilt, MAX_RIM_TILT_DEG))
+            worst = max(worst, tilt)
+            d += di
+            z += dz
+            if mod is not None and any(mask):
+                # `mod` is the inset the MASKED vertices take -- 0.0 means "hold this
+                # vertex at the nominal 0.640 x 0.320 silhouette while its neighbours are
+                # cut back", which is how a feature reads as proud without one vertex
+                # leaving the contract footprint.
+                a, b = sil(mod), sil(d)
+                pts = [(a[i][0] * mask[i] + b[i][0] * (1.0 - mask[i]),
+                        a[i][1] * mask[i] + b[i][1] * (1.0 - mask[i]))
+                       for i in range(len(a))]
+            else:
+                pts = sil(d)
+            nxt = self.ring(pts, z)
+            self.bridge(loops[-1], nxt, island)
+            loops.append(nxt)
+        self.side_metrics = {
+            "rings": len(art["profile"]),
+            "rebate_mm": round(max(abs(sum(di for (di, _, _) in art["profile"][:k + 1]))
+                                   for k in range(len(art["profile"]))) * 1000.0, 2),
+            "worst_step_deg": round(worst, 2),
+            "cross_features": len(art["cross_x"]),
+            "cross_texels_flush": int(sum(1 for v in mask if v > 0.999)),
+            "band_mm": round(band_h * 1000.0, 2),
+        }
+        return loops, loops[-1], d
+
     def back_stack(self, gen, z0, height, run, seg, island, into=False):
         """One STRAIGHT-chamfered feature stepped out of (or into) the back plate.
 
@@ -780,7 +1058,15 @@ class Board:
         # ------------------------------------------------------------------ silhouette --
         # sil(d) is the board outline inset by d; the vertex count is constant, so any two
         # of these bridge to a pure quad ring.
-        sil = lambda d: rrect(0, 0, LONG - 2 * d, SHORT - 2 * d, c["corner_r"] - d, nc, nx, ny)
+        # The cuts are the batten edges of SIDE_ART, so the crisp edge where a back feature
+        # crosses the rim costs four vertices per run instead of the ~7x silhouette
+        # densification a uniform sampling would need to place a 43 mm feature to 1 mm.
+        art_s = SIDE_ART[self.style]
+        cuts = tuple(x for (x0, x1) in art_s["cross_x"]
+                     for x in (x0 - art_s["cross_ramp"], x0, x1, x1 + art_s["cross_ramp"]))
+        sil = lambda d: rrect(0, 0, LONG - 2 * d, SHORT - 2 * d, c["corner_r"] - d,
+                              nc, nx, ny, cuts)
+        assert_side_cuts(sil, cuts)
 
         # The TOP EDGE ROLL-OVER lives in the `frame` island with a plain top-down
         # projection, so it is UV-continuous with the frame band and the board's most
@@ -798,11 +1084,14 @@ class Board:
 
         # ------------------------------------------------------------- side wall + back --
         side_isl = self.new_island("strip", "sides", 1.0)
-        low = self.ring(sil(0.0), -(T - ed))
-        self.bridge(widest, low, side_isl)
+        side_loops, low, low_d = self.side_stack(sil, art_s, widest, -ed, T - 2 * ed, side_isl)
+        assert low_d < 0.0018 + 1e-9, (
+            "the side profile ends %.4f mm inside the silhouette, past the back chamfer's "
+            "own 1.8 mm -- the chamfer would step OUTWARD and fold the back's top-down UV"
+            % (low_d * 1000.0))
         bot = self.ring(sil(0.0018), -T)
         self.bridge(low, bot, side_isl)
-        self.strip_uv(side_isl, [widest, low, bot], chunk=0.32)
+        self.strip_uv(side_isl, side_loops + [bot], chunk=0.32)
         # The weight stays 0.30 and it no longer means what its docstring says.  The back's
         # island is REPACKED afterwards by gen_backuv.py into a free rectangle of the atlas
         # (1.21 tex/mm, ModBuild 276), so this number only decides how much of the `sides`
@@ -979,6 +1268,7 @@ class Board:
             "field_half_m": [round(hx, 4), round(hy, 4)],
             "frame_band_w_m": round(fw, 4),
             "back_relief": getattr(self, "back_metrics", {}),
+            "side_relief": getattr(self, "side_metrics", {}),
         }
         self.symbols.append({"name": "centre_rose", "region": "face",
                              "pt": (0.0, 0.0), "island": face_isl,

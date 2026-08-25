@@ -56,6 +56,15 @@ Changing an accepted texture to move a number the player cannot see is not an im
 The file ships so the measurement is repeatable and the option is one command away; use it
 if the user reports the side, and read the compare picture first.
 
+**ModBuild 280 RE-DECIDED THIS AFTER THE SIDES GOT THEIR OWN GEOMETRY, and the answer did
+not change.** The sides now carry a real rebate and, on oak, real batten crossings, so the
+question was whether a painted feature with no matching relief is more conspicuous beside
+real relief.  What actually changed the side's picture was the NORMAL map, which had never
+been authored at all (`tex_siderelief.py`).  The albedo ghost was left alone, both clamps
+measured: the back-term clamp is unchanged from ModBuild 278, and the FRONT-term clamp --
+newly possible because `tex_boardspace.py` rebuilds the intermediate this file's docstring
+says was lost -- is falsified by its own sweep on all three boards (see `run()`).
+
 WHY THE FIX WOULD NOT BE GEOMETRY EITHER, and this is a judgement call worth stating plainly
 --------------------------------------------------------------------------------------------
 Read literally, the user asked for the mesh to be adapted to those screws.  Doing that would
@@ -175,16 +184,68 @@ def run(a):
     wl = ext[thin] / ext[lng]
     ws = ext[thin] / ext[srt]
 
+    # ---- the FRONT term, ModBuild 280 -------------------------------------------------
+    # This file's own docstring says it never needs the composited front board-space
+    # albedo "which is an intermediate that was not kept".  img2img/tex_boardspace.py
+    # rebuilds it out of the shipped atlas through the mesh's own geobuf, so that
+    # constraint is lifted and the front term can be clamped the same way.
+    #
+    # THE HYPOTHESIS THAT MOTIVATED IT WAS FALSIFIED BY ITS OWN SWEEP, and the sweep is
+    # the whole reason to keep the code.  The reasoning was: the front term is the bigger
+    # ghost on bronze (23.5 % weighted against the back's 2.0 %), both terms drag the same
+    # KIND of thing onto the rim -- a feature row running PARALLEL to the edge -- so
+    # shortening the front walk should help the way it helps on the back.
+    #
+    # It does the opposite, on all three boards.  `--sweep` with a front board attached:
+    #
+    #     weighted FRONT ghost      k=1.00   0.50   0.25   0.10
+    #     oak                         4.6   19.9   21.8   14.7
+    #     steel                       9.5   23.0   23.8   21.3
+    #     bronze                     23.9   31.7   42.6   35.7
+    #
+    # The front term is at its MINIMUM at k = 1.00 and every clamp makes it worse, because
+    # the geometry near the rim is the FRAME BAND with its studded border and its mouldings
+    # while the open field is what a LONG walk reaches.  Shortening the walk moves the
+    # sample toward more mesh structure, not less.  The back is the other way round --
+    # features 6.6-9.0 mm in, open plate beyond -- which is why the same parameter helps
+    # there and hurts here.  A remedy that is right on one face of a slab is not
+    # automatically right on the other, and the term "ghost" hid that they are not the
+    # same population.
+    #
+    # So the front term ships CLAMPABLE and UNCLAMPED, and the measurement is repeatable.
+    front_lin = None
+    if a.front_board:
+        fb = Image.open(a.front_board).convert("RGB").resize((PW, PH), Image.LANCZOS)
+        front_lin = tb.srgb2lin(np.asarray(fb, np.float64))
+    fwalk = a.walk if a.front_walk is None else a.front_walk
+
+    fwall = (grp == GRP_FRONT) & ((1.0 - np.abs(n[..., thin])) > a.wall_tilt)
+    ffeat = board_feature_mask(pos, fwall, lo, ext, lng, srt, a.dilate_px,
+                               a.edge_keepout_mm / 1000.0)
+
     def sample(k):
         ub = np.clip(U[mr] - nl * (1.0 - t) * wl * k, 0.0, 1.0)
         vb = np.clip(V[mr] + ns * (1.0 - t) * ws * k, 0.0, 1.0)
         return ub, vb, tb.bilinear(back_lin, ub, vb)
 
+    def sample_front(k):
+        uf = np.clip(U[mr] - nl * t * wl * k, 0.0, 1.0)
+        vf = np.clip(V[mr] + ns * t * ws * k, 0.0, 1.0)
+        val = tb.bilinear(front_lin, uf, vf) if front_lin is not None else None
+        return uf, vf, val
+
+    def _hit(mask, u, v, weight):
+        h = mask[np.clip((v * (PH - 1)).astype(int), 0, PH - 1),
+                 np.clip((u * (PW - 1)).astype(int), 0, PW - 1)]
+        return float(h.mean()), float((h * weight).mean())
+
     def ghost(k):
         ub, vb, _ = sample(k)
-        hit = feat[np.clip((vb * (PH - 1)).astype(int), 0, PH - 1),
-                   np.clip((ub * (PW - 1)).astype(int), 0, PW - 1)]
-        return float(hit.mean()), float((hit * ts[..., 0]).mean())
+        return _hit(feat, ub, vb, ts[..., 0])
+
+    def ghost_front(k):
+        uf, vf, _ = sample_front(k)
+        return _hit(ffeat, uf, vf, 1.0 - ts[..., 0])
 
     alb_u8 = np.asarray(Image.open(a.albedo).convert("RGB")).copy()
     alb = tb.srgb2lin(alb_u8.astype(np.float64))
@@ -209,18 +270,25 @@ def run(a):
         # THE STREAK GUARD.  The rim's cross-band variation is what the walk buys; a walk of
         # zero is the streak defect ModBuild 276 shipped and had to fix.  Reported beside the
         # ghost so the trade is visible instead of assumed.
-        print("%-7s  k     ghost%%  weighted%%  cross-band CHANGE of the back term" % a.style)
-        for k in (1.00, 0.70, 0.50, 0.40, 0.30, 0.25, 0.20, 0.10, 0.0):
+        print("%-7s  k     BACKghost%% wtd%%   FRONTghost%% wtd%%   cross-band CHANGE"
+              % a.style)
+        for k in (1.00, 0.70, 0.50, 0.40, 0.30, 0.25, 0.20, 0.14, 0.10, 0.0):
             g, gw = ghost(k)
-            print("         %.2f   %5.1f    %5.1f      %.5f  (walk %5.1f mm)"
-                  % (k, 100 * g, 100 * gw, cross_band(k),
+            fg, fgw = ghost_front(k)
+            print("         %.2f   %6.1f %6.1f   %6.1f %6.1f     %.5f  (walk %5.1f mm)"
+                  % (k, 100 * g, 100 * gw, 100 * fg, 100 * fgw, cross_band(k),
                      1000.0 * k * float(ext[thin])))
         return
 
     _, _, old = sample(1.0)
     _, _, new = sample(a.walk)
+    delta = -ts * old + ts * new
+    if front_lin is not None:
+        _, _, fold = sample_front(1.0)
+        _, _, fnew = sample_front(fwalk)
+        delta = delta - (1.0 - ts) * fold + (1.0 - ts) * fnew
     out = alb.copy()
-    out[mr] = np.clip(alb[mr] - ts * old + ts * new, 0.0, 4.0)
+    out[mr] = np.clip(alb[mr] + delta, 0.0, 4.0)
     u8 = alb_u8.copy()
     u8[mr] = np.clip(np.rint(tb.lin2srgb(out[mr])), 0, 255).astype(np.uint8)
 
@@ -232,8 +300,16 @@ def run(a):
     g2, gw2 = ghost(a.walk)
     _, _, v1 = sample(1.0)
     _, _, v2 = sample(a.walk)
+    f1, fw1 = ghost_front(1.0)
+    f2, fw2 = ghost_front(fwalk)
     stats = {
-        "style": a.style, "walk": a.walk, "rim_texels": int(mr.sum()),
+        "style": a.style, "walk": a.walk,
+        "front_walk": (fwalk if front_lin is not None else None),
+        "rim_texels": int(mr.sum()),
+        "front_ghost_before_pct": round(100 * f1, 2),
+        "front_ghost_after_pct": round(100 * f2, 2),
+        "front_ghost_weighted_before_pct": round(100 * fw1, 2),
+        "front_ghost_weighted_after_pct": round(100 * fw2, 2),
         "ghost_before_pct": round(100 * g1, 2), "ghost_after_pct": round(100 * g2, 2),
         "ghost_weighted_before_pct": round(100 * gw1, 2),
         "ghost_weighted_after_pct": round(100 * gw2, 2),
@@ -260,6 +336,12 @@ def main():
     ap.add_argument("--walk", type=float, default=0.28,
                     help="scale on the BACK term's inward walk; 1.0 reproduces the input "
                          "exactly and is the null control")
+    ap.add_argument("--front-board", default=None,
+                    help="the FRONT face in board space (img2img/tex_boardspace.py).  With "
+                         "it the FRONT term's walk is clamped too -- see the ModBuild 280 "
+                         "section of the docstring")
+    ap.add_argument("--front-walk", type=float, default=None,
+                    help="scale on the FRONT term's walk; defaults to --walk")
     ap.add_argument("--sweep", action="store_true",
                     help="print the ghost fraction and the streak guard against k, write nothing")
     ap.add_argument("--wall-tilt", type=float, default=0.08)

@@ -584,3 +584,193 @@ relative to the board's FRONT axis and its `back` mode lights the plate with a s
 fill. Relief is a directional effect — under a light that does not rake it, geometry and a
 normal map and a flat plate look the same. The calibrated picture is still `PreviewBoard.cs`
 against the built bundle, and this round used both.
+
+
+---
+
+# ROUND 5 (ModBuild 280): THE SIDES
+
+Round 4 shipped the backs and the user ruled the task unfinished:
+
+> "Ich will auch die Seiten, Aufgabe daher noch nicht fertig. Mach damit weiter"
+
+Two defects came out of it and **only one of them was the one in the brief.**
+
+## What a side IS, read off the two faces
+
+A board side is the EDGE of the construction the front and the back already establish, so
+the design is measured off those and not invented. On the ModBuild 276 back plates, at
+1 px = 0.3125 mm, against a back-plate half-width of 158.2 mm:
+
+| style | back construction | reaches the rim? |
+|---|---|---|
+| oak | four planks on the long axis, three seams, **two cross battens** spanning y ±155.0 mm | **YES** — 3.2 mm short, i.e. inside the back's own chamfer |
+| steel | recessed fields to y ±148.4 mm, leaving a 9.8 mm BORDER BAND unbroken all round | no |
+| bronze | cast panels to y ±126.6 mm, leaving a 31.6 mm BORDER RIB unbroken all round | no |
+
+**Exactly one style has a back feature that crosses its rim.** That is why only oak gets a
+discrete side feature; it is a measurement, not a preference, and it is also why steel gets
+no rivet row down its edge even though rivets are the feature the user NAMED — nothing in
+the steel art puts a rivet on the rim, and building 40 of them would be authoring a new
+feature rather than adapting the mesh to the texture. (The ModBuild 278 record reached the
+same conclusion from the other direction and it is quoted in `tex_rimfill.py`.)
+
+What each style got, all of it inside the existing strip island, no new UV islands:
+
+* **oak** — a laminated timber edge: a 3 mm facing rail, a 3.0 mm rebate 5.6 mm tall, a
+  3 mm base rail, and the two battens crossing the rebate flush with the nominal
+  silhouette. 12 976 → 14 176 tris.
+* **steel** — two plate edges sandwiching a recessed core: a 4 mm front rail, a 3.0 mm
+  rebate 7.0 mm tall, a 4 mm back rail — which is the back art's 9.8 mm border band seen
+  edge-on. 15 716 → 16 532.
+* **bronze** — a cast edge: three full-width bands separated by two drafted grooves with the
+  parting crown in the middle. 20 660 → 21 920. Six rings and not five, because the
+  five-ring version ended 2.0 mm inside the silhouette and `side_stack`'s interlock caught
+  that the back chamfer would then have to step OUTWARD, folding the back's top-down UV.
+
+## EVERY SIDE STEP IS AT MOST 28 DEGREES OFF THE THICKNESS AXIS
+
+`gen_geobuf` calls a triangle RIM only when `|axial| <= 0.5`, i.e. within 60 deg of the
+board PLANE. **A 45 degree chamfer — the obvious profile for a rebate — sits at axial
+0.707** and lands in FRONT (which the front camera never painted, so its texels are
+push-pull fill) or in BACK (which `tex_backfill` paints with the BACK PLATE ART at that
+texel's own board coordinates: the back's planks stretched onto a rim step). So a side step
+spends z, not inset: 3 mm of rebate costs 5.7 mm of the band's height, and on a 20-26 mm
+band that is most of the budget. `gen_board.Board.side_stack()` asserts it, and the outcome
+is checked from the other end — after the edit, `gen_geobuf`'s FRONT and INTERIOR texel
+counts are **unchanged on all three boards**, so nothing leaked out of RIM.
+
+The second constraint is the contract's: `BoardBuilder` reads the 0.640 x 0.320 extents to
+place seats and docks, so nothing may stand proud. Side features are CUT IN, and the one
+that has to read as proud — oak's battens — is the place where the field AROUND it is cut
+back while it stays flush at the nominal silhouette. `rrect` gained a `cuts_x` parameter for
+that: four extra vertices per batten edge, instead of the ~7x silhouette densification a
+uniform sampling would need to place a 43 mm feature to 1 mm. It survives an inset because
+a straight run spans `-(W/2 - d) + (R - d)`, in which the two d terms cancel, so **both ends
+of every straight run are independent of the inset** — `assert_side_cuts()` measures that
+rather than trusting it.
+
+## THE SECOND DEFECT: the rim's NORMAL map was never authored at all
+
+Round 3 repainted the rim's ALBEDO. Nothing has ever touched the rim's NORMAL, so it was
+still ModBuild 274's `pushpull_fill` dilation smear from the front face. Cropped out of the
+atlas it is unmistakable: **an embossed row of RECTANGULAR PLATES down the whole length of
+every side**, saturated at the edges, repeated once per wrapped strip row — the frame band's
+studded border, smeared sideways onto a band no front camera can see.
+
+| board | side-strip \|slope\| | its own FRONT | ratio | after `tex_siderelief` |
+|---|---|---|---|---|
+| oak | 0.8650 | 0.3395 | 2.55x | **0.3192** |
+| steel | 0.9013 | 0.3041 | 2.96x | **0.3078** |
+| bronze | 0.5561 | 0.2486 | 2.24x | **0.2507** |
+
+This is the user's complaint in its purest form — a flat texture pretending to be
+three-dimensional objects — and it was on the sides the whole time. `tex_siderelief.py`
+band-limits the strip's slope field to its micro band and rescales it to that board's own
+front grain; 0 texels outside the side strip changed on any board.
+
+Unlike `tex_backrelief`, the edit is a band limit and not a mask, and the difference is not
+style: the back's art is REGISTERED, so outside the mask its relief is correct, whereas the
+side strip's correct feature content is NONE — everything the side actually has is mesh
+geometry as of this build, and everything the map drew there came from a different face.
+
+## The gate a repack needs — `tex_pointcheck.py`
+
+"0 differing UV texels" was the right gate in ModBuild 279 precisely BECAUSE nothing
+repacked. After a deliberate repack it is a check that cannot pass. The question that still
+matters is the one the player can see: **does the same BOARD POINT still get the same
+COLOUR?** Each atlas is turned into a board-space image through its OWN mesh's geobuf and
+the two are diffed, so the check goes through both sets of UVs and comes out in a shared
+frame — blind to layout, sensitive only to appearance.
+
+| board | board points | mean \|err\| | differing | control (+1 texel) |
+|---|---|---|---|---|
+| oak | 781 438 | **0.0000** | 1 px | 14.60 / 99.65 % |
+| steel | 736 863 | **0.0000** | 0 px | 14.47 / 99.53 % |
+| bronze | 727 206 | **0.0000** | 1 px | 13.53 / 99.74 % |
+
+Corroborated by the atlas itself, per geobuf group: **FRONT+INTERIOR is byte-identical on
+albedo, normal AND mrs on all three boards** (0 of 871 000 / 811 552 / 943 455), every
+unmapped texel is byte-identical, and all three back plates land on the IDENTICAL free
+rectangle `gen_backuv` chose in ModBuild 276.
+
+## `tex_boardspace.py` — the intermediate that was lost, rebuilt
+
+`tex_backfill` needs the front face in board space, and round 3 handed it `tex_composite`'s
+`_board.png`. `out/` is gitignored and that file is gone, so the round that had to repaint
+the rim could not reproduce its own input. It is now taken from the SHIPPED ATLAS through
+the mesh's geobuf instead, which is better than the original rather than a fallback: the rim
+blend's docstring says that at t = 0 its first term is "the very texel its front neighbour
+has", and reading the front term back out of the atlas makes that exactly true. The scatter
+resolution is 1024x512 and not 2048x1024 because the atlas only carries 1.9-2.1 tex/mm —
+measured coverage 2048 0.373, 1536 0.543, 1280 0.686, 1024 0.891, 896 0.985.
+
+## THREE INSTRUMENTS THAT LIED FIRST
+
+* **`tex_pointcheck` derived the board frame twice**, once per side. Steel's new rim
+  quantised its extreme vertex 3.73 MICROMETRES differently in float32 — 0.012 of a board
+  pixel — and 19 468 texels fell into the neighbouring scatter bucket. The checker reported
+  **1.46 % of the FRONT face changing colour** and it was entirely the instrument. A shared
+  coordinate system that is computed twice is not shared.
+* **`tex_siderelief`'s target was an edge statistic, twice.** Matching the side's micro band
+  to the front island's RAW p99 slope (2.75 — a 70 degree tilt, i.e. ornament walls) gave
+  gain 1.33 and made the side STEEPER, 0.8985 -> 1.0015, while every assert passed. Matching
+  it to the front's own MICRO band at p99 gave 2.785, barely different, because a hard
+  painted edge is broadband and lands in the micro band too. **A p99 of anything on this
+  atlas is an edge statistic**; the MEAN of the micro band is the grain.
+* **The unit-scale positive control did not fire on the first try.** The ROUND 3 record says
+  the ModBuild 276 bug was `apply_unit_scale=True`. That alone, with
+  `apply_scale_options='FBX_SCALE_UNITS'`, still writes `UnitScaleFactor` 100 and check 8
+  PASSES. Reproducing the bug needs `apply_scale_options='FBX_SCALE_NONE'`. With that, the
+  control behaves as recorded: checks 1, 2, 3a, 3b, 3c, 4, 6, 6b all PASS and only 8 fires
+  (5 is vacuous on a pure re-export, as the record already says).
+
+## TWO REMEDIES BUILT AND NOT APPLIED, both because the measurement said so
+
+* **`../gen_rimao.py`** bakes real ambient occlusion into atlas space with Cycles. A cavity
+  term is the obvious way to make a rebate read at every light angle, and the front's albedo
+  already has one. The bake says **the rebate does not occlude**: oak's rails come back
+  0.9996 against 0.9861 in the rebate, a 1.4 % difference. A shallow open groove genuinely
+  is not a cavity, and darkening it anyway would be painting shading the geometry does not
+  produce. The depth was spent instead — 2.0 mm of rebate became 3.0 mm — which is the term
+  that does change the picture. Its own gather-distance trap is recorded in the file: the
+  default is unbounded, and a bounded 10 mm gather made the contrast SMALLER, not larger.
+* **`tex_rimfill`'s FRONT term.** That file's docstring said it could never correct the front
+  term because the composited front board-space albedo "was not kept". `tex_boardspace.py`
+  lifts that constraint, so the option now exists and `--sweep` reports both terms. **The
+  sweep falsifies it on all three boards.** The front ghost is at its MINIMUM at k = 1.00 —
+  oak 4.6 %, steel 9.5 %, bronze 23.9 % weighted — and rises to 20-43 % under any clamp,
+  because the frame band with its studded border is what sits NEAR the rim and the open
+  field is what a long walk reaches. Clamping the front walk makes the front ghost worse.
+  The BACK-term clamp is unchanged from ModBuild 278 and still unshipped.
+
+## What the pictures show, judged rather than asserted
+
+`.planning/debug/board279/board280_*.png` — real prefabs through `BoardLit` out of the
+rebuilt bundle, before | after, three styles per sheet, plus a front-and-back reference
+column with the measured pixel difference printed on every pair (front flat 0.08-0.39 % of
+pixels differing by more than 2, mean 0.005-0.03 of 255; the side shots 14-44 %).
+
+**The honest reading: the sides are now correct and clean rather than busy.** Oak's batten
+crossing is the strongest single read on the board — a proud block with real shadowed flanks
+where there used to be a painted rounded rectangle. The rebate reads clearly at a corner and
+at the short ends and quietly flat-on, and the reason is worth keeping: **a rail and a
+rebate floor have the SAME surface normal** — both are vertical walls — so the only thing
+separating them tonally is the step between them. Removing the fake plate row also makes the
+bands smoother, which is a loss of wrong interest but still a loss of interest. If the user
+reports the sides as emptier, the answer is a crossing feature, not more paint.
+
+`PreviewBoard.cs` gained `_sideflat`, `_siderake`, `_sideend` and `_sidecross` for this
+round, at lean-in distance: a station that draws a 36 mm band at 60 px cannot judge a 3 mm
+rebate cut into it, and the four shots fail differently — `_sideflat` sits in the board
+plane so the rebate has to show as a silhouette notch, `_siderake` looks down the band at
+22 deg where a real step catches light and a painted one does not.
+
+## Zero images generated
+
+The sides carry no authored art and never did — `tex_backfill` builds a rim texel by
+blending the two faces' MATERIALS across the board's own thickness, which is what a rim
+physically is. The defect there was never missing art, it was a normal map describing a
+different face. A generated strip could not have registered to a 26 mm band anyway: the
+tool's aspect enum tops out at 3:2 against a 1.9 m x 26 mm surface, and the front's own art
+came back 3-9 mm off the mesh.

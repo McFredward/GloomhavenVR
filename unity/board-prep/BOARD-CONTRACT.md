@@ -39,6 +39,18 @@ authored geometry. They are not repairable — they are replaced by authored geo
   top-down projection, in which a vertical wall has zero area. `gen_board.back_stack()`
   asserts it. Oak's bbox is now **38.6 mm against the 40 mm ceiling above** — the next
   feature that stands proud of the oak back must buy its height from the straps.
+- **SIDE RELIEF: no step steeper than 26° off the thickness axis, and NOTHING PROUD OF THE
+  SILHOUETTE** (added ModBuild 280 by the side lane, and said out loud here as this file
+  requires). Two measured reasons, both in `unity/board-prep/img2img/README.md` §ROUND 5.
+  (1) `gen_geobuf` classifies a triangle RIM only when its normal is within acos(0.5) = 60°
+  of the board PLANE; a 45° chamfer sits at axial 0.707 and lands in FRONT (which the front
+  camera never painted) or BACK (which `tex_backfill` paints with the BACK PLATE ART at that
+  texel's board coordinates). So a side step spends z, not inset: 2.0 mm of rebate costs
+  4.5 mm of the band's height. `Board.side_stack()` asserts it. (2) The long/short edges
+  above are read by `BoardBuilder` to place seats and docks, so side features are CUT IN and
+  a feature that must read as proud — oak's cross battens — is the place where the
+  surrounding field is cut back and the feature stays flush at the nominal silhouette. The
+  bounding box is then unchanged by construction, and `gen_stats` reports it.
 - Budget **≤ 24 000 tris** per board (the hands are 20 654 — same league, this is the bar).
 - One material, one UV layer, **no overlapping UV islands**, ≥ 8 px padding at 2048².
 

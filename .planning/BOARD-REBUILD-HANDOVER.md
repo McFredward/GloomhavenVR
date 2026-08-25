@@ -1,5 +1,147 @@
 # CONTROL-BOARD REBUILD — state of the world
 
+## ROUND 5 (2026-08-25): THE SIDES — REAL CONSTRUCTION IN, FAKE RELIEF OUT
+
+Round 4 shipped the backs and he ruled the task unfinished:
+
+> "Ich will auch die Seiten, Aufgabe daher noch nicht fertig. Mach damit weiter"
+
+Two defects, and only one of them was the one in the brief.
+
+### What a side IS — read off the two faces, not invented
+
+Measured on the ModBuild 276 back plates at 1 px = 0.3125 mm:
+
+| style | back construction | does anything reach the rim? |
+|---|---|---|
+| oak | four planks on the long axis, three seams, **two cross battens** at y ±155.0 mm | **YES** — the back plate's half-width is 158.2 mm, so the battens stop 3.2 mm short, inside the back's own chamfer |
+| steel | recessed fields to y ±148.4 mm, leaving a **9.8 mm border band** unbroken all round | no — the two straps butt into that band |
+| bronze | cast panels to y ±126.6 mm, leaving a **31.6 mm border rib** unbroken all round | no — the two stiffening ribs butt into it |
+
+**Exactly one style has a back feature that crosses its rim, and it is oak.** That is why
+only oak gets discrete side features; it is a measurement, not a preference.
+
+Built (`gen_board.SIDE_ART`), all three as one strip island, no new UV islands:
+
+* **oak** — a laminated timber edge: a 3 mm facing rail, a **3.0 mm rebate** 5.6 mm tall,
+  a 3 mm base rail, and the two battens crossing the rebate **flush with the nominal
+  silhouette**. 12 976 → 14 176 tris.
+* **steel** — two plate edges sandwiching a recessed core: a 4 mm front rail, a 3.0 mm
+  rebate 7.0 mm tall, a 4 mm back rail, which is the back art's 9.8 mm border band seen
+  edge-on. 15 716 → 16 532.
+* **bronze** — a cast edge: three full-width bands separated by two drafted grooves with the
+  **parting crown** in the middle. 20 660 → 21 920. Six rings, not five, because the
+  five-ring version ended 2.0 mm inside the silhouette and `side_stack`'s interlock caught
+  that the back chamfer would then step OUTWARD and fold the back's top-down UV.
+
+### NOTHING STANDS PROUD, and that is the contract, not taste
+
+`BoardBuilder` reads the 0.640 × 0.320 extents to place seats and docks, so every side
+feature is CUT IN and the one that must read as proud — oak's battens — is the place where
+the field around it is cut back. `gen_stats` reports 0.640 × 0.320 unchanged on all three.
+
+### EVERY SIDE STEP IS ≤ 28° OFF THE THICKNESS AXIS — `MAX_RIM_TILT_DEG`
+
+`gen_geobuf` calls a triangle RIM only within acos(0.5) = 60° of the board plane. **A 45°
+chamfer, the obvious profile, sits at axial 0.707** and lands in FRONT (never painted by
+the front camera) or BACK (painted with the back PLATE art at its own board coordinates —
+the back's planks stretched onto a rim step). So a side step spends z, not inset: 3 mm of
+rebate costs 5.7 mm of the band's height. Verified from the other end: after the edit,
+`gen_geobuf`'s FRONT and INTERIOR texel counts are unchanged on all three boards, so
+nothing leaked out of RIM.
+
+### THE SECOND DEFECT, WHICH WAS NOT IN THE BRIEF AND IS THE BIGGER ONE
+
+Round 3 repainted the rim's ALBEDO. **Nothing has ever touched the rim's NORMAL map.** It
+was still ModBuild 274's `pushpull_fill` dilation smear, and cropped out of the atlas it is
+unmistakable: an embossed row of RECTANGULAR PLATES down the whole length of every side,
+repeated once per wrapped strip row — the frame band's studded border, smeared sideways.
+
+| board | side-strip \|slope\| | its own FRONT | ratio | after |
+|---|---|---|---|---|
+| oak | 0.8650 | 0.3395 | 2.55× | **0.3192** |
+| steel | 0.9013 | 0.3041 | 2.96× | **0.3078** |
+| bronze | 0.5561 | 0.2486 | 2.24× | **0.2507** |
+
+`img2img/tex_siderelief.py` band-limits the strip's slope field to its micro band and
+rescales it to that board's own front grain. 0 texels outside the side strip changed, on
+all three. **This is the user's complaint in its purest form — flat texture pretending to
+be three-dimensional objects — and it was on the sides all along.**
+
+### The front and the back are preserved, and the check can fail
+
+A repack makes "0 differing UV texels" meaningless, so the gate is: does the same BOARD
+POINT still get the same COLOUR? `img2img/tex_pointcheck.py` turns each atlas into a
+board-space image through its OWN mesh's geobuf and diffs them.
+
+| board | board points compared | mean \|err\| | differing | control (+1 texel) |
+|---|---|---|---|---|
+| oak | 781 438 | **0.0000** | 1 px | 14.60, 99.65 % |
+| steel | 736 863 | **0.0000** | 0 px | 14.47, 99.53 % |
+| bronze | 727 206 | **0.0000** | 1 px | 13.53, 99.74 % |
+
+And from the other side, by geobuf group: **FRONT+INTERIOR is byte-identical on all three
+maps of all three boards — 0 of 871 000 / 811 552 / 943 455 texels changed** — and so is
+every unmapped texel. All three back plates land on the IDENTICAL free rectangle
+`gen_backuv` chose in ModBuild 276.
+
+### Three instruments that lied first, all recorded
+
+* **`tex_pointcheck` derived the board frame twice.** Steel's new rim quantised its extreme
+  vertex 3.73 µm differently in float32 — 0.012 of a board pixel — and 19 468 texels fell
+  into the neighbouring bucket. The checker reported 1.46 % of the FRONT face changing
+  colour. A shared coordinate system that is computed twice is not shared.
+* **`tex_siderelief`'s target was an edge statistic.** Matching the side's micro band to the
+  front island's p99 slope (2.75 — a 70° tilt, i.e. ornament walls) gave gain 1.33 and made
+  the side STEEPER, while every assert passed. The front's micro-band p99 is 2.785, barely
+  different, because a hard painted edge is broadband. The MEAN of the micro band is the
+  grain.
+* **The unit-scale positive control did not fire on the first try.** The record says the
+  ModBuild 276 bug was `apply_unit_scale=True`; that alone, with
+  `apply_scale_options='FBX_SCALE_UNITS'`, still writes `UnitScaleFactor` 100. It needs
+  `apply_scale_options='FBX_SCALE_NONE'`. Corrected here.
+
+### Two remedies BUILT and NOT APPLIED, both because the measurement said so
+
+* **`gen_rimao.py`** bakes real AO into atlas space, which is the obvious way to make a
+  rebate read. The bake says the rebate **does not occlude**: oak's rails come back 0.9996
+  against 0.9861 in the rebate, 1.4 %. A shallow open groove genuinely is not a cavity.
+  Depth was spent instead (2.0 → 3.0 mm), which is the term that does change the picture.
+* **`tex_rimfill`'s front term.** The file's own docstring said it could never correct the
+  FRONT term because the composited front board-space albedo was an intermediate that was
+  not kept; `tex_boardspace.py` rebuilds it out of the shipped atlas, so the option exists
+  now and the file reports both terms. **The sweep falsifies it on all three boards**: the
+  front ghost is at its MINIMUM at k = 1.00 (oak 4.6 %, steel 9.5 %, bronze 23.9 % weighted)
+  and rises to 20–43 % under any clamp, because the frame band is what sits NEAR the rim and
+  the open field is what a long walk reaches. The back-term clamp is unchanged from round 4
+  and still unshipped.
+
+### What the pictures actually show — judged, not asserted
+
+`.planning/debug/board279/board280_*.png`, real prefabs through `BoardLit` from the rebuilt
+bundle, before | after, three styles per sheet, plus a front-and-back reference column with
+its pixel difference printed on every pair.
+
+**The honest reading: the sides are now correct and clean rather than busy.** Oak's batten
+crossing (`board280_sidecross.png`) is the strongest single read on the board — a proud
+block with real shadowed flanks where there used to be a painted rounded rectangle. The
+rebate reads clearly at a corner and at the short ends and quietly flat-on, because a rail
+and a rebate floor have the SAME surface normal and only the step between them separates
+them. Removing the fake plate row makes the bands smoother; that is a loss of wrong
+interest, but it is a loss of interest, and **if he says the sides look emptier, that is
+the trade and the answer is a crossing feature, not more paint.**
+
+### STILL OPEN after round 5
+
+* The rim ALBEDO still carries ghosts (steel's back rivet row at t ≈ 0.75–0.82, everyone's
+  front stud plates). Measured; both clamps rejected above. The remedy that would work is a
+  structure/material split like `tex_composite`'s, masked by the mesh — not a walk scale.
+* Steel and bronze have no feature crossing their rim, so their sides are profile only.
+* Oak's 1.4 mm of thickness headroom (38.6 of 40 mm) is unchanged.
+* Everything under "STILL OPEN" from rounds 1–4 below.
+
+---
+
 ## ROUND 4 (2026-08-25): THE BACK'S SCREWS AND PLATES ARE GEOMETRY NOW
 
 He tested ModBuild 277 and accepted the art — *"Die Rückseite der boards gefällt mir sehr

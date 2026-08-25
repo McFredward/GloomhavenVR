@@ -329,6 +329,29 @@ namespace GloomhavenVR
             Shot(cam, inst, outDir, $"{style}_corner.png",
                  new Vector3(-0.30f, -0.26f, -0.12f), new Vector3(-0.28f, -0.14f, 0f), 1200, 900);
 
+            // THE SIDES, added ModBuild 280 with the side relief, because a station that
+            // shows a 36 mm band at 60 px cannot judge a 2 mm rebate cut into it. The user
+            // sees this when he LEANS IN, so these are shot from lean-in distance (~0.11 m
+            // off the edge) rather than from the play pose.
+            //
+            // Two of them and not one, because a profile and a normal map fail differently:
+            // `_sideflat` sits exactly in the board plane, so the rebate has to show as a
+            // SILHOUETTE notch and no amount of painted shading can fake it; `_siderake`
+            // looks down the band at 22 deg, which is where a real step catches the light
+            // and a painted one does not. `_sideend` is the short end, whose construction
+            // (plank ends on oak, border band on steel, cast rib on bronze) differs from
+            // the long run's. `_sidecross` crops the board x = +0.234 batten crossing —
+            // oak's one place where a BACK feature reaches the rim, and 43 mm wide, i.e.
+            // 30 px in the full-length shots.
+            Shot(cam, inst, outDir, $"{style}_sideflat.png",
+                 new Vector3(0f, -0.42f, 0f), new Vector3(0f, -0.16f, 0f), 1800, 700);
+            Shot(cam, inst, outDir, $"{style}_siderake.png",
+                 new Vector3(0f, -0.27f, -0.045f), new Vector3(0f, -0.16f, 0f), 1800, 700);
+            Shot(cam, inst, outDir, $"{style}_sideend.png",
+                 new Vector3(0.45f, 0f, -0.045f), new Vector3(0.32f, 0f, 0f), 1200, 900);
+            Shot(cam, inst, outDir, $"{style}_sidecross.png",
+                 new Vector3(0.234f, -0.235f, -0.035f), new Vector3(0.234f, -0.16f, 0f), 1200, 900);
+
             // …and the same board again with the user's live asset-pose dials applied the way
             // SetAssetPose applies them. Markers stand in for the pinned control set: they are
             // parented to the ROOT, not to the mesh, exactly as the anchors are re-pinned, so the
