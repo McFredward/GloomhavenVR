@@ -416,7 +416,76 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 282;
+    public const ushort ModBuild = 283;
+    // Build 283: THE BOARD SIDES. *** NEW BUNDLE: 70,938,157 bytes (was 70,877,279). NOT
+    // a DLL-only install. ***
+    //   "Ich will auch die Seiten, Aufgabe daher noch nicht fertig. Mach damit weiter"
+    //   MY BRIEF WAS WRONG ABOUT WHAT WAS BROKEN, AND THE LANE'S CORRECTION IS THE ROUND.
+    //   I said the sides need their own generated art once they have their own islands. They do
+    //   not: a rim texel is a BLEND OF THE TWO FACES' MATERIALS ACROSS THE BOARD'S THICKNESS,
+    //   which is what a rim physically is. What was actually broken is the NORMAL MAP, WHICH HAS
+    //   NEVER BEEN AUTHORED AT ALL — still ModBuild 274's push-pull dilation smear, and cropped
+    //   out of the atlas it is an embossed row of rectangular plates running the whole length of
+    //   every side: the frame band's studded border smeared sideways. |slope| 0.865 / 0.901 /
+    //   0.556 against those boards' own FRONT islands at 0.340 / 0.304 / 0.249 — 2.2 to 3.0x.
+    //   THAT IS HIS COMPLAINT VERBATIM, a flat texture pretending to be 3-D objects, and it was
+    //   on the sides all along. tex_siderelief takes it to 0.319 / 0.308 / 0.251 with 0 texels
+    //   changed outside the side strip. ZERO IMAGES GENERATED, and that is the right answer here.
+    //   ONE STYLE GETS A DISCRETE SIDE FEATURE, AND IT IS A MEASUREMENT RATHER THAN TASTE.
+    //   Against a back-plate half-width of 158.2 mm: OAK's two cross battens span y +-155.0 mm
+    //   and REACH THE RIM; steel's fields stop at +-148.4 behind a 9.8 mm border band, bronze's
+    //   at +-126.6 behind a 31.6 mm rib. Exactly one board has a back feature that crosses its
+    //   rim. Oak 12976 -> 14176 tris (3 mm rails, a 3.0 mm rebate, both battens crossing flush);
+    //   steel 15716 -> 16532 (two plate edges around a recessed core — the border band edge-on);
+    //   bronze 20660 -> 21920 (three cast bands, two drafted grooves, a parting crown).
+    //   NO STEEL SIDE RIVETS, AND THE LANE'S FIRST REASON FOR THAT WAS WRONG. It costed them at
+    //   ~8700 tris assuming uniform densification; with the cuts_x mechanism they are ~2200 and
+    //   affordable. What decides it is evidence: NOTHING IN THE STEEL ART PUTS A RIVET ON THE
+    //   RIM, and what the shipped side shows is a GHOST of the back's rivet row from
+    //   tex_backfill's walk. Building 40 rivets to match would be adapting the object to an
+    //   artefact.
+    //   TWO CONSTRAINTS NOW IN THE CONTRACT. Nothing stands proud (BoardBuilder reads the
+    //   0.640 x 0.320 extents), and NO SIDE STEP STEEPER THAN 28 DEGREES off the thickness axis
+    //   — a 45-degree chamfer sits at axial 0.707 and gen_geobuf files it as FRONT or BACK, where
+    //   tex_backfill would paint the back plate's planks onto a rim step.
+    //   THE PRESERVATION CHECK HAD TO CHANGE ITS QUESTION, exactly as required: "0 differing UV
+    //   texels" is meaningless after a deliberate repack. tex_pointcheck asks whether the same
+    //   BOARD POINT still gets the same COLOUR, through each atlas's own geobuf: mean |err|
+    //   0.0000/255 over 781438 / 736863 / 727206 points, 1 / 0 / 1 pixels differing, against a
+    //   +1-texel control at 14.60 / 14.47 / 13.53 moving 99.5-99.7%. From the atlas side
+    //   FRONT+INTERIOR is BYTE-IDENTICAL on albedo, normal and mrs on all three boards.
+    //   PREFABS BYTE-IDENTICAL after a full BoardBuilder.Build; gen_uvdiff 3a/3b PASS, worst
+    //   |d| 0.000e+00 m. Verified by me: anchors 3 boards / 0 FAILED, winding 0 inward-wound,
+    //   signed volumes 5153.8 / 4570.8 / 5260.1 cm^3 (DOWN from 279 — the rebate removes
+    //   material), and the bundle rebuilt to 70,938,157 bytes, the number reported.
+    //   AND THE ModBuild 276 UNIT-SCALE RECORD IS CORRECTED. Its positive control DID NOT FIRE
+    //   on the first attempt: apply_unit_scale=True ALONE still writes UnitScaleFactor 100. It
+    //   needs apply_scale_options='FBX_SCALE_NONE' as well. Anyone reproducing that control from
+    //   the old record would have got a false PASS on the check that exists to catch the one
+    //   defect able to rewrite every anchor in every prefab from a UV-only edit.
+    //   THREE INSTRUMENTS LIED FIRST AND ALL THREE ARE WRITTEN UP: tex_pointcheck derived the
+    //   board frame TWICE and steel's new rim quantised one vertex 3.73 um differently, moving
+    //   19468 texels between buckets and reporting 1.46% of the FRONT face changing colour;
+    //   tex_siderelief matched grain against a p99 slope of 2.75 (a 70-degree tilt = ornament
+    //   walls) so its gain came out 1.33 and THE SIDE GOT STEEPER WHILE EVERY ASSERT PASSED.
+    //   tex_rimfill RE-DECIDED AND STILL NOT APPLIED, now for a stronger reason. tex_boardspace
+    //   rebuilds the lost front board-space intermediate, so the FRONT term is clampable for the
+    //   first time — and THE SWEEP FALSIFIES IT ON ALL THREE BOARDS: the front ghost is at its
+    //   MINIMUM at k=1.00 (oak 4.6%, steel 9.5%, bronze 23.9% weighted) and rises to 20-43%
+    //   under any clamp, because the frame band sits near the rim and the open field is what a
+    //   long walk reaches. gen_rimao (real AO baked to atlas space) was built and REJECTED BY ITS
+    //   OWN BAKE — the rebate does not occlude, 0.9996 rails against 0.9861 floor, 1.4% — so the
+    //   lane spent depth instead, 2.0 -> 3.0 mm. Both ship measurable and unapplied.
+    //   THE HONEST READ OF THE PICTURES: the sides are now CORRECT AND CLEAN RATHER THAN BUSY.
+    //   Oak's batten crossing is the strongest read on the board; the rebate reads at a corner
+    //   and at the short ends and quietly flat-on, because a rail and a rebate floor share a
+    //   surface normal and only the step separates them. IF HE REPORTS THE SIDES AS EMPTIER,
+    //   that is the trade, and the answer is a crossing feature rather than more paint.
+    //   NO GATE NUMBER MOVED. Pictures in .planning/debug/board279/ (gitignored).
+    //   LEFT UNDONE: the rim ALBEDO still carries ghosts (steel's rivet row at t ~ 0.75-0.82,
+    //   every board's front stud plates). Both clamps measured and rejected; the remedy that
+    //   would work is a structure/material split masked by the mesh, not a walk scale. Oak stays
+    //   at 38.6 of 40 mm.
     // Build 282: THE COMMITTED STATE BECOMES ONE OBJECT, AND THE CHURN B MUST SURVIVE IS
     // MEASURED INSTEAD OF ASSUMED. Bundle UNCHANGED at 70,877,279 — DLL-only on top of 281.
     //   "Ich will aber eigentlich gar keine spuerbaren Ruckler - nicht nur seltenere."
