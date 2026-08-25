@@ -78,6 +78,64 @@ import tex_symbols as SY
 PAD = 12          # inset per region edge -> 2*PAD gutter between neighbours
 MIN_PAD = 8       # the contract's floor
 
+
+def lobe_half_angle(rough):
+    """BoardLit's specular half-angle, in degrees, for a given roughness: the
+    normal tilt at which the highlight falls to half its peak.
+
+        power = exp2((1-rough)*9 + 1);  half-angle = acos(0.5 ** (1/power))
+
+    This is the ONLY number that says what a roughness value means in the shader
+    that ships, so the floor below is chosen against it rather than against a
+    PBR intuition borrowed from a Principled render."""
+    power = 2.0 ** ((1.0 - float(rough)) * 9.0 + 1.0)
+    return float(np.degrees(np.arccos(0.5 ** (1.0 / power))))
+
+
+# THE ROUGHNESS FLOOR IN THE SHIPPED PACK, and it is a stereo-safety decision
+# before it is a look decision.
+#
+# BoardLit's own floor is max(0.08, mr.g) -- a 2.7 deg half-angle, which is a
+# mirror. The board is a 0.64 m slab held about 40 cm from the face, filling a
+# large solid angle of BOTH eyes, and a lobe narrower than the normal map's own
+# per-texel wobble turns that wobble into a per-eye sparkle. That is this
+# project's recurring stereo-rivalry defect and it has shipped before.
+#
+# Measured, on the installed normal maps -- the angle between neighbouring
+# texels' normals, which is the thing a narrow lobe converts into flicker:
+#
+#     style   mean step (v / u)     p95 step (v / u)    tilt from flat (mean)
+#     oak      11.22 / 4.17 deg     40.64 / 20.85       13.20 deg
+#     steel     4.68 / 3.33 deg     10.15 /  6.68        5.20 deg
+#     bronze    1.56 / 1.01 deg      2.25 /  1.42        2.59 deg
+#
+# and the lobe half-angles those have to survive:
+#
+#     rough 0.08 -> 2.71 deg    rough 0.35 -> 6.27 deg    rough 0.50 -> 10.00 deg
+#     rough 0.32 -> 5.72 deg    rough 0.42 -> 7.87 deg    rough 0.60 -> 13.63 deg
+#
+# 0.42 is chosen, giving 7.87 deg. It clears steel's p95 single-texel step along
+# u (6.68 deg) and is 1.7x its mean (4.68 deg). Steel is the case that matters:
+# it is 99.3% metallic, so its f0 is the ALBEDO and not a dielectric 0.04, and
+# it carries the most single-texel-only normal energy of the three (1-texel vs
+# 4-texel-downsampled mean |grad|: oak 1.08x, steel 1.39x, bronze 0.67x).
+#
+# WHY ERR BROAD RATHER THAN SHARP. _SpecStrength is baked into the material
+# inside the bundle and has no config dial, so "too sparkly" costs a full bundle
+# rebuild and a hardware round to walk back, while "too soft" is a sheen that
+# still reads as metal. And a broad lobe is not a smaller highlight here: this
+# Blinn-Phong has NO energy normalisation, so narrowing the lobe does not raise
+# the peak -- f0 is the peak at every roughness -- it only shrinks the area that
+# receives anything.
+#
+# WHAT THIS FLOOR CANNOT DO, stated because it bounds every claim about the
+# specular below. With the shader's baked key and a viewer in front of the
+# board, the half-vector sits about 32 deg off the flat face's normal, so the
+# flat face gets essentially no highlight at any roughness under ~0.85. The
+# specular on these boards is a BEVEL AND MOULDING term. It cannot rescue a flat
+# albedo, and the steel fix below does not ask it to.
+MRS_ROUGH_FLOOR = 0.42
+
 # The material's own micro-relief must sit well BELOW the carved ornament, or
 # the normal map is a field of grain noise with a rosette lost inside it --
 # which is exactly what the first composited normal map was. Measured: oak's
@@ -525,9 +583,29 @@ def scatter_to_board(field, gy, gx, mask, n):
     several atlas texels land on the same board texel (the top face and the
     back of the board project to exactly the same x,y). Used to carry the
     carvings' cavity into the board-space material build, which is what lets
-    bronze's patina know where the carvings are."""
+    bronze's patina know where the carvings are.
+
+    THE HOLES ARE FILLED, and that fill is a bug fix rather than a polish.
+    A scatter leaves every destination cell that no source texel happened to
+    land on at exactly zero. Measured on the bronze board at a 2048 atlas:
+    910,878 source texels land in 726,921 distinct cells, and inside the band
+    the board actually occupies only 34.7% of the cells receive anything --
+    65.3% are holes, with a mean distance of 1.22 px to the nearest filled one.
+
+    So the cavity field the patina was reading was two-thirds ZERO in a
+    single-texel salt-and-pepper pattern, and any threshold applied to it
+    inherits that pattern exactly. That is a per-texel stipple manufactured by
+    the resampling, and it is invisible to a coverage fraction and to a cavity
+    enrichment ratio -- both of which passed. The nearest-source fill is the
+    same dilation the atlas padding already uses, and it is the correct
+    resampling: a destination cell with no sample of its own takes the value of
+    the nearest cell that has one."""
     out = np.zeros((n, n), dtype=np.float64)
     np.maximum.at(out, (gy[mask], gx[mask]), np.asarray(field)[mask])
+    hit = np.zeros((n, n), dtype=bool)
+    hit[gy[mask], gx[mask]] = True
+    if hit.any() and not hit.all():
+        T.dilate_fill([out], hit)
     return out
 
 
@@ -683,7 +761,8 @@ def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
             if cavity_bias is not None:
                 cb = scatter_to_board(cavity_bias, gy, gx,
                                       surf.cov & (np.abs(surf.nz) > 0.35), n)
-            fb = B.build(style, n, seed, orient="along", detail=1.0, cavity_bias=cb)
+            fb = B.build(style, n, seed, orient="along", detail=1.0, cavity_bias=cb,
+                         tag="board")
             proj = (fb, gy, gx, w[..., None], w)
         for name in region_order:
             tr = B.REGION_TREATMENT.get(name, B.REGION_TREATMENT["sides"])
@@ -784,6 +863,26 @@ def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
             notes.append(f"    bronze: patina covers {pat * 100:.1f}% of the atlas; "
                          f"cavity enrichment under it {B.last_patina_in_cavity():.2f}x "
                          f"(1.00x would mean the patina ignores the relief)")
+        # ...and the two numbers those two CANNOT give. A coverage fraction and a
+        # ratio of means both passed while the board came back covered in hard
+        # black pepper: neither has a term for spatial frequency or edge
+        # hardness, which is the whole defect. See tex_bases._patina_shape for
+        # what these measure and what they still cannot see.
+        shapes = B.last_patina_shape(style)
+        if shapes:
+            notes.append(f"    bronze patina SHAPE "
+                         f"(1 texel = {shapes[0]['texel_mm']:.2f} mm):")
+            for sh in shapes:
+                lab = "crust" if sh["thresh"] >= 0.5 else "visible"
+                for z in ("flat", "cavity"):
+                    notes.append(
+                        f"      {lab:7s} >{sh['thresh']:.2f}  {z:6s} covers "
+                        f"{sh[z + '_cover'] * 100:5.2f}% of that zone; mean feature width "
+                        f"{sh[z + '_width_px']:5.1f} px ({sh[z + '_width_mm']:5.2f} mm); "
+                        f"{sh[z + '_edge_frac'] * 100:5.1f}% within 3 texels of a shoreline")
+            notes.append(f"      shoreline ramps over {shapes[0]['shore_px']:.1f} texels "
+                         f"({shapes[0]['shore_mm']:.2f} mm) -- 1 texel would be a hard "
+                         f"threshold, i.e. an aliased edge")
 
     # ---- the ONLY height-derived term allowed into albedo: light-independent
     # cavity, applied as a palette-locked darkening.
@@ -794,28 +893,46 @@ def build_style(style, uv, n=T.N_DEFAULT, seed=20260825, symbols_dir=None,
 
     normal = T.normal_from_height(height, strength=normal_strength)
     ao = np.clip(1.0 - cav * 0.85, 0.0, 1.0)
+
+    # ---- TWO PACKED MAPS, because there are two consumers and they disagree
+    # about the channel order. Writing one file and hoping is how four rounds of
+    # this rebuild were judged against a map the game never bound.
+    #
+    #   <base>_mr.png   glTF ORM: R = occlusion, G = roughness, B = metallic.
+    #                   Read by tex_render.py's Principled path. NOT installed --
+    #                   nothing in the bundle binds it (see tex_build.INSTALL_SUFFIXES).
+    #   <base>_mrs.png  BoardLit _MRSMap: R = metallic, G = roughness, B = 0.
+    #                   This is the one the shipped material samples.
     mr = np.stack([ao, np.clip(rough, 0, 1), np.clip(metal, 0, 1)], axis=-1)
+    mrs = np.stack([np.clip(metal, 0, 1),
+                    np.clip(np.maximum(rough, MRS_ROUGH_FLOOR), 0, 1),
+                    np.zeros_like(rough)], axis=-1)
+    notes.append(f"    MRS pack (BoardLit R=metal G=rough B=0): metal mean "
+                 f"{mrs[..., 0].mean():.3f}, rough mean {mrs[..., 1].mean():.3f} "
+                 f"(floor {MRS_ROUGH_FLOOR:.2f} raised {100.0 * (rough < MRS_ROUGH_FLOOR).mean():.1f}% "
+                 f"of texels; narrowest lobe half-angle {lobe_half_angle(MRS_ROUGH_FLOOR):.1f} deg)")
 
     # ---- PADDING. Every texel outside the islands takes the value of the
-    # nearest island texel, for all three maps coherently.
-    dist = T.dilate_fill([albedo, normal, mr], content)
+    # nearest island texel, for all four maps coherently.
+    dist = T.dilate_fill([albedo, normal, mr, mrs], content)
     notes.append(f"    padding: {int((~content).sum())} texels outside the islands "
                  f"filled from the nearest island; the widest fill ran "
                  f"{dist[~content].max():.0f}px")
 
-    return albedo, normal, mr, labels, region_order, notes
+    return albedo, normal, mr, mrs, labels, region_order, notes
 
 
 # --------------------------------------------------------------------------
 # driver
 # --------------------------------------------------------------------------
 
-def write_style(style, out_dir, albedo, normal, mr):
+def write_style(style, out_dir, albedo, normal, mr, mrs):
     base = STYLE_FILES[style]["base"]
     paths = [
         T.save_rgb(os.path.join(out_dir, f"{base}_albedo.png"), albedo),
         T.save_rgb(os.path.join(out_dir, f"{base}_normal.png"), normal),
         T.save_rgb(os.path.join(out_dir, f"{base}_mr.png"), mr),
+        T.save_rgb(os.path.join(out_dir, f"{base}_mrs.png"), mrs),
     ]
     return paths
 
@@ -860,11 +977,11 @@ def main():
             for k in sorted(chosen):
                 print(f"    {k:16s} <- {chosen[k]}")
         fbx = os.path.join(a.fbx_dir, STYLE_FILES[style]["fbx"])
-        alb, nrm, mr, labels, names, notes = build_style(
+        alb, nrm, mr, mrs, labels, names, notes = build_style(
             style, uv, n=a.size, seed=a.seed, symbols_dir=sym, pad=a.pad, fbx=fbx)
         for ln in notes:
             print(ln)
-        for p in write_style(style, a.out, alb, nrm, mr):
+        for p in write_style(style, a.out, alb, nrm, mr, mrs):
             print(f"  WROTE {p}  {os.path.getsize(p)} bytes")
         if not a.no_check:
             print(f"  seam check (islands = region rects inset by {a.pad}px):")

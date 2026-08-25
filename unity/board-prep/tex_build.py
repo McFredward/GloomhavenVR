@@ -81,11 +81,11 @@ def stage_atlas(styles, out_dir, uv_dir, motif_root, size, seed, pad, bundle_dir
         else:
             sym = os.path.join(uv_dir, "symbols")
         fbx, tag = find_fbx(style, uv_dir, bundle_dir)
-        alb, nrm, mr, labels, names, notes = A.build_style(
+        alb, nrm, mr, mrs, labels, names, notes = A.build_style(
             style, uv, n=size, seed=seed, symbols_dir=sym, pad=pad, fbx=fbx)
         for ln in notes:
             print(ln)
-        paths = A.write_style(style, out_dir, alb, nrm, mr)
+        paths = A.write_style(style, out_dir, alb, nrm, mr, mrs)
         for p in paths:
             print(f"  WROTE {p}  {os.path.getsize(p)} bytes")
         print(f"  seam check (islands = region rects inset by {pad}px):")
@@ -111,8 +111,37 @@ def find_fbx(style, out_dir, bundle_dir):
     return None, None
 
 
-def stage_render(styles, tex_dir, out_dir, render_dir, bundle_dir):
-    print("\n### 4. render (CALIBRATED -- read the grey-card line, not the exit code)")
+def _render_one(script, args, out, label):
+    r = subprocess.run([BLENDER, "--background", "--factory-startup", "--python", script,
+                        "--"] + args, capture_output=True, text=True)
+    for ln in r.stdout.splitlines():
+        if ln.startswith("PREVIEW"):
+            print("  " + ln)
+    if os.path.exists(out):
+        print(f"  RENDER {out}  {os.path.getsize(out)} bytes  ({label})")
+        return out
+    print(f"  RENDER FAILED {label}")
+    sys.stderr.write(r.stdout[-2000:] + "\n" + r.stderr[-2000:] + "\n")
+    return None
+
+
+def stage_render(styles, tex_dir, out_dir, render_dir, bundle_dir, pbr=False):
+    """Stage 4 renders through the SHADER THAT SHIPS.
+
+    It used to render only through a Principled BSDF bound to <base>_mr.png.
+    That is a real instrument for judging the maps as PBR data and it is still
+    available under --pbr-render, but it is not what the game draws: the game
+    draws BoardLit, whose _MRSMap is a different file in a different channel
+    order and whose lighting is two baked directions with no environment at all.
+    Four rounds of this rebuild were judged off the Principled render and every
+    metallic highlight in all of them was a term the game never evaluated.
+
+    Two views per board, because they answer different questions. `flat` is
+    directly comparable with Unity's own PreviewBoard shot (same camera, same
+    framing, same board-pixel statistics). `seats` is the close crop, which is
+    the only one that shows what the material looks like at the distance the
+    board is actually held."""
+    print("\n### 4. render THROUGH BoardLit (--shipped) -- open the PNGs, not the exit code")
     os.makedirs(render_dir, exist_ok=True)
     script = os.path.join(HERE, "tex_render.py")
     made = []
@@ -121,41 +150,62 @@ def stage_render(styles, tex_dir, out_dir, render_dir, bundle_dir):
         if not fbx:
             print(f"  {style}: no FBX anywhere; skipped")
             continue
-        out = os.path.join(render_dir, f"{style}_board.png")
-        cmd = [BLENDER, "--background", "--factory-startup", "--python", script, "--",
-               "--tex", tex_dir, "--style", style, "--fbx", fbx, "--out", out]
-        r = subprocess.run(cmd, capture_output=True, text=True)
-        for ln in r.stdout.splitlines():
-            if ln.startswith("PREVIEW"):
-                print("  " + ln)
-        if os.path.exists(out):
-            print(f"  RENDER {out}  {os.path.getsize(out)} bytes  (mesh from the {tag})")
-            made.append(out)
-        else:
-            print(f"  RENDER FAILED {style}")
-            sys.stderr.write(r.stdout[-2000:] + "\n" + r.stderr[-2000:] + "\n")
+        for view in ("flat", "seats"):
+            out = os.path.join(render_dir, f"{style}_shipped_{view}.png")
+            got = _render_one(script,
+                              ["--shipped", "--tex", tex_dir, "--style", style,
+                               "--fbx", fbx, "--view", view, "--out", out],
+                              out, f"{style} {view}, mesh from the {tag}")
+            if got:
+                made.append(got)
+        if pbr:
+            out = os.path.join(render_dir, f"{style}_pbr.png")
+            got = _render_one(script,
+                              ["--tex", tex_dir, "--style", style, "--fbx", fbx,
+                               "--out", out],
+                              out, f"{style} Principled/PBR, NOT what ships")
+            if got:
+                made.append(got)
     return made
 
 
-def stage_install(results, bundle_dir):
-    """Install the maps the mod actually resolves.
+# WHAT GETS INSTALLED, as an explicit allowlist rather than a rule about what is
+# already there.
+#
+# The previous rule was "install the packed map only where the bundle already
+# carries one", on the stated argument that "nothing reads a packed
+# metallic/roughness map". THAT ARGUMENT IS NOW FALSE. PlayTray*.mat bind
+# _MRSMap and set _SpecStrength = 0.85, so the shipped material samples a packed
+# map on all three boards. The old rule would have silently skipped exactly the
+# file the shader had just started reading -- and it would have done it while
+# printing the word SKIPPED next to a sentence saying nothing reads it, which is
+# the most expensive kind of wrong.
+#
+# _mr.png is the glTF ORM pack (R=occlusion, G=roughness, B=metallic). It is
+# written to out/ because tex_render.py's Principled path reads it as PBR data,
+# and it is NOT installed: no material binds it, its channel order is not
+# BoardLit's, and the one stale copy that used to sit in the bundle
+# (PlayTray_mr.png, bound by nothing) has been removed.
+INSTALL_SUFFIXES = ("_albedo.png", "_normal.png", "_mrs.png")
 
-    The tray materials (PlayTray*.mat) bind exactly two textures, _MainTex and
-    _BumpMap, through the custom BoardLit shader; nothing reads a packed
-    metallic/roughness map. So the albedo and the normal are installed for every
-    style, and the packed map only where the bundle already carries one -- which
-    is Oak's PlayTray_mr.png and nowhere else. Adding two new PNGs the shader
-    cannot read would be two new Unity GUIDs and 3 MB of bundle for no pixels."""
+
+def stage_install(results, bundle_dir):
+    """Install the maps the shipped material actually samples.
+
+    PlayTray*.mat bind three textures through BoardLit: _MainTex (<base>_albedo),
+    _BumpMap (<base>_normal) and _MRSMap (<base>_mrs, R=metallic G=roughness).
+    Those three, for all three styles, and nothing else -- see INSTALL_SUFFIXES."""
     print("\n### install into the bundle source tree")
     dst = os.path.join(REPO, bundle_dir)
     for style, paths in results.items():
         for p in paths:
-            t = os.path.join(dst, os.path.basename(p))
-            existed = os.path.exists(t)
-            if not existed and p.endswith("_mr.png"):
-                print(f"  SKIPPED  {os.path.basename(p)} -- no packed map in the bundle "
-                      f"for {style} and no shader binding for one")
+            name = os.path.basename(p)
+            if not name.endswith(INSTALL_SUFFIXES):
+                print(f"  not installed  {name} -- no material binds it "
+                      f"(it is the PBR instrument's input, see tex_render.py)")
                 continue
+            t = os.path.join(dst, name)
+            existed = os.path.exists(t)
             shutil.copy2(p, t)
             print(f"  {'REPLACED' if existed else 'ADDED   '} {t}  {os.path.getsize(t)} bytes")
     print("  NOTE the bundle must then be rebuilt in Unity and copied to the rig; it")
@@ -174,6 +224,10 @@ def main():
                          "and motifs_b/ are written")
     ap.add_argument("--bundle-dir", default=A.BUNDLE_DIR)
     ap.add_argument("--no-render", action="store_true")
+    ap.add_argument("--pbr-render", action="store_true",
+                    help="ALSO render each board through the Principled BSDF and "
+                         "<base>_mr.png. That judges the maps as PBR data; it is "
+                         "not what the game draws (see stage_render).")
     ap.add_argument("--install", action="store_true")
     a = ap.parse_args()
 
@@ -191,7 +245,7 @@ def main():
     results, worst, ok = stage_atlas(styles, tex_dir, a.out, motif_root,
                                      a.size, a.seed, a.pad, a.bundle_dir)
     if not a.no_render:
-        stage_render(styles, tex_dir, a.out, render_dir, a.bundle_dir)
+        stage_render(styles, tex_dir, a.out, render_dir, a.bundle_dir, pbr=a.pbr_render)
     if a.install:
         stage_install(results, a.bundle_dir)
 
