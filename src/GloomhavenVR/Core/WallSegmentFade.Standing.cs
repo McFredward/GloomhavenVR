@@ -369,17 +369,46 @@ internal static partial class WallSegmentFade
         /// FIGURE arm only — the caller gates on it, and the memo would otherwise hold two
         /// different questions' answers under one key on a root that happens to be both a figure
         /// root and a prop-unit root.</summary>
-        private bool WallSectionGeometry(Transform root, in WallStandingProp.Unit unit,
-                                         float floorY, bool wallCut, bool vegetation,
-                                         out string why)
+        private bool WallSectionGeometry(Renderer r, Transform root,
+                                         in WallStandingProp.Unit unit,
+                                         float floorY, bool windowWall, bool wallCut,
+                                         bool vegetation, out string why)
         {
             if (_wallSectionGeomMemo.TryGetValue(root, out WallSectionMeasure memo))
             {
                 why = memo.Why;
                 return memo.Geometry;
             }
+            // MODBUILD 291 — THE UNIT THE GROUND-BAND CONJUNCT IS ASKED OF. See
+            // WallStandingProp.IsWallBuiltSection for the report, the two measurements of one
+            // physical wall feature that produced it, and why this cannot eat the floor.
+            //
+            // The four-level prop-unit walk is the SAME walk the FLOOR arm's root comes out of
+            // (StandingFloorUnitRootOf, memoised per renderer PARENT) and the same one wallCut is
+            // read off, so this introduces no new traversal and no new constant. It is asked only
+            // for a renderer that has already passed `verdict && figure` at the call site — three
+            // units in the whole ModBuild-274 scene, and the log's own FLOOR-arm near-miss roster
+            // proves the enclosing unit is already measured every rescan for these very roots.
+            float enclosingTop = float.NaN;
+            string enclosingLabel = string.Empty;
+            int enclosingRenderers = 0;
+            Transform? unitRoot = StandingFloorUnitRootOf(r);
+            if (unitRoot != null && unitRoot != root
+                && MeasureStandingUnit(unitRoot, windowWall,
+                                       out WallStandingProp.Unit encUnit, out float encFloorY,
+                                       out _, out _, out bool encWallCut)
+                // THE ENCLOSING UNIT MUST ITSELF BE UNDER A WALL. Without this the term would
+                // read the top of any prop-sized ancestor, which is the unbounded-climb mistake
+                // wearing a bounded walk's clothes.
+                && encWallCut)
+            {
+                enclosingTop = encUnit.MaxY - encFloorY;
+                enclosingLabel = unitRoot.name;
+                enclosingRenderers = encUnit.RendererCount;
+            }
             bool geometry = WallStandingProp.IsWallBuiltSection(
-                unit, floorY, figureAncestry: true, wallCut, vegetation, out why);
+                unit, floorY, figureAncestry: true, wallCut, vegetation, enclosingTop,
+                enclosingLabel, enclosingRenderers, out why);
             _wallSectionGeomMemo[root] = new WallSectionMeasure(geometry, why);
             return geometry;
         }
@@ -675,8 +704,15 @@ internal static partial class WallSegmentFade
                 // protected population is exactly the kind of per-rescan string cost this
                 // subsystem is currently being blamed for. The memo is only ever filled on the
                 // FIGURE branch, so an entry can never be read with the other arm's meaning.
-                bool geometry = WallSectionGeometry(root!, unit, floorY, wallCut, vegetation,
-                                                    out string sectionWhy);
+                // The window answer is re-read from the SAME per-parent memo ResolveStandingUnit
+                // filled a few statements ago (WallInUnitWindowMemoized) rather than threaded
+                // through as a seventh out-parameter: one dictionary hit, and one fact with one
+                // owner. It seeds the enclosing unit's measurement exactly as the FLOOR arm's
+                // would, so a root both arms reach carries one value and not two.
+                bool windowWall = r.transform.parent != null
+                                  && WallInUnitWindowMemoized(r.transform.parent);
+                bool geometry = WallSectionGeometry(r, root!, unit, floorY, windowWall, wallCut,
+                                                    vegetation, out string sectionWhy);
                 if (geometry && IsWallGeneratedDressing(r))
                 {
                     verdict = false;
