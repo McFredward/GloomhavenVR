@@ -286,7 +286,18 @@ internal sealed partial class PlayTray
         //     both constant, so a pinned board is completely unaffected by zoom, which is the
         //     whole point of pinning it. Board size stays what the player dialled in (BoardScale /
         //     the two-hand resize), and nothing else.
-        // The holder scale is therefore written ONCE, by ApplyFollowMode, and left alone.
+        // The holder scale is therefore written ONCE, at PIN time, and left alone.
+        //
+        // 2026-08-25 — THE HOLDER SCALE NOW HAS A SECOND WRITER, AND IT IS NOT A LIVE RESCALE.
+        // PlayTray.TryRestoreCapturedPinFrame re-creates the holder across a BOARD SWITCH with the
+        // scale the previous holder CARRIED, read from the capture taken microseconds earlier in the
+        // same rebuild. That is the opposite of what this block forbids: the value comes from the
+        // frozen holder, never from the live rig, and it is written once per switch rather than once
+        // per frame. The invariant this block defends — a pinned board never rides the world-grab
+        // zoom — is exactly what that restore preserves, because the pre-2026-08-25 code DID re-seed
+        // the fresh holder from the live rig (via ApplyFollowMode) and that is what shrank the board
+        // to a third of its size on his hardware. Do not "simplify" the restore back into
+        // ApplyFollowMode: that is the bug.
 
         // Re-cache the rig-relative pin pose every frame the origin is stable, so the NEXT
         // origin change has a fresh, correct offset to carry the board by.

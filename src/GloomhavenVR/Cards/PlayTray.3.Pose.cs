@@ -762,9 +762,110 @@ internal sealed partial class PlayTray
 
     // ------------------------------------------------------------------ board-switch pose --
 
+    // A LOCAL SCALE IS NOT A SIZE UNTIL YOU SAY WHAT IT IS LOCAL TO (user, 2026-08-25: "Wenn man
+    // das Board wechselt, soll das neue Board an der exakt selben Stelle in der exakt selben Größe
+    // auftauchen. Bei tests hat es seine größe geändert.").
+    //
+    // The capture below was half world-space and half local-space: position and rotation in WORLD
+    // space, localScale in LOCAL space. Between the capture and the restore the PARENT under the
+    // board is REPLACED — Destroy() DestroyImmediates the "TrayPin" holder and EnsureBuilt
+    // re-creates the root under the rig anchor — so the same three numbers denote a different size
+    // on the far side of the teardown. Position survived because it was captured in the frame it
+    // was restored into. Size did not, because it was not.
+    //
+    // MEASURED, ModBuild 289, his hardware, the single Oak → Steel switch in the log (lines
+    // 7582 / 7677 of .planning/debug/LogOutput.log, bracketing "Control board switched to 'Steel'"):
+    //     before   world scale 6.865   own localScale 0.223   parent chain ×30.85   45.9 cm apparent
+    //     after    world scale 2.129   own localScale 0.223   parent chain × 9.57   14.2 cm apparent
+    // localScale survived BIT-FOR-BIT. The entire loss is the parent frame: 30.85 / 9.57 = 3.224,
+    // which is exactly 6.865 / 2.129 and exactly the per-unit figure's 206.39 / 64.00. The board
+    // then fell through the 18 cm apparent minimum and ClampApparentSize pushed it back up to 18.0
+    // (log line 7678) — a CONSEQUENCE of the shrink, not a second defect, and its thresholds are
+    // therefore left alone.
+    //
+    // WHY THE HOLDER HELD 30.85 WHILE THE RIG HELD 9.57, AND WHY RE-SEEDING FROM THE RIG IS WRONG.
+    // SyncPinHolder writes the holder scale exactly ONCE, at pin time, and never again — see the
+    // comment block there whose ABSENCE OF CODE is that invariant, and the tester report behind it
+    // ("world zoom zooms the pinned control board too — that must not happen"). So a pinned board's
+    // holder legitimately carries whatever rig scale was live when the player PINNED, and the rig
+    // scale that happens to be live at SWITCH time is an unrelated number. ApplyFollowMode's fresh
+    // holder seeds itself from scaleRef.lossyScale.x — the live rig — which is right at pin time and
+    // wrong at switch time, and its worldPositionStays:true re-parent then faithfully preserves the
+    // wrong world scale.
+    //
+    // THE FIX IS THEREFORE NOT A NEW NUMBER, IT IS CARRYING THE FRAME ACROSS WITH THE POSE: the
+    // capture records the frame its localScale is expressed in (parent chain, pin-holder scale,
+    // resulting world scale), and the restore RE-ESTABLISHES that frame before writing the pose. A
+    // switch that finds the frame intact writes the captured localScale bit-exact; one that finds it
+    // changed solves for the localScale that holds the WORLD size, guarded against a degenerate
+    // parent rather than dividing by it.
+
+    /// <summary>Whether <see cref="CaptureSwitchFrame"/> holds a usable snapshot.</summary>
+    private bool _switchFrameValid;
+    /// <summary>Was the board PINNED (holder-parented) at capture time?</summary>
+    private bool _switchFramePinned;
+    /// <summary>The very holder instance the capture was taken under — identity, not scale, so the
+    /// restore can tell "the holder is gone, re-establish it" from "the holder is still here, do not
+    /// touch its scale" (touching it here would BE the live rescale SyncPinHolder forbids).</summary>
+    private Transform? _switchFramePinRoot;
+    /// <summary>The captured holder's own scale — the number ApplyFollowMode must NOT re-derive.</summary>
+    private float _switchFramePinScale;
+    /// <summary>lossyScale.x of everything ABOVE the root at capture time.</summary>
+    private float _switchFrameParentScale;
+    /// <summary>The root's WORLD scale at capture time — the quantity the user's "exakt selbe
+    /// Größe" is about, and what the restore's delta line is measured against.</summary>
+    private float _switchFrameWorldScale;
+
+    /// <summary>A scale that can be multiplied and inverted without producing garbage.</summary>
+    private static bool IsUsableScale(float s) =>
+        s > 1e-6f && !float.IsNaN(s) && !float.IsInfinity(s);
+
+    /// <summary>
+    /// Snapshot the frame the captured localScale is expressed in. Called from
+    /// <see cref="TryCapturePose"/> so the two can never drift apart: one capture, one frame.
+    /// A degenerate frame captures NOTHING — the restore then writes the localScale verbatim and
+    /// says so, which is strictly better than restoring against a divide by ~zero.
+    /// </summary>
+    private void CaptureSwitchFrame()
+    {
+        _switchFrameValid = false;
+        _switchFramePinRoot = null;
+        _switchFramePinned = false;
+        _switchFramePinScale = 0f;
+        if (_root == null)
+            return;
+        float parentScale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+        float worldScale = _root.lossyScale.x;
+        if (!IsUsableScale(parentScale) || !IsUsableScale(worldScale))
+            return;
+        // FOLGEN has no holder at all, and that is recorded rather than inferred: the restore must
+        // never manufacture a pin for a board the player asked to follow him.
+        if (!CardsConfig.TrayFollow.Value && _pinRoot != null)
+        {
+            _switchFramePinned = true;
+            _switchFramePinRoot = _pinRoot;
+            _switchFramePinScale = _pinRoot.lossyScale.x; // holder is world-parented, so lossy == local
+        }
+        _switchFrameParentScale = parentScale;
+        _switchFrameWorldScale = worldScale;
+        _switchFrameValid = true;
+    }
+
+    /// <summary>
+    /// Drop a captured frame that will never be restored (the rebuild aborted before it reached
+    /// <see cref="RestorePose"/>), so a LATER restore on an unrelated path cannot consume it.
+    /// </summary>
+    internal void DiscardCapturedPose()
+    {
+        _switchFrameValid = false;
+        _switchFramePinRoot = null;
+    }
+
     /// <summary>
     /// PART D: capture the live board's world pose so a board SWITCH can re-apply it to the
     /// new board (instead of re-anchoring to the head). Returns false when no board exists.
+    /// The FRAME that pose is expressed in is captured alongside it (see the block above) —
+    /// callers keep the same three out-parameters and get the size preserved for free.
     /// </summary>
     internal bool TryCapturePose(out Vector3 position, out Quaternion rotation, out Vector3 localScale)
     {
@@ -773,32 +874,155 @@ internal sealed partial class PlayTray
             position = default;
             rotation = Quaternion.identity;
             localScale = Vector3.one;
+            DiscardCapturedPose();
             return false;
         }
         position = _root.position;
         rotation = _root.rotation;
         localScale = _root.localScale;
+        CaptureSwitchFrame();
+        return true;
+    }
+
+    /// <summary>
+    /// Re-establish the PIN HOLDER the capture was taken under, with the CAPTURED scale.
+    /// Returns true when a holder was (re-)created and the root re-parented onto it.
+    ///
+    /// <para>FOLGEN (follow) is STRUCTURALLY IMMUNE and returns early: a following board hangs
+    /// directly off <c>_anchorParent</c>, the rig-space anchor, which is the SAME object on both
+    /// sides of a board switch (EnsureBuilt re-parents the fresh root onto the very transform the
+    /// old one hung from). Its localScale therefore denotes the same size before and after with no
+    /// help from anyone, and there is no holder to lose. This is not an untested branch — it is a
+    /// branch that cannot exist, and the early return is here so nobody later "fixes" it by
+    /// manufacturing a pin for a board the player asked to follow him.</para>
+    /// </summary>
+    private bool TryRestoreCapturedPinFrame()
+    {
+        if (_root == null || !_switchFrameValid || !_switchFramePinned)
+            return false;
+        if (CardsConfig.TrayFollow.Value)
+            return false; // FOLGEN — see the summary; nothing to re-establish, nothing to pin
+        // The very holder we captured is still alive and still ours: nothing was lost. Writing its
+        // scale here would be exactly the live holder rescale SyncPinHolder deleted and documented.
+        if (_pinRoot != null && ReferenceEquals(_pinRoot, _switchFramePinRoot))
+            return false;
+        if (!IsUsableScale(_switchFramePinScale))
+            return false;
+
+        Transform pin = EnsurePinRoot();
+        // THE CAPTURED SCALE, NEVER A FRESHLY READ RIG SCALE. This is the whole fix: the outgoing
+        // board's holder carried 30.85 because that is the rig scale the player pinned at, and the
+        // live rig at switch time was 9.57. Re-deriving from the rig here (what ApplyFollowMode does,
+        // correctly, at PIN time) is what shrank the board by 3.224×.
+        pin.localScale = Vector3.one * _switchFramePinScale;
+        // worldPositionStays:false on purpose — the caller overwrites position, rotation AND
+        // localScale on the next three lines, in the same call, with no frame boundary between, so
+        // solving the old world pose into the new frame here would be computed and thrown away.
+        if (_root.parent != pin)
+            _root.SetParent(pin, worldPositionStays: false);
         return true;
     }
 
     /// <summary>
     /// PART D: re-apply a captured world pose to a freshly built board on a SWITCH — the new
-    /// board spawns in the EXACT same place instead of re-placing at the head. Marks the tray
-    /// placed and re-pins it (PINNED) at the preserved pose.
+    /// board spawns in the EXACT same place AND at the EXACT same world size instead of
+    /// re-placing at the head. Marks the tray placed and re-pins it (PINNED) at the preserved pose.
+    ///
+    /// <para>NO INTERMEDIATE SIZE EVER RENDERS. The holder re-establish, the pose write and the
+    /// re-pin all happen inside this one synchronous call, which the rebuild issues immediately
+    /// after <c>EnsureBuilt</c> in the same <c>Rebuild()</c> stack — there is no yield and no frame
+    /// boundary anywhere between the fresh root appearing and its final pose being written. The
+    /// apparent-size push (<see cref="ClampApparentSize"/>) runs from the per-frame watchdog and so
+    /// cannot observe anything but the finished state. The 14.2 cm → 18.0 cm push in the 289 log was
+    /// the push reacting to a shrink that had already SHIPPED, not to a transient; with the frame
+    /// carried across there is no under-minimum size for it to see and it does not fire at all.</para>
     /// </summary>
     internal void RestorePose(Vector3 position, Quaternion rotation, Vector3 localScale)
     {
         if (_root == null)
             return;
+
+        // 1. Put the frame back BEFORE the pose is written into it.
+        bool holderRestored = TryRestoreCapturedPinFrame();
+
+        // 2. Solve the local scale that reproduces the captured WORLD scale in whatever frame the
+        //    root now actually sits in. In the common case step 1 already made the frames identical
+        //    and the captured localScale is written back bit-exact.
+        Vector3 targetLocal = localScale;
+        float parentScale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
+        string frameNote;
+        if (!_switchFrameValid)
+        {
+            frameNote = "no captured frame (fresh build, or the capture found a degenerate one) — " +
+                        "localScale written verbatim";
+        }
+        else if (!IsUsableScale(parentScale) || !IsUsableScale(_switchFrameParentScale))
+        {
+            // GUARDED, NOT DIVIDED. A zero/NaN parent scale has no usable inverse; inventing one
+            // would put the board at an undefined size and the freeze sentinel would then convict
+            // an unknown writer. Write the localScale verbatim and make THIS line the lead.
+            frameNote = $"parent scale is DEGENERATE (captured ×{_switchFrameParentScale:F5}, live " +
+                        $"×{parentScale:F5}) — no frame solve attempted, localScale written verbatim. " +
+                        "If the board came back the wrong size, this clause is why";
+        }
+        else if (Mathf.Abs(parentScale - _switchFrameParentScale) <= _switchFrameParentScale * 1e-5f)
+        {
+            frameNote = $"parent frame intact at ×{parentScale:F3} — localScale written back bit-exact";
+        }
+        else
+        {
+            targetLocal = localScale * (_switchFrameParentScale / parentScale);
+            frameNote = $"parent frame CHANGED ×{_switchFrameParentScale:F3} → ×{parentScale:F3} — " +
+                        $"localScale solved {localScale.x:F4} → {targetLocal.x:F4} so the WORLD size holds";
+        }
+
         _root.position = position;
         _root.rotation = rotation;
-        _root.localScale = localScale;
-        NotePinnedWrite("board-switch/rebuild pose restore (RestorePose — verbatim world pose)");
+        _root.localScale = targetLocal;
+        NotePinnedWrite("board-switch/rebuild pose restore (RestorePose — world pose AND world size)");
         _placed = true;
         _placementDeferLogged = false;
+        // Only reachable when step 1 did NOT re-establish a holder: a board captured while FOLGEN
+        // and restored while FIXIERT (the player toggled across the switch), or no captured frame at
+        // all. Seeding the fresh holder from the live rig is CORRECT there — that case is a first
+        // pin, which is what ApplyFollowMode is for — and its worldPositionStays:true preserves the
+        // world size step 2 just solved.
         if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
-            ApplyFollowMode(); // re-pin at the preserved world pose (worldPositionStays)
-        VRLog.Info("Cards", "Control board switch: preserved the previous board's world pose (no re-place at head).");
+            ApplyFollowMode();
+
+        // ONE LINE PER SWITCH, and it answers "did the size survive" with a number instead of
+        // arithmetic across two BOARD ANCHOR samples. Read AFTER the re-pin above, so it reports the
+        // state the player actually gets. A switch that preserves size prints a delta under 0.1 %.
+        float restoredWorld = _root.lossyScale.x;
+        bool measurable = _switchFrameValid && IsUsableScale(_switchFrameWorldScale)
+                          && IsUsableScale(restoredWorld);
+        float deltaPct = measurable ? (restoredWorld / _switchFrameWorldScale - 1f) * 100f : 0f;
+        string sizeVerdict = !measurable
+            ? "delta UNMEASURABLE (no captured world scale) — the size is whatever the localScale meant here"
+            : Mathf.Abs(deltaPct) <= 0.1f
+                ? $"delta {(deltaPct >= 0f ? "+" : "")}{deltaPct:F3} % — PRESERVED (the bar is 0.1 %)"
+                : $"delta {(deltaPct >= 0f ? "+" : "")}{deltaPct:F3} % — NOT PRESERVED, this is the " +
+                  "defect the 2026-08-25 fix exists to prevent; the frame note above names which " +
+                  "clause ran and the pin-holder figures say whether the holder came back";
+        string holderNote = !_switchFrameValid
+            ? "no capture"
+            : _switchFramePinned
+                ? $"pin holder ×{_switchFramePinScale:F3} at capture, " +
+                  (holderRestored
+                      ? "RE-ESTABLISHED from the capture (NOT re-seeded from the live rig — that is the fix)"
+                      : "left alone (the same holder instance is still the parent)")
+                : "FOLGEN at capture, no holder — the rig anchor survives the switch, so the frame " +
+                  "could not change and there was nothing to carry";
+        VRLog.Info("Cards", $"BOARD SWITCH POSE: world pos preserved at {position}. SIZE — captured " +
+                            $"world scale {(_switchFrameValid ? _switchFrameWorldScale.ToString("F3") : "n/a")}, " +
+                            $"restored world scale {restoredWorld:F3}, own localScale {_root.localScale.x:F3}, " +
+                            $"{holderNote}. {sizeVerdict}. Frame: {frameNote}. The user's requirement is " +
+                            "'an der exakt selben Stelle in der exakt selben Größe' — position was never " +
+                            "the problem, the parent frame under the board was.");
+
+        // One capture, one restore. Anything later (session resume, carried-pose rebuild) must
+        // capture its own frame or run without one; a stale frame is worse than none.
+        DiscardCapturedPose();
         LogBoardFaceDiagnostics();
     }
 

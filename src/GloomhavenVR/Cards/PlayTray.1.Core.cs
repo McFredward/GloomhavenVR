@@ -1178,6 +1178,27 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     private Transform? _pinRoot;
 
     /// <summary>
+    /// The ONE place the "TrayPin" holder object is created, so its identity (hideFlags,
+    /// DontDestroyOnLoad, world origin, identity rotation) is stated once and cannot drift between
+    /// its two callers. It deliberately does NOT set the SCALE: that number is the whole subject of
+    /// the 2026-08-25 board-switch fix and its two callers need DIFFERENT answers — a first pin
+    /// bakes the LIVE rig scale (<see cref="ApplyFollowMode"/>), a board switch re-establishes the
+    /// CAPTURED one (PlayTray.TryRestoreCapturedPinFrame). Folding the scale in here is how the two
+    /// cases got confused in the first place.
+    /// </summary>
+    private Transform EnsurePinRoot()
+    {
+        if (_pinRoot == null)
+        {
+            _pinRoot = new GameObject("GloomhavenVR.TrayPin").transform;
+            _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
+            Object.DontDestroyOnLoad(_pinRoot.gameObject);
+        }
+        _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
+        return _pinRoot;
+    }
+
+    /// <summary>
     /// Apply [Cards] TrayFollow to the live tray (test #15).
     /// Follow: re-home under the rig-space anchor and re-anchor at the configured
     /// head offsets. Pinned: the tray keeps its EXACT current world pose. It is
@@ -1213,17 +1234,20 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         }
         else
         {
-            if (_pinRoot == null)
-            {
-                _pinRoot = new GameObject("GloomhavenVR.TrayPin").transform;
-                _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
-                Object.DontDestroyOnLoad(_pinRoot.gameObject);
-            }
+            Transform pin = EnsurePinRoot();
+            // THE LIVE RIG SCALE, WHICH IS CORRECT HERE AND ONLY HERE. This is a board being
+            // PINNED — the player is fixing it in the world at the size they are currently seeing
+            // it, so the frame to bake is the one they are standing in. It is NOT correct for a
+            // board SWITCH, where the outgoing board's holder already carries the (possibly very
+            // different) rig scale the player pinned at, and re-deriving it from the rig alive at
+            // switch time shrank the board 3.224× on his hardware. That path therefore does not come
+            // through here at all — PlayTray.TryRestoreCapturedPinFrame re-establishes the holder
+            // from the CAPTURED scale first, which leaves the guard below already satisfied so this
+            // branch is skipped. See the measurement block in PlayTray.3.Pose.cs.
             Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
-            _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-            _pinRoot.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
-            if (_root.parent != _pinRoot)
-                _root.SetParent(_pinRoot, worldPositionStays: true);
+            pin.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
+            if (_root.parent != pin)
+                _root.SetParent(pin, worldPositionStays: true);
             // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
             // (worldPositionStays), but the re-parent under the scaled holder can leave
             // float-noise-sized deltas — name it so it never reads as an unknown writer.

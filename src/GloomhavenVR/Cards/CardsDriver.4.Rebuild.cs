@@ -407,7 +407,12 @@ internal sealed partial class CardsDriver
             }
         }
         // PART D: capture the outgoing board's world pose BEFORE Destroy so the new board keeps
-        // the EXACT same location (Rebuild re-applies it after EnsureBuilt instead of PlaceAtHead).
+        // the EXACT same location — and, since 2026-08-25, the EXACT same SIZE. Destroy() is what
+        // makes the size hard: it DestroyImmediates the pinned board's "TrayPin" holder, so the
+        // three numbers below land in a DIFFERENT parent frame on the far side (measured on his
+        // hardware: parent chain ×30.85 → ×9.57, a 3.224× shrink, with localScale bit-identical).
+        // TryCapturePose therefore snapshots the frame as well — see the block above
+        // PlayTray.CaptureSwitchFrame — and RestorePose re-establishes it below.
         _hasSwitchPose = _tray.TryCapturePose(out _switchPos, out _switchRot, out _switchScale);
         _tray.Destroy();
         _dockAnimSuppressed = true; // issue 2: the rebuilt board re-populates its cards silently (no storm)
@@ -457,6 +462,11 @@ internal sealed partial class CardsDriver
         if (hand == null)
         {
             _hasSwitchPose = false; // no board to re-pose without a hand
+            // …and drop the frame the capture took with it. A captured parent frame is only ever
+            // valid for the ONE restore it was taken for; leaving it armed here would let a much
+            // later, unrelated restore (session resume, carried-pose rebuild) re-establish a holder
+            // scale from a board switch that never completed.
+            _tray.DiscardCapturedPose();
             // A focus view that ends with no hand at all (scenario teardown, hand mid-rebuild)
             // must not leave the fan latched in a restricted mode: the next interactive fan would
             // be inert.
