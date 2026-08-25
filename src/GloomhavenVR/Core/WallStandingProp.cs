@@ -644,6 +644,72 @@ internal static class WallStandingProp
     /// its fourth round once already.</param>
     internal static bool IsWallBuiltSection(in Unit unit, float floorY, bool figureAncestry,
                                             bool wallCut, bool vegetation, out string why)
+        => IsWallBuiltSection(unit, floorY, figureAncestry, wallCut, vegetation,
+                              enclosingTop: float.NaN, enclosingLabel: string.Empty,
+                              enclosingRenderers: 0, out why);
+
+    /// <inheritdoc cref="IsWallBuiltSection(in Unit, float, bool, bool, bool, out string)"/>
+    /// <param name="enclosingTop">MODBUILD 291 — THE TOP OF THE WALL-BUILT UNIT THIS RENDERER
+    /// BELONGS TO, over the same floor plane; <c>NaN</c> when the four-level prop-unit walk
+    /// resolves no unit around it. Conjunct 3 is asked of <c>max(top, enclosingTop)</c>.
+    ///
+    /// <para><b>THE REPORT.</b> User, 2026-08-25, <c>sollte_faden.jpg</c>: <i>"In der Map fandet
+    /// ein Wandteil nicht … Eventuell weil da auch Kristall dabei ist? Das hier ist aber nicht der
+    /// Kristall auf dem Boden der nicht faden soll (den gibts in dem Level auch), sondern das was
+    /// wirklich als Wand vor den Figuren zu sehen ist mit dem Gestein daneben. Das sollte wie jedes
+    /// andere Element auch faden."</i> A dark stone column with a large crystal slab beside it,
+    /// standing between him and the figures, at a wall whose fade is 1.00.</para>
+    ///
+    /// <para><b>WHY THE OLD CONJUNCT 3 REFUSED IT, from the ModBuild-290 log verbatim.</b>
+    /// <c>'CV_Ice_Crystal_Form_04' GEOMETRY half refused: FIGURE arm under a wall, but the unit
+    /// does NOT rise out of the ground band: top 0.9 wu over floor 0.0 ≤ 1.0 wu, height 1.0 wu
+    /// over 1 renderer(s)</c> — and that one renderer is a knee-high crystal at the FOOT of
+    /// <c>Wall 1/Generated Content/PCG_CV_Ice_Feature_Medium_02_PR</c>, which the very same log
+    /// measures, through the FLOOR arm, as <c>foot -0.5 wu … top 3.5 wu, height 4.0 wu over 22
+    /// renderer(s)</c>. Two units, one physical wall feature. The FIGURE arm's root is
+    /// <c>FigurePropRootOf</c> — the nearest <c>Animator</c> ancestor — and for this tileset's
+    /// crystals that is the crystal's own node, so the arm judged a FRAGMENT and read the
+    /// fragment's height. This is the ModBuild-266 finding one gate further on: the rule was
+    /// judging a piece of a wall. Nothing about the ruling changed; the measurement did.</para>
+    ///
+    /// <para><b>WHY WIDENING THE MEASURED UNIT CANNOT EAT THE FLOOR.</b> The enclosing unit comes
+    /// from <c>WallSegmentFade.PropUnit.cs</c>'s bounded four-level walk, which stops dead at a
+    /// wall entity, at a segment anchor and at container scale. For the ground cover this tileset
+    /// really does parent under walls the walk resolves either NO unit at all (a one-renderer
+    /// wrapper — <c>Wall N/Generated Content/PCG_CR_Floor_BaseHex_Plain/EN_CR_Floor_BaseHex_Plain</c>,
+    /// see the note on <see cref="StandsOnFloor"/>) or a unit that is itself ground cover
+    /// (<c>PCG_FR_Floor_Grass_Hex_Half_PR</c>, top ~0.2 wu). Enlarging the measured unit lifts the
+    /// verdict only where the unit a fragment belongs to ACTUALLY rises out of the ground band —
+    /// which is what "the game is using this as a wall section" means. <c>max</c> and never a
+    /// substitution, so a figure root that already spans MORE than its prop unit keeps its own
+    /// number.</para>
+    ///
+    /// <para><b>THE OTHER THREE CONJUNCTS ARE UNTOUCHED</b> and each is independently fatal to the
+    /// protected formation: the FLOOR crystal formation the user rules must STAY is parented
+    /// <c>Generated Content/Full/PCG_CV_Ice_Clutter_Floor_0N_PR/CV_Ice_Crystal_Form_02 (…)</c> —
+    /// <c>Full</c> and <c>Generated Content</c> are SIBLINGS of <c>Walls/</c>, so
+    /// <paramref name="wallCut"/> is FALSE for it and conjunct 2 refuses it before this line is
+    /// reached (its roll-call row reads <c>'CV_Ice_Clutter_01' FLOOR arm, no wall above … PROTECTED</c>
+    /// in the ModBuild-290 log). The caller's <c>IsWallGeneratedDressing</c> keeps the
+    /// <c>ActorBehaviour</c> / <c>CInteractableActor</c> chain as an ABSOLUTE VETO (round-7 ruling,
+    /// Lights-rule severity, NOT relaxed).</para>
+    ///
+    /// <para><b>FALSIFIED BY:</b> a <c>[WALL-SECTION]</c> roster row whose path does NOT contain a
+    /// <c>Wall</c> node — a hero, a monster, a summon, a floor hex, or a
+    /// <c>PCG_CV_Ice_Clutter_Floor_*</c> member. The name of the asset is NOT the falsifier and
+    /// never was: this level uses <c>CV_Ice_Crystal_Form_02</c> BOTH as protected floor clutter
+    /// under <c>Generated Content/Full/</c> AND as wall furniture under
+    /// <c>Wall N/Generated Content/</c>, so the ModBuild-275 falsifier as written ("the roster
+    /// naming … the crystal formation") fires on the correct behaviour. It is the PARENT that
+    /// adjudicates, which is why the roster prints the path.</para></param>
+    /// <param name="enclosingLabel">The enclosing unit root's name, printed so the sentence says
+    /// WHICH unit carried the verdict rather than only that one did.</param>
+    /// <param name="enclosingRenderers">How many renderers that unit owns — the column that makes
+    /// "a fragment of one" and "the feature of twenty-two" tellable apart at a glance.</param>
+    internal static bool IsWallBuiltSection(in Unit unit, float floorY, bool figureAncestry,
+                                            bool wallCut, bool vegetation, float enclosingTop,
+                                            string enclosingLabel, int enclosingRenderers,
+                                            out string why)
     {
         string shape = $"h {unit.Height:0.0} wu / w {unit.WidestSpanXZ:0.0} wu = "
                        + $"{unit.SlendernessHW:0.00} h/w"
@@ -665,21 +731,36 @@ internal static class WallStandingProp
                   + $"skeleton's thighs) [{shape}]";
             return false;
         }
-        if (top <= FootBandWU)
+        // MODBUILD 291 — WHICH UNIT THE GROUND-BAND QUESTION IS ASKED OF. Never a substitution:
+        // the figure root's own top still counts, and a figure root that spans more than its prop
+        // unit keeps its own number. The enclosing term can only ever RELEASE, never protect.
+        bool haveEnclosing = !float.IsNaN(enclosingTop);
+        float decidingTop = haveEnclosing && enclosingTop > top ? enclosingTop : top;
+        // The clause the census has to be able to name for the reported segment: WHICH unit was
+        // measured, how big it is, and what its top was. A refusal that prints only the number it
+        // refused on cannot say that the number came off the wrong body.
+        string unitColumn = haveEnclosing
+            ? $"measured on the wall-built unit '{enclosingLabel}' "
+              + $"({enclosingRenderers} renderer(s), top {enclosingTop:0.0} wu) that this "
+              + $"{unit.RendererCount}-renderer fragment (top {top:0.0} wu) belongs to"
+            : $"measured on this unit alone ({unit.RendererCount} renderer(s), top {top:0.0} wu) "
+              + "— the four-level prop-unit walk resolves no unit around it";
+        if (decidingTop <= FootBandWU)
         {
             why = $"FIGURE arm under a wall, but the unit does NOT rise out of the ground band: "
-                  + $"top {top:0.0} wu over floor {floorY:0.0} ≤ {FootBandWU:0.0} wu, height "
-                  + $"{unit.Height:0.0} wu over {unit.RendererCount} renderer(s) — this is floor "
-                  + $"cover parented under a wall, and it keeps its protection [{shape}]";
+                  + $"top {decidingTop:0.0} wu over floor {floorY:0.0} ≤ {FootBandWU:0.0} wu, "
+                  + $"height {unit.Height:0.0} wu over {unit.RendererCount} renderer(s) — this is "
+                  + $"floor cover parented under a wall, and it keeps its protection; "
+                  + $"{unitColumn} [{shape}]";
             return false;
         }
         why = $"{WallSectionTag}: foot {unit.MinY - floorY:0.0} wu over floor {floorY:0.0}, top "
-              + $"{top:0.0} wu, height {unit.Height:0.0} wu, span {unit.SpanX:0.0}x"
+              + $"{decidingTop:0.0} wu, height {unit.Height:0.0} wu, span {unit.SpanX:0.0}x"
               + $"{unit.SpanZ:0.0} wu over {unit.RendererCount} renderer(s) — the WALL GENERATOR "
               + $"built this and no actor component sits above it, a wall is inside the unit "
               + $"walk's own window and the unit rises clear of the ground band "
               + $"({FootBandWU:0.0} wu), so the game is using it AS a wall section and the whole "
-              + $"unit fades with that wall [{shape}]";
+              + $"unit fades with that wall; {unitColumn} [{shape}]";
         return true;
     }
 

@@ -397,6 +397,26 @@ internal static partial class WallSegmentFade
         /// instead of per WALL.</summary>
         private int _propUnitWaterSkipped;
 
+        /// <summary>MODBUILD 291: figure-armed members that did NOT refuse their unit because the
+        /// wall generator built them — the ModBuild-266 provenance lift at the whole-unit refusal
+        /// site (user, 2026-08-25, <c>sollte_faden.jpg</c>). Its own counter and its own roster,
+        /// never folded into the refusal count beside it: three wrong diagnoses in this subsystem
+        /// came from two populations sharing one number.
+        ///
+        /// <para>THE FALSIFIER FOR THE WHOLE CHANGE IS THIS ROSTER'S PATHS. Every row prints the
+        /// bounded four-level ancestry of the member. A row whose path contains no <c>Wall</c>
+        /// node — a hero, a monster, a summon, a floor hex, a <c>PCG_*_Clutter_Floor_*</c> member
+        /// — means the window is not the discriminator and the lift must be WITHDRAWN, not
+        /// retuned. The asset NAME is not the falsifier: this level parents
+        /// <c>CV_Ice_Crystal_Form_02</c> both under <c>Generated Content/Full/</c> (protected floor
+        /// formation, user ruling 2026-08-24) and under <c>Wall N/Generated Content/</c> (wall
+        /// furniture the same user now rules must fade).</para></summary>
+        private int _propUnitWallBuiltFigures;
+
+        /// <summary>The names and ancestries behind that count — capped, and the count above is
+        /// not.</summary>
+        private readonly List<string> _propUnitWallBuiltNames = new(8);
+
         /// <summary>Renderers this segment's unit dressing had already hidden and that are DRAWING
         /// again on a later frame of the same held state — read off <c>renderer.enabled</c> and
         /// <c>activeInHierarchy</c> by <see cref="IsActuallyDrawing"/>, never off our ledger. This
@@ -566,6 +586,8 @@ internal static partial class WallSegmentFade
             _propUnitRefusedUnits = 0;
             _propUnitFloorSkipped = 0;
             _propUnitWaterSkipped = 0;
+            _propUnitWallBuiltFigures = 0;
+            _propUnitWallBuiltNames.Clear();
             // Reset per RESCAN, not per frame: the counter then reads "how many pieces came back
             // on screen over a hidden wall since the last commit" (~2 s of frames), which is a
             // number an outcome can be judged by. Zeroing it per frame would make a piece that
@@ -994,6 +1016,107 @@ internal static partial class WallSegmentFade
             return false;
         }
 
+        /// <summary>
+        /// MODBUILD 291 — IS THIS FIGURE-ARMED MEMBER A PIECE OF WALL FURNITURE THE WALL GENERATOR
+        /// BUILT? The term that lifts the whole-unit FIGURE refusal, and the only place in this
+        /// subsystem where that refusal may be lifted at all.
+        ///
+        /// <para><b>WHY IT IS THE BOUNDED WINDOW AND NOT <c>IsWallGeneratedDressing</c>.</b> That
+        /// predicate is the ModBuild-266 lift the other four sites use, and it would be the
+        /// obvious thing to reuse here. It cannot be reused here, and the reason is written down in
+        /// <see cref="WallInUnitWindow"/>: its provenance term is
+        /// <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>, an UNBOUNDED climb to the scene
+        /// root, and in this very tileset that climb answers YES for the floor crystal formation
+        /// the user rules must STAY (<c>Generated Content/Full/PCG_CV_Ice_Clutter_Floor_0N_PR/
+        /// CV_Ice_Crystal_Form_02 (…)</c>), for a light shaft and for a rigged skeleton's thighs.
+        /// At the four ModBuild-266 sites the unbounded climb is safe because a second, geometric
+        /// term stands beside it; HERE it would be the only term, and the thing it would release
+        /// is a whole unit. So the provenance question is asked with the four-level window instead
+        /// — the same walk, the same memos and the same bound the standing rule's own wall terms
+        /// use, which for the protected formation answers NO because <c>Full</c> and
+        /// <c>Generated Content</c> are SIBLINGS of <c>Walls/</c>, not children of it.</para>
+        ///
+        /// <para><b>THE ROUND-7 RULING IS NOT RELAXED</b> (figures are NEVER touched, Lights-rule
+        /// severity). The <c>ActorBehaviour</c> / <c>CInteractableActor</c> chain stays an ABSOLUTE
+        /// VETO, character for character as <c>IsWallGeneratedDressing</c> writes it, and
+        /// provenance is added ON TOP of it. The <c>Animator</c> arm — which is what this tileset's
+        /// crystals, and only this tileset's crystals, trip — is the one this term is allowed to
+        /// out-vote, and only inside a wall's own four-level window. <c>Choreographer</c> parents
+        /// every figure it spawns to the BOARD root and nowhere else (three spawn paths, all three
+        /// checked), so a hero, a monster or a summon is on no wall's ancestor chain and cannot
+        /// reach this line at all.</para>
+        ///
+        /// <para><paramref name="why"/> is the BLOCKER-NAMING instrument this round exists for.
+        /// It names WHICH arm of <see cref="IsFigureOrActorRenderer"/> fired, on WHICH GameObject,
+        /// and the member's bounded ancestry — for the release as well as for the refusal. The
+        /// ModBuild-290 line said <c>'CV_Ice_Crystal_Form_04': FIGURE</c> and stopped there, which
+        /// is a predicate's return value, not a cause; a reader could not tell an <c>Animator</c>
+        /// on a crystal from an <c>ActorBehaviour</c> on a monster, and those two demand opposite
+        /// treatment.</para>
+        /// </summary>
+        private bool IsWallBuiltUnitMember(Renderer r, out string why)
+        {
+            Transform t = r.transform;
+            string arm = DescribeFigureArm(r);
+            Transform? parent = t.parent;
+            string path = parent != null ? UnitWindowPath(parent) : "<no parent>";
+            if (IsModObject(r))
+            {
+                why = $"{arm}; a MOD-OWNED visual, never scenery @ {path}";
+                return false;
+            }
+            // THE ABSOLUTE VETO, FIRST. Verbatim from IsWallGeneratedDressing, and deliberately
+            // NOT routed through the figure memo: that memo bundles Animator in with the two actor
+            // components, and Animator is exactly the term this predicate exists to stop deciding
+            // on its own.
+            if (r.GetComponentInParent<ActorBehaviour>() != null
+                || r.GetComponentInParent<CInteractableActor>() != null)
+            {
+                why = $"{arm}; an ActorBehaviour / CInteractableActor sits above it — ABSOLUTE "
+                      + $"VETO, round-7 ruling, never lifted @ {path}";
+                return false;
+            }
+            if (parent == null || !WallInUnitWindow(parent))
+            {
+                why = $"{arm}; NO wall inside the member's own bounded {PropUnitMaxDepth}-level "
+                      + $"window, so the wall generator is not what built it (an unbounded "
+                      + $"ProceduralWall climb is NOT substituted: it answers YES for the floor "
+                      + $"crystal formation the user rules must stay) @ {path}";
+                return false;
+            }
+            why = $"{arm}, but the WALL GENERATOR built it: a wall is inside the member's own "
+                  + $"bounded {PropUnitMaxDepth}-level window and no actor component sits above "
+                  + $"it, so it is wall furniture and fades with its wall (user 2026-08-25, "
+                  + $"sollte_faden.jpg) @ {path}";
+            return true;
+        }
+
+        /// <summary>MODBUILD 291 — WHICH ARM OF <see cref="IsFigureOrActorRenderer"/> FIRED, and on
+        /// which GameObject. Four arms answer one bool, and this round turned entirely on which of
+        /// them it was: an <c>Animator</c> on a crystal is wall furniture, an <c>ActorBehaviour</c>
+        /// on the same renderer would be a figure. Built only for a row a census actually keeps
+        /// (one refusal per unit, capped rosters), so the three ancestor walks it costs are a
+        /// handful per rescan and never a sweep.</summary>
+        private static string DescribeFigureArm(Renderer r)
+        {
+            if (r is SkinnedMeshRenderer)
+                return "FIGURE arm: SkinnedMeshRenderer (the renderer's own type)";
+            var actor = r.GetComponentInParent<ActorBehaviour>();
+            if (actor != null)
+                return $"FIGURE arm: ActorBehaviour on '{actor.gameObject.name}'";
+            var interactable = r.GetComponentInParent<CInteractableActor>();
+            if (interactable != null)
+                return $"FIGURE arm: CInteractableActor on '{interactable.gameObject.name}'";
+            var animator = r.GetComponentInParent<Animator>();
+            if (animator != null)
+                return $"FIGURE arm: Animator on '{animator.gameObject.name}'";
+            // Not reachable from the call site (the caller has already had `true` from the
+            // predicate), and stated rather than asserted: a held instrument that can only print
+            // one sentence reads as a dead one.
+            return "FIGURE arm: none of the four arms answers now — the predicate's memo and this "
+                   + "walk disagree, which is itself the finding";
+        }
+
         /// <summary>MODBUILD 268 - the renderer's ancestry as the window sees it, at most
         /// <see cref="PropUnitMaxDepth"/> levels, for the standing rule's subject roll-call. The
         /// ModBuild-267 round was lost partly because no log row said where the failing shelf was
@@ -1281,11 +1404,55 @@ internal static partial class WallSegmentFade
                 // that arm is about a thing this mod may not touch AT ALL, not about a thing with
                 // another owner. It fired ZERO times in the whole ModBuild-261 session, so none of
                 // this round's evidence bears on it and it is left bit-for-bit alone.
+                //
+                // …EXCEPT FOR A PIECE THE WALL GENERATOR BUILT — MODBUILD 291, AND THIS IS THE
+                // FIFTH SITE OF THE ModBuild-266 LIFT, THE ONE IT NEVER REACHED.
+                //
+                // THE REPORT (user, 2026-08-25, sollte_faden.jpg): "In der Map fandet ein Wandteil
+                // nicht … sondern das was wirklich als Wand vor den Figuren zu sehen ist mit dem
+                // Gestein daneben. Das sollte wie jedes andere Element auch faden."
+                //
+                // THE ModBuild-290 LOG NAMES THE BLOCKER OUTRIGHT, and it is this line: "5 unit(s)
+                // refused this rescan — 'PCG_CV_Ice_Feature_Medium_02_PR' (22 renderer(s), owner
+                // 'Wall 1' @fade 0.00) STAYS WHOLE AND SOLID — 'CV_Ice_Crystal_Form_04': FIGURE
+                // (never touched — round-7 ruling, Lights-rule severity); 16 renderer(s) pulled
+                // back off that wall", twice for that feature (Wall 1 and Wall 3) and three more
+                // times for 'PCG_CV_Ice_Bay_Small_01_PR' on 'CV_Ice_Crystal_Form_02'. All five
+                // refusals in the session are this arm and all five name a crystal that the wall
+                // generator itself parented under Wall N/Generated Content/. The same log's
+                // standing census RELEASES those very asset families as "[WALL-SECTION] … the game
+                // uses this AS a wall section" — but that ModBuild-275 release lives inside
+                // IsStandingProp, and THIS test is asked FIRST and asks the raw predicate, so the
+                // remedy could never reach the site that was actually holding the wall. "A rule
+                // read too late never runs", one gate earlier than the last four times.
+                //
+                // THE TERM IS THE BOUNDED WINDOW AND NOT IsWallGeneratedDressing, and the
+                // difference is the whole safety argument — see IsWallBuiltUnitMember. In one
+                // sentence: IsWallGeneratedDressing climbs with GetComponentInParent<ProceduralWall>()
+                // to the scene root, which in THIS scene answers YES for the floor crystal
+                // formation the user rules must STAY; the four-level window does not.
+                //
+                // THE ROUND-7 RULING IS NOT RELAXED. IsWallBuiltUnitMember carries the
+                // ActorBehaviour / CInteractableActor chain as an ABSOLUTE VETO, exactly as
+                // IsWallGeneratedDressing does, and adds provenance ON TOP of it.
                 if (IsFigureOrActorRenderer(m))
                 {
-                    refusedBy = $"'{m.name}': FIGURE (never touched — round-7 ruling, Lights-rule "
-                                + "severity)";
-                    break;
+                    // NAME THE BLOCKER, NOT THE COUNT. Six rounds were once spent tuning a
+                    // coverage FRACTION on this subsystem and one field naming WHICH renderer
+                    // blocked the ray ended it. "FIGURE" alone says a predicate returned true; it
+                    // does not say WHICH of its four arms, on WHICH GameObject, or where the piece
+                    // is parented — and those three facts are the whole adjudication here.
+                    bool wallBuilt = IsWallBuiltUnitMember(m, out string memberWhy);
+                    if (!wallBuilt)
+                    {
+                        refusedBy = $"'{m.name}': FIGURE (never touched — round-7 ruling, "
+                                    + $"Lights-rule severity) via {memberWhy}";
+                        break;
+                    }
+                    _propUnitWallBuiltFigures++;
+                    if (_propUnitWallBuiltNames.Count < PropUnitLeftVisibleCap)
+                        _propUnitWallBuiltNames.Add($"'{m.name}' — {memberWhy}");
+                    // Falls through: the member is wall furniture and is staged like any other.
                 }
                 // THE STANDING RULE IS A SKIP AND NOT A REFUSAL, deliberately, and the precedent
                 // is CollectWallFadeInfo: the one choke point every wall-renderer collection goes
@@ -1890,7 +2057,7 @@ internal static partial class WallSegmentFade
         {
             if (_propUnitRegrouped == 0 && _propUnitRefusedUnits == 0
                 && _propUnitWaterSkipped == 0 && _unitDressingHeldFaded == 0
-                && _unitDressingHandedOver == 0)
+                && _unitDressingHandedOver == 0 && _propUnitWallBuiltFigures == 0)
             {
                 _propUnitCensusSig = -1;
                 return;
@@ -1900,7 +2067,7 @@ internal static partial class WallSegmentFade
                       + _propUnitDressed * 101 + _propUnitRefusedUnits * 1009
                       + _unitDressingRedrawn * 61 + _propUnitFloorSkipped * 5
                       + _unitDressingHeldFaded * 149 + _unitDressingHandedOver * 71
-                      + _propUnitWaterSkipped * 17
+                      + _propUnitWaterSkipped * 17 + _propUnitWallBuiltFigures * 1013
                       + _propUnitCensus.Count;
             foreach (string row in _propUnitCensus)
                 sig = unchecked(sig * 31 + row.GetHashCode());
@@ -1930,6 +2097,30 @@ internal static partial class WallSegmentFade
                 + $"{PropUnitMaxSpanWU:0.0} wu): {_propUnitRefusedUnits} unit(s) refused this "
                 + $"rescan"
                 + (_propUnitRefused.Count > 0 ? $" — {string.Join("; ", _propUnitRefused)}" : "")
+                + ". EVERY REFUSAL ROW NAMES WHICH ARM OF THE FIGURE PREDICATE FIRED, ON WHICH "
+                + "GameObject, AND THE MEMBER'S BOUNDED ANCESTRY (ModBuild 291): 'FIGURE' alone is "
+                + "a predicate's return value and not a cause, and the ModBuild-290 log's five "
+                + "refusals — all five of them a crystal the wall generator itself parented under "
+                + "'Wall N/Generated Content/' — could not be told apart from a monster by any "
+                + "field it printed. "
+                + $"WALL FURNITURE DOES NOT REFUSE ITS UNIT (ModBuild 291, user 2026-08-25, "
+                + $"sollte_faden.jpg: 'das was wirklich als Wand vor den Figuren zu sehen ist mit "
+                + $"dem Gestein daneben. Das sollte wie jedes andere Element auch faden'): "
+                + $"{_propUnitWallBuiltFigures} figure-armed member(s) were released this rescan "
+                + $"because a wall sits inside their own bounded {PropUnitMaxDepth}-level window "
+                + $"and no ActorBehaviour / CInteractableActor sits above them (that chain stays "
+                + $"an ABSOLUTE VETO — round-7 ruling, NOT relaxed; the bounded window and NOT "
+                + $"IsWallGeneratedDressing's unbounded ProceduralWall climb, which answers YES "
+                + $"for the floor crystal formation the user rules must STAY)"
+                + (_propUnitWallBuiltNames.Count > 0
+                    ? $": {string.Join("; ", _propUnitWallBuiltNames)}. THE FALSIFIER IS THE PATH "
+                      + "IN THESE ROWS AND NEVER THE ASSET NAME — this level parents "
+                      + "'CV_Ice_Crystal_Form_02' both under 'Generated Content/Full/' (the "
+                      + "protected floor formation, ruling 2026-08-24) and under "
+                      + "'Wall N/Generated Content/' (wall furniture). A row whose path holds no "
+                      + "Wall node means the window is not the discriminator and this lift must be "
+                      + "WITHDRAWN, not retuned"
+                    : " — zero, so no unit changed hands on this term")
                 + $". {_propUnitFloorSkipped} member(s) skipped as FLOOR PROPS of their own unit "
                 + $"(the standing rule, a skip and not a refusal — ModBuild 167's Gestrüpp-Wand "
                 + $"ruling), {_propUnitWaterSkipped} skipped as part of the WATER FEATURE's own "
