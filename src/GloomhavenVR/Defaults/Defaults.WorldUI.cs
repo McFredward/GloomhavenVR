@@ -284,6 +284,24 @@ internal static partial class Defaults
     internal const float TravelButtonOffsetXWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetXWindowHeights  (pinned: user ruling — value, range and default are untouchable; a cfg drop only ever shows drag drift)
     internal const float TravelButtonOffsetYWindowHeights = 0f;  // => [WorldUI] TravelButtonOffsetYWindowHeights  (pinned: user ruling — value, range and default are untouchable; a cfg drop only ever shows drag drift)
 
+    // ---- WorldUI/WindowMaterialise*.cs ---------------------------------------------
+    // User, 2026-08-24: "Ich moechte nicht mehr, dass die Fenster einfach aufploppen und urploetzlich
+    // wieder von einem Frame auf den anderen verschwinden. ... Ich stelle mir ein verschwindendes
+    // Fenster vor, das in Partikel von Wind verweht. ... Aber wichtig: Das Ganze soll 1s hoechstens
+    // 2s gehen, es soll niemanden aufhalten, nur cool aussehen. Die Auftauch-Animation eventuell
+    // etwas schneller als die Verschwinden-Animation, da man hier schnell interagieren koennen soll."
+    //
+    // THE TWO DURATIONS ARE HIS TWO SENTENCES, and the ORDER between them is the requirement, not the
+    // numbers: appear must be the shorter one. 0.50 / 1.00 puts the pair inside his "1s, hoechstens
+    // 2s" with the vanish AT his stated 1 s and the appear at half of it, so the window is fully
+    // legible about a fifth of a second after it is already clickable. Both are additionally clamped
+    // to WindowMaterialise.HardCeilingSeconds = 2.0 IN CODE on every read, so a hand-edited cfg
+    // cannot make a window slow to appear -- which is the one thing this feature may never do.
+    internal const bool WindowMaterialise = true;                    // => [WorldUI] WindowMaterialise
+    internal const float WindowMaterialiseAppearSeconds = 0.5f;      // => [WorldUI] WindowMaterialiseAppearSeconds
+    internal const float WindowMaterialiseVanishSeconds = 1f;        // => [WorldUI] WindowMaterialiseVanishSeconds
+    internal const float WindowMaterialiseIntensity = 1f;            // => [WorldUI] WindowMaterialiseIntensity
+
     internal const bool DevShowAllPanels = false;            // => [WorldUI] DevShowAllPanels
     internal const bool DevForceConvert = false;             // => [WorldUI] DevForceConvert
 }
