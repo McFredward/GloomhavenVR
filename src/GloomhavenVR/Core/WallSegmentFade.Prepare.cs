@@ -442,5 +442,647 @@ internal static partial class WallSegmentFade
                     + "one it was derived against. A refused or dropped cycle costs one slow "
                     + "commit, which is what every cycle cost before PERF S4.");
         }
+
+        // =================================================================================
+        // PERF S5 (2026-08-25) — THE CYCLE THAT DOES NOT COMMIT
+        // =================================================================================
+        //
+        // WHAT THE ModBuild 274 HARDWARE LOG ACTUALLY SAYS, and it is not what PERF S4 was
+        // briefed against. Over 22 BUDGET windows in the big scenario the commit's three
+        // expensive phases report, per window of 3 cycles:
+        //
+        //     WallCache  94.2 - 95.3ms total   (31.5ms per cycle, spread under 1ms)
+        //     PropUnits  89.6 - 90.8ms total   (30.0ms per cycle, spread under 1ms)
+        //     Mounted    64.3 - 77.2ms total   (22 - 26ms per cycle)
+        //     other 21   ~29ms total           (~10ms per cycle)
+        //
+        // That is ~95ms EVERY cycle, not a spike with a cheap median: the 92 / 104 / 120ms
+        // spread in WORST COMMIT is variance around a constant, not an occasional stall. And
+        // in the same 22 windows the PREPARE clause reports 12819 wall-cache renderers warmed
+        // and 3105 unit roots prewarmed — the SAME two integers in every single window, for
+        // 66 consecutive cycles. The scene population (5803 renderers, 1888 fade-capable) does
+        // not move either.
+        //
+        // So the subsystem spends ~95ms every two seconds rebuilding a table that sixty-six
+        // times running came out the same. PERF S4 correctly hoisted 49.8ms of derivation off
+        // the commit frame and the stall did not go away, because hoisting shrinks the work a
+        // frame does, not the work that has to be done. THIS stage removes the work.
+        //
+        // THE SKIP INVARIANT — A CYCLE MAY BE SKIPPED ONLY WHEN NOTHING THE COMMIT READS HAS
+        // MOVED. The survey below re-derives a 64-bit signature of every input the commit's
+        // OUTPUT is a function of, compares it against the signature the table IN FORCE was
+        // built from, and skips the commit only on equality. The comparison is conservative in
+        // one direction by construction: both halves of the signature are taken EARLIER in the
+        // cycle than the commit that banks them, so a world that moves between the survey and
+        // the commit banks a stale hash — and the next cycle's live survey then disagrees with
+        // it and commits. The hash can cause an unnecessary commit; it cannot cause a wrong
+        // skip.
+        //
+        // WHAT IS IN THE SIGNATURE, and where each term is taken:
+        //   (1) THE SCENE HALF, folded in ClassifySlice (WallSegmentFade.cs) over all 5803
+        //       snapshot entries: each renderer's instance ID, its liveness, its `enabled`, and
+        //       the seven verdict bits the four collection passes read off the fact table. This
+        //       is the input to Adopt, Water, Stacked and Mounted. Combined COMMUTATIVELY — see
+        //       _sceneFactSigSum for why an ordered fold would be defeated by the sweep.
+        //   (2) THE WALL HALF, folded by StepSurvey below over the ProceduralWall cache: each
+        //       wall's identity, whether it is a split anchor, its live child-renderer count and
+        //       every child's identity. GetComponentsInChildren(includeInactive: false) is the
+        //       same call CommitWallCache makes, so a subtree that was activated or deactivated
+        //       moves this hash. This is the input to WallCache and PropUnits.
+        //
+        //   NEITHER HALF FOLDS `renderer.enabled`, and that is the single most important
+        //   decision in this file after the invariant itself: this subsystem HIDES THINGS BY
+        //   WRITING `enabled` and never calls SetActive, so a signature that read `enabled`
+        //   would move on every fade and unfade and the skip would fire almost never. Both
+        //   halves therefore key on identity plus activeInHierarchy — what the GAME changes —
+        //   and are blind to what the fade system itself writes. See the long note at the fold
+        //   site in ClassifySlice.
+        //   (3) THE THREE WORLD GATES, asked as scalars: the room registry has not moved (no
+        //       reveal), the board is still where the floor planes say it is (the probe PERF S4
+        //       already ships), and nothing zeroed _nextRescan to ask for this cycle.
+        //   (4) THE DRIFT PROBE, which measures rather than assumes — see
+        //       SegmentBoundsStillWhereTheCommitLeftThem.
+        //
+        // WHY NOT DOUBLE-BUFFER THE COMMIT INSTEAD, said once, here. Building the new table in
+        // a second structure and swapping it atomically requires all twenty-four phases to
+        // write into that structure rather than into _segments. Two of them —
+        // EnforcePropUnitCohesion (30ms) and CollectWallMountedProps (24ms), i.e. 54 of the
+        // 95ms — live in WallSegmentFade.PropUnit.cs and WallSegmentFade.Mounted.cs, and both
+        // mutate segments in place (moving renderers between owners, hiding and restoring
+        // pieces). A "second table" that hands those two phases the same Segment objects the
+        // appliers are reading is not double-buffered at all; it is the mid-rebuild table the
+        // commit's atomicity exists to prevent, with a swap bolted on. The skip needs none of
+        // that: it does not change what a commit does, only how often one is needed.
+        //
+        // MULTIPLAYER: presentation only. Nothing here reads or writes the wire, and the skip
+        // path writes no game state, no renderer, no material and no segment field.
+
+        /// <summary>Millisecond budget the SURVEY stage may spend on one frame — the same
+        /// figure as <see cref="ClassifyBudgetMillis"/> and <see cref="PrepareBudgetMillis"/>,
+        /// and for the same reason: it is the same shape of work (a per-renderer read over a
+        /// fixed population with no externally visible effect) at the value this project has
+        /// already validated on hardware for that shape.</summary>
+        private const float SurveyBudgetMillis = 1.5f;
+
+        /// <summary>Renderers folded between two clock reads. Much larger than
+        /// <see cref="PrepareChunk"/> because a survey item is an instance-ID read and two
+        /// multiplies, not a subtree walk — the same argument that sets
+        /// <see cref="ClassifyChunk"/>, in the same direction.</summary>
+        private const int SurveyChunk = 64;
+
+        /// <summary>
+        /// THE STALENESS CEILING — how many cycles in a row may be skipped before one commit is
+        /// forced whatever the signature says.
+        ///
+        /// <para>It is a FAIL-SAFE for a blind spot in the signature, not part of the design. If
+        /// the signature is complete this never fires and the next hardware log's SKIP clause
+        /// says so with a live count; if it fires, that count is the first evidence that some
+        /// input is not covered, and it names the one number to chase. Thirty cycles is 60s
+        /// against a table the subsystem already accepts as up to 2s stale.</para>
+        ///
+        /// <para>IT IS ALSO THE ONE THING THAT CAN STILL PRODUCE A PERIODIC STALL, so it is
+        /// stated plainly rather than buried: while it fires, the player sees one ~95ms commit
+        /// per minute instead of one per two seconds. Read the ceiling count on the BUDGET line
+        /// before concluding anything about the remaining hitches.</para>
+        /// </summary>
+        private const int MaxSkippedCyclesInARow = 30;
+
+        /// <summary>How many segments the drift probe re-measures per skipped cycle. Sixteen
+        /// segments of ~10 members is ~160 <c>Renderer.bounds</c> reads, tens of microseconds —
+        /// and the ring is walked round-robin, so a table of N segments is covered completely
+        /// every ceil(N/16) skipped cycles, well inside the ceiling above.</summary>
+        private const int BoundsProbeSegmentsPerCycle = 16;
+
+        /// <summary>World units a segment's collection AABB may drift before the table is
+        /// declared stale. Half of <see cref="BlockEpsMinWorld"/>: below that the blocked-test
+        /// epsilon the bounds feed does not change at all, so a smaller value would commit on
+        /// motion no decision can see.</summary>
+        private const float BoundsDriftEpsilonWU = 0.05f;
+
+        private const ulong FnvOffset = 14695981039346656037UL;
+        private const ulong FnvPrime = 1099511628211UL;
+
+        /// <summary>One FNV-1a step. Order-SENSITIVE on purpose: both halves of the signature
+        /// are folded by deterministic walks (snapshot order, wall-cache order, subtree order),
+        /// so a reordering is a real change and must move the hash. An order-independent
+        /// combiner would miss exactly the case where two renderers swap owners.</summary>
+        private static ulong FoldSig(ulong sig, int value)
+        {
+            unchecked
+            {
+                sig ^= (uint)value;
+                sig *= FnvPrime;
+            }
+            return sig;
+        }
+
+        /// <summary>The wall cache as it stood when this cycle's survey opened. Copied for the
+        /// same reason <see cref="_prepWalls"/> is: the stage suspends across frames.</summary>
+        private readonly List<ProceduralWall> _surveyWalls = new(64);
+        private readonly List<MeshRenderer> _surveyRenderers = new(64);
+        private int _surveyWallCursor;
+        private int _surveyRendererCursor;
+        private bool _surveyRenderersTaken;
+
+        /// <summary>The wall half of this cycle's signature, folded as the walk proceeds.</summary>
+        private ulong _surveySig;
+
+        /// <summary>
+        /// The scene half, folded by <c>ClassifySlice</c> and reset by <c>BeginRescanCycle</c>.
+        ///
+        /// <para>TWO ACCUMULATORS, AND COMMUTATIVE ONES, unlike the wall half. The scene half is
+        /// folded over the <c>FindObjectsOfType&lt;Renderer&gt;</c> snapshot, and Unity does not
+        /// specify that sweep's ORDER. A warm cycle re-reads the same array so the order is
+        /// stable there, but one cycle in three takes a fresh sweep (the ModBuild 274 log:
+        /// "1 of them from a FRESH ... sweep" in every window of three), and an order-sensitive
+        /// fold over a re-ordered array of the SAME renderers reads as a changed scene — which
+        /// would make this term refuse on every sweep cycle and cap the whole change at a third
+        /// of its value. Each renderer therefore contributes one self-contained hash, combined
+        /// by ADD and by XOR: the sum alone can be defeated by a compensating pair, the xor
+        /// alone by a repeated one, and neither failure survives both.</para>
+        /// </summary>
+        private ulong _sceneFactSigSum;
+        private ulong _sceneFactSigXor;
+
+        /// <summary>The per-hole term for a snapshot entry whose renderer has died. An
+        /// arbitrary odd constant — it only has to be distinct from any real renderer's hash and
+        /// to accumulate like one.</summary>
+        private const ulong DeadRendererSigTerm = 0xD1CE_D1CE_D1CE_D1CFUL;
+
+        private void ResetSceneFactSignature()
+        {
+            _sceneFactSigSum = FnvOffset;
+            _sceneFactSigXor = FnvOffset;
+        }
+
+        /// <summary>Accumulate one renderer's self-contained hash into the scene half.</summary>
+        private void FoldSceneFact(ulong h)
+        {
+            unchecked
+            {
+                _sceneFactSigSum += h;
+                _sceneFactSigXor ^= h;
+            }
+        }
+
+        /// <summary>The signatures the table IN FORCE was built from, and whether one has ever
+        /// been banked. Compared, never trusted — see THE SKIP INVARIANT above.</summary>
+        private ulong _committedWallSig;
+        private ulong _committedSceneSum;
+        private ulong _committedSceneXor;
+        private bool _committedSigValid;
+
+        /// <summary>Consecutive skipped cycles, and the clock the table has stood on.</summary>
+        private int _skipRun;
+        private float _lastCommitAt = float.NegativeInfinity;
+        private float _lastCycleOpenedAt = float.NegativeInfinity;
+
+        /// <summary>True when this cycle opened sooner than the cadence allows, i.e. some site
+        /// zeroed <c>_nextRescan</c> to ask for it. Such a cycle always commits.</summary>
+        private bool _cycleOpenedEarly;
+
+        /// <summary>True when the dissolve reassigned materials since the last cycle.</summary>
+        private bool _cycleMaterialsDirty;
+
+        /// <summary>Round-robin ring for the drift probe, rebuilt at every commit. Every writer
+        /// of <c>_segments</c> is a commit phase (grep: the five Remove sites are all inside one,
+        /// and Clear is teardown), so between two commits this list cannot go stale.</summary>
+        private readonly List<Segment> _driftRing = new(128);
+        private int _driftCursor;
+
+        /// <summary>False from the moment a commit lands until the drift probe has taken its
+        /// baseline off the table that commit produced. See
+        /// <see cref="SegmentBoundsStillWhereTheCommitLeftThem"/>.</summary>
+        private bool _driftBaselineTaken;
+
+        // ---- cycle accounting for the budget line ------------------------------------------
+
+        private int _cycleSurveyFrames;
+        private float _cycleWorstSurveyMillis;
+        private float _cycleSurveyTotalMillis;
+        private int _cycleSurveyRenderers;
+        private int _cycleSkipped;
+        private int _cycleCommitted;
+        private int _cycleWorstSkipRun;
+        private float _cycleWorstTableAgeSeconds;
+        private int _cycleProbedSegments;
+
+        /// <summary>WHY a cycle had to commit, one counter per term of the decision. FAILURES,
+        /// counted separately so the line can name the term that refused rather than merely
+        /// report that a commit happened — a skip that never fires and a skip that fires and is
+        /// overruled must never print the same text.</summary>
+        private int _noSkipNoTable;
+        private int _noSkipEarly;
+        private int _noSkipReveal;
+        private int _noSkipBoard;
+        private int _noSkipScene;
+        private int _noSkipWalls;
+        private int _noSkipCeiling;
+        private int _noSkipDrift;
+        private int _noSkipMaterials;
+
+        /// <summary>The last refusal, WITH ITS NUMBERS. Never a constant: a change-gated line
+        /// carrying a fixed reason string prints once and then reads as a dead instrument, and
+        /// this project has an entry in its ledger for exactly that.</summary>
+        private string _lastNoSkipDetail = "no cycle has been judged yet";
+
+        /// <summary>Open the survey. Cheap and atomic: one list copy over the wall cache.</summary>
+        private void BeginSurveyStage()
+        {
+            _surveyWalls.Clear();
+            _surveyRenderers.Clear();
+            _surveyWallCursor = 0;
+            _surveyRendererCursor = 0;
+            _surveyRenderersTaken = false;
+            _surveySig = FnvOffset;
+            List<ProceduralWall> cache = ProceduralWall.m_WallCache;
+            for (int i = 0; i < cache.Count; i++)
+            {
+                ProceduralWall w = cache[i];
+                if (w == null)
+                    continue;
+                _surveyWalls.Add(w);
+                _surveySig = FoldSig(_surveySig, w.GetInstanceID());
+                // A wall that became a split anchor is refreshed down a different path
+                // (RefreshSplitWall) and produces a different table from the same subtree.
+                _surveySig = FoldSig(_surveySig, _splitAnchors.Contains(w) ? 1 : 0);
+            }
+            _surveySig = FoldSig(_surveySig, _surveyWalls.Count);
+        }
+
+        /// <summary>
+        /// Advance the survey within this frame's budget. Returns true when the whole wall
+        /// cache has been folded.
+        ///
+        /// <para>PURE READS. Nothing in this method or anything it calls writes a
+        /// <c>Segment</c>, a renderer, a material or a property block — the same invariant the
+        /// prepare stage holds, and for a stronger reason: this stage runs on cycles that will
+        /// never reach a commit at all, so a write here would be a mutation with no pass behind
+        /// it to make it consistent.</para>
+        /// </summary>
+        private bool StepSurvey(float frameStart, float budget)
+        {
+            int sinceClock = 0;
+            while (_surveyWallCursor < _surveyWalls.Count)
+            {
+                if (!_surveyRenderersTaken)
+                {
+                    _surveyRenderers.Clear();
+                    ProceduralWall wall = _surveyWalls[_surveyWallCursor];
+                    if (wall != null)
+                        wall.GetComponentsInChildren(includeInactive: false, _surveyRenderers);
+                    _surveyRenderersTaken = true;
+                    _surveyRendererCursor = 0;
+                    // The COUNT as well as the members: a subtree that lost one renderer and
+                    // gained another with a recycled instance ID would otherwise be silent. It
+                    // is also where activeInHierarchy enters the wall half — includeInactive is
+                    // false, so a subtree the game switched off shortens this list.
+                    _surveySig = FoldSig(_surveySig, _surveyRenderers.Count);
+                }
+                while (_surveyRendererCursor < _surveyRenderers.Count)
+                {
+                    MeshRenderer r = _surveyRenderers[_surveyRendererCursor++];
+                    // IDENTITY ONLY, and that is exact rather than a compromise. The wall half
+                    // stands for what CommitWallCache would collect, and that pass's membership
+                    // is GetComponentsInChildren(includeInactive: false) filtered by
+                    // CollectWallFadeInfo — neither of which reads `renderer.enabled` (the
+                    // predicate's whole body is the standing-prop guard, the name tests and the
+                    // material walk; grep it for `enabled` and there is nothing). The
+                    // includeInactive flag already folds activeInHierarchy into the member LIST
+                    // above, so a subtree the game switched off changes the count and the ids.
+                    // Folding `enabled` on top would only add this subsystem's OWN writes —
+                    // hiding a faded wall's siblings and shell pieces is r.enabled = false — and
+                    // make the skip refuse on every fade transition.
+                    _surveySig = FoldSig(_surveySig, r == null ? 0 : r.GetInstanceID());
+                    _cycleSurveyRenderers++;
+                    if (++sinceClock < SurveyChunk)
+                        continue;
+                    sinceClock = 0;
+                    if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget)
+                        return false;
+                }
+                _surveyWallCursor++;
+                _surveyRenderersTaken = false;
+                if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget)
+                    return false;
+            }
+            return true;
+        }
+
+        /// <summary>Fold the census's own totals into the wall half, once the census is known to
+        /// be complete. They are cheap cross-checks on the scene half rather than new
+        /// information, and they make a truncated census impossible to mistake for a quiet
+        /// one.</summary>
+        private void FinishSurveySignature()
+        {
+            _surveySig = FoldSig(_surveySig, _factCount);
+            _surveySig = FoldSig(_surveySig, _factWallFade.Count);
+            _surveySig = FoldSig(_surveySig, _factWater.Count);
+        }
+
+        /// <summary>Drop this cycle's survey state. Held references would keep a scene's worth
+        /// of walls and renderers alive across the gap to the next cycle.</summary>
+        private void ClearSurveyState()
+        {
+            _surveyWalls.Clear();
+            _surveyRenderers.Clear();
+            _surveyWallCursor = 0;
+            _surveyRendererCursor = 0;
+            _surveyRenderersTaken = false;
+            _cycleOpenedEarly = false;
+            _cycleMaterialsDirty = false;
+        }
+
+        /// <summary>Bank the signatures this cycle's commit was built against, and rebuild the
+        /// drift ring over the table it produced.</summary>
+        private void AdoptCommittedSignature(float now)
+        {
+            _committedSceneSum = _sceneFactSigSum;
+            _committedSceneXor = _sceneFactSigXor;
+            _committedWallSig = _surveySig;
+            _committedSigValid = true;
+            _skipRun = 0;
+            _lastCommitAt = now;
+            _cycleCommitted++;
+            _driftRing.Clear();
+            foreach (Segment seg in _segments.Values)
+            {
+                seg.ProbeBoundsValid = false;
+                _driftRing.Add(seg);
+            }
+            _driftCursor = 0;
+            _driftBaselineTaken = false;
+        }
+
+        /// <summary>Record how long the table in force has stood — the DECISION LATENCY this
+        /// change actually incurs, measured rather than argued.</summary>
+        private void NoteTableAge(float now)
+        {
+            if (float.IsNegativeInfinity(_lastCommitAt))
+                return;
+            float age = now - _lastCommitAt;
+            if (age > _cycleWorstTableAgeSeconds)
+                _cycleWorstTableAgeSeconds = age;
+        }
+
+        /// <summary>
+        /// THE DRIFT PROBE — the one term of the decision that MEASURES instead of comparing.
+        ///
+        /// <para>WHY IT IS NEEDED. Everything else in the signature is membership: which
+        /// renderer belongs to which segment. Membership can be identical while the GEOMETRY
+        /// underneath it has moved, and a segment's AABB is what every coverage decision is
+        /// taken against. The reveal gate and the board probe cover the two ways the whole
+        /// board moves; this covers the one they do not — a piece that moved on its own.</para>
+        ///
+        /// <para>WHY IT KEEPS ITS OWN BASELINE. Neither <c>seg.Bounds</c> nor a copy of it taken
+        /// at collection time is comparable with a live re-union of <c>Renderers</c>: the first
+        /// is EXTENDED afterwards by the stacked and gate phases, the second is taken before
+        /// <c>StripGroundRenderers</c> and the prop-unit pass have REMOVED members from the list
+        /// it would be compared against. Either would read as permanent drift and the skip would
+        /// never fire. See <see cref="Segment.ProbeBounds"/>.</para>
+        ///
+        /// <para>A DEAD MEMBER IS DRIFT, not a skip: a renderer that died out from under a
+        /// segment must reach FinishRefresh's leaver path, and only a commit runs that.</para>
+        /// </summary>
+        private bool SegmentBoundsStillWhereTheCommitLeftThem(out int probed, out string detail)
+        {
+            probed = 0;
+            detail = "";
+            // THE BASELINE, taken once per commit over the WHOLE table rather than round-robin.
+            // It runs on the first cycle that would otherwise have skipped — a frame whose only
+            // other work is the survey — and costs one Renderer.bounds read per tracked member,
+            // low single-digit thousands. Taking it here rather than inside the commit keeps it
+            // off the frame this whole exercise exists to shrink, and taking it in one pass
+            // rather than sixteen segments at a time means no member is ever compared against a
+            // baseline from a different commit.
+            if (!_driftBaselineTaken)
+            {
+                for (int i = 0; i < _driftRing.Count; i++)
+                {
+                    if (TakeProbeBounds(_driftRing[i]))
+                        probed++;
+                }
+                _driftBaselineTaken = true;
+                _driftCursor = 0;
+                return true;
+            }
+            int n = Mathf.Min(BoundsProbeSegmentsPerCycle, _driftRing.Count);
+            for (int i = 0; i < n; i++)
+            {
+                if (_driftCursor >= _driftRing.Count)
+                    _driftCursor = 0;
+                Segment seg = _driftRing[_driftCursor++];
+                if (!seg.ProbeBoundsValid)
+                    continue;
+                bool has = false;
+                Bounds live = default;
+                foreach (MeshRenderer r in seg.Renderers)
+                {
+                    if (r == null)
+                    {
+                        detail = "a member renderer of a tracked segment had died (the leaver "
+                               + "path that clears its property block only runs inside a commit)";
+                        return false;
+                    }
+                    if (!has)
+                    {
+                        live = r.bounds;
+                        has = true;
+                    }
+                    else
+                    {
+                        live.Encapsulate(r.bounds);
+                    }
+                }
+                if (!has)
+                    continue;
+                probed++;
+                float dc = (live.center - seg.ProbeBounds.center).sqrMagnitude;
+                float de = (live.extents - seg.ProbeBounds.extents).sqrMagnitude;
+                float eps2 = BoundsDriftEpsilonWU * BoundsDriftEpsilonWU;
+                if (dc > eps2 || de > eps2)
+                {
+                    detail = $"a tracked segment's {seg.Renderers.Count}-renderer AABB had "
+                           + $"drifted {Mathf.Sqrt(Mathf.Max(dc, de)):F3}wu against the "
+                           + $"{BoundsDriftEpsilonWU:0.00}wu bar";
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        /// <summary>Measure one segment's live member union into its baseline. Returns false for
+        /// a segment the probe cannot judge (no members, or a dead one — the latter is left for
+        /// the compare pass above to report as drift rather than silently baselined).</summary>
+        private static bool TakeProbeBounds(Segment seg)
+        {
+            seg.ProbeBoundsValid = false;
+            bool has = false;
+            Bounds live = default;
+            foreach (MeshRenderer r in seg.Renderers)
+            {
+                if (r == null)
+                    return false;
+                if (!has)
+                {
+                    live = r.bounds;
+                    has = true;
+                }
+                else
+                {
+                    live.Encapsulate(r.bounds);
+                }
+            }
+            if (!has)
+                return false;
+            seg.ProbeBounds = live;
+            seg.ProbeBoundsValid = true;
+            return true;
+        }
+
+        /// <summary>
+        /// THE DECISION: would running the commit now produce the table that is already in
+        /// force? Every term is a comparison against what that table was built from, every
+        /// refusal is counted, and the refusal that fired carries its own numbers into
+        /// <see cref="_lastNoSkipDetail"/>.
+        ///
+        /// <para>ORDER IS ATTRIBUTION, not correctness: the terms are independent, and the
+        /// first one that refuses is the one the line names. The cheap scalars come first so a
+        /// refused cycle does not pay for the drift probe.</para>
+        /// </summary>
+        private bool CommitWouldChangeNothing(TilesOcclusionGenerator gen, float now)
+        {
+            if (!_committedSigValid || _segments.Count == 0)
+            {
+                _noSkipNoTable++;
+                _lastNoSkipDetail =
+                    $"there was no table in force to compare against ({_segments.Count} "
+                    + "segment(s), signature banked: "
+                    + (_committedSigValid ? "yes" : "no") + ")";
+                return false;
+            }
+            if (_rescanUrgent || gen.m_RoomRenderers.Count != _builtRoomCount)
+            {
+                _noSkipReveal++;
+                _lastNoSkipDetail =
+                    $"a room reveal — {gen.m_RoomRenderers.Count} room renderer(s) against the "
+                    + $"{_builtRoomCount} the table was built from";
+                return false;
+            }
+            if (_cycleOpenedEarly)
+            {
+                _noSkipEarly++;
+                _lastNoSkipDetail =
+                    "the cycle was ASKED FOR: it opened "
+                    + $"{now - _lastCycleOpenedAt:F2}s after the last one against a "
+                    + $"{RescanIntervalSeconds:0.0}s cadence, which is a site zeroing "
+                    + "_nextRescan for a mid-fade regeneration";
+                return false;
+            }
+            if (_cycleMaterialsDirty)
+            {
+                _noSkipMaterials++;
+                _lastNoSkipDetail =
+                    "the dissolve had reassigned sharedMaterials since the last cycle — our own "
+                    + "copies carry the same shader family, so the fact bits cannot see it";
+                return false;
+            }
+            if (!BoardStillWhereTheFloorPlanesSayItIs(gen))
+            {
+                _noSkipBoard++;
+                _lastNoSkipDetail =
+                    "the board had moved out from under the floor planes the standing and "
+                    + "ground rules measure against (the PERF S4 probe, "
+                    + (_prepBoardProbeValid ? "live" : "NOT ARMED — no probe was taken") + ")";
+                return false;
+            }
+            if (_sceneFactSigSum != _committedSceneSum || _sceneFactSigXor != _committedSceneXor)
+            {
+                _noSkipScene++;
+                _lastNoSkipDetail =
+                    $"the SCENE signature moved over {_factCount} classified renderer(s) "
+                    + $"(banked {_committedSceneSum:X16}/{_committedSceneXor:X16}, live "
+                    + $"{_sceneFactSigSum:X16}/{_sceneFactSigXor:X16}) — a renderer appeared, "
+                    + "died, was deactivated by the game or changed shader family. IF THIS IS "
+                    + "THE COUNT THAT DOMINATES, the scene is churning under the snapshot and "
+                    + "the next round's question is WHICH renderers, not whether to skip";
+                return false;
+            }
+            if (_surveySig != _committedWallSig)
+            {
+                _noSkipWalls++;
+                _lastNoSkipDetail =
+                    $"the WALL signature moved over {_surveyWalls.Count} cache wall(s) / "
+                    + $"{_cycleSurveyRenderers} subtree renderer(s) this window "
+                    + $"({_committedWallSig:X16} banked, {_surveySig:X16} live)";
+                return false;
+            }
+            if (_skipRun >= MaxSkippedCyclesInARow)
+            {
+                _noSkipCeiling++;
+                _lastNoSkipDetail =
+                    $"THE STALENESS CEILING: {_skipRun} cycle(s) had been skipped in a row "
+                    + $"({now - _lastCommitAt:F1}s of table age) and the fail-safe forced one "
+                    + "commit. This is the ONE term that can still produce a periodic stall — "
+                    + "if this count is the only non-zero refusal, the signature is complete "
+                    + "and the ceiling is what the next round should raise or remove";
+                return false;
+            }
+            if (!SegmentBoundsStillWhereTheCommitLeftThem(out int probed, out string driftWhy))
+            {
+                _noSkipDrift++;
+                _cycleProbedSegments += probed;
+                _lastNoSkipDetail = "the geometry had moved under an unchanged membership: "
+                                  + driftWhy;
+                return false;
+            }
+            _cycleProbedSegments += probed;
+            return true;
+        }
+
+        /// <summary>Append the SKIP clause to the budget line. Every field is a count taken this
+        /// window — including the nine refusal counters and the last refusal's own numbers — so
+        /// a stage that never ran, a stage that ran and skipped nothing, and a stage that
+        /// skipped everything all print visibly different text.</summary>
+        private void AppendSkipClause(System.Text.StringBuilder sb)
+        {
+            int judged = _cycleSkipped + _cycleCommitted;
+            sb.Append(" SKIP (PERF S5 — the cycle that does not commit): ")
+              .Append(_cycleSkipped).Append(" of ").Append(judged)
+              .Append(" judged cycle(s) SKIPPED the commit outright, ")
+              .Append(_cycleCommitted).Append(" committed; longest run of skips ")
+              .Append(_cycleWorstSkipRun).Append(" (ceiling ").Append(MaxSkippedCyclesInARow)
+              .Append("); DECISION LATENCY — the table in force stood at most ")
+              .Append(_cycleWorstTableAgeSeconds.ToString("F1"))
+              .Append("s without a rebuild in this window, against the ")
+              .Append(RescanIntervalSeconds.ToString("0.0"))
+              .Append("s cadence a committing cycle gives it. SURVEY: ")
+              .Append(_cycleSurveyFrames).Append(" frame(s) at ")
+              .Append(SurveyBudgetMillis.ToString("0.0")).Append("ms/frame, worst ")
+              .Append(_cycleWorstSurveyMillis.ToString("F2")).Append("ms, ")
+              .Append(_cycleSurveyTotalMillis.ToString("F1")).Append("ms total over ")
+              .Append(_cycleSurveyRenderers)
+              .Append(" wall-subtree renderer(s) — this is the PRICE of the skip and it is "
+                    + "paid on every cycle, committing or not; ")
+              .Append(_cycleProbedSegments)
+              .Append(" segment AABB(s) re-measured by the drift probe at ")
+              .Append(BoundsDriftEpsilonWU.ToString("0.00")).Append("wu. WHY A CYCLE COMMITTED: ")
+              .Append(_noSkipNoTable).Append(" no table yet, ")
+              .Append(_noSkipReveal).Append(" room reveal, ")
+              .Append(_noSkipEarly).Append(" asked for (a mid-fade regeneration zeroed the "
+                    + "cadence), ")
+              .Append(_noSkipMaterials).Append(" dissolve material swap, ")
+              .Append(_noSkipBoard).Append(" board moved, ")
+              .Append(_noSkipScene).Append(" scene signature moved, ")
+              .Append(_noSkipWalls).Append(" wall signature moved, ")
+              .Append(_noSkipCeiling).Append(" STALENESS CEILING, ")
+              .Append(_noSkipDrift).Append(" segment AABB drift. LAST REFUSAL: ")
+              .Append(_lastNoSkipDetail)
+              .Append(". READ THIS AGAINST 'WORST SINGLE FRAME' ABOVE: the ModBuild 274 log "
+                    + "measured ~95ms of commit on EVERY cycle (WallCache 31.5, PropUnits 30.0, "
+                    + "Mounted 24, other 21 phases 10) with the SAME 12819 warmed renderers and "
+                    + "3105 unit roots in 22 consecutive windows — a table rebuilt 66 times to "
+                    + "the same answer. A skipped cycle costs the survey and nothing else.");
+        }
     }
 }

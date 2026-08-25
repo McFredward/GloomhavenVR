@@ -132,6 +132,40 @@ namespace GloomhavenVR.Core;
 /// roll-call already reads <c>'CR_FR_Wall_Log_Structure_03' FLOOR arm … fades with its wall</c> —
 /// i.e. the standing rule is releasing it correctly and the run is still holding it.</para>
 ///
+/// <para>MODBUILD 275 — THE ModBuild-266 TERM WAS ON THE ARM THE SHELF DOES NOT TAKE. User,
+/// 2026-08-25, hardware, ModBuild 274: <i>"Die ein/ausblendung sind schon fast perfekt in dem
+/// Level - was noch fehlt sind die Großen Bücherregale die als ganze Wandsektion verwendet werden
+/// vom Spiel und nicht ausblenden."</i> The 274 log answers it in one row, printed 23 rescans
+/// running: <c>'CR_ST_WallShelf_Stone_Wood' FIGURE arm, under a wall, HAS a fade channel,
+/// PROTECTED @ Wall 4/Generated Content/PCG_CR_ST_WallShelf_Stone_Wood/CR_ST_WallShelf_Stone_Wood</c>,
+/// with the unit measured as <c>foot 0.0 wu over floor 0.0, height 3.3 wu, span 2.3x1.8 wu, 4
+/// renderer(s) — figure/actor prop</c> and all four of its renderers listed in the refused-claims
+/// roll as <c>'…' → 'Wall 4'</c>. So <see cref="FadeDriver.CollectWallFadeInfo"/> — the choke point
+/// every wall-renderer collection goes through — was ALREADY asking for this shelf on behalf of
+/// the very wall it substitutes for, and THIS FILE was the only thing saying no.</para>
+///
+/// <para>The ModBuild-266 <c>wall-feature fragment</c> term is written <c>!figureAncestry &amp;&amp;
+/// wallCut &amp;&amp; …</c>, i.e. the FLOOR arm only, and so is the height cap. This tileset hangs
+/// an <c>Animator</c> over its wall shelves — ModBuild 157 measured exactly that for
+/// <c>CR_ST_WallShelf_Stone_Bone</c> and recorded it in this header — so the shelf takes the FIGURE
+/// arm, where neither term is asked at all. Nothing was mistuned; the rule simply has no wall term
+/// on the arm the subject travels. <c>WallStandingProp.IsWallBuiltSection</c> is that term, with
+/// the same two conjuncts the FLOOR arm's carries (a wall inside the unit walk's own BOUNDED
+/// window, and the unit rising clear of the ground band) and a third the FIGURE arm requires:
+/// <see cref="FadeDriver.IsWallGeneratedDressing"/>, which is provenance ON TOP OF an absolute
+/// <c>ActorBehaviour</c>/<c>CInteractableActor</c> veto. THE ROUND-7 RULING IS NOT RELAXED.</para>
+///
+/// <para>WHAT THIS LANDS THE SHELF IN, and it is none of the three adoption lanes. Released here,
+/// the shelf is collected by <c>'Wall 4'</c>'s OWN renderer list through the toggle-native path
+/// (its materials carry a live <c>_WallFade_On</c> gate — the census column reads <c>HAS a fade
+/// channel</c>), which is the same applier that already fades the masonry beside it and the only
+/// one that drives a 4-renderer, 3.3 wu, 2.3x1.8 wu piece correctly. The mounted lane's
+/// <c>architecture-scale (AABB volume 3.4 wu³ &gt; 1.5)</c> refusal is DOWNSTREAM of this and is
+/// left exactly as it is: the mounted sweep only ever saw the shelf because the wall's own
+/// collection had refused it, and its hand-off to "stacked-shell territory" reaches nothing —
+/// the stacked pass requires a piece's base at or above the wall's original course top minus
+/// 1.2 wu, and this unit's foot is 0.0 wu, on the floor.</para>
+///
 /// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE./// <para>THE STACKED-SHELL PASS IS DELIBERATELY LEFT ALONE. Its own admission test requires a
 /// piece's base to sit at or above the wall's ORIGINAL course top minus 1.2 wu — floor-band
 /// geometry cannot satisfy that, so adding a second guard there would be a line of code that can
@@ -277,6 +311,87 @@ internal static partial class WallSegmentFade
         /// so.</summary>
         private const int StandingWallCutNameCap = 12;
 
+        /// <summary>MODBUILD 275 — roots of the units the WALL-SECTION term released this rescan.
+        /// Its COUNT is what the census prints, and it is a SET for the same reason
+        /// <see cref="_standingWallCutRoots"/> is: the rule is asked once per RENDERER while its
+        /// verdict is a property of the UNIT.
+        ///
+        /// <para>DELIBERATELY ITS OWN CONTAINER, never merged with the ModBuild-266
+        /// <c>[WALL-BUILT]</c> tag of the mounted lane nor with ModBuild 271's below-the-bar
+        /// counter. Three wrong diagnoses in this subsystem came from two populations sharing one
+        /// number.</para></summary>
+        private readonly HashSet<Transform> _wallSectionRoots = new(16);
+
+        /// <summary>The NAMES behind that count, deduplicated by sentence with an instance count —
+        /// the same shape <see cref="_standingWallCutNames"/> keeps, and for the same ModBuild-267
+        /// reason: a count whose subjects cannot be named is a rumour.</summary>
+        private readonly Dictionary<string, int> _wallSectionNames = new(16);
+
+        /// <summary>Every DISTINCT wall-section sentence seen this rescan, capped or not — the N
+        /// in the line's "named K of N, dropped M". Without it the named list could only ever
+        /// report its own size, which is the ellipsis-as-absence failure this subsystem has paid
+        /// for three times.</summary>
+        private readonly HashSet<string> _wallSectionSeen = new(16);
+
+        /// <summary>THE FAILURE ARM, keyed by unit root so one unit is named once: units that
+        /// reached this term and were refused by it, carrying WHICH half of the conjunction said
+        /// no and the number it said no on. Without it "the term did not fire" carries zero
+        /// information — the in-repo lesson is that a gated remedy that never runs and a remedy
+        /// that ran and was wrong look identical in a log.</summary>
+        private readonly Dictionary<Transform, string> _wallSectionFail = new(32);
+
+        /// <summary>Every unit root the failure arm has already counted this rescan. Separate from
+        /// the capped map above ON PURPOSE: keying the de-duplication off a CAPPED container makes
+        /// the counter beside it count RENDERERS once the cap is full and UNITS before it, which
+        /// is a counter that changes what it measures halfway through a scene — the exact shape of
+        /// "a summary stat is not the field".</summary>
+        private readonly HashSet<Transform> _wallSectionFailSeen = new(32);
+
+        /// <summary>One unit's WALL-SECTION geometry verdict for this rescan — the two conjuncts
+        /// that are properties of the UNIT, memoised by root so the sentence behind them is built
+        /// once. Never holds a transform across frames (Apparance rebirths these props constantly),
+        /// the same discipline every other memo in this file keeps.</summary>
+        private readonly Dictionary<Transform, WallSectionMeasure> _wallSectionGeomMemo = new(32);
+
+        private readonly struct WallSectionMeasure
+        {
+            internal readonly bool Geometry;
+            internal readonly string Why;
+
+            internal WallSectionMeasure(bool geometry, string why)
+            {
+                Geometry = geometry;
+                Why = why;
+            }
+        }
+
+        /// <summary>The unit half of the ModBuild-275 term, out of (and into) the per-rescan memo.
+        /// FIGURE arm only — the caller gates on it, and the memo would otherwise hold two
+        /// different questions' answers under one key on a root that happens to be both a figure
+        /// root and a prop-unit root.</summary>
+        private bool WallSectionGeometry(Transform root, in WallStandingProp.Unit unit,
+                                         float floorY, bool wallCut, bool vegetation,
+                                         out string why)
+        {
+            if (_wallSectionGeomMemo.TryGetValue(root, out WallSectionMeasure memo))
+            {
+                why = memo.Why;
+                return memo.Geometry;
+            }
+            bool geometry = WallStandingProp.IsWallBuiltSection(
+                unit, floorY, figureAncestry: true, wallCut, vegetation, out why);
+            _wallSectionGeomMemo[root] = new WallSectionMeasure(geometry, why);
+            return geometry;
+        }
+
+        /// <summary>How many distinct failure sentences the census names. The count beside it is
+        /// the full population.</summary>
+        private const int WallSectionNameCap = 12;
+
+        /// <summary>How many units reached the term and were refused by it this rescan (the map
+        /// above is capped, this is not).</summary>
+        private int _wallSectionFailCount;
+
         /// <summary>MODBUILD 266 — the per-subject ROLL-CALL. One line per distinct renderer NAME
         /// this rescan, carrying the two facts that adjudicate the five named acceptance subjects
         /// (shelf + board must fade; curtain must fade; ice crystal, skeleton limbs and light
@@ -371,6 +486,10 @@ internal static partial class WallSegmentFade
             _standingUnitMemo.Clear();
             _standingRootMemo.Clear();
             _standingRootCutMemo.Clear();
+            // ModBuild 275: a DERIVATION cache, so it belongs in the memo half of the scope and
+            // not in the census half — see this method's doc for why the two may not move
+            // together.
+            _wallSectionGeomMemo.Clear();
             // PERF S3 dropped the per-node subtree facts here too. PERF S4 moved that single
             // line to the top of CommitWallCache: this scope now opens one stage earlier, and
             // the node-fact WINDOW may not move with it, because its constancy argument is about
@@ -393,6 +512,12 @@ internal static partial class WallSegmentFade
             _standingSubjectBaseline.Clear();
             _standingBlocked.Clear();
             _standingBlockedCount = 0;
+            _wallSectionRoots.Clear();
+            _wallSectionNames.Clear();
+            _wallSectionSeen.Clear();
+            _wallSectionFail.Clear();
+            _wallSectionFailSeen.Clear();
+            _wallSectionFailCount = 0;
         }
 
         /// <summary>The PROP UNIT of a renderer for the FIGURE arm: the nearest ancestor (itself
@@ -507,7 +632,65 @@ internal static partial class WallSegmentFade
                 else if (_standingWallCutNames.Count < StandingWallCutNameCap)
                     _standingWallCutNames[named] = 1;
             }
-            NoteStandingSubject(r, figure, wallCut, fadeChannel, verdict);
+            // MODBUILD 275 — THE FIGURE ARM'S WALL-SECTION TERM. See WallStandingProp
+            // .IsWallBuiltSection for the subject, the evidence and the three conjuncts; the
+            // fourth and last one is here because it is the only ancestor walk in the rule.
+            //
+            // THE ORDER IS THE COST ARGUMENT, not a style choice. figure/verdict are already in
+            // hand, wallCut came out of a per-parent memo and the ground-band compare is two
+            // floats — so IsWallGeneratedDressing is asked only for a unit that has already
+            // passed all three, which in the ModBuild-274 session is THREE units in the whole
+            // scene. The predicate's own note says the un-memoised actor pair costs "a handful
+            // per rescan"; this ordering is what keeps that true.
+            //
+            // THE ROUND-7 RULING IS NOT RELAXED. IsWallGeneratedDressing carries the
+            // ActorBehaviour / CInteractableActor chain as an ABSOLUTE VETO and this call site
+            // adds provenance ON TOP of it — it is strictly narrower on figures than the arm it
+            // stands beside, exactly as the four ModBuild-266 sites are.
+            bool wallSection = false;
+            if (verdict && figure)
+            {
+                // THE GEOMETRY HALF IS A PROPERTY OF THE UNIT, so it is measured once per unit
+                // per rescan and not once per renderer — the same discipline _standingUnitMemo
+                // keeps, and for the same reason: StandsOnFloor already builds a shape column and
+                // a sentence on EVERY call, and a second one of those per renderer over the whole
+                // protected population is exactly the kind of per-rescan string cost this
+                // subsystem is currently being blamed for. The memo is only ever filled on the
+                // FIGURE branch, so an entry can never be read with the other arm's meaning.
+                bool geometry = WallSectionGeometry(root!, unit, floorY, wallCut, vegetation,
+                                                    out string sectionWhy);
+                if (geometry && IsWallGeneratedDressing(r))
+                {
+                    verdict = false;
+                    wallSection = true;
+                    why = sectionWhy;
+                    _wallSectionRoots.Add(root!);
+                    string sentence = $"'{root!.name}' {why}";
+                    _wallSectionSeen.Add(sentence);
+                    if (_wallSectionNames.TryGetValue(sentence, out int seen))
+                        _wallSectionNames[sentence] = seen + 1;
+                    else if (_wallSectionNames.Count < WallSectionNameCap)
+                        _wallSectionNames[sentence] = 1;
+                }
+                else if (_wallSectionFailSeen.Add(root!))
+                {
+                    // THE FAILURE ARM. Which half said no, with the number it said no on — and
+                    // never a constant string, because a change-gated line whose reason never
+                    // varies prints once and then reads as a dead instrument.
+                    _wallSectionFailCount++;
+                    if (_wallSectionFail.Count < WallSectionNameCap)
+                    {
+                        _wallSectionFail[root!] = $"'{root!.name}' "
+                            + (geometry
+                                ? "GEOMETRY half PASSED, PROVENANCE half refused — no "
+                                  + "ProceduralWall built it, or an ActorBehaviour / "
+                                  + "CInteractableActor above it vetoes it (absolute, round-7 "
+                                  + $"ruling): {sectionWhy}"
+                                : $"GEOMETRY half refused: {sectionWhy}");
+                    }
+                }
+            }
+            NoteStandingSubject(r, figure, wallCut, fadeChannel, verdict, wallSection);
             // THE FOLIAGE PATHS TAKE THE FIGURE ARM AND NEVER THE PLAIN FLOOR ARM, and that split
             // is the whole reason this method has a flag. ModBuild 167's note holds word for word:
             // a bush is a multi-piece thing standing on the ground under the height cap, so
@@ -732,8 +915,13 @@ internal static partial class WallSegmentFade
         /// PROTECTED/NEAR-MISS name list cannot answer five questions at once — that is the
         /// "a summary stat is not the field" lesson, paid for twice in this subsystem.
         /// </summary>
+        /// <param name="wallSection">MODBUILD 275 — this row was RELEASED by the wall-section
+        /// term. It must share the PROTECTED tier's priority and never fall into the baseline: the
+        /// baseline keeps 16 names out of hundreds, so a released subject dropped into it is a
+        /// subject the next log cannot show — which is precisely the ModBuild-267 instrument
+        /// failure this tiering was built to end.</param>
         private void NoteStandingSubject(Renderer r, bool figure, bool wallCut, bool fadeChannel,
-                                         bool verdict)
+                                         bool verdict, bool wallSection)
         {
             if (_standingSubjectRoll.ContainsKey(r.name)
                 || _standingSubjectBaseline.ContainsKey(r.name))
@@ -752,7 +940,7 @@ internal static partial class WallSegmentFade
             // sorted almost nothing and the subject could have been crowded out again. Sorting by
             // relevance rather than by arrival is the fix; the caps then bound the STRING only,
             // never the question the line can answer.
-            bool priority = verdict;
+            bool priority = verdict || wallSection;
             if (priority)
             {
                 if (_standingSubjectRoll.Count >= StandingSubjectRollCap)
@@ -771,7 +959,11 @@ internal static partial class WallSegmentFade
                     + (fadeChannel
                         ? "HAS a fade channel"
                         : "NO fade channel — this rule cannot move it")
-                    + ", " + (verdict ? "PROTECTED" : "fades with its wall");
+                    + ", " + (verdict
+                        ? "PROTECTED"
+                        : wallSection
+                            ? "[WALL-SECTION] RELEASED — the game uses this AS a wall section"
+                            : "fades with its wall");
                 // THE PATH, for priority rows only. ModBuild 267 was diagnosed blind because the
                 // shelf instance that FAILS is refused before any census sees it, so its parenting
                 // has never appeared in a log — while the instance that WORKS prints its path in
@@ -818,7 +1010,32 @@ internal static partial class WallSegmentFade
                 if (kv.Value > 1)
                     sb.Append(" ×").Append(kv.Value);
             }
+            // NO AppendTally HERE, DELIBERATELY. This list's entries are distinct SENTENCES and
+            // the only total standing beside it is a count of distinct ROOTS — many roots share
+            // one sentence, so "named 1 of 3, dropped 2" would be a wrong number where the ×N
+            // suffix already carries the right one. The unit count is printed next to this list
+            // by the caller.
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// MODBUILD 275 — HOW MUCH A CAP COST, stated in the line itself: "named K of N, dropped
+        /// M". Appends nothing at all when nothing was dropped, so the boring case stays quiet.
+        ///
+        /// <para>WHY EVERY BUDGETED LIST IN THIS CENSUS NOW ENDS IN ONE. A bare "…" says a list
+        /// was cut and says nothing about by how much, and three wrong diagnoses in this project
+        /// came from reading an ellipsis-capped list as evidence of absence — including one in
+        /// this very file, where a counter said a term fired 2-6 times per rescan while its tag
+        /// appeared ZERO times in the log, because every one of its refusals was inside the part
+        /// that got cut. The two numbers never disagreed; one was a truncated sample of the
+        /// other's population, and nothing printed said so.</para>
+        /// </summary>
+        private static void AppendTally(System.Text.StringBuilder sb, int shown, int total)
+        {
+            if (total <= shown)
+                return;
+            sb.Append("; … (named ").Append(shown).Append(" of ").Append(total)
+              .Append(", dropped ").Append(total - shown).Append(')');
         }
 
         /// <summary>Record a refused claim for the census (capped list, full count). Called from
@@ -849,15 +1066,24 @@ internal static partial class WallSegmentFade
             // ModBuild 266: the new term and the roll-call are IN the signature, or their whole
             // population can turn over under a line that never reprints (the held-instrument
             // lesson).
+            int wallSectionUnits = _wallSectionRoots.Count;
             int sig = protectedUnits * 977 + _standingBlockedCount * 13
                       + _standingBlocked.Count * 7 + _standingNearMiss.Count
                       + wallCutRefused * 31 + _standingSubjectRoll.Count * 3
-                      + _standingSubjectBaseline.Count * 2;
+                      + _standingSubjectBaseline.Count * 2
+                      // ModBuild 275: BOTH halves of the new term are in the signature. A line
+                      // that cannot reprint when its own population turns over is the
+                      // held-instrument failure, and a FAILURE arm that never reprints is worse
+                      // than none at all.
+                      + wallSectionUnits * 1553 + _wallSectionFailCount * 17;
             if (sig == _standingCensusSig)
                 return;
             _standingCensusSig = sig;
-            if (protectedUnits == 0 && _standingBlockedCount == 0 && _standingNearMiss.Count == 0)
+            if (protectedUnits == 0 && _standingBlockedCount == 0 && _standingNearMiss.Count == 0
+                && wallSectionUnits == 0 && _wallSectionFailCount == 0)
+            {
                 return;
+            }
 
             // PRINT BUDGETS. The protected list stays short — it is dominated by hundreds of
             // identical floor-grass units and naming six of them says everything six hundred
@@ -865,30 +1091,36 @@ internal static partial class WallSegmentFade
             // it is the h/w distribution that retired the TREE arm (0.23…2.11, one value over the
             // 2.0 bar and it was a WALL), and since ModBuild 258 it is also the roster of units
             // the whole-unit rule applies to.
+            //
+            // EVERY CAPPED LIST BELOW NOW STATES "named K of N, dropped M" IN THE LINE ITSELF.
+            // ModBuild 274's own log is the argument: its roll-call ran out of budget mid-list
+            // and ended in a bare "…", so reading it as the population is exactly the
+            // ellipsis-as-absence mistake this project has made three times. A cap is only honest
+            // when the reader can see what it cost.
             var names = new System.Text.StringBuilder();
+            int namesShown = 0;
             foreach (KeyValuePair<Transform, string> kv in _standingPropDesc)
             {
                 if (names.Length > 320)
-                {
-                    names.Append("; …");
                     break;
-                }
                 if (names.Length > 0)
                     names.Append("; ");
                 names.Append(kv.Value);
+                namesShown++;
             }
+            AppendTally(names, namesShown, _standingPropDesc.Count);
             var roll = new System.Text.StringBuilder();
+            int rollShown = 0;
             foreach (KeyValuePair<string, string> kv in _standingSubjectRoll)
             {
                 if (roll.Length > 3000)
-                {
-                    roll.Append("; …");
                     break;
-                }
                 if (roll.Length > 0)
                     roll.Append("; ");
                 roll.Append(kv.Value);
+                rollShown++;
             }
+            AppendTally(roll, rollShown, _standingSubjectRoll.Count);
             // The baseline tier LAST and on its own budget, so a flood of it can never again
             // crowd out the subject the round is about (ModBuild 267: 48 first-come slots, spent
             // before the shelf was ever asked, and the one line written to adjudicate the fix
@@ -896,7 +1128,9 @@ internal static partial class WallSegmentFade
             if (_standingSubjectBaseline.Count > 0)
             {
                 roll.Append(" || BASELINE (units the FLOOR arm already releases — sampled, not "
-                            + "enumerated): ");
+                            + $"enumerated; this tier is hard-capped at "
+                            + $"{StandingSubjectBaselineCap} names and drops the rest SILENTLY at "
+                            + "collection time, so its size is a quota and never a population): ");
                 bool first = true;
                 foreach (KeyValuePair<string, string> kv in _standingSubjectBaseline)
                 {
@@ -931,13 +1165,12 @@ internal static partial class WallSegmentFade
                 missOrder.Add(kv.Value);
             }
             var misses = new System.Text.StringBuilder();
+            int missShown = 0;
             foreach (string sentence in missOrder)
             {
                 if (misses.Length > 3000)
-                {
-                    misses.Append("; …");
                     break;
-                }
+                missShown++;
                 if (misses.Length > 0)
                     misses.Append("; ");
                 misses.Append(sentence);
@@ -945,6 +1178,33 @@ internal static partial class WallSegmentFade
                 if (n > 1)
                     misses.Append(" ×").Append(n);
             }
+            AppendTally(misses, missShown, missOrder.Count);
+            // THE WALL-SECTION BLOCK IS BUILT BEFORE ANYTHING THAT CAN BE TRUNCATED and printed
+            // on its own budget, the discipline ModBuild 268 wrote for the wall-fragment names:
+            // this is the round's whole subject, and the near-miss and roll-call budgets have
+            // each swallowed a subject before.
+            var section = new System.Text.StringBuilder();
+            int sectionShown = 0;
+            foreach (KeyValuePair<string, int> kv in _wallSectionNames)
+            {
+                if (section.Length > 0)
+                    section.Append("; ");
+                section.Append(kv.Key);
+                if (kv.Value > 1)
+                    section.Append(" ×").Append(kv.Value);
+                sectionShown++;
+            }
+            AppendTally(section, sectionShown, _wallSectionSeen.Count);
+            var sectionFail = new System.Text.StringBuilder();
+            int failShown = 0;
+            foreach (KeyValuePair<Transform, string> kv in _wallSectionFail)
+            {
+                if (sectionFail.Length > 0)
+                    sectionFail.Append("; ");
+                sectionFail.Append(kv.Value);
+                failShown++;
+            }
+            AppendTally(sectionFail, failShown, _wallSectionFailCount);
             VRLog.Info(Name,
                 $"STANDING PROP: {protectedUnits} prop(s) STAND ON THE FLOOR and are never wall "
                 + $"geometry on any path — whole prop, every renderer (user report 2026-08-19, "
@@ -985,13 +1245,39 @@ internal static partial class WallSegmentFade
                     ? " — ZERO with the shelves still solid means the window does not see their "
                       + "wall and this term is the wrong lever."
                     : ".")
+                + $" [WALL-SECTION] (ModBuild 275, 'die Großen Bücherregale die als ganze "
+                + $"Wandsektion verwendet werden vom Spiel und nicht ausblenden'): the FIGURE arm "
+                + $"now releases a unit the WALL GENERATOR built, with NO ActorBehaviour / "
+                + $"CInteractableActor anywhere above it (absolute veto, round-7 ruling, NOT "
+                + $"relaxed), with a wall inside the unit walk's own bounded window, and rising "
+                + $"clear of the ground band ({StandingPropFootBandWU:0.0} wu). It is the "
+                + $"ModBuild-266 wall-fragment term on the arm that term cannot reach — the shelf "
+                + $"carries an Animator ancestor, so neither the fragment term nor the "
+                + $"{StandingPropMaxHeightWU:0.0} wu height cap was ever asked for it. Its own "
+                + $"tag, its own counter: never merged with the mounted lane's ModBuild-266 "
+                + $"[WALL-BUILT] tag nor with ModBuild 271's below-the-bar counter. "
+                + $"{wallSectionUnits} unit(s) RELEASED this rescan"
+                + (section.Length > 0 ? ", NAMELY: " + section + "." : ".")
+                + $" REFUSED BY THIS TERM: {_wallSectionFailCount} unit(s) reached it and were "
+                + $"turned away, each naming WHICH half of the conjunction said no"
+                + (sectionFail.Length > 0 ? ": " + sectionFail + "." : ".")
+                + (wallSectionUnits == 0
+                    ? " ZERO RELEASED is NOT evidence the term is inert — read the REFUSED roster "
+                      + "above: if it names the shelf with 'GEOMETRY half refused', the window or "
+                      + "the ground band is the wrong lever; if it names it with 'PROVENANCE half "
+                      + "refused', an actor component or a missing ProceduralWall is, and the "
+                      + "term must be withdrawn rather than retuned."
+                    : " FALSIFIER: this roster naming a hero, a monster, a summon, a floor hex, "
+                      + "'CV_Ice_Crystal_Form_02/03' or 'LightShaft_Prefab (1)' (user rulings "
+                      + "2026-08-24 and round 7). Then a conjunct is not the discriminator.")
                 + (roll.Length > 0
                     ? $" SUBJECT ROLL-CALL (one line per renderer NAME, up to "
                       + $"{StandingSubjectRollCap}, PROTECTED rows first and with their parent "
                       + $"path, because a PROTECTED row is this rule actively holding something "
                       + $"and that is where a still-missing prop shows up; this is what "
                       + $"adjudicates the named cases — "
-                      + $"shelf + board and curtain must read 'fades with its wall', the ice "
+                      + $"shelf + board and curtain must read 'fades with its wall' or "
+                      + $"'[WALL-SECTION] RELEASED', the ice "
                       + $"crystal, the skeleton limbs and the light shaft must read 'no wall "
                       + $"above' or 'NO fade channel'): {roll}."
                     : string.Empty)
@@ -1001,7 +1287,9 @@ internal static partial class WallSegmentFade
                 + $"Protected: {(protectedUnits > 0 ? names.ToString() : "none")}. "
                 + $"{_standingBlockedCount} claim(s) refused this rescan"
                 + (_standingBlocked.Count > 0
-                    ? $": {string.Join(", ", _standingBlocked)}."
+                    ? $" (named {_standingBlocked.Count} of {_standingBlockedCount}, dropped "
+                      + $"{_standingBlockedCount - _standingBlocked.Count}): "
+                      + $"{string.Join(", ", _standingBlocked)}."
                     : ".")
                 + (misses.Length > 0
                     ? $" NEAR MISS (reached the floor band, refused on another term — this is "

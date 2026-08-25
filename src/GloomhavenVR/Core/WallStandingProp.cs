@@ -277,6 +277,12 @@ internal static class WallStandingProp
     /// for.</summary>
     internal const string WallFragmentTag = "wall-feature fragment";
 
+    /// <summary>The leading tag of the WALL-BUILT SECTION refusal sentence — the FIGURE arm's
+    /// counterpart to <see cref="WallFragmentTag"/>, and deliberately a DIFFERENT string so the
+    /// two can never be counted as one another in a log. Grep the next hardware log for it. See
+    /// <see cref="IsWallBuiltSection"/> for the term and for what it may not reach.</summary>
+    internal const string WallSectionTag = "wall-built wall section";
+
     /// <summary>A prop unit's measured extent — the union AABB of every renderer under its root,
     /// which is the whole point: a skull is judged as part of its skeleton, never on its own.</summary>
     internal readonly struct Unit
@@ -488,6 +494,114 @@ internal static class WallStandingProp
               + $"{unit.SpanX:0.0}x{unit.SpanZ:0.0} wu, {unit.RendererCount} renderer(s) — "
               + (figureAncestry ? "figure/actor prop" : "floor prop")
               + $" [{shape}]";
+        return true;
+    }
+
+    /// <summary>
+    /// THE FIGURE ARM'S WALL-SECTION TERM — "die Großen Bücherregale die als ganze Wandsektion
+    /// verwendet werden vom Spiel und nicht ausblenden" (user, 2026-08-25, hardware, ModBuild 274).
+    ///
+    /// <para><b>THE SUBJECT, from that log verbatim.</b> Four renderers under one root:
+    /// <c>'CR_ST_WallShelf_Stone_Wood' FIGURE arm, under a wall, HAS a fade channel, PROTECTED
+    /// @ Wall 4/Generated Content/PCG_CR_ST_WallShelf_Stone_Wood/CR_ST_WallShelf_Stone_Wood</c>,
+    /// measured as <c>foot 0.0 wu over floor 0.0, height 3.3 wu, span 2.3x1.8 wu, 4 renderer(s) —
+    /// figure/actor prop</c>. A 3.3 wu bookshelf standing on the floor INSIDE a wall's own
+    /// <c>Generated Content</c>, refused to <c>'Wall 4'</c> 23 rescans in a row by this file's
+    /// FIGURE arm, and therefore left drawing over a wall whose fade is 1.00.</para>
+    ///
+    /// <para><b>WHY THE ModBuild-266 TERM DID NOT ALREADY CATCH IT, and this is the whole finding.</b>
+    /// <see cref="WallFragmentTag"/> is written <c>!figureAncestry &amp;&amp; wallCut &amp;&amp; …</c>
+    /// — the FLOOR arm only. The same tileset hangs an <c>Animator</c> over this shelf (ModBuild
+    /// 157 measured exactly that for <c>CR_ST_WallShelf_Stone_Bone</c>), so it takes the FIGURE
+    /// arm, where neither the wall-fragment term nor <see cref="MaxHeightWU"/> is asked at all. The
+    /// rule was judging a piece of wall by a rule that has no wall term on the arm it took. Two
+    /// gates further on than the four sites ModBuild 266 lifted, and the same class of miss.</para>
+    ///
+    /// <para><b>THE TERM, and every conjunct is one that already exists.</b> This method carries
+    /// the two the caller can afford to ask for every renderer:</para>
+    /// <list type="number">
+    /// <item>THE FIGURE ARM — this term exists precisely because the FLOOR arm's is unreachable
+    ///   here, so it fires nowhere else and cannot double-refuse anything.</item>
+    /// <item><paramref name="wallCut"/> — a wall inside the unit walk's own BOUNDED window
+    ///   (<c>WallSegmentFade.PropUnit.cs</c>, <c>WallInUnitWindow</c>). Never
+    ///   <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>: that probe climbs to the scene root
+    ///   and in this very session answers YES for a rigged skeleton's thighs, a light shaft and
+    ///   the ice formation the user has ruled may stay. Same argument, same evidence, as the
+    ///   FLOOR arm's conjunct 1 — read that comment.</item>
+    /// <item>THE UNIT RISES OUT OF THE GROUND BAND (<see cref="FootBandWU"/>). This is the
+    ///   conjunct that keeps the FLOOR of the world out of the term, and it is load-bearing rather
+    ///   than decorative here too: the ModBuild-274 log has FIGURE-arm floor cover parented under
+    ///   walls — <c>'FR_Floor_Grass_Half_01' FIGURE arm, under a wall … PROTECTED @ Walls/Wall 1/
+    ///   Generated Content/PCG_FR_Floor_Grass_Hex_Half_PR</c> — and those units top out ~0.2 wu
+    ///   over the floor. No new constant: the same 1.0 wu this subsystem already means "ground,
+    ///   never wall" by.</item>
+    /// </list>
+    ///
+    /// <para><b>THE THIRD CONJUNCT IS THE CALLER'S AND IS NOT OPTIONAL:</b>
+    /// <c>FadeDriver.IsWallGeneratedDressing</c> — the wall generator built it AND no
+    /// <c>ActorBehaviour</c> / <c>CInteractableActor</c> sits anywhere above it. THE ROUND-7
+    /// RULING IS NOT RELAXED (figures are NEVER touched, Lights-rule severity): that actor chain
+    /// stays an ABSOLUTE VETO and provenance is added ON TOP of it, never instead of it. It is
+    /// asked LAST, in the caller, because it is the only ancestor walk in the conjunction and the
+    /// three terms above have already cut the population to a handful per rescan.</para>
+    ///
+    /// <para><b>WHAT THIS CANNOT REACH, as consequences rather than hopes.</b> Every unit on the
+    /// FLOOR arm (the skeleton in skelet.jpg reads <c>FLOOR arm</c> in this log, both feet);
+    /// anything with no wall in its own bounded window, which is where
+    /// <c>CV_Ice_Crystal_Form_02/03</c> and <c>LightShaft_Prefab (1)</c> sit and which is also why
+    /// they resolve no prop unit at all (user ruling 2026-08-24 — the crystal formation STAYS);
+    /// the fountain and the doorway arch, whose rects are applied by the caller BEFORE
+    /// <paramref name="wallCut"/> can be set (2026-08-09, 2026-08-02); ground cover, by conjunct 3;
+    /// and anything with no authored wall-fade channel — this term removes a VETO at the
+    /// collection choke point, it does not grant admission.</para>
+    ///
+    /// <para><b>FALSIFIED BY:</b> the census's <c>[WALL-SECTION]</c> roster naming a hero, a
+    /// monster, a summon, a floor hex, the crystal formation or a light shaft. Then one of the
+    /// three conjuncts is not the discriminator and the term must be WITHDRAWN, not retuned.</para>
+    /// </summary>
+    /// <param name="why">Always measured, never a constant. When this returns TRUE it is the
+    /// refusal sentence the caller prints once provenance also holds; when it returns FALSE it
+    /// names WHICH term refused and the number it refused on, which is what the census's FAILURE
+    /// arm prints. "The rule did not fire" without "and by which number" is what cost this defect
+    /// its fourth round once already.</param>
+    internal static bool IsWallBuiltSection(in Unit unit, float floorY, bool figureAncestry,
+                                            bool wallCut, bool vegetation, out string why)
+    {
+        string shape = $"h {unit.Height:0.0} wu / w {unit.WidestSpanXZ:0.0} wu = "
+                       + $"{unit.SlendernessHW:0.00} h/w"
+                       + (wallCut ? ", under a wall" : ", no wall above")
+                       + (vegetation ? ", vegetation" : ", no vegetation");
+        float top = unit.MaxY - floorY;
+        if (!figureAncestry)
+        {
+            why = $"FLOOR arm — the '{WallFragmentTag}' term already covers this arm, so this one "
+                  + $"is never asked here [{shape}]";
+            return false;
+        }
+        if (!wallCut)
+        {
+            why = $"FIGURE arm but NO wall inside the unit walk's own bounded window — top "
+                  + $"{top:0.0} wu over floor {floorY:0.0}, height {unit.Height:0.0} wu over "
+                  + $"{unit.RendererCount} renderer(s); an unbounded ProceduralWall climb is NOT "
+                  + $"substituted here (it answers YES for the ice formation, a light shaft and a "
+                  + $"skeleton's thighs) [{shape}]";
+            return false;
+        }
+        if (top <= FootBandWU)
+        {
+            why = $"FIGURE arm under a wall, but the unit does NOT rise out of the ground band: "
+                  + $"top {top:0.0} wu over floor {floorY:0.0} ≤ {FootBandWU:0.0} wu, height "
+                  + $"{unit.Height:0.0} wu over {unit.RendererCount} renderer(s) — this is floor "
+                  + $"cover parented under a wall, and it keeps its protection [{shape}]";
+            return false;
+        }
+        why = $"{WallSectionTag}: foot {unit.MinY - floorY:0.0} wu over floor {floorY:0.0}, top "
+              + $"{top:0.0} wu, height {unit.Height:0.0} wu, span {unit.SpanX:0.0}x"
+              + $"{unit.SpanZ:0.0} wu over {unit.RendererCount} renderer(s) — the WALL GENERATOR "
+              + $"built this and no actor component sits above it, a wall is inside the unit "
+              + $"walk's own window and the unit rises clear of the ground band "
+              + $"({FootBandWU:0.0} wu), so the game is using it AS a wall section and the whole "
+              + $"unit fades with that wall [{shape}]";
         return true;
     }
 

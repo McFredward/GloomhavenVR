@@ -416,7 +416,82 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 274;
+    public const ushort ModBuild = 275;
+    // Build 275: THE COMMIT STOPS RUNNING WHEN NOTHING CHANGED, AND THE WALL-SECTION BOOKSHELF
+    // FADES. Bundle UNCHANGED at 67,234,683 — this one is a DLL-only install.
+    //   (1) HIS A/B SETTLED THE HITCH. "Die kurzen 'Haenger' sind noch da - und es liegt definitiv
+    //       an der Wandausblendung. Ich habe sie im Test testweise deaktiviert und die Haenger
+    //       waren weg." A hardware A/B outranks every inference in the log.
+    //       AND PERF S4 (ModBuild 273) DID NOT DELIVER. Matched on scene population (5803-5806
+    //       renderers, 1888 fade-capable in both logs), WORST COMMIT went 83.6-96.4ms in
+    //       ModBuild 267 to 92.4-120.4ms in 274 — ~17ms WORSE than four builds ago, on top of the
+    //       new Prepare stage's own cost. The stage itself works: `49.8ms total MOVED OFF THE
+    //       COMMIT FRAME; 12819 renderer(s) warmed, 3105 unit root(s) prewarmed; REFUSED 0 …
+    //       DROPPED 0`. Fifty milliseconds were hoisted and the stall stayed. That result IS the
+    //       finding: hoisting more was the wrong direction.
+    //       WHAT THE WINDOW TOTALS SHOW THAT THE WORST-CASE FIELDS HIDE: the commit costs ~95ms on
+    //       EVERY cycle (WallCache 31.5, PropUnits 30.0, Mounted 22-26, other 21 ~10, spread under
+    //       1ms). The 92/104/120 scatter is variance around a constant, not an occasional spike.
+    //       And the PREPARE clause reported the IDENTICAL two integers — 12819 and 3105 — in every
+    //       one of 22 windows, 66 consecutive cycles, at a population that never moved. The
+    //       subsystem was spending 95ms every two seconds rebuilding a table that came out the
+    //       same sixty-six times running.
+    //       SO THE FIX IS NOT "CHEAPER" OR "SPREAD", IT IS "DO NOT RUN". A new resumable SURVEY
+    //       stage re-derives a signature of every input the commit's OUTPUT is a function of and
+    //       skips the commit on equality. A skipped cycle leaves _segments untouched, so the
+    //       appliers, the fade ramp, the Schmitt trigger, the 0.12s tau and the 0.20s dwell all
+    //       run exactly as before. Fail-safe by construction: both halves are sampled EARLIER in
+    //       the cycle than the commit that banks them, so a stale hash can only cause an
+    //       unnecessary commit, never a wrong skip.
+    //       I BRIEFED DOUBLE-BUFFERING AND THAT BRIEF WAS ALSO WRONG. 54 of the 95ms live in
+    //       WallSegmentFade.PropUnit.cs (30ms) and .Mounted.cs (24ms), and BOTH mutate segments in
+    //       place — moving renderers between owners, hiding and restoring pieces. Handing those
+    //       phases the same Segment objects the appliers read is not double-buffering; it is the
+    //       mid-rebuild table the commit's atomicity exists to prevent, with a swap bolted on.
+    //       TWO BUGS THE LANE WROTE AND THEN CAUGHT, both of which would have made the change
+    //       SILENTLY INERT: (a) folding `renderer.enabled` into the signature — but this subsystem
+    //       HIDES things by writing that field, so the signature would have moved on every fade and
+    //       the skip would have fired almost never, precisely while the player is moving. Both
+    //       halves now key on identity plus activeInHierarchy, which is what the GAME flips and the
+    //       fade system never touches. (b) A drift probe baselined in FinishRefresh — taken BEFORE
+    //       StripGroundRenderers and EnforcePropUnitCohesion remove members from the list it would
+    //       be compared against, so every ground-stripped wall would have read as permanent drift.
+    //       HONEST LIMIT: when a commit DOES run it is still ~95ms. This removes the PERIODIC
+    //       hitch; it does not make the commit cheap. The remaining 54ms need the two files that
+    //       lane could not touch.
+    //   (2) THE BOOKSHELF USED AS A WALL SECTION. "was noch fehlt sind die Grossen Buecherregale
+    //       die als ganze Wandsektion verwendet werden vom Spiel und nicht ausblenden."
+    //       THE SHELF WAS NEVER A CANDIDATE FOR ANY ADOPTION LANE — the wall's own collection was
+    //       already asking for it. `997 claim(s) refused this rescan: 'CR_ST_WallShelf_Stone_Wood'
+    //       -> 'Wall 4', '…_Shelf01' -> 'Wall 4', '…_Shelf02', '…_Stone'`. Wall 4 was claiming all
+    //       four renderers and WallSegmentFade.Standing.cs was the only thing saying no.
+    //       WHY ModBuild 266 MISSED IT, AND NO NUMBER WAS MISTUNED: 266's "wall-feature fragment"
+    //       term is written on the FLOOR arm only, and so is its 2.5 wu height cap. This tileset
+    //       hangs an Animator over its wall shelves, so the shelf travels the FIGURE arm, where
+    //       neither term is asked at all. The arm the subject takes had no wall term on it.
+    //       The lane is the WALL SEGMENT'S OWN RENDERER LIST — not mounted, not stacked, not
+    //       prop-unit. The shelf's materials already carry a live wall-fade toggle ("HAS a fade
+    //       channel"), so once the veto lifts it joins seg.Renderers and fades by MPB with Wall 4
+    //       as one piece. The mounted architecture-scale test was NOT touched: its refusal is
+    //       downstream of the real gate, and its hand-off to "stacked-shell territory" reaches
+    //       nothing — Stacked.cs wants a piece whose FOOT sits near the wall top, and this unit's
+    //       foot is 0.0 wu on the floor. No shelf renderer appears in any stacked line all session.
+    //       The FIGURE arm is NARROWED BY A FOUR-TERM CONJUNCTION, not deleted, and
+    //       ActorBehaviour/CInteractableActor stays an ABSOLUTE veto (round-7).
+    //       BLAST RADIUS, all 10 FIGURE-arm PROTECTED names in the session: 4 shelf renderers and
+    //       the banner/curtain pair FADE; the two floor hexes STAY (no wall in the bounded window);
+    //       the grass hex STAYS (inside the 1.0 wu ground band, and no fade channel anyway).
+    //       CRYSTAL FORMATION AND LIGHT SHAFT: structurally unreachable — the term sits inside a
+    //       branch only entered after a prop-unit root resolves, and for those three the four-level
+    //       walk finds none. Conjunct 2 also uses the BOUNDED four-level window, never
+    //       GetComponentInParent<ProceduralWall>(), whose unbounded answer is YES for the crystal,
+    //       the light shaft AND a skeleton's thighs. Water and arch rects clear `wallCut` before
+    //       provenance is even asked.
+    //   READING THE NEXT LOG: the two changes interact in one way worth knowing. A SKIPPED cycle
+    //   does not run the standing rule, so the new [WALL-SECTION] counter does not update on it.
+    //   A zero there is not evidence the term is inert — read the SKIP clause's skipped/committed
+    //   counts first, then the WALL-SECTION REFUSED roster, which names which half of the
+    //   conjunction refused, per unit, with live numbers.
     // Build 274: *** A NEW BUNDLE — 67,234,683 BYTES (was 65,626,956). A DLL-ONLY INSTALL SHOWS
     // NONE OF THE BOARD WORK. *** Test 274; it carries 272 and 273 whole.
     //   THE BOARDS GET A MATERIAL. ModBuild 271's boards were rejected on hardware: "Die

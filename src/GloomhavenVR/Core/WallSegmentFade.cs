@@ -746,6 +746,23 @@ internal static partial class WallSegmentFade
         public Bounds Bounds;
         public bool HasBounds;
         /// <summary>
+        /// PERF S5 — the union of <see cref="Renderers"/> as the DRIFT PROBE last measured it,
+        /// and the probe is its only writer.
+        ///
+        /// <para>WHY NOT <see cref="Bounds"/>, AND WHY NOT A COMMIT-TIME COPY OF IT. Neither is
+        /// comparable with a live re-union of this list. <see cref="Bounds"/> is EXTENDED after
+        /// collection by the stacked and gate phases, so it always reads larger; and a copy
+        /// taken at <see cref="FadeDriver.FinishRefresh"/> is taken before
+        /// <see cref="FadeDriver.StripGroundRenderers"/> and
+        /// <c>EnforcePropUnitCohesion</c> have REMOVED members from the very list it would be
+        /// compared against, so it always reads larger too. Both would report drift on every
+        /// ground-stripped wall forever, i.e. the skip would never fire — the shape of failure
+        /// this project files under "a gated remedy never ran". The probe therefore takes its
+        /// own baseline off the FINAL table, once per commit, and compares like with like.</para>
+        /// </summary>
+        public Bounds ProbeBounds;
+        public bool ProbeBoundsValid;
+        /// <summary>
         /// ModBuild 261 — WHY this segment owns no wall renderer, when that is the reason it is
         /// boundless. Non-null ONLY for a split-run piece whose renderer was refused at the wall
         /// choke point (<see cref="FadeDriver.CollectWallFadeInfo"/>); null everywhere else.
@@ -1337,6 +1354,11 @@ internal static partial class WallSegmentFade
             /// <summary>Walking <see cref="_snapshot"/> with <see cref="_classifyCursor"/>,
             /// filling <see cref="_facts"/>. Pure reads — nothing is mutated.</summary>
             Classify,
+            /// <summary>PERF S5: re-deriving the CHEAP membership signature of everything the
+            /// commit's output depends on, so a cycle whose inputs have not moved can be
+            /// skipped outright. Pure reads; it keeps nothing but one 64-bit hash. See
+            /// WallSegmentFade.Prepare.cs, THE SKIP INVARIANT.</summary>
+            Survey,
             /// <summary>PERF S4: warming the commit's expensive derivations off the commit
             /// frame. Pure reads, and the ONLY thing it keeps is memo entries — see
             /// WallSegmentFade.Prepare.cs and THE PREPARE INVARIANT stated there.</summary>
@@ -1613,6 +1635,16 @@ internal static partial class WallSegmentFade
             if (_rescanStage == RescanStage.Idle
                 && (now >= _nextRescan || gen!.m_RoomRenderers.Count != _builtRoomCount))
             {
+                // PERF S5 — DID SOMETHING ASK FOR THIS CYCLE? Six sites across the subsystem
+                // zero _nextRescan to mean "geometry regenerated mid-fade, re-collect promptly"
+                // (WallSegmentFade.cs, Body, Stacked x2, PropUnit, Mounted). Zeroing makes the
+                // cycle look DUE rather than early, so the request cannot be read off
+                // _nextRescan itself — it is read off the GAP instead: a cycle that opened
+                // sooner than the cadence allows was asked for, and an asked-for cycle always
+                // commits. Four of those six sites live in files this lane does not own, which
+                // is exactly why the detector is on this side of the call.
+                _cycleOpenedEarly = now - _lastCycleOpenedAt < RescanIntervalSeconds - 0.05f;
+                _lastCycleOpenedAt = now;
                 _nextRescan = now + RescanIntervalSeconds;
                 // A frame that had to take the FindObjectsOfType sweep has already spent more
                 // than the budget allows, so it does no census work on top — the census starts
@@ -3703,7 +3735,12 @@ internal static partial class WallSegmentFade
                 // full re-derivation without a fresh sweep.
                 _classifyCold = _censusMaterialsDirty;
             }
+            // PERF S5: the dissolve's own material swap is an input the signature cannot see
+            // (our copies carry the same shader family, so the fact bits do not move), so the
+            // edge is carried to the skip decision explicitly rather than inferred.
+            _cycleMaterialsDirty = _censusMaterialsDirty;
             _censusMaterialsDirty = false;
+            ResetSceneFactSignature();
             if (_facts.Length < _snapshot.Length)
                 _facts = new RendererFact[Mathf.NextPowerOfTwo(Mathf.Max(_snapshot.Length, 256))];
             _factCount = _snapshot.Length;
@@ -3742,9 +3779,69 @@ internal static partial class WallSegmentFade
                     NoteCycleFrame(frameStart);
                     return;
                 }
-                // PERF S4: the census hands over to the PREPARE stage, never straight to the
-                // commit. Opening the stage is a list copy and one gate, so it is done on the
-                // frame that finished the census; the warming itself is budgeted below.
+                // PERF S5: the census hands over to the SURVEY stage, which is what decides
+                // whether this cycle needs a commit at all. Opening it is one list copy over
+                // the wall cache; the walk itself is budgeted below.
+                _rescanStage = RescanStage.Survey;
+                BeginSurveyStage();
+                if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget * 0.5f)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+            }
+
+            if (_rescanStage == RescanStage.Survey)
+            {
+                _cycleSurveyFrames++;
+                float surveyStart = (float)RescanClock.Elapsed.TotalMilliseconds;
+                bool surveyDone;
+                using (PerfMonitor.Scope("WallFade.Survey"))
+                {
+                    // A reveal cycle commits whatever the survey finds, and it already coincides
+                    // with the game's own room-generation hitch — so the walk is allowed the same
+                    // wider budget the census and the warm take there, rather than stretching a
+                    // foregone conclusion over twenty frames. Mirrors PrepareUrgentBudgetMillis.
+                    float surveyBudget = _rescanUrgent
+                        ? PrepareUrgentBudgetMillis : SurveyBudgetMillis;
+                    surveyDone = StepSurvey(frameStart, surveyBudget);
+                }
+                float surveyMs = (float)RescanClock.Elapsed.TotalMilliseconds - surveyStart;
+                _cycleSurveyTotalMillis += surveyMs;
+                if (surveyMs > _cycleWorstSurveyMillis)
+                    _cycleWorstSurveyMillis = surveyMs;
+                if (!surveyDone)
+                {
+                    NoteCycleFrame(frameStart);
+                    return;
+                }
+                FinishSurveySignature();
+                // THE DECISION. Every term inside is a comparison against what the table IN
+                // FORCE was built from; a mismatch on any of them commits, and each one is
+                // counted and named on the BUDGET line. See WallSegmentFade.Prepare.cs.
+                if (CommitWouldChangeNothing(gen, now))
+                {
+                    _skipRun++;
+                    if (_skipRun > _cycleWorstSkipRun)
+                        _cycleWorstSkipRun = _skipRun;
+                    _cycleSkipped++;
+                    _rescanStage = RescanStage.Idle;
+                    _rescanUrgent = false;
+                    ClearSurveyState();
+                    // A skipped cycle never opens the prepare stage, so the prewarm from the
+                    // last committing one would otherwise hold ~3000 Transform references for
+                    // as long as the skip run lasts — up to the staleness ceiling rather than
+                    // the two seconds the subsystem's own comments assume. Dropped here, where
+                    // BeginPrepareStage would have dropped it.
+                    _propUnitRootPrewarm.Clear();
+                    _prepAnchors.Clear();
+                    _cycleCount++;
+                    NoteCycleFrame(frameStart);
+                    NoteTableAge(now);
+                    LogRescanBudget(now);
+                    return;
+                }
+                // PERF S4: only now is the expensive warm worth paying for.
                 _rescanStage = RescanStage.Prepare;
                 BeginPrepareStage(gen);
                 if ((float)RescanClock.Elapsed.TotalMilliseconds - frameStart >= budget * 0.5f)
@@ -3803,13 +3900,21 @@ internal static partial class WallSegmentFade
             }
             _rescanStage = RescanStage.Idle;
             _rescanUrgent = false;
+            // PERF S5: the table in force is now the one these two signatures describe. They
+            // are the ones the survey and the census took EARLIER in this cycle, which is the
+            // fail-safe direction: if the world moved between the survey and this commit, the
+            // next cycle's live survey disagrees with what is banked here and commits again.
+            // The hash can therefore cause an unnecessary commit and never a wrong skip.
+            AdoptCommittedSignature(now);
             // The warm belongs to the cycle that consumed it: holding the wall list and the
             // prewarm past this point would keep a scene's worth of transform references alive
             // across the two-second gap to the next cycle.
             ClearPrepareState();
+            ClearSurveyState();
             _standingScopeOpen = false;
             _cycleCount++;
             NoteCycleFrame(frameStart);
+            NoteTableAge(now);
             LogRescanBudget(now);
         }
 
@@ -3828,6 +3933,16 @@ internal static partial class WallSegmentFade
             // an open window outside a synchronous pass is exactly the widened-memo defect the
             // stage's own comments refuse.
             ClearPrepareState();
+            // PERF S5: a signature describes a scene we have stopped watching, and the drift
+            // ring holds a table's worth of Segment references. Both go with the cycle — a
+            // banked signature that outlived its scene would let the first cycle of the NEXT
+            // one skip its commit, which is a table that never gets built at all.
+            ClearSurveyState();
+            _committedSigValid = false;
+            _skipRun = 0;
+            _driftRing.Clear();
+            _driftCursor = 0;
+            _lastCommitAt = float.NegativeInfinity;
             _propUnitRootPrewarm.Clear();
             _prepAnchors.Clear();
             EndNodeFactMemos();
@@ -3883,6 +3998,11 @@ internal static partial class WallSegmentFade
                 {
                     f.R = null;
                     f.Mesh = null;
+                    // PERF S5: a hole in the snapshot is itself a fact — a renderer that died
+                    // since the sweep changes what every pass below sees, so it must move the
+                    // signature. A fixed per-hole term, accumulated commutatively like every
+                    // other, so N holes read as N holes whatever order they appear in.
+                    FoldSceneFact(DeadRendererSigTerm);
                     continue;
                 }
                 bool cold = _classifyCold || !ReferenceEquals(f.R, r);
@@ -3911,6 +4031,43 @@ internal static partial class WallSegmentFade
                 // it LIVE instead; membership here is only the parts that cannot change.
                 if (f.WaterSurface && !f.Mod)
                     _factWater.Add(i);
+
+                // PERF S5 — THE SCENE HALF OF THE SKIP SIGNATURE, folded here because this loop
+                // already visits every renderer in the snapshot exactly once per cycle and the
+                // fold is two multiplies. It carries the renderer's IDENTITY plus every verdict
+                // the four collection passes read off this table, so a renderer that appeared,
+                // died or changed shader family moves the hash and the cycle commits.
+                //
+                // WHY `activeInHierarchy` AND NOT `renderer.enabled`, which is the flag the
+                // stacked / mounted / prop-unit collection filters actually read. Because THIS
+                // SUBSYSTEM WRITES `enabled` and does not write SetActive: hiding a wall's
+                // siblings, shell pieces, foliage and mounted dressing is `r.enabled = false`
+                // (grep the file set — there is no SetActive call anywhere in it). Folding
+                // `enabled` would therefore make the signature move every time a wall fades or
+                // unfades, i.e. exactly when the player is moving, and the skip would fire
+                // almost never — a remedy gated behind its own side effect, which is a defect
+                // class this project has already paid for. `activeInHierarchy` is the flag the
+                // GAME flips (ProceduralMapTile.ShowContent — see the WALL-PATH AUDIT's own
+                // note at the 'INACTIVE:' clause below), so it detects the game's changes and
+                // is blind to ours by construction.
+                //
+                // WHAT THAT LEAVES UNCOVERED, said plainly: a GAME-side `renderer.enabled`
+                // flip that is not accompanied by any other change. The staleness ceiling is
+                // the backstop for it and the SKIP clause counts when the ceiling fires.
+                //
+                // What is deliberately NOT here is BOUNDS — those are already accepted as up to
+                // one rescan interval stale by every consumer, and the two things that can move
+                // them wholesale (a reveal, a board move) have gates of their own, with the
+                // drift probe underneath for a piece that moved on its own.
+                int bits = (f.Mesh != null ? 1 : 0)
+                         | (f.Particles ? 2 : 0)
+                         | (f.Mountable ? 4 : 0)
+                         | (f.Mod ? 8 : 0)
+                         | (f.WallFadeShader ? 16 : 0)
+                         | (f.FoliageShader ? 32 : 0)
+                         | (f.WaterSurface ? 64 : 0)
+                         | (r.gameObject.activeInHierarchy ? 128 : 0);
+                FoldSceneFact(FoldSig(FoldSig(FnvOffset, r.GetInstanceID()), bits));
             }
         }
 
@@ -4033,6 +4190,7 @@ internal static partial class WallSegmentFade
               .Append("commit spread across frames is a table they can see mid-rebuild); the ")
               .Append($"standing-prop scope was opened by the commit itself on ")
               .Append($"{_cycleScopeSelfOpened} cycle(s) (>0 means the prepare stage did not run).");
+            AppendSkipClause(sb);
             AppendPrepareClause(sb);
             AppendCommitPhaseBreakdown(sb);
             sb.Append(" Before PERF S2 this work was ONE 118ms frame every 2s (ModBuild 226: ")
@@ -4056,6 +4214,27 @@ internal static partial class WallSegmentFade
             _cyclePrepRefusedBoard = 0;
             _cyclePrepDroppedAnchors = 0;
             _cycleScopeSelfOpened = 0;
+            _cycleSurveyFrames = 0;
+            _cycleWorstSurveyMillis = 0f;
+            _cycleSurveyTotalMillis = 0f;
+            _cycleSurveyRenderers = 0;
+            _cycleSkipped = 0;
+            _cycleCommitted = 0;
+            _cycleWorstSkipRun = 0;
+            _cycleWorstTableAgeSeconds = 0f;
+            _cycleProbedSegments = 0;
+            _noSkipNoTable = 0;
+            _noSkipEarly = 0;
+            _noSkipReveal = 0;
+            _noSkipBoard = 0;
+            _noSkipScene = 0;
+            _noSkipWalls = 0;
+            _noSkipCeiling = 0;
+            _noSkipDrift = 0;
+            _noSkipMaterials = 0;
+            // _lastNoSkipDetail is NOT reset: a window in which nothing refused must still say
+            // what the last refusal was, or the clause reads as a dead instrument on exactly
+            // the windows the change is working.
             _windowWorstCommitTotalMillis = 0f;
             _cycleWorstCommitPhase = -1;
             _cycleWorstCommitPhaseMillis = 0f;
