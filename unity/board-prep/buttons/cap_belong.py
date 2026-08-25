@@ -53,8 +53,9 @@ flat face material of the square one.  The cap cannot be that colour -- it is ha
 because it is on a board and not in a studio -- so the target is that material AT THE CAP'S OWN
 LUMINANCE, and the re-exposure is done in LINEAR light (`_expose`), because that is what a
 darker exposure of one material physically is.  Scaling the sRGB numbers instead is a fade
-toward black through the transfer curve and it desaturates: measured on these three, a
-gamma-space fade loses oak 3.7 C* and bronze 2.3 C* against a true exposure change.  That
+toward black through the transfer curve and it desaturates: measured on these three by
+`--selfcheck` step 5, a gamma-space fade to the same luminance reaches C* 18.07 where a true
+exposure reaches 21.12 on oak, and 9.75 against 11.40 on bronze -- it loses 3.05 and 1.65.  That
 difference is small but it is free to get right and it is the difference between a target that
 is a claim about the material and one that is an artefact of the encoding.
 
