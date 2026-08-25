@@ -24,6 +24,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using GloomhavenVR.WorldUI;
 
@@ -36,6 +37,7 @@ internal static class ConfigStepVectors
         Vectors(t);
         Sweep(t, repoRoot);
         ExplicitDrift(t, repoRoot);
+        Rule(t, repoRoot);
     }
 
     // =============================================================================================
@@ -48,7 +50,7 @@ internal static class ConfigStepVectors
         t.Case("configsteps/plain-suffix");
         Unit(t, "WorldTiltDegrees", 1d, ConfigSteps.UnitScope.Component);
         Unit(t, "RecenterHoldSeconds", 0.05d, ConfigSteps.UnitScope.Value);
-        Unit(t, "FanRadius", 0.01d, ConfigSteps.UnitScope.Value);
+        Unit(t, "FanRadius", 0.001d, ConfigSteps.UnitScope.Value);
         Unit(t, "TrayScale", 0.05d, ConfigSteps.UnitScope.Value);
         // The dissolve floor (black-frame round 11, 2026-08-11): a 0..1 proportion whose shipped
         // default is a deliberately tiny 0.004 — exactly the shape whose magnitude fallback would
@@ -61,15 +63,15 @@ internal static class ConfigStepVectors
         // Pinned here because the only thing keeping it right is the ORDER of two rows in a table.
         t.Case("configsteps/millimetres-before-metres");
         Unit(t, "PickRadiusMillimeters", 5d, ConfigSteps.UnitScope.Value);
-        Unit(t, "BoardMinWidthMeters", 0.01d, ConfigSteps.UnitScope.Value);
+        Unit(t, "BoardMinWidthMeters", 0.001d, ConfigSteps.UnitScope.Value);
 
         // ---- the variant tag (report #1: the asset rotation at 0.01°) ---------------------------
         // The tag is stripped for the unit lookup AND remembered: a per-board default is that
         // board's geometry, so it may coarsen the step but never sharpen it.
         t.Case("configsteps/variant-tag");
-        Unit(t, "PileSpacing_Steel", 0.01d, ConfigSteps.UnitScope.Variant);
-        Unit(t, "SlotOverlaySpacing_Bronze", 0.01d, ConfigSteps.UnitScope.Variant);
-        Unit(t, "DecisionGap_Oak", 0.01d, ConfigSteps.UnitScope.Variant);
+        Unit(t, "PileSpacing_Steel", 0.001d, ConfigSteps.UnitScope.Variant);
+        Unit(t, "SlotOverlaySpacing_Bronze", 0.001d, ConfigSteps.UnitScope.Variant);
+        Unit(t, "DecisionGap_Oak", 0.001d, ConfigSteps.UnitScope.Variant);
         // The slot-overlay SIZE (2026-08-11). Its retired predecessor was called SlotCardFill, and
         // "Fill" is in no unit row — so that dial had been stepping off its own default's magnitude
         // all along, the exact defect this file exists to pin. Pinned as the reason the successor is
@@ -81,24 +83,24 @@ internal static class ConfigStepVectors
 
         // ---- the axis letter (report #2 and #3) -------------------------------------------------
         t.Case("configsteps/axis-letter");
-        Unit(t, "GloveOffsetX", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "GloveOffsetY", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "GloveOffsetZ", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "OffsetX", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "ConfirmUndoInsetX", 0.01d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveOffsetX", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveOffsetY", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveOffsetZ", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "OffsetX", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "ConfirmUndoInsetX", 0.001d, ConfigSteps.UnitScope.Component);
         // both decorations at once
-        Unit(t, "OffsetX_Oak", 0.01d, ConfigSteps.UnitScope.Component);
+        Unit(t, "OffsetX_Oak", 0.001d, ConfigSteps.UnitScope.Component);
 
         // ---- a direction spelled as a word, trailing or in the middle ---------------------------
         t.Case("configsteps/direction-word");
-        Unit(t, "HeldOffsetSide", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "HeldOffsetUp", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "HeldOffsetForward", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "GloveLateralOffset", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "GloveVerticalOffset", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "GloveForwardOffset", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "SpawnSideMeters", 0.01d, ConfigSteps.UnitScope.Component);
-        Unit(t, "CombatLogRight", 0.01d, ConfigSteps.UnitScope.Component);
+        Unit(t, "HeldOffsetSide", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "HeldOffsetUp", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "HeldOffsetForward", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveLateralOffset", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveVerticalOffset", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "GloveForwardOffset", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "SpawnSideMeters", 0.001d, ConfigSteps.UnitScope.Component);
+        Unit(t, "CombatLogRight", 0.001d, ConfigSteps.UnitScope.Component);
 
         // ---- a clamp end is still the thing it clamps -------------------------------------------
         t.Case("configsteps/min-max-qualifier");
@@ -210,7 +212,7 @@ internal static class ConfigStepVectors
     /// toggle.</para>
     /// </summary>
     private static readonly Regex Annotated =
-        new(@"(?:const|static\s+readonly)\s+(?<type>[A-Za-z0-9_.]+)\s+[A-Za-z0-9_]+\s*=.*?"
+        new(@"(?:const|static\s+readonly)\s+(?<type>[A-Za-z0-9_.]+)\s+[A-Za-z0-9_]+\s*=\s*(?<val>.*?);?\s*"
             + @"//\s*=>\s*\[(?<sec>[^\]]+)\]\s*(?<key>[A-Za-z0-9_]+)", RegexOptions.Compiled);
 
     /// <summary>The types <c>ConfigCatalog</c> gives a stepper to (its own <c>IsNumeric</c>).</summary>
@@ -371,6 +373,425 @@ internal static class ConfigStepVectors
                    + "or the row is gone and the table entry is dead");
         }
         t.True(n >= 10, $"only {n} written-down steps found — the Explicit table has been gutted");
+    }
+
+    // =============================================================================================
+    //  4. THE RULE — the property every dial in the mod has to satisfy
+    // =============================================================================================
+
+    /// <summary>
+    /// A shipped default with its declared TYPE and its VALUE — everything the rule needs to know
+    /// about an entry except its declared range, which lives at the bind site.
+    /// </summary>
+    private readonly struct Dial
+    {
+        internal Dial(string sec, string key, string type, double magnitude)
+        {
+            Sec = sec; Key = key; Type = type; Magnitude = magnitude;
+        }
+
+        internal readonly string Sec;
+        internal readonly string Key;
+        internal readonly string Type;
+
+        /// <summary>|value|, or the largest |component| for a vector — never the euclidean length,
+        /// which would make a diagonal offset read as larger than either of its axes.</summary>
+        internal readonly double Magnitude;
+
+        internal string Id => Sec + "/" + Key;
+        internal bool Integral => Integrals.Contains(Type);
+        internal bool IsVector => Type.StartsWith("Vector", StringComparison.Ordinal);
+    }
+
+    private static readonly HashSet<string> Integrals = new(StringComparer.Ordinal)
+    {
+        "int", "long", "short", "byte", "uint", "ulong", "ushort", "sbyte",
+    };
+
+    /// <summary>The types that get a numeric row: a scalar, or a vector edited component-wise.</summary>
+    private static readonly HashSet<string> Stepped = new(StringComparer.Ordinal)
+    {
+        "float", "double", "decimal",
+        "int", "long", "short", "byte", "uint", "ulong", "ushort", "sbyte",
+        "Vector2", "Vector3", "Vector4",
+    };
+
+    /// <summary>A numeric literal as C# spells it, suffix and all.</summary>
+    private static readonly Regex Literal =
+        new(@"^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?[fdmFDM]?$", RegexOptions.Compiled);
+
+    private static readonly Regex VectorLiteral =
+        new(@"new\s+Vector[234]\s*\(([^)]*)\)", RegexOptions.Compiled);
+
+    private static readonly Regex Range =
+        new(@"AcceptableValueRange<[A-Za-z0-9_]+>\s*\(\s*([^,()]+?)\s*,\s*([^,()]+?)\s*\)",
+            RegexOptions.Compiled);
+
+    /// <summary>
+    /// THE RULE, run over every dial the mod ships. <c>ConfigSteps</c> states it in words at the top
+    /// of its own file; this is the same sentence as an assertion:
+    ///
+    /// <para><b>one press is at most a quarter of the dial's own scale and at least a
+    /// two-hundred-and-fiftieth of it, where the scale is the declared range if there is one and
+    /// otherwise the largest magnitude in the dial's FAMILY.</b></para>
+    ///
+    /// <para>WHY THIS AND NOT MORE HAND-WRITTEN VECTORS. Every one of the four reports in this
+    /// family arrived as "dial X has no effect", from a step nobody had looked at, on a key nobody
+    /// had thought about — the asset rotation, GloveOffsetX, [RoundButtons] OffsetX, and now
+    /// [Cards] SlotOverlayOffset/Spacing. A list of keys somebody remembered cannot catch the fifth.
+    /// This runs the REAL resolver (<see cref="ConfigSteps.Resolve"/> is free of Unity and BepInEx,
+    /// so it links in whole) against the REAL shipped defaults, and it fails on the next dial
+    /// whoever adds it, whether or not they thought about stepping.</para>
+    ///
+    /// <para>WHAT IT CANNOT SEE, said plainly. The declared range lives at the <c>Bind</c> call, not
+    /// in <c>Defaults/</c>, so it is read here by a LITERAL-ONLY parse — a range whose ends are
+    /// named constants (<c>MapTravelConfirm.OffsetLimitX</c>) is simply not found, and that dial is
+    /// then checked against its family magnitude instead. That is the conservative direction:
+    /// magnitudes in this config are never much wider than the ranges around them, and it was
+    /// verified on the day this was written that every shipped dial passes either way. If a future
+    /// entry fails here and its range is a constant, THAT is the thing to check first.</para>
+    /// </summary>
+    private static void Rule(Harness t, string repoRoot)
+    {
+        List<Dial> dials = ReadDials(repoRoot);
+        Dictionary<string, (double Min, double Max)> ranges = ReadRanges(repoRoot, dials);
+        Dictionary<string, double> scale = FamilyScale(dials, ranges);
+
+        double ScaleOf(Dial d) => scale[ConfigSteps.FamilyOf(d.Sec, d.Key)];
+
+        double StepOf(Dial d) => ConfigSteps.Resolve(d.Sec, d.Key, ScaleOf(d), d.Integral);
+
+        // ---- (a) the two bounds --------------------------------------------------------------
+        // Exempt: a WRITTEN-DOWN step (that table is where a human overrules the rule on purpose,
+        // with the argument beside it — [WorldUI] ScreenParallaxScale is 590 presses across its
+        // range and says why), and an INTEGRAL dial (1 is the grid an integer has; there is no
+        // finer step to give an MSAA level of 4).
+        t.Case("configsteps/rule-bounds");
+        var written = new HashSet<string>(ConfigSteps.ExplicitKeys, StringComparer.Ordinal);
+        int checked_ = 0;
+        foreach (Dial d in dials)
+        {
+            if (written.Contains(d.Id) || d.Integral)
+                continue;
+            double s = ScaleOf(d);
+            if (s <= 0d)
+                continue;              // a family that ships all-zero says nothing about resolution
+            checked_++;
+            double step = StepOf(d);
+            t.True(step <= s / ConfigSteps.CoarsestPresses + 1e-12,
+                   $"[{d.Sec}] {d.Key} steps {step} against a scale of {s} — that is "
+                   + $"{s / step:0.#} presses to cross the dial, and THE RULE's ceiling is "
+                   + $"{ConfigSteps.CoarsestPresses}. A step this coarse cannot land on the value "
+                   + "the player is aiming at; it is what [Cards] SlotOverlaySpacing_Steel did when "
+                   + "one press was five times the whole value");
+            t.True(step >= s / ConfigSteps.FinestPresses - 1e-12,
+                   $"[{d.Sec}] {d.Key} steps {step} against a scale of {s} — that is "
+                   + $"{s / step:0.} presses to cross the dial, past THE RULE's floor of "
+                   + $"{ConfigSteps.FinestPresses}. A step too FINE is a defect too: nobody crosses "
+                   + "a dial in a headset that way. Write the step down in ConfigSteps.Explicit if "
+                   + "the resolution is genuinely worth the presses, and say why");
+        }
+        t.True(checked_ >= 300,
+               $"THE RULE was checked against only {checked_} dials; it used to reach 330-odd, so "
+               + "either the Defaults annotations moved or this guard has stopped reading them");
+
+        // ---- (b) one vector, one step ----------------------------------------------------------
+        // The sibling sweep above asserts that two axes of one pose agree on the UNIT. This asserts
+        // they agree on the STEP THAT SHIPS, which is the thing the player feels and the thing that
+        // broke: GloveOffsetX moved 0.05 mm beside a GloveOffsetY that moved 1 mm, from the same
+        // unit row, because each was bounded by its OWN magnitude.
+        t.Case("configsteps/rule-one-vector-one-step");
+        var byFamily = new Dictionary<string, List<Dial>>(StringComparer.Ordinal);
+        foreach (Dial d in dials)
+        {
+            string f = ConfigSteps.FamilyOf(d.Sec, d.Key);
+            if (!byFamily.TryGetValue(f, out List<Dial>? members))
+                byFamily[f] = members = new List<Dial>();
+            members.Add(d);
+        }
+        int families = 0;
+        foreach (KeyValuePair<string, List<Dial>> kv in byFamily)
+        {
+            if (kv.Value.Count < 2)
+                continue;
+            families++;
+            double first = StepOf(kv.Value[0]);
+            for (int i = 1; i < kv.Value.Count; i++)
+            {
+                Dial d = kv.Value[i];
+                if (written.Contains(d.Id) || written.Contains(kv.Value[0].Id))
+                    continue;         // a written-down step is a deliberate exception, by definition
+                t.Equal(first, StepOf(d),
+                        $"[{d.Sec}] {d.Key} must step exactly as the rest of {kv.Key} — two dials of "
+                        + "one vector that move by different amounts read as one that works and one "
+                        + "that does not");
+            }
+        }
+        t.True(families >= 40,
+               $"only {families} step families found; the family grouping has stopped seeing the "
+               + "shipped keys");
+
+        // ---- (c) THE USER'S OWN GRID -----------------------------------------------------------
+        // Every non-zero component of every Vector dial in this mod is board-local geometry he has
+        // hand-tuned, and on 2026-08 all 63 of them sat on a ONE MILLIMETRE grid while the arrows
+        // moved 5 mm — 25 of the 63 were values his own arrows could not produce. That is the
+        // report ("ich überspringe den optimalen Punkt immer") as an arithmetic fact, so it is
+        // asserted as one. Epsilon seeds are excluded: this config writes 1e-10 / 2e-09 to mark an
+        // explicit zero, and a marker is not tuning.
+        t.Case("configsteps/rule-vector-defaults-are-reachable");
+        int comps = 0;
+        foreach (Dial d in dials)
+        {
+            if (!d.IsVector || d.Magnitude <= 1e-6d)
+                continue;
+            double step = StepOf(d);
+            foreach (double v in VectorComponents(repoRoot, d))
+            {
+                if (Math.Abs(v) <= 1e-6d)
+                    continue;
+                comps++;
+                double n = Math.Abs(v) / step;
+                t.True(Math.Abs(n - Math.Round(n)) <= 1e-6d,
+                       $"[{d.Sec}] {d.Key} ships a component of {v} that its own {step} arrows "
+                       + "cannot produce — the player cannot return to the value the mod shipped, "
+                       + "let alone stop on the one he wants");
+            }
+        }
+        t.True(comps >= 55,
+               $"only {comps} tuned vector components found (63 on 2026-08-25); either the Vector "
+               + "defaults moved or this guard has stopped parsing them");
+
+        // ---- (d) THE DIALS IN THE REPORT -------------------------------------------------------
+        // Pinned by name, against the real resolver, because a property test can be satisfied by a
+        // rule that is right in general and wrong on the case that was reported. These four are the
+        // ones the user was holding when he wrote in, and the numbers are what he will feel.
+        t.Case("configsteps/rule-the-reported-dials");
+        foreach (string board in new[] { "Oak", "Steel", "Bronze" })
+        {
+            Dial offset = Find(dials, "Cards", "SlotOverlayOffset_" + board);
+            Dial spacing = Find(dials, "Cards", "SlotOverlaySpacing_" + board);
+            t.Equal(0.001d, StepOf(offset),
+                    $"[Cards] SlotOverlayOffset_{board} must step ONE MILLIMETRE — it shipped 5 mm "
+                    + "on a family whose largest tuned component is 18 mm, and the values he holds "
+                    + "(2, 3, 4, 18 mm) are not on a 5 mm grid at all");
+            t.Equal(0.001d, StepOf(spacing),
+                    $"[Cards] SlotOverlaySpacing_{board} must step ONE MILLIMETRE — it shipped 0.01 "
+                    + "against a Steel value of 0.002, a press five times the whole dial");
+        }
+        // THE GloveOffsetX/Y REPORT, under the names it ships as today. Those two keys are gone —
+        // the arm-HUD round renamed the six {style}OffsetX/Y/Z to {style}Palm{Side,Lift,Finger}
+        // Offset — but the SHAPE is intact and still on the glove: GlovePalmSideOffset ships at
+        // exactly 0 beside a GlovePalmFingerOffset of −0.05, one axis at its origin next to one
+        // that is tuned. Deriving from each axis's own magnitude is what made X move 0.05 mm beside
+        // a Y that moved 1 mm; the family bound is what stops it, and this asserts it still does.
+        t.Equal(StepOf(Find(dials, "WristHud", "GlovePalmSideOffset")),
+                StepOf(Find(dials, "WristHud", "GlovePalmFingerOffset")),
+                "[WristHud] GlovePalmSideOffset and GlovePalmFingerOffset are two axes of one plate "
+                + "and must move together — this is the report the UnitScope enum was written for, "
+                + "and the family bound must not have quietly undone it");
+        t.Equal(StepOf(Find(dials, "WristHud", "GlovePalmSideOffset")),
+                StepOf(Find(dials, "WristHud", "GlovePalmLiftOffset")),
+                "…and so must the third axis");
+    }
+
+    /// <summary>The one dial with this section and key, or a failure that says which one is missing
+    /// — a silently absent key would turn a named assertion into a no-op.</summary>
+    private static Dial Find(List<Dial> dials, string sec, string key)
+    {
+        foreach (Dial d in dials)
+            if (string.Equals(d.Sec, sec, StringComparison.Ordinal)
+                && string.Equals(d.Key, key, StringComparison.Ordinal))
+                return d;
+        throw new InvalidOperationException(
+            $"the stepper guard names [{sec}] {key}, which no longer ships a Defaults line. Either "
+            + "it was renamed (and every player's tuned value with it) or the assertion is dead.");
+    }
+
+    /// <summary>
+    /// ONE SCALE PER <see cref="ConfigSteps.FamilyOf"/> FAMILY: the largest of its members' own
+    /// scales, where a member's own scale is its declared range's width or — with no range — its
+    /// shipped magnitude. The mirror of <c>ConfigCatalog.OwnScale</c>, and it must stay the mirror,
+    /// or this guard checks a different question from the one the menu answers.
+    /// </summary>
+    private static Dictionary<string, double> FamilyScale(
+        List<Dial> dials, Dictionary<string, (double Min, double Max)> ranges)
+    {
+        var scale = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (Dial d in dials)
+        {
+            double own = ranges.TryGetValue(d.Id, out (double Min, double Max) r) && r.Max > r.Min
+                ? r.Max - r.Min
+                : d.Magnitude;
+            string f = ConfigSteps.FamilyOf(d.Sec, d.Key);
+            if (!scale.TryGetValue(f, out double best) || own > best)
+                scale[f] = own;
+        }
+        return scale;
+    }
+
+    private static List<Dial> ReadDials(string repoRoot)
+    {
+        var dials = new List<Dial>();
+        foreach ((string sec, string key, string type, string value) in AnnotatedDefaults(repoRoot))
+        {
+            if (!Stepped.Contains(type))
+                continue;
+            dials.Add(new Dial(sec, key, type, MagnitudeOf(type, value)));
+        }
+        if (dials.Count < 320)
+            throw new InvalidOperationException(
+                $"THE RULE guard read only {dials.Count} annotated stepped defaults (expected ~390). "
+                + "The `// => [Section] Key` annotation has changed shape; the sweep would silently "
+                + "pass on almost nothing.");
+        return dials;
+    }
+
+    /// <summary>The raw right-hand sides of one vector default, for the reachability check.</summary>
+    private static IEnumerable<double> VectorComponents(string repoRoot, Dial d)
+    {
+        foreach ((string sec, string key, string type, string value) in AnnotatedDefaults(repoRoot))
+        {
+            if (!string.Equals(sec, d.Sec, StringComparison.Ordinal)
+                || !string.Equals(key, d.Key, StringComparison.Ordinal))
+                continue;
+            Match m = VectorLiteral.Match(value);
+            if (!m.Success)
+                yield break;
+            foreach (string part in m.Groups[1].Value.Split(','))
+                if (TryLiteral(part, out double v))
+                    yield return v;
+            yield break;
+        }
+    }
+
+    private static double MagnitudeOf(string type, string value)
+    {
+        Match m = VectorLiteral.Match(value);
+        if (m.Success)
+        {
+            double best = 0d;
+            foreach (string part in m.Groups[1].Value.Split(','))
+                if (TryLiteral(part, out double v) && Math.Abs(v) > best)
+                    best = Math.Abs(v);
+            return best;
+        }
+        return TryLiteral(value, out double s) ? Math.Abs(s) : 0d;
+    }
+
+    private static bool TryLiteral(string raw, out double value)
+    {
+        value = 0d;
+        string s = raw.Trim().TrimEnd(';').Trim();
+        if (!Literal.IsMatch(s))
+            return false;
+        return double.TryParse(s.TrimEnd('f', 'd', 'm', 'F', 'D', 'M'),
+                               NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+    }
+
+    private static List<(string Sec, string Key, string Type, string Value)>? _annotated;
+
+    /// <summary>Every `// =&gt; [Section] Key` annotation in Defaults/, with its type and value.</summary>
+    private static List<(string Sec, string Key, string Type, string Value)> AnnotatedDefaults(string repoRoot)
+    {
+        if (_annotated != null)
+            return _annotated;
+
+        var found = new List<(string, string, string, string)>();
+        string dir = Path.Combine(repoRoot, "src", "GloomhavenVR", "Defaults");
+        if (!Directory.Exists(dir))
+            throw new InvalidOperationException(
+                $"the stepper guard reads the shipped defaults from {dir}, which does not exist. "
+                + "If Defaults/ moved, re-point this — otherwise the sweep silently tests nothing.");
+
+        foreach (string file in Directory.GetFiles(dir, "*.cs"))
+            foreach (string line in File.ReadAllLines(file))
+            {
+                if (line.TrimStart().StartsWith("//", StringComparison.Ordinal))
+                    continue;
+                Match m = Annotated.Match(line);
+                if (m.Success)
+                    found.Add((m.Groups["sec"].Value, m.Groups["key"].Value,
+                               m.Groups["type"].Value, m.Groups["val"].Value));
+            }
+
+        return _annotated = found;
+    }
+
+    /// <summary>
+    /// Declared ranges, read off the <c>Bind</c> call sites — LITERAL ENDS ONLY.
+    ///
+    /// <para>A range whose ends are named constants is deliberately not resolved: doing so would
+    /// mean evaluating arbitrary C# from a test, and the fallback (check the dial against its family
+    /// magnitude instead) is the conservative direction. See <see cref="Rule"/> for the note.</para>
+    ///
+    /// <para>An interpolated key is a PATTERN, not a prefix: <c>$"{style}LateralOffset"</c> starts
+    /// with its hole, so matching by prefix would claim one range for every key in the section. It
+    /// is anchored and the holes become wildcards.</para>
+    /// </summary>
+    private static Dictionary<string, (double Min, double Max)> ReadRanges(string repoRoot, List<Dial> dials)
+    {
+        var found = new Dictionary<string, (double, double)>(StringComparer.Ordinal);
+        string dir = Path.Combine(repoRoot, "src", "GloomhavenVR");
+        if (!Directory.Exists(dir))
+            return found;
+
+        foreach (string file in Directory.GetFiles(dir, "*.cs", SearchOption.AllDirectories))
+        {
+            string text = File.ReadAllText(file);
+            int at = 0;
+            while ((at = text.IndexOf(".Bind", at, StringComparison.Ordinal)) >= 0)
+            {
+                int open = at + ".Bind".Length;
+                while (open < text.Length && char.IsWhiteSpace(text[open]))
+                    open++;
+                at = open;
+                if (open >= text.Length || text[open] != '(')
+                    continue;
+
+                string args = Balanced(text, open);
+                if (args.Length == 0)
+                    continue;
+                at = open + args.Length;
+
+                Match r = Range.Match(args);
+                if (!r.Success || !TryLiteral(r.Groups[1].Value, out double lo)
+                    || !TryLiteral(r.Groups[2].Value, out double hi))
+                    continue;
+
+                Match head = Regex.Match(args, "^\\s*\"([^\"]+)\"\\s*,\\s*(\\$?)\"([^\"]*)\"");
+                if (!head.Success)
+                    continue;
+
+                string sec = head.Groups[1].Value;
+                string keyText = head.Groups[3].Value;
+                if (head.Groups[2].Value.Length == 0)
+                {
+                    found[sec + "/" + keyText] = (lo, hi);
+                    continue;
+                }
+
+                var pattern = new Regex("^" + Regex.Replace(Regex.Escape(keyText), @"\\\{[^}]*\\?\}",
+                                                            "[A-Za-z0-9]+") + "$");
+                foreach (Dial d in dials)
+                    if (string.Equals(d.Sec, sec, StringComparison.Ordinal) && pattern.IsMatch(d.Key))
+                        found[d.Id] = (lo, hi);
+            }
+        }
+        return found;
+    }
+
+    /// <summary>The text inside the parenthesis at <paramref name="open"/>, brackets balanced.</summary>
+    private static string Balanced(string text, int open)
+    {
+        int depth = 0;
+        for (int i = open; i < text.Length; i++)
+        {
+            if (text[i] == '(')
+                depth++;
+            else if (text[i] == ')' && --depth == 0)
+                return text.Substring(open + 1, i - open - 1);
+        }
+        return string.Empty;
     }
 
     private static List<(string Sec, string Key)> ReadDefaults(string repoRoot)

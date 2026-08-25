@@ -870,120 +870,72 @@ internal static partial class VROptionsTab
             && BuildChoiceRow(parent, item, caption, hintKey))
             return;
 
-        // A slider needs a scalar with both ends known; a vector component or an open-ended number
-        // has no bar to sit on. …and a handful of bounded scalars ASK for the stepper anyway
-        // (PrefersStepper, VROptionsTab.4.Curated.cs): a bar is a gesture, a stepper is an amount,
-        // and a dial the user tunes to a number he can repeat needs the amount.
+        // A bar needs a scalar with both ends known; a vector component or an open-ended number has
+        // no bar to sit on and gets the arrows alone. …and two bounded scalars ASK for the arrows
+        // alone anyway (PrefersStepper, VROptionsTab.4.Curated.cs): a bar is a gesture, a stepper is
+        // an amount, and a dial the user tunes to a number he can repeat needs the amount.
+        //
+        // EVERYTHING ELSE BOUNDED GETS BOTH. See BuildBarAndArrowsRow for why the allow-list that
+        // used to stand here is gone.
         if (item.Kind != ConfigCatalog.ConfigKind.Choice
             && item.HasRange && item.Components == 1 && item.Max > item.Min
-            && !PrefersStepper(item))
-        {
-            // BOTH, in one row, where the setting is one a player tunes to a value they want back.
-            if (PrefersBarAndArrows(item) && BuildBarAndArrowsRow(parent, item, caption, hintKey))
-                return;
-            if (BuildSliderRow(parent, item, caption, hintKey))
-                return;
-        }
+            && !PrefersStepper(item)
+            && BuildBarAndArrowsRow(parent, item, caption, hintKey))
+            return;
 
         BuildStepperRow(parent, item, component, caption, hintKey);
     }
 
-    /// <summary>
-    /// Bounded numbers that get the BAR AND THE ARROWS in one row instead of a bare bar.
-    ///
-    /// <para>USER QUESTION (2026-08-22, verbatim): <i>"d) Prüfe für jede EInstellung die
-    /// Bedienmöglichkeit, nicht jedes Felt macht sinn mit einer verschibaren Bar besonders wenn man
-    /// bis auf die Kommastellen etwas anpassen will."</i> He is right, and the evidence is in his
-    /// own dropped config file. <c>BuildSliderRow</c> sets <c>slider.wholeNumbers = item.Integral</c>,
-    /// so a FLOAT bar has no grid at all — infinitely many reachable values, none of them
-    /// repeatable. Nine slider rows in the shipped defaults carry a value with five or more
-    /// decimals, a shape no human types and no stepper can produce, and two of them say what
-    /// happened out loud: <c>[Cards] ActiveCardScale_Oak = 0.9999998</c> and
-    /// <c>[Cards] ClusterScale_Oak = 0.9999999</c> are two separate attempts to put a bar back on
-    /// 1.0 that could not be made.</para>
-    ///
-    /// <para>HIS RULING, after being offered arrows-only as the alternative: bar AND arrows in one
-    /// row — the bar for the coarse gesture, the arrows for the last step, the number in between.
-    /// It is also what his own older instruction about the travel-button offsets asked for ("die
-    /// Pfeile, wo man den echten Wert einfach einstellen kann"), only without giving up the fast
-    /// coarse move.</para>
-    ///
-    /// <para>WHAT IS IN THE TABLE. Two groups, and they are one rule: <b>a bounded number a player
-    /// tunes to a value they want back</b>.</para>
-    /// <list type="number">
-    /// <item>The 26 rows the settings audit named — every bounded scalar on a curated everyday tab
-    /// plus the window/board dials it is worth returning to. The sharpest two are
-    /// <c>Cards/BoardPitchMin_Steel</c> (−31.067) and <c>BoardPitchMax_Steel</c> (54.353): hand-set
-    /// numbers on a bar spanning 171 whole degrees, where one accidental brush used to lose the
-    /// tuning with no way back.</item>
-    /// <item>The fourteen entries that GAINED a declared range in the same pass (the clamps their
-    /// readers already applied — Handgröße, Brett: Größe, Vollgriff-Hilfe, the finger angles, the
-    /// stereo-screen trio, …). They were steppers. Without this table a declared range would have
-    /// silently demoted them to a gridless bar, i.e. it would have introduced the very defect this
-    /// row builder exists to remove. Here they keep their arrows and gain a bar.</item>
-    /// </list>
-    ///
-    /// <para>Per-board members are matched by their STEM (<c>BoardPitchMin_Oak</c> →
-    /// <c>BoardPitchMin</c>), so a fourth control board resolves by existing, with no edit here —
-    /// the same rule <see cref="ConfigSteps.TryUnit"/> follows.</para>
-    ///
-    /// <para>A table rather than a branch, and it lives HERE rather than beside
-    /// <c>PrefersStepper</c> in VROptionsTab.4.Curated.cs, because it is not a statement about the
-    /// curated list: entries from six config files are in it, most of them reachable only through
-    /// Erweitert.</para>
-    /// </summary>
-    private static readonly HashSet<string> BarAndArrowKeys = new(StringComparer.Ordinal)
-    {
-        // ---- the 26 the audit named ---------------------------------------------------------
-        "RenderQuality/EyeResolutionScale",
-        "WorldUI/BarSizeScale",
-        "Net/MaskSize",
-        "WorldUI/ScreenWidth",
-        "WorldUI/ScreenDistance",
-        "Cards/CardWidth",
-        "Cards/InspectScale",
-        "WorldUI/HoverInfoScale",
-        "WorldUI/WindowLegibility",
-        "WorldUI/PanelSupersampleFactor",
-        "WorldUI/PanelMipLodOffset",
-        "Elements/ResponseStrength",
-        "EnvSound/Gain",
-        "EnvSound/AmbienceBedGain",
-        "Haunt/Frequency",
-        "Comfort/RecenterHoldSeconds",
-        "Comfort/ScaleMin",
-        "Comfort/ScaleMax",
-        "Comfort/SmoothTurnSpeed",
-        "Comfort/FlightMaxSpeed",
-        // per-board stems: BoardPitchMin_Oak / _Steel / _Bronze and their Max twins (6 entries)
-        "Cards/BoardPitchMin",
-        "Cards/BoardPitchMax",
-
-        // ---- the fourteen that gained a declared range in the same pass ----------------------
-        "Hands/GloveScale",
-        "Hands/PlateScale",
-        "Hands/ArcaneScale",
-        "Cards/TrayScale",
-        "Hands/CurlInputFullAt",
-        "Hands/CurlProximal",
-        "Hands/CurlMiddle",
-        "Hands/CurlTip",
-        "Hands/GlovePinkyCounterAbduction",
-        "Board/AoeFlickThreshold",
-        "WorldUI/CombatLogScale",
-        "WorldUI/ScreenDepthStrength",
-        "WorldUI/ScreenParallaxScale",
-        "WorldUI/VideoDepth",
-    };
-
-    private static bool PrefersBarAndArrows(ConfigCatalog.ConfigItem item)
-    {
-        if (BarAndArrowKeys.Contains(item.Section + "/" + item.Key))
-            return true;
-        int tag = item.Key.LastIndexOf('_');
-        return tag > 0
-               && BarAndArrowKeys.Contains(item.Section + "/" + item.Key.Substring(0, tag));
-    }
+    // ==============================================================================================
+    //  THE ALLOW-LIST THAT USED TO STAND HERE — and why it is gone
+    // ==============================================================================================
+    //
+    // Twenty-five key stems named the rows that got the bar AND the arrows; everything else bounded
+    // got a bare bar. It is inverted now: EVERY bounded scalar row is a bar-and-arrows row, and the
+    // only exceptions are PrefersStepper's two (a standing user ruling, "nicht Schieberegler,
+    // sondern die Pfeile") and the two value sets that are not continua at all
+    // (TryBuildWidgetOverrideRow).
+    //
+    // THE USER ASKED FOR THE PER-BOARD ROWS (2026-08, verbatim): "In den VR Einstellungen pro board
+    // die Slider mach sie zu diesen hybriden slidern, so dass man sie besser einstellen kann."
+    // Extending the list by the board stems would have answered that sentence and left the question
+    // underneath it unanswered, so the list was measured against its own stated rule first.
+    //
+    // WHAT THE MEASUREMENT SAID. The rule the table wrote down for itself is "a bounded number a
+    // player tunes to a value they want back". Of the 115 bounded scalars it did NOT contain, there
+    // is not one that fails that test — and four of them carry the table's own evidence:
+    //
+    //     [MapRoom] IconScale          = 2.29637
+    //     [MapRoom] PartyMarkerScale   = 2.76815
+    //     [MapRoom] PathWidthScale     = 2.72753
+    //     [MapRoom] GloomhavenIconScale= 1.00027
+    //
+    // Five-decimal numbers on a gridless float bar are the exact fingerprint this row builder was
+    // created to remove, and GloomhavenIconScale is one more "attempt to put a bar back on 1.0 that
+    // could not be made" — the same defect as [Cards] ActiveCardScale_Oak = 0.9999998, which the doc
+    // comment below cites AS THE REASON THE FEATURE EXISTS while leaving ActiveCardScale itself out
+    // of the table. A table that omits its own evidence is not separating gestures from amounts; it
+    // is a record of what somebody got to that afternoon.
+    //
+    // AND THERE IS NO GESTURE CLASS LEFT TO PROTECT. The obvious candidates for "a bar alone is
+    // right here" — a volume, an effect strength, a hand size you eyeball ([EnvSound] Gain,
+    // [Elements] ResponseStrength, [Hands] GloveScale) — were already IN the table. The user had
+    // already ruled that even those want the arrows. Nothing was left on the other side of the line.
+    //
+    // WHAT IT COSTS AND WHAT IT BUYS. 115 rows gain two arrows and, more importantly, gain
+    // SnapToStep: a drag now lands on Min + n x step instead of anywhere at all, so every value the
+    // bar can reach is one the arrows can return to. That is the half of BuildBarAndArrowsRow that
+    // is a fix rather than a decoration, and it was reaching a fifth of the rows that needed it.
+    //
+    // WHAT IT MEANS FOR THE REPORT HE ACTUALLY FILED, stated plainly because the answer is "not
+    // much": of the 204 per-board rows, 174 have NO DECLARED RANGE and therefore no bar to make
+    // hybrid — including both dials he names ([Cards] SlotOverlayOffset_{board} is a Vector3, and
+    // SlotOverlaySpacing_{board} declares no range). 24 were bar-only and become hybrid here; 6
+    // already were. The per-board precision he is asking about is bought by ConfigSteps' step sizes,
+    // not by this row shape. Declaring ranges on those 174 would give them bars, and that is a
+    // decision about his hand-tuned clamps, not one to take inside a row builder.
+    //
+    // BuildSliderRow went with the table: with nothing selecting it, a bare bar is unreachable.
 
     /// <summary>The snap-turn angles anyone actually wants — <see cref="ConfigSteps"/>'s own words.</summary>
     private static readonly float[] SnapTurnPresets = { 15f, 30f, 45f, 60f, 90f };
@@ -1152,47 +1104,10 @@ internal static partial class VROptionsTab
         return true;
     }
 
-    /// <summary>The game's own slider, over the entry's declared range.</summary>
-    private static bool BuildSliderRow(Transform parent, ConfigCatalog.ConfigItem item, string? caption, string? hintKey)
-    {
-        GameObject row = StampRow(_toggleTemplate, parent, out TMP_Text? title, out Transform? option);
-        Slider? slider = PlaceControl<Slider>(option, _sliderControl);
-        if (slider == null)
-        {
-            UnityEngine.Object.Destroy(row);
-            Rows.Remove(row);
-            return false;
-        }
-
-        if (title != null)
-        {
-            title.text = Caption(item, caption);
-            ApplyOptionCaption(title);
-            IndentDependent(title, item);
-            ProbeCaptionFit(title, item.Key);
-        }
-
-        slider.onValueChanged.RemoveAllListeners();
-        slider.minValue = (float)item.Min;
-        slider.maxValue = (float)item.Max;
-        slider.wholeNumbers = item.Integral;
-        slider.SetValueWithoutNotify(ReadNumber(item));
-        slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, v)));
-
-        // The bar alone does not say what the value IS, and several of these settings are only
-        // meaningful as a number (turn degrees, hold seconds). The donor row ALREADY carries the
-        // label for exactly that — the volume row's "50/50" — so it is rebound rather than joined
-        // by a second one. See BindValueLabels for why it is now EVERY such label and not the
-        // first one; that is the fix for the "50/50" report's SECOND occurrence (2026-08-13).
-        BindValueLabels(row, title, item, component: 0);
-        Sliders.Add((slider, item));
-
-        AttachTooltip(row, item, title, hintKey);
-        return true;
-    }
-
     /// <summary>
-    /// THE ANSWER TO QUESTION (d): the game's own slider and the stepper's two arrows in ONE row.
+    /// THE SHAPE OF EVERY BOUNDED ROW: the game's own slider and the stepper's two arrows in ONE
+    /// row. It was the exception until 2026-08 and it is the rule now — see the block above
+    /// THE ALLOW-LIST THAT USED TO STAND HERE for what was measured before inverting it.
     ///
     /// <para>Layout is <c>◀ [ bar ] ▶</c>, and the number sits inside the bar — the donor slider
     /// ('Master Volume') carries its own amount label, which <see cref="BindValueLabels"/> rebinds
@@ -1201,8 +1116,9 @@ internal static partial class VROptionsTab
     /// für die letzte Kommastelle, Zahl dazwischen</i>.</para>
     ///
     /// <para>THE BAR SNAPS TO THE STEP, and that is the actual fix rather than a decoration. A
-    /// float bar is gridless (<see cref="BuildSliderRow"/>: <c>wholeNumbers = item.Integral</c>),
-    /// which is how <c>0.9999998</c> got written into a shipped default by somebody aiming at 1.0.
+    /// float bar is gridless — Unity's <c>Slider</c> has a grid only when <c>wholeNumbers</c> is
+    /// set, and it is set from <c>item.Integral</c> — which is how <c>0.9999998</c> got written
+    /// into a shipped default by somebody aiming at 1.0.
     /// Here a drag lands on <c>Min + n × step</c> — the same step one arrow press moves, from
     /// <see cref="ConfigSteps"/> — so a coarse drag and a fine press speak the same units, every
     /// value the bar can reach is one the arrows can return to, and a round number is reachable by
@@ -1215,8 +1131,9 @@ internal static partial class VROptionsTab
     /// drag that puts the value onto the grid, which is the one moment the player IS choosing a
     /// new number.</para>
     ///
-    /// <para>Returns false the same way <see cref="BuildSliderRow"/> does — a donor without a
-    /// harvestable slider falls through to the stepper rather than leaving an empty row.</para>
+    /// <para>Returns false when the donor has no harvestable slider, so the row falls through to
+    /// <see cref="BuildStepperRow"/> rather than leaving an empty row on the page. That fallback is
+    /// the ONLY bar-less path a bounded scalar has now, which is why it must keep working.</para>
     /// </summary>
     private static bool BuildBarAndArrowsRow(Transform parent, ConfigCatalog.ConfigItem item,
                                              string? caption, string? hintKey)
@@ -1259,7 +1176,11 @@ internal static partial class VROptionsTab
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = false;
 
-        BuildArrow(strip, flip: true, () => Edit(item, 0, -1));
+        // The arrows repeat here too. The bar beside them is the fast way across the range, so the
+        // hold is not what makes this row usable — but a row where the arrows behave differently
+        // from every other row's arrows is its own small lie, and the fine steps ConfigSteps hands
+        // out now are exactly as fine on a bounded dial as on an unbounded one.
+        BuildArrow(strip, flip: true, () => Edit(item, 0, -1), repeat: true);
 
         // The bar gets its own holder so PlaceControl can stretch the harvested slider into it
         // while the layout group decides how wide "it" is: the arrows keep their 26 px, the bar
@@ -1285,7 +1206,7 @@ internal static partial class VROptionsTab
         slider.SetValueWithoutNotify(ReadNumber(item));
         slider.onValueChanged.AddListener(v => Apply(item, () => WriteNumber(item, SnapToStep(item, v))));
 
-        BuildArrow(strip, flip: false, () => Edit(item, 0, +1));
+        BuildArrow(strip, flip: false, () => Edit(item, 0, +1), repeat: true);
 
         // Every non-caption label in the row follows the live value — the slider's own amount text
         // included, which is the number the player reads between the arrows. Registering the
@@ -1359,19 +1280,29 @@ internal static partial class VROptionsTab
         layout.childForceExpandWidth = false;
         layout.childForceExpandHeight = false;
 
-        // HOLD-TO-REPEAT, for the two rows where a press really is a press too many times.
-        // [WorldUI] TravelButtonOffsetYWindowHeights needs 121 presses to cross its −0.6…+0.6 range
-        // at the 0.01 step ConfigSteps writes down; its sibling X needs 51. Both are steppers BY
-        // EXPLICIT USER RULING ("sollen keine Schieberegler sein, sondern die Pfeile, wo man den
-        // echten Wert einfach einstellen kann"), so they must NOT get a bar — and neither their
-        // values nor their ranges may move. What is left is to make the arrows themselves cheaper
-        // to use, which is what the repeat does. Deliberately NOT given to every stepper: on a
-        // pose dial an accidental long press would run the value away, and the ruling that made
-        // these two steppers is also what says a press there is meant to be a press.
-        bool repeat = PrefersStepper(item);
-        BuildArrow(strip, flip: true, () => Edit(item, component, -1), repeat);
+        // HOLD-TO-REPEAT, ON EVERY STEPPER SINCE ModBuild 271, and it used to be on exactly two.
+        //
+        // IT WAS ADDED FOR [WorldUI] TravelButtonOffsetX/YWindowHeights, which are steppers by
+        // explicit user ruling ("sollen keine Schieberegler sein, sondern die Pfeile, wo man den
+        // echten Wert einfach einstellen kann") and therefore may not buy their press count down
+        // with a bar. It was withheld from everything else on the argument that "on a pose dial an
+        // accidental long press would run the value away, and a press there is meant to be a
+        // press".
+        //
+        // THAT ARGUMENT DOES NOT SURVIVE THE STEP SIZES. ConfigSteps' length unit is a millimetre
+        // now, measured off the grid the user's own values sit on, and the 174 per-board rows that
+        // declare no range have NO BAR to cross with — a stepper is the whole control there. What
+        // was a 5-press nudge is a 50-press one, and "every press is a press" stops being a virtue
+        // and becomes the thing the report was about.
+        //
+        // AND THE FEAR IS ANSWERED BY ArrowRepeat'S OWN SHAPE: a tap is still exactly one press
+        // (onClick stays wired and the repeat only starts after a 0.45 s hold), and it lets go on
+        // pointer-up, pointer-exit and disable, so a VR laser sliding off the arrow stops it. The
+        // cost of an accidental hold is bounded and undoable in the same gesture; the cost of no
+        // repeat is a dial the player gives up on, which is what he wrote in.
+        BuildArrow(strip, flip: true, () => Edit(item, component, -1), repeat: true);
         TMP_Text value = BuildValueLabel(strip);
-        BuildArrow(strip, flip: false, () => Edit(item, component, +1), repeat);
+        BuildArrow(strip, flip: false, () => Edit(item, component, +1), repeat: true);
 
         Func<string> read = readValue ?? (() => ConfigCatalog.ValueText(item, component));
         value.text = read();
@@ -1575,9 +1506,10 @@ internal static partial class VROptionsTab
     /// directions are the same symbol the player already reads elsewhere in this window.
     /// </summary>
     /// <param name="repeat">
-    /// Keep firing while the arrow is held down (see <see cref="ArrowRepeat"/>). Opt-in per row,
-    /// not global: the travel-button offsets need 121 presses to cross their range, while a pose
-    /// dial wants a press to BE a press.
+    /// Keep firing while the arrow is held down (see <see cref="ArrowRepeat"/>). Every row passes
+    /// true since ModBuild 271; the parameter stays because "does this arrow repeat" is a real
+    /// property of an arrow and a future row shape may want a bare one. The argument for turning
+    /// it on everywhere is at the call site in <see cref="BuildStepperRow"/>.
     /// </param>
     private static void BuildArrow(Transform parent, bool flip, Action onClick, bool repeat = false)
     {
@@ -1627,11 +1559,16 @@ internal static partial class VROptionsTab
     /// question (d).
     ///
     /// <para>WHY IT EXISTS. <see cref="BuildArrow"/> is a plain <c>Button.onClick</c>, so a press
-    /// is a press, and <c>ConfigSteps</c> already says so in prose: "The arrows do not repeat when
+    /// is a press, and <c>ConfigSteps</c> used to say so in prose: "The arrows do not repeat when
     /// held … so every press is a press and the count has to stay humane." For two rows the count
-    /// is not humane — <c>[WorldUI] TravelButtonOffsetYWindowHeights</c> is 121 presses across its
+    /// was not humane — <c>[WorldUI] TravelButtonOffsetYWindowHeights</c> is 121 presses across its
     /// range and its sibling X is 51 — and those two may NOT become bars (standing user ruling).
     /// This is the third option: hold the arrow and it keeps stepping.</para>
+    ///
+    /// <para>IT IS ON EVERY ARROW SINCE ModBuild 271, because the constraint it was working around
+    /// stopped being a constraint on two rows and became one on all of them: the length steps are
+    /// millimetres now, and 174 per-board rows have no bar to cross with. The argument, and the
+    /// reason a tap is still a tap, is at the call site in <see cref="BuildStepperRow"/>.</para>
     ///
     /// <para>THE FIRST STEP IS STILL THE BUTTON'S. The <c>onClick</c> stays wired, so a tap
     /// behaves exactly as before (and keeps the game's own press feedback); this component only
