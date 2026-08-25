@@ -577,7 +577,6 @@ def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None, tag=None
     cav_gate = T.smoothstep(0.0, 0.08, cav)
     crust_drive = 6.00 * cav + 0.30 * field * cav_gate
     target = 0.10
-    lo = float(np.quantile(crust_drive, 1.0 - target))
     # THE SHORELINE IS SOFT NOW, and the old width was the aliasing. The previous
     # band was std(field) * 0.42 * 0.26 = 0.079 over a drive whose own standard
     # deviation on the flat was 0.305 -- a transition 0.26 sigma wide, which is a
@@ -587,7 +586,41 @@ def build_bronze(n, seed, orient="along", detail=1.0, cavity_bias=None, tag=None
     # gated field: the mask thins out over a distance comparable to the feature
     # size itself, which is what an edge of corrosion does.
     band = float(np.std(field)) * 0.30 * 1.30 + 1e-6
-    crust = T.smoothstep(lo - band * 0.5, lo + band * 0.5, crust_drive)
+    # NO CAVITY MEANS NO CRUST, stated rather than left to the arithmetic.
+    # Built without a cavity_bias -- the swatch preview, and the compositor's
+    # first bronze pass before the board has been carved -- crust_drive is
+    # identically zero, so its (1 - target) quantile is zero as well and the
+    # smoothstep would then be evaluated at the CENTRE of its own band: 0.5
+    # everywhere. The swatch came back 62% patinated and reported metallic
+    # 0.42-0.53 for a bronze that is 0.94 metallic wherever it is bare.
+    #
+    # IT DOES REACH THE COMPOSITED BOARD, slightly, and that was CHECKED rather
+    # than assumed -- the first version of this note asserted the three maps were
+    # byte-identical either side of the guard and md5 said otherwise. Why the
+    # reasoning was wrong is worth keeping. The second bronze pass does ASSIGN
+    # albedo, roughness, metallic and height, so none of the first pass's OUTPUT
+    # survives; but the first pass's HEIGHT is what the compositor takes the
+    # cavity of, and that cavity is the input the second pass's patina reads. And
+    # the degenerate patina was not a constant: it was 0.5 + 0.5*tarnish where it
+    # is now 0 + 1.0*tarnish, so the varying half of the height's patina term
+    # doubled.
+    #
+    # Measured, old installed maps against the regenerated ones:
+    #   albedo  mean |diff| 0.00022, p99 0.0039, max 0.035; 1.12% of texels move
+    #           by more than 2/255
+    #   normal  mean 0.00002, max 0.0039; no texel moves by more than 2/255
+    #   mrs     mean 0.00070, p99 0.0157, max 0.176; 4.99% move by more than 2/255
+    #           (the patina's roughness/metallic shoreline, shifted by a texel)
+    # The bundle carries the regenerated maps, so what is installed matches this
+    # code. A preview station showing a material nothing will ever build is the
+    # station-aimed-at-nothing failure with the numbers to match, and it is what
+    # made the swatch report metallic 0.42-0.53 for a 0.94-metallic bronze.
+    if float(np.max(cav)) < 1e-9:
+        lo = 0.0
+        crust = np.zeros_like(field)
+    else:
+        lo = float(np.quantile(crust_drive, 1.0 - target))
+        crust = T.smoothstep(lo - band * 0.5, lo + band * 0.5, crust_drive)
     tarnish = T.smoothstep(0.35, 1.95, bloom) * 0.24
     patina = np.clip(crust + tarnish * (1.0 - crust), 0.0, 1.0)
 

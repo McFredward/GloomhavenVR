@@ -77,10 +77,18 @@ PROJECT pass (the picture), and they cross-check each other.
 
 1. **The boards had no specular at all.** The texture pipeline authors albedo + height + roughness
    + metallic per style and `tex_render.py` judges through a Principled BSDF that binds all four.
-   `BoardLit` bound two. Steel is 99.3 % metallic in the authored map, bronze 88.5 %, and a metal
-   drawn with a diffuse lobe and no highlight is a painted dielectric — steel rendered as white
-   plaster. Fixed: `_MRSMap` bound (R = metallic, G = roughness, LINEAR import), `_SpecStrength`
-   0.85. Opt-in is still the map: no `*_mrs.png` → 0 → bit-identical to before.
+   `BoardLit` bound two. Fixed: `_MRSMap` bound (R = metallic, G = roughness, LINEAR import),
+   `_SpecStrength` 0.85. Opt-in is still the map: no `*_mrs.png` → 0 → bit-identical to before.
+
+   **But the specular is NOT what fixed the white plaster, and saying so was my error.** Measured
+   independently by both lanes: the baked key sits ~32° off the flat face's normal once a viewer is
+   in front of the board, so the half-vector never lands on the open plate — `_SpecStrength` 0 vs
+   0.85 moves the flat-on mean by **0.001**. The 3.4–3.8 % of board that does move (p99 0.047–0.075)
+   is the **bevels and mouldings**: recess walls, seat rings, the studded border. Steel read as
+   plaster because its albedo had a **1.35× dynamic range and a blue cast**; the albedo fixed it.
+   The specular is a bevel term, worth its weight as one. If metal should read on the open plate
+   too, that is a SHADER change (a second key nearer the view axis, or a view-dependent term) —
+   no texture can put a highlight where the half-vector does not go.
 2. **Bronze would have shipped standing on edge with its controls in mid-air.** See below.
 3. `PlayTray_mr.png` was glTF-ORM, bound by nothing, 1.4 MB of bundle. Deleted.
 
@@ -150,7 +158,7 @@ pepper it no longer has.
 
 ## THE SHIPPED BUILD
 
-ModBuild **271**. Bundle **65,621,568 bytes** (was 72,966,925), UnityFS format 7, Unity 2021.3.5f1,
+ModBuild **271**. Bundle **65,626,956 bytes** (was 72,966,925), UnityFS format 7, Unity 2021.3.5f1,
 installed at `prebuilt/gloomhavenvr.bundle` so `scripts/install.ps1` picks it up. Wire tests are
 now **147,378** (was 146,857; +521 for the two board clamps, and no script gates that number).
 **NOT a DLL-only install.**

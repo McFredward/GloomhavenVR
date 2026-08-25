@@ -421,7 +421,12 @@ internal static class NetProtocol
     // control boards are re-authored, re-textured and carry three button seats. A DLL-ONLY INSTALL
     // OF THIS BUILD IS WORSE THAN NOT UPDATING: the new DLL would clamp offsets against a
     // measurement the old bundle does not carry, which is a no-op, so he would see the old boards,
-    // report "no change", and be correct. BUNDLE IS 65,621,568 BYTES (was 72,966,925).
+    // report "no change", and be correct. BUNDLE IS 65,626,956 BYTES (was 72,966,925).
+    // (65,621,568 was an EARLIER build of this same round, superseded before it left the
+    // branch: the texture lane's last bronze pass landed after it and the three bronze maps
+    // in the tree were newer than the bundle built from them. The drift was imperceptible —
+    // albedo mean |diff| 0.00022, 1.12 % of texels moving more than 2/255 — and rebuilt
+    // anyway, because "the source is newer than the artifact" is not a state to ship.)
     //
     // (1) THE MESH. 0 hole loops on all three (was 1288 / 1639 / 1628), 0 non-manifold edges, 0
     //     loose verts (was 0 / 4098 / 4559), 0 inward-wound faces, positive signed volume (5160.5 /
@@ -481,6 +486,21 @@ internal static class NetProtocol
     //     blue cast — now 3.57x and neutral. Bronze's verdigris was hard-edged posterised
     //     salt-and-pepper ignoring the relief; it is now cavity-driven and soft. Oak is unchanged
     //     to three decimals, which is correct: it was already right.
+    //     *** AND THE ALBEDO, NOT THE SPECULAR, IS WHAT FIXED THE WHITE PLASTER. *** Both lanes
+    //     measured this independently and it corrects the way I first wrote this entry up. The
+    //     baked key sits about 32 degrees off the flat face's normal once a viewer is in front of
+    //     the board, so the half-vector never lands on the open plate at any usable roughness:
+    //     _SpecStrength 0 against 0.85 moves the FLAT-ON mean by 0.001. The 3.4-3.8 % of board that
+    //     does move, at p99 0.047-0.075, is the BEVELS AND MOULDINGS — the recess walls, the seat
+    //     rings, the studded border. The specular is a bevel term and worth its bundle weight as
+    //     one; it is not what turned steel from plaster into metal. Binding the map was still the
+    //     right fix (the pipeline authored it and nothing read it), but the sentence "steel
+    //     rendered as white plaster because the highlight was missing" is wrong: it rendered as
+    //     white plaster because its albedo had a 1.35x dynamic range and a blue cast.
+    //     CONSEQUENCE, and it is somebody's next round: if metal should read on the open plate and
+    //     not only on its edges, that is a SHADER change — a second key nearer the view axis, or a
+    //     view-dependent term — because no texture can put a highlight where the half-vector does
+    //     not go.
     //
     // (5) FIVE INSTRUMENTS LIED IN ONE ROUND. All five are written down where they lied.
     //     (a) A Win64 bundle opened in a Linux editor draws MAGENTA and HasProperty is false for
@@ -524,7 +544,7 @@ internal static class NetProtocol
     // NO WIRE CHANGE. Wire tests 147,378 (WAS 146,857 — +521, the two board clamps are on the
     // harness now; no script gates that number, but several documents quote it).
     // Patch inventory 78/130 (UNCHANGED).
-    // *** BUNDLE CHANGED to 65,621,568 bytes — NOT a DLL-only install. ***
+    // *** BUNDLE CHANGED to 65,626,956 bytes — NOT a DLL-only install. ***
     // Build 270: SAME BEHAVIOUR AS 269 — instrumentation only, and it exists because THREE of my
     // own briefs this round were built on truncated or misread census output. Test 270 instead of
     // 269: identical behaviour, and its log answers the shelf question in one grep.
