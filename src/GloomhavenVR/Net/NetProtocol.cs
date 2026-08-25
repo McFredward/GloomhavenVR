@@ -416,7 +416,126 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 290;
+    public const ushort ModBuild = 291;
+    // Build 291: THE FABRIC FOLLOWS THE SIZE, AND FOUR CAUSES THAT WERE NOT WHERE I LOOKED.
+    // *** NEW BUNDLE: 69,613,225 bytes (was 69,615,927). NOT DLL-only. ***
+    //
+    //   1. "IMPOSSIBLE" WAS WRONG, AND I HAD TOLD HIM SO. ModBuild 290 answered "Ist das
+    //   moeglich?" with a measured no, on the basis that a cook costs 25-43 ms. IT COSTS 1.3-2.5 ms.
+    //   Two agreeing measurements: (a) his OWN 290 log - Cloth.Cook appears on neither STEPS nor
+    //   STEPS TAIL, whose floor is 1.0 ms/s, so 17 cooks cost UNDER 30 ms between them; (b) harness,
+    //   9 reps, NULL 0.0009 ms - 81 particles 1.277 ms, 144 particles 2.475 ms, 15.8/17.2 us per
+    //   particle with no constant term. The old curve STARTED at 441 particles and the small end
+    //   was EXTRAPOLATED INTO. The fabric now re-cooks at the live size every LivePeriod frames
+    //   (clamped 6..30) under a 4 ms peak ceiling and a 0.5 ms/frame amortised budget.
+    //   AND 290 WAS NOT NEUTRAL AT HIS SCALE, IT WAS WORSE. He reported "1:1 noch genau gleich".
+    //   FactorArmsBench on the previous round's byte-identical mesh (the 1.345 row reproduces the
+    //   published table to four decimals, so it IS that instrument):
+    //       factor   SHRINK 289 -> 290       GROW 289 -> 290
+    //       1.345    0.4688 -> 0.0372 works  0.0000 -> 0.0000
+    //       1.7      0.9680 -> 1.1862 WORSE  0.0000 -> 0.0106
+    //       2.5 HIS  1.1719 -> 1.2950 WORSE  0.0000 -> 0.3142
+    //   IT INVERTS BETWEEN 1.345 AND 1.7, IN BOTH DIRECTIONS. A table measured at one factor is not
+    //   evidence about another, and every arm this subsystem ever ran used 1.345. Withdrawn.
+    //   "STEIF" WAS NEVER INCOHERENCE EITHER: the grow reads 0.0000 at every factor - nothing is
+    //   buckled. The cape MOVES 0.0013 m against a positive control's 0.49-0.88 m. It was not
+    //   stiff, it was DEAD. Over a whole 2.5x gesture against the build he tested: shrink mean
+    //   1.0530 -> 0.0002, grow 0.1978 -> 0.0017, worst-frame jitter 0.1425 against 290's 0.2491.
+    //   NOT BIT-IDENTICAL AT SETTLE (0.0433 against 0.0474, born-at-size reference 0.0276) - the
+    //   settle code is untouched, it now runs on a correctly draped cape instead of a crushed one.
+    //   NOTE FOR THE NEXT TEST: he resized LivingBonesID (82 particles) and BanditGuardID (143),
+    //   NOT the video's Savvas Icestorm (771 widest), which the peak ceiling REFUSES - it keeps the
+    //   old pin and prints LIVE RE-COOK: OFF with the reason. Dial: LiveCookPeakMs.
+    //
+    //   2. THE WALL'S OWN CRYSTAL HAS AN ANIMATOR, SO THE FIGURE RULE REFUSED THE WALL.
+    //   "In der Map fadet ein Wandteil nicht ... das sollte wie jedes andere Element auch faden."
+    //   'PCG_CV_Ice_Feature_Medium_02_PR' (22 renderers, owner 'Wall 1') STAYS WHOLE AND SOLID -
+    //   'CV_Ice_Crystal_Form_04': FIGURE. All five refusals in the session are that one arm, and
+    //   the arm that fires is the ANIMATOR arm: this tileset animates its crystals, so a crystal
+    //   the wall generator itself parented under Wall N/Generated Content/ answers "figure" and the
+    //   round-7 ruling refuses the whole unit.
+    //   MY TWO GUESSES WERE BOTH WRONG. It is not a geometric classifier (it is component
+    //   ancestry), and it is not an old name rule catching new furniture - the NEW crystals already
+    //   fade correctly. THE REAL TRAP IS THE INVERSE: this level parents CV_Ice_Crystal_Form_02
+    //   TWICE, as protected floor clutter under PCG_CV_Ice_Clutter_Floor_0N_PR and as wall
+    //   furniture under Wall N. THE 2026-08-24 RULING PROTECTS A LOCATION, NOT AN ASSET FAMILY.
+    //   The obvious remedy would have broken it: IsWallGeneratedDressing's UNBOUNDED
+    //   GetComponentInParent ProceduralWall climb answers YES for the protected floor formation
+    //   too. A bounded four-level window separates them. Second, smaller blocker fixed with it: a
+    //   ground-band conjunct judged a FRAGMENT (0.9 wu, 1 renderer) of a feature the floor arm
+    //   measures at 3.5 wu over 22. ModBuild 275's own falsifier fires in the 290 log ON CORRECT
+    //   BEHAVIOUR because it was written against an asset NAME; it is a PATH test now.
+    //
+    //   3. THE BOSS BAR NEVER MEASURED THE BOSS. "bei dem Boss-Drachen sind sie mitten in ihm".
+    //   MY 6 wu CEILING HYPOTHESIS IS REFUTED by two independent readings that agree the shipped
+    //   anchor is ~2.3 wu: his own log's STRETCH capture ("figure radius 0.99 m real", so the mesh
+    //   AABB caps at 9.47 wu) and the screenshot's own ratio (bar/wing-tip 415/1644, so <= 2.39 wu).
+    //   A 6 wu clamp would have put the bar at image row 1013. Since maxY - track.y >= 9.3 for this
+    //   figure, NO successful measurement can yield 2.3 - so the bounds rule never ran and the
+    //   value is the prefab fallback. WHY: the game assembles characters asynchronously and
+    //   MaterialLoaderData.LoadMaterials leaves Renderer.enabled FALSE until materials land, while
+    //   the anchor was measured ONCE at the earliest possible frame and kept forever. Bounded
+    //   resample: 8 samples over 0.5 s, latched on two agreeing real readings.
+    //   (b) IS NOT A DEFECT. ElderDrakeID highlights and is grabbed twelve times in that session.
+    //   (b) and (c) are ONE event seen twice: a pinch aimed high elects no figure, so neither the
+    //   highlight nor the grab happens. (c) IS NOT FIXED IN THIS BUILD - the boss's collider is
+    //   entirely unverified and the pick radius is shared with the card fan, so it ships an
+    //   instrument instead of a guess: FIGURE REACH (collider span, HOW MANY colliders the figure
+    //   carries, coverage of the rendered bounds) and REACHED AND MISSED (how far above the
+    //   collider's top the pinch was).
+    //
+    //   4. THE CAP'S COLOUR: A SOLVER HIT ITS TARGET EXACTLY AND THE TARGET WAS WRONG.
+    //   Round 4 finally showed gpt-image-2 the BOARD and got options that belong to it - and the
+    //   shipped cap did not look like the option it was built from. I blamed normalise_plate's
+    //   clipping. THAT IS HALF THE CAUSE AND NOT BRONZE'S CAUSE AT ALL: bronze clipped 0.32 % of
+    //   its field. Bronze and steel were wrong because PlayTray.BoardIdleColor was solved in
+    //   ModBuild 286 against cap_deltae.PALETTE - an AUTHORED hue window per board, written before
+    //   round 4 produced any picture of what a button on that board should look like. The bronze
+    //   board is at h 91.8 and the window said 66-80. The loop maximised min pairwise deltaE (17.0)
+    //   while every cap moved AWAY from its own board, because nothing in it ever looked at a
+    //   board. Oak really is normalise_plate (68.5 % clipping).
+    //   THE EXIT WAS IN THE PREMISE BOTH KNOWN OPTIONS SHARED: that the modulator must reach 0.837
+    //   - the mean of the greyscale texture the plates replaced, copied across because it was
+    //   there. It required nothing, and satisfying the seat guard that way made the colour
+    //   impossible. The gain stays uniform; only the number it solves for changed.
+    //       board    vs its OPTION      hue error vs its own BOARD
+    //       oak      13.28 -> 0.024     +27.5 deg -> -1.3 deg
+    //       steel    10.01 -> 0.028    +164.0 deg -> +7.5 deg
+    //       bronze   13.23 -> 0.024     -26.2 deg -> +3.4 deg
+    //   Field contrast rose on all three (4.12->10.69, 6.64->10.36, 4.21->9.05 %); idle luminance
+    //   held to 0.1 %. STEEL/BRONZE FELL 23.85 -> 8.01 and that is the honest cost: it is NOT the
+    //   6.8 collapse (three boards converging on one hue) but what pewter and patinated bronze
+    //   genuinely differ by at this brightness - the 23.85 was manufactured by rotating steel to
+    //   blue and bronze to orange. BoardCapTint was NOT needed and is untouched; it is his tuning
+    //   surface. NEXT LEVER, NAMED: SeatedCapColor is now the binding constraint - it promises a
+    //   cap face at 1.35x its well, applies that to _Color, and cannot see the texture.
+    //   ALSO: the round cap's ENTIRE BEZEL had been invisible since round 2 - 384 of 640 triangles
+    //   wound against their own normals and back-face culled. That is the EIGHTH mesh in this
+    //   project shipped wound against the side it is seen from; check_winding now asserts signed
+    //   volume and UV-vs-geometry winding on every OBJ the sheet pipeline reads.
+    //
+    //   5. A DARK WINDOW IS HIDDEN, NOT DEMOLISHED - AND IT CAME BACK SOMEWHERE ELSE.
+    //   "das Fenster mit der Character-UI ist ploetzlich einfach verschwunden ... es darf erst gar
+    //   nicht verschwinden." MY ACCOUNT OF THE COST WAS WRONG: the rebuild was ~117 ms; the ~3.7 s
+    //   (320 frames) was the content GENUINELY DARK, and two independent instruments say so (the
+    //   fit's 0-of-861 verdict and the grab bar's two agreeing ink walks). Nothing in presentation
+    //   could have shortened it. THE MOD'S OWN CONTRIBUTION WAS WORSE THAN I THOUGHT: the teardown
+    //   re-ran the spawn placement, so the window yawed 54.8 deg -> 136.9 deg. He did not get his
+    //   window back, he got a new one somewhere else.
+    //   MY PROPOSED LOAD DISCRIMINATOR IS FALSIFIED BY HIS OWN LOG: "Loading ended" is BEFORE the
+    //   release and the content returned ~3.7 s AFTER it, so a load term restarts the same dwell
+    //   and tears the same window down ~1.7 s early anyway - "raise the dwell" wearing a state
+    //   flag's clothes. DARK now HIDES (render-visible off, raycaster off) keeping host, pose, arc
+    //   seat, grab frame, committed fit and draw-order rung; WakeDormant is the exact inverse in
+    //   one frame; real release only on GONE, on the game closing it, or a 45 s backstop.
+    //   THE DWELL WENT DOWN, NOT UP: 2.0 s -> 0.35 s. The 2 s was sized for an irreversible
+    //   teardown. ModBuild 230's "es darf niemals leere Fenster geben" is now honoured 1.65 s
+    //   SOONER. The four ESC/Options ids are exempt from the rule entirely.
+    //   The wake test is script-side on purpose: a dormant float's canvases are disabled and uGUI
+    //   does not service a disabled canvas, so GetInheritedAlpha()/cull - which both existing
+    //   measurements read - can freeze. A wake built on a value the hide itself freezes is the
+    //   settle gate that never opens.
+    //
     // Build 290: FOUR DEFECTS, AND THREE OF THEM WERE A CORRECT REMEDY POINTED AT THE WRONG THING.
     // *** DLL-ONLY INSTALL. No bundle change: 69,615,927 bytes, unchanged from 289. ***
     //
