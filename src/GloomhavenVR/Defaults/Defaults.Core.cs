@@ -300,7 +300,7 @@ internal static partial class Defaults
     // THE INSTRUMENT AND ITS FOUR CI-VALIDATED CONTROLS ARE KEPT INTACT — this is a default, not
     // a deletion. Turn the key back on the day §7.2 is implemented: that is precisely the run
     // where it has to name, renderer by renderer, what the narrowing dropped.
-    internal const bool SignatureCulpritCensus = true;       // => [WallFade] SignatureCulpritCensus
+    internal const bool SignatureCulpritCensus = false;      // => [WallFade] SignatureCulpritCensus  (pinned: ModBuild 284 turned this OFF deliberately — the question it exists to ask has been asked and answered, and it is the "a probe that answered is spent" entry. The 2026-08-26 cfg snapshot carries a value that PREDATES that decision, not a chosen one; turn it back on the day WALL-FADE-CLOSEOUT §7.2 is implemented)
     // ModBuild 281 (PERF B step 3) — the CHURN gate (see WallSegmentFade.CommitGate.cs). It
     // shipped ON for the same reason SignatureCulpritCensus above it did: PERF B removes the
     // ~95 ms commit frame by spreading it over ~63 frames, and the one thing that can go wrong
@@ -316,7 +316,7 @@ internal static partial class Defaults
     // sentence above is still true and is still the reason to flip this key back on: the day
     // anyone starts build 2, this is the first thing they turn on, and it is why the gate and
     // its controls are kept rather than deleted.
-    internal const bool CommitTableGate = true;              // => [WallFade] CommitTableGate
+    internal const bool CommitTableGate = false;             // => [WallFade] CommitTableGate  (pinned: ModBuild 284 turned this OFF deliberately — PERF B build 2 stays a PLAN and the build it measures for is not being built. The 2026-08-26 cfg snapshot carries a value that PREDATES that decision)
     // ModBuild 281 (PERF B) — the per-frame budget of every SLICED rescan stage.
     //
     // 1.5 IS THE CONSTANT THAT SHIPPED, THREE TIMES OVER. It was `ClassifyBudgetMillis` in
