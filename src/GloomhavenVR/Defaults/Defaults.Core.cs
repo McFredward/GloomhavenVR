@@ -225,4 +225,29 @@ internal static partial class Defaults
     // 1.88 m. 1.20 m sits between the two populations with ~2x margin below and ~1.35x above,
     // and the latch releases only under 0.85 x this (1.02 m) so it cannot chatter on the bar.
     internal const float WalkInMinCrestMetres = 1.2f;        // => [WallFade] WalkInMinCrestMetres
+
+    // ModBuild 272 — THE WALK-IN TRIGGER PROMOTED TO A TUNING SURFACE (user request 2026-08-25:
+    // "Bitte gebe mir eine Einstellmöglich in dem ich die parameter selber tunen kann wann der
+    // Modus aktiv wird, in dem man IN einem Spielfeld ist und die Wände nicht mehr faden.").
+    // Every value below was a `private const` in WallSegmentFade.Inside.cs and is bound here at
+    // EXACTLY the number that const held, so a fresh install and an install that never opens the
+    // menu behave bit-for-bit as ModBuild 271 did. This is a tuning surface, not a retune. NEW
+    // keys, so BepInEx's keep-existing-values rule is not in the way and no migration marker is
+    // needed.
+    //
+    // The hardware that motivates the numbers he will type: the ModBuild 271 session's crest
+    // readings were 2.31 m (x9) and 1.42 m (x1) — both over the 1.20 m bar, and the mode engaged
+    // twice — against 0.94 m (x3) and 0.82 m (x2), both under it, where it refused. The boundary
+    // he is being handed therefore sits in the gap between 0.94 and 1.42.
+    internal const float WalkInCrestReleaseFraction = 0.85f; // => [WallFade] WalkInCrestReleaseFraction
+    internal const float InsideEnterDepthFraction = 0.1f;    // => [WallFade] InsideEnterDepthFraction
+    internal const float InsideExitDepthFraction = 0.35f;    // => [WallFade] InsideExitDepthFraction
+    // EnterDwellSeconds (WallSegmentFade.cs) is the constant the latch borrowed; 0.20 is its value.
+    internal const float WalkInEnterDwellSeconds = 0.2f;     // => [WallFade] WalkInEnterDwellSeconds
+    // ExitDwellMovedSeconds above is the dial the latch borrowed; 2.5 is its shipped value, and
+    // the two are kept equal on purpose so the promotion is invisible at the defaults.
+    internal const float WalkInExitDwellSeconds = 2.5f;      // => [WallFade] WalkInExitDwellSeconds
+    // 0 IS LOAD-BEARING, not a placeholder: the shipped test is `_lastInsideMarginY < 0`, and
+    // `margin < -0 * crest` is that same test. Any other default would be a retune.
+    internal const float WalkInHeadBelowCrestFraction = 0f;  // => [WallFade] WalkInHeadBelowCrestFraction
 }

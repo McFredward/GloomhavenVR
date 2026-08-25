@@ -416,7 +416,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 271;
+    public const ushort ModBuild = 272;
+    // Build 272: THE WALK-IN TRIGGER BECOMES A TUNING SURFACE (user request 2026-08-25: "Bitte gebe
+    // mir eine Einstellmoeglich in dem ich die parameter selber tunen kann wann der Modus aktiv
+    // wird, in dem man IN einem Spielfeld ist und die Waende nicht mehr faden").
+    //   THE 271 HARDWARE LOG SHOWS THE MODE WORKING AND SHOWS WHY HE WANTS THE DIAL. Its falsifier
+    //   line names the refusing term with its value: `REFUSED BY CREST — the board's walls are
+    //   0.94 m tall, under the 1.20 m bar`. Across the session the crest read 2.31 m nine times
+    //   (PASS), 1.42 m once (PASS), 0.94 m three times and 0.82 m twice (FAIL), and the latch took
+    //   2 edges. So the mode is not broken; the boundary is his to place, and 1.20 was my guess
+    //   from two readings.
+    //   Seven live [WallFade] keys now: WalkInMinCrestMetres (default UNCHANGED at 1.20, lower
+    //   clamp widened to 0 so the crest term can be switched OFF entirely — the text says in
+    //   capitals that this is what makes it fire when leaning over a tabletop, which is the
+    //   ModBuild 251 rejection), WalkInCrestReleaseFraction, InsideEnterDepthFraction,
+    //   InsideExitDepthFraction (kept as FRACTIONS of the crest so they scale with the board),
+    //   WalkInEnterDwellSeconds, WalkInExitDwellSeconds and WalkInHeadBelowCrestFraction (new
+    //   term; 0 is load-bearing — `margin < -0*C` is bit-identical to the shipped `margin < 0`).
+    //   Every promoted value is bit-equal to the literal it replaced, so behaviour at the defaults
+    //   is unchanged. ONE EXCEPTION, NAMED: the walk-in release dwell used to FOLLOW
+    //   [WallFade] ExitDwellMovedSeconds and now has its own key at the same 2.50 — an install
+    //   with a hand-tuned ExitDwellMovedSeconds (his live cfg holds 0.5) will see the walk-in
+    //   release stop tracking it until he sets the new key.
+    //   Every bar is printed on the INSIDE THE MAP line AS ITS LIVE CONFIGURED VALUE, never as a
+    //   literal, and the pass stores the value it ACTUALLY used rather than re-deriving it for the
+    //   log. With the crest bar at 0 all three lines say SWITCHED OFF in words, so a session
+    //   behaving like the rejected 251 build cannot be mistaken for a bug.
+    //   Curated row added (Erweitert keeps the numeric dials; the master toggle joins
+    //   StackedShellFade in both Sichtbarkeit blocks) — the worker could not add it because the
+    //   caption table lives in Loc.cs, outside its ownership, and Loc.Mod has NO fallback: a row
+    //   without a caption renders as the raw key.
+    //   AND A STEPPER WART FIXED AT ITS ROOT: ConfigSteps' unit table spells the unit "Meters", so
+    //   a key spelled "Metres" never matched and fell through to magnitude stepping — 0.02 m per
+    //   press, ~60 of them to reach the documented 0 escape hatch. One Explicit entry at 0.05
+    //   rather than adding "Metres" to the suffix table, which would silently re-step five other
+    //   keys nobody has looked at. Wire tests 147378 -> 147379 (+1): the harness asserts one per
+    //   Explicit step entry.
     // Build 271: *** THIS ONE SHIPS A NEW BUNDLE — THE FIRST SINCE ModBuild 250. *** All three
     // control boards are re-authored, re-textured and carry three button seats. A DLL-ONLY INSTALL
     // OF THIS BUILD IS WORSE THAN NOT UPDATING: the new DLL would clamp offsets against a

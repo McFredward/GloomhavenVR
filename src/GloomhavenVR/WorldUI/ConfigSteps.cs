@@ -61,6 +61,17 @@ internal static class ConfigSteps
         // replaced it, see Rig/ComfortSettings.cs). Only the parked tilt keeps a step here.
         ["Rig/WorldTiltDegrees"] = 5d,           // PARKED feature — kept for its revival; row gone
 
+        // ---- Erweitert ▸ the walk-in stand-down ------------------------------------------
+        // A THRESHOLD IN METRES IS NOT AN OFFSET IN METRES. The suffix table below spells the
+        // unit "Meters"; this key spells it "Metres", so it never matches and falls through to
+        // magnitude stepping — 0.02 m a press, about sixty of them to walk the bar from its
+        // shipped 1.20 down to 0, which is the documented escape hatch that switches the crest
+        // term off entirely. Fixed HERE rather than by adding "Metres" to the suffix table,
+        // because that table would then also re-step five other keys nobody has looked at.
+        // 0.05 puts ~24 presses across the useful band and lands exactly on the two readings
+        // the ModBuild 271 hardware log offers as candidates (0.94 m refused, 1.42 m passed).
+        ["WallFade/WalkInMinCrestMetres"] = 0.05d,
+
         // ---- Komfort ▸ Drehen / Fortbewegung ----------------------------------------------
         // NOT a step any more — this row is a named-preset dropdown since 2026-08-22 (question d:
         // a six-position bar is a dropdown drawn badly). The 15 stays because it is where the five

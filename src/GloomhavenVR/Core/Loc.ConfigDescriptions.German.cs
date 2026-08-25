@@ -530,10 +530,79 @@ internal static partial class Loc
                 + "ganze Absicherung: Bei Tischzoom ist das Brett ein Diorama mit 60 cm hohen Wänden — "
                 + "schon das bloße VORBEUGEN über den eigenen Tisch steckt deinen Kopf in sein Volumen, "
                 + "und genau darauf ist eine frühere Fassung hereingefallen. Zwischen den Wänden eines "
-                + "Raumes zu stehen misst 1,6-1,9 m. Höher stellen, wenn der Modus beim bloßen Vorbeugen "
-                + "noch einschaltet; niedriger, wenn er sich weigert, obwohl du eindeutig drinstehst. Der "
-                + "Modus schaltet erst unter dem 0,85-fachen dieses Wertes wieder ab, kann an der Grenze "
-                + "also nicht flackern. Live änderbar; begrenzt auf 0.30-5.00.",
+                + "Raumes zu stehen misst 1,6-1,9 m. WAS DEINE EIGENE HARDWARE GEMESSEN HAT (Sitzung "
+                + "mit ModBuild 271, die Wandhöhe in echten Metern bei jedem Zoom, den du gehalten "
+                + "hast): 2,31 m neunmal und 1,42 m einmal — beide über dieser Schwelle, und der Modus "
+                + "schaltete zweimal ein — dagegen 0,94 m dreimal und 0,82 m zweimal, beide darunter, wo "
+                + "er sich weigerte. Die Grenze, die du hier verschiebst, liegt also zwischen 0,94 und "
+                + "1,42: etwa 0,90 einstellen, damit der Modus auch die beiden flacheren Zoomstufen "
+                + "abdeckt, oder bei 1,20 lassen, um sie draußen zu halten. Höher stellen, wenn der Modus "
+                + "beim bloßen Vorbeugen noch einschaltet; niedriger, wenn er sich weigert, obwohl du "
+                + "eindeutig drinstehst. AUF 0 STELLEN SCHALTET DIE HÖHENPRÜFUNG GANZ AB — der Modus "
+                + "hängt dann nur noch daran, dass dein Kopf innerhalb der Grundfläche und unter den "
+                + "Mauerkronen ist, was bei Tischzoom heißt: SCHON DAS VORBEUGEN ÜBER DEN EIGENEN TISCH "
+                + "macht jede Wand massiv. Genau dieses Verhalten wurde einmal ausgeliefert und in einer "
+                + "einzigen Sitzung abgelehnt; die 0 gibt es, weil es deine Entscheidung ist, nicht weil "
+                + "sie eine gute Voreinstellung wäre. Der Modus schaltet erst unter dem mit "
+                + "\"Im Spielfeld: Abschalt-Reserve\" eingestellten Anteil dieses Wertes wieder ab, kann "
+                + "an der Grenze also nicht flackern. Live änderbar; begrenzt auf 0.00-5.00 "
+                + "(0 = Prüfung aus).",
+            ["WallFade/WalkInCrestReleaseFraction"] =
+                "Schaltreserve für die Wandhöhen-Schwelle darüber: Sobald der Modus HÄLT, hält er weiter, "
+                + "bis die Wandhöhe des Bretts unter diesen Anteil von \"Im Spielfeld ab Wandhöhe\" "
+                + "fällt. Bei den ausgelieferten 0,85 und einer Schwelle von 1,20 m schaltet der Modus "
+                + "bei 1,20 m ein und erst bei 1,02 m wieder ab — ein Zoom, der genau auf der Schwelle "
+                + "steht, kann also nicht sämtliche Wände im Wechsel massiv und durchsichtig flackern "
+                + "lassen. 1,00 entfernt die Reserve ganz (Ein- und Ausschaltpunkt auf derselben Zahl — "
+                + "an der Grenze ist dann Flackern zu erwarten); 0,30 macht den Modus sehr zäh: alle "
+                + "Wände bleiben massiv, bis du fast ganz herausgezoomt hast. Live änderbar; begrenzt "
+                + "auf 0.10-1.00. Ohne Wirkung, solange \"Im Spielfeld ab Wandhöhe\" 0 ist.",
+            ["WallFade/InsideEnterDepthFraction"] =
+                "Wie weit INNERHALB des Brettvolumens dein Kopf sein muss, damit du als \"im Spielfeld\" "
+                + "giltst — als Anteil der Wandhöhe genau dieses Bretts, damit es auf einer flachen "
+                + "Ruine dasselbe bedeutet wie in einer Burg (es ist mit Absicht kein fester Abstand). "
+                + "0,10 = dein Kopf muss ein Zehntel einer Wandhöhe hinter der Grenze sein. 0 = sobald "
+                + "du das Volumen überhaupt berührst; 1,00 = eine ganze Wandhöhe tief, was du auf den "
+                + "meisten Szenarien nie erreichst und den Modus damit praktisch abschaltet. Höher "
+                + "stellen, wenn der Modus schon am Brettrand einschaltet. Live änderbar; begrenzt auf "
+                + "0.00-2.00.",
+            ["WallFade/InsideExitDepthFraction"] =
+                "Die andere Hälfte derselben Schaltschwelle: wie weit AUSSERHALB des Brettvolumens dein "
+                + "Kopf wandern muss, bis du nicht mehr als \"im Spielfeld\" giltst — wieder als Anteil "
+                + "der Wandhöhe des Bretts. Der Abstand zwischen diesem Wert und \"Im Spielfeld: "
+                + "Eintrittstiefe\" ist der tote Bereich, den dein Kopf durchqueren muss, damit das "
+                + "Urteil umkippt — bei den ausgelieferten 0,10/0,35 sind das 0,45 Wandhöhen. Richtung 0 "
+                + "fällt der Modus sofort ab, wenn du herausdriftest (und kann kurz darauf wieder "
+                + "einschalten — Flackern); Richtung 1,00 kannst du dich weit vom Brett weglehnen, und "
+                + "alle Wände bleiben massiv. Live änderbar; begrenzt auf 0.00-3.00.",
+            ["WallFade/WalkInEnterDwellSeconds"] =
+                "Sekunden, die alle Bedingungen des Modus GEMEINSAM erfüllt sein müssen, bevor er "
+                + "wirklich einschaltet. Bewusst kurz (ausgeliefert 0,20 s): Ins Spielfeld zu treten ist "
+                + "eine bewusste Handlung, und die Wände sollen massiv sein, sobald du aufschaust. Auf "
+                + "1-2 s erhöhen, wenn ein Zoom, der nur durch das Spielfeld hindurchfährt, die Wände im "
+                + "Vorbeigehen einschaltet; 0 = im allerersten passenden Einzelbild einschalten. Live "
+                + "änderbar; begrenzt auf 0.00-10.00.",
+            ["WallFade/WalkInExitDwellSeconds"] =
+                "Sekunden, die der Modus nach dem Wegfall der Bedingungen wartet, bevor die Wände wieder "
+                + "ausblenden dürfen. Bewusst lang (ausgeliefert 2,50 s, derselbe Wert wie die normale "
+                + "Einblende-Wartezeit): Eine Wand, die durchsichtig wird, weil dein Kopf einen "
+                + "Zentimeter über die Grenze gedriftet ist, ist genau das Zappeln, das dieser Modus "
+                + "verhindern soll. Auf 5-10 s erhöhen, damit das Verlassen sehr großzügig wird; 0 = die "
+                + "Wände dürfen in dem Einzelbild wieder ausblenden, in dem du heraustrittst. HINWEIS: "
+                + "Den Modus über \"Im Spielfeld: alle Wände massiv\" auszuschalten oder das Brett bei "
+                + "einem Szenenwechsel zu verlieren, schaltet immer sofort ab — beides ist kein "
+                + "wandernder Kopf, und nur den entprellt diese Wartezeit. Live änderbar; begrenzt auf "
+                + "0.00-60.00.",
+            ["WallFade/WalkInHeadBelowCrestFraction"] =
+                "Wie weit UNTER den Mauerkronen dein Kopf für diesen Modus sein muss, als Anteil der "
+                + "Wandhöhe des Bretts. 0 (ausgeliefert) heißt schlicht \"unter der Kronenebene\" — "
+                + "alles unterhalb der Maueroberkanten zählt, und genau das bedeutet, in einem Raum zu "
+                + "stehen. Höher stellen, um zu verlangen, dass du wirklich UNTEN zwischen den Wänden "
+                + "bist statt auf Augenhöhe mit ihren Oberkanten: 0,25 = eine Viertel Wandhöhe unter der "
+                + "Krone, 0,50 = auf halber Höhe. Nützlich, wenn der Modus einschaltet, während du von "
+                + "knapp innerhalb der Grundfläche noch über die Wände hinwegsiehst. Zu hoch, und er "
+                + "kann nie einschalten, weil dein Auge fast am Boden sein müsste. Live änderbar; "
+                + "begrenzt auf 0.00-1.00.",
             // ---- [PeerBoardFade] ----
             // Sechs Nachträge des Einstellungs-Audits vom 2026-08-22: Die Sektion kam mit
             // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.

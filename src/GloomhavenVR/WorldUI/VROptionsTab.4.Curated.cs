@@ -244,6 +244,7 @@ internal static partial class VROptionsTab
                         // directly beside the walls-transparent toggle it extends. Folds under
                         // WallFade (VROptionsTab.8.Dependencies.cs).
                         new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
+                        new("WallFade", "WalkInStandDown", "vr_o_walkin"),
                         // [WallFade] SyncPeerFades MOVED to Avatar & Mehrspieler ▸ Zusammen
                         // spielen (user item 2, 2026-08-11: "Mach alle Einstellungen die mit dem
                         // Multiplayer zu tun haben … auch in den Multiplayer Tab. zB. 'Wände mit
@@ -679,6 +680,7 @@ internal static partial class VROptionsTab
                         // beside it here exactly as it is in Komfort. Folds under WallFade
                         // (VROptionsTab.8.Dependencies.cs).
                         new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
+                        new("WallFade", "WalkInStandDown", "vr_o_walkin"),
                     },
                 },
                 new()

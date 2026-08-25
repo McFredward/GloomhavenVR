@@ -46,6 +46,20 @@ internal static class WallFadeTuning
     /// <summary>ModBuild 271: the board's wall crest in REAL METRES that separates "standing in a
     /// room" from "leaning over a 61 cm diorama" — the term both retired attempts lacked.</summary>
     internal static ConfigEntry<float>? WalkInsideMinCrestMetres;
+    /// <summary>ModBuild 272: hysteresis band under <see cref="WalkInsideMinCrestMetres"/>, as a
+    /// fraction of it, so a zoom parked on the bar cannot make the mode chatter.</summary>
+    internal static ConfigEntry<float>? WalkInsideCrestReleaseFraction;
+    /// <summary>ModBuild 272: INSIDE Schmitt HIGH bar, as a fraction of the board's crest height.</summary>
+    internal static ConfigEntry<float>? InsideEnterDepth;
+    /// <summary>ModBuild 272: INSIDE Schmitt LOW bar, as a fraction of the board's crest height.</summary>
+    internal static ConfigEntry<float>? InsideExitDepth;
+    /// <summary>ModBuild 272: seconds the walk-in conjunction must hold before the mode engages.</summary>
+    internal static ConfigEntry<float>? WalkInsideEnterDwell;
+    /// <summary>ModBuild 272: seconds the walk-in conjunction must have failed before it releases.</summary>
+    internal static ConfigEntry<float>? WalkInsideExitDwell;
+    /// <summary>ModBuild 272: how far BELOW the crest plane the head must be, as a fraction of the
+    /// crest height. 0 = the shipped rule, "anywhere under the crest plane".</summary>
+    internal static ConfigEntry<float>? WalkInsideHeadBelowCrestFraction;
     /// <summary>One-shot marker, not a setting — see the migration block in <see cref="Bind"/>.</summary>
     internal static ConfigEntry<bool>? BarsMigrated252;
     /// <summary>One-shot marker, not a setting — see the second migration block in <see cref="Bind"/>.</summary>
@@ -119,12 +133,78 @@ internal static class WallFadeTuning
             "safeguard: at a tabletop zoom the board is a diorama with 60 cm walls, so merely " +
             "LEANING OVER your own table already puts your head inside its volume — an earlier " +
             "build shipped a stand-down that fired on exactly that and was rejected in one " +
-            "session. Standing between the walls of a room reads 1.6-1.9 m. Raise it if the mode " +
-            "still engages when you only lean in; lower it if it refuses while you are plainly " +
-            "standing inside. The INSIDE THE MAP log line prints the live metre reading against " +
+            "session. Standing between the walls of a room reads 1.6-1.9 m. WHAT YOUR OWN " +
+            "HARDWARE HAS ACTUALLY READ (ModBuild 271 session, the crest in real metres at each " +
+            "zoom you held): 2.31 m nine times and 1.42 m once — both above this bar, and the " +
+            "mode engaged twice — then 0.94 m three times and 0.82 m twice, both under it, where " +
+            "it refused. So the boundary you are moving sits between 0.94 and 1.42: set it near " +
+            "0.90 to have the mode also cover the two shallower zooms, leave it at 1.20 to keep " +
+            "them out. Raise it if the mode still engages when you only lean in; lower it if it " +
+            "refuses while you are plainly standing inside. SET IT TO 0 TO SWITCH THE HEIGHT-BAR " +
+            "TEST OFF ENTIRELY — the mode then fires on nothing but 'my head is inside the " +
+            "board's footprint and under its crest', which at a tabletop zoom means LEANING OVER " +
+            "YOUR OWN TABLE turns every wall solid. That exact behaviour shipped once and was " +
+            "rejected in a single session; 0 is offered because it is your call, not because it " +
+            "is a good default. The INSIDE THE MAP log line prints the live metre reading against " +
             "this bar every time, and names the term that refused when it did. The mode releases " +
-            "only below 0.85x this value, so it cannot flicker on the boundary. " +
-            "Live; clamped 0.30-5.00.");
+            "only below WalkInCrestReleaseFraction x this value, so it cannot flicker on the " +
+            "boundary. Live; clamped 0.00-5.00 (0 = test disabled).");
+        WalkInsideCrestReleaseFraction = config.Bind("WallFade", "WalkInCrestReleaseFraction",
+            Defaults.WalkInCrestReleaseFraction,
+            "Hysteresis for the wall-height bar above: once the walk-in mode HOLDS, it keeps " +
+            "holding until the board's crest falls below this fraction of WalkInMinCrestMetres. " +
+            "At the shipped 0.85 with a 1.20 m bar the mode engages at 1.20 m and lets go at " +
+            "1.02 m, so a zoom parked exactly on the bar cannot make every wall flicker solid " +
+            "and transparent again. 1.00 removes the band entirely (engage and release on the " +
+            "same number — expect chatter if you hover there); 0.30 makes the mode very sticky, " +
+            "holding all walls solid until you have zoomed most of the way back out. Live; " +
+            "clamped 0.10-1.00. Inert while WalkInMinCrestMetres is 0.");
+        InsideEnterDepth = config.Bind("WallFade", "InsideEnterDepthFraction",
+            Defaults.InsideEnterDepthFraction,
+            "How far INSIDE the board's volume your head has to be before you count as being in " +
+            "the play field, as a fraction of that board's own wall height (so it means the same " +
+            "thing on a low ruin and on a keep — it is deliberately not a fixed distance). " +
+            "0.10 = your head must be a tenth of a wall-height past the boundary. 0 = the moment " +
+            "you touch the volume at all; 1.00 = a whole wall-height deep, which on most " +
+            "scenarios you can never reach and effectively switches the whole mode off. Raise it " +
+            "if the mode engages while you are still at the board edge. Live; clamped 0.00-2.00.");
+        InsideExitDepth = config.Bind("WallFade", "InsideExitDepthFraction",
+            Defaults.InsideExitDepthFraction,
+            "The other half of the same Schmitt pair: how far OUTSIDE the board's volume your " +
+            "head has to travel before you stop counting as being in the play field, again as a " +
+            "fraction of that board's wall height. The gap between this and " +
+            "InsideEnterDepthFraction is the dead band your head has to cross to flip the verdict " +
+            "back — at the shipped 0.10/0.35 that band is 0.45 wall-heights wide. Lower it " +
+            "towards 0 and the mode drops the instant you drift out (and can re-engage a moment " +
+            "later — chatter); raise it towards 1.00 and you can lean well clear of the board " +
+            "with every wall still held solid. Live; clamped 0.00-3.00.");
+        WalkInsideEnterDwell = config.Bind("WallFade", "WalkInEnterDwellSeconds",
+            Defaults.WalkInEnterDwellSeconds,
+            "Seconds every condition of the walk-in mode must hold TOGETHER before it actually " +
+            "engages. Short by design (0.20 s shipped): stepping into the field is a deliberate " +
+            "act and the walls should be solid by the time you have looked up. Raise it to 1-2 s " +
+            "if a zoom that merely passes through the field flips the walls on in passing; 0 = " +
+            "engage on the very first frame that qualifies. Live; clamped 0.00-10.00.");
+        WalkInsideExitDwell = config.Bind("WallFade", "WalkInExitDwellSeconds",
+            Defaults.WalkInExitDwellSeconds,
+            "Seconds the walk-in mode waits, after the conditions stop being met, before it lets " +
+            "the walls fade again. Long by design (2.50 s shipped, the same value the ordinary " +
+            "un-fade dwell uses): a wall going transparent because your head drifted a centimetre " +
+            "over the boundary is exactly the churn this mode exists to stop. Raise it to 5-10 s " +
+            "to make leaving very forgiving; 0 = the walls are free to fade again the frame you " +
+            "step out. NOTE: turning the mode OFF at WalkInStandDown, or losing the board volume " +
+            "on a scene change, always releases immediately — neither is a moving head, so " +
+            "neither is what this dwell debounces. Live; clamped 0.00-60.00.");
+        WalkInsideHeadBelowCrestFraction = config.Bind("WallFade", "WalkInHeadBelowCrestFraction",
+            Defaults.WalkInHeadBelowCrestFraction,
+            "How far BELOW the wall crests your head must be for the walk-in mode, as a fraction " +
+            "of the board's wall height. 0 (shipped) means the rule is simply 'below the crest " +
+            "plane' — anywhere under the tops of the walls counts, which is what standing in a " +
+            "room means. Raise it to demand that you are genuinely DOWN among the walls rather " +
+            "than at eye level with their tops: 0.25 = a quarter of a wall-height below the " +
+            "crest, 0.50 = half way down. Useful if the mode engages while you are still looking " +
+            "over the walls from just inside the footprint. Too high and it can never engage at " +
+            "all, because your eye would have to be near the floor. Live; clamped 0.00-1.00.");
 
         // ---- ONE-SHOT: carry the corrected Schmitt pair into an EXISTING cfg ---------------
         //
@@ -308,9 +388,50 @@ internal static class WallFadeTuning
     internal static bool WalkInStandDown =>
         WalkInsideStandDown == null || WalkInsideStandDown.Value;
     /// <summary>ModBuild 271 — the real-metre crest bar. The number inside Clamped() is only the
-    /// PRE-BIND fallback; the shipped default is <c>Defaults.WalkInMinCrestMetres</c>.</summary>
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.WalkInMinCrestMetres</c>.
+    /// <para>ModBuild 272 widened the LOWER clamp from 0.30 to 0 so the term can be switched off
+    /// outright (see the bound description). The DEFAULT is untouched at 1.20, so this changes
+    /// nothing for anyone who does not type a smaller number on purpose.</para></summary>
     internal static float WalkInMinCrestMetres =>
-        Clamped(WalkInsideMinCrestMetres, 1.2f, 0.30f, 5f);
+        Clamped(WalkInsideMinCrestMetres, 1.2f, 0f, 5f);
+    /// <summary>ModBuild 272 — release band under <see cref="WalkInMinCrestMetres"/>. The number
+    /// inside Clamped() is only the PRE-BIND fallback; the shipped default is
+    /// <c>Defaults.WalkInCrestReleaseFraction</c>. The two must stay equal.</summary>
+    internal static float WalkInCrestReleaseFraction =>
+        Clamped(WalkInsideCrestReleaseFraction, 0.85f, 0.10f, 1f);
+    /// <summary>ModBuild 272 — INSIDE Schmitt HIGH bar as a fraction of the crest height. The
+    /// number inside Clamped() is only the PRE-BIND fallback; the shipped default is
+    /// <c>Defaults.InsideEnterDepthFraction</c>. The two must stay equal.</summary>
+    internal static float InsideEnterDepthFraction =>
+        Clamped(InsideEnterDepth, 0.10f, 0f, 2f);
+    /// <summary>ModBuild 272 — INSIDE Schmitt LOW bar as a fraction of the crest height. The
+    /// number inside Clamped() is only the PRE-BIND fallback; the shipped default is
+    /// <c>Defaults.InsideExitDepthFraction</c>. The two must stay equal.
+    /// <para>NOT forced above <see cref="InsideEnterDepthFraction"/>. The two bars measure from
+    /// OPPOSITE sides of the same box — enter is a depth INSIDE it, exit a distance OUTSIDE it —
+    /// so unlike the coverage pair there is no order between them that can degenerate: any
+    /// non-negative pair leaves a band of (enter + exit) crest-heights, and only 0/0 collapses
+    /// it to the box surface itself. Clamping one against the other here would forbid perfectly
+    /// sane tunings such as "enter deep, leave the moment I am out".</para></summary>
+    internal static float InsideExitDepthFraction =>
+        Clamped(InsideExitDepth, 0.35f, 0f, 3f);
+    /// <summary>ModBuild 272 — walk-in ENTER dwell. The number inside Clamped() is only the
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.WalkInEnterDwellSeconds</c>, which
+    /// equals the <c>EnterDwellSeconds</c> constant the latch used before it had its own dial.</summary>
+    internal static float WalkInEnterDwellSeconds =>
+        Clamped(WalkInsideEnterDwell, 0.20f, 0f, 10f);
+    /// <summary>ModBuild 272 — walk-in EXIT dwell. The number inside Clamped() is only the
+    /// PRE-BIND fallback; the shipped default is <c>Defaults.WalkInExitDwellSeconds</c>, which
+    /// equals <c>Defaults.ExitDwellMovedSeconds</c> — the value the latch borrowed from
+    /// <see cref="DwellMoved"/> before it had its own dial.</summary>
+    internal static float WalkInExitDwellSeconds =>
+        Clamped(WalkInsideExitDwell, 2.5f, 0f, 60f);
+    /// <summary>ModBuild 272 — how far below the crest plane the head must be, as a fraction of
+    /// the crest height. The number inside Clamped() is only the PRE-BIND fallback; the shipped
+    /// default is <c>Defaults.WalkInHeadBelowCrestFraction</c>, and it is 0 precisely so the test
+    /// stays the shipped <c>margin &lt; 0</c>. The two must stay equal.</summary>
+    internal static float WalkInHeadBelowCrestFraction =>
+        Clamped(WalkInsideHeadBelowCrestFraction, 0f, 0f, 1f);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);

@@ -561,6 +561,8 @@ internal static partial class Loc
         // Komfort ▸ Sichtbarkeit
         ["vr_o_stackedfade"] = Pair("Fade fort superstructures", "Festungs-Aufbauten ausblenden"),
         ["h_vr_o_stackedfade"] = Pair("Upper storeys and battlements fade with the walls below them.", "Obergeschosse und Zinnen verschwinden mit den Wänden darunter."),
+        ["vr_o_walkin"] = Pair("All walls solid when inside", "Im Spielfeld: alle Wände massiv"),
+        ["h_vr_o_walkin"] = Pair("Standing inside the play field holds every wall fully visible; nothing fades while you are in there.", "Wer im Spielfeld steht, sieht jede Wand vollständig — solange du drin bist, faded nichts."),
         // Komfort ▸ Hände & Zielen — accessibility framing per ruling 15: the row is FOR a
         // player with a weak grip, and its everyday name says so.
         ["vr_o_curlassist"] = Pair("Full-grip assist (weak grip)", "Vollgriff-Hilfe (schwacher Griff)"),

@@ -576,6 +576,17 @@ internal static partial class Loc
             // ModBuild 271 — the walk-in stand-down and the one number that arms it.
             ["WallFade/WalkInStandDown"] = Pair("All walls solid when inside", "Im Spielfeld: alle Wände massiv"),
             ["WallFade/WalkInMinCrestMetres"] = Pair("Inside needs wall height (m)", "Im Spielfeld ab Wandhöhe (m)"),
+            // ModBuild 272 — the rest of the walk-in trigger, promoted from private consts on the
+            // user's request to tune WHEN the mode engages himself ("Bitte gebe mir eine
+            // Einstellmöglich in dem ich die parameter selber tunen kann wann der Modus aktiv
+            // wird…"). Left to the catalog these would read "Walk In Crest Release Fraction" in
+            // both languages, which is a programmer's name in a player's menu.
+            ["WallFade/WalkInCrestReleaseFraction"] = Pair("Inside: release band", "Im Spielfeld: Abschalt-Reserve"),
+            ["WallFade/InsideEnterDepthFraction"] = Pair("Inside: entry depth", "Im Spielfeld: Eintrittstiefe"),
+            ["WallFade/InsideExitDepthFraction"] = Pair("Inside: exit distance", "Im Spielfeld: Austrittsweg"),
+            ["WallFade/WalkInEnterDwellSeconds"] = Pair("Inside: engage delay (s)", "Im Spielfeld: Einschaltzeit (s)"),
+            ["WallFade/WalkInExitDwellSeconds"] = Pair("Inside: release delay (s)", "Im Spielfeld: Abschaltzeit (s)"),
+            ["WallFade/WalkInHeadBelowCrestFraction"] = Pair("Inside: depth below crest", "Im Spielfeld: Tiefe unter Krone"),
 
             // ---- [PeerBoardFade] — a peer's board yields when it hides the play field --------
             ["PeerBoardFade/Mode"] = Pair("Boards blocking the view", "Boards vor dem Spielfeld"),
