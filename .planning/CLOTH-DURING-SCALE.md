@@ -391,8 +391,24 @@ population however carefully the population was defined. Now one line per figure
   gives `< 1.76 ms` because the step fell below the tail floor. `FigureGrab.Cloth.Cook` will
   now appear on the STEPS TAIL line if the live path runs often enough to clear 1.0 ms/s — which it
   should — and that turns the bound into a measurement.
-* **Where exactly the stiffness ramp inverts.** §3 has 1.345, 1.7, 2.0, 2.5 and 3.5. The gate is set
-  below the lowest factor at which it is measured to hurt, not at an interpolated crossing.
+* **Where exactly the stiffness ramp inverts.** §3 has 1.345, 1.7, 2.0, 2.5 and 3.5. Between the
+  last factor it is measured to help at and the first it is measured to hurt at, nothing is
+  measured — which is why it is withdrawn outright rather than gated at an interpolated crossing.
+* **The cost model is deliberately pessimistic and that costs range.** `DecideLiveCook` prices a
+  cook at a flat 20 µs/particle. The measured law is 15.1–17.2 µs up to 441 particles and then
+  *falls* — 8.6 at 784, 7.0 at 1444, 5.9 at 3364 — so the flat rate over-charges a 784-particle
+  cape by 2.3×. It does not change the decision for the figure in the video (771 particles measured
+  ≈ 6.75 ms, still past the 4 ms peak ceiling either way), but it moves the admission cutoff from
+  ~266 particles to 200. Erring safe is right for a first hardware round; if he asks specifically
+  about a big-caped figure, the measured curve is the thing to fit and `LiveCookPeakMs` is the dial.
+* **`LiveCookBench` part 2 — the configuration sweep — is currently uninformative and is left in the
+  repo fixed rather than re-run.** It was run at 2.5× only, where every arm saturates near
+  incoherence 1.0, so it cannot tell a configuration that defeats a remedy from a factor that
+  defeats it: fourteen rows all read "no difference" including the BASE row that is known to work at
+  1.345×. **A table with no positive control agrees with everything.** The bench now runs at 1.345×
+  as well, where the effect is 12.6× and visible. The question it was built for — is the write inert
+  on a game-authored cloth? — stopped deciding anything the moment the ramp was withdrawn, and
+  `CLOTH CONFIG` answers it from the real assets rather than from a guess about them.
 
 ## Re-running the harness
 
