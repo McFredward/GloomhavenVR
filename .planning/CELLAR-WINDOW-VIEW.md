@@ -310,8 +310,8 @@ in the full cellar run; the ones this round is judged on:
 | `env_cellar_WinCheat_x8.png` | **the wider shot: the cheat as a cheat.** From outside the room, above and behind: the cellar, the black night-ground plane, the sky dome with the moon — and one compact clump of 42 trees north of the window with nothing anywhere else |
 | `env_cellar_WinPlan_x8.png` | straight down on the same thing; the fan's two edges in one frame |
 
-`.planning/debug/cellar-window-frustum.py` recomputes the window's solid angle from the bake's own
-constants and prints the per-eye-height elevation band. `.planning/debug/window-diff.py` amplifies
+`.planning/cellar-window/frustum.py` recomputes the window's solid angle from the bake's own
+constants and prints the per-eye-height elevation band. `.planning/cellar-window/window-diff.py` amplifies
 the difference between any two harness frames.
 
 ### The stations are derived and mirrored, not typed

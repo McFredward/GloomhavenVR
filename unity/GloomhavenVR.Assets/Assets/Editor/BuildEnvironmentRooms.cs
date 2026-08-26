@@ -4276,7 +4276,7 @@ namespace GloomhavenVR
             //    reach the BOARD, and this file's own AssertMoonThroughWindow says
             //    in as many words that the interesting window poses are not in it:
             //    "two steps toward the window, not from the table". Measured
-            //    (.planning/debug/cellar-window-frustum.py) the sightlines span
+            //    (.planning/cellar-window/frustum.py) the sightlines span
             //    az -57.9..30.8 deg over the disc and az -67.2..65.5 deg over the
             //    whole floor, so the patch ended 34.7 deg short of the eastmost
             //    real sightline and a player standing off the board in the
