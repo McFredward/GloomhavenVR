@@ -1288,6 +1288,54 @@ internal static class EnvSound
     /// <see cref="NightCallPerch"/> for why this is a frame and not a node the call sits on.</summary>
     private static Transform? _perchFrame;
 
+    /// <summary>
+    /// THE CELLAR'S WINDOW, AS AN ACOUSTIC SOURCE — ModBuild 296.
+    ///
+    /// <para>USER, verbatim: <i>"Die Tiergeräusche kannst du von diesem Wald aus auch triggern, in
+    /// der selben Intensität wie im Wald, d.h. im Keller hört man sie weniger und immer von dem
+    /// Fenster aus lokalisiert."</i> That sentence contains its own mechanism and it is worth taking
+    /// apart, because two of its three clauses are constraints on the implementation:</para>
+    /// <list type="bullet">
+    /// <item><b>"in der selben Intensität wie im Wald"</b> — the SOURCE is unchanged. Same clips,
+    /// same 41 s slot, same deck, same skip rate, same authored <c>Gain</c> per animal. Nothing in
+    /// <see cref="NightCalls"/> is touched and there is no "cellar volume" anywhere in this file.</item>
+    /// <item><b>"im Keller hört man sie weniger"</b> — the reduction is the WALL and the DISTANCE,
+    /// and it is computed, not chosen. See <see cref="WindowInsertion"/>.</item>
+    /// <item><b>"immer von dem Fenster aus lokalisiert"</b> — this is the one that decides the
+    /// architecture, and it rules out the obvious implementation.</item>
+    /// </list>
+    ///
+    /// <para><b>WHY THE EMITTER IS AT THE WINDOW AND NOT OUT IN THE WOOD.</b> The obvious reading of
+    /// the request is "put the animals in the forest outside and let the distance model do the
+    /// rest". That fails the third clause outright, and by a lot. The wood's near band stands 8.5 m
+    /// beyond a wall 4.5 m from the room's centre; an animal on the perch ring at 10 authored m and
+    /// 60 degrees off the window's normal is 55 degrees away from the window as seen from the seat.
+    /// A player would hear a fox through the east wall. THE WINDOW IS THE ONLY DIRECTION THE SOUND
+    /// CAN COME FROM, and that is not a cheat but the physics: an opening in a heavy wall is a
+    /// SECONDARY SOURCE. Everything outside reaches the room through that hole and re-radiates from
+    /// it, which is exactly why a fox two hundred metres off, heard through a slot, is localised at
+    /// the slot and not at the fox. The user's sentence is a correct description of the acoustics and
+    /// the implementation follows it rather than the geometry.</para>
+    ///
+    /// <para>So: the perch is still drawn — the same three hash channels off the same slot index,
+    /// on the same per-animal rings — and it is used for ONE thing, the length of the outside leg.
+    /// The shot is then played from this node.</para>
+    ///
+    /// <para>It is <c>WindowGlow</c>, resolved by EXACT name: the bake places that node at the
+    /// opening's own centre, 6 cm inside the inner face (BuildEnvironmentRooms, "WindowGlow"), which
+    /// is the mouth a player sees. The cellar's draught bed already stands on it. Null means the
+    /// bake renamed or dropped the window, and then NO ANIMAL SOUNDS IN THIS ROOM — see
+    /// <see cref="BuildCellar"/>, which says so once and loudly.</para>
+    /// </summary>
+    private static Transform? _windowMouth;
+
+    /// <summary>True while the perch ring may only be drawn on the half-plane OUTSIDE the wall.
+    /// In the wood a call comes from any bearing; through a cellar window the wood is only on one
+    /// side, and an animal drawn at a bearing behind the player would be standing in the room. It
+    /// changes the DISTANCE distribution and nothing else — the direction is the window's either
+    /// way — but a fox 12 m inside the cellar is not a distance this file should ever compute.</summary>
+    private static bool _perchOutwardOnly;
+
     /// <summary>The bookcase's own node ('Shelf', BuildTippingShelf's <c>Place</c> call), or null in
     /// a room that has none. It is the ONLY thing that knows where the shelf stands and which way it
     /// falls; see <see cref="ShelfFloorContact"/> for why the apparition catalogue could not answer
@@ -1504,6 +1552,12 @@ internal static class EnvSound
 
         TakeListener();
 
+        // Cleared before either builder runs, so a style change cannot leak the cellar's window
+        // routing into the wood (where the animals ARE the source) or the wood's whole-circle perch
+        // ring into the cellar. Teardown clears them too; this is the belt to that's braces.
+        _windowMouth = null;
+        _perchOutwardOnly = false;
+
         if (style == SkyStyle.Cellar)
             BuildCellar(roomGo);
         else
@@ -1598,6 +1652,57 @@ internal static class EnvSound
         AddBed("Rumble", room.transform, EnvSoundBank.Bank(EnvSoundClip.Rumble), 0.10f, 2f, 26f,
                () => 1.30f * ElementMood.Live(3),
                clipName: EnvSoundClip.Rumble, airLed: false, fireLit: false);
+
+        // ---- THE WOOD BEYOND THE WINDOW, AND THE WINDOW IT IS HEARD THROUGH -----------------------
+        // USER, ModBuild 296: "Die Tiergeräusche kannst du von diesem Wald aus auch triggern, in der
+        // selben Intensität wie im Wald, d.h. im Keller hört man sie weniger und immer von dem
+        // Fenster aus lokalisiert."
+        //
+        // TWO NODES, AND THEY ANSWER TWO DIFFERENT QUESTIONS. That is why they are two lookups and
+        // not one:
+        //   * 'WindowWood' is the FRAME the perch ring is measured in — the bake puts it at the
+        //     wall's OUTER face at OUTSIDE GROUND level with identity rotation and unit scale
+        //     (BuildEnvironmentRooms.AddWoodOutsideWindow), so a position expressed in it is in
+        //     authored metres on the ground the trees stand on, and +Z is out through the window.
+        //     It is a marker with no geometry on purpose: a node that carried a mesh could be moved
+        //     by a later round for a visual reason and would silently move every fox in the room.
+        //   * 'WindowGlow' is WHERE THE SOUND COMES OUT — the opening's own mouth. Exact name, for
+        //     the reason the bookcase's lookup is exact: the room also carries 'WindowReveal' and
+        //     'WindowBars', and both of those are welded meshes placed at the ROOM'S ORIGIN with an
+        //     identity transform, so a prefix search or a fallback would put every animal in the
+        //     middle of the cellar floor. (The 'Draught' bed above takes those two as fallbacks and
+        //     has that latent fault; it is a bed and only needs A place, so it is left alone and
+        //     recorded here rather than changed in a round about something else.)
+        //
+        // A MISSING NODE MEANS SILENCE, NOT A GUESS. "It must not fire when the window is not part
+        // of the room" is a requirement, and the only way to honour it is to refuse: with either
+        // node absent _perchFrame stays null, TickNightCall returns at its first gate, and this room
+        // sounds exactly as it did before this round.
+        Transform? wood = Find(room.transform, "WindowWood");
+        _windowMouth = Find(room.transform, "WindowGlow");
+        if (wood != null && _windowMouth != null)
+        {
+            _perchFrame = wood;
+            _perchOutwardOnly = true;
+        }
+        else
+        {
+            _perchFrame = null;
+            _windowMouth = null;
+            VRLog.Warn("Core", "ENV SOUND cellar NIGHT CALLS ARE OFF — the room has "
+                               + (wood == null ? "no 'WindowWood' marker" : "a 'WindowWood' marker")
+                               + " and "
+                               + (_windowMouth == null ? "no 'WindowGlow' node" : "a 'WindowGlow' node")
+                               + ", and BOTH are needed: the first is the frame the perch ring is "
+                               + "drawn in, the second is the opening the calls are heard through. "
+                               + "The user asked for the wood's animals to be audible from the "
+                               + "cellar, localised at the window (ModBuild 296) — with either node "
+                               + "missing this room is silent between the drip and the rat, exactly "
+                               + "as it was before. If the bake renamed them, rename them here; do "
+                               + "NOT add a fallback, because every other node at the window is a "
+                               + "welded mesh sitting at the room's origin and a fallback would put "
+                               + "the animals in the middle of the floor.");
+        }
 
         // THERE IS NO 'Stone' BED, AND THE ABSENCE IS THIS ROUND'S WHOLE CELLAR WORK. From ModBuild
         // 154 to 222 a continuous room tone stood here at the room root with 180 degrees of spread.
@@ -1716,6 +1821,7 @@ internal static class EnvSound
         // measured IN this transform's frame and lands in the wrong part of the wood if it resolves
         // to a different object.
         _perchFrame = ground;
+        _perchOutwardOnly = false;   // in the wood a call may come from any bearing
         if (_perchFrame == null)
             VRLog.Warn("Core", "ENV SOUND night calls HAVE NO FRAME — no 'Ground' or 'RoomGeo' node "
                                + "under the wood, so there is nothing to measure the perch ring "
@@ -2572,10 +2678,22 @@ internal static class EnvSound
             TickDrip(clock);
             TickRat(clock);
         }
-        else
-        {
-            TickNightCall(clock);
-        }
+        // THE NIGHT CALLS RUN IN BOTH ROOMS SINCE ModBuild 296, and this line is the whole of the
+        // schedule change. USER: "Die Tiergeräusche kannst du von diesem Wald aus auch triggern, in
+        // der selben Intensität wie im Wald". The cellar now has a wood outside its window, so it
+        // has the wood's animals — the SAME 41 s slot, the SAME deck, the SAME 22% skip and the SAME
+        // authored gains. There is no second schedule and no second rate: TickNightCall self-gates
+        // on _perchFrame, which is the ground in the wood and the window's own marker in the cellar,
+        // and is null in a room that has neither.
+        //
+        // IT CANNOT DOUBLE UP WITH WHAT THE CELLAR ALREADY PLAYS. The drip, the rat and the
+        // apparitions index three different clocks (a drip period, a rat slot, an 83 s haunt slot)
+        // against this schedule's 41 s, and two indices that are never compared cannot correlate —
+        // the argument DripVariantChannel's doc makes at length. What HAS changed is that that doc's
+        // parenthesis "the DRIP and the RAT are cellar-only and can never run in the same session's
+        // room as these" is no longer true; the conclusion is, for the reason above, and the note
+        // there has been corrected rather than left standing.
+        TickNightCall(clock);
         TickDeferred(clock);
         TickFire(clock);
         // NOTHING ANSWERS ICE. There was a TickFrost here until ModBuild 149; see the ruling block
@@ -3286,10 +3404,14 @@ internal static class EnvSound
     /// table should be widened to feed one caller. Channels 5 and 6 are now unused HERE; the warning
     /// stands for anyone who wants to add a channel 8 to the shader's table.</para>
     ///
-    /// <para>THE OVERLAPS WITH OTHER SUBSYSTEMS ARE UNCHANGED AND STILL SOUND: the DRIP and the RAT
-    /// are cellar-only and can never run in the same session's room as these; the INSECT CHORUS
-    /// indexes a 53 s slot and the APPARITIONS an 83 s one, against this schedule's 41 s — two values
-    /// that are never compared cannot be seen to correlate.</para>
+    /// <para>THE OVERLAPS WITH OTHER SUBSYSTEMS ARE STILL SOUND, BUT ONE HALF OF WHY HAS CHANGED.
+    /// Until ModBuild 296 this paragraph said "the DRIP and the RAT are cellar-only and can never run
+    /// in the same session's room as these", and that is now FALSE: the cellar's window has a wood
+    /// outside it and therefore has these calls (see <see cref="_windowMouth"/>). The conclusion
+    /// survives on the OTHER half of the argument, which was always the load-bearing one — the drip
+    /// indexes a drip period, the rat a rat slot, the apparitions an 83 s slot and this schedule a
+    /// 41 s one, and two values that are never compared cannot be seen to correlate. A channel is
+    /// not an exclusive resource; a shared INDEX would be.</para>
     /// </summary>
     private const float NightCallSkipChannel = 3f;
     private const float NightCallWhenChannel = 4f;
@@ -3558,6 +3680,74 @@ internal static class EnvSound
                            true, StridGroundHeightLo, StridGroundHeightHi),
     };
 
+    /// <summary>
+    /// WHAT A STONE WALL WITH A SLOT IN IT DOES TO A FOX — ModBuild 296, and it is DERIVED rather
+    /// than dialled, because "im Keller hört man sie weniger" deserves a mechanism and not a knob.
+    ///
+    /// <para><b>THE MODEL IS ISO 12354-3's, reduced to the one term that matters here.</b> The
+    /// sound pressure level indoors from an outdoor source is the level at the facade, minus the
+    /// facade's sound reduction index, plus <c>10 log10(S / A)</c> — the ratio of the OPENING's area
+    /// to the receiving room's ABSORPTION area. For this window the first two terms collapse:
+    /// 0.55 m of rubble stone has an R of 55-60 dB, i.e. the wall transmits nothing at all, so
+    /// every decibel that gets in comes through the hole and the hole's R is zero.</para>
+    ///
+    /// <code>
+    ///   S  the OUTER opening   1.2283 x 0.6427 m                         =  0.789 m2
+    ///   A  the cellar's absorption, Sabine, at mid frequencies:
+    ///        flagstone floor    10.5 x 9.0 m       alpha 0.03            =  2.835
+    ///        plank ceiling      10.5 x 9.0 m       alpha 0.10            =  9.450
+    ///        rubble stone walls 2(10.5+9.0) x 3.3  alpha 0.03            =  3.861
+    ///                                                             A      = 16.15 m2 sabins
+    ///   10 log10(0.789 / 16.15) = -13.1 dB, i.e. an AMPLITUDE factor of 0.221
+    /// </code>
+    ///
+    /// <para><b>WHY THE STRICTER MODEL WAS REJECTED, stated as a decision.</b> A pure ray/aperture
+    /// model — capture the wavefront that hits the opening, re-radiate it into a hemisphere — gives
+    /// <c>sqrt(A_opening x cos(theta) / 2pi) / d</c>, which at a ten-metre perch is about -30 dB and
+    /// would delete the feature the user asked for. It is wrong for the same two reasons every ray
+    /// model is wrong at an aperture: it ignores diffraction, which at the wavelengths an owl and a
+    /// fox live at (0.3-3 m against a 1.2 m slot) is most of the transmission, and it ignores the
+    /// reverberant build-up in a small hard room, which is precisely the <c>S/A</c> term above. The
+    /// building-acoustics formula is the one that models both, and it is also the one whose inputs
+    /// are things this room really has.</para>
+    ///
+    /// <para><b>AND WHAT IS DELIBERATELY NOT MODELLED, so it reads as a decision and not an
+    /// omission.</b> A fox heard through a slot is also FILTERED — the aperture and the wall roll
+    /// the high end off, and the stone room rings underneath it. Neither is here:</para>
+    /// <list type="bullet">
+    /// <item><b>No low-pass on the call.</b> Every clip in this bank is BAND-LIMITED WHEN IT IS
+    /// SYNTHESISED (see EnvSound.Bank.cs — each voice's formants and its two-to-four-pole envelope
+    /// are baked into the buffer), so a runtime filter would be a second, coarser copy of a shaping
+    /// decision that has already been made once, with taste, per animal. This file makes that
+    /// argument twice already, for the candle flutter and for the fire, and both times the runtime
+    /// filter was REMOVED rather than added. A per-shot <c>AudioLowPassFilter</c> would also cost a
+    /// component on the shared one-shot pool, which is the one place in this file where allocation
+    /// per event was deliberately designed out.</item>
+    /// <item><b>No reverb.</b> This project ships none anywhere and sets <c>bypassReverbZones</c> on
+    /// every source it owns (the game's zones are sized for the game's world, not for a 20x
+    /// diorama). A reverb added for this one cue would be the only one in the mod, and it would be
+    /// the loudest thing in a room whose whole resting ambience is a draught at 0.00076.</item>
+    /// </list>
+    /// <para>What IS modelled is the level and the direction, which are the two things the user's
+    /// sentence actually names. If a future round wants the muffling, the honest place for it is a
+    /// second BAKED variant of each clip, not a filter on the live one.</para>
+    /// </summary>
+    private const float CellarWidthMeters = 10.5f;    // BuildEnvironmentRooms.CW
+    private const float CellarDepthMeters = 9.0f;     // BuildEnvironmentRooms.CD
+    private const float CellarHeightMeters = 3.3f;    // BuildEnvironmentRooms.CH
+    /// <summary>The OUTER opening, in square metres: the snapped hole (1.4318 x 0.7857) less the
+    /// jamb splay (2 x 0.55 x 0.185) and the cill rise (0.55 x 0.260). MIRRORED from the bake, which
+    /// prints exactly these numbers in its "Cellar window opening (snapped)" line.</summary>
+    private const float CellarWindowOpeningM2 = 1.2283f * 0.6427f;
+    private static readonly float CellarAbsorptionM2 =
+        CellarWidthMeters * CellarDepthMeters * 0.03f                                 // floor
+        + CellarWidthMeters * CellarDepthMeters * 0.10f                               // plank ceiling
+        + 2f * (CellarWidthMeters + CellarDepthMeters) * CellarHeightMeters * 0.03f;  // walls
+    /// <summary>The amplitude factor a call loses getting in: <c>sqrt(S / A)</c>, i.e. the
+    /// <c>10 log10(S/A)</c> above expressed as a gain. About 0.221, or -13.1 dB.</summary>
+    private static readonly float WindowInsertion =
+        Mathf.Sqrt(CellarWindowOpeningM2 / CellarAbsorptionM2);
+
     /// <summary>MIRRORED from <c>BuildEnvironmentRooms.cs</c>: <c>ClearR</c> (:14503, "open ground
     /// around the board") and <c>CanopyY</c> (:14763). They are a CONTRACT with the room builder in
     /// exactly the sense <see cref="DripPeriod"/> is — if the bake opens the clearing up or lifts the
@@ -3591,7 +3781,14 @@ internal static class EnvSound
         float u = Haunt.Hash(slot, NightCallRadiusChannel);
         float radius = Mathf.Lerp(voice.RingNear, voice.RingFar, Mathf.Sqrt(Mathf.Clamp01(u)));
 
-        float azimuth = 2f * Mathf.PI * Haunt.Hash(slot, NightCallAzimuthChannel);
+        // THE BEARING. In the wood it is the whole circle; through the cellar's window it is the
+        // OUTWARD half-plane only. The frame's axes are the room's, and the bake places the marker
+        // with the wall's outward normal on +Z — so (r cos az, h, r sin az) with az in (0, pi) is
+        // everything on the far side of the masonry and nothing on this side. It changes the
+        // DISTANCE the aperture leg is computed over; the direction the player hears is the
+        // window's either way. See _windowMouth.
+        float azimuth = (_perchOutwardOnly ? Mathf.PI : 2f * Mathf.PI)
+                        * Haunt.Hash(slot, NightCallAzimuthChannel);
 
         // THE HEIGHT, AND THE ONE BRANCH IN THIS FUNCTION. A perched animal's height is a fraction
         // of the canopy AT THE RADIUS IT WAS DRAWN AT, so it moves with the bake; a fox's and a roe
@@ -3674,8 +3871,45 @@ internal static class EnvSound
         // lowest note forever. Narrow, for MakeDrips' reason: AudioSource.pitch resamples the WHOLE
         // clip, and a wide setting transposes an owl into a pigeon.
         float pitch = 0.96f + 0.08f * Haunt.Hash(slot, NightCallPitchChannel);
-        PlayShot(EnvSoundBank.Bank(voice.Clip), from,
-                 voice.Gain, voice.MinMeters, voice.MaxMeters, pitch);
+
+        // ---- AND WHERE IT IS HEARD FROM, WHICH IS NOT ALWAYS WHERE IT IS -------------------------
+        // In the wood the animal IS the source and this is one call. In the cellar the WINDOW is the
+        // source — see _windowMouth for the user's sentence and for why an emitter out in the trees
+        // fails it by fifty-five degrees. Two numbers change and NOTHING ELSE does: the position
+        // becomes the opening's, and the gain picks up the two legs of the path the sound really
+        // travels. The clip, the slot, the deck, the skip, the pitch and the authored per-animal
+        // Gain are byte-for-byte the wood's, which is "in der selben Intensität wie im Wald".
+        Vector3 heardAt = from;
+        float heardGain = voice.Gain;
+        if (_windowMouth != null)
+        {
+            heardAt = _windowMouth.position;
+
+            //  LEG 1 — THE OPEN AIR OUTSIDE, from the animal to the wall. It is the voice's OWN
+            //  rolloff curve evaluated over that distance: Unity's logarithmic mode is flat inside
+            //  minDistance and falls as min/d beyond it, and this is that expression. Not a new
+            //  model, not a new constant — the same curve the same call would get in the wood at the
+            //  same distance. The distance is in PERCEIVED metres, which is what MinMeters is
+            //  authored in; _builtScale is world units per perceived metre (see THE SCALE PROBLEM),
+            //  and the two positions are both world.
+            float legMeters = Vector3.Distance(from, heardAt) / Mathf.Max(_builtScale, 1e-4f);
+            float leg = Mathf.Min(1f, voice.MinMeters / Mathf.Max(legMeters, 1e-3f));
+
+            //  LEG 2 — GETTING IN, which is the wall. See WindowInsertion: -13.1 dB, from the
+            //  opening's area against the room's absorption area, by the standard facade formula.
+            heardGain = voice.Gain * leg * WindowInsertion;
+
+            //  ...and LEG 3, from the opening to the ear, is Unity's, off this source's own
+            //  minDistance/maxDistance — unchanged from the wood's. It is FLAT across this whole
+            //  room by construction (the smallest MinMeters in the table is the owl's 8 perceived m
+            //  and the cellar is about 9 perceived m corner to corner), which is not a rounding
+            //  convenience: the S/A term above is a DIFFUSE level, the same everywhere in the
+            //  receiving room, so a call that did not attenuate across the cellar is what the model
+            //  actually says.
+        }
+
+        PlayShot(EnvSoundBank.Bank(voice.Clip), heardAt,
+                 heardGain, voice.MinMeters, voice.MaxMeters, pitch);
     }
 
     /// <summary>
@@ -4479,6 +4713,8 @@ internal static class EnvSound
         _dripNode = null;
         _ratNode = null;
         _perchFrame = null;
+        _windowMouth = null;
+        _perchOutwardOnly = false;
         _shelfNode = null;
 
         _built = false;
@@ -4897,6 +5133,45 @@ internal static class EnvSound
                       + "almost gone at the table: that is what makes it a draught and not a room ")
               .Append("tone. Everything else in this room is an EVENT (the drip every 2.85 s, the ")
               .Append("rat every 26 s, the apparitions every 83 s) or an element response.");
+
+            // ---- AND THE WOOD OUTSIDE, ModBuild 296 ----------------------------------------------
+            sb.Append("\nTHE WOOD THROUGH THE WINDOW (user: \"Die Tiergeraeusche kannst du von ")
+              .Append("diesem Wald aus auch triggern, in der selben Intensitaet wie im Wald, d.h. ")
+              .Append("im Keller hoert man sie weniger und immer von dem Fenster aus lokalisiert\"): ")
+              .Append(_perchFrame != null && _windowMouth != null
+                          ? "ON. The SCHEDULE IS THE WOOD'S, unchanged and unduplicated — the same "
+                            + NightCallSlot.ToString("F0") + " s slot, the same "
+                            + NightCallDeck.Length + "-card deck at salt 0x"
+                            + NightCallDeckSalt.ToString("X8") + ", the same "
+                            + (NightCallSkip * 100f).ToString("F0")
+                            + "% of slots skipped and the same authored gain per animal, so this "
+                            + "room is exactly as talkative as the wood is and no louder at source. "
+                            + "THE PERCH is drawn on the same per-animal rings from the same three "
+                            + "hash channels off the same slot index, in '" + _perchFrame.name
+                            + "'s frame (the wall's outer face at outside ground level, +Z outward), "
+                            + "over the OUTWARD half-plane only. IT IS NOT WHERE THE SOUND COMES "
+                            + "FROM: every call is played from '" + _windowMouth.name + "', the "
+                            + "opening's own mouth, so it is localised at the window at every head "
+                            + "orientation — which is what the user asked for and what an aperture "
+                            + "in a heavy wall really is. WHAT MAKES IT QUIETER is two legs of a "
+                            + "path and no volume knob: the voice's OWN rolloff over the open air "
+                            + "from the animal to the wall, times the aperture's insertion loss "
+                            + (20f * Mathf.Log10(WindowInsertion)).ToString("F1")
+                            + " dB (x" + WindowInsertion.ToString("F3") + " = sqrt(S/A), S = "
+                            + CellarWindowOpeningM2.ToString("F3") + " m2 of outer opening against "
+                            + CellarAbsorptionM2.ToString("F1") + " m2 sabins of room absorption). "
+                            + "An owl's 0.050 therefore lands near 0.009-0.011 here against 0.041 "
+                            + "in the wood: about 12 dB down, and comparable with this room's own "
+                            + "drip. NO REVERB AND NO LOW PASS ARE MODELLED — see WindowInsertion "
+                            + "for why that is a decision and not an omission."
+                          : "OFF. The bake gave this room no 'WindowWood' marker or no 'WindowGlow' "
+                            + "node, so there is nothing to measure the wood from and nothing to "
+                            + "hear it through; the warning above says which. This room sounds "
+                            + "exactly as it did before ModBuild 296.")
+              .Append(" PER-FRAME COST: one integer slot division and one long compare, on the "
+                      + "path this room already ran for the drip and the rat. No allocation, no "
+                      + "scene query, no new voice — the calls take the shot pool this room already "
+                      + "builds, so the emitter count is unchanged.");
         }
         else
         {

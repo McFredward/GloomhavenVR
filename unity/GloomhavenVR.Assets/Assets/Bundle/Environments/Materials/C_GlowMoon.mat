@@ -39,7 +39,7 @@ Material:
     - _HauntEnv: {r: 0, g: 0, b: 0, a: 0}
     - _HauntSched: {r: 0, g: 0, b: 0, a: 0}
     - _ShineAxis: {r: 0, g: 0, b: 1, a: 12}
-    - _Tint: {r: 0.4, g: 0.54, b: 0.88, a: 0.085}
+    - _Tint: {r: 0.4, g: 0.54, b: 0.88, a: 0.006}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
     - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
     - _TipPivot: {r: 0, g: 0, b: 0, a: 0}

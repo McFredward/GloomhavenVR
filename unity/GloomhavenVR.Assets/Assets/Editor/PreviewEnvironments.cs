@@ -165,6 +165,58 @@ namespace GloomhavenVR
         // of a station that watches an event rather than a pose.
         private static readonly (Vector3 pos, Vector3 euler) VShelf = ShelfStand(3.40f, 1.20f, 2.10f, 0.90f);
 
+        // ================= THE WINDOW'S OWN FRAME (ModBuild 296) ================
+        // "Ich möchte, dass du in der Kellerumgebung den Blick aus dem Fenster
+        // modellierst" — so the harness needs a station that IS that view, and it
+        // must be derived, because the last two props this file aimed at by hand
+        // were photographed in the wrong corner for four rounds each.
+        //
+        // Every number below comes out of EnvRoomBuilder: the opening, the wall's
+        // inner face, and the outside ground the wood stands on. A window that
+        // moves re-aims these cameras.
+        private static readonly Vector3 WinAt = EnvRoomBuilder.CellarWindowCentre();
+        private static readonly Vector4 WinRect = EnvRoomBuilder.CellarWindowInner();
+
+        /// <summary>The Euler a camera at <paramref name="from"/> needs to have the
+        /// window's opening in the middle of its frame.</summary>
+        private static Vector3 LookAtWindow(Vector3 from)
+        {
+            var to = WinAt - from;
+            return new Vector3(-Mathf.Asin(Mathf.Clamp(to.normalized.y, -1f, 1f)) * Mathf.Rad2Deg,
+                               Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg, 0f);
+        }
+        /// <summary>The Euler a camera at <paramref name="from"/> needs to point at
+        /// <paramref name="at"/>. The two outside-the-room stations are aimed with
+        /// it rather than by hand, so they follow the window if it ever moves.</summary>
+        private static Vector3 LookFrom(Vector3 from, Vector3 at)
+        {
+            var to = at - from;
+            return new Vector3(-Mathf.Asin(Mathf.Clamp(to.normalized.y, -1f, 1f)) * Mathf.Rad2Deg,
+                               Mathf.Atan2(to.x, to.z) * Mathf.Rad2Deg, 0f);
+        }
+        private static readonly Vector3 VCheatAt = new Vector3(WinAt.x + 24f, 23f, -9f);
+        private static readonly Vector3 VCheatEuler =
+            LookFrom(VCheatAt, new Vector3(WinAt.x - 1f, 7f, 13f));
+
+        private static (Vector3 pos, Vector3 euler) WinStand(float x, float y, float z)
+        {
+            var p = new Vector3(x, y, z);
+            return (p, LookAtWindow(p));
+        }
+        // THE SEAT. (0, SeatCellar, 0) is where HeadSeatC already shoots from, so
+        // this frame and that one are the same head in the same pose looking two
+        // different ways — which is what makes "is the window worth turning your
+        // head for" a question this harness can answer.
+        private static readonly (Vector3 pos, Vector3 euler) VWinSeat =
+            WinStand(0f, SeatCellar, 0f);
+        private static readonly (Vector3 pos, Vector3 euler) VWinHead =
+            WinStand(0f, HeadCellar, 0f);
+        // ...and TWO STEPS TOWARD IT, which is the pose AssertMoonThroughWindow
+        // says the moon is visible from ("two steps toward the window, not from
+        // the table"). Under the window's own bearing, 1.6 m short of the wall.
+        private static readonly (Vector3 pos, Vector3 euler) VWinWalk =
+            WinStand(WinAt.x, HeadCellar, EnvRoomBuilder.CellarWindowWall().x - 1.60f);
+
         private static readonly (string name, Vector3 pos, Vector3 euler, bool skyOnly, float fov)[] Views =
         {
             ("N", Eye, new Vector3(0, 0, 0), false, 60f),
@@ -685,6 +737,32 @@ namespace GloomhavenVR
             // partly-veiled moon is what the player actually gets.
             ("ReadmeMoon", new Vector3(0f, HeadForest, 0f), new Vector3(-MoonAlt + 4f, MoonAz, 0),
                            false, 26f),
+
+            // ================= THE WINDOW SET — ModBuild 296 ====================
+            // The feature is "der Blick aus dem Fenster", so the frames that decide
+            // it are frames of that view from poses the player really has. All four
+            // are aimed by LookAtWindow off EnvRoomBuilder's own opening.
+            //
+            // WinSeat / WinHead are the seated and standing heads at the board.
+            // WinNarrow is the same seated head at 24 degrees, which is the frame
+            //   in which what is BEYOND the opening is resolvable at all: at 70
+            //   degrees the whole slot is 90 px wide and a wood inside it is four
+            //   pixels of grey, which is precisely the frame a wrong build would
+            //   pass.
+            // WinWalk is two steps toward it, standing — the pose that gets the
+            //   moon, and the pose in which the wood parallaxes hardest.
+            // WinCheat is OUTSIDE the room, above and behind the wood, looking back
+            //   at the north wall. It is not a pretty frame and is not meant to be:
+            //   it is the one that shows that the wood is a WEDGE and that there is
+            //   nothing to the sides of it, i.e. the cheat as a cheat.
+            // WinPlan looks straight down on the same thing, which is the only view
+            //   in which the fan's two edges are both in frame at once.
+            ("WinSeat", VWinSeat.pos, VWinSeat.euler, false, 60f),
+            ("WinHead", VWinHead.pos, VWinHead.euler, false, 60f),
+            ("WinNarrow", VWinSeat.pos, VWinSeat.euler, false, 24f),
+            ("WinWalk", VWinWalk.pos, VWinWalk.euler, false, 55f),
+            ("WinCheat", VCheatAt, VCheatEuler, false, 60f),
+            ("WinPlan", new Vector3(WinAt.x, 34.0f, 12.0f), new Vector3(90f, 0f, 0f), false, 68f),
         };
 
         // ================================================================ HAUNT
@@ -1140,6 +1218,342 @@ namespace GloomhavenVR
             return (100f * cw * ch / (W * (float)H),
                     Rect.MinMaxRect(x0, y0, x1, y1),
                     new Vector2(ctr.x * W, (1f - ctr.y) * H), ctrIn, behind);
+        }
+
+        // ================= IS THE WOOD REALLY THERE, AND IS IT REALLY DARK? =====
+        // ModBuild 296. "Sehr dunkel, dass man nur wenig erkennt" makes a preview
+        // HARDER to judge, not easier: a frame in which the window is a nearly
+        // black rectangle is exactly what both a correct build and an empty one
+        // look like, and this project has already shipped a station that pointed
+        // at nothing and rendered happily.
+        //
+        // SO THE FRAME IS NOT THE INSTRUMENT — THE DIFFERENCE IS. Every window
+        // station is rendered TWICE from the same pose in the same run: once with
+        // 'WoodBark' and 'WoodFoliage' active and once with them switched off,
+        // which is the SHIPPED cellar, pixel for pixel. Three things then follow
+        // that a single dark frame cannot give:
+        //
+        //   * THE EXPOSURE REFERENCE IS IN THE RUN. The wood-off window rect is
+        //     the currently-shipping starfield through the same slot at the same
+        //     exposure. If the wood-on mean is a sane fraction of it, the frame is
+        //     dark because the content is dark and not because the harness is.
+        //   * "NOTHING WAS BUILT" IS FALSIFIABLE. If the wood were missing, out of
+        //     the line of sight, culled, or drawn behind the sky patch, the two
+        //     reads would be IDENTICAL and this throws. A dark picture cannot pass
+        //     by being dark.
+        //   * THE DIRECTION OF THE CHANGE IS CHECKED. Trees stand in front of
+        //     stars, so the wood must make the aperture DARKER on the mean. A wood
+        //     that brightened it would be a wood lit by something in the cellar,
+        //     which is the one thing it must not be.
+        //
+        // The wood-off frames are written out as '<view>_woodoff.png', so the
+        // before/after pair the round is judged on is two files from ONE run at
+        // ONE camera pose, and not two runs a rebuild apart.
+        private static readonly string[] WoodNodes = { "WoodBark", "WoodFoliage" };
+        private static readonly string[] WindowStations =
+            { "WinSeat", "WinHead", "WinNarrow", "WinWalk" };
+
+        private static void AssertWindowWood(GameObject inst, Camera cam, RenderTexture rt,
+                                             Texture2D tex, string outDir, string env)
+        {
+            // THE MIRROR. The bake decides what to build from the player's eye
+            // heights (EnvRoomBuilder.CellarWindowEyes) and this harness decides
+            // where to photograph it from — two copies of one fact, which is the
+            // class of duplicate this project has been burned by repeatedly. The
+            // expression is written the same way in both files; this is the check
+            // that it stays that way, because a bake that culled against a 1.66 m
+            // head while the camera sat at 2.02 m would photograph exactly the
+            // geometry it had just decided nobody could see.
+            if (Mathf.Abs(SeatCellar - EnvRoomBuilder.CellarEyeSeated) > 1e-4f
+                || Mathf.Abs(HeadCellar - EnvRoomBuilder.CellarEyeStanding) > 1e-4f)
+                throw new Exception($"The cellar's eye heights disagree: this harness has "
+                    + $"seated {SeatCellar:F4} / standing {HeadCellar:F4}, the bake has "
+                    + $"{EnvRoomBuilder.CellarEyeSeated:F4} / "
+                    + $"{EnvRoomBuilder.CellarEyeStanding:F4}. The bake culls the wood outside "
+                    + "the window against ITS numbers, so a camera at a different height "
+                    + "photographs geometry that was built for somebody else's head.");
+
+            var wood = new System.Collections.Generic.List<GameObject>();
+            foreach (var n in WoodNodes)
+            {
+                var t = FindDeep(inst.transform, n);
+                if (t == null)
+                    throw new Exception($"The cellar prefab has no '{n}' node. That is the wood "
+                        + "beyond the window (EnvRoomBuilder.AddWoodOutsideWindow) — either the "
+                        + "bake did not run, or the node was renamed, in which case every window "
+                        + "station below would have gone on rendering a starfield and agreeing "
+                        + "with whoever looked at it.");
+                wood.Add(t.gameObject);
+            }
+            var glowT = FindDeep(inst.transform, "WindowGlow");
+            var glow = glowT != null ? glowT.gameObject : null;
+
+            var r = EnvRoomBuilder.CellarWindowInner();
+            float wallZ = EnvRoomBuilder.CellarWindowWall().x;
+            var opening = new Bounds(new Vector3((r.x + r.z) * 0.5f, (r.y + r.w) * 0.5f, wallZ),
+                                     new Vector3(r.z - r.x, r.w - r.y, 0.02f));
+
+            cam.targetTexture = rt;
+            cam.aspect = W / (float)H;
+            var fail = new System.Text.StringBuilder();
+            var log = new System.Text.StringBuilder();
+            log.Append("[GloomhavenVR][EnvPreview] WINDOW WOOD — the same pose rendered with the "
+                       + "wood ON and OFF, because a dark frame is what a correct build and an "
+                       + "empty one both look like. Luminance is LINEAR (the target is), read over "
+                       + "the opening's own projected rectangle.\n");
+
+            foreach (var vn in WindowStations)
+            {
+                (Vector3 pos, Vector3 euler, float fov) st = default;
+                bool found = false;
+                foreach (var v in Views)
+                    if (v.name == vn) { st = (v.pos, v.euler, v.fov); found = true; break; }
+                if (!found)
+                    throw new Exception($"WindowStations names an unknown view '{vn}'.");
+
+                cam.fieldOfView = st.fov;
+                cam.transform.position = st.pos;
+                cam.transform.rotation = Quaternion.Euler(st.euler);
+
+                var pb = ProjectBox(cam, opening);
+                var win = Rect.MinMaxRect(Mathf.Clamp(pb.px.xMin, 0f, W - 1f),
+                                          Mathf.Clamp(pb.px.yMin, 0f, H - 1f),
+                                          Mathf.Clamp(pb.px.xMax, 1f, W),
+                                          Mathf.Clamp(pb.px.yMax, 1f, H));
+                if (pb.behind > 0 || win.width < 6f || win.height < 4f)
+                    throw new Exception($"Station '{vn}' does not have the window opening in front "
+                        + $"of it: {pb.behind} of 8 corners are behind the camera and the projected "
+                        + $"rectangle is {win.width:F0}x{win.height:F0} px. The whole feature is "
+                        + "what is seen through that rectangle, so a station that cannot see it "
+                        + "measures nothing.");
+
+                foreach (var g in wood) g.SetActive(true);
+                var on = ReadWindow(cam, tex, win);
+                WritePng(tex, outDir, env, vn, "");
+                // ...AND THE SAME FRAME AT 8x LINEAR EXPOSURE. "Sehr dunkel, dass
+                // man nur wenig erkennt" makes a review frame HARDER to judge, and
+                // the failure mode is not only "I mistook empty for dark" — it is
+                // also "I mistook correct for empty and tuned it brighter until it
+                // was wrong". Both happened in this round. The unlifted frame is
+                // what the player gets and is what the LEVEL is judged from; this
+                // one is what the SHAPE is judged from, and it is written for every
+                // station so the two are never confused for one another.
+                WritePng(tex, outDir, env, vn, "_x8", 8f);
+                foreach (var g in wood) g.SetActive(false);
+                var off = ReadWindow(cam, tex, win);
+                WritePng(tex, outDir, env, vn, "_woodoff");
+                WritePng(tex, outDir, env, vn, "_woodoff_x8", 8f);
+                foreach (var g in wood) g.SetActive(true);
+
+                // ...AND A THIRD READ, WITH THE APERTURE GLOW OFF, because the
+                // shipped cellar's window is deliberately a SOURCE and not a hole:
+                // 'WindowGlow' is an ellipsoid of cold haze scaled to 0.467 x 0.541
+                // of the opening and sitting 6 cm inside it, and its own comment
+                // says "the window reads as the source and not as a hole with
+                // something bright behind it". That is the exact opposite of what
+                // this round was asked for ("den Blick aus dem Fenster"), so the
+                // ratio between the two is a number this harness has to print
+                // rather than a thing somebody notices in a screenshot.
+                float glowShare = 0f, occl = 0f, woodPx = 0f, woodWas = 0f, woodIs = 0f,
+                      woodStrong = 0f;
+                if (glow != null)
+                {
+                    glow.SetActive(false);
+                    var noGlow = ReadWindow(cam, tex, win);
+                    WritePng(tex, outDir, env, vn, "_noglow");
+                    WritePng(tex, outDir, env, vn, "_noglow_x8", 8f);
+                    foreach (var g in wood) g.SetActive(false);
+                    var bare = ReadWindow(cam, tex, win);
+                    WritePng(tex, outDir, env, vn, "_noglow_woodoff");
+                    WritePng(tex, outDir, env, vn, "_noglow_woodoff_x8", 8f);
+                    foreach (var g in wood) g.SetActive(true);
+                    glow.SetActive(true);
+                    glowShare = on.sum > 1e-9f ? 100f * (on.sum - noGlow.sum) / on.sum : 0f;
+                    // THE NUMBER THE FEATURE IS ACTUALLY JUDGED ON, and it is a
+                    // MAGNITUDE and not a signed occlusion — which is a correction,
+                    // because the first version of this gate demanded that the wood
+                    // make the aperture DARKER and would have failed a correct
+                    // build. The sky behind this window is a black starfield, not a
+                    // lit horizon: there is nothing there to be silhouetted
+                    // against, so the wood is MOONLIT and mostly ADDS light. What
+                    // is measured is therefore how much the aperture's picture
+                    // changes over the pixels the wood actually reaches, against
+                    // what those same pixels were showing in the shipped room.
+                    int hit = 0, strong = 0; float wasSum = 0f, isSum = 0f;
+                    int m = Mathf.Min(noGlow.px.Length, bare.px.Length);
+                    for (int i = 0; i < m; i++)
+                    {
+                        float was = bare.px[i], now = noGlow.px[i];
+                        if (Mathf.Abs(now - was) <= 0.0006f) continue;
+                        hit++; wasSum += was; isSum += now;
+                        // A PER-PIXEL RELATIVE CHANGE, and it is the statistic the
+                        // gate uses. The MEAN over the aperture is not, and the
+                        // reason is WinWalk: two steps from the wall the opening
+                        // contains the MOONBEAM'S OWN MOUTH, a handful of pixels an
+                        // order of magnitude brighter than the sky, and they drag
+                        // any mean far enough to hide what the wood did to the rest.
+                        // This asks each pixel about itself, so a bright neighbour
+                        // cannot vote for it.
+                        if (Mathf.Abs(now - was) > 0.25f * Mathf.Max(was, 1e-5f)) strong++;
+                    }
+                    occl = hit > 0 && wasSum > 1e-9f ? 100f * (isSum - wasSum) / wasSum : 0f;
+                    woodPx = 100f * hit / Mathf.Max(1, m);
+                    woodWas = hit > 0 ? wasSum / hit : 0f;
+                    woodIs = hit > 0 ? isSum / hit : 0f;
+                    woodStrong = hit > 0 ? 100f * strong / hit : 0f;
+                }
+
+                int n = Mathf.Min(on.px.Length, off.px.Length);
+                if (n == 0)
+                    throw new Exception($"Station '{vn}' read a zero-pixel window.");
+                int changed = 0;
+                float dSum = 0f, dMax = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    float d = Mathf.Abs(on.px[i] - off.px[i]);
+                    dSum += d;
+                    if (d > dMax) dMax = d;
+                    // 1/255 of the 8-bit sRGB the headset shows, converted back to
+                    // linear near black: anything above this is a pixel a human eye
+                    // could tell apart on the device.
+                    if (d > 0.0006f) changed++;
+                }
+                float onMean = on.sum / n, offMean = off.sum / n;
+                float pctChanged = 100f * changed / n;
+
+                log.Append($"    {vn,-10} fov {st.fov,4:F0}  opening {win.width,4:F0}x{win.height,3:F0} px  "
+                           + $"mean L  wood ON {onMean:F5}  OFF {offMean:F5}  "
+                           + $"({(offMean > 1e-9f ? 100f * onMean / offMean : 0f):F0}% of the shipped "
+                           + $"sky)  |diff| mean {dSum / n:F5} max {dMax:F5}  "
+                           + $"pixels changed {pctChanged:F1}%\n"
+                           + $"               APERTURE GLOW is {glowShare:F0}% of the light in the "
+                           + $"opening. With it off the wood REACHES {woodPx:F1}% of the opening's "
+                           + $"pixels, changes them from mean L {woodWas:F5} to {woodIs:F5} "
+                           + $"({occl:+0;-0;0}%), and {woodStrong:F0}% of them move by more than a "
+                           + "quarter of what they were\n");
+
+                if (pctChanged < 8f)
+                    fail.Append($"Station '{vn}' sees the SAME {win.width:F0}x{win.height:F0} "
+                        + $"px of window with the wood on and off ({pctChanged:F2}% of pixels "
+                        + $"differ, |diff| max {dMax:F6}). The wood is not in this station's line "
+                        + "of sight — it is missing, culled, drawn behind the night sky patch, or "
+                        + "built where the slot does not point. A dark frame is NOT evidence that "
+                        + "it is there; this is.\n");
+                // ...AND IT MUST BE VISIBLE WHERE IT IS. 8% of the opening's
+                // pixels changing at all is "something is drawn there"; this is
+                // "and you can see it".
+                //
+                // ...AND IT MUST BE VISIBLE WHERE IT IS. 8% of the opening's
+                // pixels changing at all says "something is drawn there"; this says
+                // "and you can see it". Of the pixels the wood reaches, most have to
+                // move by more than a QUARTER of what they were showing before.
+                //
+                // A PER-PIXEL BAR, NOT A MEAN, AND THAT IS A CORRECTION. Two earlier
+                // versions of this gate used the mean over the aperture and both were
+                // wrong in an instructive way: this wood is a SILHOUETTE with a bright
+                // RIM, so its two halves pull a mean in opposite directions and cancel,
+                // and at the WinWalk station the moonbeam's own mouth is inside the
+                // opening and outweighs everything the trees do. The mean is still
+                // printed — it says which way the wood leans — but it decides nothing.
+                //
+                // WHAT THIS RULES OUT is the state two passes of this material really
+                // reached: the wood at the background's own value, present, drawn, in
+                // the line of sight, and invisible. Neither was findable by looking at
+                // a dark PNG, which is what the whole instrument exists for.
+                if (woodStrong < 50f)
+                    fail.Append($"Station '{vn}': the wood reaches {woodPx:F1}% of the "
+                        + $"opening but only {woodStrong:F0}% of those pixels move by more than a "
+                        + $"quarter (mean L {woodWas:F5} -> {woodIs:F5}, {occl:+0;-0;0}%). It is "
+                        + "drawn at the background's own value, so it is present and invisible. The "
+                        + "sky through this slot is a dim haze at about 0.0024 linear, so the MASS "
+                        + "of the wood has to sit well under it and the moon RIM well over it — "
+                        + "C_WoodBark/C_WoodFoliage's _AmbUp and _RimCol are the two numbers.\n");
+
+            }
+            // ---- and the two frames that show the cheat AS a cheat --------------
+            // Both are outside the room looking back at it, and both are written
+            // TWICE: at the true exposure, which is what the room really is, and at
+            // 8x, which is the only way a fan of black conifers against a black sky
+            // is legible at all. They are shot here rather than through Shoot()
+            // purely so they can have the lift.
+            foreach (var vn in new[] { "WinCheat", "WinPlan" })
+                foreach (var v in Views)
+                    if (v.name == vn)
+                    {
+                        cam.fieldOfView = v.fov;
+                        cam.transform.position = v.pos;
+                        cam.transform.rotation = Quaternion.Euler(v.euler);
+                        cam.Render();
+                        RenderTexture.active = rt;
+                        tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+                        tex.Apply();
+                        WritePng(tex, outDir, env, vn, "_x8", 8f);
+                    }
+
+            // THE WHOLE TABLE FIRST, THEN THE VERDICT. A gate that throws at the
+            // first bad station hides the other three, and the three it hides are
+            // what say whether the fault is one camera or the material.
+            Debug.Log(log.ToString());
+            if (fail.Length > 0)
+                throw new Exception("The wood beyond the cellar window fails at "
+                                    + "one or more player stations — the table above has every "
+                                    + "number:\n" + fail);
+        }
+
+        /// <summary>Write the texture the way Shoot() does — the project is LINEAR,
+        /// so the readback is gamma-encoded by hand or the PNG comes out 2.2x too
+        /// dark and every judgement made from it is a judgement about the harness.</summary>
+        private static void WritePng(Texture2D tex, string outDir, string env, string name,
+                                     string suffix, float lift = 1f)
+        {
+            var px = tex.GetPixels();
+            for (int i = 0; i < px.Length; i++)
+            {
+                var l = px[i];
+                if (lift != 1f) { l.r *= lift; l.g *= lift; l.b *= lift; }
+                var c = l.gamma; c.a = 1f; px[i] = c;
+            }
+            var copy = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
+            copy.SetPixels(px);
+            copy.Apply();
+            string png = System.IO.Path.Combine(outDir, $"{env.ToLowerInvariant()}_{name}{suffix}.png");
+            System.IO.File.WriteAllBytes(png, copy.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(copy);
+            Debug.Log($"[GloomhavenVR][EnvPreview] wrote {System.IO.Path.GetFullPath(png)}");
+        }
+
+        /// <summary>WHAT THE ROOM COSTS, measured on the prefab that ships rather
+        /// than described. One line per room and one row per node over a triangle
+        /// floor, so "the wood is a small fraction of the cellar" is a number.</summary>
+        private static void LogRoomCost(GameObject inst, string env)
+        {
+            var rows = new System.Collections.Generic.List<(string n, int t, int v)>();
+            int tris = 0, verts = 0, renderers = 0;
+            foreach (var mf in inst.GetComponentsInChildren<MeshFilter>(true))
+            {
+                var m = mf.sharedMesh;
+                if (m == null) continue;
+                var mr = mf.GetComponent<MeshRenderer>();
+                if (mr == null) continue;
+                renderers++;
+                int t = m.triangles.Length / 3;
+                tris += t; verts += m.vertexCount;
+                rows.Add((mf.gameObject.name, t, m.vertexCount));
+            }
+            rows.Sort((a, b) => b.t.CompareTo(a.t));
+            var log = new System.Text.StringBuilder();
+            log.Append($"[GloomhavenVR][EnvPreview] {env} COST: {tris} triangles, {verts} vertices "
+                       + $"over {renderers} MeshRenderers (= draw calls, one material each, no "
+                       + "batching assumed). The ten heaviest nodes:\n");
+            for (int i = 0; i < rows.Count && i < 10; i++)
+                log.Append($"    {rows[i].n,-22} {rows[i].t,7} tris {rows[i].v,7} verts "
+                           + $"({100f * rows[i].t / Mathf.Max(1, tris):F1}% of the room)\n");
+            foreach (var n in WoodNodes)
+                foreach (var row in rows)
+                    if (row.n == n)
+                        log.Append($"    -> {n,-19} {row.t,7} tris {row.v,7} verts "
+                                   + $"({100f * row.t / Mathf.Max(1, tris):F1}% of the room)\n");
+            Debug.Log(log.ToString());
         }
 
         private static void AssertShelfStations(GameObject inst, Camera cam)
@@ -1786,6 +2200,14 @@ namespace GloomhavenVR
                 // skipped the check would be exactly the run in which a mis-aim
                 // gets past.
                 if (env == "Env_Cellar") AssertShelfStations(inst, cam);
+                // ...and the window's wood, which is checked by DIFFERENCE and not
+                // by looking at a dark rectangle. It runs whatever ENV_PREVIEW_VIEWS
+                // says, for AssertShelfStations' reason: a filtered run that skipped
+                // the check would be exactly the run in which an empty window gets
+                // past. It also writes the four wood-on/wood-off pairs, so a
+                // filtered run still produces the frames the feature is judged on.
+                LogRoomCost(inst, env);
+                if (env == "Env_Cellar") AssertWindowWood(inst, cam, rt, tex, outDir, env);
 
                 // ---- the still set, at the shader clock's origin ----
                 // HAUNT OFF for this pass, which is also the shipped default state
