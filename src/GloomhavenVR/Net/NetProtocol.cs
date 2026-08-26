@@ -416,7 +416,97 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 295;
+    public const ushort ModBuild = 296;
+    // Build 296: A WOOD BEYOND THE CELLAR'S WINDOW, AND CLOUDS THE MOON CANNOT GET BEHIND.
+    // *** NEW BUNDLE: 70,204,340 bytes (was 69,529,860). NOT DLL-only. ***
+    //
+    //   1. THE VIEW OUT OF THE CELLAR WINDOW. "Dort soll auch Wald sein und sehr dunkel, dass man
+    //   nur wenig erkennt. Baue nur was vom Fenster her sichtbar ist — es muss performant bleiben."
+    //   9,862 tris in 2 draw calls and ZERO new texture bytes (it reuses the forest's own bark and
+    //   twig maps) against a room that already costs 149,810 tris in 89 calls — 6.6 %, cheaper than
+    //   ONE of the cellar's three barrels at 10,820 each. No MonoBehaviour, no particles, no vertex
+    //   motion, far plane unchanged, and the bake now THROWS if any wood vertex leaves the sky
+    //   patch's 26 m sphere (measured worst 22.22 m).
+    //   "ONLY WHAT IS VISIBLE" IS A PER-VERTEX AUDIT, NOT A CULL. The cull drops 0 of 42 candidates
+    //   and therefore proves nothing. 14,196 of 15,860 welded vertices (90 %) are in some player's
+    //   line of sight, tested one point at a time against all 1,134 head positions.
+    //   MY OWN "a hint of moon rim on one edge" UNDERSOLD IT: the moon bears 40 deg east of north
+    //   and the player looks north, so this wood is BACK-LIT BY CONSTRUCTION — the room-facing side
+    //   of every trunk has dot(N, moon) ~= 0. The rim IS the picture, and it carries the forest's
+    //   own trunk value undiminished while everything else is cut 4x.
+    //
+    //   THE FALSIFIER IS THE PART THAT MATTERED, because a dark frame is what a correct build AND
+    //   an empty one look like. AssertWindowWood renders every window station TWICE IN ONE RUN —
+    //   wood on against wood off, which is the shipped cellar pixel for pixel — plus twice more with
+    //   the aperture glow off, and fails on the difference. It also writes an 8x EXPOSURE-LIFTED
+    //   copy of every frame, because the whole picture lives in a handful of 8-bit levels. TWO
+    //   PASSES OF THIS MATERIAL WERE PRESENT, DRAWN, IN THE LINE OF SIGHT AND INVISIBLE, and
+    //   neither was findable by looking at a PNG.
+    //
+    //   2. THE NIGHT CALLS, AND MY INSTRUCTION FOR THEM WAS WRONG IN A WAY THAT MATTERS.
+    //   I said: put the emitters out in the forest at the window and let the existing distance model
+    //   do the work, and DO NOT add a cellar attenuation. Those are two different things and only
+    //   one of them satisfies him. Emitters actually out in the wood are up to 55 DEG OFF THE WINDOW
+    //   as heard from the seat, which fails "immer von dem Fenster aus lokalisiert" outright.
+    //   Emitters AT the window with unchanged gain are LOUDER than in the wood, because every
+    //   voice's rolloff is flat inside 8-12 perceived metres and the whole cellar is inside that.
+    //   SOME EXPLICIT ATTENUATION WAS UNAVOIDABLE. What was avoided is a taste knob: it is the
+    //   voice's own rolloff over the real outside leg times a derived ISO 12354-3 facade loss,
+    //   10log10(S/A) = -13.1 dB from 0.789 m2 of opening against 16.15 m2 of sabins. Owl reads
+    //   0.009-0.011 against 0.041 in the wood. Every audio number is arithmetic — the harness
+    //   renders no sound.
+    //
+    //   TWO CHANGES NOBODY ASKED FOR, BOTH FLAGGED RATHER THAN SLIPPED IN.
+    //   (a) The aperture glow was 70-77 % OF ALL THE LIGHT IN THE OPENING. Its own comment says it
+    //   exists so "the window reads as the source and not as a hole with something bright behind
+    //   it" — which is the exact opposite of this request. Alpha 0.085 -> 0.006, now 14-19 %. ONE
+    //   LINE TO REVERT.
+    //   (b) The night sky patch had a real VOID. Its sweep used eye->outer-corner directions over
+    //   the PLAY-SPACE DISC only; sightlines span az -58..31 deg over the disc but -67..67 deg over
+    //   the whole floor, so a player standing off the board in the NW corner looking east through
+    //   the slot saw the camera's clear colour. Both readers now share one exact sightline bundle.
+    //   +152 tris, no fill.
+    //
+    //   3. CLOUDS ON THE FOREST SKY. "Leichte Wolken … niemals dicht … den Mond nie voll verdecken …
+    //   sollen sich leicht bewegen … so gut es geht die Performance nicht reduzieren."
+    //   One node, CloudBand, a 2,592-tri cap of the star dome's own unit sphere. NEVER DENSE by
+    //   construction: alpha is a product of three factors each in [0,1], so a <= 0.42 always;
+    //   measured peak over a full cycle 0.402.
+    //   THE MOON CAN NEVER BE COVERED, AND IT IS A PROPERTY OF THE CONSTRUCTION RATHER THAN OF THE
+    //   PARAMETERS. The taper reaches a FLAT FLOOR near the moon and that floor holds WHATEVER THE
+    //   NOISE DOES, with 1.74 deg of slack around the disc AND its halo — bound 0.42 x 0.35 = 0.147,
+    //   i.e. >= 85.3 % transmitted. AssertCloudsClearTheMoon re-derives it every bake and throws.
+    //   Measured minimum un-occluded fraction 94.66 % (worst single pixel, t=42 s, 240 samples
+    //   across the whole cycle); worst disc-mean 98.04 %. THE LOOP CLOSES — t=0 against t=1440 s
+    //   differs by 7.6e-6 linear against a 2.0e-2 positive control at half a period — so the series
+    //   is the WHOLE behaviour and not a sample. The band is a CHILD of the dome at scale 1, so it
+    //   cannot slide off the moon: one frame, one radius, no parallax. Drift 0.055 deg/s; the wind
+    //   is additive uv and nothing multiplies a frequency.
+    //   COST: 63 fragment math ops, 4 temps, 2 textures, 0 branches, against EnvStars' 362 math,
+    //   7 textures and 9 branches, compiled for the comparison. The shell rasterises 40.1 % of the
+    //   frame looking level and 100 % straight up, so the clouds add 7-17 % of the sky's existing
+    //   fragment math. NO MILLISECONDS ARE QUOTED — there is no headset and no GPU timer here, and
+    //   the doc says so rather than converting.
+    //   HONEST LIMIT, FROM THE LANE ITSELF: from the seat with the canopy overhead the clouds are
+    //   nearly invisible, 1.48 % of the frame. Correct for "nur Beiwerk", but the feature exists for
+    //   the moment he looks up. Levers are CloudCut then CloudAlpha.
+    //   CLOUDS ARE FOREST-ONLY. The first cut gave the cellar the band too, on a "same sky through
+    //   the bars" argument; the cellar frames reported 0.000 % change AND WERE NOT LOOKING AT THE
+    //   WINDOW, so they settled nothing. Unverified full-screen fragment work in a room he did not
+    //   ask about is a bill, so the cellar sky is byte-identical to the previous bake — which also
+    //   proves the bake is deterministic.
+    //
+    //   MY "the fragment stage must bind no Unity built-in at all" WAS THE WRONG BAR, and the cloud
+    //   lane said so: it binds UnityPerCamera{_Time} — the CLOCK, not a pose — while
+    //   _WorldSpaceCameraPos sits at offset 16 in that same buffer and is absent. The stronger
+    //   evidence is that SV_POSITION's `Used` column is EMPTY: the fragment never reads its own
+    //   screen coordinate. An asterisk I had not named and it applies to the shipped EnvStars too:
+    //   tex2D's LOD selection IS screen-space and therefore per-eye; estimated ~0.002 LOD levels
+    //   between eyes with a smooth blend rather than a pattern, and that estimate is unverified.
+    //
+    //   BOTH PREFABS ARE BAKE ARTEFACTS OF BOTH LANES. Resolved by re-running
+    //   EnvironmentsBuilder.BuildAll once after merging, never by merging the YAML.
+    //
     // Build 295: THE DEBRIS IS SHARDS IN THE ROOM, AND NOTHING IN IT CAN READ THE CAMERA.
     // *** NEW BUNDLE: 69,529,860 bytes (was 69,536,022). NOT DLL-only — the shader changed. ***
     //
