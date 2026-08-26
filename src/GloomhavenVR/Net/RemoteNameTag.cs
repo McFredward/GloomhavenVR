@@ -107,6 +107,16 @@ internal sealed class RemoteNameTag
     /// tag uses (<see cref="RemoteFocusOutline"/>) — one cue, two carriers, from the peer's synced
     /// record 22 and the shared <c>FocusCue</c> clock; see <see cref="AvatarTurnRing"/>.</summary>
     private readonly AvatarTurnRing _turnRing;
+
+    /// <summary>THE SPEAKING BADGE (user request 2026-08-24, and his own typo correction
+    /// "Steam-Logo über dem Kopf"): the loudspeaker in the lower-right corner of the Steam picture
+    /// that lights up while this peer is talking. Seated beside the picture for the same reason the
+    /// turn ring is — a SIBLING of the quad, because the quad's non-uniform localScale would squash
+    /// a child. State comes from <c>Voice.VoiceSpatial</c>, which binds voice users to player ids
+    /// through the game's own account join, so this badge inherits that identity mapping rather than
+    /// making a second one. Gated by [Voice] SpeakingBadge; with [Net] NameTags off there is no tag
+    /// and therefore no badge, while the voice stays spatial.</summary>
+    private readonly Voice.VoiceBadge _voiceBadge;
     private Sprite? _shownAvatar;
     private string? _shownName;
     private bool _built;
@@ -140,6 +150,7 @@ internal sealed class RemoteNameTag
     {
         _owner = owner;
         _turnRing = new AvatarTurnRing(owner.PlayerId, "head");
+        _voiceBadge = new Voice.VoiceBadge(owner.PlayerId);
         _fallbackName = $"Player {owner.PlayerId}"; // same fallback OwnerTag ships
         _root = new GameObject($"NameTag[{owner.PlayerId}]");
         // Parent = the avatar ROOT (scale 1, identity), NOT the head holder: the holder carries
@@ -166,7 +177,10 @@ internal sealed class RemoteNameTag
         if (!want)
         {
             // The ring is a CHILD of this root, so switching the row off switches the cue off with
-            // it — there is no second hide to keep in step.
+            // it — there is no second hide to keep in step. The voice badge is a child too, but it
+            // is told explicitly as well: it caches its own visibility to keep its per-frame cost at
+            // one dictionary lookup, and that cache has to learn the row went away.
+            _voiceBadge.Tick(null, AvatarSize, carrierVisible: false);
             if (_root.activeSelf)
                 _root.SetActive(false);
             return;
@@ -245,6 +259,12 @@ internal sealed class RemoteNameTag
             // built must be in the renderer cache the seat writes, or it would spend up to a
             // second at order 0 while the row it belongs to rides the ladder at ~96.
             if (_turnRing.Tick(_avatarQuad, new Vector2(AvatarSize, AvatarSize), visible: true))
+                _tagRenderersRefreshAt = 0;
+            // THE SPEAKING BADGE, on the same rule and for the same reason: a glyph that has just
+            // appeared must be in the renderer cache the ladder seat below writes, or it spends up
+            // to a second at draw order 0 while its own row rides the ladder at ~96 — and a menu
+            // window behind the peer paints straight over it.
+            if (_voiceBadge.Tick(_avatarQuad, AvatarSize, carrierVisible: true))
                 _tagRenderersRefreshAt = 0;
             // PANEL COMPOSITING (user report 2026-08-04): rank the tag's renderers on the
             // converted-panel distance ladder so a menu window BEHIND the tag can no longer
@@ -428,6 +448,7 @@ internal sealed class RemoteNameTag
     public void Destroy()
     {
         _turnRing.Destroy();
+        _voiceBadge.Destroy(); // its material is a BoardVisual.Unlit clone — same asset rule as below
         if (_avatarMat != null)
             Object.Destroy(_avatarMat); // asset — not freed with the GameObject tree
         _avatarMat = null;

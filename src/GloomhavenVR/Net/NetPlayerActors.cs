@@ -54,6 +54,21 @@ internal static class NetPlayerActors
     private static PropertyInfo? _platformPlayerId; // string PlatformPlayerId — the FULL 64-bit SteamId
     private static PropertyInfo? _platformName;    // string PlatformName ("Steam", "EpicGamesStore", ...)
 
+    // The join column between the game's VOICE CHAT and its NETWORK PLAYERS. Added at ModBuild 297
+    // for spatial voice; see Voice/VoiceSpatial.cs and .planning/VOICE-SPATIAL.md.
+    //
+    // BOTH SIDES CARRY THE SAME STRING, and it is NOT the one you would guess. Photon Voice's
+    // per-user payload is built in BoltVoiceBridge.SetUpUsername() from
+    // PlatformLayer.UserData.PlatformNetworkAccountPlayerID (BoltVoiceBridge.cs:172/176/182, "0"
+    // when signed out) and comes back out as ConnectedUserVoice.PlatformAccountID. The player side
+    // is set in NetworkPlayer.Attached() from the connect token's PlatformNetworkAccountPlayerID
+    // (NetworkPlayer.cs:146, via PlayerRegistry.CreatePlayer :166-190). On Steam that string is the
+    // 32-BIT SteamId.AccountId (PlatformUserData.cs:95-96,106) -- NOT the 64-bit SteamID64 that
+    // _platformPlayerId above holds. Crossing those two is the exact mistake that made every peer
+    // show a grey avatar; do not repeat it here.
+    private static FieldInfo? _allPlayers;         // static List<NetworkPlayer> PlayerRegistry.AllPlayers
+    private static PropertyInfo? _networkAccountId; // string NetworkPlayer.PlatformNetworkAccountPlayerID
+
     // PlatformUserData — the game's own avatar service. OPTIONAL: only the avatar path uses it.
     private static PropertyInfo? _userDataProp;    // static PlatformUserData PlatformLayer.UserData
     private static FieldInfo? _defaultAvatarField; // [SerializeField] Sprite PlatformUserData._defaultUserAvatarSprite
@@ -89,6 +104,11 @@ internal static class NetPlayerActors
             // the DIRECT fetch below uses it, so it needs no live Bolt AttachToken.
             _platformPlayerId = player?.GetProperty("PlatformPlayerId") ?? player?.GetProperty("PlatformPlayerID");
             _platformName = player?.GetProperty("PlatformName");
+
+            // OPTIONAL on purpose: their absence must disable spatial voice's mapping and nothing
+            // else, so they are deliberately NOT part of the _disabled expression below.
+            _allPlayers = registry == null ? null : AccessTools.Field(registry, "AllPlayers");
+            _networkAccountId = player?.GetProperty("PlatformNetworkAccountPlayerID");
 
             _controllableObject = controllable?.GetProperty("ControllableObject");
 
@@ -588,6 +608,104 @@ internal static class NetPlayerActors
         if (_disabled || networkPlayer == null)
             return 0;
         try { return _playerId!.GetValue(networkPlayer) is int id ? id : 0; }
+        catch { return 0; }
+    }
+
+    /// <summary>
+    /// The PlayerID of the player whose platform NETWORK ACCOUNT id is
+    /// <paramref name="networkAccountId"/>, or 0 when there is no such player (not joined yet, not
+    /// in this session, signed out, or the reflection is unavailable).
+    ///
+    /// <para><b>THIS IS THE VOICE-CHAT TO AVATAR MAPPING, AND IT IS THE GAME'S OWN.</b> It is not a
+    /// heuristic and it is not "the only other player in the room": it is a string equality the
+    /// shipped game already performs, in two places, to decide which portrait and which name belong
+    /// to a voice row -- <c>Script.GUI.IngameMenu.EscMenuVoiceChat/PlayerPortraitVoiceComponent.cs:41-45</c>
+    /// and <c>PlayerNameVoiceComponent.cs:146-150</c>, both of which are literally
+    /// <c>PlayerRegistry.AllPlayers.FirstOrDefault(x =&gt; x.PlatformNetworkAccountPlayerID ==
+    /// accountId)</c>. The game also ships the same lookup as a helper at
+    /// <c>FFSNet/PlayerRegistry.cs:266</c>. We reproduce the FirstOrDefault form rather than call
+    /// the helper only because the helper's signature names the Bolt-derived <c>NetworkPlayer</c>
+    /// type, which this class never references (class doc).</para>
+    ///
+    /// <para><b>WHAT A MISMATCH LOOKS LIKE, because it must be visible in a log and not guessed
+    /// at.</b> A miss returns 0 and the caller keeps that peer's voice NON-spatial -- i.e. exactly
+    /// vanilla behaviour, never silence. <c>Voice/VoiceSpatial.cs</c> logs one line naming the
+    /// account id, the display name and every candidate it compared against, once per unmatched
+    /// voice user, so a failed mapping reads as "VOICE SPATIAL: no network player for account ..."
+    /// with the roster printed beside it. An id that matched the WRONG player would instead show up
+    /// as a voice arriving from the wrong mask, and the same line names which player id it bound
+    /// to.</para>
+    ///
+    /// <para>An empty or "0" account id (the signed-out fallback, BoltVoiceBridge.cs:182) is
+    /// rejected outright: several signed-out peers would otherwise all match each other.</para>
+    /// </summary>
+    public static int PlayerIdForNetworkAccount(string? networkAccountId)
+    {
+        EnsureInit();
+        if (_disabled || _allPlayers == null || _networkAccountId == null)
+            return 0;
+        if (string.IsNullOrEmpty(networkAccountId) || networkAccountId == "0")
+            return 0;
+
+        try
+        {
+            if (_allPlayers.GetValue(null) is not System.Collections.IEnumerable all)
+                return 0;
+            foreach (object? np in all)
+            {
+                if (np == null)
+                    continue;
+                if (_networkAccountId.GetValue(np) as string == networkAccountId)
+                    return _playerId!.GetValue(np) is int id ? id : 0;
+            }
+        }
+        catch { /* an unreadable registry is a miss, never a throw */ }
+        return 0;
+    }
+
+    /// <summary>
+    /// Every current player as (PlayerID, network account id, username), appended to
+    /// <paramref name="into"/>. Diagnostic only: it exists so that a failed
+    /// <see cref="PlayerIdForNetworkAccount"/> can print WHAT IT COMPARED AGAINST instead of only
+    /// reporting that it found nothing. A census that says "no match" without naming the candidates
+    /// is the kind of instrument this project has been burned by before.
+    /// </summary>
+    public static void CollectRoster(List<(int Id, string? Account, string? Name)> into)
+    {
+        EnsureInit();
+        if (_disabled || _allPlayers == null || _networkAccountId == null || into == null)
+            return;
+        try
+        {
+            if (_allPlayers.GetValue(null) is not System.Collections.IEnumerable all)
+                return;
+            foreach (object? np in all)
+            {
+                if (np == null)
+                    continue;
+                into.Add((_playerId!.GetValue(np) is int id ? id : 0,
+                          _networkAccountId.GetValue(np) as string,
+                          _username!.GetValue(np) as string));
+            }
+        }
+        catch { /* diagnostic only */ }
+    }
+
+    /// <summary>
+    /// The LOCAL player's PlayerID, or 0 when offline / absent. The same value as
+    /// <c>INetTransport.LocalPlayerId</c>, reachable statically -- that one lives behind a private
+    /// field of <see cref="NetAvatarDriver"/> and has no accessor.
+    /// </summary>
+    public static int LocalPlayerId()
+    {
+        EnsureInit();
+        if (_disabled)
+            return 0;
+        try
+        {
+            object? mp = _myPlayer!.GetValue(null);
+            return mp == null ? 0 : _playerId!.GetValue(mp) is int id ? id : 0;
+        }
         catch { return 0; }
     }
 

@@ -267,6 +267,14 @@ internal static class ConfigSteps
         ["Hands/ArcaneScale"] = 0.05d,
 
         // ---- Avatar & Mehrspieler ▸ Dein Auftritt: the mask pair ---------------------------
+        // [Voice] — spatial voice chat. Metres are PERCEIVED metres, so the steps are the size
+        // of a real movement: 25 cm of plateau, 1 m of range.
+        ["Voice/SpatialBlend"] = 0.05d,          // 5 % of the 2D..3D crossfade
+        ["Voice/FullLevelMeters"] = 0.25d,       // 25 cm of full-volume radius
+        ["Voice/SilenceMeters"] = 1d,            // one metre of range
+        ["Voice/RolloffShape"] = 0.05d,          // the exponent, finely
+        ["Voice/Spread"] = 5d,                   // 5 degrees of voice width
+        ["Voice/BadgeScale"] = 0.02d,            // 2 % of the Steam picture's edge
         ["Net/MaskId"] = 1d,                     // an index into the mask library
         ["Net/MaskSize"] = 0.05d,                // 5 % of your mask size
     };

@@ -1,0 +1,81 @@
+{
+  "_comment": [
+    "VoiceSpatialProbe PLACEHOLDER config. None of these numbers are the shipped ones — they exist",
+    "only to prove the instrument reads real mixed samples. Replace `cases` with the real settings.",
+    "",
+    "UNITS: every distance here (minDistance, maxDistance, bearingDistanceMeters, distancesMeters)",
+    "is in PERCEIVED metres and is multiplied by rigScale before it reaches the AudioSource — the",
+    "same convention as EnvSound.ApplyScale (src/GloomhavenVR/Core/EnvSound.cs).",
+    "",
+    "customRolloffXUnits: 'normalized' (curve x 0..1 spans 0..maxDistance, Unity's own convention)",
+    "or 'perceivedMeters' (curve x is perceived metres, divided by maxDistance on the way in).",
+    "",
+    "Per-case fields: name, play, sweep (both|pan|rolloff), spatialBlend, rolloffMode",
+    "(Logarithmic|Linear|Custom), minDistance, maxDistance, spread, dopplerLevel, panStereo,",
+    "volume, customRolloff."
+  ],
+
+  "sampleRate": 48000,
+  "dspBufferSize": 1024,
+  "captureFramerate": 0,
+  "rigScale": 9.57,
+  "toneHz": 440,
+  "toneAmplitude": 0.5,
+  "settleSeconds": 0.35,
+  "measureSeconds": 0.25,
+  "customRolloffXUnits": "normalized",
+
+  "bearings": [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165,
+               180, 195, 210, 225, 240, 255, 270, 285, 300, 315, 330, 345],
+  "bearingDistanceMeters": 1.5,
+  "distancesMeters": [0.25, 0.5, 1, 1.5, 2, 3, 4, 6, 8, 12, 16, 20, 30],
+
+  "cases": [
+    {
+      "name": "spatial",
+      "spatialBlend": 1.0,
+      "rolloffMode": "Linear",
+      "minDistance": 1.0,
+      "maxDistance": 20.0,
+      "spread": 0.0,
+      "dopplerLevel": 0.0
+    },
+    {
+      "name": "null_control",
+      "spatialBlend": 0.0,
+      "rolloffMode": "Linear",
+      "minDistance": 1.0,
+      "maxDistance": 20.0,
+      "spread": 0.0,
+      "dopplerLevel": 0.0
+    },
+    {
+      "name": "hardpan_left",
+      "spatialBlend": 0.0,
+      "panStereo": -1.0,
+      "rolloffMode": "Linear",
+      "minDistance": 1.0,
+      "maxDistance": 20.0,
+      "spread": 0.0,
+      "dopplerLevel": 0.0
+    },
+    {
+      "name": "hardpan_right",
+      "spatialBlend": 0.0,
+      "panStereo": 1.0,
+      "rolloffMode": "Linear",
+      "minDistance": 1.0,
+      "maxDistance": 20.0,
+      "spread": 0.0,
+      "dopplerLevel": 0.0
+    },
+    {
+      "name": "silence",
+      "play": false,
+      "spatialBlend": 0.0,
+      "rolloffMode": "Linear",
+      "minDistance": 1.0,
+      "maxDistance": 20.0
+    }
+  ]
+}

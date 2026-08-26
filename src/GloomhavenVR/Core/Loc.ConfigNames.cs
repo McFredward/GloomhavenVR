@@ -776,6 +776,15 @@ internal static partial class Loc
             ["ButtonAnim/AppearSeconds"] = Pair("Appear time (s)", "Erscheinen (s)"),
 
             // ---- [Net] — multiplayer --------------------------------------------------------
+            // ---- [Voice] spatial voice chat (ModBuild 297) --------------------------------
+            ["Voice/Enabled"] = Pair("Spatial voice", "Räumlicher Sprachchat"),
+            ["Voice/SpatialBlend"] = Pair("Voice placement", "Stimmen-Ortung"),
+            ["Voice/FullLevelMeters"] = Pair("Full volume radius", "Radius volle Lautstärke"),
+            ["Voice/SilenceMeters"] = Pair("Voice range", "Hörweite"),
+            ["Voice/RolloffShape"] = Pair("Falloff shape", "Abfall-Kurve"),
+            ["Voice/Spread"] = Pair("Voice width", "Stimmen-Breite"),
+            ["Voice/SpeakingBadge"] = Pair("Speaking symbol", "Sprech-Symbol"),
+            ["Voice/BadgeScale"] = Pair("Speaking symbol size", "Größe Sprech-Symbol"),
             ["Net/Enabled"] = Pair("Multiplayer sync", "Mehrspieler-Abgleich"),
             ["Net/MaskId"] = Pair("Head mask", "Kopfmaske"),
             ["Net/MaskSize"] = Pair("Mask size", "Maskengröße"),
