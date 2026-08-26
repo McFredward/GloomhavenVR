@@ -4134,6 +4134,35 @@ namespace GloomhavenVR
             return Rect.MinMaxRect(len * i0 / nx, h * j0 / ny, len * i1 / nx, h * j1 / ny);
         }
 
+        /// <summary>THE OPENING, FOR THE ONE READER OUTSIDE THIS FILE. The preview
+        /// harness aims its window stations at these and measures against them, so
+        /// a window that moves re-aims the cameras that watch it — the same
+        /// discipline <see cref="CellarShelfAt"/> was made public for, after two
+        /// rounds of photographing the corner a bookcase had left.
+        ///
+        /// <para>x0/y0/x1/y1 are the INNER opening in room metres (what the player
+        /// sees framed in the wall), z is the wall's inner face, w is the reveal
+        /// depth. Everything is SnappedHole's answer and not the authored rect.</para></summary>
+        public static Vector4 CellarWindowInner()
+        {
+            var wh = SnappedHole(WindowHole, CW, CH, WallCell);
+            return new Vector4(-CW / 2f + wh.xMin, wh.yMin, -CW / 2f + wh.xMax, wh.yMax);
+        }
+        /// <summary>Centre of the window opening, in room coordinates. Public since
+        /// ModBuild 296 — see CellarWindowInner.</summary>
+        public static Vector3 CellarWindowCentre() => WindowCentre();
+        /// <summary>The wall's inner face (z) and its thickness (w) at the window.</summary>
+        public static Vector2 CellarWindowWall() => new Vector2(CD / 2f, RevealDepth);
+        /// <summary>The outside ground level: the OUTER cill. Every tree in the
+        /// wood beyond the window stands on it, and it is 2.343 m — ABOVE every
+        /// eye height this room has, which is why the ground itself is never in
+        /// view from inside.</summary>
+        public static float CellarOutsideGroundY()
+        {
+            var wh = SnappedHole(WindowHole, CW, CH, WallCell);
+            return wh.yMin + RevealCillRise;
+        }
+
         /// <summary>Centre of the window opening, in room coordinates.</summary>
         private static Vector3 WindowCentre()
         {
@@ -4190,6 +4219,14 @@ namespace GloomhavenVR
         // would have needed the moon painted on it at a hand-typed place, which
         // is the class of duplicate this room has already been burned by twice
         // (the light rig's hand-typed moon bearing, _Ramp's hand-typed 0.34).
+        /// <summary>The night sky patch's radius. A CONSTANT rather than a local
+        /// since ModBuild 296, because the wood built inside it has to know where
+        /// it is: EnvStars is drawn at queue 2450, AFTER the opaque wood, and
+        /// ZTESTS — so a trunk at a greater depth than the patch is painted over
+        /// by it. AddWoodOutsideWindow reads this and throws rather than shipping
+        /// a wood the sky erases.</summary>
+        private const float NightSkyR = 26f;
+
         private static void AddNightOutsideWindow(Transform root, Vector3 winMid,
             float wx0, float wy0, float wx1, float wy1, float hd)
         {
@@ -4220,23 +4257,66 @@ namespace GloomhavenVR
                 azLo = Mathf.Min(azLo, az); azHi = Mathf.Max(azHi, az);
                 elLo = Mathf.Min(elLo, el); elHi = Mathf.Max(elHi, el);
             }
-            var apertures = new[]
+            // THE SWEEP IS THE EXACT SIGHTLINE BUNDLE, AND THE EYE SET IS THE
+            // WHOLE ROOM FLOOR. Until ModBuild 296 it was neither: it took the
+            // four directions from each eye to the four corners of the OUTER
+            // opening, over the PLAY-SPACE DISC only. Both halves of that were
+            // wrong, and they were wrong in opposite directions, which is why the
+            // patch looked reasonable and was not.
+            //
+            // What stood here was "the play-space rim at 24 bearings plus its
+            // centre, at 1.05 and 1.85 m". That is the set of places a player
+            // stands to reach the BOARD, and this file's own AssertMoonThroughWindow
+            // says in as many words that the interesting window poses are NOT in
+            // it: "two steps toward the window, not from the table". A player who
+            // walks off the disc — which the moon note actively invites him to do
+            // — reaches bearings the patch was never sized for.
+            //
+            //  * THE EYE SET WAS TOO SMALL. The disc is where a player stands to
+            //    reach the BOARD, and this file's own AssertMoonThroughWindow says
+            //    in as many words that the interesting window poses are not in it:
+            //    "two steps toward the window, not from the table". Measured
+            //    (.planning/debug/cellar-window-frustum.py) the sightlines span
+            //    az -57.9..30.8 deg over the disc and az -67.2..65.5 deg over the
+            //    whole floor, so the patch ended 34.7 deg short of the eastmost
+            //    real sightline and a player standing off the board in the
+            //    north-WEST corner, looking east through the slot, saw the
+            //    camera's clear colour. That is the exact failure this object
+            //    exists to remove, in the exact room it was added to.
+            //  * THE SWEEP WAS TOO COARSE, AND THAT IS WHAT HID IT. A direction
+            //    from an eye to an outer CORNER need not clear the INNER opening
+            //    at the wall face, so the old hull contained bearings nothing can
+            //    be seen along — and with the honest eye set it blows past what a
+            //    patch can span at all (az -90..83, which fails the gate below).
+            //    The bundle below is the exact test: a ray must cross the inner
+            //    rectangle AND the smaller, higher, splayed outer one.
+            //
+            // ONE INSTRUMENT, TWO READERS. AddWoodOutsideWindow culls every tree
+            // against this same bundle, which is the property that matters: the
+            // sky and the wood in front of it cannot disagree about where the
+            // window points.
+            //
+            // THE COST IS A FEW HUNDRED TRIANGLES AND NO FILL. The patch is still
+            // drawn at queue 2450 behind the walls' own depth, so the shaded area
+            // is the aperture and nothing else.
+            var rays = CellarWindowRays(CellarWindowEyes(), wx0, wy0, wx1, wy1, hd, out int tried);
+            if (rays.Count == 0)
+                throw new Exception("No sightline out of the cellar window clears both openings, so "
+                                    + "the sky patch has no directions to cover. The reveal has "
+                                    + "closed the embrasure — AssertMoonThroughWindow fails on the "
+                                    + "same geometry and says so in metres.");
+            foreach (var r in rays) Cover(r.d);
+            float discAzLo = float.MaxValue, discAzHi = float.MinValue;
             {
-                new Vector3(ox0, oy0, oz), new Vector3(ox1, oy0, oz),
-                new Vector3(ox0, oy1, oz), new Vector3(ox1, oy1, oz),
-            };
-            // eyes: the play-space rim at 24 bearings plus its centre, at the two
-            // ends of a standing player's eye height. A crouching player looks
-            // UP more steeply and a tall one less, and both are in the range.
-            float pr = CellarPlaySpaceDia * 0.5f;
-            foreach (float h in new[] { 1.05f, 1.85f })
-                for (int k = 0; k <= 24; k++)
+                // ...and the DISC-only hull, through the same exact test, kept
+                // only so the log can state what grew and by how much.
+                var discRays = CellarWindowRays(CellarPlaySpaceEyes(), wx0, wy0, wx1, wy1, hd, out _);
+                foreach (var r in discRays)
                 {
-                    float a = k / 24f * Mathf.PI * 2f;
-                    var eye = k == 24 ? new Vector3(0f, h, 0f)
-                                      : new Vector3(Mathf.Sin(a) * pr, h, Mathf.Cos(a) * pr);
-                    foreach (var ap in apertures) Cover(ap - eye);
+                    float az = Mathf.Atan2(r.d.x, r.d.z) * Mathf.Rad2Deg;
+                    discAzLo = Mathf.Min(discAzLo, az); discAzHi = Mathf.Max(discAzHi, az);
                 }
+            }
             Cover(moon);
             // ...and a margin, because a patch that ends exactly where the last
             // sightline does has a seam on it.
@@ -4260,7 +4340,7 @@ namespace GloomhavenVR
             // FROM THE WINDOW — which is where a player who is looking through it
             // is standing, to within a metre. (The wood's dome is centred on the
             // clearing and has the same property with a bigger error.)
-            const float R = 26f;
+            const float R = NightSkyR;
             int na = Mathf.Max(8, Mathf.CeilToInt((azHi - azLo) / 7f));
             int ne = Mathf.Max(6, Mathf.CeilToInt((elHi - elLo) / 7f));
             var sky = new Acc();
@@ -4346,7 +4426,765 @@ namespace GloomhavenVR
                       + $"{Mathf.Min(Mathf.Atan2(moon.x, moon.z) * Mathf.Rad2Deg - azLo, azHi - Mathf.Atan2(moon.x, moon.z) * Mathf.Rad2Deg):F0} deg "
                       + $"of azimuth and {Mathf.Min(Mathf.Asin(moon.y) * Mathf.Rad2Deg - elLo, elHi - Mathf.Asin(moon.y) * Mathf.Rad2Deg):F0} deg of "
                       + $"altitude. Ground outside at y {gy:F3} (= the OUTER cill, i.e. the height "
-                      + $"HauntFigures walks its creature at is the INNER cill {wy0:F3}).");
+                      + $"HauntFigures walks its creature at is the INNER cill {wy0:F3}).\n"
+                      + $"    THE COVERAGE IS MEASURED, NOT ASSUMED (ModBuild 296): {tried} "
+                      + $"candidate rays from {CellarWindowEyes().Count} head positions over the "
+                      + $"WHOLE FLOOR, of which {rays.Count} clear both openings. Over the "
+                      + $"play-space disc alone those sightlines span az {discAzLo:F1}.."
+                      + $"{discAzHi:F1} deg; over the floor they span {azLo + Margin:F1}.."
+                      + $"{azHi - Margin:F1} deg. The patch this bake built is "
+                      + $"{(discAzLo - (azLo + Margin)) + ((azHi - Margin) - discAzHi):F1} deg of "
+                      + "azimuth wider than the shipped one, and that difference is the void a "
+                      + "player standing off the board used to be able to find.");
+        }
+
+        // ==================================================== THE WINDOW'S EYES
+        // WHERE A PLAYER CAN PUT HIS HEAD IN THIS ROOM, as one list, because three
+        // separate things now have to answer "can that be seen through the
+        // window?" and a set typed three times is a set that drifts:
+        //   * the night SKY patch, which must cover every sightline or show void;
+        //   * the WOOD outside it, which must not build a single tree outside the
+        //     set (the user: "Baue nur was vom Fenster her sichtbar ist");
+        //   * the preview harness, which photographs the result from two of these
+        //     heights and would otherwise be judging a different room.
+        //
+        // IT IS THE WHOLE FLOOR, NOT THE PLAY SPACE. See the block in
+        // AddNightOutsideWindow for the measurement that forced that and for what
+        // it cost. 0.55 m off every wall is a shoulder's width: a head cannot get
+        // closer to masonry than that, and the reveal is 0.55 m deep, so an eye
+        // any nearer is inside the embrasure rather than in the room.
+        //
+        // THE THREE HEIGHTS ARE THE PLAYER'S OWN, DERIVED THE WAY
+        // PreviewEnvironments DERIVES THEM — from the board, not from a guess.
+        // SkyAlternative anchors the room so the board's underside sits at
+        // FloatGapToBoardRatio * playDia / PlaySpaceToBoardRatio authored metres,
+        // and an eye `u` board widths above that is at
+        // (FloatGapToBoardRatio + u) * playDia / PlaySpaceToBoardRatio. The
+        // expression is written here character for character as it is written
+        // there, and PreviewEnvironments asserts the two agree rather than
+        // trusting that they do.
+        private const float BoardPlayRatio = 4.5f;    // SkyAlternative.PlaySpaceToBoardRatio
+        private const float BoardFloatRatio = 0.75f;  // SkyAlternative.FloatGapToBoardRatio
+        /// <summary>A seated head: 0.40 board widths over the board's underside.</summary>
+        public static readonly float CellarEyeSeated =
+            (BoardFloatRatio + 0.40f) * (CellarPlaySpaceDia / BoardPlayRatio);
+        /// <summary>A standing head: 0.65 board widths over it.</summary>
+        public static readonly float CellarEyeStanding =
+            (BoardFloatRatio + 0.65f) * (CellarPlaySpaceDia / BoardPlayRatio);
+        /// <summary>...and a crouch, which is the height that looks most steeply
+        /// UP through the opening and therefore sets the top of every hull below.
+        /// It is not derived from the board because a crouch is not a pose the
+        /// board defines; it is the 1.05 m the sky patch's own sweep has used
+        /// since ModBuild 146.</summary>
+        public const float CellarEyeCrouch = 1.05f;
+
+        /// <summary>The eye set this method REPLACED, kept because a claim about
+        /// what grew has to be measurable against the thing it grew from: the
+        /// play-space rim at 24 bearings plus its centre, at 1.05 and 1.85 m. It
+        /// is read only by the log line in AddNightOutsideWindow.</summary>
+        private static List<Vector3> CellarPlaySpaceEyes()
+        {
+            var list = new List<Vector3>();
+            float pr = CellarPlaySpaceDia * 0.5f;
+            foreach (float h in new[] { 1.05f, 1.85f })
+                for (int k = 0; k <= 24; k++)
+                {
+                    float a = k / 24f * Mathf.PI * 2f;
+                    list.Add(k == 24 ? new Vector3(0f, h, 0f)
+                                     : new Vector3(Mathf.Sin(a) * pr, h, Mathf.Cos(a) * pr));
+                }
+            return list;
+        }
+
+        private static List<Vector3> CellarWindowEyes()
+        {
+            const float Standoff = 0.55f;
+            var list = new List<Vector3>();
+            float hx = CW / 2f - Standoff, hz = CD / 2f - Standoff;
+            const int NX = 20, NZ = 17;               // ~0.5 m of floor per sample
+            foreach (float h in new[] { CellarEyeCrouch, CellarEyeSeated, CellarEyeStanding })
+                for (int i = 0; i <= NX; i++)
+                    for (int j = 0; j <= NZ; j++)
+                        list.Add(new Vector3(-hx + 2f * hx * i / NX, h, -hz + 2f * hz * j / NZ));
+            return list;
+        }
+
+        // ================================================ THE WOOD BEYOND THE SLOT
+        // USER, ModBuild 296, verbatim: "Ich möchte, dass du in der Kellerumgebung
+        // den Blick aus dem Fenster modellierst. Dort soll auch Wald sein und sehr
+        // dunkel, dass man nur wenig erkennt. Baue nur was vom Fenster her sichtbar
+        // ist — es muss performant bleiben."
+        //
+        // THE SECOND SENTENCE IS THE DESIGN AND IT IS ENFORCED, NOT PROMISED.
+        // Nothing below is placed by taste: a candidate is generated on a polar
+        // grid around the opening, the SIGHTLINE BUNDLE is asked whether any head
+        // in this room can see it through both rectangles of the embrasure, and it
+        // is dropped if the answer is no. The bake prints how many were dropped,
+        // which is the only form in which "only what is visible" is a fact rather
+        // than an intention. The wide preview station (PreviewEnvironments,
+        // "WinCheat") photographs the result from outside the room so the cheat is
+        // visible AS a cheat.
+        //
+        // "SEHR DUNKEL, DASS MAN NUR WENIG ERKENNT" IS A COST ARGUMENT IN OUR
+        // FAVOUR. A silhouette needs an outline and a value, not a surface: there
+        // is no bark relief to resolve at fifteen metres in near-darkness through a
+        // slot, no ground (see below — it is provably never in view), no
+        // undergrowth, no path, no litter, no props and no animals. Trunks and
+        // crowns against a slightly-less-black sky, with the moon's cold rim on the
+        // edge that faces it. That is the whole content.
+        //
+        // FOUR THINGS ARE DELIBERATELY NOT BUILT, and each is a measurement:
+        //
+        //  1. THE GROUND, AND ANYTHING STANDING ON IT. The outside ground is the
+        //     OUTER CILL, 2.343 m up the room's wall, and the tallest head in this
+        //     room is CellarEyeStanding = 2.02 m. The eye is BELOW the ground
+        //     outside, so every sightline out of this window RISES: the minimum
+        //     elevation over the whole floor is +1.7 deg and it is never negative
+        //     at any head height (the script prints the per-height band). The earth
+        //     out there cannot be seen from inside this room at all, which is also
+        //     why AddNightOutsideWindow's black ground plane — wound +Y, Cull Back
+        //     — is invisible from every player pose and does no work but occlusion
+        //     it is never asked for. A tree's foot is therefore never in view, and
+        //     no trunk here is built below the height at which it becomes visible.
+        //  2. ANY GEOMETRY PAST 23 m. EnvStars ships ZWrite Off, so the sky patch
+        //     does not occlude — but it is drawn at queue 2450, AFTER the opaque
+        //     wood, and it ZTESTS against the depth the wood just wrote. A trunk
+        //     beyond the patch's R = 26 m would be at a greater depth than the
+        //     patch and would be painted over by it. 23 m is that bound with 3 m
+        //     of margin, and it is a HARD one: this method throws if it is broken.
+        //  3. SWAY. EnvRoomCutout's _Sway defaults to 0 and is left there. This
+        //     project's standing lesson is that culling cannot see a vertex
+        //     shader — displaced geometry is culled against its UNDISPLACED bounds
+        //     — and the cheapest way to be right about that is to have no
+        //     displacement. It also costs nothing visually: a 15 m silhouette
+        //     through a 1.2 m slot at this light level has no readable motion.
+        //  4. A SECOND TEXTURE BYTE. The bark and twig atlases are the WOOD's
+        //     (pine_bark_alb/nrm, fir_twig_alb) — already in the bundle for
+        //     Env_Swamp, so the whole feature adds 0 bytes of texture memory.
+        //
+        // MULTIPLAYER: this is baked geometry in a room prefab. It is local
+        // presentation with no state, no wire bytes and no per-client decision —
+        // every client's cellar contains the identical mesh, exactly as every
+        // client's wall does.
+
+        /// <summary>How far out the wood stands, in metres from the wall's OUTER
+        /// face. The far bound is the sky patch's radius less a 3 m margin — see
+        /// point 2 above; the gate at the bottom of AddWoodOutsideWindow enforces
+        /// it against the patch's own R rather than against this number.</summary>
+        private const float WoodNear = 8.5f;
+        private const float WoodFar = 17.0f;
+
+        /// <summary>One sightline out of the window: where a head is, and the
+        /// direction from it that clears BOTH rectangles of the embrasure.
+        ///
+        /// <para>THE BUNDLE IS THE INSTRUMENT AND IT IS NOT THE SKY PATCH'S. The
+        /// patch sweeps eye-to-OUTER-CORNER directions and takes their hull, which
+        /// deliberately OVER-covers: a patch that is too big shows sky where sky
+        /// would not be seen, and that is free. A tree that is too far out shows
+        /// nothing and costs triangles, so this test is the exact one — a ray must
+        /// pass through the inner opening at the wall face AND through the smaller,
+        /// higher, splayed outer opening 0.55 m further on. The two instruments
+        /// answer two different questions and are deliberately not shared.</para></summary>
+        private struct WinRay { public Vector3 o, d; }
+
+        private static List<WinRay> CellarWindowRays(List<Vector3> eyes,
+                                                     float wx0, float wy0, float wx1, float wy1,
+                                                     float hd, out int tried)
+        {
+            float inset = RevealJambInset, rise = RevealCillRise;
+            float ox0 = wx0 + inset, ox1 = wx1 - inset, oy0 = wy0 + rise, oy1 = wy1;
+            float oz = hd + RevealDepth;
+            var rays = new List<WinRay>();
+            const int NA = 8;                       // 9x9 samples of the OUTER opening
+            tried = 0;
+            foreach (var e in eyes)
+            {
+                float dzOuter = oz - e.z;
+                if (dzOuter <= RevealDepth) continue;     // a head inside the embrasure is not a pose
+                float tIn = (hd - e.z) / dzOuter;
+                for (int a = 0; a <= NA; a++)
+                    for (int b = 0; b <= NA; b++)
+                    {
+                        tried++;
+                        var q = new Vector3(Mathf.Lerp(ox0, ox1, a / (float)NA),
+                                            Mathf.Lerp(oy0, oy1, b / (float)NA), oz);
+                        // does the same ray clear the INNER opening on the way?
+                        float ix = e.x + (q.x - e.x) * tIn, iy = e.y + (q.y - e.y) * tIn;
+                        if (ix < wx0 || ix > wx1 || iy < wy0 || iy > wy1) continue;
+                        rays.Add(new WinRay { o = e, d = (q - e).normalized });
+                    }
+            }
+            return rays;
+        }
+
+        /// <summary>THE EXACT TEST, AND THE ONE THE WOOD IS CULLED AND AUDITED BY.
+        /// Can a sphere of radius <paramref name="r"/> at <paramref name="p"/> be
+        /// seen through the window by anybody?
+        ///
+        /// <para>A ray from an eye to the sphere must cross the INNER opening at
+        /// the wall face and the smaller, higher, splayed OUTER one 0.55 m
+        /// further on. Both rectangles are widened by the sphere's own shadow-cone
+        /// cross-section at that plane — r * (planeZ - eye.z) / (p.z - eye.z) —
+        /// which is exact for a sphere and conservative for a tree, a tree being
+        /// thinner than its bounding sphere everywhere but one ring.</para>
+        ///
+        /// <para><b>IT IS NOT THE RAY BUNDLE, AND THE FIRST VERSION OF THIS WOOD
+        /// WAS.</b> A bundle of 66,599 sampled sightlines, asked "does any of you
+        /// pass within r of this point", dropped 0 of 46 candidate trees — an
+        /// instrument that agrees with whatever it is shown, because the
+        /// candidates were generated inside the bundle's own fan to begin with.
+        /// This form is exact rather than sampled, is cheaper (1,134 eyes instead
+        /// of 66,599 rays), and — the reason it matters — it can be run on EVERY
+        /// WELDED VERTEX, which is the only statement of "only what is visible"
+        /// that is a measurement rather than a description of the intent.</para></summary>
+        private static bool WindowSeesPoint(List<Vector3> eyes, Vector3 p, float r,
+                                            float wx0, float wy0, float wx1, float wy1, float hd)
+        {
+            float inset = RevealJambInset, rise = RevealCillRise;
+            float ox0 = wx0 + inset, ox1 = wx1 - inset, oy0 = wy0 + rise, oy1 = wy1;
+            float oz = hd + RevealDepth;
+            for (int i = 0; i < eyes.Count; i++)
+            {
+                Vector3 e = eyes[i];
+                float dz = p.z - e.z;
+                if (dz <= RevealDepth) continue;          // not beyond the embrasure from here
+                float tI = (hd - e.z) / dz, tO = (oz - e.z) / dz;
+                if (tI <= 0f || tO <= 0f) continue;
+                float rI = r * tI, rO = r * tO;
+                float ix = e.x + (p.x - e.x) * tI, iy = e.y + (p.y - e.y) * tI;
+                if (ix < wx0 - rI || ix > wx1 + rI || iy < wy0 - rI || iy > wy1 + rI) continue;
+                float qx = e.x + (p.x - e.x) * tO, qy = e.y + (p.y - e.y) * tO;
+                if (qx < ox0 - rO || qx > ox1 + rO || qy < oy0 - rO || qy > oy1 + rO) continue;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>The lowest point on the vertical line through (x, z) that
+        /// anyone can see, by bisection on <see cref="WindowSeesPoint"/>. It is how
+        /// much of this trunk is worth building — and at this wood's distance the
+        /// honest answer is "nearly all of it", which is the RIGHT answer and not a
+        /// broken one: see the note at the call site.</summary>
+        private static float WoodLowestSeenY(List<Vector3> eyes, float x, float z, float r,
+                                             float yLo, float yHi,
+                                             float wx0, float wy0, float wx1, float wy1, float hd)
+        {
+            if (!WindowSeesPoint(eyes, new Vector3(x, yHi, z), r, wx0, wy0, wx1, wy1, hd))
+                return float.PositiveInfinity;            // nothing in this column is in view
+            if (WindowSeesPoint(eyes, new Vector3(x, yLo, z), r, wx0, wy0, wx1, wy1, hd))
+                return yLo;
+            for (int k = 0; k < 22; k++)
+            {
+                float mid = 0.5f * (yLo + yHi);
+                if (WindowSeesPoint(eyes, new Vector3(x, mid, z), r, wx0, wy0, wx1, wy1, hd))
+                    yHi = mid;
+                else
+                    yLo = mid;
+            }
+            return yHi;
+        }
+
+        /// <summary>A trunk, from <paramref name="y0"/> to the tree's full height,
+        /// in the wood's own idiom: tapered, lobed, leaning, and OPEN AT THE
+        /// BOTTOM because the bottom is provably never seen. Deliberately not
+        /// <see cref="AddTrunk"/>: that one buries its foot 30 cm and starts at the
+        /// ground, which is exactly the half of a trunk this room must not pay
+        /// for.</summary>
+        private static void AddWoodTrunk(Acc a, Vector3 baseAt, float h, float rb, float y0,
+                                         Vector2 lean, float sd, int segs, int rings, Color tint)
+        {
+            int b0 = a.Count;
+            for (int j = 0; j <= rings; j++)
+            {
+                float y = Mathf.Lerp(y0, h, j / (float)rings);
+                float f = Mathf.Clamp01(y / h);
+                float rad = Mathf.Lerp(rb, rb * 0.30f, Mathf.Pow(f, 1.9f));
+                rad *= 1f + 0.13f * (Fbm2(f * 8f, sd * 3f, 3, 991) - 0.5f);
+                var c = baseAt + new Vector3(lean.x * f * f, y, lean.y * f * f)
+                        + new Vector3(Mathf.Sin(f * 3.1f + sd), 0f, Mathf.Cos(f * 2.4f + sd * 1.7f))
+                          * (0.020f * h * f);
+                float circ = 2f * Mathf.PI * rad;
+                for (int s = 0; s <= segs; s++)
+                {
+                    float ang = s / (float)segs * Mathf.PI * 2f;
+                    float lobe = Fbm2(Mathf.Cos(ang) * 1.7f + sd, Mathf.Sin(ang) * 1.7f, 2, 992);
+                    float rr = rad * (0.90f + 0.20f * lobe);
+                    var nrm = new Vector3(Mathf.Cos(ang), 0.10f, Mathf.Sin(ang)).normalized;
+                    a.Vert(c + new Vector3(nrm.x * rr, 0f, nrm.z * rr), nrm,
+                           new Vector2(s / (float)segs * circ / 1.6f, y / 1.6f), tint);
+                }
+            }
+            int stride = segs + 1;
+            for (int j = 0; j < rings; j++)
+                for (int s = 0; s < segs; s++)
+                {
+                    int i0 = b0 + j * stride + s;
+                    a.T.AddRange(new[] { i0, i0 + stride, i0 + 1, i0 + 1, i0 + stride, i0 + stride + 1 });
+                }
+        }
+
+        /// <summary>THE WOOD BEYOND THE SLOT. Returns the marker transform the
+        /// sound lane measures its animals from (see EnvSound's THE WINDOW'S
+        /// WOOD) — placed at the outer face, at OUTSIDE GROUND level, with
+        /// identity rotation, so a position expressed in it is in authored metres
+        /// on the ground the trees stand on.</summary>
+        private static Transform AddWoodOutsideWindow(Transform root, Vector3 winMid,
+            float wx0, float wy0, float wx1, float wy1, float hd, float skyR)
+        {
+            float oz = hd + RevealDepth;
+            float gy = wy0 + RevealCillRise;                  // the outside ground = the OUTER cill
+            var wc = new Vector3(winMid.x, gy, oz);           // the wood's own origin
+
+            var eyes = CellarWindowEyes();
+            int eyeCount = eyes.Count;
+            // THE FAN IS DERIVED, NOT TYPED. The first version of this wood carried
+            // a hand-written +-76 deg and the cull then dropped 0 of 46 candidates,
+            // because a grid generated inside the visible fan is trivially visible.
+            // The fan is now the sightline bundle's OWN azimuth hull plus 3 deg of
+            // seam, so the candidate set ends where the sightlines end and the
+            // per-vertex audit below is the thing that reports what was really
+            // built outside them.
+            var rays = CellarWindowRays(eyes, wx0, wy0, wx1, wy1, hd, out int tried);
+            if (rays.Count == 0)
+                throw new Exception("No sightline out of the cellar window clears both openings, so "
+                                    + "there is nothing for a wood outside it to be seen through. "
+                                    + "The reveal has closed the embrasure — see "
+                                    + "AssertMoonThroughWindow, which fails on the same geometry.");
+            float fanLo = float.MaxValue, fanHi = float.MinValue;
+            foreach (var ry in rays)
+            {
+                float az = Mathf.Atan2(ry.d.x, ry.d.z) * Mathf.Rad2Deg;
+                fanLo = Mathf.Min(fanLo, az); fanHi = Mathf.Max(fanHi, az);
+            }
+            fanLo -= 3f; fanHi += 3f;
+
+            // ---- the trees ---------------------------------------------------
+            // A polar grid on the wood's own origin. Four bands, spaced so the
+            // gaps in one are covered by the next: what the eye is given is trees
+            // BEHIND trees, which is the only structure a silhouette wood has.
+            var bark = new Acc();
+            var foliage = new Acc();
+            int placed = 0, dropped = 0, trunkRingsSaved = 0, candidates = 0;
+            float woodReach = 0f;
+            float nearest = float.MaxValue, farthest = 0f;
+            // WHY THE WOOD IS 8.5-17 m OUT AND ITS TREES ARE 7-12.5 m TALL, and
+            // it is a bound and not a taste: the night sky is a SPHERE of
+            // NightSkyR about the OPENING, so a tree's budget is its 3-D distance
+            // from that point and not its distance along the ground. A 14 m tree
+            // 19 m out is 23.6 m away horizontally at its crown and 14.3 m up,
+            // i.e. 27.6 m from the window — past the sky, which is drawn after it
+            // and paints it out. The first attempt at this wood was exactly that
+            // and the gate below caught it. Pulling the band in buys the picture
+            // back twice over: the trees subtend MORE through a 1.2 m slot, and
+            // they parallax harder as the head moves, which is the one cue that
+            // says "that is really out there" rather than "that is a poster".
+            var bands = new[] { ( 8.6f, 2.5f, 8.5f, 12.5f, 0.24f, 0.38f),
+                                (11.0f, 2.7f, 8.0f, 12.0f, 0.21f, 0.34f),
+                                (13.6f, 2.9f, 7.5f, 11.5f, 0.19f, 0.30f),
+                                (16.2f, 3.1f, 7.0f, 11.0f, 0.17f, 0.27f) };
+            for (int b = 0; b < bands.Length; b++)
+            {
+                var (r0, spacing, h0, h1, rb0, rb1) = bands[b];
+                int n = Mathf.Max(4, Mathf.RoundToInt((fanHi - fanLo) * Mathf.Deg2Rad * r0 / spacing));
+                for (int i = 0; i < n; i++)
+                {
+                    candidates++;
+                    float az = Mathf.Lerp(fanLo, fanHi, (i + 0.5f) / n) * Mathf.Deg2Rad
+                               + (Hash3(i, b, 0, 6101) - 0.5f) * 0.6f * spacing / r0;
+                    float rad = r0 + (Hash3(i, b, 1, 6101) - 0.5f) * 1.4f;
+                    var p = wc + new Vector3(Mathf.Sin(az) * rad, 0f, Mathf.Cos(az) * rad);
+                    float h = Mathf.Lerp(h0, h1, Hash3(i, b, 2, 6101));
+                    float rb = Mathf.Lerp(rb0, rb1, Hash3(i, b, 3, 6101));
+                    float sd = Hash3(i, b, 4, 6101) * 40f;
+                    float leanAz = Hash3(i, b, 5, 6101) * Mathf.PI * 2f;
+                    var lean = new Vector2(Mathf.Sin(leanAz), Mathf.Cos(leanAz))
+                               * ((0.012f + 0.045f * Hash3(i, b, 6, 6101)) * h);
+
+                    // CAN ANYONE SEE THIS TREE? The test sphere is the crown's, at
+                    // the crown's own height — a trunk with no crown in view is a
+                    // pole nobody can see the top of, and one whose crown is in
+                    // view always brings some trunk with it.
+                    float crownR = 0.18f * h + 0.30f;
+                    var crownAt = p + new Vector3(lean.x, h * 0.72f, lean.y);
+                    if (!WindowSeesPoint(eyes, crownAt, crownR, wx0, wy0, wx1, wy1, hd))
+                    {
+                        dropped++;
+                        continue;
+                    }
+
+                    float dist = new Vector2(p.x - wc.x, p.z - wc.z).magnitude;
+                    nearest = Mathf.Min(nearest, dist); farthest = Mathf.Max(farthest, dist);
+                    if (dist < WoodNear - 0.7f || dist > WoodFar + 0.7f)
+                        throw new Exception($"A tree outside the cellar window stands {dist:F2} m "
+                                            + $"from the opening, outside the authored band "
+                                            + $"{WoodNear:F1}..{WoodFar:F1} m. The band is not a "
+                                            + "preference: the near bound keeps the wood clear of "
+                                            + "the creature HauntFigures walks past the opening, "
+                                            + "and the far bound keeps it inside the night sky.");
+                    if (dist + crownR > skyR - 1.0f)
+                        throw new Exception($"A tree outside the cellar window stands {dist:F1} m "
+                                            + $"from the opening with a {crownR:F1} m crown, and the "
+                                            + $"night sky patch is a sphere of radius {skyR:F1} m "
+                                            + "centred on the same point. EnvStars is drawn at queue "
+                                            + "2450 — AFTER the opaque wood — and ZTESTS, so anything "
+                                            + "at a greater depth than the patch is painted over by "
+                                            + "it. Bring WoodFar in, or grow the patch deliberately.");
+
+                    // ...and how much of it. Everything under the lowest point any
+                    // sightline reaches in this column is triangles nobody can see.
+                    // HOW MUCH OF THE TRUNK IS WORTH BUILDING. Everything under
+                    // the lowest point any sightline reaches in this column is
+                    // triangles nobody can see — and at THIS wood's distance that
+                    // is almost none of it, which is the correct answer and worth
+                    // stating: the outside ground is 2.343 m up the room's wall
+                    // and every eye in the room is below it, so a sightline out of
+                    // this window RISES, and the height at which it clears the
+                    // cill grows with distance. At 40 m out it is 1.7 m off the
+                    // ground and a foot could be skipped; at 8.5-17 m it is 0.3-0.6
+                    // m, so the feet ARE in view and the trunks are built whole.
+                    // The rule stays because it is the rule, and the log reports
+                    // that it saved nothing rather than pretending it saved
+                    // something.
+                    float seenLo = WoodLowestSeenY(eyes, p.x, p.z, rb * 2.2f, gy, gy + h,
+                                                   wx0, wy0, wx1, wy1, hd);
+                    float y0 = float.IsInfinity(seenLo) ? 0f
+                             : Mathf.Clamp(seenLo - gy - 0.35f, 0f, h * 0.55f);
+                    const int Segs = 7, Rings = 5;
+                    int rings = Mathf.Max(2, Mathf.RoundToInt(Rings * (1f - y0 / h)));
+                    trunkRingsSaved += Rings - rings;
+
+                    // THE VALUE, which is the whole of the look. It falls with
+                    // distance so the far bands recede rather than standing as a
+                    // flat cut-out; the floor is not zero because a shape at
+                    // exactly the sky's value has no silhouette at all.
+                    float depth = Mathf.SmoothStep(1f, 0.42f, Mathf.InverseLerp(WoodNear, WoodFar, dist));
+                    var barkTint = new Color(depth, depth, depth, 1f);
+                    var folTint = new Color(depth * 0.88f, depth * 0.88f, depth * 0.88f, 1f);
+
+                    AddWoodTrunk(bark, p, h, rb, y0, lean, sd, Segs, rings, barkTint);
+                    AddWoodCrown(foliage, p, h, lean, sd, crownR, folTint, b <= 1);
+                    placed++;
+                }
+            }
+
+            // ---- and the mass between them -----------------------------------
+            // Loose boughs filling the sky the trunks leave open — the forest's
+            // own canopy shell, sized to a fan instead of a disc. Every one is
+            // culled by the same bundle, so a card that lands outside the slot's
+            // reach is never welded.
+            int massTried = 0, massKept = 0;
+            for (int i = 0; i < 2600; i++)
+            {
+                massTried++;
+                float u = Hash3(i, 7, 0, 6203), w = Hash3(i, 8, 0, 6203);
+                float rad = Mathf.Lerp(WoodNear + 1.5f, WoodFar, Mathf.Sqrt(u));
+                float az = Mathf.Lerp(fanLo, fanHi, w) * Mathf.Deg2Rad;
+                float y = Mathf.Lerp(2.5f, 12.0f, Hash3(i, 9, 0, 6203));
+                var c = wc + new Vector3(Mathf.Sin(az) * rad, y, Mathf.Cos(az) * rad);
+                float len = 0.9f + 1.3f * Hash3(i, 10, 0, 6203);
+                if (!WindowSeesPoint(eyes, c, len * 0.8f, wx0, wy0, wx1, wy1, hd)) continue;
+                var rect = Sprigs[(int)(Hash3(i, 11, 0, 6203) * Sprigs.Length) % Sprigs.Length];
+                float ta = Hash3(i, 12, 0, 6203) * Mathf.PI * 2f;
+                var up = new Vector3(Mathf.Sin(ta), -0.30f - 0.45f * Hash3(i, 13, 0, 6203),
+                                     Mathf.Cos(ta)).normalized;
+                var right = Vector3.Cross(up, Vector3.up).normalized;
+                if (right.sqrMagnitude < 0.5f) right = Vector3.right;
+                float halfW = len * 0.6f * (rect.width / Mathf.Max(rect.height, 1e-3f));
+                float d2 = new Vector2(c.x - wc.x, c.z - wc.z).magnitude;
+                float lit = Mathf.SmoothStep(0.86f, 0.34f, Mathf.InverseLerp(WoodNear, WoodFar, d2));
+                AddCard(foliage, c, right * halfW, up * (len * 0.55f),
+                        (Vector3.down * 0.7f + up * 0.3f).normalized, rect,
+                        new Color(lit, lit, lit, 1f));
+                massKept++;
+            }
+
+            if (placed == 0 || massKept == 0)
+                throw new Exception($"The wood outside the cellar window came out EMPTY "
+                                    + $"({placed} trees of {candidates} candidates, {massKept} boughs "
+                                    + $"of {massTried}). Every candidate was rejected by the sightline "
+                                    + "bundle, which means the bundle and the placement disagree about "
+                                    + "where the window points — not that the window sees nothing.");
+
+            // ---- the two materials -------------------------------------------
+            // NOT Defer()'d, and that is the point: Defer hands a material to the
+            // cellar's LightRig, which is three candles and a floor. This wood is
+            // OUTSIDE, so it is lit by the moon and by the sky and by nothing in
+            // the room — the same treatment C_NightGround gets, for the same
+            // reason. The moon direction is MoonDir itself, in room axes, which is
+            // the mesh's own object space (it is placed at identity).
+            var moon = MoonDir.normalized;
+            var barkMat = NewRoomMat("C_WoodBark.mat", "GloomhavenVR/EnvRoom");
+            barkMat.SetTexture("_MainTex", Imp("pine_bark_alb"));
+            barkMat.SetTexture("_BumpMap", Imp("pine_bark_nrm"));
+            barkMat.SetFloat("_BumpScale", 0.5f);
+            barkMat.SetFloat("_VCol", 1f);
+            var folMat = NewRoomMat("C_WoodFoliage.mat", "GloomhavenVR/EnvRoomCutout");
+            folMat.SetTexture("_MainTex", Imp("fir_twig_alb"));
+            folMat.SetFloat("_BumpScale", 0f);
+            folMat.SetFloat("_Cutoff", 0.42f);
+            folMat.SetFloat("_VCol", 1f);
+            // THE LEVELS, AND THEY ARE READ OFF THE HARNESS'S OWN NUMBER RATHER
+            // THAN CHOSEN. THE ONE MEASUREMENT THAT SETTLES THEM: with the aperture
+            // haze switched off, the shipped cellar's opening reads a mean linear
+            // luminance of 0.0024 over the pixels this wood lands on
+            // (PreviewEnvironments.AssertWindowWood prints it every run). That is
+            // the sky patch's airglow-and-haze floor with stars in it — VERY dim,
+            // but not zero, and that number is the whole design:
+            //
+            //   * IT IS A SILHOUETTE AFTER ALL. 0.0024 is something to block, so
+            //     the body of the wood belongs UNDER it, and by enough that the
+            //     difference survives an 8-BIT sRGB display. That last clause is
+            //     the one that set these numbers: 0.0024 linear encodes to 17/255
+            //     and a wood 20 % under it encodes to 15/255 — a two-level step
+            //     nobody would call a forest. At these values the mass lands
+            //     3-5x under the sky, i.e. around 9-11/255 against 17, and the
+            //     harness measures the whole reached area at -55 to -70 %.
+            //   * AND THE RIM IS THE ONLY THING THAT IS NOT — IT IS THE WOOD'S OWN.
+            //     _RimCol (0.200, 0.255, 0.375) at _RimPow 4.2 is S_TrunkA's
+            //     (0.21, 0.27, 0.40) at 4.2, i.e. the value the forest room's own
+            //     trunks carry, whose comment calls it "the single most important
+            //     lighting cue in the whole room ... a silhouette with a cold edge
+            //     is much more frightening than a described trunk". It is NOT
+            //     scaled down with the body, and that asymmetry is the design: the
+            //     mass goes under the sky so there is a shape, and the edge goes
+            //     well over it so the shape is a TREE and not a smudge. The rim
+            //     fires only where the normal grazes the eye AND faces the moon
+            //     (EnvRoom's own gate), so it costs a few pixels down one side of
+            //     each trunk and nothing anywhere else.
+            //
+            //     AND THE MOON IS BEHIND THIS WOOD, which is why the rim has to do
+            //     all of it. The player looks NORTH through this window; MoonDir
+            //     bears 40 deg east of north at 40 deg up, so the faces turned
+            //     toward the room are the faces turned AWAY from the moon and
+            //     EnvRoom's saturate(dot(N, _DirDir)) is 0 on almost every one of
+            //     them. The directional term below is kept at a real value anyway,
+            //     because a few boughs and the far side of the fan do turn into it
+            //     — but this wood is back-lit by construction and there is no
+            //     tuning that makes its faces bright.
+            //
+            // TWO PASSES WERE WRONG BEFORE THIS ONE AND BOTH ARE WORTH KEEPING,
+            // because either would have shipped looking plausible:
+            //   1. ambient 0.030 / directional 0.070 — the wood came out AT the
+            //      sky's own value and the rendered aperture changed by 0.2 %. It
+            //      was drawn, it was in the line of sight, and it was invisible.
+            //   2. ambient 0.026 / directional 0.105, on the theory that the sky was
+            //      pure black and the wood therefore had to be lit rather than cut
+            //      out. The harness measured +11 % over the pixels the wood reaches
+            //      and threw. The sky is not black; it is 0.0024.
+            // Neither was findable by looking at a dark frame, which is why the gate
+            // is a difference between two renders and not a person's opinion of a
+            // PNG.
+            foreach (var m in new[] { barkMat, folMat })
+            {
+                m.SetColor("_AmbUp", new Color(0.0030f, 0.0038f, 0.0055f));
+                m.SetColor("_AmbDown", new Color(0.0006f, 0.0006f, 0.0008f));
+                m.SetVector("_DirDir", new Vector4(moon.x, moon.y, moon.z, 0f));
+                m.SetColor("_DirCol", new Color(0.0065f, 0.0080f, 0.0118f));
+                m.SetVector("_RimDir", new Vector4(moon.x, moon.y, moon.z, 0f));
+                m.SetColor("_RimCol", new Color(0.200f, 0.255f, 0.375f));
+                m.SetFloat("_RimPow", 4.2f);
+            }
+            barkMat.SetColor("_Tint", new Color(0.40f, 0.42f, 0.48f));
+            folMat.SetColor("_Tint", new Color(0.155f, 0.185f, 0.160f));
+            // _Sway is NOT written and therefore stays at the shader's own 0 —
+            // see point 3 in the block above. Asserted rather than assumed,
+            // because a default is a copy and this one carries the culling
+            // argument.
+            if (folMat.GetFloat("_Sway") != 0f)
+                throw new Exception("C_WoodFoliage carries a non-zero _Sway. This wood is culled "
+                                    + "against its authored bounds, and a vertex shader that moves "
+                                    + "it would put a swept crown outside them — the defect class "
+                                    + "this project calls 'culling cannot see vertex shaders'. "
+                                    + "Either keep _Sway at 0 or expand the mesh bounds by an arc "
+                                    + "sweep of the amplitude.");
+
+            var barkMesh = SaveMesh("Env_C_WoodBark.asset", bark.Build("Env_C_WoodBark"));
+            var folMesh = SaveMesh("Env_C_WoodFoliage.asset", foliage.Build("Env_C_WoodFoliage"));
+            Place(root, "WoodBark", barkMesh, Vector3.zero, Vector3.zero, Vector3.one, barkMat);
+            Place(root, "WoodFoliage", folMesh, Vector3.zero, Vector3.zero, Vector3.one, folMat);
+
+            // WINDING GATE. EnvRoom culls back faces and every one of these trunks
+            // is only ever seen from OUTSIDE its own axis, so every triangle's
+            // normal must point away from the trunk's centre line. Four meshes in
+            // this project have shipped wound against the side they are seen from;
+            // this is that check, on the geometry that was really welded.
+            {
+                var bv = Verts(barkMesh); var bt = barkMesh.triangles; int bad = 0;
+                for (int i = 0; i < bt.Length; i += 3)
+                {
+                    Vector3 a0 = bv[bt[i]], a1 = bv[bt[i + 1]], a2 = bv[bt[i + 2]];
+                    Vector3 nrm = Vector3.Cross(a1 - a0, a2 - a0);
+                    Vector3 ctr = (a0 + a1 + a2) / 3f;
+                    // outward = away from the wood's origin only for the trunk's
+                    // own axis, so use the triangle's own radial direction about
+                    // the nearest trunk axis, approximated by its normal's
+                    // horizontal agreement with the vertex normal the builder set.
+                    var vn = barkMesh.normals[bt[i]];
+                    if (Vector3.Dot(new Vector3(nrm.x, 0f, nrm.z), new Vector3(vn.x, 0f, vn.z)) <= 0f)
+                        bad++;
+                }
+                if (bad > 0)
+                    throw new Exception($"{bad} of {bt.Length / 3} triangles in the wood outside the "
+                                        + "cellar window are wound INWARD: Cull Back would drop them "
+                                        + "and the trunks would be hollow shells seen from inside.");
+            }
+
+            // ================= DID WE BUILD ONLY WHAT CAN BE SEEN? ==============
+            // The candidate cull above is a SAFETY NET and nothing more: candidates
+            // are generated inside the sightline fan, so a cull that drops none of
+            // them proves nothing (the first version of this wood dropped 0 of 46
+            // and read as a success). This is the measurement. Every welded VERTEX
+            // is put back through the same exact test at r = 0 — can anyone, from
+            // anywhere in this room, see THAT POINT through the embrasure? — and
+            // the answer is a percentage rather than an intention.
+            //
+            // IT IS NOT AND MUST NOT BE 100%. A tree is a solid: the far side of
+            // every trunk is hidden by its own near side, and the eye cannot see
+            // the back of a bough. Those vertices are BUILT and INVISIBLE and
+            // deleting them would put a hole in the silhouette. What the number
+            // rules out is the thing the user asked to be spared — a wood built
+            // out to the sides and behind, where the slot can never point.
+            int seenV = 0, allV = 0;
+            foreach (var acc in new[] { bark, foliage })
+                for (int i = 0; i < acc.V.Count; i++)
+                {
+                    allV++;
+                    if (WindowSeesPoint(eyes, acc.V[i], 0f, wx0, wy0, wx1, wy1, hd)) seenV++;
+                }
+            float seenPct = 100f * seenV / Mathf.Max(1, allV);
+            if (seenPct < 45f)
+                throw new Exception($"Only {seenPct:F0}% of the wood outside the cellar window is in "
+                                    + "any player's line of sight through the opening. The user asked "
+                                    + "for \"Baue nur was vom Fenster her sichtbar ist\", and a wood "
+                                    + "less than half of which can ever be seen is a wood built for a "
+                                    + "window somewhere else. Narrow the fan, or bring the band in.");
+
+            // THE ROOM'S OWN SIZE MUST NOT GROW, and that is not a nicety. The
+            // runtime measures the prefab's TOTAL mesh AABB
+            // (SkyAlternative.MeasureAuthoredRoomExtent) and turns it into the
+            // CAMERA'S FAR PLANE — so geometry that reaches further than
+            // everything already out there widens the depth range for the whole
+            // scene, in a stereo build, on a Quest. The bound is the night sky
+            // patch, a sphere of NightSkyR about the opening and already the
+            // widest thing this room contains: every vertex of the wood inside it
+            // cannot move the answer by a millimetre.
+            {
+                float worst = 0f; Vector3 worstAt = Vector3.zero;
+                foreach (var acc in new[] { bark, foliage })
+                    for (int i = 0; i < acc.V.Count; i++)
+                    {
+                        float d = (acc.V[i] - winMid).magnitude;
+                        if (d > worst) { worst = d; worstAt = acc.V[i]; }
+                    }
+                if (worst > skyR - 0.5f)
+                    throw new Exception($"The wood outside the cellar window reaches {worst:F2} m "
+                                        + $"from the opening (at {worstAt:F2}), past the night sky "
+                                        + $"patch's own {skyR:F1} m. Two things break at once: the "
+                                        + "patch is drawn after the wood and ZTESTS, so it paints "
+                                        + "over anything deeper than itself; and the room's TOTAL "
+                                        + "authored extent is what SkyAlternative turns into the "
+                                        + "camera's far plane, so the wood would widen the depth "
+                                        + "range of every frame in the scene.");
+                woodReach = worst;
+            }
+
+            // ---- the marker the SOUND lane measures from ----------------------
+            // An empty node, placed where the wood's own polar origin is. It is a
+            // marker and not a mesh on purpose: EnvSound draws its animals on a
+            // ring in THIS transform's frame, so a node that carried geometry
+            // could be moved by a later round for a visual reason and silently
+            // move every fox in the room.
+            var markGo = new GameObject("WindowWood");
+            markGo.transform.SetParent(root, false);
+            markGo.transform.localPosition = wc;
+            markGo.transform.localRotation = Quaternion.identity;
+            markGo.transform.localScale = Vector3.one;
+
+            int barkTris = bark.T.Count / 3, folTris = foliage.T.Count / 3;
+            Debug.Log($"[GloomhavenVR][Env] Cellar WOOD OUTSIDE THE WINDOW (user, ModBuild 296: "
+                      + "\"Dort soll auch Wald sein und sehr dunkel, dass man nur wenig erkennt. "
+                      + "Baue nur was vom Fenster her sichtbar ist\").\n"
+                      + $"    THE SIGHTLINE BUNDLE: {eyeCount} head positions (the whole floor at "
+                      + $"0.5 m, 0.55 m off every wall, at {CellarEyeCrouch:F2}/{CellarEyeSeated:F2}/"
+                      + $"{CellarEyeStanding:F2} m) x 81 samples of the outer opening = {tried} "
+                      + $"candidate rays, of which {rays.Count} clear BOTH openings "
+                      + $"({100f * rays.Count / Mathf.Max(1, tried):F1}%). Everything below is culled "
+                      + "against that bundle and nothing is placed by eye.\n"
+                      + $"    TREES: {placed} built, {dropped} of {candidates} candidates DROPPED for "
+                      + $"being outside every sightline ({100f * dropped / Mathf.Max(1, candidates):F0}% "
+                      + $"of the polar grid), standing {nearest:F1}..{farthest:F1} m from the opening "
+                      + $"in an az {fanLo:F0}..{fanHi:F0} deg fan DERIVED from the bundle's own hull "
+                      + $"(not typed). {trunkRingsSaved} trunk rings were skipped below the height at "
+                      + "which their column first becomes visible — and at this range that is "
+                      + "correctly nearly none: the outside ground is 2.343 m up the room's wall and "
+                      + "every eye in the room is under it, so a sightline out of this window RISES "
+                      + "and clears the cill only 0.3-0.6 m above the ground at 8.5-17 m. The feet "
+                      + "ARE in view here. (At 40 m they would not be, which is what the rule is "
+                      + "for.)\n"
+                      + $"    MASS: {massKept} loose boughs of {massTried} candidates "
+                      + $"({100f * (massTried - massKept) / Mathf.Max(1, massTried):F0}% dropped).\n"
+                      + $"    AND THE AUDIT, which is the claim that is a measurement: {seenV} of "
+                      + $"{allV} welded VERTICES ({seenPct:F0}%) are in some player's line of sight "
+                      + "through the embrasure, tested one point at a time against all "
+                      + $"{eyeCount} head positions. It is not 100% and must not be — the far side of "
+                      + "a trunk is hidden by its own near side — but a wood built out to the sides "
+                      + "or behind the slot could not score this.\n"
+                      + $"    COST: {barkTris} tris bark + {folTris} tris foliage = "
+                      + $"{barkTris + folTris} tris, {bark.Count + foliage.Count} verts, TWO draw "
+                      + "calls (one opaque mesh, one alpha-tested), ZERO new textures (pine_bark_alb/"
+                      + "nrm and fir_twig_alb are Env_Swamp's and already in the bundle), ZERO "
+                      + "MonoBehaviours, ZERO particles and no vertex motion. The walls are nearer "
+                      + "than the wood and write depth first, so the FILL this pays for is the "
+                      + "aperture's screen area and nothing else — the same argument the sky patch "
+                      + "makes.\n"
+                      + $"    LIT BY THE MOON AND NOTHING IN THE ROOM: _DirDir/_RimDir = "
+                      + $"{moon:F4}, no LightRig, no candle slots. The value falls 1.00 -> 0.42 from "
+                      + $"{WoodNear:F0} to {WoodFar:F0} m so the far bands recede instead of standing "
+                      + "as one flat cut-out.\n"
+                      + $"    THE ROOM DID NOT GET BIGGER: the wood's farthest vertex is "
+                      + $"{woodReach:F2} m from the opening against the night sky patch's "
+                      + $"{skyR:F1} m, and that patch is what SkyAlternative already measures "
+                      + "as this room's total authored extent. The camera's far plane is "
+                      + "unchanged.");
+            return markGo.transform;
+        }
+
+        /// <summary>A crown for a wood that is only ever a silhouette: whorls of
+        /// drooping boughs, uncrossed on the far bands because a card nobody can
+        /// resolve does not need a partner at ninety degrees.</summary>
+        private static void AddWoodCrown(Acc a, Vector3 baseAt, float h, Vector2 lean, float sd,
+                                         float crownR, Color tint, bool crossed)
+        {
+            const int Whorls = 4, PerWhorl = 5;
+            for (int w = 0; w < Whorls; w++)
+            {
+                float f = (w + 0.5f) / Whorls;
+                float y = Mathf.Lerp(h * 0.34f, h * 0.99f, f);
+                float g = Mathf.Clamp01(y / h);
+                var c0 = baseAt + new Vector3(lean.x * g * g, y, lean.y * g * g);
+                float rr = crownR * Mathf.Pow(1f - f, 0.62f) + 0.30f;
+                int n = Mathf.Max(3, Mathf.RoundToInt(PerWhorl * (1f - 0.45f * f)));
+                for (int k = 0; k < n; k++)
+                {
+                    float ang = (k + Hash3(w, k, (int)sd, 6301) * 0.8f) / n * Mathf.PI * 2f + w * 0.7f;
+                    var outDir = new Vector3(Mathf.Sin(ang), 0f, Mathf.Cos(ang));
+                    float droop = 0.30f + 0.35f * Hash3(w, k, 1, 6301);
+                    var up = (outDir - Vector3.up * droop).normalized;
+                    float len = rr * (0.72f + 0.5f * Hash3(w, k, 2, 6301));
+                    var c = c0 + up * (len * 0.55f);
+                    var rect = Sprigs[(int)(Hash3(w, k, 3, 6301) * Sprigs.Length) % Sprigs.Length];
+                    float halfW = len * 0.62f * (rect.width / Mathf.Max(rect.height, 1e-3f));
+                    var right = Vector3.Cross(up, Vector3.up).normalized;
+                    if (right.sqrMagnitude < 0.5f) right = Vector3.right;
+                    var nrm = (c - c0 + Vector3.up * 0.4f).normalized;
+                    AddCard(a, c, right * halfW, up * (len * 0.55f), nrm, rect, tint);
+                    if (crossed)
+                    {
+                        var r2 = Vector3.Cross(up, right).normalized;
+                        AddCard(a, c, r2 * (halfW * 0.85f), up * (len * 0.52f), nrm, rect, tint);
+                    }
+                }
+            }
         }
 
         /// <summary>CAN THE MOON ACTUALLY BE SEEN THROUGH THIS WINDOW, AND FROM
@@ -4895,6 +5733,9 @@ namespace GloomhavenVR
                           + "deliberately not masked.");
             }
             AddNightOutsideWindow(root, winMid, wx0, wy0, wx1, wy1, hd);
+            // ...and the WOOD in front of that sky. After it, because the sky's
+            // own radius is the bound on how far out a tree may stand.
+            AddWoodOutsideWindow(root, winMid, wx0, wy0, wx1, wy1, hd, NightSkyR);
 
             // Reveal (jambs + head + cill). Without it the wall is a zero-
             // thickness plane, there is no "inside the opening" to put the bars
@@ -5445,8 +6286,32 @@ namespace GloomhavenVR
                 // back as a solid blue-white ball hanging in the window instead
                 // of as the air in the opening glowing. A quarter of it is the
                 // window READING as the source; the whole of it is a lamp.
+                //
+                // ModBuild 296: 0.085 -> 0.006, AND IT IS THE ONE TUNED VALUE THIS
+                // ROUND MOVED, so it is stated plainly enough to be vetoed in one
+                // line. USER: "Ich möchte, dass du in der Kellerumgebung den Blick
+                // aus dem Fenster modellierst." MEASURED on the 0.085 bake, by
+                // PreviewEnvironments.AssertWindowWood, over the opening's own
+                // projected rectangle from four player poses: THE GLOW WAS 70-77 %
+                // OF ALL THE LIGHT IN THE APERTURE. A view through a slot cannot
+                // survive that — the wood behind it, which the same instrument
+                // shows filling the whole opening between the bars, changed the
+                // rendered mean by 0.2 %.
+                //
+                // The two halves of this material's own history both point the same
+                // way, which is why the change is a reduction and not a deletion.
+                // Its comment above says the glow exists so "the window reads as
+                // the source and not as a hole with something bright behind it" —
+                // written when there was NOTHING behind the window; there is a real
+                // sky and a real moon and now a real wood behind it, so the window
+                // does not need haze to read as a source. And ModBuild 149's user
+                // report ("Bei Dunkelheit im Keller über dem Kellerfenster ist noch
+                // etwas helles zu sehen entferne das") was about this object being
+                // too visible, so a smaller one is the safe direction for that
+                // finding as well. What is kept is the air in the opening glowing;
+                // what is given up is its filling the opening.
                 var winGlowMat = NewRoomMat("C_GlowMoon.mat", "GloomhavenVR/EnvGlow");
-                winGlowMat.SetColor("_Tint", new Color(0.40f, 0.54f, 0.88f, 0.085f));
+                winGlowMat.SetColor("_Tint", new Color(0.40f, 0.54f, 0.88f, 0.006f));
                 // NOT a candle either, and this is the one that would have been
                 // wrong to freeze: the aperture's glow IS moonlight, and this
                 // whole round is about Light lifting the moon indoors rather than
