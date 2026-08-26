@@ -145,15 +145,48 @@ GloomhavenVR.sln
 ├── src/GloomhavenVR.Preload/   BepInEx preloader patcher — installs the OpenXR natives and the
 │                               UnitySubsystems manifest before the engine boots
 ├── src/GloomhavenVR/           the main BepInEx 5 plugin (net472)
-│   ├── Core/                   XR bootstrap, config, localization, diagnostics, module registry,
-│   │                           and the environment surface (sky, ambience, haunt, wall fade, water)
-│   ├── Rig/                    VR camera rig, world grab/scale, comfort, locomotion, render quality
-│   ├── Hands/                  hand models, finger curling, interaction primitives
-│   ├── Cards/                  palm-fan card hand, play surface, half selection
-│   ├── Board/                  hex/actor picking, figure grab, focus
-│   ├── WorldUI/                canvas conversion, panels, control board, settings tab, map room
-│   ├── Net/                    multiplayer wire protocol, avatars, shared windows
-│   ├── Compat/                 stereo/PPv2 fixes, scene variants, tutorial, performance
+│   ├── Core/                   XR bootstrap, logging, layers, module registry, scene registry
+│   │   ├── Startup/            getting an OpenXR runtime up before anything touches Unity.XR
+│   │   ├── Perf/               the frame budget: measuring it, and spending less of it
+│   │   ├── WallFade/           the 15-part wall-fade driver and its prop classifiers
+│   │   ├── Haunt/              the apparitions and their schedule
+│   │   ├── Sound/              ambience: what the room sounds like
+│   │   ├── Environment/        what the room looks like beyond the board (sky, mood, lights)
+│   │   ├── Water/              the water feature
+│   │   ├── MixedReality/       passthrough, the rim curtain
+│   │   ├── SelfUpdate/         the mod's own update channel: check, verify, stage, relaunch
+│   │   ├── Loc/                every user-visible string, EN + DE
+│   │   └── Diagnostics/        instruments about the MOD, not about the game
+│   ├── Rig/                    VR camera rig, world grab/scale, comfort, locomotion, quality
+│   ├── Hands/                  hand models, finger curling · Interact/ interaction primitives
+│   ├── Cards/                  the card hand: config, API, fan, the card type itself
+│   │   ├── Driver/             the 6-part interaction driver (laser, rebuild, flows)
+│   │   ├── Tray/               the 7-part play tray
+│   │   ├── Art/                what a card LOOKS like: face, mesh, contour, glow, dust
+│   │   ├── Caps/               the wooden board's physical controls and their engraving
+│   │   ├── Piles/              draw / discard / burnt / item piles and their browsers
+│   │   └── Patches/            Harmony patches owned by this module
+│   ├── Board/                  hex/actor picking, focus · FigureGrab/ · Patches/
+│   ├── WorldUI/                everything the player reads: bars, mirror, wrist HUD, assets
+│   │   ├── Modal/              the float pipeline: which game windows leave the 2D screen
+│   │   ├── Conversion/         uGUI canvas -> world-space panel, and keeping it fitted
+│   │   ├── Sharpness/          supersampling, mip bakes, and the probes that measure them
+│   │   ├── FlatScreen/         the flat game screen in the world + per-eye stereo compositor
+│   │   ├── Options/            the mod's settings surface inside the game's options screen
+│   │   ├── Grab/               picking a panel up and operating it
+│   │   ├── Composites/         windows assembled from more than one game window
+│   │   ├── Materialise/        the window appear/vanish particle effect
+│   │   ├── Buttons/            the control board's caps and their skin
+│   │   ├── Tooltips/           hover text, in the world and on windows
+│   │   ├── Surfaces/           one file per GAME widget the mod adopts
+│   │   ├── MapRoom/            the 3D campaign map room
+│   │   └── Patches/            Harmony patches owned by this module
+│   ├── Net/                    wire protocol, packets, session, transport, version guard
+│   │   ├── Remote/             everything a PEER draws on our side — one prefix, one job
+│   │   ├── Avatar/             the peer's embodiment: head, hands, mask, badge
+│   │   └── Board/              the shared play surface as a NETWORK object
+│   ├── Voice/                  spatial voice chat and the speaker indicator
+│   ├── Compat/                 stereo/PPv2 fixes, scene variants · Tutorial/
 │   ├── Defaults/               every shipped default value, in one place
 │   └── Assets/                 the mod's own embedded art (the wordmark)
 ├── libs/                       Natives/ + RuntimeDeps/ — populated by scripts, never committed
@@ -161,10 +194,47 @@ GloomhavenVR.sln
 ├── tools/RuntimeDepsBuild/     provisional RuntimeDeps compile from needle-mirror source
 ├── packaging/INSTALL.txt.in    the template for the zip's INSTALL.txt
 ├── scripts/                    build, install, packaging, bundle and verification scripts
+├── tests/GloomhavenVR.WireTests/  the only executable tests: byte-exact wire vectors and the
+│                               pure-arithmetic lints that ride along with them
 ├── unity/                      the Unity 2021.3.5f1 asset project and its guides
 ├── docs/                       this file, interface contracts, patch inventory, test scripts
 └── .planning/                  STATE.md, roadmap, architecture, verified game-API research
 ```
+
+### Folder does not equal namespace, deliberately
+
+A file under `WorldUI/Modal/` still declares `namespace GloomhavenVR.WorldUI`. C# does not
+require the two to agree, and the subfolders exist for a reader scanning a directory, not for the
+type system — so `using` statements, and every existing reference, are untouched by the layout.
+
+The alternative was renaming the namespace with the folder. That renames every type in it, which
+means the compiled-form guard (`scripts/refactor-guard.sh`) would report hundreds of NEW/GONE
+entries in exactly the commit where "prove nothing else moved" matters most. As a pure move, the
+whole restructure — 251 files across four modules — came back **0 changed**.
+
+An IDE may offer to "fix" the namespace to match the folder. Do not accept it.
+
+### Moving a file is safe, and five things will tell you if it is not
+
+Static field initialisers run in declaration order, and across the parts of a partial type that
+order is MSBuild's **compile** order — which follows the file path. So a move reshuffles them.
+`scripts/check-partial-order.py` proves no initialiser in the mod depends on another part, which
+is what makes moves free; it fails if a new one appears.
+
+Five places pin a source path, and every one of them fails loudly rather than silently:
+
+| what | how it tells you |
+|---|---|
+| `.planning/refactor/FRAME-ORDER.lock` | names the marker and both paths |
+| `tests/…/GloomhavenVR.WireTests.csproj` | `CS2001` naming each missing source |
+| `scripts/check-mirrors.sh` | "did it move or get renamed?" |
+| `scripts/check-remote-defaults.py`, `check-wire-coverage.py` | `FileNotFoundError` with the path |
+| `docs/PATCH-INVENTORY.md` | generated — regenerate with `scripts/patch-inventory.sh generate` |
+
+Two of the wire tests go further and check that they can still *find* what they lint —
+`WaterOwnSurfaceVectors` counts the water sources it sees ("a sudden drop means this lint stopped
+looking at the driver") and `Shims.cs` pins `HeadMaskLibrary.cs` because the shimmed `MaskCount`
+is otherwise unverified. Both fired during the restructure and both were right.
 
 ## Document index
 
