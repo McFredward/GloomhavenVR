@@ -35,6 +35,37 @@
 # does not depend on is a behaviour change wearing a tidy-up costume. Both sites
 # carry a comment saying so, and no marker.
 
+# THE 2026-08 AUDIT (PLAN-2026-08.md, phase 1.4)
+# ---------------------------------------------
+# The seven entries below this note were written when the mod was 182 files. It is now 485, and
+# 311 of those files have never been through a refactor. So the audit asked the lock's OWN
+# question of the new code — does the ordering span more than one method, or is it non-obvious at
+# the site? — rather than "what looks long".
+#
+# MEASURED FIRST. 394 per-frame or Tick-shaped methods exist; 81 of them sequence four or more
+# distinct steps and sit in files added since the charter. Locking those would be the opposite of
+# this file's rule: a call list that reads top to bottom inside ONE method is visible in one diff
+# and needs nothing here.
+#
+# So the filter was different: find orderings the source ALREADY DECLARES load-bearing in prose
+# and that nothing checks. Two earned an entry, and the first of them had been named as unguarded
+# by the very refactor that created its file:
+#
+#   CardsDriver.1.Core.cs — "SPLITTING A FILE DOES NOT SPLIT THE CALL ORDER. One coupling now
+#   spans a cut and is worth naming here because neither compiler nor guard will."
+#
+# CONSIDERED AND DELIBERATELY NOT LOCKED — each is single-method-local, i.e. the whole ordering is
+# visible in one screen of one diff, which is the condition this file exists to escape:
+#   * VRRigDriver's spawn-kind precedence ("kind change > our camera/root destroyed > anchor
+#     destroyed"), MapLocationInteractor.Tick's "drop the old selection FIRST",
+#     MaterialLoaderHeal's round-8 order fix, MapIconLayer's floor-the-product rule.
+#   * Plugin's module registry order (Core first, Compat last) and CoreModule's JIT ordering are
+#     STARTUP, not per-frame. A different hazard; this file is about the frame.
+#   * UiSoundEar's "must run before the dispatch" and FocusDriver's sortingOrder rule cross
+#     component boundaries where Unity's relative order is undefined anyway — the BoardDriver
+#     note below states why freezing such an order is a behaviour change wearing a tidy-up
+#     costume, and that reasoning is unchanged.
+
 VRHand.UpdateBody.pose | src/GloomhavenVR/Hands/VRHand.cs | ordered | [ReadSimulated, ReadDevice, UpdateVelocity, UpdatePoseClassification, UpdateCurlTargets, _curler.Tick, Poke.Tick]
 VRHand.UpdateBody.interactors | src/GloomhavenVR/Hands/VRHand.cs | ordered | [Poke, Ray, RayUgui, RayGrab, Grabber, PalmGate]
 BoardDriver.Update | src/GloomhavenVR/Board/BoardDriver.cs | ordered | [Board.SyncRayMask, Board.CameraArrival, Board.Click, Board.Aoe, Board.Targeting, Board.OwnershipFallback]
@@ -42,3 +73,5 @@ FigureGrabDriver.Update | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs 
 FigureGrabDriver.LateUpdate | src/GloomhavenVR/Board/FigureGrab/FigureGrabDriver.cs | LateUpdate-required | [HeldFigures.PinAnimatedRoots, NetHeldFigures.PinAnimatedRoots, FigureRingSuppressor.Tick]
 WallSegmentFade.FadeDriver.LateUpdate | src/GloomhavenVR/Core/WallSegmentFade.cs | LateUpdate-required | [WallFade.Late]
 VRRigDriver._tailSteps | src/GloomhavenVR/Rig/VRRigDriver.cs | ordered | [Rig.HeadCullingMask, Rig.HeadClearColor, Rig.ClipPlanes, Rig.DepthPrepass, Rig.RenderQuality, Rig.CameraPolicy, Rig.MixedReality]
+CardsDriver.TickInteractionsAndStatus | src/GloomhavenVR/Cards/CardsDriver.2.Update.cs | ordered | [UpdateHeldCardTransfer, UpdatePalmGate, UpdateLaserContactStandDown, UpdateFanLaser, UpdateBoardFanHandTrigger, UpdateBoardLaser, UpdateBrowseLaser, UpdateItemFanLaser, UpdateActiveLaser, UpdateHandContactArbitration, UpdateFanHoverSplit, UpdateOverlayGate, UpdateSlotHighlight, UpdateFanInsertion]
+ModalFallback.Tick | src/GloomhavenVR/WorldUI/ModalFallback.4.Tick.cs | ordered | [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]

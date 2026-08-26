@@ -2428,6 +2428,23 @@ internal static partial class ModalFallback
         // past this point either.
         _tickPhase = -1;
         long tickBegin = System.Diagnostics.Stopwatch.GetTimestamp();
+        // FRAME-ORDER ModalFallback.Tick [PhasePreConvertHide, PhasePolls, PhaseCatchAll, PhaseErrorBox, PhaseDecide, TickScreenBind, PhaseRelease, TickWindowLiveness, PhaseConvert, PhaseRaycast, PhaseGrabFollow, PhaseDestinations, PhaseProbeFlicker, PhaseProbeCameraOrder, PhaseProbeRenderTarget, PhaseScroll, PhaseRefit, PhaseChainPose, PhaseMenuGuard, PhaseEscape, PhasePublish]
+        //   The modal pipeline, and TWO of these adjacencies are stated in prose elsewhere in the
+        //   codebase while being guarded by nothing — which is exactly the gap this marker closes:
+        //
+        //   * TickScreenBind before PhaseRelease. Its own comment: "Placed here because it needs
+        //     the finished OpenWindows and must run before the release/convert loops read
+        //     StrandedFloat." Move it later and a window whose canvas is Screen-Space-Overlay is
+        //     rendered by no camera at all — the defect that lost the map ESC menu eleven times in
+        //     one log before ModBuild 198.
+        //   * TickWindowLiveness before the release loop inside PhaseRelease. It calls
+        //     StoryComposite.Tick, whose Unpark hands the quest picture back; the release loop
+        //     calls CanvasConversion.Release, which DESTROYS the host the story window was parked
+        //     under. A subtree still parked under a destroyed host cannot be given back
+        //     (ModalFallback.9.Spawn.cs states this at the method).
+        //
+        //   The rest of the list is the pipeline itself. It is long on purpose: inserting a step
+        //   between two of these is a decision, and the marker makes it one.
         EnterPhase(PhasePreConvertHide);
         // Round 8, FIRST — before any step that could throw: end every pre-convert 2D blackout
         // whose window will not be floated after all, and enforce the frame budget (part 11).

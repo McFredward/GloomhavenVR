@@ -657,6 +657,24 @@ internal sealed partial class CardsDriver
     /// </summary>
     private void TickInteractionsAndStatus()
     {
+        // FRAME-ORDER CardsDriver.TickInteractionsAndStatus [UpdateHeldCardTransfer, UpdatePalmGate, UpdateLaserContactStandDown, UpdateFanLaser, UpdateBoardFanHandTrigger, UpdateBoardLaser, UpdateBrowseLaser, UpdateItemFanLaser, UpdateActiveLaser, UpdateHandContactArbitration, UpdateFanHoverSplit, UpdateOverlayGate, UpdateSlotHighlight, UpdateFanInsertion]
+        //   FOUR of these adjacencies are stated in prose and, until this marker, checked by
+        //   nothing. One of them was explicitly named as unguarded by the refactor that created
+        //   this file: CardsDriver.1.Core.cs says "SPLITTING A FILE DOES NOT SPLIT THE CALL ORDER
+        //   … worth naming here because neither compiler nor guard will."
+        //
+        //   * UpdateHeldCardTransfer before UpdatePalmGate — a dominant-to-gate hand-to-hand
+        //     transfer must count as "the gate hand holds a card" in the very frame it happens,
+        //     or the fan opens for one frame through the just-received card.
+        //   * every laser path before UpdateHandContactArbitration — arbitration reads the hover
+        //     those paths publish. This is the coupling that crosses the part-2/part-3 cut, and
+        //     "these are all independent, let me tidy the tick calls" is exactly how it breaks
+        //     (INVARIANTS-Cards §3).
+        //   * UpdateOverlayGate before both overlay paths — it is the game-state gate (results
+        //     window / narrator dialog / scenario end) they consult.
+        //   * UpdateSlotHighlight before UpdateFanInsertion — insertion's precedence check reads
+        //     the slot the highlight just resolved.
+        //
         // BEFORE the palm gate on purpose: a dominant→gate hand-to-hand transfer must count as
         // "the gate hand holds a card" in the very frame it happens, so the fan block engages
         // without a one-frame open fan through the just-received card.
