@@ -110,6 +110,140 @@ namespace GloomhavenVR
         // at which a repeated constant stops being harmless.
         private const float MoonSpriteDiscR = 0.22f;
         private static float MoonDiscRad => Mathf.Atan(2f * MoonSpriteDiscR * MoonExtent);  // ~1.4 deg
+        /// <summary>Angular radius of the WHOLE moon sprite, corner included — disc
+        /// plus halo. The sprite spans +-MoonExtent in tan units on both axes, so
+        /// its farthest point is the corner at sqrt(2)*MoonExtent. The cloud
+        /// layer's clear patch is proved against THIS and not against the disc:
+        /// "the moon" as the user sees it is the glowing thing, not the 1.4 deg
+        /// of it that happens to be lit rock.</summary>
+        private static float MoonSpriteRad => Mathf.Atan(Mathf.Sqrt(2f) * MoonExtent);      // ~4.5 deg
+
+        // ==================================================== THIN NIGHT CLOUD
+        // USER REQUEST (2026-08, verbatim): "Leichte Wolken, diese sollen
+        // realistisch wirken, niemals dicht sein und den Mond nie voll verdecken.
+        // Sie sollen sich leicht bewegen. ... die Umgebungen sind nur Beiwerk,
+        // d.h. auch die Wolken sollen zwar so gut es geht aussehen aber performant
+        // sein und so gut es geht die Performance nicht reduzieren".
+        //
+        // The effect is EnvCloud.cginc; its four guarantees are properties of that
+        // arithmetic and are argued there. What lives HERE is the numbers, the two
+        // that must be derived rather than typed, and AssertCloudsClearTheMoon,
+        // which recomputes the moon guarantee from the shipped values and throws
+        // if a future edit breaks it. A guarantee written only in a comment is a
+        // guarantee until somebody nudges a Range() default.
+        //
+        // THE CLOUDS ARE ONE OBJECT WITH THE MOON, and that is a construction
+        // decision rather than a tuning one. The cloud shell is a CHILD of
+        // StarDome at scale 1 — i.e. the same 45 m radius, in the same object
+        // frame, as the dome that paints the moon sprite. So the clear patch is
+        // placed in the frame the moon is placed in, and NO viewer position can
+        // slide them apart: whatever parallax the moon has as the player walks
+        // the clearing, the patch has exactly the same parallax. Had the shell
+        // been given a different radius to buy cloud-vs-star depth, the two would
+        // separate by ~(1/r_cloud - 1/r_dome) x (head offset) — small, but a
+        // number that has to be argued instead of an identity that cannot fail.
+
+        /// <summary>The drift loop, in seconds. MUST divide EnvStars' SKY_PERIOD
+        /// (2880) or the sky clock's wrap would cut the drift mid-stride. It is
+        /// also what makes the preview's time series a PROOF rather than a sample:
+        /// the whole field returns to its t=0 state here, exactly, so [0, this)
+        /// is not part of the behaviour, it is all of it.</summary>
+        public const float CloudPeriod = 1440f;
+        /// <summary>Layer A's wind, in WHOLE TEXTURE PERIODS per CloudPeriod, and
+        /// integers is the point: uv = plane*scale + (turns/CloudPeriod)*t returns
+        /// to itself only if turns is an integer. Layer B gets a different pair so
+        /// the two fields slide against each other and the shapes EVOLVE instead
+        /// of translating rigidly — a rigidly translating cloud field is the tell
+        /// that gives away every scrolling-texture sky.</summary>
+        private static readonly Vector2 CloudTurnsA = new Vector2(1f, 0f);
+        private static readonly Vector2 CloudTurnsB = new Vector2(2f, 1f);
+
+        private const float CloudScale = 0.30f;     // ground-plane units -> layer A uv
+        private const float CloudRatio = 3.1f;      // layer B frequency / layer A
+        private const float CloudMix = 0.68f;       // weight of the coarse field
+        private const float CloudCut = 0.54f;       // coverage threshold (AMPLITUDE)
+        private const float CloudSharp = 3.0f;      // coverage hardness  (AMPLITUDE)
+
+        /// <summary>THE CEILING on this layer's opacity, anywhere in the sky, at
+        /// any instant, for any parameter of the noise — because the shader's
+        /// alpha is this times three factors that are each in [0,1] by
+        /// construction. "Niemals dicht" is therefore not a tuning claim: the
+        /// thickest wisp this layer can produce still passes 58 % of the stars
+        /// behind it.</summary>
+        private const float CloudAlpha = 0.42f;
+
+        private const float CloudElevLoDeg = 11f;   // layer starts
+        private const float CloudElevHiDeg = 22f;   // layer at full strength
+        /// <summary>Inside this angle from the moon the taper is at its floor,
+        /// FLAT — so the guarantee does not depend on where in the patch the moon
+        /// sits.</summary>
+        private const float CloudClearInDeg = 9f;
+        private const float CloudClearOutDeg = 26f;
+        /// <summary>Half-width of the bounded noise nudge on the clear patch's rim,
+        /// in COSINE units, so the patch is not a stamped circle. Bounded is the
+        /// operative word: the nudge is _CloudEdge*(n-0.5) with n in [0,1], so it
+        /// never exceeds half of this however the noise moves, which is what lets
+        /// the moon guarantee be a bound rather than a hope.</summary>
+        private const float CloudEdge = 0.010f;
+        /// <summary>What the taper falls TO over the moon. Not zero: a cloud that
+        /// stopped dead at a circle around the moon is a hole, and a hole is the
+        /// artificial thing. At 0.35 the veil does drift across the moon and does
+        /// visibly dim it — it simply cannot ever do more than
+        /// CloudAlpha*CloudMoonMin of it.</summary>
+        private const float CloudMoonMin = 0.35f;
+
+        /// <summary>The structural bound the preview station measures against: the
+        /// most of the moon this layer can ever swallow. Exposed rather than
+        /// retyped in PreviewClouds, so the measurement cannot agree with a bound
+        /// that has drifted away from the material.</summary>
+        public static float CloudMaxOverMoon => CloudAlpha * CloudMoonMin;
+        /// <summary>The ceiling on opacity anywhere in the sky. Same reason.</summary>
+        public static float CloudMaxAlpha => CloudAlpha;
+
+        /// <summary>Recompute the "the moon can never be fully covered" guarantee
+        /// from the shipped constants and throw if it does not hold. The argument,
+        /// in full, because it is the whole of the user's third requirement:
+        ///
+        /// The shader's opacity is  a = CloudAlpha * ev * taper * cov, and ev, cov
+        /// are in [0,1]. So  a &lt;= CloudAlpha * taper  everywhere.
+        /// taper = 1 - (1-CloudMoonMin) * smoothstep(cosOut, cosIn, m'), and it
+        /// reaches its floor CloudMoonMin exactly when m' &gt;= cosIn.
+        /// m' = dot(u, moonDir) + CloudEdge*(n-0.5) with n in [0,1], hence
+        ///     m' &gt;= dot(u, moonDir) - 0.5*CloudEdge   for EVERY fragment and
+        ///                                              EVERY instant.
+        /// Over the moon's whole sprite dot(u, moonDir) &gt;= cos(MoonSpriteRad), so
+        ///     m' &gt;= cos(MoonSpriteRad) - 0.5*CloudEdge,
+        /// and if that is &gt;= cosIn then the ENTIRE sprite sits on the flat floor
+        /// of the taper at all times, giving the hard bound
+        ///     a &lt;= CloudAlpha * CloudMoonMin        over the moon, for all t,
+        ///     transmitted fraction &gt;= 1 - CloudAlpha * CloudMoonMin.
+        /// Nothing in that chain is a function of time, of the noise's content, of
+        /// the wind, or of where the player stands. That is what "structurally
+        /// impossible" has to mean to be worth saying.</summary>
+        private static void AssertCloudsClearTheMoon()
+        {
+            float cosIn = Mathf.Cos(CloudClearInDeg * Mathf.Deg2Rad);
+            float worst = Mathf.Cos(MoonSpriteRad) - 0.5f * CloudEdge;
+            if (worst < cosIn)
+                throw new Exception(
+                    "CLOUD/MOON GUARANTEE BROKEN: the worst-case perturbed cosine over the moon sprite is "
+                    + $"{worst:F6} but the taper's plateau needs {cosIn:F6}. Either widen CloudClearInDeg, "
+                    + $"shrink CloudEdge, or accept that the moon can be covered by more than "
+                    + $"{CloudAlpha * CloudMoonMin:P1} — which the user has ruled out.");
+            float maxOverMoon = CloudAlpha * CloudMoonMin;
+            // Slack expressed as an ANGLE, because a cosine margin is unreadable:
+            // how many more degrees of moon the plateau would still swallow.
+            float slackDeg = (Mathf.Acos(Mathf.Clamp(cosIn, -1f, 1f))
+                              - Mathf.Acos(Mathf.Clamp(worst, -1f, 1f))) * Mathf.Rad2Deg;
+            Debug.Log("[GloomhavenVR][Env] CLOUD/MOON GUARANTEE holds. Moon sprite radius "
+                      + $"{MoonSpriteRad * Mathf.Rad2Deg:F2} deg (disc {MoonDiscRad * Mathf.Rad2Deg:F2} deg); "
+                      + $"clear plateau {CloudClearInDeg:F1} deg with the rim nudge at worst "
+                      + $"{(Mathf.Acos(Mathf.Clamp(Mathf.Cos(MoonSpriteRad) - 0.5f * CloudEdge, -1f, 1f)) * Mathf.Rad2Deg):F2} deg "
+                      + $"=> {slackDeg:F2} deg of slack. MAX cloud opacity over the moon = "
+                      + $"{CloudAlpha:F2} x {CloudMoonMin:F2} = {maxOverMoon:F3}, so the moon is NEVER less "
+                      + $"than {(1f - maxOverMoon) * 100f:F1}% transmitted, at any instant, from any viewpoint. "
+                      + $"Ceiling anywhere in the sky: {CloudAlpha:F2}.");
+        }
 
         // ---------------------------------------------------------- MOON PHASE
         // MIRRORS EnvElement.cginc's GHVR_ECL_* / GHVR_MOON_SWELL. These live in
@@ -407,6 +541,16 @@ namespace GloomhavenVR
             // Milky Way's mottling and dust lanes.
             WritePng(TexDir + "/Env_Haze.png", MakeHaze(256), 256, 256, sRGB: false, clamp: false,
                 comp: TextureImporterCompression.Compressed, alphaDilate: false);
+            // THE CLOUD FIELD. Repeat in both axes (it is exactly periodic — see
+            // MakeCloudNoise), LINEAR (it is a density, not a colour), and MIPPED,
+            // which is not decoration: the ground-plane projection in EnvCloud
+            // compresses the field as 1/sin^2(elevation), so the mip chain IS the
+            // band-limit that keeps a wisp near the ridge from aliasing into
+            // per-eye sparkle. Trilinear, which WritePng picks whenever mips are on.
+            WritePng(TexDir + "/EnvCloud_Noise.png", MakeCloudNoise(CloudNoiseSize),
+                CloudNoiseSize, CloudNoiseSize, sRGB: false, clamp: false,
+                comp: TextureImporterCompression.Uncompressed, alphaDilate: false,
+                platformFormat: TextureImporterFormat.RG16);
             // THE APPARITION ATLAS — the creepy easter eggs' actual likenesses.
             // UNCOMPRESSED, deliberately: see the channel packing block below.
             WritePng(TexDir + "/Env_Haunt.png", MakeHauntAtlas(),
@@ -1585,6 +1729,104 @@ namespace GloomhavenVR
             return px;
         }
 
+        // ============================================== THE CLOUD NOISE FIELD
+        // Two independent band-limited fields in one texture: R is the coarse one
+        // that decides where cloud IS, G the fine one that gives an edge its
+        // ragged detail — and, because it is fetched at a different uv that moves
+        // at a different speed, the thing that makes the shapes evolve instead of
+        // sliding past rigidly.
+        //
+        // EXACTLY TILING, WITHOUT THE TORUS BLEND. MakeHaze gets seamlessness by
+        // cross-fading four offset copies of an unbounded noise, which works and
+        // costs contrast: the blend region is an average of two independent
+        // fields and is measurably flatter than the middle. Here the LATTICE
+        // ITSELF wraps — every octave's integer grid is taken modulo that octave's
+        // own frequency — so the field is periodic by construction, at full
+        // contrast everywhere, with no blend seam to hide.
+        //
+        // ANISOTROPIC ON PURPOSE. The base frequency is lower along u than along
+        // v, so the features come out as STREAKS running along u. u is layer A's
+        // wind axis (CloudTurnsA is (1,0)), so the streaks lie along the wind —
+        // which is what thin high cloud actually does, and is most of why this
+        // reads as cirrus rather than as noise.
+        /// <summary>Value noise on an integer lattice that WRAPS at (fx, fy), so
+        /// the field is exactly periodic with period 1 in both uv axes.</summary>
+        private static float PeriodicNoise2(float x, float y, int fx, int fy, int seed)
+        {
+            float px = x * fx, py = y * fy;
+            int x0 = Mathf.FloorToInt(px), y0 = Mathf.FloorToInt(py);
+            float tx = px - x0, ty = py - y0;
+            tx = tx * tx * (3f - 2f * tx); ty = ty * ty * (3f - 2f * ty);
+            int xa = ((x0 % fx) + fx) % fx, xb = (xa + 1) % fx;
+            int ya = ((y0 % fy) + fy) % fy, yb = (ya + 1) % fy;
+            float c00 = Hash3(xa, ya, 0, seed), c10 = Hash3(xb, ya, 0, seed);
+            float c01 = Hash3(xa, yb, 0, seed), c11 = Hash3(xb, yb, 0, seed);
+            return Mathf.Lerp(Mathf.Lerp(c00, c10, tx), Mathf.Lerp(c01, c11, tx), ty);
+        }
+
+        /// <summary>Octaves of PeriodicNoise2, each doubling both frequencies (so
+        /// each stays an integer and the sum stays exactly periodic), normalized
+        /// to ~0..1.</summary>
+        private static float PeriodicFbm2(float x, float y, int fx, int fy, int octaves, int seed)
+        {
+            float acc = 0f, amp = 1f, sum = 0f;
+            for (int o = 0; o < octaves; o++)
+            {
+                acc += amp * PeriodicNoise2(x, y, fx, fy, seed + o * 131);
+                sum += amp; amp *= 0.55f; fx *= 2; fy *= 2;
+            }
+            return acc / sum;
+        }
+
+        private const int CloudNoiseSize = 512;
+        private const int CloudNoiseOct = 5;
+        // Base lattice: coarse (R) 3x7, fine (G) 5x11 -> the fine field is a
+        // little over 1.6x the coarse one's frequency in the texture, and the
+        // shader multiplies its uv by CloudRatio on top, so the two never beat
+        // against each other at a low order.
+        private const int CloudCoarseFx = 3, CloudCoarseFy = 7;
+        private const int CloudFineFx = 5, CloudFineFy = 11;
+
+        private static Color[] MakeCloudNoise(int n)
+        {
+            var px = new Color[n * n];
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float fx = x / (float)n, fy = y / (float)n;
+                    float r = PeriodicFbm2(fx, fy, CloudCoarseFx, CloudCoarseFy, CloudNoiseOct, 4409);
+                    float g = PeriodicFbm2(fx, fy, CloudFineFx, CloudFineFy, CloudNoiseOct, 8821);
+                    px[y * n + x] = new Color(r, g, 0f, 1f);
+                }
+            // THE HISTOGRAM IS THE INSTRUMENT. The shader turns this field into
+            // coverage with saturate((d - CloudCut) * CloudSharp); what fraction of
+            // the sky ends up as cloud at all, and how much of THAT reaches full
+            // opacity, is a property of this distribution and nothing else. Print
+            // it, so "leicht" and "niemals dicht" have a number at bake time and
+            // not only a screenshot. d is the same mix the shader forms.
+            int full = 0, any = 0;
+            var vals = new List<float>(px.Length);
+            foreach (var c in px)
+            {
+                float d = c.r * CloudMix + c.g * (1f - CloudMix);
+                vals.Add(d);
+                float cov = Mathf.Clamp01((d - CloudCut) * CloudSharp);
+                if (cov > 0.001f) any++;
+                if (cov > 0.999f) full++;
+            }
+            vals.Sort();
+            float P(float q) => vals[Mathf.Clamp(Mathf.RoundToInt(q * (vals.Count - 1)), 0, vals.Count - 1)];
+            Debug.Log($"[GloomhavenVR][Env] CLOUD NOISE {n}x{n}, {CloudNoiseOct} octaves, lattice "
+                      + $"{CloudCoarseFx}x{CloudCoarseFy} (R) and {CloudFineFx}x{CloudFineFy} (G), exactly tiling. "
+                      + $"Mixed field percentiles: p01={P(0.01f):F3} p10={P(0.10f):F3} p50={P(0.50f):F3} "
+                      + $"p90={P(0.90f):F3} p99={P(0.99f):F3} max={vals[vals.Count - 1]:F3}. "
+                      + $"At cut={CloudCut:F2} sharp={CloudSharp:F1}: {100f * any / px.Length:F1}% of the field "
+                      + $"carries any cloud and {100f * full / px.Length:F1}% reaches the ceiling opacity "
+                      + $"{CloudAlpha:F2}. (Sky coverage is lower still: this is before the elevation envelope "
+                      + "and the moon taper, both of which only ever reduce it.)");
+            return px;
+        }
+
         private static Color[] MakeSpark(int n)
         {
             // tiny soft mote (dust). RADIALLY SYMMETRIC — pure function of r², so a
@@ -1895,7 +2137,8 @@ namespace GloomhavenVR
         private static void WritePng(string path, Color[] px, int w, int h, bool sRGB, bool clamp,
             bool clampV = false, bool mips = true,
             TextureImporterCompression comp = TextureImporterCompression.Compressed,
-            bool alphaDilate = true, float mipCoverage = -1f)
+            bool alphaDilate = true, float mipCoverage = -1f,
+            TextureImporterFormat platformFormat = TextureImporterFormat.Automatic)
         {
             if (px.Length != w * h) throw new Exception($"WritePng {path}: {px.Length} px != {w}x{h}");
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false);
@@ -1915,7 +2158,35 @@ namespace GloomhavenVR
             ti.textureCompression = comp;
             ti.mipMapsPreserveCoverage = mipCoverage >= 0f;
             if (mipCoverage >= 0f) ti.alphaTestReferenceValue = mipCoverage;
+            // A PLATFORM OVERRIDE, not `textureCompression`, because the two answer
+            // different questions: `comp` picks between "compress it" and "don't",
+            // and Uncompressed then means RGBA32 — four channels whatever the
+            // texture actually uses. The cloud field uses two, and BC-compressing a
+            // noise field that is about to be multiplied by a hardness dial turns
+            // its quantisation into visible terracing. RG16 (R8G8) is the exact fit:
+            // no block compression, no wasted channels, half the bytes of RGBA32.
+            if (platformFormat != TextureImporterFormat.Automatic)
+                foreach (string plat in new[] { "Standalone", "Android" })
+                {
+                    var ps = ti.GetPlatformTextureSettings(plat);
+                    ps.overridden = true;
+                    ps.format = platformFormat;
+                    ps.maxTextureSize = ti.maxTextureSize;
+                    ti.SetPlatformTextureSettings(ps);
+                }
             ti.SaveAndReimport();
+            if (platformFormat != TextureImporterFormat.Automatic)
+            {
+                // MEASURED, not asserted: an override Unity declines is silent, and
+                // the difference between RG16 and RGBA32 here is a megabyte of
+                // bundle. Read the format back off the imported asset.
+                var imported = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                Debug.Log($"[GloomhavenVR][Env] {Path.GetFileName(path)} imported as {imported.format} "
+                          + $"{imported.width}x{imported.height}, mips {imported.mipmapCount}, asked for {platformFormat}.");
+                if (imported.format.ToString() != platformFormat.ToString())
+                    Debug.LogWarning($"[GloomhavenVR][Env] {Path.GetFileName(path)}: platform format override did NOT "
+                                     + $"take ({imported.format} != {platformFormat}) — the bundle pays the difference.");
+            }
         }
 
         // ================================================================== meshes
@@ -1934,6 +2205,15 @@ namespace GloomhavenVR
             // BuildGlowSphere and AssertGlowShellSeenFromOutside below.
             SaveMesh(MeshDir + "/Env_GlowSphere.asset", BuildGlowSphere(16, 8));
             SaveMesh(MeshDir + "/Env_StarField.asset", BuildStarField());
+            // THE CLOUD CAP. 72x18 over the 79 deg of sky it spans is 4.4 deg per
+            // ring; the shading is a function of the normalised interpolated
+            // position, and normalising a linear interpolation of two unit vectors
+            // lands back on the great circle between them, so ring count changes
+            // the parameterisation and not the picture. Gated against the dome's
+            // winding BEFORE it is saved.
+            var cloudShell = BuildCloudShell(72, 18, CloudElevLoDeg);
+            AssertCloudShellMatchesDome(cloudShell);
+            SaveMesh(MeshDir + "/EnvCloud_Shell.asset", cloudShell);
         }
 
         // ============================================================ STAR FIELD
@@ -2166,6 +2446,106 @@ namespace GloomhavenVR
             m.SetNormals(v.Select(p => (inward ? -1f : 1f) * p.normalized).ToList());
             m.SetTriangles(t, 0);
             return m;
+        }
+
+        // ======================================================= THE CLOUD SHELL
+        // A cap of the same unit sphere the dome is, from CloudElevLoDeg up to the
+        // zenith. It is a CAP AND NOT A DOME, and that is the performance answer
+        // to "so gut es geht die Performance nicht reduzieren": below 11 deg
+        // elevation the cloud term is identically zero (the elevation envelope), so
+        // the cheapest possible way to evaluate it there is to have no geometry
+        // there and never issue the fragment at all. Geometry is a free mask; a
+        // per-pixel `if` is not.
+        //
+        // TRAP 5 (culling cannot see vertex shaders) DOES NOT APPLY: this mesh's
+        // vertex stage is UnityObjectToClipPos and nothing else. No vertex is
+        // displaced, so the bounds Unity recomputes on save are the true bounds and
+        // SaveMesh's authored-bounds special case (which exists for Env_StarField,
+        // whose shader DOES move every vertex) is correctly not wanted here.
+        private static Mesh BuildCloudShell(int lon, int lat, float loDeg)
+        {
+            float lo = loDeg * Mathf.Deg2Rad, hi = Mathf.PI * 0.5f;
+            var v = new List<Vector3>(); var uv = new List<Vector2>(); var t = new List<int>();
+            for (int y = 0; y <= lat; y++)
+            {
+                float vv = y / (float)lat;
+                float latAng = Mathf.Lerp(lo, hi, vv);
+                float r = Mathf.Cos(latAng), py = Mathf.Sin(latAng);
+                for (int x = 0; x <= lon; x++)
+                {
+                    float uu = x / (float)lon;
+                    float lonAng = uu * Mathf.PI * 2f;
+                    v.Add(new Vector3(Mathf.Sin(lonAng) * r, py, Mathf.Cos(lonAng) * r));
+                    uv.Add(new Vector2(uu, vv));
+                }
+            }
+            // Same emission order as BuildSphere(inward: true) — see the gate below,
+            // which does not take my word for that.
+            for (int y = 0; y < lat; y++)
+                for (int x = 0; x < lon; x++)
+                {
+                    int a = y * (lon + 1) + x, b = a + 1, c = a + lon + 1, d = c + 1;
+                    t.AddRange(new[] { a, b, c, b, d, c });
+                }
+            var m = new Mesh();
+            m.SetVertices(v);
+            m.SetUVs(0, uv);
+            m.SetNormals(v.Select(p => -p.normalized).ToList());
+            m.SetTriangles(t, 0);
+            return m;
+        }
+
+        /// <summary>Sign of dot(geometric normal, centroid), averaged over a mesh's
+        /// triangles: +1 if its faces are wound so their cross products point AWAY
+        /// from the origin, -1 if they point at it. Only meaningful for a mesh that
+        /// is star-shaped about the origin, which both sky shells are.</summary>
+        private static int WindingSense(Mesh m, out int disagreeing)
+        {
+            var vs = m.vertices; var ts = m.triangles;
+            int pos = 0, neg = 0;
+            for (int i = 0; i < ts.Length; i += 3)
+            {
+                Vector3 p0 = vs[ts[i]], p1 = vs[ts[i + 1]], p2 = vs[ts[i + 2]];
+                Vector3 n = Vector3.Cross(p1 - p0, p2 - p0);
+                float s = Vector3.Dot(n, (p0 + p1 + p2) / 3f);
+                if (s > 1e-9f) pos++; else if (s < -1e-9f) neg++;
+            }
+            disagreeing = Mathf.Min(pos, neg);
+            return pos >= neg ? 1 : -1;
+        }
+
+        /// <summary>THE WINDING GATE, and it is deliberately a COMPARISON rather
+        /// than a rule. Nine meshes in this project have shipped wound against the
+        /// side they are seen from, and every one of them was authored by someone
+        /// who was sure which way "inward" meant. So this does not assert a
+        /// direction — it asserts that the cloud shell agrees with Env_Dome, the
+        /// inward sphere that has been in front of the user for a hundred builds
+        /// and is not in dispute. A convention copied from a shipped artefact
+        /// cannot be wrong about the convention.
+        ///
+        /// The honest caveat, stated rather than glossed: EnvCloud draws `Cull Off`
+        /// and reads no normal, so winding cannot produce a visible bug in the
+        /// SHIPPED configuration at all — every ray out of the play space leaves
+        /// the sphere exactly once whichever way the faces face. This gate exists
+        /// so that a future round which turns culling ON finds a mesh that is
+        /// already consistent with its neighbour, instead of rediscovering the bug
+        /// class a tenth time.</summary>
+        private static void AssertCloudShellMatchesDome(Mesh shell)
+        {
+            var dome = AssetDatabase.LoadAssetAtPath<Mesh>(MeshDir + "/Env_Dome.asset")
+                       ?? throw new Exception("AssertCloudShellMatchesDome: Env_Dome.asset must be built first.");
+            int domeSense = WindingSense(dome, out int domeMixed);
+            int shellSense = WindingSense(shell, out int shellMixed);
+            if (domeMixed != 0 || shellMixed != 0)
+                throw new Exception($"Cloud shell winding gate: mixed winding (dome {domeMixed}, shell {shellMixed} "
+                                    + "triangles against the majority). One of these meshes is inside-out in places.");
+            if (domeSense != shellSense)
+                throw new Exception($"Cloud shell winding gate: the shell winds {shellSense:+0;-0} against the "
+                                    + $"origin but Env_Dome winds {domeSense:+0;-0}. The cloud cap sits INSIDE that "
+                                    + "dome and is seen from the same side; it must be wound the same way.");
+            Debug.Log($"[GloomhavenVR][Env] Cloud shell winding matches Env_Dome (sense {shellSense:+0;-0}, "
+                      + $"{shell.triangles.Length / 3} triangles, {shell.vertexCount} verts, no mixed faces). "
+                      + "Shipped config is Cull Off, so this is a consistency gate, not a correctness one.");
         }
 
         // ======================================================== THE HALO SHELL
@@ -2571,6 +2951,48 @@ namespace GloomhavenVR
             // how much of the sprite is disc — the eclipse's unit of length
             stars.SetFloat("_MoonDiscR", MoonSpriteDiscR);
 
+            // ---- thin night cloud (see EnvCloud.cginc, and THIN NIGHT CLOUD above) ----
+            // Every number here comes from a named constant, and the four that
+            // matter are DERIVED rather than typed: the two clear-patch cosines
+            // from the clear angles, the two elevation sines from the elevation
+            // angles, and the wind from whole turns per CloudPeriod. The moon
+            // bearing is MoonDir itself — the same field the sprite, the shafts,
+            // the rim light and the canopy tear all read, so the clear patch and
+            // the moon cannot be moved apart by editing one of them.
+            AssertCloudsClearTheMoon();
+            var clouds = LoadOrNewMat(MatDir + "/EnvCloud_Sky.mat", "GloomhavenVR/EnvCloud");
+            clouds.SetTexture("_CloudTex", T("EnvCloud_Noise.png"));
+            clouds.SetFloat("_CloudScale", CloudScale);
+            clouds.SetFloat("_CloudRatio", CloudRatio);
+            clouds.SetFloat("_CloudMix", CloudMix);
+            clouds.SetVector("_CloudWind", new Vector4(
+                CloudTurnsA.x / CloudPeriod, CloudTurnsA.y / CloudPeriod,
+                CloudTurnsB.x / CloudPeriod, CloudTurnsB.y / CloudPeriod));
+            clouds.SetFloat("_CloudCut", CloudCut);
+            clouds.SetFloat("_CloudSharp", CloudSharp);
+            clouds.SetFloat("_CloudAlpha", CloudAlpha);
+            clouds.SetFloat("_CloudElevLo", Mathf.Sin(CloudElevLoDeg * Mathf.Deg2Rad));
+            clouds.SetFloat("_CloudElevHi", Mathf.Sin(CloudElevHiDeg * Mathf.Deg2Rad));
+            clouds.SetVector("_CloudMoonDir", MoonDir);
+            clouds.SetFloat("_CloudMoonMin", CloudMoonMin);
+            clouds.SetFloat("_CloudMoonIn", Mathf.Cos(CloudClearInDeg * Mathf.Deg2Rad));
+            clouds.SetFloat("_CloudMoonOut", Mathf.Cos(CloudClearOutDeg * Mathf.Deg2Rad));
+            clouds.SetFloat("_CloudEdge", CloudEdge);
+            // Colour: the cloud is lit by the moon and by nothing else, so it is
+            // the MOON'S colour, cooled slightly — moonlight is warm-white but a
+            // cloud's own scattering is Rayleigh-biased and reads cooler than the
+            // source. Dark on purpose: the peak in-scatter away from the moon is
+            // ~0.020 of that colour against a zenith sky of ~0.012, i.e. the cloud
+            // is barely brighter than the sky it hides. THIS IS THE WHOLE "leicht"
+            // REQUIREMENT. A grey cloud over a near-black night sky is the lifted-
+            // horizon-band complaint (ModBuild 134) all over again, in the middle
+            // of the sky instead of at the bottom of it.
+            clouds.SetColor("_CloudTint", new Color(0.72f, 0.78f, 0.92f));
+            clouds.SetFloat("_CloudScatBase", 0.020f);
+            clouds.SetFloat("_CloudScatFwd", 0.55f);
+            clouds.SetFloat("_CloudScatPow", 90f);
+            LogClouds();
+
             // ---- real catalogue stars (see BuildStarField / EnvStarPoints) ----
             var pts = LoadOrNewMat(MatDir + "/Sky_StarPoints.mat", "GloomhavenVR/EnvStarPoints");
             pts.SetVector("_Pole", pole);
@@ -2594,6 +3016,79 @@ namespace GloomhavenVR
             LogMoonPhase();
 
             AssetDatabase.SaveAssets();
+        }
+
+        /// <summary>Headset angular pixel pitch, degrees. The rig's per-eye render
+        /// target is 3072 px across and Virtual Desktop's VDXR FOV is a shade over
+        /// 100 deg horizontally; 104 is the round number in the middle of what the
+        /// runtime reports at the profiles this project uses. IT IS AN ASSUMPTION,
+        /// named here so the aliasing margins below can be re-derived if it is
+        /// wrong — and the margins are large enough that a 30 % error in it changes
+        /// no conclusion.</summary>
+        private const float HeadsetDegPerPixel = 104f / 3072f;   // 0.0339 deg
+
+        /// <summary>Everything about the cloud layer that can be checked WITHOUT a
+        /// headset: that the loop actually closes, how fast it drifts in degrees,
+        /// how big its features are, and how far the finest one is from the
+        /// headset's Nyquist limit. Printed rather than asserted where the right
+        /// answer is a judgement, thrown where it is not.</summary>
+        private static void LogClouds()
+        {
+            // ---- (1) the loop closes, exactly ----
+            // Both winds are (whole turns)/CloudPeriod, so at t = CloudPeriod every
+            // uv offset is a whole number of texture periods and the field is
+            // bit-identical to t = 0. This is what makes a finite preview series a
+            // statement about ALL time. Integers are checked, not assumed.
+            foreach (var (v, tag) in new[] { (CloudTurnsA, "A"), (CloudTurnsB, "B") })
+                if (Mathf.Abs(v.x - Mathf.Round(v.x)) > 1e-6f || Mathf.Abs(v.y - Mathf.Round(v.y)) > 1e-6f)
+                    throw new Exception($"Cloud wind {tag} = {v} is not a whole number of texture turns per "
+                                        + "CloudPeriod — the drift would not close and no finite series could "
+                                        + "settle the moon claim.");
+            if (Mathf.Abs(2880f / CloudPeriod - Mathf.Round(2880f / CloudPeriod)) > 1e-6f)
+                throw new Exception($"CloudPeriod {CloudPeriod} does not divide EnvStars' SKY_PERIOD 2880 — the "
+                                    + "sky clock's wrap would cut the drift mid-stride.");
+
+            // ---- (2) how fast, in the only unit the user can perceive ----
+            // pl = cot(elev), so d(elev) = -d(pl) * sin^2(elev): the SAME plane-space
+            // wind is slow overhead and fast at the horizon, which is exactly the
+            // perspective a real cloud deck has and the reason to project onto a
+            // plane at all.
+            float elev = Mathf.Asin(MoonDir.y);
+            float s2 = Mathf.Sin(elev) * Mathf.Sin(elev);
+            float planeA = CloudTurnsA.magnitude / (CloudPeriod * CloudScale);
+            float planeB = CloudTurnsB.magnitude / (CloudPeriod * CloudScale * CloudRatio);
+            float degPerSecA = planeA * s2 * Mathf.Rad2Deg;
+            float moonCrossS = (2f * MoonDiscRad * Mathf.Rad2Deg) / Mathf.Max(degPerSecA, 1e-6f);
+
+            // ---- (3) feature sizes, and the aliasing margin ----
+            float CellDeg(float cellsPerTile, float scale) =>
+                (1f / (scale * cellsPerTile)) * s2 * Mathf.Rad2Deg;
+            float coarseDeg = CellDeg(CloudCoarseFx, CloudScale);
+            int fineTopFx = CloudFineFx << (CloudNoiseOct - 1);
+            float fineTopDeg = CellDeg(fineTopFx, CloudScale * CloudRatio);
+            float texelDeg = CellDeg(CloudNoiseSize, CloudScale * CloudRatio);
+            // At the layer's LOWEST elevation the same texel is this much smaller,
+            // which is where the mip chain has to do the work.
+            float loS2 = Mathf.Pow(Mathf.Sin(CloudElevLoDeg * Mathf.Deg2Rad), 2f);
+            float texelLoDeg = texelDeg * (loS2 / s2);
+
+            Debug.Log($"[GloomhavenVR][Env] CLOUDS: loop {CloudPeriod:F0} s (SKY_PERIOD/{2880f / CloudPeriod:F0}), "
+                      + $"winds A={CloudTurnsA} B={CloudTurnsB} turns/loop => the field is EXACTLY periodic. "
+                      + $"At the moon's elevation ({elev * Mathf.Rad2Deg:F1} deg) layer A drifts "
+                      + $"{degPerSecA:F4} deg/s ({degPerSecA * 60f:F2} deg/min) and layer B at "
+                      + $"{planeB / planeA:F2}x that, {Vector2.Angle(CloudTurnsA, CloudTurnsB):F0} deg off its "
+                      + $"bearing — so shapes evolve rather than translate. A wisp takes {moonCrossS:F0} s to "
+                      + $"cross the moon's disc. Real cirrus at 8 km in a 20 m/s wind is ~0.06 deg/s at this "
+                      + "elevation, which is the number this was aimed at.");
+            Debug.Log($"[GloomhavenVR][Env] CLOUDS band-limit: dominant feature {coarseDeg:F1} deg across at the "
+                      + $"moon's elevation; finest noise octave {fineTopDeg:F2} deg ({fineTopDeg / HeadsetDegPerPixel:F0} "
+                      + $"headset px per period, Nyquist needs 2); one texel {texelDeg:F3} deg there and "
+                      + $"{texelLoDeg:F4} deg at the layer's floor ({CloudElevLoDeg:F0} deg elevation) — BELOW the "
+                      + $"headset's {HeadsetDegPerPixel:F4} deg/px, which is why the field is mipped and trilinear: "
+                      + "the hardware low-passes it from the uv derivative exactly where the 1/sin^2 projection "
+                      + "outruns the display. The elevation envelope has also taken the amplitude to 0 by then. "
+                      + "Aliasing in a sky dome is a per-eye artefact in this project (see the star-field rounds), "
+                      + "so this is the margin that matters, not the average.");
         }
 
         // ============================================================ scene helpers
@@ -2649,7 +3144,7 @@ namespace GloomhavenVR
         // catalogue star geometry as its child.
         // The node NAME 'StarDome' is a CONTRACT with src/ (runtime splits shell
         // children onto sky/room branches BY NODE NAME) — never rename it.
-        private static void AddNightSky(Transform parent)
+        private static void AddNightSky(Transform parent, bool clouds)
         {
             var dome = Solid(parent, "StarDome", "Env_Dome.asset", Mat("Swamp_StarDome.mat"),
                 Vector3.zero, Vector3.zero, Vector3.one * 45f);
@@ -2662,6 +3157,60 @@ namespace GloomhavenVR
                 Mat("Sky_StarPoints.mat"), Vector3.zero, Vector3.zero, Vector3.one / 45f);
             field.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             field.GetComponent<MeshRenderer>().receiveShadows = false;
+
+            if (clouds) AddCloudBand(dome.transform);
+        }
+
+        private static void AddCloudBand(Transform dome)
+        {
+            // ---- THIN NIGHT CLOUD ----------------------------------------------
+            // A child of StarDome at scale 1, so it inherits the dome's 45x and
+            // ends up on the SAME SPHERE the moon sprite is painted on. That is
+            // deliberate and it is the whole of the "the clear patch cannot slide
+            // off the moon" argument: the two live in one object frame at one
+            // radius, so they share their parallax exactly as the player walks the
+            // clearing. It also rides the sky branch for free — SkyAlternative's
+            // shell splitter only looks at DIRECT children of the shell root and
+            // only re-homes four named room nodes, so anything under StarDome
+            // inherits the perceived-size-constant sky anchoring.
+            //
+            // The node name avoids "sky", "skysphere" and "skyshader" on purpose:
+            // SkyBackdrop.FindSky sweeps every renderer in the process and disables
+            // the first whose NODE OR SHADER name contains one of those, as "the
+            // game's sky sphere". A cloud layer called SkyClouds would switch
+            // itself off, in the shipped game only, where no preview would show it.
+            //
+            // FOREST ONLY — and this is a decision that was made the other way
+            // first, then reversed by a render, which is why it is written down.
+            //
+            // The argument FOR giving the cellar one too is real: it is the SAME
+            // sky (that is why the cellar has the dome at all — with the game's
+            // sphere hidden the void above the room was pure black), the moon and
+            // its eclipse are shared, and a night that is hazy in the wood and
+            // clear through the bars is the kind of lie this file has removed
+            // everywhere else. It shipped that way for one bake.
+            //
+            // What reversed it: the user asked for clouds "im Wald", and I could
+            // not show that the cellar's band does anything. The preview station's
+            // cellar frames came back with the band changing 0.000 % of the pixels
+            // — and on inspection those frames were not looking at the window at
+            // all, so that number settled nothing either way. An unverified
+            // feature that costs a full-screen fragment program in a room the user
+            // did not ask about is not a feature, it is a bill. So the cellar
+            // keeps exactly the sky it shipped with, bit for bit, and turning the
+            // clouds on there is `AddNightSky(t, clouds: true)` in BuildCellar
+            // plus a render through the window that actually contains the window.
+            var band = Solid(dome, "CloudBand", "EnvCloud_Shell.asset", Mat("EnvCloud_Sky.mat"),
+                Vector3.zero, Vector3.zero, Vector3.one);
+            var mr = band.GetComponent<MeshRenderer>();
+            mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            mr.receiveShadows = false;
+            // The environment has no realtime light and no probes; leaving these on
+            // costs a per-renderer probe lookup every frame for nothing.
+            mr.lightProbeUsage = UnityEngine.Rendering.LightProbeUsage.Off;
+            mr.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+            mr.motionVectorGenerationMode = MotionVectorGenerationMode.ForceNoMotion;
+            mr.allowOcclusionWhenDynamic = false;
         }
 
         // ------------------------------------------------------------ PLAY SPACE
@@ -2718,7 +3267,7 @@ namespace GloomhavenVR
                 // ---- sky: same star dome as the swamp (user finding, ModBuild 129
                 // round — with the game's sky sphere hidden, the void above the
                 // generated room was pure black) ----
-                AddNightSky(t);
+                AddNightSky(t, clouds: false);
 
                 // Drifting dust motes in the candlelight (world-space room volume).
                 // ModBuild 135: they now DRIFT, along the same bearing the candle
@@ -2806,7 +3355,7 @@ namespace GloomhavenVR
                 AddPlaySpace(t, EnvRoomBuilder.ForestPlaySpaceDia);
 
                 // ---- sky: procedural celestial dome + real Yale-catalogue stars ----
-                AddNightSky(t);
+                AddNightSky(t, clouds: true);
 
                 // ---- ground mist, layer 1: drifting between the near trunks ----
                 var fog = NewPS(t, "GroundFog", new Vector3(0, 0.45f, 0), new Vector3(-90, 0, 0), Mat("FX_Fog.mat"));
