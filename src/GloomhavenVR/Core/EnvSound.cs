@@ -1250,8 +1250,15 @@ internal static class EnvSound
     private static bool _built;
     private static float _builtScale;
 
-    private static AudioListener? _ourListener;
-    private static readonly List<AudioListener> _suppressed = new();
+    /// <summary>
+    /// This file's name in <see cref="HeadEar"/>'s claim set. The listener itself moved to
+    /// <c>Core/HeadEar.cs</c> at ModBuild 297 because spatial voice chat needs the SAME ear and the
+    /// two features start and stop on completely different schedules — read that file's class doc
+    /// for the whole argument, including why the ear being private to this one feature was a defect
+    /// rather than a tidy-up. The behaviour of this file is unchanged: it takes the ear in Build(),
+    /// hands it back in StandDown(), and keeps it across a style rebuild.
+    /// </summary>
+    private const string EarClaim = "EnvSound";
 
     private static float _duck = 1f;
     private static int _duckPollCountdown;
@@ -4611,57 +4618,12 @@ internal static class EnvSound
     /// </summary>
     private static void TakeListener()
     {
-        // ALREADY OURS ⇒ NOTHING TO DO, and this guard is load-bearing rather than defensive.
-        // A style change runs Build, which tears the old environment down and builds the new one IN
-        // THE SAME FRAME. If that teardown destroyed our listener, this method would then find the
-        // doomed component with GetComponent (Object.Destroy is deferred to the end of the frame),
-        // re-enable it, and Unity would delete it moments later — leaving the session with NO
-        // enabled listener at all and the whole feature inaudible until the next full teardown.
-        // Keeping ownership across a rebuild also keeps _suppressed intact, which is the ONLY
-        // record of which listeners have to be handed back.
-        if (_ourListener != null)
-            return;
-
-        Camera? head = Rig.VRRigDriver.HeadCamera;
-        if (head == null)
-            return;
-
-        // Disable every listener that is currently enabled, remembering exactly which ones so
-        // StandDown can restore precisely those and nothing else. There can legitimately be more
-        // than one in a multiplayer session: the voice-chat player prefab carries its own and
-        // enables it for the local owner (GH.Runtime/VoiceChat/BoltVoicePlayerController.cs:18).
-        _suppressed.Clear();
-        foreach (AudioListener l in Object.FindObjectsOfType<AudioListener>())
-        {
-            if (l == null || !l.enabled)
-                continue;
-            l.enabled = false;
-            _suppressed.Add(l);
-        }
-
-        _ourListener = head.gameObject.GetComponent<AudioListener>();
-        if (_ourListener == null)
-            _ourListener = head.gameObject.AddComponent<AudioListener>();
-        _ourListener.enabled = true;
+        Core.HeadEar.Claim(EarClaim);
     }
 
     private static void ReleaseListener()
     {
-        if (_ourListener != null)
-        {
-            Object.Destroy(_ourListener);
-            _ourListener = null;
-        }
-
-        for (int i = 0; i < _suppressed.Count; i++)
-        {
-            AudioListener l = _suppressed[i];
-            // Unity fake-null when the scene that owned it unloaded; then there is nothing to
-            // restore and the scene took the state with it.
-            if (l != null)
-                l.enabled = true;
-        }
-        _suppressed.Clear();
+        Core.HeadEar.Release(EarClaim);
     }
 
     // ---- teardown ---------------------------------------------------------------------------------
@@ -4681,7 +4643,7 @@ internal static class EnvSound
     /// turned it off" from "the scenario ended" without guessing.</param>
     internal static void StandDown(string why)
     {
-        if (!_built && _root == null && _ourListener == null && _suppressed.Count == 0)
+        if (!_built && _root == null && !Core.HeadEar.Holds(EarClaim))
             return;
 
         int beds = Beds.Count;
@@ -5045,10 +5007,10 @@ internal static class EnvSound
         sb.Append("SCALE: rigScale ").Append(rigScale.ToString("F2"))
           .Append(" world units per perceived metre; every rolloff above is metres x that factor, ")
           .Append("recomputed whenever zoom moves it. LISTENER: ")
-          .Append(_ourListener != null
-                      ? "moved onto GloomhavenVR.HeadCamera"
+          .Append(Core.HeadEar.Holds(EarClaim)
+                      ? "moved onto GloomhavenVR.HeadCamera (shared claim, see Core/HeadEar.cs)"
                       : "NOT taken — no head camera, so nothing here will be audible")
-          .Append(", ").Append(_suppressed.Count)
+          .Append(", ").Append(Core.HeadEar.SuppressedCount)
           .Append(" pre-existing listener(s) disabled and remembered for restore. ")
           .Append("LEVELS: every source is capped at ").Append(MaxEmitterGain.ToString("F2"))
           .Append(", the dial can reach at most ").Append(MasterCeiling.ToString("F2"))

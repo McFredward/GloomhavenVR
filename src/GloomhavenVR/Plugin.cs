@@ -983,6 +983,10 @@ public class Plugin : BaseUnityPlugin
         _modules.Add(new Board.BoardModule());
         _modules.Add(new WorldUI.WorldUIModule());
         _modules.Add(new Net.NetModule());
+        // AFTER NetModule: spatial voice reads the remote avatars NetModule owns
+        // (NetAvatarDriver.TryGetPeerHeadHolder). It degrades to plain 2D voice when there are
+        // none, so the order is a quality constraint rather than a correctness one.
+        _modules.Add(new Voice.VoiceModule());
         _modules.Add(new Compat.CompatModule());
         _modules.Add(new Core.DevModule());
         // LAST on purpose. It asks GitHub once, when the main menu is up and VR is running, whether

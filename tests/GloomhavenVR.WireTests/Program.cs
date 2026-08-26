@@ -29,6 +29,14 @@ internal static class Program
             ScrollTurnGateVectors.Run(t);
             LiftWedgeVectors.Run(t);
             EnvSoundScheduleVectors.Run(t);
+            // SPATIAL VOICE CHAT (ModBuild 297). Same reason EnvSoundSchedule is above it, one
+            // step worse: this one needs a headset AND a second person to observe at all, and the
+            // rolloff's failure is silence rather than a wrong sound. The vectors assert the curve
+            // in DECIBELS (the acceptance criterion is stated that way, so the test states it that
+            // way), the indicator's hysteresis (its failure mode is a strobing icon), and the
+            // loudspeaker glyph — which it also writes to .planning/voice/ so the pictures come
+            // from the shipped rasteriser rather than from a lookalike.
+            VoiceVectors.Run(t, repoRoot);
             HauntFigureVectors.Run(t);
             HeldSizeVectors.Run(t);
             PeerBoardFadeVectors.Run(t, repoRoot);

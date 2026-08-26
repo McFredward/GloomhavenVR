@@ -113,6 +113,23 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\EnvSoundSchedule.cs" Link="core\EnvSoundSchedule.cs" />
   </ItemGroup>
 
+  <!-- Not wire files either, and here for the EnvSoundSchedule reason at its sharpest. Spatial
+       voice chat is observed ONLY by ear, from inside a headset, with a SECOND PERSON on the other
+       end of a microphone — the least reproducible test in this repo, and the user cannot run it at
+       all for a week. A rolloff 12 dB too steep does not throw, does not log and does not look
+       wrong; it produces a teammate who "cuts out" and a report nobody can localise. An indicator
+       whose threshold sits where speech level actually lives does not fail either; it strobes,
+       which is the "super nervig" verdict this project already collected once, on the ice sound.
+       Both are decided by arithmetic, so VoiceCurve.cs was written free of Unity (beyond Mathf), of
+       config and of the game model, and VoiceIcon.cs free of everything at all — it does not even
+       call Math.Sqrt — precisely so both could be linked in here and driven metre by metre and
+       texel by texel. VoiceIcon being linked is also what lets the icon renders in .planning/voice/
+       be produced BY THE SHIPPED RASTERISER rather than by a lookalike. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Voice\VoiceCurve.cs" Link="voice\VoiceCurve.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Voice\VoiceIcon.cs" Link="voice\VoiceIcon.cs" />
+  </ItemGroup>
+
   <!-- Not a wire file either, and here for the ConfigSteps reason at its sharpest. It decides how
        dark a haunt apparition is drawn and how it materialises, and both are observed ONLY by feel,
        from inside a headset, one photograph per round. Through ModBuild 152 the darkening
@@ -181,6 +198,7 @@
     <Compile Include="ScrollTurnGateVectors.cs" />
     <Compile Include="LiftWedgeVectors.cs" />
     <Compile Include="EnvSoundScheduleVectors.cs" />
+    <Compile Include="VoiceVectors.cs" />
     <Compile Include="HauntFigureVectors.cs" />
     <Compile Include="HeldSizeVectors.cs" />
     <!-- Peer-board see-through (user request 15): a stepper pin for four dials whose defaults do

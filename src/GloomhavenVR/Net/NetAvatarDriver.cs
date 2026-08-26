@@ -584,6 +584,40 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     }
 
     /// <summary>
+    /// ONE peer's HEAD HOLDER transform, by player id -- the node the mask hangs off, live rather
+    /// than a sampled position.
+    ///
+    /// <para><see cref="TryGetPeerHead"/>'s sibling, and it exists because that one answers with a
+    /// POSITION and the consumer needs the NODE. Spatial voice chat (<c>Voice/VoiceSpatial.cs</c>,
+    /// ModBuild 297) anchors a peer's voice AudioSource at their mask every frame: a Vector3 read
+    /// once would be a snapshot, and re-reading TryGetPeerHead per frame would hand back the last
+    /// RECEIVED head target rather than the eased holder pose the mask is actually drawn at -- so
+    /// the sound would lead or lag the face it comes from by up to one interpolation constant.</para>
+    ///
+    /// <para>Read-only and strictly local, like its sibling. Answers false for a peer with no
+    /// avatar, and for one whose head holder is currently inactive (joining, not embodied, or head
+    /// pose invalid); the caller's contract is then to leave that voice NON-spatial rather than
+    /// place it somewhere wrong -- see the class doc of <c>Voice/VoiceSpatial.cs</c>, "THE FEATURE
+    /// NEVER TRADES AUDIBILITY FOR POSITION".</para>
+    ///
+    /// <para>The alternative it replaces is the same one <see cref="TryGetPeerHead"/> names:
+    /// <c>GameObject.Find("GloomhavenVR.RemoteAvatar[id]")</c>, a whole-scene sweep per tick. Not
+    /// again.</para>
+    /// </summary>
+    internal static bool TryGetPeerHeadHolder(int playerId, out Transform holder)
+    {
+        holder = null!;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(playerId, out RemoteAvatar avatar) || avatar == null)
+            return false;
+        Transform? h = avatar.HeadHolder;
+        if (h == null || !h.gameObject.activeInHierarchy)
+            return false;
+        holder = h;
+        return true;
+    }
+
+    /// <summary>
     /// ONE peer's last RECEIVED head world position, by player id.
     ///
     /// <para><see cref="CollectPeerHeads"/>'s sibling, and it exists because that one deliberately

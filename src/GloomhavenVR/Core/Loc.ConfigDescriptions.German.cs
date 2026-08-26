@@ -22,6 +22,41 @@ internal static partial class Loc
     private static Dictionary<string, string> BuildGerman() =>
         new(784, StringComparer.Ordinal)
         {
+            // ---- [Voice] spatial voice chat (ModBuild 297) ------------------------------------
+            ["Voice/Enabled"] =
+                "Macht den Sprachchat des SPIELS räumlich: die Stimme eines Mitspielers kommt aus "
+                + "seiner Maske statt von überall. Der Mod bringt KEINEN eigenen Sprachchat mit - "
+                + "Gloomhaven hat bereits einen über Photon, mit eigener Optionsseite, eigenem "
+                + "Stummschalten pro Person und eigener Taste. Aus = genau dieser Sprachchat, "
+                + "unverändert. Niemand braucht ein zusätzliches Konto.",
+            ["Voice/SpatialBlend"] =
+                "Wie stark eine Stimme im Raum verortet wird. 1 = vollständig an der Maske des "
+                + "Sprechers. 0 = die gewohnte, nicht verortete Stimme. Werte dazwischen blenden "
+                + "zwischen beidem über - hilfreich, wenn eine klar verortete Stimme für dich "
+                + "schwerer zu verstehen ist als eine mittige.",
+            ["Voice/FullLevelMeters"] =
+                "Radius in ECHTEN Metern, innerhalb dessen ein Mitspieler in voller Lautstärke zu "
+                + "hören ist und Kopfbewegungen nichts ändern. Größer, wenn Stimmen beim Hin- und "
+                + "Herbewegen zu pumpen scheinen; kleiner, wenn Entfernung früher hörbar sein soll.",
+            ["Voice/SilenceMeters"] =
+                "Entfernung in ECHTEN Metern, ab der eine Stimme ganz verstummt. Deutlich weiter als "
+                + "jeder Tisch, greift also erst, wenn jemand quer durch den Raum gegangen ist.",
+            ["Voice/RolloffShape"] =
+                "Wie die Lautstärke zwischen dem Radius voller Lautstärke und der Hörweite abfällt. "
+                + "1 ist eine Gerade. Über 1 hält Sprache länger laut und fällt zum Ende hin schnell "
+                + "ab; unter 1 wirkt Entfernung sofort.",
+            ["Voice/Spread"] =
+                "Wie breit eine Stimme klingt, in Grad. 0 macht sie zu einem Punkt, der hart auf ein "
+                + "Ohr springt, wenn jemand neben dir steht; große Werte machen die Richtung "
+                + "unkenntlich. Die Voreinstellung bleibt ortbar und trotzdem angenehm.",
+            ["Voice/SpeakingBadge"] =
+                "Zeigt einen kleinen Lautsprecher in der Ecke des Steam-Bildes über dem Kopf eines "
+                + "Mitspielers, solange er spricht; die Bögen leuchten mit steigender Lautstärke auf. "
+                + "Braucht die Namensschilder selbst ([Net] Namensschilder) - ohne sie gibt es kein "
+                + "Bild, auf dem er sitzen könnte, und die Stimme bleibt trotzdem räumlich.",
+            ["Voice/BadgeScale"] =
+                "Größe dieses Lautsprechers im Verhältnis zum Bild, auf dem er sitzt. Größer ist über "
+                + "einen Tisch hinweg besser zu sehen; zu groß verdeckt das Gesicht.",
             // ---- [Perf] ----
             ["Perf/Enabled"] =
                 "Hauptschalter für die gesamte Leistungsmessung. AN protokolliert regelmäßig eine [Perf] "
