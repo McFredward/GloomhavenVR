@@ -38,6 +38,8 @@
 #                                      no message; a reworded log marker costs a hardware round
 #   scripts/check-partial-order.py     static field initialisers run in COMPILE order across the
 #                                      parts of a partial type, and MSBuild sorts the glob
+#   scripts/check-instrument-writes.py a diagnostic that writes state the MECHANISM reads can no
+#                                      longer be gated off or retired — baseline, fails on new
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,6 +85,28 @@ snapshot() {
     # The branch token is optional in the pattern: BuildInfo carries the hash without it.
     find "$out" -name '*.cs' -print0 \
         | xargs -0 -r sed -i -E 's/\b[0-9a-f]{9,40}\b/<COMMIT>/g; s/<COMMIT>-dirty/<COMMIT>/g; s/build <COMMIT>( \[[^]]*\])?/build <COMMIT>/g'
+    # ...and the SHORT hash, which the pattern above does not reach. BuildInfo.Commit is
+    # `git rev-parse --short HEAD` — SEVEN characters — so it survived the 9-or-more rule and
+    # every commit produced a permanent false CHANGED on BuildInfo.cs. Same defect class as the
+    # `-dirty` suffix and the `[branch]` token above, same reason it matters: a checker that
+    # always shows one red line teaches the reader to skim past the line that is real.
+    #
+    # Lowering the generic threshold to 7 would start masking ordinary hex words, so the two
+    # revisions that can actually appear are masked BY VALUE: the baseline's recorded rev and
+    # the current HEAD. Prefixes from 7 characters up, longest first so a shorter prefix cannot
+    # eat the head of a longer match.
+    local revs=""
+    [[ -f "$GUARD/baseline.rev" ]] && revs="$(cat "$GUARD/baseline.rev")"
+    revs="$revs $(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+    for rev in $revs; do
+        [[ -n "$rev" ]] || continue
+        for len in 40 12 10 9 8 7; do
+            local short="${rev:0:$len}"
+            [[ ${#short} -eq $len ]] || continue
+            find "$out" -name '*.cs' -print0 \
+                | xargs -0 -r sed -i "s/\\b$short\\b/<COMMIT>/g"
+        done
+    done
 }
 
 # Classify one changed file: MOVED if the two versions are permutations of each other
@@ -131,6 +155,13 @@ case "${1:-check}" in
         # irrelevant instead of merely stable.
         python3 "$ROOT/scripts/check-partial-order.py" \
             || { echo "error: a partial type's initialisers depend on compile order (see above)" >&2; exit 1; }
+        # Instrumentation is ~9.5 % of all method code here and grows every hardware round. A
+        # diagnostic that WRITES state something non-diagnostic READS cannot be switched off or
+        # deleted — deleting one such Log* method once nearly latched the wall fade off forever.
+        # The 66 that exist today are accepted in a baseline and are Phase 5's work list; this
+        # fails only on a NEW one.
+        python3 "$ROOT/scripts/check-instrument-writes.py" \
+            || { echo "error: a NEW load-bearing write sits inside a diagnostic (see above)" >&2; exit 1; }
         python3 "$ROOT/scripts/check-remote-defaults.py" \
             || { echo "error: remote rendering drifted from the local defaults (see above)" >&2; exit 1; }
         # The OTHER half of the same guarantee. check-remote-defaults.py catches a mirrored

@@ -1,0 +1,79 @@
+# Diagnostics that carry load-bearing state — the accepted set.
+#
+# One line per (type::field <- the diagnostic methods that write it). An entry means: this
+# `Log*`/`Census*`/`Report*` method CANNOT be switched off or deleted, because something that is
+# not a diagnostic reads a field it writes. That is the shape that once nearly latched the wall
+# fade off forever.
+#
+# This file is a WORK LIST, not a permission slip. Phase 5 of PLAN-2026-08.md works through it and
+# every entry should end as one of: gated and kept, retired, the write moved into the mechanism,
+# or the method renamed so its name stops lying. The file is expected to SHRINK.
+#
+# Regenerate with:  scripts/check-instrument-writes.py --baseline
+# Inspect with:     scripts/check-instrument-writes.py --report
+ActorBars::s_loggedSizeFactor <- LogSize
+ActorBars::s_loggedWorldScale <- LogSize
+ActorBars::s_nextSizeLog <- LogSize
+BoardCapPress::_cap <- Report
+BoardCapPress::_seq <- Report
+BoardCapPress::_until <- Report
+CanvasConversion::s_orderHashNodes <- LogPanelOrder
+FadeDriver::_cyclePrepWarmedRoots <- LogRescanBudget
+FadeDriver::_cyclePrepareTotalMillis <- LogRescanBudget
+FadeDriver::_cycleProbedSegments <- LogRescanBudget
+FadeDriver::_cycleSurveyTotalMillis <- LogRescanBudget
+FadeDriver::_cycleWorstCommitMillis <- LogRescanBudget
+FadeDriver::_cycleWorstCommitPhase <- LogRescanBudget
+FadeDriver::_cycleWorstFrameMillis <- LogRescanBudget
+FadeDriver::_cycleWorstPrepareMillis <- LogRescanBudget
+FadeDriver::_cycleWorstSkipRun <- LogRescanBudget
+FadeDriver::_cycleWorstSurveyMillis <- LogRescanBudget
+FadeDriver::_cycleWorstSweepMillis <- LogRescanBudget
+FadeDriver::_cycleWorstTableAgeSeconds <- LogRescanBudget
+FadeDriver::_lastLoggedMountedCount <- LogMountedCensus
+FadeDriver::_lastLoggedMountedHandover <- LogMountedCensus
+FadeDriver::_lastLoggedMountedLeftover <- LogMountedCensus
+FadeDriver::_lastLoggedMountedRejected <- LogMountedCensus
+FadeDriver::_lastLoggedMountedWallBuilt <- LogMountedCensus
+FadeDriver::_lastLoggedMountedWallBuiltBelowBar <- LogMountedCensus
+FadeDriver::_lastLoggedMountedWallBuiltCarried <- LogMountedCensus
+FadeDriver::_lastLoggedStackedCount <- LogStackedCensus
+FadeDriver::_lastLoggedStackedRejected <- LogStackedCensus
+FadeDriver::_live <- LogInsideState
+FadeDriver::_paFoliage <- AuditOneCacheWall
+FadeDriver::_paGatedOff <- AuditOneCacheWall
+FadeDriver::_paNoRoom <- AuditOneCacheWall
+FadeDriver::_paUnclaimed <- AuditOneCacheWall
+FadeDriver::_paUnclaimedByClass <- AuditOneCacheWall
+FadeDriver::_roomTileFootprint <- LogSampleGridCensus
+FadeDriver::_showEdgeUnitReturn <- AuditShowEdge
+FadeDriver::_subtreeScratch <- LogGeneratedContentChildren
+FadeDriver::_unionRaisedPropFrames <- LogMountedUnion
+FadeDriver::_walkEdgePending <- LogWalkInsideEdge
+FadeDriver::_windowWorstCommitTotalMillis <- LogRescanBudget
+FadeWrite::Fade <- FadeWrite
+FadeWrite::Owner <- FadeWrite
+FadeWrite::Path <- FadeWrite
+FadeWrite::R <- FadeWrite
+Flight::_idleReason <- ReportIdle
+FreeLabelOrder::_logPending <- LogOrder
+HostingChainWatch::_endedCount <- Replay
+HostingChainWatch::_pendingStack <- ReportAmputation
+HostingChainWatch::_startedCount <- Replay
+LightStabiliser::_costTicks <- ReportWatch
+Listener::Action <- Listener
+Listener::Key <- Listener
+MapRoomHand::_failed <- Probe
+MapTableLegs::_verts <- Report
+ModalFallback::MapRoomBarHeights <- LogMapRoomBarHeight
+ObjectivesSurface::_widthDumpAt <- LogWidthVerification
+ObjectivesSurface::_widthDumped <- LogWidthVerification
+OpenState::Esc <- OpenState
+OpenState::Mp <- OpenState
+OpenState::Opt <- OpenState
+PanelGrabHandle::_reelSelfTicks <- ReportReelReleased
+PanelSamplingProbe::Surfaces <- Report
+PanelSupersample::FrameSb <- ReportCaptureFrame
+RemoteHandFan::_mapPrinted <- PrintMapFace
+RenderTargetProbe::Sb <- BehaviourList
+UiSoundEar::_stateLogged <- ReportState
