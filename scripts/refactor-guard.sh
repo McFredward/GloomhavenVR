@@ -121,6 +121,24 @@ snapshot() {
 # It is not a proof of safety: reordering two statements that DO depend on each other
 # is also a permutation. It narrows "what changed" to "only the order changed", which
 # is exactly the question a human then has to answer.
+#
+# MOVED IS A FAILURE ON A TYPE FILE — PLAN-2026-08.md R1, and it cost a near-regression:
+# field initialisers run in declaration order, across partials that order is COMPILE order,
+# so a reordered initialiser also classifies MOVED. CanvasConversion's field table came back
+# with two statics swapped under a rule that accepted MOVED.
+#
+# THE ONE EXCEPTION, and it is not a type file. `GloomhavenVR.csproj` in the snapshot is
+# SYNTHESISED BY ilspycmd from the assembly's AssemblyRef metadata table, whose order follows
+# the order in which the compiler first touched each referenced assembly — i.e. SOURCE COMPILE
+# ORDER. Move a file to another folder and that order changes, so a pure folder restructure
+# reports `MOVED GloomhavenVR.csproj` with every type file byte-identical. The CLR resolves
+# references by name; the table's order is not observable.
+#
+# The classifier already separates the two cases correctly: an ADDED or REMOVED reference is a
+# genuine difference and comes back CHANGED, never MOVED. So `MOVED GloomhavenVR.csproj` alone,
+# with 0 changed, is the expected result of moving files and nothing else. Verified when Core/
+# was restructured: 6 differing lines, one <Reference> block, the two files identical as
+# multisets, and no other file in the snapshot differing at all.
 classify() {
     if diff -q <(sort "$1") <(sort "$2") >/dev/null 2>&1; then echo "MOVED  "; else echo "CHANGED"; fi
 }

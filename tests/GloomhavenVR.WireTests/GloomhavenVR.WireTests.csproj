@@ -110,7 +110,7 @@
        that, which is why the schedule was pulled out of EnvSound.Bank.cs (AudioClip, AudioSettings
        — the whole Unity audio module) into a file free of everything but Mathf. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\EnvSoundSchedule.cs" Link="core\EnvSoundSchedule.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\Sound\EnvSoundSchedule.cs" Link="core\EnvSoundSchedule.cs" />
   </ItemGroup>
 
   <!-- Not wire files either, and here for the EnvSoundSchedule reason at its sharpest. Spatial
@@ -141,7 +141,7 @@
        file free of everything but Mathf precisely so they could be linked in here and driven
        instant by instant. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\HauntFigures.Math.cs" Link="core\HauntFigures.Math.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\Haunt\HauntFigures.Math.cs" Link="core\HauntFigures.Math.cs" />
   </ItemGroup>
 
   <!-- Not a wire file, and here for the ConfigSteps/ScrollTurnGate reason: it decides the
@@ -181,9 +181,9 @@
        Material, ReflectionProbe, the whole driver) in a file free of everything but Mathf
        precisely so they could be linked in here and swept property by property. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterReflectionCaps.cs" Link="core\WaterReflectionCaps.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterEdgeBand.cs" Link="core\WaterEdgeBand.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WaterOwnSurface.cs" Link="core\WaterOwnSurface.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\Water\WaterReflectionCaps.cs" Link="core\WaterReflectionCaps.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\Water\WaterEdgeBand.cs" Link="core\WaterEdgeBand.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\Water\WaterOwnSurface.cs" Link="core\WaterOwnSurface.cs" />
   </ItemGroup>
 
 
@@ -272,7 +272,7 @@
        headset can. WallPropUnit.cs was written free of Unity — counts, distances and strings —
        precisely so the case from the hardware log could be driven here claim by claim. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallPropUnit.cs" Link="core\WallPropUnit.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallPropUnit.cs" Link="core\WallPropUnit.cs" />
     <Compile Include="WallPropUnitVectors.cs" />
   </ItemGroup>
 
@@ -285,7 +285,7 @@
        per round. WallStandingProp.cs was written free of Unity — floats and counts — precisely so
        the case in the photograph could be driven here unit by unit. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallStandingProp.cs" Link="core\WallStandingProp.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallStandingProp.cs" Link="core\WallStandingProp.cs" />
     <Compile Include="WallStandingPropVectors.cs" />
   </ItemGroup>
 
@@ -301,7 +301,7 @@
        that accuses itself) and its known-positive control could be driven here, in CI, before
        anyone believes a line it printed on hardware. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallSegmentFadeCulprits.cs" Link="core\WallSegmentFadeCulprits.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallSegmentFadeCulprits.cs" Link="core\WallSegmentFadeCulprits.cs" />
     <Compile Include="WallSignatureCulpritVectors.cs" />
   </ItemGroup>
 
@@ -319,7 +319,7 @@
        about itself) and a known positive of each of its FOUR snap cases could be driven here, in
        CI, before a single number it prints on hardware is believed. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallCommitDiff.cs" Link="core\WallCommitDiff.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallCommitDiff.cs" Link="core\WallCommitDiff.cs" />
     <Compile Include="WallCommitDiffVectors.cs" />
   </ItemGroup>
 

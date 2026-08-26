@@ -181,7 +181,7 @@ MIRRORS=(
   # variable NAME is duplicated as a literal. A rename on one side alone would silently turn
   # the diagnostic back into the thing it was built to replace: a line reporting a state it
   # cannot see. That happened once already (2026-07-28) and this is why it cannot again.
-  "graphics-jobs session handshake (env var name) : Preload/Patcher.cs:SessionStateVariable Core/OpenXRBootstrap.cs:SessionGraphicsJobsVariable"
+  "graphics-jobs session handshake (env var name) : Preload/Patcher.cs:SessionStateVariable Core/Startup/OpenXRBootstrap.cs:SessionGraphicsJobsVariable"
 )
 
 fail=0

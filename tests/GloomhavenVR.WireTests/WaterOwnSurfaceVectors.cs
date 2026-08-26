@@ -93,7 +93,7 @@ namespace GloomhavenVR.WireTests;
 internal static class WaterOwnSurfaceVectors
 {
     private const string BundleRelRoot = "unity/GloomhavenVR.Assets/Assets/Bundle";
-    private const string WaterSrcRelDir = "src/GloomhavenVR/Core";
+    private const string WaterSrcRelDir = "src/GloomhavenVR/Core/Water";
 
     /// <summary>The film's authored body tint, read off the live material on hardware
     /// (LogOutput.log:1018). Every number this file compares against is measured.</summary>
@@ -602,7 +602,7 @@ internal static class WaterOwnSurfaceVectors
     private static void DisplacedBoundsArePaddedAndGivenBack(Harness t, string repoRoot)
     {
         string path = Path.Combine(
-            repoRoot, "src", "GloomhavenVR", "Core", "WaterTerrainVR.cs");
+            repoRoot, "src", "GloomhavenVR", "Core", "Water", "WaterTerrainVR.cs");
         t.True(File.Exists(path), $"WaterTerrainVR.cs exists at '{path}'");
         if (!File.Exists(path))
             return;
@@ -1093,7 +1093,7 @@ internal static class WaterOwnSurfaceVectors
         }
 
         // ...AND THE DRIVER HAS NOTHING LEFT TO RESOLVE A RATE WITH.
-        string src = Path.Combine(repoRoot, "src", "GloomhavenVR", "Core", "WaterTerrainVR.cs");
+        string src = Path.Combine(repoRoot, "src", "GloomhavenVR", "Core", "Water", "WaterTerrainVR.cs");
         if (File.Exists(src))
         {
             // Comments are NOT stripped here: the driver's forbidden-name check already looks for
