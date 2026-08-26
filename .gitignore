@@ -87,3 +87,5 @@ unity/GloomhavenVR.Assets/board-unity-preview.png
 render/windowmaterialise/
 render/clouds/
 cloud-preview.log
+.planning/refactor/census-2026-08/*.json
+.planning/refactor/census-2026-08/__pycache__/
