@@ -53,7 +53,7 @@ MIRRORS=(
   # copy is DIAGNOSTIC-ONLY — no placement, scale or seat reads it — so a drift costs a wrong number
   # in a log line and can never move a window. Linted anyway, because a legibility figure nobody can
   # trust is worse than none: the whole "is the text big enough" argument is settled from that line.
-  "window reading distance : WorldUI/ModalFallback.1.Core.cs:WindowDistanceMeters WorldUI/CanvasConversion.3.Fit.cs:FixedFitReadingDistanceMeters"
+  "window reading distance : WorldUI/Modal/ModalFallback.1.Core.cs:WindowDistanceMeters WorldUI/Conversion/CanvasConversion.3.Fit.cs:FixedFitReadingDistanceMeters"
   # THE "map room table rim" GROUP IS GONE, and deleting it rather than keeping it is the outcome
   # this file keeps recommending. ModBuild 197 added it for a pair — MapLocationInteractor.TableRimMeters
   # and MapRoomBenches.TableRimMeters — on the premise that the map room's table is not an object and
@@ -74,8 +74,8 @@ MIRRORS=(
   # hand pointing at a surface — as all three scroll paths. Its comment says it mirrors
   # RayUguiDriver's number; this is that claim made machine-checked rather than left as prose.
   # No new GROUP: this is one more site on the value the group already owns.
-  "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen.6.Pointer.cs:StickScrollDeadzone WorldUI/PanelGrab.cs:ReelDeadzone"
-  "thumbstick scroll speed (wheel notches/s) : Hands/Interact/RayUguiDriver.cs:ScrollNotchesPerSecond WorldUI/ModalFallback.5.ResultsScroll.cs:ResultsScrollNotchesPerSecond WorldUI/FlatScreen.6.Pointer.cs:StickScrollNotchesPerSecond"
+  "thumbstick scroll deadzone : Hands/Interact/RayUguiDriver.cs:ScrollDeadzone WorldUI/Modal/ModalFallback.5.ResultsScroll.cs:ResultsScrollDeadzone WorldUI/FlatScreen/FlatScreen.6.Pointer.cs:StickScrollDeadzone WorldUI/Grab/PanelGrab.cs:ReelDeadzone"
+  "thumbstick scroll speed (wheel notches/s) : Hands/Interact/RayUguiDriver.cs:ScrollNotchesPerSecond WorldUI/Modal/ModalFallback.5.ResultsScroll.cs:ResultsScrollNotchesPerSecond WorldUI/FlatScreen/FlatScreen.6.Pointer.cs:StickScrollNotchesPerSecond"
 
   # The remote board's INERT keycaps (Net/RemoteBoardFurniture.InertCap) rebuild the local
   # board's beveled-keycap look — same mesh (CardMesh.BuildBeveledKeycap), same materials
@@ -135,7 +135,7 @@ MIRRORS=(
   # (a peer's track floating far above their board).
   "dock fit floor : WorldUI/Surfaces/TablePanelSurfaces.cs:MinDensityScale Net/RemoteWidgetMirror.cs:MinDensityScale"
   "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/RemoteWidgetMirror.cs:MaxDensityScale"
-  "content-fit alpha floor : WorldUI/CanvasConversion.3.Fit.cs:FitMinAlpha Net/RemoteWidgetMirror.cs:FitMinAlpha"
+  "content-fit alpha floor : WorldUI/Conversion/CanvasConversion.3.Fit.cs:FitMinAlpha Net/RemoteWidgetMirror.cs:FitMinAlpha"
 
   # The DECISION DOCK's prompt anchor, mirrored by the remote board (decision-mirror round):
   # the owner's widget block hangs (bar bottom − BarClearanceMeters − DecisionGap) below the

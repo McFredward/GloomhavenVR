@@ -128,8 +128,8 @@ runtime, which is why a runtime audit could never do this job (see
 |---|---|---|---|
 | `WorldspaceDisplayPanelBase_Patches`<br/><sub>src/GloomhavenVR/WorldUI/ActorBars.cs:1534</sub> | `WorldspaceDisplayPanelBase.TrackCharacter()` | prefix | `WorldUIModule`:52 |
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
-| `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:53 |
-| `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:54 |
+| `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:53 |
+| `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:54 |
 | `MapQuestReadyUp.ClientQuestPromptSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs:753</sub> | `UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction()` | postfix | `MapQuestReadyUp`:328 |
 | &nbsp; | `UIGuildmasterConfirmActionPopupPresenter.ShowQuestSelectedAction()` | postfix | &nbsp; |
 | `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:2396</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:828 |

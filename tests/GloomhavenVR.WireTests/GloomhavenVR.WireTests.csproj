@@ -74,7 +74,7 @@
        that reached the user (see ConfigStepVectors.cs). ConfigSteps.cs is free of Unity, BepInEx
        and the game model precisely so it could be linked in here and driven key by key. -->
   <ItemGroup>
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ConfigSteps.cs" Link="worldui\ConfigSteps.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Options\ConfigSteps.cs" Link="worldui\ConfigSteps.cs" />
   </ItemGroup>
 
   <!-- Not a wire file either, and here for the ConfigSteps reason exactly: it arbitrates one
@@ -225,7 +225,7 @@
          BoardCapSymbolVectors.cs for the two defects they pin, one of which this repository has
          already shipped once in the board's own motif reader. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapCellMath.cs" Link="cards\CapCellMath.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\ButtonStroke.cs" Link="worldui\ButtonStroke.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Buttons\ButtonStroke.cs" Link="worldui\ButtonStroke.cs" />
     <Compile Include="BoardCapSymbolVectors.cs" />
     <!-- WHETHER THE WORD ON THE KEY IS THE WHOLE WORD. Linked for the CapCellMath reason and for a
          sharper one: the ModBuild 281 board keycap read "AUSWAHL BEEN" where the game had said
