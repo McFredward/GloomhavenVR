@@ -66,7 +66,7 @@ namespace GloomhavenVR.WireTests
     {
         private static readonly (string File, string Const, int Shim)[] Pinned =
         {
-            ("src/GloomhavenVR/Net/HeadMaskLibrary.cs", "MaskCount", Net.HeadMaskLibrary.MaskCount),
+            ("src/GloomhavenVR/Net/Avatar/HeadMaskLibrary.cs", "MaskCount", Net.HeadMaskLibrary.MaskCount),
             ("src/GloomhavenVR/Hands/HandStyle.cs",     "Count",     Hands.HandStyles.Count),
         };
 

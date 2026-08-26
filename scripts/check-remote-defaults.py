@@ -64,13 +64,13 @@ PAIRS = [
     # for exactly the reason the header gives, one keyword different — the initialiser is still what
     # an UNTUNED peer's board is drawn with, and a default that moved without its copy would put two
     # untuned players in front of two different boards with nothing to tell them.
-    ("Net/RemoteBoardFurniture.cs", "_boardCapW", "BoardButtons", "Width"),
-    ("Net/RemoteBoardFurniture.cs", "_boardCapH", "BoardButtons", "Height"),
-    ("Net/RemoteBoardFurniture.cs", "_boardCapD", "BoardButtons", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "_pinCapW", "BoardDashboard", "PinWidth"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapH", "BoardDashboard", "Height"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapD", "BoardDashboard", "Depth"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapD", "RestButtons", "Depth"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapW", "BoardButtons", "Width"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapH", "BoardButtons", "Height"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapD", "BoardButtons", "Depth"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_pinCapW", "BoardDashboard", "PinWidth"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapH", "BoardDashboard", "Height"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapD", "BoardDashboard", "Depth"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapD", "RestButtons", "Depth"),
     # The turn-flow (SKIP) cap's SQUARE side lengths. They were not on this list at all before —
     # EIGHT PAIRS LEFT THIS TABLE ON 2026-08-25 — the four [RoundButtons] cap sizes, its travel and
     # the three [ButtonColors] cluster tints. They pinned the mirrored turn-flow SKIP cap's frozen
@@ -85,8 +85,8 @@ PAIRS = [
     # now (RemoteBoardFurniture.RestCap dispatches on the owner's [Cards] RestButtonShape_{board}),
     # so they are wire-overridable fallbacks like every size above and belong on this list for the
     # same reason: an untuned peer's square rest cap is drawn at the initialiser.
-    ("Net/RemoteBoardFurniture.cs", "_restCapW", "RestButtons", "Width"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapH", "RestButtons", "Height"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapW", "RestButtons", "Width"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapH", "RestButtons", "Height"),
     # THE [ButtonColors] FAMILY (record 28 ids 48..53 / 170). Nineteen float channels — six colours
     # plus the label keyline's width — which this renderer did not read AT ALL until 2026-08-09, and
     # that omission was not neutral: the shipped cap-face tint is 0.5 grey and the LOCAL caps are
@@ -97,22 +97,22 @@ PAIRS = [
     #   Held as individual float CHANNELS rather than as Color fields precisely so they are
     #   checkable: this script verifies that ONE constant names ONE annotated Defaults entry, and a
     #   Color built inline from three of them would be an "expr" it could only shrug at.
-    ("Net/RemoteBoardFurniture.cs", "_labelR", "ButtonColors", "LabelR"),
-    ("Net/RemoteBoardFurniture.cs", "_labelG", "ButtonColors", "LabelG"),
-    ("Net/RemoteBoardFurniture.cs", "_labelB", "ButtonColors", "LabelB"),
-    ("Net/RemoteBoardFurniture.cs", "_labelOutlineR", "ButtonColors", "LabelOutlineR"),
-    ("Net/RemoteBoardFurniture.cs", "_labelOutlineG", "ButtonColors", "LabelOutlineG"),
-    ("Net/RemoteBoardFurniture.cs", "_labelOutlineB", "ButtonColors", "LabelOutlineB"),
-    ("Net/RemoteBoardFurniture.cs", "_labelOutlineWidth", "ButtonColors", "LabelOutlineWidth"),
-    ("Net/RemoteBoardFurniture.cs", "_boardCapTintR", "ButtonColors", "BoardCapTintR"),
-    ("Net/RemoteBoardFurniture.cs", "_boardCapTintG", "ButtonColors", "BoardCapTintG"),
-    ("Net/RemoteBoardFurniture.cs", "_boardCapTintB", "ButtonColors", "BoardCapTintB"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapTintR", "ButtonColors", "DashCapTintR"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapTintG", "ButtonColors", "DashCapTintG"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapTintB", "ButtonColors", "DashCapTintB"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapTintR", "ButtonColors", "RestCapTintR"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapTintG", "ButtonColors", "RestCapTintG"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapTintB", "ButtonColors", "RestCapTintB"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelR", "ButtonColors", "LabelR"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelG", "ButtonColors", "LabelG"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelB", "ButtonColors", "LabelB"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelOutlineR", "ButtonColors", "LabelOutlineR"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelOutlineG", "ButtonColors", "LabelOutlineG"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelOutlineB", "ButtonColors", "LabelOutlineB"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_labelOutlineWidth", "ButtonColors", "LabelOutlineWidth"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapTintR", "ButtonColors", "BoardCapTintR"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapTintG", "ButtonColors", "BoardCapTintG"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapTintB", "ButtonColors", "BoardCapTintB"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapTintR", "ButtonColors", "DashCapTintR"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapTintG", "ButtonColors", "DashCapTintG"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapTintB", "ButtonColors", "DashCapTintB"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapTintR", "ButtonColors", "RestCapTintR"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapTintG", "ButtonColors", "RestCapTintG"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapTintB", "ButtonColors", "RestCapTintB"),
     # The mirrored keycap ANIMATIONS (2026-08-08 1:1 round). A peer's cap dips its own category's
     # TRAVEL on the synced press edge and crumbles/assembles over the ButtonAnim durations, so all
     # six numbers have a second home in Net/ and belong on this list for exactly the reason the
@@ -120,48 +120,48 @@ PAIRS = [
     # deep on one screen and 8 on another. The four TRAVELS ride record 28 now (ids 88 / 92 / 96 /
     # 98); the two ButtonAnim DURATIONS are still frozen — see check-wire-coverage.py's PENDING line
     # for why (the mirrored cap's fade clock is a static on the renderer, not per-peer state).
-    ("Net/RemoteBoardFurniture.cs", "_boardCapTravel", "BoardButtons", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "_dashCapTravel", "BoardDashboard", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "_restCapTravel", "RestButtons", "Travel"),
-    ("Net/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
-    ("Net/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapTravel", "BoardButtons", "Travel"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapTravel", "BoardDashboard", "Travel"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_restCapTravel", "RestButtons", "Travel"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "DissolveSeconds", "ButtonAnim", "DisappearSeconds"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "AppearSeconds", "ButtonAnim", "AppearSeconds"),
     # The hand fan's geometry: wire-overridable fields (record 28) whose INITIALISER is what an
     # untuned peer is drawn with — see the header. Same guarantee, one keyword different.
-    ("Net/RemoteHandFan.cs", "_palmOffset", "Cards", "FanPalmOffset"),
-    ("Net/RemoteHandFan.cs", "_radius", "Cards", "FanEffectiveRadius"),
-    ("Net/RemoteHandFan.cs", "_arcSweepDegrees", "Cards", "FanArcSweepDegrees"),
-    ("Net/RemoteHandFan.cs", "_perCardStepDegrees", "Cards", "FanPerCardStepDegrees"),
-    ("Net/RemoteHandFan.cs", "_archFactor", "Cards", "FanFlatCurvatureFactor"),
-    ("Net/RemoteHandFan.cs", "_tiltFactor", "Cards", "FanTiltFactor"),
-    ("Net/RemoteHandFan.cs", "_faceViewer", "Cards", "FanFaceViewer"),
-    ("Net/RemoteHandFan.cs", "_sideDepthCurve", "Cards", "FanSideDepthCurve"),
-    ("Net/RemoteHandFan.cs", "_curvePower", "Cards", "FanCurvePower"),
-    ("Net/RemoteHandFan.cs", "_gazeApexFollow", "Cards", "FanGazeApexFollow"),
-    ("Net/RemoteHandFan.cs", "_splitMultiplier", "Cards", "FanSplitMultiplier"),
-    ("Net/RemoteHandFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
-    ("Net/RemoteHandFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
-    ("Net/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
+    ("Net/Remote/RemoteHandFan.cs", "_palmOffset", "Cards", "FanPalmOffset"),
+    ("Net/Remote/RemoteHandFan.cs", "_radius", "Cards", "FanEffectiveRadius"),
+    ("Net/Remote/RemoteHandFan.cs", "_arcSweepDegrees", "Cards", "FanArcSweepDegrees"),
+    ("Net/Remote/RemoteHandFan.cs", "_perCardStepDegrees", "Cards", "FanPerCardStepDegrees"),
+    ("Net/Remote/RemoteHandFan.cs", "_archFactor", "Cards", "FanFlatCurvatureFactor"),
+    ("Net/Remote/RemoteHandFan.cs", "_tiltFactor", "Cards", "FanTiltFactor"),
+    ("Net/Remote/RemoteHandFan.cs", "_faceViewer", "Cards", "FanFaceViewer"),
+    ("Net/Remote/RemoteHandFan.cs", "_sideDepthCurve", "Cards", "FanSideDepthCurve"),
+    ("Net/Remote/RemoteHandFan.cs", "_curvePower", "Cards", "FanCurvePower"),
+    ("Net/Remote/RemoteHandFan.cs", "_gazeApexFollow", "Cards", "FanGazeApexFollow"),
+    ("Net/Remote/RemoteHandFan.cs", "_splitMultiplier", "Cards", "FanSplitMultiplier"),
+    ("Net/Remote/RemoteHandFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
+    ("Net/Remote/RemoteHandFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
+    ("Net/Remote/RemoteHandFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
     # The hand fan's REVEAL. These were `const OpenSeconds/OpenStagger` — frozen, so a peer's fan
     # opened at THIS client's timing no matter what its owner had tuned. They became
     # wire-overridable fields (record 28, ids 154..155) the moment the record was PAGED and had room
     # again (Net/BoardTunePages.cs); the initialiser is still what an untuned peer is drawn with, so
     # this pair carries exactly the guarantee it always did, one keyword different.
-    ("Net/RemoteHandFan.cs", "_openSeconds", "Cards", "FanOpenDuration"),
-    ("Net/RemoteHandFan.cs", "_openStagger", "Cards", "FanOpenStagger"),
+    ("Net/Remote/RemoteHandFan.cs", "_openSeconds", "Cards", "FanOpenDuration"),
+    ("Net/Remote/RemoteHandFan.cs", "_openStagger", "Cards", "FanOpenStagger"),
     # The HAND fan's character-SWAP exchange (2026-08-09 — "mach auch hier eine neue coolere
     # Tauschanimation rein die den Fächer austauscht"). Wire-overridable fields (record 28, ids
     # 77..78 / 150..153 / 226..227) whose INITIALISER is what an untuned peer's exchange is drawn
     # with. On this list for the reason the header gives: re-tune how your own hand is exchanged and
     # the mirrored fans must follow, or the swap wipes across the palm in half a second on one
     # screen and a fifth of one on another — and nobody can see that from inside their own headset.
-    ("Net/RemoteHandFan.cs", "_swapDuration", "Cards", "FanSwapDuration"),
-    ("Net/RemoteHandFan.cs", "_swapStagger", "Cards", "FanSwapStagger"),
-    ("Net/RemoteHandFan.cs", "_swapOverlap", "Cards", "FanSwapOverlap"),
-    ("Net/RemoteHandFan.cs", "_swapTravel", "Cards", "FanSwapTravel"),
-    ("Net/RemoteHandFan.cs", "_swapArc", "Cards", "FanSwapArc"),
-    ("Net/RemoteHandFan.cs", "_swapSpinDegrees", "Cards", "FanSwapSpinDegrees"),
-    ("Net/RemoteHandFan.cs", "_swapSeedScale", "Cards", "FanSwapSeedScale"),
-    ("Net/RemoteHandFan.cs", "_swapSettleOvershoot", "Cards", "FanSwapSettleOvershoot"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapDuration", "Cards", "FanSwapDuration"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapStagger", "Cards", "FanSwapStagger"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapOverlap", "Cards", "FanSwapOverlap"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapTravel", "Cards", "FanSwapTravel"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapArc", "Cards", "FanSwapArc"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapSpinDegrees", "Cards", "FanSwapSpinDegrees"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapSeedScale", "Cards", "FanSwapSeedScale"),
+    ("Net/Remote/RemoteHandFan.cs", "_swapSettleOvershoot", "Cards", "FanSwapSettleOvershoot"),
     # The ITEM fan's open/close ANIMATION (presence pass, 2026-08-08 — "Ich mag die Animation im
     # Item-Pile sehr aber sie ist (insbesondere in mixed Reality) etwas zu dezent."). Same shape as
     # the hand fan's geometry above: wire-overridable fields (record 28, ids 76 / 144..149 / 197)
@@ -169,14 +169,14 @@ PAIRS = [
     # for the reason the header gives — re-tune the local feel and the mirrored fans must follow, or
     # the cards deal out with a settle on one screen and slide open on another, and nobody can see
     # that from inside their own headset.
-    ("Net/RemoteItemFan.cs", "_openSeconds", "Cards", "ItemFanOpenDuration"),
-    ("Net/RemoteItemFan.cs", "_openStagger", "Cards", "ItemFanOpenStagger"),
-    ("Net/RemoteItemFan.cs", "_openArc", "Cards", "ItemFanOpenArc"),
-    ("Net/RemoteItemFan.cs", "_openSpinDegrees", "Cards", "ItemFanOpenSpinDegrees"),
-    ("Net/RemoteItemFan.cs", "_seedScale", "Cards", "ItemFanSeedScale"),
-    ("Net/RemoteItemFan.cs", "_settleOvershoot", "Cards", "ItemFanSettleOvershoot"),
-    ("Net/RemoteItemFan.cs", "_closeSeconds", "Cards", "ItemFanCloseDuration"),
-    ("Net/RemoteItemFan.cs", "_closeStagger", "Cards", "ItemFanCloseStagger"),
+    ("Net/Remote/RemoteItemFan.cs", "_openSeconds", "Cards", "ItemFanOpenDuration"),
+    ("Net/Remote/RemoteItemFan.cs", "_openStagger", "Cards", "ItemFanOpenStagger"),
+    ("Net/Remote/RemoteItemFan.cs", "_openArc", "Cards", "ItemFanOpenArc"),
+    ("Net/Remote/RemoteItemFan.cs", "_openSpinDegrees", "Cards", "ItemFanOpenSpinDegrees"),
+    ("Net/Remote/RemoteItemFan.cs", "_seedScale", "Cards", "ItemFanSeedScale"),
+    ("Net/Remote/RemoteItemFan.cs", "_settleOvershoot", "Cards", "ItemFanSettleOvershoot"),
+    ("Net/Remote/RemoteItemFan.cs", "_closeSeconds", "Cards", "ItemFanCloseDuration"),
+    ("Net/Remote/RemoteItemFan.cs", "_closeStagger", "Cards", "ItemFanCloseStagger"),
     # The ITEM-USE BERTH's art (2026-08-09 — the mirrored half of "Ueberarbeite das Aussehen des
     # Item-Overlays"). These landed as FROZEN constants because extension record 28 was at its exact
     # 255-byte per-record ceiling and could not carry them; the PAGING round in the same build
@@ -186,20 +186,20 @@ PAIRS = [
     # initialiser is what an UNTUNED peer's berth is still drawn with, which is what keeps them on
     # this list: move a default without moving its copy and two untuned players see two different
     # berths, and neither of them can tell from inside their own headset.
-    ("Net/RemoteBoardFurniture.cs", "_itemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
-    ("Net/RemoteBoardFurniture.cs", "_itemBerthGlow", "Cards", "ItemBerthGlow"),
-    ("Net/RemoteBoardFurniture.cs", "_itemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
-    ("Net/RemoteBoardFurniture.cs", "_itemBerthPingReach", "Cards", "ItemBerthPingReach"),
-    ("Net/RemoteBoardFurniture.cs", "_itemBerthRevealSeconds", "Cards", "ItemBerthRevealSeconds"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemBerthRingThickness", "Cards", "ItemBerthRingThickness"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemBerthGlow", "Cards", "ItemBerthGlow"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemBerthPingSeconds", "Cards", "ItemBerthPingSeconds"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemBerthPingReach", "Cards", "ItemBerthPingReach"),
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemBerthRevealSeconds", "Cards", "ItemBerthRevealSeconds"),
     # The CLOSED ITEMS PILE's "an item is usable" cue on a peer's board (2026-08-09 — the 1:1 gap
     # where a peer saw no cue at all). Same story as the berth above, and the same resolution: frozen
     # while record 28 could not carry the dials, wire-overridable fallbacks (ids 161..165) now that
     # paging has removed the ceiling. The initialiser is what an untuned peer's stack beats at.
-    ("Net/RemoteControlBoard.cs", "_itemCueBeatSeconds", "Cards", "ItemCueBeatSeconds"),
-    ("Net/RemoteControlBoard.cs", "_itemCueRingReach", "Cards", "ItemCueRingReach"),
-    ("Net/RemoteControlBoard.cs", "_itemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
-    ("Net/RemoteControlBoard.cs", "_itemCueEmberRate", "Cards", "ItemCueEmberRate"),
-    ("Net/RemoteControlBoard.cs", "_itemCueEmberSize", "Cards", "ItemCueEmberSize"),
+    ("Net/Remote/RemoteControlBoard.cs", "_itemCueBeatSeconds", "Cards", "ItemCueBeatSeconds"),
+    ("Net/Remote/RemoteControlBoard.cs", "_itemCueRingReach", "Cards", "ItemCueRingReach"),
+    ("Net/Remote/RemoteControlBoard.cs", "_itemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
+    ("Net/Remote/RemoteControlBoard.cs", "_itemCueEmberRate", "Cards", "ItemCueEmberRate"),
+    ("Net/Remote/RemoteControlBoard.cs", "_itemCueEmberSize", "Cards", "ItemCueEmberSize"),
     # The PILE FANS' shape (2026-08-09, the paging round). These four were BARE LITERALS — the exact
     # thing the header calls "a stale literal" — and nothing caught them because a literal with no
     # pair on this list has nothing to be checked against. Worse than stale: RemoteItemFan's radius
@@ -211,10 +211,10 @@ PAIRS = [
     #   PRODUCTS (Defaults.FanRadius × Defaults.FanRadiusFactor_*), and this checker verifies a
     #   constant IS one named Defaults entry. Their two factors are pinned individually instead,
     #   which is the same coverage without teaching the checker arithmetic.
-    ("Net/RemoteItemFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Items"),
-    ("Net/RemoteItemFan.cs", "_lerpSpeed", "Cards", "CardLerpSpeed"),
-    ("Net/RemoteBrowserFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Discard"),
-    ("Net/RemoteBrowserFan.cs", "_emergeSharpness", "Cards", "CardLerpSpeed"),
+    ("Net/Remote/RemoteItemFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Items"),
+    ("Net/Remote/RemoteItemFan.cs", "_lerpSpeed", "Cards", "CardLerpSpeed"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Discard"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_emergeSharpness", "Cards", "CardLerpSpeed"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"

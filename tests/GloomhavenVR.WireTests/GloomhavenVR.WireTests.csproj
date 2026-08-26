@@ -48,8 +48,8 @@
        moved during the refactor, this list is what fails first — which is intended. -->
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetProtocol.cs" Link="wire\NetProtocol.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\AvatarState.cs" Link="wire\AvatarState.cs" />
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarState.cs" Link="wire\AvatarState.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Avatar\AvatarSerializer.cs" Link="wire\AvatarSerializer.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\PresenceState.cs" Link="wire\PresenceState.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\NetPacket.cs" Link="wire\NetPacket.cs" />
     <!-- Record 28's PAGING (2026-08-09). It belongs on this list for the same reason the
@@ -57,7 +57,7 @@
          convergence property ("a peer that joins at T holds the complete tuning by T + pageCount
          packets") is not observable from either end alone. Written free of Unity, config and the
          game model precisely so it could be linked in here and driven byte by byte. -->
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\BoardTunePages.cs" Link="wire\BoardTunePages.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Net\Board\BoardTunePages.cs" Link="wire\BoardTunePages.cs" />
   </ItemGroup>
 
   <!-- Not a wire file, same reasoning: the preloader's relaunch command is built at the one moment
@@ -224,7 +224,7 @@
          Core/WallStandingProp.cs is written the way it is. See the header of
          BoardCapSymbolVectors.cs for the two defects they pin, one of which this repository has
          already shipped once in the board's own motif reader. -->
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapCellMath.cs" Link="cards\CapCellMath.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\Caps\CapCellMath.cs" Link="cards\CapCellMath.cs" />
     <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Buttons\ButtonStroke.cs" Link="worldui\ButtonStroke.cs" />
     <Compile Include="BoardCapSymbolVectors.cs" />
     <!-- WHETHER THE WORD ON THE KEY IS THE WHOLE WORD. Linked for the CapCellMath reason and for a
@@ -237,7 +237,7 @@
          beyond Mathf/Vector2 precisely so the no-character-is-ever-dropped PROPERTY could be driven
          here, string by string, at three stated font-metric models, with a null input and a
          known-positive control. See the header of CapLabelFitVectors.cs. -->
-    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\CapFaceLayout.cs" Link="cards\CapFaceLayout.cs" />
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\Caps\CapFaceLayout.cs" Link="cards\CapFaceLayout.cs" />
     <Compile Include="CapLabelFitVectors.cs" />
     <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the

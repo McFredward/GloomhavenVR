@@ -234,7 +234,7 @@ EXEMPT = {
 
 DEFAULTS_DIR = SRC / "Defaults"
 NET_PROTOCOL = SRC / "Net" / "NetProtocol.cs"
-SAMPLER = SRC / "Net" / "BoardTuning.cs"
+SAMPLER = SRC / "Net" / "Board" / "BoardTuning.cs"
 
 ANNOTATION_RE = re.compile(r"//\s*=>\s*\[(?P<section>[^\]]+)\]\s+(?P<key>\S+)")
 TUNE_ID_RE = re.compile(r"public const byte (?P<name>Tune\w+)\s*=\s*(?P<id>\d+)\s*;")

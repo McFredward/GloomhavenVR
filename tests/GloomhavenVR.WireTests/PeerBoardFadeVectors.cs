@@ -31,7 +31,7 @@ namespace GloomhavenVR.WireTests;
 
 internal static class PeerBoardFadeVectors
 {
-    private const string Source = "src/GloomhavenVR/Net/PeerBoardFade.cs";
+    private const string Source = "src/GloomhavenVR/Net/Board/PeerBoardFade.cs";
 
     internal static void Run(Harness t, string repoRoot)
     {

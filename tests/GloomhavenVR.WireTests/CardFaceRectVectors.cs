@@ -102,9 +102,9 @@ internal static class CardFaceRectVectors
 
     private static void SourceLint(Harness t, string repoRoot)
     {
-        string cardFace = Read(repoRoot, "src/GloomhavenVR/Cards/CardFace.cs");
+        string cardFace = Read(repoRoot, "src/GloomhavenVR/Cards/Art/CardFace.cs");
         string vrCard = Read(repoRoot, "src/GloomhavenVR/Cards/VRCard.cs");
-        string remoteFan = Read(repoRoot, "src/GloomhavenVR/Net/RemoteHandFan.cs");
+        string remoteFan = Read(repoRoot, "src/GloomhavenVR/Net/Remote/RemoteHandFan.cs");
 
         // The inset this file's millimetres are computed from.
         t.Case("cardface/border-fraction-pinned");

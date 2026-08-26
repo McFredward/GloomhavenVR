@@ -46,7 +46,7 @@ MIRRORS=(
   # other silently re-opens "what lights up is not what I grab". (It replaced THREE unlinted copies:
   # CardsDriver.ContactPalmReach, PileBrowser.ContactPalmReach, ItemsPile.ContactPalmReach.)
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
-  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/PlayTray.7.Nested.cs:FingertipRadius"
+  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/Tray/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
   # ModBuild 200: the fixed-fit branch reports legibility in arc-minutes, which needs the reading
   # distance. ModalFallback owns the real one and keeps it private, so the fit carries a copy. The
@@ -85,19 +85,19 @@ MIRRORS=(
   # the local keycap look and the remote boards must follow, or the two boards drift apart.
   # (The two Color statics of the recipe — WallWarm / BevelHighlight — cannot be linted by
   # this float/string-only extractor; they are called out as mirrors in both doc comments.)
-  "keycap cap seat Z : Cards/PlayTray.7.Nested.cs:CapRestZ Net/RemoteBoardFurniture.cs:CapRestZ"
+  "keycap cap seat Z : Cards/Tray/PlayTray.7.Nested.cs:CapRestZ Net/Remote/RemoteBoardFurniture.cs:CapRestZ"
   # THE "keycap bevel width" GROUP IS GONE (2026-08-25, board-button round 2), and again by
   # DELETING BOTH COPIES rather than keeping them in step — which is the outcome this file keeps
   # recommending. The pair was PlayTray.SquareCapBevel and RemoteBoardFurniture.CapBevel, one 7 mm
   # chamfer width in METERS on each side. Round 2 replaced the single chamfer with a five-zone
-  # SIGNET profile whose zones are FRACTIONS of the cap's own short side (Cards/CapFaceLayout.cs:
+  # SIGNET profile whose zones are FRACTIONS of the cap's own short side (Cards/Caps/CapFaceLayout.cs:
   # BezelChamfer/BezelRim/BezelStep), computed inside CardMesh.BuildBeveledKeycap — which both
   # boards already call. Neither side passes a bevel any more, so there is nothing left to mirror.
   # (The fixed 7 mm was itself the defect: it is 0.159 of the Bronze cap's short side and 0.113 of
   # Steel's, so "one constant" was never one proportion.)
-  "keycap wall tint factor : Cards/PlayTray.7.Nested.cs:WallTintFactor Net/RemoteBoardFurniture.cs:WallTintFactor"
-  "keycap wall warm lerp : Cards/PlayTray.7.Nested.cs:WallWarmLerp Net/RemoteBoardFurniture.cs:WallWarmLerp"
-  "keycap bevel highlight lerp : Cards/PlayTray.7.Nested.cs:BevelLerp Net/RemoteBoardFurniture.cs:BevelLerp"
+  "keycap wall tint factor : Cards/Tray/PlayTray.7.Nested.cs:WallTintFactor Net/Remote/RemoteBoardFurniture.cs:WallTintFactor"
+  "keycap wall warm lerp : Cards/Tray/PlayTray.7.Nested.cs:WallWarmLerp Net/Remote/RemoteBoardFurniture.cs:WallWarmLerp"
+  "keycap bevel highlight lerp : Cards/Tray/PlayTray.7.Nested.cs:BevelLerp Net/Remote/RemoteBoardFurniture.cs:BevelLerp"
   # THE MIRRORED KEYCAP PRESS SPRING IS GONE (2026-08-25, the board-button overhaul), and this is
   # the third time a group has been closed by DELETING the second copy rather than by keeping it
   # in step. It was one pair this extractor could not reach anyway, for the opposite reason to the
@@ -133,9 +133,9 @@ MIRRORS=(
   # the same POSITION. They are private to their own layers by design; the price is these
   # mirrors. A drift here reproduces exactly the defect the mirror was rewritten to fix
   # (a peer's track floating far above their board).
-  "dock fit floor : WorldUI/Surfaces/TablePanelSurfaces.cs:MinDensityScale Net/RemoteWidgetMirror.cs:MinDensityScale"
-  "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/RemoteWidgetMirror.cs:MaxDensityScale"
-  "content-fit alpha floor : WorldUI/Conversion/CanvasConversion.3.Fit.cs:FitMinAlpha Net/RemoteWidgetMirror.cs:FitMinAlpha"
+  "dock fit floor : WorldUI/Surfaces/TablePanelSurfaces.cs:MinDensityScale Net/Remote/RemoteWidgetMirror.cs:MinDensityScale"
+  "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/Remote/RemoteWidgetMirror.cs:MaxDensityScale"
+  "content-fit alpha floor : WorldUI/Conversion/CanvasConversion.3.Fit.cs:FitMinAlpha Net/Remote/RemoteWidgetMirror.cs:FitMinAlpha"
 
   # The DECISION DOCK's prompt anchor, mirrored by the remote board (decision-mirror round):
   # the owner's widget block hangs (bar bottom − BarClearanceMeters − DecisionGap) below the
@@ -159,10 +159,10 @@ MIRRORS=(
   # local card and its ghost. Retune one copy and a peer's card either overhangs the gold rim or
   # arrives on a different animation from the one its owner is watching, which is exactly the
   # divergence the 1:1 ruling forbids.
-  "item-use recess inner plate : Cards/ItemsPile.cs:UseSlotInnerFactor Net/RemoteBoardFurniture.cs:UseSlotInnerFactor"
-  "item-use recess card fill : Cards/ItemsPile.cs:UseSlotFillFraction Net/RemoteItemFan.cs:UseSlotFillFraction"
-  "item-use clip settle seconds : Cards/ItemsPile.cs:ClipSettleSeconds Net/RemoteItemFan.cs:ClipSettleSeconds"
-  "item chip release glide seconds : Cards/ItemsPile.cs:ReleaseGlideSeconds Net/RemoteItemFan.cs:ReleaseGlideSeconds"
+  "item-use recess inner plate : Cards/Piles/ItemsPile.cs:UseSlotInnerFactor Net/Remote/RemoteBoardFurniture.cs:UseSlotInnerFactor"
+  "item-use recess card fill : Cards/Piles/ItemsPile.cs:UseSlotFillFraction Net/Remote/RemoteItemFan.cs:UseSlotFillFraction"
+  "item-use clip settle seconds : Cards/Piles/ItemsPile.cs:ClipSettleSeconds Net/Remote/RemoteItemFan.cs:ClipSettleSeconds"
+  "item chip release glide seconds : Cards/Piles/ItemsPile.cs:ReleaseGlideSeconds Net/Remote/RemoteItemFan.cs:ReleaseGlideSeconds"
 
   # THE TWO "cluster" GROUPS ARE GONE (2026-08-25), and this is what deleting a group looks
   # like when the ORIGINAL is deleted rather than retuned. "cluster proud seat" paired
