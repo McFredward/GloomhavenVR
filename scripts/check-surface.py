@@ -44,7 +44,12 @@ import os
 import re
 import sys
 
-SRC = "src"
+# Resolved from THIS FILE, not from the working directory. The tool is invoked from
+# scripts/refactor-guard.sh, from CI and by hand, and a cwd-relative "src" quietly
+# censuses NOTHING when the caller happens to sit elsewhere — an empty census diffs
+# clean against an empty census, so the failure mode is a checker that always passes.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SRC = os.path.join(ROOT, "src")
 SKIP_DIRS = {"obj", "bin"}
 
 
@@ -145,17 +150,24 @@ TOKEN = re.compile(r"\b[A-Z][A-Z0-9_]{1,}(?:[ \-][A-Z0-9_]{2,})+\b")
 
 
 def sources():
+    """Absolute path to walk with, repo-relative path to RECORD with.
+
+    The snapshot names a file beside every entry, and that name is read by a human in a failure
+    message. An absolute path is both unreadable and machine-specific — two checkouts of the same
+    commit would produce snapshots that differ in every line while describing the same source.
+    """
     for root, dirs, files in os.walk(SRC):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for f in files:
+        for f in sorted(files):
             if f.endswith(".cs"):
-                yield os.path.join(root, f)
+                full = os.path.join(root, f)
+                yield full, os.path.relpath(full, ROOT)
 
 
 def snapshot() -> dict:
     keys, patches, tokens = {}, {}, {}
-    for path in sorted(sources()):
-        with open(path, encoding="utf-8", errors="replace") as fh:
+    for full, path in sorted(sources(), key=lambda t: t[1]):
+        with open(full, encoding="utf-8", errors="replace") as fh:
             raw = fh.read()
         code = strip_comments(raw)
 

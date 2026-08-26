@@ -1,0 +1,12 @@
+# Declared cross-part static-initialiser dependencies.
+#
+# One line per dependency:   Type::Field <- Type::Field | reason
+#
+# An entry says: "this type's behaviour now depends on the NAMES of its own source files."
+# MSBuild sorts the compile glob OrdinalIgnoreCase, so `Foo.Body.cs` compiles before `Foo.cs`
+# and `Foo.cs` before `Foo.Dissolve.cs` — an ordering nobody chose and no diff shows. Adding an
+# entry here therefore needs a reason that says why moving the two fields into ONE part was not
+# the cheaper answer.
+#
+# The file is empty on purpose. Nothing in the mod needs an entry today, and the whole point of
+# scripts/check-partial-order.py is to keep it that way.

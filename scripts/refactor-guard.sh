@@ -34,6 +34,10 @@
 #                                      lockstep is invisible to a round trip and to the guard
 #   scripts/check-bundle-format.sh     a bundle built by the WRONG editor loads nowhere and
 #                                      fails silently into the procedural fallback
+#   scripts/check-surface.py           a REMOVED config key reverts a player's tuned value with
+#                                      no message; a reworded log marker costs a hardware round
+#   scripts/check-partial-order.py     static field initialisers run in COMPILE order across the
+#                                      parts of a partial type, and MSBuild sorts the glob
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -102,6 +106,10 @@ case "${1:-check}" in
         snapshot "$BASE"
         echo "baseline: $(find "$BASE" -name '*.cs' | wc -l) types from $(git -C "$ROOT" rev-parse --short HEAD)"
         git -C "$ROOT" rev-parse HEAD > "$GUARD/baseline.rev"
+        # The compiled form cannot show a removed config key or a reworded log marker, and both
+        # are silent failures on a USER'S machine (CHARTER §3b.3). check-surface.py censuses them
+        # from the source text; it needs a before-snapshot to diff against, and this is it.
+        python3 "$ROOT/scripts/check-surface.py" snapshot "$GUARD/surface.json"
         ;;
     check)
         [[ -d "$BASE" ]] || { echo "error: no baseline — run 'refactor-guard.sh baseline' first" >&2; exit 1; }
@@ -116,6 +124,13 @@ case "${1:-check}" in
             || { echo "error: frame ordering drifted (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-mirrors.sh" \
             || { echo "error: mirrored constants drifted (see above)" >&2; exit 1; }
+        # A file RENAME can change a value. Static field initialisers run in declaration order,
+        # which across the parts of a partial type is COMPILE order — and MSBuild sorts the glob
+        # OrdinalIgnoreCase, so WallSegmentFade.cs compiles in the MIDDLE of its own fifteen
+        # parts. This asserts no initialiser depends on another part, which makes the order
+        # irrelevant instead of merely stable.
+        python3 "$ROOT/scripts/check-partial-order.py" \
+            || { echo "error: a partial type's initialisers depend on compile order (see above)" >&2; exit 1; }
         python3 "$ROOT/scripts/check-remote-defaults.py" \
             || { echo "error: remote rendering drifted from the local defaults (see above)" >&2; exit 1; }
         # The OTHER half of the same guarantee. check-remote-defaults.py catches a mirrored
@@ -128,6 +143,16 @@ case "${1:-check}" in
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \
             || { echo "error: the committed bundle cannot be read by the game (see above)" >&2; exit 1; }
+        # The user-facing surface the assembly does not carry: config keys (a removed key does not
+        # error — the player's tuned value is simply never read again and their setting reverts
+        # without a message) and log markers (a marker that quietly changed spelling reads as "the
+        # feature did not run" and costs a hardware round). REMOVAL fails; additions are free.
+        [[ -f "$GUARD/surface.json" ]] \
+            || { echo "error: no surface baseline — run 'refactor-guard.sh baseline' first" >&2; exit 1; }
+        python3 "$ROOT/scripts/check-surface.py" snapshot "$GUARD/surface.current.json" \
+            || { echo "error: surface census failed" >&2; exit 1; }
+        python3 "$ROOT/scripts/check-surface.py" diff "$GUARD/surface.json" "$GUARD/surface.current.json" \
+            || { echo "error: a config key, log marker or patch registration was REMOVED (see above)" >&2; exit 1; }
         snapshot "$CURR"
         if [[ "${2:-}" == "--summary" ]]; then
             echo "=== compiled form vs $(cut -c1-9 < "$GUARD/baseline.rev" 2>/dev/null) ==="
