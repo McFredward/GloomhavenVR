@@ -2955,9 +2955,22 @@ internal static class GoldenVectors
                 "the bar mask is read through the mask — no fifth bar can be invented");
         t.Equal(NetProtocol.UseBarOptionPickerBit, wub.UseBarFlags![0],
                 "the bar flags likewise");
-        t.Equal(NetProtocol.UseSlotOfferedBit, wub.UseBarSlotStates![0],
-                "and every undefined slot bit is masked away");
-        t.Equal(NetProtocol.UseSlotDimmedBit, wub.UseBarSlotStates[1], "on every slot, not just the first");
+        // ModBuild 308 GAVE SLOT BITS 3 AND 4 MEANINGS (hovered / pressed), so this vector's wild
+        // bytes now carry real bits alongside the reserved ones. Asserted as the exact expected
+        // value rather than "OFFERED alone", for the reason record 24's twin of this assertion
+        // states: the point of the test is that the MASK is the whole contract, so it has to move
+        // WITH the mask — and the second assertion states the half that must never move.
+        t.Equal((byte)(NetProtocol.UseSlotOfferedBit
+                       | NetProtocol.UseSlotHoveredBit
+                       | NetProtocol.UseSlotPressedBit),
+                wub.UseBarSlotStates![0],
+                "every slot bit this build DEFINES survives the mask");
+        t.Equal((byte)(NetProtocol.UseSlotDimmedBit
+                       | NetProtocol.UseSlotHoveredBit
+                       | NetProtocol.UseSlotPressedBit),
+                wub.UseBarSlotStates[1], "on every slot, not just the first");
+        t.Equal(0, (byte)(wub.UseBarSlotStates[0] & 0xE0),
+                "and every UNDEFINED slot bit (5..7) is still masked away");
 
         // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
         // against what is LEFT INSIDE the record, and the record behind it still reads.

@@ -18351,10 +18351,13 @@ internal static class NetProtocol
     ///   does). Masked to <see cref="UseBarFlagsDefinedMask"/> both ways.</item>
     /// <item><c>n</c> — visible slots in that bar, clamped to <see cref="UseBarsMaxSlots"/> on both
     ///   ends AND, on read, against the record's own remaining length.</item>
-    /// <item>slot byte — <see cref="UseSlotOfferedBit"/> (the owner can click it),
+    /// <item>slot byte — since ModBuild 308 FIVE bits, not three:
+    ///   <see cref="UseSlotOfferedBit"/> (the owner can click it),
     ///   <see cref="UseSlotDimmedBit"/> (the slot's <c>CanvasGroup</c> is below full alpha — the
     ///   game's own <c>UIUseSlot.disabledAlpha</c> 0.25 "not yours / not now" look) and
-    ///   <see cref="UseSlotChosenBit"/> (<c>UIUseSlot.IsSelected()</c> — the toggle is ON). Same
+    ///   <see cref="UseSlotChosenBit"/> (<c>UIUseSlot.IsSelected()</c> — the toggle is ON),
+    ///   <see cref="UseSlotHoveredBit"/> and <see cref="UseSlotPressedBit"/> (the OWNER's pointer is
+    ///   on it / holding it down — the only facts here a receiver cannot derive). Same
     ///   three bit POSITIONS and the same meanings as record 24's option byte, so a receiver paints
     ///   a bar tile and a decision plate through one code path. Masked to
     ///   <see cref="UseSlotDefinedMask"/> both ways.</item>
@@ -18448,12 +18451,43 @@ internal static class NetProtocol
     /// owner has switched on. Same bit position as <see cref="DecisionOptionChosenBit"/>.</summary>
     public const byte UseSlotChosenBit = 1 << 2;
 
-    /// <summary>Every slot bit defined today; masked on write AND on read. Bit 3 was considered for
-    /// the MANDATORY highlight and deliberately left reserved: <c>UIUseSlot.mandatoryHiglight</c> is
-    /// private serialized state, and the fact it telegraphs ("a mandatory bonus still owes a pick")
-    /// already reaches every peer through the pick-banner record 7, which
-    /// <c>UseBarsSurface.UpdateWaitingHint</c> publishes on exactly that condition.</summary>
-    public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit;
+    /// <summary>
+    /// Slot byte bit 3: THE OWNER'S POINTER IS ON THIS SLOT. Same bit position as
+    /// <see cref="DecisionOptionHoveredBit"/>, like the three below it.
+    ///
+    /// <para>BIT 3 WAS RESERVED FOR SOMETHING ELSE AND THAT RESERVATION IS HEREBY SPENT, which is
+    /// worth writing down rather than quietly overwriting. It read: "Bit 3 was considered for the
+    /// MANDATORY highlight and deliberately left reserved: <c>UIUseSlot.mandatoryHiglight</c> is
+    /// private serialized state, and the fact it telegraphs ('a mandatory bonus still owes a pick')
+    /// already reaches every peer through the pick-banner record 7." That reasoning still holds —
+    /// the mandatory highlight is DERIVED on the receiver and needs no bit — so the reservation was
+    /// never a claim on the number, only a note that the number had been looked at once. The hover
+    /// has a genuine claim on it: it is the one fact in this record a receiver cannot derive, and
+    /// bit 3 is where its twin sits in record 24.</para>
+    ///
+    /// <para>IT WAS MISSING FOR A MONTH AND NOTHING BROKE, which is how it survived. This record was
+    /// born with three bits on 2026-08-08 and never gained a fourth; when ModBuild 300 gave the
+    /// DECISION options their hover, the use-bar slots beside them were not touched, because the two
+    /// samplers live in different files and only the bit POSITIONS were ever kept in step. So the
+    /// owner's beam lit a use-bar slot on their own board and nowhere else, while the decision row
+    /// one drawer above mirrored correctly.</para></summary>
+    public const byte UseSlotHoveredBit = 1 << 3;
+
+    /// <summary>Slot byte bit 4: the owner is PRESSING this slot. Same bit position as
+    /// <see cref="DecisionOptionPressedBit"/>, and the same held-press semantics — see it for why a
+    /// press shorter than one publish interval is not expressible.</summary>
+    public const byte UseSlotPressedBit = 1 << 4;
+
+    /// <summary>Every slot bit defined today; masked on write AND on read — which is what makes this
+    /// constant, and not the two above it, the load-bearing half of the widening: the slot byte is
+    /// masked with it in <c>PresenceState</c> on the way OUT as well as in, so a sampler that set a
+    /// bit this mask did not name would have its work stripped inside its own serializer.
+    ///
+    /// <para>Bits 3 and 4 joined in ModBuild 308. A pure widening of a byte already being sent: the
+    /// record's LENGTH did not move, so an idle packet is byte-identical and an older receiver masks
+    /// the two new bits straight back off and renders exactly what it rendered before.</para></summary>
+    public const byte UseSlotDefinedMask = UseSlotOfferedBit | UseSlotDimmedBit | UseSlotChosenBit
+                                           | UseSlotHoveredBit | UseSlotPressedBit;
 
     /// <summary>
     /// Extension record id: WHICH FAN POSITION IS CLIPPED INTO THE SENDER'S ITEM-USE RECESS —
