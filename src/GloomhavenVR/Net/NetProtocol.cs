@@ -17712,6 +17712,24 @@ internal static class NetProtocol
     /// <summary>[RestButtons] Height — the rest keycap height while the shape is Square.</summary>
     public const byte TuneRestCapHeight = 100;
 
+    /// <summary>
+    /// [Cards] SlotCardInset — how deep a played card seats into the physical slot recess, in real
+    /// metres toward the viewer (−Z). A GLOBAL dial, not per-board, which is why it carries no
+    /// <c>_{board}</c> suffix; the value crosses the wire in slot-local metres exactly as the owner
+    /// binds it, and the receiver multiplies by <c>PlayTray.SlotScale</c> like every other authored
+    /// slot-local length on this record.
+    ///
+    /// <para>THE GAP THIS CLOSES, because it was a stated wire debt for four builds and the reason
+    /// it carried was half wrong. The debt read "NOTHING in Net/ reads it, so a wire field would
+    /// have no consumer" — literally true of the identifier, and misleading about the picture: the
+    /// mirror DOES seat cards in the real prefab recess, at a private literal
+    /// (<c>RemoteControlBoard.CardOnAnchorProudZ = −0.003f</c>) while the owner seats at
+    /// <c>−SlotCardInset</c> through the slot's own 1.3× SlotScale. At the SHIPPED default that is
+    /// 5.2 mm against the peer's flat 3 mm — a divergence before anybody has touched a dial, and it
+    /// grows by the owner's whole tuning range on top. The consumer was there all along, wearing a
+    /// literal.</para></summary>
+    public const byte TuneSlotCardInset = 101;
+
     // FACTOR (2 B, thousandths): dimensionless multipliers.
 
     /// <summary>[Cards] ObjectivesScale_{board}.</summary>
@@ -18082,6 +18100,24 @@ internal static class NetProtocol
     /// converging dust cloud as well as the surface fade. Same ownership rule as
     /// <see cref="TuneButtonAnimOn"/>.</summary>
     public const byte TuneButtonAppearParticles = 235;
+
+    /// <summary>
+    /// [Cards] GameCardParticles — whether the OWNER lets the GAME's own card plume play (the
+    /// <c>CardSmoke</c> spark/smoke burst the base game spawns onto a card). One bool, the same
+    /// shape and the same ownership rule as <see cref="TuneCardDustOn"/>: a peer may not draw the
+    /// owner's plume unless the owner has it on, and may not withhold it when they do.
+    ///
+    /// <para>NO PICTURE TRAVELS, as everywhere on this record. The plume is
+    /// <c>GlobalSettings.Instance.VisualEffects.CardSmoke</c> — a PUBLIC prefab field on a
+    /// singleton every client loads out of Resources, which is why the receiver can host its own
+    /// tamed copy off one permission bit. The old wire debt called this dial unreachable on a
+    /// receiver ("no game particle system to switch on"); that pictured the dial as a component
+    /// sitting on a card, which it never was, and the mod's own <c>Cards.Art.BurnCardFx</c> had
+    /// been instantiating and bounding an instance of this exact prefab the whole time.</para>
+    ///
+    /// <para>Carries <c>[Cards] GameCardParticles</c>. Named again on the last line for the
+    /// mechanical reason <see cref="TuneButtonAnimOn"/> states.</para></summary>
+    public const byte TuneGameCardParticlesOn = 236;
 
     /// <summary>
     /// RESERVED, AND NEVER LIVE — the id <see cref="TuneCardDustOn"/> was mistakenly given in

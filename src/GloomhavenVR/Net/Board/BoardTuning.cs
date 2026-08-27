@@ -287,6 +287,14 @@ internal static class BoardTuningSampler
         n += Len(payload, ref i, NetProtocol.TuneRestCapHeight,
                  WorldUI.ButtonTuning.RestHeight, Defaults.RestButtons_Height);
 
+        // …and how deep a played card SEATS in the recess (id 101). Global rather than per-board —
+        // CardsConfig.SlotCardInset is one dial for every style — so unlike its neighbours it takes
+        // no `style` and no per-board default table. See NetProtocol.TuneSlotCardInset for what the
+        // mirror was drawing before this: a frozen literal 1.3 mm shallower than the shipped
+        // default, i.e. wrong for everyone and not only for a peer who had tuned it.
+        n += Len(payload, ref i, NetProtocol.TuneSlotCardInset,
+                 Cards.CardsConfig.SlotCardInset, Defaults.SlotCardInset);
+
         // ---- FACTOR fields (ids 128..169) — dimensionless multipliers, plus the seconds- and
         // per-second-valued dials that ride this WIDTH (the id range fixes the width, not the unit)
         n += Fac(payload, ref i, NetProtocol.TuneObjectivesScale,
@@ -516,6 +524,11 @@ internal static class BoardTuningSampler
                    WorldUI.ButtonTuning.AnimEnable, Defaults.Enable);
         n += Bool8(payload, ref i, NetProtocol.TuneButtonAppearParticles,
                    WorldUI.ButtonTuning.AnimAppearParticles, Defaults.AppearParticles);
+        // …and the GAME's own card plume (id 236), now the highest id sampled here. The twin of the
+        // card-dust bool above and under the identical rule — the effect never travels, only the
+        // owner's say-so; the receiver hosts its own copy of the game's CardSmoke prefab.
+        n += Bool8(payload, ref i, NetProtocol.TuneGameCardParticlesOn,
+                   Cards.CardsConfig.GameCardParticles, Defaults.GameCardParticles);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
@@ -798,6 +811,12 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[RestButtons] Height — its height while the shape is Square.</summary>
     public float RestCapHeight { get; }
 
+    /// <summary>The owner's <c>[Cards] SlotCardInset</c> — how deep a played card seats into the
+    /// slot recess, in AUTHORED slot-local metres (the raw dial; the receiver applies
+    /// <c>PlayTray.SlotScale</c> itself, exactly as it does for the slot-overlay offset beside
+    /// it). Wire id <see cref="NetProtocol.TuneSlotCardInset"/>.</summary>
+    public float SlotCardInset { get; }
+
     /// <summary>[Cards] RestButtonShape_{board} — ROUND disc or SQUARE keycap for the peer's rest
     /// pair. Resolved through the same KNOWN-MEMBER test as <c>RoundCapShape</c>.</summary>
     public ButtonShape RestCapShape { get; }
@@ -827,6 +846,13 @@ internal readonly struct RemoteBoardTuning
     /// puff. The permission the mirrored fan needs before it may call its OWN
     /// <c>Cards.CardDustFx</c>; no picture travels.</summary>
     public bool CardDustOn { get; }
+
+    /// <summary>Whether the owner lets the GAME's own <c>CardSmoke</c> plume play — their
+    /// <c>[Cards] GameCardParticles</c>. A PERMISSION and not a picture, exactly like
+    /// <see cref="CardDustOn"/>: the receiver hosts its own tamed copy of the prefab and this bit
+    /// only says whether it may run. Wire id
+    /// <see cref="NetProtocol.TuneGameCardParticlesOn"/>.</summary>
+    public bool GameCardParticlesOn { get; }
 
     /// <summary>[ButtonAnim] Enable — whether this owner's keycaps animate at all. THEIR dial, not
     /// the viewer's; see <c>NetProtocol.TuneButtonAnimOn</c> for the reversal.</summary>
@@ -1057,6 +1083,7 @@ internal readonly struct RemoteBoardTuning
         RestCapTravel = L(payload, len, NetProtocol.TuneRestCapTravel, Defaults.RestButtons_Travel);
         RestCapWidth = L(payload, len, NetProtocol.TuneRestCapWidth, Defaults.RestButtons_Width);
         RestCapHeight = L(payload, len, NetProtocol.TuneRestCapHeight, Defaults.RestButtons_Height);
+        SlotCardInset = L(payload, len, NetProtocol.TuneSlotCardInset, Defaults.SlotCardInset);
 
         // The two PER-BOARD shapes, through the same KNOWN-MEMBER test as the turn-flow cap above:
         // a wire byte selects a shape only when it names one this build has, and anything else is
@@ -1089,6 +1116,8 @@ internal readonly struct RemoteBoardTuning
                          Defaults.Enable ? 1 : 0) != 0;
         ButtonAppearParticles = C(payload, len, NetProtocol.TuneButtonAppearParticles,
                                   Defaults.AppearParticles ? 1 : 0) != 0;
+        GameCardParticlesOn = C(payload, len, NetProtocol.TuneGameCardParticlesOn,
+                                Defaults.GameCardParticles ? 1 : 0) != 0;
         ButtonAppearSeconds = F(payload, len, NetProtocol.TuneButtonAppearSeconds,
                                 Defaults.AppearSeconds);
         ButtonDisappearSeconds = F(payload, len, NetProtocol.TuneButtonDisappearSeconds,
