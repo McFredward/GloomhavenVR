@@ -416,7 +416,93 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 297;
+    public const ushort ModBuild = 298;
+    // Build 298: A REFACTOR IN WHICH EXACTLY ONE TYPE'S COMPILED FORM CHANGED.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes, unchanged from 296. ***
+    //
+    //   NOT A FEATURE BUILD. Code hygiene only, against a rule stated by the user up front:
+    //   "die Funktion 1:1 genauso zu belassen und ohne eine Regression". Across the whole
+    //   programme the compiled form of ONE type differs (RemotePickBanner, below) and every other
+    //   commit was verified 0-changed with scripts/refactor-guard.sh. That is the deliverable.
+    //
+    //   THE ONE BEHAVIOUR CHANGE, and it is a crash going away. RemotePickBanner dereferenced
+    //   _root unguarded on a line whose two NEIGHBOURS both guard it. _root is readonly and set in
+    //   the constructor, so never null in the C# sense — but it is a UNITY object, which makes
+    //   those `!= null` tests DESTROYED-object tests. On a torn-down board subtree the log line
+    //   threw MissingReferenceException out of a DIAGNOSTIC, and a throw there amputates the rest
+    //   of the caller's chain. On a live board nothing differs.
+    //
+    //   THE APPARATUS GREW TO FIT THE TREE. The 2026-07-27 refactor covered 182 files; there are
+    //   now 485 and 311 of them had never been through one. Four checkers now run on every commit
+    //   (24 s total), and EVERY ONE OF THEM WAS GREEN ON THE WHOLE TREE WHILE BEING INCAPABLE OF
+    //   FAILING until a deliberate control found it:
+    //     * check-partial-order.py (new) — static field initialisers run in COMPILE order across a
+    //       partial type's parts, and MSBuild sorts the glob, so a file RENAME can change a value.
+    //       Its `mods` regex repeated a NAMED group, and Python keeps only the last repetition:
+    //       `internal static readonly int Seed` yielded mods='readonly ', so every static readonly
+    //       field in the mod was invisible to it.
+    //     * check-instrument-writes.py (new) — which diagnostics carry state a NON-diagnostic
+    //       reads, i.e. which of them can never be switched off. 197 -> 84 -> 66 as the definition
+    //       of "a read" and then of "a diagnostic" were corrected; the second is a call-graph
+    //       fixpoint rather than a name pattern.
+    //     * check-surface.py wired into the gate — it could not see anything at all from a foreign
+    //       working directory, and an empty census diffs clean against an empty census.
+    //     * the frame-order lock, 7 -> 9. Both new entries were ALREADY DECLARED load-bearing in
+    //       prose and guarded by nothing; one of them had been named as unguarded by the very
+    //       refactor that created its file.
+    //
+    //   AND A MASK THAT WAS TWO CHARACTERS SHORT. The guard masks commit hashes of 9+ hex; the
+    //   build stamps a SEVEN-character short hash into BuildInfo. Every commit of this refactor
+    //   would have shown one false red line — the exact thing that trains a reader to skim.
+    //
+    //   251 FILES MOVED, 0 CHANGED. WorldUI/ held 101 files in one folder, Core/ 91, Net/ 65,
+    //   Cards/ 51; the largest folder is now 37 and the median is 8. Namespaces deliberately
+    //   UNCHANGED — renaming them renames every type and would bury the guard diff in NEW/GONE
+    //   entries in exactly the commit where "prove nothing else moved" is the point. What made the
+    //   move free was check-partial-order.py, written three commits earlier for another reason.
+    //   Five path pins fired, every one loudly; two of them — a water lint that counts the files it
+    //   can still see, and a shim that pins HeadMaskLibrary because its MaskCount is otherwise
+    //   unverified — are better than anything phase 1 had to add.
+    //
+    //   EVERY GERMAN USER QUOTE IN A COMMENT NOW CARRIES AN ENGLISH RENDERING (user request). The
+    //   German stays: his exact words are the evidence a decision was measured against, and a
+    //   translation is already an interpretation. The detector counted English as German twice
+    //   before it counted anything right — `so`, `an`, `hand` are German words AND English ones —
+    //   so the third version runs a self-test on real lines from this repo before printing a
+    //   finding, and that self-test immediately caught a miss. The honest number was 47 blocks,
+    //   not 4 588.
+    //
+    //   ZERO WARNINGS, AND TreatWarningsAsErrors IS ON — the condition ci-build.sh had carried for
+    //   years ("cannot be turned on while those six exist"). Six became four became none.
+    //
+    //   XML DOC CHECKING WORKS, AND THE OLD NOTE'S DIAGNOSIS WAS WRONG. LOG.md recorded that
+    //   GenerateDocumentationFile produced "no CS1574 and no XML file at all". The property always
+    //   took effect; 46 MALFORMED-XML errors aborted doc processing before cref resolution ran.
+    //   Fixing those exposed 63 dangling documentation references and 18 stale paramrefs. 30 crefs
+    //   were a qualification problem (HandShown had genuinely moved to Core.VREvents); the 36 that
+    //   name a symbol declared NOWHERE are demoted to <c> and every one is listed in
+    //   STALE-DOC-REFS.md rather than laundered. CS1574/CS1734 are errors from here.
+    //   That change also nearly cost the guard its most useful property — ilspycmd folds the XML
+    //   back into the snapshot, so a comments-only commit reported hundreds of CHANGED types and
+    //   "empty diff proves comment-only" would have died. The XML is hidden during the decompile.
+    //
+    //   ENVSOUND, 5 264 LINES, IS FIVE DIGIT-PREFIXED PARTS AND THE GUARD IS EMPTY — not MOVED.
+    //   The invariant that could have broken is audible rather than visible: the bed factory's
+    //   decorrelation offset reads Beds.Count AT CONSTRUCTION, and the flame, draught and leaves
+    //   share ONE noise clip. Reorder those calls and they sum coherently, +10 dB instead of +5,
+    //   collapsing into one source heard from three places.
+    //   EnvSoundBank was attempted and REVERTED: its file holds more than one top-level type, so
+    //   the splitter's assumption is false there. Reverted rather than forced.
+    //
+    //   WHAT IS DEFERRED, NAMED RATHER THAN QUIETLY DROPPED: eight more god-type splits, the
+    //   PresenceState serializer pair, the six Bind monoliths (whose call ORDER is the layout of
+    //   the player's .cfg), the 66-entry instrument work list, eight duplication groups and the
+    //   WorldUI<->Cards cycle. All measured, all recorded in PLAN-2026-08.md and LOG-2026-08.md.
+    //   CardFan and CardsGameApi have no invariant entry and the registry says so in its own §9.
+    //
+    //   TEST LIST: .planning/refactor/HARDWARE-REGRESSION-2026-08.md. It has ONE item, and its
+    //   shortness is the deliverable.
+    //
     // Build 297: THE VOICE COMES FROM THE MASK — AND THE EAR WAS ON A PARKED CAMERA.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes, unchanged from 296. ***
     //
