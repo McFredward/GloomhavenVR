@@ -43,7 +43,7 @@ namespace GloomhavenVR.Core;
 /// <c>_SmoothnessTextureChannel</c>: a property whose name contains "smoothness" and whose value
 /// is an ENUM choosing which texture channel the smoothness is read from. Writing 0.08 into it
 /// would not dim a reflection, it would change where the shader reads its data — a semantic
-/// corruption that could look like anything. <see cref="SelectorTokens"/> is the guard: a name
+/// corruption that could look like anything. <see cref="WaterReflectionCaps.SelectorTokens"/> is the guard: a name
 /// carrying any of those substrings is a map, a channel, a mode or a toggle, never a strength,
 /// and is refused. This is a real family of names, not a hypothetical one, which is why the list
 /// is a plain documented array rather than a regex.</para>

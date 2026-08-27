@@ -90,7 +90,7 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// runs, and without a VR float the predicate is false anyway.</item>
 /// </list>
 ///
-/// Fully reflection-guarded per repo convention (<see cref="WallFadeDisable"/> pattern): each of
+/// Fully reflection-guarded per repo convention (<see cref="GloomhavenVR.Compat.WallFadeDisable"/> pattern): each of
 /// the five targets resolves via <see cref="AccessTools"/>; a missing one is skipped with a
 /// single warning, and if NONE resolve (or registration throws) the whole patch degrades to a
 /// strict no-op — the options window is then merely as blocked as vanilla, never worse.

@@ -877,7 +877,7 @@ internal sealed partial class MapRoomHand
     /// <para>It is DERIVED, never maintained: rebuilt from <see cref="_cardModels"/> (which is
     /// already appended in lockstep with <see cref="_cards"/>) at every publish, so it cannot become
     /// a fifth lockstep invariant to get wrong. A card whose model is missing publishes
-    /// <see cref="NoInitiative"/>, which the driver renders as <c>?</c> and excludes from its
+    /// <see cref="CardsDriver.NoInitiative"/>, which the driver renders as <c>?</c> and excludes from its
     /// sortedness verdict rather than treating as a number.</para>
     ///
     /// <para>MULTIPLAYER: nothing here goes near the wire. The initiative is a LOCAL number used by

@@ -632,7 +632,6 @@ internal static partial class ModalFallback
     /// location preview, and <c>UILocalTooltip</c> is the base every local tooltip in the game uses
     /// (it even carries an optional <c>UIWindow</c> of its own, which is exactly how these ended up
     /// in the window path at all).</para>
-    /// </summary>
     /// <para>THE TEST IS ON THE WINDOW'S OWN GAMEOBJECT (ModBuild 182), and 181's was not. It asked
     /// <c>GetComponentInParent</c> AND <c>GetComponentInChildren</c>, and the character screen
     /// CONTAINS tooltips — so the whole character UI was classified as a hover card, flown over

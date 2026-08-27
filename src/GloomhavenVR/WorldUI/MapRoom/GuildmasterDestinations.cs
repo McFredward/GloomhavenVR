@@ -1621,7 +1621,7 @@ internal static class GuildmasterDestinations
     /// inactive-at-load HUD is present from the first frame, so if three sweeps ~0.7 s apart cannot
     /// see it, no number of further sweeps will. And the budget RE-ARMS on any tick the singleton
     /// answers, so a scene that genuinely has a HUD never loses the safety net.</para>
-    /// </summary>
+    /// </para></summary>
     private const int HudColdSweepBudget = 3;
 
     /// <inheritdoc cref="HudColdSweepBudget"/>

@@ -411,42 +411,42 @@ internal sealed partial class PlayTray
 
     // --------------------------------------------------- recess seat liner: RETIRED (137+1) --
 
-    /// <summary>
-    /// THE SEAT LINER IS GONE. User report 2026-08-13, verbatim: "Uns ist aufgefallen das unter den
-    /// Kartenoverlays noch so ein weiteres Brett liegt. Verschiebt man die Kartenoverlays geht
-    /// dieses Brett mit. Es ist nie aufgefallen weil die overlays im Controllbaordasset so
-    /// positioniert waren, dass es perfekt drinen lag. Dieses Brett das zu den overlays gehört soll
-    /// komplett weg, das brauchen wir nicht. Die overlays reichen und können auf dem asset des
-    /// controllboards ohne etwas zugehöriges positioniert werden."
-    ///
-    /// <para>WHAT IT WAS: rounds 13/14 built a rounded <c>CardMesh</c> slab of grain wood
-    /// (<c>SlotSeatLiner</c>, 1.45x the seated card) on the recess floor behind each tray card,
-    /// because every pixel the card's punch-out erased rendered as the bundled tray's own near-black
-    /// AO-baked recess floor and read as "schwarze Ränder". It was a BACKDROP for a card that had
-    /// holes in it.</para>
-    ///
-    /// <para>WHY IT MAY GO: the card-border saga was solved at the source (mesh-contour punch-out) —
-    /// the seated card no longer erases a frame band it needs something warm behind. What remained
-    /// was a third member of the "Overlays" element that silently travelled with the two glows
-    /// (<see cref="SetOverlayOffset"/> re-seated it in the same loop), invisible only as long as the
-    /// tuned offsets kept it buried inside the control-board asset. The ModBuild-137 rebase moved
-    /// the overlays and the plank came out from under the board. The user's ruling settles it: the
-    /// overlays are the whole element, and they seat directly on the board asset.</para>
-    ///
-    /// <para>NOTHING WAS ANCHORED TO IT — verified before deletion: no child was ever parented to
-    /// <c>SlotSeatLiner</c>, no code looked it up by name, nothing read its renderer or bounds, it
-    /// was never handed to <c>AdoptFurniture</c>/<c>CanvasConversion.RegisterFurniture</c>, and
-    /// <see cref="SlotHoldsCard"/> counts only children carrying a <c>VRCard</c>, so
-    /// <c>OccupiedSlotMask</c> cannot move. Its three constants (SlotLinerSeatRatio 1.45,
-    /// SlotLinerColor (0.46,0.37,0.26), SlotLinerZ) had exactly two readers — this builder and the
-    /// peer mirror's <c>Net.RemoteBoardFurniture.BuildSlotLiner</c> — and both are deleted in the
-    /// same change, so a peer's board loses the same plank in the same build. There is no config
-    /// dial to retire: the liner never had one.</para>
-    ///
-    /// <para>REJECTED: hiding it behind a new [Cards] toggle. A dial the user has ruled OFF is a
-    /// dial that has to be explained in the options tree forever, and the settings audits of
-    /// ModBuild 136 removed twenty of exactly that kind.</para>
-    /// </summary>
+    //
+    // THE SEAT LINER IS GONE. User report 2026-08-13, verbatim: "Uns ist aufgefallen das unter den
+    // Kartenoverlays noch so ein weiteres Brett liegt. Verschiebt man die Kartenoverlays geht
+    // dieses Brett mit. Es ist nie aufgefallen weil die overlays im Controllbaordasset so
+    // positioniert waren, dass es perfekt drinen lag. Dieses Brett das zu den overlays gehört soll
+    // komplett weg, das brauchen wir nicht. Die overlays reichen und können auf dem asset des
+    // controllboards ohne etwas zugehöriges positioniert werden."
+    //
+    // WHAT IT WAS: rounds 13/14 built a rounded <c>CardMesh</c> slab of grain wood
+    // (<c>SlotSeatLiner</c>, 1.45x the seated card) on the recess floor behind each tray card,
+    // because every pixel the card's punch-out erased rendered as the bundled tray's own near-black
+    // AO-baked recess floor and read as "schwarze Ränder". It was a BACKDROP for a card that had
+    // holes in it.
+    //
+    // WHY IT MAY GO: the card-border saga was solved at the source (mesh-contour punch-out) —
+    // the seated card no longer erases a frame band it needs something warm behind. What remained
+    // was a third member of the "Overlays" element that silently travelled with the two glows
+    // (<see cref="SetOverlayOffset"/> re-seated it in the same loop), invisible only as long as the
+    // tuned offsets kept it buried inside the control-board asset. The ModBuild-137 rebase moved
+    // the overlays and the plank came out from under the board. The user's ruling settles it: the
+    // overlays are the whole element, and they seat directly on the board asset.
+    //
+    // NOTHING WAS ANCHORED TO IT — verified before deletion: no child was ever parented to
+    // <c>SlotSeatLiner</c>, no code looked it up by name, nothing read its renderer or bounds, it
+    // was never handed to <c>AdoptFurniture</c>/<c>CanvasConversion.RegisterFurniture</c>, and
+    // <see cref="SlotHoldsCard"/> counts only children carrying a <c>VRCard</c>, so
+    // <c>OccupiedSlotMask</c> cannot move. Its three constants (SlotLinerSeatRatio 1.45,
+    // SlotLinerColor (0.46,0.37,0.26), SlotLinerZ) had exactly two readers — this builder and the
+    // peer mirror's <c>Net.RemoteBoardFurniture.BuildSlotLiner</c> — and both are deleted in the
+    // same change, so a peer's board loses the same plank in the same build. There is no config
+    // dial to retire: the liner never had one.
+    //
+    // REJECTED: hiding it behind a new [Cards] toggle. A dial the user has ruled OFF is a
+    // dial that has to be explained in the options tree forever, and the settings audits of
+    // ModBuild 136 removed twenty of exactly that kind.
+    //
     // (No member here. This block is the record of a deletion — do NOT rebuild the liner without
     // re-reading the ruling above.)
 

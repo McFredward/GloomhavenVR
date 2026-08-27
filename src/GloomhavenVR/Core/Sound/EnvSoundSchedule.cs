@@ -102,7 +102,7 @@ internal struct EnvSoundRng
 /// CONSTRUCTION, for every input including <c>NaN</c>, and the vectors drive it with exactly those.
 /// (The scheduler that motivated it — the ice sound's — is deleted; the one that uses it now is the
 /// fire's crackle, and it leans on both bounds explicitly: see <c>EnvSound.TickFire</c>.)</para>
-/// </summary>
+/// </para></summary>
 internal static class EnvSoundSchedule
 {
     // =============================================================================================

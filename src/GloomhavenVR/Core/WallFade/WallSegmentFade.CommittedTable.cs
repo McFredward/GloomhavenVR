@@ -47,17 +47,17 @@ namespace GloomhavenVR.Core;
 /// decision path). Every one was found by tracing the per-frame READERS rather than by trusting
 /// the list, and §3.1's own warning turns out to apply to §3.1. In three families:</para>
 /// <list type="number">
-/// <item><b>The board-volume family:</b> <see cref="BoardVolumeValid"/> (without it
-///   <see cref="BoardVolume"/> is a stale AABB that reads as authoritative),
-///   <see cref="BoardCrestWU"/>, <see cref="BoardFloorY"/> and <see cref="BoardVolumeRooms"/> —
+/// <item><b>The board-volume family:</b> <see cref="WallSegmentFade.FadeDriver.CommittedTable.BoardVolumeValid"/> (without it
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.BoardVolume"/> is a stale AABB that reads as authoritative),
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.BoardCrestWU"/>, <see cref="WallSegmentFade.FadeDriver.CommittedTable.BoardFloorY"/> and <see cref="WallSegmentFade.FadeDriver.CommittedTable.BoardVolumeRooms"/> —
 ///   written by <c>CommitBoardVolume</c> and read every frame by <c>UpdateInsideBoard</c> (whose
 ///   Schmitt bars at BOTH ends are fractions of the crest) and <c>UpdateWalkInside</c> (whose
 ///   real-metre term is <c>BoardCrestWU / rigScale</c>). Leave those behind and the walk-in
 ///   stand-down — the thing that holds every wall solid while the player stands in the board,
 ///   and behaviour the user has just called perfect — runs on the retired table's geometry.</item>
 /// <item><b>The sample INDICES, and this is the sharpest one:</b>
-///   <see cref="RoomSampleStart"/> and <see cref="RoomSampleCount"/>. §3.1 has
-///   <see cref="AllSamples"/> and not the two indices INTO it. <c>RoomBlockedFraction</c> reads
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.RoomSampleStart"/> and <see cref="WallSegmentFade.FadeDriver.CommittedTable.RoomSampleCount"/>. §3.1 has
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.AllSamples"/> and not the two indices INTO it. <c>RoomBlockedFraction</c> reads
 ///   <c>start = RoomSampleStart[room]</c> and then bounds the walk by <c>AllSamples.Count</c>;
 ///   <c>BlockedFraction</c> and <c>RoomDecisionValid</c> take the DENOMINATOR from
 ///   <c>RoomSampleCount</c>. Buffer the samples without their indices and, on the swap frame,
@@ -65,10 +65,10 @@ namespace GloomhavenVR.Core;
 ///   ModBuild 258 failure ("the denominator was a rectangle drawn around a hexagonal room")
 ///   re-armed, and it changes which walls fade.</item>
 /// <item><b>Committed state living outside WallSegmentFade.cs:</b>
-///   <see cref="CornerPieces"/> (read every frame by <c>ApplyCornerPieces</c>),
-///   <see cref="PropUnitAnchors"/> and <see cref="PropUnitRootMemo"/> (the latter read by
-///   <c>StaggerRootOf</c> on every prop-frame), and <see cref="PrepBoardProbePos"/> /
-///   <see cref="PrepBoardProbeValid"/>, which are gate 3 of the commit-SKIP decision — a stale
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.CornerPieces"/> (read every frame by <c>ApplyCornerPieces</c>),
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.PropUnitAnchors"/> and <see cref="WallSegmentFade.FadeDriver.CommittedTable.PropUnitRootMemo"/> (the latter read by
+///   <c>StaggerRootOf</c> on every prop-frame), and <see cref="WallSegmentFade.FadeDriver.CommittedTable.PrepBoardProbePos"/> /
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.PrepBoardProbeValid"/>, which are gate 3 of the commit-SKIP decision — a stale
 ///   pair there does not tear the table, it decides not to rebuild one.</item>
 /// </list>
 ///
@@ -98,7 +98,7 @@ namespace GloomhavenVR.Core;
 ///   re-seat both AT the swap.</item>
 /// <item><b>And one open question this build cannot settle:</b> <c>_sampleVisible</c> is
 ///   TICK-owned (so it is not in the table) but it is INDEX-ALIGNED to
-///   <see cref="AllSamples"/>, and no invalidation path for it could be found. On the swap frame
+///   <see cref="WallSegmentFade.FadeDriver.CommittedTable.AllSamples"/>, and no invalidation path for it could be found. On the swap frame
 ///   it is stale by construction. Build 2 must either force an <c>UpdateSampleVisibility</c>
 ///   pass before the next <c>BlockedFraction</c> or prove that it cannot matter.</item>
 /// <item>and inside the table itself, <c>Segment.GateLift</c> is a reference to ANOTHER

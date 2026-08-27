@@ -209,7 +209,7 @@ namespace GloomhavenVR.Core;
 /// <para>MULTIPLAYER: purely local. This only removes renderers from a LOCAL wall's own lists; it
 /// produces no decision, no wire record and no peer-visible state, and every peer runs the
 /// identical geometric rule against the identical scene.</para>
-/// </summary>
+/// </para></summary>
 internal static partial class WallSegmentFade
 {
     private sealed partial class FadeDriver

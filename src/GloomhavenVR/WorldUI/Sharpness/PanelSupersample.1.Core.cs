@@ -590,7 +590,7 @@ internal static partial class PanelSupersample
     /// <summary>A SECOND release repair this many frames after the first. The content fit can trim a
     /// window a few frames after the release (the log's host rect flips 328 -> 716 -> 1920 uGUI px on
     /// one window in one session), and a repair that ran before that flip repaired the previous
-    /// layout. Cheap: it is two passes per release, not per frame.</para></summary>
+    /// layout. Cheap: it is two passes per release, not per frame.</summary>
     private const int ReleaseSecondRepairFrames = 12;
 
     /// <summary>The per-frame budget a 90 Hz headset gives, in milliseconds. Used ONLY as the

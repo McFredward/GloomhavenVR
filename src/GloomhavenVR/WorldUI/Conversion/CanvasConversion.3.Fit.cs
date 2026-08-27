@@ -4124,7 +4124,7 @@ internal static partial class CanvasConversion
     /// <summary>
     /// Central fit driver (test #14 item 1), called from <see cref="Tick"/>: first
     /// fit after <see cref="FitDelaySeconds"/> (retried per frame through the show
-    /// animation, warn once at <see cref="FitFirstDeadline"/>), then a THROTTLED
+    /// animation, warn once at <see cref="ConvertedPanel.FitFirstDeadline"/>), then a THROTTLED
     /// periodic re-check every ~<see cref="FitCheckIntervalFrames"/> frames per
     /// panel so content GROWTH (story pages, log lines) re-fits the host. Steady
     /// state cost: one Graphic-union scan per panel per 30 frames; the 2 % no-op

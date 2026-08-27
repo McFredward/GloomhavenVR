@@ -15736,7 +15736,7 @@ internal static class NetProtocol
     /// <para>NO CARD IDENTITY, unchanged: a chip is a REGION of a slot the peer already draws, in
     /// the same two positions bytes 0 and 1 already name. What crosses is which of two rectangles
     /// on a card the peer is already rendering the owner is pointing at.</para>
-    /// </summary>
+    /// </para></summary>
     public const byte HalfDefaultHoverBit = 1 << 0;
 
     /// <summary>Record 14 byte 2, bit 1 — slot 0's SELECTED region is its standard-action chip.
@@ -16635,7 +16635,7 @@ internal static class NetProtocol
     /// <para>ADDITIVE TLV exactly like every record before it: an older peer steps over it by its
     /// length and keeps seating everything at the shipped defaults — today's look, never a broken
     /// one.</para>
-    /// </summary>
+    /// </para></summary>
     public const byte ExtIdBoardTuning = 28;
 
     /// <summary>

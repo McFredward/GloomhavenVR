@@ -82,7 +82,7 @@ internal static class Placement_Hover_Diagnostics
 ///        refcount, from a leaked Pause3DWorld)
 ///   :427 <c>PointingAtANewTile()</c> → hover (the same <c>Interactable()</c> the game
 ///        will compare: null names the :3815 UI gate via overUI, a tile names success)
-///   :428 <c>!m_AllHexesHighlighted && !LockView</c> → allHexes / lockView
+///   :428 <c>!m_AllHexesHighlighted &amp;&amp; !LockView</c> → allHexes / lockView
 ///   :430 <c>m_RefreshedCurrentState</c> → refreshed
 ///   :433 <c>m_currentDisplayState == CharacterPlacement</c> → display
 ///

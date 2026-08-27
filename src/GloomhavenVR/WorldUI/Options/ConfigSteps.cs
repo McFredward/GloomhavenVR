@@ -604,7 +604,7 @@ internal static class ConfigSteps
     /// <see cref="NiceStep"/> floors there ("nothing a player meets is anywhere near this small")
     /// and the reachability guard filters there ("a marker is not tuning"). The finest real dial
     /// in the mod, [HexHighlight] StableDepthBias at 0.0002, is 200x clear of it.</para>
-    /// </summary>
+    /// </para></summary>
     internal const double ZeroMagnitude = 1e-6d;
 
     /// <summary>

@@ -121,7 +121,7 @@ namespace GloomhavenVR.WorldUI.Patches;
 /// <para><b>MULTIPLAYER:</b> presentation only. No wire traffic, no session state read or written,
 /// and the swap is identical for host and client. Desktop-flat play with the mod installed simply
 /// also shows the VR wordmark, which is the point of the request.</para>
-/// </summary>
+/// </para></summary>
 [HarmonyPatch]
 internal static class MainMenuLogoSwap
 {

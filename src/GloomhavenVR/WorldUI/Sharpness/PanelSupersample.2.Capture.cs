@@ -1405,7 +1405,7 @@ internal static partial class PanelSupersample
     /// <summary>
     /// <b>THE RATE THAT PUTS THE SAMPLED MIP LEVEL ON THE EYE'S PIXEL GRID (ModBuild 243).</b>
     /// Returns RT texels per AUTHORED pixel — the same unit the old constant was in, so everything
-    /// downstream (<see cref="MaxRtDimension"/>, the VRAM step-down, <see cref="AchievedFactor"/>,
+    /// downstream (<see cref="MaxRtDimension"/>, the VRAM step-down, <see cref="Entry.AchievedFactor"/>,
     /// every report field) keeps working unchanged.
     ///
     /// <para><b>THE ARITHMETIC.</b> Trilinear selects <c>LOD = log2(t)</c> where <c>t</c> is RT

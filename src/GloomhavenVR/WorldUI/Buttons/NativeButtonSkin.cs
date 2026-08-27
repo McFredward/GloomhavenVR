@@ -85,7 +85,7 @@ internal static class NativeButtonSkin
     /// disabled … 0.53 brightest brass). Legibility on the LIGHT caps comes from the dark
     /// outline+underlay in <see cref="StyleEngravedLabel"/> (a dark keyline separates the
     /// bright glyphs from a bright cap); legibility on the DARK caps comes from this bright
-    /// fill. The antique look is kept — it is a paler parchment, not a cold white.</summary>
+    /// fill. The antique look is kept — it is a paler parchment, not a cold white.
     /// USER DEBUG OPTION (2026-07 — "give me the TEXT COLORS as a debug option"): now the live
     /// <see cref="ButtonTuning.LabelColor"/> bind ([ButtonColors] LabelR/G/B), whose DEFAULT is
     /// this exact #FBF3E0, so nothing changes until the user tunes it. Every consumer (cluster

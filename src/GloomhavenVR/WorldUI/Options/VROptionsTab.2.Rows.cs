@@ -782,7 +782,7 @@ internal static partial class VROptionsTab
     /// <para>SHRINK-ONLY WAS NOT ENOUGH (user report 2026-08: "die Tab Namen sind unter Umständen
     /// sehr lang und der Text wird damit sehr klein"). The donor caption is authored for a
     /// one-word tab ("Video", "Audio"); the mod's names are two and three words, and the
-    /// single-line auto-shrink drove "Avatar & Mehrspieler" toward the 9pt floor. With wrapping
+    /// single-line auto-shrink drove "Avatar &amp; Mehrspieler" toward the 9pt floor. With wrapping
     /// on, a long name breaks onto a second line — at the explicit break the Loc string carries,
     /// or at a space — and the fitter only has to fit the longest LINE, which is roughly half the
     /// name and therefore roughly twice the font.</para>

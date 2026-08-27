@@ -52,6 +52,52 @@
 
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
+    <!--
+      XML doc generation, on since 2026-08-27 — and turning it on is what made the CREF CHECK
+      work. .planning/refactor/LOG.md had recorded the opposite: "with a deliberately dangling
+      cref, a full rebuild emits no CS1574 ... The reported zero is what a check that never ran
+      looks like." That conclusion was right about the symptom and wrong about the cause. The
+      property DOES take effect; 46 malformed-XML errors (unescaped &, a <para> closed by
+      </summary>) aborted XML processing before cref resolution ever ran. Fix those and CS1574
+      appears immediately — verified with the same deliberately broken cref the old note used.
+
+      WHAT IS KEPT AS AN ERROR, and why each earns it:
+        CS1570  malformed XML — the doc comment does not parse, so an IDE shows garbage for it
+        CS1574  dangling cref — a documentation reference to a symbol that no longer exists,
+                which is the ONE class of stale comment a machine can find with certainty
+        CS1587  a doc comment on something that cannot carry one
+
+      WHAT IS OFF, and why it is not a retreat: CS1573, CS1591 and CS0419 cannot go stale.
+      The first two are COMPLETENESS rules — "this member has some <param> tags but not all",
+      "this public member has no doc comment"; this codebase documents what needs explaining and
+      says nothing about what does not, and 362 CS1573 would make the gate a chore nobody reads,
+      which is how a gate gets switched off. CS0419 is "this cref names an overloaded method
+      without a signature" — 98 of them, and the reference still points at the right method
+      family. Requiring a full signature in every cref buys precision nobody asked for.
+
+      CS1734 — "a paramref names a parameter that does not exist" — is the OPPOSITE: 18 of them,
+      every one a parameter that was renamed while its doc was not. That is staleness, so it
+      rides the ratchet with CS1574 rather than being switched off.
+    -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);CS1573;CS1591;CS0419</NoWarn>
+    <!--
+      CS1574 IS A WARNING, NOT AN ERROR — for now, and on a ratchet.
+
+      Turning cref checking on for the first time found 63 dangling references. 23 were a
+      QUALIFICATION problem (the symbol is alive; the comment names it from a file that does not
+      import its namespace) and are fixed. The rest each need reading, and several are not a
+      typo but a claim that has gone false: four crefs name BeginStandingPropScope, a method that
+      no longer exists, inside sentences that say what it does. Rewriting those correctly means
+      finding out what took over, which is archaeology rather than a rename.
+
+      Blocking the build on 40 items nobody has read yet would mean either doing the archaeology
+      under time pressure or switching the whole check off — and the second is what actually
+      happens. So it rides scripts/ci-build.sh's warning ratchet instead, exactly like the six
+      nullable warnings did: the current count is accepted, a NEW one fails, and the number only
+      goes down. When it reaches zero, delete this block.
+    -->
+    <WarningsNotAsErrors>$(WarningsNotAsErrors);CS1574;CS1734</WarningsNotAsErrors>
     <Nullable>enable</Nullable>
     <!--
       TreatWarningsAsErrors, on since 2026-08-27 — the day the warning count reached ZERO.

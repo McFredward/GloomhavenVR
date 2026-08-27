@@ -415,44 +415,44 @@ internal sealed class InitiativeTrackSurface : TrayMountedPanelSurface, IDepthPo
         InitiativeTrack.Instance != null ? InitiativeTrack.Instance.transform as RectTransform : null;
 
     // ---- portrait depth normalization (user #3) ---------------------------------------
-    /// <summary>
-    /// The game authors the initiative row with real 3D DEPTH: transforms NESTED inside
-    /// each portrait (the avatar image, and the selection frame that pops the acting
-    /// actor forward) carry a serialized local z — NOT the portrait's direct
-    /// <c>initiativeTrackHolder</c> child, whose local z are ~equal (an earlier remap of
-    /// only those direct children did nothing and never went flat at 0). So the row
-    /// RECEDES/steps in depth and the selected portrait is raised.
-    /// On the flat perspective UI camera that reads as gentle 2D styling, but on the
-    /// world-space host the z is multiplied by the host scale
-    /// (<see cref="WorldUIConfig.CanvasScaleMm"/> mm per uGUI pixel × the tray/diorama
-    /// scale) into LITERAL geometry — an EXTREME, head-parallaxing spread (user #3:
-    /// "the effect is too strong"). It also broke the LASER: RayUguiDriver clamps the
-    /// beam to (and derives its GraphicRaycaster screen point from) the FLAT host
-    /// plane, but a z-displaced portrait projects to a DIFFERENT screen position under
-    /// perspective, so the pick resolved to a neighbour instead of the portrait the
-    /// beam visually touches.
-    ///
-    /// We KEEP the depth (the user likes the recession) but CLAMP the row's TOTAL
-    /// front-to-back spread to a small hard maximum: whatever the authored range, the
-    /// deepest and shallowest portrait may differ by at most
-    /// <see cref="WorldUIConfig.InitiativeDepthMaxSpreadPx"/>. Each portrait's authored z is remapped
-    /// proportionally by a single factor (order/direction/relative spacing preserved)
-    /// so the raw spread (max − min z) is scaled down to land at exactly the cap and
-    /// the rest scale with it — never amplified (a row already flatter than the cap is
-    /// left alone). Normalizing on the FULL spread (not the largest |z|) is what makes
-    /// the cap a true hard ceiling on the extremes' separation: the earlier per-|z|
-    /// band left the front-to-back total at up to twice the band, which the user still
-    /// found too strong. The compressed spread reads as subtle recession, and because
-    /// the residual parallax scales with z it stays well under a portrait width, so the
-    /// flat-plane screen point once again lands inside the correct portrait's projected
-    /// rect and the GraphicRaycaster (which already distance-sorts hits) resolves the
-    /// one being pointed at.
-    ///
-    /// Applied every tick while converted, computed from the RECORDED raw z (not the
-    /// live, already-compressed value) so it is idempotent; the raw z is restored on
-    /// release so the 2D UI is left exactly as the game authored it (the framework's
-    /// root-only restore never touches these deep children).
-    /// </summary>
+    //
+    // The game authors the initiative row with real 3D DEPTH: transforms NESTED inside
+    // each portrait (the avatar image, and the selection frame that pops the acting
+    // actor forward) carry a serialized local z — NOT the portrait's direct
+    // <c>initiativeTrackHolder</c> child, whose local z are ~equal (an earlier remap of
+    // only those direct children did nothing and never went flat at 0). So the row
+    // RECEDES/steps in depth and the selected portrait is raised.
+    // On the flat perspective UI camera that reads as gentle 2D styling, but on the
+    // world-space host the z is multiplied by the host scale
+    // (<see cref="WorldUIConfig.CanvasScaleMm"/> mm per uGUI pixel × the tray/diorama
+    // scale) into LITERAL geometry — an EXTREME, head-parallaxing spread (user #3:
+    // "the effect is too strong"). It also broke the LASER: RayUguiDriver clamps the
+    // beam to (and derives its GraphicRaycaster screen point from) the FLAT host
+    // plane, but a z-displaced portrait projects to a DIFFERENT screen position under
+    // perspective, so the pick resolved to a neighbour instead of the portrait the
+    // beam visually touches.
+    //
+    // We KEEP the depth (the user likes the recession) but CLAMP the row's TOTAL
+    // front-to-back spread to a small hard maximum: whatever the authored range, the
+    // deepest and shallowest portrait may differ by at most
+    // <see cref="WorldUIConfig.InitiativeDepthMaxSpreadPx"/>. Each portrait's authored z is remapped
+    // proportionally by a single factor (order/direction/relative spacing preserved)
+    // so the raw spread (max − min z) is scaled down to land at exactly the cap and
+    // the rest scale with it — never amplified (a row already flatter than the cap is
+    // left alone). Normalizing on the FULL spread (not the largest |z|) is what makes
+    // the cap a true hard ceiling on the extremes' separation: the earlier per-|z|
+    // band left the front-to-back total at up to twice the band, which the user still
+    // found too strong. The compressed spread reads as subtle recession, and because
+    // the residual parallax scales with z it stays well under a portrait width, so the
+    // flat-plane screen point once again lands inside the correct portrait's projected
+    // rect and the GraphicRaycaster (which already distance-sorts hits) resolves the
+    // one being pointed at.
+    //
+    // Applied every tick while converted, computed from the RECORDED raw z (not the
+    // live, already-compressed value) so it is idempotent; the raw z is restored on
+    // release so the 2D UI is left exactly as the game authored it (the framework's
+    // root-only restore never touches these deep children).
+    //
     // Cap the row's TOTAL front↔back depth spread. Live-tunable via the debug menu
     // (Panels -> Initiative) — read fresh each tick from
     // WorldUIConfig.InitiativeDepthMaxSpreadPx (default 10 px ≈ ±0.5 cm at 1 mm/px × scale).

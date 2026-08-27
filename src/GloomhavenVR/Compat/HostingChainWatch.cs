@@ -24,7 +24,7 @@ namespace GloomhavenVR.Compat;
 /// completion callback (<c>UIMultiplayerEscSubmenu.OnHostingStartedCallback</c>) is registered LAST,
 /// so it is the first thing lost. This class makes that visible forever.
 ///
-/// <para><b>WHAT IT PRINTS — one line per event edge, never per frame.</b></para>
+/// </para><para><b>WHAT IT PRINTS — one line per event edge, never per frame.</b></para>
 /// <list type="bullet">
 /// <item><b>Healthy edge</b> (Info): <c>[Net] HOSTING STARTED — 9 listener(s) on
 ///   NetworkManager.HostingStartedEvent, chain COMPLETED: 1. GHNetworkCallbacks…</c> — the full
@@ -47,7 +47,7 @@ namespace GloomhavenVR.Compat;
 /// replay), only entries STRICTLY AFTER it are considered, and each must still be registered at
 /// replay time — so a listener that already ran and unregistered itself can never be run twice.
 ///
-/// <para><b>HOW IT SEES ANY OF THIS WITHOUT PATCHING THE NETCODE.</b> The project forbids patching
+/// </para><para><b>HOW IT SEES ANY OF THIS WITHOUT PATCHING THE NETCODE.</b> The project forbids patching
 /// <c>FFSNet.NetworkManager</c> and Photon Bolt, and <c>UnityEvent.Invoke</c> is far too hot to
 /// patch wholesale. So this class only OBSERVES:
 /// <list type="number">
@@ -66,7 +66,7 @@ namespace GloomhavenVR.Compat;
 /// </list>
 /// Every reflection handle is resolved once; if any of them cannot be found (a Unity upgrade
 /// renaming a private field) the whole class degrades to a strict no-op after ONE Warning.
-/// </summary>
+/// </para></summary>
 internal static class HostingChainWatch
 {
     private const string Scope = "Net";

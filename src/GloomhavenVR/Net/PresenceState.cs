@@ -525,7 +525,7 @@ internal struct PresenceState
     /// <see cref="NetProtocol.CapPressNone"/> for why the field is a latch and not a pulse.</summary>
     public byte CapPressSeq;
 
-    /// The sender's "Keine Handkarten" placard is on screen RIGHT NOW (record 14, byte 1,
+    /// <summary>The sender's "Keine Handkarten" placard is on screen RIGHT NOW (record 14, byte 1,
     /// <see cref="NetProtocol.HalfEmptyFanHintBit"/>) — the hand-anchored ghost plate
     /// <c>Cards.EmptyFanHint</c> raises when the palm gate opens onto a genuinely empty hand.
     ///

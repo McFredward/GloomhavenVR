@@ -23,7 +23,7 @@ internal static partial class ModalFallback
     /// walk, no name match — <see cref="Converted"/> holds at most a handful of entries and IS the
     /// definition of "floated", so asking it directly cannot disagree with the float set the way a
     /// derived predicate could. See the containment-is-not-identity note in
-    /// <see cref="WorldSurface"/>: "has a floated ancestor" would answer TRUE for every widget
+    /// <see cref="GloomhavenVR.WorldUI.Surfaces.WorldSurface"/>: "has a floated ancestor" would answer TRUE for every widget
     /// inside a window, which is not the question.</para>
     /// </summary>
     internal static bool IsFloated(ConvertedPanel? panel)

@@ -500,7 +500,7 @@ internal static class SoftCueArt
 /// <summary>
 /// Self-driven "breath" for a <see cref="SoftCueArt.FrameSprite"/> outline: alpha swings between
 /// <see cref="MinAlpha"/> and <see cref="MaxAlpha"/> while the frame scales by up to
-/// <see cref="ScalePulse"/>, the exact pair of motions the initiative ring wears (there driven from
+/// <see cref="InitiativeSelectionGlow.ScalePulse"/>, the exact pair of motions the initiative ring wears (there driven from
 /// <c>SelectionReadyHighlighter</c>'s own tick) — so the two cues breathe alike.
 ///
 /// WHY IT DRIVES ITSELF: the item-card frame has no per-frame owner willing to push an alpha (the

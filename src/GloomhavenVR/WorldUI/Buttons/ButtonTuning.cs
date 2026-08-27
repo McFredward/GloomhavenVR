@@ -671,17 +671,17 @@ internal static class ButtonTuning
         return Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(phase));
     }
 
-    /// <summary>
-    /// The colour a face wears at <paramref name="phase"/> (from <see cref="AssemblyPhase"/>) on its
-    /// way to / from its settled <paramref name="rest"/> colour.
-    ///
-    /// <para>THE HOT END IS A PER-CHANNEL MAX — that is the whole tint-proofing (see the block
-    /// comment above). Pulling toward the dust can only ever ADD light to a channel, never remove it,
-    /// so no user tint, no accent and no disabled state can put an assembling cap below the
-    /// brightness of the cap the player already accepted as visible. Alpha is passed through
-    /// untouched: every keycap material is OPAQUE (BoardLit, queue 2000) and this ramp must not be
-    /// the thing that starts pretending otherwise.</para>
-    /// </summary>
+    //
+    // The colour a face wears at <paramref name="phase"/> (from <see cref="AssemblyPhase"/>) on its
+    // way to / from its settled <paramref name="rest"/> colour.
+    //
+    // THE HOT END IS A PER-CHANNEL MAX — that is the whole tint-proofing (see the block
+    // comment above). Pulling toward the dust can only ever ADD light to a channel, never remove it,
+    // so no user tint, no accent and no disabled state can put an assembling cap below the
+    // brightness of the cap the player already accepted as visible. Alpha is passed through
+    // untouched: every keycap material is OPAQUE (BoardLit, queue 2000) and this ramp must not be
+    // the thing that starts pretending otherwise.
+    //
     // ---- THE TWIN INVARIANT: A CAP'S *REST* COLOUR IS SEATED TOO -----------------------------
     //
     // USER REPORT 2026-08-09, THIRD OCCURRENCE: "Ich hatte in Tests wieder die Situation, dass die

@@ -1893,7 +1893,7 @@ internal static partial class WallSegmentFade
         /// for a fix that lived inside the instrument meant to test it. DO NOT put the write
         /// back behind a <c>Log</c> name, and do not gate this call on
         /// <c>PerfConfig.Quiet</c>.</para>
-        /// </summary>
+        /// </para></summary>
         private void ReleaseSamplingSuspension(float now, string cause)
         {
             if (!_samplingSuspended)

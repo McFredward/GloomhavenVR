@@ -63,7 +63,24 @@ snapshot() {
     dotnet build "$ROOT/GloomhavenVR.sln" -c Release -v quiet --nologo \
         | grep -E "error|Build FAILED" && { echo "error: build failed" >&2; exit 1; }
     rm -rf "$out"; mkdir -p "$out"
+    # HIDE THE XML DOC FILE FROM ilspycmd, and this line is load-bearing.
+    #
+    # GenerateDocumentationFile went on at 2026-08-27 so the compiler would check crefs. It also
+    # writes GloomhavenVR.xml next to the DLL — and ilspycmd, finding it, folds every doc comment
+    # back into the decompiled output. That silently DESTROYED this tool's most useful property:
+    # comments do not reach the assembly, so "guard diff empty" used to PROVE a change was
+    # comment-only, which is the entire Tier-0 argument of PLAN-2026-08.md. With the docs in the
+    # snapshot, a comment edit is indistinguishable from a code edit.
+    #
+    # Caught the first time it mattered: a comments-only commit reported several hundred CHANGED
+    # types, and the whole-snapshot diff showed every one of them was an ADDED doc comment.
+    # Moving the file aside for the duration of the decompile keeps both properties — the compiler
+    # still checks the crefs, and the snapshot still contains only what the assembly carries.
+    local doc="${DLL%.dll}.xml"
+    local docstash=""
+    if [[ -f "$doc" ]]; then docstash="$doc.guardhidden"; mv "$doc" "$docstash"; fi
     ilspycmd -p -o "$out" -r "$REFS" "$DLL" >/dev/null
+    if [[ -n "$docstash" ]]; then mv "$docstash" "$doc"; fi
     # The build stamp is the only thing that differs between two builds of the
     # same source — mask it so it never shows up as a false positive.
     grep -rlZ 'built 20\|BuildTimeUtc' "$out" 2>/dev/null \

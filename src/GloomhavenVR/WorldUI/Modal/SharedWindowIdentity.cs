@@ -11,7 +11,7 @@ namespace GloomhavenVR.WorldUI;
 /// <para><b>USER REQUEST (2026-08-23, verbatim):</b> <i>"Ich will aber das man die Story gemeinsam
 /// erlebt. Ich weiß dass das flat spiel das anders macht und dort jeder lokal bei sich weiterklicken
 /// kann. Ich möchte aber das die gesamte Story, das Fenster und damit auch der Status des Fensters
-/// vollständig synchronisiert wird."</b> The CONTENT half of that has shipped since ModBuild 222:
+/// vollständig synchronisiert wird."</i> The CONTENT half of that has shipped since ModBuild 222:
 /// <c>Net.RemoteMapStory</c> resolves the page through <c>MapStoryController.dialogBox</c> directly
 /// and drives it with the game's own <c>ShowLine</c>. What went inert in ModBuild 236 is the WINDOW
 /// half — the blue bar, the synced pose and the release re-face gate — because that build parked the

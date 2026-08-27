@@ -970,7 +970,7 @@ internal sealed class UseBarsSurface
     /// keeps its choice slots active. <see cref="ItemsPopulated"/> reads the same
     /// <c>activeSelf</c> flags, so <c>WantConverted</c> does not flip either: no release, no
     /// re-convert, and returning to the owner needs no second card placement.</para>
-    /// </summary>
+    /// </para></summary>
     private void UpdateFocusVisibility()
     {
         CPlayerActor? focused = Board.CharacterFocus.Focused;

@@ -428,7 +428,6 @@ internal static class FanSweep
     /// on a NEARER card can undercut it), and they came paired with the metre-scale pad above.
     /// A card seen edge-on presents no target: refusing the plane test outright is both cheaper and
     /// honest — the visible face is what the beam may hit.
-    /// </summary>
     /// <para>ROUND 2 — THE CONE WAS THE WRONG SHAPE OF GUARD, and it cost real hits (user report
     /// 2026-08-03: "Hier geht der Laser an verschiedenen Stellen in der Karte immer mal wieder
     /// durch. Aus allen Laserwinkeln soll er überall auf der Karte colliden ... hat das eventuell

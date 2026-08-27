@@ -104,7 +104,7 @@ namespace GloomhavenVR.WorldUI;
 ///   //   wasReleasedThisFrame — NOT the persistent isPressed
 ///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem.Controls/ButtonControl.cs:29-51
 ///   //   wasPressedThisFrame == device.wasUpdatedThisFrame
-///   //     && pressed(now) && !pressed(previous update step)
+///   //     &amp;&amp; pressed(now) &amp;&amp; !pressed(previous update step)
 ///   // decompiled/Unity.InputSystem/UnityEngine.InputSystem/InputDevice.cs:113
 ///   //   wasUpdatedThisFrame == (m_CurrentUpdateStepCount == InputUpdate.s_UpdateStepCount)
 /// </code>

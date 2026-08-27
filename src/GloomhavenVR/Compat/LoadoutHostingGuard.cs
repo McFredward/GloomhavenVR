@@ -37,7 +37,7 @@ namespace GloomhavenVR.Compat;
 /// multiplayer controller does not exist, it is null. The NRE is on the INSTANCE, not inside
 /// <c>ShowLoadoutMultiplayer</c> — that method would have its own stack frame otherwise.
 ///
-/// <para><b>WHY THE LISTENER IS EVEN THERE.</b> <c>UILoadoutManager.MultiplayerStartup</c>
+/// </para><para><b>WHY THE LISTENER IS EVEN THERE.</b> <c>UILoadoutManager.MultiplayerStartup</c>
 /// (UILoadoutManager.cs:447-472) registers <c>OnSwitchedToMultiplayer</c> on
 /// <c>HostingStartedEvent</c> in its OFFLINE branch (:469-470) — i.e. every single-player run of
 /// the pre-scenario loadout screen arms it. The ONLY place it is ever removed is
@@ -47,7 +47,7 @@ namespace GloomhavenVR.Compat;
 /// leaves this listener armed, and it fires the next time the player hosts — from anywhere,
 /// including a scenario where its whole subject is gone.
 ///
-/// <para><b>WHY THAT MAKES "NOTHING HAPPEN".</b> <c>NetworkManager.CreateSession</c>
+/// </para><para><b>WHY THAT MAKES "NOTHING HAPPEN".</b> <c>NetworkManager.CreateSession</c>
 /// (NetworkManager.cs:291-296) is <c>GenerateSessionID(); BoltMatchmaking.CreateSession(SessionID);
 /// HostingStartedEvent?.Invoke();</c> — the invoke is LAST, so the session survives. But
 /// <c>UnityEvent.Invoke</c> walks its listener list in a plain loop with no per-listener catch, so
@@ -64,7 +64,7 @@ namespace GloomhavenVR.Compat;
 /// is the toast. None of it ran. Presses 2-4 did nothing at all because <c>ToggleServer</c>
 /// early-outs once <c>FFSNetwork.IsOnline</c> is true.
 ///
-/// <para><b>THE GUARD.</b> A PREFIX on <c>OnSwitchedToMultiplayer</c> that declines to run the
+/// </para><para><b>THE GUARD.</b> A PREFIX on <c>OnSwitchedToMultiplayer</c> that declines to run the
 /// vanilla method when its subject is absent, rather than a finalizer that swallows the throw: a
 /// finalizer would leave the method HALF-RUN (the ready toggle initialised and made interactable
 /// over a screen that is not there — exactly the two log lines that precede the crash, followed by
@@ -81,7 +81,7 @@ namespace GloomhavenVR.Compat;
 ///   dereferences unconditionally.</item>
 /// </list>
 ///
-/// <para><b>PROVABLY INERT IN THE SUPPORTED FLOW.</b> Hosting FROM the loadout screen is a real
+/// </para><para><b>PROVABLY INERT IN THE SUPPORTED FLOW.</b> Hosting FROM the loadout screen is a real
 /// flow and <c>MPConfirmEnterScenario</c> is exactly right there. In that flow both terms hold:
 /// the window is open (the listener is armed from <c>EnableLoadoutInteraction</c>, which the
 /// loadout screen calls while it is up, and nothing on the Esc-menu path hides it — in the ModBuild
@@ -95,14 +95,14 @@ namespace GloomhavenVR.Compat;
 /// controller missing the method throws, and with the window closed there is no screen for the
 /// toggle it shows.
 ///
-/// <para><b>ON DECLINE</b> the guard does exactly what vanilla's own first statement does — remove
+/// </para><para><b>ON DECLINE</b> the guard does exactly what vanilla's own first statement does — remove
 /// the listener (UILoadoutManager.cs:526) — because this listener is a one-shot by the game's own
 /// design and leaving it armed only re-arms the same trap. It then logs ONE Warning per hosting
 /// edge. It does NOT touch <c>HostingEndedEvent</c>: vanilla adds
 /// <c>OnSwitchedToSinglePlayer</c> there at the END of the method (:531), and adding it here would
 /// register a single-player switch for a screen that never switched to multiplayer.
 ///
-/// <para><b>VANILLA OR MOD?</b> Nothing of this mod is on the stack, the mod never touches
+/// </para><para><b>VANILLA OR MOD?</b> Nothing of this mod is on the stack, the mod never touches
 /// <c>HostingStartedEvent</c>, <c>MultiplayerStartup</c> or <c>ToggleServer</c> (grep: zero hits
 /// outside doc comments), and its only contact with the loadout screen — the world-space float —
 /// restores the original parent on release (CanvasConversion.4.Lifecycle.cs:154) and is provably
@@ -110,7 +110,7 @@ namespace GloomhavenVR.Compat;
 /// site named above is vanilla code. See <see cref="HostingChainWatch"/> for the instrument that
 /// will settle the one thing the log could not: whether the stale <c>UILoadoutManager</c> is a
 /// destroyed object still referenced by the delegate, or a live but deactivated one.
-/// </summary>
+/// </para></summary>
 [HarmonyPatch(typeof(UILoadoutManager), "OnSwitchedToMultiplayer")]
 internal static class LoadoutHostingGuard
 {

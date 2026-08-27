@@ -57,7 +57,7 @@ namespace GloomhavenVR.Net;
 /// every packet of every session without a narrative byte-identical to the previous build's. What
 /// is NOT copied from it: the decision records are cosmetic mirrors, this one drives the receiver's
 /// own game UI, so every apply is gated on the receiver's OWN dialog identity
-/// (<see cref="StoryKey"/>) before anything is driven.</para>
+/// (<see cref="PresenceState.StoryKey"/>) before anything is driven.</para>
 ///
 /// <para>LOCAL SETTINGS TAKE PRECEDENCE, and here that ruling is what makes the feature safe: a
 /// client with no story window, an unconverted one, or one that never floated is still a full

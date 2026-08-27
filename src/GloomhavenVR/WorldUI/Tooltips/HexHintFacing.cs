@@ -13,7 +13,7 @@ namespace GloomhavenVR.WorldUI;
 /// <c>UIPropInfoPanel</c>. Both are hover-driven info popups (verified:
 /// <c>decompiled/GH.Runtime/WorldspaceStarHexDisplay.cs</c> <c>ShowTooltipForTile()</c>
 /// routes the door label to <c>UITextInfoPanel.Show</c> at :3607 with the
-/// <c>CLOSED_DOOR_TOOLTIP</c> string at :3441). <see cref="PropInfoSurface"/> already
+/// <c>CLOSED_DOOR_TOOLTIP</c> string at :3441). <see cref="GloomhavenVR.WorldUI.Surfaces.PropInfoSurface"/> already
 /// converts them to world space and docks them at the fixed <see cref="PanelSlot.PropInfo"/>
 /// pose — but that slot rotation faces the CACHED SEAT yaw (PanelLayout world-anchoring)
 /// and its position sits low at the table edge, so after a snap-turn / world-grab / the
@@ -35,7 +35,7 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// Non-invasive: it reads the shared <see cref="CanvasConversion.ActivePanels"/> registry
 /// to find each singleton panel's converted host by <see cref="ConvertedPanel.Target"/>
-/// identity — it never touches <see cref="PropInfoSurface"/>. If <c>PropInfoCards</c> is
+/// identity — it never touches <see cref="GloomhavenVR.WorldUI.Surfaces.PropInfoSurface"/>. If <c>PropInfoCards</c> is
 /// off (panel never converted) the host lookup misses and this is a no-op. Facing
 /// convention matches <c>PanelPlacement.Facing</c>: uGUI fronts render toward the viewer,
 /// so the host's +Z points AWAY from the head. Occlusion-sane: only the transform is

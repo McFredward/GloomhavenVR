@@ -3178,7 +3178,7 @@ internal static partial class WallSegmentFade
         /// slab <c>s(0.5,3,8)</c> scores 6.0 and a ground mat <c>s(6,0.4,5)</c> scores 0.08.
         /// The narrower horizontal extent is deliberately the denominator: a long wall RUN is
         /// wide in one axis and thin in the other, and using the wider one would exclude it.</para>
-        /// </summary>
+        /// </para></summary>
         /// <summary>
         /// Stable per-piece point in the ramp at which a channel-less foliage attachment
         /// switches off. Spread over 0.10..0.92 rather than 0..1 so that nothing vanishes on the
@@ -5088,7 +5088,7 @@ internal static partial class WallSegmentFade
         /// gezählt? … das soll aber nicht der Fall sein"</i>. The predicate is therefore NOT
         /// invented here: it is the persistent half of the game's own passability test,
         /// <c>CNode.NavTo</c>. See <see cref="ClassifyHex"/> for every term and its writer.</para>
-        /// </summary>
+        /// </para></summary>
         private void CollectPlayableTiles()
         {
             _tilesByMap.Clear();
@@ -7020,7 +7020,7 @@ internal static partial class WallSegmentFade
         /// at and how many consecutive passes agreed, so "this converged 40 s ago" and "this is
         /// broken and stopped" are different readings rather than the same silence. The scenario
         /// teardown at <c>SetActive(false)</c> resets the backoff along with the pass.</para>
-        /// </summary>
+        /// </para></summary>
         private void StepWallPathAudit(float now)
         {
             if (PerfConfig.Quiet)
@@ -7617,7 +7617,7 @@ internal static partial class WallSegmentFade
         /// 16 × ~50 × ~6 rooms ≈ 5k squared-distance tests, all at build time. The per-wall,
         /// per-sample ray loop is untouched — it still walks <c>_live.RoomSampleCount[room]</c>
         /// entries of <see cref="CommittedTable.AllSamples"/> and never learns where they came from.</para>
-        /// </summary>
+        /// </para></summary>
         private void RebuildSamples()
         {
             _live.AllSamples.Clear();

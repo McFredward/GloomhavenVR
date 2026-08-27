@@ -19,7 +19,7 @@ namespace GloomhavenVR.WireTests;
 /// exception (a spin throws none, so the generator's own try/catch was blind), no warning, and no
 /// line after the environment's "ROOM placed" a few statements earlier.
 ///
-/// <para>THREE PROPERTIES ARE ASSERTED, and only the first is about the bug that happened:</para>
+/// </para><para>THREE PROPERTIES ARE ASSERTED, and only the first is about the bug that happened:</para>
 /// <list type="number">
 ///   <item>It TERMINATES — structurally, because the loop is a <c>for</c> over the caller's count.
 ///   Every case in this file is itself that assertion: a regression here does not fail, it hangs
