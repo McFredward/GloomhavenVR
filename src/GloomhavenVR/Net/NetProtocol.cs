@@ -416,7 +416,52 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 302;
+    public const ushort ModBuild = 303;
+    // Build 303: THE LAST DECISION PROMPT GETS THE GAME'S OWN BUTTONS — AND IT COST NO WIRE BYTES
+    // AT ALL, BECAUSE THE THING IT NEEDED WAS A PREFAB, NOT A FIELD.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO WIRE FORMAT CHANGE. ***
+    //
+    //   POINT 4 OF DESIGN-1TO1-RESIDUE.md, on the user's explicit instruction after I had recorded
+    //   it as checked-and-not-built. With this the residue's THREE mirrorable prompts are all
+    //   mirrored: take-damage (105), the short-rest confirmation (301) and now the DialogPopup.
+    //
+    //   WHY THIS ONE NEEDED A BUILDER. The other two are LIVE objects every client owns, so the
+    //   mirror clones what is already there. A DialogPopup's options are neither: they are POOLED
+    //   (HelperTools.NormalizePool, DialogPopup.cs:176) and lettered per prompt, so a receiver holds
+    //   as many buttons as ITS OWN last dialog needed — possibly none. Growing that pool would mean
+    //   calling the game's own normalize on the receiver's live popup, i.e. WRITING GAME STATE FROM
+    //   PRESENTATION CODE, which is a standing prohibition. So RemoteDialogOptions reads the popup's
+    //   serialized optionButtonPrefab — a REFERENCE, not a mutation — and instantiates its own
+    //   copies under a permanently INACTIVE holder, where no Awake can run.
+    //
+    //   AND IT IS STILL A SOURCE, NOT A DISPLAY. What it builds is handed to RemoteWidgetMirror
+    //   exactly like the other two prompts' live rows, so the clone, the strip, the fit, the mount
+    //   and the paint are all the SAME code. There is now one painter (PaintOption) for all three
+    //   prompts and two loops: options addressed by ROLE, and the popup's addressed by INDEX.
+    //
+    //   NO ROLE CODE WAS ADDED, AND THAT IS THE POINT. A pooled button has no serialized widget for
+    //   a role to name — but records 12, 24 and 29 are filled by ONE sampler walk, so option i is
+    //   the same option on both machines and the index IS the identity. A role code here would have
+    //   carried no more meaning than the index beside it: a wire field with no consumer, which is
+    //   the FanCloseDuration trap this project has shipped once already.
+    //
+    //   TWO GATES HAD TO STOP KEYING ON THE ROLES, and finding that was the real work. The paint's
+    //   change key and the per-frame pointer fold both walked the ROLES array — which a DialogPopup
+    //   does not have. Left alone, the mirrored popup would have painted once and then frozen: a
+    //   gate that never opens, silently. Both now walk the STATES array, which is the one that
+    //   actually carries the bits.
+    //
+    //   THE WORDINGS ARE THE OWNER'S, deliberately and unavoidably: a DialogOption.text is a runtime
+    //   STRING, not a localization key, so unlike the short rest there is nothing a receiver could
+    //   look up. Record 12 already carried them. What changes is that they are now set on the game's
+    //   own button instead of a mod-drawn quad.
+    //
+    //   TEST: two clients, one triggers a popup that docks (the short-rest burn/redraw choice). The
+    //   other board must show the GAME's option buttons — right shapes, widths fitted to the
+    //   wordings, the gap the game's own layout group uses — greying, hovering and pressing with the
+    //   owner. The pick-confirm popup deliberately draws nothing on the dock (2026-08-24 ruling), so
+    //   it must stay absent on peers too.
+    //
     // Build 302: I BROKE THE WHOLE BOARD-TUNING RECORD IN BUILD 299 AND EVERY GATE STAYED GREEN.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE ID MOVED (248 -> 233). ***
     //

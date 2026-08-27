@@ -216,6 +216,44 @@ identity never rides this wire.
 implementation is a new prefab-based builder rather than an extension of the decision mirror. It is
 therefore NOT the cheapest next thing, and it is recorded here rather than half-built.
 
+### 2.2b SHIPPED — ModBuild 303, on the user's instruction, by the route §2.2a named
+
+The verdict above was a recommendation, not a refusal; the user said to build it. Built the honest
+way — the prefab builder — and it came out **smaller and cleaner than the verdict feared**.
+
+**`RemoteDialogOptions` builds the SOURCE, not the display.** It reads the receiver's own
+`DialogPopup.optionButtonPrefab` (a reference read; the pool is never touched) and instantiates N
+copies under a permanently **inactive** holder, so no `Awake` runs on `InputButton`,
+`ExtendedButton` or `InteractabilityIsolatedUIControl`. That row is then handed to
+`RemoteWidgetMirror` exactly like the other two prompts' live rows — so the clone, the strip, the
+fit, the mount and the paint are all the same code, and the class stayed ~250 lines.
+
+**Widths and gap are read, not chosen.** Each button is fitted to its wording using the prefab's own
+label inset; the gap is the game's own `HorizontalLayoutGroup.spacing` off `horizontalOptionsHolder`.
+The layout arithmetic is done here rather than by a layout group because the row is never active,
+and activating it is precisely what must not happen.
+
+**Zero new wire bytes, and no role code.** A pooled button has no serialized widget for a role to
+name — but records 12, 24 and 29 are filled by ONE sampler walk, so option *i* is the same option on
+both machines and the index IS the identity. A role code would have carried no more meaning than the
+index beside it: a field with no consumer, the `FanCloseDuration` trap.
+
+**The real work was two gates that keyed on the wrong array.** The paint's change key and the
+per-frame pointer fold both walked `DecisionRoles` — which a `DialogPopup` does not publish. Left
+alone the mirrored popup would have painted once and then frozen: **a gate that never opens,
+silently**, which is this project's most-repeated defect shape. Both now walk `DecisionOptionStates`,
+the array that actually carries the bits.
+
+**One honest difference from the other two prompts:** the wordings are the OWNER's language. A
+`DialogOption.text` is a runtime string, not a localization key, so unlike the short rest there is
+nothing for a receiver to look up. Record 12 already carried them; what changed is that they are now
+lettered onto the game's own button instead of a mod quad.
+
+**Not verified on hardware.** Two clients, one triggers a docking popup (the short-rest burn/redraw
+choice): the other board must show the game's option buttons, greying/hovering/pressing with the
+owner. The pick-confirm popup deliberately draws nothing on the dock (2026-08-24 ruling), so it must
+stay absent on peers too.
+
 ### 2.3 Hover and press — the pattern is already shipped, for the initiative track
 
 The user's requirement that "wie das Bild auf einem mouseover oder klick reagiert" must also be 1:1
@@ -346,8 +384,7 @@ Suggested order, cheapest and most certain first:
    is already lettered with the game's one constant key.
 3. **Hover/press on the decision widgets** — SHIPPED, ModBuild 300 (see §2.3c). Not record 16's
    pattern in the end: two free bits on record 24, plus a cadence bypass at both ends.
-4. **`DialogPopup` options** — CHECKED, NOT BUILT (see §2.2a). Not the largest for the reason
-   given: the owner's docked row is buttons-only, so the CONTENT is already 1:1 and only the art
-   differs. Blocked on the receiver's own button POOL, which cannot be grown without writing game
-   state; the honest route is a mod-owned builder over `optionButtonPrefab`.
+4. **`DialogPopup` options** — SHIPPED, ModBuild 303 (see §2.2a for the survey, §2.2b for what
+   landed). Built the honest way — a mod-owned builder over `optionButtonPrefab`, feeding the same
+   mirror — after the user ruled to proceed. Zero wire bytes, no role code.
 5. **The cap animation clock, then its four fields** — renderer first.

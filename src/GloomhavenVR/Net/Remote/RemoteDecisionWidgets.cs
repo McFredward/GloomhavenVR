@@ -148,6 +148,27 @@ internal sealed class RemoteDecisionWidgets
 
     private readonly RoleNode[] _roles = new RoleNode[RoleSlots];
 
+    /// <summary>
+    /// The <c>DialogPopup</c> option nodes, indexed by WIRE OPTION INDEX rather than by role code —
+    /// the one prompt whose options have no role.
+    ///
+    /// <para>That is not an omission, it is what those buttons ARE: <c>DialogPopup</c> pools them
+    /// (<c>NormalizePool</c>) and letters them per prompt, so there is no serialized widget for a
+    /// role to name. What there IS, and what is enough, is the index: records 12, 24 and 29 are
+    /// filled by ONE sampler walk, so option <c>i</c> is the same option on both machines. No role
+    /// code was added for this prompt precisely because "the i-th option" is all the identity that
+    /// exists — a code would be a wire field with no more meaning than the index beside it.</para>
+    /// </summary>
+    private readonly RoleNode[] _options = new RoleNode[NetProtocol.DecisionStateMaxOptions];
+
+    /// <summary>How many entries of <see cref="_options"/> the last <see cref="Bind"/> filled.</summary>
+    private int _optionCount;
+
+    /// <summary>Builder for the popup's source row — see <see cref="RemoteDialogOptions"/>. Held for
+    /// the board's whole life because it owns an inactive holder and a change-gated row; it builds
+    /// nothing until a popup is actually mirrored.</summary>
+    private readonly RemoteDialogOptions _dialogOptions;
+
     /// <summary>Per-role "the owner is showing this widget, in this state" scratch, rebuilt on every
     /// applied repaint (high bit = shown, low bits = the record-24 state byte). A field rather than
     /// a local so the 4 Hz repaint allocates nothing.</summary>
@@ -237,10 +258,12 @@ internal sealed class RemoteDecisionWidgets
             // see comes from the wire, through Apply below.
             driveFromSource: false);
         _mirror.SetShown(false);
+        _dialogOptions = new RemoteDialogOptions(decisionRoot);
     }
 
     public void Destroy()
     {
+        _dialogOptions.Destroy();
         _mirror.Destroy();
         if (_frame != null)
             Object.Destroy(_frame.gameObject);
@@ -265,20 +288,32 @@ internal sealed class RemoteDecisionWidgets
                 return Down("the owner has no visible decision row");
             byte kind = owner.DecisionPromptKind;
             if (kind != NetProtocol.DecisionKindTakeDamage
-                && kind != NetProtocol.DecisionKindShortRestYesNo)
+                && kind != NetProtocol.DecisionKindShortRestYesNo
+                && kind != NetProtocol.DecisionKindDialogPopup)
                 return Down($"the owner's prompt (kind {kind}) is not one whose " +
                             "widgets exist on this client — see NetProtocol.DecisionRoleMax");
-            if (roles == null || !AnyKnown(roles))
+            // THE POPUP IS THE ONE PROMPT WITH NO ROLES, AND THAT IS CORRECT — see the _options
+            // field. Its options are pooled and lettered per prompt, so the sampler publishes
+            // DecisionRoleUnknown for every one of them and the index carries the identity instead.
+            // The other two prompts still require a role: for them an all-unknown row means the
+            // sender could not attribute a widget this client owns, which is exactly when the
+            // mod-drawn plates are the honest answer.
+            bool byIndex = kind == NetProtocol.DecisionKindDialogPopup;
+            if (!byIndex && (roles == null || !AnyKnown(roles)))
                 return Down("no widget roles on the wire (a sender predating record 29, or a row " +
                             "this build's sampler could not attribute)");
 
-            RectTransform? source = ResolveSourceRow(kind);
+            RectTransform? source = ResolveSourceRow(kind, owner);
             if (source == null)
-                return Down(kind == NetProtocol.DecisionKindShortRestYesNo
-                    ? "this client owns no short-rest YesNoDialog yet (no hand built this " +
-                      "scenario), so there is nothing to clone — see CardsGameApi.AnyShortRestDialog"
-                    : "this client's own TakeDamagePanel row could not be resolved " +
-                      "(singleton absent, or the prompt's widget fields are null)");
+                return Down(kind switch
+                {
+                    NetProtocol.DecisionKindShortRestYesNo =>
+                        "this client owns no short-rest YesNoDialog yet (no hand built this " +
+                        "scenario), so there is nothing to clone — see CardsGameApi.AnyShortRestDialog",
+                    NetProtocol.DecisionKindDialogPopup => _dialogOptions.Reason,
+                    _ => "this client's own TakeDamagePanel row could not be resolved " +
+                         "(singleton absent, or the prompt's widget fields are null)",
+                });
 
             // SHOWN FIRST, fitted second. The fit measures VISIBLE clone graphics, and a host this
             // class had previously hidden (an undocked prompt, a failed tick) makes every one of
@@ -292,7 +327,7 @@ internal sealed class RemoteDecisionWidgets
             if (_boundStamp != _mirror.RebuildStamp)
                 Bind(kind);
 
-            Apply(owner, roles);
+            Apply(owner, roles ?? System.Array.Empty<byte>());
             // RE-FIT AFTER THE PAINT, not before it. The fit measures the union of VISIBLE clone
             // graphics, and it is Apply that decides which option widgets are visible (the owner may
             // be showing two of the three, and the source's own actives are the receiver's stale
@@ -308,14 +343,14 @@ internal sealed class RemoteDecisionWidgets
             if (_boundStamp != _mirror.RebuildStamp)
             {
                 Bind(kind);
-                Apply(owner, roles);
+                Apply(owner, roles ?? System.Array.Empty<byte>());
             }
             if (!Showing)
             {
                 Showing = true;
                 Reason = string.Empty;
                 VRLog.Info("Net", "Remote decision row: now mirroring THE GAME'S OWN " +
-                                  $"{(kind == NetProtocol.DecisionKindShortRestYesNo ? "short-rest confirmation" : "take-damage")} " +
+                                  $"{PromptName(kind)} " +
                                   $"widgets — a clone of THIS client's own subtree ('{source.name}'), " +
                                   "driven from wire records 12/24/29. The button art, the icons and " +
                                   "every wording are this client's own assets in THIS player's " +
@@ -358,15 +393,15 @@ internal sealed class RemoteDecisionWidgets
     {
         if (!Showing || _boundStamp != _mirror.RebuildStamp)
             return;
-        byte[]? roles = owner.DecisionRoles;
-        if (roles == null)
-            return;
-        int bits = FoldPointerBits(owner.DecisionOptionStates, roles.Length);
+        // NOT gated on the roles being present: a DialogPopup has none by design (see _options),
+        // and requiring them here would have silently switched the pointer drive off for exactly
+        // the prompt this class most recently learned to mirror.
+        int bits = FoldPointerBits(owner.DecisionOptionStates);
         if (bits == _appliedPointerBits)
             return;
         try
         {
-            Apply(owner, roles);
+            Apply(owner, owner.DecisionRoles ?? System.Array.Empty<byte>());
         }
         catch (System.Exception e)
         {
@@ -376,13 +411,19 @@ internal sealed class RemoteDecisionWidgets
 
     /// <summary>Every option's two POINTER bits folded into one int — the per-frame gate's whole
     /// comparison. Two bits per option, at most eight options, so it always fits and no option can
-    /// alias another (the trap the paint key itself fell into: see <see cref="Apply"/>).</summary>
-    private static int FoldPointerBits(byte[]? states, int count)
+    /// alias another (the trap the paint key itself fell into: see <see cref="Apply"/>).
+    ///
+    /// <para>IT FOLDS THE STATES ARRAY AND NOT THE ROLES, which matters since ModBuild 303: a
+    /// <c>DialogPopup</c> publishes no roles at all (its options are index-addressed), so a fold
+    /// bounded by the role count would have been a constant zero for that prompt — a gate that
+    /// never opens, which is the shape of defect this project has shipped before. The states array
+    /// is the one that carries the bits, so it is the one that bounds the walk.</para></summary>
+    private static int FoldPointerBits(byte[]? states)
     {
         if (states == null)
             return 0;
         int bits = 0;
-        for (int i = 0; i < count && i < states.Length && i < 8; i++)
+        for (int i = 0; i < states.Length && i < 8; i++)
         {
             byte f = states[i];
             if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
@@ -436,11 +477,23 @@ internal sealed class RemoteDecisionWidgets
     /// <c>Singleton&lt;TakeDamagePanel&gt;</c> would not be initialized and its
     /// <c>TextLocalizedListener</c>s would not have written their strings).</para>
     /// </summary>
-    private RectTransform? ResolveSourceRow(byte kind)
+    private static string PromptName(byte kind) => kind switch
+    {
+        NetProtocol.DecisionKindShortRestYesNo => "short-rest confirmation",
+        NetProtocol.DecisionKindDialogPopup => "dialog-popup option",
+        _ => "take-damage",
+    };
+
+    private RectTransform? ResolveSourceRow(byte kind, RemoteAvatar owner)
     {
         _boundDialog = null;
         if (kind == NetProtocol.DecisionKindShortRestYesNo)
             return ResolveShortRestBox();
+        if (kind == NetProtocol.DecisionKindDialogPopup)
+        {
+            string? lines = owner.DecisionLines;
+            return _dialogOptions.Resolve(lines != null ? lines.Split('\n') : null);
+        }
         TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
             ? Singleton<TakeDamagePanel>.Instance
             : null;
@@ -524,12 +577,27 @@ internal sealed class RemoteDecisionWidgets
         _appliedKey = -1; // a fresh clone repaints from scratch
         _appliedPointerBits = -1;
         System.Array.Clear(_roles, 0, _roles.Length);
+        System.Array.Clear(_options, 0, _options.Length);
+        _optionCount = 0;
         _amount = null;
         _takeDamageText = null;
         _damageIcon = null;
         _fatalIcon = null;
         _mandatory = null;
         _labels = System.Array.Empty<TMP_Text>();
+
+        if (kind == NetProtocol.DecisionKindDialogPopup)
+        {
+            System.Collections.Generic.IReadOnlyList<Selectable> buttons = _dialogOptions.Buttons;
+            for (int i = 0; i < buttons.Count && i < _options.Length; i++)
+            {
+                _options[i] = MakeNode(buttons[i]);
+                if (_options[i].Clone != null)
+                    _optionCount = i + 1;
+            }
+            BindLabels();
+            return;
+        }
 
         if (kind == NetProtocol.DecisionKindShortRestYesNo)
         {
@@ -585,9 +653,13 @@ internal sealed class RemoteDecisionWidgets
         // AdjustDockedRow does to the OWNER's own row. The two take-damage texts are excluded
         // because the game itself keeps rewriting them (UpdateTakeDamageOptionVisuals) — see Apply.
         _labelScratch.Clear();
-        for (int r = 1; r < _roles.Length; r++)
+        for (int r = 1; r < _roles.Length + _options.Length; r++)
         {
-            Transform? clone = _roles[r].Clone;
+            // The role slots first, then the popup's index-addressed options — one walk, because
+            // "every label under a bound option widget" is one rule and not two.
+            Transform? clone = r < _roles.Length
+                ? _roles[r].Clone
+                : _options[r - _roles.Length].Clone;
             if (clone == null)
                 continue;
             clone.GetComponentsInChildren(includeInactive: true, TmpScratch);
@@ -612,9 +684,26 @@ internal sealed class RemoteDecisionWidgets
     {
         if (source == null || role >= _roles.Length)
             return;
+        _roles[role] = MakeNode(source);
+    }
+
+    /// <summary>
+    /// Resolve one option widget's repaintable parts against the clone — the ONE place a
+    /// <see cref="RoleNode"/> is made, whether the option is addressed by ROLE (take-damage,
+    /// short rest) or by INDEX (a <c>DialogPopup</c>'s pooled buttons).
+    ///
+    /// <para>Shared deliberately: the four <c>ColorBlock</c> tints, the toggle graphic and the
+    /// dim group are what the paint reads, and two prompts resolving them two ways is exactly how a
+    /// mirrored row starts looking almost right. Returns an empty node when the source is not in
+    /// the clone, which every consumer already treats as "skip".</para>
+    /// </summary>
+    private RoleNode MakeNode(Selectable? source)
+    {
+        if (source == null)
+            return default;
         Transform? clone = _mirror.CloneOf(source.transform);
         if (clone == null)
-            return;
+            return default;
         Graphic? srcBg = source.targetGraphic != null ? source.targetGraphic : source.image;
         var node = new RoleNode
         {
@@ -631,7 +720,7 @@ internal sealed class RemoteDecisionWidgets
             node.ChosenGraphic = CloneGraphic(toggle.graphic.transform);
         var group = clone.GetComponent<CanvasGroup>();
         node.Group = group != null ? group : clone.gameObject.AddComponent<CanvasGroup>();
-        _roles[role] = node;
+        return node;
     }
 
     private Graphic? CloneGraphic(Transform? src)
@@ -686,12 +775,17 @@ internal sealed class RemoteDecisionWidgets
         // never collide with the -1 "nothing applied yet" sentinel.
         long key = owner.DecisionWidgetFlags | ((long)owner.DecisionDamageAmount << 8);
         int shown = 0;
-        for (int i = 0; i < roles.Length && i < 8; i++)
+        // Walked to the LONGER of the two arrays: a DialogPopup row has states and no roles, and a
+        // key bounded by the roles alone would have stopped detecting its changes entirely.
+        int span = roles.Length;
+        if (states != null && states.Length > span)
+            span = states.Length;
+        for (int i = 0; i < span && i < 8; i++)
         {
             byte state = states != null && i < states.Length
                 ? states[i]
                 : NetProtocol.DecisionOptionOfferedBit;
-            key = key * 31 + roles[i];
+            key = key * 31 + (i < roles.Length ? roles[i] : 0);
             key = key * 31 + state;
         }
         key &= long.MaxValue;
@@ -702,7 +796,7 @@ internal sealed class RemoteDecisionWidgets
         // four a second.
         bool announce = key != _appliedKey;
         _appliedKey = key;
-        _appliedPointerBits = FoldPointerBits(states, roles.Length);
+        _appliedPointerBits = FoldPointerBits(states);
 
         // 1. Which roles the owner is showing, and in what state.
         byte[] present = _present;
@@ -721,16 +815,73 @@ internal sealed class RemoteDecisionWidgets
         Color antique = WorldUI.Surfaces.DecisionDockSurface.AntiqueTint;
         for (int role = 1; role < RoleSlots; role++)
         {
-            RoleNode node = _roles[role];
-            if (node.Clone == null)
+            if (PaintOption(_roles[role], present[role], antique))
+                shown++;
+        }
+
+        // THE POPUP'S OPTIONS, addressed by wire index instead of by role — the same paint, the
+        // same states, the same priority. They are a second LOOP and not a second painter: the
+        // difference between the two prompts is how an option is NAMED, and nothing else.
+        for (int i = 0; i < _optionCount && i < _options.Length; i++)
+        {
+            byte state = states != null && i < states.Length
+                ? states[i]
+                : NetProtocol.DecisionOptionOfferedBit;
+            if (PaintOption(_options[i], (byte)(state | 0x80), antique))
+                shown++;
+        }
+
+        // 2. The dock's parchment labels (AdjustDockedRow's own restyle, on the clone).
+        Color gold = WorldUI.NativeButtonSkin.HasFont
+            ? WorldUI.NativeButtonSkin.LabelColor
+            : new Color(0.91f, 0.82f, 0.62f);
+        for (int i = 0; i < _labels.Length; i++)
+        {
+            TMP_Text t = _labels[i];
+            if (t == null)
                 continue;
-            bool on = (present[role] & 0x80) != 0;
-            if (node.Clone.gameObject.activeSelf != on)
-                node.Clone.gameObject.SetActive(on);
-            if (!on)
-                continue;
-            shown++;
-            byte state = (byte)(present[role] & 0x7F);
+            var c = new Color(gold.r, gold.g, gold.b, t.color.a);
+            if (t.color != c)
+                t.color = c;
+        }
+
+        PaintTakeDamageNumbers(owner, out bool lethal, out bool shielded, out bool mandatory,
+                               out bool damageValid);
+
+        if (!announce)
+            return;
+        VRLog.Info("Net", $"Remote decision row PAINTED: {shown} game widget(s) shown of " +
+                          $"{roles.Length} wire role(s), owner pointer " +
+                          $"{DescribePointer(states)} — damage " +
+                          $"{(damageValid ? owner.DecisionDamageAmount.ToString() : "n/a")}" +
+                          $"{(lethal ? " (FATAL icon)" : " (normal icon)")}" +
+                          $"{(shielded ? ", shield colour" : string.Empty)}" +
+                          $"{(mandatory ? ", mandatory highlight lit" : string.Empty)}. Greyed uses " +
+                          "the game's OWN Selectable disabled tint and dim its own 0.7 — the " +
+                          "wordings, icons and art are this client's assets in this player's " +
+                          "language, so nothing about them was on the wire. Still inert: no " +
+                          "collider, no raycaster, nothing to press.");
+    }
+
+    /// <summary>
+    /// Paint ONE option widget from its packed state byte (high bit = the owner is showing it), and
+    /// return whether it ended up shown.
+    ///
+    /// <para>The single painter for all three prompts. Every write carries its own change gate: a
+    /// uGUI colour write dirties the canvas, and this runs on the content cadence AND on the
+    /// per-frame pointer drive.</para>
+    /// </summary>
+    private static bool PaintOption(RoleNode node, byte packed, Color antique)
+    {
+        if (node.Clone == null)
+            return false;
+        bool on = (packed & 0x80) != 0;
+        if (node.Clone.gameObject.activeSelf != on)
+            node.Clone.gameObject.SetActive(on);
+        if (!on)
+            return false;
+        {
+            byte state = (byte)(packed & 0x7F);
             bool offered = (state & NetProtocol.DecisionOptionOfferedBit) != 0;
             bool dimmed = (state & NetProtocol.DecisionOptionDimmedBit) != 0;
             bool chosen = (state & NetProtocol.DecisionOptionChosenBit) != 0;
@@ -773,30 +924,26 @@ internal sealed class RemoteDecisionWidgets
             if (node.ChosenGraphic != null && node.ChosenGraphic.enabled != chosen)
                 node.ChosenGraphic.enabled = chosen; // what Toggle.graphic does when it is on
         }
+        return true;
+    }
 
-        // 2. The dock's parchment labels (AdjustDockedRow's own restyle, on the clone).
-        Color gold = WorldUI.NativeButtonSkin.HasFont
-            ? WorldUI.NativeButtonSkin.LabelColor
-            : new Color(0.91f, 0.82f, 0.62f);
-        for (int i = 0; i < _labels.Length; i++)
-        {
-            TMP_Text t = _labels[i];
-            if (t == null)
-                continue;
-            var c = new Color(gold.r, gold.g, gold.b, t.color.a);
-            if (t.color != c)
-                t.color = c;
-        }
-
-        // 3. The take-damage option's live numbers and icons (record 29 flags). Evaluated with the
-        //    game's OWN formula (UpdateTakeDamageOptionVisuals / RefreshDamageInformation) against
-        //    this client's own colours, from the booleans the wire carried — never a guess and never
-        //    the sender's rendered pixels.
+    /// <summary>
+    /// The take-damage option's live numbers and icons (record 29 flags). Evaluated with the game's
+    /// OWN formula (<c>UpdateTakeDamageOptionVisuals</c> / <c>RefreshDamageInformation</c>) against
+    /// this client's own colours, from the booleans the wire carried — never a guess and never the
+    /// sender's rendered pixels.
+    ///
+    /// <para>Every part is null for the other two prompts (their binds never resolve them), so this
+    /// is a handful of null tests there rather than a branch.</para>
+    /// </summary>
+    private void PaintTakeDamageNumbers(RemoteAvatar owner, out bool lethal, out bool shielded,
+                                        out bool mandatory, out bool damageValid)
+    {
         byte flags = owner.DecisionWidgetFlags;
-        bool lethal = (flags & NetProtocol.DecisionWidgetLethalBit) != 0;
-        bool shielded = (flags & NetProtocol.DecisionWidgetShieldedBit) != 0;
-        bool mandatory = (flags & NetProtocol.DecisionWidgetMandatoryBit) != 0;
-        bool damageValid = (flags & NetProtocol.DecisionWidgetDamageValidBit) != 0;
+        lethal = (flags & NetProtocol.DecisionWidgetLethalBit) != 0;
+        shielded = (flags & NetProtocol.DecisionWidgetShieldedBit) != 0;
+        mandatory = (flags & NetProtocol.DecisionWidgetMandatoryBit) != 0;
+        damageValid = (flags & NetProtocol.DecisionWidgetDamageValidBit) != 0;
 
         SetActive(_damageIcon, !lethal);
         SetActive(_fatalIcon, lethal);
@@ -819,32 +966,18 @@ internal sealed class RemoteDecisionWidgets
             if (_takeDamageText.color != c)
                 _takeDamageText.color = c;
         }
-
-        if (!announce)
-            return;
-        VRLog.Info("Net", $"Remote decision row PAINTED: {shown} game widget(s) shown of " +
-                          $"{roles.Length} wire role(s), owner pointer " +
-                          $"{DescribePointer(roles, states)} — damage " +
-                          $"{(damageValid ? owner.DecisionDamageAmount.ToString() : "n/a")}" +
-                          $"{(lethal ? " (FATAL icon)" : " (normal icon)")}" +
-                          $"{(shielded ? ", shield colour" : string.Empty)}" +
-                          $"{(mandatory ? ", mandatory highlight lit" : string.Empty)}. Greyed uses " +
-                          "the game's OWN Selectable disabled tint and dim its own 0.7 — the " +
-                          "wordings, icons and art are this client's assets in this player's " +
-                          "language, so nothing about them was on the wire. Still inert: no " +
-                          "collider, no raycaster, nothing to press.");
     }
 
     /// <summary>Which option the OWNER's pointer is on, for the paint line. A hardware log has to
     /// be able to answer "did the hover reach this board, and was it the right option" — the two
     /// pointer bits are the only per-viewer facts in the record, so they are the ones a "the hover
     /// is wrong" report will be argued from.</summary>
-    private static string DescribePointer(byte[] roles, byte[]? states)
+    private static string DescribePointer(byte[]? states)
     {
         if (states == null)
             return "n/a (a sender predating the pointer bits)";
         var sb = new System.Text.StringBuilder(24);
-        for (int i = 0; i < roles.Length && i < states.Length; i++)
+        for (int i = 0; i < states.Length; i++)
         {
             byte f = states[i];
             bool hovered = (f & NetProtocol.DecisionOptionHoveredBit) != 0;
