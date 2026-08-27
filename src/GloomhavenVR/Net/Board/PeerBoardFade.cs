@@ -26,12 +26,20 @@ internal enum PeerBoardFadeMode
 
 /// <summary>
 /// Live-tunable decision thresholds for the peer-board see-through (canonical
-/// <see cref="ModuleConfig.Create"/> pattern — <c>dev.gloomhavenvr.boardfade.cfg</c>), modelled
-/// one for one on <c>WallFadeTuning</c>: the two Schmitt bars and the two un-fade dwells are the
-/// values that needed hardware iteration for the WALLS, so they are config here from the start,
-/// re-read through clamped accessors on EVERY evaluation tick. The remaining constants (the EMA
-/// tau, the fade tau, the sample-grid geometry) stay code-owned — they were stable across every
-/// wall round and there is no reason to believe boards are different.
+/// <see cref="ModuleConfig.Create"/> pattern — <c>dev.gloomhavenvr.boardfade.cfg</c>): the two
+/// Schmitt bars and the two un-fade dwells are the values that needed hardware iteration for the
+/// WALLS, so they are config here from the start, re-read through clamped accessors on EVERY
+/// evaluation tick. The remaining constants (the EMA tau, the fade tau, the sample-grid
+/// geometry) are not merely code-owned but SHARED — they are the wall's own, by reference, from
+/// <see cref="OcclusionFade"/>.
+///
+/// <para>THIS CLASS USED TO SAY IT WAS "modelled one for one on <c>WallFadeTuning</c>", AND THAT
+/// IS EXACTLY THE CLAIM THAT ROTTED (user, 2026-08-27: <i>"ich will dass die Logik für das Board
+/// die selbe ist, am besten derselbe code"</i>). A hand-copy is a snapshot of a design, and this
+/// one was taken before ModBuild 252 replaced the collapsing <c>Min(off, on)</c> low bar. The
+/// bars and dwells below stay separate CONFIG — a board is not a wall and its coverage is
+/// measured against a different denominator, so one number could not serve both — but the RULE
+/// that reads them is now literally the wall's, in Core/OcclusionFade.cs.</para>
 /// </summary>
 internal static class PeerBoardFadeTuning
 {
@@ -96,7 +104,19 @@ internal static class PeerBoardFadeTuning
         ? 0f
         : Clamped(OccludedAlpha, 0.25f, 0f, 0.95f);
     internal static float On => Clamped(OnFraction, 0.12f, 0.02f, 0.95f);
-    internal static float Off => Mathf.Min(Clamped(OffFraction, 0.05f, 0.01f, 0.95f), On);
+    /// <summary>Schmitt LOW bar, through the shared degenerate-band guard.
+    /// <para>WAS <c>Mathf.Min(configured, On)</c> until 2026-08-27, which is the repair the wall
+    /// fade REPLACED in ModBuild 252 because it does not repair anything: with the low bar at or
+    /// above the high bar, Min collapses BOTH onto one threshold and the Schmitt trigger
+    /// degenerates into a single bar that a coverage sitting near it crosses back and forth on
+    /// EMA noise. On the wall that showed up as four walls flipping ON and OFF together in the
+    /// ModBuild 250 log. The shipped board defaults (0.12 / 0.05) form a valid band, so this only
+    /// ever bit a hand-edited cfg — but it was a live defect that survived here for the single
+    /// reason this whole file has now been restructured to make impossible.</para>
+    /// <para>0.05 inside <c>Clamped</c> is the PRE-BIND fallback and it agrees with the shipped
+    /// default, <c>Defaults.PeerBoardOffFraction</c>. They must be changed together.</para></summary>
+    internal static float Off =>
+        OcclusionFade.SchmittLowBar(Clamped(OffFraction, 0.05f, 0.01f, 0.95f), On);
     internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
     internal static float DwellStationary =>
         Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
@@ -132,19 +152,43 @@ internal static class PeerBoardPlayArea
     /// <summary>Total sample budget over the WHOLE map. The wall fade's own budget (96) for the
     /// same kind of grid; the cost that matters is one <c>WorldToViewportPoint</c> each, once per
     /// frame for every board together.</summary>
-    private const int MaxSamples = 96;
+    private const int MaxSamples = OcclusionFade.MaxFloorSamples;
     /// <summary>World units above the tile's own top surface, so a sample is never swallowed by
     /// the floor mesh it sits on (the wall fade's <c>FloorSampleEpsilon</c>).</summary>
-    private const float FloorSampleEpsilon = 0.05f;
+    private const float FloorSampleEpsilon = OcclusionFade.FloorSampleEpsilon;
     /// <summary>Viewport slack on the frustum test — also covers the mono-vs-per-eye skew, which
     /// is the same 0.20 the wall fade uses for the same reason.</summary>
-    private const float FrustumMargin = 0.20f;
+    private const float FrustumMargin = OcclusionFade.FrustumMargin;
+    /// <summary>Grid rebuild cadence. The wall's twin is <c>[WallFade] RescanIntervalSeconds</c>,
+    /// a live dial since ModBuild 278 and shipped at this same 2 s. NOT wired to that dial: it
+    /// governs a ~90 ms sliced wall-table commit, and a walk of ~10 registry entries has nothing
+    /// to gain from the same knob and would make one number mean two things.</summary>
     private const float RescanSeconds = 2f;
-    /// <summary>Frustum-test cadence. The answer feeds a decision that is deliberately slow (an
-    /// EMA, a Schmitt trigger and second-scale dwells), so sampling it at 20 Hz instead of 90 Hz
-    /// cannot change WHICH boards fade — only when, within a twentieth of a dwell. It is the same
-    /// argument (and the same conclusion) as <c>PerfConfig.WallFadeInterval</c>, taken as the
-    /// default here because this runs once per PEER rather than once for the whole scene.</summary>
+    /// <summary>
+    /// Frustum-test and decision cadence. The answer feeds a decision that is deliberately slow
+    /// (an EMA, a Schmitt trigger and second-scale dwells), so sampling it at 20 Hz instead of
+    /// 90 Hz cannot change WHICH boards fade — only when, within a twentieth of a dwell.
+    ///
+    /// <para>THE OLD COMMENT HERE CLAIMED "the same argument (and the same conclusion) as
+    /// <c>PerfConfig.WallFadeInterval</c>", AND THAT WAS WRONG ON BOTH HALVES. The wall's cadence
+    /// SHIPS AT 0 — every frame — through two doors (<c>[WallFade] EvalIntervalSeconds</c> wins
+    /// when non-zero, <c>[Optimize] WallFadeEvalInterval</c> otherwise), and its 0 is not a
+    /// conclusion at all: <c>Defaults.EvalIntervalSeconds</c> says in as many words that a
+    /// non-zero default would be "a silent behaviour change smuggled in on a surfacing commit"
+    /// and that the number is a human's to choose from a hardware capture.</para>
+    ///
+    /// <para>SO THIS ONE STAYS HARDCODED AT 20 Hz, and the argument is the ASYMMETRY the old
+    /// comment gestured at without doing the arithmetic. The wall's decision runs ONCE for the
+    /// scene; this one runs once per PEER. A 96-sample pass at 90 Hz is 8,640 sample-tests a
+    /// second for the wall and 8,640 x N for the boards — at a four-player table that is 25,920
+    /// ray-versus-box tests a second added to an 11.11 ms budget, to move an event that is
+    /// debounced by a 0.20 s dwell at the very shortest. Sharing the wall's dial would import a
+    /// 4.5x per-peer cost on the strength of a default that was chosen to change nothing.</para>
+    ///
+    /// <para>AND IT GETS NO DIAL OF ITS OWN. A third cadence key for a sub-feature is exactly
+    /// what the standing no-new-config-key ruling is about, and nobody will tune from a headset
+    /// a cadence whose only visible effect is a twentieth of a dwell.</para>
+    /// </summary>
     internal const float EvalIntervalSeconds = 0.05f;
 
     private static readonly List<Vector3> Samples = new(MaxSamples);
@@ -235,10 +279,7 @@ internal static class PeerBoardPlayArea
             // by half the IPD and a little horizontal skew; the 0.20 viewport margin covers that
             // generously, and — this is the point — it is ONE answer used by BOTH eyes, so the
             // decision it feeds cannot differ between them (see the stereo note on PeerBoardFade).
-            Vector3 vp = head.WorldToViewportPoint(Samples[i]);
-            bool vis = vp.z > 0f
-                       && vp.x > -FrustumMargin && vp.x < 1f + FrustumMargin
-                       && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin;
+            bool vis = OcclusionFade.InFrustum(head, Samples[i]);
             Visible[i] = vis;
             if (vis)
                 _visibleCount++;
@@ -273,7 +314,21 @@ internal static class PeerBoardPlayArea
 /// and drives the whole board's opacity. Purely local: no wire byte, no game state, no effect on
 /// the owner or on any other viewer. The board's own pose, content and draw order are untouched.</para>
 ///
-/// <para><b>WHAT WAS REUSED FROM <c>WallSegmentFade</c>, AND WHAT COULD NOT BE.</b> Reused
+/// <para><b>WHAT IS SHARED WITH <c>WallSegmentFade</c> — THE CODE, NOT A COPY OF IT</b> (user,
+/// 2026-08-27: <i>"ich will dass die Logik für das Board die selbe ist, am besten derselbe
+/// code"</i>). Until then this paragraph said the wall's decision had been "reused verbatim in
+/// shape and in numbers", which is what a hand-copy always says on the day it is written and
+/// stops being true on the next hardware round. It had by then diverged three ways: the low bar
+/// still used the collapsing <c>Min</c> the wall replaced in ModBuild 252, the coverage metric
+/// still asserted full coverage whenever the eye was inside the box — the short circuit the wall
+/// DELETED in ModBuild 255 after it produced 44 bogus <c>raw 1.00</c> readings on one wall in one
+/// session — and the perspective watch never learned about the rig root, so a two-handed zoom,
+/// the largest viewpoint change this mod offers, registered as no change at all. All three are
+/// gone, because the EMA, the Schmitt band, the two-sided dwell, the exponential ramp, the
+/// frustum test, the degenerate-band guard and the perspective watch are now ONE body of code in
+/// <c>Core/OcclusionFade.cs</c> that both subsystems call.</para>
+///
+/// <para><b>WHAT IS DELIBERATELY NOT SHARED (the older text, still true).</b> Reused
 /// verbatim in shape and in numbers: the coverage metric (fraction of the head-visible floor
 /// samples whose head→sample segment the occluder interrupts), the EMA over that fraction
 /// (tau 0.15 s), the Schmitt trigger on the smoothed value, the short enter dwell (0.20 s) and
@@ -378,18 +433,18 @@ internal static class PeerBoardPlayArea
 /// classification".</remarks>
 internal sealed class PeerBoardFade : MonoBehaviour
 {
-    // ---- decision constants (the wall fade's, with its own justification) ---------------------
-    /// <summary>Short fade-OUT prompt dwell — <c>WallSegmentFade.EnterDwellSeconds</c>.</summary>
-    private const float EnterDwellSeconds = 0.20f;
-    /// <summary>REAL tracking-space metres of head translation that count as "the perspective
-    /// changed" (scale-independent — the rig root's own scale is divided out).</summary>
-    private const float HeadMoveReevalMeters = 0.18f;
-    /// <summary>How long a perspective change keeps the short exit dwell armed.</summary>
-    private const float ReevalArmSeconds = 3f;
-    /// <summary>Exponential fade time constant (~0.35 s to 95%) — the wall's.</summary>
-    private const float FadeTauSeconds = 0.12f;
-    /// <summary>EMA over the raw coverage fraction (the jitter killer) — the wall's.</summary>
-    private const float FractionTauSeconds = 0.15f;
+    // ---- decision constants: ALIASES of the shared ones, so there is one definition ----------
+    // The wall's copies are aliases of the same names. A `const = const` alias is resolved at
+    // compile time, so nothing about the emitted code changes — it only makes it impossible for
+    // these numbers to drift apart again, which is how this file came to be three fixes behind.
+    // HeadMoveReevalMeters and ReevalArmSeconds are not here any more: they moved wholesale into
+    // PerspectiveWatch, together with the rig-root clause this file never had.
+    /// <summary>Short fade-OUT prompt dwell.</summary>
+    private const float EnterDwellSeconds = OcclusionFade.EnterDwellSeconds;
+    /// <summary>Exponential fade time constant (~0.35 s to 95%).</summary>
+    private const float FadeTauSeconds = OcclusionFade.FadeTauSeconds;
+    /// <summary>EMA over the raw coverage fraction (the jitter killer).</summary>
+    private const float FractionTauSeconds = OcclusionFade.FractionTauSeconds;
     /// <summary>How often the board's surface census and occluder box are rebuilt. A peer board
     /// grows and loses surfaces all session long (cards, chips, cloned widgets), so a one-shot
     /// scan would fade the board it was built with and nothing that came after — the same reason
@@ -401,7 +456,14 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private const float CullAlpha = 0.01f;
     /// <summary>Segment-length fraction by which the board must be IN FRONT of a sample before it
     /// counts as blocking it — the analogue of the wall's <c>BlockEpsDistFraction</c>. Keeps a
-    /// board lying essentially ON the sample from claiming it.</summary>
+    /// board lying essentially ON the sample from claiming it.
+    /// <para>DELIBERATELY NOT THE WALL'S NUMBER, and this is the one term where the two
+    /// subsystems are supposed to disagree. The wall's rule is
+    /// <c>max(halfWallThickness, 0.05 x dist)</c>: it has a thickness term because a wall IS
+    /// thick, and the percentage exists only to keep long grazing rays honest ("a pure percentage
+    /// was the round-4 bug"). A control board is a centimetre-thick slab with no half-thickness
+    /// worth clamping, so the percentage is the whole rule here and 0.02 is sized for a slab
+    /// rather than for masonry.</para></summary>
     private const float BlockEpsFraction = 0.02f;
 
     /// <summary>Colour properties an alpha write is attempted on, in this order. <c>_Color</c>
@@ -460,21 +522,14 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private float _nextSurfaceScan;
 
     // --- decision state (the wall's Segment fields, one board's worth) ---
-    private float _smooth;
-    private bool _smoothInit;
-    private bool _pendingRaw;
-    private float _pendingSince;
-    private bool _state;
+    private OcclusionGate _gate;
     private float _fade;
     private bool _engaged;
     private float _nextEvalTime;
     private float _lastEvalTime;
 
     // --- perspective tracking ---
-    private Vector3 _lastHeadTrack;
-    private bool _headInit;
-    private float _lastReevalTime = -999f;
-    private int _lastPoseVersion = -1;
+    private readonly PerspectiveWatch _perspective = new();
     private Vector3 _lastBoardPos;
     private Quaternion _lastBoardRot = Quaternion.identity;
     private bool _boardPoseInit;
@@ -531,7 +586,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
 
         float now = Time.unscaledTime;
         PeerBoardPlayArea.EnsureFresh(head, now);
-        UpdatePerspectiveState(now);
+        UpdatePerspectiveState(head.transform, now);
         if (now >= _nextSurfaceScan)
         {
             _nextSurfaceScan = now + SurfaceScanSeconds;
@@ -545,60 +600,44 @@ internal sealed class PeerBoardFade : MonoBehaviour
         // would visibly step. The EMA advances by the time since the last EVALUATION, never since
         // the last frame — otherwise the cadence would silently stretch its time constant and
         // change WHICH boards fade, which is exactly what it must not do.
+        float onFraction = PeerBoardFadeTuning.On;
+        float offFraction = PeerBoardFadeTuning.Off;
+        bool reevalArmed = _perspective.Armed(now);
+        float exitDwell = reevalArmed
+            ? PeerBoardFadeTuning.DwellMoved
+            : PeerBoardFadeTuning.DwellStationary;
+
+        // THE SCHMITT TRIGGER AND THE DWELL MOVED INSIDE THE EVALUATION GATE (2026-08-27). Until
+        // then the gate covered the coverage measurement and the EMA, and these two ran every
+        // frame over a smoothed value that could not have changed since the last tick — so the
+        // decision was two thirds gated and the flip landed on the frame the dwell expired instead
+        // of on the next evaluation. The wall has always run all three inside the gate. Adopting
+        // that costs at most one evaluation period (50 ms) on a dwell that is 0.2 s at the very
+        // shortest, and removes a per-frame branch per peer.
         bool evaluate = now >= _nextEvalTime;
         if (evaluate)
         {
             _nextEvalTime = now + PeerBoardPlayArea.EvalIntervalSeconds;
             float fraction = BlockedFraction(head.transform.position);
             _lastRaw = fraction;
-            float evalDt = _lastEvalTime > 0f
-                ? Mathf.Min(now - _lastEvalTime, 0.5f)
-                : Time.unscaledDeltaTime;
+            float evalDt = OcclusionFade.EvalDelta(now, _lastEvalTime, Time.unscaledDeltaTime);
             _lastEvalTime = now;
-            float fracStep = 1f - Mathf.Exp(-evalDt / FractionTauSeconds);
-            if (!_smoothInit)
-            {
-                _smoothInit = true;
-                _smooth = fraction;
-            }
-            else
-            {
-                _smooth += (fraction - _smooth) * fracStep;
-            }
-        }
-
-        float onFraction = PeerBoardFadeTuning.On;
-        float offFraction = PeerBoardFadeTuning.Off;
-        bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
-        float exitDwell = reevalArmed
-            ? PeerBoardFadeTuning.DwellMoved
-            : PeerBoardFadeTuning.DwellStationary;
-
-        bool raw = _smooth >= (_state ? offFraction : onFraction);
-        if (raw != _pendingRaw)
-        {
-            _pendingRaw = raw;
-            _pendingSince = now;
-        }
-        if (_pendingRaw != _state)
-        {
-            float dwell = _pendingRaw ? EnterDwellSeconds : exitDwell;
-            if (now - _pendingSince >= dwell)
-                _state = _pendingRaw;
+            float fracStep = OcclusionFade.StepFactor(evalDt, FractionTauSeconds);
+            // EMA -> Schmitt -> dwell, in Core/OcclusionFade.cs — the same statements a wall
+            // segment and a split wall run execute, against this board's own bars.
+            _gate.Evaluate(fraction, now, fracStep, onFraction, offFraction,
+                           EnterDwellSeconds, exitDwell);
         }
 
         // Critically-damped-style exponential ramp toward the debounced state — the wall's, and
         // the reason a board never snaps even when the decision does.
-        float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
-        float target = _state ? 1f : 0f;
-        _fade += (target - _fade) * fadeStep;
-        if (Mathf.Abs(target - _fade) < 0.005f)
-            _fade = target;
+        float fadeStep = OcclusionFade.StepFactor(Time.unscaledDeltaTime, FadeTauSeconds);
+        _fade = OcclusionFade.Ramp(_fade, _gate.Latched ? 1f : 0f, fadeStep);
 
         float alpha = Mathf.Lerp(1f, Mathf.Clamp01(PeerBoardFadeTuning.Alpha), _fade);
         Apply(alpha);
         LogStateIfChanged(alpha, onFraction, offFraction, exitDwell, reevalArmed);
-        if (now >= _nextDiag && !PerfConfig.Quiet && (_engaged || _state))
+        if (now >= _nextDiag && !PerfConfig.Quiet && (_engaged || _gate.Latched))
         {
             _nextDiag = now + DiagIntervalSeconds;
             LogDiagnostic(alpha, onFraction, offFraction, reevalArmed);
@@ -620,10 +659,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
     {
         Release();
         _fade = 0f;
-        _state = false;
-        _pendingRaw = false;
-        _smooth = 0f;
-        _smoothInit = false;
+        _gate.Reset();
         _lastEvalTime = 0f;
         _nextEvalTime = 0f;
         _loggedStateInit = true;
@@ -652,7 +688,9 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// the sample, so a board on the far side of the hexes it appears to overlap blocks nothing.
     /// BETWEEN TWO PLAYERS: irrelevant by construction — the only viewpoint that exists here is
     /// this client's head, and the answer is computed independently on every machine. IN YOUR
-    /// FACE (the eye inside the box): full coverage, exactly like the wall.</para>
+    /// FACE (the eye inside the box): the samples the board actually covers, and NOT a hard 1.0 —
+    /// see the ModBuild 255 note at the loop below for why the short circuit that used to assert
+    /// that was deleted from the wall and is now deleted from here.</para>
     ///
     /// <para>KNOWN OVER-COUNT, stated: the proxy is the board's furnished BOX, not its silhouette,
     /// so the notches between an off-edge dock and the slab (the initiative mirror hangs above the
@@ -670,12 +708,16 @@ internal sealed class PeerBoardFade : MonoBehaviour
 
         Transform t = transform;
         Vector3 localEye = t.InverseTransformPoint(headPos);
-        if (_localBox.Contains(localEye))
-        {
-            _lastBlocked = _lastVisible;
-            return 1f;
-        }
-
+        // THE "BOARD IN THE FACE" SHORT CIRCUIT IS GONE (2026-08-27), and it was never needed —
+        // the same deletion the wall fade made in ModBuild 255, for the same reason and with the
+        // same evidence. It returned a hard 1f, "this board hides the ENTIRE play field", the
+        // moment the eye entered the box, and reported every in-view sample as blocked while
+        // doing so. On the wall that assertion produced 'Wall 2' sitting at raw 1.00 in 44 of its
+        // diagnostic samples in one session, none of which came from any measurement of what the
+        // wall covered. The ordinary ray math already handles an eye inside the geometry:
+        // Bounds.IntersectRay returns TRUE at distance 0 for a ray whose origin is inside the
+        // box, so every sample genuinely behind the board is counted by the normal path below,
+        // and only those.
         Matrix4x4 toLocal = t.worldToLocalMatrix;
         int blocked = 0;
         int n = PeerBoardPlayArea.Count;
@@ -689,11 +731,15 @@ internal sealed class PeerBoardFade : MonoBehaviour
             if (len <= 1e-4f)
                 continue;
             var ray = new Ray(localEye, seg / len);
+            // The wall's rule, term for term: a hit that does not clearly PRECEDE the sample is
+            // not an occlusion — unless the sample itself is inside the box, which is a sample
+            // buried in the board and hidden whatever the ray says. A hit at distance 0 is the eye
+            // inside the box and COUNTS, which is what replaced the short circuit deleted above;
+            // there is no `hit <= 0` rejection any more, and Bounds.IntersectRay never reports a
+            // negative distance.
             if (!_localBox.IntersectRay(ray, out float hit))
                 continue;
-            // Strictly BETWEEN the eye and the sample: behind the eye is not an occluder, and a
-            // hit at (or past) the sample is the board lying on the floor it "hides".
-            if (hit <= 0f || hit >= len * (1f - BlockEpsFraction))
+            if (hit >= len * (1f - BlockEpsFraction) && !_localBox.Contains(localSample))
                 continue;
             blocked++;
         }
@@ -702,43 +748,33 @@ internal sealed class PeerBoardFade : MonoBehaviour
     }
 
     /// <summary>
-    /// Arm the SHORT exit dwell whenever the viewpoint really changed: the rig pose version (a
-    /// recenter / rig rebuild), a real head translation of <see cref="HeadMoveReevalMeters"/>
-    /// TRACKING metres, or the owner moving the board itself — which is the board-specific third
-    /// case the wall cannot have, and the one that matters most here, because the user's whole
-    /// complaint is about a board somebody else is dragging around.
+    /// Arm the SHORT exit dwell whenever the viewpoint really changed. Three of the four causes
+    /// are the shared <see cref="PerspectiveWatch"/>: the rig pose version (a recenter / rig
+    /// rebuild), the RIG ROOT moving, turning or being rescaled, and a real head translation of
+    /// <see cref="OcclusionFade.HeadMoveReevalMetres"/> TRACKING metres. The fourth is the
+    /// board-specific one the wall cannot have, and the one that matters most here because the
+    /// user's whole complaint is about a board somebody else is dragging around: the OWNER MOVING
+    /// THE BOARD, which reaches the watch through <see cref="PerspectiveWatch.Note"/>.
     /// </summary>
-    private void UpdatePerspectiveState(float now)
+    private void UpdatePerspectiveState(Transform headT, float now)
     {
-        int pv = Rig.VRRigDriver.RigPoseVersion;
-        if (pv != _lastPoseVersion)
-        {
-            _lastPoseVersion = pv;
-            _lastReevalTime = now;
-        }
-
-        Camera? head = Rig.VRRigDriver.HeadCamera;
-        Transform? rig = Rig.VRRigDriver.RigRoot;
-        if (head != null)
-        {
-            // The head's position expressed in the rig's own frame is TRACKING space: the diorama
-            // scale (11–20 world units per real metre) divides out, so the 0.18 m threshold means
-            // 18 real centimetres at every world scale — the same property the wall constant
-            // claims for itself.
-            Vector3 track = rig != null
-                ? rig.InverseTransformPoint(head.transform.position)
-                : head.transform.position;
-            if (!_headInit)
-            {
-                _headInit = true;
-                _lastHeadTrack = track;
-            }
-            else if ((track - _lastHeadTrack).sqrMagnitude >= HeadMoveReevalMeters * HeadMoveReevalMeters)
-            {
-                _lastHeadTrack = track;
-                _lastReevalTime = now;
-            }
-        }
+        // THREE OF THE FOUR CAUSES ARE THE SHARED WATCH (Core/OcclusionFade.cs): the rig pose
+        // version, the RIG ROOT moving/turning/rescaling, and real head translation.
+        //
+        // THE RIG-ROOT CLAUSE IS NEW HERE AND IT IS THE INTERESTING ONE. It was in the wall fade
+        // from the start and this file never had it, because the hand-copy took the head-motion
+        // clause and stopped. It cannot be derived from the head: WorldGrab zooms and drags by
+        // writing the RIG ROOT's position, rotation and scale, and the head camera is a child of
+        // that root - so the head's own tracking-space position does not move by a millimetre
+        // while the player hauls the whole diorama past his face. Zooming into the board is the
+        // single largest viewpoint change this mod offers, and until now a board that stopped
+        // occluding right after one waited out the LONG "you only turned your head" dwell.
+        //
+        // The fourth cause is this file's own and has no wall equivalent: the OWNER MOVING THE
+        // BOARD. It matters most of all here, because the user's whole complaint is about a board
+        // somebody else is dragging around, and it reaches the shared watch through Note() exactly
+        // as the wall's room-bounds shift does.
+        _perspective.Tick(headT, now);
 
         Transform t = transform;
         if (!_boardPoseInit)
@@ -752,7 +788,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
         {
             _lastBoardPos = t.position;
             _lastBoardRot = t.rotation;
-            _lastReevalTime = now;
+            _perspective.Note(now);
         }
     }
 
@@ -1094,17 +1130,18 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private void LogStateIfChanged(float alpha, float onFraction, float offFraction,
                                    float exitDwell, bool reevalArmed)
     {
-        if (_loggedStateInit && _state == _loggedState)
+        bool state = _gate.Latched;
+        if (_loggedStateInit && state == _loggedState)
             return;
         _loggedStateInit = true;
-        _loggedState = _state;
-        VRLog.Info("Net", $"Peer board [{_playerId}] see-through {(_state ? "ON" : "OFF")} " +
+        _loggedState = state;
+        VRLog.Info("Net", $"Peer board [{_playerId}] see-through {(state ? "ON" : "OFF")} " +
             $"({PeerBoardFadeTuning.Mode}) — occlusion test: oriented board box vs the head→" +
             $"play-field segments, {_lastBlocked}/{_lastVisible} in-view sample(s) blocked, raw " +
-            $"{_lastRaw:0.000}, smoothed {_smooth:0.000} vs the {(_state ? onFraction : offFraction):0.00} " +
-            $"bar it just crossed (margin {Mathf.Abs(_smooth - (_state ? onFraction : offFraction)):0.000}); " +
+            $"{_lastRaw:0.000}, smoothed {_gate.Smooth:0.000} vs the {(state ? onFraction : offFraction):0.00} " +
+            $"bar it just crossed (margin {Mathf.Abs(_gate.Smooth - (state ? onFraction : offFraction)):0.000}); " +
             $"driving alpha {alpha:0.00} over ~{FadeTauSeconds * 3f:0.00}s. Hysteresis held it for " +
-            $"{(_state ? EnterDwellSeconds : exitDwell):0.0}s of continuous agreement " +
+            $"{(state ? EnterDwellSeconds : exitDwell):0.0}s of continuous agreement " +
             $"({(reevalArmed ? "perspective recently changed" : "head only rotating")}). " +
             "PURELY LOCAL — the owner's board is untouched and nothing went on the wire.");
     }
@@ -1114,9 +1151,9 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <c>PerfConfig.Quiet</c>, exactly like the wall's own 2 Hz sweep.</summary>
     private void LogDiagnostic(float alpha, float onFraction, float offFraction, bool reevalArmed)
     {
-        VRLog.Info("Net", $"Peer board [{_playerId}] see-through diag: state {(_state ? "ON" : "OFF")}, " +
+        VRLog.Info("Net", $"Peer board [{_playerId}] see-through diag: state {(_gate.Latched ? "ON" : "OFF")}, " +
             $"fade {_fade:0.00} → alpha {alpha:0.00}; coverage raw {_lastRaw:0.000} smoothed " +
-            $"{_smooth:0.000} ({_lastBlocked}/{_lastVisible} of {PeerBoardPlayArea.Count} play-field " +
+            $"{_gate.Smooth:0.000} ({_lastBlocked}/{_lastVisible} of {PeerBoardPlayArea.Count} play-field " +
             $"samples in view); bars on {onFraction:0.00} / off {offFraction:0.00}; " +
             $"{(reevalArmed ? "short" : "long")} exit dwell armed; box (board-local) " +
             $"{_localBox.size.x:0.00}×{_localBox.size.y:0.00}×{_localBox.size.z:0.00} m; " +

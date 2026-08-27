@@ -416,7 +416,69 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 309;
+    public const ushort ModBuild = 310;
+    // Build 310: A FULL RECEIVER AUDIT, AND THE ONE THING NO CHECKER ON THIS RECORD CAN SEE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 178/179). ***
+    //
+    //   A read-only audit of every receiver path found 22 divergences between what an owner sees
+    //   and what a peer draws of them, FOURTEEN OF THEM AT SHIPPED DEFAULTS. This build pays the
+    //   loudest, and the structural finding is worth more than any single fix:
+    //
+    //   check-wire-coverage.py asserts that a field EXISTS and that the sampler WRITES it. It has
+    //   no assertion that any receiver READS it. Three of the findings had a green wire field the
+    //   receiver ignored. check-remote-defaults.py compares a receiver constant to a NAMED Defaults
+    //   entry, so a BARE LITERAL is invisible to it — 0.0635f appeared five times under Net/ and
+    //   not once as Defaults.CardWidth. Neither can see a missing renderer step, a missing literal
+    //   term, or a widget the mirror draws that the owner has not got.
+    //
+    //   THE HELD CARD WAS 1.6x TOO SMALL, FOR EVERY PAIRING. A card plucked from a fan grows to
+    //   CardWidth x InspectScale on its owner's screen — 101.6 mm at the defaults. Every peer drew
+    //   63.5. TryHeldCard samples position and rotation and no scale term at all, and InspectScale
+    //   appeared ZERO times under Net/. Wired as id 178, and the receiver now also reads the card
+    //   WIDTH it has had in scope since id 70 and never used. The slab's size is written as the
+    //   explicit product it is, with a named parameter saying WHOSE size is being asked for —
+    //   CardDustFx.Permission's shape, defaulting to the stricter answer.
+    //
+    //   THE MIRRORED FAN EASED 33 % TOO FAST (id 179): a `const 8f` against a shipped 6.
+    //
+    //   AND THE GEOMETRY. Every mirrored card FLIGHT bowed along the peer's BOARD up instead of
+    //   world up — 60 degrees off, and the local code DISCARDS that same board-up on purpose with a
+    //   comment saying why. A peer's item fan was bowed 1.8x too deep and rolled 1.2x too steep
+    //   (two factors the browse mirror carries and the item mirror never got). Both board fans
+    //   stood 12 degrees more upright than their owners'. A SPENT item lay tapped 90 degrees on its
+    //   owner's board and upright on everyone else's. Three frozen card widths where the owner
+    //   reads a live dial, one of them 5.5 % small at defaults.
+    //
+    //   A LANE REFUSED THE FIX I ASKED FOR, AND IT WAS RIGHT. The audit said a spent item's GHOST
+    //   could be restored by calling UpdateState on the source widget. Verified: it cannot. The
+    //   pooled borrow's `finally` calls RestoreCard(), which undoes the ghost on the same material
+    //   instances in the same synchronous call — and on an un-Initialized widget the write lands on
+    //   the SHARED authored material of a widget going straight back into the game's own pool. That
+    //   is presentation code writing game state. The rotation half shipped; the ghost is a named
+    //   REQUEST against RemoteCardArt with the three blockers written down.
+    //
+    //   THE WALL FADE AND THE BOARD FADE ARE NOW ONE BODY OF CODE (user: "ich will dass die Logik
+    //   für das Board die selbe ist, am besten derselbe code"). Core/OcclusionFade.cs holds the EMA,
+    //   the Schmitt band, the two-sided dwell, the ramp, the frustum test and the perspective watch;
+    //   the wall's four dwell sites and the board's one now execute the same statements. The
+    //   hand-copy had drifted THREE ways: the collapsing Min(off,on) low bar the wall replaced in
+    //   ModBuild 252, the eye-inside-the-box short circuit the wall DELETED in 255 after it produced
+    //   44 bogus raw-1.00 readings, and no rig-root clause at all — so a two-handed world-grab zoom,
+    //   the largest viewpoint change this mod offers, registered as NO perspective change and a
+    //   board that stopped occluding waited out the long dwell instead of the short one.
+    //
+    //   TEST: two clients.
+    //     1. HELD CARD — one player picks a card out of their fan and holds it up. On the other
+    //        headset it must GROW to the same size. Then have them change [Cards] CardWidth and
+    //        confirm the held card follows on the other screen too.
+    //     2. CARD FLIGHT — play a card and watch it fly to the discard pile on the OTHER screen.
+    //        The arc must go up toward the ceiling, not forward across the board.
+    //     3. ITEM FAN — open a full item fan and have the other player compare the curve depth and
+    //        the roll. A SPENT item must lie tapped 90 degrees on both screens.
+    //     4. BOARD FADE — set [PeerBoardFade] Mode to Transparent, let a peer's board fade, then
+    //        two-hand ZOOM. It must come back on the short dwell, not the long one.
+    //     5. Still owed from 302: card dust ON *plus* a second board dial moved.
+    //
     // Build 309: THE LAST TWO WIRE DEBTS, AND A THIRD DEFECT THEY WERE HIDING.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 101/236). ***
     //
@@ -18031,6 +18093,51 @@ internal static class NetProtocol
     /// <summary>[Cards] ActiveGridSpacing_{board}, ROW factor — the owner's vertical step, as a
     /// multiple of their card height. See <see cref="TuneActiveGridCol"/>.</summary>
     public const byte TuneActiveGridRow = 177;
+
+    /// <summary>
+    /// THE MAGNIFICATION A CARD IS HELD AT. A dimensionless multiplier over the owner's own card
+    /// metric, hence the FACTOR width; its config range is 0.5..4, comfortably inside +/-32.767.
+    ///
+    /// <para>WHY IT NEEDS A FIELD AT ALL, given that <see cref="TuneCardWidth"/> already travels.
+    /// The two are FACTORS OF A PRODUCT and neither one is recoverable from the other. A card
+    /// plucked out of a fan is drawn at <c>CardWidth x InspectScale</c> — <c>VRCard.GetHeldPose</c>
+    /// returns the multiplier as the held pose's SCALE, and <c>VRInteractables</c> puts it on the
+    /// card's <c>localScale</c> — so a receiver that knows only the width draws the peer's held
+    /// card at 1/1.6 of the size its owner is reading it at, FOR EVERY PAIRING, before anybody has
+    /// touched a dial. Exactly the shape of the defect <see cref="ExtIdSlotCardSize"/> was added
+    /// for ("nicht 1:1, ich sehe sie kleiner"), one surface further along.</para>
+    ///
+    /// <para>WHY NOT ON THE RIG PACKET beside the held-card POSE, which is where the size is
+    /// physically missing. Because it is a DIAL, not a per-frame quantity: it changes when the
+    /// owner edits their config and never otherwise, so it belongs on the sparse change-driven
+    /// record with every other dial rather than costing bytes at 20 Hz for a number that is
+    /// constant for the whole session. The pose stays where it is.</para>
+    ///
+    /// <para>ONE FIELD COVERS THE ITEM CHIP TOO: <c>ItemsPile</c>'s held pose reads the SAME
+    /// <c>InspectScale</c> entry (its only licensed difference from the ability card's copy is the
+    /// grip HEIGHT, which is the chip's own measured face and never a dial). A second field would
+    /// be two ids for one number.</para>
+    ///
+    /// <para>[Cards] InspectScale.</para>
+    /// </summary>
+    public const byte TuneCardInspectScale = 178;
+
+    /// <summary>
+    /// [Cards] FanGazeSmoothing — the per-second rate at which the OWNER's hand fan eases its
+    /// depth-bow apex toward wherever their gaze crosses the fan plane. A per-second rate in the
+    /// FACTOR range, the established convention on this record (an id range fixes the value WIDTH,
+    /// never the unit); the owner clamps it to 1..30, so it fits the width with room to spare.
+    ///
+    /// <para>WHY IT IS A FIELD AND NOT "DERIVED FROM THE SYNCED HEAD". The mirror re-derives the
+    /// gaze TARGET from the peer's synced head pose, which is right and costs nothing — but the
+    /// EASE RATE is an independent term that the mirror held as its own literal (8/s against the
+    /// shipped 6/s), so every peer's relief eased 33 % too fast for every player, tuned or not.
+    /// A synced input does not make an unsynced coefficient synced; that is what made the old
+    /// exemption for this dial false rather than merely incomplete.</para>
+    ///
+    /// <para>[Cards] FanGazeSmoothing.</para>
+    /// </summary>
+    public const byte TuneFanGazeSmoothing = 179;
 
     /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
     /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see

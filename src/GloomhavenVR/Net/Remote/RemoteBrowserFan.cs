@@ -73,8 +73,12 @@ internal sealed class RemoteBrowserFan
     private const float CardW = RemoteHandFan.DefaultCardWidth;   // ability cards, 63.5 × 88
     private const float CardH = RemoteHandFan.DefaultCardHeight;
     private const float MaxArcDegrees = 110f;           // PileBrowser.MaxArcDegrees
-    private const float ArchFactor = 0.55f;             // PileBrowser.Relayout's (cos-1)·radius·0.55
-    private const float TiltFactor = 0.85f;             // PileBrowser.Relayout's -angle·0.85
+    // The arch depth and roll gain are PileBrowser.Relayout's (cos-1)·radius·0.55 and -angle·0.85.
+    // They used to be private copies here; they moved to RemotePileFronts when RemoteItemFan turned
+    // out to be missing BOTH of them (its arc bowed 1.8x too deep and rolled 1.2x too steep), so the
+    // two mirrors of the same two owner-side literals now read one definition.
+    private const float ArchFactor = RemotePileFronts.FanArchFactor;
+    private const float TiltFactor = RemotePileFronts.FanTiltFactor;
     private const float CardScale = 1.3f;               // PileBrowser.CardScale (browse cards are enlarged)
     private const float ZStagger = 0.004f;              // PileBrowser.ZStagger (draw order)
     private const float HandPalmOffset = 0.16f;         // PileBrowser.HandPalmOffset
@@ -106,6 +110,41 @@ internal sealed class RemoteBrowserFan
     /// cards actually fly out of the stack on. Wire-overridable (id 157) for the same reason as the
     /// two above: the owner's cards arrive at the owner's rate on every screen, not at ours.</summary>
     private float _emergeSharpness = Defaults.CardLerpSpeed;
+
+    /// <summary>The OWNER's own <c>[Cards] CardWidth</c> (record 28, id 70). <see cref="CardW"/> is
+    /// the NOMINAL box the shared body mesh is authored at and must stay a constant — it is the
+    /// dictionary key <c>CardMesh.AttachBody</c> shares one mesh per (kind, w, h) on — so the owner's
+    /// tuned width arrives as a uniform scale on the slab root instead, exactly as
+    /// <see cref="RemoteHandFan"/> does it. The INITIALISER is the shipped default, which is what an
+    /// untuned peer's browse arc is drawn at (held against <c>[Cards] CardWidth</c> by
+    /// scripts/check-remote-defaults.py).</summary>
+    private float _cardWidth = Defaults.CardWidth;
+
+    /// <summary>How much bigger/smaller than the nominal body the owner's cards are.</summary>
+    private float WidthRatio => _cardWidth / CardW;
+
+    /// <summary>The slab's resting local scale: the browse enlargement times the owner's width.</summary>
+    private float SlabScale => CardScale * WidthRatio;
+
+    // ---- THE PRINTED FACE RECT (user report 12's second surface) -------------------------------
+    //
+    // A card SLAB is nominally 63.5 x 88 mm, and the face fitted onto it is a rect of a different
+    // aspect that is letterboxed in and then inset by CardFace.BorderFraction — so the rectangle a
+    // card actually PAINTS is strictly smaller than the slab, and by a different amount per axis.
+    // CardFace.cs says this in full, names the arithmetic, and names RemoteHandFan as the ONE remote
+    // surface it had been fixed on. This was the other one.
+    //
+    // Left at the nominal, the browse arc showed 4.73 mm of card back per side and 2.64 mm per end
+    // as a decorative rim around every printed face — the exact "Hintergrund am Rand" of report 12 —
+    // and drew every card 17.5 % WIDER than its owner's own, multiplied AGAIN by this fan's 1.3x
+    // browse enlargement. The fix is the step the fan was missing, not a fudge on the face: the BODY
+    // shrinks to the printed rect (VRCard.SetCanvasSize's backing fit, term for term) while the
+    // RemoteCardArt overlay keeps being handed the NOMINAL box, so its own 6 % inset lands the print
+    // exactly on the body edge. No wire field: the face pixel size is a local read of the shared
+    // game prefab through CardFace.ObservedFacePixels.
+    private Vector2 _visibleFace = CardFace.VisibleFaceRect(CardW, CardH);
+    private int _faceRevision = -1;
+    private bool _loggedFaceRect;
 
     /// <summary>The <see cref="RemoteAvatar.BoardTuningRevision"/> the three dials above were last
     /// refreshed at, plus the pile KIND they were resolved for — the radius factor and the angular
@@ -203,6 +242,59 @@ internal sealed class RemoteBrowserFan
         _radius = Mathf.Max(0.02f, t.FanRadius * factor);
         _maxStepDegrees = Mathf.Max(0.5f, step);
         _emergeSharpness = Mathf.Max(0.5f, t.CardLerpSpeed);
+        // The lifted card's travel (id 75) — the last of the three fan mirrors to stop being frozen.
+        // Unclamped on purpose, like RemoteHandFan/RemoteItemFan: a lift of zero is a legitimate
+        // "no pop", where a zero RADIUS above would collapse the arc onto a point.
+        _popForward = t.FanSelectedPopForward;
+        // …and the CARD's own size (id 70). It lands as a uniform slab-root scale rather than as a
+        // new mesh box (see _cardWidth), so a change costs nothing but a rebuild of the arc — which
+        // the _builtCount invalidation below asks for, because the slab bodies are baked at the
+        // nominal and only the root carries the ratio.
+        float width = Mathf.Max(0.01f, t.CardWidth);
+        if (!Mathf.Approximately(width, _cardWidth))
+        {
+            _cardWidth = width;
+            _builtCount = -1;
+        }
+    }
+
+    /// <summary>
+    /// Re-resolve the PRINTED face rectangle the slab bodies are scaled to (see
+    /// <see cref="_visibleFace"/>) whenever this client learns a new face pixel size — i.e. the
+    /// first time it hosts an ability card of its own, and never again in a normal session. A change
+    /// invalidates <see cref="_builtCount"/> so the arc is rebuilt at the corrected size on the same
+    /// frame. Byte-for-byte <c>RemoteHandFan.SyncFaceRect</c>: revision-gated rather than
+    /// value-compared, because the answer changes at most once per session.
+    /// </summary>
+    private void SyncFaceRect()
+    {
+        if (_faceRevision == CardFace.FacePixelsRevision)
+            return;
+        _faceRevision = CardFace.FacePixelsRevision;
+        Vector2 vis = CardFace.VisibleFaceRect(CardW, CardH);
+        if (Mathf.Approximately(vis.x, _visibleFace.x) && Mathf.Approximately(vis.y, _visibleFace.y)
+            && _loggedFaceRect)
+            return;
+        _visibleFace = vis;
+        _builtCount = -1;
+
+        // THE MEASUREMENT LINE, the browse-arc twin of the hand fan's. Grep: "Remote browse fan face
+        // rect". A log whose margin is not 0.00 x 0.00 mm disproves the fix; a log whose printed size
+        // is not the owner's own printed size (the "CARD FACE RECT" line from Cards) disproves the
+        // 1:1 half.
+        _loggedFaceRect = true;
+        VRLog.Info("Net", $"Remote browse fan face rect [player {_owner.PlayerId}]: face "
+            + $"{CardFace.ObservedFacePixels.x:F0}x{CardFace.ObservedFacePixels.y:F0} px letterboxed into the "
+            + $"{CardW * 1000f:F1}x{CardH * 1000f:F1} mm nominal card PRINTS "
+            + $"{vis.x * 1000f:F2}x{vis.y * 1000f:F2} mm; the slab BODY is now scaled to exactly that "
+            + $"(x{vis.x / CardW:F4}, x{vis.y / CardH:F4}), so the margin of card-back showing around "
+            + "the print is 0.00x0.00 mm. Before this build the body stayed at the nominal card and "
+            + $"that margin measured {(CardW - vis.x) * 500f:F2} mm per side at the SIDES and "
+            + $"{(CardH - vis.y) * 500f:F2} mm per side at the ENDS, on a slab drawn "
+            + $"{CardW / vis.x:F3}x too wide before this fan's {CardScale:F2}x browse enlargement was "
+            + $"applied on top. Owner card width x{WidthRatio:F3}. Same rect the LOCAL card's backing "
+            + "is fit to (VRCard.SetCanvasSize) — no wire field, the face size is read off this "
+            + "client's own hosted card widget.");
     }
 
     /// <summary>Map the wire's pile-kind byte onto the model source the front layer reads.</summary>
@@ -276,6 +368,13 @@ internal sealed class RemoteBrowserFan
         if (!_open || _root == null)
             return;
 
+        // The owner's dials and this client's printed-face rect BEFORE the rebuild test, not after:
+        // both can invalidate _builtCount (a card width change re-bakes the slab scale, a face-rect
+        // change re-bakes the body squash), and resolving them inside Layout — i.e. one statement
+        // too late — left the arc drawn for a frame at a size the slabs were not built at.
+        SyncTuning();
+        SyncFaceRect();
+
         int count = Mathf.Clamp(_owner.PileBrowseCardCount, 1, MaxCards);
         if (count != _builtCount)
             Rebuild(count); // cards plucked out of / returned to the arc mid-browse: no re-emerge
@@ -325,6 +424,10 @@ internal sealed class RemoteBrowserFan
         EnsureRoot();
         if (_root == null)
             return;
+        // The owner's card size and this client's printed-face rect BEFORE the rebuild that bakes
+        // them into the slabs — Layout re-asks every frame, but the build happens first.
+        SyncTuning();
+        SyncFaceRect();
         if (count != _builtCount)
             Rebuild(count);
         if (!_root.activeSelf)
@@ -358,7 +461,7 @@ internal sealed class RemoteBrowserFan
             Transform c = _cards[i].transform;
             c.localPosition = seedLocal + new Vector3(0f, 0f, -ZStagger * i); // keep the draw order stable
             c.localRotation = Quaternion.identity;
-            c.localScale = Vector3.one * CardScale;
+            c.localScale = Vector3.one * SlabScale;
         }
         _emergeElapsed = 0f;
 
@@ -374,7 +477,8 @@ internal sealed class RemoteBrowserFan
     /// exponential the local browse cards use. Mirrors <c>PileBrowser.Relayout</c>'s arc math.</summary>
     private void Layout(int n, float dt)
     {
-        SyncTuning();
+        // SyncTuning/SyncFaceRect are the CALLER's job (Tick and BeginEmerge both run them ahead of
+        // the rebuild test) — they can invalidate _builtCount, and this method is downstream of it.
         float step = n > 1 ? Mathf.Min(_maxStepDegrees, MaxArcDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
@@ -413,8 +517,8 @@ internal sealed class RemoteBrowserFan
             // either (only the hand fan does), and inventing one would be a widget the owner lacks.
             float popT = PopAmount(i, hovered, dt);
             if (popT > 0f)
-                pos += rot * new Vector3(0f, PopUp * popT, -PopForward * popT);
-            float scale = CardScale * (1f + PopScale * popT);
+                pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
+            float scale = SlabScale * (1f + PopScale * popT);
             Transform t = _cards[i].transform;
             if (easing)
             {
@@ -433,10 +537,18 @@ internal sealed class RemoteBrowserFan
 
     // ---------------------------------------------------------------- highlight (record 6) --
 
-    /// <summary>CardsConfig.FanSelectedPopForward — how far a lifted card comes toward the viewer
-    /// (VRCard's pop). Local copy of the AUTHORED default, like every other constant in this file:
-    /// the sender's live [Cards] tuning is theirs and never rides the wire.</summary>
-    private const float PopForward = Defaults.FanSelectedPopForward;
+    /// <summary>
+    /// <c>[Cards] FanSelectedPopForward</c> — how far a lifted card comes toward the viewer
+    /// (VRCard's pop, read live by the owner at <c>VRCard.Update</c>).
+    ///
+    /// <para>It used to be a <c>const</c>, and its comment claimed "the sender's live [Cards] tuning
+    /// is theirs and never rides the wire". That has not been true since record 28 was paged: the
+    /// dial rides as <c>TuneFanSelectedPopForward</c> (id 75) and the other two mirrors of the same
+    /// pop have been reading it for builds (<see cref="RemoteHandFan"/>, <see cref="RemoteItemFan"/>).
+    /// This fan was the last one frozen, so an owner who lengthened their lift saw their browse cards
+    /// come further out while every peer watched them barely move.</para>
+    /// </summary>
+    private float _popForward = Defaults.FanSelectedPopForward;
 
     /// <summary>VRCard's pop: the small upward component riding with the forward lift.</summary>
     private const float PopUp = 0.012f;
@@ -519,14 +631,28 @@ internal sealed class RemoteBrowserFan
         float bs = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         _collapseKind = kind;
         _collapseTo = stackWorld;
-        _collapseArcUp = _owner.HasBoard ? _owner.BoardRotation * Vector3.up : Vector3.up;
+        // WORLD up, never the owner's BOARD up — the same correction RemoteCardFx carries, for the
+        // same reason. CardsDriver hands VRCard.FlyToPile a board-up arcUp and VRCard DELIBERATELY
+        // THROWS IT AWAY; its own sentence, verbatim so nobody "restores" this: "the bow always
+        // lifts along WORLD up — toward the player's head / the ceiling — regardless of how the
+        // board is tilted. The caller's board-up `arcUp` is intentionally ignored so a tilted board
+        // can never lean the arch sideways or into the table." The board root is posed
+        // Euler(90 - BoardTilt_{board}, 0, 0), so at the shipped BoardTilt = 30 degrees its local +Y
+        // stands 60 DEGREES off world up — the collapse swung forward across the board face on every
+        // peer's screen while its owner watched the arc fold up toward the ceiling.
+        _collapseArcUp = Vector3.up;
         _collapseArc = Mathf.Max(CardH * CollapseMinArcCardHeights * bs,
                                  Vector3.Distance(_cards[0].transform.position, stackWorld) * CollapseArcFraction);
 
         // Shrink toward the pile SLAB's real width (the local FlyToPile does exactly this, which is
         // what makes the card read as slotting into the pile rather than sinking through the board).
+        // …carrying the owner's card WIDTH, exactly as the arc scale above does: VRCard.FlyToPile
+        // solves its target against the NOMINAL CardWidth (targetWorldWidth / (parentLossy x
+        // CardWidth)), which cancels to SlabFactor, and the card is then DRAWN at its printed rect
+        // times that. Reproducing the shrink without WidthRatio would have landed a tuned peer's
+        // cards in the stack at this client's card size instead of theirs.
         float rootScale = _root.transform.localScale.x > 0f ? _root.transform.localScale.x : 1f;
-        _collapseTargetScale = bs * PileViewer.PileStack.SlabFactor / rootScale;
+        _collapseTargetScale = bs * PileViewer.PileStack.SlabFactor * WidthRatio / rootScale;
 
         _collapseFrom.Clear();
         for (int i = 0; i < _cards.Count; i++)
@@ -539,8 +665,8 @@ internal sealed class RemoteBrowserFan
     }
 
     /// <summary>Drive the collapse: smoothstep along each card's own chord plus a shared sine bow
-    /// along the board's up axis, orientation held — the shape <c>VRCard.FlyToPile</c> flies and
-    /// <see cref="RemoteCardFx"/> already replays.</summary>
+    /// along WORLD up (see <see cref="BeginCollapse"/>), orientation held — the shape
+    /// <c>VRCard.FlyToPile</c> flies and <see cref="RemoteCardFx"/> already replays.</summary>
     private void TickCollapse(float dt)
     {
         _collapseElapsed += dt;
@@ -554,7 +680,7 @@ internal sealed class RemoteBrowserFan
         {
             Transform t = _cards[i].transform;
             t.position = Vector3.Lerp(_collapseFrom[i], _collapseTo, e) + _collapseArcUp * bow;
-            t.localScale = Vector3.one * Mathf.Lerp(CardScale, _collapseTargetScale, e);
+            t.localScale = Vector3.one * Mathf.Lerp(SlabScale, _collapseTargetScale, e);
         }
 
         if (u < 1f)
@@ -611,12 +737,20 @@ internal sealed class RemoteBrowserFan
 
         // Fronts (−Z) toward the owner, backs toward everyone else — the shared card convention that
         // also makes the local billboard (which faces the OWNER's head) read the same way for us.
+        //
+        // …AND THE READING PITCH. The local browse fan does not stop at the billboard: both places
+        // it is posed append `* Quaternion.Euler(-12f, 0f, 0f)` ("tilt back a touch" — PileBrowser
+        // Tick / PlaceAtHead). This mirror omitted it, so a peer's browse arc stood 12 DEGREES more
+        // upright than the one its owner was reading, at the shipped defaults and with nobody having
+        // tuned anything. Shared with the item fan through one named constant so the two mirrors
+        // cannot drift apart again.
         Transform? head = _owner.HeadHolder;
         if (head != null)
         {
             Vector3 away = pos - head.position;
             if (away.sqrMagnitude > 1e-6f)
-                rot = Quaternion.LookRotation(away.normalized, Vector3.up);
+                rot = Quaternion.LookRotation(away.normalized, Vector3.up)
+                      * Quaternion.Euler(RemotePileFronts.FanReadingPitchDegrees, 0f, 0f);
         }
         return true;
     }
@@ -676,17 +810,36 @@ internal sealed class RemoteBrowserFan
         ClearPops(); // a rebuilt arc must never open with a stale card already lifted
 
         Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability); // SHARED cache — never ours to destroy
+
+        // THE BODY IS SIZED TO THE FACE IT WILL WEAR (report 12) — see _visibleFace.
+        Vector2 vis = _visibleFace;
+
         for (int i = 0; i < count; i++)
         {
             var card = new GameObject($"Browse{i}");
             card.transform.SetParent(_root!.transform, worldPositionStays: false);
-            card.transform.localScale = Vector3.one * CardScale; // browse cards read enlarged
-            var mf = card.AddComponent<MeshFilter>();
+            // The SLAB ROOT stays UNIFORM: RemoteCardArt hangs its world-space face canvas off this
+            // transform, and a non-uniform scale here would stretch the printed art. It carries the
+            // browse enlargement AND the owner's own card width (record 28), so their arc reads the
+            // size they see rather than this client's.
+            card.transform.localScale = Vector3.one * SlabScale;
+
+            // …and the BODY, one level down, carries the non-uniform squash onto the printed rect.
+            // This is VRCard.SetCanvasSize's backing fit, term for term, and it is the step this fan
+            // was missing: the slab used to stay at the full nominal 63.5 x 88 mm, which is the rim
+            // of card-back braid reported around a peer's print and — unreported — a card 17.5 %
+            // wider than the owner's own, before this arc's 1.3x enlargement multiplied it again.
+            var body = new GameObject("Body");
+            body.transform.SetParent(card.transform, worldPositionStays: false);
+            body.transform.localScale = new Vector3(vis.x / CardW, vis.y / CardH, 1f);
+            var mf = body.AddComponent<MeshFilter>();
             // Round 17 (1:1 board rule): the browse slab adopts the owner's punched-out ABILITY
             // body via CardMesh.AttachBody (shared cached mesh, never ours to destroy; upgraded in
             // place when the contour is learned). Ability kind: a browsed pile fans ability cards.
+            // At the NOMINAL box, deliberately: AttachBody keys its shared meshes on (kind, w, h),
+            // so cutting one per owner card width would multiply the cache by the number of peers.
             CardMesh.AttachBody(mf, CardBodyKind.Ability, CardW, CardH);
-            var mr = card.AddComponent<MeshRenderer>();
+            var mr = body.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the shared back material: the arc
             // deliberately shows the BACK on both faces, exactly like the old two-quad slab.
             mr.sharedMaterials = new[] { back, back };
@@ -697,8 +850,12 @@ internal sealed class RemoteBrowserFan
         _builtCount = count;
         VRLayers.Apply(_root!);
         // Re-bind the front overlays onto the NEW slabs (the old ones died with their hosts above).
-        // The card size handed over is the UNSCALED slab size: the overlay is a child of the slab, so
-        // it inherits CardScale and the pop enlargement for free, exactly like the slab's own mesh.
+        // The card size handed over is the NOMINAL slab size: the overlay is a child of the slab
+        // ROOT, so it inherits SlabScale (the browse enlargement × the owner's card width) and the
+        // pop for free, and RemoteCardArt's own 6 % inset then reproduces exactly the printed rect
+        // the Body was squashed to — the two land on each other by construction. Handing the tuned
+        // width here would fit the face a SECOND time and square the ratio, which is the mistake
+        // RemoteHandFan records at its own _faces.Add.
         _fronts.Rebuild(_cards, CardW, CardH);
     }
 

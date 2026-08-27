@@ -75,6 +75,22 @@ internal sealed class RemoteAvatar
     private bool _hasTarget;
     private float _appliedScale = -1f;
     private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
+
+    // ---- THE HELD CARD'S SIZE (record 28 ids 70 + 178) --------------------------------------
+    // Two dials, one product, and for a long time NEITHER of them reached this file: the held slab
+    // was built at the nominal card metric times the sender's RIG scale and nothing else, so a peer
+    // holding a card up to read it was drawn 1/InspectScale of the size its owner sees — 1.6x too
+    // small at the shipped defaults, FOR EVERY PAIRING, plus a second, independent error for anyone
+    // who had tuned their card width. The fan slabs beside it had been sized off the owner's width
+    // since record 28 landed; this one surface was the outlier.
+    //
+    // Seeded from Defaults so scripts/check-remote-defaults.py can pin what an untuned or
+    // pre-field peer is drawn with, refreshed off the owner's tuning on its REVISION edge (a config
+    // edit on their side — rare) rather than read per frame out of a wide struct.
+    private float _heldCardWidth = Defaults.CardWidth;
+    private float _heldInspectScale = Defaults.InspectScale;
+    private int _heldSizeRevision = -1;
+    private float _loggedHeldSlabScale = -1f; // one log line per received CHANGE, never per frame
     private int _appliedMaskId = -1; // which HeadMaskLibrary mask the head currently shows
     private int _appliedHandStyle = -1; // which HandStyle the hand holders currently wear
 
@@ -792,10 +808,13 @@ internal sealed class RemoteAvatar
             _headHolder.localScale = Vector3.one * scale;
             _leftHolder.localScale = Vector3.one * scale;
             _rightHolder.localScale = Vector3.one * scale;
-            if (_heldCardHolder != null)
-                _heldCardHolder.localScale = Vector3.one * scale;
-            if (_secondCardHolder != null)
-                _secondCardHolder.localScale = Vector3.one * scale;
+            // THE TWO CARD SLABS ARE NOT WRITTEN HERE ANY MORE. The rig scale is only one of the
+            // three factors of a held card's size (see HeldSlabScale), so a bare
+            // `Vector3.one * scale` here would divide the owner's card width and their held
+            // magnification straight back out on the next scale change — the whole 1:1 fix, undone
+            // by a packet. UpdateCardSlab owns that transform now and re-composes all three terms;
+            // it runs every frame and writes only on a real change, so a slab follows a zoom just
+            // as promptly as it did.
         }
     }
 
@@ -1412,6 +1431,23 @@ internal sealed class RemoteAvatar
             }
         }
 
+        // THE HELD CARD'S TWO SIZE DIALS. They ride the tuning record, which lands in SetExtras
+        // and not in any build path, so the pull happens here on the REVISION edge — the same shape
+        // as the mask-size and style-scale checks, and the same shape RemoteHandFan.SyncTuning uses
+        // for the fan's own dozen. One int compare per frame; the transform write itself is
+        // change-gated inside UpdateCardSlab, so a settled peer costs nothing.
+        if (_heldSizeRevision != BoardTuningRevision)
+        {
+            _heldSizeRevision = BoardTuningRevision;
+            // Same guard the fan uses: a nonsense width degrades to the nominal card rather than
+            // collapsing the peer's slab to a sliver. The magnification is already clamped to the
+            // owner's own [Cards] InspectScale window by RemoteBoardTuning.
+            _heldCardWidth = BoardTuning.CardWidth > 0.001f
+                ? BoardTuning.CardWidth
+                : RemoteHandFan.DefaultCardWidth;
+            _heldInspectScale = BoardTuning.CardInspectScale;
+        }
+
         float k = 1f - Mathf.Exp(-NetProtocol.InterpolationSharpness * dt);
         if (_hasTarget)
         {
@@ -1426,7 +1462,8 @@ internal sealed class RemoteAvatar
         // rig packet, and the slab must not wait for one. Same machinery as the first slab; the
         // head billboard inside simply keeps the transmitted rotation until a synced head exists.
         UpdateCardSlab(ref _secondCardHolder, "HeldCard2",
-                       _hasSecondHeldCard, in _secondHeldCardPose, k);
+                       _hasSecondHeldCard, in _secondHeldCardPose, k,
+                       HeldCardSizing.OwnerHeldCard);
 
         // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
         // authoritative when present (a held card can ghost EITHER hand, or both); a sender too
@@ -1541,7 +1578,8 @@ internal sealed class RemoteAvatar
     /// </summary>
     private void UpdateHeldCard(float k)
         => UpdateCardSlab(ref _heldCardHolder, "HeldCard",
-                          _target.HasHeldCard, in _target.HeldCardPose, k);
+                          _target.HasHeldCard, in _target.HeldCardPose, k,
+                          HeldCardSizing.OwnerHeldCard);
 
     /// <summary>
     /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
@@ -1573,13 +1611,36 @@ internal sealed class RemoteAvatar
     /// already-eased head, so it inherits their smoothing.
     /// </summary>
     private void UpdateCardSlab(ref Transform? holder, string name,
-                                bool held, in RigPose pose, float k)
+                                bool held, in RigPose pose, float k,
+                                HeldCardSizing sizing = HeldCardSizing.NominalCardOnly)
     {
         if (holder == null)
         {
             if (!held)
                 return; // never held anything yet — build nothing
-            holder = BuildCardSlab(name);
+            holder = BuildCardSlab(name, sizing);
+        }
+        // SIZE, live. The slab's scale is a product of three things that arrive on two different
+        // schedules — the sender's rig scale (every rig packet), their card width and their held
+        // magnification (the sparse tuning record) — so it cannot be a build-time write, which is
+        // what it was. One float compare per slab per frame; the transform write happens only when
+        // the number actually moves.
+        float want = HeldSlabScale(sizing);
+        if (!Mathf.Approximately(want, holder.localScale.x))
+        {
+            holder.localScale = Vector3.one * want;
+            // Latched on the OWNER-SIZED answer only: two slabs on two different sizings would
+            // otherwise alternate the latch and turn a change-gated line into a per-frame one.
+            if (sizing == HeldCardSizing.OwnerHeldCard
+                && !Mathf.Approximately(want, _loggedHeldSlabScale))
+            {
+                _loggedHeldSlabScale = want;
+                VRLog.Info("Net", $"Remote held card: player {PlayerId}'s slab scale -> {want:F4} "
+                    + $"(rig {AppliedScale:F3} x width {_heldCardWidth * 1000f:F1}/"
+                    + $"{RemoteHandFan.DefaultCardWidth * 1000f:F1} mm x magnification "
+                    + $"{_heldInspectScale:F2}) = {_heldCardWidth * _heldInspectScale * 1000f:F1} mm "
+                    + "of card at their rig scale — the size THEY are reading it at.");
+            }
         }
         UpdatePart(holder, held, in pose, k);
         if (!held || !holder.gameObject.activeSelf)
@@ -1607,11 +1668,71 @@ internal sealed class RemoteAvatar
         }
     }
 
-    private Transform BuildCardSlab(string name)
+    /// <summary>
+    /// WHOSE SIZE a card slab is being told to draw itself at. Same shape, and the same reason, as
+    /// <see cref="Cards.CardDustFx"/>'s <c>Permission</c>: the size of a peer's card is a question
+    /// with two different right answers, and a call site that does not say which one it is asking
+    /// is how the held slab came to be drawn at the nominal card for every build until now. Making
+    /// the caller name it means the next surface cannot repeat that silently.
+    /// </summary>
+    internal enum HeldCardSizing
+    {
+        /// <summary>
+        /// "A nominal card at the sender's rig scale — I was NOT told their magnification." The
+        /// owner's card width is not applied either: this is exactly what every build before the
+        /// held-size fix drew, and it is the answer for a slab whose real size genuinely is not
+        /// known (a future in-flight or placeholder surface).
+        ///
+        /// <para>It is the DEFAULT deliberately, and it is the STRICTER of the two: an omitted
+        /// answer can only UNDER-draw a card, never inflate a peer's table with a slab bigger than
+        /// anything its owner is holding.</para>
+        /// </summary>
+        NominalCardOnly = 0,
+
+        /// <summary>
+        /// "This is the card in the OWNER's hand, at the size THEY are reading it at" — their card
+        /// width (id 70) times their held magnification (id 178), on top of their rig scale. The
+        /// only callers are the two held-card slabs, which is what the 1:1 ruling requires of them.
+        /// </summary>
+        OwnerHeldCard,
+    }
+
+    /// <summary>
+    /// THE SIZE ONE CARD SLAB IS DRAWN AT, written as the explicit product it is rather than as the
+    /// one term that used to stand in for all three.
+    ///
+    /// <list type="bullet">
+    /// <item><description><see cref="AppliedScale"/> — the SENDER's rig/diorama scale, so their
+    /// card reads the same physical size above the shared board whatever zoom they are at. This was
+    /// the only term the slab ever carried.</description></item>
+    /// <item><description><c>_heldCardWidth / DefaultCardWidth</c> — the OWNER's own
+    /// <c>[Cards] CardWidth</c> over the metric the body mesh is authored at (record 28 id 70).
+    /// The field has been on the wire and in scope at this call site the whole time; this file
+    /// simply never read it, so a peer who resized their cards was mirrored at the nominal one.
+    /// </description></item>
+    /// <item><description>their <c>[Cards] InspectScale</c> (id 178) — the magnification a card
+    /// GROWS by while it is pinched, which is what <c>VRCard.GetHeldPose</c> returns as the held
+    /// pose's scale and <c>VRInteractables</c> writes onto the local card's
+    /// <c>localScale</c>.</description></item>
+    /// </list>
+    ///
+    /// <para>The product is the owner's own <c>CardWidth x InspectScale</c> at their rig scale —
+    /// 101.6 mm of card at the shipped defaults, where this slab used to draw 63.5.</para>
+    /// </summary>
+    private float HeldSlabScale(HeldCardSizing sizing)
+    {
+        if (sizing != HeldCardSizing.OwnerHeldCard)
+            return AppliedScale; // nominal card, no magnification — see HeldCardSizing
+        return AppliedScale
+               * (_heldCardWidth / RemoteHandFan.DefaultCardWidth)
+               * _heldInspectScale;
+    }
+
+    private Transform BuildCardSlab(string name, HeldCardSizing sizing)
     {
         var holder = new GameObject(name).transform;
         holder.SetParent(_root.transform, worldPositionStays: false);
-        holder.localScale = Vector3.one * AppliedScale;
+        holder.localScale = Vector3.one * HeldSlabScale(sizing);
         holder.gameObject.SetActive(false);
 
         // Round 17 (1:1 board rule): the peer's held card adopts the owner's punched-out ABILITY

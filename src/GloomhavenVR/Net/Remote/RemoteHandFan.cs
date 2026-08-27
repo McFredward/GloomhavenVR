@@ -93,9 +93,20 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 {
     // ---- fan geometry (real meters / degrees, seeded to CardsConfig Fan* defaults) -----------
 
-    /// <summary>Card slab width default (CardsConfig.CardWidth default) — shared with
-    /// <see cref="RemoteAvatar"/>'s held-card slab so all remote card slabs match.</summary>
-    internal const float DefaultCardWidth = 0.0635f;
+    /// <summary>
+    /// The NOMINAL card metric every remote card MESH is authored at — the shipped
+    /// <c>[Cards] CardWidth</c>. Slabs then carry <c>ownerWidth / DefaultCardWidth</c> as their
+    /// uniform scale, which is why this number has to be one shared constant rather than a per-file
+    /// literal.
+    ///
+    /// <para>ITS OLD DOC SAID it was "shared with RemoteAvatar's held-card slab so all remote card
+    /// slabs match", and that claim was FALSE the moment an owner touched their card size: the fan
+    /// slabs are scaled off the owner's own width (see <see cref="SyncTuning"/>) while the held slab
+    /// was drawn at this constant flat, so the two DIVERGED for exactly the player who had tuned
+    /// them. A nominal is a mesh-authoring unit, never a licence to skip a size. The held slab
+    /// composes its own size now — <c>RemoteAvatar.HeldSlabScale</c>.</para>
+    /// </summary>
+    internal const float DefaultCardWidth = Defaults.CardWidth;
 
     /// <summary>Card slab height default (CardsConfig.CardHeight ratio over the width).</summary>
     internal const float DefaultCardHeight = DefaultCardWidth * (88f / 63.5f);
@@ -234,8 +245,21 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// the card the owner is LOOKING at is lifted out of.</summary>
     private float _gazeApexFollow = Defaults.FanGazeApexFollow;
 
-    /// <summary>Ease rate (1/s) of the tracked gaze apex (CardsConfig.FanGazeSmoothing).</summary>
-    private const float GazeSmoothing = 8f;
+    /// <summary>
+    /// Ease rate (1/s) of the tracked gaze apex — the OWNER's <c>[Cards] FanGazeSmoothing</c>
+    /// (record 28 id <see cref="NetProtocol.TuneFanGazeSmoothing"/>), falling back to the shipped
+    /// default for an untuned or pre-field peer.
+    ///
+    /// <para>IT WAS A <c>const 8f</c> AND THE DEFAULT IS 6, so every mirrored fan relieved its bow
+    /// 33 % faster than its owner's, for every player, before anybody had tuned anything — and the
+    /// wire-coverage exemption that stood over the dial ("driven by THEIR head; the mirror
+    /// re-derives from the synced head pose") described the gaze TARGET, which is true, and said
+    /// nothing about the RATE, which is an independent coefficient this file held on its own. A
+    /// synced input does not make an unsynced coefficient synced. Seeded from <c>Defaults</c> so
+    /// scripts/check-remote-defaults.py can pin the untuned case, overwritten from the wire by
+    /// <see cref="SyncTuning"/> for the tuned one.</para>
+    /// </summary>
+    private float _gazeSmoothing = Defaults.FanGazeSmoothing;
 
     /// <summary>Relief half-width as a fraction of the hand's half-span, and its floor in cards —
     /// CardFan.GazeReliefWidthFactor / GazeReliefMinWidth.</summary>
@@ -1912,7 +1936,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         }
 
         float d = Mathf.Min(Mathf.Max(dt, 0f), 0.05f);
-        _gazeX = Mathf.Lerp(_gazeX, targetX, 1f - Mathf.Exp(-GazeSmoothing * d));
+        _gazeX = Mathf.Lerp(_gazeX, targetX, 1f - Mathf.Exp(-_gazeSmoothing * d));
     }
 
     /// <summary>The arc's own half-width in fan-local metres (CardFan.ArcHalfWidth).</summary>
@@ -2122,6 +2146,9 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         _curvePower = t.FanCurvePower;
         _curveMinCards = Mathf.Max(0, t.FanCurveMinCards);
         _gazeApexFollow = t.FanGazeApexFollow;
+        // The RATE, not just the amplitude. RemoteBoardTuning has already applied the owner's own
+        // 1..30 clamp, so this is a rate they could actually have been easing at.
+        _gazeSmoothing = t.FanGazeSmoothing;
         _splitMultiplier = t.FanSplitMultiplier;
         _splitFalloff = t.FanSplitFalloff;
         _splitScale = t.FanHoverSplitScale;

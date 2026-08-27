@@ -152,14 +152,43 @@ EXEMPT = {
     ("Cards", "RevealIgnoreWhenGrabbing"): ("COMFORT", "as RevealMode"),
     ("Cards", "FanFollowSmoothing"): ("COMFORT", "how lazily THEIR fan chases THEIR palm; the mirror follows the synced hand"),
     ("Cards", "FanFollowDeadzone"): ("COMFORT", "as FanFollowSmoothing"),
-    ("Cards", "FanGazeBias"): ("COMFORT", "driven by THEIR head; the mirror re-derives from the synced head pose"),
-    ("Cards", "FanGazeSmoothing"): ("COMFORT", "as FanGazeBias"),
+    # RECLASSIFIED COMFORT -> PENDING (2026-08-27), found while wiring its two neighbours. The old
+    # reason -- "driven by THEIR head; the mirror re-derives from the synced head pose" -- describes
+    # an INPUT, and the dial does not merely scale an input: CardFan reads it live and rotates the
+    # WHOLE FAN ROOT by an eased yaw (`_root.rotation = AngleAxis(biasYaw, up) * baseFacing`), and
+    # RemoteHandFan implements none of that. Its own KNOWN GAPS note says so and names the single
+    # missing input: whether the SENDER has the toggle on. So an owner who switches it on yaws their
+    # fan on their own screen and on nobody else's.
+    #
+    # PENDING and not wired here, deliberately: the RENDERER does not exist yet, and adding the bit
+    # first is the FanCloseDuration trap this file's own notes warn about -- a field whose receiver
+    # ignores it turns this checker green while the picture stays wrong, which is the exact failure
+    # mode the three entries around it were just fixed for.
+    ("Cards", "FanGazeBias"): ("PENDING", "board-affecting and NOT covered: CardFan yaws the whole fan root by an eased "
+                                          "gaze bias, and RemoteHandFan implements none of it -- its own KNOWN GAPS note "
+                                          "says the only missing input is the one bit saying whether the sender has the "
+                                          "toggle on. Unblocked by giving the mirror the yaw FIRST (renderer first, field "
+                                          "second); the bit is then one COUNT-range id"),
+    # [Cards] FanGazeSmoothing STOOD HERE AS COMFORT ("as FanGazeBias") AND IS NOW WIRED (id 179,
+    # 2026-08-27). Worth one line on the way out: it was exempt by ASSOCIATION -- it pointed at a
+    # neighbouring entry's reasoning instead of stating its own -- and the neighbour's reasoning
+    # ("driven by THEIR head; the mirror re-derives from the synced head pose") is true of the gaze
+    # TARGET and says nothing about the ease RATE, which RemoteHandFan held as its own literal at
+    # 8/s against a shipped 6/s. An exemption that borrows another dial's argument inherits its
+    # blind spots as well as its reasoning.
     ("Cards", "FanCurveByFill"): ("COMFORT", "a local hand-fill heuristic feeding dials that ARE on the wire"),
     ("Cards", "HeldForward"): ("COMFORT", "how a card sits in THEIR hand; the held card's POSE is synced"),
     ("Cards", "HeldOffPalm"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldPinchOffset"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldFaceBias"): ("COMFORT", "as HeldForward"),
-    ("Cards", "InspectScale"): ("COMFORT", "how big a card reads when THEY lift it to inspect; the held slab is drawn at the synced card width"),
+    # [Cards] InspectScale STOOD HERE AS COMFORT AND IS NOW WIRED (id 178, 2026-08-27). ITS REASON
+    # WAS NOT STALE, IT WAS FALSE, and stating the difference is the point of keeping this line.
+    # It read "the held slab is drawn at the synced card width" -- an assertion about a MECHANISM,
+    # checkable against the code, and the opposite of what the code did: RemoteAvatar built the slab
+    # at RemoteHandFan.DefaultCardWidth, a bare literal, and never read the synced width at all. So
+    # a peer's inspected card was wrong TWICE (no magnification, and no tuned width) while this
+    # table said it was fine. An exemption that describes a mechanism can be checked against the
+    # mechanism -- and this one never was.
     ("Cards", "CardSoundsEnabled"): ("COMFORT", "master switch over the sounds THEY hear; every client plays its own"),
     ("Cards", "FanRevealSound"): ("COMFORT", "a sound THEY hear; every client plays its own"),
     ("Cards", "FanHideSound"): ("COMFORT", "as FanRevealSound"),

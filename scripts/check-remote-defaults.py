@@ -139,6 +139,26 @@ PAIRS = [
     ("Net/Remote/RemoteHandFan.cs", "_sideDepthCurve", "Cards", "FanSideDepthCurve"),
     ("Net/Remote/RemoteHandFan.cs", "_curvePower", "Cards", "FanCurvePower"),
     ("Net/Remote/RemoteHandFan.cs", "_gazeApexFollow", "Cards", "FanGazeApexFollow"),
+    # THE GAZE RELIEF'S RATE (2026-08-27, wire id 179). It was `const float GazeSmoothing = 8f` -- a
+    # bare literal against a shipped default of 6 -- so every mirrored fan eased its bow apex 33 %
+    # faster than its owner's, for every player, before anybody had tuned anything. Nothing could
+    # catch it: a literal with no pair on this list has nothing to be checked against, and
+    # check-wire-coverage.py had the dial EXEMPT as "driven by THEIR head; the mirror re-derives
+    # from the synced head pose" -- true of the gaze TARGET, silent about the RATE, which is an
+    # independent coefficient this renderer held on its own. The rate rides record 28 now and the
+    # initialiser is what an untuned or pre-field peer's fan relieves at, which is what puts it here.
+    ("Net/Remote/RemoteHandFan.cs", "_gazeSmoothing", "Cards", "FanGazeSmoothing"),
+    # THE NOMINAL CARD METRIC every remote card mesh is authored at, and the two dials that scale a
+    # HELD slab off it (2026-08-27, wire ids 70 + 178). DefaultCardWidth was `= 0.0635f`, a literal
+    # copy of [Cards] CardWidth that this list had no pair for, and RemoteAvatar's held slab was
+    # drawn at it FLAT: neither the owner's tuned card width (on the wire since id 70, and read by
+    # every fan slab beside it) nor their held magnification reached the one surface where a card is
+    # held up to be read. A peer's inspected card was 1/1.6 of the size its owner saw at shipped
+    # defaults. All three are pinned here now; the RemoteAvatar pair covers what an untuned or
+    # pre-field peer is drawn with, exactly as for the families above.
+    ("Net/Remote/RemoteHandFan.cs", "DefaultCardWidth", "Cards", "CardWidth"),
+    ("Net/Remote/RemoteAvatar.cs", "_heldCardWidth", "Cards", "CardWidth"),
+    ("Net/Remote/RemoteAvatar.cs", "_heldInspectScale", "Cards", "InspectScale"),
     ("Net/Remote/RemoteHandFan.cs", "_splitMultiplier", "Cards", "FanSplitMultiplier"),
     ("Net/Remote/RemoteHandFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
     ("Net/Remote/RemoteHandFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
@@ -229,6 +249,29 @@ PAIRS = [
     ("Net/Remote/RemoteItemFan.cs", "_lerpSpeed", "Cards", "CardLerpSpeed"),
     ("Net/Remote/RemoteBrowserFan.cs", "_maxStepDegrees", "Cards", "FanStepDegrees_Discard"),
     ("Net/Remote/RemoteBrowserFan.cs", "_emergeSharpness", "Cards", "CardLerpSpeed"),
+    # THE BROWSE FAN'S LIFT (2026-08-27, wire id 75). It was `const PopForward =
+    # Defaults.FanSelectedPopForward` and its comment still claimed "the sender's live [Cards] tuning
+    # is theirs and never rides the wire" — untrue since record 28 was paged. The other two mirrors
+    # of the same pop (RemoteHandFan._popForward above, RemoteItemFan._popForward) had been reading
+    # the wire for builds; this fan was the last one frozen, so an owner who lengthened their lift
+    # saw their browse cards come out further while every peer watched them barely move. Seeded field
+    # now, and on this list because the initialiser is what an untuned peer's lift still is.
+    ("Net/Remote/RemoteBrowserFan.cs", "_popForward", "Cards", "FanSelectedPopForward"),
+    # THE CARD METRIC ITSELF (2026-08-27, wire id 70) — the one underneath all the dials above, and
+    # the one class of drift this list could not previously see. RemoteActiveCards.LegacyCardW spells
+    # the lesson out: "it survived every checker because the coverage guard watches DIALS", and it
+    # had no way to notice that the metric the dials multiply was a bare constant. Three surfaces
+    # were still holding one:
+    #   * RemoteItemFan  — `const CardW = 0.075f` against the owner's CardWidth x ChipScale
+    #                      (0.0635 x 1.25 = 79.4 mm), i.e. 5.5 % SMALL at the shipped defaults;
+    #   * RemoteBrowserFan / RemoteCardFx — RemoteHandFan.DefaultCardWidth, which is the NOMINAL
+    #                      mesh-authoring box (a legitimate constant, and it stays one — see the
+    #                      fields' own docs) used as if it were the owner's tuned metric.
+    # All three are seeded wire-overridable fields now; the initialiser is what an untuned or
+    # pre-record peer is drawn at, which is exactly what this list is for.
+    ("Net/Remote/RemoteItemFan.cs", "_cardWidth", "Cards", "CardWidth"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_cardWidth", "Cards", "CardWidth"),
+    ("Net/Remote/RemoteCardFx.cs", "_cardWidth", "Cards", "CardWidth"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"

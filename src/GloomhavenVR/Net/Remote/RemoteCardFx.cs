@@ -66,6 +66,42 @@ internal sealed class RemoteCardFx
     private GameObject? _root;
     private int _played;   // diagnostics: how many flights this avatar has played
 
+    // ---- THE FLYING CARD'S SIZE (extension record 28 id 70 + CardFace.VisibleFaceRect) ---------
+    //
+    // The slab used to be built at the flat nominal 63.5 x 88 mm, which is wrong on BOTH terms the
+    // owner's own flying card is drawn from:
+    //
+    //   1. THE PRINTED RECT. VRCard scales its backing mesh to the rectangle the face actually
+    //      PAINTS (SetCanvasSize → CardFace.VisibleFaceRect: 54.04 x 82.72 mm inside the nominal
+    //      card), so the owner's card in flight is 54.04 mm wide and this slab was 63.5 — 17.5 %
+    //      too wide, the same defect RemoteHandFan fixed for the fan slabs and CardFace.cs
+    //      documents in full. NOTE the difference from that surface: a flight slab wears the card
+    //      BACK on both submeshes, so there is no braid of card back showing around a print here —
+    //      only the SIZE was wrong, and it was wrong at the shipped defaults.
+    //   2. THE OWNER'S CARD WIDTH. [Cards] CardWidth rides record 28 and every other remote card
+    //      surface reads it; this one held RemoteHandFan.DefaultCardWidth, the NOMINAL, so a peer
+    //      who had tuned their cards watched their own card fly at one size and everyone else
+    //      watched the same flight at this client's.
+    //
+    // Both land as scales, never as a new mesh box: CardMesh.AttachBody keys its shared shaped
+    // meshes on (kind, w, h), so cutting one per owner card width would multiply that cache by the
+    // number of peers for a scale the transform can carry for free.
+
+    /// <summary>The owner's own <c>[Cards] CardWidth</c> (record 28, id 70), re-read on each event —
+    /// a handful per turn, so no revision latch is worth its complexity here. The INITIALISER is the
+    /// shipped default, which is what a pre-record or untuned peer's flight is drawn at (held against
+    /// <c>[Cards] CardWidth</c> by scripts/check-remote-defaults.py).</summary>
+    private float _cardWidth = Defaults.CardWidth;
+
+    /// <summary>…and their card HEIGHT, in the game's own 88:63.5 ratio exactly as
+    /// <c>CardsConfig.CardHeight</c> derives it. Used for the arc FLOOR, which the owner computes as
+    /// <c>boardScale × CardHeight × 1.5</c> (<c>CardsDriver.BoardArcMin</c>) — so a peer with bigger
+    /// cards gets the bigger minimum arch they do.</summary>
+    private float CardHeight => _cardWidth * (88f / 63.5f);
+
+    /// <summary>How much bigger/smaller than the nominal body the owner's cards are.</summary>
+    private float WidthRatio => _cardWidth / RemoteHandFan.DefaultCardWidth;
+
     public RemoteCardFx(RemoteAvatar owner)
     {
         _owner = owner;
@@ -114,15 +150,33 @@ internal sealed class RemoteCardFx
         if (f.Go == null)
             return;
 
+        // The owner's own card size for THIS flight (see the _cardWidth block). Guarded above zero
+        // because a wire value is never trusted; the struct's own fallback is already the default.
+        _cardWidth = Mathf.Max(0.01f, _owner.BoardTuning.CardWidth);
+
         float scale = _owner.BoardScale > 0f ? _owner.BoardScale : 1f;
         f.From = a;
         f.To = b;
-        f.ArcUp = _owner.HasBoard ? _owner.BoardRotation * Vector3.up : Vector3.up;
-        f.Arc = Mathf.Max(RemoteHandFan.DefaultCardHeight * MinArcCardHeights * scale,
+        // WORLD up, never the owner's BOARD up. This used to be `_owner.BoardRotation * Vector3.up`,
+        // which is the argument CardsDriver passes and which VRCard.FlyToPile DELIBERATELY THROWS
+        // AWAY — its own sentence, kept here verbatim so the next reader does not "restore" it:
+        // "the bow always lifts along WORLD up — toward the player's head / the ceiling — regardless
+        // of how the board is tilted. The caller's board-up `arcUp` is intentionally ignored so a
+        // tilted board can never lean the arch sideways or into the table." The board root is posed
+        // Euler(90 - BoardTilt_{board}, 0, 0) (PlayTray.1.Core), so at the shipped BoardTilt = 30
+        // degrees its local +Y stands 60 DEGREES off world up: a mirrored flight bowing along it
+        // swung forward across the board face while its owner watched that card arch at the ceiling.
+        f.ArcUp = Vector3.up;
+        // CardsDriver.BoardArcMin, term for term: boardScale × the OWNER's CardHeight × 1.5. It read
+        // this client's nominal card height before, so a peer with taller cards got a shallower
+        // minimum arch than the one they were watching.
+        f.Arc = Mathf.Max(CardHeight * MinArcCardHeights * scale,
                           Vector3.Distance(a, b) * ArcFraction);
         f.Elapsed = 0f;
         f.Active = true;
-        f.Go.transform.localScale = Vector3.one * scale;
+        // Board scale × the owner's card width; the Body child under it carries the printed-face
+        // squash (see the _cardWidth block and Acquire).
+        f.Go.transform.localScale = Vector3.one * (scale * WidthRatio);
         f.Go.transform.SetPositionAndRotation(a, FaceHeadRotation(a));
         if (!f.Go.activeSelf)
             f.Go.SetActive(true);
@@ -145,8 +199,9 @@ internal sealed class RemoteCardFx
             float t = NetProtocol.CardFxSeconds > 0f
                 ? Mathf.Clamp01(f.Elapsed / NetProtocol.CardFxSeconds)
                 : 1f;
-            // Same shape as VRCard's fly: smoothstep along the chord + a sine bow along the
-            // board's up axis, so the card visibly clears the board instead of skimming it.
+            // Same shape as VRCard's fly: smoothstep along the chord + a sine bow along WORLD up
+            // (see the ArcUp assignment in Play), so the card visibly clears the board instead of
+            // skimming it.
             float e = t * t * (3f - 2f * t);
             Vector3 p = Vector3.Lerp(f.From, f.To, e) + f.ArcUp * (Mathf.Sin(t * Mathf.PI) * f.Arc);
             f.Go.transform.SetPositionAndRotation(p, FaceHeadRotation(p));
@@ -230,13 +285,27 @@ internal sealed class RemoteCardFx
         {
             var go = new GameObject($"CardFx{_flights.Count}");
             go.transform.SetParent(_root.transform, worldPositionStays: false);
-            var mf = go.AddComponent<MeshFilter>();
+
+            // THE BODY IS SIZED TO THE RECT THE OWNER'S CARD PRINTS (see the _cardWidth block), on
+            // its own child so the flight ROOT keeps carrying board scale × the owner's card width
+            // as a UNIFORM scale — the shape RemoteHandFan and RemoteBrowserFan both use. The rect
+            // is re-read per pooled slab at creation; CardFace.ObservedFacePixels settles once per
+            // session, well before a peer's first card flight, and a flight lasts 0.4 s, so there
+            // is nothing here to keep in sync per frame.
+            var body = new GameObject("Body");
+            body.transform.SetParent(go.transform, worldPositionStays: false);
+            Vector2 vis = CardFace.VisibleFaceRect(RemoteHandFan.DefaultCardWidth,
+                                                   RemoteHandFan.DefaultCardHeight);
+            body.transform.localScale = new Vector3(vis.x / RemoteHandFan.DefaultCardWidth,
+                                                    vis.y / RemoteHandFan.DefaultCardHeight, 1f);
+            var mf = body.AddComponent<MeshFilter>();
             // Round 17 (1:1 board rule): a flying card adopts the owner's punched-out ABILITY body
             // via CardMesh.AttachBody (shared cached mesh, never ours to destroy; upgraded in
-            // place when the contour is learned). Pooled flights register once each at creation.
+            // place when the contour is learned). Pooled flights register once each at creation, at
+            // the NOMINAL box — AttachBody keys its shared meshes on (kind, w, h).
             CardMesh.AttachBody(mf, CardBodyKind.Ability,
                 RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
-            var mr = go.AddComponent<MeshRenderer>();
+            var mr = body.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the SHARED back material (never ours
             // to destroy): a flight deliberately shows the BACK on both faces, like the old slab.
             Material back = CardMesh.CreateBackMaterial(CardBodyKind.Ability);

@@ -466,8 +466,10 @@ internal static class WallFadeTuning
     /// form a Schmitt band at all. 0.6 keeps a band wide enough to survive the EMA's own jitter
     /// (tau 0.15 s) without making a wall that genuinely stopped occluding wait for a near-zero
     /// reading before it comes back.
+    /// <para>An alias since 2026-08-27: the number, and the repair it drives, are shared with the
+    /// peer-board see-through, which shipped the collapsing <c>Min(off, on)</c> this replaced.</para>
     /// </summary>
-    private const float DegenerateBandFallback = 0.6f;
+    private const float DegenerateBandFallback = OcclusionFade.DegenerateBandFallback;
 
     /// <summary>
     /// Schmitt LOW bar. A Schmitt trigger needs <c>Off &lt; On</c>; a pair where the configured
@@ -500,8 +502,11 @@ internal static class WallFadeTuning
         get
         {
             float on = On;
-            float configured = Clamped(OffFraction, 0.10f, 0.01f, 0.95f);
-            return configured < on ? configured : on * DegenerateBandFallback;
+            // THE RULE ITSELF IS SHARED (Core/OcclusionFade.SchmittLowBar). Note that 0.10 here
+            // is the PRE-BIND fallback and NOT the shipped default, which is
+            // Defaults.OffFraction = 0.20 — the two have been allowed to drift apart and this
+            // accessor is only reached before Bind().
+            return OcclusionFade.SchmittLowBar(Clamped(OffFraction, 0.10f, 0.01f, 0.95f), on);
         }
     }
     internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
@@ -1224,17 +1229,30 @@ internal static partial class WallSegmentFade
         // bounds' top surface — the tile plane itself (see RebuildSamples).
         // On/off fractions + the two exit dwells are LIVE CONFIG now (WallFadeTuning — the
         // settings panel's debug steppers drive them in-headset); read fresh every evaluation.
-        private const float EnterDwellSeconds = 0.20f; // short fade-IN prompt dwell (~0.2s per spec)
-        private const float HeadMoveReevalMeters = 0.18f; // REAL tracking-space meters (scale-independent)
-        private const float ReevalArmSeconds = 3f;     // how long a perspective change keeps re-eval armed
-        private const float FadeTauSeconds = 0.12f;    // exp. fade time constant (~0.35s to 95%)
-        private const float FractionTauSeconds = 0.15f; // EMA over the raw fraction (jitter killer)
-        private const float FloorSampleEpsilon = 0.05f; // wu above the tile-anchored floor plane
+        // THE SHARED ONES ARE ALIASES, NOT COPIES (2026-08-27). Every constant below that the
+        // peer-board see-through also uses now has exactly ONE definition, in Core/OcclusionFade.cs,
+        // and these names survive only so that the references and the comments citing them by name
+        // keep reading as they did. A `const = const` alias is resolved at compile time, so the
+        // emitted IL is byte for byte what it was — this cannot move a number, only stop two copies
+        // of it from drifting apart, which is precisely how the peer board ended up carrying this
+        // subsystem's ModBuild-251 design and none of the fixes that followed it.
+        private const float EnterDwellSeconds = OcclusionFade.EnterDwellSeconds; // short fade-IN prompt dwell (~0.2s per spec)
+        // HeadMoveReevalMeters (0.18 REAL tracking metres) and ReevalArmSeconds (3 s) are NOT
+        // here any more: both are terms of the perspective watch itself and moved wholesale into
+        // OcclusionFade.HeadMoveReevalMetres / .ReevalArmSeconds with the code that reads them.
+        // Leaving aliases behind that nothing references would be two more numbers to keep in
+        // step for no reader's benefit.
+        private const float FadeTauSeconds = OcclusionFade.FadeTauSeconds;    // exp. fade time constant (~0.35s to 95%)
+        private const float FractionTauSeconds = OcclusionFade.FractionTauSeconds; // EMA over the raw fraction (jitter killer)
+        private const float FloorSampleEpsilon = OcclusionFade.FloorSampleEpsilon; // wu above the tile-anchored floor plane
+        // NOT shared, and deliberately: the thickness epsilon is a WALL term. A peer board is a
+        // centimetre-thick slab with no meaningful half-thickness to clamp, so its analogue is a
+        // pure segment-length fraction — see the note on PeerBoardFade.BlockEpsFraction.
         private const float BlockEpsMinWorld = 0.10f;  // wu — thickness-epsilon clamp (lo)
         private const float BlockEpsMaxWorld = 0.90f;  // wu — thickness-epsilon clamp (hi)
         private const float BlockEpsDistFraction = 0.05f; // blocked eps = max(thicknessEps, 5% of dist)
-        private const float FrustumMargin = 0.20f;     // viewport slack (also covers per-eye vs mono skew)
-        private const int MaxTotalSamples = 96;        // precomputed floor samples (all rooms)
+        private const float FrustumMargin = OcclusionFade.FrustumMargin; // viewport slack (also covers per-eye vs mono skew)
+        private const int MaxTotalSamples = OcclusionFade.MaxFloorSamples; // precomputed floor samples (all rooms)
         /// <summary>
         /// Seconds between two rescan cycles. A LIVE CONFIG VALUE since ModBuild 278 (user
         /// request 2026-08-25: <i>"Würde es helfen hier die Abtastrate … etwas zu verringern?
@@ -1830,15 +1848,12 @@ internal static partial class WallSegmentFade
         private static readonly System.Diagnostics.Stopwatch RescanClock =
             System.Diagnostics.Stopwatch.StartNew();
 
-        // Perspective-change tracking (arms aggressive re-evaluation for ReevalArmSeconds).
-        private float _lastReevalTime = float.NegativeInfinity;
-        private int _lastPoseVersion = -1;
-        private Vector3 _headAnchor;      // head localPosition (tracking-space meters)
-        private bool _headAnchorInit;
-        private Vector3 _rigPos;          // rig-root snapshot (world-grab / snap-turn detection)
-        private Quaternion _rigRot;
-        private float _rigScale;
-        private bool _rigSnapInit;
+        // Perspective-change tracking (arms aggressive re-evaluation for
+        // OcclusionFade.ReevalArmSeconds).
+        // The pose version, the rig-root snapshot and the head anchor moved into the shared
+        // PerspectiveWatch verbatim; only the room-bounds cause below is wall-specific, and it
+        // reaches the watch through Note(). See UpdatePerspectiveState.
+        private readonly PerspectiveWatch _perspective = new();
         private Vector3 _roomCenter;      // combined room-bounds center (board-move detection)
         private bool _roomCenterInit;
         private bool _roomBoundsMoved;
@@ -2153,9 +2168,9 @@ internal static partial class WallSegmentFade
                 _suspendedEvaluations++;
             int visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
             _lastVisibleCount = visibleCount;
-            bool reevalArmed = now - _lastReevalTime <= ReevalArmSeconds;
+            bool reevalArmed = _perspective.Armed(now);
 
-            float fadeStep = 1f - Mathf.Exp(-Time.unscaledDeltaTime / FadeTauSeconds);
+            float fadeStep = OcclusionFade.StepFactor(Time.unscaledDeltaTime, FadeTauSeconds);
             // The coverage EMA advances by the time since the last EVALUATION, not since the last
             // frame — otherwise skipping evaluations would silently stretch its time constant and
             // change the fade decision, which is exactly what the interval must NOT do.
@@ -2167,11 +2182,11 @@ internal static partial class WallSegmentFade
             // duration into the EMA (snapping the coverage almost to the raw sample), this one caps
             // the step. That is the safer direction for a hitch and cannot fire in steady state.
             float evalDt = evaluate
-                ? (_lastEvalTime > 0f ? Mathf.Min(now - _lastEvalTime, 0.5f) : Time.unscaledDeltaTime)
+                ? OcclusionFade.EvalDelta(now, _lastEvalTime, Time.unscaledDeltaTime)
                 : 0f;
             if (evaluate)
                 _lastEvalTime = now;
-            float fracStep = 1f - Mathf.Exp(-evalDt / FractionTauSeconds);
+            float fracStep = OcclusionFade.StepFactor(evalDt, FractionTauSeconds);
             // Live thresholds (WallFadeTuning, clamped): tuning a stepper in the settings
             // panel re-shapes the Schmitt trigger / dwells on the very next evaluation.
             float onFraction = WallFadeTuning.On;
@@ -2307,31 +2322,17 @@ internal static partial class WallSegmentFade
                 {
                     float fraction = BlockedFraction(seg, headPos);
                     seg.LastRaw = fraction;
-                    if (!seg.SmoothInit)
+                    // EMA -> Schmitt -> dwell, defined in Core/OcclusionFade.cs and nowhere else.
+                    // The five fields stay on Segment because the sliced commit carries four of
+                    // them across in two further shadow copies and diffs them BY NAME; only the
+                    // RULE moved, and it is now literally the statements a peer board runs.
+                    OcclusionFade.AdvanceCoverage(fraction, fracStep, ref seg.Smooth, ref seg.SmoothInit);
+                    bool raw = OcclusionFade.Above(seg.Smooth, seg.State, onFraction, offFraction);
+                    if (OcclusionFade.StepDwell(raw, now, EnterDwellSeconds,
+                            reevalArmed ? exitDwellMoved : exitDwellStationary,
+                            ref seg.PendingRaw, ref seg.PendingSince, ref seg.State))
                     {
-                        seg.SmoothInit = true;
-                        seg.Smooth = fraction;
-                    }
-                    else
-                    {
-                        seg.Smooth += (fraction - seg.Smooth) * fracStep;
-                    }
-                    bool raw = seg.Smooth >= (seg.State ? offFraction : onFraction);
-                    if (raw != seg.PendingRaw)
-                    {
-                        seg.PendingRaw = raw;
-                        seg.PendingSince = now;
-                    }
-                    if (seg.PendingRaw != seg.State)
-                    {
-                        float dwell = seg.PendingRaw
-                            ? EnterDwellSeconds
-                            : (reevalArmed ? exitDwellMoved : exitDwellStationary);
-                        if (now - seg.PendingSince >= dwell)
-                        {
-                            seg.State = seg.PendingRaw;
-                            LogStateFlip(seg); // R2 deliverable: shader variant applied
-                        }
+                        LogStateFlip(seg); // R2 deliverable: shader variant applied
                     }
                 }
 
@@ -2376,9 +2377,7 @@ internal static partial class WallSegmentFade
                     seg.GateLiftUntil = now + GateLiftLingerSeconds;
                 LogGateLiftEdge(seg, gateLift);
                 float target = (seg.State || remoteFade || gateLift) ? 1f : 0f;
-                seg.Fade += (target - seg.Fade) * fadeStep;
-                if (Mathf.Abs(target - seg.Fade) < 0.005f)
-                    seg.Fade = target;
+                seg.Fade = OcclusionFade.Ramp(seg.Fade, target, fadeStep);
                 NotePerWallOutcome(seg, remoteFade, gateLift, peerFadeId);
                 // Round-14 watchdog: a fade the live coverage no longer supports must be
                 // impossible to miss in the next hardware log (see WatchLatch).
@@ -2661,9 +2660,9 @@ internal static partial class WallSegmentFade
         // ---- occlusion decision -----------------------------------------------------------
 
         /// <summary>
-        /// Track PERSPECTIVE changes that should re-arm aggressive re-evaluation (each sets
-        /// <see cref="_lastReevalTime"/> = now): recenter / rig rebuild (RigPoseVersion bumps
-        /// there), rig-root motion beyond epsilon (world-grab drag/scale, snap-turn), a
+        /// Track PERSPECTIVE changes that should re-arm aggressive re-evaluation (each arms
+        /// <see cref="PerspectiveWatch"/> at <c>now</c>): recenter / rig rebuild (RigPoseVersion
+        /// bumps there), rig-root motion beyond epsilon (world-grab drag/scale, snap-turn), a
         /// room-bounds shift flagged by <see cref="Rescan"/> (board moved/tilted), and — the
         /// primary anchor — real head TRANSLATION: the head camera's localPosition lives in
         /// tracking space (meters, independent of the diorama scale), so a &gt;0.18m move from
@@ -2671,54 +2670,19 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void UpdatePerspectiveState(Transform headT, float now)
         {
-            int pv = Rig.VRRigDriver.RigPoseVersion;
-            if (pv != _lastPoseVersion)
-            {
-                _lastPoseVersion = pv;
-                _lastReevalTime = now;
-            }
-
-            Transform? rig = Rig.VRRigDriver.RigRoot;
-            if (rig != null)
-            {
-                Vector3 p = rig.position;
-                Quaternion q = rig.rotation;
-                float s = rig.lossyScale.x;
-                if (!_rigSnapInit)
-                {
-                    _rigSnapInit = true;
-                    _rigPos = p;
-                    _rigRot = q;
-                    _rigScale = s;
-                }
-                else if ((p - _rigPos).sqrMagnitude > 0.0004f * s * s // 2cm real, scale-aware
-                         || Quaternion.Angle(q, _rigRot) > 0.5f
-                         || Mathf.Abs(s - _rigScale) > 0.005f * Mathf.Max(_rigScale, 0.001f))
-                {
-                    _rigPos = p;
-                    _rigRot = q;
-                    _rigScale = s;
-                    _lastReevalTime = now;
-                }
-            }
-
+            // THE FIRST THREE CAUSES ARE THE SHARED WATCH, VERBATIM (Core/OcclusionFade.cs). The
+            // room-bounds cause below is this subsystem's own fourth and is consumed here rather
+            // than inside the watch, because it is a LATCH somebody else sets and only this class
+            // knows who.
+            //
+            // The consume moved from between the rig clause and the head clause to after both,
+            // and that reorder cannot be observed: all four causes assign the same `now` to the
+            // same field, and the latch is cleared exactly once either way.
+            _perspective.Tick(headT, now);
             if (_roomBoundsMoved)
             {
                 _roomBoundsMoved = false;
-                _lastReevalTime = now;
-            }
-
-            Vector3 headLocal = headT.localPosition;
-            if (!_headAnchorInit)
-            {
-                _headAnchorInit = true;
-                _headAnchor = headLocal;
-            }
-            else if ((headLocal - _headAnchor).sqrMagnitude
-                     > HeadMoveReevalMeters * HeadMoveReevalMeters)
-            {
-                _headAnchor = headLocal;
-                _lastReevalTime = now;
+                _perspective.Note(now);
             }
         }
 
@@ -2736,10 +2700,9 @@ internal static partial class WallSegmentFade
                 // Mono view/projection of the head camera; per-eye stereo frustums differ
                 // only by half the IPD and a slightly wider horizontal FOV — FrustumMargin
                 // (0.20 viewport-relative) generously covers that skew.
-                Vector3 vp = head.WorldToViewportPoint(_live.AllSamples[i]);
-                bool vis = vp.z > 0f
-                    && vp.x > -FrustumMargin && vp.x < 1f + FrustumMargin
-                    && vp.y > -FrustumMargin && vp.y < 1f + FrustumMargin;
+                // The test itself is now shared with the peer-board play-field grid, which
+                // needs it for the same reason and kept its own copy of it.
+                bool vis = OcclusionFade.InFrustum(head, _live.AllSamples[i]);
                 _sampleVisible[i] = vis;
                 if (vis)
                     visible++;

@@ -683,15 +683,8 @@ internal static partial class WallSegmentFade
                     run.Total = total;
                     run.Room = hit.Key;
                 }
-                if (!run.SmoothInit)
-                {
-                    run.SmoothInit = true;
-                    run.Smooth = fraction;
-                }
-                else
-                {
-                    run.Smooth += (fraction - run.Smooth) * fracStep;
-                }
+                // The run's EMA is the segment's EMA — one definition, in Core/OcclusionFade.cs.
+                OcclusionFade.AdvanceCoverage(fraction, fracStep, ref run.Smooth, ref run.SmoothInit);
                 // ---- IMMEDIACY AUDIT (see WallRun.UnionHoldSeconds) -------------------------
                 // Does the UNION delay the un-fade? The RUN FADE line answers this only AT an
                 // edge, where the union has already dropped under the bar by construction — so
@@ -720,21 +713,12 @@ internal static partial class WallSegmentFade
                     _runUnionHoldNow = run.UnionHoldSeconds;
                 if (run.UnionHoldWorst > _runUnionHoldWorst)
                     _runUnionHoldWorst = run.UnionHoldWorst;
-                bool raw = run.Smooth >= (run.State ? offFraction : onFraction);
-                if (raw != run.PendingRaw)
+                bool raw = OcclusionFade.Above(run.Smooth, run.State, onFraction, offFraction);
+                if (OcclusionFade.StepDwell(raw, now, EnterDwellSeconds, exitDwell,
+                        ref run.PendingRaw, ref run.PendingSince, ref run.State))
                 {
-                    run.PendingRaw = raw;
-                    run.PendingSince = now;
-                }
-                if (run.PendingRaw != run.State)
-                {
-                    float dwell = run.PendingRaw ? EnterDwellSeconds : exitDwell;
-                    if (now - run.PendingSince >= dwell)
-                    {
-                        run.State = run.PendingRaw;
-                        _runFadeEdges++;
-                        LogRunFadeEdge(run);
-                    }
+                    _runFadeEdges++;
+                    LogRunFadeEdge(run);
                 }
                 _runsTotal++;
                 if (run.State)
@@ -1572,24 +1556,17 @@ internal static partial class WallSegmentFade
             bool want = _insideBoard
                 ? sd < WallFadeTuning.InsideExitDepthFraction * _live.BoardCrestWU
                 : sd <= -WallFadeTuning.InsideEnterDepthFraction * _live.BoardCrestWU;
-            if (want != _insidePending)
+            // Same two-sided dwell as every other latch in this subsystem — Core/OcclusionFade.cs.
+            // Different bars and a different clock source; identical debounce.
+            if (OcclusionFade.StepDwell(want, now, EnterDwellSeconds, WallFadeTuning.DwellMoved,
+                    ref _insidePending, ref _insidePendingSince, ref _insideBoard))
             {
-                _insidePending = want;
-                _insidePendingSince = now;
-            }
-            if (_insidePending != _insideBoard)
-            {
-                float dwell = _insidePending ? EnterDwellSeconds : WallFadeTuning.DwellMoved;
-                if (now - _insidePendingSince >= dwell)
-                {
-                    _insideBoard = _insidePending;
                     // NO RELEASE. ModBuild 251 handed every faded wall back here in one step;
                     // that is the "alle auf einmal" the user rejected, and it bypassed each
-                    // wall's own exit dwell. Crossing this boundary is now an observation with
-                    // no side effects at all.
-                    LogInsideState(headPos, rigScale, edge: true);
-                    _nextInsideLogTime = now + InsideLogIntervalSeconds;
-                }
+                // wall's own exit dwell. Crossing this boundary is now an observation with
+                // no side effects at all.
+                LogInsideState(headPos, rigScale, edge: true);
+                _nextInsideLogTime = now + InsideLogIntervalSeconds;
             }
             return _insideBoard;
         }
@@ -1721,25 +1698,16 @@ internal static partial class WallSegmentFade
                               + $"{_live.BoardCrestWU:F2} wu); being merely OVER the board is the "
                               + "FOOTPRINT term, and that is never enough";
 
-            if (want != _walkInsidePending)
+            // LIVE dwells, its OWN pair since ModBuild 272 — shipped at exactly the values the
+            // latch used to borrow (EnterDwellSeconds 0.20 s in, DwellMoved 2.50 s out), so the
+            // promotion changes nothing at the defaults. The debounce itself is the shared one
+            // (Core/OcclusionFade.cs), which is what makes "its own pair" mean only the pair.
+            if (OcclusionFade.StepDwell(want, now, WallFadeTuning.WalkInEnterDwellSeconds,
+                    WallFadeTuning.WalkInExitDwellSeconds,
+                    ref _walkInsidePending, ref _walkInsidePendingSince, ref _walkInside))
             {
-                _walkInsidePending = want;
-                _walkInsidePendingSince = now;
-            }
-            if (_walkInsidePending != _walkInside)
-            {
-                // LIVE dwells, its OWN pair since ModBuild 272 — shipped at exactly the values
-                // the latch used to borrow (EnterDwellSeconds 0.20 s in, DwellMoved 2.50 s out),
-                // so the promotion changes nothing at the defaults.
-                float dwell = _walkInsidePending
-                    ? WallFadeTuning.WalkInEnterDwellSeconds
-                    : WallFadeTuning.WalkInExitDwellSeconds;
-                if (now - _walkInsidePendingSince >= dwell)
-                {
-                    _walkInside = _walkInsidePending;
-                    _walkEdgePending = true;
-                    _walkEdges++;
-                }
+                _walkEdgePending = true;
+                _walkEdges++;
             }
             return _walkInside;
         }

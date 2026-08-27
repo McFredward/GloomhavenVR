@@ -53,6 +53,45 @@ namespace GloomhavenVR.Net;
 /// classification".</remarks>
 internal sealed class RemotePileFronts
 {
+    /// <summary>
+    /// THE BOARD FANS' READING PITCH, in degrees about their own local X — the trailing
+    /// <c>* Quaternion.Euler(-12f, 0f, 0f)</c> that both LOCAL board fans append to their head
+    /// billboard (<c>PileBrowser.Tick</c> / <c>PileBrowser.PlaceAtHead</c> and
+    /// <c>ItemsPile.FaceHead</c>, both commented "+Z points away from the viewer; tilt back a
+    /// touch"). It is a LITERAL on the owner's side too — no config entry, nothing on the wire —
+    /// which is why it is a shared constant here rather than a dial.
+    ///
+    /// <para>WHY IT LIVES IN THIS FILE. Both mirrors billboarded with a bare
+    /// <c>LookRotation(away, Vector3.up)</c> and dropped the trailing term, so a peer's item fan and
+    /// a peer's browse fan both stood <b>12 degrees more upright</b> than the arcs their owner was
+    /// reading — at the shipped defaults, with nobody having tuned anything. Two independent copies
+    /// of the number is how that gap comes back, and this class is already the one type both fans
+    /// share (it draws the faces for exactly these two arcs), so the constant has one home.</para>
+    /// </summary>
+    internal const float FanReadingPitchDegrees = -12f;
+
+    /// <summary>
+    /// THE BOARD FANS' ARCH DEPTH — the <c>0.55</c> in <c>(cos(rad) - 1) * radius * 0.55f</c>, which
+    /// <c>PileBrowser.Relayout</c> and <c>ItemsPile.Relayout</c> both apply to bend their arc around
+    /// a pivot BELOW the root without dropping the ends the full sagitta.
+    ///
+    /// <para>DELIBERATELY A LITERAL, NOT <c>Defaults.FanFlatCurvatureFactor</c>. That entry is the
+    /// HAND fan's dial (<c>CardFan</c> reads <c>[Cards] FanFlatCurvatureFactor</c> live); the two
+    /// board pile fans hardcode 0.55 with no config entry at all. The numbers are equal today and
+    /// they are not the same number — pointing this constant at that entry would make a hand-fan
+    /// retune silently reshape two arcs the owner's own retune leaves alone, which is the "wrong
+    /// entry" mistake scripts/check-remote-defaults.py exists to catch. If the owner's pile arcs
+    /// ever gain a dial, this becomes a wire-overridable field like the radius beside it.</para>
+    /// </summary>
+    internal const float FanArchFactor = 0.55f;
+
+    /// <summary>The board fans' ROLL gain — the <c>0.85</c> in <c>Euler(0, 0, -angle * 0.85f)</c>,
+    /// which both <c>PileBrowser.Relayout</c> and <c>ItemsPile.Relayout</c> apply so a card leans
+    /// slightly less than its own arc angle. A literal on the owner's side too, for the same reason
+    /// <see cref="FanArchFactor"/> is one — it is NOT <c>Defaults.FanTiltFactor</c>, which is the
+    /// hand fan's live dial.</summary>
+    internal const float FanTiltFactor = 0.85f;
+
     /// <summary>Which of the peer's piles the fan this driver serves is currently showing.</summary>
     internal enum Content
     {
@@ -372,6 +411,54 @@ internal sealed class RemotePileFronts
         // (CardsDriver → CardsGameApi.GetPileWidgets), so the mirrored arc is card-for-card theirs.
         CardsGameApi.GetPileWidgets(hand, content == Content.Burnt, _abilityBuf);
         return _abilityBuf.Count > 0;
+    }
+
+    /// <summary>
+    /// Fill <paramref name="into"/> with one flag per equipped item of the character
+    /// <paramref name="owner"/>'s board is displaying: true where <c>CItem.SlotState</c> is
+    /// <c>Spent</c>. Returns false (and leaves the list empty) when the peer's inventory cannot be
+    /// read at all, which lands the caller on "nothing is tapped" — the safe direction, because it
+    /// is the state a fresh arc is in.
+    ///
+    /// <para>WHY IT LIVES HERE RATHER THAN IN <see cref="RemoteItemFan"/>. This is the SAME walk of
+    /// the SAME host-replicated list, in the same order, that <see cref="Resolve"/> does for the
+    /// faces (<c>CPlayerActor.Inventory.AllItems</c>, resolved through the same
+    /// <see cref="RemoteBoardFocus.DisplayedActor"/>). Slab <c>i</c> takes model entry <c>i</c> on
+    /// both paths or the tap lands on the wrong chip, so the two must be one piece of code — the
+    /// slot-alignment argument in <see cref="Resolve"/>'s doc applies here word for word.</para>
+    ///
+    /// <para>DELIBERATELY NOT BEHIND <see cref="RevealGate"/>, and this is the one place to say why.
+    /// The gate governs card FRONTS: it exists so the game's secret
+    /// <c>SelectAbilityCardsOrLongRest</c> window is not defeated by a peer's board. An equipped
+    /// item's slot state is not an ability card and not a secret — the owner's own arc lies tapped in
+    /// every phase, the flat game shows a party member's inventory outside VR, and what crosses to
+    /// this client here is a BOOLEAN GEOMETRY FLAG, never an item id or a face. Gating it would make
+    /// the mirrored arc disagree with its owner for exactly the phase the 1:1 ruling grants no
+    /// exception to. Nothing is written; every read is null-guarded.</para>
+    /// </summary>
+    internal static bool TryResolveItemSpentFlags(RemoteAvatar owner, List<bool> into)
+    {
+        into.Clear();
+        if (owner == null)
+            return false;
+        try
+        {
+            CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(owner, out _);
+            CInventory? inv = actor != null ? actor.Inventory : null;
+            List<CItem>? all = inv != null ? inv.AllItems : null;
+            if (all == null)
+                return false;
+            for (int i = 0; i < all.Count; i++)
+                into.Add(all[i] != null && all[i].SlotState == CItem.EItemSlotState.Spent);
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            into.Clear();
+            VRLog.Debug("Net", $"Remote item fan spent-state read failed ({ex.Message}) — no chip " +
+                               "is drawn tapped this cadence.");
+            return false;
+        }
     }
 
     /// <summary>

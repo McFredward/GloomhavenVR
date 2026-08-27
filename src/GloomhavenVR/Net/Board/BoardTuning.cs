@@ -453,6 +453,20 @@ internal static class BoardTuningSampler
         // sampled for the sender's OWN style only.
         n += FacXY(payload, ref i, NetProtocol.TuneActiveGridCol, NetProtocol.TuneActiveGridRow,
                    CardsConfig.ActiveGridSpacing(style), Defaults.ActiveGridSpacing_ByBoard[b]);
+        // THE HELD CARD'S MAGNIFICATION (id 178). The OTHER factor of the product a card is drawn at
+        // while it is pinched between the owner's fingers; its partner, the card WIDTH, has ridden
+        // this record since id 70 and was never enough on its own — the receiver drew a peer's held
+        // card at 1/InspectScale of the size the owner reads it at (1.6x at the shipped defaults,
+        // for every pairing). See NetProtocol.TuneCardInspectScale for why this is a dial on this
+        // record rather than a scale term beside the held-card POSE on the rig packet.
+        n += Fac(payload, ref i, NetProtocol.TuneCardInspectScale,
+                 CardsConfig.InspectScale, Defaults.InspectScale);
+        // THE MIRRORED FAN'S GAZE RELIEF RATE (id 179). The mirror re-derives the gaze TARGET from
+        // the peer's synced head — correctly, and for free — but the EASE RATE was its own literal
+        // and disagreed with the shipped default, so every mirrored fan relieved 33 % faster than
+        // its owner's. A synced input does not make an unsynced coefficient synced.
+        n += Fac(payload, ref i, NetProtocol.TuneFanGazeSmoothing,
+                 CardsConfig.FanGazeSmoothing, Defaults.FanGazeSmoothing);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -905,6 +919,18 @@ internal readonly struct RemoteBoardTuning
     public float FanFaceViewer { get; }
     public float FanCurvePower { get; }
     public float FanGazeApexFollow { get; }
+
+    /// <summary>[Cards] FanGazeSmoothing — the rate (1/s) the owner's fan eases its bow apex toward
+    /// their gaze at. The apex TARGET is re-derived on the receiver from the synced head pose and
+    /// costs no wire byte; this is the independent coefficient the mirror used to hold as its own
+    /// literal. Already clamped to the owner's own 1..30 window by the parser.</summary>
+    public float FanGazeSmoothing { get; }
+
+    /// <summary>[Cards] InspectScale — how far a card GROWS while the owner holds it up to read it.
+    /// The second factor of the held card's size; the first is <see cref="CardWidth"/>, and a
+    /// receiver holding only that one draws a peer's held card 1.6x too small at shipped defaults.
+    /// Covers the held ITEM chip as well — <c>ItemsPile</c> reads the same dial.</summary>
+    public float CardInspectScale { get; }
     public float FanSplitFalloff { get; }
     public float FanHoverSplitScale { get; }
     public float HoverInfoScale { get; }
@@ -1159,6 +1185,16 @@ internal readonly struct RemoteBoardTuning
         FanCurvePower = F(payload, len, NetProtocol.TuneFanCurvePower, Defaults.FanCurvePower);
         FanGazeApexFollow = F(payload, len, NetProtocol.TuneFanGazeApexFollow,
                               Defaults.FanGazeApexFollow);
+        // The owner's own clamp (CardFan.UpdateCardPresentation: Clamp(value, 1, 30)) is re-applied
+        // here rather than in the renderer, so every consumer reads a rate the owner could actually
+        // have been easing at — and a corrupt field cannot freeze or explode a peer's fan.
+        FanGazeSmoothing = Mathf.Clamp(
+            F(payload, len, NetProtocol.TuneFanGazeSmoothing, Defaults.FanGazeSmoothing), 1f, 30f);
+        // The owner's [Cards] InspectScale bound (0.5..4) applied on the receiving side for the same
+        // reason: a held card that a bad field shrank to nothing or blew up over the table is worse
+        // than one drawn at the shipped magnification.
+        CardInspectScale = Mathf.Clamp(
+            F(payload, len, NetProtocol.TuneCardInspectScale, Defaults.InspectScale), 0.5f, 4f);
         FanSplitFalloff = F(payload, len, NetProtocol.TuneFanSplitFalloff, Defaults.FanSplitFalloff);
         FanHoverSplitScale = F(payload, len, NetProtocol.TuneFanHoverSplitScale,
                                Defaults.FanHoverSplitScale);

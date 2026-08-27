@@ -35,6 +35,13 @@ namespace GloomhavenVR.Net;
 /// rejects. If the near-square constants below are ever seen to disagree with a real item on
 /// hardware, the fix is to measure the hosted face here — not to transmit it.</para>
 ///
+/// <para>THAT REASONING WAS SOUND AND ONE OF ITS TWO PREMISES WAS NOT BEING HONOURED (2026-08-27).
+/// It says the peer's CardWidth "already reaches this client without a byte" over record 28 — true
+/// of the WIRE, and this renderer was not reading it: the chip box was a bare
+/// <c>const CardW = 0.075f</c>, 5.5 % under the owner's own <c>CardWidth × ChipScale</c> at the
+/// shipped defaults and wrong by their whole tuning range once they had moved the dial. It is
+/// <see cref="_cardWidth"/> now; the aspect argument above is unchanged and still stands.</para>
+///
 /// CARD FRONTS (user ruling 2026-08-08, "Die Oberseiten der Karten des remote Spielers soll auch
 /// überall sichtbar sein … NUR in der Auswahlphase sieht man überall nur die Rückseiten"): this arc
 /// used to be BACKS UNCONDITIONALLY. That made the secrecy rule a PLACE rule, in direct conflict with
@@ -72,9 +79,48 @@ internal sealed class RemoteItemFan
 {
     // ---- geometry (mirror of ItemsPile's arc constants) --------------------------------------
     private const int MaxCards = 12;
-    private const float CardW = 0.075f;                  // item cards read near-square…
-    private const float CardH = CardW * 1.15f;           // …so this is NOT the 88/63.5 ability ratio
-                                                         // (a GUESS — superseded at runtime, see _cardH)
+    /// <summary>
+    /// LEGACY chip box width — what this fan cut its slabs to before the owner's own
+    /// <c>[Cards] CardWidth</c> reached it, kept ONLY as documentation of the defect.
+    ///
+    /// <para>IT WAS WRONG AND IT WAS WRONG AT THE DEFAULTS, exactly as
+    /// <c>RemoteActiveCards.LegacyCardW</c> was. The owner's chip is the item card's face fitted
+    /// into <c>[Cards] CardWidth</c> × <c>CardHeight</c> and then stood in the arc at
+    /// <see cref="ChipScale"/> (<c>ItemsPile.ItemChip.Create</c> → <c>SetHome(pos, rot, ChipScale)</c>),
+    /// i.e. <c>0.0635 × 1.25 = 79.4 mm</c> wide at the shipped default. This constant is 75.0 mm —
+    /// <b>5.5 % small on every peer's board with nobody having tuned anything</b>, and wrong by the
+    /// owner's whole tuning range once they had. It survived every checker for the reason
+    /// RemoteActiveCards records: the coverage guard watches DIALS, and it had no way to see that
+    /// the metric underneath the dials was a bare constant.</para>
+    /// </summary>
+    private const float LegacyCardW = 0.075f;
+
+    /// <summary>The pre-measurement aspect guess (<c>box height = width × 1.15</c>) — a card TALLER
+    /// than it is wide, which a Gloomhaven item card is not. Superseded at runtime by the applied
+    /// Item footprint; see <see cref="ResolvedCardH"/> and the <see cref="_cardH"/> block comment,
+    /// which is where this number's whole story lives.</summary>
+    private const float LegacyAspect = 1.15f;
+
+    /// <summary>The OWNER's own <c>[Cards] CardWidth</c> (extension record 28, id 70) — the metric
+    /// their item chips are fitted into before <see cref="ChipScale"/>. Refreshed by
+    /// <see cref="SyncTuning"/>; the INITIALISER is the shipped default, which is what an untuned or
+    /// pre-record peer's fan is still drawn with (held against <c>[Cards] CardWidth</c> by
+    /// scripts/check-remote-defaults.py).</summary>
+    private float _cardWidth = Defaults.CardWidth;
+
+    /// <summary>The chip BOX the slab bodies are cut to: the owner's card width taken up to the arc
+    /// by <see cref="ChipScale"/>, so a slab at <c>localScale = 1</c> is exactly the size their chip
+    /// stands in the arc at. (Folding ChipScale into the BOX rather than into the slab transform is
+    /// deliberate: every scale in this file — the emerge seed, the settle overshoot, the recess fit,
+    /// the collapse — is expressed against a base of 1, and a base of 1.25 would have to be threaded
+    /// through all four.)</summary>
+    private float ChipBoxW => _cardWidth * ChipScale;
+
+    /// <summary>The chip box HEIGHT this fan degrades to while the item footprint is unknown — the
+    /// historical <see cref="LegacyAspect"/> guess against <see cref="ChipBoxW"/>, so a cold cache
+    /// draws the same rounded slab it always did, at the corrected width.</summary>
+    private float ChipBoxHFallback => ChipBoxW * LegacyAspect;
+
     private const float MaxArcDegrees = 110f;            // ItemsPile.MaxArcDegrees
     private const float ZStagger = 0.004f;               // ItemsPile.ZStagger (draw order)
     private const float HandPalmOffset = 0.16f;          // ItemsPile.HandPalmOffset
@@ -102,8 +148,8 @@ internal sealed class RemoteItemFan
     // NOT a missing punch-out. This fan has gone through <c>CardMesh.AttachBody(…, CardBodyKind.Item,
     // …)</c> since round 17, and the hardware log of this very round proves the mesh is cut:
     //   "CARD BODY (Item): punched-out mesh built for 75,0x86,3 mm — 10 contour vertices".
-    // The defect is the BOX that mesh is cut to. 75.0 x 86.3 mm comes from <see cref="CardW"/> x
-    // <see cref="CardH"/>, and CardH is the hand-written guess `CardW * 1.15` — a card TALLER than it
+    // The defect is the BOX that mesh is cut to. 75.0 x 86.3 mm comes from <see cref="LegacyCardW"/>
+    // x <see cref="LegacyAspect"/>, a hand-written guess of a card TALLER than it
     // is wide. A Gloomhaven item card is the opposite: the same log's silhouette capture measures its
     // face at 270 x 258 px (footprint 224 x 214), i.e. WIDER than tall. Two consequences, both
     // visible as a border:
@@ -129,7 +175,7 @@ internal sealed class RemoteItemFan
     // of every peer shares ONE mesh — a fan of twelve chips costs a single dictionary hit.
     //
     // DEGRADATION (explicit requirement): with no footprint yet — first run for this shape, or a
-    // capture that was refused — <see cref="ResolvedCardH"/> returns the historical <see cref="CardH"/>
+    // capture that was refused — <see cref="ResolvedCardH"/> returns <see cref="ChipBoxHFallback"/>
     // and <c>AttachBody</c> hands out the plain rounded slab, i.e. EXACTLY today's look. There is no
     // state in which a wrong silhouette is drawn: the aspect and the contour come from the same
     // measurement, so either both are known or neither is.
@@ -142,7 +188,7 @@ internal sealed class RemoteItemFan
     /// <summary>The card-box height the slabs are currently built at — <see cref="ResolvedCardH"/> at
     /// the time of the last (re)build. Starts on the legacy guess so a cold cache is bit-identical to
     /// the previous build.</summary>
-    private float _cardH = CardH;
+    private float _cardH = Defaults.CardWidth * ChipScale * LegacyAspect;
 
     /// <summary>
     /// <c>RemoteCardArt.BorderFraction</c>, mirrored (it is private there). The front overlay fits a
@@ -154,6 +200,51 @@ internal sealed class RemoteItemFan
     /// so the face lands flush on the body edge — the body itself is untouched.
     /// </summary>
     private const float FrontBorderFraction = 0.06f;
+
+    // ---- WHICH CHIPS LIE TAPPED (the SPENT look, ItemsPile.Relayout requirement 3) --------------
+    // One flag per equipped item, index-aligned with the arc exactly as the front overlays are, and
+    // read off the peer's host-replicated inventory by the shared walk in
+    // RemotePileFronts.TryResolveItemSpentFlags (see its doc for the alignment and anti-cheat
+    // arguments). Refreshed on the board-content cadence — the same 4 Hz RemotePileFronts resolves
+    // its faces on — plus immediately on a slab-count edge, because a chip arriving or leaving
+    // re-indexes every flag after it and a quarter second of a tap on the wrong chip reads as a bug.
+    // An unreadable inventory leaves the list empty, which draws every chip upright: the state a
+    // fresh arc is in, so the failure direction is "no tap", never "a tap on a guess".
+    private readonly List<bool> _spent = new(MaxCards);
+    private float _nextSpentResolveAt;
+    private int _spentResolvedCount = -1;
+    private int _loggedSpent = -1;
+
+    /// <summary>True iff arc slab <paramref name="i"/> is a SPENT item — see <see cref="_spent"/>.
+    /// Out-of-range (the model list is shorter than the arc, e.g. while a chip is in flight) reads
+    /// as "not spent", which is the upright default.</summary>
+    private bool IsSpent(int i) => i >= 0 && i < _spent.Count && _spent[i];
+
+    /// <summary>Re-read the peer's per-item spent flags on the board-content cadence, or at once
+    /// when the arc's slab count has changed under them.</summary>
+    private void SyncSpentStates(int count)
+    {
+        if (count == _spentResolvedCount && Time.unscaledTime < _nextSpentResolveAt)
+            return;
+        _nextSpentResolveAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
+        _spentResolvedCount = count;
+        RemotePileFronts.TryResolveItemSpentFlags(_owner, _spent);
+
+        int tapped = 0;
+        for (int i = 0; i < _spent.Count && i < count; i++)
+        {
+            if (_spent[i])
+                tapped++;
+        }
+        if (tapped == _loggedSpent)
+            return;
+        _loggedSpent = tapped;
+        VRLog.Info("Net", $"Remote item fan tapped chips [player {_owner.PlayerId}]: {tapped} of " +
+                          $"{count} slab(s) lie SPENT (rolled a further 90°, ItemsPile.Relayout's own " +
+                          "requirement 3). Read from the peer's host-replicated Inventory.AllItems " +
+                          "index-aligned with the fan — zero wire bytes, no item identity, and no " +
+                          "RevealGate involvement: a slot state is not a card face.");
+    }
 
     /// <summary>Change key for the <c>REMOTE ITEM CUT</c> diagnostic — the box height it last
     /// reported. Change-gated rather than one-shot so a fan that is built on a COLD cache (rounded
@@ -490,6 +581,8 @@ internal sealed class RemoteItemFan
         // layout must know which slab it may not write this frame: the clipped one belongs to the
         // recess's hierarchy, not to the arc.
         ResolveClip();
+        // …and WHICH chips lie tapped, before the layout that rolls them (see SyncSpentStates).
+        SyncSpentStates(count);
         Layout(count, dt);
         TickClipSettle(dt);
 
@@ -551,12 +644,19 @@ internal sealed class RemoteItemFan
         }
 
         // Fronts (−Z) toward the owner, backs toward everyone else — the shared card convention.
+        //
+        // …AND THE READING PITCH. `ItemsPile.FaceHead` does not stop at the billboard: it appends
+        // `* Quaternion.Euler(-12f, 0f, 0f)` ("tilt back a touch"). This mirror omitted it, so a
+        // peer's item fan stood 12 DEGREES more upright than the arc its owner was reading, at the
+        // shipped defaults and with nobody having tuned anything. One shared constant with the
+        // browse fan, which was missing exactly the same term.
         Transform? head = _owner.HeadHolder;
         if (head != null)
         {
             Vector3 away = pos - head.position;
             if (away.sqrMagnitude > 1e-6f)
-                rot = Quaternion.LookRotation(away.normalized, Vector3.up);
+                rot = Quaternion.LookRotation(away.normalized, Vector3.up)
+                      * Quaternion.Euler(RemotePileFronts.FanReadingPitchDegrees, 0f, 0f);
         }
         return true;
     }
@@ -612,8 +712,35 @@ internal sealed class RemoteItemFan
             }
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
-            var pos = new Vector3(Mathf.Sin(rad) * _radius, (Mathf.Cos(rad) - 1f) * _radius, -ZStagger * i);
-            Quaternion rot = Quaternion.Euler(0f, 0f, -angle);
+            // ITEMSPILE.RELAYOUT, TERM FOR TERM — including the two factors this loop was missing.
+            // The owner bends the arc around a pivot below the root at `(cos(rad) - 1) * radius *
+            // 0.55f` and rolls each chip at `-angle * 0.85f`; both were absent here, so a peer's item
+            // fan bowed 1.82x too DEEP and leaned 1.18x too STEEP with nobody having tuned anything.
+            // At the shipped radius (FanRadius 0.16 x FanRadiusFactor_Items 1.7 = 0.272 m) the end
+            // chip sat 25.5 mm below the arc centre against the owner's 14.0 mm at 6 chips, and
+            // 116.0 mm against 63.8 mm at 12 — a 52 mm gap at the ends of an arc 0.45 m across —
+            // while it stood rolled 25.0 deg against the owner's 21.25 at 6 chips and 55.0 against
+            // 46.75 at 12, i.e. 3.75 and 8.25 degrees of lean too much. RemoteBrowserFan had
+            // carried both factors as named constants since it was written; the item mirror never
+            // got them, which is why they now live in ONE place (RemotePileFronts) that both read.
+            var pos = new Vector3(Mathf.Sin(rad) * _radius,
+                                  (Mathf.Cos(rad) - 1f) * _radius * RemotePileFronts.FanArchFactor,
+                                  -ZStagger * i);
+            Quaternion rot = Quaternion.Euler(0f, 0f, -angle * RemotePileFronts.FanTiltFactor);
+            // A SPENT item lies TAPPED, rolled a further 90 degrees in its slot — ItemsPile.Relayout
+            // ("SPENT items lie 'tapped': roll the chip 90° in its slot (requirement 3)"), which
+            // classifies off CItem.SlotState. This mirror had NO state branch at all, so a peer's
+            // spent items stood upright in the arc while their owner looked at them lying sideways —
+            // a 90 DEGREE disagreement on the one cue that says "already used this round".
+            //
+            // ZERO NEW WIRE: the state is read off the very list RemotePileFronts.Resolve already
+            // walks index-aligned for the FACES (CPlayerActor.Inventory.AllItems, host-replicated).
+            // Read INDEPENDENTLY of RevealGate on purpose: the gate governs card FRONTS — the secret
+            // ability-card selection window — and the owner's own arc taps in every phase, so gating
+            // the tap would make the mirrored arc disagree with its owner for the one phase the
+            // 1:1 ruling has no exception for. A slot state is not a card identity.
+            if (IsSpent(i))
+                rot *= Quaternion.Euler(0f, 0f, 90f);
             // THE WHOLE-ARC SPLIT around the singled-out chip (ItemsPile.Relayout: "the pivot holds
             // still, its neighbours slide along their OWN local right so the winner reads
             // unmistakably"). This renderer used to reproduce the lift and NOT the split, which made
@@ -975,7 +1102,7 @@ internal sealed class RemoteItemFan
     /// (<see cref="_cardH"/>, measured from the item footprint), not the old constant guess — the
     /// local twin fits the chip's measured face for exactly the same reason.</remarks>
     private float RecessFitScale() =>
-        Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / CardW,
+        Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / ChipBoxW,
                   RemoteBoardFurniture.ItemUseInnerHeight / _cardH) * UseSlotFillFraction;
 
     /// <summary>
@@ -1193,6 +1320,12 @@ internal sealed class RemoteItemFan
         _radius = Mathf.Max(0.02f, t.FanRadius * t.FanRadiusFactorItems);
         _maxStepDegrees = Mathf.Max(0.5f, t.FanStepDegreesItems);
         _lerpSpeed = Mathf.Max(0.5f, t.CardLerpSpeed);
+        // …and the chip's own SIZE (id 70), which was a bare 0.075 m — see LegacyCardW for what that
+        // cost at the shipped defaults. Nothing else has to be poked: ResolvedCardH derives the box
+        // height from ChipBoxW, so a width change moves _cardH too, and EnsureCardHeight (or the
+        // count-edge Rebuild) re-cuts the shared body mesh and re-binds the front boxes in place on
+        // the very next frame — the arc never blinks.
+        _cardWidth = Mathf.Max(0.01f, t.CardWidth);
         // The HOVER response (parity pass 2026-08-09): the owner's lift distance and the arc split
         // they open around the lifted chip. The very same four ability-fan dials RemoteHandFan reads
         // for the hand fan — the item fan splits on the identical shared formula, so it consumes the
@@ -1345,26 +1478,30 @@ internal sealed class RemoteItemFan
     }
 
     /// <summary>
-    /// The item card's real box height for <see cref="CardW"/>, taken from the applied Item
+    /// The item card's real box height for <see cref="ChipBoxW"/>, taken from the applied Item
     /// FOOTPRINT — see the block comment at <see cref="_cardH"/>. Returns the historical
-    /// <see cref="CardH"/> guess while no footprint exists (cold cache / refused capture), so the
+    /// <see cref="ChipBoxHFallback"/> guess while no footprint exists (cold cache / refused capture), so the
     /// degraded look is exactly the previous build's. Cheap: two static array reads.
+    ///
+    /// <para>Instance rather than static since the box width became the OWNER's card width times
+    /// <see cref="ChipScale"/> — the aspect is a property of the shared game widget, but the box it
+    /// is applied to is a property of the peer whose fan this is.</para>
     /// </summary>
-    private static float ResolvedCardH()
+    private float ResolvedCardH()
     {
         byte[]? foot = CardMesh.Footprint(CardBodyKind.Item, out int fw, out int fh);
         if (foot == null || fw <= 1 || fh <= 1)
-            return CardH;
+            return ChipBoxHFallback;
         // Sanity band. A footprint is a measurement of a game widget and could in principle come
         // back degenerate; a card box outside 0.5x..2x the card width is not an item card, and the
         // standing rule is to degrade to the previous look rather than to a wrong shape.
-        float h = CardW * (fh / (float)fw);
-        return h < CardW * 0.5f || h > CardW * 2f ? CardH : h;
+        float h = ChipBoxW * (fh / (float)fw);
+        return h < ChipBoxW * 0.5f || h > ChipBoxW * 2f ? ChipBoxHFallback : h;
     }
 
     /// <summary>The box handed to the front overlays: the slab box grown by the overlay's own inset
     /// so the cloned face lands FLUSH on the punched-out body edge — see <see cref="FrontBorderFraction"/>.</summary>
-    private float FrontBoxW => CardW / (1f - FrontBorderFraction);
+    private float FrontBoxW => ChipBoxW / (1f - FrontBorderFraction);
 
     private float FrontBoxH => _cardH / (1f - FrontBorderFraction);
 
@@ -1387,7 +1524,7 @@ internal sealed class RemoteItemFan
             GameObject slab = _cards[i];
             MeshFilter? mf = slab != null ? slab.GetComponent<MeshFilter>() : null;
             if (mf != null)
-                CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, _cardH);
+                CardMesh.AttachBody(mf, CardBodyKind.Item, ChipBoxW, _cardH);
         }
         if (_cards.Count > 0)
             _fronts.Rebuild(_cards, FrontBoxW, FrontBoxH);
@@ -1405,8 +1542,10 @@ internal sealed class RemoteItemFan
         _loggedCutH = _cardH;
         CardMesh.Footprint(CardBodyKind.Item, out int fw, out int fh);
         VRLog.Info("Net", "REMOTE ITEM CUT: a peer's item chips are now cut to the ITEM card's own " +
-                          $"box {CardW * 1000f:F1}x{_cardH * 1000f:F1} mm (was {CardW * 1000f:F1}x" +
-                          $"{previousH * 1000f:F1} mm, the hand-written CardW*1.15 guess), aspect taken " +
+                          $"box {ChipBoxW * 1000f:F1}x{_cardH * 1000f:F1} mm (was " +
+                          $"{LegacyCardW * 1000f:F1}x{previousH * 1000f:F1} mm — a hand-written width " +
+                          $"and a hand-written 1.15 aspect; the width is the owner's own [Cards] " +
+                          $"CardWidth x ChipScale now, {_cardWidth * 1000f:F2}x{ChipScale:F2}), aspect taken " +
                           $"from the applied Item footprint {fw}x{fh} captured from " +
                           $"'{CardMesh.FootprintSource(CardBodyKind.Item) ?? "n/a"}' — the SAME persisted, " +
                           "CacheVersion-stamped mask the owner's own chips are punched out with, so no " +
@@ -1473,10 +1612,10 @@ internal sealed class RemoteItemFan
             // Round 17 (1:1 board rule): ITEM kind — this fan mirrors the owner's item chips, so
             // the chip adopts the same punched-out Item body via CardMesh.AttachBody (shared cached
             // mesh, never ours to destroy; upgraded in place when the Item contour is learned).
-            // …at the item card's REAL box, not the old CardW*1.15 guess: a wrong-aspect box both
+            // …at the item card's REAL box, not the old 75 mm x 1.15 guess: a wrong-aspect box both
             // letterboxes the face (the reported "Ränder") and stretches the very outline the
             // punch-out reproduces. See the _cardH block comment.
-            CardMesh.AttachBody(mf, CardBodyKind.Item, CardW, _cardH);
+            CardMesh.AttachBody(mf, CardBodyKind.Item, ChipBoxW, _cardH);
             var mr = card.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the shared Item back material: the
             // arc deliberately shows the BACK on both faces, exactly like the old two-quad slab.
@@ -1549,6 +1688,10 @@ internal sealed class RemoteItemFan
         _collapseElapsed = -1f;
         ClearCollapseCapture();
         ClearPops();            // a re-opened fan never starts with a stale chip lifted
+        // …and a re-opened fan re-reads WHICH chips lie tapped on its first frame rather than
+        // wearing up to a cadence tick of the flags it closed with. An item is very often spent
+        // BETWEEN a close and the next open — that is what the fan is opened for.
+        _spentResolvedCount = -1;
     }
 
     public void Destroy()
