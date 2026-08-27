@@ -650,6 +650,9 @@ internal static class NetProtocol
     //
     // Build 299: THE CARD DUST REACHES A PEER — AND THE SMOKE BESIDE IT WAS REFUSED ON PURPOSE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FORMAT CHANGED (id 248). ***
+    // *** CORRECTED IN ModBuild 302: THAT ID WAS OUT OF RANGE AND BROKE THE WHOLE RECORD. The dial
+    //     is 233 now; 248 is a tombstone. See NetProtocol.TuneNeverLive248. Everything below is
+    //     what build 299 believed, kept as its own record. ***
     //
     //   FIRST STEP OF DESIGN-1TO1-RESIDUE.md. The user's ruling names "Interaktionen, ANIMATIONEN
     //   und Anzeigen des Controllboards", and the card dust was one of the animations a peer never
