@@ -424,6 +424,15 @@ internal static class BoardTuningSampler
                  CardsConfig.ButtonStackSpacing, Defaults.ButtonStackSpacing);
         n += Fac(payload, ref i, NetProtocol.TuneRestStackSpacing,
                  CardsConfig.RestStackSpacing, Defaults.RestStackSpacing);
+        // THE KEYCAP ANIMATION CLOCK (ids 174/175). Wired only now, and only because the RENDERER
+        // grew first: until ModBuild 304 the mirrored cap's crumble/assemble durations were static
+        // consts shared by every peer's board, so a field for them would have had no consumer —
+        // the FanCloseDuration trap. RemoteBoardFurniture.CapAnim is the per-board clock they land
+        // in.
+        n += Fac(payload, ref i, NetProtocol.TuneButtonAppearSeconds,
+                 WorldUI.ButtonTuning.AnimAppearDuration, Defaults.AppearSeconds);
+        n += Fac(payload, ref i, NetProtocol.TuneButtonDisappearSeconds,
+                 WorldUI.ButtonTuning.AnimDissolveDuration, Defaults.DisappearSeconds);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -488,6 +497,13 @@ internal static class BoardTuningSampler
         // both halves and for the check that now makes either one impossible to ship again.
         n += Bool8(payload, ref i, NetProtocol.TuneCardDustOn,
                    Cards.CardsConfig.CardDust, Defaults.CardDust);
+        // …and the keycap animation's two switches (ids 234/235), the other half of the clock
+        // above. THE OWNER'S, deliberately: a remote board is a picture of its owner's board, and
+        // these four dials describe a LOOK and not a cost. See NetProtocol.TuneButtonAnimOn.
+        n += Bool8(payload, ref i, NetProtocol.TuneButtonAnimOn,
+                   WorldUI.ButtonTuning.AnimEnable, Defaults.Enable);
+        n += Bool8(payload, ref i, NetProtocol.TuneButtonAppearParticles,
+                   WorldUI.ButtonTuning.AnimAppearParticles, Defaults.AppearParticles);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
@@ -770,12 +786,26 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[ButtonColors] LabelOutlineWidth — that keyline's width, fraction of the SDF spread.</summary>
     public float LabelOutlineWidth { get; }
     /// <summary>[ButtonColors] LabelOutline — whether the keyline is drawn at all.</summary>
-    /// <summary>Whether this owner's cards crumble into / coalesce out of a dust puff — the
-    /// permission the mirrored fan needs before it may call its OWN <c>Cards.CardDustFx</c>.
-    /// </summary>
+    public bool LabelOutlineOn { get; }
+
+    /// <summary>[Cards] CardDust — whether this owner's cards crumble into / coalesce out of a dust
+    /// puff. The permission the mirrored fan needs before it may call its OWN
+    /// <c>Cards.CardDustFx</c>; no picture travels.</summary>
     public bool CardDustOn { get; }
 
-    public bool LabelOutlineOn { get; }
+    /// <summary>[ButtonAnim] Enable — whether this owner's keycaps animate at all. THEIR dial, not
+    /// the viewer's; see <c>NetProtocol.TuneButtonAnimOn</c> for the reversal.</summary>
+    public bool ButtonAnimOn { get; }
+
+    /// <summary>[ButtonAnim] AppearParticles — whether their appearing keycap gets the converging
+    /// dust cloud as well as the surface fade.</summary>
+    public bool ButtonAppearParticles { get; }
+
+    /// <summary>[ButtonAnim] AppearSeconds — how long their materialize-from-dust runs.</summary>
+    public float ButtonAppearSeconds { get; }
+
+    /// <summary>[ButtonAnim] DisappearSeconds — how long their crumble-to-dust runs.</summary>
+    public float ButtonDisappearSeconds { get; }
     /// <summary>[ButtonColors] LabelUnderlay — whether the drop-shadow underlay is drawn.</summary>
     public bool LabelUnderlayOn { get; }
     /// <summary>[ButtonColors] BoardCapTint — the Confirm / Undo / item-USE cap FACE multiplier.</summary>
@@ -1010,6 +1040,14 @@ internal readonly struct RemoteBoardTuning
                             Defaults.LabelUnderlay ? 1 : 0) != 0;
         CardDustOn = C(payload, len, NetProtocol.TuneCardDustOn,
                        Defaults.CardDust ? 1 : 0) != 0;
+        ButtonAnimOn = C(payload, len, NetProtocol.TuneButtonAnimOn,
+                         Defaults.Enable ? 1 : 0) != 0;
+        ButtonAppearParticles = C(payload, len, NetProtocol.TuneButtonAppearParticles,
+                                  Defaults.AppearParticles ? 1 : 0) != 0;
+        ButtonAppearSeconds = F(payload, len, NetProtocol.TuneButtonAppearSeconds,
+                                Defaults.AppearSeconds);
+        ButtonDisappearSeconds = F(payload, len, NetProtocol.TuneButtonDisappearSeconds,
+                                   Defaults.DisappearSeconds);
         BoardCapTint = Cl(payload, len, NetProtocol.TuneBoardCapTint,
                           new Color(Defaults.BoardCapTintR, Defaults.BoardCapTintG,
                                     Defaults.BoardCapTintB, 1f));

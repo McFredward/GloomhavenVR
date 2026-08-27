@@ -28,5 +28,14 @@ OUT="$ROOT/tests/GloomhavenVR.WireTests/bin/Release/net8.0/GloomhavenVR.WireTest
 # Build and run as two steps rather than `dotnet run`: `dotnet run` swallows the trailing
 # repo-root argument the shim pin needs (it re-derives it from the assembly location instead,
 # which is right here but wrong the moment the binary is copied anywhere).
-dotnet build "$PROJ" -c Release -v quiet --nologo >/dev/null
+# A COMPILE FAILURE HERE USED TO BE COMPLETELY SILENT, which is the one thing a gate must never
+# be. `dotnet build` writes its errors to STDOUT, so `>/dev/null` swallowed them; combined with
+# `set -e` the script exited 1 having printed nothing at all, and "the wire tests failed" was
+# indistinguishable from "the wire tests printed nothing". Captured and re-emitted on failure —
+# the output is still hidden on success, which is what the quiet flag was for.
+if ! BUILD_LOG="$(dotnet build "$PROJ" -c Release -v quiet --nologo 2>&1)"; then
+    echo "wire tests: THE TEST PROJECT DID NOT COMPILE — not one vector ran." >&2
+    echo "$BUILD_LOG" >&2
+    exit 1
+fi
 exec "$OUT" "$ROOT"

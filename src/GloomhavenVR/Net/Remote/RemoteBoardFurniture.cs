@@ -336,15 +336,76 @@ internal sealed class RemoteBoardFurniture
     private readonly float _dashCapTravel = Defaults.BoardDashboard_Travel;
     private readonly float _restCapTravel = Defaults.RestButtons_Travel;
 
-    /// <summary>Authored seconds a vanishing cap's dust dissolve runs
-    /// (<c>[ButtonAnim] DisappearSeconds</c> — the duration <c>PlayTray.BoardButton.SetVisible</c>
-    /// shrinks the local cap out over). Authored, not the viewer's tuned value, for the same reason
-    /// every geometry constant here is authored.</summary>
+    /// <summary>
+    /// THE OWNER'S KEYCAP-ANIMATION DIALS, carried per board — the four <c>[ButtonAnim]</c> values
+    /// (record 28 ids 174, 175, 234, 235).
+    ///
+    /// <para>THIS STRUCT IS THE RENDERER DEBT THE AUDIT NAMED, PAID. Until ModBuild 304 the two
+    /// durations were STATIC consts on this class, read by every <c>RemoteCapFx</c> of every peer's
+    /// board — one clock for all of them — and whether a cap animated at all was decided by the
+    /// VIEWER's own switch. In that shape a wire field would have had nowhere to land, which is
+    /// exactly why <c>scripts/check-wire-coverage.py</c> carried these four as PENDING debts rather
+    /// than wiring them: a field whose renderer cannot vary per peer is a field with no consumer,
+    /// and the checker turning green while the picture stays identical is a defect this project has
+    /// shipped once already ([Cards] FanCloseDuration). Renderer first, field second.</para>
+    ///
+    /// <para>The fallback is the AUTHORED default, which is what every previous build drew and what
+    /// a pre-record sender still gets.</para>
+    /// </summary>
+    internal readonly struct CapAnim
+    {
+        /// <summary>The owner has the crumble/materialize animation on at all.</summary>
+        internal readonly bool Enabled;
+
+        /// <summary>The owner's appearing cap gets the converging dust cloud, not just the fade.</summary>
+        internal readonly bool AppearParticles;
+
+        /// <summary>Seconds the owner's materialize-from-dust runs.</summary>
+        internal readonly float AppearSeconds;
+
+        /// <summary>Seconds the owner's crumble-to-dust runs.</summary>
+        internal readonly float DissolveSeconds;
+
+        internal CapAnim(bool enabled, bool appearParticles, float appearSeconds,
+                         float dissolveSeconds)
+        {
+            Enabled = enabled;
+            AppearParticles = appearParticles;
+            // Floored the way every wire number on this board is floored: a zero or negative
+            // duration would make the ramp divide by it, and a hostile one is not trusted to be
+            // sane. The clamp is the config bind's own 0.05..1.0.
+            AppearSeconds = Mathf.Clamp(appearSeconds, 0.05f, 1f);
+            DissolveSeconds = Mathf.Clamp(dissolveSeconds, 0.05f, 1f);
+        }
+
+        /// <summary>What a pre-record sender resolves to — the authored feel, i.e. exactly what
+        /// every build before ModBuild 304 drew for every peer.</summary>
+        internal static CapAnim Authored => new(Defaults.Enable, Defaults.AppearParticles,
+                                                RemoteBoardFurniture.AppearSeconds,
+                                                RemoteBoardFurniture.DissolveSeconds);
+    }
+
+    /// <summary>Authored seconds an appearing cap's materialize-from-dust fade runs — the FALLBACK
+    /// <see cref="CapAnim.Authored"/> takes when the owner's own <c>[ButtonAnim] AppearSeconds</c>
+    /// is not on the wire (a pre-ModBuild-304 sender, or one whose dial is at the default and is
+    /// therefore not transmitted — record 28 is sparse).
+    ///
+    /// <para>It is NO LONGER THE CLOCK. Until ModBuild 304 this const WAS the duration every
+    /// mirrored cap on every peer's board ran on; now it is one number a per-board
+    /// <see cref="CapAnim"/> falls back to. Kept as a NAMED constant rather than folded into the
+    /// expression above so <c>scripts/check-remote-defaults.py</c> can keep proving it is the same
+    /// <c>Defaults</c> entry the local bind uses — the guarantee that a retuned default cannot
+    /// leave remote boards drawing the old feel.</para></summary>
+    internal const float AppearSeconds = Defaults.AppearSeconds;
+
+    /// <summary>Authored seconds a vanishing cap's dust dissolve runs — the fallback twin of
+    /// <see cref="AppearSeconds"/>, for <c>[ButtonAnim] DisappearSeconds</c>.</summary>
     internal const float DissolveSeconds = Defaults.DisappearSeconds;
 
-    /// <summary>Authored seconds an appearing cap's materialize-from-dust fade runs
-    /// (<c>[ButtonAnim] AppearSeconds</c>).</summary>
-    internal const float AppearSeconds = Defaults.AppearSeconds;
+    /// <summary>The owner's <c>[ButtonAnim]</c> dials for THIS board, resolved once in the
+    /// constructor — the board is torn down and rebuilt on every tuning revision, so there is
+    /// nothing to refresh.</summary>
+    private readonly CapAnim _capAnim;
 
     /// <summary>LEGACY slot metric (authored card width × the local board's 1.3 SlotScale) — the
     /// fallback the live fields below take when the owner's real sizes are not on the wire.
@@ -783,6 +844,11 @@ internal sealed class RemoteBoardFurniture
         _slotFrameW = slotFrameWidth > 0f ? slotFrameWidth : CardW;
         _slotFrameH = _slotFrameW * (88f / 63.5f);
 
+        // The owner's keycap animation, off record 28 (ids 174/175/234/235). THEIR dials, not this
+        // viewer's — see NetProtocol.TuneButtonAnimOn for the reversal and the ruling behind it.
+        _capAnim = new CapAnim(tuning.ButtonAnimOn, tuning.ButtonAppearParticles,
+                               tuning.ButtonAppearSeconds, tuning.ButtonDisappearSeconds);
+
         _root = new GameObject("Furniture").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
 
@@ -1078,7 +1144,7 @@ internal sealed class RemoteBoardFurniture
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
             new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor(_style), DashCapTint, labels,
             travel: _dashCapTravel, accent: PinAccentColor,
-            role: Cards.CapRole.FixedFollow, style: _style);
+            role: Cards.CapRole.FixedFollow, style: _style, anim: _capAnim);
         // …and the word for it, cut into the board above the toggle. Seated off the SAME mount the
         // cap is (PinMount + the owner's tuned PinOffset) and lifted by the shared
         // BoardEngraving.PinCaptionLiftY, so it tracks the owner's dial the way the cap does.
@@ -1306,11 +1372,11 @@ internal sealed class RemoteBoardFurniture
         _genericShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, Mathf.Min(_boardCapW, _boardCapH), _boardCapD, rest,
                              BoardCapTint, labels, travel: _boardCapTravel, accent: accent,
-                             role: role, style: _style)
+                             role: role, style: _style, anim: _capAnim)
             : InertCap.Square(parent, name, localPos, new Vector2(_boardCapW, _boardCapH),
                               _boardCapD, rest, BoardCapTint, labels,
                               travel: _boardCapTravel, accent: accent,
-                              role: role, style: _style);
+                              role: role, style: _style, anim: _capAnim);
 
     /// <summary>
     /// One of the short/long rest keycaps, in the OWNER's [Cards] RestButtonShape_{board}.
@@ -1324,11 +1390,11 @@ internal sealed class RemoteBoardFurniture
         _restShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, diameter, _restCapD, CapIdleColor(_style),
                              RestCapTint, labels, travel: _restCapTravel, accent: accent,
-                             role: role, style: _style)
+                             role: role, style: _style, anim: _capAnim)
             : InertCap.Square(parent, name, localPos, new Vector2(_restCapW, _restCapH),
                               _restCapD, CapIdleColor(_style), RestCapTint, labels,
                               travel: _restCapTravel, accent: accent,
-                              role: role, style: _style);
+                              role: role, style: _style, anim: _capAnim);
 
     // ---------------------------------------------------------------- refresh --
 
@@ -3469,6 +3535,7 @@ internal sealed class RemoteBoardFurniture
         /// </summary>
         public static InertCap Square(Transform parent, string name, Vector3 localPos, Vector2 size,
             float depth, Color color, Color capTint, in CapLabelStyle labels,
+            in CapAnim anim,
             float travel = 0f, Color? accent = null,
             Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
         {
@@ -3546,7 +3613,7 @@ internal sealed class RemoteBoardFurniture
                 _capRole = role,
                 _capStyle = style,
             };
-            cap.AttachFx(travel, Mathf.Max(size.x, size.y));
+            cap.AttachFx(travel, Mathf.Max(size.x, size.y), anim);
             return cap;
         }
 
@@ -3561,6 +3628,7 @@ internal sealed class RemoteBoardFurniture
         /// now, so the honest mirror is this method's ordinary thickness.</para></summary>
         public static InertCap Round(Transform parent, string name, Vector3 localPos, float diameter,
             float thickness, Color color, Color capTint, in CapLabelStyle labels,
+            in CapAnim anim,
             float travel = 0f, Color? accent = null,
             Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
         {
@@ -3630,7 +3698,7 @@ internal sealed class RemoteBoardFurniture
                 _capRole = role,
                 _capStyle = style,
             };
-            cap.AttachFx(travel, diameter);
+            cap.AttachFx(travel, diameter, anim);
             return cap;
         }
 
@@ -3787,11 +3855,17 @@ internal sealed class RemoteBoardFurniture
         /// the show/hide dust, which needs no travel); <paramref name="footprint"/> sizes the dust
         /// burst exactly as the local button sizes its own from its trigger box.
         /// </summary>
-        private void AttachFx(float travel, float footprint)
+        private void AttachFx(float travel, float footprint, in CapAnim anim)
         {
+            _anim = anim;
             _fx = _go.AddComponent<RemoteCapFx>();
-            _fx.Init(_capMesh, CapRestZ, travel, footprint, CurrentStateColor, PaintCap);
+            _fx.Init(_capMesh, CapRestZ, travel, footprint, CurrentStateColor, PaintCap, anim);
         }
+
+        /// <summary>The OWNER's animation dials for this cap — held here as well as on the
+        /// animator because <see cref="SetShown"/> has to decide whether to animate BEFORE it
+        /// reaches one.</summary>
+        private CapAnim _anim = CapAnim.Authored;
 
         /// <summary>Replay the owner's press dip on this copy (synced press edge). A no-op on a cap
         /// with no animator or no travel. NOTHING is invoked — this is the animation, not the
@@ -3808,7 +3882,10 @@ internal sealed class RemoteBoardFurniture
         {
             if (_go.activeSelf == shown && !(shown && animate && _fx != null && _fx.Hiding))
                 return;
-            if (!animate || _fx == null || !WorldUI.ButtonTuning.ButtonAnimEnabled)
+            // THE OWNER'S SWITCH, not this viewer's. See NetProtocol.TuneButtonAnimOn: a remote
+            // board is a picture of its owner's board, and a viewer whose own caps pop must still
+            // see their neighbour's crumble if that is what their neighbour is looking at.
+            if (!animate || _fx == null || !_anim.Enabled)
             {
                 _fx?.CancelAnimations();
                 if (_go.activeSelf != shown)
@@ -4092,14 +4169,21 @@ internal sealed class RemoteCapFx : MonoBehaviour
     {
         _appearTarget = rest;
         float k = _hideLeft > 0f
-            ? Mathf.Clamp01(_hideLeft / RemoteBoardFurniture.DissolveSeconds)
-            : 1f - Mathf.Clamp01(_showLeft / RemoteBoardFurniture.AppearSeconds);
+            ? Mathf.Clamp01(_hideLeft / _anim.DissolveSeconds)
+            : 1f - Mathf.Clamp01(_showLeft / _anim.AppearSeconds);
         _paint?.Invoke(rest, k);
     }
 
+    /// <summary>The OWNER's animation dials for the board this cap belongs to — the per-instance
+    /// clock that replaced the two shared statics. See
+    /// <see cref="RemoteBoardFurniture.CapAnim"/>.</summary>
+    private RemoteBoardFurniture.CapAnim _anim = RemoteBoardFurniture.CapAnim.Authored;
+
     internal void Init(Transform? capMesh, float restZ, float travel, float footprint,
-        System.Func<Color> stateColor, System.Action<Color, float> paint)
+        System.Func<Color> stateColor, System.Action<Color, float> paint,
+        in RemoteBoardFurniture.CapAnim anim)
     {
+        _anim = anim;
         _capMesh = capMesh;
         _restZ = restZ;
         _travel = travel;
@@ -4124,7 +4208,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
     {
         _showLeft = 0f;
         _shownScale = transform.localScale;
-        _hideLeft = RemoteBoardFurniture.DissolveSeconds;
+        _hideLeft = _anim.DissolveSeconds;
         _hideDeadline = Time.unscaledTime + _hideLeft + FadeWatchdogSlack; // watchdog (see the field header)
         _showDeadline = float.PositiveInfinity;
         _appearTarget = Current(); // the settled colour the crumble runs BACK from (shared with the appear)
@@ -4138,7 +4222,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
     {
         _hideLeft = 0f;
         transform.localScale = _shownScale;
-        _showLeft = RemoteBoardFurniture.AppearSeconds;
+        _showLeft = _anim.AppearSeconds;
         _showDeadline = Time.unscaledTime + _showLeft + FadeWatchdogSlack; // watchdog (see the field header)
         _hideDeadline = float.PositiveInfinity;
         _appearTarget = Current();
@@ -4147,7 +4231,9 @@ internal sealed class RemoteCapFx : MonoBehaviour
         // whole animation exists to remove (mirror of the same line in BoardButton.SetVisible).
         _paint?.Invoke(_appearTarget, 0f);
         WorldUI.ButtonTuning.LogAnim(name, "appear (assemble out of dust) — MIRRORED");
-        if (WorldUI.ButtonTuning.AppearParticlesEnabled)
+        // THE OWNER's particle switch (and their Enabled, which SetShown already gated on before
+        // this method was reached) — not this viewer's. Same reversal as the animate gate.
+        if (_anim.AppearParticles)
             WorldUI.ButtonDissolveFx.PlayMaterialize(CapWorldCenter(), -transform.forward,
                 _footprint * Mathf.Abs(transform.lossyScale.x), _appearTarget);
     }
@@ -4196,7 +4282,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
             _hideLeft -= Time.unscaledDeltaTime;
             if (_hideLeft > 0f && Time.unscaledTime >= _hideDeadline)
                 _hideLeft = 0f; // watchdog: never leave a peer's cap parked half-shrunk
-            float k = Mathf.Max(0f, _hideLeft / RemoteBoardFurniture.DissolveSeconds);
+            float k = Mathf.Max(0f, _hideLeft / _anim.DissolveSeconds);
             transform.localScale = _shownScale * k;
             _paint?.Invoke(_appearTarget, k); // the assembly ramp, run backwards — walls first, brass frame last
             if (_hideLeft <= 0f)
@@ -4216,7 +4302,7 @@ internal sealed class RemoteCapFx : MonoBehaviour
             _showLeft -= Time.unscaledDeltaTime;
             if (_showLeft > 0f && Time.unscaledTime >= _showDeadline)
                 _showLeft = 0f; // watchdog: never leave a peer's cap parked mid-assembly
-            float k = 1f - Mathf.Max(0f, _showLeft / RemoteBoardFurniture.AppearSeconds);
+            float k = 1f - Mathf.Max(0f, _showLeft / _anim.AppearSeconds);
             transform.localScale = _shownScale;
             _paint?.Invoke(_appearTarget, k);
             if (_showLeft <= 0f)

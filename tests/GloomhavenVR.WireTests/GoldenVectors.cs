@@ -4807,6 +4807,49 @@ internal static class GoldenVectors
                                               NetProtocol.TuneGenericCapShape, 0),
                 "the shape arrives as its enum's integer value (1 = Square)");
 
+        // THE KEYCAP ANIMATION (ModBuild 304, ids 174/175/234/235) — the four dials that were
+        // PENDING debts until the mirrored cap's clock stopped being a pair of statics. Asserted
+        // through the SAME reader RemoteBoardTuning uses, because the whole point of the renderer
+        // going first is that these values now land somewhere: a field that arrives and is dropped
+        // is the FanCloseDuration failure with extra steps.
+        //   id 174 appear    0.30 s -> 300 thousandths -> 2C 01
+        //   id 175 disappear 0.24 s -> 240 thousandths -> F0 00
+        //   id 234 Enable          off -> 00
+        //   id 235 AppearParticles off -> 00
+        t.Case("7v-c. extras, board-tuning: the keycap animation dials (ids 174/175/234/235)");
+        byte[] animFields =
+        {
+            NetProtocol.TuneButtonAppearSeconds,    0x2C, 0x01,
+            NetProtocol.TuneButtonDisappearSeconds, 0xF0, 0x00,
+            NetProtocol.TuneButtonAnimOn,           0x00,
+            NetProtocol.TuneButtonAppearParticles,  0x00,
+        };
+        ushort animSig = BoardTunePages.Signature(animFields, 0, animFields.Length);
+        var animPage = new byte[255];
+        int animLen = BoardTunePages.WritePage(animFields, animFields.Length, 0, animSig, animPage);
+        var animAsm = new BoardTunePageAssembler();
+        t.True(animAsm.Accept(animPage, 0, animLen),
+               "the keycap-animation dials converge on one page");
+        byte[] animTune = animAsm.Assembled;
+        int animTuneLen = animAsm.AssembledLength;
+        t.Equal(0.30f, NetProtocol.BoardTuneFactor(animTune, 0, animTuneLen,
+                                                   NetProtocol.TuneButtonAppearSeconds, 0f),
+                "the owner's materialize-from-dust duration arrives, in thousandths of a second");
+        t.Equal(0.24f, NetProtocol.BoardTuneFactor(animTune, 0, animTuneLen,
+                                                   NetProtocol.TuneButtonDisappearSeconds, 0f),
+                "…and their crumble duration beside it");
+        t.Equal(0, NetProtocol.BoardTuneCount(animTune, 0, animTuneLen,
+                                              NetProtocol.TuneButtonAnimOn, 1),
+                "an owner who turned the animation OFF is mirrored as off — a peer must not "
+                + "re-impose an animation the owner is not seeing");
+        t.Equal(0, NetProtocol.BoardTuneCount(animTune, 0, animTuneLen,
+                                              NetProtocol.TuneButtonAppearParticles, 1),
+                "and the appear particles likewise");
+        t.Equal(1, NetProtocol.BoardTuneCount(animTune, 0, animTuneLen,
+                                              NetProtocol.TuneCardDustOn, 1),
+                "a COUNT-range id this owner did not send still yields the receiver's own default "
+                + "— absence means \"keep what you have\", never zero");
+
         // ABSENCE STILL MEANS "THE VALUE YOU ALREADY HAVE" for the dials this owner did NOT move.
         t.Equal(0.065f, NetProtocol.BoardTuneLength(capTune, 0, capTuneLen,
                                                     NetProtocol.TuneBoardCapHeight, 0.065f),

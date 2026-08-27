@@ -202,15 +202,6 @@ EXEMPT = {
     # [RestButtons] Width / Height STOOD HERE TOO, parked behind the rest cap's missing Square
     # branch with "wire it with RestButtonShape_{board}, not before". They were wired WITH it
     # (ids 99..100), which is what that line asked for.
-    ("ButtonAnim", "DisappearSeconds"): ("PENDING", "the mirrored cap's crumble/assemble clock is a pair of STATIC "
-                                                    "consts on RemoteBoardFurniture read by every InertCap of every "
-                                                    "peer's board, not per-peer state — so this needs the fade clock "
-                                                    "threaded through the cap instances first, which is a renderer "
-                                                    "change and not a wire field. The four cap TRAVELS beside it did "
-                                                    "fall out for free and are wired (ids 88/92/96/98)"),
-    ("ButtonAnim", "AppearSeconds"): ("PENDING", "as [ButtonAnim] DisappearSeconds"),
-    ("ButtonAnim", "Enable"): ("PENDING", "a bool; whether the caps animate at all is not mirrored"),
-    ("ButtonAnim", "AppearParticles"): ("PENDING", "a bool; the spark burst is not mirrored"),
 }
 
 # THE [ButtonColors] BLANKET EXEMPTION IS GONE (2026-08-09), and how it fell is worth keeping.

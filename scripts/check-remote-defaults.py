@@ -117,9 +117,11 @@ PAIRS = [
     # TRAVEL on the synced press edge and crumbles/assembles over the ButtonAnim durations, so all
     # six numbers have a second home in Net/ and belong on this list for exactly the reason the
     # sizes above do: retune the local feel and the remote boards must follow, or a press looks 4 mm
-    # deep on one screen and 8 on another. The four TRAVELS ride record 28 now (ids 88 / 92 / 96 /
-    # 98); the two ButtonAnim DURATIONS are still frozen — see check-wire-coverage.py's PENDING line
-    # for why (the mirrored cap's fade clock is a static on the renderer, not per-peer state).
+    # deep on one screen and 8 on another. The four TRAVELS ride record 28 (ids 88 / 92 / 96 / 98)
+    # and, since ModBuild 304, so do the two ButtonAnim DURATIONS (ids 174 / 175) plus the two
+    # switches beside them (234 / 235). The constants below are no longer the CLOCK — the clock is
+    # per board now (RemoteBoardFurniture.CapAnim) — they are what an untuned or pre-record sender
+    # falls back to, which is exactly the "wire-overridable fallback" case this list is for.
     ("Net/Remote/RemoteBoardFurniture.cs", "_boardCapTravel", "BoardButtons", "Travel"),
     ("Net/Remote/RemoteBoardFurniture.cs", "_dashCapTravel", "BoardDashboard", "Travel"),
     ("Net/Remote/RemoteBoardFurniture.cs", "_restCapTravel", "RestButtons", "Travel"),

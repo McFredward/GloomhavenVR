@@ -416,7 +416,50 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 303;
+    public const ushort ModBuild = 304;
+    // Build 304: THE MIRRORED KEYCAPS GET THE OWNER'S OWN CLOCK — THE RENDERER FIRST, THE FOUR
+    // FIELDS SECOND, AND THE LAST 1:1 RESIDUE POINT IS CLOSED.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELDS ADDED (174/175/234/235). ***
+    //
+    //   POINT 5 OF DESIGN-1TO1-RESIDUE.md, and the one the audit was most emphatic about ORDERING:
+    //   "the renderer comes first, the field second". Wire these four before the renderer can vary
+    //   per peer and check-wire-coverage.py turns green while the picture stays identical — the
+    //   [Cards] FanCloseDuration failure this project has shipped once already.
+    //
+    //   THE RENDERER DEBT, PAID. Until now the mirrored cap's crumble/assemble clock was a pair of
+    //   STATIC consts on RemoteBoardFurniture, read by every RemoteCapFx of every peer's board —
+    //   one clock for all of them. It is a per-board struct now (RemoteBoardFurniture.CapAnim),
+    //   resolved once in the constructor and handed to each cap through InertCap.AttachFx →
+    //   RemoteCapFx.Init. Only then do the four fields have somewhere to land.
+    //
+    //   AND A REVERSAL, STATED PLAINLY BECAUSE IT CHANGES WHAT A VIEWER SEES. A mirrored cap used
+    //   to consult the VIEWER's own [ButtonAnim] Enable, with a comment arguing that "a player who
+    //   has turned keycap animation off has turned it off, and a remote board is not the place to
+    //   re-impose it". That reads well and it is the wrong side of the ruling, verbatim: "generell
+    //   gilt die Regel, das man alle Interaktionen, ANIMATIONEN und Anzeigen des Controllboards in
+    //   MP auch synchronisieren soll". A remote board is a PICTURE OF ITS OWNER'S BOARD — the same
+    //   correction DecisionDockSurface already made for the focus-hidden row, and the rule
+    //   TuneCardDustOn already ships under. All four dials describe a LOOK, not a cost (their own
+    //   config text says so), so there is no comfort argument on the other side. If the user wants
+    //   the viewer's switch to stay a hard local OFF, that is one AND in one line.
+    //
+    //   FOUR PENDING DEBTS RETIRED: wire coverage 179 → 183 dials on record 28, PENDING 13 → 9.
+    //
+    //   THE TWO AUTHORED CONSTANTS STAY, as NAMED fallbacks rather than the clock, so
+    //   check-remote-defaults.py can keep proving they are the same Defaults entries the local
+    //   binds use. A sparse record means an owner at the default sends nothing, and "nothing" has
+    //   to resolve to the same feel on every machine.
+    //
+    //   AND ONE GATE DEFECT FOUND BY TRIPPING OVER IT: scripts/wire-tests.sh sent `dotnet build`
+    //   to /dev/null, and dotnet writes errors to STDOUT — so a test project that did not COMPILE
+    //   exited 1 having printed NOTHING AT ALL. "The wire tests failed" was indistinguishable from
+    //   "the wire tests printed nothing". It says so now.
+    //
+    //   TEST: two clients. One turns [ButtonAnim] Enable OFF — their caps must pop on EVERY board,
+    //   including the viewer's mirror of them, while the viewer's own caps keep animating. Then set
+    //   AppearSeconds to something slow (0.8 s) and watch a rest cap appear on the peer's board at
+    //   the owner's speed, not the authored 0.15.
+    //
     // Build 303: THE LAST DECISION PROMPT GETS THE GAME'S OWN BUTTONS — AND IT COST NO WIRE BYTES
     // AT ALL, BECAUSE THE THING IT NEEDED WAS A PREFAB, NOT A FIELD.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO WIRE FORMAT CHANGE. ***
@@ -17628,6 +17671,22 @@ internal static class NetProtocol
     /// the board's own button recesses, as a MULTIPLE of that board's recess pitch.</summary>
     public const byte TuneButtonStackSpacing = 172;
 
+    /// <summary>
+    /// [ButtonAnim] AppearSeconds — how long the OWNER's keycaps take to materialize out of dust.
+    ///
+    /// <para>A RENDERER DEBT PAID FIRST, WHICH IS WHY THIS FIELD EXISTS AT ALL. Until ModBuild 304
+    /// the mirrored cap's clock was a pair of STATIC consts on <c>RemoteBoardFurniture</c>, read by
+    /// every cap of every peer's board — so a field for it would have had nowhere to land. The
+    /// clock is per-cap now (<c>RemoteCapFx.Init</c> takes the owner's dials), and only then is a
+    /// wire field a value rather than a byte with no consumer. The order is the one
+    /// <c>scripts/check-wire-coverage.py</c>'s <c>FanCloseDuration</c> note demands: RENDERER
+    /// FIRST, FIELD SECOND.</para></summary>
+    public const byte TuneButtonAppearSeconds = 174;
+
+    /// <summary>[ButtonAnim] DisappearSeconds — how long the OWNER's keycaps take to crumble away.
+    /// The twin of <see cref="TuneButtonAppearSeconds"/>; same renderer, same order.</summary>
+    public const byte TuneButtonDisappearSeconds = 175;
+
     /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
     /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see
     /// <see cref="TuneButtonStackSpacing"/> for why it is a factor.</summary>
@@ -17739,6 +17798,33 @@ internal static class NetProtocol
     /// satisfies both halves of the record's layout contract at once: inside the one-byte COUNT
     /// range, and ascending after the field written before it.</para></summary>
     public const byte TuneCardDustOn = 233;
+
+    /// <summary>
+    /// [ButtonAnim] Enable — whether the OWNER's keycaps animate at all (0 = they pop in and out,
+    /// 1 = they crumble to dust and materialize out of it).
+    ///
+    /// <para>THE OWNER'S DIAL, NOT THE VIEWER'S, AND THAT IS A REVERSAL. Until ModBuild 304 a
+    /// mirrored cap consulted the VIEWER's own switch, with a comment arguing that "a player who
+    /// has turned keycap animation off has turned it off, and a remote board is not the place to
+    /// re-impose it". That reads well and it is the wrong side of the user's ruling, verbatim:
+    /// "generell gilt die Regel, das man alle Interaktionen, ANIMATIONEN und Anzeigen des
+    /// Controllboards in MP auch synchronisieren soll". A remote board is a PICTURE OF ITS OWNER'S
+    /// BOARD — the same correction <c>DecisionDockSurface</c> already made for the focus-hidden
+    /// row, and the same rule <see cref="TuneCardDustOn"/> ships under. These four dials are purely
+    /// aesthetic (their own config text describes a look, not a cost), so there is no comfort or
+    /// performance argument on the other side of it.</para>
+    ///
+    /// <para>Carries <c>[ButtonAnim] Enable</c>. Repeated here, on the last line of the block, for
+    /// a mechanical reason worth knowing before writing a long doc on a field id:
+    /// <c>scripts/check-wire-coverage.py</c> reads the dial identity out of THIS comment and walks
+    /// back only a dozen lines from the declaration, so a section/key named at the TOP of a block
+    /// this long is invisible to it and the dial reads as unwired.</para></summary>
+    public const byte TuneButtonAnimOn = 234;
+
+    /// <summary>[ButtonAnim] AppearParticles — whether the OWNER's appearing keycap gets the
+    /// converging dust cloud as well as the surface fade. Same ownership rule as
+    /// <see cref="TuneButtonAnimOn"/>.</summary>
+    public const byte TuneButtonAppearParticles = 235;
 
     /// <summary>
     /// RESERVED, AND NEVER LIVE — the id <see cref="TuneCardDustOn"/> was mistakenly given in

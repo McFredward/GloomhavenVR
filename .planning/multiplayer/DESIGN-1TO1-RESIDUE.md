@@ -362,6 +362,45 @@ while they hold the trigger — and the watching player's own beam must do nothi
 | `[ButtonAnim] Enable`, `AppearSeconds`, `DisappearSeconds`, `AppearParticles` | **a renderer debt.** The mirrored cap's crumble/assemble clock is a pair of *static consts* on `RemoteBoardFurniture` shared by every peer's board — not per-peer state. There is no per-cap fade to drive. | thread the clock through the cap instances FIRST; then four fields |
 | `[Cards] FanCloseDuration` | **a renderer debt, and the checker says so.** Field id 156 is declared and deliberately NOT sampled, because `RemoteHandFan` has no collapse animation at all — it hides the fan outright. | grow the collapse first |
 
+### 3a SHIPPED — ModBuild 304, renderer first exactly as the warning below demanded
+
+The four `[ButtonAnim]` dials are the last residue item, and the order the table insisted on turned
+out to be the whole job.
+
+**The renderer debt, paid.** The mirrored cap's crumble/assemble clock was a pair of STATIC consts
+on `RemoteBoardFurniture`, read by every `RemoteCapFx` of every peer's board — one clock for all of
+them. It is a per-board struct now (`RemoteBoardFurniture.CapAnim`), resolved once in the
+constructor (the board is torn down and rebuilt on every tuning revision, so there is nothing to
+refresh) and handed to each cap through `InertCap.AttachFx` → `RemoteCapFx.Init`. Only then do the
+four fields have anywhere to land.
+
+**And a reversal that changes what a viewer sees.** A mirrored cap consulted the VIEWER's own
+`[ButtonAnim] Enable`, with a comment arguing that "a player who has turned keycap animation off has
+turned it off, and a remote board is not the place to re-impose it". That is the wrong side of the
+2026-08-08 ruling — *"alle Interaktionen, ANIMATIONEN und Anzeigen des Controllboards in MP auch
+synchronisieren"* — and it is the same correction `DecisionDockSurface` already made once for the
+focus-hidden row. All four dials describe a LOOK and not a cost, so there is no comfort argument on
+the other side. **If the viewer's switch should stay a hard local OFF, that is one `&&` in one line**
+— worth asking rather than assuming.
+
+**Wire:** ids 174/175 (durations, factor range) and 234/235 (the two switches, count range). Wire
+coverage 179 → 183 dials on record 28; PENDING debts 13 → 9.
+
+**The two authored constants stay** as NAMED fallbacks rather than the clock, so
+`check-remote-defaults.py` can keep proving they are the same `Defaults` entries the local binds
+use. Record 28 is sparse — an owner at the default sends nothing, and "nothing" has to resolve to
+the same feel on every machine.
+
+**A gate defect found by tripping over it.** `scripts/wire-tests.sh` sent `dotnet build` to
+`/dev/null`, and dotnet writes errors to **stdout** — so a test project that did not COMPILE exited
+1 having printed nothing at all. "The wire tests failed" was indistinguishable from "the wire tests
+printed nothing". Fixed.
+
+**Not verified on hardware.** Two clients: one turns `[ButtonAnim] Enable` OFF — their caps must pop
+on EVERY board including the viewer's mirror of them, while the viewer's own caps keep animating.
+Then set `AppearSeconds` slow (0.8 s) and watch a rest cap appear on the peer's board at the owner's
+speed, not the authored 0.15.
+
 **The conclusion for point 3 is a warning about order.** Five of the seven cannot be closed by wiring
 anything: wire them first and the checker turns green while the picture stays identical — the exact
 failure `check-wire-coverage.py`'s own `FanCloseDuration` note was written to prevent. **The renderer
@@ -387,4 +426,6 @@ Suggested order, cheapest and most certain first:
 4. **`DialogPopup` options** — SHIPPED, ModBuild 303 (see §2.2a for the survey, §2.2b for what
    landed). Built the honest way — a mod-owned builder over `optionButtonPrefab`, feeding the same
    mirror — after the user ruled to proceed. Zero wire bytes, no role code.
-5. **The cap animation clock, then its four fields** — renderer first.
+5. **The cap animation clock, then its four fields** — SHIPPED, ModBuild 304 (see §3a). Renderer
+   first, as the warning demanded. **This closes the residue**: every point in this document is
+   either shipped or recorded with its reason.
