@@ -2660,6 +2660,27 @@ internal sealed class RemoteBoardFurniture
     /// independently and collapsing them would lose the distinction the owner can see.</summary>
     private const float DimmedAlpha = 0.7f;
 
+    /// <summary>
+    /// The game's own HOVER brightening, applied to a mirrored plate or tile whose OWNER has their
+    /// pointer on it. Straight through to <c>NativeButtonSkin.HighlightMul</c>, which samples
+    /// <c>ColorBlock.highlightedColor / normalColor</c> off a live game button exactly as the
+    /// pressed and disabled factors beside it already are.
+    ///
+    /// <para>WHY IT IS NOT A CONSTANT HERE. ModBuild 300 gave the mirrored GAME-widget row the
+    /// owner's hover by reading the ColorBlock off the source <c>Selectable</c>, and DELIBERATELY
+    /// left the mod-drawn plates and use-bar tiles without one: those have no <c>Selectable</c> to
+    /// ask, so any number written here would have been INVENTED, and an invented hover strength is
+    /// a lie about how hard somebody else's button lit up. <c>HighlightMul</c> is the non-invented
+    /// answer that note said was on the shelf.</para></summary>
+    private static float HoverMul => WorldUI.NativeButtonSkin.HighlightMul;
+
+    /// <summary>The game's own PRESS dimming — <c>NativeButtonSkin.PressedMul</c>, the sampled
+    /// <c>ColorBlock.pressedColor / normalColor</c> ratio. The bare factor and not
+    /// <c>ColorFor(FaceState.Pressed)</c>: that method returns white on a skin with a real pressed
+    /// SPRITE, and a mirrored plate never swaps sprites, so it would have shown no press at all
+    /// there.</summary>
+    private static float PressMul => WorldUI.NativeButtonSkin.PressedMul;
+
     /// <summary>The label gold the mirrored plates letter in — the dock's own
     /// <c>NativeButtonSkin.LabelColor</c> when a live button has been sampled.</summary>
     private static Color BaseLabelGold() => WorldUI.NativeButtonSkin.HasFont
@@ -2702,8 +2723,20 @@ internal sealed class RemoteBoardFurniture
             bool offered = !known || (flags & NetProtocol.DecisionOptionOfferedBit) != 0;
             bool dimmed = known && (flags & NetProtocol.DecisionOptionDimmedBit) != 0;
             bool chosen = known && (flags & NetProtocol.DecisionOptionChosenBit) != 0;
+            // Bits 3/4 have ridden the wire since ModBuild 300; only the mirrored GAME widgets read
+            // them until now, because a mod-drawn plate had no ColorBlock to size a hover from.
+            // A sender that never sets them (or one predating them) delivers 0 here, which falls
+            // through to the same `tint` this method has always computed.
+            bool hovered = known && (flags & NetProtocol.DecisionOptionHoveredBit) != 0;
+            bool pressed = known && (flags & NetProtocol.DecisionOptionPressedBit) != 0;
 
-            float tint = offered ? 1f : GreyedFactor;
+            // Unity's own Selectable precedence, which the mirrored game-widget row already states
+            // and follows: disabled > pressed > highlighted > normal. A held-down button that the
+            // game then gates OFF must read as greyed, not as pressed — the owner sees the gate win.
+            float tint = !offered ? GreyedFactor
+                : pressed ? PressMul
+                : hovered ? HoverMul
+                : 1f;
             float alpha = dimmed ? DimmedAlpha : 1f;
             if (plate.Face != null)
             {
@@ -2725,8 +2758,8 @@ internal sealed class RemoteBoardFurniture
         }
         VRLog.Info("Net", $"Remote decision states applied: {_decisionPlates.Count} plate(s) — " +
                           $"{DescribeStates(states, _decisionPlates.Count)} (wire record 23). " +
-                          "Greyed/dim/chosen read exactly as on the owner's own dock; still inert — " +
-                          "no collider, no raycast target, nothing to press.");
+                          "Greyed/dim/chosen/HOVER/PRESS read exactly as on the owner's own dock; " +
+                          "still inert — no collider, no raycast target, nothing to press.");
     }
 
     /// <summary>Value equality for the applied option-state bytes (the repaint's change gate).</summary>
@@ -3218,8 +3251,19 @@ internal sealed class RemoteBoardFurniture
                 bool offered = !known || (st & NetProtocol.UseSlotOfferedBit) != 0;
                 bool dimmed = known && (st & NetProtocol.UseSlotDimmedBit) != 0;
                 bool chosen = known && (st & NetProtocol.UseSlotChosenBit) != 0;
+                // Bits 3/4 are NEW on record 25. Every sender that predates them writes 0 there and
+                // the reader masks anything else off, so an older peer's tiles compute the exact
+                // `tint` this method has always computed — the picture is byte-identical, not merely
+                // similar. Same bit POSITIONS and the same meanings as the decision option byte, so
+                // this is deliberately the same four lines as ApplyDecisionOptionStates.
+                bool hovered = known && (st & NetProtocol.UseSlotHoveredBit) != 0;
+                bool pressed = known && (st & NetProtocol.UseSlotPressedBit) != 0;
 
-                float tint = offered ? 1f : GreyedFactor;
+                // Unity's Selectable precedence: disabled > pressed > highlighted > normal.
+                float tint = !offered ? GreyedFactor
+                    : pressed ? PressMul
+                    : hovered ? HoverMul
+                    : 1f;
                 float alpha = dimmed ? DimmedAlpha : 1f;
                 if (row.Tiles[s] != null)
                     row.Tiles[s].color = new Color(UseBarTileColor.r * tint, UseBarTileColor.g * tint,
@@ -3230,9 +3274,10 @@ internal sealed class RemoteBoardFurniture
         }
 
         VRLog.Info("Net", $"Remote use-bar states applied: {_useBarRows.Count} row(s) — " +
-                          $"{DescribeUseBarStates(states, flags)} (wire record 25). Greyed/dim/chosen " +
-                          "and the open-sub-picker pip read exactly as on the owner's own drawer; " +
-                          "still inert — no collider, no raycast target, nothing to press.");
+                          $"{DescribeUseBarStates(states, flags)} (wire record 25). " +
+                          "Greyed/dim/chosen/HOVER/PRESS and the open-sub-picker pip read exactly as " +
+                          "on the owner's own drawer; still inert — no collider, no raycast target, " +
+                          "nothing to press.");
     }
 
     /// <summary>Human-readable use-bar states for the diagnostic line.</summary>
@@ -3262,6 +3307,10 @@ internal sealed class RemoteBoardFurniture
                     sb.Append("+dim");
                 if ((st & NetProtocol.UseSlotChosenBit) != 0)
                     sb.Append("+CHOSEN");
+                if ((st & NetProtocol.UseSlotHoveredBit) != 0)
+                    sb.Append("+HOVER");
+                if ((st & NetProtocol.UseSlotPressedBit) != 0)
+                    sb.Append("+PRESS");
             }
         }
         return sb.ToString();

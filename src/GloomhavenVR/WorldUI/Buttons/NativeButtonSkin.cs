@@ -122,6 +122,18 @@ internal static class NativeButtonSkin
     /// to ask.</summary>
     internal static float HighlightMul => EnsureSampled() ? _highlightedMul : 1.05f;
 
+    /// <summary>
+    /// The game's own PRESS dimming, as a bare factor — the twin of <see cref="HighlightMul"/>.
+    ///
+    /// <para>ADDED BECAUSE THE OBVIOUS ROUTE HAD A HOLE, and the receiver lane found it rather than
+    /// papering over it. A caller with no <c>Selectable</c> of its own could already reach this
+    /// number through <c>ColorFor(FaceState.Pressed).grayscale</c> — but that method returns WHITE
+    /// when the harvested skin ships a real SpriteSwap pressed sprite, because a native face then
+    /// shows its press through the SPRITE and not through a tint. A mirrored plate never swaps
+    /// sprites, so on such a skin it would have shown no press at all. This exposes the factor
+    /// itself, which is what a tint-only consumer actually needs.</para></summary>
+    internal static float PressedMul => EnsureSampled() ? _pressedMul : 0.7f;
+
     /// <summary>True once the live button sprite has been harvested from the scene.</summary>
     internal static bool HasSprite => EnsureSampled() && _normalSprite != null;
 
