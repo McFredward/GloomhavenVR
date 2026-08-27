@@ -433,6 +433,11 @@ internal static class BoardTuningSampler
                  WorldUI.ButtonTuning.AnimAppearDuration, Defaults.AppearSeconds);
         n += Fac(payload, ref i, NetProtocol.TuneButtonDisappearSeconds,
                  WorldUI.ButtonTuning.AnimDissolveDuration, Defaults.DisappearSeconds);
+        // THE ACTIVE-CARD GRID (ids 176/177), a Vector2 dial split into its two independent
+        // factors. Sampled component-wise for the same reason every other per-board dial is
+        // sampled for the sender's OWN style only.
+        n += FacXY(payload, ref i, NetProtocol.TuneActiveGridCol, NetProtocol.TuneActiveGridRow,
+                   CardsConfig.ActiveGridSpacing(style), Defaults.ActiveGridSpacing_ByBoard[b]);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -570,6 +575,29 @@ internal static class BoardTuningSampler
                            BepInEx.Configuration.ConfigEntry<float>? live, float shipped) =>
         live == null ? 0
             : NetProtocol.WriteTuneFactorField(p, ref i, id, live.Value, shipped) ? 1 : 0;
+
+    /// <summary>
+    /// A <c>Vector2</c> dial written as TWO factor fields, one per component, in ascending id
+    /// order.
+    ///
+    /// <para>Record 28 has no 2-component kind and does not need one: the two halves of a grid step
+    /// are independent numbers, and a packed pair would have to invent a byte order and a joint
+    /// "differs from the default" test. Each component is compared as its own quantized code,
+    /// exactly like every scalar here, so a player who moved only the row step sends only the row
+    /// step.</para>
+    /// </summary>
+    private static int FacXY(byte[] p, ref int i, byte idX, byte idY,
+                             BepInEx.Configuration.ConfigEntry<Vector2>? live, Vector2 shipped)
+    {
+        if (live == null)
+            return 0;
+        int n = 0;
+        if (NetProtocol.WriteTuneFactorField(p, ref i, idX, live.Value.x, shipped.x))
+            n++;
+        if (NetProtocol.WriteTuneFactorField(p, ref i, idY, live.Value.y, shipped.y))
+            n++;
+        return n;
+    }
 
     /// <summary>
     /// A FACTOR-width dial carried in a SCALED unit: the live and shipped values are both multiplied
@@ -806,6 +834,11 @@ internal readonly struct RemoteBoardTuning
 
     /// <summary>[ButtonAnim] DisappearSeconds — how long their crumble-to-dust runs.</summary>
     public float ButtonDisappearSeconds { get; }
+
+    /// <summary>[Cards] ActiveGridSpacing_{board} — the owner's active-card grid step, as (column,
+    /// row) multiples of their card size. What a peer's active column must be laid out on if it is
+    /// to match theirs.</summary>
+    public Vector2 ActiveGridSpacing { get; }
     /// <summary>[ButtonColors] LabelUnderlay — whether the drop-shadow underlay is drawn.</summary>
     public bool LabelUnderlayOn { get; }
     /// <summary>[ButtonColors] BoardCapTint — the Confirm / Undo / item-USE cap FACE multiplier.</summary>
@@ -1048,6 +1081,11 @@ internal readonly struct RemoteBoardTuning
                                 Defaults.AppearSeconds);
         ButtonDisappearSeconds = F(payload, len, NetProtocol.TuneButtonDisappearSeconds,
                                    Defaults.DisappearSeconds);
+        ActiveGridSpacing = new Vector2(
+            F(payload, len, NetProtocol.TuneActiveGridCol,
+              Defaults.ActiveGridSpacing_ByBoard[b].x),
+            F(payload, len, NetProtocol.TuneActiveGridRow,
+              Defaults.ActiveGridSpacing_ByBoard[b].y));
         BoardCapTint = Cl(payload, len, NetProtocol.TuneBoardCapTint,
                           new Color(Defaults.BoardCapTintR, Defaults.BoardCapTintG,
                                     Defaults.BoardCapTintB, 1f));

@@ -266,7 +266,7 @@ internal sealed class RemoteDialogOptions
             float authoredH = rect.rect.height;
             if (authoredH > 0f && height <= 0f)
                 height = authoredH;
-            widths[_buttons.Count] = FitWidth(authoredW, label);
+            widths[_buttons.Count] = FitWidth(authoredW, rect, label);
             labels[_buttons.Count] = label;
             rects[_buttons.Count] = rect;
             _buttons.Add(button);
@@ -311,18 +311,43 @@ internal sealed class RemoteDialogOptions
             _builtFor[i] = lines[i];
 
         VRLog.Info("Net", $"Remote dialog options: built {built} button(s) from THIS client's own " +
-                          $"DialogPopup.optionButtonPrefab — widths fitted to the owner's wordings, " +
+                          $"DialogPopup.optionButtonPrefab — widths from the game's own " +
+                          $"LayoutUtility where the prefab provides one (else the stated " +
+                          $"reconstruction), fitted to the owner's wordings, " +
                           $"gap {gap:F1} read from the game's own HorizontalLayoutGroup, row " +
                           $"{total:F0}x{height:F0} canvas units. The prefab copies live under a " +
                           "permanently INACTIVE holder, so no Awake ran on any of them; the mirror " +
                           "clones this row and strips it again. Nothing here is ever shown.");
     }
 
-    /// <summary>Width for one option button: the prefab's authored width, or the wording plus the
-    /// prefab's OWN horizontal inset when that is wider. Never narrower than authored, so a one-word
-    /// option keeps the shape the artist drew.</summary>
-    private static float FitWidth(float authoredWidth, TMP_Text? label)
+    /// <summary>
+    /// Width for one option button — the GAME's own answer when the prefab can give one, and a
+    /// reconstruction of it when it cannot.
+    ///
+    /// <para>ASK THE GAME FIRST. <c>DialogPopup</c> puts these buttons in a
+    /// <c>HorizontalLayoutGroup</c>, which sizes each child by
+    /// <c>LayoutUtility.GetPreferredWidth</c> — so calling that same function on the copy is not an
+    /// approximation of the owner's width, it IS the owner's width, computed by the same code on
+    /// the same prefab with the same wording. It answers only when the prefab carries a layout
+    /// element that provides one; a prefab that leaves the sizing to a fitter answers ≤ 0.</para>
+    ///
+    /// <para>THE FALLBACK IS THE RECONSTRUCTION and it is stated as one: the wording's preferred
+    /// width plus the prefab's OWN horizontal label inset, floored at the authored width so a
+    /// one-word option keeps the shape the artist drew. It is close, not exact, and the difference
+    /// is a few pixels of padding — worth naming rather than leaving for someone to measure.</para>
+    /// </summary>
+    private static float FitWidth(float authoredWidth, RectTransform rect, TMP_Text? label)
     {
+        try
+        {
+            float byLayout = LayoutUtility.GetPreferredWidth(rect);
+            if (byLayout > 0f)
+                return byLayout;
+        }
+        catch (System.Exception)
+        {
+            // No usable layout element on this prefab — fall through to the reconstruction.
+        }
         if (label == null)
             return authoredWidth > 0f ? authoredWidth : 120f;
         float preferred;

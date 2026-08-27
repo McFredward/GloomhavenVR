@@ -92,6 +92,18 @@ internal readonly struct RemoteBoardLayout
     /// <summary>Active-card scale.</summary>
     public float ActiveCardScale { get; }
 
+    /// <summary>The owner's <c>[Cards] ActiveGridSpacing_{board}</c> — the (column, row) multiples
+    /// of their card size that their active column is laid out on (record 28 ids 176/177).</summary>
+    public Vector2 ActiveGridSpacing { get; }
+
+    /// <summary>The owner's <c>[Cards] CardWidth</c> (record 28 id 70) — the metric their active
+    /// cards are DRAWN at, before <see cref="ActiveCardScale"/>.
+    ///
+    /// <para>It has to travel because the mirror used to draw that column at a bare 0.075 m
+    /// constant while the owner draws it at their own card width (0.0635 m shipped): an
+    /// 18 % oversize on every peer's board at the DEFAULTS, before anybody tuned anything.</para></summary>
+    public float ActiveCardWidth { get; }
+
     /// <summary>Round readout ('Runde N') seat — top-right (<c>PlayTray.ReadoutBase +
     /// ReadoutOffset</c>).</summary>
     public Vector3 ReadoutMount { get; }
@@ -132,6 +144,8 @@ internal readonly struct RemoteBoardLayout
 
         ActiveMount = PlayTray.ActiveMountBase + tuning.ActiveOffset;
         ActiveCardScale = tuning.ActiveCardScale;
+        ActiveGridSpacing = tuning.ActiveGridSpacing;
+        ActiveCardWidth = tuning.CardWidth;
 
         ReadoutMount = PlayTray.ReadoutBase + tuning.ReadoutOffset;
 

@@ -173,8 +173,6 @@ EXEMPT = {
     ("Cards", "ItemCardOffset_{board}"): ("PENDING", "HALF covered — the open item fan's anchor rides record 5, but the same "
                                                      "dial also nudges the HELD item card, which has no wire path (the held "
                                                      "card syncs a pose, not an offset). Needs the held-card path, not a field"),
-    ("Cards", "ActiveGridSpacing_{board}"): ("PENDING", "a Vector2, and record 28 has no 2-component kind; would need two LENGTH "
-                                                        "fields plus a grid-spacing member on RemoteBoardLayout, which has none"),
     # RestButtonShape_{board} / GenericButtonShape_{board} STOOD HERE and are gone (2026-08-09).
     # The line read "an enum; RemoteBoardFurniture builds rest caps ROUND with no Square branch at
     # all, so the wire field needs a RENDERER change first". That is the FanCloseDuration rule

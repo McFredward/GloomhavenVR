@@ -416,7 +416,52 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 304;
+    public const ushort ModBuild = 305;
+    // Build 305: THE MIRRORED ACTIVE CARDS WERE 18 % TOO BIG ON EVERY PEER'S BOARD, AT THE
+    // SHIPPED DEFAULTS, AND NO CHECKER COULD SEE IT.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELDS ADDED (176/177). ***
+    //
+    //   Found in the final 1:1 review, while paying the [Cards] ActiveGridSpacing debt. The debt
+    //   was real; the defect UNDER it was bigger than the debt.
+    //
+    //   THE OWNER draws their active column at CardsConfig.CardWidth (0.0635 m shipped) x their
+    //   ActiveCardScale, on a grid of CardWidth x scale x grid.x by CardHeight x scale x grid.y
+    //   (ActivePileViewer.cs:194-197, grid shipped (1.06, 0.70)).
+    //   THE MIRROR drew it at a bare 0.075 m constant, on a grid of 1.06 and a hardcoded 0.72.
+    //   So on every peer's board, with NOBODY having tuned anything:
+    //     • every active card was 18 % too wide and too tall,
+    //     • the column step was 18 % too wide with it,
+    //     • and the ROW step was off by a further 2.9 % (0.72 against the owner's 0.70).
+    //   That is "gleiche Position, gleiche Größe" failing on a shipped default, which is the
+    //   plainest form of the rule this whole round is about.
+    //
+    //   WHY NO GATE CAUGHT IT, and it is the useful part. check-wire-coverage.py watches DIALS: it
+    //   correctly reported [Cards] ActiveGridSpacing as an unwired debt for weeks. It has no way to
+    //   see that the METRIC underneath the dial was a bare constant in the renderer, because there
+    //   is no dial named "the number RemoteActiveCards multiplies by". A coverage guard answers
+    //   "is this dial on the wire", never "is this renderer drawing the owner's picture".
+    //
+    //   THE FIX IS THE OWNER'S OWN CONSTRUCTION, TERM FOR TERM. RemoteActiveCards now takes the
+    //   owner's card width (id 70, already on the wire and never consumed here) and their grid
+    //   factors (new ids 176/177) off the synced layout, and multiplies them exactly as
+    //   ActivePileViewer does. The 0.075 constant survives ONLY as the pre-record fallback, with
+    //   the 18 % written at it.
+    //
+    //   THE VECTOR2 THAT "NEEDED A NEW WIRE KIND" DID NOT. The debt line said record 28 has no
+    //   2-component kind and would need one. It needs two ids: the halves of a grid step are
+    //   independent factors, and two fields say so more honestly than a packed pair, which would
+    //   have had to invent a byte order and a joint "differs from the default" test.
+    //
+    //   ALSO: the mirrored DialogPopup buttons now ask the game's own LayoutUtility for their width
+    //   before falling back to this mod's reconstruction — when the prefab provides a layout
+    //   element, the mirrored width IS the owner's width rather than a close copy of it.
+    //
+    //   Wire coverage 183 -> 186 dials on record 28, PENDING debts 9 -> 6.
+    //
+    //   TEST: two clients, both with active cards up (a persistent ability played). The peer's
+    //   active column must now be the same SIZE as the owner's, not visibly larger. Then move
+    //   [Cards] ActiveGridSpacing on one side and watch the other board's column re-space with it.
+    //
     // Build 304: THE MIRRORED KEYCAPS GET THE OWNER'S OWN CLOCK — THE RENDERER FIRST, THE FOUR
     // FIELDS SECOND, AND THE LAST 1:1 RESIDUE POINT IS CLOSED.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELDS ADDED (174/175/234/235). ***
@@ -17689,6 +17734,23 @@ internal static class NetProtocol
     /// <summary>[ButtonAnim] DisappearSeconds — how long the OWNER's keycaps take to crumble away.
     /// The twin of <see cref="TuneButtonAppearSeconds"/>; same renderer, same order.</summary>
     public const byte TuneButtonDisappearSeconds = 175;
+
+    /// <summary>
+    /// [Cards] ActiveGridSpacing_{board}, COLUMN factor — the owner's horizontal step between two
+    /// ACTIVE cards, as a multiple of their card width.
+    ///
+    /// <para>A <c>Vector2</c> dial split into its two components, which is why it sat as a PENDING
+    /// debt for so long ("record 28 has no 2-component kind"). It does not need one: the two halves
+    /// are independent factors and two ids say so more honestly than a packed pair would.</para>
+    ///
+    /// <para>Carries <c>[Cards] ActiveGridSpacing_Bronze</c>, <c>ActiveGridSpacing_Oak</c> and
+    /// <c>ActiveGridSpacing_Steel</c> — one field for the sender's OWN board style, exactly like
+    /// every other per-board dial on this record.</para></summary>
+    public const byte TuneActiveGridCol = 176;
+
+    /// <summary>[Cards] ActiveGridSpacing_{board}, ROW factor — the owner's vertical step, as a
+    /// multiple of their card height. See <see cref="TuneActiveGridCol"/>.</summary>
+    public const byte TuneActiveGridRow = 177;
 
     /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
     /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see

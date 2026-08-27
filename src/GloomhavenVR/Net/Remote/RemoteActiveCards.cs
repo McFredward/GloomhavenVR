@@ -30,9 +30,35 @@ namespace GloomhavenVR.Net;
 /// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteActiveCards
 {
-    private const float CardW = 0.075f;
-    private const float CardH = CardW * (88f / 63.5f);
+    /// <summary>
+    /// LEGACY active-card width — what this column drew before ModBuild 305, kept ONLY as the
+    /// fallback for a sender whose card width is not on the wire.
+    ///
+    /// <para>IT WAS WRONG AND IT WAS WRONG AT THE DEFAULTS. The owner draws their active cards at
+    /// <c>[Cards] CardWidth</c> (0.0635 m shipped) times their <c>ActiveCardScale</c>; this column
+    /// drew them at a bare 0.075 m — an <b>18 % oversize on every peer's board with nobody having
+    /// tuned anything</b>, plus the same 18 % on the grid step derived from it. It is the exact
+    /// defect the 1:1 rule names ("gleiche Position, gleiche Größe") and it survived every checker
+    /// because the coverage guard watches DIALS: it saw that [Cards] ActiveGridSpacing was unwired
+    /// and had no way to see that the metric underneath it was a constant.</para>
+    /// </summary>
+    private const float LegacyCardW = 0.075f;
+
     private const int Columns = 2;
+
+    /// <summary>The owner's own card width (record 28 id 70) — the metric their active cards are
+    /// drawn at, before the column's <c>ActiveCardScale</c>. Falls back to
+    /// <see cref="LegacyCardW"/>.</summary>
+    private readonly float _cardW;
+
+    /// <summary>…and its height, in the game's own 88:63.5 card ratio, exactly as the owner derives
+    /// theirs (<c>CardsConfig.CardHeight</c>).</summary>
+    private readonly float _cardH;
+
+    /// <summary>The owner's <c>[Cards] ActiveGridSpacing_{board}</c> — (column, row) multiples of
+    /// the card size. The row factor used to be a hardcoded 0.72 against the owner's shipped 0.70:
+    /// wrong even before anybody tuned it.</summary>
+    private readonly Vector2 _grid;
     private const int MaxCards = 6;
 
     private readonly Transform _root;
@@ -54,6 +80,14 @@ internal sealed class RemoteActiveCards
         _root.localPosition = layout.ActiveMount;
         _root.localScale = Vector3.one * layout.ActiveCardScale;
 
+        // THE OWNER'S OWN METRIC AND GRID, not this renderer's constants — see LegacyCardW for the
+        // 18 % the constants were off by. The card SCALE is already carried by the root above, so
+        // these are the unscaled numbers, which is exactly how the owner's ActivePileViewer holds
+        // them (it multiplies width x cardScale x grid at the same point).
+        _cardW = layout.ActiveCardWidth > 0f ? layout.ActiveCardWidth : LegacyCardW;
+        _cardH = _cardW * (88f / 63.5f);
+        _grid = layout.ActiveGridSpacing;
+
         _title = RemoteBoardContent.Label(_root, "Title", new Vector3(0f, 0.075f, 0f),
             new Vector2(0.09f, 0.024f), 0.045f,
             new Color(1f, 0.9f, 0.6f), TextAlignmentOptions.Center, FontStyles.Bold);
@@ -61,7 +95,7 @@ internal sealed class RemoteActiveCards
         WorldUI.MrBacking.Label(_title); // off-board title → sky/room behind it in MR
 
         for (int i = 0; i < MaxCards; i++)
-            _cards.Add(new RemoteBoardCard(_root, Vector3.zero, CardW, CardH));
+            _cards.Add(new RemoteBoardCard(_root, Vector3.zero, _cardW, _cardH));
 
         _root.gameObject.SetActive(false);
     }
@@ -98,8 +132,11 @@ internal sealed class RemoteActiveCards
         RemoteBoardContent.SetText(_title, ActivePileViewer.Caption().ToUpperInvariant());
 
         int rows = (Count + Columns - 1) / Columns;
-        float rowStep = CardH * 0.72f;   // rows overlap slightly, like the local active grid
-        float colStep = CardW * 1.06f;
+        // ActivePileViewer.Layout, term for term: card metric x the owner's grid factor. Copying
+        // the CONSTRUCTION rather than the numbers is what makes the two columns identical by being
+        // the same expression instead of two formulas that have to agree.
+        float rowStep = _cardH * _grid.y;
+        float colStep = _cardW * _grid.x;
         float yTop = rowStep * (rows - 1) * 0.5f;
         for (int i = 0; i < _cards.Count; i++)
         {
