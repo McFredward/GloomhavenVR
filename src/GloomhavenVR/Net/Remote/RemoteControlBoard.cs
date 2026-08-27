@@ -198,6 +198,23 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     private float _slotCardInset = Defaults.SlotCardInset;
 
+    /// <summary>
+    /// Whether THIS OWNER lets the GAME's own card plume play on their cards (wire id
+    /// <see cref="NetProtocol.TuneGameCardParticlesOn"/>, <c>[Cards] GameCardParticles</c>) — the
+    /// round-slot twin of <c>RemoteHandFan</c>'s field of the same name, under the identical rule.
+    ///
+    /// <para>The VIEWER's own copy of this dial is NOT consulted here and must never be: theirs is
+    /// answered by <c>Compat.CardParticlesOff</c>, which pins the game's low-spec switch so their
+    /// OWN cards spawn no plume. ANDing the two is exactly the defect that left the mirrored card
+    /// DUST inert for seven builds — see <c>Cards.CardDustFx.Permission</c>. A viewer who wants
+    /// none of this switches the peer's board off wholesale ([Net] RemoteBoards).</para>
+    /// </summary>
+    private bool _gameCardParticlesOn = Defaults.GameCardParticles;
+
+    /// <summary>One-shot latch for the "plume path is ARMED" line — see
+    /// <see cref="TickSlotPlumes"/> for what its presence without a spawn line proves.</summary>
+    private bool _plumeArmedLogged;
+
     /// <summary>The shared proud depth every board-local surface sits at (−Z = toward the viewer).
     /// Exposed so the mod-drawn parity panels in <see cref="RemoteBoardContent"/> seat on the same
     /// plane as the round-card slots and the pile stacks.</summary>
@@ -684,6 +701,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // front branch, so the fronts cannot exist a frame early. The actor is handed through purely
         // so the slot can find that player's own card widget to clone — it is never written to.
         SeatSlots(actor, showFronts);
+
+        // …and the GAME's OWN card plume on those very slabs (wire id 236) — the PLAYED/round-slot
+        // half of the bit whose HAND half RemoteHandFan.TickMirroredPlumes already pays. PER FRAME,
+        // beside the half glow and for the identical reason: the trigger is an EDGE on a live game
+        // state, and the 4 Hz content cadence would sample straight past a two-second burn's start.
+        // It runs AFTER SeatSlots because it reads what that pass seated — the card, its owner and
+        // whether a real face is up — rather than resolving any of it a second time.
+        TickSlotPlumes(actor, showFronts);
 
         // HALF HOVER + SELECTION (extension record 14): glow the action half the OWNER's pointer
         // is on (pulsing) and the half they have CLICKED (steady — the game's own presentation
@@ -1299,6 +1324,58 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     }
 
     /// <summary>
+    /// Drive the GAME's own card plume on the two round recesses (wire id
+    /// <see cref="NetProtocol.TuneGameCardParticlesOn"/>). One gate, evaluated once, handed down —
+    /// the slots decide nothing.
+    ///
+    /// <para>THE GATE HAS EXACTLY THREE TERMS, and each is the OWNER's or the game's, never the
+    /// viewer's: the owner's permission bit off the wire, this client's reveal verdict for the
+    /// displayed actor (<c>RevealGate.ShowRoundCardFronts</c>, already computed once per frame in
+    /// <see cref="Tick"/> — re-deriving it here is the ModBuild 84 mismatch), and an actor to look
+    /// cards up on. The receiver's own <c>[Cards] GameCardParticles</c> is NOT a term; a viewer who
+    /// wants none of a peer's board switches the board off ([Net] RemoteBoards), which is the
+    /// standing ruling this feature was built under.</para>
+    ///
+    /// <para>WHY THE REVEAL GATE BOUNDS IT rather than merely accompanying it: nothing burns during
+    /// the secret selection phase, and a plume hanging on ONE specific face-down recess would name
+    /// WHICH card the owner is doing something to — the exact leak the backs-only rule exists to
+    /// prevent. <see cref="RemoteBoardCard.TickPlume"/> then adds a second, structural guard on top
+    /// (the face on the slab must have been cloned from the very widget it reads the effect off).</para>
+    ///
+    /// <para>THE ARMED LINE IS THE POINT OF THE THREE-STATE LOG. Read together with the slot's own
+    /// "Remote card plume SOURCE" line and <see cref="RemoteCardPlume"/>'s spawn line, a hardware
+    /// log states which of three things is missing rather than leaving "nothing happened"
+    /// indistinguishable from "it worked": no ARMED line = the owner's bit is off or the gate is
+    /// shut; ARMED with no SOURCE line = the peer's hand holds no live widget for the seated card
+    /// (their face is a pooled borrow, and the trigger would need a wire field); SOURCE with no
+    /// spawn line = the widget is there but the game runs no card effect on it on this client, so
+    /// again the TRIGGER is what is missing, not the effect.</para>
+    /// </summary>
+    private void TickSlotPlumes(CPlayerActor? actor, bool showFronts)
+    {
+        bool allowed = _gameCardParticlesOn && showFronts && actor != null;
+
+        if (allowed && !_plumeArmedLogged)
+        {
+            _plumeArmedLogged = true;
+            VRLog.Info("Net", $"Remote card plume ARMED [player {_owner.PlayerId}]: this owner has " +
+                              "[Cards] GameCardParticles ON (wire id 236) and their round-card " +
+                              "recesses are past the reveal gate, so a burn/lost/discard on a card " +
+                              "lying in one of them hosts the game's own CardSmoke on that slab " +
+                              "(RemoteCardPlume). This is the PLAYED/round-slot half of the bit — " +
+                              "RemoteHandFan.TickMirroredPlumes is the hand half, and the owner's " +
+                              "own picture here comes from Cards.BurnCardFx on their docked VRCard. " +
+                              "This line with no 'Remote card plume SOURCE' line means no live " +
+                              "AbilityCardUI backs the seated card; SOURCE with no spawn line means " +
+                              "the widget exists but runs no card effect on this client. Either way " +
+                              "the TRIGGER is what would need a wire field, never the effect.");
+        }
+
+        for (int s = 0; s < SlotCount; s++)
+            _cards[s]?.TickPlume(allowed, _owner.PlayerId, s);
+    }
+
+    /// <summary>
     /// Which round card belongs in which recess. TAKEN FROM THE OWNER when they state it
     /// (record 18, <see cref="RemoteAvatar.SlotOrderKnown"/>), derived only when they cannot.
     ///
@@ -1396,6 +1473,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // rebuild trigger of its own: the revision latch above already tears the board down and
         // rebuilds it on any record-28 change, which is exactly what moving this dial produces.
         _slotCardInset = _owner.BoardTuning.SlotCardInset;
+        // …and the owner's say-so for the GAME's own card plume (wire id 236). Read on the same
+        // seam and for the same reason: any record-28 change tears this board down, so a
+        // constructor-time read is a live read. It is a PERMISSION, never a picture — this client
+        // instantiates the prefab itself (RemoteCardPlume), and the VIEWER's own copy of the dial
+        // is deliberately never consulted (Cards.CardDustFx.Permission).
+        _gameCardParticlesOn = _owner.BoardTuning.GameCardParticlesOn;
 
         // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
         // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),

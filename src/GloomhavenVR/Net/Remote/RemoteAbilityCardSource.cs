@@ -583,7 +583,12 @@ internal static class RemoteAbilityCardSource
     /// Read-only: we return the widget's <c>fullAbilityCard</c> for CLONING only. Nothing is
     /// reparented, no flag is flipped, the peer's hidden 2D hand is left exactly as it was.
     /// </summary>
-    private static FullAbilityCard? TryLiveWidget(CPlayerActor? actor, CAbilityCard card)
+    // INTERNAL SINCE ModBuild 310, and the reason is worth a line: RemoteBoardCard needs the same
+    // widget this resolves — the live one behind a seated round card — to read whether the game is
+    // running a burn/lost/discard effect on it (the mirrored card plume, wire id 236). Left private,
+    // that file would have had to resolve the question a SECOND time, and two independent resolves
+    // that merely agree is the failure mode this project names outright. One answer, two consumers.
+    internal static FullAbilityCard? TryLiveWidget(CPlayerActor? actor, CAbilityCard card)
     {
         if (actor == null)
             return null;
