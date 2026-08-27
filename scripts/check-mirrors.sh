@@ -45,6 +45,16 @@ MIRRORS=(
   # That contract IS this number being equal to the grabber's reach, so a retune of one and not the
   # other silently re-opens "what lights up is not what I grab". (It replaced THREE unlinted copies:
   # CardsDriver.ContactPalmReach, PileBrowser.ContactPalmReach, ItemsPile.ContactPalmReach.)
+  # THE 1:1 RULE'S OWN OBJECT. The user's ruling is about the control board: a peer sees the
+  # owner's board at the same position AND THE SAME SIZE. These are the board's dimensions,
+  # and they were written out three times — once locally and once in each of the two remote
+  # renderers — with nothing tying them together. RemoteControlBoard's own declaration states
+  # the intent ("in the same card real-metre units as the local board (PlayTray BoardW/H), so
+  # scaling by the owner's BoardScale reproduces their board's world size"), which is exactly
+  # the kind of agreement that survives until someone retunes one of the three. Added by the
+  # 2026-08-27 1:1 audit.
+  "control board width (the 1:1 rule's own object) : Cards/Tray/PlayTray.6.Build.cs:BoardW Net/Remote/RemoteControlBoard.cs:BoardW Net/Remote/RemoteBoardFurniture.cs:BoardW"
+  "control board height (the 1:1 rule's own object) : Cards/Tray/PlayTray.6.Build.cs:BoardH Net/Remote/RemoteControlBoard.cs:BoardH Net/Remote/RemoteBoardFurniture.cs:BoardH"
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
   "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/Tray/PlayTray.7.Nested.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
