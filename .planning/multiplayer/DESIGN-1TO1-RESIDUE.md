@@ -126,10 +126,39 @@ is already met once, and the wire for it exists: **extension record 16 carries t
 `RemoteInitiativeTrack` *strips the local player's own hover from the clone* so that each board
 shows its owner's hover and never the viewer's.
 
-That is the whole pattern, and it generalises to the decision widgets unchanged: one small hover/press
-index per prompt, and the puppet must be built with its own `EventSystem` reactions dead so a peer's
-pointer can never light it up. **Stripping the viewer's own hover is as load-bearing as carrying the
-owner's** — without it a peer's board would react to the peer, which is the opposite of 1:1.
+That is the whole pattern, and it generalises to the decision widgets — but **not unchanged**, and
+checking that before implementing changed the shape of the work in both directions.
+
+### 2.3a HALF OF THE REQUIREMENT IS ALREADY MET, BY CONSTRUCTION (checked 2026-08-27)
+
+"A peer's pointer must never light up someone else's board" needs no work at all.
+`RemoteWidgetMirror`'s puppet pass walks the clone three times and **`DestroyImmediate`s every
+component that is not a `Transform` and not on the presentation whitelist**, then sweeps colliders
+and rigidbodies as belt and braces. `Button`, `Selectable`, `EventTrigger` and `GraphicRaycaster`
+are all gone before the clone is ever shown.
+
+So the mirrored decision row is inert by the same discipline that stops the clone's
+MonoBehaviours registering with singletons. The viewer-hover leak that `RemoteInitiativeTrack` had
+to strip by hand does not exist here — and the reason it existed THERE is worth keeping in view:
+that mirror is a per-frame faithful copy of a widget the receiving client is itself using.
+
+### 2.3b WHAT REMAINS IS HARDER THAN "ONE INDEX", AND FOR THE SAME REASON
+
+The owner's hover is not carried, so a peer sees a neutral row while the owner's finger is on an
+option. Carrying the index is the easy half; **applying it is not**, and the puppet pass is why:
+
+> the `Selectable` that WOULD have drawn the hover state has been destroyed.
+
+A mirrored highlight therefore cannot be "set the button's state" — there is no button. It has to
+be re-drawn from the game's own values: the `Selectable`'s `ColorBlock` (or its sprite swap) read
+off the SOURCE widget before the strip, cached, and applied to the mirrored option's `Graphic` by
+this mod. That is the same shape as `RemoteUseBarSymbols` — resolve the game's own value locally,
+send nothing — but it is a new capture step inside the mirror, not a field on a record.
+
+**Revised cost for §2.3:** one small index on the decision record, plus a colour capture in
+`RemoteWidgetMirror` (read the source `Selectable`'s normal/highlighted colours before the puppet
+pass destroys it), plus per-option application on the receiver. No picture travels; the widths and
+positions are already right. It is one coherent block, and it is bigger than the card dust was.
 
 ## 3. Finding 3 re-checked: the seven animation debts are two different problems
 
