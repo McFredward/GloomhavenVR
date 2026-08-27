@@ -6020,7 +6020,8 @@ internal sealed class ItemsPile
             // silent in that one case. An ability card released back into the fan makes no mod sound
             // at all. So the item chip was the noisier of the two, which is exactly what the user
             // objected to ("die Item-Karten sollten die selben und nicht mehr Geräusche machen als
-            // die anderen Karten auch"). Grab and place remain, and now match one-for-one.
+            // die anderen Karten auch" — "the item cards should make the SAME sounds as the other
+            // cards, and no more of them"). Grab and place remain, and now match one-for-one.
         }
 
         // ---- pop (readability) -----------------------------------------------------

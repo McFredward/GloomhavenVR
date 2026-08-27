@@ -272,7 +272,8 @@ internal static class MapHoverVerdict
     /// produces no card at all — and, since the selection is now a single global fact
     /// (<c>NetProtocol.ExtIdMapRoom</c>), neither does a peer's on their own machine. A
     /// foreign placard drawn in that state would therefore be a card the peer it belongs to cannot
-    /// see, which is the exact opposite of "1:1 so wie es für den Spieler auch aussieht".</para>
+    /// see, which is the exact opposite of "1:1 so wie es für den Spieler auch aussieht"
+    /// ("1:1 the way it looks for that player too").</para>
     /// </summary>
     internal static bool AQuestIsSelected => IsQuestShown();
 

@@ -1037,7 +1037,8 @@ internal static class SkyAlternative
         // sources are components ON the room's nodes, and with the room gone there is nothing left
         // for a sound to come from. An ambience playing over passthrough with no visible source
         // would also be precisely the disembodied stereo bed the user ruled out when he asked for
-        // sounds that are "verortbar von seinen entsprechenden Quellen".
+        // sounds that are "verortbar von seinen entsprechenden Quellen" ("locatable, coming
+        // from their respective sources").
         EnvSound.StandDown("the environment stood down (mixed reality, or the style changed)");
         HauntFigures.StandDown("the environment stood down (mixed reality, or the style changed)");
         Deactivate();

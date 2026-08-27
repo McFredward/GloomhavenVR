@@ -16,9 +16,16 @@ namespace GloomhavenVR.WorldUI;
 /// wichtig: Das Ganze soll 1s höchstens 2s gehen, es soll niemanden aufhalten, nur cool
 /// aussehen."</i>
 ///
-/// <para><b>"ES SOLL NIEMANDEN AUFHALTEN" IS THE ACCEPTANCE CRITERION, NOT A PREFERENCE</b>, and it
-/// sits directly on top of a standing ruling this project has already lost a build to: <i>"es MUSS
-/// immer möglich sein das Optionsmenu zu öffnen"</i> (see .planning/OPTIONS-MENU-NEVER-BLOCKED.md).
+/// <para>In English: <i>"I no longer want the windows to just pop up and then vanish from one
+/// frame to the next. ... I picture a vanishing window blowing away into particles of wind. And
+/// appearing perhaps the other way round ... But important: the whole thing should take one
+/// second, at most two, it must not hold anyone up, just look cool."</i></para>
+///
+/// <para><b>"ES SOLL NIEMANDEN AUFHALTEN" — "IT MUST NOT HOLD ANYONE UP" — IS THE ACCEPTANCE
+/// CRITERION, NOT A PREFERENCE</b>, and it sits directly on top of a standing ruling this project
+/// has already lost a build to: <i>"es MUSS immer möglich sein das Optionsmenu zu öffnen"</i> —
+/// "it MUST always be possible to open the options menu" (see
+/// .planning/OPTIONS-MENU-NEVER-BLOCKED.md).
 /// So the whole class is built around four properties, each of which is reached BY CONSTRUCTION
 /// rather than by a catch:</para>
 /// <list type="number">

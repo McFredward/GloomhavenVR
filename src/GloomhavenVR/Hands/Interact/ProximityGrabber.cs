@@ -310,7 +310,8 @@ internal sealed class ProximityGrabber
     /// card is held does nothing to the card (the hold loop in <see cref="Tick"/> only reads
     /// the button that grabbed). The retired [Cards] GrabButton dial never affected cards —
     /// the user's request carried no config qualifier, and their figure requirement already
-    /// read "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen werden können".
+    /// read "Figuren sollen — wie die Karten — nur mit dem Trigger aufgenommen werden können"
+    /// ("figures should — like the cards — only be pickable with the trigger").
     /// </summary>
     private static bool IsTriggerOnly(IGrabbable target) =>
         target is ITriggerOnlyGrabbable or Cards.VRCard or Cards.ItemsPile.ItemChip;

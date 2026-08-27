@@ -905,7 +905,8 @@ internal sealed partial class PlayTray
     /// Null while no confirm control is shown, so the wire record is omitted exactly then.
     /// Peers render this string verbatim on their copy's confirm cap; their neutral GUI_CONFIRM
     /// re-localization is only the no-record fallback — the fix for the hardware-test report
-    /// "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'".
+    /// "mein Mitspieler las 'Fortfahren', ich sehe 'Bestätigen'" ("my teammate read 'Continue',
+    /// I see 'Confirm'").
     /// </summary>
     internal string? ConfirmControlLabel
     {

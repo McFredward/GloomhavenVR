@@ -2457,8 +2457,8 @@ internal static class StoryComposite
     /// line, <c>ENTER DUNGEON ON THE CHARACTER UI</c>.</para>
     ///
     /// <para>GREP: <c>STORY WINDOW CONTINUITY: CONFIRMED</c> — the fix.
-    /// <c>STORY WINDOW CONTINUITY: BROKEN</c> — "ein ganz neues Fenster", with both ids and both
-    /// poses.</para>
+    /// <c>STORY WINDOW CONTINUITY: BROKEN</c> — "ein ganz neues Fenster" ("a completely new
+    /// window"), with both ids and both poses.</para>
     /// </summary>
     private static void ReportContinuity(UIWindow? loadout, string? terminator)
     {

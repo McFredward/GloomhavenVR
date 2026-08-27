@@ -641,7 +641,8 @@ internal sealed partial class PlayTray
     /// only move caps, and <see cref="SetConfirmUndoOffset"/> moves them in place from the live
     /// count — which is the whole reason the item-use toggle no longer needs to destroy anything.
     /// (The caps have not been auto-SIZED from the count since the user's "der Use-Button soll
-    /// genauso groß sein" ruling; if that ever comes back, the count belongs in this key.)</para>
+    /// genauso groß sein" — "the Use button should be exactly the same size" — ruling; if that ever
+    /// comes back, the count belongs in this key.)</para>
     /// </summary>
     private int CapGeometryKey()
     {

@@ -967,7 +967,8 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         string slots = $"{FaceTag(0, showFronts)}/{FaceTag(1, showFronts)}";
         // The CHARACTER rides this line too: the pile counts below are that character's, and the
         // owner's board switches which one it presents whenever they focus a teammate. Without the
-        // name, "die Zahlen auf seinem Brett stimmen nicht" cannot be answered from a peer log.
+        // name, "die Zahlen auf seinem Brett stimmen nicht" ("the numbers on his board are
+        // wrong") cannot be answered from a peer log.
         string line = $"Remote board content [{_owner.PlayerId}]: " +
                       $"char='{Board.CharacterFocus.Describe(actor)}', " +
                       $"round='{(_status != null ? _status.RoundText : "-")}', " +

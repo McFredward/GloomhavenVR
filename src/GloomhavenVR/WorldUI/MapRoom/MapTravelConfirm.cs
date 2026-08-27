@@ -2275,7 +2275,8 @@ internal static class MapTravelConfirm
     ///   "direkter UNTER", and a breathing space is one downward nudge he can add by eye.</item>
     ///   <item>HORIZONTALLY: the button's painted content is centred on the information's —
     ///   <c>Δx = info.center.x - button.center.x</c>. The 191 rejection named the x axis explicitly
-    ///   ("auch auf der x-achse verschoben"), so it is derived rather than left at 0.</item>
+    ///   ("auch auf der x-achse verschoben" — "shifted on the x axis as well"), so it is derived
+    ///   rather than left at 0.</item>
     /// </list>
     /// </summary>
     private static string ZeroCheck(bool haveButton, Rect btnContent,
@@ -3030,7 +3031,8 @@ internal static class MapPartyTravel
         /// <para>WHAT THE GAME ASKED FOR IS MEASURED BEFORE IT IS REFUSED. The arc length between the
         /// token and the waypoint it wanted to jump to is exactly "how much of the journey was not
         /// drawn", and it goes on the next report line. That is the number that makes "es bewegt sich
-        /// nicht über die ganze Strecke" falsifiable in both directions.</para>
+        /// nicht über die ganze Strecke" ("it does not move across the whole distance")
+        /// falsifiable in both directions.</para>
         /// </summary>
         [HarmonyPrefix]
         [HarmonyPatch(typeof(global::MapTimedMovementFlow), "TeleportPartyToWayPoint")]

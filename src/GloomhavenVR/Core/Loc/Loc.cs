@@ -1463,7 +1463,8 @@ internal static partial class Loc
         // twins that used to carry the same captions on the panels page are gone — a player who
         // goes looking where those used to be needs the surviving block to announce itself by the
         // name they were reading (user 2026-08-09: "Ich finde die offsets an der Stelle im Debug
-        // nicht mehr wo sie vorher waren").
+        // nicht mehr wo sie vorher waren" — "I can no longer find the offsets in the debug menu
+        // where they used to be").
         ["cat_wrist"] = Pair("Arm HUD", "Arm-HUD"),
 
         // ---- WristHud ----

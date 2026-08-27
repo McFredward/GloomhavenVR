@@ -248,8 +248,10 @@ internal static partial class VROptionsTab
                         // [WallFade] SyncPeerFades MOVED to Avatar & Mehrspieler ▸ Zusammen
                         // spielen (user item 2, 2026-08-11: "Mach alle Einstellungen die mit dem
                         // Multiplayer zu tun haben … auch in den Multiplayer Tab. zB. 'Wände mit
-                        // Spielern synchronisieren' sollte genau da verortet sein.") — moved, not
-                        // duplicated.
+                        // Spielern synchronisieren' sollte genau da verortet sein." — "put every
+                        // setting that has to do with multiplayer into the multiplayer tab too.
+                        // E.g. 'synchronise walls with players' belongs exactly there.") — moved,
+                        // not duplicated.
                     },
                 },
                 new()

@@ -63,7 +63,8 @@ public class Plugin : BaseUnityPlugin
     /// peer already present, facing the board, just outside the board's own footprint. Replaces
     /// the old evenly-spaced-by-participant-index circle, which measured its azimuth in a
     /// per-client frame and ignored where peers actually stood — hence "spawnt man direkt hinter
-    /// oder IN der anderen Maske". No effect single-player; the key name is kept so existing
+    /// oder IN der anderen Maske" ("you spawn directly behind, or INSIDE, the other mask"). No
+    /// effect single-player; the key name is kept so existing
     /// .cfg files keep loading.
     /// </summary>
     internal static ConfigEntry<bool> SpawnInCircle = null!;

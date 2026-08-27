@@ -1877,7 +1877,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             //     DISABLED, confirm un-accented", so every mirrored SKIP cap was painted through
             //     the disabled path — wood-lerped face and label alpha 0.35 — while the owner's was
             //     enabled at alpha 1. That is "die Überspringen Knöpfe … der Text ist etwas
-            //     transparenter", measured: 0.35 vs 1.0.
+            //     transparenter" ("the Skip buttons … the text is somewhat more transparent"),
+            //     measured: 0.35 vs 1.0.
             extras.BoardCapStateMask =
                 (byte)((boardUiNow >> 16) & NetProtocol.BoardUiCapStateDefinedMask);
         }

@@ -4,6 +4,17 @@ using System.Collections.Generic;
 namespace GloomhavenVR.Core;
 
 /// <summary>
+/// <para><b>THE COMMENTS IN THIS ONE FILE ARE IN GERMAN, AND THAT IS THE ONE EXCEPTION.</b>
+/// Everywhere else in this repository a German quote carries an English rendering beside it, so a
+/// reader who has no German can still use the comment. Here the comments are editorial notes about
+/// GERMAN WORDING — why a noun was chosen over a verb, where a sentence exceeds the 620-character
+/// budget, which term the settings audit replaced. Acting on any of them requires German anyway,
+/// and translating an argument about German grammar into English leaves a reader no better off
+/// than the untranslated original. So they stay, deliberately.
+/// <br/>If you do not read German: nothing in this file is load-bearing for behaviour. It is a
+/// lookup table of translated strings. A missing entry falls back to the English description at
+/// the bind site, complete and readable — see "ADDING A SETTING" below.</para>
+///
 /// GERMAN text for the bound config entries' descriptions — the paragraph in the middle of
 /// every hover bubble in Debug ▸ Alle Einstellungen. Keyed <c>"Section/Key"</c>; a <c>*</c> in
 /// the key marks a per-hand-style / per-control-board FAMILY whose members share one text (see

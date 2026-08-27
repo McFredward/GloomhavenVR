@@ -242,7 +242,9 @@ internal static partial class Defaults
     internal const float PokePressDepthMm = 12f;             // => [WorldUI] PokePressDepthMm
     internal const bool DecisionPokeDeliberate = true;       // => [WorldUI] DecisionPokeDeliberate
     // User request 8 (2026-08-22): "Default soll sein, dass es nur sich dreht, wenn es mit dem
-    // Laser gegriffen wurde, beim Greifen nicht." His default, verbatim — not a taste of ours.
+    // Laser gegriffen wurde, beim Greifen nicht." — "the default should be that it only turns when
+    // it was grabbed with the LASER, not when grabbed by hand." His default, verbatim — not a
+    // taste of ours.
     internal const WindowFaceMode WindowFacing = WorldUI.WindowFaceMode.LaserOnly;  // => [WorldUI] WindowFacing
     internal const bool CombatLogFollowSeat = false;         // => [WorldUI] CombatLogFollowSeat
     internal const float CombatLogForward = -0.234156f;      // => [WorldUI] CombatLogForward

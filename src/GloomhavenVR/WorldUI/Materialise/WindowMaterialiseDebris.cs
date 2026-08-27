@@ -79,7 +79,7 @@ internal static partial class WindowMaterialise
     /// as proof the window still draws something — EXCEPT ones whose GameObject name starts with
     /// this prefix. Without it, a mod-owned decoration would keep a genuinely dead window alive
     /// forever, which is the exact defect the user's ruling <i>"Es darf niemals leere Fenster
-    /// geben"</i> was written against.
+    /// geben"</i> — "there must never be empty windows" — was written against.
     /// </summary>
     internal const string DebrisName = "GloomhavenVR.WindowMaterialiseDebris";
 

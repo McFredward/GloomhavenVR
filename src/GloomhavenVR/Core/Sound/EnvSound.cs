@@ -1504,7 +1504,8 @@ internal static class EnvSound
         // Only the two styles that actually have content. Default shows the game's own sky and
         // OffBlack shows nothing at all; there is no object in either to attach a sound to, and an
         // ambience with no visible source would be exactly the disembodied stereo bed the user
-        // ruled out ("verortbar von seinen entsprechenden Quellen").
+        // ruled out ("verortbar von seinen entsprechenden Quellen" — "locatable, coming from
+        // their respective sources").
         if (roomGo == null || (style != SkyStyle.Cellar && style != SkyStyle.SwampNight))
         {
             StandDown(style == SkyStyle.Default || style == SkyStyle.OffBlack
@@ -3885,7 +3886,8 @@ internal static class EnvSound
         // fails it by fifty-five degrees. Two numbers change and NOTHING ELSE does: the position
         // becomes the opening's, and the gain picks up the two legs of the path the sound really
         // travels. The clip, the slot, the deck, the skip, the pitch and the authored per-animal
-        // Gain are byte-for-byte the wood's, which is "in der selben Intensität wie im Wald".
+        // Gain are byte-for-byte the wood's, which is "in der selben Intensität wie im Wald"
+        // ("at the same intensity as in the forest").
         Vector3 heardAt = from;
         float heardGain = voice.Gain;
         if (_windowMouth != null)

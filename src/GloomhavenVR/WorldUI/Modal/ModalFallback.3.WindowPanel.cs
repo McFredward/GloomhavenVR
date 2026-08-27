@@ -241,9 +241,13 @@ internal static partial class ModalFallback
         // Fenster mit der Character-UI plötzlich einfach verschwunden, und war mehrere Sekunden lang
         // verschwunden, bis es wieder aufgetaucht ist. Das soll nicht sein. Es darf erst gar nicht
         // verschwinden."
+        //   — "I spawned into the map and then the window with the character UI suddenly just
+        //     disappeared, and was gone for several seconds until it came back. That should not
+        //     happen. It must not disappear in the first place."
         //
         // The ModBuild 230 ruling ("verschwindet das Objekt das in dem Fenster dargestellt wird, soll
-        // auch das Fenster verschwinden") says the WINDOW must go when its CONTENT goes. It never
+        // auch das Fenster verschwinden" — "if the object shown in the window disappears, the window
+        // should disappear too") says the WINDOW must go when its CONTENT goes. It never
         // said the float has to be DESTROYED to achieve that, and destroying it is what cost him the
         // seconds: host, collider, grab bar, arc seat and 150 MB of supersample target all had to be
         // rebuilt, and the rebuild re-ran the spawn placement, so the window came back at a different

@@ -929,7 +929,8 @@ internal sealed partial class CardsDriver
         {
             // DisplayButtons(false) from a stale DamageScenarioState/SelectItemState exit while the
             // decision is still open — the option would be missing from the docked row entirely
-            // (this is the literal "die Option wurde nicht angeboten").
+            // (this is the literal "die Option wurde nicht angeboten" — "the option was not
+            // offered").
             toggle.gameObject.SetActive(true);
             repaired = true;
         }

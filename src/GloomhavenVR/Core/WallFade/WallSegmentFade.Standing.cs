@@ -750,7 +750,8 @@ internal static partial class WallSegmentFade
             // a bush is a multi-piece thing standing on the ground under the height cap, so
             // handing the foliage paths the FLOOR arm would protect the Gestrüpp-Wand and give
             // back "Die anderen 'gestrüpp-wände' versperren mir nun auch manchmal die Sicht. Das
-            // darf niemals passieren."
+            // darf niemals passieren." — "the other 'thicket walls' now sometimes block my view too.
+            // That may never happen."
             bool armed = verdict && (floorArm || figure);
 
             if (armed)

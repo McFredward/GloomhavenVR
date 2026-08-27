@@ -727,7 +727,8 @@ internal sealed partial class PlayTray
     /// <summary>The placard line currently shown, or null while it is hidden. Read by
     /// <c>Net.NetAvatarDriver</c> to put it on the wire (extension record 7) so a peer's remote
     /// board carries the same line at the same seat — user request 2026-08-03 ("Dieser Text soll
-    /// auch synchronisiert werden an der jeweiligen richtigen Position im MP").</summary>
+    /// auch synchronisiert werden an der jeweiligen richtigen Position im MP" — "this text should
+    /// be synchronised too, at the correct position for each player in multiplayer").</summary>
     internal string? PickBannerText => _pickBannerRoot != null && _pickBannerRoot.activeSelf
         ? _pickBannerText
         : null;

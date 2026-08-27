@@ -285,7 +285,7 @@ internal abstract class TrayMountedPanelSurface : SlotPanelSurface
     /// load and a board rescale all flow through the same <see cref="Place"/> — this pass adds no
     /// state and therefore no new failure mode, and it NEVER writes the board itself: it only ever
     /// reads <c>mount</c> and writes the panel host (the "das Board darf sich niemals von selbst
-    /// bewegen" invariant is untouched).
+    /// bewegen" — "the board may never move by itself" — invariant is untouched).
     /// </summary>
     public override void LateTick()
     {

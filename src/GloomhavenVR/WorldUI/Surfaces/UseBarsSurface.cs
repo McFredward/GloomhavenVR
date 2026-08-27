@@ -1734,7 +1734,8 @@ internal sealed class UseBarsSurface
     /// prefix with the row's and the prompt text's lines ON PURPOSE: one grep over a hardware log
     /// then shows the ceiling reported by every prompt that came up, and they must all be equal
     /// (user, ModBuild 90: "der höchste Punkt bei den Initiativ-Schuhen [soll] auch der höchste
-    /// Punkt [sein], an dem der Text angezeigt wird").
+    /// Punkt [sein], an dem der Text angezeigt wird" — "the highest point of the initiative shoes
+    /// [should] also be the highest point at which the text is shown").
     /// </summary>
     private void LogStackSeat(Transform mount, Vector3 up, float trayScale, float cursor,
                               string note, bool atCeiling, int docked)
