@@ -114,6 +114,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     // floats in between.
     private float _cardWidth = DefaultCardWidth;
     private float _cardHeight = DefaultCardHeight;
+
+    /// <summary>
+    /// Whether THIS OWNER has the card dust on (wire id <see cref="NetProtocol.TuneCardDustOn"/>).
+    ///
+    /// <para>Cached beside the other tuning mirrors and for the same reason: the dust is asked
+    /// about per card and <c>RemoteBoardTuning</c> is a wide struct. It is a PERMISSION and not a
+    /// picture — the puff itself is drawn by this client's own <c>Cards.CardDustFx</c>, which is a
+    /// mod-side static pool and not a member of <c>VRCard</c>, so a peer has always owned the
+    /// emitter and only ever lacked the owner's say-so and a pose.</para>
+    /// </summary>
+    private bool _cardDustOn = Defaults.CardDust;
     private float _palmOffset = Defaults.FanPalmOffset;
 
     // ---- THE PRINTED FACE RECT (report 12, 2026-08-15) ---------------------------------------
@@ -464,6 +475,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 continue;
             }
             Transform t = slab.transform;
+            // The owner's card crumbles the instant it leaves (VRCard.Vanish emits before the
+            // fade), so the mirror emits when the slab JOINS the leaving set, not when it is
+            // finally destroyed several frames later.
+            EmitMirroredCardDust(slab, appear: false);
             _leaving.Add(slab);
             _leavingFaces.Add(face);
             _leavePos.Add(t.localPosition);
@@ -1590,6 +1605,41 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
     /// <summary>Drop every pop ramp (fan closed / rebuilt) so a re-opened fan never starts with a
     /// stale card already lifted.</summary>
+    /// <summary>
+    /// Emit the crumble (<c>appear</c> = false) or materialise (<c>appear</c> = true) puff for one
+    /// MIRRORED card, at that slab's current world pose.
+    ///
+    /// <para>The frame is <c>VRCard.EmitCardDust</c>'s, term for term — right/up off the slab, the
+    /// out-normal <c>-forward</c> because a card's +Z points AWAY from the viewer, and the half
+    /// extents scaled by <c>lossyScale</c>. Copying the construction rather than the numbers is the
+    /// point: the two puffs are identical because they are the same expression, not because two
+    /// formulas agree (the rule <c>RemoteDecisionWidgets</c> states for the decision row).</para>
+    ///
+    /// <para>The TONE is this class's default rather than the owner's per-card tone, which the wire
+    /// does not carry. Said plainly rather than hidden: the dust is a monochrome puff and the tone
+    /// only shifts its warmth; carrying it would be a colour field per card for a difference
+    /// nobody has reported. If a hardware round says otherwise, that is one more field, not a
+    /// redesign.</para>
+    /// </summary>
+    private void EmitMirroredCardDust(GameObject? slab, bool appear)
+    {
+        if (!_cardDustOn || slab == null)
+            return;
+        Transform t = slab.transform;
+        float lossy = t.lossyScale.x;
+        float halfW = _cardWidth * 0.5f * lossy;
+        float halfH = _cardHeight * 0.5f * lossy;
+        if (halfW < 1e-4f || halfH < 1e-4f)
+            return;
+        if (appear)
+            Cards.CardDustFx.EmitAppear(t.position, t.right, t.up, -t.forward, halfW, halfH,
+                                        Cards.CardDustFx.DefaultTone);
+        else
+            Cards.CardDustFx.EmitVanish(t.position, t.right, t.up, -t.forward, halfW, halfH,
+                                        Cards.CardDustFx.DefaultTone);
+    }
+
+
     private void ClearPops()
     {
         for (int i = 0; i < _pop.Length; i++)
@@ -1836,6 +1886,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             return;
         _tuningRevision = _owner.BoardTuningRevision;
         RemoteBoardTuning t = _owner.BoardTuning;
+        _cardDustOn = t.CardDustOn;
 
         float width = t.CardWidth > 0.001f ? t.CardWidth : DefaultCardWidth;
         bool sizeChanged = !Mathf.Approximately(width, _cardWidth);
@@ -2014,6 +2065,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             borrow.Configure(this, i, vis.x, vis.y,
                 FanSweep.StripWidth(count, _radius, stepDegrees, vis.x, _cardWidth / DefaultCardWidth));
 
+            EmitMirroredCardDust(card, appear: true);
             _cards.Add(card);
             // NOMINAL size, not the owner's tuned one: the slab root ALREADY carries
             // _cardWidth/DefaultCardWidth, so handing the tuned width here fitted the face a second

@@ -461,6 +461,11 @@ internal static class BoardTuningSampler
                    WorldUI.ButtonTuning.LabelOutline, Defaults.LabelOutline);
         n += Bool8(payload, ref i, NetProtocol.TuneLabelUnderlayOn,
                    WorldUI.ButtonTuning.LabelUnderlay, Defaults.LabelUnderlay);
+        // …and the two CARD-EFFECT bools. These are the 1:1 rule's "Animationen" half: a peer may
+        // not draw the owner's dust unless the owner has it on, and may not withhold it when they
+        // do. The effect itself is never sent — the receiver owns CardDustFx.
+        n += Bool8(payload, ref i, NetProtocol.TuneCardDustOn,
+                   Cards.CardsConfig.CardDust, Defaults.CardDust);
         // The PER-BOARD shapes, sampled for the sender's OWN style exactly like every other
         // per-board dial (the style itself rides the extras block, so only one is ever sent).
         n += Enum8(payload, ref i, NetProtocol.TuneRestCapShape,
@@ -749,6 +754,11 @@ internal readonly struct RemoteBoardTuning
     /// <summary>[ButtonColors] LabelOutlineWidth — that keyline's width, fraction of the SDF spread.</summary>
     public float LabelOutlineWidth { get; }
     /// <summary>[ButtonColors] LabelOutline — whether the keyline is drawn at all.</summary>
+    /// <summary>Whether this owner's cards crumble into / coalesce out of a dust puff — the
+    /// permission the mirrored fan needs before it may call its OWN <c>Cards.CardDustFx</c>.
+    /// </summary>
+    public bool CardDustOn { get; }
+
     public bool LabelOutlineOn { get; }
     /// <summary>[ButtonColors] LabelUnderlay — whether the drop-shadow underlay is drawn.</summary>
     public bool LabelUnderlayOn { get; }
@@ -982,6 +992,8 @@ internal readonly struct RemoteBoardTuning
                            Defaults.LabelOutline ? 1 : 0) != 0;
         LabelUnderlayOn = C(payload, len, NetProtocol.TuneLabelUnderlayOn,
                             Defaults.LabelUnderlay ? 1 : 0) != 0;
+        CardDustOn = C(payload, len, NetProtocol.TuneCardDustOn,
+                       Defaults.CardDust ? 1 : 0) != 0;
         BoardCapTint = Cl(payload, len, NetProtocol.TuneBoardCapTint,
                           new Color(Defaults.BoardCapTintR, Defaults.BoardCapTintG,
                                     Defaults.BoardCapTintB, 1f));

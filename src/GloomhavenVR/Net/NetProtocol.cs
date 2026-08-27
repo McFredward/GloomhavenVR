@@ -416,7 +416,40 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 298;
+    public const ushort ModBuild = 299;
+    // Build 299: THE CARD DUST REACHES A PEER — AND THE SMOKE BESIDE IT WAS REFUSED ON PURPOSE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FORMAT CHANGED (id 248). ***
+    //
+    //   FIRST STEP OF DESIGN-1TO1-RESIDUE.md. The user's ruling names "Interaktionen, ANIMATIONEN
+    //   und Anzeigen des Controllboards", and the card dust was one of the animations a peer never
+    //   saw. It was also the cheapest thing in the whole residue, for a reason worth keeping:
+    //   THE DEBT WAS A CALL SITE, NOT A RENDERER. CardDustFx is a mod-side static pool and is not
+    //   a member of VRCard, so every peer has always OWNED the emitter — it lacked only the
+    //   owner's permission and a pose. It has the pose (it is drawing the mirrored card); this
+    //   build adds the permission.
+    //
+    //   NO PICTURE TRAVELS. One bool on record 28 (TuneCardDustOn, id 248) and the receiver's own
+    //   CardDustFx draws the puff at the mirrored slab's own world pose. The frame is copied from
+    //   VRCard.EmitCardDust term for term — right/up off the slab, out-normal -forward because a
+    //   card's +Z points away from the viewer, half extents scaled by lossyScale — because the two
+    //   puffs should be identical by being the same expression, not by two formulas agreeing.
+    //
+    //   THE SMOKE BESIDE IT WAS WIRED AND THEN REVERTED, WHICH IS THE POINT. [Cards]
+    //   GameCardParticles is the GAME's own card smoke; a peer's mirrored cards are mod slabs with
+    //   no game particle system to switch on. A field for it would have had NO CONSUMER — the
+    //   exact FanCloseDuration trap this project has shipped once already, where the checker turns
+    //   green and the picture does not change. It stays a declared RENDERER debt with the reason
+    //   written at the exemption.
+    //
+    //   AND ONE MISTAKE CAUGHT BY THE AUDIT IT CAME FROM. The mirror first held its OWN copy of the
+    //   dust tone — a second literal in Net/, which is precisely the shape the 2026-08-27 1:1 audit
+    //   had just finished pinning down for the board's own dimensions. There is now one source,
+    //   CardDustFx.DefaultTone, read by both VRCard and the mirror.
+    //
+    //   TEST: two clients, one turns [Cards] CardDust on, plays and discards a card. The peer's
+    //   mirrored fan should puff at the same moment, in the same parchment tone. With the dial OFF
+    //   on the owner's side, no peer may show dust.
+    //
     // Build 298: A REFACTOR IN WHICH EXACTLY ONE TYPE'S COMPILED FORM CHANGED.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes, unchanged from 296. ***
     //
@@ -17425,6 +17458,16 @@ internal static class NetProtocol
     /// <summary>[ButtonColors] LabelUnderlay — whether the soft dark drop-shadow is drawn under
     /// keycap letters (0 = off, 1 = on).</summary>
     public const byte TuneLabelUnderlayOn = 230;
+
+    /// <summary>[Cards] CardDust — whether the owner's cards crumble into / coalesce out of a
+    /// dust puff (0 = off, 1 = on). A BOOL in the one-byte count width, like the [ButtonColors]
+    /// pair at 229/230.
+    ///
+    /// <para>NO PICTURE TRAVELS, and that is the whole design (DESIGN-1TO1-RESIDUE.md §0): the
+    /// receiver owns <c>Cards.CardDustFx</c> already — it is a mod-side static pool, not a member
+    /// of <c>VRCard</c> — so all a peer lacks is permission and a pose. The pose it has (it is
+    /// drawing the mirrored card); this bit is the permission.</para></summary>
+    public const byte TuneCardDustOn = 248;
 
     /// <summary>[Cards] RestButtonShape_{board} — ROUND disc (0) or SQUARE keycap (1) for the
     /// short/long rest pair, for the sender's OWN board style (the style rides the extras block, so

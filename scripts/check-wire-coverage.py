@@ -186,8 +186,7 @@ EXEMPT = {
     # ("Cards", "PileViewer") / ("Cards", "ActivePile") are GONE (user ruling 2026-08-11): the
     # dials were removed outright — both features are unconditional now, so there is no config
     # entry left to exempt (their PENDING lines retired with them).
-    ("Cards", "GameCardParticles"): ("PENDING", "a bool; card smoke is not mirrored at all yet"),
-    ("Cards", "CardDust"): ("PENDING", "a bool; the dust burst is not mirrored at all yet"),
+    ("Cards", "GameCardParticles"): ("PENDING", "a bool, and a RENDERER debt rather than a wire debt. This is the GAME's own card smoke; a peer's mirrored cards are mod slabs with no game particle system to switch on, so a field would have no consumer -- the FanCloseDuration trap. The dust beside it (TuneCardDustOn, 248) went the other way because CardDustFx is a mod static a peer already owns"),
     ("Cards", "FanCloseDuration"): ("PENDING", "field id 156 is DECLARED for it, but RemoteHandFan has no collapse "
                                                "animation at all — it hides the fan outright — so sampling it would put "
                                                "bytes on the wire no receiver reads and would let this script call it "

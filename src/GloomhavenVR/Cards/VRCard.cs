@@ -1580,7 +1580,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// tone"). A warm parchment default reads as card-paper dust for real game faces; placeholder
     /// cards seed their own tint (<see cref="BuildPlaceholderFace"/>).
     /// </summary>
-    private Color _dustTone = new(0.80f, 0.72f, 0.55f);
+    private Color _dustTone = CardDustFx.DefaultTone;
 
     private bool _vanishing;
     private float _vanishElapsed;

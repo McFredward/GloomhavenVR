@@ -15,6 +15,18 @@ namespace GloomhavenVR.Cards;
 internal static class CardDustFx
 {
     /// <summary>
+    /// The dust's parchment warmth, and THE one source of it. A built card overwrites its own tone
+    /// with its placeholder image's colour; everything that has no image to read — an un-themed
+    /// local card, and every MIRRORED card on a peer's board — starts here.
+    ///
+    /// <para>It lives on the emitter rather than on <c>VRCard</c> because the mirror has no VRCard
+    /// to ask. Making it a second literal in <c>Net/</c> was the first thing tried and is exactly
+    /// the shape the 2026-08-27 1:1 audit had just finished pinning down elsewhere: a mirror that
+    /// holds its OWN copy of a number diverges the day someone retunes one of the two.</para>
+    /// </summary>
+    internal static readonly Color DefaultTone = new(0.80f, 0.72f, 0.55f);
+
+    /// <summary>
     /// THE SINGLE GATE (user ruling 2026-08-03: "kam während dessen so eine sehr große
     /// Funken/Partikel Animation über das gesamte Spielfeld (wahrscheinlich ausgehend von der
     /// abgeworfenen Karte). Geh da rein, das soll deaktiviert werden!"). Gated here rather than at
