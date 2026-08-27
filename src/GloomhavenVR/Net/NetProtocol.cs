@@ -416,7 +416,66 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 307;
+    public const ushort ModBuild = 308;
+    // Build 308: THE OWNER'S BEAM LIT A USE-BAR SLOT ON THEIR OWN BOARD AND NOWHERE ELSE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 25 bits 3/4). ***
+    //
+    //   The gap the user named after the 1:1 review, and it is a ModBuild 300 omission rather than
+    //   a regression: record 25 was born with three slot bits on 2026-08-08 and never gained a
+    //   fourth. When 300 gave the DECISION options their hover and press, the use-bar slots one
+    //   drawer below were not touched — the two samplers live in different files and only the bit
+    //   POSITIONS were ever kept in step. `git log -S` finds no commit that ever added or removed a
+    //   use-slot hover bit: nothing broke, it was never there.
+    //
+    //   THREE LANES, ONE CONTRACT LANDED FIRST. The bits, the shared sampler seam and the highlight
+    //   factor went onto dev before the lanes started, because all three would otherwise have
+    //   collided in NetProtocol.cs. Both lanes then came back with a correction to my own work,
+    //   which is the whole reason to run them.
+    //
+    //   THE SENDER LANE CAUGHT A COMMIT THAT PROMISED MORE THAN ITS DIFF. The first contract commit
+    //   announced these two constants and never touched NetProtocol.cs — my apply script had
+    //   asserted on its anchor and exited, and I read that traceback as a later step failing.
+    //   NOTHING CATCHES THAT: the build was green and the wire tests were green, because the
+    //   feature simply did not exist. It also named the load-bearing half I had understated — the
+    //   slot byte is masked with UseSlotDefinedMask on the way OUT as well as in, so until the MASK
+    //   widens a correct sampler edit is stripped inside the sender's own serializer.
+    //
+    //   AND BIT 3 WAS NOT FREE, IT WAS RESERVED, with a written argument for the mandatory
+    //   highlight. That argument still holds — the highlight is DERIVED on the receiver and needs
+    //   no bit — so the reservation was never a claim on the number. It is spent explicitly here,
+    //   quoting what it said, rather than overwritten silently.
+    //
+    //   THE RECEIVER LANE FOUND A HOLE IN THE OBVIOUS ROUTE. It needed the game's press factor and
+    //   `_pressedMul` is private, so it reached it through ColorFor(FaceState.Pressed).grayscale —
+    //   correct arithmetic, and WRONG on a skin that ships a real SpriteSwap pressed sprite, where
+    //   that method returns white because a native face shows its press through the SPRITE. A
+    //   mirrored plate never swaps sprites and would have shown no press at all. It reported that
+    //   instead of picking a fallback number — which is exactly the invention ModBuild 300 refused
+    //   — so NativeButtonSkin now exposes PressedMul, the bare factor a tint-only consumer needs.
+    //
+    //   THE DIMMED-SLOT RULE IS THE LANE'S, NOT MINE, and its reasoning is better than my brief.
+    //   SamplePointerBits refuses a non-interactable widget, but for use slots that refusal is dead
+    //   code: the game greys a slot by writing UIUseSlot.disabledAlpha and never touches the
+    //   button's own `interactable` flag, so IsInteractable() stays TRUE on a slot the owner sees
+    //   greyed. Publishing a hover there would make every peer paint a highlight the owner never
+    //   sees, because uGUI gives the disabled tint priority over highlighted and pressed alike. The
+    //   bits are therefore gated on this file's own OFFERED, which is the only predicate that knows
+    //   about the alpha.
+    //
+    //   THE PLATE ROW GETS ITS HOVER BACK TOO. ModBuild 300 refused it because a mod-drawn plate
+    //   has no Selectable to read a ColorBlock off, so any factor would have been INVENTED.
+    //   NativeButtonSkin.HighlightMul is that factor, sampled off a live game button exactly as the
+    //   pressed and disabled ones already were — the answer that note said was on the shelf.
+    //
+    //   Both surfaces follow Unity's own precedence: disabled > pressed > highlighted > normal, so
+    //   a held button the game then gates off reads as greyed, which is what the owner sees. A
+    //   sender that sets neither bit produces a byte-identical picture.
+    //
+    //   TEST: two clients. One puts their beam on a USE-BAR slot (an item, an active bonus) and
+    //   holds the trigger. The other board's tile must brighten and then darken with them, and go
+    //   back to plain when they look away — while the watching player's own beam does nothing to
+    //   it. A GREYED slot under the owner's beam must NOT light up anywhere.
+    //
     // Build 307: THE PEER READ "A MANDATORY BONUS MUST BE USED FIRST" AND WAS NEVER TOLD WHICH.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NEW WIRE RECORD 33. ***
     //

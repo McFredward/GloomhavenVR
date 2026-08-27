@@ -1979,11 +1979,13 @@ internal sealed class UseBarsSurface
         ///
         /// <para>The walk is the bar's slot CONTAINER children in hierarchy order — the same layout
         /// truth <see cref="TickFitStability"/> hashes, i.e. the order the owner sees — and the
-        /// three facts read per slot are exactly the three the receiver paints: OFFERED (the game's
+        /// facts read per slot are exactly the ones the receiver paints: OFFERED (the game's
         /// <c>Selectable.IsInteractable</c> and no dim), DIMMED (the lowest <c>CanvasGroup</c> alpha
         /// between the slot and the bar root, which for these widgets is
-        /// <c>UIUseSlot.SetInteractable</c> writing its serialized <c>disabledAlpha</c>), and CHOSEN
-        /// (<c>UIUseSlot.IsSelected()</c> through this bar's concrete slot type). A slot the mod
+        /// <c>UIUseSlot.SetInteractable</c> writing its serialized <c>disabledAlpha</c>), CHOSEN
+        /// (<c>UIUseSlot.IsSelected()</c> through this bar's concrete slot type) and, since
+        /// ModBuild 308, the owner's POINTER on a slot they can actually use — see
+        /// <see cref="SampleSlotState"/> for why that last one is gated on OFFERED. A slot the mod
         /// itself suppressed is absent here too — the choice half by being inactive, the
         /// requirement-C plain-item half by <see cref="UseBarsSurface.IsPlainRenderHidden"/>, which
         /// the active flag no longer answers since that half became a render hide. The peer sees the
@@ -2032,7 +2034,15 @@ internal sealed class UseBarsSurface
         /// decision plate through one code path; OFFERED additionally requires "not dimmed", because
         /// for these widgets the alpha IS the game's own interactable readout
         /// (<c>UIUseSlot.SetInteractable</c>) while the button's own <c>interactable</c> flag is
-        /// never written.</summary>
+        /// never written.
+        ///
+        /// <para>Since ModBuild 308 that includes the two POINTER axes, sampled through the shared
+        /// <see cref="DecisionDockSurface.SamplePointerBits"/> rather than a second copy of the
+        /// hover/press table lookups. They were missed when ModBuild 300 gave the decision options
+        /// theirs — the two samplers live in different files and only the bit POSITIONS were ever
+        /// kept in step — so the owner's beam lit a use-bar slot on their own board and nowhere
+        /// else while the decision row one drawer above mirrored correctly. The user reported
+        /// exactly that gap.</para></summary>
         private static byte SampleSlotState(Transform slot, Transform root, bool chosen)
         {
             float alpha = 1f;
@@ -2058,6 +2068,37 @@ internal sealed class UseBarsSurface
                 state |= Net.NetProtocol.UseSlotDimmedBit;
             if (chosen)
                 state |= Net.NetProtocol.UseSlotChosenBit;
+
+            // The owner's pointer, asked through the ONE shared sampler instead of a second copy of
+            // the tracker lookups. Two things about this line are load-bearing and neither of them
+            // is visible in it, so both are written down.
+            //
+            // FIRST, the result is folded in RAW. SamplePointerBits answers in record 24's bits
+            // (DecisionOptionHoveredBit / DecisionOptionPressedBit) and they land unchanged in a
+            // record 25 byte, which is legal ONLY because the two bit sets share positions 3 and 4
+            // by design — the alignment this record was born with on 2026-08-08 and which
+            // NetProtocol restates at every one of these constants. That is not an accident to lean
+            // on silently: if the positions ever diverge, this line goes on compiling and starts
+            // writing the wrong axes, and the remedy then is a translation HERE, not a
+            // re-numbering there.
+            //
+            // SECOND, the pointer bits hang off this method's own `offered` and not merely off a
+            // non-null Selectable. SamplePointerBits does already refuse a non-interactable widget
+            // — but for use slots that refusal can never fire, because the game greys a slot by
+            // writing UIUseSlot.disabledAlpha and never touches the button's own `interactable`
+            // flag, so sel.IsInteractable() stays TRUE on a slot the owner is looking at greyed.
+            // That is the same asymmetry the summary above records as the reason OFFERED demands
+            // "not dimmed" here, and its consequence is that SamplePointerBits cannot see the
+            // greying at all and would report a hover for a dimmed slot. Publishing that would make
+            // every peer paint a highlight the owner never sees, since uGUI gives the disabled tint
+            // priority over highlighted and pressed alike. `offered` is the only predicate in this
+            // file that knows about the alpha, so it is the one to gate on. (The null test beside
+            // it looks redundant — `offered` already implies it — and it is kept because it is what
+            // proves non-null to the nullable analysis, rather than suppressing the question with
+            // a `!`; the lookup above returns null for a slot with no Selectable in it.)
+            if (offered && sel != null)
+                state |= DecisionDockSurface.SamplePointerBits(sel);
+
             return state;
         }
 
