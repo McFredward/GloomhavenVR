@@ -429,3 +429,44 @@ Suggested order, cheapest and most certain first:
 5. **The cap animation clock, then its four fields** — SHIPPED, ModBuild 304 (see §3a). Renderer
    first, as the warning demanded. **This closes the residue**: every point in this document is
    either shipped or recorded with its reason.
+
+## 5. Postscript, ModBuild 309: item 1 above was wrong twice
+
+The entry that reads *"the smoke was wired and then REVERTED on purpose: it is the game's own
+particle system and a peer's mirrored cards are mod slabs with none, so the field would have had no
+consumer"* is **false**, and it stood for ten builds. Both halves of it:
+
+* **The plume is not a component on a card.** `CardEffects.SpawnParticle` pool-spawns
+  `GlobalSettings.Instance.VisualEffects.CardSmoke` — a **public** field on a singleton loaded
+  straight out of `Resources`. Every client has the prefab, with no scene object, no local player
+  and no card on screen needed to reach it. It rides id 236 now, drawn by
+  `Net/Remote/RemoteCardPlume.cs`.
+* **The argument that retired that claim had its own falsehood.** When the debt was re-argued
+  (2026-08-27) it cited `BurnCardFx` as a ready-made template, "already instantiates this prefab
+  locally". It does not, and has not since `71883140`: the method that did, `SpawnConsumedPlume`,
+  was **removed** for shipping the field-covering fog. Today's `BurnCardFx` only *binds* the game's
+  already-spawned instance and reparents it — and that distinction is the whole engineering
+  problem, because a reparent shrinks the entire child hierarchy for free while a spawn path must
+  clamp **every** emitter, cap start lifetime and pin the root's world scale.
+
+**Both errors were mine and both were caught by reading the file instead of the note about it.**
+That is now three standing "cannot be done" notes in six builds that fell the moment somebody
+opened the decompiled source — after the rest-cap `Square` branch and the fan collapse.
+
+**And the item this document called "the cheapest in the whole residue" had shipped broken.** The
+card dust (ModBuild 302, id 233) gated correctly on the owner's bit in
+`RemoteHandFan.EmitMirroredCardDust` and then called `CardDustFx.Emit*`, whose first line asked the
+**viewer's own** `[Cards] CardDust` dial — which ships OFF. An AND of two permissions, so a peer
+drew the owner's dust only when the peer had *also* switched their own on. The sender's own
+contract in `BoardTuning.cs` says the opposite in as many words: *"may not withhold it when they
+do."* Nine builds of gates never saw it, because every gate on this record answers **"is this dial
+on the wire"** and none answers **"does the picture actually appear."**
+
+**The lesson to carry, and it generalises past particles:** a mirror that consumes an owner's
+permission must not pass through a gate that reads the *viewer's* copy of the same dial. The two
+look identical in a config file and answer opposite questions. Where such a gate exists, make the
+call site name **which question it is asking** — `CardDustFx.Permission` is the shape — and default
+to the stricter answer, so a path that forgets can only under-draw.
+
+The last renderer debt on record 28 (`[Cards] SlotCardInset`, id 101) shipped in the same build.
+**The PENDING debt count on this record is zero.**
