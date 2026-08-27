@@ -4737,6 +4737,48 @@ internal static class GoldenVectors
         t.Equal(2, NetProtocol.BoardTuneFieldWidth(NetProtocol.TuneClusterScale),
                 "…and its retired SCALE twin at 133, a factor");
 
+        // EVERY DECLARED ID, NOT A CHOSEN FEW — the assertion whose absence shipped a broken record.
+        //
+        // The hand-picked checks above are worth keeping, but they can only fail for an id someone
+        // thought to name here, and ModBuild 299's new dial was not one: it was given id 248, which
+        // is past TuneCountIdMax, so BoardTuneFieldWidth answered 0 for it. A width of 0 makes every
+        // reader abandon the record at that field AND makes the sender's own pager refuse the whole
+        // field list, so while that dial was set the ENTIRE board tuning stopped reaching every peer
+        // — with all 151,000 assertions here green. This sweep asks the question of every id there
+        // is, through the REAL function, so no future dial can be added outside the ranges.
+        //
+        // scripts/check-tune-fields.py asks the same thing statically (and also checks the sampler
+        // writes in ascending order, which this cannot see). Both exist on purpose: that one reads
+        // the SOURCE and would survive the function being rewritten; this one calls the COMPILED
+        // function and would survive the source being restructured.
+        t.Case("7v-b. extras, board-tuning: every declared field id has a defined width");
+        int sweptIds = 0;
+        foreach (System.Reflection.FieldInfo field in typeof(NetProtocol).GetFields(
+                     System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static))
+        {
+            if (!field.IsLiteral || field.FieldType != typeof(byte))
+                continue;
+            string name = field.Name;
+            if (!name.StartsWith("Tune", System.StringComparison.Ordinal))
+                continue;
+            // The range MARKERS are not fields, and a NeverLive id is a tombstone: a number burned
+            // by a past mistake, declared only so it can never be handed out again. Being outside
+            // every range is the whole reason that one exists.
+            if (name.EndsWith("IdMin", System.StringComparison.Ordinal)
+                || name.EndsWith("IdMax", System.StringComparison.Ordinal)
+                || name.Contains("NeverLive"))
+                continue;
+            sweptIds++;
+            byte id = (byte)field.GetRawConstantValue()!;
+            t.True(NetProtocol.BoardTuneFieldWidth(id) != 0,
+                   $"board-tuning field id {name} = {id} must have a defined width — a 0 makes "
+                   + "every reader abandon the record there and the sender's pager refuse the "
+                   + "whole list");
+        }
+        t.True(sweptIds > 100,
+               $"the id sweep reached {sweptIds} constants — a sweep that found nothing would "
+               + "pass silently, which is the failure this whole block is about");
+
         // A KEYCAP FAMILY THE OWNER HAS RESIZED, end to end — the ids that survived.
         //   id 89 width  0.050 m ->  500 -> F4 01
         //   id 92 travel 0.012 m ->  120 -> 78 00

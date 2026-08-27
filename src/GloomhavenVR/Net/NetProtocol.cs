@@ -416,7 +416,55 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 301;
+    public const ushort ModBuild = 302;
+    // Build 302: I BROKE THE WHOLE BOARD-TUNING RECORD IN BUILD 299 AND EVERY GATE STAYED GREEN.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE ID MOVED (248 -> 233). ***
+    //
+    //   NOT A FEATURE. A regression I shipped three builds ago, found while checking the id space
+    //   before adding the NEXT dial to record 28 — which is the only reason it was found at all.
+    //
+    //   ONE LINE, TWO DEFECTS, EITHER ONE FATAL TO THE RECORD:
+    //     1. TuneCardDustOn was given id 248. TuneCountIdMax is 247, so 248 lies OUTSIDE every
+    //        width range and NetProtocol.BoardTuneFieldWidth answers 0 for it. A reader stops dead
+    //        at an id whose length it cannot know (FindBoardTuneField, FieldsWellFormed) and the
+    //        SENDER's own pager refuses the entire field list (MeasurePage -> PageCount returns
+    //        -1 -> WritePage writes nothing). The dust bit did not merely fail to arrive: WHILE THE
+    //        DIAL WAS ON, EVERY BOARD-TUNING FIELD STOPPED REACHING EVERY PEER.
+    //     2. It was appended BEFORE ids 231 and 232, breaking the ASCENDING-ID layout contract that
+    //        lets a page state the id range it is complete for.
+    //
+    //   AND IT WAS INVISIBLE IN EXACTLY THE TEST IT SHIPPED WITH. The dial defaults OFF and the
+    //   record is SPARSE, so the broken field was emitted only for a player who had turned it on —
+    //   which is precisely what build 299's own test instructions asked for ("one turns [Cards]
+    //   CardDust on"). A tester following them would have seen the dust fail AND their whole board
+    //   tuning silently revert, with no line in any log saying so.
+    //
+    //   THE FIX IS THE SMALL PART. 233 (first free id above the shapes, inside the count range),
+    //   the write moved to the end of the sampler, and 248 kept as a TOMBSTONE — declared, never
+    //   reusable, carrying the story. Renumbering is safe here for one reason and it is worth
+    //   stating: no build ever READ 248, because it has answered width 0 in every build that has
+    //   ever existed. The append-only rule protects ids that were live; this one never was.
+    //
+    //   THE REAL FIX IS THE INSTRUMENT. Nothing checked that a declared field id has a width, so
+    //   there are two checks now, deliberately not one:
+    //     * scripts/check-tune-fields.py reads the SOURCE — every declared Tune* id inside a
+    //       declared range, the sampler's ids strictly ascending, no duplicates. It found the 248
+    //       defect AND a LATENT one nobody knew about: ids 172, 173, 171 sat mid-run between 132
+    //       and 134. That one was not live (the reassembler keys pages by INDEX and reads no id
+    //       range) but it was a trap armed for the first reader that trusted idLo/idHi. Fixed.
+    //     * a reflection sweep in the wire tests calls the REAL BoardTuneFieldWidth over every id.
+    //   One survives the function being rewritten, the other survives the source being
+    //   restructured. Both were made to FAIL on the shipped defect before either was believed.
+    //
+    //   THE CHECKER'S OWN FIRST OUTPUT WAS HALF WRONG, which is the habit that saved it: five of
+    //   its nine findings were false — it read id names out of COMMENTS and treated a float
+    //   constant as an id. A new instrument's first output is a hypothesis.
+    //
+    //   TEST: two clients, one turns [Cards] CardDust on AND moves any other board dial (a keycap
+    //   size, the decision scale). Both must now cross: the peer's board shows the tuned geometry
+    //   and the mirrored cards puff. Before this build, turning the dust on made the OTHER dial
+    //   stop arriving.
+    //
     // Build 301: THE SHORT-REST CONFIRMATION WAS NEVER UNMIRRORABLE — THE NOTE SAYING SO WAS WRONG,
     // AND READING THE GAME COST THREE LINES.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE ROLES ADDED (4, 5). ***
@@ -17623,16 +17671,6 @@ internal static class NetProtocol
     /// keycap letters (0 = off, 1 = on).</summary>
     public const byte TuneLabelUnderlayOn = 230;
 
-    /// <summary>[Cards] CardDust — whether the owner's cards crumble into / coalesce out of a
-    /// dust puff (0 = off, 1 = on). A BOOL in the one-byte count width, like the [ButtonColors]
-    /// pair at 229/230.
-    ///
-    /// <para>NO PICTURE TRAVELS, and that is the whole design (DESIGN-1TO1-RESIDUE.md §0): the
-    /// receiver owns <c>Cards.CardDustFx</c> already — it is a mod-side static pool, not a member
-    /// of <c>VRCard</c> — so all a peer lacks is permission and a pose. The pose it has (it is
-    /// drawing the mirrored card); this bit is the permission.</para></summary>
-    public const byte TuneCardDustOn = 248;
-
     /// <summary>[Cards] RestButtonShape_{board} — ROUND disc (0) or SQUARE keycap (1) for the
     /// short/long rest pair, for the sender's OWN board style (the style rides the extras block, so
     /// only the current one is transmitted, exactly like every other per-board dial here).</summary>
@@ -17641,6 +17679,54 @@ internal static class NetProtocol
     /// <summary>[Cards] GenericButtonShape_{board} — ROUND disc (0) or SQUARE keycap (1) for the
     /// Confirm / Undo / item-USE column.</summary>
     public const byte TuneGenericCapShape = 232;
+
+    /// <summary>[Cards] CardDust — whether the owner's cards crumble into / coalesce out of a
+    /// dust puff (0 = off, 1 = on). A BOOL in the one-byte count width, like the [ButtonColors]
+    /// pair at 229/230.
+    ///
+    /// <para>NO PICTURE TRAVELS, and that is the whole design (DESIGN-1TO1-RESIDUE.md §0): the
+    /// receiver owns <c>Cards.CardDustFx</c> already — it is a mod-side static pool, not a member
+    /// of <c>VRCard</c> — so all a peer lacks is permission and a pose. The pose it has (it is
+    /// drawing the mirrored card); this bit is the permission.</para>
+    ///
+    /// <para>IT WAS 248 IN ModBuild 299..301 AND THAT WAS TWO BUGS IN ONE LINE — see
+    /// <see cref="TuneNeverLive248"/>. 233 is the first free id ABOVE the shapes at 231/232, which
+    /// satisfies both halves of the record's layout contract at once: inside the one-byte COUNT
+    /// range, and ascending after the field written before it.</para></summary>
+    public const byte TuneCardDustOn = 233;
+
+    /// <summary>
+    /// RESERVED, AND NEVER LIVE — the id <see cref="TuneCardDustOn"/> was mistakenly given in
+    /// ModBuild 299. Kept as a declaration so the number can never be handed out again, and as the
+    /// place the mistake is written down.
+    ///
+    /// <para>TWO DEFECTS, ONE LINE, AND EACH ALONE WOULD HAVE BROKEN THE WHOLE RECORD:</para>
+    /// <list type="number">
+    ///   <item>248 IS OUTSIDE EVERY WIDTH RANGE (<see cref="TuneCountIdMax"/> is 247), so
+    ///     <see cref="BoardTuneFieldWidth"/> answered 0 — "reserved id whose width this build does
+    ///     not know". Every reader of the record stops dead at an id like that rather than guessing
+    ///     its length, and the sender's own pager
+    ///     (<c>BoardTunePages.MeasurePage</c> → <c>PageCount</c>) returns −1 for the whole field
+    ///     list, so <c>WritePage</c> writes NOTHING. The dial did not merely fail to arrive: while
+    ///     it was set, THE ENTIRE BOARD TUNING stopped reaching every peer.</item>
+    ///   <item>It was appended BEFORE ids 231 and 232, breaking the ASCENDING-ID layout contract
+    ///     that lets a page state the id RANGE it is complete for. That alone would have made a
+    ///     page claim a range it did not cover.</item>
+    /// </list>
+    ///
+    /// <para>WHY RENUMBERING IS SAFE HERE, when "a shipped id can never be renumbered" is otherwise
+    /// absolute: no build ever READ it. 248 has answered width 0 in every build that has ever
+    /// existed, so no receiver has consumed a byte behind it and none can be confused by 233
+    /// arriving instead. The rule is intact; this id was never in the space it protects.</para>
+    ///
+    /// <para>WHAT LET IT THROUGH is the part worth keeping: nothing checked that a declared field
+    /// id has a width. Every gate was green on the build that shipped it, and the defect was
+    /// invisible in the one scenario the build's own test instructions described ("one turns
+    /// [Cards] CardDust on") because the dial defaults OFF — so the sparse writer only emitted the
+    /// broken field for the very player who was asked to test it.
+    /// <c>scripts/check-tune-fields.py</c> is that missing check.</para>
+    /// </summary>
+    public const byte TuneNeverLive248 = 248;
 
     /// <summary>Payload width of a board-tuning field with this id — 6 / 3 / 2 / 1, or 0 for a
     /// RESERVED id whose width this build does not know (the reader then abandons the rest of the

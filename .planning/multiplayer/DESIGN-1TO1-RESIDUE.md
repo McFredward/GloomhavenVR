@@ -175,6 +175,47 @@ real modal **on that peer's own screen**. The mirror must populate the *visual* 
 the window — which is precisely why the puppet discipline exists, and why the clone is built under
 an inactive host before anything is written into it.
 
+### 2.2a POINT 4 CHECKED BEFORE BUILDING — it is smaller than it looks, and blocked where it is not
+
+Checked 2026-08-27, before writing any of it. Three findings, and together they change what this
+point is worth.
+
+**The content is ALREADY 1:1 — only the ART is not.** §2.2 worried about the popup's description
+text and about never calling the real `Show`. Neither matters, because of what the dock actually
+docks: the `DialogPopup` prompt isolates the row of ACTIVE `optionButtons[i].ExtendedButton` and
+nothing else — its own comment says the embedded card "lives under contentHolder — NOT part of the
+row … it is suppressed with the rest of the window". **The owner does not see a description on
+their board either.** So a peer showing mod plates with record 12's wordings is already showing the
+same *content*; what differs is that the plates are mod quads instead of the game's button sprite.
+
+**The pooled buttons are index-stable, so the wire cost is one role code, not eight.**
+`HelperTools.NormalizePool(ref optionButtons, optionButtonPrefab, holder, options.Length)` makes
+`optionButtons[i]` the i-th button of the row, always. Since record 12/24/29 are already index
+aligned, a single role ("this option is `DialogPopup.optionButtons[i]`") is enough; the receiver
+maps by the wire index it already has.
+
+**And here is the blocker, which is real and is NOT the one §2.2 named.** The receiver's own pool
+has as many buttons as ITS OWN last dialog needed — possibly zero, possibly fewer than the owner's
+option count. Growing it means calling `NormalizePool` on the receiver's live `DialogPopup`, i.e.
+**writing game state from presentation code**, which is a standing prohibition. The alternatives
+are both worse than they sound:
+
+- *Mirror only when the counts happen to match.* The look would then flip between game buttons and
+  mod plates depending on which dialogs that client happened to open earlier — unpredictable, and
+  unpredictable is worse than consistently plain.
+- *Instantiate `optionButtonPrefab` N times into a mod-owned holder.* Legal (reading a serialized
+  prefab reference mutates nothing) and it is the honest route, but it is not `RemoteWidgetMirror`
+  work any more: the game lays that row out with a layout group the puppet pass destroys, so the
+  mod would own the layout, the fit and the per-button paint. That is a builder, not a mirror.
+
+**Also worth stating: the popup's description could not travel even if it were wanted.** It is a
+runtime string, not a key, and for the burn/redraw prompt it can name the sacrificed CARD. Card
+identity never rides this wire.
+
+**Verdict.** Point 4 is a cosmetic art swap over content that is already correct, and the honest
+implementation is a new prefab-based builder rather than an extension of the decision mirror. It is
+therefore NOT the cheapest next thing, and it is recorded here rather than half-built.
+
 ### 2.3 Hover and press — the pattern is already shipped, for the initiative track
 
 The user's requirement that "wie das Bild auf einem mouseover oder klick reagiert" must also be 1:1
@@ -305,6 +346,8 @@ Suggested order, cheapest and most certain first:
    is already lettered with the game's one constant key.
 3. **Hover/press on the decision widgets** — SHIPPED, ModBuild 300 (see §2.3c). Not record 16's
    pattern in the end: two free bits on record 24, plus a cadence bypass at both ends.
-4. **`DialogPopup` options** — the largest, because the puppet must be populated without ever
-   touching the `UIWindow`.
+4. **`DialogPopup` options** — CHECKED, NOT BUILT (see §2.2a). Not the largest for the reason
+   given: the owner's docked row is buttons-only, so the CONTENT is already 1:1 and only the art
+   differs. Blocked on the receiver's own button POOL, which cannot be grown without writing game
+   state; the honest route is a mod-owned builder over `optionButtonPrefab`.
 5. **The cap animation clock, then its four fields** — renderer first.

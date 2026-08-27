@@ -299,18 +299,6 @@ internal static class BoardTuningSampler
                  CardsConfig.PileScale(style), Defaults.PileScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneActiveCardScale,
                  CardsConfig.ActiveCardScale(style), CardsConfig.BoardDefaults.ActiveCardScale[b]);
-        // The blinking slot overlays AND the card resting in them are ONE size (2026-08-11) — the
-        // peer draws both from this factor, which is why it travels even though the card metric
-        // itself already rides record 11. See NetProtocol.TuneSlotOverlayScale.
-        // THE TWO STACK SPACINGS - dimensionless multipliers on the board's own anchor pitch, which
-        // is why they are FACTORS and why one field each covers all three boards (the pitches differ
-        // by 8 %; the multiplier does not).
-        n += Fac(payload, ref i, NetProtocol.TuneButtonStackSpacing,
-                 CardsConfig.ButtonStackSpacing, Defaults.ButtonStackSpacing);
-        n += Fac(payload, ref i, NetProtocol.TuneRestStackSpacing,
-                 CardsConfig.RestStackSpacing, Defaults.RestStackSpacing);
-        n += Fac(payload, ref i, NetProtocol.TuneSlotOverlayScale,
-                 CardsConfig.SlotOverlayScale(style), CardsConfig.BoardDefaults.SlotOverlayScale[b]);
         n += Fac(payload, ref i, NetProtocol.TuneDecisionScale,
                  CardsConfig.DecisionScale(style), Defaults.DecisionScale_ByBoard[b]);
         n += Fac(payload, ref i, NetProtocol.TuneFanFlatCurvatureFactor,
@@ -415,6 +403,28 @@ internal static class BoardTuningSampler
         n += Fac(payload, ref i, NetProtocol.TuneLabelOutlineWidth,
                  WorldUI.ButtonTuning.LabelOutlineW, Defaults.LabelOutlineWidth);
 
+        // ---- ids 171..173, MOVED HERE 2026-08-27 to restore the ascending contract ------------
+        // These three sat between ids 132 and 134 — i.e. 172, 173, 171 in that order, in the middle
+        // of the run — which broke the layout contract this method's own doc states. It was LATENT
+        // rather than live: the reassembler keys pages by INDEX and reads no page's id range, and
+        // FindBoardTuneField walks linearly with no early-out on order, so nothing consumed the
+        // wrong ranges the pager was writing. Left alone it was a trap armed for the first reader
+        // that DID trust idLo/idHi. Found by scripts/check-tune-fields.py the day it was written,
+        // in the same run that caught the live 248 defect.
+        //
+        // The blinking slot overlays AND the card resting in them are ONE size (2026-08-11) — the
+        // peer draws both from this factor, which is why it travels even though the card metric
+        // itself already rides record 11. See NetProtocol.TuneSlotOverlayScale.
+        n += Fac(payload, ref i, NetProtocol.TuneSlotOverlayScale,
+                 CardsConfig.SlotOverlayScale(style), CardsConfig.BoardDefaults.SlotOverlayScale[b]);
+        // THE TWO STACK SPACINGS - dimensionless multipliers on the board's own anchor pitch, which
+        // is why they are FACTORS and why one field each covers all three boards (the pitches differ
+        // by 8 %; the multiplier does not).
+        n += Fac(payload, ref i, NetProtocol.TuneButtonStackSpacing,
+                 CardsConfig.ButtonStackSpacing, Defaults.ButtonStackSpacing);
+        n += Fac(payload, ref i, NetProtocol.TuneRestStackSpacing,
+                 CardsConfig.RestStackSpacing, Defaults.RestStackSpacing);
+
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
                  CardsConfig.AssetPitch(style), CardsConfig.BoardDefaults.AssetPitchDegrees[b]);
@@ -461,17 +471,23 @@ internal static class BoardTuningSampler
                    WorldUI.ButtonTuning.LabelOutline, Defaults.LabelOutline);
         n += Bool8(payload, ref i, NetProtocol.TuneLabelUnderlayOn,
                    WorldUI.ButtonTuning.LabelUnderlay, Defaults.LabelUnderlay);
-        // …and the two CARD-EFFECT bools. These are the 1:1 rule's "Animationen" half: a peer may
-        // not draw the owner's dust unless the owner has it on, and may not withhold it when they
-        // do. The effect itself is never sent — the receiver owns CardDustFx.
-        n += Bool8(payload, ref i, NetProtocol.TuneCardDustOn,
-                   Cards.CardsConfig.CardDust, Defaults.CardDust);
         // The PER-BOARD shapes, sampled for the sender's OWN style exactly like every other
         // per-board dial (the style itself rides the extras block, so only one is ever sent).
         n += Enum8(payload, ref i, NetProtocol.TuneRestCapShape,
                    CardsConfig.RestButtonShape(style), Defaults.RestButtonShape_ByBoard[b]);
         n += Enum8(payload, ref i, NetProtocol.TuneGenericCapShape,
                    CardsConfig.GenericButtonShape(style), Defaults.GenericButtonShape_ByBoard[b]);
+
+        // …and the CARD-DUST bool, LAST because 233 is the highest id sampled here. This is the
+        // 1:1 rule's "Animationen" half: a peer may not draw the owner's dust unless the owner has
+        // it on, and may not withhold it when they do. The effect itself is never sent — the
+        // receiver owns CardDustFx.
+        //
+        // IT SAT BEFORE THE SHAPES, AT ID 248, IN ModBuild 299..301 AND BROKE THE WHOLE RECORD —
+        // out of the count range AND out of ascending order. See NetProtocol.TuneNeverLive248 for
+        // both halves and for the check that now makes either one impossible to ship again.
+        n += Bool8(payload, ref i, NetProtocol.TuneCardDustOn,
+                   Cards.CardsConfig.CardDust, Defaults.CardDust);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record

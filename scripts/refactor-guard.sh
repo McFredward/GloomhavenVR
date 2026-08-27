@@ -40,6 +40,8 @@
 #                                      parts of a partial type, and MSBuild sorts the glob
 #   scripts/check-instrument-writes.py a diagnostic that writes state the MECHANISM reads can no
 #                                      longer be gated off or retired — baseline, fails on new
+#   scripts/check-tune-fields.py       a record-28 field id outside every width range silently
+#                                      kills the WHOLE record; the sampler must also ascend
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -205,6 +207,12 @@ case "${1:-check}" in
         # happening, because from inside your own headset your board is always right.
         python3 "$ROOT/scripts/check-wire-coverage.py" \
             || { echo "error: a board-affecting dial has no wire coverage (see above)" >&2; exit 1; }
+        # …and the THIRD half of it, which the first two could not see: a dial that IS wired, to an
+        # id outside every width range or out of the sampler's ascending order. Neither is visible
+        # in a build, a golden vector or the config surface, and the first one silently stops the
+        # WHOLE board-tuning record — see NetProtocol.TuneNeverLive248 for the build it shipped on.
+        python3 "$ROOT/scripts/check-tune-fields.py" \
+            || { echo "error: a board-tuning field id is out of range or out of order (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \
