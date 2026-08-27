@@ -37,7 +37,7 @@ internal enum RemoteBoardVisibility
 /// cards, initiative track, pile stacks, inert furniture) plus THREE transient reading fans that are
 /// rendered by their OWN classes and are NOT children of the board root —
 /// <see cref="RemoteItemFan"/>, <see cref="RemoteBrowserFan"/> and <see cref="RemoteCardFx"/>. Those
-/// classes never learned about the mode (the FX class only ever checked <see cref="Off"/>), so with
+/// classes never learned about the mode (the FX class only ever checked <c>PeerBoardFade.Off</c>), so with
 /// "Aus" or "Aktionsphase" a peer's item fan / discard-browse fan still bloomed in mid-air exactly
 /// where their hidden board would have been, and cards still flew to invisible pile stacks. Routing
 /// every one of them through this one predicate is what makes the panel control mean what it says.

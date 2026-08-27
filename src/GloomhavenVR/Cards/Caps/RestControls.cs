@@ -12,7 +12,7 @@ namespace GloomhavenVR.Cards;
 /// i.e. exactly the 2D widget path — the game's own yes/no confirmation dialog (now
 /// docked on the board, item 5), then <c>CardsHandUI.PerformShortRest</c> with its
 /// burn/redraw dialogs. The mod short button is the SOLE short-rest control: the native
-/// "Kurze Rast" widget never docks any more (<see cref="Surfaces.TrayControlDockSurface"/>
+/// "Kurze Rast" widget never docks any more (<see cref="WorldUI.Surfaces.TrayControlDockSurface"/>
 /// hardcodes <c>ShortRestDocked =&gt; false</c> and its docked-control list is empty), and
 /// <see cref="TickStatus"/> never consults it — visibility is
 /// <c>RestUiOffered &amp;&amp; (canShort || shortSelected)</c>, the outer term being the game's own

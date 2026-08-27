@@ -888,7 +888,7 @@ internal static partial class HauntFigures
         private static float _gaitBlend = -1f;
 
         /// <summary>The implied gait speed the EVENT assumed when it sized this run's path, in m/s at
-        /// full blend. Diagnostics only — see the <paramref name="impliedEstimate"/> parameter of
+        /// full blend. Diagnostics only — see the <c>impliedEstimate</c> parameter of
         /// <see cref="Request"/>.</summary>
         private static float _gaitEstimate;
 

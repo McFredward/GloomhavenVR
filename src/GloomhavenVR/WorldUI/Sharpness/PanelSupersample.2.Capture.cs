@@ -2159,7 +2159,7 @@ internal static partial class PanelSupersample
     /// persists are different reports, and this instrument cannot be read as the second one.</item>
     /// <item>WHAT THE SCAN FOUND AT THAT EXACT INSTANT, with its comparison count, its worst value
     /// and its threshold on the same line — including the MESH counters, which are new and which are
-    /// the only ones that can see the photograph's fault (see <see cref="ScanTmpMesh"/>).</item>
+    /// the only ones that can see the photograph's fault (see <c>ScanTmpMesh</c>).</item>
     /// <item>WHETHER THE DRAG WAS DROPPING FRAMES. The count, the worst frame time and the
     /// <see cref="DroppedFrameMs"/> threshold, so the moving complaint can be read as judder or not
     /// from the same line as the release.</item>

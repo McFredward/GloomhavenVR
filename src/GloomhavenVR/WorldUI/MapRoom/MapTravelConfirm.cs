@@ -2072,7 +2072,7 @@ internal static class MapTravelConfirm
     ///   only the absolute pose, so a turn could be confirmed but not measured, and the user had no
     ///   way to tell a dial that moved the button 9 mm from a dial that did nothing at all.</item>
     ///   <item>"Where would I have to set them to get what I asked for?" — see
-    ///   <see cref="AppendRecommendation"/>. THIS IS A NUMBER TO TYPE IN, NEVER A POSE THAT IS
+    ///   <c>AppendRecommendation</c>. THIS IS A NUMBER TO TYPE IN, NEVER A POSE THAT IS
     ///   APPLIED: three solved placements were rejected in a row (191/192/193) and the ruling is that
     ///   he does the moving. Printing the arithmetic is the opposite of taking it over — it hands him
     ///   the measurement he cannot take from inside the headset and leaves the decision where it

@@ -2209,7 +2209,7 @@ internal static class CardsGameApi
 
     /// <summary>
     /// The active hand's short-rest CONFIRMATION dialog (test #24 item 5:
-    /// <see cref="Surfaces.DecisionDockSurface"/> docks its Yes/No row on the control
+    /// <see cref="WorldUI.Surfaces.DecisionDockSurface"/> docks its Yes/No row on the control
     /// board so the "Bist du sicher?" prompt is pressable in VR instead of appearing
     /// mislocated next to the 2D button and deadlocking). It is a
     /// <c>YesNoDialog</c> (RequireComponent(UIWindow), serialized <c>yesButton</c>/

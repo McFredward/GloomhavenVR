@@ -752,7 +752,7 @@ internal sealed class RemoteBoardFurniture
     // ---------------------------------------------------------------- construction --
 
     /// <summary>
-    /// Build the inert furniture for a board of <paramref name="style"/>. With a real
+    /// Build the inert furniture for a board of <c>style</c>. With a real
     /// <paramref name="tray"/>, caps seat on the prefab anchors + the authored per-style offsets
     /// (see the class note); without one, on the legacy flat-board constants.
     /// <paramref name="slot0CardLocal"/>/<paramref name="slot1CardLocal"/> are the board-local
@@ -2211,7 +2211,7 @@ internal sealed class RemoteBoardFurniture
     private const float PromptLineHeight = 0.0168f;
 
     /// <summary>The prompt label's LAST MEASURED rendered height, board-local metres AFTER the dock
-    /// scale — <see cref="TextMeshPro.renderedHeight"/> off a forced mesh update, i.e. what the
+    /// scale — <c>TextMeshPro.renderedHeight</c> off a forced mesh update, i.e. what the
     /// glyphs actually occupy rather than what was authored for them. Zero until the first non-empty
     /// prompt has been laid out; <see cref="ApplyDecisionSeat"/> falls back to the authored line
     /// height then. This exists because the owner's own side has always measured (DamageTooltipSurface

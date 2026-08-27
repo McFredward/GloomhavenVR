@@ -14,7 +14,7 @@ namespace GloomhavenVR.WorldUI;
 /// under the item confirmation box), and would have to be undone perfectly on every interruption.
 /// So the removal is done at ELEMENT granularity from C# (<see cref="WindowMaterialiseRunner"/>
 /// writes <c>CanvasRenderer.SetAlpha</c>) and the DEBRIS is real world-space geometry —
-/// <see cref="WindowMaterialiseDebris"/> builds a shard mesh whose every vertex carries the
+/// <c>WindowMaterialiseDebris</c> builds a shard mesh whose every vertex carries the
 /// threshold of the point of the window it was torn from, and
 /// <c>Assets/Bundle/Table/WindowMaterialise.shader</c> flies it in its vertex stage. The two only
 /// agree — a shard leaving exactly where its patch of window went dark — if they compute the same

@@ -727,7 +727,7 @@ internal readonly struct RemoteBoardTuning
     public float RestCapHeight { get; }
 
     /// <summary>[Cards] RestButtonShape_{board} — ROUND disc or SQUARE keycap for the peer's rest
-    /// pair. Resolved through the same KNOWN-MEMBER test as <see cref="RoundCapShape"/>.</summary>
+    /// pair. Resolved through the same KNOWN-MEMBER test as <c>RoundCapShape</c>.</summary>
     public ButtonShape RestCapShape { get; }
 
     /// <summary>[Cards] GenericButtonShape_{board} — ROUND or SQUARE for the peer's Confirm / Undo /

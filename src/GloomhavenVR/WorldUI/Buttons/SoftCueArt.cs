@@ -16,7 +16,7 @@ namespace GloomhavenVR.WorldUI;
 /// <list type="bullet">
 /// <item><see cref="FrameSprite"/> — the hollow, 9-sliced, soft-falloff OUTLINE first built for the
 ///   initiative-order "still has to choose" ring (<c>InitiativeSelectionGlow</c>). Extracted here
-///   verbatim (with <paramref name="cornerRadiusPx"/> 0 reproducing the initiative sprite pixel for
+///   verbatim (with <c>cornerRadiusPx</c> 0 reproducing the initiative sprite pixel for
 ///   pixel) so the item-card "usable now" frame and the initiative ring are literally the SAME
 ///   sprite recipe and therefore read as one design language.</item>
 /// <item><see cref="MoteTexture"/> — a soft ROUND dot for particle cues, so a hint that lives on a
@@ -499,8 +499,8 @@ internal static class SoftCueArt
 
 /// <summary>
 /// Self-driven "breath" for a <see cref="SoftCueArt.FrameSprite"/> outline: alpha swings between
-/// <see cref="MinAlpha"/> and <see cref="MaxAlpha"/> while the frame scales by up to
-/// <see cref="InitiativeSelectionGlow.ScalePulse"/>, the exact pair of motions the initiative ring wears (there driven from
+/// <c>MinAlpha</c> and <c>MaxAlpha</c> while the frame scales by up to
+/// <see cref="Surfaces.InitiativeSelectionGlow.ScalePulse"/>, the exact pair of motions the initiative ring wears (there driven from
 /// <c>SelectionReadyHighlighter</c>'s own tick) — so the two cues breathe alike.
 ///
 /// WHY IT DRIVES ITSELF: the item-card frame has no per-frame owner willing to push an alpha (the

@@ -5412,7 +5412,7 @@ internal sealed class ItemsPile
         /// then destroy this chip. The owner has already re-parented the chip out of the fan root so it
         /// keeps updating after the root deactivates. Disables the collider so it can't be grabbed mid-collapse.
         ///
-        /// <para><paramref name="delay"/> is the REVERSE ripple (outermost chip first — see
+        /// <para><c>delay</c> is the REVERSE ripple (outermost chip first — see
         /// <see cref="ItemsPile.CollapseChips"/>). While it runs down the chip holds the exact world
         /// pose captured here, because the collapse curve is the identity at t = 0: a chip waiting its
         /// turn is standing still, never hidden and never moved.</para>

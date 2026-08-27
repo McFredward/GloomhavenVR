@@ -719,8 +719,8 @@ internal sealed partial class PlayTray
     ///
     /// <para>False when no board exists or a transform is degenerate — callers then skip their
     /// clamp (push) or fall back to the generic factor range (gesture window).
-    /// <paramref name="parent"/>/<paramref name="rigScale"/>/<paramref name="divisor"/> are
-    /// surfaced for the diagnostic lines only; <paramref name="divisor"/> is now always equal to
+    /// <paramref name="parent"/>/<paramref name="rigScale"/>/<c>divisor</c> are
+    /// surfaced for the diagnostic lines only; <c>divisor</c> is now always equal to
     /// <paramref name="rigScale"/> and is kept as a separate out-parameter so the BOARD ANCHOR line
     /// keeps printing the quotient it has printed since ModBuild 162 — a future change that
     /// re-freezes it would show up in that log instead of silently.</para>

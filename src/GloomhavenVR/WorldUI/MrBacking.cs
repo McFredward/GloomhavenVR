@@ -248,7 +248,7 @@ internal static class MrBacking
         public bool LabelRendererProbed;
 
         /// <summary>The owner declared that this label DISAPPEARS BY FADING its own colour alpha
-        /// (see <see cref="Label(TMP_Text?, bool)"/>) — the only labels whose plate follows that
+        /// (see <c>Label(TMP_Text?, bool)</c>) — the only labels whose plate follows that
         /// alpha. False for every other registrant, including the ones that sit at a steady
         /// sub-1 alpha by design.</summary>
         public bool Fades;

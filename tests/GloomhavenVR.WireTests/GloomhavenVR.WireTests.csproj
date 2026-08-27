@@ -39,6 +39,15 @@
     <RootNamespace>GloomhavenVR.WireTests</RootNamespace>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
+    <!--
+      CS1574 off HERE ONLY, and by construction rather than by retreat. This project compiles a
+      deliberately chosen SUBSET of the mod's sources (see the Compile items below and the reason
+      written at each). A doc comment inside one of them may reference EnvSoundBank, ConfigCatalog,
+      Flight, HandStyle and so on — types that exist in the plugin and are simply not part of this
+      compilation. The reference is correct; it just cannot resolve in a unit that does not contain
+      the type. The plugin's own build checks all of them, as an error.
+    -->
+    <NoWarn>$(NoWarn);CS1574</NoWarn>
     <IsPackable>false</IsPackable>
     <!-- The mod's own analyzers/publicizer are irrelevant here and would need the game refs. -->
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

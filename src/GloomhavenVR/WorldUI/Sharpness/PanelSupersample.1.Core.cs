@@ -418,7 +418,7 @@ internal static partial class PanelSupersample
     /// the panel is changing. The measurement is an O(subtree) walk — 2700 transforms on the party
     /// window in the ModBuild 192 log — so it is not run per frame for a settled window; every
     /// event that could invalidate it (host rect, scale, pose, a stand-up) forces it immediately
-    /// instead, which is what <see cref="MarkGeometryDirty"/> is for.
+    /// instead, which is what <c>MarkGeometryDirty</c> is for.
     /// </summary>
     private const int ContentMeasureIntervalFrames = 15;
 
@@ -742,7 +742,7 @@ internal static partial class PanelSupersample
     /// <summary>Hard cap on the (parent, sub-mesh) pair cache the per-frame invariant repair walks.
     /// The character window carries 19 sub-meshes; 512 is two orders above anything measured and
     /// exists only so a pathological window cannot turn a per-frame compare loop into a spike. When
-    /// it bites, <see cref="Entry.CullPairsTruncated"/> says so and every count below it is a LOWER
+    /// it bites, <c>Entry.CullPairsTruncated</c> says so and every count below it is a LOWER
     /// BOUND — the standing rule that a truncated instrument must never read clean.</summary>
 
     /// <summary>How many latched sub-meshes the report names in full. The COUNT is always printed
@@ -1012,7 +1012,7 @@ internal static partial class PanelSupersample
     /// <summary>
     /// One (TextMeshPro parent, TMP sub-mesh child) pair the per-frame cull invariant checks. Held in
     /// a cache rather than re-walked, because the walk that finds them costs a measured ~1.7 ms and
-    /// the check itself is one boolean compare — see <see cref="RepairSubMeshCull"/>.
+    /// the check itself is one boolean compare — see <c>RepairSubMeshCull</c>.
     /// </summary>
     private readonly struct CullPair
     {
@@ -1924,7 +1924,7 @@ internal static partial class PanelSupersample
         /// THE LATCH, AND THE WHOLE OF "MANCHE ELEMENTE SIND NICHT SICHTBAR".</b>
         ///
         /// <para>The mechanism, the two decompiled quotations that prove it and the repair are on
-        /// <see cref="RepairSubMeshCull"/>. In one sentence: TMP writes a sub-mesh's cull flag ONLY
+        /// <c>RepairSubMeshCull</c>. In one sentence: TMP writes a sub-mesh's cull flag ONLY
         /// from inside <c>TextMeshProUGUI.Cull</c>'s <c>if (m_canvasRenderer.cull != flag)</c> guard,
         /// and uGUI's own <c>MaskableGraphic.UpdateClipParent</c> can clear the PARENT's flag through
         /// a private non-virtual <c>UpdateCull</c> that does not run that loop — after which the

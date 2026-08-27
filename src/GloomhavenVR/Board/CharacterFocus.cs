@@ -932,7 +932,7 @@ internal static class CharacterFocus
     /// guess: grep the log for <c>switch REFUSED</c> and the reason is right there. Exactly TWO
     /// reasons can ever appear in that position: the card-selection phase
     /// (<see cref="SecretWindowReason"/>, the global gate) and <c>FOCUS PIN</c>
-    /// (<see cref="PinRefusal"/>, the actor-dependent one, bounded by a live hex pick belonging to
+    /// (<c>PinRefusal</c>, the actor-dependent one, bounded by a live hex pick belonging to
     /// one of this player's characters). Anything else there is a regression, not a design decision.
     /// </summary>
     private static void LogRefusal(CPlayerActor player, string why)

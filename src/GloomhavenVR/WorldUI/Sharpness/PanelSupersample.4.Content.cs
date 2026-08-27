@@ -134,7 +134,7 @@ internal static partial class PanelSupersample
     /// simply not in the picture — permanently, until something re-measures. That is <i>"manche
     /// Elemente nicht sichtbar"</i>, and it is random because it depends on which side of the boundary
     /// the last sample fell. (It is NOT the only mechanism producing that sentence; the other, and the
-    /// larger one, is the TMP sub-mesh cull latch — see <see cref="RepairSubMeshCull"/>.)</para>
+    /// larger one, is the TMP sub-mesh cull latch — see <c>RepairSubMeshCull</c>.)</para>
     ///
     /// <para><b>WHAT ModBuild 201 GOT RIGHT AND WHAT IT LEFT OPEN.</b> The 32 px quantum was added to
     /// stop the sub-pixel PHASE re-rolling on every measurement and it succeeded at that: the frame no
@@ -1889,7 +1889,7 @@ internal static partial class PanelSupersample
     /// measured clean is regenerated only when <paramref name="repairAll"/> and its walk index is at or
     /// past the cursor. When the cap bites the pass records where to resume and marks itself TRUNCATED;
     /// when a pass reaches the end of the walk under the cap, the cursor wraps to 0 and one full sweep
-    /// is complete. Every one of those numbers is printed (<see cref="ReportSubMeshCull"/>'s
+    /// is complete. Every one of those numbers is printed (<c>ReportSubMeshCull</c>'s
     /// REGENERATION field), so a truncated pass can never again be reported in language implying
     /// completeness.</para>
     /// </summary>

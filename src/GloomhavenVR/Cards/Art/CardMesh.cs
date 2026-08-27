@@ -668,7 +668,7 @@ internal static class CardMesh
     /// instead of being cut to "AUSWAHL BEEN" — see <c>CapFaceLayout</c> for the report and the
     /// arithmetic.</para>
     ///
-    /// <para>The cap spans local z = −<paramref name="thickness"/> (front, viewer side) to 0 (back),
+    /// <para>The cap spans local z = −<c>thickness</c> (front, viewer side) to 0 (back),
     /// matching the old placement, so the press travel and the collider are unchanged. Each face
     /// carries its own flat-shaded vertices and normal; triangle winding is derived from the outward
     /// normal so every face is front-facing regardless of corner order. Watertight counts:

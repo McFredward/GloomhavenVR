@@ -29,7 +29,7 @@ namespace GloomhavenVR.WorldUI;
 /// (<c>UIManager.ToggleLockUI</c>, verified: <c>public void ToggleLockUI(bool active)
 /// { graphicRaycaster.enabled = !active; for (...) graphicRaycasters[i].enabled =
 /// !active; }</c>). Our host raycasters are NOT in those lists, so the lock is
-/// mirrored here: <see cref="VREvents.UiLockChanged"/> plus module-side soft locks
+/// mirrored here: <c>Core.VREvents.UiLockChanged</c> plus module-side soft locks
 /// (phase banner) disable every host raycaster.
 ///
 /// REVERSIBILITY: <see cref="Release"/>/<see cref="ReleaseAll"/> restore parent,
@@ -426,7 +426,7 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
-    /// Place a host in the world: <paramref name="pose"/> in world units,
+    /// Place a host in the world: <c>pose</c> in world units,
     /// <paramref name="worldScale"/> = diorama scale (game units per real meter).
     /// The panel's physical size becomes pixels × CanvasScaleMm, read at call time.
     /// </summary>

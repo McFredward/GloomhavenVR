@@ -15033,7 +15033,7 @@ internal static class NetProtocol
     /// <para><b>ADDITIVE WITHIN THE RECORD.</b> A reader that only knows the 5-byte form still
     /// requires <c>len &gt;= 5</c>, reads the style and the clock exactly as before, and steps over
     /// the sixth byte with the record's own length — the same mechanism
-    /// <see cref="BoardUiRecordBytesWithCap"/> uses. No new record id, no wire-version bump.</para>
+    /// <c>BoardUiRecordBytesWithCap</c> uses. No new record id, no wire-version bump.</para>
     ///
     /// <para><b>THE MASTER SWITCH DELIBERATELY DOES NOT TRAVEL.</b> <c>[Haunt] EasterEggs</c> stays
     /// LOCAL and there is no bit here for it. The standing settings ruling is that a setting may
@@ -17880,7 +17880,7 @@ internal static class NetProtocol
     /// the track can carry a few more player rows at once because exhausted heroes are appended
     /// (<c>InitiativeTrack.UpdateInitiativeTrack</c> adds <c>ExhaustedPlayers</c>), so six is
     /// headroom over every real table. It bounds the record at 2 + 6×4 = 26 payload bytes, and it
-    /// also bounds <see cref="TrackOrderOwnedMask"/>'s meaning: bit k for k &lt; 6, so the mask can
+    /// also bounds <see cref="PresenceState.TrackOrderOwnedMask"/>'s meaning: bit k for k &lt; 6, so the mask can
     /// never be asked about an id that does not exist. Clamped on BOTH ends — the reader re-clamps
     /// against the record length as well, never trusting the wire.</summary>
     public const int TrackOrderMaxIds = 6;

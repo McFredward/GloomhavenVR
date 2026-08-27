@@ -429,7 +429,7 @@ internal static class WallStandingProp
     /// gains is the ability to ask for the verdict alone and to build the sentence only for the
     /// rows a capped census will actually print.</para>
     ///
-    /// <para><paramref name="vegetation"/> is deliberately absent here: it is REPORTED ONLY
+    /// <para><c>vegetation</c> is deliberately absent here: it is REPORTED ONLY
     /// (ModBuild 258) and decides nothing, which is exactly why it belongs to
     /// <see cref="Describe"/> and not to this method. If it ever acquires a term, it must be
     /// added HERE and the two halves re-joined — a fact that decides something and lives only in

@@ -43,7 +43,7 @@ namespace GloomhavenVR.Cards.Patches;
 /// through the game's own dialogs; P3c makes them world-space).
 ///
 /// The postfixes below only (a) lazily arm suppression when a scenario hand appears
-/// and (b) raise <see cref="CardsSignals.HandShown"/> so the VR layer rebuilds.
+/// and (b) raise <c>Core.VREvents.HandShown</c> so the VR layer rebuilds.
 /// Both target methods verified in the real DLL (PATCH-TARGETS §1.4 + corrections #7):
 /// the 3 Show overloads chain: single-pile (:734) forwards to the List overload
 /// (:739); the active-hand overload (:813) and ShowCoroutine (:838, iterator) do NOT

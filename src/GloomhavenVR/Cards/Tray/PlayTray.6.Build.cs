@@ -946,7 +946,7 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
-    /// Task #5a: a BoardLit keycap material tinted <paramref name="color"/>, with the shared
+    /// Task #5a: a BoardLit keycap material tinted <c>color</c>, with the shared
     /// carved-grain texture assigned to <c>_MainTex</c> (and the normal map to <c>_BumpMap</c>
     /// when present) IF the bundle ships it. BoardLit does <c>alb = tex2D(_MainTex,uv) * _Color</c>,
     /// so a grayscale grain × the per-submesh state colour keeps the top-state / lit-bevel /

@@ -327,7 +327,7 @@ internal static class WorldUIConfig
     /// 0.96 x 1.20 m map) rounded up: at or above it no point of the ring can stand over the map,
     /// so no shared window can hide the thing the player is clicking. Below it, wide windows are
     /// pushed off the arc by the map-occlusion floor instead. Live-tunable in the debug menu
-    /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <see cref="ConfigTopic.Panels"/> and the group is
+    /// (Panels ▸ Shared — <c>[WorldUI]</c> maps to <c>ConfigTopic.Panels</c> and the group is
     /// the key's own leading word).</para>
     /// </summary>
     internal static ConfigEntry<float> SharedWindowArcRadiusMeters = null!;

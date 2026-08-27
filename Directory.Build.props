@@ -81,23 +81,6 @@
     -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1573;CS1591;CS0419</NoWarn>
-    <!--
-      CS1574 IS A WARNING, NOT AN ERROR — for now, and on a ratchet.
-
-      Turning cref checking on for the first time found 63 dangling references. 23 were a
-      QUALIFICATION problem (the symbol is alive; the comment names it from a file that does not
-      import its namespace) and are fixed. The rest each need reading, and several are not a
-      typo but a claim that has gone false: four crefs name BeginStandingPropScope, a method that
-      no longer exists, inside sentences that say what it does. Rewriting those correctly means
-      finding out what took over, which is archaeology rather than a rename.
-
-      Blocking the build on 40 items nobody has read yet would mean either doing the archaeology
-      under time pressure or switching the whole check off — and the second is what actually
-      happens. So it rides scripts/ci-build.sh's warning ratchet instead, exactly like the six
-      nullable warnings did: the current count is accepted, a NEW one fails, and the number only
-      goes down. When it reaches zero, delete this block.
-    -->
-    <WarningsNotAsErrors>$(WarningsNotAsErrors);CS1574;CS1734</WarningsNotAsErrors>
     <Nullable>enable</Nullable>
     <!--
       TreatWarningsAsErrors, on since 2026-08-27 — the day the warning count reached ZERO.

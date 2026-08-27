@@ -108,7 +108,7 @@ internal sealed class NetModule : IVRModule
     /// <summary>
     /// Bind the [Net] config entries (bind-once). Separated from <see cref="Init"/> so the mask
     /// picker + mirror can force it even in scenarios where the networking hook is off; the
-    /// entries always exist for <see cref="LocalRigSampler"/>, <see cref="SettingsPanel"/> and
+    /// entries always exist for <see cref="LocalRigSampler"/>, <c>SettingsPanel</c> and
     /// <see cref="WorldUI.AvatarMirror"/> to read.
     /// </summary>
     internal static void BindConfig()

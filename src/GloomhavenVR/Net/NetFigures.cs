@@ -163,7 +163,7 @@ internal static class NetFigures
     /// after a ramp from the wrong size.</para>
     ///
     /// <para>Bounded by the player count and cleared with the player (<see cref="ReleaseRemote"/>,
-    /// <see cref="Clear"/>), so it cannot grow.</para>
+    /// <c>Clear</c>), so it cannot grow.</para>
     /// </summary>
     private static readonly Dictionary<int, (float Primary, float Secondary)> _lastStretch = new();
 

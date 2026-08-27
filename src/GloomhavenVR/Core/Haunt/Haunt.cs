@@ -370,7 +370,7 @@ internal static partial class Haunt
     /// authored to fill the retired slot, while the wood was left with three.
     ///
     /// <para>SIX OR THREE, AND NOTHING BETWEEN, and that is a property of the SCHEDULE rather than a
-    /// preference: <see cref="Schedule"/> partitions slots into <c>Groups</c> = 3 and picks within a
+    /// preference: <c>Schedule</c> partitions slots into <c>Groups</c> = 3 and picks within a
     /// group with <c>round(cards / 3)</c>, so a five-card room would index card 5 in a third of its
     /// group-2 slots and draw nothing at all for those. <c>AssertHauntCards</c> in the bake states
     /// the same rule from its side.</para>

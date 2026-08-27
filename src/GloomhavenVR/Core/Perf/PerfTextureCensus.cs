@@ -111,7 +111,7 @@ namespace GloomhavenVR.Core;
 ///
 /// <para>MULTIPLAYER / REVERSIBILITY. Reads state, writes one log line. It never touches a game
 /// object, a material, a texture, game state or wire traffic. It holds Texture/Material references
-/// only between <see cref="Begin"/> and <see cref="Append"/> inside a single window, and both ends
+/// only between <see cref="Begin"/> and <c>Append</c> inside a single window, and both ends
 /// clear them.</para>
 /// </summary>
 internal static class PerfTextureCensus

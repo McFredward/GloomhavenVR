@@ -18,7 +18,7 @@ internal static partial class ModalFallback
     /// flat screen for it instead.
     /// </summary>
     /// <summary>
-    /// True when <paramref name="window"/> is one of the full-screen menus (ESC / options
+    /// True when <c>window</c> is one of the full-screen menus (ESC / options
     /// family) AND its root rect genuinely fills the screen. Only these are exempted from
     /// the central content fit (P6 flicker fix): they are meant to float as a whole screen,
     /// so their host must stay fixed at the window's own rect rather than being re-measured

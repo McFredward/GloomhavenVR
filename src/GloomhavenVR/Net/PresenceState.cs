@@ -651,7 +651,7 @@ internal struct PresenceState
     public int DecisionRoleCount;
 
     /// <summary>Per-option role codes (<see cref="NetProtocol.DecisionRoleUnknown"/> …
-    /// <see cref="NetProtocol.DecisionRoleNo"/>). May be longer than
+    /// <c>NetProtocol.DecisionRoleNo</c>). May be longer than
     /// <see cref="DecisionRoleCount"/> — the sender passes its persistent sample buffer; only the
     /// first count entries go on the wire.</summary>
     public byte[]? DecisionRoles;

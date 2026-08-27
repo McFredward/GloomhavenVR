@@ -141,7 +141,7 @@ internal sealed class RemoteTrayVisual
         VRCardFactory.PeekTrayPrefab(style) != null;
 
     /// <summary>
-    /// Clone the real board asset for <paramref name="style"/> under <paramref name="boardRoot"/>
+    /// Clone the real board asset for <c>style</c> under <paramref name="boardRoot"/>
     /// and align its anchors. Null → caller keeps the flat-quad fallback (bundle absent, or an
     /// old bundle whose prefab lacks the anchor set — then a mis-aligned mesh would be worse
     /// than the honest fallback).

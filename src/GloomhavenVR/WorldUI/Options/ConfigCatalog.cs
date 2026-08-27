@@ -163,7 +163,7 @@ internal static class ConfigCatalog
 
         /// <summary>
         /// Step at multiplier 1. Filled in a SECOND PASS over the whole catalog, not in
-        /// <see cref="Classify"/> — see <see cref="ResolveStep"/>: the step depends on the largest
+        /// <see cref="Classify"/> — see <c>ResolveStep</c>: the step depends on the largest
         /// magnitude in the entry's FAMILY, which is not knowable until every entry has been read.
         /// </summary>
         internal double BaseStep = 1d;

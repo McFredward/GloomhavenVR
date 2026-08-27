@@ -596,9 +596,9 @@ internal sealed partial class PlayTray
     // -------------------------------------------------- pick banner + keycap overrides --
 
     /// <summary>
-    /// EVENT-DISCARD VR FLOW: driver-pushed pick status. <paramref name="banner"/> is the
+    /// EVENT-DISCARD VR FLOW: driver-pushed pick status. <c>banner</c> is the
     /// progress line shown on the hovering placard above the board's top edge (null hides
-    /// it); <paramref name="confirmLabel"/>/<paramref name="undoLabel"/> override the
+    /// it); <c>confirmLabel</c>/<c>undoLabel</c> override the
     /// CONFIRM/UNDO keycap labels while a pick confirm affordance is live (null returns
     /// each keycap to its normal game-state logic in <see cref="TickStatus"/>). The
     /// banner text write is change-gated (TMP rewrites re-trigger auto-size layout —

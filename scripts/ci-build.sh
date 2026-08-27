@@ -48,9 +48,9 @@ LOG="$ROOT/build-ci.log"
 # zero, ANY warning of ANY kind in ANY file fails this gate, which is the strongest form it has
 # ever had. If a warning is ever accepted again, put its code and file back here rather than
 # raising the count alone.
-EXPECT_WARNINGS=58
-EXPECT_CODES="CS1574 CS1734"
-EXPECT_FILES="BoardTuning.cs CanvasConversion.1.Core.cs CardActionQueue.cs CardMesh.cs CardsGameApi.cs CharacterFocus.cs ConfigCatalog.cs FlatScreenStereo.3.Map.cs HandSuppressionPatches.cs Haunt.cs HauntFigures.Clone.cs ItemsPile.cs MapIconLayer.cs MapTravelConfirm.cs ModalFallback.8.Convert.cs MrBacking.cs NetFigures.cs NetModule.cs NetProtocol.cs PanelInkBounds.cs PanelSupersample.1.Core.cs PanelSupersample.2.Capture.cs PanelSupersample.4.Content.cs PerfTextureCensus.cs PlayTray.2.Watchdog.cs PlayTray.5.Status.cs PlayTray.6.Build.cs PresenceState.cs RemoteBoardFurniture.cs RemoteBoardVisibility.cs RemoteItemFan.cs RemoteTrayVisual.cs RestControls.cs SoftCueArt.cs TablePanelSurfaces.cs WallSegmentFade.PropUnit.cs WallStandingProp.cs WaterReflectionCaps.cs WindowMaterialiseDebris.cs WindowMaterialiseField.cs WorldUIConfig.cs"
+EXPECT_WARNINGS=0
+EXPECT_CODES=""
+EXPECT_FILES=""
 
 set -o pipefail
 bash "$ROOT/scripts/build.sh" "$CONFIG" 2>&1 | tee "$LOG"

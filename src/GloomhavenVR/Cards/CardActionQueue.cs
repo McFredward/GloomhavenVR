@@ -15,7 +15,7 @@ namespace GloomhavenVR.Cards;
 /// the block lands on a single frame boundary (reprojection covers it) and never
 /// re-enters game code from within another callback.
 ///
-/// <paramref name="onDone"/> runs immediately after the action on the same frame —
+/// <c>onDone</c> runs immediately after the action on the same frame —
 /// by then the SRL has acked (or timed out), so game state reads are final and the
 /// caller can verify the outcome (e.g. "did the card actually enter the round?").
 /// </summary>

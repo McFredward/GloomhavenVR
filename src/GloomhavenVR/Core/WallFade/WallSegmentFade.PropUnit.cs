@@ -252,7 +252,7 @@ internal static partial class WallSegmentFade
         /// <c>FigureAncestryMemo</c> makes, and the same one the two root memos above already
         /// rely on.</para>
         ///
-        /// <para>LIFETIME. Cleared once per commit in <see cref="BeginStandingPropScope"/> — the
+        /// <para>LIFETIME. Cleared once per commit in <c>BeginStandingPropScope</c> — the
         /// FIRST scope of the rescan, opened before any wall is refreshed — and deliberately NOT
         /// re-cleared in <see cref="BeginPropUnitScope"/>: sharing them across the standing pass
         /// and the prop-unit pass is where most of the saving is, and unlike the root memos these
@@ -264,7 +264,7 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Transform, bool> _nodeIsWallEntity = new(256);
         private readonly Dictionary<Transform, bool> _nodeContainsWallEntity = new(256);
 
-        /// <summary>True only between <see cref="BeginStandingPropScope"/> (the first scope of a
+        /// <summary>True only between <c>BeginStandingPropScope</c> (the first scope of a
         /// commit) and <c>EndCommitPhases</c> (its <c>finally</c>). OUTSIDE that window — the
         /// WALL-PATH AUDIT reaches the same walk from the heartbeat, which runs after the commit
         /// has closed — every fact is taken live, so the constancy argument above only ever has
@@ -272,7 +272,7 @@ internal static partial class WallSegmentFade
         private bool _nodeFactsActive;
 
         /// <summary>Drop the per-node fact memos and open the window in which they may be read.
-        /// Called from <see cref="BeginStandingPropScope"/> at the top of every commit.</summary>
+        /// Called from <c>BeginStandingPropScope</c> at the top of every commit.</summary>
         private void ClearNodeFactMemos()
         {
             _nodeRendererCount.Clear();
@@ -797,7 +797,7 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Re-read the segment anchors the unit walk must stop at. Called from
-        /// <see cref="BeginStandingPropScope"/> at the top of the rescan (the standing rule's
+        /// <c>BeginStandingPropScope</c> at the top of the rescan (the standing rule's
         /// FLOOR arm walks before any wall has been refreshed) and again from
         /// <see cref="BeginPropUnitScope"/> once the table is final. A wall adopted for the first
         /// time THIS rescan is therefore missing from the early set for one pass — and the size

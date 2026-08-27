@@ -35,7 +35,7 @@ namespace GloomhavenVR.Core;
 /// rounds in. So roughness inverts explicitly (<see cref="WaterCapFamily.Rough"/>) and is
 /// floored at <c>1 - smoothnessCap</c>. A property whose name says BOTH (something matching
 /// "rough" and "gloss" at once) has no readable direction at all and is refused outright rather
-/// than guessed at — <see cref="Classify"/> returns <see cref="WaterCapFamily.None"/> and the
+/// than guessed at — <c>Classify</c> returns <see cref="WaterCapFamily.None"/> and the
 /// caller logs the refusal by name, so the next hardware log can name what we declined to
 /// touch.</para>
 ///

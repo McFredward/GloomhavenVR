@@ -140,7 +140,7 @@ internal static partial class WindowMaterialise
 
     private static readonly Stack<Mesh> MeshPool = new(8);
 
-    /// <summary>Front half, then behind half. See <see cref="Half"/>.</summary>
+    /// <summary>Front half, then behind half. See <c>Half</c>.</summary>
     private const int Halves = 2;
     private const int HalfFront = 0;
     private const int HalfBehind = 1;

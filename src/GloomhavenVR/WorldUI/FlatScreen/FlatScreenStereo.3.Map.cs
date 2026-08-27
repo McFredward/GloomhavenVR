@@ -305,7 +305,7 @@ internal sealed partial class FlatScreenStereo
     /// <summary>
     /// Configure + enable the mod FORWARD camera so it renders the REAL parchment mesh into the base RT
     /// this frame; disable it whenever the map capture is not engaged / not ready. The camera clones the
-    /// game map camera (<paramref name="mapSource"/>) — world pose, and (in
+    /// game map camera (<c>mapSource</c>) — world pose, and (in
     /// <see cref="OnPreCullCamera"/>/<see cref="OnPreRenderCamera"/>) the game camera's RENDER-TIME
     /// view+projection captured from its own onPreRender — so the mesh, drawn at its true GPU vertex
     /// positions, projects to exactly the same screen coordinates as the game's own map and pans/zooms

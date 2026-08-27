@@ -677,7 +677,7 @@ internal static class PanelInkBounds
     /// <para>THE FIX IS DEPTH, NOT A NEW SIGNAL. <see cref="SignatureDepth"/> is 2 because 2 is what
     /// the measured hierarchy needs and every level costs a per-frame walk on every floated window.
     /// It is bounded twice — <see cref="SignatureMaxNodes"/> and the transient skip below — and the
-    /// budget being reached is REPORTED (<paramref name="truncated"/>) rather than silently changing
+    /// budget being reached is REPORTED (<c>truncated</c>) rather than silently changing
     /// the answer, because a signature that quietly stops covering a subtree looks exactly like a
     /// window that never changes ([[sentinel-overflow-and-silent-scans]]).</para>
     ///

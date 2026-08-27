@@ -1208,7 +1208,7 @@ internal sealed class RemoteItemFan
 
     /// <summary>
     /// Close edge: glide every chip back INTO the sender's items stack over
-    /// <see cref="CollapseSeconds"/> instead of blinking the fan out — the replay of
+    /// <c>CollapseSeconds</c> instead of blinking the fan out — the replay of
     /// <c>ItemsPile.CollapseChips</c>. The root pose is frozen for the duration and the chips are
     /// driven in WORLD space, mirroring how the local chips are re-parented out of the fan root
     /// before they glide. Returns false (caller hides instantly) when there is nothing to collapse
