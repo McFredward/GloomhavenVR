@@ -1953,6 +1953,16 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasDecisionLines = true;
             extras.DecisionLinesText = decisionNow;
         }
+        // DECISION NAMES (extension record 33): the card-name KEYS the mandatory-use hint is
+        // prefixed with. The sampler fills this ONLY for that one text variant and ONLY while
+        // RevealGate.PeersSeeOurCardFronts is open, so it is null on essentially every packet and
+        // costs nothing — see DamageTooltipSurface.SampleMandatoryNames for both gates.
+        string? decisionNames = WorldUI.Surfaces.DamageTooltipSurface.WireMandatoryNames;
+        if (!string.IsNullOrEmpty(decisionNames))
+        {
+            extras.HasDecisionNames = true;
+            extras.DecisionNamesText = decisionNames;
+        }
         if (decisionChanged)
         {
             _lastSentDecisionLines = decisionNow;

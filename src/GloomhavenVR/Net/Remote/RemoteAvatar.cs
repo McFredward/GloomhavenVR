@@ -362,6 +362,12 @@ internal sealed class RemoteAvatar
     /// (<see cref="RemoteBoardFurniture"/>).</summary>
     public string? DecisionLines { get; private set; }
 
+    /// <summary>The '\n'-joined LOCALIZATION KEYS of the cards this owner's mandatory-use hint is
+    /// prefixed with (extension record 33), or null while none ride. The receiver localizes each
+    /// key ITSELF, so the names read in the VIEWER's language — see
+    /// <see cref="NetProtocol.ExtIdDecisionNames"/>.</summary>
+    public string? DecisionNames { get; private set; }
+
     /// <summary>WHICH prompt the owner has docked (extension record 23 flags bits 0..2, one of
     /// <see cref="NetProtocol.DecisionKindNone"/> …). <see cref="NetProtocol.DecisionKindNone"/>
     /// while no state record rides — including for a sender that predates the record, whose
@@ -1007,6 +1013,7 @@ internal sealed class RemoteAvatar
         // the sender writes the record on every packet while a row is docked AND VISIBLE on their
         // board, and omits it the moment it undocks OR they look at another character (user ruling
         // 2026-08-08 — their board shows nothing there, so neither does this copy).
+        DecisionNames = p.HasDecisionNames ? p.DecisionNamesText : null;
         string? decision = p.HasDecisionLines ? p.DecisionLinesText : null;
         if (decision != DecisionLines)
         {

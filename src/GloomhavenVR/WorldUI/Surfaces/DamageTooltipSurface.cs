@@ -377,6 +377,18 @@ internal sealed class DamageTooltipSurface : WorldSurface
     private void PublishWireVariant()
     {
         byte variant = Panel != null ? ClassifyTip() : NetProtocol.DecisionTextNone;
+        // The names ride ONLY with the variant that prints them, so every other prompt keeps the
+        // packet it had. Resolved here rather than inside ClassifyTip because that method is a pure
+        // classification and must stay one.
+        string? names = null;
+        if (variant == NetProtocol.DecisionTextMandatoryUse
+            && Singleton<TakeDamagePanel>.IsInitialized)
+        {
+            TakeDamagePanel? panel = Singleton<TakeDamagePanel>.Instance;
+            if (panel != null)
+                names = SampleMandatoryNames(panel);
+        }
+        WireMandatoryNames = names;
         WireTextVariant = variant;
         if (_loggedWireVariant == variant)
             return;
@@ -441,6 +453,75 @@ internal sealed class DamageTooltipSurface : WorldSurface
         catch (System.Exception)
         {
             return NetProtocol.DecisionTextNone;
+        }
+    }
+
+    /// <summary>
+    /// MULTIPLAYER READ SEAM (wire record <c>NetProtocol.ExtIdDecisionNames</c>): the '\n'-joined
+    /// LOCALIZATION KEYS of the cards the owner's mandatory-use hint is prefixed with. Null
+    /// whenever nothing may or need be said.
+    /// </summary>
+    internal static string? WireMandatoryNames { get; private set; }
+
+    /// <summary>
+    /// Collect the card-name KEYS the game itself prefixes onto the mandatory-use line
+    /// (TakeDamagePanel.cs:325-333) — the same bar, the same filter, in the same order.
+    ///
+    /// <para>KEYS AND NOT WORDS. The game renders each through
+    /// <c>LocalizationNameConverter.MultiLookupLocalization(bonus.BaseCard.Name)</c>, so
+    /// <c>BaseCard.Name</c> is the key; sending keys lets every receiver read the names in ITS own
+    /// language instead of the sender's. It also keeps this seam free of the red-and-font markup the
+    /// game wraps them in — the receiver applies its own, which is what the mirrored line has always
+    /// done with the hint itself.</para>
+    ///
+    /// <para>THE GATE IS NOT OPTIONAL AND IT IS NOT DECORATIVE. A card name is card identity, and
+    /// the standing rule is that identity reveals only through <see cref="Net.RevealGate"/>. This
+    /// asks <c>PeersSeeOurCardFronts</c> — the very predicate the board tooltip's text already rides
+    /// — and returns null when it is closed, which renders as the bare hint, i.e. exactly what
+    /// every build before ModBuild 307 drew.</para>
+    ///
+    /// <para>Wrapped whole: a half-torn bar must publish NO names, never a wrong one.</para>
+    /// </summary>
+    private static string? SampleMandatoryNames(TakeDamagePanel p)
+    {
+        try
+        {
+            if (!Net.RevealGate.PeersSeeOurCardFronts)
+                return null;
+            if (!Singleton<UIActiveBonusBar>.IsInitialized)
+                return null;
+            UIActiveBonusBar bar = Singleton<UIActiveBonusBar>.Instance;
+            System.Collections.Generic.List<CActiveBonus>? pending =
+                bar != null ? bar.GetNonSelectedActiveBonus() : null;
+            if (pending == null || pending.Count == 0)
+                return null;
+            bool lethal = p.CalculateCurrentDamage() > 0 && p.IsLethalDamage;
+            var sb = new System.Text.StringBuilder(48);
+            for (int i = 0; i < pending.Count; i++)
+            {
+                CActiveBonus bonus = pending[i];
+                // The game's own two filters, verbatim — the lethal variant drops the
+                // "prevent only if lethal" exemption (TakeDamagePanel.cs:321).
+                if (bonus?.Ability?.ActiveBonusData == null
+                    || bonus.Ability.ActiveBonusData.ToggleIsOptional)
+                    continue;
+                if (!lethal && bonus is CPreventDamageActiveBonus prevent
+                    && prevent.PreventOnlyIfLethal)
+                    continue;
+                string? key = bonus.BaseCard != null ? bonus.BaseCard.Name : null;
+                if (string.IsNullOrWhiteSpace(key))
+                    continue;
+                if (sb.Length > 0)
+                    sb.Append('\n');
+                // A key with a newline in it would split into two names on the peer; the game has
+                // none, and flattening costs nothing next to trusting that.
+                sb.Append(key!.Replace('\n', ' ').Replace('\r', ' ').Trim());
+            }
+            return sb.Length > 0 ? sb.ToString() : null;
+        }
+        catch (System.Exception)
+        {
+            return null; // no names is the safe answer; the hint stands alone, as it always did
         }
     }
 
@@ -650,6 +731,7 @@ internal sealed class DamageTooltipSurface : WorldSurface
         _loggedSeat = null;
         TextBottomUpMeters = null;                      // …nor may the seam the row seats from
         WireTextVariant = NetProtocol.DecisionTextNone; // must not survive a module re-init
+        WireMandatoryNames = null;                      // …nor may the card names
         _loggedWireVariant = 0xFF;
     }
 }

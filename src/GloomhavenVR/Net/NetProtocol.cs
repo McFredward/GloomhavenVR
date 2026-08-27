@@ -416,7 +416,46 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 306;
+    public const ushort ModBuild = 307;
+    // Build 307: THE PEER READ "A MANDATORY BONUS MUST BE USED FIRST" AND WAS NEVER TOLD WHICH.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NEW WIRE RECORD 33. ***
+    //
+    //   USER RULING, verbatim: "Wenn Kartennamen nicht richtig in den Tooltips,
+    //   Entscheidungsbuttons etc. nicht richtig angezeigt wird ist das ein Bruch der 1:1 Regel und
+    //   muss gefixed werden."
+    //
+    //   THE GAP. TakeDamagePanel.ShowDamageTooltip (:325-333) builds the mandatory-use line by
+    //   PREFIXING the names of every non-selected mandatory active bonus, in red, before
+    //   GUI_TOOLTIP_DEAL_DAMAGE_MANDATORY_USE. RemoteDecisionPrompt rendered the hint ALONE — and
+    //   said so in a comment that had stood since the class was written: "those are CARD names, so
+    //   they are not on the wire and are not invented here". True, and a 1:1 breach: with two
+    //   mandatory bonuses the sentence on a peer board is unanswerable.
+    //
+    //   KEYS, NOT WORDS, and that is what makes it 1:1 rather than merely present. The game renders
+    //   each name through LocalizationNameConverter.MultiLookupLocalization(bonus.BaseCard.Name),
+    //   so BaseCard.Name IS a key. Record 33 carries the keys; the RECEIVER localizes them, joins
+    //   them with its own "AND" and wraps them in the game own red. A German host and an English
+    //   guest each read the names in their own language — which shipping the sender rendered string
+    //   could never have done.
+    //
+    //   THIS IS THE ONE RECORD ON THIS WIRE THAT CARRIES CARD IDENTITY, and it rides under the gate
+    //   that exists for exactly that: RevealGate.PeersSeeOurCardFronts, the same predicate the board
+    //   TOOLTIP text already rides, for the same stated reason ("a tooltip names the card as surely
+    //   as the card face does"). Outside the secret selection window vanilla itself lets any player
+    //   open any other player whole card overview, and a take-damage prompt cannot occur inside that
+    //   window — so the gate is a belt over braces, not a live branch. Gate shut or record absent
+    //   means the bare hint, exactly what every previous build drew.
+    //
+    //   AND THE RECORD-ID FREE LIST WAS STALE BY FOUR. It read "Ids in use today: 1..17 and 22..29.
+    //   FREE: 30..255" while 30, 31 and 32 were taken — 30 is ExtIdHeldStretch. This record wanted
+    //   30 and would have COLLIDED, which is the one unrecoverable mistake in this file. The note
+    //   now states a range that has to be re-derived rather than a list that can rot; ids are
+    //   1..33 contiguous, free from 34.
+    //
+    //   TEST: two clients. One has a mandatory active bonus in play (a non-optional toggle) and
+    //   takes damage. The peer decision line must now read the CARD NAME in red before the hint, in
+    //   the VIEWER language — and both names with an "und"/"and" between them when there are two.
+    //
     // Build 306: A PEER'S FAN BLINKED OUT WHERE ITS OWNER'S FOLDED — AND FIELD 156 FINALLY HAS A
     // CONSUMER, WHICH IS WHY IT MAY FINALLY RIDE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELD 156 NOW SAMPLED. ***
@@ -17035,6 +17074,53 @@ internal static class NetProtocol
     public static byte ClampDecisionRole(byte role) =>
         role <= DecisionRoleMax ? role : DecisionRoleUnknown;
 
+    // ---- record 33: THE MANDATORY-USE CARD NAMES ---------------------------------------------
+
+    /// <summary>
+    /// Extras extension record 33 — THE CARD NAMES the owner's mandatory-use hint is prefixed
+    /// with, as LOCALIZATION KEYS.
+    ///
+    /// <para>USER RULING (2026-08-27, verbatim): "Wenn Kartennamen nicht richtig in den Tooltips,
+    /// Entscheidungsbuttons etc. nicht richtig angezeigt wird ist das ein Bruch der 1:1 Regel und
+    /// muss gefixed werden."</para>
+    ///
+    /// <para>WHAT WAS MISSING. <c>TakeDamagePanel.ShowDamageTooltip</c> (TakeDamagePanel.cs:325-333)
+    /// builds the mandatory-use line by PREFIXING the names of every non-selected mandatory active
+    /// bonus, in red and in the game's display font, before
+    /// <c>GUI_TOOLTIP_DEAL_DAMAGE_MANDATORY_USE</c>. <see cref="RemoteDecisionPrompt"/> rendered the
+    /// hint ALONE, so a peer read "a mandatory bonus must be used first" without ever learning
+    /// WHICH — unanswerable the moment the owner has two.</para>
+    ///
+    /// <para>KEYS, NOT WORDS, and that is what makes it 1:1 rather than merely present. The game
+    /// formats each name through
+    /// <c>LocalizationNameConverter.MultiLookupLocalization(bonus.BaseCard.Name)</c>, so
+    /// <c>BaseCard.Name</c> IS a key: sending the keys lets every receiver localize them in ITS OWN
+    /// language, exactly as it would if it owned the card. Sending the sender's rendered words would
+    /// have put a German name in an English sentence.</para>
+    ///
+    /// <para>THIS IS CARD IDENTITY AND IT RIDES UNDER THE GATE THAT EXISTS FOR THAT. Written only
+    /// while <see cref="RevealGate.PeersSeeOurCardFronts"/> is true — the same predicate the board
+    /// TOOLTIP's text already rides, and for the same stated reason ("a tooltip names the card as
+    /// surely as the card's face does"). Outside the secret selection window vanilla itself lets any
+    /// player open any other player's complete card overview, so this is not a loosening; and a
+    /// take-damage prompt cannot occur inside that window anyway, which makes the gate a belt over
+    /// braces rather than a live branch.</para>
+    ///
+    /// <para>LAYOUT — a UTF8 blob of '\n'-separated keys, capped at
+    /// <see cref="DecisionNamesMaxBytes"/> and truncated on a character boundary, exactly like
+    /// record 12. Written ONLY while the docked prompt's text variant is
+    /// <see cref="DecisionTextMandatoryUse"/>, so every other prompt — and every idle packet — stays
+    /// byte-identical to the previous build's. Absence renders as the hint alone, i.e. exactly what
+    /// every build before ModBuild 307 drew.</para>
+    /// </summary>
+    public const byte ExtIdDecisionNames = 33;
+
+    /// <summary>UTF8 byte cap for <see cref="ExtIdDecisionNames"/>. Four keys of a size the game
+    /// actually uses fit comfortably; a hand with more mandatory bonuses than that truncates on a
+    /// character boundary and the receiver renders what arrived, which is more than the nothing it
+    /// used to render.</summary>
+    public const int DecisionNamesMaxBytes = 160;
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------
@@ -17048,8 +17134,15 @@ internal static class NetProtocol
     // because the obvious cheap fix — "spill into record 29" — was considered and REJECTED: a
     // continuation record only doubles the ceiling, it is the same wall a bit further away, and it
     // spends a scarce id every time the wall is reached again. Paging keeps one id and has no wall
-    // at all. Ids in use today: 1..17 and 22..29. FREE: 30..255 (18..21 stay reserved for the
-    // parallel round that claimed them).
+    // at all. Ids in use today: 1..33 CONTIGUOUSLY (18..21 were reserved and have since been
+    // claimed). FREE: 34..255.
+    //
+    // THAT LINE USED TO READ "1..17 and 22..29. FREE: 30..255" and it was WRONG BY FOUR when the
+    // ModBuild-307 record went looking for a number: 30, 31 and 32 had been taken in the meantime
+    // and 30 in particular is ExtIdHeldStretch. A stale free-list is the one comment in this file
+    // that can cause an id COLLISION, which is unrecoverable — so it is now stated as a range that
+    // has to be re-derived rather than a list that can rot silently, and the enumeration is a
+    // two-line script over the ExtId* constants.
 
     /// <summary>
     /// Extension record id: THE OWNER'S OWN TUNING OF THEIR CONTROL BOARD, HAND FAN AND BOARD MESH

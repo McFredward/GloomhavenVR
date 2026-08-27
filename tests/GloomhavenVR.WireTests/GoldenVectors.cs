@@ -2570,6 +2570,33 @@ internal static class GoldenVectors
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noDs), "and it parses");
         t.True(!noDs.HasDecisionState, "with HasDecisionState false (peers keep the plain plates)");
 
+        // THE MANDATORY-USE CARD NAMES (record 33, ModBuild 307) — the one record on this wire that
+        // carries card IDENTITY, and it is asserted here because "does it arrive" is the whole
+        // question a name record raises. The keys ride as a '\n'-joined UTF8 blob, record 12's
+        // shape with a different meaning; the receiver localizes them itself, so what travels is
+        // "A" and "B" and never a rendered word.
+        t.Case("7o2c. extras, decision names: the mandatory-use card KEYS");
+        byte[] namesRec = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            21 03            // id 33, len 3
+            41 0A 42         // key A, LF, key B — two keys
+            ");
+        t.True(PresenceSerializer.TryRead(namesRec, namesRec.Length, out PresenceState nm),
+               "a decision-names record parses");
+        t.True(nm.HasDecisionNames, "and announces itself");
+        t.Equal("A\nB", nm.DecisionNamesText,
+                "both keys arrive, newline-separated — the receiver splits and localizes them, so "
+                + "a German host and an English guest each read the names in their own language");
+
+        // ABSENCE IS THE OLD PICTURE, not an empty prefix: a sender predating the record, or one
+        // whose reveal gate was shut, leaves the hint standing alone exactly as it always did.
+        byte[] noNames = Hex.Bytes("31 52 56 47 03 01 80 00 80 00 00");
+        t.True(PresenceSerializer.TryRead(noNames, noNames.Length, out PresenceState noNm),
+               "a packet without the record parses");
+        t.True(!noNm.HasDecisionNames && noNm.DecisionNamesText == null,
+               "with no names at all — the mirrored hint renders bare, the pre-ModBuild-307 look");
+
         // MASKED ON WRITE AND ON READ: a sender that sets bits this build does not define must not
         // light a meaning here, and must not corrupt the fields beside them.
         byte[] wildDs = Hex.Bytes(@"

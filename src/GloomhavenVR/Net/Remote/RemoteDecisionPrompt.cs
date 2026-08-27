@@ -78,7 +78,7 @@ internal static class RemoteDecisionPrompt
     /// the mod-drawn plates carry the two options and nothing carries the question.</para>
     /// </summary>
     internal static string? Compose(byte kind, byte variant, CPlayerActor? boardActor,
-                                    bool widgetsMirrored)
+                                    bool widgetsMirrored, string? names = null)
     {
         if (kind == NetProtocol.DecisionKindShortRestYesNo)
         {
@@ -134,11 +134,17 @@ internal static class RemoteDecisionPrompt
                                     summon, ActorName(boardActor)));
 
                 case NetProtocol.DecisionTextMandatoryUse:
-                    // The owner's own line prefixes this hint with the names of the non-selected
-                    // mandatory active bonuses. Those are CARD names, so they are not on the wire
-                    // and are not invented here — the hint stands alone.
+                    // THE OWNER'S LINE PREFIXES THIS HINT WITH THE CARD NAMES, and since
+                    // ModBuild 307 so does this one. The comment that stood here said those names
+                    // "are not on the wire and are not invented here — the hint stands alone", and
+                    // that was true and it was a 1:1 breach: a peer read "a mandatory bonus must be
+                    // used first" without ever learning WHICH, which is unanswerable the moment the
+                    // owner has two. Record 33 carries the KEYS (never the words), gated on
+                    // RevealGate.PeersSeeOurCardFronts, and they are localized RIGHT HERE — so the
+                    // names read in the VIEWER's language, exactly as the rest of this class works.
                     return Line(Loc.Game("GUI_TOOLTIP_TITLE_DEAL_DAMAGE", "Damage phase"),
-                                Loc.Game("GUI_TOOLTIP_DEAL_DAMAGE_MANDATORY_USE",
+                                MandatoryNames(names)
+                                + Loc.Game("GUI_TOOLTIP_DEAL_DAMAGE_MANDATORY_USE",
                                     "A mandatory bonus must be used first."));
             }
         }
@@ -148,6 +154,57 @@ internal static class RemoteDecisionPrompt
                               $"({e.Message}) — the mirrored dock shows its plates without a text line.");
         }
         return null;
+    }
+
+    /// <summary>
+    /// The card-name prefix of the mandatory-use line — the game's own construction
+    /// (TakeDamagePanel.cs:325-333) rebuilt out of the KEYS record 33 carried.
+    ///
+    /// <para>Each key is localized HERE, so the names read in this viewer's language; they are
+    /// joined with this viewer's own "AND" wording and wrapped in the game's own red, and the whole
+    /// prefix ends with the trailing space the game leaves before the hint. Reproducing the
+    /// construction rather than shipping the sender's rendered string is what makes a German host
+    /// and an English guest each read their own — the same reason nothing else in this class
+    /// travels as words.</para>
+    ///
+    /// <para>The FONT tag the game adds (<c>MarcellusSC-Regular SDF</c>) is deliberately not
+    /// reproduced: the mirrored line is drawn in a TextMeshPro this mod owns, whose font asset is
+    /// not that one, and naming a face that is not loaded makes TMP fall back with a warning per
+    /// frame. The colour carries the emphasis.</para>
+    ///
+    /// <para>Empty for a sender that carried no names — which is every prompt but this one, every
+    /// sender predating record 33, and any moment the reveal gate was shut.</para>
+    /// </summary>
+    private static string MandatoryNames(string? keys)
+    {
+        if (string.IsNullOrEmpty(keys))
+            return string.Empty;
+        try
+        {
+            string[] parts = keys!.Split('\n');
+            var sb = new System.Text.StringBuilder(64);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string key = parts[i];
+                if (string.IsNullOrWhiteSpace(key))
+                    continue;
+                if (sb.Length > 0)
+                    sb.Append(Loc.Game("AND", "and")).Append(' ');
+                // MultiLookupLocalization is what the game itself resolves a card name with; a key
+                // it cannot resolve comes back as the key, which is still more than no name at all.
+                string shown = LocalizationNameConverter.MultiLookupLocalization(key, out _);
+                sb.Append("<color=\"red\">").Append(string.IsNullOrEmpty(shown) ? key : shown)
+                  .Append("</color> ");
+            }
+            return sb.ToString();
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Remote decision prompt: localizing the mandatory-use card names " +
+                              $"failed ({e.Message}) — the hint renders without them, as it did " +
+                              "before ModBuild 307.");
+            return string.Empty;
+        }
     }
 
     /// <summary>The game's own help-box line format: gold title, colon, light-grey body (one of the

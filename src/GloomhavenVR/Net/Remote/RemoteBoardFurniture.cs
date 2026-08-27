@@ -2334,7 +2334,7 @@ internal sealed class RemoteBoardFurniture
         string? text = !realWidgets && _shownDecisionLines == null
             ? null
             : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant,
-                                           actor, realWidgets);
+                                           actor, realWidgets, owner.DecisionNames);
         if (text == _shownPromptText)
             return;
         _shownPromptText = text;

@@ -593,6 +593,21 @@ internal struct PresenceState
     public string? DecisionLinesText;
 
     /// <summary>
+    /// True when this packet carries the CARD NAMES the sender's mandatory-use hint is prefixed
+    /// with (extension record <see cref="NetProtocol.ExtIdDecisionNames"/>).
+    ///
+    /// <para>Written only while the docked prompt's text variant is
+    /// <c>DecisionTextMandatoryUse</c> AND <see cref="RevealGate.PeersSeeOurCardFronts"/> is open —
+    /// so every other prompt, and every idle packet, is byte-identical to the previous build's.</para>
+    /// </summary>
+    public bool HasDecisionNames;
+
+    /// <summary>The '\n'-joined LOCALIZATION KEYS of the non-selected mandatory active bonuses —
+    /// keys and not words, so each receiver reads the names in its own language (see the record
+    /// doc). Capped at <see cref="NetProtocol.DecisionNamesMaxBytes"/> UTF8 bytes on both ends.</summary>
+    public string? DecisionNamesText;
+
+    /// <summary>
     /// True when this packet carries the STATE of the sender's docked decision display (extension
     /// record <see cref="NetProtocol.ExtIdDecisionState"/>): which prompt is docked, which prompt
     /// TEXT variant it shows, and per option offered / dimmed / chosen. Written on exactly the
@@ -2398,6 +2413,25 @@ internal static class PresenceSerializer
                     }
                     records++;
                 }
+                if (state.HasDecisionNames && !string.IsNullOrEmpty(state.DecisionNamesText))
+                {
+                    // DECISION NAMES (33): UTF8 blob of the mandatory-use card-name KEYS, one per
+                    // '\n'-separated line, capped and truncated on a character boundary — record
+                    // 12's codec and shape, a different meaning. THE ONE RECORD ON THIS WIRE THAT
+                    // CARRIES CARD IDENTITY, and it does so only because the sampler refused to
+                    // fill it unless RevealGate.PeersSeeOurCardFronts was open (see the record doc
+                    // and DamageTooltipSurface.SampleMandatoryNames). Appended LAST, in id order,
+                    // behind record 32.
+                    byte[] names = EncodeDecisionNames(state.DecisionNamesText!);
+                    if (names.Length > 0 && i + 2 + names.Length <= buffer.Length)
+                    {
+                        buffer[i++] = NetProtocol.ExtIdDecisionNames;
+                        buffer[i++] = (byte)names.Length;
+                        for (int b = 0; b < names.Length; b++)
+                            buffer[i++] = names[b];
+                        records++;
+                    }
+                }
                 buffer[countAt] = records;
             }
         }
@@ -2713,6 +2747,7 @@ internal static class PresenceSerializer
     }
 
     private static readonly CappedUtf8Codec DecisionLinesCodec = new(NetProtocol.DecisionLinesMaxBytes);
+    private static readonly CappedUtf8Codec DecisionNamesCodec = new(NetProtocol.DecisionNamesMaxBytes);
     private static readonly CappedUtf8Codec ConfirmLabelCodec = new(NetProtocol.CapLabelMaxBytes);
     private static readonly CappedUtf8Codec SkipLabelCodec = new(NetProtocol.CapLabelMaxBytes);
     private static readonly CappedUtf8Codec UndoLabelCodec = new(NetProtocol.CapLabelMaxBytes);
@@ -2721,6 +2756,10 @@ internal static class PresenceSerializer
     /// <summary>UTF8-encode the '\n'-joined decision-button labels, capped at
     /// <see cref="NetProtocol.DecisionLinesMaxBytes"/> on a character boundary.</summary>
     internal static byte[] EncodeDecisionLines(string text) => DecisionLinesCodec.Encode(text);
+
+    /// <summary>UTF8-encode the mandatory-use card-name KEYS, capped at
+    /// <see cref="NetProtocol.DecisionNamesMaxBytes"/> on a character boundary.</summary>
+    internal static byte[] EncodeDecisionNames(string text) => DecisionNamesCodec.Encode(text);
 
     /// <summary>UTF8-encode the live CONFIRM cap label, capped at
     /// <see cref="NetProtocol.CapLabelMaxBytes"/> on a character boundary.</summary>
@@ -3381,6 +3420,20 @@ internal static class PresenceSerializer
                         {
                             state.HasDecisionLines = true;
                             state.DecisionLinesText = lines;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdDecisionNames && len >= 1)
+                    {
+                        // DECISION NAMES: UTF8 blob, one localization KEY per '\n'-separated line.
+                        // Length re-clamped on OUR side (never trust the wire), and a decode that
+                        // yields nothing degrades to "record absent" — the hint alone, which is
+                        // what every build before ModBuild 307 drew.
+                        int nameLen = System.Math.Min(len, NetProtocol.DecisionNamesMaxBytes);
+                        string names = DecisionNamesCodec.Decode(buffer, i, nameLen);
+                        if (!string.IsNullOrEmpty(names))
+                        {
+                            state.HasDecisionNames = true;
+                            state.DecisionNamesText = names;
                         }
                     }
                     else if (id == NetProtocol.ExtIdDecisionState
