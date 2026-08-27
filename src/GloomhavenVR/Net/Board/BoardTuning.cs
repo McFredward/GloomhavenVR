@@ -349,8 +349,15 @@ internal static class BoardTuningSampler
         // peer's hand appeared at THIS client's timing; the 1:1 ruling names animations outright.
         n += Fac(payload, ref i, NetProtocol.TuneFanOpenDuration,
                  CardsConfig.FanOpenDuration, Defaults.FanOpenDuration);
+        // FIELD 156 WAS DECLARED AND DELIBERATELY UNSAMPLED until ModBuild 306, and the note that
+        // held it back was right: "RemoteHandFan has no collapse animation at all — it hides the
+        // fan outright — so sampling it would put bytes on the wire no receiver reads". The mirror
+        // grew the collapse in this build, so the field has a consumer and rides. Renderer first,
+        // field second, exactly as that note demanded.
         n += Fac(payload, ref i, NetProtocol.TuneFanOpenStagger,
                  CardsConfig.FanOpenStagger, Defaults.FanOpenStagger);
+        n += Fac(payload, ref i, NetProtocol.TuneFanCloseDuration,
+                 CardsConfig.FanCloseDuration, Defaults.FanCloseDuration);
         // [Cards] FanCloseDuration is DELIBERATELY NOT SAMPLED, though id 156 is declared for it.
         // RemoteHandFan has no collapse animation at all — it hides the fan outright — so sending
         // the dial would put three bytes on the wire that no receiver reads, AND would let
@@ -899,6 +906,11 @@ internal readonly struct RemoteBoardTuning
 
     /// <summary>[Cards] FanOpenDuration — seconds one hand-fan card takes to appear.</summary>
     public float FanOpenDuration { get; }
+
+    /// <summary>[Cards] FanCloseDuration — seconds the owner's fan takes to collapse back into the
+    /// centre stack before it disappears. 0 = they vanish it instantly, and so must every mirror of
+    /// it.</summary>
+    public float FanCloseDuration { get; }
     /// <summary>[Cards] FanOpenStagger — the reveal ripple's per-card delay.</summary>
     public float FanOpenStagger { get; }
     /// <summary>[Cards] CardLerpSpeed — the exponential rate a card flies to its slot at.</summary>
@@ -1141,6 +1153,8 @@ internal readonly struct RemoteBoardTuning
                                    Defaults.FanSwapSettleOvershoot);
         FanOpenDuration = F(payload, len, NetProtocol.TuneFanOpenDuration, Defaults.FanOpenDuration);
         FanOpenStagger = F(payload, len, NetProtocol.TuneFanOpenStagger, Defaults.FanOpenStagger);
+        FanCloseDuration = F(payload, len, NetProtocol.TuneFanCloseDuration,
+                             Defaults.FanCloseDuration);
         CardLerpSpeed = F(payload, len, NetProtocol.TuneCardLerpSpeed, Defaults.CardLerpSpeed);
         FanRadiusFactorItems = F(payload, len, NetProtocol.TuneFanRadiusFactorItems,
                                  Defaults.FanRadiusFactor_Items);

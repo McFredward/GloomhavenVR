@@ -286,6 +286,28 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     // swap's dials were wired for exactly that. The INITIALISER stays the shipped default, so an
     // untuned peer's fan opens exactly as it did before (scripts/check-remote-defaults.py pins it).
     private float _openSeconds = Defaults.FanOpenDuration;    // CardsConfig.FanOpenDuration
+
+    /// <summary>
+    /// Seconds into the owner's fan COLLAPSE, or -1 when none is running — the mirror of
+    /// <c>CardFan._closeElapsed</c>.
+    ///
+    /// <para>WHY IT EXISTS ONLY SINCE ModBuild 306, and why the field it consumes was declared for
+    /// months without being sampled: this class used to hide the fan OUTRIGHT. When the owner's
+    /// count reached zero it ran <c>Rebuild(0)</c>, which destroys every slab in one frame, and the
+    /// peer saw the fan blink out while the owner watched theirs fold into the centre stack over
+    /// 0.12 s. A wire field for the duration would have had no consumer, which is exactly what
+    /// <c>check-wire-coverage.py</c>'s note said and exactly why it refused to sample id 156.</para>
+    ///
+    /// <para>THE MIRROR CAN SEE THE CLOSE, which is the fact that makes this possible at all. The
+    /// owner's <c>HandCardCount</c> is the count of cards in the OPEN fan, so closing a five-card
+    /// hand sends 0 — the same signal an emptied hand sends. That ambiguity is stated at
+    /// <c>NetProtocol.ExtIdHalfHover</c>'s empty-fan flag and it does not matter here: both mean
+    /// "the fan is coming down", and both should collapse.</para></summary>
+    private float _closeElapsed = -1f;
+
+    /// <summary>The OWNER's <c>[Cards] FanCloseDuration</c> (record 28 id 156). 0 = they vanish
+    /// their fan instantly, and so does every mirror of it.</summary>
+    private float _closeSeconds = Defaults.FanCloseDuration;
     private float _openStagger = Defaults.FanOpenStagger;     // CardsConfig.FanOpenStagger (ripples outward)
 
     // ---- the owner's CHARACTER-SWAP EXCHANGE dials (extension record 28, ids 77..78 / 150..153 /
@@ -883,6 +905,45 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // gone in a blink while the owner watched a full gather. Switching to a character with an
         // empty hand (every card burnt, a long rest) is a real switch target and the owner's own fan
         // animates it (CardsDriver's edge fires on `_fan.Count > 0 || incoming > 0`).
+        // THE OWNER'S FAN IS COMING DOWN AND THERE ARE STILL SLABS TO FOLD (ModBuild 306). Their
+        // CardFan.Close keeps the root visible and blends every card back into the centre stack
+        // over FanCloseDuration before hiding; this is that, on the mirror.
+        //
+        // Deliberately NOT run while a swap or a leaving wave is in flight: those already animate
+        // the very cards this would fold, and the owner's own Close does not run during an exchange
+        // either. Nor with the duration at 0 — that is the owner's "vanish instantly", and honouring
+        // it is the same 1:1 rule as honouring the animation.
+        if (count == 0 && _cards.Count > 0 && _leaving.Count == 0 && _swapElapsed < 0f
+            && _closeSeconds > 0f && _root != null && _root.activeSelf)
+        {
+            if (_closeElapsed < 0f)
+            {
+                _closeElapsed = 0f;
+                _openElapsed = -1f; // a reveal still in the air is superseded by the collapse
+                VRLog.Info("Net", $"Remote hand fan [player {_owner.PlayerId}] COLLAPSING — " +
+                                  $"{_cards.Count} card(s) folding into the centre stack over " +
+                                  $"{_closeSeconds:F2} s, the owner's own [Cards] FanCloseDuration " +
+                                  "off record 28 (id 156). Before ModBuild 306 this was one frame.");
+            }
+            _closeElapsed += Mathf.Max(dt, 0f);
+            if (_closeElapsed < _closeSeconds)
+            {
+                // Keep posing and keep the FACES: a collapse whose slabs went blank half-way would
+                // be a different animation from the owner's, not a cheaper one.
+                PoseFan(holder, dt);
+                LayoutCards(_cards.Count, dt);
+                UpdateFaces(_cards.Count, _shownActor);
+                return;
+            }
+            _closeElapsed = -1f; // finished — fall through and let the ordinary path tear it down
+        }
+        else if (_closeElapsed >= 0f)
+        {
+            // Re-opened, swapped or emptied mid-collapse: the collapse is abandoned exactly as
+            // CardFan.Open abandons it, and the open animation takes over from here.
+            _closeElapsed = -1f;
+        }
+
         if (count == 0 && _leaving.Count == 0 && _cards.Count == 0)
         {
             Hide();
@@ -1443,6 +1504,8 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // place) and eases out to its own slot on an ease-out cubic with a per-card stagger delay
         // rippling outward from the middle. Runs on UNSCALED dt (the caller's already is).
         bool opening = _openElapsed >= 0f;
+        bool closing = !opening && _closeElapsed >= 0f && _closeSeconds > 0f;
+        float closeP = closing ? Mathf.Clamp01(_closeElapsed / _closeSeconds) : 0f;
         int mid = n / 2;
         float midAngle = start + step * mid;
         float midRad = midAngle * Mathf.Deg2Rad;
@@ -1540,6 +1603,17 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 var seed = new Vector3(collapsedXY.x, collapsedXY.y, -ZStagger * i);
                 pos = Vector3.Lerp(seed, pos, e);
                 rot = Quaternion.Slerp(collapsedRot, rot, e);
+            }
+            else if (closing)
+            {
+                // CardFan.TickCollapse verbatim: the reveal run backwards, on an EASE-IN (p*p —
+                // an accelerating shut reads snappy) and with NO stagger, because the owner's
+                // collapse has none. Same collapsed pose the open seeds from, so the two
+                // animations are each other's mirror by construction rather than by agreement.
+                float e = closeP * closeP;
+                var seed = new Vector3(collapsedXY.x, collapsedXY.y, -ZStagger * i);
+                pos = Vector3.Lerp(pos, seed, e);
+                rot = Quaternion.Slerp(rot, collapsedRot, e);
             }
             // CHARACTER EXCHANGE, arriving half (CardFan.Relayout's swap blend verbatim): fly in
             // from the deal point off the arc's LOW end, bowing TOWARD the owner at mid-flight —
@@ -1921,6 +1995,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // the field declarations. Guarded above zero because a zero duration would divide by it in
         // OpenProgress; a config range cannot reach 0, but a wire value is never trusted.
         _openSeconds = t.FanOpenDuration > 0.001f ? t.FanOpenDuration : Defaults.FanOpenDuration;
+        // NOT floored away from zero like the open is: zero is a MEANING here ("vanish instantly"),
+        // not a missing value, and an owner who set it must not be given an animation they turned
+        // off. The open has no such setting, which is why its guard can treat 0 as absent.
+        _closeSeconds = Mathf.Max(0f, t.FanCloseDuration);
         _openStagger = t.FanOpenStagger >= 0f ? t.FanOpenStagger : 0f;
 
         if (sizeChanged)
@@ -2125,6 +2203,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         if (_root != null && _root.activeSelf)
             _root.SetActive(false);
         _openElapsed = -1f; // next appearance fans out again from the centre stack
+        // …and a collapse that was interrupted by a teardown (the holder went untracked mid-fold)
+        // must not survive into the next appearance. The tick clears this too, on the frame the
+        // fan comes back; clearing it here as well means the state cannot outlive the slabs it
+        // describes, which is the same rule every other latch in this class follows.
+        _closeElapsed = -1f;
         // A hidden fan stops ticking, so an exchange in the air would freeze half-way off the hand.
         // Landing it here also means the next appearance plays the fan-out REVEAL (the right
         // animation for a hand being raised) rather than resuming a wipe nobody can see the start of.

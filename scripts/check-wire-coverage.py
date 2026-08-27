@@ -184,12 +184,7 @@ EXEMPT = {
     # ("Cards", "PileViewer") / ("Cards", "ActivePile") are GONE (user ruling 2026-08-11): the
     # dials were removed outright — both features are unconditional now, so there is no config
     # entry left to exempt (their PENDING lines retired with them).
-    ("Cards", "GameCardParticles"): ("PENDING", "a bool, and a RENDERER debt rather than a wire debt. This is the GAME's own card smoke; a peer's mirrored cards are mod slabs with no game particle system to switch on, so a field would have no consumer -- the FanCloseDuration trap. The dust beside it (TuneCardDustOn, 233) went the other way because CardDustFx is a mod static a peer already owns"),
-    ("Cards", "FanCloseDuration"): ("PENDING", "field id 156 is DECLARED for it, but RemoteHandFan has no collapse "
-                                               "animation at all — it hides the fan outright — so sampling it would put "
-                                               "bytes on the wire no receiver reads and would let this script call it "
-                                               "covered while a peer still sees no difference. Sample it the day the "
-                                               "mirror grows a collapse"),
+    ("Cards", "GameCardParticles"): ("PENDING", "a bool, and a RENDERER debt rather than a wire debt. This is the GAME's own card smoke; a peer's mirrored cards are mod slabs with no game particle system to switch on, so a field would have no consumer -- the FanCloseDuration trap (named for the debt that held field 156 back until ModBuild 306 grew the mirror a collapse; it was paid renderer-first, which is what this exemption is still waiting to be able to do). The dust beside it (TuneCardDustOn, 233) went the other way because CardDustFx is a mod static a peer already owns"),
     # THE KEYCAP SIZE / SEAT / TRAVEL FAMILY IS GONE FROM THIS TABLE (2026-08-09). Eighteen lines
     # stood here saying "mirrored as a FROZEN constant in RemoteBoardFurniture, so a re-tune
     # desyncs; the renderer is owned by a parallel round — wire it when that lands". It landed, and

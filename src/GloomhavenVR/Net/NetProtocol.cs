@@ -416,7 +416,47 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 305;
+    public const ushort ModBuild = 306;
+    // Build 306: A PEER'S FAN BLINKED OUT WHERE ITS OWNER'S FOLDED — AND FIELD 156 FINALLY HAS A
+    // CONSUMER, WHICH IS WHY IT MAY FINALLY RIDE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELD 156 NOW SAMPLED. ***
+    //
+    //   [Cards] FanCloseDuration, the oldest declared-but-refused field on record 28. Its exemption
+    //   line has said the same thing for weeks and it was right every time: "field id 156 is
+    //   DECLARED for it, but RemoteHandFan has no collapse animation at all — it hides the fan
+    //   outright — so sampling it would put bytes on the wire no receiver reads … Sample it the day
+    //   the mirror grows a collapse." Today is that day, in that order.
+    //
+    //   WHAT A PEER ACTUALLY SAW. When the owner closed their hand the mirror ran Rebuild(0), which
+    //   DESTROYS every slab in one frame, and then deactivated the root. So the owner watched their
+    //   five cards fold into the centre stack over 0.12 s while everyone else watched the same fan
+    //   blink out of existence. The dial is ON by default, so this was every session, not an opt-in.
+    //
+    //   THE ONE FACT THAT MADE IT POSSIBLE, and it was already written down elsewhere: the mirror
+    //   CAN see the close. HandCardCount is the count of cards in the OPEN fan, so closing a
+    //   five-card hand sends 0 — the same signal an emptied hand sends (the ambiguity is stated at
+    //   record 14's empty-fan flag). Both mean "the fan is coming down", and both should collapse,
+    //   so the ambiguity costs nothing here.
+    //
+    //   THE ANIMATION IS THE OPEN ONE RUN BACKWARDS, and deliberately so: the same collapsed centre
+    //   pose the reveal seeds from, an ease-in (p*p — an accelerating shut reads snappy) and NO
+    //   stagger, because CardFan.TickCollapse has none. Copying the construction rather than the
+    //   feel is what makes the two animations each other's mirror instead of two things that have
+    //   to be kept looking alike.
+    //
+    //   FOUR STATES DELIBERATELY DO NOT COLLAPSE: a swap in flight, a leaving wave in flight, a
+    //   duration of 0, and a fan whose holder went untracked. The first two already animate the
+    //   very cards this would fold — and the owner's own Close does not run during an exchange
+    //   either. The third is the owner's "vanish instantly", and honouring it is the same rule as
+    //   honouring the animation. The fourth has no holder to pose against.
+    //
+    //   Wire coverage 186 -> 187 dials on record 28, PENDING debts 6 -> 5.
+    //
+    //   TEST: two clients, one raises a hand of cards and lowers it again. The peer's copy must now
+    //   FOLD into the centre stack over the owner's own FanCloseDuration instead of vanishing, and
+    //   the cards must keep their faces the whole way down. Set the dial to 0 on one side and its
+    //   mirror must go back to vanishing instantly.
+    //
     // Build 305: THE MIRRORED ACTIVE CARDS WERE 18 % TOO BIG ON EVERY PEER'S BOARD, AT THE
     // SHIPPED DEFAULTS, AND NO CHECKER COULD SEE IT.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FIELDS ADDED (176/177). ***
