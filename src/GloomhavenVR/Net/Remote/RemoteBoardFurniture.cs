@@ -1454,8 +1454,8 @@ internal sealed class RemoteBoardFurniture
         //      TakeDamagePanel widgets and drives them from wire record 29 — real button art, real
         //      damage/fatal icons, real damage number, every wording in the VIEWER's own language
         //      (see RemoteDecisionWidgets). The mod-drawn plates below are what stands in when that
-        //      cannot be done: a prompt whose widgets do not exist on a peer (the short-rest Yes/No,
-        //      a DialogPopup), or a sender predating record 29.
+        //      cannot be done: a prompt whose widgets a peer cannot resolve (a DialogPopup), a
+        //      client that owns no short-rest dialog yet, or a sender predating record 29.
         bool realWidgets = _decisionWidgets != null && _decisionWidgets.Refresh(owner);
         SetDecisionLines(realWidgets ? null : owner.DecisionLines);
         ApplyDecisionOptionStates(realWidgets ? null : owner.DecisionOptionStates);
@@ -2267,7 +2267,8 @@ internal sealed class RemoteBoardFurniture
         // normally drawn by the mirrored GAME widgets, which leaves _shownDecisionLines null.
         string? text = !realWidgets && _shownDecisionLines == null
             ? null
-            : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant, actor);
+            : RemoteDecisionPrompt.Compose(owner.DecisionPromptKind, owner.DecisionTextVariant,
+                                           actor, realWidgets);
         if (text == _shownPromptText)
             return;
         _shownPromptText = text;
@@ -2430,9 +2431,12 @@ internal sealed class RemoteBoardFurniture
     /// was the wrong answer: the take-damage prompt is now mirrored as a clone of THIS client's own
     /// <c>TakeDamagePanel</c> widgets driven by wire record 29 (see
     /// <see cref="RemoteDecisionWidgets"/>) — real button art, real damage/fatal icons, the real
-    /// damage number, and every wording in the VIEWER's own language. This builder runs only when
-    /// that cannot be done: another prompt kind (a short-rest Yes/No, a DialogPopup, whose widgets
-    /// do not exist on a peer in the state their owner sees), or a sender predating record 29.
+    /// damage number, and every wording in the VIEWER's own language. Since ModBuild 301 the
+    /// SHORT-REST confirmation is mirrored the same way, from this client's own
+    /// <c>YesNoDialog</c> — the question included, because the dock clones the whole dialog box.
+    /// This builder runs only when neither can be done: a <c>DialogPopup</c> (pooled option buttons
+    /// a peer cannot resolve), a client that has not built a hand yet and therefore owns no dialog
+    /// to clone, or a sender predating record 29.
     ///
     /// 1:1 WITH WHAT THE DECIDING PLAYER SEES (user 2026-08-07, verbatim: "Die
     /// Entscheidungsbuttons sollen 1:1 genau so aussehen (Position und Größe und Erscheinungsbild)

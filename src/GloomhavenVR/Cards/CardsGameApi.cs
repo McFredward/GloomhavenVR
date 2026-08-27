@@ -2229,6 +2229,47 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// ANY short-rest dialog THIS CLIENT owns — <see cref="ShortRestDialog"/> first, then the
+    /// first one found on the hand manager's own list.
+    ///
+    /// <para>WHO ASKS, AND WHY THE QUESTION IS DIFFERENT. <see cref="ShortRestDialog"/> answers
+    /// "which dialog is the local player about to press", and the active hand is exactly right for
+    /// that. This one answers a question the multiplayer mirror asks: "does this machine own a
+    /// <c>YesNoDialog</c> I can CLONE AS ART" — for a short rest somebody ELSE is confirming
+    /// (wire roles <c>DecisionRoleShortRestYes</c>/<c>No</c>). There the active hand is beside the
+    /// point: any instance carries the same prefab, the same buttons and the same question, because
+    /// <c>ShortRest.Init</c> is <c>YesNoDialog</c>'s only caller in the whole game and always passes
+    /// the literal key "GUI_SHORT_REST_CONFIRMATION". Its state never comes from here — it comes
+    /// off the wire.</para>
+    ///
+    /// <para>The fallback walk is over <c>CardsHandManager.CardHandsUI</c>, which holds one entry
+    /// per hand this client has built (a handful), and it runs on the remote board's 4 Hz content
+    /// cadence — not a scene sweep, and never <c>FindObjectsOfType</c>.</para>
+    ///
+    /// <para>Null while this client has not built a hand yet. That is a real window and the mirror
+    /// treats it as one: it keeps the mod-drawn plates until a dialog exists.</para>
+    /// </summary>
+    internal static YesNoDialog? AnyShortRestDialog()
+    {
+        YesNoDialog? active = ShortRestDialog();
+        if (active != null)
+            return active;
+        CardsHandManager? manager = CardsHandManager.Instance;
+        List<CardsHandUI>? hands = manager != null ? manager.CardHandsUI : null;
+        if (hands == null)
+            return null;
+        for (int i = 0; i < hands.Count; i++)
+        {
+            CardsHandUI hand = hands[i];
+            ShortRest? rest = hand != null ? hand.shortRest : null;
+            YesNoDialog? dialog = rest != null ? rest.yesNoDialog : null;
+            if (dialog != null)
+                return dialog;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// The card the game is currently SHORT-RESTING away — the RANDOM discard-pile
     /// sacrifice (never the <c>ImprovedShortRest</c> pick, which routes through
     /// CardHandMode.LoseCard and leaves this null). Non-null from the moment

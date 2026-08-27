@@ -2739,6 +2739,26 @@ internal static class GoldenVectors
         t.Equal(NetProtocol.DecisionRoleUnknown, wdw.DecisionRoles[1],
                 "and the unknown one becomes 'unknown' — a peer draws its plate, never a guessed widget");
 
+        // THE SHORT-REST ROLES (ModBuild 301) ride the same byte and the same clamp. Asserted
+        // because a role only exists to be RESOLVED: a code that silently clamped to 'unknown'
+        // would leave the mirror drawing plates while every other gate stayed green, which is the
+        // no-consumer failure this record's own doc is written against.
+        byte[] restDw = Hex.Bytes(@"
+            31 52 56 47 03 01 80 00
+            80 00 01
+            1D 05            // id 29, len 5
+            00               // no take-damage flags — this prompt has no numbers
+            00               // damage 0
+            02               // 2 roles
+            04 05            // short-rest YES, short-rest NO
+            ");
+        t.True(PresenceSerializer.TryRead(restDw, restDw.Length, out PresenceState rest),
+               "a short-rest widget record parses");
+        t.Equal(NetProtocol.DecisionRoleShortRestYes, rest.DecisionRoles![0],
+                "role 4 survives the clamp as the short-rest YES button");
+        t.Equal(NetProtocol.DecisionRoleShortRestNo, rest.DecisionRoles[1],
+                "and role 5 as its NO button — the receiver can resolve both against its own dialog");
+
         // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
         // against the record's OWN length, and the record behind it still reads.
         byte[] lyingDw = Hex.Bytes(@"

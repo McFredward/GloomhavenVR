@@ -1402,11 +1402,10 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// <para>That is the whole point of the record: a receiver owns the same prompt prefab, so a
     /// role lets it resolve the option to ITS OWN copy of that widget and mirror the real button —
     /// the game's art, the game's icons, the wording in the VIEWER's language. An option this build
-    /// does not code (the short-rest <c>YesNoDialog</c>, whose dialog belongs to a HAND, and a
-    /// <c>DialogPopup</c>'s pooled option buttons, created and labelled per prompt — see
-    /// <c>NetProtocol.DecisionRoleMax</c> for why neither is resolvable on a peer) publishes
-    /// <c>DecisionRoleUnknown</c>, and the receiver falls back to the mod-drawn plate with record
-    /// 12's wording — the pre-record look, which is the safe direction.</para>
+    /// does not code (a <c>DialogPopup</c>'s pooled option buttons, created and labelled per
+    /// prompt — see <c>NetProtocol.DecisionRoleMax</c>) publishes <c>DecisionRoleUnknown</c>, and
+    /// the receiver falls back to the mod-drawn plate with record 12's wording — the pre-record
+    /// look, which is the safe direction.</para>
     /// </summary>
     private static byte SampleOptionRole(Selectable sel)
     {
@@ -1426,6 +1425,27 @@ internal sealed class DecisionDockSurface : WorldSurface
                 if (p.takeDamageButton != null
                     && ReferenceEquals(sel.transform, p.takeDamageButton.transform))
                     return NetProtocol.DecisionRoleTakeDamage;
+            }
+
+            // THE SHORT-REST CONFIRMATION (ModBuild 301). The dialog is reached from the WIDGET
+            // rather than from the active hand, and that matters: GetComponentInParent answers
+            // "this Selectable is inside a YesNoDialog", which is CONTAINMENT and not identity —
+            // so it is used only to find the dialog, and the two roles are then decided by
+            // REFERENCE against that dialog's own serialized yesButton / noButton. A third button
+            // someone adds to the prefab would be unattributable rather than mis-attributed.
+            //
+            // Reaching it from the widget also side-steps a question this method must not have to
+            // answer: WHICH hand's dialog is docked. The docked row is the one being sampled, so
+            // the dialog above the option IS the docked dialog, by construction.
+            YesNoDialog? dialog = sel.GetComponentInParent<YesNoDialog>();
+            if (dialog != null)
+            {
+                if (dialog.yesButton != null
+                    && ReferenceEquals(sel.transform, dialog.yesButton.transform))
+                    return NetProtocol.DecisionRoleShortRestYes;
+                if (dialog.noButton != null
+                    && ReferenceEquals(sel.transform, dialog.noButton.transform))
+                    return NetProtocol.DecisionRoleShortRestNo;
             }
         }
         catch (System.Exception)
@@ -1620,6 +1640,8 @@ internal sealed class DecisionDockSurface : WorldSurface
         NetProtocol.DecisionRoleBurnAvailable => "burn-available",
         NetProtocol.DecisionRoleBurnDiscarded => "burn-discarded",
         NetProtocol.DecisionRoleTakeDamage => "take-damage",
+        NetProtocol.DecisionRoleShortRestYes => "short-rest-yes",
+        NetProtocol.DecisionRoleShortRestNo => "short-rest-no",
         _ => "unknown",
     };
 

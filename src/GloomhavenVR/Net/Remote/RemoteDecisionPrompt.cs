@@ -65,12 +65,38 @@ internal static class RemoteDecisionPrompt
     /// substitution the common variants need, and one this client reads from the replicated model
     /// rather than from anything on the wire.
     ///
-    /// <para>Returns null for every prompt that HAS no text line (a short-rest Yes/No, a pick
-    /// confirm), for a sender that predates the record, and for any lookup that fails: a missing
-    /// line is cosmetic, a wrong one would be a lie about somebody else's decision.</para>
+    /// <para>Returns null for a prompt that really has no text line (a pick confirm), for a sender
+    /// that predates the record, and for any lookup that fails: a missing line is cosmetic, a wrong
+    /// one would be a lie about somebody else's decision.</para>
+    ///
+    /// <para>THE SHORT REST IS THE ONE CASE THAT DEPENDS ON <paramref name="widgetsMirrored"/>, and
+    /// the reason is worth stating because it is easy to get backwards. That prompt DOES have a
+    /// question — "GUI_SHORT_REST_CONFIRMATION" — but the mirrored clone already carries it: the
+    /// dock mirrors the whole dialog <c>box</c>, and the description text is inside it, lettered by
+    /// the RECEIVER's own game. Composing a second copy here would print the question twice, once
+    /// above the clone and once inside it. So the line is produced only for the FALLBACK row, where
+    /// the mod-drawn plates carry the two options and nothing carries the question.</para>
     /// </summary>
-    internal static string? Compose(byte kind, byte variant, CPlayerActor? boardActor)
+    internal static string? Compose(byte kind, byte variant, CPlayerActor? boardActor,
+                                    bool widgetsMirrored)
     {
+        if (kind == NetProtocol.DecisionKindShortRestYesNo)
+        {
+            // See the remarks: the clone brings its own question, the plates do not.
+            if (widgetsMirrored)
+                return null;
+            try
+            {
+                return Line(null, Loc.Game("GUI_SHORT_REST_CONFIRMATION",
+                    "Do you really want to take a short rest?"));
+            }
+            catch (System.Exception e)
+            {
+                VRLog.Warn("Net", "Remote decision prompt: composing the short-rest question " +
+                                  $"failed ({e.Message}) — the mirrored plates stand without it.");
+                return null;
+            }
+        }
         if (kind != NetProtocol.DecisionKindTakeDamage || variant == NetProtocol.DecisionTextNone)
             return null;
         try

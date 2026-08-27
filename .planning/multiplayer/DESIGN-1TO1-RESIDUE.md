@@ -102,6 +102,62 @@ is already shipping (record 16), touches no game prefab and has no availability 
 more of the user's stated requirement — "auch wie das Bild auf einem mouseover oder klick reagiert"
 — per unit of risk than the short-rest dialog does.
 
+### 2.1b SHIPPED — ModBuild 301, and BOTH of the readings above were wrong
+
+Built and gated 2026-08-27, after §2.3. §2.1 was too optimistic and §2.1a was too pessimistic, in
+different places, and three lines of decompiled source settled all of it.
+
+**§2.1's `PrepareInteractabilityForPlayer` claim is false.** It said that method "is what decides
+which options are enabled for a given player" and that calling it on the puppet would grey exactly
+what the owner's greys, "with no per-button wire field". The method greys nothing:
+
+```csharp
+public void PrepareInteractabilityForPlayer(CPlayerActor playerContext)   // YesNoDialog.cs:139-151
+{
+    // sets ControlSecondIdentifier on the yes/no InteractabilityIsolatedUIControl components
+}
+```
+
+It stamps an owner id onto two control components — which the puppet pass destroys anyway, because
+they are not presentation. The greyed / dimmed / chosen picture was never missing: **record 24 has
+carried it since ModBuild 105**, for every active `Selectable` under the docked row, and since
+ModBuild 300 the hover and press with it. There was nothing to add.
+
+**§2.1a's "availability race" is real but far smaller than it read, and the reflection is gone.**
+The correction said a receiver would have to reach `dialogPrefab` by reflection off its own
+`ShortRest`, "a feature with three failure modes". None of that survived contact with
+`ShortRest.cs`:
+
+- `ShortRest.Init` instantiates the dialog **eagerly**, at hand-build time, and hides it
+  (`ShortRest.cs:96-119`). So the receiver does not need the prefab — it already owns a **live**
+  `YesNoDialog`, exactly as it owns a populated `TakeDamagePanel` via `ShowOtherPlayer`. Direct
+  field reads on publicized `GH.Runtime`; no reflection anywhere.
+- The window that remains is only "this client has not built a hand this scenario yet". For it, the
+  board keeps the mod-drawn plates — **and now composes the question above them** from the same
+  constant key, which is more than the plates have ever shown.
+
+**And the text problem dissolved entirely.** `ShortRest.Init` is `YesNoDialog`'s only caller in the
+whole game and always passes the literal key `"GUI_SHORT_REST_CONFIRMATION"`, so a receiver's own
+dialog is *already lettered with the right sentence in the viewer's language*. Better still, the
+dock mirrors the whole dialog **`box`**, not the button row — the test #25 deadlock fix, because
+isolating the row drops the question and leaves the fit nothing to measure — so cloning what the
+owner docks brings the sentence along. **Not one byte of text travels.**
+
+**What actually shipped:** two role codes (4 = short-rest yes, 5 = no), resolved on the sender by
+reference off the `YesNoDialog` above the sampled widget, and a second source branch in
+`RemoteDecisionWidgets`. `DecisionRoleMax` moved 3 → 5; a ModBuild-300 receiver clamps both to
+`unknown` and draws exactly the plates it drew before.
+
+**One boundary worth recording, because it fell out right by itself.** The mirror gilds only the TMP
+texts *inside a bound option widget* — so the short-rest question keeps its authored colour. That is
+not a choice made here: `AdjustDockedRow` restyles the owner's prompt by walking its `Selectable`s
+and gilding the texts inside them, so the question is left alone on the owner's board too. Same rule,
+both sides, no second styling decision to drift.
+
+**Not verified on hardware.** Two clients in the card-selection phase, one takes a short rest: the
+other board must show the game's own dialog — the question in the VIEWER's language, both real
+buttons — greying, hovering and pressing with the owner.
+
 ### 2.2 `DialogPopup` options — the option array is the metadata
 
 ```csharp
@@ -244,8 +300,9 @@ Suggested order, cheapest and most certain first:
 1. **Card dust + card smoke** — SHIPPED, ModBuild 299 (dust). The smoke was wired and then
    REVERTED on purpose: it is the game's own particle system and a peer's mirrored cards are mod
    slabs with none, so the field would have had no consumer.
-2. **Short-rest `YesNoDialog`** — one loc key and one actor id, and the game's own
-   `PrepareInteractabilityForPlayer` does the state.
+2. **Short-rest `YesNoDialog`** — SHIPPED, ModBuild 301 (see §2.1b). Not one loc key and not one
+   actor id in the end: two role codes and zero text bytes, because the receiver's own live dialog
+   is already lettered with the game's one constant key.
 3. **Hover/press on the decision widgets** — SHIPPED, ModBuild 300 (see §2.3c). Not record 16's
    pattern in the end: two free bits on record 24, plus a cadence bypass at both ends.
 4. **`DialogPopup` options** — the largest, because the puppet must be populated without ever

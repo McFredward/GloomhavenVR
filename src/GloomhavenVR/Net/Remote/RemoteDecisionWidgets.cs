@@ -39,6 +39,23 @@ namespace GloomhavenVR.Net;
 /// and lethal/shielded picture (record 29 flags). Localization follows for free and is MORE correct
 /// than shipping the sender's string: a German host and an English guest each read their own.
 ///
+/// ─── TWO PROMPTS, ONE MECHANISM (ModBuild 301) ─────────────────────────────────────────────────
+/// The SHORT-REST confirmation is mirrored the same way, and it turned out to need no new machinery
+/// and not one byte of text:
+///   • the receiver owns a live <c>YesNoDialog</c> because <c>ShortRest.Init</c> instantiates it
+///     EAGERLY at hand-build time and hides it (ShortRest.cs:96-119) — the same shape as the
+///     take-damage panel every client owns via <c>ShowOtherPlayer</c>;
+///   • the clone source is the dialog BOX, not the button row, exactly as the owner's own dock
+///     docks it (the test #25 fix: isolating the row drops the question and leaves the fit nothing
+///     to measure) — so the mirrored dialog carries the SENTENCE as well as the buttons;
+///   • that sentence is already the right one, in the VIEWER's language, because
+///     <c>ShortRest.Init</c> is <c>YesNoDialog</c>'s only caller in the whole game and always
+///     passes the literal key "GUI_SHORT_REST_CONFIRMATION".
+/// Only the two option roles (4, 5) and the states beside them ride the wire. The one real cost is
+/// an availability window: a client that has not built a hand this scenario owns no dialog, and for
+/// that window the board keeps the mod-drawn plates — with the question composed above them (see
+/// <c>RemoteDecisionPrompt</c>), which is more than the plates showed before.
+///
 /// ─── PUPPET, NOT PROGRAM ───────────────────────────────────────────────────────────────────────
 /// The clone is built by <see cref="RemoteWidgetMirror"/>, which already carries the whole
 /// discipline: instantiate under an INACTIVE host so no cloned game behaviour ever reaches
@@ -246,17 +263,22 @@ internal sealed class RemoteDecisionWidgets
             byte[]? roles = owner.DecisionRoles;
             if (owner.DecisionLines == null)
                 return Down("the owner has no visible decision row");
-            if (owner.DecisionPromptKind != NetProtocol.DecisionKindTakeDamage)
-                return Down($"the owner's prompt (kind {owner.DecisionPromptKind}) is not one whose " +
+            byte kind = owner.DecisionPromptKind;
+            if (kind != NetProtocol.DecisionKindTakeDamage
+                && kind != NetProtocol.DecisionKindShortRestYesNo)
+                return Down($"the owner's prompt (kind {kind}) is not one whose " +
                             "widgets exist on this client — see NetProtocol.DecisionRoleMax");
             if (roles == null || !AnyKnown(roles))
                 return Down("no widget roles on the wire (a sender predating record 29, or a row " +
                             "this build's sampler could not attribute)");
 
-            RectTransform? source = ResolveSourceRow();
+            RectTransform? source = ResolveSourceRow(kind);
             if (source == null)
-                return Down("this client's own TakeDamagePanel row could not be resolved " +
-                            "(singleton absent, or the prompt's widget fields are null)");
+                return Down(kind == NetProtocol.DecisionKindShortRestYesNo
+                    ? "this client owns no short-rest YesNoDialog yet (no hand built this " +
+                      "scenario), so there is nothing to clone — see CardsGameApi.AnyShortRestDialog"
+                    : "this client's own TakeDamagePanel row could not be resolved " +
+                      "(singleton absent, or the prompt's widget fields are null)");
 
             // SHOWN FIRST, fitted second. The fit measures VISIBLE clone graphics, and a host this
             // class had previously hidden (an undocked prompt, a failed tick) makes every one of
@@ -268,7 +290,7 @@ internal sealed class RemoteDecisionWidgets
                 return Down(_mirror.Reason);
 
             if (_boundStamp != _mirror.RebuildStamp)
-                Bind();
+                Bind(kind);
 
             Apply(owner, roles);
             // RE-FIT AFTER THE PAINT, not before it. The fit measures the union of VISIBLE clone
@@ -285,20 +307,21 @@ internal sealed class RemoteDecisionWidgets
             // it is re-checked rather than assumed).
             if (_boundStamp != _mirror.RebuildStamp)
             {
-                Bind();
+                Bind(kind);
                 Apply(owner, roles);
             }
             if (!Showing)
             {
                 Showing = true;
                 Reason = string.Empty;
-                VRLog.Info("Net", "Remote decision row: now mirroring THE GAME'S OWN take-damage " +
-                                  $"widgets — a clone of THIS client's own TakeDamagePanel row " +
-                                  $"('{source.name}'), driven from wire records 12/24/29. The button " +
-                                  "art, the burn icons, the damage icon and every wording are this " +
-                                  "client's own assets in THIS player's language; only the roles, " +
-                                  "the option states and the damage number came over the wire. The " +
-                                  "mod-drawn plate row is down.");
+                VRLog.Info("Net", "Remote decision row: now mirroring THE GAME'S OWN " +
+                                  $"{(kind == NetProtocol.DecisionKindShortRestYesNo ? "short-rest confirmation" : "take-damage")} " +
+                                  $"widgets — a clone of THIS client's own subtree ('{source.name}'), " +
+                                  "driven from wire records 12/24/29. The button art, the icons and " +
+                                  "every wording are this client's own assets in THIS player's " +
+                                  "language; only the roles, the option states and (for take-damage) " +
+                                  "the damage number came over the wire. The mod-drawn plate row is " +
+                                  "down.");
             }
             return true;
         }
@@ -413,8 +436,11 @@ internal sealed class RemoteDecisionWidgets
     /// <c>Singleton&lt;TakeDamagePanel&gt;</c> would not be initialized and its
     /// <c>TextLocalizedListener</c>s would not have written their strings).</para>
     /// </summary>
-    private RectTransform? ResolveSourceRow()
+    private RectTransform? ResolveSourceRow(byte kind)
     {
+        _boundDialog = null;
+        if (kind == NetProtocol.DecisionKindShortRestYesNo)
+            return ResolveShortRestBox();
         TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
             ? Singleton<TakeDamagePanel>.Instance
             : null;
@@ -432,13 +458,67 @@ internal sealed class RemoteDecisionWidgets
             : WorldUI.ModalFallback.DecisionDock.IsolateRow(p.myWindow, _rowScratch);
     }
 
+    /// <summary>THE DIALOG <see cref="ResolveShortRestBox"/> last cloned from, so
+    /// <see cref="Bind"/> binds against the SAME object the mirror copied. Resolving twice would be
+    /// a race: the local active hand can change between two statements, and a
+    /// <see cref="RemoteWidgetMirror.CloneOf"/> lookup against a dialog the clone was not made from
+    /// silently returns null for every widget.</summary>
+    private YesNoDialog? _boundDialog;
+
+    /// <summary>
+    /// THIS CLIENT'S OWN short-rest confirmation, resolved the way the LOCAL dock resolves it —
+    /// the dialog <c>box</c>, not the isolated button row.
+    ///
+    /// <para>WHY THE WHOLE BOX. The dock learned this the hard way (test #25 items 1b/1c, see
+    /// <c>ModalFallback.DecisionDock</c>): isolating the common ancestor of the two buttons DROPS
+    /// THE QUESTION — the description text is a sibling under <c>box</c>, not a child of the row —
+    /// and leaves the fit with no visible graphics to measure. Mirroring the box instead of the row
+    /// is therefore not a convenience, it is what makes the peer see the same thing the owner does:
+    /// the sentence and both buttons, in one envelope, fitted into the same mount.</para>
+    ///
+    /// <para>AND IT IS WHY NO TEXT IS ON THE WIRE. The clone arrives already lettered — with the
+    /// RECEIVER's own translation of "GUI_SHORT_REST_CONFIRMATION", because <c>ShortRest.Init</c> is
+    /// <c>YesNoDialog</c>'s only caller in the entire game and always passes that literal key
+    /// (ShortRest.cs:100). A German host and an English guest each read their own, and the mod
+    /// composed nothing.</para>
+    ///
+    /// <para>The row fallback below is the dock's own, kept for the same reason it keeps it: a
+    /// prefab reshuffle that nulls <c>box</c> should cost the question, not the whole mirror.</para>
+    /// </summary>
+    private RectTransform? ResolveShortRestBox()
+    {
+        YesNoDialog? d = Cards.CardsGameApi.AnyShortRestDialog();
+        if (d == null || d.window == null)
+            return null;
+        _boundDialog = d;
+        RectTransform? box = d.box;
+        if (box != null && !ReferenceEquals(box, d.window.transform)
+            && box.IsChildOf(d.window.transform))
+            return box;
+        _rowScratch.Clear();
+        if (d.yesButton != null)
+            _rowScratch.Add(d.yesButton.transform);
+        if (d.noButton != null)
+            _rowScratch.Add(d.noButton.transform);
+        return _rowScratch.Count == 0
+            ? null
+            : WorldUI.ModalFallback.DecisionDock.IsolateRow(d.window, _rowScratch);
+    }
+
     /// <summary>
     /// Resolve every clone node this class drives, ONCE per clone rebuild. Source-side references
     /// come off the game's own serialized fields (never a name lookup), and each is translated to
     /// its clone through <see cref="RemoteWidgetMirror.CloneOf"/> — the mirror's documented override
     /// seam.
+    ///
+    /// <para>Two prompts, two binds. The short-rest branch binds two options and nothing else: the
+    /// take-damage runtime parts (the amount, the damage and fatal icons, the mandatory highlight)
+    /// belong to a panel this clone was not made from, so they stay null and every write to them in
+    /// <see cref="Apply"/> is already null-guarded. Branching explicitly rather than letting
+    /// <c>CloneOf</c> return null four times is the difference between a decision and an
+    /// accident.</para>
     /// </summary>
-    private void Bind()
+    private void Bind(byte kind)
     {
         _boundStamp = _mirror.RebuildStamp;
         _appliedKey = -1; // a fresh clone repaints from scratch
@@ -450,6 +530,18 @@ internal sealed class RemoteDecisionWidgets
         _fatalIcon = null;
         _mandatory = null;
         _labels = System.Array.Empty<TMP_Text>();
+
+        if (kind == NetProtocol.DecisionKindShortRestYesNo)
+        {
+            YesNoDialog? d = _boundDialog;
+            if (d != null)
+            {
+                BindRole(NetProtocol.DecisionRoleShortRestYes, d.yesButton);
+                BindRole(NetProtocol.DecisionRoleShortRestNo, d.noButton);
+            }
+            BindLabels();
+            return;
+        }
 
         TakeDamagePanel? p = Singleton<TakeDamagePanel>.IsInitialized
             ? Singleton<TakeDamagePanel>.Instance
@@ -474,6 +566,21 @@ internal sealed class RemoteDecisionWidgets
         _basicText = info != null ? info.basicTextColor : Color.white;
         _negativeText = info != null ? info.negativeTextColor : Color.white;
 
+        BindLabels();
+    }
+
+    /// <summary>
+    /// Collect the labels this class repaints — every TMP text UNDER A BOUND OPTION WIDGET, and
+    /// nothing else.
+    ///
+    /// <para>That boundary is the owner's, not one chosen here: <c>AdjustDockedRow</c> restyles a
+    /// docked prompt by walking its <c>Selectable</c>s and gilding the TMP texts inside them, so a
+    /// text that is NOT inside an option — the short-rest question, which is a sibling under the
+    /// dialog box — is left at its authored colour on the owner's board too. Following the same
+    /// rule here is what makes the mirrored dialog match without a second styling decision.</para>
+    /// </summary>
+    private void BindLabels()
+    {
         // Every remaining label: repainted to the dock's parchment gold, which is exactly what
         // AdjustDockedRow does to the OWNER's own row. The two take-damage texts are excluded
         // because the game itself keeps rewriting them (UpdateTakeDamageOptionVisuals) — see Apply.

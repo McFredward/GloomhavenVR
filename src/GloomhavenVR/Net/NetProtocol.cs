@@ -416,7 +416,51 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 300;
+    public const ushort ModBuild = 301;
+    // Build 301: THE SHORT-REST CONFIRMATION WAS NEVER UNMIRRORABLE — THE NOTE SAYING SO WAS WRONG,
+    // AND READING THE GAME COST THREE LINES.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE ROLES ADDED (4, 5). ***
+    //
+    //   POINT 2 OF DESIGN-1TO1-RESIDUE.md, and the third round in a row where CHECKING BEFORE
+    //   BUILDING changed the shape of the work. This one changed it twice, in opposite directions.
+    //
+    //   THE STANDING NOTE SAID IT COULD NOT BE DONE. Verbatim, at DecisionRoleMax: "the short-rest
+    //   YesNoDialog belongs to a HAND (ShortRest.yesNoDialog) ... neither exists on a peer in the
+    //   state the owner is looking at". The premise is true and the conclusion does not follow:
+    //     - ShortRest.Init instantiates its dialog EAGERLY, at hand-build time, and hides it
+    //       (ShortRest.cs:96-119). Every client that has built its own hand this scenario already
+    //       OWNS a live YesNoDialog — the same shape as the TakeDamagePanel every client owns.
+    //     - The dialog is only ever asked ONE question. ShortRest.Init is YesNoDialog's only caller
+    //       in the entire game and always passes the literal key "GUI_SHORT_REST_CONFIRMATION", so
+    //       a receiver's own copy is ALREADY lettered with the right sentence in ITS OWN language.
+    //     - The dock mirrors the whole dialog BOX, not the button row (the test #25 deadlock fix:
+    //       isolating the row drops the question and leaves the fit nothing to measure), so cloning
+    //       what the owner docks carries the question along for free.
+    //   NOT ONE BYTE OF TEXT TRAVELS. Two role codes and the option states already on record 24.
+    //
+    //   AND THE DESIGN'S OWN PLAN WAS WRONG THE OTHER WAY. It proposed instantiating dialogPrefab
+    //   by reflection off the receiver's own ShortRest, and calling
+    //   PrepareInteractabilityForPlayer(ownerActor) so "the mirrored dialog greys exactly what the
+    //   owner's greys — with no per-button wire field". Reading that method kills both halves: it
+    //   GREYS NOTHING — it stamps ControlSecondIdentifier onto InteractabilityIsolatedUIControl
+    //   components (YesNoDialog.cs:139-151) — and those components are destroyed by the puppet pass
+    //   anyway. The greyed/dimmed/chosen picture comes from record 24, where it already was; and no
+    //   prefab and no reflection are needed, because the LIVE dialog is the better source.
+    //
+    //   WHAT THE HAND-OWNERSHIP REALLY COST is an AVAILABILITY WINDOW, not an impossibility: a
+    //   client with no hand built yet owns no dialog. For that window the board keeps the mod-drawn
+    //   plates — and now composes the QUESTION above them from the same constant key, which is more
+    //   than the plates have ever shown. The peer sees the sentence either way.
+    //
+    //   BACKWARD COMPATIBLE BY THE CLAMP THAT WAS ALREADY THERE: a ModBuild-300 receiver clamps
+    //   roles 4 and 5 to DecisionRoleUnknown and draws exactly the plates it drew before.
+    //
+    //   TEST: two clients in the card-selection phase. One takes a short rest and gets the "are you
+    //   sure" dialog. The other board must show THE GAME'S OWN dialog — the question in the
+    //   VIEWER's language, both real buttons — greying, hovering and pressing with the owner (the
+    //   pointer bits of ModBuild 300 apply here unchanged). The watching player's own beam must do
+    //   nothing to it.
+    //
     // Build 300: THE OWNER'S POINTER NOW REACHES THE OTHER BOARDS — AND HALF THE JOB WAS ALREADY
     // DONE, BY A LINE WRITTEN FOR A DIFFERENT REASON.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FORMAT WIDENED (record 24). ***
@@ -16652,10 +16696,9 @@ internal static class NetProtocol
     ///   fills all three, so option <c>i</c> names the same widget in every one of them).</item>
     /// <item>role byte — one of the <c>DecisionRole*</c> codes, clamped with
     ///   <see cref="ClampDecisionRole"/>. <see cref="DecisionRoleUnknown"/> means "this build's
-    ///   sampler could not attribute the widget" (a short-rest Yes/No, a <c>DialogPopup</c>'s
-    ///   pooled options — see <see cref="DecisionRoleMax"/> for why those are deliberately not
-    ///   coded), which a receiver renders with the mod-drawn plate and record 12's wording —
-    ///   exactly what every build before this one drew.</item>
+    ///   sampler could not attribute the widget" (a <c>DialogPopup</c>'s pooled options — see
+    ///   <see cref="DecisionRoleMax"/>), which a receiver renders with the mod-drawn plate and
+    ///   record 12's wording — exactly what every build before this one drew.</item>
     /// </list></para>
     ///
     /// <para>NO CARD IDENTITY, BY CONSTRUCTION: the payload is four small enumerations and a damage
@@ -16714,27 +16757,54 @@ internal static class NetProtocol
     /// carries the damage icon and the amount).</summary>
     public const byte DecisionRoleTakeDamage = 3;
 
+    /// <summary>Role: the short-rest confirmation's YES button
+    /// (<c>ShortRest.yesNoDialog.yesButton</c>). See <see cref="DecisionRoleMax"/> for why this
+    /// prompt turned out to be resolvable on a peer after all.</summary>
+    public const byte DecisionRoleShortRestYes = 4;
+
+    /// <summary>Role: the short-rest confirmation's NO button
+    /// (<c>ShortRest.yesNoDialog.noButton</c>).</summary>
+    public const byte DecisionRoleShortRestNo = 5;
+
     /// <summary>
-    /// Highest role code this build defines — and deliberately NO HIGHER. Ids 4+ are free for the
-    /// short-rest <c>YesNoDialog</c> and the <c>DialogPopup</c> when a receiver can actually
-    /// resolve them; they are NOT reserved here, because a role a receiver does not consume is a
-    /// wire field with no consumer, which is the failure this project has already shipped once
-    /// (see the <c>[Cards] FanCloseDuration</c> note in <c>scripts/check-wire-coverage.py</c>).
+    /// Highest role code this build defines — and deliberately no higher. A role a receiver does
+    /// not consume is a wire field with no consumer, which is the failure this project has already
+    /// shipped once (see the <c>[Cards] FanCloseDuration</c> note in
+    /// <c>scripts/check-wire-coverage.py</c>), so a code is added here only together with the
+    /// receiver that resolves it.
     ///
-    /// <para>WHY THOSE TWO PROMPTS ARE NOT COVERED THIS ROUND, stated rather than silently skipped:
-    /// the take-damage panel is a per-client <c>Singleton</c> the game populates on EVERY machine
-    /// (<c>ShowOtherPlayer</c>), so a receiver owns the very widgets it is asked to mirror. The
-    /// short-rest <c>YesNoDialog</c> belongs to a HAND (<c>ShortRest.yesNoDialog</c>) and the
-    /// <c>DialogPopup</c>'s option buttons are POOLED and labelled at runtime — neither exists on a
-    /// peer in the state the owner is looking at, so a role for them could only be resolved to a
-    /// different object or to nothing. Those prompts therefore keep the mod-drawn plates and
-    /// record 12's wording, which is what every build so far drew for all three.</para>
+    /// <para>THE SHORT-REST DIALOG JOINED IN ModBuild 301, AND THE NOTE THAT SAID IT COULD NOT IS
+    /// CORRECTED HERE. That note read: "the short-rest <c>YesNoDialog</c> belongs to a HAND
+    /// (<c>ShortRest.yesNoDialog</c>) … neither exists on a peer in the state the owner is looking
+    /// at". The first clause is true. The conclusion does not follow, and reading the game settled
+    /// it in three lines:
+    /// <list type="bullet">
+    ///   <item><c>ShortRest.Init</c> instantiates its <c>YesNoDialog</c> EAGERLY — at hand-build
+    ///     time, not at confirm time — and immediately hides it (ShortRest.cs:96-119). So every
+    ///     client that has built its own hand this scenario already OWNS a live dialog, exactly as
+    ///     every client owns a populated <c>TakeDamagePanel</c>.</item>
+    ///   <item>The dialog is only ever asked ONE question. <c>ShortRest.Init</c> is its only caller
+    ///     anywhere in the game and passes the literal key <c>"GUI_SHORT_REST_CONFIRMATION"</c>, so
+    ///     a receiver's own copy is already lettered with the right sentence, in the RECEIVER's
+    ///     language. Not one byte of text has to travel.</item>
+    ///   <item>The dock mirrors the whole dialog <c>box</c> rather than the button row — the
+    ///     question and both buttons together (the test #25 deadlock fix, see
+    ///     <c>ModalFallback.DecisionDock</c>) — so cloning it carries the question for free.</item>
+    /// </list>
+    /// What "belongs to a hand" really cost was an AVAILABILITY window, not an impossibility: a
+    /// client that has not built a hand yet has no dialog, and for that window the receiver keeps
+    /// the mod-drawn plates. That is a narrower gap than the note assumed, and it degrades in the
+    /// safe direction.</para>
+    ///
+    /// <para>THE <c>DialogPopup</c> IS STILL NOT COVERED, and for a reason that did not dissolve:
+    /// its option buttons are POOLED and labelled per prompt, so a role could only be resolved to a
+    /// different object each time. It keeps the plates and record 12's wording.</para>
     ///
     /// Writer and reader both clamp with this, so an unknown code from a later build degrades to
     /// <see cref="DecisionRoleUnknown"/> — the mod-drawn plate — rather than resolving to the wrong
-    /// widget.
+    /// widget. A ModBuild-300 receiver reading 4 or 5 therefore shows plates, unchanged.
     /// </summary>
-    public const byte DecisionRoleMax = DecisionRoleTakeDamage;
+    public const byte DecisionRoleMax = DecisionRoleShortRestNo;
 
     /// <summary>Clamp a role code to what this build can resolve; anything above the highest
     /// defined code becomes <see cref="DecisionRoleUnknown"/>. Applied on write AND on read.</summary>
