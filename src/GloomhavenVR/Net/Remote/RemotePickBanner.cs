@@ -108,8 +108,29 @@ internal sealed class RemotePickBanner
             return;
         _shown = line!;
         RemoteBoardContent.SetText(_label, _shown);
-        if (_root != null && !_root.gameObject.activeSelf)
-            _root.gameObject.SetActive(true);
-        VRLog.Info("Net", $"Remote pick banner: \"{_shown}\" at board-local {_root.localPosition:F3}.");
+        // THE WARNING HERE WAS RIGHT AND A SUPPRESSION WOULD HAVE HIDDEN A CRASH.
+        //
+        // `_root` is a readonly Transform assigned in the constructor, so it is never null in the
+        // C# sense — but it is a UNITY object, and the two `_root != null` tests around this line
+        // exist precisely because the board subtree can be DESTROYED under us (Unity's fake-null).
+        // The log line then dereferenced it unguarded, one line below a guard that tolerates
+        // exactly that state: on a destroyed root it throws MissingReferenceException out of a
+        // DIAGNOSTIC, and a throw here amputates the rest of the caller's chain.
+        //
+        // Behaviour change, deliberately taken rather than suppressed: on a live root nothing
+        // differs at all. On a destroyed one the old code threw and the new code says so, which
+        // is the state worth hearing about.
+        if (_root != null)
+        {
+            if (!_root.gameObject.activeSelf)
+                _root.gameObject.SetActive(true);
+            VRLog.Info("Net", $"Remote pick banner: \"{_shown}\" at board-local {_root.localPosition:F3}.");
+        }
+        else
+        {
+            VRLog.Warn("Net", $"Remote pick banner: BANNER ROOT DESTROYED — the text \"{_shown}\" was " +
+                              "accepted but there is nothing left to draw it on. The board subtree was " +
+                              "torn down under this banner; it will come back with the next board build.");
+        }
     }
 }

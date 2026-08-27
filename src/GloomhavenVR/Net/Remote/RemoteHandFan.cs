@@ -1807,7 +1807,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         if (_holder != holder)
         {
             _holder = holder;
-            _root.transform.SetParent(holder, worldPositionStays: false);
+            // `!` because the compiler cannot carry the null-state across the local `bool`:
+            // `rootDied = _root == null` above, and the `if (rootDied)` branch assigns a fresh
+            // root. Past that branch _root is non-null on both paths. Compiles to identical IL.
+            _root!.transform.SetParent(holder, worldPositionStays: false);
             _poseInit = true; // snap to the new hand rather than easing across the body
         }
     }

@@ -53,6 +53,21 @@
   <PropertyGroup>
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
+    <!--
+      TreatWarningsAsErrors, on since 2026-08-27 — the day the warning count reached ZERO.
+      scripts/ci-build.sh had carried the condition for years: "not on and cannot be turned on
+      while those six exist". Six became four became none, so it is on.
+
+      This is the EARLIER of the two levers. The compiler refuses a new warning before anything
+      else runs; ci-build.sh's count gate stays as the second, because a compiler-side property
+      can be dropped from a file, ignored by another SDK or disabled per project — which is
+      exactly how a setting goes quiet without anyone noticing.
+
+      If a warning ever has to be accepted again, suppress it AT THE SITE with the reason
+      written beside it (that is what the three `!` in RemoteHandFan / StatPanelSurface do) —
+      not by turning this off.
+    -->
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Embedded PDBs => readable stack traces in BepInEx/LogOutput.log -->
     <DebugType>embedded</DebugType>
     <!-- Belt & suspenders next to nuget.config: makes restore work even without it -->

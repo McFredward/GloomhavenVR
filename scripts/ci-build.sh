@@ -18,9 +18,14 @@
 # ratchet turning in the intended direction — a warning that goes away because its file does is
 # still one fewer place a seventh can hide.
 #
-# `TreatWarningsAsErrors` is not on and cannot be turned on while those six exist, so
-# without a gate a seventh warning is invisible — it scrolls past in a log nobody
-# reads. This makes the count load-bearing.
+# `TreatWarningsAsErrors` IS NOW ON (2026-08-27, once the count reached zero — this comment
+# used to say it "cannot be turned on while those six exist", and that condition is met).
+# The compiler stops a new warning before this script runs, which is earlier and unmissable.
+#
+# This gate stays anyway, and not out of sentiment: it still catches the case where the
+# property is dropped from the csproj, ignored by a different SDK, or disabled for one
+# project — i.e. exactly the ways a compiler-side setting goes quiet without anyone noticing.
+# Two levers, the same rule as everywhere else in this repository.
 #
 # Line numbers are deliberately NOT checked: they move whenever the surrounding code
 # is edited and a gate that cries wolf gets switched off. What IS checked is the
@@ -29,16 +34,23 @@
 # kind, fails the build.
 #
 # Fix the six and this script tells you to lower the number — that is the intended
-# ratchet direction.
+# ratchet direction. It reached zero on 2026-08-27 and the direction is now one-way.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONFIG="${1:-Release}"
 LOG="$ROOT/build-ci.log"
 
-EXPECT_WARNINGS=4
-EXPECT_CODES="CS8602 CS8604"
-EXPECT_FILES="RemotePickBanner.cs RemoteHandFan.cs StatPanelSurface.cs"
+# ZERO, since 2026-08-27. The six became four and the four became none: three were the
+# compiler failing to carry a null-state the code guarantees (suppressed with `!` and a reason
+# at each site, identical IL), and the fourth was a REAL unguarded dereference in a log line —
+# see RemotePickBanner. EXPECT_CODES and EXPECT_FILES are empty on purpose: with the count at
+# zero, ANY warning of ANY kind in ANY file fails this gate, which is the strongest form it has
+# ever had. If a warning is ever accepted again, put its code and file back here rather than
+# raising the count alone.
+EXPECT_WARNINGS=0
+EXPECT_CODES=""
+EXPECT_FILES=""
 
 set -o pipefail
 bash "$ROOT/scripts/build.sh" "$CONFIG" 2>&1 | tee "$LOG"

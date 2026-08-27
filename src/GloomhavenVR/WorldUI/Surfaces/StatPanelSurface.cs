@@ -356,10 +356,14 @@ internal sealed class StatPanelSurface
         // those two seconds the first figure had NO panel at all. The "snapshot timed out (game
         // refused Show)" log line was this bug, not the game refusing anything. ---
         ScenarioRuleLibrary.CActor? realTarget = _pendingCopyActor ?? _heldActor;
+        // `!` on both Instance reads: each is already gated on Singleton<ActorStatPanel>
+        // .IsInitialized — the first inside `canShow` (see its definition above), the second in
+        // its own `else if`. The compiler does not relate IsInitialized to Instance, and the
+        // reference assembly types Instance as nullable. Compiles to identical IL.
         if (canShow && realTarget != null)
-            ForceShowOn(ActorStatPanel.Instance, realTarget);
+            ForceShowOn(ActorStatPanel.Instance!, realTarget);
         else if (_heldActor == null && Singleton<ActorStatPanel>.IsInitialized)
-            HideHeldOn(ActorStatPanel.Instance, releasing); // no primary hold → drop our card if still ours
+            HideHeldOn(ActorStatPanel.Instance!, releasing); // no primary hold → drop our card if still ours
     }
 
     /// <summary>

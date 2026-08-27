@@ -69,6 +69,25 @@ internal sealed class Harness
         _failures.Add($"{_case}: {what}\n      expected: {expected}\n      actual  : {actual}");
     }
 
+    /// <summary>
+    /// The same assertion for strings that may legitimately be ABSENT.
+    ///
+    /// <para>Added 2026-08-27 with TreatWarningsAsErrors. The generic above constrains
+    /// <c>T : IEquatable&lt;T&gt;</c>, so passing a <c>string?</c> — which several relaunch
+    /// vectors do, because "no argument was dropped" is a real expected outcome — infers
+    /// <c>T = string?</c> and does not satisfy the constraint (CS8631). Those two call sites had
+    /// been raising a silent warning.</para>
+    ///
+    /// <para>Fixed here rather than with a <c>!</c> at the call sites: a null <c>dropped</c> is a
+    /// value the test wants to ASSERT ON, and suppressing the warning there would have turned a
+    /// legitimate comparison into an NRE on the day the assertion started failing.</para>
+    /// </summary>
+    public void Equal(string? expected, string? actual, string what)
+    {
+        if (string.Equals(expected, actual, StringComparison.Ordinal)) { _passed++; return; }
+        _failures.Add($"{_case}: {what}\n      expected: {expected ?? "<null>"}\n      actual  : {actual ?? "<null>"}");
+    }
+
     /// <summary>The core assertion: the writer emitted EXACTLY these bytes.</summary>
     public void Wire(byte[] expected, byte[] buffer, int written, string what)
     {
