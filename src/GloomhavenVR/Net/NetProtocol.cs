@@ -416,7 +416,58 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 299;
+    public const ushort ModBuild = 300;
+    // Build 300: THE OWNER'S POINTER NOW REACHES THE OTHER BOARDS — AND HALF THE JOB WAS ALREADY
+    // DONE, BY A LINE WRITTEN FOR A DIFFERENT REASON.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FORMAT WIDENED (record 24). ***
+    //
+    //   SECOND STEP OF DESIGN-1TO1-RESIDUE.md (its point 3). The ruling is verbatim: "auch wie das
+    //   Bild auf einem mouseover oder klick reagiert soll den anderen Spielern genauso dargestellt
+    //   werden." That is two requirements wearing one sentence, and they were in very different
+    //   states.
+    //
+    //   THE FIRST HALF WAS ALREADY MET AND NOBODY HAD NOTICED. "A peer's own pointer must never
+    //   light up somebody else's board" needs no code: RemoteWidgetMirror's puppet pass destroys
+    //   every component that is not a Transform and not on the presentation whitelist, so the
+    //   Button, the Selectable, the EventTrigger and the GraphicRaycaster are gone before the clone
+    //   is ever shown. It was checked before it was built, which is the only reason this build is
+    //   half the size it was scoped at.
+    //
+    //   THE SECOND HALF WAS HARDER THAN "ONE INDEX", FOR EXACTLY THE SAME REASON. The Selectable
+    //   that WOULD have drawn the owner's hover is destroyed too — so a mirrored highlight cannot
+    //   be "set the button's state", there is no button. The four ColorBlock entries are therefore
+    //   read off the SOURCE widget at bind time, while it still exists, and this mod paints them:
+    //   disabled > pressed > highlighted > normal, Selectable.DoStateTransition's own precedence,
+    //   not one invented here. NO PICTURE TRAVELS — two bits on a byte record 24 was already
+    //   sending, so the record's LENGTH did not move and an older peer masks them straight back off.
+    //
+    //   THE SOURCE IS THE MOD'S OWN POINTER TABLES, AND ONE OF THEM WAS BUILT FOR THIS VERY ROW.
+    //   UnityEngine.UI is not publicized, so Selectable's hover latch cannot be read. It does not
+    //   need to be: UguiHoverTracker — whose class doc names the defect it was born from, "user
+    //   'Hover-Animation der Entscheidungsknöpfe'" — already refcounts every pointer enter/exit for
+    //   all four VR pointers, and it IS what drives the highlight the owner sees. It gained a read
+    //   seam; the press got its twin, UguiPressTracker, behind a SINGLE WRITER (UguiPointer.Pressing)
+    //   so four assignment sites and one refcount cannot desync.
+    //
+    //   AND THE CADENCE HAD TO GIVE. The decision records publish every 0.25 s, which is right for a
+    //   toggle and wrong for a beam: a hover sampled at 4 Hz reaches a peer as a stutter that lands
+    //   on options the owner never stopped on. So a moved pointer bit CLEARS THE PUBLISH GATE and
+    //   rides out on that tick — the same bypass the focus-hidden withdrawal already used. The test
+    //   for it is a question, never a second sampler: eight cached widgets, two dictionary probes
+    //   each, no walk, no string, and it writes nothing.
+    //
+    //   ONE DEFECT FOUND WHILE TOUCHING IT. The paint's change key packed each option into seven
+    //   bits; a five-bit state made adjacent options overlap, and a key that silently stops
+    //   detecting changes is this project's oldest wound. It is a rolling hash now.
+    //
+    //   NOT DONE, ON PURPOSE: the mod-drawn PLATE row (the fallback for prompts whose widget a peer
+    //   cannot resolve) still shows no hover. It has no ColorBlock to read — that is what "could not
+    //   resolve the widget" means — so any factor there would be invented. Recorded in the design.
+    //
+    //   TEST: two clients, a take-damage prompt on one. The other board's decision row must
+    //   highlight the option the OWNER's beam is on, in the game's own highlight colour, and darken
+    //   while they hold the trigger. The watching player's OWN beam must do nothing to it.
+    //
     // Build 299: THE CARD DUST REACHES A PEER — AND THE SMOKE BESIDE IT WAS REFUSED ON PURPOSE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE FORMAT CHANGED (id 248). ***
     //
@@ -16389,7 +16440,10 @@ internal static class NetProtocol
     /// <item>option byte: <see cref="DecisionOptionOfferedBit"/> (the widget is interactable — the
     ///   owner can press it), <see cref="DecisionOptionDimmedBit"/> (the game's 0.7-alpha "your
     ///   character cannot do this" dim), <see cref="DecisionOptionChosenBit"/> (a toggle that is
-    ///   currently ON). Masked to <see cref="DecisionOptionDefinedMask"/> both ways.</item>
+    ///   currently ON), <see cref="DecisionOptionHoveredBit"/> and
+    ///   <see cref="DecisionOptionPressedBit"/> (THE OWNER'S pointer is on it / holding it down —
+    ///   the only per-viewer facts in this record, and therefore the only ones a receiver cannot
+    ///   derive). Masked to <see cref="DecisionOptionDefinedMask"/> both ways.</item>
     /// </list></para>
     ///
     /// <para>NO CARD IDENTITY, BY CONSTRUCTION — AND NO PROMPT TEXT EITHER. The record carries
@@ -16489,9 +16543,49 @@ internal static class NetProtocol
     /// choice the owner has already picked, before they commit it).</summary>
     public const byte DecisionOptionChosenBit = 1 << 2;
 
-    /// <summary>Every option-byte bit defined today; masked on write AND on read.</summary>
+    /// <summary>
+    /// Option byte bit 3: THE OWNER'S POINTER IS ON THIS OPTION — the hover the owner sees, and the
+    /// half of the 1:1 rule that had no expression before this build (user ruling, verbatim: "auch
+    /// wie das Bild auf einem mouseover oder klick reagiert soll den anderen Spielern genauso
+    /// dargestellt werden").
+    ///
+    /// <para>WHOSE POINTER, AND WHY THAT MATTERS MORE THAN IT SOUNDS. A hover is the one decision
+    /// fact that is PER-VIEWER by nature: every client has its own hands, so a mirrored board that
+    /// derived the highlight locally would light up under the WATCHER's beam — the opposite of 1:1,
+    /// and the same class of leak <c>RemoteInitiativeTrack</c> strips by hand. It cannot be derived
+    /// on the receiver at all; it can only be carried, which is why it is a wire bit.</para>
+    ///
+    /// <para>Sampled from <c>Hands.Interact.UguiHoverTracker</c> — the mod's own cross-pointer
+    /// hover table, which exists because of THIS widget row (its class doc names the defect: "user
+    /// 'Hover-Animation der Entscheidungsknöpfe'"). Every VR pointer path funnels through it: both
+    /// lasers, both fingertip pokes. See <c>DecisionDockSurface.SamplePointerBits</c> for what it
+    /// deliberately does NOT see.</para>
+    /// </summary>
+    public const byte DecisionOptionHoveredBit = 1 << 3;
+
+    /// <summary>
+    /// Option byte bit 4: the owner is PRESSING this option right now — the pressed tint, held
+    /// while their trigger is down. Sampled from <c>Hands.Interact.UguiPressTracker</c>, the press
+    /// twin of the hover table above.
+    ///
+    /// <para>THIS BIT IS A HELD PRESS, NOT A CLICK, and the difference is worth stating because the
+    /// records it rides publish on a 0.25 s cadence. A press that begins and ends between two
+    /// samples would be invisible — so the sampler does NOT wait for the cadence: a pointer bit
+    /// that moves clears the publish gate and rides out on that very tick (the same bypass the
+    /// focus-hidden withdrawal already uses). What a peer therefore sees is the press for as long
+    /// as the owner holds it, plus the network's own latency; what a peer never sees is a press
+    /// shorter than one packet interval. The CONSEQUENCE of a click — a toggle that went on — is
+    /// carried by <see cref="DecisionOptionChosenBit"/> and is not affected by any of this.</para>
+    /// </summary>
+    public const byte DecisionOptionPressedBit = 1 << 4;
+
+    /// <summary>Every option-byte bit defined today; masked on write AND on read. Bits 3 and 4
+    /// joined it in ModBuild 300 — a pure widening of a byte that was already being sent, so the
+    /// record's LENGTH did not move and an older receiver masks the two new bits straight back off
+    /// (it renders the row exactly as it did before, which is the safe direction).</summary>
     public const byte DecisionOptionDefinedMask =
-        DecisionOptionOfferedBit | DecisionOptionDimmedBit | DecisionOptionChosenBit;
+        DecisionOptionOfferedBit | DecisionOptionDimmedBit | DecisionOptionChosenBit
+        | DecisionOptionHoveredBit | DecisionOptionPressedBit;
 
     /// <summary>Pack a prompt kind + text variant into the decision-state flags byte. Both fields
     /// are clamped into their own field width, so a caller can never spill one into the other or

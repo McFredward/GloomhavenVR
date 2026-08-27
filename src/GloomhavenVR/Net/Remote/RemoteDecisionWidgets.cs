@@ -114,6 +114,19 @@ internal sealed class RemoteDecisionWidgets
         public Color NormalTint;
         public Color DisabledTint;
         public float TintMultiplier;
+
+        /// <summary>The same <c>ColorBlock</c>'s HIGHLIGHTED and PRESSED entries — the owner's hover
+        /// and press, drawn from the game's own numbers.
+        ///
+        /// <para>These have to be CAPTURED, not asked for later, and the reason is the puppet pass:
+        /// <see cref="RemoteWidgetMirror"/> destroys every <c>Selectable</c> on the clone before it
+        /// is ever shown, so by the time this row is painted there is no button left to hold a
+        /// <c>ColorBlock</c>. That destruction is not an obstacle to work around — it is what makes
+        /// a peer's own pointer unable to light up somebody else's board — so the four tints are
+        /// read off the SOURCE widget at bind time, while it still exists, and the mirror paints
+        /// them itself.</para></summary>
+        public Color HighlightedTint;
+        public Color PressedTint;
     }
 
     private readonly RoleNode[] _roles = new RoleNode[RoleSlots];
@@ -144,6 +157,11 @@ internal sealed class RemoteDecisionWidgets
     /// <summary>Which clone rebuild <see cref="_roles"/> and the take-damage parts were resolved
     /// against; -1 = nothing resolved yet. The mirror's own invalidation key.</summary>
     private int _boundStamp = -1;
+
+    /// <summary>The POINTER bits last applied, folded to one int (two bits per option) — the
+    /// per-frame drive's own gate. -1 = nothing applied yet. Separate from
+    /// <see cref="_appliedKey"/> because it is tested at 90 Hz and that one is not.</summary>
+    private int _appliedPointerBits = -1;
 
     /// <summary>What was last APPLIED (roles + states + flags + damage), packed for the change
     /// gate — a uGUI colour write dirties the canvas, so the repaint must not run on an unchanged
@@ -290,6 +308,68 @@ internal sealed class RemoteDecisionWidgets
         }
     }
 
+    /// <summary>
+    /// PER-FRAME POINTER DRIVE — repaint when, and only when, the OWNER's hover or press moved.
+    ///
+    /// <para>WHY THIS IS NOT LEFT TO <see cref="Refresh"/>. Everything else this class shows moves
+    /// when the owner COMMITS something (a toggle flips, a damage number is recomputed), and the
+    /// board's 4 Hz content cadence is the right rate for that. A pointer is not that kind of fact:
+    /// a beam crossing three options in half a second would arrive as one arbitrary sample, and a
+    /// press held under a quarter second would never be drawn at all. The mirrored board next to
+    /// this one already makes exactly this split for exactly this reason — the half-card hover of
+    /// record 14 is driven per frame "so the glow lands with the synced edge, not on the 4 Hz
+    /// content cadence" (RemoteControlBoard). This is that argument, applied to the decision
+    /// row.</para>
+    ///
+    /// <para>IT IS A GATE, NOT A SECOND PAINTER. The whole body is two array reads per option and
+    /// an int compare; on the frames where nothing moved — which is nearly all of them — it returns
+    /// before touching a single Graphic. When it does fire it calls the SAME <see cref="Apply"/> the
+    /// cadence calls, so there is no second description of what the row should look like that could
+    /// drift from the first one. No re-fit is needed and none is done: a colour change cannot move
+    /// the row's extents, and the fit is what makes <see cref="Refresh"/> expensive.</para>
+    ///
+    /// <para>Wrapped whole, for the reason <see cref="Refresh"/> is: this now runs inside the
+    /// per-frame board tick, and a throw here would take that tick down with it.</para>
+    /// </summary>
+    public void TickPointer(RemoteAvatar owner)
+    {
+        if (!Showing || _boundStamp != _mirror.RebuildStamp)
+            return;
+        byte[]? roles = owner.DecisionRoles;
+        if (roles == null)
+            return;
+        int bits = FoldPointerBits(owner.DecisionOptionStates, roles.Length);
+        if (bits == _appliedPointerBits)
+            return;
+        try
+        {
+            Apply(owner, roles);
+        }
+        catch (System.Exception e)
+        {
+            Down($"the pointer repaint failed ({e.Message})");
+        }
+    }
+
+    /// <summary>Every option's two POINTER bits folded into one int — the per-frame gate's whole
+    /// comparison. Two bits per option, at most eight options, so it always fits and no option can
+    /// alias another (the trap the paint key itself fell into: see <see cref="Apply"/>).</summary>
+    private static int FoldPointerBits(byte[]? states, int count)
+    {
+        if (states == null)
+            return 0;
+        int bits = 0;
+        for (int i = 0; i < count && i < states.Length && i < 8; i++)
+        {
+            byte f = states[i];
+            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
+                bits |= 1 << (i * 2);
+            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
+                bits |= 2 << (i * 2);
+        }
+        return bits;
+    }
+
     /// <summary>Hide the mirrored widgets and record WHY (logged once per reason change, so a
     /// hardware log states whether a peer saw the real row or the fallback, and why).</summary>
     private bool Down(string reason)
@@ -300,6 +380,7 @@ internal sealed class RemoteDecisionWidgets
             Showing = false;
             Reason = reason;
             _appliedKey = -1;
+            _appliedPointerBits = -1;
             VRLog.Info("Net", $"Remote decision row: NOT mirroring the game's own widgets — {reason}. " +
                               "The mod-drawn plate row (record 12's wordings) stands in, which is " +
                               "what every build before ModBuild 105 drew for every prompt.");
@@ -361,6 +442,7 @@ internal sealed class RemoteDecisionWidgets
     {
         _boundStamp = _mirror.RebuildStamp;
         _appliedKey = -1; // a fresh clone repaints from scratch
+        _appliedPointerBits = -1;
         System.Array.Clear(_roles, 0, _roles.Length);
         _amount = null;
         _takeDamageText = null;
@@ -434,6 +516,8 @@ internal sealed class RemoteDecisionWidgets
             BaseColor = srcBg != null ? srcBg.color : Color.white,
             NormalTint = source.colors.normalColor,
             DisabledTint = source.colors.disabledColor,
+            HighlightedTint = source.colors.highlightedColor,
+            PressedTint = source.colors.pressedColor,
             TintMultiplier = source.colors.colorMultiplier > 0f ? source.colors.colorMultiplier : 1f,
         };
         if (source is Toggle toggle && toggle.graphic != null)
@@ -485,6 +569,14 @@ internal sealed class RemoteDecisionWidgets
     private void Apply(RemoteAvatar owner, byte[] roles)
     {
         byte[]? states = owner.DecisionOptionStates;
+        // A ROLLING HASH, not a bit-packed word. The packed version gave each option seven bits and
+        // shifted it into place, which fitted exactly while an option state was three bits wide;
+        // the two POINTER bits made it five, so adjacent options would have overlapped and two
+        // different rows could have hashed alike. Only the LOG line rides this key, so the damage
+        // would have been a missing line rather than a wrong picture — but a change gate that
+        // silently stops detecting changes is precisely the instrument this project has been bitten
+        // by, so it is a hash now and it cannot run out of bits. Forced non-negative so it can
+        // never collide with the -1 "nothing applied yet" sentinel.
         long key = owner.DecisionWidgetFlags | ((long)owner.DecisionDamageAmount << 8);
         int shown = 0;
         for (int i = 0; i < roles.Length && i < 8; i++)
@@ -492,8 +584,10 @@ internal sealed class RemoteDecisionWidgets
             byte state = states != null && i < states.Length
                 ? states[i]
                 : NetProtocol.DecisionOptionOfferedBit;
-            key ^= ((long)roles[i] | ((long)state << 4)) << (16 + i * 7);
+            key = key * 31 + roles[i];
+            key = key * 31 + state;
         }
+        key &= long.MaxValue;
         // THE PAINT ITSELF IS NOT GATED ON THIS KEY, deliberately: every write below carries its own
         // "only if it really changed" test, which is the gate that matters, and a coarse key would
         // be a correctness trap the moment anything else touched the clone between two ticks. The
@@ -501,6 +595,7 @@ internal sealed class RemoteDecisionWidgets
         // four a second.
         bool announce = key != _appliedKey;
         _appliedKey = key;
+        _appliedPointerBits = FoldPointerBits(states, roles.Length);
 
         // 1. Which roles the owner is showing, and in what state.
         byte[] present = _present;
@@ -532,12 +627,31 @@ internal sealed class RemoteDecisionWidgets
             bool offered = (state & NetProtocol.DecisionOptionOfferedBit) != 0;
             bool dimmed = (state & NetProtocol.DecisionOptionDimmedBit) != 0;
             bool chosen = (state & NetProtocol.DecisionOptionChosenBit) != 0;
+            bool hovered = (state & NetProtocol.DecisionOptionHoveredBit) != 0;
+            bool pressed = (state & NetProtocol.DecisionOptionPressedBit) != 0;
 
             if (node.Background != null)
             {
-                // The game's own ColorBlock, times the dock's antique tint: the very two
-                // multiplications the owner's docked widget renders through.
-                Color tint = (offered ? node.NormalTint : node.DisabledTint) * node.TintMultiplier;
+                // THE GAME'S OWN COLORBLOCK, IN THE GAME'S OWN PRIORITY, times the dock's antique
+                // tint: the very two multiplications the owner's docked widget renders through.
+                //
+                // The order is Selectable.DoStateTransition's, not one chosen here — disabled wins
+                // over pressed, pressed over highlighted, highlighted over normal. Following the
+                // game's precedence rather than inventing one is what keeps a greyed option that
+                // happens to sit under the owner's beam looking greyed on every board, which is
+                // what the owner is looking at. (The sender agrees with this from the other end:
+                // SamplePointerBits publishes no pointer bit at all for a non-interactable option,
+                // so the two sides cannot disagree about a widget in that state.)
+                //
+                // ONE HONEST DIFFERENCE, stated rather than hidden: uGUI CROSS-FADES between these
+                // colours over ColorBlock.fadeDuration (0.1 s by default) and the mirror snaps. At
+                // this row's size, over a network whose own latency is the same order, the fade is
+                // not a picture a viewer can miss — and faking it would mean running a tween on the
+                // remote board driven by a value that only updates when a packet lands.
+                Color stateTint = offered
+                    ? (pressed ? node.PressedTint : hovered ? node.HighlightedTint : node.NormalTint)
+                    : node.DisabledTint;
+                Color tint = stateTint * node.TintMultiplier;
                 Color c = node.BaseColor * tint * antique;
                 if (node.Background.color != c)
                     node.Background.color = c;
@@ -602,7 +716,8 @@ internal sealed class RemoteDecisionWidgets
         if (!announce)
             return;
         VRLog.Info("Net", $"Remote decision row PAINTED: {shown} game widget(s) shown of " +
-                          $"{roles.Length} wire role(s) — damage " +
+                          $"{roles.Length} wire role(s), owner pointer " +
+                          $"{DescribePointer(roles, states)} — damage " +
                           $"{(damageValid ? owner.DecisionDamageAmount.ToString() : "n/a")}" +
                           $"{(lethal ? " (FATAL icon)" : " (normal icon)")}" +
                           $"{(shielded ? ", shield colour" : string.Empty)}" +
@@ -611,6 +726,29 @@ internal sealed class RemoteDecisionWidgets
                           "wordings, icons and art are this client's assets in this player's " +
                           "language, so nothing about them was on the wire. Still inert: no " +
                           "collider, no raycaster, nothing to press.");
+    }
+
+    /// <summary>Which option the OWNER's pointer is on, for the paint line. A hardware log has to
+    /// be able to answer "did the hover reach this board, and was it the right option" — the two
+    /// pointer bits are the only per-viewer facts in the record, so they are the ones a "the hover
+    /// is wrong" report will be argued from.</summary>
+    private static string DescribePointer(byte[] roles, byte[]? states)
+    {
+        if (states == null)
+            return "n/a (a sender predating the pointer bits)";
+        var sb = new System.Text.StringBuilder(24);
+        for (int i = 0; i < roles.Length && i < states.Length; i++)
+        {
+            byte f = states[i];
+            bool hovered = (f & NetProtocol.DecisionOptionHoveredBit) != 0;
+            bool pressed = (f & NetProtocol.DecisionOptionPressedBit) != 0;
+            if (!hovered && !pressed)
+                continue;
+            if (sb.Length > 0)
+                sb.Append(", ");
+            sb.Append(pressed ? "PRESSING #" : "on #").Append(i);
+        }
+        return sb.Length > 0 ? sb.ToString() : "off the row";
     }
 
     private static void SetActive(GameObject? go, bool on)

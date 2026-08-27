@@ -362,6 +362,16 @@ internal sealed class DecisionDockSurface : WorldSurface
     private static readonly byte[] _wireOptionRoles =
         new byte[Net.NetProtocol.DecisionStateMaxOptions];
 
+    /// <summary>
+    /// The <c>Selectable</c>s the last full walk published, index-aligned with
+    /// <see cref="_wireOptionStates"/> — held ONLY so the per-frame pointer pass
+    /// (<see cref="PointerBitsMoved"/>) can re-ask "is the owner on this option" without repeating
+    /// the walk, the TMP lookups and the string join at 90 Hz. Entries past the published count are
+    /// nulled, so a torn-down row cannot be read back through this array.
+    /// </summary>
+    private static readonly Selectable?[] _wireOptionWidgets =
+        new Selectable?[Net.NetProtocol.DecisionStateMaxOptions];
+
     /// <summary>The roles last PUBLISHED (the change gate's other half — a role set can move while
     /// the wordings and the states hold, e.g. the game activating a widget that was hidden).</summary>
     private static readonly byte[] _publishedOptionRoles =
@@ -1233,6 +1243,11 @@ internal sealed class DecisionDockSurface : WorldSurface
             PublishWireDecision(null, NetProtocol.DecisionKindNone, 0, 0, 0);
             return;
         }
+        // THE OWNER POINTER DOES NOT WAIT FOR THE CADENCE — see PointerBitsMoved for why a hover
+        // sampled at 4 Hz reaches a peer as a stutter. A moved bit clears the gate and the full
+        // walk below runs on this very tick, exactly as the focus-hidden withdrawal above does.
+        if (PointerBitsMoved())
+            _nextWireLinesAt = 0f;
         if (Time.unscaledTime < _nextWireLinesAt)
             return;
         _nextWireLinesAt = Time.unscaledTime + 0.25f;
@@ -1270,6 +1285,7 @@ internal sealed class DecisionDockSurface : WorldSurface
                         // exactly the property a receiver needs to resolve the role against its own
                         // copy of the game widget.
                         _wireOptionRoles[options] = SampleOptionRole(sel);
+                        _wireOptionWidgets[options] = sel;
                         _wireOptionStates[options++] = SampleOptionState(sel, root);
                     }
                 }
@@ -1288,9 +1304,95 @@ internal sealed class DecisionDockSurface : WorldSurface
             widgetFlags = 0;
             damage = 0;
         }
+        // Everything past what this walk published is not an option any more — null it so the
+        // per-frame pointer pass can never read a widget belonging to a row that is gone.
+        for (int i = lines == null ? 0 : options; i < _wireOptionWidgets.Length; i++)
+            _wireOptionWidgets[i] = null;
         PublishWireDecision(lines, lines == null ? NetProtocol.DecisionKindNone : PromptKindCode(),
             lines == null ? 0 : options, lines == null ? (byte)0 : widgetFlags,
             lines == null ? (byte)0 : damage);
+    }
+
+    /// <summary>
+    /// Has a POINTER bit moved since the last publish — i.e. has the owner put their beam on a
+    /// different option, taken it off, or pressed / released one?
+    ///
+    /// <para>WHY THIS EXISTS AT ALL: the rest of the decision sample runs on a 0.25 s cadence,
+    /// which is right for what it measures (a toggle state, a damage number — facts that change
+    /// when the owner commits something). A hover is not that kind of fact. Sampled at 4 Hz, a beam
+    /// sweeping the row would reach a peer as a stutter that lands on options the owner never
+    /// stopped on, and a press shorter than a quarter second would never be seen at all. So the
+    /// pointer bits get their own test, run every tick, and a move CLEARS THE PUBLISH GATE — the
+    /// same bypass the focus-hidden withdrawal above uses, for the same reason: some things must
+    /// land on the tick they happen.</para>
+    ///
+    /// <para>It is cheap on purpose. No walk, no <c>GetComponentsInChildren</c>, no string: at most
+    /// eight cached widgets, two dictionary probes each, and nothing is written — the FULL walk
+    /// stays the only writer of <see cref="_wireOptionStates"/>, so this can never disagree with
+    /// what is published. It is a question, not a second sampler.</para>
+    /// </summary>
+    private static bool PointerBitsMoved()
+    {
+        const byte pointerBits =
+            NetProtocol.DecisionOptionHoveredBit | NetProtocol.DecisionOptionPressedBit;
+        int n = _wireOptionCount;
+        if (n > _wireOptionWidgets.Length)
+            n = _wireOptionWidgets.Length;
+        for (int i = 0; i < n; i++)
+        {
+            Selectable? sel = _wireOptionWidgets[i];
+            if (sel == null)
+                continue; // the widget died under us — the next full walk settles the row
+            if (SamplePointerBits(sel) != (byte)(_wireOptionStates[i] & pointerBits))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// THE OWNER-SIDE POINTER BITS for one option — hovered (bit 3) and pressed (bit 4) of wire
+    /// record 24, the only two facts in that record a receiver cannot derive for itself.
+    ///
+    /// <para>THE SOURCE IS THE MOD PLUMBING, NOT THE WIDGET, and that is deliberate.
+    /// <c>Selectable</c> keeps its hover and press latches private and <c>UnityEngine.UI</c> is not
+    /// publicized, so the widget cannot be asked directly. But it does not need to be: every VR
+    /// pointer path — both lasers, both fingertip pokes — funnels its enter/exit through
+    /// <c>UguiHoverTracker</c> and its down/up through <c>UguiPressTracker</c>, and those tables ARE
+    /// what drives the highlight the owner is looking at. Reading them is reading the cause of the
+    /// picture rather than guessing at it, which is the same move
+    /// <c>Net.InitiativeHoverSampler</c> makes when it polls the avatar own <c>highlighted</c>
+    /// latch.</para>
+    ///
+    /// <para>WHAT IT DOES NOT SEE, said plainly rather than left to be discovered: the DESKTOP
+    /// MOUSE. A flat-screen mouse hover would light the owner widget without appearing in either
+    /// table. In VR that pointer is deliberately cut off the world surfaces
+    /// (<c>WorldUI.Patches.MouseWorldSurfaceCut</c>) and the decision row is a world surface, so
+    /// the gap is closed by construction here — but it is a gap in the SOURCE, not an oversight,
+    /// and if a flat-screen path ever docks this row it is the thing to revisit.</para>
+    ///
+    /// <para>A NON-INTERACTABLE OPTION REPORTS NEITHER. Unity own state machine gives the disabled
+    /// tint priority over highlighted and pressed alike, so a greyed widget that happens to sit
+    /// under the beam still draws greyed on the owner screen. Publishing a hover for it would make
+    /// a peer paint a picture the owner never sees.</para>
+    /// </summary>
+    private static byte SamplePointerBits(Selectable sel)
+    {
+        try
+        {
+            if (!sel.IsInteractable())
+                return 0;
+            GameObject go = sel.gameObject;
+            byte flags = 0;
+            if (Hands.Interact.UguiHoverTracker.IsHovered(go))
+                flags |= NetProtocol.DecisionOptionHoveredBit;
+            if (Hands.Interact.UguiPressTracker.IsPressed(go))
+                flags |= NetProtocol.DecisionOptionPressedBit;
+            return flags;
+        }
+        catch (System.Exception)
+        {
+            return 0; // no pointer is the safe answer: the peer keeps the plain, un-hovered look
+        }
     }
 
     /// <summary>
@@ -1396,10 +1498,15 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// game's 0.7 "your character does not have the cards for this" look, which is a DIFFERENT
     /// picture from merely un-pressable and must not be collapsed into it), and CHOSEN when it is a
     /// <c>Toggle</c> that is currently on (the burn option the owner has picked but not committed).
+    ///
+    /// <para>Plus, since ModBuild 300, the two POINTER bits — see
+    /// <see cref="SamplePointerBits"/>. They are folded in here rather than sampled separately so
+    /// this method stays the ONE writer of an option state byte: the per-frame pass that watches
+    /// them only ever asks a question.</para>
     /// </summary>
     private static byte SampleOptionState(Selectable sel, RectTransform root)
     {
-        byte flags = 0;
+        byte flags = SamplePointerBits(sel);
         if (sel.IsInteractable())
             flags |= NetProtocol.DecisionOptionOfferedBit;
         if (sel is Toggle toggle && toggle.isOn)
@@ -1486,6 +1593,10 @@ internal sealed class DecisionDockSurface : WorldSurface
                 states.Append("+dim");
             if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
                 states.Append("+CHOSEN");
+            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
+                states.Append("+HOVER");
+            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
+                states.Append("+PRESS");
             states.Append("/role ").Append(RoleName(_wireOptionRoles[i]));
         }
         VRLog.Info("WorldUI", $"DECISION DOCK: wire decision published — {lines.Split('\n').Length} " +

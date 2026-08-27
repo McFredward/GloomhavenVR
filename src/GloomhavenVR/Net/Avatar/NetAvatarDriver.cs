@@ -1999,6 +1999,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                         opts.Append("+dim");
                     if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
                         opts.Append("+CHOSEN");
+                    if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
+                        opts.Append("+HOVER");
+                    if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
+                        opts.Append("+PRESS");
                 }
                 VRLog.Info("Net", $"Decision state SENT: prompt kind {decisionKind}, text variant " +
                                   $"{decisionText}, {decisionOptions} option(s) [{opts}] — extension " +

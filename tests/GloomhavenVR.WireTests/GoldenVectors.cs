@@ -2578,7 +2578,7 @@ internal static class GoldenVectors
             18 03            // id 24, len 3
             C9               // flags: reserved bits 6+7 set, on top of kind 1 | variant 1
             01               // 1 option
-            F9               // option: reserved bits 3..7 set, on top of OFFERED
+            F9               // option: bits 3..7 set, on top of OFFERED
             ");
         t.True(PresenceSerializer.TryRead(wildDs, wildDs.Length, out PresenceState wds),
                "a record with undefined bits still parses");
@@ -2586,8 +2586,18 @@ internal static class GoldenVectors
                 "the kind is read through the mask, unaffected by the reserved bits");
         t.Equal(NetProtocol.DecisionTextDealDamage, wds.DecisionTextVariant,
                 "and so is the variant");
-        t.Equal(NetProtocol.DecisionOptionOfferedBit, wds.DecisionOptionFlags![0],
-                "every undefined option bit is masked away");
+        // ModBuild 300 GAVE BITS 3 AND 4 MEANINGS (hovered / pressed), so this vector's 0xF9 now
+        // carries three real bits and three reserved ones. Asserted as the exact expected value
+        // rather than "OFFERED alone" — the point of the test is that the mask is the whole
+        // contract, so it has to move WITH the mask, and the second assertion below states the
+        // half that must never move: bits 5..7 mean nothing and must arrive meaning nothing.
+        t.Equal((byte)(NetProtocol.DecisionOptionOfferedBit
+                       | NetProtocol.DecisionOptionHoveredBit
+                       | NetProtocol.DecisionOptionPressedBit),
+                wds.DecisionOptionFlags![0],
+                "every option bit this build DEFINES survives the mask");
+        t.Equal(0, (byte)(wds.DecisionOptionFlags![0] & 0xE0),
+                "and every undefined option bit (5..7) is masked away");
 
         // A LYING COUNT can neither overrun the record nor bleed into the next one: n is re-clamped
         // against the record's OWN length, and the record behind it still reads.

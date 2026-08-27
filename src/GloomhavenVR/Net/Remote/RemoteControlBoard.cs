@@ -609,6 +609,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         }
         LogHalfHoverIfChanged();
 
+        // THE OWNER'S POINTER ON THEIR DECISION BUTTONS (record 24 bits 3-4) — driven here, beside
+        // the half hover above and for the identical reason: a hover that only repainted on the
+        // 4 Hz content cadence would land on options the owner never stopped on. The call is a
+        // gate; it returns without touching a Graphic on every frame the owner's pointer has not
+        // moved, which is nearly all of them.
+        _furniture?.TickDecisionPointer(_owner);
+
         _tag!.Tick();
 
         // Character-focus turn cue: green while this peer owns the character at turn AND is

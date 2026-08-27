@@ -624,6 +624,18 @@ internal sealed class RemoteBoardFurniture
     /// null = nothing applied yet, so the first refresh after a rebuild always paints.</summary>
     private byte[]? _shownOptionStates;
 
+    /// <summary>
+    /// PER-FRAME forward to the mirrored decision row's pointer drive — the owner's hover and press
+    /// on their own decision buttons (wire record 24 bits 3 and 4).
+    ///
+    /// <para>Separate from <see cref="Refresh"/> and called from the board's per-frame block rather
+    /// than its 4 Hz content pass, for the same reason the half-card hover beside it is: a pointer
+    /// sampled four times a second reaches a viewer as a stutter. See
+    /// <c>RemoteDecisionWidgets.TickPointer</c>, which is a gate and returns on nearly every frame
+    /// without touching anything.</para>
+    /// </summary>
+    public void TickDecisionPointer(RemoteAvatar owner) => _decisionWidgets?.TickPointer(owner);
+
     /// <summary>The composed prompt line last shown above the mirrored row (null = none). Change
     /// gate: a TMP write re-triggers auto-size layout, the badge-flicker lesson.</summary>
     private string? _shownPromptText;
@@ -2684,6 +2696,10 @@ internal sealed class RemoteBoardFurniture
                 sb.Append("+dim");
             if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
                 sb.Append("+CHOSEN");
+            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
+                sb.Append("+HOVER");
+            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
+                sb.Append("+PRESS");
         }
         return sb.ToString();
     }

@@ -635,6 +635,35 @@ internal sealed class UguiPointer
     /// <summary>True if the pointer currently has a pressed target.</summary>
     internal bool IsPressed => _pressed != null;
 
+    /// <summary>
+    /// THE ONLY WRITER of <see cref="_pressed"/> — so the cross-pointer table in
+    /// <see cref="UguiPressTracker"/> cannot desync from it.
+    ///
+    /// <para>The press is claimed and handed back here rather than at the four sites that used to
+    /// assign the field (press, the swallowed menu-tab click, the end of a release, and the
+    /// teardown in <see cref="Cancel"/>). Four writers and one table is how a refcount ends up
+    /// stuck: one path that forgets to hand a claim back leaves a widget pressed forever on every
+    /// mirrored board that reads the table. One writer makes that unreachable.</para>
+    ///
+    /// <para><c>is not null</c> and not <c>!= null</c>, exactly as <see cref="UguiHoverTracker"/>
+    /// does it: a DESTROYED press target must still hand its claim back, and Unity fake-null
+    /// equality would skip it.</para>
+    /// </summary>
+    private GameObject? Pressing
+    {
+        get => _pressed;
+        set
+        {
+            if (ReferenceEquals(_pressed, value))
+                return;
+            if (_pressed is not null)
+                UguiPressTracker.Release(_pressed);
+            _pressed = value;
+            if (_pressed is not null)
+                UguiPressTracker.Acquire(_pressed);
+        }
+    }
+
     /// <summary>Pointer-down on the hovered object (mirrors StandaloneInputModule press handling).</summary>
     internal void Press(Vector2 screenPos)
     {
@@ -660,7 +689,7 @@ internal sealed class UguiPointer
 
         GameObject pressTarget = ExecuteEvents.ExecuteHierarchy(_hovered, data, ExecuteEvents.pointerDownHandler)
                                  ?? ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered);
-        _pressed = pressTarget != null ? pressTarget : _hovered;
+        Pressing = pressTarget != null ? pressTarget : _hovered;
         _pressedClickHandler = ExecuteEvents.GetEventHandler<IPointerClickHandler>(_hovered);
         data.pointerPress = _pressed;
 
@@ -782,7 +811,7 @@ internal sealed class UguiPointer
             {
                 data.pointerPress = null;
                 data.eligibleForClick = false;
-                _pressed = null;
+                Pressing = null;
                 _pressedClickHandler = null;
                 _dragging = false;
                 data.dragging = false;
@@ -841,7 +870,7 @@ internal sealed class UguiPointer
 
         data.pointerPress = null;
         data.eligibleForClick = false;
-        _pressed = null;
+        Pressing = null;
         _pressedClickHandler = null;
     }
 
@@ -860,7 +889,7 @@ internal sealed class UguiPointer
             data.eligibleForClick = false;
             _dragging = false;
             _dragTarget = null;
-            _pressed = null;
+            Pressing = null;
             _pressedClickHandler = null;
         }
         // Releases the whole recorded ancestor chain (pointerExit up the hierarchy, counts
@@ -956,6 +985,82 @@ internal static class UguiHoverTracker
         Counts[id] = n - 1;
         return false;
     }
+
+    /// <summary>
+    /// Is any mod pointer hovering <paramref name="go"/> RIGHT NOW — the table read as a question
+    /// instead of a claim.
+    ///
+    /// <para>Added for the multiplayer 1:1 rule (ModBuild 300): the owner-side sampler in
+    /// <c>WorldUI.Surfaces.DecisionDockSurface</c> asks this per docked option so a peer can be
+    /// told which option the OWNER is pointing at. Reading the table rather than a
+    /// <c>Selectable</c> internal is the point — the same refcount the enter/exit dispatch is built
+    /// on IS the hover, so the wire bit and the highlight the owner sees cannot disagree.</para>
+    ///
+    /// <para>Note the SUBTREE semantics, which are the useful ones here and are not an accident:
+    /// <see cref="UguiPointer.SetHovered"/> claims the whole ancestor chain of the object under the
+    /// pointer, so a button whose LABEL was hit answers true — which is exactly what the button
+    /// itself does (its own highlight is driven by that same chain dispatch).</para>
+    /// </summary>
+    internal static bool IsHovered(GameObject? go) =>
+        go is not null && Counts.ContainsKey(go.GetInstanceID());
+}
+
+/// <summary>
+/// CROSS-POINTER PRESS TABLE — the press twin of <see cref="UguiHoverTracker"/>, and built for one
+/// reason: the multiplayer 1:1 rule needs to answer "is the OWNER holding this widget down" for a
+/// widget on the owner machine (user ruling, verbatim: "auch wie das Bild auf einem mouseover oder
+/// klick reagiert soll den anderen Spielern genauso dargestellt werden").
+///
+/// <para>WHY A TABLE AND NOT A FIELD READ. The press lives in a <see cref="UguiPointer"/> instance,
+/// and the mod runs up to four of them (a laser and a fingertip poke per hand). A caller asking
+/// "is this widget pressed" would otherwise have to find and interrogate every pointer — and would
+/// silently start lying the day a fifth appears. The refcount answers for all of them at once, and
+/// its shape is deliberately identical to the hover table beside it so the two are read the same
+/// way and go wrong the same way.</para>
+///
+/// <para>Keyed by instance ID for the same reason the hover table is: two DESTROYED
+/// <c>UnityEngine.Object</c>s compare EQUAL under fake-null semantics, which would corrupt a
+/// dictionary keyed by the object. Every claim is made and handed back by the single writer
+/// <c>UguiPointer.Pressing</c>, so the table drains to empty whenever nothing is held.</para>
+///
+/// <para>THIS TABLE DISPATCHES NOTHING. Unlike the hover table it is not part of the event path:
+/// uGUI press/release events are sent by <see cref="UguiPointer"/> exactly as before and neither
+/// the count nor its return value gates them. It is a read seam and cannot change input
+/// behaviour.</para>
+/// </summary>
+internal static class UguiPressTracker
+{
+    private static readonly Dictionary<int, int> Counts = new(4);
+
+    /// <summary>Claim a press on <paramref name="go"/>.</summary>
+    internal static void Acquire(GameObject go)
+    {
+        if (go is null)
+            return;
+        int id = go.GetInstanceID();
+        Counts[id] = Counts.TryGetValue(id, out int n) ? n + 1 : 1;
+    }
+
+    /// <summary>Hand a press back. Unity-null tolerant: a destroyed target must still balance.</summary>
+    internal static void Release(GameObject go)
+    {
+        if (go is null)
+            return;
+        int id = go.GetInstanceID();
+        if (!Counts.TryGetValue(id, out int n))
+            return;
+        if (n <= 1)
+            Counts.Remove(id);
+        else
+            Counts[id] = n - 1;
+    }
+
+    /// <summary>Is any mod pointer holding <paramref name="go"/> down right now?</summary>
+    /// <remarks>EXACT, not subtree: unlike the hover chain, a press is claimed on the ONE object
+    /// that handled <c>pointerDown</c> — for a button, the button. That is the object whose pressed
+    /// tint is drawn, so asking about it is asking about the picture.</remarks>
+    internal static bool IsPressed(GameObject? go) =>
+        go is not null && Counts.ContainsKey(go.GetInstanceID());
 }
 
 /// <summary>

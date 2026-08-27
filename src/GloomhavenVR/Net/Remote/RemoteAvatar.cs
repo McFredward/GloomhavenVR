@@ -1821,6 +1821,10 @@ internal sealed class RemoteAvatar
                 sb.Append("+dim");
             if ((f & NetProtocol.DecisionOptionChosenBit) != 0)
                 sb.Append("+CHOSEN");
+            if ((f & NetProtocol.DecisionOptionHoveredBit) != 0)
+                sb.Append("+HOVER");
+            if ((f & NetProtocol.DecisionOptionPressedBit) != 0)
+                sb.Append("+PRESS");
         }
         return sb.ToString();
     }

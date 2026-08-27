@@ -160,6 +160,64 @@ send nothing — but it is a new capture step inside the mirror, not a field on 
 pass destroys it), plus per-option application on the receiver. No picture travels; the widths and
 positions are already right. It is one coherent block, and it is bigger than the card dust was.
 
+### 2.3c SHIPPED — ModBuild 300, and two things the estimate above got wrong
+
+Built and gated 2026-08-27. What actually landed, and where the paragraph above was off:
+
+**The colour capture already existed, and cost two fields rather than a new step.**
+`RemoteDecisionWidgets.BindRole` was ALREADY reading the source widget's `ColorBlock` before the
+puppet pass — `NormalTint`, `DisabledTint` and `colorMultiplier`, because the greyed look was
+already being drawn from the game's own numbers rather than an invented factor. So the work was
+`highlightedColor` and `pressedColor` beside them, and the paint became
+`disabled > pressed > highlighted > normal` — `Selectable.DoStateTransition`'s own precedence, not
+one chosen here. The §2.3b reading was right about WHY it is hard (there is no `Selectable` left on
+the clone) and wrong about the size, because it did not check whether the same problem had already
+been solved once next door.
+
+**It is not "one index" — it is two bits, and they cost nothing.** Record 24 already sends one state
+byte per option and bits 3..4 were free, so the record's LENGTH did not move. An older peer masks
+them straight back off and renders exactly what it rendered before.
+
+**What the estimate missed entirely: BOTH cadences had to give.**
+
+- *Sender.* The decision records publish every 0.25 s. That is the right rate for a toggle and the
+  wrong one for a beam — a hover sampled at 4 Hz reaches a peer as a stutter that lands on options
+  the owner never stopped on. A moved pointer bit now clears the publish gate and rides out on that
+  tick, the same bypass the focus-hidden withdrawal already used. The test for it is a *question*
+  and never a second sampler: eight cached widgets, two dictionary probes each, no walk, no string,
+  and it writes nothing — `SampleOptionState` stays the only writer of a state byte.
+- *Receiver.* `RemoteBoardFurniture.Refresh` also runs on the 4 Hz content pass, so publishing fast
+  would have bought nothing on its own. `RemoteDecisionWidgets.TickPointer` now runs per frame,
+  gated on a folded 16-bit key, and calls the SAME `Apply` — so there is no second description of
+  the row that could drift. The precedent is two dozen lines away in the same class: the half-card
+  hover of record 14 is driven per frame "so the glow lands with the synced edge, not on the 4 Hz
+  content cadence".
+
+**The source of the two bits is the mod's own pointer tables, and one of them was built for this
+row.** `UnityEngine.UI` is not publicized, so `Selectable`'s hover latch cannot be read. It does not
+need to be: `UguiHoverTracker` — whose class doc names the defect it was born from, *"user
+'Hover-Animation der Entscheidungsknöpfe'"* — already refcounts enter/exit for all four VR pointers
+and IS what drives the highlight the owner sees. It gained a read seam; the press got its twin,
+`UguiPressTracker`, behind a SINGLE WRITER (`UguiPointer.Pressing`) so four assignment sites and one
+refcount cannot desync.
+
+**One defect found on the way.** The receiver's paint key packed each option into seven bits; a
+five-bit state made adjacent options overlap, so two different rows could have hashed alike. Only
+the log line rode that key — but a change gate that silently stops detecting changes is this
+project's oldest wound. It is a rolling hash now.
+
+**Known gap, deliberate.** The mod-drawn PLATE row still shows no hover. That row exists precisely
+when the receiver could NOT resolve the owner's widget — so there is no `ColorBlock` to read and any
+factor there would be invented. The means to close it honestly is on the shelf and named:
+`NativeButtonSkin` already samples `pressedColor`/`disabledColor` off the game's own button into
+`_pressedMul`/`_disabledMul`; a `_highlightedMul` beside them would give the plate a real hover
+factor from the same source. It was not done in this build because it widens a heavily-tuned
+button-styling path for a fallback row, and that is a separate decision.
+
+**Not verified on hardware.** Two clients, a take-damage prompt on one: the other board's decision
+row must highlight the option the OWNER's beam is on, in the game's own highlight colour, and darken
+while they hold the trigger — and the watching player's own beam must do nothing to it.
+
 ## 3. Finding 3 re-checked: the seven animation debts are two different problems
 
 | debt | what is actually missing | cost to close |
@@ -183,10 +241,13 @@ refactor, and nothing here has been implemented yet.
 
 Suggested order, cheapest and most certain first:
 
-1. **Card dust + card smoke** — one call site and one bit each, no new record, no prefab work.
+1. **Card dust + card smoke** — SHIPPED, ModBuild 299 (dust). The smoke was wired and then
+   REVERTED on purpose: it is the game's own particle system and a peer's mirrored cards are mod
+   slabs with none, so the field would have had no consumer.
 2. **Short-rest `YesNoDialog`** — one loc key and one actor id, and the game's own
    `PrepareInteractabilityForPlayer` does the state.
-3. **Hover/press on the decision widgets** — record 16's pattern, generalised.
+3. **Hover/press on the decision widgets** — SHIPPED, ModBuild 300 (see §2.3c). Not record 16's
+   pattern in the end: two free bits on record 24, plus a cadence bypass at both ends.
 4. **`DialogPopup` options** — the largest, because the puppet must be populated without ever
    touching the `UIWindow`.
 5. **The cap animation clock, then its four fields** — renderer first.
