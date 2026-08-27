@@ -26,28 +26,31 @@
 5. **Virtual mouse exists:** `InputManager.CreateVirtualMouse` (console support) — a VR pointer can drive all remaining 2D uGUI without touching the InputModule.
 6. **Phase hooks without Harmony:** `UINavigation.StateMachine.EventStateChanged` (public event) + postfix on `Choreographer.SetChoreographerState` / `Choreographer.ProcessMessage` for engine→UI messages.
 
-## 1. Module map (= repo layout, = feature branches)
+## 1. Module map
 
-```
-GloomhavenVR.sln
-├── src/GloomhavenVR.Preload/     BepInEx patcher: installs UnityOpenXR natives +
-│                                 UnitySubsystems manifest before engine boot
-├── src/GloomhavenVR/             main BepInEx 5 plugin (net472)
-│   ├── Core/                     XR bootstrap, runtime-dep loading, config, diagnostics
-│   ├── Rig/                      VR camera rig, world grab/scale, comfort
-│   ├── Hands/                    hand models, finger curling, interaction primitives
-│   ├── Cards/                    palm-fan card hand, play surface, half selection
-│   ├── Board/                    hex touch/ray picking, AoE rotation
-│   ├── WorldUI/                  canvas conversion, physical buttons, HUD, 2D fallback screen
-│   └── Compat/                   PPv2/stereo fixes, scene variants, perf
-├── unity/GloomhavenVR.Assets/    companion Unity 2021.3.5f1 project → AssetBundles
-└── libs/RuntimeDeps/             harvested Unity.XR.Management 4.5.0, Unity.XR.OpenXR 1.10.0,
-                                  XR CoreUtils, (XRIT 2.x optional) — loaded via Assembly.LoadFile
-```
+**The repo layout lives in [`docs/DEVELOPING.md`](../docs/DEVELOPING.md), and only there.**
 
-Build: `dotnet build` against local game DLLs (`GamePath` prop), **publicized** references
-(BepInEx.AssemblyPublicizer.MSBuild) — no reflection for internals. Dev loop: ScriptEngine
-(F6 hot reload, cleanup in `OnDestroy`), UnityExplorer 4.13.6 for scene archaeology.
+This section used to carry its own copy of the tree. It was written when the mod was 182 files
+and a module was a folder you could scan; by 2026-08 `WorldUI/` alone held 101 files in one
+folder, and the copy here had drifted from the copy there — which is the failure mode a second
+copy always has. The 2026-08 refactor moved 251 files into named subfolders and rewrote
+`DEVELOPING.md` around them, including the two rules a newcomer needs (folder does not equal
+namespace, on purpose; and the five path pins that fail loudly when a file moves).
+
+What belongs HERE is the part `DEVELOPING.md` does not say: **why the modules are cut where they
+are.** The cut follows the GAME's seams rather than ours —
+
+- `Core/` owns everything that must happen before the engine draws a VR frame, and everything
+  about the room the board stands in. It is the only module the others may depend on freely.
+- `Rig/`, `Hands/` are the player's BODY: pose, locomotion, comfort, the primitives every
+  interaction is built from. They know nothing about cards or hexes.
+- `Cards/`, `Board/` are the two things the player MANIPULATES, and each is anchored on one
+  golden seam from §0 — the card API for one, the picking choke point for the other.
+- `WorldUI/` is everything the player READS. It is the largest module because the game's entire
+  interface is uGUI and every window of it has to become an object in the room.
+- `Net/` mirrors all of the above onto a peer, and is deliberately a separate module rather than
+  a concern spread through the others: the 1:1 rule ("a peer sees what the owner sees") is
+  checkable only when the mirror is in one place.
 
 ## 2. Core: XR bootstrap (Phase V1)
 
