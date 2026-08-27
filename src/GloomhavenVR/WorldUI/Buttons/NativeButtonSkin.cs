@@ -70,6 +70,19 @@ internal static class NativeButtonSkin
     private static float _pressedMul = 0.7f;
     private static float _disabledMul = 0.5f;
 
+    /// <summary>
+    /// Relative brightening the game applies to a HOVERED widget — its own
+    /// <c>ColorBlock.highlightedColor</c> against <c>normalColor</c>, sampled exactly as the two
+    /// above are.
+    ///
+    /// <para>ADDED IN ModBuild 308 FOR A REASON WORTH KEEPING. When the mirrored decision row got
+    /// the owner's hover (ModBuild 300), the mod-drawn PLATE fallback beside it did NOT — and the
+    /// refusal was deliberate and recorded: a plate has no <c>Selectable</c> to read a
+    /// <c>ColorBlock</c> off, so any hover factor there would have been INVENTED. This is that
+    /// factor, taken from the same place the pressed and disabled ones already come from: the
+    /// game's own button. It is the answer that note said was on the shelf.</para></summary>
+    private static float _highlightedMul = 1.05f;
+
     /// <summary>Emphasis tint for native faces — T4: softened from the game's #EACF8C
     /// toward an aged parchment-brass so an accented cap glows warm, not neon.</summary>
     private static readonly Color AccentGold = new(0.84f, 0.72f, 0.48f, 1f);
@@ -103,6 +116,11 @@ internal static class NativeButtonSkin
 
     /// <summary>One-shot log guard for the applied label colour/outline (user #3).</summary>
     private static bool _styleLogged;
+
+    /// <summary>The game's own HOVER brightening, ≥ 1 — see <see cref="_highlightedMul"/>. Read by
+    /// the mirrored decision plates and use-bar tiles, which have no <c>Selectable</c> of their own
+    /// to ask.</summary>
+    internal static float HighlightMul => EnsureSampled() ? _highlightedMul : 1.05f;
 
     /// <summary>True once the live button sprite has been harvested from the scene.</summary>
     internal static bool HasSprite => EnsureSampled() && _normalSprite != null;
@@ -372,6 +390,10 @@ internal static class NativeButtonSkin
             {
                 _pressedMul = Mathf.Clamp(cb.pressedColor.grayscale / normal, 0.4f, 1f);
                 _disabledMul = Mathf.Clamp(cb.disabledColor.grayscale / normal, 0.3f, 1f);
+                // Clamped ABOVE 1 as well as below it: uGUI's own default highlight is a hair
+                // DARKER than normal (0.96), and a mirrored hover that darkens reads as a press.
+                // The floor of 1 keeps "hovered" meaning "brighter" whatever the artist authored.
+                _highlightedMul = Mathf.Clamp(cb.highlightedColor.grayscale / normal, 1f, 1.6f);
             }
         }
 
@@ -619,6 +641,7 @@ internal static class NativeButtonSkin
         _font = null;
         _pressedMul = 0.7f;
         _disabledMul = 0.5f;
+        _highlightedMul = 1.05f;
         for (int i = 0; i < _created.Count; i++)
         {
             if (_created[i] != null)

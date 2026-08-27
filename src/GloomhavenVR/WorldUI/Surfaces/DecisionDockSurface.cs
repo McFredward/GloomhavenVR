@@ -1375,7 +1375,7 @@ internal sealed class DecisionDockSurface : WorldSurface
     /// under the beam still draws greyed on the owner screen. Publishing a hover for it would make
     /// a peer paint a picture the owner never sees.</para>
     /// </summary>
-    private static byte SamplePointerBits(Selectable sel)
+    internal static byte SamplePointerBits(Selectable sel)
     {
         try
         {
