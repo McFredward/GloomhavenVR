@@ -41,9 +41,19 @@ namespace GloomhavenVR.Compat;
 /// single write would silently lapse. The driver re-asserts at 1 Hz — a field compare and, in the
 /// steady state, no write at all.
 ///
-/// Purely visual and local: no game state, no wire, peers unaffected. Live-gated by
-/// <c>[Cards] GameCardParticles</c> (default OFF); turning it back on restores the vanilla value
-/// immediately.
+/// Purely visual, and it writes no game state. Live-gated by <c>[Cards] GameCardParticles</c>
+/// (default OFF); turning it back on restores the vanilla value immediately.
+///
+/// THE DIAL IS NOT LOCAL-ONLY ANY MORE, and the distinction matters here. The dial also rides the
+/// wire as a PERMISSION (<see cref="Net.NetProtocol.TuneGameCardParticlesOn"/>,
+/// id 236): a peer's mirrored cards draw the game's plume on THIS owner's say-so, hosted by
+/// <see cref="Net.RemoteCardPlume"/>. This class is still the LOCAL half and must stay that way —
+/// it answers "do MY OWN cards spray the game's particles?" by pinning the game's own low-spec
+/// switch, which gates <c>CardEffects.SpawnParticle</c> and nothing else. The mirror instantiates
+/// the prefab itself, so the switch below cannot reach it, and that is deliberate rather than an
+/// oversight: extending this suppression to cover a peer's board would re-create the exact defect
+/// the card-DUST mirror shipped with, where a viewer's own dial silently withheld a picture its
+/// owner had switched on. Do not "fix" the mirror from here.
 /// </summary>
 internal static class CardParticlesOff
 {

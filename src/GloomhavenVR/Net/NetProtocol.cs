@@ -416,7 +416,70 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 308;
+    public const ushort ModBuild = 309;
+    // Build 309: THE LAST TWO WIRE DEBTS, AND A THIRD DEFECT THEY WERE HIDING.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 101/236). ***
+    //
+    //   The board-tuning record's PENDING debt count reaches ZERO with this build. Both remaining
+    //   entries were paid, and paying them turned up a third defect neither of them named.
+    //
+    //   ID 101 — [Cards] SlotCardInset. THIS ONE WAS NEVER A "TUNED PLAYER ONLY" GAP. The owner
+    //   seats a played card at -SlotCardInset through the slot's own 1.3x SlotScale (5.2 mm at the
+    //   shipped default); a peer seated it at a private literal, CardOnAnchorProudZ = -0.003f. So
+    //   every mirrored card on every board was 2.2 mm too shallow before anybody had touched a
+    //   dial, and by the owner's whole tuning range once they had. The debt had said the dial had
+    //   "no consumer" — a claim measured on the IDENTIFIER (no file under Net/ contained the
+    //   string) when the consumer was sitting right there wearing a literal. That is the failure
+    //   mode of a coverage table stated plainly, because this table could not have found it.
+    //
+    //   AND THE PLAN THAT DEBT WROTE DOWN WAS WRONG. It said "restore the z inside SlotOverlayLocal
+    //   and re-base the two glows". The lane that built it read the OWNER's side instead of
+    //   trusting the note and found that the shared accessor has TWO consumer families mirroring
+    //   two DIFFERENT owner-side z bases: a card seats at -SlotCardInset + ov.z, while the owner's
+    //   glows sit at PlayTray.SlotGlowBaseZ / WantedGlowBaseZ + ov.z (-0.006 / -0.004, literals and
+    //   not a dial at all). Folding the seat into the shared expression would have dragged both
+    //   glows onto the card's plane and cost the gold-in-front-of-teal ordering. The depth went
+    //   into its own accessor (RemoteControlBoard.SlotCardSeatLocal); SlotOverlayLocal keeps z = 0
+    //   by contract, and the pre-existing expression was preserved VERBATIM as the glow base so the
+    //   two glows do not move by one micron on either board path.
+    //
+    //   ID 236 — [Cards] GameCardParticles, the GAME's own CardSmoke plume on a mirrored card. The
+    //   debt's blocker ("mod slabs with no game particle system to switch on") was false in every
+    //   clause: the plume is a PREFAB on a Resources-loaded singleton every client has, not a
+    //   component on a card. THIRD STANDING "cannot be done" NOTE IN SIX BUILDS TO FALL THE MOMENT
+    //   SOMEBODY READ THE DECOMPILED SOURCE.
+    //
+    //   THEN THE LANE CORRECTED THE CORRECTION. When that debt was re-argued it cited BurnCardFx as
+    //   the ready-made template, "already instantiates this prefab locally". It does not, and has
+    //   not since 71883140: the method that DID spawn one, SpawnConsumedPlume, was REMOVED for
+    //   shipping the field-covering fog. Today's BurnCardFx only BINDS the game's instance and
+    //   reparents it — and that difference is the entire engineering problem, because a reparent
+    //   shrinks the whole child hierarchy for free while a spawn path must clamp EVERY emitter
+    //   (the removed attempt used GetComponentInChildren and left the rest at world scale), cap
+    //   start lifetime, and pin the root's world scale. RemoteCardPlume pays all four.
+    //
+    //   THE THIRD DEFECT, WHICH NOBODY WAS LOOKING FOR: THE CARD DUST HAS BEEN INERT SINCE IT
+    //   SHIPPED. RemoteHandFan.EmitMirroredCardDust gates correctly on the owner's bit (id 233) —
+    //   and then called CardDustFx.Emit*, whose first line asked the VIEWER's own [Cards] CardDust
+    //   dial, which ships OFF. An AND of two permissions, so from ModBuild 302 a peer drew the
+    //   owner's dust only if the peer had ALSO switched their own on. The sender's own contract in
+    //   BoardTuning says the opposite in as many words: "may not withhold it when they do". Fixed
+    //   by making the emitter's call site name WHICH question it is asking (CardDustFx.Permission),
+    //   defaulting to the STRICTER answer so a future path that forgets can only under-draw.
+    //
+    //   TEST (two clients, both on this build):
+    //     1. SEAT DEPTH — no dial needed. A played card in a peer's round slot must sit in the
+    //        recess exactly as deep as it does on your own board. Then have one player move
+    //        [Cards] SlotCardInset and confirm their cards move on the OTHER screen too.
+    //     2. CARD DUST — one player turns [Cards] CardDust ON and the OTHER leaves it OFF. The
+    //        watcher must now see the puff on the owner's hand cards. That combination is the
+    //        whole test: it is the one that has silently failed since 302.
+    //     3. GAME PLUME — one player turns [Cards] GameCardParticles ON and burns a hand card.
+    //        WATCH THE LOG, not only the headset: "Remote card plume ARMED" with no following
+    //        spawn line means the trigger needs a wire field, and the effect itself is fine.
+    //     4. And still owed from 302: card dust ON *plus* a second board dial moved, on the same
+    //        client. Before 302 the dust dial broke the whole tuning record.
+    //
     // Build 308: THE OWNER'S BEAM LIT A USE-BAR SLOT ON THEIR OWN BOARD AND NOWHERE ELSE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 25 bits 3/4). ***
     //
@@ -17723,11 +17786,18 @@ internal static class NetProtocol
     /// it carried was half wrong. The debt read "NOTHING in Net/ reads it, so a wire field would
     /// have no consumer" — literally true of the identifier, and misleading about the picture: the
     /// mirror DOES seat cards in the real prefab recess, at a private literal
-    /// (<c>RemoteControlBoard.CardOnAnchorProudZ = −0.003f</c>) while the owner seats at
+    /// (the constant that is <c>RemoteControlBoard.SlotOverlayBaseProudZ</c> since this field
+    /// landed, and was <c>CardOnAnchorProudZ</c> while it still seated the card) while the owner
+    /// seats at
     /// <c>−SlotCardInset</c> through the slot's own 1.3× SlotScale. At the SHIPPED default that is
     /// 5.2 mm against the peer's flat 3 mm — a divergence before anybody has touched a dial, and it
     /// grows by the owner's whole tuning range on top. The consumer was there all along, wearing a
-    /// literal.</para></summary>
+    /// literal.</para>
+    ///
+    /// <para>Carries <c>[Cards] SlotCardInset</c>. Named again on the last line of the block for
+    /// the mechanical reason <see cref="TuneButtonAnimOn"/> states: the coverage checker walks back
+    /// only a dozen lines from the declaration, so a dial named at the TOP of a long doc is
+    /// invisible to it and reads as unwired.</para></summary>
     public const byte TuneSlotCardInset = 101;
 
     // FACTOR (2 B, thousandths): dimensionless multipliers.

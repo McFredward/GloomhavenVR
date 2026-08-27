@@ -198,70 +198,62 @@ EXEMPT = {
     # applied correctly, and the way to retire it was to grow the branch rather than to sample the
     # dial anyway: RemoteBoardFurniture.RestCap / GenericCap now dispatch on the owner's shape, so
     # ids 231/232 carry it and [RestButtons] Width/Height (parked behind the same branch) ride too.
-    # REASON SHARPENED (2026-08-27) and the correction is the point. The line read "NOTHING in Net/
-    # reads it, so a wire field would have no consumer until the recess renderer grows one". The
-    # first clause is still literally true — no file under Net/ names SlotCardInset — but the second
-    # reads as if the mirror does not seat cards in a recess at all, and it does. RemoteControlBoard
-    # parents each mirrored slot card to the REAL prefab recess anchor and lifts it by a private
-    # constant, CardOnAnchorProudZ = -0.003f (Net/Remote/RemoteControlBoard.cs:167, applied at
-    # :1345-1348), while the owner lifts by -SlotCardInset through the slot's own 1.3x SlotScale in
-    # PlayTray.SlotHomeOffsetFor (Cards/Tray/PlayTray.4.Slots.cs:49) — 5.2 mm board-local at the
-    # shipped 0.004 against the peer's flat 3 mm, and diverging by the owner's whole dial range on
-    # top of that. RemoteBoardFurniture.SlotOverlayLocal throws the authored z away by hand as well
-    # (Net/Remote/RemoteBoardFurniture.cs:527 returns `new Vector3(ov.x + spread, ov.y, 0f)`), so the
-    # per-board SlotOverlayOffset.z is dropped by the same expression that carries x and y. The
-    # consumer therefore already exists in the shape of a frozen literal: this is a real 1:1 gap, not
-    # a dial with nowhere to land, and it is not even caught by check-remote-defaults.py, whose PAIRS
-    # table never mentions SlotCardInset (the fallback ProudZ = -0.004f, RemoteControlBoard.cs:161,
-    # merely HAPPENS to equal the shipped default).
+    # [Cards] SlotCardInset STOOD HERE AND IS PAID (2026-08-27, ModBuild 309). Its reason had
+    # already been sharpened once, from "NOTHING in Net/ reads it, so a wire field would have no
+    # consumer until the recess renderer grows one" to the truth: the mirror DID seat cards in the
+    # real prefab recess all along, at a private literal CardOnAnchorProudZ = -0.003f, while the
+    # owner seats at -SlotCardInset through the slot's own 1.3x SlotScale. THAT IS THE PART WORTH
+    # KEEPING once the entry goes. "No consumer" was measured on the IDENTIFIER -- no file under
+    # Net/ contained the string SlotCardInset -- and a frozen literal is a consumer that no grep
+    # for a dial name can find. The divergence it hid was 5.2 mm against 3 mm AT THE SHIPPED
+    # DEFAULT, so it was never a gap only a tuned player could see; it was wrong for everyone,
+    # which is exactly the class of defect a coverage table is meant to surface and this one could
+    # not.
     #
-    # It stays PENDING because paying it is renderer-first work across several files: restore the z
-    # term in SlotOverlayLocal (re-basing the two glow call sites at RemoteBoardFurniture.cs:1338-1340,
-    # which add their own -0.003f / -0.005f and would otherwise double-count), add a TuneSlotCardInset
-    # id so the owner's value rides record 28, and give ProudZ a name that says it mirrors
-    # Defaults.SlotCardInset so check-remote-defaults.py can hold it.
-    ("Cards", "SlotCardInset"): ("PENDING", "how deep a card seats in the recess. A peer DOES seat mirrored cards in the "
-                                            "real prefab recess, but at a frozen CardOnAnchorProudZ = -0.003f while the "
-                                            "owner's depth is a live dial, and SlotOverlayLocal zeroes the authored z on "
-                                            "top of that -- a real 1:1 gap with a consumer already waiting. Parked because "
-                                            "the z term has to come back in the renderer (and be re-based out of the two "
-                                            "glows that carry their own proud offsets) before a field is worth carrying"),
+    # PAID AS ID 101 -- BUT NOT BY THE PLAN THE RETIRED LINE WROTE DOWN, and the difference is the
+    # second thing worth keeping. That plan said "restore the z term in SlotOverlayLocal, re-basing
+    # the two glow call sites". It was wrong and it would have shipped a regression, which the lane
+    # that built this caught by reading the OWNER's side instead of trusting the note:
+    # SlotOverlayLocal has TWO consumer families mirroring two DIFFERENT owner-side z bases. A card
+    # seats at -SlotCardInset + ov.z; the owner's glows sit at PlayTray.SlotGlowBaseZ /
+    # WantedGlowBaseZ + ov.z (-0.006 / -0.004, code literals and not a dial at all). Folding the
+    # seat depth into the shared expression would have dragged both glows onto the card's plane and
+    # cost the gold-in-front-of-teal ordering those two constants exist to give. The depth went into
+    # its own accessor instead (RemoteControlBoard.SlotCardSeatLocal) and SlotOverlayLocal keeps
+    # z = 0 by contract. The plan also misnamed the constant: the seat was CardOnAnchorProudZ, not
+    # ProudZ -- two different surfaces whose values merely coincide, which is exactly the confusion
+    # the retired line warned about and then committed.
+    #
+    # ONE MORE THING THE OLD LINE GOT WRONG, worth knowing before someone reads this as a no-op:
+    # a peer that predates id 101 does NOT keep rendering what it renders today. Every mirrored
+    # card moves 2.2 mm deeper at the SHIPPED defaults, for every pairing, tuned or not. That is
+    # the defect being fixed, but it is a visible change and not a silent one.
     # ("Cards", "PileViewer") / ("Cards", "ActivePile") are GONE (user ruling 2026-08-11): the
     # dials were removed outright — both features are unconditional now, so there is no config
     # entry left to exempt (their PENDING lines retired with them).
-    # REASON REWRITTEN (2026-08-27): the debt is real but the blocker it named was not. The old line
-    # said "a peer's mirrored cards are mod slabs with no game particle system to switch on", which
-    # pictures the dial as switching a component ON A CARD. It never was one. CardParticlesOff pins
-    # the game's own low-spec flag — the private _noCardsParticles behind
-    # PlatformLayer.Setting.LowParticlesUse (Compat/CardParticlesOff.cs:107-125) — and the plume
-    # itself is a PREFAB: CardEffects.SpawnParticle pool-spawns
-    # GlobalSettings.Instance.VisualEffects.CardSmoke onto whatever hosts the card
-    # (decompiled CardEffects.cs:743-749). That prefab is a PUBLIC field (GlobalSettings.cs:288-296)
-    # on a singleton loaded straight out of Resources (GlobalSettings.cs:375-384) — no scene object,
-    # no local player, no cards on screen — so it is if anything EASIER to reach on a receiver than
-    # DialogPopup.optionButtonPrefab is (Net/Remote/RemoteDialogOptions.cs:172-178, which needs a
-    # live UIManager and degrades when it is missing). The mod already instantiates and tames an
-    # instance of this exact prefab on a world card in Cards/Art/BurnCardFx.cs. "Unreachable" was
-    # simply wrong.
+    # [Cards] GameCardParticles STOOD HERE AND IS PAID (2026-08-27, ModBuild 309). The debt was
+    # real; the BLOCKER it named was false, and that is the half worth carrying forward. It read
+    # "a peer's mirrored cards are mod slabs with no game particle system to switch on", which
+    # pictures the dial as a component sitting on a card. It never was one: the plume is a PREFAB,
+    # GlobalSettings.Instance.VisualEffects.CardSmoke, a public field on a Resources-loaded
+    # singleton every client has, reachable with no scene object, no local player and no card on
+    # screen. THIS IS THE THIRD STANDING "cannot be done" NOTE IN SIX BUILDS TO FALL THE MOMENT
+    # SOMEBODY READ THE DECOMPILED SOURCE (after the rest-cap Square branch and the fan collapse).
+    # A blocker written from memory of an API is a hypothesis, and it ages worse than the code it
+    # describes. Paid as id 236 plus the receiver-side FX (Net/Remote/RemoteCardPlume.cs).
     #
-    # What is actually still missing is the receiver-side FX: a copy of the prefab hosted on the
-    # mirrored slab with BurnCardFx's local-space / start-size taming (the plume is authored for the
-    # game's full-size screen card and otherwise sprays across the play field, which is the whole
-    # reason CardParticlesOff exists), plus one owner bit — TuneCardDustOn (233) is the exact shape,
-    # and it went first only because CardDustFx is a mod static a peer already owns. One residue to
-    # decide when it is built: the tint is CardEffects.fx_Smoke_color, a private field assigned from
-    # per-call-site literals (CardEffects.cs:527, :641), and a receiver has no live object to read
-    # it off, so a copy either keeps the prefab's authored startColor or duplicates two constants.
-    # Still renderer-first, exactly like the FanCloseDuration trap that held field 156 back until
-    # ModBuild 306 grew the mirror a collapse — but the renderer is buildable now, and this line no
-    # longer claims otherwise.
-    ("Cards", "GameCardParticles"): ("PENDING", "a bool, and a RENDERER debt rather than a wire debt: the receiver has no "
-                                                "copy of the game's card smoke to switch on yet. NOT because it cannot "
-                                                "reach one -- the plume is a public prefab on the Resources-loaded "
-                                                "GlobalSettings singleton, which every client has and BurnCardFx already "
-                                                "instantiates locally. What is owed is a receiver FX that hosts a tamed "
-                                                "copy on the mirrored slab, and then one owner bit shaped like "
-                                                "TuneCardDustOn (233)"),
+    # AND THE CORRECTED LINE HAD A FALSEHOOD OF ITS OWN, which is the reason this paragraph is
+    # longer than the entry it replaces. When this debt was re-argued it claimed "BurnCardFx
+    # already instantiates locally" and cited it as the ready-made template. It does not, and has
+    # not since commit 71883140: the method that DID spawn the prefab, SpawnConsumedPlume, was
+    # REMOVED for shipping the field-covering fog, and today's BurnCardFx only BINDS the game's own
+    # already-spawned instance and reparents it. The difference is the whole engineering problem. A
+    # reparent shrinks the entire child hierarchy for free by leaving the screen-card scale behind;
+    # a spawn path has no scale to leave behind and must clamp EVERY emitter (the removed attempt
+    # used GetComponentInChildren and left the others at world scale), cap start lifetime, and pin
+    # the root's world scale. So: the debt's blocker was false, AND the argument that retired it
+    # cited a template that had been deleted. Both errors were mine, and both were caught by
+    # reading the actual file rather than the note about it -- which is the same lesson twice.
     # THE KEYCAP SIZE / SEAT / TRAVEL FAMILY IS GONE FROM THIS TABLE (2026-08-09). Eighteen lines
     # stood here saying "mirrored as a FROZEN constant in RemoteBoardFurniture, so a re-tune
     # desyncs; the renderer is owned by a parallel round — wire it when that lands". It landed, and

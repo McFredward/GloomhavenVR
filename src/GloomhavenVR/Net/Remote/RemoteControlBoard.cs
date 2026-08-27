@@ -161,9 +161,42 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     private const float SlotY = 0.015f;           // PlayTray procedural slot height (fallback)
     private const float ProudZ = -0.004f;   // toward the viewer (−Z), proud of the frame face
 
-    /// <summary>Extra proud lift a card seated ON a real slot anchor gets (the anchor sits at the
-    /// recess floor; a coplanar quad would z-fight the recess mesh).</summary>
-    private const float CardOnAnchorProudZ = -0.003f;
+    /// <summary>
+    /// The plane the mirrored slot OVERLAYS are stacked on, relative to the recess ANCHOR (-Z =
+    /// toward the viewer): the anchor sits on the recess FLOOR, and a coplanar quad would z-fight
+    /// the recess mesh. <see cref="RemoteBoardFurniture"/> hangs its wanted pulse and snap glow off
+    /// this plane with their own proud offsets (-0.003 / -0.005), so it is deliberately a frozen
+    /// code literal and mirrors no dial — it is the base of the GLOW stack, not a seat depth.
+    ///
+    /// <para>IT NO LONGER SEATS THE CARD (2026-08-27). This was <c>CardOnAnchorProudZ</c> and the
+    /// mirrored card took it, a flat 3 mm, while the owner seats at <c>-[Cards] SlotCardInset</c>
+    /// through the slot's own 1.3x <c>PlayTray.SlotScale</c> — 5.2 mm board-local at the shipped
+    /// default, and diverging by the owner's whole dial range on top of that. The card's depth is
+    /// the owner's now (<see cref="_slotCardInset"/>, applied by <see cref="SlotCardSeatLocal"/>);
+    /// this constant kept its job and its exact value so that the two glows did not move by one
+    /// micron when the card underneath them did.</para>
+    /// </summary>
+    private const float SlotOverlayBaseProudZ = -0.003f;
+
+    /// <summary>
+    /// The owner's <c>[Cards] SlotCardInset</c> — how deep a played card seats into the physical
+    /// slot recess, in AUTHORED slot-local metres toward the viewer, re-read from
+    /// <see cref="RemoteBoardTuning.SlotCardInset"/> (record 28, wire id
+    /// <see cref="NetProtocol.TuneSlotCardInset"/>) every time this board is built. A GLOBAL dial,
+    /// not per-board, which is why it carries no style key; the x<c>SlotScale</c> conversion into
+    /// board metres happens at the one place that consumes it, <see cref="SlotCardSeatLocal"/>.
+    ///
+    /// <para>The INITIALISER is what an untuned or pre-record peer's card is drawn with, which is
+    /// what puts this field on <c>scripts/check-remote-defaults.py</c>'s list — the same guarantee
+    /// every keycap size on that list carries, and the reason it is a seeded field rather than a
+    /// bare <c>_owner.BoardTuning.SlotCardInset</c> read at the use site.</para>
+    ///
+    /// <para>DO NOT CONFLATE IT WITH <see cref="ProudZ"/>, which is also -0.004f: that one is the
+    /// flat fallback board's shared content plane — a different surface, moved by no dial — and the
+    /// coincidence of the two numbers is exactly the kind of thing that gets one deleted in favour
+    /// of the other.</para>
+    /// </summary>
+    private float _slotCardInset = Defaults.SlotCardInset;
 
     /// <summary>The shared proud depth every board-local surface sits at (−Z = toward the viewer).
     /// Exposed so the mod-drawn parity panels in <see cref="RemoteBoardContent"/> seat on the same
@@ -236,14 +269,81 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     internal Vector3 AnchorLocalLive(CardFxAnchor anchor)
     {
-        if (_tray != null)
+        // THE TWO SLOTS RETURN THE CARD'S SEAT, not the bare recess anchor (2026-08-27). This is a
+        // FLIGHT DESTINATION (RemoteCardFx) and a browse origin, so it has to be the point the card
+        // actually renders at, or the slab jumps the moment the flight hands over to the seated
+        // mirror. It used to be the anchor plus a flat -0.003 literal, which WAS the seat then; the
+        // seat is the owner's dial now and both ends read one accessor, in BOTH branches, so they
+        // cannot drift apart again. The glows do NOT come through here any more — they take
+        // SlotOverlayBaseLocal, which is that old expression preserved exactly.
+        if (anchor == CardFxAnchor.Slot0 || anchor == CardFxAnchor.Slot1)
         {
-            if (anchor == CardFxAnchor.Slot0)
-                return _tray.SlotLocal(0) + new Vector3(0f, 0f, CardOnAnchorProudZ);
-            if (anchor == CardFxAnchor.Slot1)
-                return _tray.SlotLocal(1) + new Vector3(0f, 0f, CardOnAnchorProudZ);
+            int slot = anchor == CardFxAnchor.Slot0 ? 0 : 1;
+            return SlotAnchorBoardLocal(slot) + SlotCardSeatLocal(slot);
         }
         return AnchorLocal(anchor, _layout);
+    }
+
+    /// <summary>
+    /// Board-local position of slot <paramref name="slot"/>'s recess ANCHOR — the REAL prefab point
+    /// once the 3D asset is up, else the authored flat-board layout. The BARE anchor: no proud lift
+    /// on it, no seat, no overlay term. <see cref="SlotCardSeatLocal"/> adds what the card needs and
+    /// <see cref="SlotOverlayBaseLocal"/> adds what the glows do.
+    /// </summary>
+    private Vector3 SlotAnchorBoardLocal(int slot) =>
+        _tray != null ? _tray.SlotLocal(slot) : SlotLocal(slot);
+
+    /// <summary>
+    /// The plane <see cref="RemoteBoardFurniture"/>'s two slot glows are centred on, in BOARD-local
+    /// metres — bit-for-bit the vector <see cref="AnchorLocalLive"/> used to return for a slot: the
+    /// real anchor lifted by <see cref="SlotOverlayBaseProudZ"/>, or the flat fallback layout
+    /// (whose <see cref="ProudZ"/> already IS that board's content plane) untouched.
+    ///
+    /// <para>IT EXISTS TO KEEP THE GLOWS STILL. The furniture stacks its own -0.003 / -0.005 proud
+    /// offsets on whatever it is handed, so the moment the card seat stopped being "anchor + a flat
+    /// literal" the glows needed their own expression or they would have followed the card down to
+    /// the owner's inset — a silent 2.2 mm on every board at the shipped defaults and the owner's
+    /// whole dial range beyond it. The glows' own DEPTH is a separate, still-open 1:1 debt (the
+    /// owner's sit at <c>PlayTray.SlotGlowBaseZ / WantedGlowBaseZ + SlotOverlayOffset.z</c> scaled by
+    /// SlotScale, not at frozen literals) and is deliberately NOT paid here: this round moves the
+    /// card and nothing else.</para>
+    /// </summary>
+    private Vector3 SlotOverlayBaseLocal(int slot) =>
+        _tray != null
+            ? _tray.SlotLocal(slot) + new Vector3(0f, 0f, SlotOverlayBaseProudZ)
+            : SlotLocal(slot);
+
+    /// <summary>
+    /// THE CARD SEAT: where a played card rests relative to its recess ANCHOR, in BOARD-local
+    /// metres — the mirror of the owner's <c>PlayTray.SlotHomeOffsetFor(slot)</c>, term for term.
+    ///
+    /// <para>The owner parks a card at slot-local <c>(ov.x +/- spacing/2, ov.y, -SlotCardInset +
+    /// ov.z)</c> UNDER the slot transform, and that transform carries <c>PlayTray.SlotScale</c>
+    /// (1.3), so all three terms reach the board frame multiplied by 1.3.
+    /// <see cref="RemoteBoardFurniture.SlotOverlayLocal"/> already performs exactly that conversion
+    /// for the IN-PLANE half and is shared with the glows, so this composes on top of it rather than
+    /// restating it.</para>
+    ///
+    /// <para>WHY THE DEPTH IS ADDED HERE AND NOT RESTORED INSIDE <c>SlotOverlayLocal</c>: that
+    /// accessor has two consumer families and they mirror two DIFFERENT owner-side z bases. A card
+    /// seats at <c>-SlotCardInset + ov.z</c>; the owner's glows sit at
+    /// <c>SlotGlowBaseZ / WantedGlowBaseZ + ov.z</c> (-0.006 / -0.004, PlayTray.6.Build.cs) — not the
+    /// same number, and not a dial at all. Folding the seat depth into the shared expression would
+    /// silently drag both glows onto the card's plane and cost the gold-in-front-of-teal ordering
+    /// those two base constants exist to give. One expression per FRAME, not per formula.</para>
+    ///
+    /// <para>The result is BOARD-local throughout. A caller hanging it off the board ROOT adds it
+    /// directly; the one that parents to a raw prefab recess anchor converts the WHOLE vector — z
+    /// together with x and y — through the board root, because those anchors are not scaled by
+    /// SlotScale and a z added after that conversion is a scale error no screenshot can show.</para>
+    /// </summary>
+    private Vector3 SlotCardSeatLocal(int slot)
+    {
+        // In-plane half: the owner's SlotOverlayOffset.xy + their pair spread, already xSlotScale.
+        // Its z is 0 by that accessor's contract — see its doc for why it stays that way.
+        Vector3 seat = RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, slot);
+        seat.z = (-_slotCardInset + _owner.BoardTuning.SlotOverlayOffset.z) * PlayTray.SlotScale;
+        return seat;
     }
 
     /// <summary>
@@ -1292,6 +1392,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // (defect (c) — see RemoteBoardLayout for the full derivation).
         _builtTuningRevision = _owner.BoardTuningRevision;
         _layout = new RemoteBoardLayout(_owner.BoardTuning);
+        // The seat depth is CONSTRUCTOR-applied like every other dial on this board, and it needs no
+        // rebuild trigger of its own: the revision latch above already tears the board down and
+        // rebuilds it on any record-28 change, which is exactly what moving this dial produces.
+        _slotCardInset = _owner.BoardTuning.SlotCardInset;
 
         // THE BOARD SURFACE — the REAL bundled 3D asset for the style this peer synced
         // (RemoteTrayVisual: same prefab, same materials, same recesses as their own board),
@@ -1341,11 +1445,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             for (int i = 0; i < 2; i++)
             {
                 Transform anchor = _tray.SlotAnchor(i);
-                Vector3 seatBoardLocal = RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, i);
+                Vector3 seatBoardLocal = SlotCardSeatLocal(i);
                 Vector3 seatOnAnchor = anchor.InverseTransformVector(
                     _root.transform.TransformVector(seatBoardLocal));
-                _cards[i] = new RemoteBoardCard(anchor,
-                    seatOnAnchor + new Vector3(0f, 0f, CardOnAnchorProudZ), cardW, cardH);
+                _cards[i] = new RemoteBoardCard(anchor, seatOnAnchor, cardW, cardH);
             }
         }
         else
@@ -1353,9 +1456,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // Fallback frame: the flat authored layout hangs off the board root, so the board-local
             // seat adds directly — no conversion, same reason the glows need none.
             _cards[0] = new RemoteBoardCard(_root.transform,
-                SlotLocal(0) + RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, 0), cardW, cardH);
+                SlotLocal(0) + SlotCardSeatLocal(0), cardW, cardH);
             _cards[1] = new RemoteBoardCard(_root.transform,
-                SlotLocal(1) + RemoteBoardFurniture.SlotOverlayLocal(_owner.BoardTuning, 1), cardW, cardH);
+                SlotLocal(1) + SlotCardSeatLocal(1), cardW, cardH);
         }
 
         // CONTENT hangs straight off the board root now. The old "ContentProud" spacer carried a
@@ -1394,8 +1497,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
         _active = new RemoteActiveCards(contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout);
+        // THE GLOW BASE, NOT AnchorLocalLive (2026-08-27). Those two were the same vector until this
+        // round and are not any more: AnchorLocalLive is the CARD's seat now (it carries the owner's
+        // [Cards] SlotCardInset and the in-plane overlay term), while the furniture adds the in-plane
+        // term itself and stacks its two proud offsets on the overlay plane. Handing it the seat
+        // would double-count x/y AND pull both glows down to the card's depth.
         _furniture = new RemoteBoardFurniture(_root.transform, _owner.BoardTuning, _tray,
-            AnchorLocalLive(CardFxAnchor.Slot0), AnchorLocalLive(CardFxAnchor.Slot1),
+            SlotOverlayBaseLocal(0), SlotOverlayBaseLocal(1),
             _builtSlotFrameW, _builtSlotCardW);
         _nextRefreshAt = 0f; // repaint on the very next tick
 

@@ -27,13 +27,53 @@ internal static class CardDustFx
     internal static readonly Color DefaultTone = new(0.80f, 0.72f, 0.55f);
 
     /// <summary>
+    /// WHOSE ANSWER the caller already holds — and therefore WHICH question is still open when a
+    /// puff is asked for. The two are different questions with different owners, and folding them
+    /// into one boolean is what made the MIRRORED dust inert for its whole shipped life
+    /// (ModBuild 302 onwards).
+    ///
+    /// <para>THE DEFECT, stated so it cannot come back: <c>Net.RemoteHandFan.EmitMirroredCardDust</c>
+    /// correctly gated on <c>_cardDustOn</c> — the OWNER's bit off wire id
+    /// <see cref="Net.NetProtocol.TuneCardDustOn"/> — and then landed in a method whose first line
+    /// asked the VIEWER's own <c>[Cards] CardDust</c> dial as well. That dial ships OFF, so at the
+    /// shipped defaults a peer drew the owner's dust only if the peer had ALSO turned their own
+    /// cards' dust on: an AND of two permissions, where the sender's own contract
+    /// (<c>Net/Board/BoardTuning.cs</c>) states "a peer may not draw the owner's dust unless the
+    /// owner has it on, AND MAY NOT WITHHOLD IT WHEN THEY DO".</para>
+    /// </summary>
+    internal enum Permission
+    {
+        /// <summary>
+        /// "Do MY OWN cards emit dust?" — the local <c>[Cards] CardDust</c> dial is the whole
+        /// answer, and this class asks it. Every local card path (<c>Cards.VRCard</c>) means this.
+        ///
+        /// <para>It is the DEFAULT deliberately: an omitted answer resolves to the STRICTER of the
+        /// two gates, so a future emit path that forgets to say which question it is asking can
+        /// only fail to draw — never draw a puff whose owner switched it off.</para>
+        /// </summary>
+        AskMyOwnDial = 0,
+
+        /// <summary>
+        /// "Does the OWNER of the board this card is drawn on have dust on?" — already answered
+        /// YES by the caller, off that owner's wire bit, before it got here. The viewer's own dial
+        /// is not consulted and MUST not be: it answers a question about the viewer's OWN cards.
+        /// The only caller is the remote mirror.
+        /// </summary>
+        OwnerAlreadySaidYes,
+    }
+
+    /// <summary>
     /// THE SINGLE GATE (user ruling 2026-08-03: "kam während dessen so eine sehr große
     /// Funken/Partikel Animation über das gesamte Spielfeld (wahrscheinlich ausgehend von der
-    /// abgeworfenen Karte). Geh da rein, das soll deaktiviert werden!"). Gated here rather than at
-    /// the two call sites so no future emit path can miss it. Default OFF; the code stays so the
-    /// effect can be revived once the world-scale sizing is reworked.
+    /// abgeworfenen Karte). Geh da rein, das soll deaktiviert werden!"). Answered here rather than
+    /// at the call sites so no future emit path can miss it — but the dial it reads is the LOCAL
+    /// viewer's, so it may only be applied to a LOCAL card, which is what
+    /// <see cref="Permission"/> makes the call site say out loud. Default OFF; the code stays so
+    /// the effect can be revived once the world-scale sizing is reworked.
     /// </summary>
-    private static bool Enabled => CardsConfig.CardDust != null && CardsConfig.CardDust.Value;
+    private static bool Allowed(Permission permission) =>
+        permission == Permission.OwnerAlreadySaidYes
+        || (CardsConfig.CardDust != null && CardsConfig.CardDust.Value);
 
     private const int VanishCount = 30; // crumble puff — a bit denser than a button (a card is bigger)
     private const int AppearCount = 18; // fewer, converging — a quick "assembling" shimmer
@@ -47,9 +87,10 @@ internal static class CardDustFx
     /// the viewer along <paramref name="outNormal"/>, fading over their lifetime, in <paramref name="color"/>.
     /// </summary>
     internal static void EmitVanish(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
-        float halfW, float halfH, Color color)
+        float halfW, float halfH, Color color,
+        Permission permission = Permission.AskMyOwnDial)
     {
-        if (!Enabled)
+        if (!Allowed(permission))
             return;
         if (_ps == null)
             BuildPool();
@@ -86,9 +127,10 @@ internal static class CardDustFx
     /// coalescing into place under the fade-in. Same pooled system / args as <see cref="EmitVanish"/>.
     /// </summary>
     internal static void EmitAppear(Vector3 center, Vector3 right, Vector3 up, Vector3 outNormal,
-        float halfW, float halfH, Color color)
+        float halfW, float halfH, Color color,
+        Permission permission = Permission.AskMyOwnDial)
     {
-        if (!Enabled)
+        if (!Allowed(permission))
             return;
         if (_ps == null)
             BuildPool();

@@ -512,9 +512,24 @@ internal sealed class RemoteBoardFurniture
     /// which is why it reads as "off" rather than as a uniform nudge.
     ///
     /// Returned in BOARD-local metres (the frame the remote overlays live in): the authored
-    /// slot-local values × <c>PlayTray.SlotScale</c>. The Z term is deliberately EXCLUDED — the
-    /// remote glows already carry their own proud offsets relative to the card plane, and the
-    /// authored z is the local build's equivalent of exactly that.
+    /// slot-local values × <c>PlayTray.SlotScale</c>. THIS IS THE IN-PLANE HALF ONLY — z is 0 by
+    /// contract, and every caller supplies its own depth.
+    ///
+    /// <para>WHY THE Z STAYS OUT, restated 2026-08-27 because the old reason had gone half stale.
+    /// It read "the remote glows already carry their own proud offsets relative to the card plane,
+    /// and the authored z is the local build's equivalent of exactly that", which was true of the
+    /// glows and quietly wrong for the OTHER consumer: the mirrored slot CARD took this same
+    /// expression and then a frozen -0.003 literal, while its owner seats it at
+    /// <c>-[Cards] SlotCardInset + ov.z</c> through the same 1.3x SlotScale — 5.2 mm board-local at
+    /// the shipped default against a flat 3 mm, before anyone touches a dial. That half is paid
+    /// (wire id <see cref="NetProtocol.TuneSlotCardInset"/>, applied by
+    /// <c>RemoteControlBoard.SlotCardSeatLocal</c>), and it is paid THERE rather than here for a
+    /// reason worth keeping: the two families mirror two different owner-side z bases. A card seats
+    /// at <c>-SlotCardInset + ov.z</c>; the owner's glows sit at
+    /// <c>PlayTray.SlotGlowBaseZ / WantedGlowBaseZ + ov.z</c> (-0.006 / -0.004) — a code literal, not
+    /// a dial. Restoring one z here would put both glows on the card's plane and cost the
+    /// gold-in-front-of-teal ordering. The glows dropping the authored <c>ov.z</c> is a smaller,
+    /// still-open debt of its own and is NOT what this expression's zero is for.</para>
     ///
     /// As everywhere on this board, these are the OWNER's own values (extension record 28) where
     /// they have moved the dial and the SHIPPED per-board default keyed by their SYNCED style
@@ -828,12 +843,21 @@ internal sealed class RemoteBoardFurniture
     /// Build the inert furniture for a board of <c>style</c>. With a real
     /// <paramref name="tray"/>, caps seat on the prefab anchors + the authored per-style offsets
     /// (see the class note); without one, on the legacy flat-board constants.
-    /// <paramref name="slot0CardLocal"/>/<paramref name="slot1CardLocal"/> are the board-local
-    /// positions the two round CARDS render at — the slot overlays (wanted pulse / snap glow)
-    /// centre on them so glow and card agree on every board style.
+    /// <paramref name="slot0OverlayBaseLocal"/>/<paramref name="slot1OverlayBaseLocal"/> are the
+    /// board-local planes the two slot OVERLAYS (wanted pulse / snap glow) are centred on — the
+    /// recess anchor lifted off the recess floor, with the in-plane seat added below so glow and
+    /// card stay laterally in register on every board style.
+    ///
+    /// <para>THEY ARE NOT THE CARD'S SEAT, and were renamed on 2026-08-27 because they used to be.
+    /// The card now takes the owner's own depth (<c>[Cards] SlotCardInset</c> through record 28,
+    /// <c>RemoteControlBoard.SlotCardSeatLocal</c>) while these two glows keep the frozen overlay
+    /// plane they have always been stacked on; the board hands them in from
+    /// <c>RemoteControlBoard.SlotOverlayBaseLocal</c>, which is the pre-2026-08-27 expression kept
+    /// verbatim for exactly that reason. Passing the seat here instead would drag both glows onto
+    /// the card's depth — silently, and only visible on hardware.</para>
     /// </summary>
     public RemoteBoardFurniture(Transform boardRoot, in RemoteBoardTuning tuning, RemoteTrayVisual? tray,
-        Vector3 slot0CardLocal, Vector3 slot1CardLocal,
+        Vector3 slot0OverlayBaseLocal, Vector3 slot1OverlayBaseLocal,
         float slotFrameWidth = 0f, float slotCardWidth = 0f)
     {
         // The owner's synced slot metrics (extension record 11); 0 = not on the wire, keep the
@@ -1325,7 +1349,14 @@ internal sealed class RemoteBoardFurniture
         // state that could gate it: the zones are never visible.
         for (int i = 0; i < 2; i++)
         {
-            Vector3 card = (i == 0 ? slot0CardLocal : slot1CardLocal) + SlotOverlayLocal(in tuning, i);
+            // FRAME: board-local. The overlay BASE plane (recess anchor + the frozen overlay lift)
+            // plus the owner's in-plane seat — x/y only, SlotOverlayLocal's z is 0 by contract, and
+            // each glow's own proud offset is the last argument of its BuildSlotGlow call below.
+            // The card that lands here does NOT come from this vector any more: it takes the owner's
+            // [Cards] SlotCardInset instead (RemoteControlBoard.SlotCardSeatLocal), so the two agree
+            // in x/y and differ in z exactly as the owner's own glow and card do.
+            Vector3 glowCentre = (i == 0 ? slot0OverlayBaseLocal : slot1OverlayBaseLocal)
+                                 + SlotOverlayLocal(in tuning, i);
             // SIZE = the OWNER's [Cards] SlotOverlayScale_{board} (tuning field 171), not the 1.36 /
             // 1.24 literals this used to carry. Those literals were the local build's, and the local
             // build no longer has them: since 2026-08-11 the wanted-glow is EXACTLY the size of the
@@ -1335,9 +1366,9 @@ internal sealed class RemoteBoardFurniture
             // which is the tuning guarantee. _slotFrameW is the owner's CardWidth × SlotScale from
             // record 11, so this is the same product as the local quad's.
             float wantedScale = tuning.SlotOverlayScale;
-            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", card, wantedScale, -0.003f,
+            _wanted[i] = BuildSlotGlow($"WantedGlow{i}", glowCentre, wantedScale, -0.003f,
                 new Color(0.25f, 0.85f, 0.60f, 0.70f), pulse: true);
-            _snap[i] = BuildSlotGlow($"SnapGlow{i}", card, wantedScale * Cards.PlayTray.SnapGlowRatio, -0.005f,
+            _snap[i] = BuildSlotGlow($"SnapGlow{i}", glowCentre, wantedScale * Cards.PlayTray.SnapGlowRatio, -0.005f,
                 new Color(1f, 0.85f, 0.30f, 0.95f), pulse: false);
             // (The mirrored SlotSeatLiner used to be built here. RETIRED with the owner's own —
             //  see Cards/PlayTray.4.Slots.cs 'recess seat liner: RETIRED'.)

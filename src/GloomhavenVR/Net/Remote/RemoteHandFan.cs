@@ -125,6 +125,26 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// emitter and only ever lacked the owner's say-so and a pose.</para>
     /// </summary>
     private bool _cardDustOn = Defaults.CardDust;
+
+    /// <summary>
+    /// Whether THIS OWNER lets the GAME's own card plume play (wire id
+    /// <see cref="NetProtocol.TuneGameCardParticlesOn"/>, <c>[Cards] GameCardParticles</c>) — the
+    /// twin of <see cref="_cardDustOn"/> and under the identical rule.
+    ///
+    /// <para>The old wire debt claimed the receiver COULD not draw this one ("a peer's mirrored
+    /// cards are mod slabs with no game particle system to switch on"). That reason was false in
+    /// every clause: the plume is a PREFAB on a Resources-loaded singleton, not a component on a
+    /// card, so every client already has it and needs no card of its own to reach it. See
+    /// <see cref="RemoteCardPlume"/>, which hosts a tamed copy on the slab.</para>
+    ///
+    /// <para>The VIEWER's own copy of this dial is NOT consulted here. Theirs is answered by
+    /// <c>Compat.CardParticlesOff</c>, which pins the game's low-spec switch so THEIR OWN cards
+    /// spawn no plume; that suppression cannot touch this path, because this path instantiates the
+    /// prefab itself rather than going through <c>CardEffects.SpawnParticle</c>. That separation is
+    /// the whole point — a peer's board is a picture of ITS OWNER's board.</para>
+    /// </summary>
+    private bool _gameCardParticlesOn = Defaults.GameCardParticles;
+
     private float _palmOffset = Defaults.FanPalmOffset;
 
     // ---- THE PRINTED FACE RECT (report 12, 2026-08-15) ---------------------------------------
@@ -1204,6 +1224,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                 _mapPrinted[i] = -1;
         }
 
+        // …and, on the SAME resolved widgets, the game's own card plume (wire id 236). It rides
+        // this pass rather than a pass of its own because the source widget the predicate needs is
+        // exactly the one just used for the face: a second resolve would be a second answer, which
+        // is the ModBuild 84 mismatch one surface over.
+        TickMirroredPlumes(count, showFronts, mapFronts);
+
         // THE LEAVING HALF IS RE-GATED EVERY FRAME TOO — ON ITS OWN CHARACTER'S VERDICT, NOT THIS
         // ONE'S. Slabs on their way out of a character exchange keep the faces the gate had already
         // granted them (that is the whole point of the wipe being legible), but they are wearing the
@@ -1694,6 +1720,15 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// only shifts its warmth; carrying it would be a colour field per card for a difference
     /// nobody has reported. If a hardware round says otherwise, that is one more field, not a
     /// redesign.</para>
+    ///
+    /// <para>THE GATE IS <see cref="_cardDustOn"/> AND NOTHING ELSE — the owner's bit off wire id
+    /// <see cref="NetProtocol.TuneCardDustOn"/>. It reads that way here and always did, but the
+    /// puff still never appeared: <c>CardDustFx.EmitAppear</c>/<c>EmitVanish</c> opened with a
+    /// second gate on the VIEWER's own <c>[Cards] CardDust</c> dial, which ships OFF. So from the
+    /// day this shipped (ModBuild 302) a peer drew the owner's dust only when the peer had ALSO
+    /// switched their own cards' dust on — an AND of two permissions against a sender contract that
+    /// says a peer "may not withhold it when they do". The emitter now makes the call site name
+    /// WHICH question it is asking; this one asks the owner's, and answers it above.</para>
     /// </summary>
     private void EmitMirroredCardDust(GameObject? slab, bool appear)
     {
@@ -1707,12 +1742,119 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             return;
         if (appear)
             Cards.CardDustFx.EmitAppear(t.position, t.right, t.up, -t.forward, halfW, halfH,
-                                        Cards.CardDustFx.DefaultTone);
+                                        Cards.CardDustFx.DefaultTone,
+                                        Cards.CardDustFx.Permission.OwnerAlreadySaidYes);
         else
             Cards.CardDustFx.EmitVanish(t.position, t.right, t.up, -t.forward, halfW, halfH,
-                                        Cards.CardDustFx.DefaultTone);
+                                        Cards.CardDustFx.DefaultTone,
+                                        Cards.CardDustFx.Permission.OwnerAlreadySaidYes);
     }
 
+    // ------------------------------------------------------------- the GAME's card plume --
+
+    /// <summary>
+    /// Per-slab latch for the game's card plume: true while the SOURCE widget behind slab
+    /// <c>i</c> was running a card effect on the previous frame. EDGE-triggered, exactly as
+    /// <c>Cards.BurnCardFx</c> edge-triggers its own on-card lifecycle — a level trigger would host
+    /// a fresh plume on every frame of a two-second burn.
+    /// </summary>
+    private readonly bool[] _plume = new bool[MaxCards];
+
+    /// <summary>One-shot latch for the "plume path is ARMED" line — see the log text for what its
+    /// presence-without-a-spawn proves.</summary>
+    private bool _plumeArmedLogged;
+
+    /// <summary>
+    /// Mirror the GAME's own card plume (wire id <see cref="NetProtocol.TuneGameCardParticlesOn"/>)
+    /// onto any slab whose card is running a burn / lost / discard effect on the owner's screen.
+    ///
+    /// <para>THE TRIGGER IS THE PREDICATE <c>Cards.BurnCardFx</c> ALREADY USES, term for term
+    /// (<c>HasEffect(BurnCard) || HasEffect(LostMode) || HasEffect(DiscardMode)</c>), read off the
+    /// peer's own live <c>AbilityCardUI.fullAbilityCard</c> — the very widget
+    /// <see cref="UpdateFaces"/> resolved this frame to print the slab's face. Zero extra wire, and
+    /// the owner's picture and the mirror's agree because they are the same expression over the
+    /// same object, not because two formulas were made to match (the rule
+    /// <c>RemoteDecisionWidgets</c> states for the decision row). The CLONE on the slab is no use
+    /// for this — <c>RemoteCardArt</c> <c>DestroyImmediate</c>s its <c>CardEffects</c> on purpose
+    /// (the screen-space <c>_PosAndBounds</c> material is the "card renders DEEP BLACK" hazard) —
+    /// so the SOURCE is the only thing that can be asked.</para>
+    ///
+    /// <para>SCOPE, said plainly: this is the HAND. A hand card genuinely burns (the classic
+    /// "burn a card" cost, and the burn-available/burn-discarded prompts this fan's own board
+    /// mirrors), and that is the case covered. A card burning in the PLAYED/round slots is a
+    /// different surface with a different owner (<c>RemoteControlBoard</c> / <c>RemoteBoardCard</c>)
+    /// and is NOT covered by this file — it is the next debt on this bit, not a thing this method
+    /// silently half-does.</para>
+    ///
+    /// <para>WHY THE FRONTS GATE BOUNDS IT. <see cref="_handBuffer"/> is filled only while
+    /// <c>RevealGate.ShowRoundCardFronts</c> is open, so during the secret selection phase there is
+    /// no source widget and no plume. That is the safe direction twice over: nothing burns during
+    /// selection, and a plume attached to ONE specific face-down slab would name WHICH card the
+    /// owner is doing something to — the exact leak the backs-only rule exists to prevent.</para>
+    ///
+    /// <para>NOT YET SEEN ON HARDWARE, and the log says so. Whether a peer's own hidden
+    /// <c>CardsHandUI</c> widget actually runs its <c>CardEffects</c> coroutine on THIS client is
+    /// not established here; the game keeps that hand deactivated
+    /// (<c>AbilityCardUI.ToggleFullCard(false)</c>). If it does not, this predicate never turns true
+    /// and the failure is "no plume" — today's picture — never a plume on the wrong card. The
+    /// ARMED line below is what makes that distinguishable in a log instead of a shrug: armed with
+    /// no spawn means the TRIGGER needs a wire field, not the effect.</para>
+    /// </summary>
+    private void TickMirroredPlumes(int count, bool showFronts, bool mapFronts)
+    {
+        // The MAP phase has no AbilityCardUI at all (its faces come from this client's own
+        // ObjectPool by card id), so there is nothing there that could be running a card effect.
+        if (!_gameCardParticlesOn || !showFronts || mapFronts)
+        {
+            System.Array.Clear(_plume, 0, _plume.Length);
+            return;
+        }
+
+        if (!_plumeArmedLogged)
+        {
+            _plumeArmedLogged = true;
+            VRLog.Info("Net", $"Remote card plume ARMED [player {_owner.PlayerId}]: this owner has " +
+                              "[Cards] GameCardParticles ON (wire id 236) and their hand widgets are " +
+                              "resolved, so a burn/lost/discard on one of their HAND cards hosts the " +
+                              "game's own CardSmoke on the matching slab (RemoteCardPlume). A log that " +
+                              "carries this line and never a 'Remote card plume' spawn line proves the " +
+                              "peer's hidden AbilityCardUI does not run its CardEffects coroutine on " +
+                              "this client — i.e. the TRIGGER would need a wire field, not the effect.");
+        }
+
+        int n = Mathf.Min(count, Mathf.Min(_cards.Count, Mathf.Min(_handBuffer.Count, _plume.Length)));
+        for (int i = 0; i < n; i++)
+        {
+            bool running;
+            try
+            {
+                AbilityCardUI widget = _handBuffer[i];
+                FullAbilityCard? full = widget != null ? widget.fullAbilityCard : null;
+                CardEffects? fx = full != null ? full.cardEffects : null;
+                running = fx != null
+                          && (fx.HasEffect(CardEffects.FXTask.BurnCard)
+                              || fx.HasEffect(CardEffects.FXTask.LostMode)
+                              || fx.HasEffect(CardEffects.FXTask.DiscardMode));
+            }
+            catch (System.Exception)
+            {
+                running = false; // any deref failure -> no plume, like every other gate in this file
+            }
+            if (running == _plume[i])
+                continue;
+            _plume[i] = running;
+            if (!running)
+                continue;   // the falling edge only rearms the latch; the plume ends on its own
+            GameObject? slab = _cards[i];
+            if (slab != null)
+                RemoteCardPlume.Spawn(slab.transform, _owner.PlayerId, i);
+        }
+
+        // Slots past the resolved window keep no stale latch: a shrunk hand must be able to plume
+        // again at the same index without the fan having to be rebuilt first.
+        for (int i = n; i < _plume.Length; i++)
+            _plume[i] = false;
+    }
 
     private void ClearPops()
     {
@@ -1961,6 +2103,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         _tuningRevision = _owner.BoardTuningRevision;
         RemoteBoardTuning t = _owner.BoardTuning;
         _cardDustOn = t.CardDustOn;
+        _gameCardParticlesOn = t.GameCardParticlesOn;
 
         float width = t.CardWidth > 0.001f ? t.CardWidth : DefaultCardWidth;
         bool sizeChanged = !Mathf.Approximately(width, _cardWidth);

@@ -202,6 +202,18 @@ PAIRS = [
     ("Net/Remote/RemoteControlBoard.cs", "_itemCueRingAlpha", "Cards", "ItemCueRingAlpha"),
     ("Net/Remote/RemoteControlBoard.cs", "_itemCueEmberRate", "Cards", "ItemCueEmberRate"),
     ("Net/Remote/RemoteControlBoard.cs", "_itemCueEmberSize", "Cards", "ItemCueEmberSize"),
+    # THE SLOT CARD'S SEAT DEPTH (2026-08-27, wire id 101). It was a private literal --
+    # CardOnAnchorProudZ = -0.003f -- and therefore a value NO check could hold: the owner seats a
+    # played card at -[Cards] SlotCardInset through the slot's own 1.3x SlotScale, which is 5.2 mm
+    # board-local at the shipped default, so every peer drew every card 2.2 mm too shallow before
+    # anybody had touched a dial, and by the owner's whole tuning range once they had. It rides
+    # record 28 now and lands as a seeded field like the families above; the initialiser is what an
+    # untuned or pre-record peer's card is drawn with, which is what it is doing on this list.
+    #   Note for whoever reads this next to a diff: RemoteControlBoard.ProudZ = -0.004f is NOT this
+    #   value wearing another name. It happens to equal Defaults.SlotCardInset and means something
+    #   else entirely -- the flat fallback board's shared content plane, which no dial moves. Do not
+    #   collapse the two.
+    ("Net/Remote/RemoteControlBoard.cs", "_slotCardInset", "Cards", "SlotCardInset"),
     # The PILE FANS' shape (2026-08-09, the paging round). These four were BARE LITERALS — the exact
     # thing the header calls "a stale literal" — and nothing caught them because a literal with no
     # pair on this list has nothing to be checked against. Worse than stale: RemoteItemFan's radius
