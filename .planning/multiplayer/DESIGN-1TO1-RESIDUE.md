@@ -66,6 +66,42 @@ wire field.
 wired key, `PrepareInteractabilityForPlayer(ownerActor)`, then neutralise it as a puppet exactly as
 `RemoteWidgetMirror` does. Wire cost: one loc key + one actor id.
 
+### 2.1a CORRECTION — where the prefab actually comes from (checked 2026-08-27)
+
+The paragraph above said "the prefab is on every client", and that is true but not sufficient. The
+reference is not.
+
+`dialogPrefab` is a **private serialized field on the `ShortRest` component**, and `ShortRest`
+itself is instantiated by **`CardsHandUI`** (`CardsHandUI.cs:1809`,
+`Instantiate(shortRestPrefab, abilityCardsHolder)`). `CardsHandUI` is **the local player's own
+hand**. So a receiver has no `ShortRest` for a FOREIGN player — which is exactly what
+`NetProtocol`'s original note meant by "the short-rest `YesNoDialog` belongs to a HAND", and the
+note was right.
+
+**What that does and does not change:**
+
+- The receiver *does* eventually own a `ShortRest` — **its own**, created lazily the first time its
+  own hand needs one. `dialogPrefab` is reachable off that instance by reflection, so a mirrored
+  dialog can still be built without a single pixel on the wire.
+- But it is an **availability race**: a peer who has not yet opened their own short-rest has no
+  `ShortRest`, therefore no prefab reference, therefore nothing to instantiate. The mirror needs a
+  defined behaviour for that window, and the only honest one is the existing record-12 plate —
+  i.e. the fallback is not removed, it is *narrowed* to "until this client has seen its own
+  short-rest once".
+- `PrepareInteractabilityForPlayer(CPlayerActor)` is unaffected: the owner's actor is replicated,
+  so the receiver can pass it.
+
+**Revised cost.** This is no longer "one loc key and one actor id". It is that PLUS a reflection
+handle with a documented failure path, a lazily-satisfied prefab dependency, and a fallback window
+that has to be reasoned about rather than assumed away. It is still the right design and still
+sends no picture — but it is a feature with three failure modes, not a one-bit change like the card
+dust was.
+
+**Recommended order change:** do §2.3 (hover/press) BEFORE this one. It generalises a pattern that
+is already shipping (record 16), touches no game prefab and has no availability race, so it buys
+more of the user's stated requirement — "auch wie das Bild auf einem mouseover oder klick reagiert"
+— per unit of risk than the short-rest dialog does.
+
 ### 2.2 `DialogPopup` options — the option array is the metadata
 
 ```csharp
