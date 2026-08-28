@@ -65,6 +65,13 @@ internal sealed class GrabBarVisual
     private readonly Transform _capA;
     private readonly Transform _capB;
     private readonly float _radius;
+
+    /// <summary>The repeat count the shaft's current mesh was built for; −1 until the first
+    /// <see cref="SetLength"/>. Compared against the quantised want, so a bar whose length wobbles
+    /// inside one quantum never touches its MeshFilter.</summary>
+    private float _tiles = -1f;
+
+    private MeshFilter? _shaftFilter;
     private readonly List<MeshRenderer> _renderers = new(3);
 
     /// <summary>The bar's own root. Call sites parent it and position it; they must NOT scale it
@@ -124,7 +131,7 @@ internal sealed class GrabBarVisual
         GrabBarTexture.Maps maps = GrabBarTexture.Get(style);
         Material material = BuildMaterial(maps, overlay);
 
-        Mesh shaftMesh = GrabBarMesh.Shaft(radius);
+        Mesh shaftMesh = GrabBarMesh.Shaft(radius, 1f);
         Mesh capMesh = GrabBarMesh.Cap(radius);
 
         var bar = new GrabBarVisual(
@@ -134,6 +141,7 @@ internal sealed class GrabBarVisual
             Piece(root, "CapB", capMesh, material),
             radius, material, maps.Albedo != null);
 
+        bar._shaftFilter = bar._shaft.GetComponent<MeshFilter>();
         bar._renderers.Add(bar._shaft.GetComponent<MeshRenderer>());
         bar._renderers.Add(bar._capA.GetComponent<MeshRenderer>());
         bar._renderers.Add(bar._capB.GetComponent<MeshRenderer>());
@@ -227,18 +235,35 @@ internal sealed class GrabBarVisual
     /// <summary>
     /// Lay the rod out for a total end-to-end length, in the root's local metres.
     ///
-    /// <para>Cheap enough for a per-frame caller — <c>GrabbableModal.SyncBar</c> is one — because it
-    /// is three transform writes and no allocation. The shaft is scaled ONLY along X, which a
-    /// circular cross-section is indifferent to; the caps are moved, never scaled.</para>
+    /// <para>Cheap enough for a per-frame caller — <c>GrabbableModal.SyncBar</c> is one. In the
+    /// common case it is three transform writes and no allocation: the shaft is scaled ONLY along
+    /// X, which a circular cross-section is indifferent to, and the caps are moved, never
+    /// scaled.</para>
     ///
-    /// <para>A length below two caps would put the caps through each other. Rather than draw a knot,
-    /// the shaft collapses to nothing and the two caps meet at the middle, which is the honest
-    /// picture of "this bar is as short as this bar gets" and is what the window's own
+    /// <para><b>AND THE TEXTURE DOES NOT STRETCH WITH IT.</b> The shaft repeats its band
+    /// <c>length / TileLength</c> times, so a bar twice as long shows twice as much pattern rather
+    /// than the same pattern pulled to twice the size. The count is quantised
+    /// (<see cref="GrabBarMesh.QuantiseTiles"/>) and the mesh only swapped when that quantised
+    /// value actually moves — a window whose ink wobbles by a millimetre re-scales a transform and
+    /// touches nothing else. The meshes are cached by count, so the swap is a dictionary hit after
+    /// the first time any bar in the process has asked for it.</para>
+    ///
+    /// <para>A length below two caps would put the caps through each other. Rather than draw a
+    /// knot, the shaft collapses to nothing and the two caps meet at the middle, which is the
+    /// honest picture of "this bar is as short as this bar gets" and is what the window's own
     /// <c>MinBarWidth</c> floor already prevents in practice.</para>
     /// </summary>
     internal void SetLength(float length)
     {
         GrabBarMesh.Pose(length, _radius, out float shaft, out Vector3 left, out Vector3 right);
+
+        float want = GrabBarMesh.QuantiseTiles(shaft / GrabBarMesh.TileLength);
+        if (_shaftFilter != null && !Mathf.Approximately(want, _tiles))
+        {
+            _shaftFilter.sharedMesh = GrabBarMesh.Shaft(_radius, want);
+            _tiles = want;
+        }
+
         _shaft.localScale = new Vector3(shaft, 1f, 1f);
         _capA.localPosition = left;
         _capB.localPosition = right;

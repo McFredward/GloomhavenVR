@@ -220,7 +220,49 @@ namespace GloomhavenVR.Core
         /// <summary>Where the bead band starts, in nominal radii from the dome's tip.</summary>
         private const float BeadBandStart = 1.44f;
 
-        private static readonly Dictionary<int, Mesh> _shaftCache = new();
+        /// <summary>
+        /// WORLD LENGTH one repeat of the shaft band covers, in metres.
+        ///
+        /// <para><b>THIS IS WHAT KEEPS A STRETCHED BAR DETAILED.</b> The window bar's length is
+        /// live — <c>SyncBar</c> writes it from the measured ink of the window, and the range is
+        /// wide. The first cut mapped the shaft band ONCE and scaled the mesh along its axis, so a
+        /// long bar got long smeared scratches and a short one got the whole ornament squeezed into
+        /// a thumb's width. The user's requirement is that the bar keep changing length "und
+        /// trotzdem noch so immersiv und voller Details" — which means the DENSITY has to be the
+        /// invariant, not the mapping.</para>
+        ///
+        /// <para>So the shaft repeats its band <c>length / TileLength</c> times. The count is
+        /// FRACTIONAL on purpose: forcing it to a whole number would keep the pattern aligned to
+        /// both caps but make the density jump by 2x whenever a window's ink crossed a rounding
+        /// boundary. A fractional count holds the density exactly constant at every length, and the
+        /// partial repeat ends where the shaft meets a cap's shoulder — a place the geometry
+        /// already changes, so a break in the pattern there reads as a joint rather than a seam.</para>
+        ///
+        /// <para>0.60 m rather than the board shaft's own 0.30 m because the band is built
+        /// MIRROR-SYMMETRIC so that its wraps are seamless (see scripts/grabbar-strips.py), which
+        /// puts the ornament in one repeat TWICE. Halving the rate puts it back at the spacing that
+        /// was approved: the board bar comes out at ~0.47 of a repeat, showing the ornament about
+        /// once, exactly as it did when it was mapped once and stretched.</para>
+        /// </summary>
+        internal const float TileLength = 0.60f;
+
+        /// <summary>Bounds on the repeat count. The floor is deliberately LOW — a mirror-seamless
+        /// band makes any fraction legal, and a higher floor would force short bars to a denser
+        /// pattern than long ones, which is the very thing this mechanism exists to prevent. The
+        /// ceiling bounds the vertex count and the mesh cache for a bar somebody has stretched
+        /// absurdly.</summary>
+        internal const float MinTiles = 0.10f;
+
+        /// <summary>See <see cref="MinTiles"/>.</summary>
+        internal const float MaxTiles = 6f;
+
+        /// <summary>Quantum the repeat count is snapped to before a mesh is built, so the cache
+        /// holds a handful of meshes rather than one per distinct window width. The density error
+        /// this introduces is at most this over the count itself — 5 % at one repeat, less above —
+        /// which is far below anything the eye finds in wood grain.</summary>
+        private const float TileQuantum = 0.05f;
+
+        private static readonly Dictionary<long, Mesh> _shaftCache = new();
         private static readonly Dictionary<int, Mesh> _capCache = new();
 
         /// <summary>
@@ -236,9 +278,32 @@ namespace GloomhavenVR.Core
         /// these bars are drawn at, whereas tiling a sub-band of an atlas needs either a second material
         /// or a second texture — and a second material would break the one-write highlight above.</para>
         /// </summary>
-        internal static Mesh Shaft(float radius)
+        /// <summary>
+        /// Snap a raw repeat count to the value a mesh is actually built for. Public so the caller
+        /// can ask "would this change the mesh?" without building anything.
+        /// </summary>
+        internal static float QuantiseTiles(float tiles) =>
+            Mathf.Round(Mathf.Clamp(tiles, MinTiles, MaxTiles) / TileQuantum) * TileQuantum;
+
+        /// <summary>
+        /// A UNIT-LENGTH shaft: a tube of the given radius running along +X from −0.5 to +0.5,
+        /// carrying the end taper, and repeating the texture's shaft band
+        /// <paramref name="tiles"/> times along its length. Scale it along X to the length you
+        /// want — that is the whole reason it is unit length and the reason the caps are separate.
+        ///
+        /// <para>UV: <c>u</c> sweeps the band (<see cref="ShaftU0"/> … <see cref="ShaftU1"/>) once
+        /// per repeat and <c>v</c> runs around the circumference. At every INTERNAL wrap the ring
+        /// is EMITTED TWICE at the same x — once ending the band at <see cref="ShaftU1"/>, once
+        /// starting it again at <see cref="ShaftU0"/> — because a single ring cannot hold two
+        /// values of u, and interpolating between them would smear the whole band backwards across
+        /// one quad. The compositor makes the band mirror-symmetric so that those wraps are
+        /// continuous rather than a visible line (see scripts/grabbar-strips.py).</para>
+        /// </summary>
+        internal static Mesh Shaft(float radius, float tiles)
         {
-            int key = Mathf.RoundToInt(radius * 1e5f);
+            tiles = QuantiseTiles(tiles);
+            long key = (long)Mathf.RoundToInt(radius * 1e5f) * 100000L
+                       + Mathf.RoundToInt(tiles * 1000f);
             if (_shaftCache.TryGetValue(key, out Mesh cached) && cached != null)
                 return cached;
 
@@ -247,18 +312,33 @@ namespace GloomhavenVR.Core
             var uvs = new List<Vector2>();
             var tris = new List<int>();
 
+            // Enough rings that every repeat still curves smoothly, and that a wrap lands close to
+            // a ring rather than far from one.
+            int rings = Mathf.Max(ShaftSegments, Mathf.CeilToInt(ShaftSegments * tiles));
+
             var profile = new List<Vector3>();   // (x, r, u)
-            for (int a = 0; a <= ShaftSegments; a++)
+            for (int a = 0; a <= rings; a++)
             {
-                float t = (float)a / ShaftSegments;
+                float t = (float)a / rings;
                 // Distance from the NEARER end, normalised against the taper span, then
                 // smoothstepped so the shoulder is a curve and not a crease.
                 float edge = Mathf.Clamp01(Mathf.Min(t, 1f - t) / TaperSpan);
                 float ease = edge * edge * (3f - 2f * edge);
-                profile.Add(new Vector3(
-                    t - 0.5f,
-                    radius * (ShaftEndRadius + (1f - ShaftEndRadius) * ease),
-                    Mathf.Lerp(ShaftU0, ShaftU1, t)));
+                float r = radius * (ShaftEndRadius + (1f - ShaftEndRadius) * ease);
+
+                float sweep = t * tiles;                 // how many band-widths in we are
+                float frac = sweep - Mathf.Floor(sweep);
+                bool onWrap = a > 0 && a < rings && frac < 1e-4f;
+                if (onWrap)
+                {
+                    // Close the previous repeat, then open the next one at the same x.
+                    profile.Add(new Vector3(t - 0.5f, r, ShaftU1));
+                    profile.Add(new Vector3(t - 0.5f, r, ShaftU0));
+                }
+                else
+                {
+                    profile.Add(new Vector3(t - 0.5f, r, Mathf.Lerp(ShaftU0, ShaftU1, frac)));
+                }
             }
             Lathe(profile, verts, norms, uvs, tris);
 

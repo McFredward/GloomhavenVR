@@ -317,6 +317,34 @@ def grade(img, name):
     return img
 
 
+def shaft_band(swatch_dir, name, width, height):
+    """The shaft's band, made MIRROR-SYMMETRIC so it tiles in u without a seam.
+
+    The mesh repeats this band length/TileLength times so that a stretched bar shows MORE pattern
+    instead of the same pattern pulled longer (GrabBarMesh.Shaft). Every wrap puts the band's right
+    edge against its left edge, so those two edges have to match — and a unique unwrap's edges do
+    not. Building the band as [A | mirror(A)] makes them identical by construction: the join in the
+    middle is a mirror line, and the wrap at the ends closes on the same pixels.
+
+    It costs half the unique content and buys a rod that is symmetric about the middle of each
+    repeat, which is what a turned rod looks like anyway. The grain runs ALONG u, so mirroring it
+    is close to invisible; the ornament bands come out paired, which reads as deliberate.
+    """
+    # THE HALF IS CUT OUT OF THE FINISHED BAND, not fetched at half width. Asking band() for a
+    # half-width strip changes the crop aspect, which makes it pull a differently-shaped region out
+    # of the source and scale it harder — every feature came out half size, and mirroring then
+    # doubled the count, so one repeat carried four times the ornament it should. Feature scale is
+    # the thing that must not move: crop the finished band, then mirror.
+    half = width // 2
+    left = band(swatch_dir, name, width, height).crop((0, 0, half, height))
+    out = Image.new('RGB', (width, height))
+    out.paste(left, (0, 0))
+    out.paste(left.transpose(Image.FLIP_LEFT_RIGHT), (width - half, 0))
+    if width - 2 * half:          # odd width: fill the one-pixel gap from the near side
+        out.paste(left.crop((half - 1, 0, half, height)), (half, 0))
+    return out
+
+
 def cap_band(swatch_dir, knob_sw, collar_sw, width, height, dome_frac):
     """The cap's strip: the KNOB's own worn skin, then the beaded collar.
 
@@ -496,7 +524,7 @@ def main():
         shaft_w = W - 2 * cap_px
         cap = cap_band(args.swatches, knob_sw, cap_sw, cap_px, H, dome_frac)
         img.paste(cap, (0, 0))
-        img.paste(band(args.swatches, shaft_sw, shaft_w, H), (cap_px, 0))
+        img.paste(shaft_band(args.swatches, shaft_sw, shaft_w, H), (cap_px, 0))
         # The far cap is the near cap MIRRORED, so both ends carry the same material and the wrap
         # at u=1 meets u=0 on identical pixels.
         img.paste(cap.transpose(Image.FLIP_LEFT_RIGHT), (W - cap_px, 0))

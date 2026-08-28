@@ -80,6 +80,13 @@ namespace GloomhavenVR
                 bool overlay = style == "generic";
                 Shoot(style, overlay, BoardBarLength, "long", outDir);
                 Shoot(style, overlay, ShortBarLength, "short", outDir);
+                // A LENGTH SWEEP. The window bar's length is live, and the whole point of the
+                // band repeating rather than stretching is that the DETAIL DENSITY stays put while
+                // the bar does not. That is a claim about three pictures, not one: rendered side by
+                // side, the scratches and the ornament must come out the same SIZE in all of them.
+                Shoot(style, overlay, 0.16f, "len016", outDir);
+                Shoot(style, overlay, 0.34f, "len034", outDir);
+                Shoot(style, overlay, 0.70f, "len070", outDir);
                 // A DEPTH TEST, not a beauty shot. Looking almost straight down the rod's axis,
                 // the FAR cap is entirely behind the shaft and must be completely invisible. If any
                 // part of it shows, the pieces are not depth-sorting against each other and the rod
@@ -96,7 +103,6 @@ namespace GloomhavenVR
             try
             {
                 Material mat = BuildMaterial(style, overlay);
-                Mesh shaft = GloomhavenVR.Core.GrabBarMesh.Shaft(Radius);
                 Mesh cap = GloomhavenVR.Core.GrabBarMesh.Cap(Radius);
                 // THE POSE COMES FROM THE SHARED FILE, not from a copy written here. The first
                 // version of this preview carried its own copy of the placement and it was wrong in
@@ -106,6 +112,13 @@ namespace GloomhavenVR
                 float capLen = Radius * GloomhavenVR.Core.GrabBarMesh.CapLengthInRadii;
                 GloomhavenVR.Core.GrabBarMesh.Pose(length, Radius, out float shaftLen,
                                                    out Vector3 leftPos, out Vector3 rightPos);
+
+                // The repeat count is derived the SAME way GrabBarVisual.SetLength derives it,
+                // through the same helper in the same shared file — the station has to draw the rod
+                // the game builds, not one that merely looks like it.
+                float tiles = GloomhavenVR.Core.GrabBarMesh.QuantiseTiles(
+                    shaftLen / GloomhavenVR.Core.GrabBarMesh.TileLength);
+                Mesh shaft = GloomhavenVR.Core.GrabBarMesh.Shaft(Radius, tiles);
 
                 Piece(root.transform, "Shaft", shaft, mat,
                       Vector3.zero, Quaternion.identity, new Vector3(shaftLen, 1f, 1f));
@@ -157,7 +170,12 @@ namespace GloomhavenVR
                 // horizontal half-angle instead, and leave 12 % margin.
                 float hFov = 2f * Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad)
                                              * ((float)rtW / rtH));
-                float dist = (length * 1.34f * 0.5f) / Mathf.Tan(hFov * 0.5f);
+                // The sweep shots are framed on a FIXED width rather than on the rod, so a
+                // scratch that is the same size in metres comes out the same size in pixels in all
+                // three. Framing each on its own length would rescale every picture and hide
+                // exactly the thing the sweep exists to show.
+                float frame = tag.StartsWith("len") ? 0.72f : length * 1.34f;
+                float dist = (frame * 0.5f) / Mathf.Tan(hFov * 0.5f);
                 // A THREE-QUARTER HERO ANGLE, not a side elevation — the same view the design
                 // sheets were drawn at. Judging a flat side-on render against a three-quarter
                 // reference compares two different pictures and flatters neither: foreshortening
