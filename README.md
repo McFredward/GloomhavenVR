@@ -79,6 +79,14 @@ and the other players see the choice. All modelled for this project.
   <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, three control boards">
 </p>
 
+Four turned grab rods go with them — one in each board's own material, and a quieter walnut one for
+the windows. Modelled from a lathe profile and textured per rod, down to the incised fillets, the
+knurled collars and the worn band where a hand has held it.
+
+<p align="center">
+  <img src="docs/img/grabbars.png" width="680" alt="Four grab rods: oak, steel, bronze, and the walnut window rod">
+</p>
+
 ## Environments
 
 A candle-lit cellar or a night forest with a real star catalogue overhead — both built for this
