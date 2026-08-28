@@ -48,11 +48,27 @@
 </tr>
 </table>
 
+### Grab it where it is
+
+Every window and every control board hangs from a turned wooden or metal rod, and you move it by
+taking hold of that rod — with your hand, or with the pointer from across the table. Each of the
+three board styles wears its own: honey oak with a dark bronze knob, forged steel, or patinated
+bronze with gilt caps. Windows get a quieter walnut one so it does not compete with the page next
+to it.
+
+The rods are real geometry, not a painted strip: they are round, so the pointer has to actually
+hit one, and a window's rod keeps the same grain, the same worn grip and the same fine beading
+whatever width the window happens to be.
+
 ### Full VR Multiplayer
 
 Every VR player has a mask, hands and their own
 control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
 Players without a headset join the same game on a flat screen.
+
+A board you are looking at across the table wears **its owner's** rod, not yours — if they play on
+the bronze board and you play on oak, that is what you see. Windows shared with the group carry a
+small badge in the corner rather than a coloured bar.
 
 ## Mod Assets
 
