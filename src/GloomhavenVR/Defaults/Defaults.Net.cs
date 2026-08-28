@@ -35,6 +35,20 @@ internal static partial class Defaults
     internal const float PeerBoardOccludedAlpha = 0.25f;                               // => [PeerBoardFade] OccludedAlpha
     internal const float PeerBoardOnFraction = 0.12f;                                  // => [PeerBoardFade] OnFraction
     internal const float PeerBoardOffFraction = 0.05f;                                 // => [PeerBoardFade] OffFraction
-    internal const float PeerBoardExitDwellMoved = 2.5f;                               // => [PeerBoardFade] ExitDwellMovedSeconds
-    internal const float PeerBoardExitDwellStationary = 7f;                            // => [PeerBoardFade] ExitDwellStationarySeconds
+    // THE TWO UN-FADE DWELLS ARE THE WALL'S, BY THE USER'S WORD (2026-08-28: "Pass die default
+    // configs fuer das transparent machen/ausblenden von fremden boards an die der Waende an").
+    // They were 2.5 / 7 -- the values the wall fade shipped when this feature was hand-copied from
+    // it, and the board's own class doc still called them "the wall's" long after they were not:
+    // the wall's pair became 0.5 / 3.6 on 2026-08-26 from the user's own tuned cfg drop (84679759).
+    // A hand-copy is a snapshot, and this is the same drift the ModBuild 310 unification removed
+    // from the DECISION code; these two are the last of it that lived in the numbers.
+    //
+    // WHY THESE TWO TRANSFER AND THE BARS DO NOT: a dwell is SECONDS OF CONTINUOUS AGREEMENT --
+    // the same unit and the same meaning on both subsystems, so one number really is the same
+    // number. The Schmitt bars are a coverage FRACTION measured against different denominators
+    // (the wall's is its room's WHOLE floor grid, the board's is the IN-VIEW play-field samples
+    // only), so 0.35 on one is not the same physical situation as 0.35 on the other and copying
+    // them across would be a retune wearing an alignment's clothes.
+    internal const float PeerBoardExitDwellMoved = 0.5f;                               // => [PeerBoardFade] ExitDwellMovedSeconds
+    internal const float PeerBoardExitDwellStationary = 3.6f;                          // => [PeerBoardFade] ExitDwellStationarySeconds
 }

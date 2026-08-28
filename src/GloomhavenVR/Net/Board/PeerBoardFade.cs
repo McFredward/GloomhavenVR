@@ -117,9 +117,13 @@ internal static class PeerBoardFadeTuning
     /// default, <c>Defaults.PeerBoardOffFraction</c>. They must be changed together.</para></summary>
     internal static float Off =>
         OcclusionFade.SchmittLowBar(Clamped(OffFraction, 0.05f, 0.01f, 0.95f), On);
-    internal static float DwellMoved => Clamped(ExitDwellMoved, 2.5f, 0.1f, 60f);
+    // The numbers inside Clamped(...) are PRE-BIND fallbacks, not the shipped defaults, and they
+    // move WITH Defaults.PeerBoardExitDwell* on purpose: a fallback that disagrees with the
+    // shipped default is a second, invisible set of values that only ever appears before Bind()
+    // -- a trap this project has paid for twice. Both now read the wall's own pair.
+    internal static float DwellMoved => Clamped(ExitDwellMoved, 0.5f, 0.1f, 60f);
     internal static float DwellStationary =>
-        Mathf.Max(Clamped(ExitDwellStationary, 7f, 0.1f, 120f), DwellMoved);
+        Mathf.Max(Clamped(ExitDwellStationary, 3.6f, 0.1f, 120f), DwellMoved);
 
     private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
         entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);

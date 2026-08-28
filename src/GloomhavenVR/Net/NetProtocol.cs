@@ -416,7 +416,38 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 310;
+    public const ushort ModBuild = 311;
+    // Build 311: THE PEER-BOARD SEE-THROUGH TAKES THE WALL'S OWN DWELLS.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO WIRE CHANGE. ***
+    //
+    //   User, 2026-08-28: "Pass die default configs fuer das transparent machen/ausblenden von
+    //   fremden boards an die der Waende an."
+    //
+    //   [PeerBoardFade] ExitDwellMovedSeconds 2.5 -> 0.5 and ExitDwellStationarySeconds 7 -> 3.6,
+    //   which are the wall's shipped values since the user's own tuned cfg drop on 2026-08-26.
+    //   The board had the wall's PRE-tuning pair, because it was hand-copied from the wall before
+    //   that round and its class doc went on calling 2.5 / 7 "the wall's" afterwards. ModBuild 310
+    //   removed that drift from the decision CODE; this is the last of it that lived in the
+    //   NUMBERS. The two Clamped() pre-bind fallbacks move with them — a fallback that disagrees
+    //   with its shipped default is a second, invisible set of values, and this project has paid
+    //   for that twice.
+    //
+    //   WHAT WAS DELIBERATELY NOT COPIED, and the reason is the same one that kept the two
+    //   subsystems' bars separate through the unification: a DWELL is seconds of continuous
+    //   agreement, the same unit and the same meaning on both sides, so one number really is the
+    //   same number. The Schmitt BARS are a coverage fraction measured against different
+    //   denominators — the wall's is its room's WHOLE floor grid, the board's is the IN-VIEW
+    //   play-field samples only — so 0.35 on one is not the same physical situation as 0.35 on the
+    //   other, and copying them would be a retune wearing an alignment's clothes. The MODE and the
+    //   residual alpha are a separate question and are left for the user: the wall's fade is a
+    //   FULL dissolve (Cutoff lerps to 1) and ships ON, the board's ships Off, so "the wall's
+    //   default" there means turning the feature on in Hidden — a visible behaviour change nobody
+    //   asked for yet.
+    //
+    //   TEST: [PeerBoardFade] Mode = Transparent, let a peer's board fade, then step aside. It must
+    //   come back in about half a second after a real move and about 3.6 s if you only turned your
+    //   head — the same rhythm the walls already have.
+    //
     // Build 310: A FULL RECEIVER AUDIT, AND THE ONE THING NO CHECKER ON THIS RECORD CAN SEE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 178/179). ***
     //
