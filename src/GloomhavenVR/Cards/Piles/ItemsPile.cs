@@ -251,10 +251,31 @@ internal sealed class ItemsPile
     private float _nextHandLogAt;
     private float _nextHandMissLogAt;
 
-    /// <summary>Arc index of the hand-sweep winner, or -1 — drives the fan SPLIT in
-    /// <see cref="Relayout"/> (hand-fan parity: the highlighted chip is the pivot, its neighbours
-    /// step aside, so the single winner is unmistakable while a hand sweeps through).</summary>
+    /// <summary>Arc index of the hand-sweep winner, or -1 — the DOMINANT hand's winner when it has
+    /// one, else the other hand's (see <see cref="UpdateHandSweep"/>). It is the top branch of
+    /// <see cref="HighlightedIndex"/>, i.e. the sender-side tie-break that decides which of two
+    /// simultaneously lifted chips travels on the single fan position record 6 carries.
+    /// It no longer drives the fan SPLIT on its own: the pivot is <see cref="SplitPivotIndex"/>,
+    /// which is <see cref="HighlightedIndex"/> and therefore covers the laser hover too.</summary>
     private int _handWinnerIndex = -1;
+
+    /// <summary>
+    /// The arc position the layout last SPLIT around (<see cref="SplitPivotIndex"/> as it read at
+    /// that moment), or -1 — a change detector and nothing else.
+    ///
+    /// <para>WHY A DETECTOR AND NOT A SOURCE. The pivot has to follow the LASER hover as well as the
+    /// hand sweep, and the laser writes its pop straight onto the chip
+    /// (<c>ItemChip.OnPokeEnter</c>, from <c>CardsDriver.UpdateItemFanLaser</c>) without telling this
+    /// class anything. There is no event to hang a relayout off, so <see cref="Tick"/> compares the
+    /// pivot against this field once a frame — one short scan of an arc of at most a dozen-odd chips
+    /// — and relayouts on the CHANGE, which is the same "only on a change" budget the hand sweep's
+    /// own trigger kept, now covering both sources with one rule instead of one rule per source.</para>
+    ///
+    /// <para>Written by BOTH writers of the layout (<see cref="Tick"/> and <see cref="Relayout"/>),
+    /// so it cannot go stale against a layout that early-returns on an empty arc, and a relayout
+    /// raised for another reason (a rebuild, a chip leaving) re-arms it in passing.</para>
+    /// </summary>
+    private int _splitPivotIndex = -1;
 
     /// <summary>Chips this tick's sweep pop-suppressed, so the set can be cleared from scratch
     /// next tick (stale-flag proof: a chip that left the fan mid-frame cannot stay suppressed).</summary>
@@ -829,6 +850,17 @@ internal sealed class ItemsPile
 
         // Physical fingertip sweep: lift the chip nearest the dominant index tip (single-winner).
         UpdateHandSweep();
+        // …and the ONE trigger the arc split has, for BOTH of its sources (see _splitPivotIndex).
+        // The sweep above may have elected a new winner and the laser may have moved onto another
+        // chip without telling this class anything; either way the pivot changed and the arc owes a
+        // re-split. Immediately after the sweep, so a hand-driven change still relayouts on the very
+        // frame it happens — the timing the sweep's own relayout call used to give it.
+        int splitPivot = SplitPivotIndex;
+        if (splitPivot != _splitPivotIndex)
+        {
+            _splitPivotIndex = splitPivot;
+            Relayout();
+        }
 
         // NOTE (usable-highlight): the per-chip gold rim glow is toggled inside each chip's own face
         // maintenance from CanUseNow — nothing to drive from here. The throttled tally diagnostic lives
@@ -1195,7 +1227,14 @@ internal sealed class ItemsPile
         // collider by the same ClosestPoint metric) — "what pops is what I grab", by geometry.
         // The chord is fan-local; chips are enlarged by ChipScale, hence the divide.
         float stripFanLocal = n > 1 ? FanSweep.ArcChord(radius, step) / ChipScale : float.MaxValue;
-        int hovered = _handWinnerIndex >= 0 && _handWinnerIndex < n ? _handWinnerIndex : -1;
+        // THE SPLIT PIVOT IS THE PROPERTY, not a second reading of it (see SplitPivotIndex): the
+        // chip the owner is singling out from EITHER source, minus the one lying in the recess,
+        // which is exactly the rule Net.Remote.RemoteItemFan applies to the same number. It used to
+        // be _handWinnerIndex — the hand sweep alone — so a laser-only hover lifted a chip in an arc
+        // that stayed rigid while the peer's copy opened the gap. No clamp is needed: the property
+        // returns an index INTO _chips, whose Count is n.
+        int hovered = SplitPivotIndex;
+        _splitPivotIndex = hovered; // re-arm the change detector for relayouts raised elsewhere
 
         for (int i = 0; i < n; i++)
         {
@@ -1404,13 +1443,14 @@ internal sealed class ItemsPile
         // not a layout. The DOMINANT hand's winner is the pivot when it has one (it is the hand the
         // laser and every other single-owner rule already defer to), else the other hand's — so a
         // one-handed sweep behaves exactly as before, whichever hand it is.
+        //
+        // NO RELAYOUT CALL HERE ANY MORE: this writes the tie-break, and lifting the winner is what
+        // makes it the pivot (SetFingertipPop is one of the two pops HighlightedIndex reads), so
+        // Tick's pivot check — which runs immediately after this sweep — re-splits the arc on this
+        // very frame. Re-splitting from here off _handWinnerIndex is precisely what made the split a
+        // SECOND, hand-only copy of "which chip is singled out", one a laser hover could not move.
         ItemChip? pivot = DominantWinner() ?? _handWinnerLeft ?? _handWinnerRight;
-        int index = pivot != null ? _chips.IndexOf(pivot) : -1;
-        if (index != _handWinnerIndex)
-        {
-            _handWinnerIndex = index;
-            Relayout(); // re-split the arc around the new pivot (hand-fan parity), only on a CHANGE
-        }
+        _handWinnerIndex = pivot != null ? _chips.IndexOf(pivot) : -1;
 
         float now = Time.unscaledTime;
         bool changed = !ReferenceEquals(prevLeft, _handWinnerLeft)
@@ -1618,7 +1658,10 @@ internal sealed class ItemsPile
         _handWinnerRight?.SetFingertipPop(false);
         _handWinnerLeft = null;
         _handWinnerRight = null;
-        _handWinnerIndex = -1; // the split closes with the lift
+        // The split closes with the LIFT, not with this line: dropping the pops above drops the chip
+        // out of HighlightedIndex, so the next pivot check reads -1 and relayouts a flat arc. This
+        // clears the wire tie-break (see the field), which the sweep would otherwise re-assert.
+        _handWinnerIndex = -1;
         for (int i = 0; i < _handSuppressed.Count; i++)
         {
             if (_handSuppressed[i] != null)
@@ -1722,6 +1765,49 @@ internal sealed class ItemsPile
                     return i;
             }
             return -1;
+        }
+    }
+
+    /// <summary>
+    /// The arc position <see cref="Relayout"/> splits around, or -1 — <see cref="HighlightedIndex"/>
+    /// with ONE documented subtraction, and asked through that same property rather than re-derived.
+    ///
+    /// <para>THE DEFECT THIS CLOSED (2026-08). This arc used to split around
+    /// <see cref="_handWinnerIndex"/> — the hand sweep's winner and nothing else — while
+    /// <see cref="HighlightedIndex"/>, the number record 6 carries and <c>Net.Remote.RemoteItemFan</c>
+    /// is driven by, has covered BOTH hover sources since the 2026-08-07 laser-parity fix (it reads
+    /// <see cref="ItemChip.IsHighlighted"/>, true for the laser pop as well as the fingertip one).
+    /// Two hand-maintained copies of "which chip is singled out", disagreeing on exactly one case: a
+    /// LASER-only hover lifted a chip here and the arc around it stayed rigid, while the mirror —
+    /// which has only the index — opened the gap. The mirror was not over-reaching; this arc was
+    /// under-reaching, and the remedy costs no wire at all.</para>
+    ///
+    /// <para>THE REFERENCE IMPLEMENTATION SPLITS ON THE LASER TOO. <c>CardFan.Relayout</c> takes its
+    /// pivot as <c>_hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex</c>, and
+    /// <c>_hoveredIndex</c> is what <c>CardsDriver.UpdateFanHoverSplit</c> pushes in via
+    /// <c>CardFan.SetHovered</c> — its FIRST source being <c>_laserHover</c>. The hand fan has split
+    /// on a laser hover from the start; the pile arcs simply never got that source wired into their
+    /// pivot when <c>FanSweep.SplitOffset</c> was extracted from it "so the pile fans split with the
+    /// same shape … — the visible half of 'one card at a time'".</para>
+    ///
+    /// <para>THE SUBTRACTION: THE CHIP LYING IN THE USE RECESS. <see cref="HighlightedIndex"/> has a
+    /// third, lowest-precedence branch that names the clipped chip (<see cref="ClippedChipIndex"/>)
+    /// when the owner sweeps a hand over the recess — its lift is a board animation the 1:1 ruling
+    /// covers and it travels on the same bare position. That chip is NOT at an arc position:
+    /// <see cref="Relayout"/>'s own loop skips it (<c>chip.PendingUse</c>), so splitting around its
+    /// seat would open a gap around a card that is not there. Excluding it here is term for term the
+    /// rule the mirror already applies to the same number — <c>RemoteItemFan.Layout</c>'s
+    /// <c>hovered >= 0 &amp;&amp; hovered != _clipIndex</c>, where <c>_clipIndex</c> is the receiver's
+    /// copy of <see cref="ClippedChipIndex"/> (record 26) — so the two arcs now agree in every case
+    /// rather than in most of them. The comparison is short-circuited behind
+    /// <c>hovered &gt;= 0</c>, so the clip scan does not run while nothing is singled out.</para>
+    /// </summary>
+    private int SplitPivotIndex
+    {
+        get
+        {
+            int hovered = HighlightedIndex;
+            return hovered >= 0 && hovered != ClippedChipIndex ? hovered : -1;
         }
     }
 

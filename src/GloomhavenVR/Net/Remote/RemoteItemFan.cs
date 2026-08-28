@@ -753,9 +753,20 @@ internal sealed class RemoteItemFan
             // 6 now also names that card — it has a perfectly good arc index and its lift is a board
             // animation the 1:1 ruling covers — but it is NOT at an arc position, so splitting the
             // arc around its seat would open a gap around a card that is not there. The owner's own
-            // arc does not split for it either (a clipped chip is not sweep-eligible and therefore
-            // never becomes ItemsPile.Relayout's pivot), so declining here is what keeps the two
-            // arcs identical rather than an exception to the rule.
+            // arc does not split for it either, and since 2026-08 it says so in the same two terms
+            // this line does: ItemsPile.SplitPivotIndex is that fan's HighlightedIndex — the very
+            // number this renderer is sent — minus exactly this case (`hovered >= 0 && hovered !=
+            // ClippedChipIndex`, ClippedChipIndex being what record 26 fills _clipIndex from). So
+            // declining here is not an exception to the rule, it IS the rule, verified on both ends.
+            //
+            // AND THE INDEX NEEDS NO SOURCE FLAG. This renderer splits on the bare position it is
+            // sent, which used to be a knowing over-reach: the owner's arcs split for their HAND
+            // sweep's winner only, so a laser-only hover lifted a chip in a rigid arc here and in an
+            // opened one there, and a REQUEST for one wire bit ("this index is the hand sweep's
+            // winner") stood in RemoteBrowserFan for it. That request is withdrawn — the pile arcs
+            // were lagging CardFan, which has always taken its own pivot from the driver's laser
+            // hover first (`_hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex`), and both pile
+            // arcs now do the same. Zero new ids, zero new bytes; see RemoteBrowserFan's split block.
             if (hovered >= 0 && hovered != _clipIndex && i != hovered)
                 pos += rot * new Vector3(SplitOffset(i - hovered) * ChipScale, 0f, 0f);
 

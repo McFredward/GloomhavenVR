@@ -82,12 +82,25 @@ internal sealed class PileBrowser
     private float _nextHandMissLogAt; // throttle clock for the "nothing won, here is why" line
 
     /// <summary>
-    /// Arc index of the current hand-sweep winner, or -1 — the browse fan's counterpart of
-    /// <c>CardFan._pokeHoveredIndex</c>. Drives the SPLIT (see <see cref="Relayout"/>): the
-    /// highlighted card is the pivot and its neighbours step aside, which is the visible half of
-    /// "exactly one card at a time" the user asked the pile fans to copy from the hand cards.
+    /// The arc position the layout last SPLIT around (<see cref="SplitPivotIndex"/> as it read at
+    /// that moment), or -1 — a change detector and nothing else.
+    ///
+    /// <para>WHY A DETECTOR AND NOT A SOURCE. The pivot has to follow the LASER hover as well as the
+    /// hand sweep (see <see cref="SplitPivotIndex"/>), and the two sources arrive very differently:
+    /// the sweep runs inside this class, while the laser writes its pop straight onto the card
+    /// (<c>VRCard.SetLaserHover</c>, from <c>CardsDriver.UpdateBrowseLaser</c>) and tells this class
+    /// nothing at all. There is no event to hang a relayout off, so <see cref="Tick"/> compares the
+    /// pivot against this field once a frame — two ints and one short scan of an arc that is at most
+    /// a couple of dozen cards — and relayouts on the CHANGE. That is the same "only on a change"
+    /// budget the hand sweep's own trigger used to keep, now covering both sources with one rule
+    /// instead of one rule per source.</para>
+    ///
+    /// <para>Written by BOTH writers of the layout (<see cref="Tick"/> and <see cref="Relayout"/>),
+    /// so it can never go stale against a layout that early-returns on an empty arc, and a relayout
+    /// raised for some other reason (a card added, removed, the set replaced) re-arms it in passing
+    /// rather than leaving a second relayout owed on the next frame.</para>
     /// </summary>
-    private int _handWinnerIndex = -1;
+    private int _splitPivotIndex = -1;
 
     // Requirement 5 (emerge from the pile): the world position of the pile STACK this browse
     // opened over; the first content layout pre-seats every card AT this point so the existing
@@ -168,6 +181,38 @@ internal sealed class PileBrowser
             return -1;
         }
     }
+
+    /// <summary>
+    /// The arc position <see cref="Relayout"/> splits around, or -1 — deliberately the SAME
+    /// question <see cref="HighlightedIndex"/> answers, asked through the same expression.
+    ///
+    /// <para>THE DEFECT THIS CLOSED (2026-08). This arc used to split around
+    /// <c>_handWinnerIndex</c> — the hand sweep's winner and nothing else — while
+    /// <see cref="HighlightedIndex"/>, the number the multiplayer mirror is driven by, has covered
+    /// BOTH hover sources since it was written (it reads <c>VRCard.IsHighlighted</c>, which is true
+    /// for the laser pop as well as the fingertip one). Two hand-maintained copies of "which card is
+    /// singled out", and they disagreed on exactly one case: a LASER-only hover lifted a card here
+    /// and the arc around it stayed rigid, while <c>Net.Remote.RemoteBrowserFan</c> — which has only
+    /// the index — opened the gap. The mirror was not over-reaching; this arc was under-reaching.</para>
+    ///
+    /// <para>THE REFERENCE IMPLEMENTATION AGREES WITH THE MIRROR, NOT WITH THE OLD PIVOT. The hand
+    /// fan is where "exactly one card at a time" comes from, and <c>CardFan.Relayout</c> picks its
+    /// pivot as <c>_hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex</c> — <c>_hoveredIndex</c>
+    /// being the value <c>CardsDriver.UpdateFanHoverSplit</c> pushes in through
+    /// <c>CardFan.SetHovered</c>, whose FIRST source is <c>_laserHover</c>. So the hand fan has
+    /// split on a laser hover from the start; the pile arcs simply never got that source wired into
+    /// their pivot when <c>FanSweep.SplitOffset</c> was extracted from it ("so the pile fans split
+    /// with the same shape … — the visible half of 'one card at a time'"). Reading the property
+    /// closes the gap with ZERO wire cost: the mirror already renders the index it is sent, and the
+    /// owner now opens the same gap for the same card.</para>
+    ///
+    /// <para>NO SECOND COPY OF THE RULE, on purpose. This is a one-line alias rather than a
+    /// re-derivation, so the split cannot drift from the wire again; the item fan's counterpart
+    /// (<c>ItemsPile.SplitPivotIndex</c>) is the same alias plus ONE documented subtraction (the chip
+    /// lying in the use recess, which has an arc index but no arc seat). The browse arc has no such
+    /// case — there is no recess and no clip — so there is nothing to subtract here.</para>
+    /// </summary>
+    private int SplitPivotIndex => HighlightedIndex;
 
     // ------------------------------------------------------------------ lifecycle --
 
@@ -378,6 +423,17 @@ internal sealed class PileBrowser
         // Physical hand sweep (user issue): move the free hand THROUGH the arc to highlight the
         // card nearest the fingertip, exactly one at a time — same feel as the palm fan.
         UpdateHandSweep();
+        // …and the ONE trigger the split has, for BOTH of its sources (see _splitPivotIndex). The
+        // sweep above may have elected a new winner and the laser may have moved onto another card
+        // without telling this class anything; either way the pivot has changed and the arc owes a
+        // re-split. Runs immediately after the sweep, so a hand-driven change still relayouts on the
+        // very frame it happens — the same timing the sweep's own relayout call used to give it.
+        int pivot = SplitPivotIndex;
+        if (pivot != _splitPivotIndex)
+        {
+            _splitPivotIndex = pivot;
+            Relayout(instant: false);
+        }
         // Board-anchored: re-read the base + [Cards] BrowseFanOffset every frame — a cheap
         // Vector3 config read — so the debug menu's Piles 'Browse X/Y/Z' steppers move an OPEN
         // fan live; the board-LOCAL anchor still rides its parent's pose/scale for free.
@@ -425,7 +481,14 @@ internal sealed class PileBrowser
         // HAND-FAN PARITY, part 2 (the split): the highlighted card is the pivot and stays put;
         // its neighbours slide aside so the winner is unmistakable. Offsets are authored for the
         // hand fan's card scale, so they ride CardScale into this arc's larger cards.
-        int hovered = _handWinnerIndex >= 0 && _handWinnerIndex < n ? _handWinnerIndex : -1;
+        //
+        // THE PIVOT IS THE PROPERTY, not a second reading of it (see SplitPivotIndex): the card the
+        // owner is singling out from EITHER source, which is also the exact number the multiplayer
+        // mirror is driven by. It used to be _handWinnerIndex — the hand sweep alone — so a
+        // laser-only hover lifted a card in an arc that stayed rigid while the peer's copy opened
+        // the gap. No clamp is needed: HighlightedIndex is an index INTO _cards, whose Count is n.
+        int hovered = SplitPivotIndex;
+        _splitPivotIndex = hovered; // re-arm the change detector for relayouts raised elsewhere
 
         for (int i = 0; i < n; i++)
         {
@@ -574,14 +637,12 @@ internal sealed class PileBrowser
             _handWinner?.SetFingertipHover(false);
             _handWinner = winner;
             _handWinner?.SetFingertipHover(true);
-            // Re-split the arc around the new pivot (hand-fan parity): the winner holds still and
-            // its neighbours step aside. Only on a CHANGE, so the layout is not touched per frame.
-            int index = winner != null ? _cards.IndexOf(winner) : -1;
-            if (index != _handWinnerIndex)
-            {
-                _handWinnerIndex = index;
-                Relayout(instant: false);
-            }
+            // NO RELAYOUT CALL HERE ANY MORE. Lifting the winner above is what makes it the pivot —
+            // SetFingertipHover is one of the two pops HighlightedIndex reads — so Tick's pivot
+            // check, which runs immediately after this sweep, re-splits the arc on this very frame.
+            // It used to be re-split from here off a private _handWinnerIndex, which is precisely
+            // what made the split a SECOND, hand-only copy of "which card is singled out" and left
+            // a laser hover unable to move it (see SplitPivotIndex).
 
             float now = Time.unscaledTime;
             if (winner != null && winnerHand != null && now >= _nextHandLogAt)
@@ -662,7 +723,9 @@ internal sealed class PileBrowser
             _handWinner.SetFingertipHover(false);
         _handWinner = null;
         _handWinnerHand = null;
-        _handWinnerIndex = -1; // the split closes with the lift
+        // The split closes with the lift, and needs no line of its own to do it: dropping the pop
+        // drops the card out of HighlightedIndex, so the next pivot check reads -1 and relayouts a
+        // flat arc (or, on a close, finds no open fan to lay out at all).
         for (int i = 0; i < _handSuppressed.Count; i++)
         {
             if (_handSuppressed[i] != null)

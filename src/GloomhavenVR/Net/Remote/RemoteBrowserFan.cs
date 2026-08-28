@@ -613,26 +613,37 @@ internal sealed class RemoteBrowserFan
     // RemoteItemFan have both been reading them for builds. This fan's SyncTuning simply never
     // pulled them.
     //
-    // WHAT THE WIRE CANNOT YET SAY (declared out loud rather than decided quietly). Record 6 carries
-    // ONE bare fan POSITION and no SOURCE for it. PileBrowser.HighlightedIndex reports the card the
-    // owner is singling out from EITHER source — it scans VRCard.IsHighlighted, which covers the
-    // hand sweep and the laser hover with one test — but PileBrowser.Relayout splits the arc for the
-    // HAND winner only (_handWinnerIndex), so on a pure laser hover the owner lifts a card in an arc
-    // that stays rigid. A mirror driven by the index alone therefore splits in one case the owner
-    // does not, and there is no bit on the wire to tell the two apart: the item fan's own
-    // ItemsPile.HighlightedIndex only PREFERS the hand winner (it still falls back to the laser),
-    // which is a sender-side tie-break and not a source flag, and no laser/pointer state rides
-    // PresenceState at all.
+    // THE ONE BIT THIS COMMENT USED TO ASK FOR IS NOT NEEDED, AND THE REQUEST IS WITHDRAWN.
+    // What stood here was a filed REQUEST against NetProtocol / PresenceState / BoardTuning for a
+    // wire bit meaning "this index is the hand sweep's winner". The reasoning was: record 6 carries
+    // ONE bare fan POSITION and no SOURCE for it; PileBrowser.HighlightedIndex reports the card the
+    // owner is singling out from EITHER source (it scans VRCard.IsHighlighted, which covers the hand
+    // sweep and the laser hover with one test) while PileBrowser.Relayout split the arc for the HAND
+    // winner only (_handWinnerIndex) — so this mirror, driven by the index alone, split in one case
+    // the owner did not: a laser-only hover.
     //
-    // The renderer is therefore built to split on the index it has, which is the state the already
-    // shipped RemoteItemFan is in — deliberately, not by drifting into it: the hand sweep is the
-    // browse arc's own interaction (UpdateHandSweep exists for it, and the split section header
-    // calls it hand-fan parity), so this trades a missing 24.6 mm gap on EVERY hand sweep for a
-    // spurious one on a laser-only hover, and leaves the two pile mirrors telling the same story
-    // rather than two different ones. Closing the remainder is ONE BIT — "this index is the hand
-    // sweep's winner" — filed as a REQUEST against NetProtocol / PresenceState / BoardTuning rather
-    // than invented here, because an id is not this file's to allocate. When it lands, both this fan
-    // and RemoteItemFan gate their split on it and the arcs are identical in both cases.
+    // That reached for the wrong end. The OWNER's own arcs were the odd ones out, not the mirrors.
+    // CardFan — the reference implementation of "one card at a time", from which FanSweep.SplitOffset
+    // was extracted verbatim "so the pile fans split with the same shape … — the visible half of
+    // 'one card at a time'" — takes its pivot as
+    //     int source = _hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex;
+    // (CardFan.Relayout), and _hoveredIndex is written by CardFan.SetHovered, which
+    // CardsDriver.UpdateFanHoverSplit feeds from _laserHover FIRST and the hand-contact winner only
+    // as a fallback. The hand fan has therefore split on a laser hover since it was written; the two
+    // pile arcs simply never got that source wired into their pivot when the formula was shared out.
+    //
+    // Fixed at the owner, for zero wire: PileBrowser.Relayout and ItemsPile.Relayout now take their
+    // pivot from a SplitPivotIndex that IS their own HighlightedIndex — the very number record 6
+    // carries — instead of a second, hand-only copy of the same question. The item arc subtracts one
+    // case, the chip lying in the use recess (it has an arc index but no arc seat), which is term for
+    // term the rule RemoteItemFan already applies to that number (hovered >= 0 && hovered !=
+    // _clipIndex). Both arcs now split for exactly the indices their mirrors split for, in both
+    // directions, so this renderer needs no gate, no new id, no new bit and no new byte.
+    //
+    // The gap that was missing is worth stating, since it is what a tester sees: at the shipped
+    // defaults the nearest neighbour slides 24.63 mm of fan-local travel, the next 7.63 mm, the third
+    // 1.08 mm (recomputed above), and until this landed the owner opened none of it on a laser hover
+    // while every peer opened all of it.
     private float _splitMultiplier = Defaults.FanSplitMultiplier;
     private float _splitFalloff = Defaults.FanSplitFalloff;
     private float _splitScale = Defaults.FanHoverSplitScale;
