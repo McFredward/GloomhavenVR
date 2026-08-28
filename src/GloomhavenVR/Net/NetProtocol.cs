@@ -416,7 +416,89 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 314;
+    public const ushort ModBuild = 315;
+    // Build 315: THE LAST THREE 1:1 ITEMS — AND TWO OF THE THREE COST NOTHING.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   THE 1:1 TOPIC CLOSES HERE. Three items stood open after the final review. Two of them were
+    //   filed as needing the wire and NEITHER DID, which is the finding of this build: both debts
+    //   had written down a conclusion that did not follow from their own evidence.
+    //
+    //   1. THE PILE ARCS (zero wire). A REQUEST in RemoteBrowserFan asked for one new bit — "this
+    //      index is the hand sweep's winner" — so the two pile mirrors could stop splitting on a
+    //      laser-only hover their owners' arcs do not split for. It reached for the wrong end.
+    //      CardFan.Relayout, the reference implementation of "one card at a time", has ALWAYS split
+    //      on the laser (`_hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex`, written only by
+    //      CardsDriver.UpdateFanHoverSplit, whose precedence is _laserHover FIRST). The mirrors were
+    //      not over-reaching: ItemsPile and PileBrowser were the odd ones out on the OWNER's board.
+    //      Both now take their pivot from the same expression their HighlightedIndex reports, which
+    //      is the value already on record 6 — so the mirrors are correct by construction.
+    //      AND THE PIVOT EXPRESSION ALONE WOULD HAVE BEEN INERT: nothing triggered a relayout on a
+    //      laser hover, because the laser writes its pop straight onto the card and tells the fan
+    //      nothing. A patch touching only the two `int hovered = …` lines would have shipped a
+    //      behaviour-free build — the same class as every other remedy gated behind something that
+    //      never ran.
+    //
+    //   2. THE ELEMENT BOARD'S THREE OVERLAY STATES (zero wire). RemoteElementStrip filed IN
+    //      CREATION / RESERVED / AVAILABLE as a wire debt on the premise that "every writer of those
+    //      is the LOCAL player's own UI flow … They are NOT replicated." The writers were listed
+    //      correctly and the conclusion did not follow: the debt never asked who ELSE reaches them.
+    //      The game reaches every one on a NON-controlling client through its own proxy paths —
+    //      GameActionType 34..37 -> ProxyToggleAugment -> the same UIUseAugmentation.Select() the
+    //      owner's click calls; UIUseItemsBar.ProxyUseItemBonus; UIUseAbilitiesBar.ProxyInfuseAbility;
+    //      the replicated ElementsInfused / UpdateElements choreographer messages. And
+    //      SetAvailableElements has ONE call site in the whole game, fed from a bar whose own proxy
+    //      path THROWS if it finds it unpopulated on the receiving client — verified in the
+    //      decompiled source, where CardsActionControlller's `!actorPicking.IsUnderMyControl` branch
+    //      shows the bar anyway. Three masks, not the two the header estimated (availability rides
+    //      SetAvailableElements, which UpdateBoard never calls) — and all three read locally.
+    //      TWO SOURCE FINDINGS CHANGED THE DRAWING: a RESERVED element is hidden instantly by a bare
+    //      SetActive(false) that reaches no animator, so the ramps are keyed on the game's DRAW LIST
+    //      rather than on visibility; and SetState's isReserved parameter is dead twice over.
+    //      NO SECRECY GATE, deliberately: every writer of elementsInCreation runs in the ACTION
+    //      phase, and the infusion board is a shared HUD widget vanilla already draws to everyone.
+    //      A gate that can only ever be open would be a second secrecy policy with no rule behind it.
+    //
+    //   3. THE OBJECTIVES WRAP COLUMN (the only real change, and the only risk in this build).
+    //      A peer's task panel re-wrapped every time the VIEWER touched their own [Cards]
+    //      ObjectivesWidth and never when its owner did. The owner's width arrived correctly on id
+    //      129 and reached nothing: RemoteWidgetMirror clones the viewer's ALREADY-WRAPPED subtree
+    //      and re-imposes that rect every frame, node by node, root included — and the clone has no
+    //      layout engine at all, because Neutralize destroys every LayoutGroup and ContentSizeFitter.
+    //      So the obvious fix — "write the owner's wantPx onto the clone root" — is inert TWICE
+    //      OVER, and the lane refused to ship it. The real fix is four coupled changes behind
+    //      RemoteWidgetMirror.LayoutOwner, whose member 0 is today's behaviour: the game's three
+    //      layout families survive on the clone, the owner's column is forced onto its root, the
+    //      rect half of the per-frame drive stands down, and the measure leaves TryDockRect (which
+    //      returns the VIEWER's fitted host rect) for the graphics union. The clone owns its
+    //      GEOMETRY; the source still owns every piece of its CONTENT. Only the objectives dock opts
+    //      in — the initiative track's rect drive IS its reorder slide and is untouched.
+    //      IT CANNOT BE MEASURED OFFLINE (the source is a live MissionObjectiveContainer), so the
+    //      build does not guess: the column reached is PRINTED next to the owner's own line, and an
+    //      implausible measure WITHHOLDS the panel to the mod-drawn fallback instead of committing
+    //      it. Defect invisible at shipped defaults (0.8 on all three board styles => both sides
+    //      compute 299.52 px); it appears only when the two dials differ.
+    //
+    //   AND ONE ITEM CLOSED AS A DECISION, NOT A FIX: the mixed language on a peer's board. Text
+    //   that TRAVELS (records 7/9/12/13) is the owner's own rendered words and honours 1:1 MORE
+    //   strictly than a re-localization would; text that travels as a KEY is produced by the
+    //   receiver's game. The user ruled to keep both. Recorded in Core/Loc/Loc.cs.
+    //
+    //   PENDING wire debts on record 28: ZERO. Wire coverage 194 dials. No new field in this build.
+    //
+    //   TEST (two clients, one dial apart):
+    //     1. AUFGABEN — one player sets [Cards] ObjectivesWidth_* to 1.6, the other leaves 0.8. Each
+    //        player's task panel must wrap the SAME on both screens, and the TYPE SIZE must not move
+    //        on either. Check the log: "OBJECTIVES COLUMN (mirrored) … forced to N px" must match
+    //        the owner's own "OBJECTIVES WIDTH: … forced to N px" TO THE PIXEL. Mod-drawn rows on a
+    //        peer's board mean the measure was withheld — the reason is on the per-peer board line.
+    //     2. PILE-BÖGEN — laser-hover a chip in the item fan and a card in a pile browser. The arc
+    //        must open a gap around it on BOTH screens (it opened on neither before, the owner's
+    //        included). Hand sweep must behave exactly as it did.
+    //     3. ELEMENTE — reserve an element for an augment. It must disappear INSTANTLY on both
+    //        screens (no crumble), and reappear without a pop when unreserved. An element in
+    //        creation must show on both.
+    //     4. STILL OWED FROM 302: card dust ON plus a second board dial moved.
     // Build 314: THE FINAL 1:1 REVIEW'S FINDINGS — AND THE ANTI-CHEAT GATE COULD OPEN.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 id 181). ***
     //

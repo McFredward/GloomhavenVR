@@ -31,9 +31,9 @@ namespace GloomhavenVR.Net;
 /// PRIMARY — <see cref="RemoteWidgetMirror"/> over
 /// <c>UIManager.Instance.MissionObjectiveContainer.transform</c>: the REAL container, cloned once
 /// and puppeteered per frame. That is the very widget the owner's board docks (there is one per
-/// client and it is scenario-global), so the quest header, every row's real text at the real wrap
-/// column, the marker icons, the check marks, the gold counter and the live progress fill all come
-/// across exactly as authored — and rows the game REMOVES on completion
+/// client and it is scenario-global), so the quest header, every row's real text at the BOARD
+/// OWNER's own wrap column, the marker icons, the check marks, the gold counter and the live
+/// progress fill all come across exactly as authored — and rows the game REMOVES on completion
 /// (<c>CheckToRemoveObjectives</c>) or ADDS at runtime (<c>AddObjective</c>) simply appear and
 /// disappear, because the clone is rebuilt whenever the source's shape changes.
 ///
@@ -118,30 +118,46 @@ internal sealed class RemoteObjectivesPanel
         // dial behave like 'Größe' (TablePanelSurfaces derives it in full). Passing true here to get
         // the owner's width in would re-import that defect, not fix anything.
         //
-        // WHICH LEAVES A GAP THIS FILE CANNOT CLOSE, recorded here because the comment that used to
-        // stand on this line claimed a parity the chain does not have ("the container's content is
-        // already forced to the width budget"). It is — to the VIEWER's budget. The wrap column is
-        // written by ObjectivesSurface.ApplyContentWidth as wantPx = MountWidth · density onto the
-        // objectives container ROOT of this client's OWN live panel, with
+        // WHICH IS EXACTLY WHY THE WIDTH ARRIVES THE OTHER WAY, through layout:. The gap this line
+        // used to record — and the reason the comment before it claimed a parity the chain did not
+        // have — is that the wrap column is written by ObjectivesSurface.ApplyContentWidth as
+        // wantPx = MountWidth · density onto the objectives container ROOT of this client's OWN live
+        // panel, with
         //     MountWidth = PlayTray.ObjectivesMountWidth × CardsConfig.ObjectivesWidth(CurrentBoard)
-        // (TablePanelSurfaces) — the viewer's dial and the viewer's board style. RemoteWidgetMirror
-        // then CLONES that already-wrapped subtree, so the peer's task panel re-wraps every time the
-        // VIEWER touches their own 'Breite' and never when its owner does. layout.ObjectivesWidth
-        // below IS the owner's width (record 28 id 129) and it arrives here correctly, but with
-        // fitWidth:false the mirror only spends it on the oversize guard in TryMeasure: nothing
-        // applies it as a wrap column to the CLONE. Closing it means writing the owner's wantPx onto
-        // the cloned container root, which is RemoteWidgetMirror's job and not this file's — filed
-        // as a REQUEST rather than half-done here, because a change on this side alone can only move
-        // glyph SIZE, and size is the one thing that dial must not touch.
+        // — the VIEWER's dial and the VIEWER's board style — and the mirror clones that
+        // already-wrapped subtree. So a peer's task panel used to re-wrap whenever the VIEWER
+        // touched their own 'Breite' and never when its owner did.
+        //
+        // LayoutOwner.CloneAtBoardOwnersWidth closes it, and it is deliberately NOT the one-line fix
+        // this file originally asked for. Writing the owner's wantPx onto the cloned root and
+        // stopping there is inert twice over: the mirror's per-frame drive copies the source's
+        // sizeDelta back onto the clone root every frame, and even surviving it would propagate to
+        // nothing, because the column is derived through three nested layout groups that the
+        // clone's neutralisation destroys and every node below the root is anchor-pinned rather than
+        // stretch-anchored. Under the flag the game's own layout components survive on the clone,
+        // the mirror forces layout.ObjectivesWidth × the shared density onto the clone root, and the
+        // rect half of the drive stands down — the clone owns its geometry, the source still owns
+        // every glyph, colour, sprite and progress fill. RemoteWidgetMirror.ApplyOwnersColumn holds
+        // the full derivation, the contested-property audit and the rejected alternatives; the
+        // number it writes is greppable as 'OBJECTIVES COLUMN (mirrored)' and rides SeatLine below.
+        //
+        // layout.ObjectivesWidth IS the owner's width (extension record 28, field id 129 =
+        // NetProtocol.TuneObjectivesWidth): PlayTray.ObjectivesMountWidth × their synced multiplier.
+        // It needs no live re-read here — the owner moving that dial bumps BoardTuningRevision and
+        // RemoteControlBoard rebuilds every dock from a fresh RemoteBoardLayout, so this constructor
+        // argument cannot go stale.
         //
         // densityScale mirrors ObjectivesSurface.DensityScale (0.6): this ONE panel renders the
         // same content pixels onto ~1.67x more tray metres than the shared tray density, because
         // the objectives text was illegibly small at 1.0. Omitting it here rendered a peer's
         // objectives at 60 % of the size their owner reads them at — a silent parity gap, since
-        // both panels then look "right" in isolation and only differ side by side.
+        // both panels then look "right" in isolation and only differ side by side. It is also the
+        // second factor of the wrap column above, which is why both sides land on the identical
+        // 0.26 m × 0.8 × (2400 × 0.6) = 299.5 px at the shipped defaults.
         _mirror = new RemoteWidgetMirror("Objectives", _root,
             layout.ObjectivesWidth, PlayTray.ObjectivesMountMaxHeight, Vector2.left, fitWidth: false,
-            densityScale: ObjectivesDensityScale);
+            densityScale: ObjectivesDensityScale,
+            layoutOwner: RemoteWidgetMirror.LayoutOwner.CloneAtBoardOwnersWidth);
 
         _fallbackRoot = new GameObject("Fallback").transform;
         _fallbackRoot.SetParent(_root, worldPositionStays: false);

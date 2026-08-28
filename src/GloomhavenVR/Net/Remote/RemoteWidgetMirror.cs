@@ -44,9 +44,11 @@ namespace GloomhavenVR.Net;
 /// it can ever execute a line. What survives is the whitelist in <see cref="IsPresentation"/>:
 /// <c>Graphic</c> (Image / RawImage / Text / TMP), <c>CanvasRenderer</c>, <c>Mask</c> /
 /// <c>RectMask2D</c>, mesh effects and <c>CanvasGroup</c>. Layout groups and size fitters go too —
-/// they would fight the puppeteering below — as do <c>Canvas</c>, <c>CanvasScaler</c> and
-/// <c>GraphicRaycaster</c>, because the host supplies the one world-space canvas and a copied
-/// screen-space canvas would otherwise blit itself over the player's whole view.
+/// they would fight the puppeteering below, and the ONE property they contest is the rect, which is
+/// why the single dock that needs them back (<see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>)
+/// keeps them and stands the rect drive down instead. <c>Canvas</c>, <c>CanvasScaler</c> and
+/// <c>GraphicRaycaster</c> go unconditionally, because the host supplies the one world-space canvas
+/// and a copied screen-space canvas would otherwise blit itself over the player's whole view.
 ///
 /// What is left cannot act, so it has to be DRIVEN. Every tick this class walks a pair of flat,
 /// pre-paired arrays (source node ⇄ clone node, built once) and copies the presentation state:
@@ -110,6 +112,42 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         ModDrawn,
     }
 
+    /// <summary>
+    /// WHOSE RESOLVED LAYOUT DOES THE CLONE SHOW — the question, not the mechanism, because the
+    /// answer decides four separate things at once (which components survive
+    /// <see cref="Neutralize"/>, whether <see cref="Pair.Apply"/> copies rects, which measure
+    /// <see cref="TryMeasureDock"/> commits, and whether <see cref="TryFrameExtent"/> clamps).
+    ///
+    /// <para>Member 0 is TODAY'S BEHAVIOUR and the stricter one on purpose: a call site that does
+    /// not think about this gets the faithful source copy, never a mirror that re-runs a layout
+    /// engine on a cloned game panel. Deliberately an enum rather than a bool for the same reason
+    /// <c>CardDustFx.Permission</c> and <c>RemoteAvatar.HeldCardSizing</c> are — the two values are
+    /// not "on/off", they are two different answers to one question, and a bool at a call site
+    /// reads as neither.</para>
+    /// </summary>
+    internal enum LayoutOwner
+    {
+        /// <summary>
+        /// THE SOURCE'S. The clone is a puppet: its layout engine is destroyed and every node's
+        /// rect is copied from the live source each tick, so the picture is the one THIS client's
+        /// own copy of the widget resolved. Correct for anything whose geometry IS the animation —
+        /// the initiative track's inter-round reorder slide is literally a stream of
+        /// <c>anchoredPosition</c> writes, and re-deriving it would be re-implementing it.
+        /// </summary>
+        Source,
+
+        /// <summary>
+        /// THE CLONE'S OWN, RUN AT THE BOARD OWNER'S CONTENT WIDTH. The game's layout components
+        /// (<c>LayoutGroup</c> / <c>ContentSizeFitter</c> / <c>LayoutElement</c>, and ONLY those)
+        /// survive on the clone, this class writes the owner's forced wrap column onto the clone
+        /// root, and the rect half of the drive stands down so the two cannot fight. The source
+        /// still owns every piece of CONTENT (text, colour, sprite, fill, texture, alpha,
+        /// material); the clone owns its own GEOMETRY. See <see cref="ApplyOwnersColumn"/> for the
+        /// full derivation and the evidence.
+        /// </summary>
+        CloneAtBoardOwnersWidth,
+    }
+
     // ---------------------------------------------------------------- fit budget (shared) --
 
     /// <summary>Lower clamp on the dock fit — verbatim <c>TrayMountedPanelSurface.MinDensityScale</c>.
@@ -149,6 +187,26 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// source copy off entirely, for a source that is static and whose visible state is driven by
     /// the caller instead.</summary>
     private readonly bool _driveFromSource;
+
+    /// <summary>Whose resolved layout this mirror shows — see <see cref="LayoutOwner"/>. Every
+    /// behaviour change this flag buys is written as <c>if (_layoutOwner == ...)</c> and nothing
+    /// else reads it, so <see cref="LayoutOwner.Source"/> (member 0, the default) is the code path
+    /// that shipped before the flag existed.</summary>
+    private readonly LayoutOwner _layoutOwner;
+
+    /// <summary>
+    /// THE ONE PLACE THIS FILE TURNS TRAY METRES INTO uGUI PIXELS — <c>TrayPixelsPerMeter</c> ×
+    /// this dock's own density scale, verbatim <c>TrayMountedPanelSurface</c>'s
+    /// <c>density</c> local and verbatim the one <c>ObjectivesSurface.ApplyContentWidth</c>
+    /// multiplies its budget by.
+    ///
+    /// <para>A PROPERTY RATHER THAN THREE COPIES OF THE EXPRESSION, because the wrap column
+    /// <see cref="ApplyOwnersColumn"/> writes and the budget <see cref="TryMeasure"/> screens
+    /// against must be the SAME number as the one <see cref="Fit"/> divides by. Two of the three
+    /// used to be written out inline; a third inline copy is exactly how two surfaces drift apart
+    /// the day one of them is retuned.</para>
+    /// </summary>
+    private float ContentDensity => PlayTray.TrayPixelsPerMeter * _densityScale;
 
     private GameObject? _host;              // world-space canvas host (child of _mount)
     private Canvas? _canvas;                // the host's canvas — its LIVE cluster slot backs the MR plate
@@ -251,9 +309,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// caller's own wire-driven overrides, several times a second, dirtying this board's canvas each
     /// time. <c>Instantiate</c> has already carried the authored layout across, which is the only
     /// thing the copy would have contributed.</param>
+    /// <param name="layoutOwner">Whose resolved layout the clone shows — see <see cref="LayoutOwner"/>.
+    /// The default is the source's, i.e. everything this class did before the flag existed. Only a
+    /// dock whose content width is FORCED from a synced dial asks for
+    /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>, and today that is the objectives panel
+    /// alone.</param>
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
-        Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true)
+        Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
+        LayoutOwner layoutOwner = LayoutOwner.Source)
     {
+        _layoutOwner = layoutOwner;
         _driveFromSource = driveFromSource;
         _name = name;
         _mount = mount;
@@ -331,6 +396,27 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 Sync();
             Fit();
             AuditCloneGrowth();
+
+            // (1) KEEP THE CALLER'S FALLBACK REACHABLE. Under LayoutOwner.CloneAtBoardOwnersWidth
+            // the committed geometry is re-derived from this class's own union rather than read off
+            // the owner's dock (see TryMeasureDock), so "the clone exists" no longer implies "the
+            // clone is presentable". A false return here hands the panel back to its mod-drawn rows
+            // — a peer reading plain rows beats a peer reading a cropped or unfitted clone — and the
+            // clone is KEPT, not destroyed, so recovery costs a re-measure rather than an
+            // Instantiate and a rebuild loop is impossible.
+            if (_layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth)
+            {
+                string? withhold = _withhold ?? (_fitApplied
+                    ? null
+                    : "the re-wrapped clone has not been fitted yet (no measure has been committed "
+                      + "to it), so showing it would draw the panel at the host's identity scale");
+                if (withhold != null)
+                {
+                    Withhold(withhold);
+                    return false;
+                }
+            }
+
             State = Fidelity.MirroredWidget;
             Reason = string.Empty;
             return true;
@@ -390,6 +476,19 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         Reason = reason;
     }
 
+    /// <summary>Stop SHOWING the clone and say why, without destroying it — the difference from
+    /// <see cref="Clear"/>, and the whole reason this exists separately. A withheld mirror is one
+    /// whose picture failed a sanity check, not one whose source went away: the next content tick
+    /// re-measures the clone it already has, and recovers the moment the measure is sane again.
+    /// Destroying it instead would turn a transient bad measure into an Instantiate every 250 ms.
+    /// </summary>
+    private void Withhold(string reason)
+    {
+        SetShown(false);
+        State = Fidelity.None;
+        Reason = reason;
+    }
+
     private bool Rebuild(Transform source)
     {
         DestroyClone();
@@ -414,7 +513,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _clone = clone;
         _source = source;
 
-        Neutralize(clone);
+        Neutralize(clone, _layoutOwner);
 
         _cloneRect = clone.transform as RectTransform;
         if (_cloneRect == null)
@@ -422,6 +521,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             Clear("the game widget's root is not a RectTransform (unexpected prefab shape)");
             return false;
         }
+
+        // (d) FIRST, AND BEFORE ANY WIDTH IS WRITTEN — see LatchFrameDegenerate. The verdict is
+        // about the AUTHORED rect, and this is the last moment at which the clone still carries
+        // one: ApplyOwnersColumn below overwrites it.
+        LatchFrameDegenerate();
+        _cloneFitter = _layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth
+            ? _cloneRect.GetComponent<ContentSizeFitter>()
+            : null;
 
         // Pair the two subtrees BEFORE activation: the walk order is deterministic (depth-first,
         // sibling order) and Instantiate preserves hierarchy shape, so index i on the source is
@@ -459,6 +566,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         VRLayers.Apply(_host);
 
         _host.SetActive(true);
+
+        // (a) LAST, AND ONLY AFTER ACTIVATION. LayoutRebuilder strips disabled behaviours from its
+        // own work list (UnityEngine.UI.LayoutRebuilder.StripDisabledBehavioursFromList drops every
+        // component whose isActiveAndEnabled is false), so a forced rebuild on the still-inactive
+        // host above would have been a silent no-op and the rows would have kept the viewer's
+        // column — the exact class of "the remedy never ran" this project has shipped before.
+        ApplyOwnersColumn();
+
         VRLog.Info("Net", $"Remote board '{_name}': now mirroring the REAL game widget " +
                           $"('{source.name}', {n} node(s)) — a live CLONE of the panel this client " +
                           "already shows, driven per frame from the original (positions, portraits, " +
@@ -598,6 +713,231 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             _pivot.sizeDelta = size;
     }
 
+    /// <summary>A horizontal <c>ContentSizeFitter</c> on the CLONE ROOT, resolved once per rebuild
+    /// so the per-tick re-assert in <see cref="ApplyOwnersColumn"/> costs no <c>GetComponent</c>.
+    /// Null on the <see cref="LayoutOwner.Source"/> path, where <see cref="Neutralize"/> destroyed
+    /// every fitter anyway.</summary>
+    private ContentSizeFitter? _cloneFitter;
+
+    /// <summary>The wrap column last written onto the clone root, in uGUI px; −1 until the first
+    /// write. Change gate for <see cref="LogOwnersColumn"/> and the number
+    /// <see cref="MeasurePath"/> reports into the per-peer seat line.</summary>
+    private float _ownersColumnPx = -1f;
+
+    /// <summary>
+    /// (a) THE WHOLE POINT OF <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>: force the BOARD
+    /// OWNER's wrap column onto the clone root, so a peer's task panel wraps where ITS OWNER reads
+    /// it and stops re-wrapping every time the VIEWER touches their own 'Breite'.
+    ///
+    /// ─── THE DEFECT, AND WHY THE OBVIOUS FIX IS INERT ──────────────────────────────────────────
+    /// This mirror's SOURCE ROOT IS the rect the local surface forces: <c>ObjectivesSurface</c>'s
+    /// <c>FindTarget</c> returns <c>UIManager.Instance.MissionObjectiveContainer.transform</c> and
+    /// that is the identical transform <see cref="RemoteObjectivesPanel"/> hands to
+    /// <see cref="Refresh"/>. So the subtree cloned here arrives ALREADY WRAPPED — to the VIEWER's
+    /// column, because <c>ObjectivesSurface.ApplyContentWidth</c> wrote
+    /// <c>wantPx = MountWidth · density</c> onto it out of the VIEWER's own
+    /// <c>CardsConfig.ObjectivesWidth(CurrentBoard)</c>.
+    ///
+    /// Writing the owner's number onto the clone root and stopping there — the first design of this
+    /// fix — moves nothing at all, for two independent structural reasons:
+    ///   • <see cref="Sync"/> copies <c>sizeDelta</c> from source to clone node by node INCLUDING
+    ///     the root, every frame (its own summary says so, and the objectives root is the case it
+    ///     names). The write would be overwritten before it was ever rendered.
+    ///   • Even surviving, it would have no consumer. The column is DERIVED top-down by three
+    ///     nested layout groups — <c>TablePanelSurfaces</c>' prefab dump: the container's
+    ///     VerticalLayoutGroup drives the list's width, the list's drives every row's, and the row's
+    ///     HorizontalLayoutGroup hands the leftover to the TMP text — and <see cref="Neutralize"/>
+    ///     destroys all three. Every node below the root is anchor-PINNED, not stretch-anchored
+    ///     ((0,0)-(0,0) on the list, on the rows and on the text); the one stretch-anchored graphic
+    ///     is the progress bar, and it stretches against its ROW. With the layout engine gone and
+    ///     the children pinned, the root's width is read by nobody.
+    ///
+    /// ─── THE FIX: THE CLONE OWNS ITS GEOMETRY, THE SOURCE OWNS ITS CONTENT ─────────────────────
+    /// That split IS the fix, and stating it the other way round is how the next reader re-breaks
+    /// it. Under this flag the game's own layout components come back on the clone
+    /// (<see cref="IsStockLayout"/>), this method writes the owner's column onto the clone root, and
+    /// the rect half of <see cref="Pair.Apply"/> stands down so the two cannot fight. Everything the
+    /// source still owns keeps driving unchanged: active flags, colour, TMP and legacy text, sprite,
+    /// <c>fillAmount</c>, texture, CanvasGroup alpha and the shared material.
+    ///
+    /// WHY EXACTLY ONE PROPERTY HAD TO STAND DOWN, audited against every write <see cref="Sync"/>
+    /// makes rather than assumed. <c>LayoutGroup</c> writes children's <c>anchorMin</c>/
+    /// <c>anchorMax</c>/<c>sizeDelta</c>/<c>anchoredPosition</c> (through
+    /// <c>SetInsetAndSizeAlongAxis</c>) and <c>ContentSizeFitter</c> writes its own
+    /// <c>sizeDelta</c> — the RECT, and nothing else. They never write an active flag, a colour, a
+    /// text, a sprite, a fill, a texture, an alpha, a material, a local scale or a local rotation.
+    /// The rest of the drive is therefore not merely compatible with them, it is what FEEDS them: a
+    /// TMP text setter marks the layout dirty, which is precisely what re-wraps a row when the
+    /// source's wording changes. That is why the answer is "keep the groups and drop the one write",
+    /// not "keep the groups and hope".
+    ///
+    /// ─── THE ARITHMETIC, TERM FOR TERM WITH ApplyContentWidth ──────────────────────────────────
+    /// <c>wantPx = _mountWidth · ContentDensity</c>, where for this dock <c>_mountWidth</c> is
+    /// <c>RemoteBoardLayout.ObjectivesWidth</c> = <c>PlayTray.ObjectivesMountWidth</c> ×
+    /// the owner's synced multiplier (extension record 28, field id
+    /// <c>NetProtocol.TuneObjectivesWidth</c> = 129) and <c>ContentDensity</c> is
+    /// <c>PlayTray.TrayPixelsPerMeter × _densityScale</c>. Both sides evaluate the SAME constants
+    /// through the SAME expression, so at the shipped defaults (multiplier 0.8 on all three board
+    /// styles) they agree exactly: 0.26 m × 0.8 = 0.208 m × (2400 × 0.6 = 1440 px/m) = 299.5 px on
+    /// the owner's panel and 299.5 px here. They diverge only when the two players' dials do — a
+    /// viewer at 1.6 against an owner at 0.8 used to render the peer's panel at 599 px, i.e. half
+    /// the line count the owner actually sees. No literal is re-typed here on purpose: a duplicated
+    /// constant is how two surfaces drift apart the day one of them is retuned.
+    ///
+    /// The three writes below are <c>ApplyContentWidth</c>'s three, in its order and with its dead
+    /// band: the horizontal <c>ContentSizeFitter</c> to Unconstrained (it DRIVES SizeDeltaX and
+    /// would stomp the column on the clone's first layout pass), the <c>sizeDelta.x</c> itself, and
+    /// an immediate rebuild so the very first <see cref="Fit"/> measures the owner's column instead
+    /// of a one-frame-stale viewer column. Re-asserted on the content cadence and change-gated,
+    /// which in the steady state is two float compares.
+    ///
+    /// WHY RE-ASSERTING IS NOT PARANOIA HERE, AND WHY IT IS ALSO NOT THE DIAL'S REFRESH PATH. The
+    /// OWNER moving their dial does not need this method to notice: record 28 bumps
+    /// <c>RemoteAvatar.BoardTuningRevision</c>, and <c>RemoteControlBoard</c> tears the whole board
+    /// down and rebuilds every dock from a fresh <c>RemoteBoardLayout</c> — so <c>_mountWidth</c> is
+    /// re-captured by construction and cannot go stale. The re-assert exists for the OTHER writer:
+    /// the clone is a public surface that callers decorate through <see cref="CloneOf"/>, and a
+    /// decorator that ever re-enables a fitter or re-parents under the root would silently take the
+    /// column back. It is the same guarantee <c>ApplyContentWidth</c> gives itself, for the same
+    /// reason, at the same cost.
+    ///
+    /// REJECTED: (a) adding a VERTICAL <c>ContentSizeFitter</c> to the clone root so its rect would
+    /// bound its own content and make the frame clamp in <see cref="TryFrameExtent"/> harmless —
+    /// it would put a component on the clone that the OWNER's panel does not have, which is the
+    /// opposite of a mirror; (d)'s degeneracy latch is the honest answer to that clamp.
+    /// (b) Scaling the copied rects by the ratio of the two columns instead of re-running the
+    /// layout — the propagation is ADDITIVE, not multiplicative (each level passes width down minus
+    /// its own constant padding: 11 + 25 + 5 px, plus an 82 px minimum spacer), and how the surplus
+    /// is split between the text and that spacer is decided by uGUI's flexible-width distribution,
+    /// not by a formula this file can safely restate. Hand-computing a layout engine against a
+    /// prefab dump is how a fix ships a column that is right in no case at all.
+    /// (c) Re-running the layout on the SOURCE at the owner's width and snapshotting it — that
+    /// writes the local player's own live panel, which is forbidden outright, and would flicker
+    /// their objectives once per peer per tick.
+    /// </summary>
+    private void ApplyOwnersColumn()
+    {
+        if (_layoutOwner != LayoutOwner.CloneAtBoardOwnersWidth || _cloneRect == null)
+            return;
+
+        float wantPx = _mountWidth * ContentDensity;
+        bool changed = false;
+
+        if (_cloneFitter != null
+            && _cloneFitter.horizontalFit != ContentSizeFitter.FitMode.Unconstrained)
+        {
+            _cloneFitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+            changed = true;
+        }
+
+        if (Mathf.Abs(_cloneRect.sizeDelta.x - wantPx) > 0.5f)
+        {
+            _cloneRect.sizeDelta = new Vector2(wantPx, _cloneRect.sizeDelta.y);
+            changed = true;
+        }
+
+        if (!changed)
+            return;
+
+        LayoutRebuilder.ForceRebuildLayoutImmediate(_cloneRect);
+
+        // THE STATE WRITE LIVES HERE, NEXT TO THE WRITE IT RECORDS — never inside the logger. This
+        // number is read back by TryMeasureDock to build the seat line's measure path, so latching
+        // it inside a Log* method would mean that retiring a spent diagnostic silently blanks a
+        // number something else depends on. That is a defect this project has shipped once already.
+        float previous = _ownersColumnPx;
+        _ownersColumnPx = wantPx;
+        if (Mathf.Abs(wantPx - previous) > 0.5f)
+            LogOwnersColumn(wantPx);
+    }
+
+    /// <summary>
+    /// THE ONE LINE THAT PROVES THE COLUMN WAS ACTUALLY WRITTEN — grep
+    /// <c>OBJECTIVES COLUMN (mirrored)</c>, and read it directly against the owner's own
+    /// <c>OBJECTIVES WIDTH:</c> line from <c>ObjectivesSurface.ApplyContentWidth</c>. The two are
+    /// deliberately in the same units and name the same terms, so the first hardware round answers
+    /// "does a peer's panel wrap at its owner's column?" by comparing two numbers in two logs
+    /// instead of by eye.
+    ///
+    /// <para>Change-gated by its caller on the written pixel value, with
+    /// <c>ApplyContentWidth</c>'s own 0.5 px dead band, so a rebuild that re-writes the same column
+    /// is silent and a dial change is not. It prints on the path that matters by construction: the
+    /// only caller is the write itself, inside the <c>changed</c> branch, so a line here means a
+    /// column reached the rows — never merely that something was attempted. PURE: it latches
+    /// nothing, so retiring it can break nothing.</para>
+    /// </summary>
+    private void LogOwnersColumn(float wantPx)
+    {
+        VRLog.Info("Net", $"OBJECTIVES COLUMN (mirrored) '{_name}': the clone's container root is " +
+                          $"forced to {wantPx:F0} px — the BOARD OWNER's wrap column " +
+                          $"({_mountWidth * 1000f:F0} mm at {ContentDensity:F0} px/m), not this " +
+                          "viewer's. The clone keeps the game's own layout groups for exactly this " +
+                          "reason and the rect drive stands down (LayoutOwner." +
+                          "CloneAtBoardOwnersWidth), so the two VerticalLayoutGroups carry the " +
+                          "column to every row and the row's HorizontalLayoutGroup re-hands the " +
+                          "leftover to the TMP text, which re-wraps. Compare this number against " +
+                          "the OWNER's own 'OBJECTIVES WIDTH: container root ... forced to N px' " +
+                          "line in THEIR log: the two must match to the pixel, and glyph size must " +
+                          "move in NEITHER (ObjectivesWidth is shape, ObjectivesScale is size).");
+    }
+
+    /// <summary>See <see cref="TryFrameExtent"/>: true when this source has no REAL rect for a
+    /// union to be clamped into. Latched once per rebuild, and read on the
+    /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> path only.</summary>
+    private bool _frameDegenerate;
+
+    /// <summary>
+    /// (d) THE PIECE MOST LIKELY TO BITE, and the reason it has the longest comment.
+    ///
+    /// <see cref="TryFrameExtent"/> clamps the measured union into the CLONE ROOT's own rect,
+    /// skipping the clamp only for a rect that is under 1 px on an axis. That live test is correct
+    /// today because nothing ever writes the clone root — and it becomes WRONG the moment
+    /// <see cref="ApplyOwnersColumn"/> does. The objectives container's AUTHORED rect is literally
+    /// (0,0) (the prefab dump in <c>TablePanelSurfaces</c>), so it has no frame at all; but by the
+    /// time this mirror sees it, <c>CanvasConversion.Convert</c> has already clamped it to the
+    /// 100 px placeholder and the local surface has already forced a width onto it. Re-running the
+    /// 1 px test on that would report "not degenerate" and clamp the panel's HEIGHT to the 100 px
+    /// placeholder — cropping content the log records at 80–98 px today and more once it re-wraps
+    /// into a narrower column. A cropped panel that still measures sanely is precisely the silent
+    /// failure this round is not allowed to ship.
+    ///
+    /// THE LOCAL FIT DOES NOT HAVE THIS PROBLEM because it never re-derives the verdict: it latches
+    /// <c>ConvertedPanel.FitFrameDegenerate</c> at Convert, from the PRISTINE rect, before anything
+    /// has written to it (<c>CanvasConversion.1.Core.cs</c>: <c>degenerate = size.x &lt; 1f ||
+    /// size.y &lt; 1f</c> taken off <c>target.rect.size</c>), and <c>TryMeasureContent</c> then skips
+    /// the whole frame clamp when it is set.
+    ///
+    /// SO THIS READS THE SAME LATCH RATHER THAN RECONSTRUCTING IT. The <c>ConvertedPanel</c> whose
+    /// <c>Target</c> is our source is the very object the local fit consults, and its verdict is a
+    /// property of the GAME PREFAB — not of any dial — so it is identical on every client and using
+    /// the viewer's copy of it leaks nothing. Read-only, and the same linear walk over
+    /// <c>ActivePanels</c> that <see cref="TryDockRect"/> already makes.
+    ///
+    /// FALLBACK, for a source that is not converted (flat mode, conversion disabled, mid-conversion
+    /// frames): the clone still carries the source's AUTHORED rect at this point, because this runs
+    /// BEFORE <see cref="ApplyOwnersColumn"/> writes — so the local latch's own 1 px test can simply
+    /// be re-run here and gives the same answer for the same reason.
+    /// </summary>
+    private void LatchFrameDegenerate()
+    {
+        _frameDegenerate = false;
+        if (_layoutOwner != LayoutOwner.CloneAtBoardOwnersWidth || _cloneRect == null)
+            return;
+
+        IReadOnlyList<WorldUI.ConvertedPanel> panels = WorldUI.CanvasConversion.ActivePanels;
+        for (int i = 0; i < panels.Count; i++)
+        {
+            WorldUI.ConvertedPanel p = panels[i];
+            if (p == null || !ReferenceEquals(p.Target, _source))
+                continue;
+            _frameDegenerate = p.FitFrameDegenerate;
+            return;
+        }
+
+        Rect authored = _cloneRect.rect;
+        _frameDegenerate = authored.width < 1f || authored.height < 1f;
+    }
+
     /// <summary>
     /// Turn the clone into a PUPPET: destroy everything that is not pure presentation (see the class
     /// note), then add a blocking <see cref="CanvasGroup"/> at the root. Runs while the clone is
@@ -607,7 +947,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// behaviour's <c>Awake</c>/<c>OnEnable</c> run on the frame the host activates, which is the
     /// entire thing this method exists to prevent.
     /// </summary>
-    private static void Neutralize(GameObject clone)
+    private static void Neutralize(GameObject clone, LayoutOwner layoutOwner)
     {
         // Unity refuses to destroy a component that a SURVIVING one declares as a
         // [RequireComponent] dependency (GraphicRaycaster→Canvas is the common case, and game
@@ -624,7 +964,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             for (int i = components.Length - 1; i >= 0; i--)
             {
                 Component c = components[i];
-                if (c == null || c is Transform || IsPresentation(c))
+                if (c == null || c is Transform || IsPresentation(c, layoutOwner))
                     continue;
                 if (c is Canvas && pass == 0)
                     continue;
@@ -664,11 +1004,39 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     ///     and a raycaster would make a display pokeable.
     ///   layout groups, <c>ContentSizeFitter</c>, <c>LayoutElement</c> — the clone's rects are
     ///     driven directly from the source every tick, so a second layout pass could only fight it.
+    ///     UNLESS the caller asked for <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>, in which
+    ///     case the rect drive is the thing that stands down and these three come back; see
+    ///     <see cref="IsStockLayout"/> for why exactly three, and <see cref="ApplyOwnersColumn"/>
+    ///     for the audit of what they contest.
     ///   everything else (the game's own MonoBehaviours) — see the class note.
     /// </summary>
-    private static bool IsPresentation(Component c) =>
+    private static bool IsPresentation(Component c, LayoutOwner layoutOwner) =>
         c is Graphic || c is CanvasRenderer || c is Mask || c is RectMask2D
-        || c is BaseMeshEffect || c is CanvasGroup;
+        || c is BaseMeshEffect || c is CanvasGroup
+        || (layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth && IsStockLayout(c));
+
+    /// <summary>
+    /// STOCK uGUI LAYOUT, and nothing that merely looks like it — the three component families the
+    /// objectives column is derived through, each named in the game's own prefab dump
+    /// (<c>TablePanelSurfaces</c>, the <c>WidthVerifyDelay</c> hierarchy block): two
+    /// <c>VerticalLayoutGroup</c>s and a per-row <c>HorizontalLayoutGroup</c> (both
+    /// <c>LayoutGroup</c>), the row's <c>ContentSizeFitter</c> (vertical = Preferred, which is what
+    /// lets a re-wrapped row get taller), and the <c>LayoutElement</c>s that carry the quest
+    /// header's preferred height, the spacer's 82 px minimum and the three
+    /// <c>ignoreLayout</c> flags.
+    ///
+    /// <para>THE ASSEMBLY TEST IS NOT DECORATION. The class's whole premise is that no cloned
+    /// component can execute a line of GAME code (see the class note's PUPPET, NOT PROGRAM block),
+    /// and <c>LayoutGroup</c> / <c>LayoutElement</c> are ordinary public base classes that a game
+    /// script is free to derive from. A type test alone would therefore be a hole in that premise:
+    /// it would keep — and WAKE — any game behaviour whose author happened to subclass a layout
+    /// component. Comparing against <c>typeof(LayoutGroup).Assembly</c> restricts the exemption to
+    /// UnityEngine.UI's own types, which carry no game state and touch nothing but the clone's own
+    /// rects. One <c>Assembly</c> compare per component per clone REBUILD, never per frame.</para>
+    /// </summary>
+    private static bool IsStockLayout(Component c) =>
+        (c is LayoutGroup || c is ContentSizeFitter || c is LayoutElement)
+        && ReferenceEquals(c.GetType().Assembly, typeof(LayoutGroup).Assembly);
 
     private void DestroyClone()
     {
@@ -682,8 +1050,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             _clone = null;
         }
         _cloneRect = null;
+        _cloneFitter = null;
         _pairs = System.Array.Empty<Pair>();
         _source = null;
+        // Per-CLONE verdicts, all of them: a fresh clone has not been fitted, has not failed a
+        // sanity check, and has not had its frame verdict taken. _ownersColumnPx deliberately
+        // SURVIVES — it is the log's change gate and the column itself did not change just because
+        // the panel gained a row.
+        _fitApplied = false;
+        _withhold = null;
+        _frameDegenerate = false;
     }
 
     // ------------------------------------------------------------------ drive --
@@ -836,19 +1212,32 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         return true;
     }
 
-    /// <summary>Copy the source's live presentation state onto the clone, node by node — INCLUDING
-    /// the root, whose rect is as much a part of the authored layout as any child's (for the
-    /// objectives container it is literally the wrap column). Re-centring is the pivot's job, one
-    /// level up, precisely so this drive can stay a faithful copy.</summary>
+    /// <summary>
+    /// Copy the source's live presentation state onto the clone, node by node — INCLUDING the root,
+    /// whose rect is as much a part of the authored layout as any child's (for the objectives
+    /// container it is literally the wrap column). Re-centring is the pivot's job, one level up,
+    /// precisely so this drive can stay a faithful copy.
+    ///
+    /// <para>WITH ONE EXCEPTION, AND IT IS THE ROOT'S RECT THAT PROVES WHY IT IS NEEDED: under
+    /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> the rect half of <see cref="Pair.Apply"/>
+    /// stands down for every node, because the clone is laying itself out at a DIFFERENT column
+    /// (see <see cref="ApplyOwnersColumn"/>) and copying the source's resolved rects would put the
+    /// viewer's column straight back. The content half — active flags, colour, text, sprite, fill,
+    /// texture, alpha, material — keeps driving exactly as before; it is what marks the clone's own
+    /// layout dirty and therefore what makes a re-worded row re-wrap.</para>
+    /// </summary>
     private void Sync()
     {
         Pair[] pairs = _pairs;
         int n = pairs.Length;
+        // Hoisted: one enum compare per Sync rather than one per node, and it states the invariant
+        // in a single place — the clone owns its geometry iff it is running its own layout.
+        bool driveRects = _layoutOwner == LayoutOwner.Source;
         int driven = 0;
         int i = 0;
         while (i < n)
         {
-            if (pairs[i].Apply(isRoot: i == 0))
+            if (pairs[i].Apply(isRoot: i == 0, driveRects: driveRects))
             {
                 driven++;
                 i++;
@@ -884,11 +1273,17 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             return;
 
         AdoptParentRect(_source);
+        // (a) Re-assert the owner's column BEFORE measuring, so the union below is taken off the
+        // layout the panel will actually present. Change-gated to two float compares in the steady
+        // state, and a no-op entirely on the LayoutOwner.Source path.
+        ApplyOwnersColumn();
         if (!TryMeasureDock(out Vector2 sizePx, out Vector2 centerPx))
             return; // mid-layout / nothing visible: keep the previous fit rather than a degenerate one
+        if (!AcceptMeasure(sizePx))
+            return; // absurd measure — nothing is committed and Refresh withholds (see AcceptMeasure)
         float w = sizePx.x, h = sizePx.y;
 
-        float density = PlayTray.TrayPixelsPerMeter * _densityScale;
+        float density = ContentDensity;
         float heightFit = _mountMaxHeight * density / h;
         float fit = Mathf.Clamp(
             _fitWidth ? Mathf.Min(_mountWidth * density / w, heightFit) : heightFit,
@@ -915,8 +1310,71 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         // use-bar drawer is the shipped case, and it used to hang below an ASSUMED plate height,
         // which is exactly the kind of drift the 1:1 rule is about.
         FittedSize = new Vector2(w * metersPerPx, h * metersPerPx);
+        _fitApplied = true;
 
         LogFit(w, h, fit, metersPerPx);
+    }
+
+    /// <summary>True once a fit has actually been APPLIED to the current clone (reset with the
+    /// clone). The gate that keeps an unfitted clone off a peer's board — see
+    /// <see cref="AcceptMeasure"/>.</summary>
+    private bool _fitApplied;
+
+    /// <summary>Why the mirror is currently withholding a clone it HAS built, or null. Set only on
+    /// the <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> path; <see cref="Refresh"/> turns it
+    /// into a false return so the caller draws its own fallback.</summary>
+    private string? _withhold;
+
+    /// <summary>
+    /// (1) NEVER SILENTLY DRAW A BROKEN PANEL — the sanity envelope on a measure that is now
+    /// RE-DERIVED rather than read off the owner's own dock.
+    ///
+    /// <para>WHY THIS EXISTS ONLY ON THE FLAGGED PATH. On <see cref="LayoutOwner.Source"/> the
+    /// primary measure is <see cref="TryDockRect"/>, i.e. the rect the owner's own converted panel
+    /// already committed — exact by construction, nothing to sanity-check. Under
+    /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/> that rect no longer describes this clone
+    /// (see <see cref="TryMeasureDock"/>) and the number comes from this class's own union of clone
+    /// graphics instead. A union is a reconstruction, and a reconstruction can be wrong: a
+    /// half-built layout, a clipper that has not settled, a decorator's stray graphic. A peer seeing
+    /// the mod-drawn fallback rows is a far better outcome than a cropped, zero-height or
+    /// board-covering clone, so an implausible number withholds the mirror instead of committing
+    /// it.</para>
+    ///
+    /// <para>THE BOUND, AND WHY IT CANNOT FIRE ON A HEALTHY PANEL. It is the dock budget times
+    /// <see cref="OversizeFactor"/> — the identical envelope <see cref="TryMeasure"/> already uses
+    /// to decide that a single graphic is a full-screen backdrop rather than content. If one
+    /// GRAPHIC that size is by definition not part of this panel, a committed UNION that size is by
+    /// definition not this panel either. With the shipped defaults that is
+    /// 0.208 m × 1440 px/m × 3 = 899 px wide and 0.32 m × 1440 px/m × 3 = 1382 px tall, against a
+    /// panel the hardware log settles at roughly 300–400 px wide and 80–98 px tall: a margin of
+    /// more than 2× on the width and more than 14× on the height. Nothing short of a genuinely
+    /// broken measure reaches it.</para>
+    ///
+    /// <para>The SMALL end is already covered and deliberately handled differently:
+    /// <see cref="TryMeasureDock"/> returns false below <see cref="MinMeasuredPixels"/>, which keeps
+    /// the previous fit rather than committing a degenerate one — the right answer for a transient
+    /// mid-layout frame. What that cannot cover is the FIRST fit, where there is no previous one to
+    /// keep and the host would still be sitting at its identity scale, i.e. one metre per pixel.
+    /// <see cref="_fitApplied"/> is the gate for that case: no fit, no picture.</para>
+    /// </summary>
+    private bool AcceptMeasure(Vector2 sizePx)
+    {
+        _withhold = null;
+        if (_layoutOwner != LayoutOwner.CloneAtBoardOwnersWidth)
+            return true;
+
+        float density = ContentDensity;
+        float maxW = _mountWidth * density * OversizeFactor;
+        float maxH = _mountMaxHeight * density * OversizeFactor;
+        if (sizePx.x <= maxW && sizePx.y <= maxH)
+            return true;
+
+        _withhold = $"the re-wrapped clone measured {sizePx.x:F0}x{sizePx.y:F0} px, past the " +
+                    $"{maxW:F0}x{maxH:F0} px sanity envelope ({OversizeFactor:F0}x this dock's " +
+                    $"{_mountWidth:F3}x{_mountMaxHeight:F3} m budget at {density:F0} px/m) — the " +
+                    "graphics union is not measuring this panel, so the mirror is withheld and the " +
+                    "mod-drawn rows are drawn instead of a cropped or board-covering clone";
+        return false;
     }
 
     /// <summary>Last logged panel size in metres — the change gate for <see cref="LogFit"/>.</summary>
@@ -994,7 +1452,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         sizePx = default;
         centerPx = Vector2.zero;
 
-        if (TryDockRect(out Vector2 dock))
+        // (c) THE OWNER'S HOST RECT NO LONGER DESCRIBES THIS CLONE once the clone is wrapping at a
+        // DIFFERENT column: TryDockRect returns the VIEWER's Panel.HostRect.rect, which
+        // CanvasConversion fitted around the VIEWER's wrapped content. Committing it for a clone
+        // that re-wrapped at the owner's column would crop or float the panel by exactly the
+        // difference between the two dials — the defect this flag exists to remove, re-entering
+        // through the measure. So the flagged path takes the union, which measures the clone that
+        // is actually on the board. (It is the same fallback the decision row has shipped on since
+        // ModBuild 137, calibrated there against the owner's own numbers to the pixel — see the
+        // DOCK MEASURE derivation below.)
+        if (_layoutOwner == LayoutOwner.Source && TryDockRect(out Vector2 dock))
         {
             _measurePath = "converted host rect";
             sizePx = dock;
@@ -1003,7 +1470,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
 
         if (!TryMeasure(out Bounds b))
             return false;
-        _measurePath = "graphics union";
+        // (2) The wrap column rides into the seat line through here, so the per-peer 'Remote board
+        // content' diagnostic states which column the panel it just measured was wrapped at.
+        _measurePath = _layoutOwner == LayoutOwner.CloneAtBoardOwnersWidth
+            ? $"graphics union at the owner's {_ownersColumnPx:F0} px column"
+            : "graphics union";
 
         // ─── THE FALLBACK MEASURES WHAT THE OWNER'S FIT MEASURES, PADDING AND CLAMP INCLUDED ────
         //
@@ -1076,6 +1547,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// <para>False for a DEGENERATE root — the local fit's <c>FitFrameDegenerate</c> rule, same 1 px
     /// test (CanvasConversion.1.Core.cs:160): a 0x0 layout container has no real frame, and clamping
     /// to it would crop the union to a corner of visibly overflowing content.</para>
+    ///
+    /// <para>(d) THE LIVE TEST IS ONLY VALID WHILE NOBODY WRITES THE CLONE ROOT, which stops being
+    /// true under <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>: <see cref="ApplyOwnersColumn"/>
+    /// forces a real width onto a rect that was authored (0,0), and the live test would then report
+    /// a frame where the game has none and crop the panel's height to the conversion placeholder.
+    /// <see cref="LatchFrameDegenerate"/> takes the AUTHORED verdict before that write and it is
+    /// consulted first here. On the <see cref="LayoutOwner.Source"/> path the latch is never set, so
+    /// what runs is exactly the live 1 px test that shipped.</para>
     /// </summary>
     private bool TryFrameExtent(out Vector2 frameMin, out Vector2 frameMax)
     {
@@ -1083,6 +1562,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         frameMax = default;
         if (_pivot == null || _cloneRect == null)
             return false;
+        if (_frameDegenerate)
+            return false; // authored 0x0 container — the union IS the frame (see LatchFrameDegenerate)
         Rect r = _cloneRect.rect;
         if (r.width < 1f || r.height < 1f)
             return false; // degenerate root — the union IS the frame (see the doc)
@@ -1188,7 +1669,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         if (_pivot == null)
             return false;
 
-        float density = PlayTray.TrayPixelsPerMeter * _densityScale;
+        float density = ContentDensity;
         float maxW = _mountWidth * density * OversizeFactor;
         float maxH = _mountMaxHeight * density * OversizeFactor;
 
@@ -1331,8 +1812,15 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         /// (<see cref="SkipTo"/>) instead of paying ~20 Unity property accesses per hidden node.
         /// The frame a branch comes back on, this returns true again and the interior is driven in
         /// that same frame, so nothing is ever a frame stale.</para>
+        ///
+        /// <para><paramref name="driveRects"/> FALSE hands this node's GEOMETRY to the clone itself
+        /// (<see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>): the anchors, pivot, size and
+        /// anchored position are left for the clone's own surviving layout groups to decide at the
+        /// board owner's column, while every CONTENT write below still comes from the source. Local
+        /// rotation and scale keep driving in both modes — a <c>LayoutGroup</c> reads a child's
+        /// scale but never writes it, so they contest nothing.</para>
         /// </summary>
-        public bool Apply(bool isRoot)
+        public bool Apply(bool isRoot, bool driveRects)
         {
             if (Src == null || Dst == null)
                 return false;
@@ -1355,18 +1843,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             if (!on)
                 return false; // an invisible branch's interior does not need driving
 
-            if (_srcRect != null && _dstRect != null)
+            if (driveRects)
             {
-                if (_dstRect.anchorMin != _srcRect.anchorMin) _dstRect.anchorMin = _srcRect.anchorMin;
-                if (_dstRect.anchorMax != _srcRect.anchorMax) _dstRect.anchorMax = _srcRect.anchorMax;
-                if (_dstRect.pivot != _srcRect.pivot) _dstRect.pivot = _srcRect.pivot;
-                if (_dstRect.sizeDelta != _srcRect.sizeDelta) _dstRect.sizeDelta = _srcRect.sizeDelta;
-                if (_dstRect.anchoredPosition3D != _srcRect.anchoredPosition3D)
-                    _dstRect.anchoredPosition3D = _srcRect.anchoredPosition3D;
-            }
-            else if (_dstRect == null && Dst.localPosition != Src.localPosition)
-            {
-                Dst.localPosition = Src.localPosition;
+                if (_srcRect != null && _dstRect != null)
+                {
+                    if (_dstRect.anchorMin != _srcRect.anchorMin) _dstRect.anchorMin = _srcRect.anchorMin;
+                    if (_dstRect.anchorMax != _srcRect.anchorMax) _dstRect.anchorMax = _srcRect.anchorMax;
+                    if (_dstRect.pivot != _srcRect.pivot) _dstRect.pivot = _srcRect.pivot;
+                    if (_dstRect.sizeDelta != _srcRect.sizeDelta) _dstRect.sizeDelta = _srcRect.sizeDelta;
+                    if (_dstRect.anchoredPosition3D != _srcRect.anchoredPosition3D)
+                        _dstRect.anchoredPosition3D = _srcRect.anchoredPosition3D;
+                }
+                else if (_dstRect == null && Dst.localPosition != Src.localPosition)
+                {
+                    Dst.localPosition = Src.localPosition;
+                }
             }
             if (Dst.localRotation != Src.localRotation) Dst.localRotation = Src.localRotation;
             if (Dst.localScale != Src.localScale) Dst.localScale = Src.localScale;

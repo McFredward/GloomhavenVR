@@ -67,7 +67,8 @@ namespace GloomhavenVR.Core;
 /// <c>SetElementColumn</c> :72, <c>EndTurn</c> :97, <c>EndRound</c> :122, <c>Consume</c> :205,
 /// <c>EnemyConsume</c> :225, <c>SetElementInstantly</c> :264) and none funnels through a common
 /// setter. So this polls, in exactly the shape the mod's existing reader of this same state uses
-/// (<c>Net/RemoteElementStrip.Refresh</c>, RemoteElementStrip.cs:154-180): six
+/// (<c>Net.Remote.RemoteElementStrip.Refresh</c> — cited by NAME, not by line: the line numbers
+/// this comment used to carry were stale two builds after they were written): six
 /// <c>ElementColumn(i)</c> reads, a base-3 signature as the change detector, a try/catch around the
 /// read.</para>
 ///
@@ -87,7 +88,7 @@ namespace GloomhavenVR.Core;
 /// therefore duplicate a value the game guarantees is already identical, and would create a second
 /// source of truth that could disagree with the one the game desync-checks against. The mod already
 /// classified this exact state the same way for the remote element strip
-/// (Net/RemoteElementStrip.cs:23-26, 53-55: "CLASSIFICATION: GLOBAL — scenario-wide state,
+/// (<c>Net.Remote.RemoteElementStrip</c>'s class doc: "CLASSIFICATION: GLOBAL — scenario-wide state,
 /// bit-identical on every client, ZERO wire"). The only thing that is NOT automatically identical
 /// is the SMOOTHING, which is why the curve is driven by the shared clock — see below.</para>
 ///
