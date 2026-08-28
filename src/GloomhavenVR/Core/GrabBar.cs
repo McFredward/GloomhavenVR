@@ -69,6 +69,42 @@ namespace GloomhavenVR.Core
     /// </summary>
     internal static class GrabBarMesh
     {
+        // ---------------------------------------------------------------------------------------
+        //  THE PROPORTIONS BELOW ARE MEASURED OFF THE APPROVED DESIGN SHEET, NOT ESTIMATED.
+        //
+        //  Four passes of eyeballing this against the sheet produced four different wrong rods —
+        //  a tube, a lens, a rod with knobs thinner than its own belly, and one whose bead band
+        //  disappeared into the shaft. So the sheet was measured instead: the rod's mask was
+        //  reduced to its principal axis and its width sampled perpendicular to that axis along
+        //  its length (scripts are throwaway; the numbers are not). Against rod_oak.png:
+        //
+        //      length / max width ............ 9.85 : 1   (max width is the KNOB, not the shaft)
+        //      knob / max width .............. 1.000      the knob IS the widest part of the rod
+        //      knob / neck behind it ......... 1.480
+        //      shaft end / shaft belly ....... 0.89       a GENTLE taper, not the 0.72 of pass 4
+        //      cap, tip to neck .............. 6.4 %      of total length, per end
+        //      => length / shaft diameter .... 12.5 : 1
+        //
+        //  The sheet is a three-quarter view, so along-axis distances are foreshortened and the far
+        //  end reads smaller than the near one. RATIOS BETWEEN WIDTHS survive that; the length
+        //  aspect does not survive it cleanly and is the softest number here. Everything else is
+        //  taken as read.
+        // ---------------------------------------------------------------------------------------
+
+        /// <summary>
+        /// The rod's nominal (mid-length) radius in metres, and the value both call sites should
+        /// pass. 0.014 puts the board bar at 12.5 : 1 against its 0.352 m length, which is the
+        /// sheet's proportion; the bars shipped 0.012 and read visibly more slender than the
+        /// design. The user approved the change ("mach alle so nah wie möglich an den Entwurf")
+        /// after it was raised as a deliberate ergonomics dial rather than a cosmetic one.
+        ///
+        /// <para>THE GRIP SURFACES DO NOT FOLLOW IT. <c>PlayTray</c>'s trigger zone is 0.05 m tall
+        /// and <c>GrabbableModal</c>'s bar collider carries its own pad; both have room for a
+        /// 28 mm rod and neither may be re-derived from this. What the bar LOOKS like must not
+        /// change where it can be grabbed from.</para>
+        /// </summary>
+        internal const float DefaultRadius = 0.014f;
+
         /// <summary>
         /// WHERE THE CAP BAND ENDS AND THE SHAFT BEGINS, in <c>u</c> — the strip layout's one source of
         /// truth, and it lives HERE rather than beside the texture loader for a reason worth stating:
@@ -107,7 +143,7 @@ namespace GloomhavenVR.Core
         /// <see cref="GrabBarVisual.SetLength"/> applies — a longer bar keeps the same silhouette
         /// stretched, which is what the sheet shows at every length it was drawn at.</para>
         /// </summary>
-        private const float ShaftEndRadius = 0.72f;
+        private const float ShaftEndRadius = 0.89f;
 
         /// <summary>
         /// How much of each END of the shaft the taper occupies, as a fraction of its length. The
@@ -120,11 +156,11 @@ namespace GloomhavenVR.Core
         /// even thickness for most of its run and eases down only in the last stretch before each
         /// knob. Tapering over the outer 18 % a side gives that.</para>
         /// </summary>
-        private const float TaperSpan = 0.18f;
+        private const float TaperSpan = 0.30f;
 
         /// <summary>Length of ONE end cap as a multiple of the nominal radius. The cap holds the
         /// dome, the bead band and the neck; at the shipped 12 mm radius this is 20.4 mm.</summary>
-        internal const float CapLengthInRadii = 2.20f;
+        internal const float CapLengthInRadii = 2.00f;
 
         /// <summary>
         /// Hemisphere radius of the end knob, in nominal radii. It must stand PROUD of the shaft's
@@ -135,7 +171,7 @@ namespace GloomhavenVR.Core
         /// vanished INTO the shaft. The sheet's knob is roughly a third wider than the rod beside
         /// it, which is what 1.02 against a 0.72 shaft end gives.
         /// </summary>
-        private const float DomeRadius = 1.12f;
+        private const float DomeRadius = 1.28f;
 
         /// <summary>Rings used for the knob's arc.</summary>
         private const int DomeSegments = 12;
@@ -146,7 +182,7 @@ namespace GloomhavenVR.Core
         /// the equator tucks the profile back in and the knob reads as a BALL — which is what the
         /// sheet draws and what the first three attempts all missed.
         /// </summary>
-        private const float DomeSweepDegrees = 104f;
+        private const float DomeSweepDegrees = 96f;
 
         /// <summary>
         /// HOW MANY BEADS SIT BEHIND THE KNOB. The sheet shows a tight band of many FINE rings; the
@@ -156,20 +192,20 @@ namespace GloomhavenVR.Core
         private const int BeadCount = 5;
 
         /// <summary>Axial length of one bead, in nominal radii.</summary>
-        private const float BeadLength = 0.10f;
+        private const float BeadLength = 0.07f;
 
         /// <summary>Radius a bead falls to between crowns, in nominal radii.</summary>
-        private const float BeadRoot = 0.72f;
+        private const float BeadRoot = 0.94f;
 
         /// <summary>How far a bead's crown rises above <see cref="BeadRoot"/>.</summary>
-        private const float BeadRise = 0.11f;
+        private const float BeadRise = 0.13f;
 
         /// <summary>Points across ONE bead. Four makes each bead a real arc; the first cut used a
         /// rise/crown/fall triple and every bead came out a flat disc.</summary>
         private const int BeadSegments = 4;
 
         /// <summary>Where the bead band starts, in nominal radii from the dome's tip.</summary>
-        private const float BeadBandStart = 1.42f;
+        private const float BeadBandStart = 1.44f;
 
         private static readonly Dictionary<int, Mesh> _shaftCache = new();
         private static readonly Dictionary<int, Mesh> _capCache = new();
@@ -273,8 +309,8 @@ namespace GloomhavenVR.Core
             // The waist, then the flare into the shaft's tapered end. The waist sits just under
             // the bead root so the band reads as applied to the rod rather than cut from it.
             float bandEnd = BeadBandStart + BeadCount * BeadLength;
-            profile.Add(new Vector2(bandEnd + 0.06f, BeadRoot - 0.05f));
-            profile.Add(new Vector2(CapLengthInRadii - 0.08f, ShaftEndRadius - 0.03f));
+            profile.Add(new Vector2(bandEnd + 0.07f, 0.86f));
+            profile.Add(new Vector2(CapLengthInRadii - 0.07f, ShaftEndRadius - 0.02f));
             profile.Add(new Vector2(CapLengthInRadii, ShaftEndRadius));
 
             var lathed = new List<Vector3>();    // (x, r, u), in METRES
@@ -364,7 +400,7 @@ namespace GloomhavenVR.Core
         /// albedo's own luminance rather than sculpted, so this stays moderate: past ~1.5 the wood
         /// grain reads as carving rather than as grain. Lives here, in the file the Unity preview
         /// symlinks, so the station and the game shade alike.</summary>
-        internal const float NormalStrength = 1.0f;
+        internal const float NormalStrength = 1.35f;
 
         /// <summary>Feeds <c>GloomhavenVR/BoardLit</c>'s <c>_SpecStrength</c>. It MUST be non-zero:
         /// that shader's whole specular block is gated behind <c>_SpecStrength &gt; 0</c> and the

@@ -56,7 +56,8 @@ namespace GloomhavenVR
 {
     public static class GrabBarPreview
     {
-        private const float Radius = 0.012f;              // = the shipped 0.024 m thickness
+        // The one the plugin passes, so the station draws the rod the game builds.
+        private static float Radius => GloomhavenVR.Core.GrabBarMesh.DefaultRadius;
         private const float BoardBarLength = 0.64f * 0.55f;
         private const float ShortBarLength = 0.12f;
 

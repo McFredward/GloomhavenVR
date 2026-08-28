@@ -90,8 +90,8 @@ SWATCHES = {
 # THIS shader it is the only dial that does. Kept small so the wood does not take on a metal's
 # colour-tinted highlight.
 SHADING = {
-    'sw_oak':      (0.22, 0.30),
-    'sw_walnut':   (0.20, 0.34),
+    'sw_oak':      (0.30, 0.27),
+    'sw_walnut':   (0.27, 0.31),
     'sw_steel':    (0.90, 0.45),
     'sw_bronze':   (0.85, 0.40),
     'sw_brass':    (0.95, 0.30),
