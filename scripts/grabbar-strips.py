@@ -112,6 +112,38 @@ SWATCHES = {
         "with the tarnish heaviest between the beads. Small casting pits and a few bright rubbed "
         "spots where a thumb would land."),
 
+    # ---- KNOB skins: as beaten-up as the shafts, but WITHOUT the beading -------------------
+    #
+    # The first cut got the knob smooth by BLURRING the beaded collar texture across the dome. It
+    # removed the ridges and every pit, scratch and tarnish streak with them, and the user's verdict
+    # was immediate: "Die Kappen sehen jetzt noch zu clean aus im Vergleich zum Rest." Blur is not a
+    # way to author a surface. The dome gets its own map instead — same wear vocabulary as the
+    # shafts, no repeating ridges.
+    'sw_knob_antique': UNWRAP + WEAR + (
+        "Material: dark antique bronze, tarnished deep brown-bronze with nearly black recesses. "
+        "NO beading, NO ridges, NO repeating pattern of any kind — this is the skin of a smooth "
+        "cast knob. Instead: shallow casting pits, a scatter of tiny bubbles, one small chip on an "
+        "edge, uneven greenish-black tarnish pooling in the low spots, and two or three areas "
+        "rubbed bright and warm where a thumb has worn the tarnish away."),
+
+    'sw_knob_gold': UNWRAP + WEAR + (
+        "Material: warm gilt bronze, softly polished, old rather than new. NO beading, NO ridges, "
+        "NO repeating pattern — a smooth cast knob. Instead: fine crazed scratches, a few dents, "
+        "old tarnish and a trace of verdigris settled in the hollows, and broad areas rubbed to a "
+        "warm gleam by handling."),
+
+    'sw_knob_steel': UNWRAP + WEAR + (
+        "Material: cool blue-grey forged steel. NO beading, NO ridges, NO repeating pattern — a "
+        "smooth forged knob. Instead: faint hammer facets, shallow pitting, a few rust-brown "
+        "specks deep in the pits, cold and desaturated with no warm tones at all, and a couple of "
+        "burnished bright patches."),
+
+    # ---- and a proper beaded COLLAR for steel (it was borrowing the shaft's unwrap) --------
+    'sw_collar_steel': UNWRAP + (
+        "Material: cool blue-grey forged steel, no warm tones. Decoration: closely spaced fine "
+        "VERTICAL beading across the whole frame, like a knurled ferrule, the hollows between the "
+        "beads darkened and slightly rust-flecked, the crowns worn bright."),
+
     'sw_gold': UNWRAP + (
         "Material: warm gilt bronze, softly polished, with age in it rather than showroom shine. "
         "Decoration: closely spaced fine VERTICAL beading across the whole frame, the hollows "
@@ -137,6 +169,10 @@ SHADING = {
     'sw_brass':    (0.95, 0.30),
     'sw_gold':     (0.95, 0.25),
     'sw_antique':  (0.90, 0.42),
+    'sw_knob_antique': (0.90, 0.40),
+    'sw_knob_gold':    (0.95, 0.26),
+    'sw_knob_steel':   (0.90, 0.44),
+    'sw_collar_steel': (0.90, 0.46),
 }
 
 # (output name, shaft swatch, cap swatch, bake_round)
@@ -148,11 +184,12 @@ SHADING = {
 # GloomhavenVR/Overlay exposes (that shader exists because the board occluded these widgets three
 # separate times). Overlay is UNLIT, so an untouched strip would make the window rod read FLAT —
 # the exact defect this whole redesign removes. So the window rod carries its roundness in v.
+# (output name, shaft unwrap, COLLAR unwrap (beaded), KNOB unwrap (smooth but worn), bake_round)
 STRIPS = [
-    ('grabbar_oak',     'sw_oak',    'sw_antique', False),
-    ('grabbar_steel',   'sw_steel',  'sw_steel',   False),
-    ('grabbar_bronze',  'sw_bronze', 'sw_gold',    False),
-    ('grabbar_generic', 'sw_walnut', 'sw_antique', True),
+    ('grabbar_oak',     'sw_oak',    'sw_antique',      'sw_knob_antique', False),
+    ('grabbar_steel',   'sw_steel',  'sw_collar_steel', 'sw_knob_steel',   False),
+    ('grabbar_bronze',  'sw_bronze', 'sw_gold',         'sw_knob_gold',    False),
+    ('grabbar_generic', 'sw_walnut', 'sw_antique',      'sw_knob_antique', True),
 ]
 
 
@@ -280,32 +317,35 @@ def grade(img, name):
     return img
 
 
-def cap_band(swatch_dir, name, width, height, dome_frac):
-    """The cap's strip: a SMOOTH knob, then the beaded collar.
+def cap_band(swatch_dir, knob_sw, collar_sw, width, height, dome_frac):
+    """The cap's strip: the KNOB's own worn skin, then the beaded collar.
 
-    The generated cap unwraps are beaded edge to edge, which is right for the collar and wrong for
-    the ball — painted across the dome it renders as a beehive. The dome's share of the band is
-    computed from the mesh's own constants, and over that stretch the beading is dissolved away
-    with a heavy blur, leaving the material (tarnish, pits, rubbed spots) but not the ridges. A
-    short crossfade keeps the join from reading as a hard edge.
+    The dome's share of the band is computed from the mesh's own constants, so the join lands
+    exactly where the geometry stops being a ball and starts being a collar. A short crossfade
+    keeps it from reading as a hard edge.
+
+    THE PREVIOUS VERSION BLURRED THE COLLAR MAP ACROSS THE DOME to get rid of the beading. That did
+    remove the ridges — along with the pits, the scratches and the tarnish, which is why the knobs
+    came back reading as clean plastic against shafts full of wear. A surface is authored, not
+    blurred out of another surface.
     """
-    sharp = band(swatch_dir, name, width, height)
-    smooth = sharp.filter(ImageFilter.GaussianBlur(max(2.0, width * 0.10)))
-    out = sharp.copy()
+    knob = band(swatch_dir, knob_sw, width, height)
+    collar = band(swatch_dir, collar_sw, width, height)
+    out = collar.copy()
     px_out = out.load()
-    px_s = smooth.load()
-    px_h = sharp.load()
+    px_k = knob.load()
+    px_c = collar.load()
     dome_px = dome_frac * width
-    fade = max(1.0, width * 0.10)
+    fade = max(1.0, width * 0.09)
     for x in range(width):
-        # 1 at the tip (all smooth), 0 past the crossfade (all beading).
+        # 1 over the knob, 0 past the crossfade.
         t = 1.0 - min(1.0, max(0.0, (x - (dome_px - fade)) / fade))
         if t >= 0.999:
             for y in range(height):
-                px_out[x, y] = px_s[x, y]
+                px_out[x, y] = px_k[x, y]
         elif t > 0.001:
             for y in range(height):
-                a, b = px_s[x, y], px_h[x, y]
+                a, b = px_k[x, y], px_c[x, y]
                 px_out[x, y] = (int(a[0] * t + b[0] * (1 - t)),
                                 int(a[1] * t + b[1] * (1 - t)),
                                 int(a[2] * t + b[2] * (1 - t)))
@@ -373,7 +413,7 @@ def normal_map(img, strength=2.2):
     return out
 
 
-def mrs_map(img, cap_px, shaft_sw, cap_sw):
+def mrs_map(img, cap_px, shaft_sw, cap_sw, knob_sw, dome_frac):
     """R = metallic, G = roughness — the packing GloomhavenVR/BoardLit declares.
 
     Roughness is modulated by the albedo's own luminance so that pits and grain read as rougher
@@ -385,8 +425,15 @@ def mrs_map(img, cap_px, shaft_sw, cap_sw):
     px = out.load()
     for y in range(h):
         for x in range(w):
-            in_cap = x < cap_px or x >= w - cap_px
-            metal, rough = SHADING[cap_sw if in_cap else shaft_sw]
+            # Which of the THREE materials this column is: knob, collar, or shaft. The cap band
+            # is no longer one material, so neither is its metallic/roughness.
+            if x < cap_px:
+                which = knob_sw if x < cap_px * dome_frac else cap_sw
+            elif x >= w - cap_px:
+                which = knob_sw if (w - 1 - x) < cap_px * dome_frac else cap_sw
+            else:
+                which = shaft_sw
+            metal, rough = SHADING[which]
             rough = min(1.0, max(0.0, rough + (0.5 - lum[y][x]) * 0.35))
             px[x, y] = (int(metal * 255), int(rough * 255), 0)
     return out
@@ -444,15 +491,15 @@ def main():
     print(f'ShaftU0={frac} -> cap band {cap_px} px of {W}')
 
     os.makedirs(OUT, exist_ok=True)
-    for name, shaft_sw, cap_sw, round_bake in STRIPS:
+    for name, shaft_sw, cap_sw, knob_sw, round_bake in STRIPS:
         img = Image.new('RGB', (W, H))
         shaft_w = W - 2 * cap_px
-        img.paste(cap_band(args.swatches, cap_sw, cap_px, H, dome_frac), (0, 0))
+        cap = cap_band(args.swatches, knob_sw, cap_sw, cap_px, H, dome_frac)
+        img.paste(cap, (0, 0))
         img.paste(band(args.swatches, shaft_sw, shaft_w, H), (cap_px, 0))
         # The far cap is the near cap MIRRORED, so both ends carry the same material and the wrap
         # at u=1 meets u=0 on identical pixels.
-        img.paste(cap_band(args.swatches, cap_sw, cap_px, H, dome_frac)
-                  .transpose(Image.FLIP_LEFT_RIGHT), (W - cap_px, 0))
+        img.paste(cap.transpose(Image.FLIP_LEFT_RIGHT), (W - cap_px, 0))
         # Feather the two band joins so no mip level shows a hard vertical line where the materials
         # meet.
         for x in (cap_px, W - cap_px):
@@ -463,7 +510,8 @@ def main():
         # surface that already is one.
         if not round_bake:
             for suffix, made in (('_n', normal_map(img)),
-                                 ('_mrs', mrs_map(img, cap_px, shaft_sw, cap_sw))):
+                                 ('_mrs', mrs_map(img, cap_px, shaft_sw, cap_sw,
+                                                  knob_sw, dome_frac))):
                 mpath = os.path.join(OUT, name + suffix + '.png')
                 made.save(mpath, optimize=True)
                 print('wrote', os.path.relpath(mpath, ROOT), os.path.getsize(mpath), 'bytes')

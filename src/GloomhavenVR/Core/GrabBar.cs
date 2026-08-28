@@ -113,12 +113,25 @@ namespace GloomhavenVR.Core
         /// runs. Two copies of a lathe profile is how the picture you check stops being the picture you
         /// ship. <c>Core.GrabBarTexture</c> and <c>scripts/grabbar-strips.py</c> both read these two
         /// numbers from here instead of carrying their own.
+        ///
+        /// <para><b>WHY 0.18 AND NOT THE PROPORTIONAL 0.10.</b> A cap is 2.0 R of a 25 R rod, about
+        /// 8 % of its length, so splitting the strip by LENGTH would give it a tenth. But the cap
+        /// is where nearly all the ornament is — the knob's tarnish and pitting and the whole
+        /// beaded collar — while the shaft is a long, slow, mostly uniform run. At 0.10 the cap got
+        /// 102 of 1024 texels and the generated 1536-wide source had to be squeezed 15x into it,
+        /// which survives as fine noise and loses every chip and every tarnish pool: the knobs read
+        /// as clean plastic next to shafts full of wear, which is exactly what the user reported.
+        /// Texels are spent where the DETAIL is, not where the metres are.</para>
+        ///
+        /// <para>Changing this one number moves the mesh's UVs and the compositor's band boundary
+        /// together, because both read it from here — which is the whole reason it lives in one
+        /// place.</para>
         /// </summary>
-        internal const float ShaftU0 = 0.10f;
+        internal const float ShaftU0 = 0.18f;
 
         /// <summary>Where the shaft ends and the far CAP band begins, in <c>u</c>. See
         /// <see cref="ShaftU0"/>.</summary>
-        internal const float ShaftU1 = 0.90f;
+        internal const float ShaftU1 = 0.82f;
 
         /// <summary>
         /// Radial segments around the rod. TWENTY-FOUR, up from the sixteen the first cut used:
