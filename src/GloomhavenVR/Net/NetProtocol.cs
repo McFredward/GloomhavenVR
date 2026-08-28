@@ -416,7 +416,47 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 313;
+    public const ushort ModBuild = 314;
+    // Build 314: THE FINAL 1:1 REVIEW'S FINDINGS — AND THE ANTI-CHEAT GATE COULD OPEN.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 id 181). ***
+    //
+    //   THE ANTI-CHEAT GATE IS THE HEADLINE. RevealGate.InScenario answers false when the save data
+    //   is missing or not yet assigned — the right answer to its own question — and it sat inside
+    //   NEGATED conjunctions, where false OPENS the gate. ShowRoundCardFronts and
+    //   PeersSeeOurCardFronts both folded to "show", and InMapPhase separated map from scenario
+    //   using only that term: AdventureState.MapState is non-null for the WHOLE adventure, so the
+    //   map branch could fire inside a scenario and resolve fronts from the peer's CURRENT hand.
+    //   The review found one of these three; the lane found the other two and refuted the reason
+    //   the first was called narrow.
+    //
+    //   FOUR DEFECTS SAT UNDER COMMENTS ASSERTING A PARITY THE CODE DID NOT HAVE. The mirrored card
+    //   flight bowed at 51 % of the owner's arch; the browse arc never split around a hovered card
+    //   (24.6 mm); its collapse floor used the viewer's card height; and the whole furniture layer
+    //   repainted at 4 Hz under a comment saying it read the model rather than the wire. A comment
+    //   claiming parity is a hypothesis.
+    //
+    //   THE FURNITURE NOW REACTS ON THE FRAME. Structure and art stay on the cadence, STATE moved:
+    //   ~60 comparisons per board per frame, no allocation, no scene query.
+    //
+    //   MIRRORED SLOT CARDS MATERIALISE instead of popping, on the owner's own curve and with the
+    //   owner's dust bit (233). Opt-in per slot: the ACTIVE column stays ownerless, because the
+    //   game plays no appear there and defaulting it on would manufacture an animation the owner
+    //   never sees.
+    //
+    //   AND THE ELEMENT STRIP GAINED TWO TRANSITIONS WITH NO WIRE AT ALL. The lane checked the
+    //   premise instead of accepting it: the created pop and the consumed crumble switch on the
+    //   host-replicated ElementColumn this strip already polls. The creating pulse, the reserved
+    //   hide and the available ring are NOT derivable — they read the acting player's own local
+    //   pending selection — and that is THREE 6-bit masks, not the two the review estimated,
+    //   because the availability ring rides a separate call. Filed, renderer already shaped for it.
+    //
+    //   TEST: two clients. (1) A card played into a round slot must FADE IN on the other screen and
+    //   crumble out, not pop. (2) A card flight must ARCH over the board, not skim it. (3) Sweep a
+    //   pile browse fan: the neighbours must slide aside on both screens. (4) Press a board button
+    //   and have the other player watch — it must react at once, not a quarter second later.
+    //   (5) An element created or consumed must animate on every screen.
+    //   (6) Still owed from 302: card dust ON *plus* a second board dial moved.
+    //
     // Build 313: A PEER'S MAP PLACARD WEARS ITS OWNER'S SIZE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 id 180). ***
     //

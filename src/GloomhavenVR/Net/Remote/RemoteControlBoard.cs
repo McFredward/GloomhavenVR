@@ -1571,7 +1571,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 Vector3 seatBoardLocal = SlotCardSeatLocal(i);
                 Vector3 seatOnAnchor = anchor.InverseTransformVector(
                     _root.transform.TransformVector(seatBoardLocal));
-                _cards[i] = new RemoteBoardCard(anchor, seatOnAnchor, cardW, cardH);
+                // The ROUND RECESSES take the owner's materialise (see RemoteBoardCard's
+                // constructor): a card really is played into one and taken out of it, so it fades
+                // in and crumbles out on the owner's own curve instead of popping. The avatar is
+                // also where the dust's permission bit (wire id 233) is read from.
+                _cards[i] = new RemoteBoardCard(anchor, seatOnAnchor, cardW, cardH, _owner);
             }
         }
         else
@@ -1579,9 +1583,9 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // Fallback frame: the flat authored layout hangs off the board root, so the board-local
             // seat adds directly — no conversion, same reason the glows need none.
             _cards[0] = new RemoteBoardCard(_root.transform,
-                SlotLocal(0) + SlotCardSeatLocal(0), cardW, cardH);
+                SlotLocal(0) + SlotCardSeatLocal(0), cardW, cardH, _owner);
             _cards[1] = new RemoteBoardCard(_root.transform,
-                SlotLocal(1) + SlotCardSeatLocal(1), cardW, cardH);
+                SlotLocal(1) + SlotCardSeatLocal(1), cardW, cardH, _owner);
         }
 
         // CONTENT hangs straight off the board root now. The old "ContentProud" spacer carried a

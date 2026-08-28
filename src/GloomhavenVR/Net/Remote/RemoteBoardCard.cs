@@ -77,8 +77,30 @@ internal sealed class RemoteBoardCard
     public RemoteAbilityCardSource.FacePath Path { get; private set; }
         = RemoteAbilityCardSource.FacePath.None;
 
-    public RemoteBoardCard(Transform parent, Vector3 localPos, float width, float height)
+    /// <summary>
+    /// <paramref name="materialiseOwner"/> is the ONE parameter that says WHICH KIND of slot this
+    /// is, and it is the call site that says it rather than a branch in here guessing.
+    ///
+    /// <para>Non-null = a ROUND-CARD RECESS on that peer's board: a card really is played into it
+    /// and taken out of it, so it gets the owner's own materialise/crumble ramp (see
+    /// <see cref="TickMaterialise"/>). Null = the ACTIVE-CARD COLUMN, which shares this class: an
+    /// active card is a standing summary of what is in play, and the owner's driver plays no
+    /// appear/vanish on one — <c>CardsDriver</c> calls <c>VRCard.PlayAppear</c>/<c>Vanish</c> for
+    /// the TRAY (round slot) and HALF (docked action) sets only (CardsDriver.4.Rebuild.cs:1005,
+    /// 1083, 1103), never for <c>ActivePileViewer</c>. Ramping the column would be inventing an
+    /// animation its owner does not see, i.e. a NEW 1:1 defect rather than a fix.</para>
+    ///
+    /// <para>It is also the only handle on the owner's DUST permission (wire id
+    /// <see cref="NetProtocol.TuneCardDustOn"/>), which is why one parameter answers both
+    /// questions instead of two: a slot that plays the ramp is exactly a slot that has an owner to
+    /// ask. NULL BY DEFAULT deliberately — an omitted answer resolves to today's picture (no
+    /// ramp), the same "an unstated permission is the stricter one" rule
+    /// <c>Cards.CardDustFx.Permission</c> is built on.</para>
+    /// </summary>
+    public RemoteBoardCard(Transform parent, Vector3 localPos, float width, float height,
+                           RemoteAvatar? materialiseOwner = null)
     {
+        _materialiseOwner = materialiseOwner;
         _root = new GameObject("Card");
         _root.transform.SetParent(parent, worldPositionStays: false);
         _root.transform.localPosition = localPos;
@@ -123,6 +145,11 @@ internal sealed class RemoteBoardCard
             new Vector2(width * 0.86f, height * 0.5f), 0.045f,
             new Color(0.14f, 0.11f, 0.09f), TextAlignmentOptions.Center, FontStyles.Normal, wrap: true);
 
+        // The ramp's own clock — only for a recess that has one (see the constructor doc), so the
+        // active-card column adds no component and pays nothing.
+        if (materialiseOwner != null)
+            _root.AddComponent<MaterialisePump>().Slot = this;
+
         // Start HIDDEN and in step with the _shownEmpty seed: Set() early-returns while nothing
         // changed, so a panel that never receives a card (an unused active-grid cell, an empty
         // round slot) must not be left standing here showing a card back.
@@ -161,6 +188,12 @@ internal sealed class RemoteBoardCard
         int ownerId = OwnerKey(owner);
         if (empty == _shownEmpty && id == _shownId && front == _shownFront && ownerId == _shownOwner)
             return;
+        // THE MATERIALISE's own change question, asked BEFORE the shown state is overwritten: this
+        // is an ARRIVAL only when the recess was empty or held a DIFFERENT card. A front-only
+        // change (the reveal gate opening at the end of the selection phase) or an owner-only
+        // change is a repaint of a card that was already lying here, and the owner plays no appear
+        // for either — their card never left the slot, so nothing materialises on their screen.
+        bool arrived = _shownEmpty || _shownId != id;
         _shownEmpty = empty;
         _shownId = id;
         _shownFront = front;
@@ -175,6 +208,28 @@ internal sealed class RemoteBoardCard
 
         if (empty)
         {
+            // THE CRUMBLE HALF of the materialise. The owner's card does not pop out of the recess:
+            // VRCard.Vanish holds it in place and fades it over DockVanishSeconds (0.30 s at the
+            // shipped default) while a dust puff carries it away. Mirrored here, the recess keeps
+            // drawing what it was drawing and TickMaterialise fades it out; the hosted face is torn
+            // down and the slot deactivated when the ramp lands, not before.
+            if (_materialiseOwner != null && _root.activeSelf && !_vanishing)
+            {
+                // …unless the reveal gate shut in the same step the card left. Then the FACE goes
+                // now, at once, and only the back/quad finishes the fade: a crumble is presentation,
+                // it may never buy a face-down recess one extra frame of a readable card.
+                if (!front)
+                    ClearFace();
+                BeginVanish();
+                return;
+            }
+            if (_vanishing)
+            {
+                // Still crumbling and still empty, so only `front` can have changed — same rule.
+                if (!front)
+                    ClearFace();
+                return;
+            }
             // ANTI-CHEAT + hygiene: drop any hosted face BEFORE the slot goes away, so a slot that is
             // re-used for a different card (the active grid re-packs its cells) can never flash the
             // previous card's face.
@@ -183,6 +238,13 @@ internal sealed class RemoteBoardCard
             return;
         }
         if (!_root.activeSelf) _root.SetActive(true);
+
+        // THE MATERIALISE HALF, seeded HERE — before the face below is built — so the incoming
+        // card's very first rendered frame is already transparent and settled-small. Seeding it
+        // after the build would show one fully opaque frame, which is the pop the ramp exists to
+        // remove (the same line, for the same reason, as RemoteCapFx.PlayAppear's frame-zero paint).
+        if (_materialiseOwner != null && arrived)
+            ArriveMaterialise();
 
         if (front)
         {
@@ -243,6 +305,7 @@ internal sealed class RemoteBoardCard
     {
         if (!_shownEmpty && _shownId == AnonymousCardId && !_shownFront)
             return; // already showing the anonymous back — nothing to repaint
+        bool arrived = _shownEmpty || _shownId != AnonymousCardId;
         _shownEmpty = false;
         _shownId = AnonymousCardId;
         _shownFront = false;
@@ -255,6 +318,11 @@ internal sealed class RemoteBoardCard
         _plumeOwner = null;
         ResetPlume();
         if (!_root.activeSelf) _root.SetActive(true);
+        // A back materialising is not a leak: it says a card arrived in this recess, which is
+        // exactly what the occupancy mask this method is driven by already says out loud. The
+        // owner's own card played the identical ramp at the identical moment.
+        if (_materialiseOwner != null && arrived)
+            ArriveMaterialise();
         _bg.sharedMaterial = _backMat;
         _initLabel.gameObject.SetActive(false);
         _nameLabel.gameObject.SetActive(false);
@@ -279,9 +347,20 @@ internal sealed class RemoteBoardCard
     public void Blank()
     {
         if (_shownEmpty && _shownId == int.MinValue && !_shownFront
-            && Path == RemoteAbilityCardSource.FacePath.None)
+            && Path == RemoteAbilityCardSource.FacePath.None
+            && !_appearing && !_vanishing)
             return; // already blank — nothing to undo
 
+        // A RUNNING RAMP IS A REASON NOT TO EARLY-RETURN, which is why it is a term above. Blank()
+        // is the anti-cheat teardown: the board stopped being drawn, so the slot must be gone THIS
+        // frame, not 0.30 s from now. EndMaterialise restores the alpha and the scale first, or a
+        // re-shown slot would come back mid-fade and settled-small forever (the same class of stale
+        // latch the change key below is cleared for).
+        EndMaterialise();
+        // …and the no-storm seed goes with it: a board that comes back has its recesses re-seeded
+        // silently, exactly like CardsDriver's _dockAnimSuppressed. The owner's cards never left
+        // their board while ours was hidden, so they materialised nothing.
+        _materialiseSeeded = false;
         ClearFace();
         SetHalfStates(-1, -1); // a re-shown slot must never come back with a stale glow lit
         _plumeCard = null;     // …and never with a stale plume latch either: a board that stopped
@@ -1003,6 +1082,12 @@ internal sealed class RemoteBoardCard
         _plumeCard = null;
         _plumeOwner = null;
         ResetPlume();
+        // The group lives on _root and dies with it; the FIELD must go for the same reason the
+        // plume anchor's does, and the ramp flags with it so a rebuilt board starts settled.
+        _faceGroup = null;
+        _appearing = false;
+        _vanishing = false;
+        _materialiseSeeded = false;
         _shownId = int.MinValue;
         _shownOwner = int.MinValue;
         _shownEmpty = true;
@@ -1032,4 +1117,326 @@ internal sealed class RemoteBoardCard
             ? name.Substring(prefix.Length)
             : name;
     }
+
+    // ------------------------------------------------------- appear / crumble materialise --
+
+    /// <summary>
+    /// The peer whose board this recess belongs to, or null for the active-card column — see the
+    /// constructor for why ONE field answers both "does this slot ramp?" and "may it puff dust?".
+    /// Read-only, exactly like <see cref="_plumeOwner"/>: this is presentation, it never writes.
+    /// </summary>
+    private readonly RemoteAvatar? _materialiseOwner;
+
+    /// <summary>True while the incoming card is fading in (<c>VRCard.DockAppearSeconds</c>, 0.28 s
+    /// at the shipped default), false while the outgoing one crumbles
+    /// (<c>VRCard.DockVanishSeconds</c>, 0.30 s). Mutually exclusive by construction — every entry
+    /// point clears the other — which is why one elapsed counter serves both.</summary>
+    private bool _appearing;
+    private bool _vanishing;
+    private float _rampElapsed;
+
+    /// <summary>
+    /// THE NO-STORM SEED, and it is the mirror of <c>CardsDriver</c>'s <c>_dockAnimSuppressed</c>
+    /// rather than an invention. A remote board is torn down and rebuilt on any record-28 change,
+    /// and <see cref="Blank"/> runs every time the board stops being drawn (visibility off, a peer
+    /// without a board, the ActionPhaseOnly setting during the secret selection phase). Without
+    /// this latch every one of those would materialise the peer's whole round afresh — an animation
+    /// the owner is emphatically NOT seeing, because their board never went away. So the FIRST card
+    /// a recess shows after construction or a blank is seeded silently; every later arrival ramps.
+    /// </summary>
+    private bool _materialiseSeeded;
+
+    /// <summary>
+    /// The alpha carrier for the hosted REAL card face. ONE <see cref="CanvasGroup"/> on the slot
+    /// root: its alpha multiplies down through the nested world-space canvas
+    /// <see cref="RemoteCardArt"/> builds, so the clone's OWN group (minted by
+    /// <c>RemoteCardArt.Neutralize</c> to kill input) is never written to and the two cannot fight.
+    /// That is the identical device — and the identical reason — as <c>PeerBoardFade</c>'s single
+    /// group on the board root, which already fades these very card faces.
+    ///
+    /// <para>Built lazily on the first ramp, so the active-card column allocates nothing. It is
+    /// authored INERT (both interaction flags off) because the board is contractually inert and a
+    /// group defaulting to <c>blocksRaycasts = true</c> has no business appearing above a subtree
+    /// that was deliberately made non-blocking.</para>
+    /// </summary>
+    private CanvasGroup? _faceGroup;
+
+    // THE SETTLE SCALE the card grows from / shrinks to while the fade carries the transition is
+    // VRCard.DustSettleScale, REFERENCED and not copied. It was the one number in this ramp that
+    // had to be a duplicated literal, and only because the owner's was a `private const`; that
+    // access modifier was widened to `internal` in the same change. Everything else the ramp is
+    // made of already came from the owner directly (VRCard.DockAppearSeconds,
+    // VRCard.DockVanishSeconds, VRCard.SmootherStep), for the reason PlumeAnchor already states
+    // about RemoteHandFan.DefaultCardWidth: a duplicated literal is what makes two surfaces
+    // diverge the day one of them is retuned.
+
+    /// <summary>One-shot evidence line for the whole feature — see <see cref="TickMaterialise"/> for
+    /// what its presence and its absence each prove.</summary>
+    private static bool s_materialiseLogged;
+
+    /// <summary>
+    /// Advance this recess's materialise by one frame. Driven by <see cref="MaterialisePump"/>,
+    /// a component on the slot root — this class is plain C# and its two owners refresh content on
+    /// a 4 Hz cadence, which is far too coarse for a 0.3 s ramp, so the pump is how a slot ticks
+    /// itself without either owner having to learn about it. Same device, same file family, as
+    /// <c>RemoteCapFx</c> in <c>RemoteBoardFurniture</c>.
+    ///
+    /// <para>THE CURVE, THE DURATIONS AND THE HITCH CAP ARE THE OWNER'S, term for term:
+    /// <c>VRCard.SmootherStep</c> over <c>DockAppearSeconds</c> / <c>DockVanishSeconds</c>, on
+    /// UNSCALED time with the same 0.05 s per-frame cap (card phases pause <c>timeScale</c>, so a
+    /// scaled clock would freeze the mirror while the owner's card still animated). Referencing
+    /// them rather than matching their numbers is the point — the two ramps are identical because
+    /// they are the same expression, not because two formulas were made to agree.</para>
+    ///
+    /// <para>WHAT IT DOES NOT DO: it never touches game state, it never throws (every write below
+    /// is to an object this class minted), and a slot whose root is deactivated under it simply
+    /// stops ticking — invisible either way, and the next <see cref="Set"/> or <see cref="Blank"/>
+    /// resolves the state. There is deliberately no watchdog: a stalled ramp has no visible
+    /// residue to guard against, unlike <c>RemoteCapFx</c>'s, whose cap stays on screen.</para>
+    /// </summary>
+    internal void TickMaterialise()
+    {
+        if (!_appearing && !_vanishing)
+            return;
+        float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f); // hitch cap — VRCard.Update's own
+        _rampElapsed += dt;
+        if (_vanishing)
+        {
+            float vt = VRCard.DockVanishSeconds > 0f
+                ? Mathf.Clamp01(_rampElapsed / VRCard.DockVanishSeconds) : 1f;
+            ApplyMaterialise(1f - VRCard.SmootherStep(vt));
+            if (vt < 1f)
+                return;
+            _vanishing = false;
+            ClearFace();              // the recess is empty NOW; the face has finished saying so
+            ApplyMaterialise(1f);     // …and the slot's next life starts opaque and full-size
+            if (_root.activeSelf)
+                _root.SetActive(false);
+            return;
+        }
+        float at = VRCard.DockAppearSeconds > 0f
+            ? Mathf.Clamp01(_rampElapsed / VRCard.DockAppearSeconds) : 1f;
+        ApplyMaterialise(VRCard.SmootherStep(at));
+        if (at < 1f)
+            return;
+        _appearing = false;
+        ApplyMaterialise(1f);
+    }
+
+    /// <summary>
+    /// A card (or an anonymous back) just landed in this recess: seed the appear, or — on the very
+    /// first content after a build/blank — seed the SILENCE. Both branches are one statement each
+    /// and they are kept together so the no-storm rule has exactly one place to be wrong in.
+    /// </summary>
+    private void ArriveMaterialise()
+    {
+        if (!_materialiseSeeded)
+        {
+            _materialiseSeeded = true;
+            EndMaterialise(); // a card arriving straight into a running crumble ends it flat
+            return;
+        }
+        BeginAppear();
+    }
+
+    /// <summary>
+    /// Start the materialise: transparent and settled-small THIS instant (so no fully opaque frame
+    /// can render first), then the dust. Order copied from <c>VRCard.PlayAppear</c> — the motes are
+    /// emitted at the pose the card has once the settle scale is applied, not before it.
+    /// </summary>
+    private void BeginAppear()
+    {
+        EnsureFaceGroup();
+        _appearing = true;
+        _vanishing = false;
+        _rampElapsed = 0f;
+        ApplyMaterialise(0f);
+        EmitMirroredCardDust(appear: true);
+        LogMaterialiseOnce();
+    }
+
+    /// <summary>
+    /// Start the crumble: the recess keeps drawing exactly what it was drawing (frame zero is the
+    /// settled state) and the dust goes NOW, because the owner's <c>VRCard.Vanish</c> emits before
+    /// its fade rather than at the end of it.
+    /// </summary>
+    private void BeginVanish()
+    {
+        EnsureFaceGroup();
+        _vanishing = true;
+        _appearing = false;
+        _rampElapsed = 0f;
+        ApplyMaterialise(1f);
+        EmitMirroredCardDust(appear: false);
+        LogMaterialiseOnce();
+    }
+
+    /// <summary>Abandon a running ramp at its SETTLED state — full alpha, full scale. Every path
+    /// that takes the recess away from the ramp (a blank, a teardown, a card arriving into a
+    /// crumble) goes through here, or the slot is stranded half-faded and 18 % small forever. Free
+    /// when nothing is running, which is every call the active column would ever make.</summary>
+    private void EndMaterialise()
+    {
+        if (!_appearing && !_vanishing)
+            return;
+        _appearing = false;
+        _vanishing = false;
+        _rampElapsed = 0f;
+        ApplyMaterialise(1f);
+    }
+
+    /// <summary>
+    /// Write one point of the ramp. <paramref name="visible"/> is the owner's own smootherstepped
+    /// <c>s</c> (appear) or <c>1 - s</c> (crumble) — the two are the same number read from opposite
+    /// ends, which is why one method serves both directions.
+    ///
+    /// <para>THREE FAMILIES, because a recess draws three kinds of thing and each takes alpha its
+    /// own way — the same split <c>PeerBoardFade</c> documents for the board as a whole:</para>
+    /// <list type="bullet">
+    /// <item>the hosted REAL card face (uGUI) — the <see cref="CanvasGroup"/> on the slot root;</item>
+    /// <item>the slab quad — its material's own colour alpha. ALL THREE materials are written even
+    ///   though only one is on the renderer, and that is load-bearing: <see cref="Set"/> swaps
+    ///   between them while a ramp can be running, and a material left at alpha 1 would snap the
+    ///   card back to opaque the moment the swap happened. They are per-slot instances minted in
+    ///   the constructor, so nothing outside this recess can see the write — unlike the owner, who
+    ///   cannot fade its slab at all because <c>CardMesh</c>'s materials are shared with every card
+    ///   in the scene (which is exactly why <c>VRCard</c> hides its body instead);</item>
+    /// <item>the two mod-drawn 3D labels — <c>TextMeshPro.alpha</c>. They are MeshRenderers, not
+    ///   canvas graphics, so the group above does not reach them and they cannot be double-faded
+    ///   by it either.</item>
+    /// </list>
+    ///
+    /// <para>The scale settle rides the slot ROOT. Residue, stated: <see cref="PlumeAnchor"/> hangs
+    /// off that root, so a game plume spawned during the 0.3 s ramp would be up to 18 % small.
+    /// Transient, and the alternative — a second transform between the root and everything else —
+    /// costs more than it buys.</para>
+    /// </summary>
+    private void ApplyMaterialise(float visible)
+    {
+        float a = Mathf.Clamp01(visible);
+        if (_faceGroup != null)
+            _faceGroup.alpha = a;
+        SetQuadAlpha(_backMat, a);
+        SetQuadAlpha(_faceMat, a);
+        SetQuadAlpha(_bodyMat, a);
+        _initLabel.alpha = a;
+        _nameLabel.alpha = a;
+        _root.transform.localScale = Vector3.one * Mathf.Lerp(VRCard.DustSettleScale, 1f, a);
+    }
+
+    /// <summary>Scale one slot material's OWN colour alpha. Read-modify-write rather than a stored
+    /// base, because the three colours are authored once in the constructor and never repainted —
+    /// so the alpha channel is the only thing here that ever moves.</summary>
+    private static void SetQuadAlpha(Material m, float alpha)
+    {
+        Color c = m.color;
+        if (Mathf.Approximately(c.a, alpha))
+            return;
+        c.a = alpha;
+        m.color = c;
+    }
+
+    /// <summary>Mint the slot root's fade carrier — see <see cref="_faceGroup"/> for why it goes
+    /// on the ROOT and not on the face host.</summary>
+    private void EnsureFaceGroup()
+    {
+        if (_faceGroup != null)
+            return;
+        _faceGroup = _root.GetComponent<CanvasGroup>();
+        if (_faceGroup == null)
+            _faceGroup = _root.AddComponent<CanvasGroup>();
+        _faceGroup.interactable = false;
+        _faceGroup.blocksRaycasts = false;
+    }
+
+    /// <summary>
+    /// The mod's own crumble / materialise puff for this recess, at the slab's current world pose.
+    ///
+    /// <para>THE FRAME IS <c>VRCard.EmitCardDust</c>'s, term for term — right/up off the slab, the
+    /// out-normal <c>-forward</c> because a card's +Z points AWAY from the viewer, and half extents
+    /// converted to world by <c>lossyScale</c>. AND THIS IS THE ONE PLACE WHERE A BOARD SLOT AND A
+    /// HAND SLAB LEGITIMATELY DIFFER, which <see cref="PlumeAnchor"/> exists because of: the plume
+    /// needed a scale RATIO, and a board recess hangs off a prefab anchor whose scale is scene data
+    /// this mod cannot read, so it needed a corrective host. The dust takes world LENGTHS instead,
+    /// and <c>_width</c>/<c>_height</c> are metres in the slot root's own local frame — so
+    /// <c>lossyScale</c> IS the exact and complete conversion, whatever the anchor carries, and no
+    /// anchor is needed. (<c>RemoteHandFan.EmitMirroredCardDust</c> reads the same way for the same
+    /// reason, one frame over.)</para>
+    ///
+    /// <para>THE GATE IS THE OWNER'S <c>CardDustOn</c> BIT AND NOTHING ELSE — wire id
+    /// <see cref="NetProtocol.TuneCardDustOn"/>, already decoded as
+    /// <c>RemoteBoardTuning.CardDustOn</c>, no new field owed. The viewer's own <c>[Cards]
+    /// CardDust</c> dial is not consulted, which is what <c>Cards.CardDustFx.Permission</c> makes
+    /// the call site say out loud: that dial answers "do MY OWN cards puff?", and ANDing the two is
+    /// precisely the defect that left the mirrored HAND dust inert for its whole shipped life.
+    /// Read straight off the avatar rather than cached: <c>BoardTuning</c> is a wide struct, but
+    /// this is asked twice in a card's entire life in the recess, not per card per frame the way
+    /// the fan asks it.</para>
+    ///
+    /// <para>The TONE is <c>CardDustFx.DefaultTone</c> — the wire carries no per-card tone, and the
+    /// emitter owns that number precisely so a mirror cannot hold a diverging copy of it.</para>
+    /// </summary>
+    private void EmitMirroredCardDust(bool appear)
+    {
+        RemoteAvatar? owner = _materialiseOwner;
+        if (owner == null)
+            return;
+        bool allowed;
+        try { allowed = owner.BoardTuning.CardDustOn; }
+        catch { return; } // an avatar mid-teardown means "no dust", never a throw on a ramp frame
+        if (!allowed)
+            return;
+        Transform t = _root.transform;
+        float lossy = t.lossyScale.x;
+        float halfW = _width * 0.5f * lossy;
+        float halfH = _height * 0.5f * lossy;
+        if (halfW < 1e-4f || halfH < 1e-4f)
+            return;
+        if (appear)
+            CardDustFx.EmitAppear(t.position, t.right, t.up, -t.forward, halfW, halfH,
+                                  CardDustFx.DefaultTone, CardDustFx.Permission.OwnerAlreadySaidYes);
+        else
+            CardDustFx.EmitVanish(t.position, t.right, t.up, -t.forward, halfW, halfH,
+                                  CardDustFx.DefaultTone, CardDustFx.Permission.OwnerAlreadySaidYes);
+    }
+
+    /// <summary>One line, once per session, on the first ramp any recess plays. Its ABSENCE from a
+    /// hardware log is the diagnosis: no line at all means no round-slot recess was ever
+    /// constructed with an owner (the call site has not opted in), which is a different failure
+    /// from "it ran and looked wrong".</summary>
+    private void LogMaterialiseOnce()
+    {
+        if (s_materialiseLogged)
+            return;
+        s_materialiseLogged = true;
+        VRLog.Info("Net", "Remote round-card materialise ARMED: a peer's played card now fades in " +
+                          $"over {VRCard.DockAppearSeconds:F2}s and crumbles out over " +
+                          $"{VRCard.DockVanishSeconds:F2}s in its recess, on the owner's own curve " +
+                          "(VRCard.SmootherStep, unscaled), instead of popping. The dust puff rides " +
+                          "the OWNER's [Cards] CardDust bit (wire id 233) and is silent when they " +
+                          "have it off — the viewer's own dial is deliberately not a term. The " +
+                          "active-card column shares this class and is NOT ramped: its owner plays " +
+                          "no appear on an active card.");
+    }
+}
+
+/// <summary>
+/// The per-frame pump for one recess's materialise ramp. It exists because
+/// <see cref="RemoteBoardCard"/> is plain C# with no <c>Update</c> of its own and both of its
+/// owners repaint content on a 4 Hz cadence — one or two samples across a 0.3 s fade, i.e. the pop
+/// the ramp exists to remove. Rather than make either owner learn about the ramp, a slot that has
+/// one carries its own tick, exactly as <c>RemoteCapFx</c> does for the mirrored keycaps in
+/// <c>RemoteBoardFurniture</c>.
+///
+/// <para>It rides the slot ROOT, so it stops ticking whenever that root is deactivated — which is
+/// correct in both directions: an inactive recess draws nothing to animate, and the crumble is the
+/// one case that needs the root to stay up, which <see cref="RemoteBoardCard.Set"/> guarantees by
+/// deferring the <c>SetActive(false)</c> to the end of the ramp.</para>
+/// </summary>
+internal sealed class MaterialisePump : MonoBehaviour
+{
+    /// <summary>The recess this pump drives. Assigned once, at build time.</summary>
+    internal RemoteBoardCard? Slot;
+
+    private void Update() => Slot?.TickMaterialise();
 }

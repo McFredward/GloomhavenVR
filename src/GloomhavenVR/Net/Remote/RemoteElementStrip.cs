@@ -44,6 +44,38 @@ namespace GloomhavenVR.Net;
 /// <c>waningIcon</c> — both untinted at full size, because the waning artwork itself conveys the
 /// state (vanilla swaps the sprite; it does not dim or shrink). The dim+shrink treatment remains
 /// only on the colour-quad fallback, where there is no artwork to do that job.
+///
+/// TRANSITIONS, AND THE HONEST LINE THROUGH THE MIDDLE OF THEM. The owner's docked board plays four
+/// distinct animations, and they do NOT come from one place — which is the whole finding:
+/// <list type="bullet">
+/// <item>CREATED (<c>InfusionElementUI.ShowCreated</c>, played on <c>null|Inert -&gt; Strong</c> and
+///   <c>null|Inert -&gt; Waning</c>) and its counterpart, an element dropping OUT of the board's
+///   list. Both are a pure function of <c>ElementInfusionBoardManager.ElementColumn</c> — the exact
+///   static <c>InfusionBoardUI.UpdateBoard</c> itself switches on (InfusionBoardUI.cs:196-236,
+///   InfusionElementUI.cs:117-147) — which is scenario-wide, host-replicated and already the ONLY
+///   input this strip reads. So they are DERIVABLE, they need no wire field, and
+///   <see cref="TickTransitions"/> below plays them. <c>Strong -&gt; Waning</c> deliberately gets
+///   none: vanilla's own branch there calls <c>StopAnimations()</c> and only swaps the sprite,
+///   which this strip already did.</item>
+/// <item>CREATING (the pending "this element is being infused" pulse, <c>ShowCreating</c> +
+///   <c>creationImage</c>), RESERVED (which HIDES the chip outright,
+///   <c>InfusionBoardUI.UpdateBoard</c> line "else if (IsElementReserved…) SetActive(false)") and
+///   AVAILABLE (<c>SetAvailableElements</c> -&gt; <c>availableHighlight.enabled</c>). All three come
+///   from <c>InfusionBoardUI</c>'s PRIVATE per-client lists <c>elementsInCreation</c> /
+///   <c>elementsReserved</c>, and from a <c>SetAvailableElements</c> call — and every writer of
+///   those is the LOCAL player's own UI flow (<c>FullAbilityCard.OnAbilityClick</c>:726/812,
+///   <c>ItemsUI</c>:154-161, <c>UIUseItemsBar</c>:590-594, <c>AugmentationHolder</c>:27/56,
+///   <c>UIUseAugmentationsBar</c>:129). They are NOT replicated. A peer's client holds the acting
+///   player's outcome, never their pending selection, so these three cannot be derived at any
+///   price and are the wire debt this lane files rather than fakes.</item>
+/// </list>
+/// The transition ramp itself borrows the mod's own card vocabulary — <c>VRCard.SmootherStep</c>
+/// over <c>DockAppearSeconds</c> (0.28 s) / <c>DockVanishSeconds</c> (0.30 s) — because the owner's
+/// <c>animatorCreated</c> is an authored <c>GUIAnimator</c> subclass whose curve lives in prefab
+/// scene data this mod cannot read. Stated rather than hidden: the mirror says "an element just
+/// came up / just went out" on the house curve, which is a truthful statement of an event the owner
+/// really does see animate. It emits NO dust — the owner's is a UI animator, not a particle puff,
+/// and manufacturing one would be inventing a picture rather than mirroring it.
 /// </summary>
 /// <remarks>CLASSIFICATION: GLOBAL — scenario-wide state, bit-identical on every client, ZERO wire.
 /// Source: <c>ElementInfusionBoardManager.ElementColumn</c> + the local client's own
@@ -93,6 +125,42 @@ internal sealed class RemoteElementStrip
     private bool _resolveLogged;
 
     private int _signature = -1;
+
+    // ------------------------------------------------------- created / consumed transitions --
+
+    /// <summary>Whether chip <c>i</c> was NON-INERT on the previous repaint — the edge the whole
+    /// transition rests on. Kept beside <see cref="_signature"/> rather than derived from it: the
+    /// signature is one packed number for the whole strip and cannot say WHICH element moved.
+    /// </summary>
+    private readonly bool[] _shownOn = new bool[6];
+
+    /// <summary>Per-chip ramp: whether one is running, whether it is the arrival direction, and how
+    /// far in it is. Six parallel arrays rather than a struct list because the set is fixed at six
+    /// and indexed by <c>EElement</c> everywhere else in this file.</summary>
+    private readonly bool[] _ramping = new bool[6];
+    private readonly bool[] _rampIn = new bool[6];
+    private readonly float[] _rampElapsed = new float[6];
+
+    /// <summary>The alpha the last repaint wrote into chip <c>i</c>'s FALLBACK quad colour — 1 for
+    /// a strong chip, 0.80 for the dimmed waning stand-in. The ramp scales THIS rather than
+    /// overwriting it, or a waning fallback chip would fade in to the wrong opacity. The sprite
+    /// path needs no twin: a <c>SpriteRenderer</c>'s untinted white is always 1.</summary>
+    private readonly float[] _quadBaseAlpha = { 1f, 1f, 1f, 1f, 1f, 1f };
+
+    /// <summary>
+    /// THE NO-STORM SEED. The first repaint after a board build populates the whole strip at once,
+    /// and every element already up would otherwise materialise in front of a peer who was looking
+    /// at a settled board a frame earlier — an animation nobody's owner is playing. Same rule, same
+    /// reason, as <c>CardsDriver</c>'s <c>_dockAnimSuppressed</c> and <c>RemoteBoardCard</c>'s own
+    /// seed: the first content is silent, every later change animates.
+    /// </summary>
+    private bool _transitionsSeeded;
+
+    /// <summary>The settle scale a chip grows from / shrinks to under the fade. The mod's own card
+    /// number (<c>VRCard.DustSettleScale</c>, a <c>private const</c> over there), restated here
+    /// rather than borrowed from <see cref="RemoteBoardCard"/> because a strip and a card recess
+    /// share no tuning surface and coupling them would only invent one.</summary>
+    private const float ChipSettleScale = 0.82f;
 
     /// <summary>How many non-inert elements the strip currently draws (diagnostics).</summary>
     public int ActiveCount { get; private set; }
@@ -145,6 +213,95 @@ internal sealed class RemoteElementStrip
 
             chip.gameObject.SetActive(false);
         }
+
+        // The transition clock. This class is plain C# and its owner refreshes content on a 4 Hz
+        // cadence — one or two samples across a 0.3 s ramp, i.e. the snap the ramp exists to
+        // remove — so the strip carries its own tick, exactly as RemoteBoardCard's MaterialisePump
+        // and RemoteBoardFurniture's RemoteCapFx do. It rides the strip root, so it stops with the
+        // board: a strip nobody is drawing has nothing to animate.
+        _root.gameObject.AddComponent<ElementTransitionPump>().Strip = this;
+    }
+
+    /// <summary>
+    /// Advance every running chip transition by one frame — the CREATED pop and its counterpart,
+    /// the crumble of an element that just left the board. See the class doc for the evidence that
+    /// exactly these two are derivable from <c>ElementColumn</c> and that the CREATING / RESERVED /
+    /// AVAILABLE animations are not.
+    ///
+    /// <para>Curve, durations and hitch cap are the mod's card ramp, referenced rather than copied
+    /// (<c>VRCard.SmootherStep</c>, <c>DockAppearSeconds</c> 0.28 s, <c>DockVanishSeconds</c>
+    /// 0.30 s), on UNSCALED time because the element board moves during card phases, which pause
+    /// <c>timeScale</c>. Never throws: every write is to an object this class minted.</para>
+    /// </summary>
+    internal void TickTransitions()
+    {
+        float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+        for (int i = 0; i < 6; i++)
+        {
+            if (!_ramping[i])
+                continue;
+            _rampElapsed[i] += dt;
+            float duration = _rampIn[i] ? VRCard.DockAppearSeconds : VRCard.DockVanishSeconds;
+            float t = duration > 0f ? Mathf.Clamp01(_rampElapsed[i] / duration) : 1f;
+            float st = VRCard.SmootherStep(t);
+            ApplyChip(i, _rampIn[i] ? st : 1f - st);
+            if (t < 1f)
+                continue;
+            _ramping[i] = false;
+            // Both directions land SETTLED, not at the ramp's end value: a chip that crumbled away
+            // is about to be hidden and must come back opaque and full-size the next time its
+            // element is infused, exactly as VRCard resets its own alpha before parking.
+            ApplyChip(i, 1f);
+            if (!_rampIn[i] && _chips[i].gameObject.activeSelf)
+                _chips[i].gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>Arm chip <paramref name="i"/>'s transition and paint its frame zero here rather
+    /// than on the next tick — otherwise an arriving element shows one fully settled frame before
+    /// it starts arriving, which is the snap the ramp exists to remove.</summary>
+    private void BeginChipRamp(int i, bool arriving)
+    {
+        _ramping[i] = true;
+        _rampIn[i] = arriving;
+        _rampElapsed[i] = 0f;
+        ApplyChip(i, arriving ? 0f : 1f);
+    }
+
+    /// <summary>Settle chip <paramref name="i"/> at once — a repaint of a chip that is STAYING up
+    /// (the Strong to Waning swap, which vanilla explicitly does not animate) must not inherit a
+    /// half-faded alpha from a ramp that was still running. Free when nothing is running.</summary>
+    private void EndChipRamp(int i)
+    {
+        if (!_ramping[i])
+            return;
+        _ramping[i] = false;
+        _rampElapsed[i] = 0f;
+        ApplyChip(i, 1f);
+    }
+
+    /// <summary>
+    /// Write one point of chip <paramref name="i"/>'s ramp. <paramref name="visible"/> is the
+    /// smootherstepped fraction read from the arrival end, so one method serves both directions.
+    ///
+    /// <para>The scale rides the CHIP ROOT, whose two children (the fallback quad and the sprite
+    /// icon) already carry their own fitted scales — so the settle multiplies onto whichever of the
+    /// two is rendering without either of them needing to know about it. Both alphas are written
+    /// even though only one renderer is enabled, for the same reason
+    /// <c>RemoteBoardCard.ApplyMaterialise</c> writes all three of its materials: the repaint can
+    /// switch which path draws while a ramp is running, and the other one must not be sitting at
+    /// full opacity when it does.</para>
+    /// </summary>
+    private void ApplyChip(int i, float visible)
+    {
+        float a = Mathf.Clamp01(visible);
+        _chips[i].localScale = Vector3.one * Mathf.Lerp(ChipSettleScale, 1f, a);
+        Color quad = _mats[i].color;
+        quad.a = _quadBaseAlpha[i] * a;
+        _mats[i].color = quad;
+        Color icon = _icons[i].color;
+        icon.a = a;
+        _icons[i].color = icon;
     }
 
     /// <summary>Re-read the infusion table and repaint on an actual change.</summary>
@@ -177,6 +334,13 @@ internal sealed class RemoteElementStrip
         // MR plate: hug the visible run (centred at the strip origin, like the run itself), with a
         // small out-pad so the disc edges sit on plate rather than passthrough room; hidden while
         // no element is up (an empty strip must not show a bare plate in MR).
+        //
+        // RESIDUE, STATED: the plate is sized to the run this repaint LANDS on, so an element that
+        // is crumbling out (see TickTransitions) sits beside the shrunken plate for up to
+        // DockVanishSeconds (0.30 s) — in MR only, over passthrough, fading the whole time. Sizing
+        // it to the union instead would make the plate itself jump wider than the discs for the
+        // same 0.30 s, which is the more visible of the two artefacts on a backing whose entire job
+        // is to be unnoticed.
         bool anyChips = visible > 0;
         if (_mrPlate.gameObject.activeSelf != anyChips)
             _mrPlate.gameObject.SetActive(anyChips);
@@ -193,10 +357,22 @@ internal sealed class RemoteElementStrip
         for (int i = 0; i < 6; i++)
         {
             bool on = state[i] != ElementInfusionBoardManager.EColumn.Inert;
-            if (_chips[i].gameObject.activeSelf != on)
-                _chips[i].gameObject.SetActive(on);
+            bool wasOn = _shownOn[i];
+            _shownOn[i] = on;
             if (!on)
+            {
+                // LEFT THE BOARD (consumed, or waned all the way out). It keeps its seat and its
+                // artwork and crumbles in place — the run below has already re-centred WITHOUT it,
+                // which is why the position write is inside the `on` branch and this chip is not
+                // repositioned. TickTransitions hides it when the ramp lands.
+                if (wasOn && _transitionsSeeded)
+                    BeginChipRamp(i, arriving: false);
+                else if (_chips[i].gameObject.activeSelf && !_ramping[i])
+                    _chips[i].gameObject.SetActive(false);
                 continue;
+            }
+            if (!_chips[i].gameObject.activeSelf)
+                _chips[i].gameObject.SetActive(true);
             bool strong = state[i] == ElementInfusionBoardManager.EColumn.Strong;
             _chips[i].localPosition = new Vector3(left + slot * ChipStep, 0f, 0f);
             slot++;
@@ -220,10 +396,24 @@ internal sealed class RemoteElementStrip
                     _quads[i].enabled = true;
                 Color c = ColorFor((ElementInfusionBoardManager.EElement)i, i);
                 _mats[i].color = strong ? c : new Color(c.r * 0.55f, c.g * 0.55f, c.b * 0.55f, 0.80f);
+                // The base the ramp SCALES (see _quadBaseAlpha) — recorded on the same statement
+                // that writes the colour, so the two can never be about different repaints.
+                _quadBaseAlpha[i] = _mats[i].color.a;
                 float s = strong ? ChipSize : ChipSize * 0.74f;
                 _quads[i].transform.localScale = new Vector3(s, s, 1f);
             }
+
+            // CREATED, or a settled repaint. The paint above has just overwritten the quad's alpha,
+            // so a running ramp has to be re-applied (or ended) here and not before it.
+            if (!wasOn && _transitionsSeeded)
+                BeginChipRamp(i, arriving: true);
+            else
+                EndChipRamp(i);
         }
+
+        // Every element the strip is going to show this repaint has now been seeded once, so the
+        // NEXT change is a real one and animates. See _transitionsSeeded.
+        _transitionsSeeded = true;
     }
 
     /// <summary>
@@ -323,4 +513,18 @@ internal sealed class RemoteElementStrip
         return Fallback[index];
     }
 
+}
+
+/// <summary>
+/// The per-frame pump for one strip's chip transitions — the element-board twin of
+/// <c>RemoteBoardCard.MaterialisePump</c>, and it exists for the identical reason: the strip is
+/// plain C# and its owner repaints it on a 4 Hz content cadence, which cannot carry a 0.3 s ramp.
+/// It rides the strip root, so a board that stops being drawn stops ticking.
+/// </summary>
+internal sealed class ElementTransitionPump : MonoBehaviour
+{
+    /// <summary>The strip this pump drives. Assigned once, at build time.</summary>
+    internal RemoteElementStrip? Strip;
+
+    private void Update() => Strip?.TickTransitions();
 }

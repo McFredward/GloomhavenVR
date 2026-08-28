@@ -1573,7 +1573,11 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// star. The card only settles to / rises from this scale as a SECONDARY cue while it crumbles
     /// (vanish) or coalesces (appear); the primary read is the drifting dust puff + the quick fade.
     /// </summary>
-    private const float DustSettleScale = 0.82f;
+    // INTERNAL SINCE 2026-08-28 so the mirrored slot card can REFERENCE it rather than copy it.
+    // Every other number in RemoteBoardCard's materialise ramp — the curve, both durations, the
+    // hitch cap — is already a reference to this class; this was the only one that had to be a
+    // duplicated literal, and it was a duplicate solely because of an access modifier.
+    internal const float DustSettleScale = 0.82f;
 
     /// <summary>
     /// The card's colour/tone the crumble/materialize dust motes take (user: "in the card's colour/
