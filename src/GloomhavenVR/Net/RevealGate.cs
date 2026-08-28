@@ -10,19 +10,43 @@ namespace GloomhavenVR.Net;
 /// <c>CPlayerActor.CharacterClass</c> and only turns them face-up once this gate opens.
 ///
 /// The rule (hide a remote actor's round-card fronts):
-///   <c>FFSNetwork.IsOnline &amp;&amp; InScenario &amp;&amp; actor != null &amp;&amp;
-///      !actor.IsUnderMyControl &amp;&amp;
+///   <c>FFSNetwork.IsOnline &amp;&amp; actor != null &amp;&amp; !actor.IsUnderMyControl &amp;&amp;
 ///      PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest</c>
 ///
-/// Every game access is null-guarded and degrades to the SAFE-to-show default (true) only when
-/// we are clearly local / offline; during the secret selection phase online it degrades to
-/// hiding (false). Simple static property reads are NOT wrapped in try/catch (they cannot throw
-/// once the null guards pass); only <c>SaveData.Instance</c> is null-guarded.
+/// <para>THE STANDING INVARIANT OF THIS FILE: EVERY PREDICATE HERE MUST DEGRADE TO THE ANSWER
+/// THAT SHOWS LESS when the game state it reads is missing or mid-teardown. That is not a style
+/// note, it is the whole reason the class exists, and it is easy to get backwards — because a
+/// predicate that reads "safely false" can sit inside a NEGATED CONJUNCTION where false is what
+/// OPENS the gate. <see cref="InScenario"/> is exactly such a term: it answers false for a null
+/// <c>SaveData.Instance</c>, a not-yet-assigned <c>SaveData.Global</c>, and a campaign whose
+/// <c>MapState</c> is not up — all correct answers to its own question, and all of them used to
+/// fold a <c>!(online &amp;&amp; inScenario &amp;&amp; secretPhase)</c> product to TRUE = SHOW.
+/// So the reveal predicates below no longer take <see cref="InScenario"/> as a term at all: the
+/// phase they turn on is read straight from <c>PhaseManager</c>, which needs no save data, and a
+/// phase that cannot be read at all is <c>PhaseType.None</c> — not the secret window. See the
+/// paragraph on <see cref="PeersSeeOurCardFronts"/> for the leak this closed.</para>
+///
+/// Every game access is null-guarded and degrades to the answer that shows LESS. Simple static
+/// property reads are NOT wrapped in try/catch (they cannot throw once the null guards pass);
+/// only <c>SaveData.Instance</c> is null-guarded.
 /// </summary>
 internal static class RevealGate
 {
     /// <summary>True while the game is in the secret ability-card selection phase (cards not yet
-    /// committed/revealed). Reads the game's authoritative <see cref="PhaseManager"/>.</summary>
+    /// committed/revealed). Reads the game's authoritative <see cref="PhaseManager"/>.
+    ///
+    /// <para>THE ONE TERM IN THIS FILE THAT DEPENDS ON NO SAVE STATE, which is why every reveal
+    /// predicate below is written to turn on it and nothing else. <c>PhaseManager.PhaseType</c>
+    /// (PhaseManager.cs:14-23) is a static read of <c>s_CurrentPhase.Type</c> that answers
+    /// <c>PhaseType.None</c> when there is no phase object — so it cannot throw and cannot be
+    /// starved by a half-loaded or torn-down <c>SaveData</c>.</para>
+    ///
+    /// <para>ITS OWN DEGRADATION IS ACKNOWLEDGED AND DELIBERATELY NOT "FIXED": no phase object
+    /// reads as "not the secret window", i.e. as SHOW. There is no second source to cross-check
+    /// against — this static field IS the game's authority, and vanilla's own renderers
+    /// (<c>AbilityCardUI</c>, <c>BattleGoalContainer</c>) read the identical field the identical
+    /// way. Inventing a more pessimistic fallback here would make the mod hide cards the game
+    /// itself is showing, which is a different bug, not a safer one.</para></summary>
     public static bool IsSecretSelectionPhase =>
         PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest;
 
@@ -52,23 +76,55 @@ internal static class RevealGate
 
     /// <summary>
     /// True when <paramref name="actor"/>'s round-card FRONTS may be shown to us. Mirrors the
-    /// vanilla reveal rule: hide fronts only while online, in a scenario, for an actor NOT under
-    /// our control, during the secret selection phase. In every other case (offline / single
-    /// player / map / our own actor / post-reveal action phase) the cards are shown.
+    /// vanilla reveal rule: hide fronts only while online, for an actor NOT under our control,
+    /// during the secret selection phase. In every other case (offline / single player / map /
+    /// our own actor / post-reveal action phase) the cards are shown.
+    ///
+    /// <para>THE <c>InScenario</c> TERM WAS REMOVED, AND ITS REMOVAL IS THE FIX RATHER THAN A
+    /// SIMPLIFICATION. It sat inside a NEGATED conjunction, so the direction it degraded in was
+    /// inverted on the way out: a null <c>SaveData.Instance</c> (nulled in <c>SaveData.OnDestroy</c>,
+    /// SaveData.cs:166), a <c>SaveData.Global</c> not yet assigned (a plain field, SaveData.cs:40 —
+    /// the game's own loader spins on <c>Global == null</c> at :150), or a campaign whose
+    /// <c>MapState</c> is not up all made <see cref="InScenario"/> answer false, which folded this
+    /// whole product to false and this predicate to TRUE — every remote surface drawing a peer's
+    /// card FRONTS in the middle of the secret selection window. The term never closed anything on
+    /// its own: <see cref="IsSecretSelectionPhase"/> can only be true while a scenario's phase
+    /// machine is running (<c>PhaseManager</c> is reset at <c>AdventureState.StartAdventure</c> and
+    /// at <c>ScenarioManager.InitScenario</c>, and stopped by the scenario's own ESTOPMESSAGE), so
+    /// wherever <see cref="InScenario"/> was CORRECT it was a no-op, and the only states it changed
+    /// were the ones where it was WRONG. Dropping it is therefore strictly more conservative.</para>
+    ///
+    /// <para>Callers that additionally need "a scenario is actually running" — because they touch
+    /// scenario-only singletons — still ask <see cref="InScenario"/> themselves, and should: that is
+    /// a CAPABILITY question, and it does not belong in a secrecy predicate (the lesson recorded in
+    /// the map-phase block below).</para>
     /// </summary>
     public static bool ShowRoundCardFronts(CPlayerActor actor) =>
         !(FFSNetwork.IsOnline
-          && InScenario
           && actor != null
           && !actor.IsUnderMyControl
-          && PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest);
+          && IsSecretSelectionPhase);
 
     /// <summary>
     /// THE SAME RULE, FROM THE OTHER END OF THE WIRE: do our PEERS currently see the fronts of OUR
     /// cards? It is <see cref="ShowRoundCardFronts"/> evaluated on our own actor from a peer's seat,
     /// where <c>!actor.IsUnderMyControl</c> is true by construction (every one of our characters is
     /// "somebody else's" to them) and therefore folds out — leaving the two terms a remote client can
-    /// still check for itself: online, in a scenario, in the secret selection window.
+    /// still check for itself: online, and in the secret selection window.
+    ///
+    /// <para>THE LEAK THIS CLOSED (2026-08-24). This predicate used to carry an <see cref="InScenario"/>
+    /// term as well, and it is the ONE place in the mod where a wrong answer puts a card IDENTITY on
+    /// the wire rather than merely drawing a wrong picture: its consumer is
+    /// <c>WorldUI.WorldTooltips.ContentPublicToPeers</c> (WorldTooltips.cs:880), the gate on whether
+    /// this client TRANSMITS the tooltip text of the card it is hovering — and that text names the
+    /// card. In the negated product, <see cref="InScenario"/> answering false (null
+    /// <c>SaveData.Instance</c>, unassigned <c>SaveData.Global</c>, campaign with no <c>MapState</c>
+    /// yet) made the whole predicate answer TRUE = "peers already see our fronts, so we may say what
+    /// this card is" — during the exact phase in which card identity is the sanctioned secret. The
+    /// term is gone; the phase, read from <c>PhaseManager</c> with no save-data dependency at all, is
+    /// the only thing this turns on now. The cost of the new failure direction is a peer seeing a
+    /// generic tooltip instead of a named one, which is the direction this file is required to fail
+    /// in.</para>
     ///
     /// <para>WHY IT EXISTS AS A NAMED PREDICATE RATHER THAN AN INLINE EXPRESSION. It is the gate on
     /// what the mod may SAY about our own cards over the side channel — today the board tooltip's text
@@ -87,7 +143,7 @@ internal static class RevealGate
     /// the selection window a card identity is public information in the base game.</para>
     /// </summary>
     public static bool PeersSeeOurCardFronts =>
-        !(FFSNetwork.IsOnline && InScenario && IsSecretSelectionPhase);
+        !(FFSNetwork.IsOnline && IsSecretSelectionPhase);
 
     // ============================================================================================
     //  THE MAP PHASE — THE ANSWER THIS CLASS ALREADY GAVE, AND THE ONE ITS CALLER THREW AWAY
@@ -149,6 +205,26 @@ internal static class RevealGate
     //  <see cref="IsSecretSelectionPhase"/> describes — they are disjoint by construction, not by
     //  agreement between two conditions that could drift apart. Nothing here can open a front that
     //  <see cref="ShowRoundCardFronts"/> would close.
+    //
+    //  ─── CORRECTION (2026-08-24): THAT PARAGRAPH WAS TRUE OF THE INTENT AND FALSE OF THE CODE ──
+    //  "Disjoint by construction" was doing the work of a load-bearing safety claim while resting
+    //  on a term that could be wrong. <see cref="InMapPhase"/> asked TWO things — "not in a
+    //  scenario" (<see cref="InScenario"/>) and "a map is loaded"
+    //  (<c>AdventureState.MapState != null</c>) — and only the FIRST of those separates the map
+    //  from a running scenario. <c>MapState</c> is one static, assigned in
+    //  <c>AdventureState.StartAdventure</c> and cleared only in <c>End()</c>
+    //  (AdventureState.cs:9-34): it is NON-NULL FOR THE WHOLE ADVENTURE, scenarios included. The
+    //  game itself never uses its nullness as the discriminator — <c>GlobalData.CurrentGameState</c>
+    //  asks <c>MapState.IsInScenarioPhase</c> (GlobalData.cs:563-585). So the entire separation
+    //  between "map room" and "secret selection phase" hung on <see cref="InScenario"/>, whose
+    //  degradation is FALSE, and false here meant "we are on the map" — i.e. show a peer's fan
+    //  face-up. The review that found this believed the exposure was limited to the map loadout;
+    //  it was not. <c>RemoteHandFan.UpdateFaces</c> resolves the map branch out of the peer's
+    //  CURRENT hand, so in a scenario that branch would have shown the real round hand.
+    //
+    //  The remedy is below and it is the same one applied to the two reveal predicates above: stop
+    //  inferring the phase from save state that can go missing, and ask the game's own
+    //  authoritative bit, which needs no save data.
     // ============================================================================================
 
     /// <summary>
@@ -158,16 +234,45 @@ internal static class RevealGate
     /// <see cref="ShowPersonalQuest"/> reads the party out of, so a half-loaded save answers false
     /// on every one of them alike. Guarded and degrading to false, because "we cannot tell where we
     /// are" must never be the reason a front is drawn.
+    ///
+    /// <para>THREE INDEPENDENT TERMS, EACH ABLE TO CLOSE THIS ON ITS OWN, because this predicate is
+    /// the only thing standing between a peer's fan and the secret window (see the correction in
+    /// the block above for how the previous two-term version could open inside a scenario):</para>
+    /// <list type="number">
+    /// <item><description><c>MapState.IsInScenarioPhase</c> — THE GAME'S OWN DISCRIMINATOR
+    /// (CMapState.cs:198-208, the bit <c>GlobalData.CurrentGameState</c> itself branches on). It
+    /// reads no save data and no phase machine, so it stays correct in exactly the states that
+    /// broke <see cref="InScenario"/>. This is the term that actually fixes the hole.</description></item>
+    /// <item><description><see cref="InScenario"/> — kept, unchanged, as the second opinion. Where
+    /// it is right it agrees; where it is wrong term 1 has already answered.</description></item>
+    /// <item><description><c>!IsSecretSelectionPhase</c> — a backstop that cannot be reached in any
+    /// consistent state (a map that says "no scenario here" while the phase machine says "secret
+    /// selection" is self-contradictory). It costs a map-room fan nothing in any state the game can
+    /// actually be in, and if the two ever DO disagree, this file's job is to show less. Kept
+    /// deliberately, and flagged here: if a peer's map-room fan is ever seen showing BACKS, this is
+    /// the term to suspect first, because a false negative here is the user's 2026-08-21 ruling
+    /// ("alle Karten voll sichtbar") going wrong.</description></item>
+    /// </list>
     /// </summary>
     public static bool InMapPhase
     {
         get
         {
-            if (InScenario)
-                return false;
             try
             {
-                return MapRuleLibrary.Adventure.AdventureState.MapState != null;
+                MapRuleLibrary.State.CMapState? map = MapRuleLibrary.Adventure.AdventureState.MapState;
+                if (map == null)
+                    return false; // no adventure loaded — menus, single scenario, level editor
+                if (map.IsInScenarioPhase)
+                    return false; // a scenario IS running, whatever the save state says about it
+                if (IsSecretSelectionPhase)
+                    return false; // contradictory state — show less (see term 3 above)
+                // InScenario stays INSIDE the try. It is guarded, but its last line reads the game's
+                // own GlobalData.CurrentGameState, whose non-Campaign branches deref
+                // SaveData.Instance.Global with no guard of their own (GlobalData.cs:585) — and a
+                // throw escaping a secrecy predicate is a crash where the answer should have been
+                // "show less". The previous version evaluated it before the try and had that hole.
+                return !InScenario;
             }
             catch
             {
@@ -251,6 +356,20 @@ internal static class RevealGate
     /// CHARACTER and the VIEWER, never of who is looking: a mirrored board renders on the VIEWER's
     /// machine, so the viewer's own entitlement is the only one that can be evaluated there, and it
     /// is the strictly safer of the two (see <see cref="RemoteBoardFocus"/> rule 2).</para>
+    ///
+    /// <para>ITS LIVE CALLER (since 2026-08-24) is the control board's own battle-goal line,
+    /// <c>WorldUI.Surfaces.TablePanelSurfaces.BuildQuestText</c>, which used to open-code the same
+    /// three terms beside its own null check. They agreed — which is the failure mode, not the
+    /// mitigation, because a mirrored secrecy rule leaks the first time only one copy is edited.
+    /// One rule, one home. A future surface that wants a battle goal asks HERE.</para>
+    ///
+    /// <para>DEGRADATION, STATED HONESTLY: this is the game's expression verbatim, and
+    /// <c>FFSNetwork.IsOnline</c> is <c>BoltNetwork.IsRunning &amp;&amp; !IsShuttingDown</c>
+    /// (FFSNetwork.cs:25-35), so a session TEARING DOWN reads offline and this answers "show". That
+    /// is not corrected here on purpose: it is exactly what vanilla's own <c>ActorStatPanel</c> and
+    /// <c>BattleGoalContainer</c> do with the identical read, the surface is the LOCAL player's own
+    /// hand, and diverging would make the mod hide a goal the flat game is displaying. It is the one
+    /// term in this file whose degradation is inherited rather than chosen.</para>
     /// </summary>
     public static bool ShowBattleGoal(CActor? actor) =>
         !(FFSNetwork.IsOnline && (actor == null || !actor.IsUnderMyControl));

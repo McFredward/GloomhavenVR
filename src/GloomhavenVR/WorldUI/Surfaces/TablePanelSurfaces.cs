@@ -2944,11 +2944,18 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
                 unanswerable = mapState == null;
                 return "";
             }
-            // SECRECY (the game's own gate, BattleGoalContainer.Show / ActorStatPanel.cs:566):
-            // online, a battle goal is shown ONLY for actors under my control. ActiveHand is
-            // the local player's hand, so this is belt-and-braces — but the game enforces it
-            // this exact way and so do we.
-            if (FFSNetwork.IsOnline && !actor.IsUnderMyControl)
+            // SECRECY — ASKED OF THE ONE CLASS THAT OWNS IT, not re-stated here. This site used to
+            // open-code the game's gate (BattleGoalContainer.Show / ActorStatPanel.cs:566) as
+            // `FFSNetwork.IsOnline && !actor.IsUnderMyControl`, which is precisely the negation of
+            // Net.RevealGate.ShowBattleGoal for a non-null actor — and `actor` is non-null here, the
+            // early return above guarantees it. The two spellings agreed, and that is exactly the
+            // hazard: a mirrored secrecy rule only has to be edited on ONE side to start leaking a
+            // battle goal, and this project has the mirrored-constant lesson written down. The user
+            // ruling that permits any hidden-information exception at all ("die einzige Ausnahme ist
+            // hier die geheime Quest des characters …") lives in Net/RevealGate, so the decision does
+            // too. ActiveHand is the local player's hand, so in practice this is belt-and-braces —
+            // but the game enforces it this exact way and so do we, through one predicate.
+            if (!Net.RevealGate.ShowBattleGoal(actor))
                 return "";
             CBattleGoalState? goal = questState.GetChosenBattleGoal(actor.Class.ID);
             var data = goal != null ? goal.BattleGoal : null;
