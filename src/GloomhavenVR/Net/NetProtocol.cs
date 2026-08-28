@@ -18289,6 +18289,29 @@ internal static class NetProtocol
     /// </summary>
     public const byte TuneWindowLegibility = 180;
 
+    /// <summary>
+    /// [Cards] FanFollowSmoothing — the per-second rate at which the OWNER's hand fan eases toward
+    /// its target pose. A rate in the FACTOR width, the established convention here (an id range
+    /// fixes the WIDTH, never the unit).
+    ///
+    /// <para>THE MIRROR HELD IT AS A <c>const 16f</c> — the shipped default, so the two agreed
+    /// until somebody moved the dial, and then diverged in a way no checker could see. The
+    /// wire-coverage table had it exempt as "the mirror follows the synced hand", which describes
+    /// the INPUT and says nothing about the RATE: the mirror re-derives the target from the peer's
+    /// synced hand correctly and then eases toward it at its OWN number. That is the fourth
+    /// exemption in this file's history to describe a mechanism that was never checked against the
+    /// mechanism, and the third of that group to be the same shape as
+    /// <see cref="TuneFanGazeSmoothing"/>.</para>
+    ///
+    /// <para>ONE END OF THE RANGE IS A QUALITATIVE CHANGE, which is why this is not merely a
+    /// cosmetic mismatch: at 0 the owner's fan stops easing and follows RIGIDLY, and the mirror has
+    /// no branch for it at all — so an owner who wants a rigid fan is drawn eased on every peer's
+    /// screen for as long as they play.</para>
+    ///
+    /// <para>[Cards] FanFollowSmoothing.</para>
+    /// </summary>
+    public const byte TuneFanFollowSmoothing = 181;
+
     /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
     /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see
     /// <see cref="TuneButtonStackSpacing"/> for why it is a factor.</summary>

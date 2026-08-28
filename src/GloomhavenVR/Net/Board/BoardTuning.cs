@@ -473,6 +473,13 @@ internal static class BoardTuningSampler
         // what the ruling costs.
         n += Fac(payload, ref i, NetProtocol.TuneWindowLegibility,
                  WorldUI.ModalFallback.WindowLegibilityEntry, Defaults.WindowLegibility);
+        // …and the rate the owner's fan EASES toward its pose (id 181). The mirror derives the
+        // TARGET from their synced hand and always did; it eased toward it at its own const 16f,
+        // which is the shipped default — so the two agreed until somebody moved the dial. See
+        // NetProtocol.TuneFanFollowSmoothing: at 0 the owner's fan is RIGID, which the mirror
+        // cannot express at all without this field.
+        n += Fac(payload, ref i, NetProtocol.TuneFanFollowSmoothing,
+                 CardsConfig.FanFollowSmoothing, Defaults.FanFollowSmoothing);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -999,6 +1006,12 @@ internal readonly struct RemoteBoardTuning
     /// <see cref="NetProtocol.TuneWindowLegibility"/>.</summary>
     public float WindowLegibility { get; }
 
+    /// <summary>The owner's <c>[Cards] FanFollowSmoothing</c> — the per-second rate their hand fan
+    /// eases toward its target pose. 0 means RIGID, which is a qualitative change and not a slower
+    /// ease, so a consumer must branch on it rather than merely scaling by it. Wire id
+    /// <see cref="NetProtocol.TuneFanFollowSmoothing"/>.</summary>
+    public float FanFollowSmoothing { get; }
+
     /// <summary>[Cards] InspectScale — how far a card GROWS while the owner holds it up to read it.
     /// The second factor of the held card's size; the first is <see cref="CardWidth"/>, and a
     /// receiver holding only that one draws a peer's held card 1.6x too small at shipped defaults.
@@ -1286,6 +1299,12 @@ internal readonly struct RemoteBoardTuning
         WindowLegibility = Mathf.Clamp(
             F(payload, len, NetProtocol.TuneWindowLegibility, Defaults.WindowLegibility),
             WorldUI.ModalFallback.WindowLegibilityMin, WorldUI.ModalFallback.WindowLegibilityMax);
+        // NOT clamped away from zero: 0 is a legal, meaningful value of this dial (rigid follow)
+        // and clamping it up would silently turn the owner's choice back into an ease. Only the
+        // upper end and negatives are refused.
+        FanFollowSmoothing = Mathf.Clamp(
+            F(payload, len, NetProtocol.TuneFanFollowSmoothing, Defaults.FanFollowSmoothing),
+            0f, 60f);
         FanGazeSmoothing = Mathf.Clamp(
             F(payload, len, NetProtocol.TuneFanGazeSmoothing, Defaults.FanGazeSmoothing), 1f, 30f);
         // The owner's [Cards] InspectScale bound (0.5..4) applied on the receiving side for the same
