@@ -416,7 +416,33 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 312;
+    public const ushort ModBuild = 313;
+    // Build 313: A PEER'S MAP PLACARD WEARS ITS OWNER'S SIZE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 id 180). ***
+    //
+    //   User ruling: "Auch hier soll die 1:1 Regel gelten, also die Groesse des Besitzers."
+    //
+    //   A peer's map-room hover placard was sized from the VIEWER's [WorldUI] WindowLegibility,
+    //   with a WRITTEN ARGUMENT for it -- "a peer's placard must be the SAME SIZE as the card the
+    //   local player gets for the same icon" -- while one file over RemoteBoardTooltip sized a
+    //   peer's board tooltip from the OWNER's dial. The question was genuine: this is documented as
+    //   a LEGIBILITY control, not a taste one, so it is arguably about the viewer's eyes. The user
+    //   was told the cost -- the dial is clamped 1.0..1.75, so two players at opposite ends differ
+    //   by 75 % -- and chose the owner's picture. The losing argument is kept in HoverCardPose's
+    //   class doc rather than deleted, so nobody re-runs it.
+    //
+    //   AND THE MEASUREMENT WENT WITH IT. The old size was read off the LOCAL player's own card,
+    //   which is why it was NaN until this viewer had hovered an icon once. Nothing is measured for
+    //   anyone else's benefit any more: LocalCardHostScale, its NaN state and the isLocalCard flag
+    //   are gone, and the size is a plain per-frame read of that peer's own dial. A peer whose
+    //   record 28 has not arrived draws at the shipped default and CORRECTS ITSELF the frame after
+    //   it lands, because RemoteAvatar seeds BoardTuning from an empty payload.
+    //
+    //   TEST -- AND IT IS INVISIBLE AT THE DEFAULTS, which is worth knowing before you look: 0.7 x
+    //   1.5 = 1.05 is exactly what the fallback already produced. ONE player must move [WorldUI]
+    //   WindowLegibility off 1.5; the OTHER then watches that player's hover placard in the map
+    //   room, which must change size with them and not with the watcher.
+    //
     // Build 312: THE AUDIT'S REMAINING FINDINGS, SEVEN LANES, AND FIVE CORRECTIONS TO MY OWN BRIEFS.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 201..204, 237..239). ***
     //

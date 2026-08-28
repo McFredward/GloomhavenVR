@@ -1061,46 +1061,78 @@ internal static class RemoteMapRoom
         private const float SettleSeconds = 0.25f;
 
         /// <summary>
-        /// Host scale used until the local player has hovered once, as a multiple of
-        /// <c>PanelLayout.WorldScale</c> and the canvas metres-per-pixel.
+        /// Host scale factor for a peer we have no avatar for yet — the SHIPPED legibility, as a
+        /// multiple of <c>PanelLayout.WorldScale</c> and the canvas metres-per-pixel.
         ///
-        /// <para>THE REAL NUMBER IS MEASURED, NOT THIS ONE: a peer's placard must be the same size
-        /// as the card the local player gets for the same icon, and that size is
-        /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap
-        /// (<see cref="ModalFallback.WindowScaleFactor"/>, 0.7) times the live
-        /// <c>[WorldUI] WindowLegibility</c> dial. <c>HoverCardPose.LocalCardHostScale</c> reads the
-        /// answer off the local card the moment one is seated; this value is the SHIPPED product of
-        /// those two, used only before that has happened, and it is a stated approximation rather
-        /// than a second source of truth (it does not follow the live dial — see the ownership
-        /// paragraph below). If a placard is ever visibly the wrong size before the local player
-        /// has hovered anything, this constant is why.</para>
+        /// <para>THE REAL NUMBER IS THE OWNER'S AND ARRIVES ON THE WIRE — see
+        /// <see cref="ScaleFactorFor"/>. This is what a placard is drawn at in the one window where
+        /// the owner's dial genuinely is not known: a peer whose id we are placing a card for but
+        /// who has no <c>RemoteAvatar</c> yet (joining, not embodied). It is not a second source of
+        /// truth and it does not latch — see the correction paragraph on <see cref="ScaleFactorFor"/>.</para>
         ///
-        /// <para>DERIVED, NOT TYPED — AND THAT IS THE DEFECT IT CLOSES. This was <c>0.875f</c>:
-        /// 0.7 × 1.25, the product of the cap and the legibility default of a PREVIOUS build. The
-        /// shipped dial is <see cref="Defaults.WindowLegibility"/> = 1.5, so the correct product is
-        /// 1.05 and every peer's placard was drawn at 83 % of the size the same icon gives the
-        /// local player — ~17 % undersized, for the whole session, until this viewer happened to
-        /// hover an icon themselves and <c>LocalCardHostScale</c> stopped being NaN. Nothing could
-        /// catch it: it is a PRODUCT of two defaults, which is precisely the case
+        /// <para>DERIVED, NOT TYPED. This was <c>0.875f</c>: 0.7 × 1.25, the product of the
+        /// small-dialog cap (<see cref="ModalFallback.WindowScaleFactor"/>, 0.7) and the legibility
+        /// default of a PREVIOUS build. The shipped dial is
+        /// <see cref="Defaults.WindowLegibility"/> = 1.5, so the correct product is 1.05 and every
+        /// peer's placard was drawn at 83 % of the size the same icon gave the local player.
+        /// Nothing could catch it: it is a PRODUCT of two defaults, which is precisely the case
         /// <c>scripts/check-remote-defaults.py</c> documents itself as unable to pin (see its
-        /// RemoteItemFan._radius note — "their two factors are pinned individually instead"), and
-        /// the one surviving doc calling 1.25 "the default" sits in ModalFallback.9.Spawn.cs beside
-        /// <c>DefaultWindowLegibility</c>, which is itself already <c>Defaults.WindowLegibility</c>.
+        /// RemoteItemFan._radius note — "their two factors are pinned individually instead").
         /// Written as the MULTIPLY so that moving either factor moves this with it and the stale
         /// copy cannot come back; neither factor may be re-typed as a number here.</para>
-        ///
-        /// <para>WHOSE DIAL IT IS REMAINS OPEN, AND IS NOT SETTLED HERE. The LIVE local legibility
-        /// is deliberately still not read. <c>HoverCardPose.LocalCardHostScale</c>'s own doc chooses
-        /// the VIEWER's dial ("a peer's placard must be the SAME SIZE as the card the local player
-        /// gets for the same icon"), while <see cref="RemoteBoardTooltip"/>'s constructor sets the
-        /// opposite precedent for a structurally identical case — it sizes a peer's board tooltip
-        /// from the OWNER's <c>HoverInfoScale</c> off record 28, because a remote board is a picture
-        /// of its owner's. That is a user ruling nobody has made yet, not a measurement, and it is
-        /// recorded at those two sites. The constant above was stale under EITHER answer, so it is
-        /// fixed on its own and the ownership question is left exactly where it stands.</para>
         /// </summary>
         private const float FallbackScaleFactor =
             ModalFallback.WindowScaleFactor * Defaults.WindowLegibility;
+
+        /// <summary>
+        /// The host scale factor ONE peer's placard is drawn at: the small-dialog cap times
+        /// <b>that peer's own</b> <c>[WorldUI] WindowLegibility</c>.
+        ///
+        /// <para>USER RULING, 2026-08-28, verbatim: <i>"Auch hier soll die 1:1 Regel gelten, also
+        /// die Größe des Besitzers."</i> A peer's placard is a picture of the card THEY are
+        /// reading, so it is drawn at the size THEY are reading it at — the project's 1:1 rule,
+        /// whose only exceptions live in <c>Net/RevealGate.cs</c>. This settles the ownership
+        /// question that <c>HoverCardPose</c> and <see cref="RemoteBoardTooltip"/> had answered in
+        /// opposite directions; the tooltip (owner's <c>HoverInfoScale</c> off record 28) was
+        /// right, and this is now the same shape from the same record.</para>
+        ///
+        /// <para>THE ARGUMENT THAT LOST IS RECORDED IN <c>HoverCardPose</c>'s CLASS DOC so nobody
+        /// re-runs it, together with what the ruling costs: the dial is clamped 1.0..1.75
+        /// (<c>ModalFallback.WindowLegibilityMin</c>/<c>Max</c>), so two players at opposite ends
+        /// of it see the same icon's placard at sizes 75 % apart, deliberately. At the shipped
+        /// default on both sides the factor is 0.7 × 1.5 = 1.05, i.e. unchanged from what
+        /// <see cref="FallbackScaleFactor"/> already produced — the ruling is visible only once
+        /// somebody moves the dial, which is exactly the case it was made for.</para>
+        ///
+        /// <para>NOT LATCHED ON THE REVISION EDGE, AND HERE IS WHY. Every other record-28 consumer
+        /// (<c>RemoteControlBoard</c>, <c>RemoteItemFan</c>, <c>RemoteHandFan</c>) caches the dials
+        /// it needs and refreshes them when <c>RemoteAvatar.BoardTuningRevision</c> moves, because
+        /// those numbers size CONSTRUCTED geometry and re-reading them would mean rebuilding it.
+        /// Nothing is constructed from this one: <see cref="Show"/> already writes the host scale
+        /// every frame behind an epsilon compare, so a plain read per placard per frame — a
+        /// dictionary probe and a float, the same cost as the <see cref="EyeOf"/> lookup beside it
+        /// — is both cheaper than a latch and strictly more correct. It is also how the second
+        /// requirement is met for free: a peer whose record 28 has not arrived draws at the shipped
+        /// default (<c>RemoteAvatar</c>'s constructor seeds <c>BoardTuning</c> from an EMPTY payload,
+        /// so every dial resolves to this client's shipped value) and CORRECTS ITSELF on the first
+        /// frame after the record lands, rather than staying wrong for the session. There is no
+        /// state to invalidate when a peer leaves and rejoins.</para>
+        ///
+        /// <para>ONE HONEST GAP, STATED NOT HIDDEN: the LOCAL card's size is
+        /// <c>ModalFallback.DeriveWindowScale</c>, which is <c>Min(cap, boardRelative)</c> — the cap
+        /// is what this reproduces, and the board-relative term binds only for a window wide enough
+        /// that <c>ModalTargetWidthMeters</c> is the smaller of the two. That term is computed from
+        /// the placard's OWN authored width, which is the same prefab on both machines, so it is not
+        /// an owner-versus-viewer question and the ruling does not reach it; if a quest preview popup
+        /// is ever authored wide enough for it to bind, a placard and the local card would differ by
+        /// that term on BOTH machines equally. Reproducing it here would mean measuring a converted
+        /// rect before the pose runs, for a case that does not occur today.</para>
+        /// </summary>
+        private static float ScaleFactorFor(int playerId) =>
+            ModalFallback.WindowScaleFactor
+            * (NetAvatarDriver.TryGetPeerWindowLegibility(playerId, out float legibility)
+                   ? legibility
+                   : Defaults.WindowLegibility);
 
         private sealed class Card
         {
@@ -1203,12 +1235,13 @@ internal static class RemoteMapRoom
             // SIZE FIRST, POSE SECOND: HoverCardPose seats the card by measuring its drawn content
             // in host-local units and converting that through the host transform, so a scale
             // written afterwards would move the card it just seated.
-            float scale = HoverCardPose.LocalCardHostScale;
-            if (float.IsNaN(scale) || scale <= 0f)
-            {
-                scale = WorldUI.WorldUIConfig.CanvasScaleMm.Value * 0.001f
-                        * WorldUI.PanelLayout.WorldScale * FallbackScaleFactor;
-            }
+            //
+            // THE FACTOR IS THE OWNER'S DIAL (ScaleFactorFor), not this viewer's, and no longer a
+            // number measured off the local player's own card. Re-read every frame on purpose: it
+            // is how a placard built before that peer's record 28 arrived corrects itself instead
+            // of staying at the shipped default for the whole session.
+            float scale = WorldUI.WorldUIConfig.CanvasScaleMm.Value * 0.001f
+                          * WorldUI.PanelLayout.WorldScale * ScaleFactorFor(playerId);
             Transform host = card.Panel.HostGo.transform;
             if (Mathf.Abs(host.localScale.x - scale) > 1e-6f)
                 host.localScale = Vector3.one * scale;
@@ -1227,7 +1260,7 @@ internal static class RemoteMapRoom
             // card to the local head, which would make a foreign placard indistinguishable from
             // the local player's own — the one thing this presentation may not do.
             HoverCardPose.Place(card.Panel, hasAnchor: true, anchor: seat,
-                                viewer: EyeOf(card, playerId), isLocalCard: false);
+                                viewer: EyeOf(card, playerId));
         }
 
         /// <summary>

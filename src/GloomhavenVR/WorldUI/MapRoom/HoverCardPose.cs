@@ -67,6 +67,29 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// difference is the point it is turned to: the local card faces the local head, a peer's faces
 /// THAT PEER's head. Since the name row and the Steam picture are gone, that facing is the only
 /// thing that says whose placard it is, so it is not decoration.</para>
+///
+/// <para><b>AND ITS SIZE IS THE OWNER'S DIAL, NOT THE VIEWER'S — THE OTHER ANSWER WAS ARGUED HERE
+/// AND OVERRULED (2026-08-28).</b> This class used to publish <c>LocalCardHostScale</c>: the world
+/// scale MEASURED off the local player's own hover card, handed to <c>Net.RemoteMapRoom</c> so that
+/// every peer's placard was built at it. The argument for it is recorded verbatim because it was a
+/// real one, not an oversight: <i>a peer's placard must be the SAME SIZE as the card the local
+/// player gets for the same icon</i> — one room, one apparent size for one kind of object, and the
+/// viewer's <c>[WorldUI] WindowLegibility</c> is an ACCESSIBILITY dial, so a viewer who enlarged
+/// their windows to read them arguably enlarged all of them. The user decided the other way and the
+/// wording leaves no room: <i>"Auch hier soll die 1:1 Regel gelten, also die Größe des
+/// Besitzers."</i> A peer's placard is a picture of what THEY are looking at, so it is drawn at the
+/// size THEY are looking at it — the same rule <c>Net.RemoteBoardTooltip</c> already followed, and
+/// the 1:1 rule this project applies to everything a remote player renders, with the exceptions
+/// living in <c>Net/RevealGate.cs</c> and nowhere else.</para>
+///
+/// <para>THE COST IS WORTH STATING, BECAUSE IT IS THE PRICE OF THE RULING AND NOT A DEFECT: the
+/// dial is clamped 1.0..1.75 (<c>ModalFallback.WindowLegibilityMin</c>/<c>Max</c>), so two players
+/// sitting at opposite ends of it see the SAME icon's placard at sizes 75 % apart. A viewer at 1.0
+/// reading a peer at 1.75 gets a placard larger than any window of their own. That is the ruling,
+/// deliberately. Do not re-derive the local-measurement version: it is gone from this file, the
+/// size now rides the wire as <c>NetProtocol.TuneWindowLegibility</c> (id 180, record 28), and the
+/// only thing the removal cost was the "NaN until this viewer has hovered an icon once" state that
+/// the measurement needed and nothing else ever wanted.</para>
 /// </summary>
 internal static class HoverCardPose
 {
@@ -106,7 +129,6 @@ internal static class HoverCardPose
     internal static void Reset()
     {
         States.Clear();
-        _localHostScale = float.NaN;
     }
 
     /// <summary>
@@ -125,22 +147,11 @@ internal static class HoverCardPose
     internal static bool IsPeerPlacard(GameObject? go) =>
         go != null && go.name.StartsWith(PeerPlacardNamePrefix, System.StringComparison.Ordinal);
 
-    /// <summary>
-    /// The world scale the LOCAL hover card's host is standing at, or NaN until one has been seated
-    /// this session.
-    ///
-    /// <para>WHY IT IS MEASURED AND NOT COMPUTED: the local card's size is
-    /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap times the user's
-    /// <c>[WorldUI] WindowLegibility</c> dial, both private to a file this lane does not own. A
-    /// peer's placard must be the SAME SIZE as the card the local player gets for the same icon,
-    /// and the only way to guarantee that without copying two constants (one of them a live user
-    /// dial) is to read the number off the card the game and the mod already agreed on. Recorded
-    /// here, where every local card passes through anyway; the peer builder falls back to a stated
-    /// approximation until the local player has hovered once.</para>
-    /// </summary>
-    internal static float LocalCardHostScale => _localHostScale;
-
-    private static float _localHostScale = float.NaN;
+    // NO LocalCardHostScale HERE ANY MORE. It published the world scale measured off the local
+    // player's own card so that peer placards could be built at it; the 2026-08-28 ruling makes a
+    // placard the OWNER's size, so there is nothing left to measure and nothing left to be NaN
+    // until this viewer has hovered once. The argument it was built on, and the ruling that
+    // overruled it, are recorded in the class doc so nobody re-runs either.
 
     /// <summary>
     /// Put one hover card where it belongs this frame, billboarded to the LOCAL head — the local
@@ -149,7 +160,7 @@ internal static class HoverCardPose
     internal static void Place(ConvertedPanel panel, bool hasAnchor, Vector3 anchor, Camera? head)
     {
         Place(panel, hasAnchor, anchor,
-              head != null ? head.transform.position : (Vector3?)null, isLocalCard: true);
+              head != null ? head.transform.position : (Vector3?)null);
     }
 
     /// <summary>
@@ -167,12 +178,15 @@ internal static class HoverCardPose
     /// the rotation alone — a card whose reader cannot be located keeps the facing it had rather
     /// than snapping to a direction nobody chose.</para>
     ///
-    /// <para><paramref name="isLocalCard"/> only decides whether this card's measured host scale is
-    /// recorded as the reference every peer placard is built at — see
-    /// <see cref="LocalCardHostScale"/>. Nothing about the pose depends on it.</para>
+    /// <para>THERE IS NO LONGER AN <c>isLocalCard</c> FLAG. It existed only to decide whether this
+    /// card's measured host scale was recorded as the reference every peer placard was built at,
+    /// and the 2026-08-28 ruling ("also die Größe des Besitzers") took that job away — a placard is
+    /// sized from its OWNER's dial off the wire, so nothing about a card is measured for anyone
+    /// else's benefit. Nothing about the pose ever depended on it, which is why removing it changes
+    /// no geometry.</para>
     /// </summary>
     internal static void Place(ConvertedPanel panel, bool hasAnchor, Vector3 anchor,
-                               Vector3? viewer, bool isLocalCard)
+                               Vector3? viewer)
     {
         if (panel == null || !panel.IsAlive || panel.HostGo == null)
             return;
@@ -180,13 +194,6 @@ internal static class HoverCardPose
         CardState state = StateFor(panel.HostGo);
 
         Neutralise(panel, state);
-
-        if (isLocalCard)
-        {
-            float s = Mathf.Abs(host.lossyScale.x);
-            if (s > 1e-6f)
-                _localHostScale = s;
-        }
 
         if (!hasAnchor)
             return;

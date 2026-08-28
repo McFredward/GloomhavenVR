@@ -555,6 +555,41 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     }
 
     /// <summary>
+    /// A peer's own <c>[WorldUI] WindowLegibility</c> — how large THEY draw a floated window — or
+    /// false when that peer has no avatar yet (joining, not embodied).
+    ///
+    /// <para>Same shape and same argument as <see cref="TryGetPeerRigScale"/>: strictly read-only,
+    /// strictly local, and no new wire. The number already rides extension record 28 as
+    /// <see cref="NetProtocol.TuneWindowLegibility"/> (id 180) and lands re-clamped to
+    /// <c>ModalFallback.WindowLegibilityMin</c>/<c>Max</c> on
+    /// <see cref="RemoteAvatar.BoardTuning"/>; this only hands it to a caller that has a PLAYER ID
+    /// and no avatar reference.</para>
+    ///
+    /// <para>Its consumer is <c>Net.RemoteMapRoom.Placards</c> (2026-08-28). A peer's map-room hover
+    /// placard is now sized from the OWNER's dial rather than the viewer's — user ruling, verbatim:
+    /// <i>"Auch hier soll die 1:1 Regel gelten, also die Größe des Besitzers."</i> That class is
+    /// static and keyed by player id, so without this accessor the only route to the owner's tuning
+    /// would be a scene sweep or a second copy of the avatar table; the alternative both siblings
+    /// above name — <c>GameObject.Find("GloomhavenVR.RemoteAvatar[id]")</c> — is the one this
+    /// project has already lost a frame budget to.</para>
+    ///
+    /// <para>ALWAYS A USABLE NUMBER WHEN IT ANSWERS TRUE, INCLUDING BEFORE RECORD 28 ARRIVES: the
+    /// <see cref="RemoteAvatar"/> constructor seeds <c>BoardTuning</c> from an EMPTY payload, so
+    /// every dial the peer has not sent resolves to this client's shipped default. A caller
+    /// therefore needs no "has it arrived yet" state of its own — it reads per frame and the value
+    /// corrects itself the frame after the record lands.</para>
+    /// </summary>
+    internal static bool TryGetPeerWindowLegibility(int playerId, out float legibility)
+    {
+        legibility = Defaults.WindowLegibility;
+        NetAvatarDriver? driver = _instance;
+        if (driver == null || !driver._avatars.TryGetValue(playerId, out RemoteAvatar avatar) || avatar == null)
+            return false;
+        legibility = avatar.BoardTuning.WindowLegibility;
+        return legibility > 0f;
+    }
+
+    /// <summary>
     /// Append every peer's last RECEIVED head world position to <paramref name="into"/> and return
     /// how many were added.
     ///
