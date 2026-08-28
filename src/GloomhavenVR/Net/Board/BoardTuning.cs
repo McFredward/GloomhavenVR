@@ -488,6 +488,21 @@ internal static class BoardTuningSampler
         n += Ang(payload, ref i, NetProtocol.TuneFanStepDegreesBurnt,
                  CardsConfig.FanStepDegrees(PileKind.Burnt), Defaults.FanStepDegrees_Burnt);
 
+        // THE OWNER'S OWN HAND (ids 201..204), the highest angles this record writes. See
+        // NetProtocol.TuneHandCurlProximal: a peer's fingers were closing by the VIEWER's [Hands]
+        // dials, because RemoteAvatar hands the owner's synced curl 0..1 to a FingerCurler that
+        // then asks the LOCAL config how far "fully curled" is. A sender on the shipped values
+        // emits none of these four.
+        n += Ang(payload, ref i, NetProtocol.TuneHandCurlProximal,
+                 Hands.HandsConfig.CurlProximal, Defaults.CurlProximal);
+        n += Ang(payload, ref i, NetProtocol.TuneHandCurlMiddle,
+                 Hands.HandsConfig.CurlMiddle, Defaults.CurlMiddle);
+        n += Ang(payload, ref i, NetProtocol.TuneHandCurlTip,
+                 Hands.HandsConfig.CurlTip, Defaults.CurlTip);
+        n += Ang(payload, ref i, NetProtocol.TuneHandPinkySplay,
+                 Hands.HandsConfig.GlovePinkyCounterAbduction,
+                 Defaults.GlovePinkyCounterAbduction);
+
         // ---- COUNT fields (ids 224..225) ------------------------------------------------------
         n += Cnt(payload, ref i, NetProtocol.TuneFanMaxHandForCurve,
                  CardsConfig.FanMaxHandForCurve, Defaults.FanMaxHandForCurve);
@@ -543,6 +558,16 @@ internal static class BoardTuningSampler
         // owner's say-so; the receiver hosts its own copy of the game's CardSmoke prefab.
         n += Bool8(payload, ref i, NetProtocol.TuneGameCardParticlesOn,
                    Cards.CardsConfig.GameCardParticles, Defaults.GameCardParticles);
+        // …the fan's fill-curve GATE (id 237). Both operands of the multiply it gates have ridden
+        // this record for builds; the gate itself never did, so the receiver multiplied
+        // unconditionally and an owner who switched it off flattened their own fan and nobody
+        // else's. See NetProtocol.TuneFanCurveByFillOn.
+        n += Bool8(payload, ref i, NetProtocol.TuneFanCurveByFillOn,
+                   Cards.CardsConfig.FanCurveByFill, Defaults.FanCurveByFill);
+        // …and the "still choosing" ring (id 238), now the highest id this record writes. The
+        // unusual direction: the mirror draws MORE than the owner without it.
+        n += Bool8(payload, ref i, NetProtocol.TuneSelectionReadyOn,
+                   Board.SelectionReadyHighlighter.EnabledEntry, Defaults.SelectionReady_Enabled);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
@@ -868,6 +893,31 @@ internal readonly struct RemoteBoardTuning
     /// <see cref="NetProtocol.TuneGameCardParticlesOn"/>.</summary>
     public bool GameCardParticlesOn { get; }
 
+    /// <summary>The owner's <c>[Cards] FanCurveByFill</c> — whether their hand fan scales its depth
+    /// bow by how full the hand is. The receiver performed that multiply unconditionally until
+    /// this field existed. Wire id <see cref="NetProtocol.TuneFanCurveByFillOn"/>.</summary>
+    public bool FanCurveByFillOn { get; }
+
+    /// <summary>The owner's <c>[SelectionReady] Enabled</c> — whether they want the amber "still
+    /// choosing" ring drawn at all. Wire id <see cref="NetProtocol.TuneSelectionReadyOn"/>.</summary>
+    public bool SelectionReadyOn { get; }
+
+    /// <summary>The owner's <c>[Hands] CurlProximal</c> in degrees, already clamped to their own
+    /// 0..130 window. Wire id <see cref="NetProtocol.TuneHandCurlProximal"/>.</summary>
+    public float HandCurlProximal { get; }
+    /// <summary>The owner's <c>[Hands] CurlMiddle</c>, same clamp.</summary>
+    public float HandCurlMiddle { get; }
+    /// <summary>The owner's <c>[Hands] CurlTip</c>, same clamp.</summary>
+    public float HandCurlTip { get; }
+    /// <summary>The owner's <c>[Hands] GlovePinkyCounterAbduction</c> in degrees, clamped to their
+    /// own -30..30 window. Wire id <see cref="NetProtocol.TuneHandPinkySplay"/>.</summary>
+    public float HandPinkySplay { get; }
+
+    /// <summary>The owner's three finger-curl joint limits as one vector, in the shape
+    /// <c>Hands.FingerCurler</c> consumes — so a caller passes ONE value and cannot mix an owner's
+    /// proximal with a viewer's tip.</summary>
+    public Vector3 HandCurlAngles => new(HandCurlProximal, HandCurlMiddle, HandCurlTip);
+
     /// <summary>[ButtonAnim] Enable — whether this owner's keycaps animate at all. THEIR dial, not
     /// the viewer's; see <c>NetProtocol.TuneButtonAnimOn</c> for the reversal.</summary>
     public bool ButtonAnimOn { get; }
@@ -1144,6 +1194,23 @@ internal readonly struct RemoteBoardTuning
                                   Defaults.AppearParticles ? 1 : 0) != 0;
         GameCardParticlesOn = C(payload, len, NetProtocol.TuneGameCardParticlesOn,
                                 Defaults.GameCardParticles ? 1 : 0) != 0;
+        FanCurveByFillOn = C(payload, len, NetProtocol.TuneFanCurveByFillOn,
+                             Defaults.FanCurveByFill ? 1 : 0) != 0;
+        SelectionReadyOn = C(payload, len, NetProtocol.TuneSelectionReadyOn,
+                             Defaults.SelectionReady_Enabled ? 1 : 0) != 0;
+        // THE OWNER'S HAND, clamped to their own windows on THIS side (0..130 for the three curl
+        // joints, -30..30 for the splay). Clamping here rather than in the renderer means every
+        // consumer reads an angle the owner could actually have curled to, and a corrupt field
+        // cannot hyperextend a peer's fingers through the back of their hand.
+        HandCurlProximal = Mathf.Clamp(
+            A(payload, len, NetProtocol.TuneHandCurlProximal, Defaults.CurlProximal), 0f, 130f);
+        HandCurlMiddle = Mathf.Clamp(
+            A(payload, len, NetProtocol.TuneHandCurlMiddle, Defaults.CurlMiddle), 0f, 130f);
+        HandCurlTip = Mathf.Clamp(
+            A(payload, len, NetProtocol.TuneHandCurlTip, Defaults.CurlTip), 0f, 130f);
+        HandPinkySplay = Mathf.Clamp(
+            A(payload, len, NetProtocol.TuneHandPinkySplay,
+              Defaults.GlovePinkyCounterAbduction), -30f, 30f);
         ButtonAppearSeconds = F(payload, len, NetProtocol.TuneButtonAppearSeconds,
                                 Defaults.AppearSeconds);
         ButtonDisappearSeconds = F(payload, len, NetProtocol.TuneButtonDisappearSeconds,

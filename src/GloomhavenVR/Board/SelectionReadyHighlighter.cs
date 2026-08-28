@@ -83,6 +83,20 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
     /// signature (0 = never computed).</summary>
     private int _lastLoggedHash;
 
+    /// <summary>
+    /// The bound entry itself, for the ONE caller that needs the ConfigEntry rather than its value:
+    /// <c>Net/Board/BoardTuning</c>, which samples the owner's dials onto extension record 28 and
+    /// writes a field only when the live entry differs from the shipped default — so it needs the
+    /// entry to ask, and null while unbound has to mean "write nothing".
+    ///
+    /// <para>WHY THIS TOGGLE TRAVELS AT ALL (wire id
+    /// <see cref="Net.NetProtocol.TuneSelectionReadyOn"/>): the MIRRORED ring on a peer's board was
+    /// gated only on the selection-state record, never on whether its owner wants the highlight
+    /// drawn — so an owner who switched it off still had rings lit around their figure on every
+    /// other screen. The unusual direction, and the same rule: a remote board is a picture of its
+    /// OWNER's board, including what they chose not to see.</para></summary>
+    internal static BepInEx.Configuration.ConfigEntry<bool>? EnabledEntry => _enabled;
+
     /// <summary>Bind the [SelectionReady] toggle (its own module config file). Idempotent.</summary>
     public static void Bind()
     {

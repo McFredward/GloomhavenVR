@@ -176,7 +176,14 @@ EXEMPT = {
     # TARGET and says nothing about the ease RATE, which RemoteHandFan held as its own literal at
     # 8/s against a shipped 6/s. An exemption that borrows another dial's argument inherits its
     # blind spots as well as its reasoning.
-    ("Cards", "FanCurveByFill"): ("COMFORT", "a local hand-fill heuristic feeding dials that ARE on the wire"),
+    # [Cards] FanCurveByFill STOOD HERE AS COMFORT AND IS NOW WIRED (id 237, 2026-08-28). Its reason
+    # -- "a local hand-fill heuristic feeding dials that ARE on the wire" -- was the MIRROR IMAGE of
+    # what the code does, and the inversion is worth keeping because it is subtle. The dial does not
+    # FEED the wired dials; the wired dials (FanCurvePower 135 and FanCurveMinCards 224) cross RAW,
+    # and the RECEIVER performs the fill multiply itself, unconditionally. So the gate never crossed
+    # at all and an owner who switched it off flattened their own fan and nobody else's. An
+    # exemption that says "it feeds something that is covered" has to be checked in the direction of
+    # the data flow: here it flowed the other way.
     ("Cards", "HeldForward"): ("COMFORT", "how a card sits in THEIR hand; the held card's POSE is synced"),
     ("Cards", "HeldOffPalm"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldPinchOffset"): ("COMFORT", "as HeldForward"),

@@ -18198,6 +18198,36 @@ internal static class NetProtocol
     /// <summary>[Cards] FanStepDegrees_Burnt.</summary>
     public const byte TuneFanStepDegreesBurnt = 200;
 
+    // ---- THE OWNER'S OWN HAND (ids 201..204) --------------------------------------------------
+    //
+    // THIS RECORD IS NAMED FOR THE BOARD AND IS ACTUALLY THE OWNER'S DIAL RECORD. Four [Hands]
+    // dials ride it from 2026-08-28 because a peer's FINGERS were being curled by the VIEWER's
+    // copy of them: RemoteAvatar builds a FingerCurler for a remote avatar and feeds it the owner's
+    // wire curl 0..1 — correct — and FingerCurler then asks HandsConfig.FingerMaxAnglesSafe, which
+    // reads THIS client's [Hands] CurlProximal/Middle/Tip. So the amount a peer's hand closes was
+    // never theirs. RemoteAvatar's own note claiming the HandScale fix closed "the last per-player
+    // choice that did not travel" was wrong by four dials, on the same hand.
+    //
+    // ANGLES, not factors: all four are degrees, which is the width their range fixes. They are
+    // clamped on the RECEIVING side to the owner's own windows (0..130 for the curls, -30..30 for
+    // the splay), so a corrupt field cannot hyperextend a peer's fingers through the back of their
+    // hand — the same discipline the held-card magnification got at id 178.
+    //
+    // NOTE FOR WHOEVER ADDS THE NEXT ONE: [Hands] is not in check-wire-coverage.py's BOARD_SECTIONS,
+    // so that checker will not track these four and cannot tell you if a receiver stops reading
+    // them. That is a gap in the checker, not a licence — check-remote-defaults.py holds the
+    // fallbacks instead.
+
+    /// <summary>[Hands] CurlProximal — how far the OWNER's knuckle joint closes at full curl.</summary>
+    public const byte TuneHandCurlProximal = 201;
+    /// <summary>[Hands] CurlMiddle — the middle joint's share of the same curl.</summary>
+    public const byte TuneHandCurlMiddle = 202;
+    /// <summary>[Hands] CurlTip — the fingertip joint's share.</summary>
+    public const byte TuneHandCurlTip = 203;
+    /// <summary>[Hands] GlovePinkyCounterAbduction — the little finger's splay at full curl, which
+    /// is the one that reads as a mannered hand when it disagrees between two clients.</summary>
+    public const byte TuneHandPinkySplay = 204;
+
     // COUNT (1 B).
 
     /// <summary>[Cards] FanMaxHandForCurve — hand size at which the fan's curvature saturates.</summary>
@@ -18326,6 +18356,35 @@ internal static class NetProtocol
     /// <para>Carries <c>[Cards] GameCardParticles</c>. Named again on the last line for the
     /// mechanical reason <see cref="TuneButtonAnimOn"/> states.</para></summary>
     public const byte TuneGameCardParticlesOn = 236;
+
+    /// <summary>
+    /// [Cards] FanCurveByFill — whether the OWNER's hand fan scales its depth bow by how FULL the
+    /// hand is, or bows the same amount whatever the card count.
+    ///
+    /// <para>A bool, and it is on this record for the reason the whole 1:1 audit turned on: both
+    /// OPERANDS of the multiply already ride (ids 135 and 224) and the RECEIVER performs the
+    /// multiply itself, unconditionally. So an owner who switches this off flattens their own fan
+    /// and nobody else's — and the wire-coverage table called the dial exempt because it "feeds
+    /// dials that ARE on the wire", which is the mirror image of the truth: the dials cross raw
+    /// and the gate does not cross at all.</para>
+    ///
+    /// <para>[Cards] FanCurveByFill.</para>
+    /// </summary>
+    public const byte TuneFanCurveByFillOn = 237;
+
+    /// <summary>
+    /// [SelectionReady] Enabled — whether the OWNER wants the amber "still choosing" ring drawn
+    /// around a figure that has not committed its cards yet.
+    ///
+    /// <para>The mirrored ring is gated only on the selection-state record, so an owner who
+    /// switches the highlight off still has rings lit around their figure on every peer's screen.
+    /// The direction is the unusual one — the mirror draws MORE than the owner, not less — but it
+    /// is the same rule: a remote board is a picture of its OWNER's board, and that includes what
+    /// they have chosen not to see.</para>
+    ///
+    /// <para>[SelectionReady] Enabled.</para>
+    /// </summary>
+    public const byte TuneSelectionReadyOn = 238;
 
     /// <summary>
     /// RESERVED, AND NEVER LIVE — the id <see cref="TuneCardDustOn"/> was mistakenly given in
