@@ -470,3 +470,66 @@ to the stricter answer, so a path that forgets can only under-draw.
 
 The last renderer debt on record 28 (`[Cards] SlotCardInset`, id 101) shipped in the same build.
 **The PENDING debt count on this record is zero.**
+
+## 6. Postscript, ModBuild 315: the 1:1 topic closes, and two of the last three debts were false
+
+The user's instruction was "fix den Rest der noch fehlt um das 1:1 Thema vollständig abzuschließen".
+Three items stood open. **Two of them were filed as needing the wire and neither did.** Both debts
+had listed their evidence correctly and then written down a conclusion that did not follow from it —
+which is now the third and fourth time on this project that a standing "cannot be done" note fell
+the moment somebody opened the file instead of the note about it (after the rest-cap `Square`
+branch, the fan collapse, and the card smoke in §5).
+
+**The pile-arc bit (withdrawn).** `RemoteBrowserFan` filed a REQUEST for one wire bit — "this index
+is the hand sweep's winner" — because the mirrors split on a laser-only hover that
+`ItemsPile.Relayout` / `PileBrowser.Relayout` do not split for. It reached for the wrong end.
+`CardFan.Relayout`, the reference implementation of "one card at a time", has always split on the
+laser: `_hoveredIndex >= 0 ? _hoveredIndex : _pokeHoveredIndex`, and `_hoveredIndex` is written only
+by `CardsDriver.UpdateFanHoverSplit`, whose precedence is `_laserHover` **first**. The mirrors were
+not over-reaching — the two pile arcs were the odd ones out on the *owner's own* board. Both now
+take their pivot from the same expression their `HighlightedIndex` reports, which is the value
+already on record 6, so the mirrors are correct by construction. No id, no bit, no byte.
+
+**And the pivot expression alone would have been inert.** Nothing triggered a relayout on a laser
+hover: the laser writes its pop straight onto the card (`VRCard.SetLaserHover` / `ItemChip.OnPokeEnter`)
+and tells the fan nothing. A patch that changed only the two `int hovered = …` lines would have
+shipped a behaviour-free build. That is the same shape as every other remedy on this project that
+was gated behind something that never ran, and it is worth stating as a rule: **when a fix changes
+which value a computation reads, check that the computation still runs when that value changes.**
+
+**The three element masks (never needed).** `RemoteElementStrip` filed IN CREATION / RESERVED /
+AVAILABLE on the premise that *"every writer of those is the LOCAL player's own UI flow … They are
+NOT replicated."* The writers were listed correctly; **the debt never asked who else reaches them.**
+The game reaches every one on a non-controlling client through its own proxy paths — `GameActionType`
+34..37 → `ProxyToggleAugment` → the same `UIUseAugmentation.Select()` the owner's click calls,
+`UIUseItemsBar.ProxyUseItemBonus`, `UIUseAbilitiesBar.ProxyInfuseAbility`, and the replicated
+`ElementsInfused` / `UpdateElements` choreographer messages. `SetAvailableElements` has one call site
+in the whole game, fed from a bar whose own proxy path *throws* if it finds it unpopulated on the
+receiving client, and `CardsActionControlller`'s `!actorPicking.IsUnderMyControl` branch shows that
+bar anyway. It is also **three** masks and not the two the header estimated: availability rides
+`SetAvailableElements`, which `UpdateBoard` never calls.
+
+Two source findings changed the drawing rather than the wire: a **reserved** element is hidden
+instantly by a bare `SetActive(false)` that reaches no animator, so the ramps are keyed on the game's
+draw list rather than on visibility; and `SetState`'s `isReserved` parameter is dead twice over.
+
+**The objectives wrap column (the only real change).** The one item that was real, and the specified
+fix was wrong. "Write the owner's `wantPx` onto the clone root" is **inert twice over**:
+`RemoteWidgetMirror` re-imposes the source's rect every frame, node by node, root included, and the
+clone has no layout engine at all because `Neutralize` destroys every `LayoutGroup` and
+`ContentSizeFitter`. The lane refused to ship it and costed the real fix instead — four coupled
+changes behind `RemoteWidgetMirror.LayoutOwner`, member 0 being today's behaviour, opted into by the
+objectives dock alone. The clone owns its **geometry**; the source still owns its **content**.
+
+It cannot be measured offline, so it is not guessed at: the column reached is printed next to the
+owner's own line, and an implausible measure **withholds** the panel to the mod-drawn fallback
+instead of committing it.
+
+**And one item closed as a decision, not a fix.** The mixed language on a peer's board — sender's
+language where the text itself travels (records 7/9/12/13), viewer's where only a key does — was
+listed as a gap and is not one. The user ruled to keep it: text that travels is the owner's own
+rendered words, so it honours 1:1 *more* strictly than a re-localization would. Recorded in
+`Core/Loc/Loc.cs`, where a future review will meet it.
+
+**Status: every 1:1 item is shipped, ruled on, or recorded with its reason. PENDING wire debts on
+record 28: zero. Wire coverage 194 dials. ModBuild 315 adds no wire field at all.**
