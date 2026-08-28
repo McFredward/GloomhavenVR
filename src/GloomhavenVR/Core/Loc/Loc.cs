@@ -28,6 +28,37 @@ namespace GloomhavenVR.Core;
 /// is not loaded yet (mirrors <see cref="CardsGameApi.Localize"/>'s guard). We NEVER set
 /// the language — only read + subscribe.
 ///
+/// <para>WHICH LANGUAGE A *PEER'S* BOARD READS IN — A STANDING RULING, NOT A DEBT (user,
+/// 2026-08-28). A mirrored control board is deliberately MIXED, and this is the decided answer
+/// rather than an unfinished one. Two classes of text reach a peer's board and they resolve
+/// differently by construction:</para>
+///
+/// <para>THE SENDER'S LANGUAGE, because the TEXT ITSELF travels. Extension records 7 (pick
+/// banner), 9 (board tooltip), 12 (decision lines) and 13 (cap labels) carry capped UTF8 bytes the
+/// sender already rendered — see the record catalogue in <c>Net/PresenceState.cs</c>. The receiver
+/// draws those glyphs verbatim and has no key to re-localize.</para>
+///
+/// <para>THE VIEWER'S LANGUAGE, because only a KEY travels. <c>Net.Remote.RemoteDecisionPrompt</c>
+/// localizes each synced key here, <c>Net.Remote.RemoteMapRoom</c> puts its YML id through the
+/// game's own translator, and <c>Net.Remote.RemoteStatusReadouts</c> formats the round banner off
+/// <c>Loc.Game</c> against <see cref="CurrentLanguage"/>. That is the mod's own "no picture
+/// travels" principle applied to text: send the smallest metadata and let the receiver's game
+/// produce the words.</para>
+///
+/// <para>THE RULING, verbatim: <i>"Das die Sprache gemixed ist finde ich OK, respektiert sogar
+/// noch mehr die 1:1 Regel, daher finde ich FAS sogar gut. lass es so."</i> The reasoning is worth
+/// keeping because it is the opposite of the intuition that filed this as a gap: text that
+/// TRAVELS is the owner's own rendered words, so it honours the 1:1 rule MORE strictly than a
+/// re-localization would — a re-translated tooltip is a different string from the one its owner is
+/// looking at, however well translated. Uniformity here would have cost fidelity.</para>
+///
+/// <para>SO DO NOT "FIX" THIS. Neither direction is an improvement: forcing the key-borne text to
+/// the sender's language would need the language on the wire and would then show a viewer words
+/// they cannot read, and forcing the byte-borne text to the viewer's language is impossible
+/// without sending keys the game does not expose for these strings — and would break 1:1 even if
+/// it were. If a future review lists "the language on peer boards is mixed" as a finding, this
+/// paragraph is the answer.</para>
+///
 /// <para>PARTIAL: the CONFIG-DESCRIPTION table (the ~490 bound settings' explanations, shown by
 /// the in-VR config browser) lives in <c>Loc.ConfigDescriptions.cs</c> — same class, same
 /// language resolution, just kept out of this file because it is long. See
