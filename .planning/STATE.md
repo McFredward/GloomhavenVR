@@ -2,10 +2,10 @@
 
 - **Milestone:** v0.1 (first playable VR release)
 - **Position:** **Hardware iteration loop, multiplayer-capable.** Current build:
-  **`NetProtocol.ModBuild = 283` shipped and tested, bundle 70,938,157 bytes.** Rounds are run as
-  parallel agents on disjoint file sets; every diff reviewed before merge, cross-file changes
-  applied by the integrator.
-- **Last update:** 2026-08-25
+  **`NetProtocol.ModBuild = 315` on `dev`, bundle 70,204,340 bytes — unchanged since 296, so every
+  build since then is a DLL-ONLY install.** Rounds are run as parallel agents on disjoint file sets;
+  every diff reviewed before merge, cross-file changes applied by the integrator.
+- **Last update:** 2026-08-28
 - **The wall fade is CLOSED** (ModBuild 283, his own report: *"Ich bemerke keine Ruckler mehr bei
   der noch genausogut vorhandenen Logik mit den Mauern, top!"*). Worst commit 94.8 ms → 72.84 ms,
   the PERF S5 skip taking ~71 % of cycles. The closing account — what the subsystem does, every
@@ -13,6 +13,23 @@
   the two findings that outlive it — is **`.planning/perf/WALL-FADE-CLOSEOUT.md`**. Read that
   before touching `WallSegmentFade*`. PERF B build 2 (`.planning/perf/WALL-COMMIT-B-BUILD2.md`)
   is designed and deliberately **not built**.
+- **The 1:1 MULTIPLAYER TOPIC IS CLOSED** (ModBuild 315, 2026-08-28). Every item is shipped, ruled
+  on, or recorded with its reason; **record 28 carries ZERO PENDING wire debts** and wire coverage
+  stands at 194 dials. The closing account — what the last three items were, which two of them were
+  FALSE debts, and the one real fix — is **§6 of `.planning/multiplayer/DESIGN-1TO1-RESIDUE.md`**.
+  Read that before re-opening anything about peer boards.
+  - **The rule that round earned, and it generalises:** a filed debt is prose written at the moment
+    of *least* knowledge about the thing, and it then gets trusted like a measurement. Two of the
+    last three debts listed their evidence correctly and drew a conclusion nobody re-checked. Before
+    paying a filed debt, re-derive its central claim from source.
+  - **Deliberately NOT uniform, by user ruling:** the language on a peer's board is MIXED — sender's
+    where the text itself travels (records 7/9/12/13), viewer's where only a key does. Text that
+    travels is the owner's own rendered words and honours 1:1 *more* strictly than a re-localization
+    would. Filed in `src/GloomhavenVR/Core/Loc/Loc.cs`. **This is not a gap; do not "fix" it.**
+- **Owed on hardware:** the ModBuild 315 test list lives in the NetProtocol build notes (objectives
+  wrap column at differing dials — the only change in 315 that touches a shipping path and the only
+  one that cannot be measured offline; laser-hover pile arcs; element reserve/unreserve). Plus the
+  oldest owed test, from 302: card dust ON *plus* a second board dial moved.
 - **Caveat:** this file's §0 briefing is prose from the ModBuild 148 era and has not been
   re-audited since. Trust the lines above and the build notes in `src/GloomhavenVR/Net/NetProtocol.cs`
   (newest first) over anything further down; an audit is a snapshot, and this one is old.

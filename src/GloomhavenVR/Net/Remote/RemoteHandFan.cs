@@ -2016,11 +2016,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     // transmitting. The one input that is genuinely not derivable is the toggle itself: whether the
     // sender switched it on.
     //
-    // RENDERER FIRST, FIELD SECOND. That bit is NOT on the wire yet, deliberately — this project's
-    // FanCloseDuration trap is a wire field whose receiver ignores it, which turns
-    // scripts/check-wire-coverage.py green while the picture stays wrong. This is the honest way
-    // round: the picture is ready and the checker still says PENDING. When the id lands, _gazeBiasOn
-    // becomes one line in SyncTuning and nothing else here changes.
+    // RENDERER FIRST, FIELD SECOND — AND THE FIELD HAS SINCE LANDED (id 239, ModBuild 314). The
+    // order was deliberate: this project's FanCloseDuration trap is a wire field whose receiver
+    // ignores it, which turns scripts/check-wire-coverage.py green while the picture stays wrong, so
+    // the picture was built first and the checker was left saying PENDING until it was real. It cost
+    // exactly what the note predicted — one line in SyncTuning (`_gazeBiasOn = t.FanGazeBiasOn;`) and
+    // nothing else in this file.
+    //
+    // THIS PARAGRAPH ITSELF SAT WRONG FOR A BUILD. It went on claiming "NOT on the wire yet" and
+    // "the checker still says PENDING" after both had stopped being true, which is the exact shape
+    // of the four defects on this project that each sat under a comment asserting a state the code
+    // did not have. A note that describes a TRANSITION has to be retired by the change that
+    // completes it; leaving it is not neutral, because the next reader trusts it over the code.
     //
     // MAGNITUDES at the shipped constants: no yaw at all until the gaze clears 20° off the fan
     // centre, smoothstep-ramped to full weight by 42°, 0.6 of the offset applied, hard-clamped at
@@ -2032,10 +2039,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>
     /// Whether THIS OWNER has <c>[Cards] FanGazeBias</c> on.
     ///
-    /// <para>NOT WIRE-FED YET — see the region note above. It resolves to the shipped default
-    /// (<c>false</c>) for every peer, so the renderer below is armed and idle. The integration commit
-    /// that lands the id needs exactly one line, in <see cref="SyncTuning"/> beside the other
-    /// mirrored dials: <c>_gazeBiasOn = t.FanGazeBiasOn;</c></para>
+    /// <para>WIRE-FED since ModBuild 314 — <see cref="NetProtocol.TuneFanGazeBiasOn"/> (id 239),
+    /// read in <see cref="SyncTuning"/> as <c>_gazeBiasOn = t.FanGazeBiasOn;</c> beside the other
+    /// mirrored dials. It falls back to the shipped default (<c>false</c>) only for a peer whose
+    /// packet carries no record 28 at all, which is every untuned player — so an owner who has not
+    /// touched the dial is drawn exactly as they were before the field existed.</para>
     /// </summary>
     private bool _gazeBiasOn = Defaults.FanGazeBias;
 
