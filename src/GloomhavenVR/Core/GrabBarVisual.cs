@@ -31,12 +31,18 @@ namespace GloomhavenVR.Core;
 /// the old brass. If the texture is missing, <see cref="Build"/> falls back to the historic brass on
 /// an untextured material, so a broken resource loses the wood grain and keeps a usable handle.</para>
 ///
-/// <para><b>NO COLLIDER IS CREATED HERE, EVER.</b> Both call sites own grip surfaces that are not
-/// geometry and must not follow it: <c>GrabbableModal</c> hands a <c>BoxCollider</c> to
-/// <c>PanelGrabHandle.SetBarCollider</c> as the far RAY's only target (the lost-menu fix), and
-/// <c>PlayTray</c> keeps a 62 %-wide trigger the card dock-apron arbitration reads as
-/// <c>_handleZone</c>. Changing what the bar LOOKS like must not change where it can be grabbed
-/// from, so this class draws and does nothing else.</para>
+/// <para><b>THE PALM GRIP SURFACES ARE NOT GEOMETRY AND STILL DO NOT FOLLOW IT.</b>
+/// <c>PlayTray</c> keeps its 62 %-wide trigger, which the card dock-apron arbitration reads as
+/// <c>_handleZone</c>, and <c>GrabbableModal</c> keeps the generous frame zone the near-hand grab
+/// uses. Those are deliberately roomier than the bar and must stay that way — a hand reaching for a
+/// handle should not have to be accurate.</para>
+///
+/// <para><b>THE LASER TARGET IS DIFFERENT, AND IT IS NOW ROUND.</b> That one is aimed, not reached
+/// for, so it should sit where the rod actually is. <see cref="AttachLaserTarget"/> builds a
+/// <c>CapsuleCollider</c> along the rod's axis and keeps it in step with
+/// <see cref="SetLength"/>; the call site hands it to <c>PanelGrabHandle.SetBarCollider</c>, which
+/// is the collider <c>RayGrabDriver</c> tests EXCLUSIVELY for a far-ray grab (the lost-menu fix).
+/// It is OPT-IN: a caller that does not ask still gets no collider from this class at all.</para>
 /// </summary>
 internal sealed class GrabBarVisual
 {
@@ -61,6 +67,21 @@ internal sealed class GrabBarVisual
     /// <summary>Forwarded from <see cref="GrabBarMesh.SpecStrength"/>.</summary>
     private const float SpecStrength = GrabBarMesh.SpecStrength;
 
+    /// <summary>
+    /// How much wider than the rod the laser capsule is.
+    ///
+    /// <para>The box it replaces was <c>BarColliderPad = 1.5</c> — half again as thick as the bar
+    /// in BOTH cross-section axes, so a beam could grab a handle while visibly missing it by a
+    /// third of its own width. 1.10 puts the target essentially on the rod, which is what was
+    /// asked for, while leaving a little for the aim jitter of a hand-held controller at arm's
+    /// length. That jitter is real and already conceded elsewhere in this codebase: card colliders
+    /// are granted a minimum ANGULAR half-size against the beam for the same reason
+    /// (<c>FanSweep</c>'s near-miss rescue). A capsule at 1.10 R still sits well inside the box it
+    /// replaces, so nothing that was hittable before at the rod's own silhouette stops being
+    /// hittable now.</para>
+    /// </summary>
+    private const float LaserPad = 1.10f;
+
     private readonly Transform _shaft;
     private readonly Transform _capA;
     private readonly Transform _capB;
@@ -72,6 +93,12 @@ internal sealed class GrabBarVisual
     private float _tiles = -1f;
 
     private MeshFilter? _shaftFilter;
+
+    private CapsuleCollider? _laserTarget;
+
+    /// <summary>The round laser target, or null until <see cref="AttachLaserTarget"/> is called.
+    /// Hand it to <c>PanelGrabHandle.SetBarCollider</c>.</summary>
+    internal Collider? LaserTarget => _laserTarget;
     private readonly List<MeshRenderer> _renderers = new(3);
 
     /// <summary>The bar's own root. Call sites parent it and position it; they must NOT scale it
@@ -233,6 +260,42 @@ internal sealed class GrabBarVisual
     }
 
     /// <summary>
+    /// Give this rod a ROUND laser target: a capsule down its axis, sized from the rod itself.
+    ///
+    /// <para>A capsule rather than a box because a rod IS a capsule — round in cross-section, domed
+    /// at both ends. It is also analytic, so it costs a ray-capsule test rather than a mesh
+    /// traversal, and it needs no second mesh to keep in step with the tiling one.</para>
+    ///
+    /// <para>WHAT IT DELIBERATELY DOES NOT MATCH. The rod's silhouette is not a constant radius:
+    /// the shaft tapers to <c>0.89 R</c> at its ends and the knobs swell to <c>1.28 R</c>. One
+    /// capsule cannot be both. It is sized on the SHAFT, which is the whole graspable run and the
+    /// part a player actually aims at; the knobs then stand slightly proud of it. Sizing it on the
+    /// knobs instead would have made the target 28 % fatter than the rod along its entire length —
+    /// which is the very complaint this replaces, just with a rounder cross-section.</para>
+    ///
+    /// <para>Idempotent: calling it twice returns the same collider.</para>
+    /// </summary>
+    internal Collider AttachLaserTarget()
+    {
+        if (_laserTarget != null)
+            return _laserTarget;
+
+        _laserTarget = Root.gameObject.AddComponent<CapsuleCollider>();
+        _laserTarget.direction = 0;                 // along X, the rod's own axis
+        _laserTarget.isTrigger = true;              // as the box it replaces was
+        _laserTarget.radius = _radius * LaserPad;
+        // Unity's capsule height INCLUDES the two hemispherical ends, so this is the rod's full
+        // end-to-end length. Below 2 R it degenerates to a sphere, which is the honest shape of a
+        // bar that short anyway.
+        _laserTarget.height = Mathf.Max(_lastLength, _radius * 2f * LaserPad);
+        return _laserTarget;
+    }
+
+    /// <summary>The length <see cref="SetLength"/> was last given, so a target attached AFTER the
+    /// first layout is still the right size.</summary>
+    private float _lastLength;
+
+    /// <summary>
     /// Lay the rod out for a total end-to-end length, in the root's local metres.
     ///
     /// <para>Cheap enough for a per-frame caller — <c>GrabbableModal.SyncBar</c> is one. In the
@@ -267,5 +330,9 @@ internal sealed class GrabBarVisual
         _shaft.localScale = new Vector3(shaft, 1f, 1f);
         _capA.localPosition = left;
         _capB.localPosition = right;
+
+        _lastLength = length;
+        if (_laserTarget != null)
+            _laserTarget.height = Mathf.Max(length, _radius * 2f * LaserPad);
     }
 }
