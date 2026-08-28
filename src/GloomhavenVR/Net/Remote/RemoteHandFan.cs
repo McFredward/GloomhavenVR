@@ -291,11 +291,29 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private const float GazeGrazeMinZ = 0.05f;
     private const float GazeGrazeFullZ = 0.35f;
 
-    /// <summary>Exponential follow/face sharpness (higher = snappier). Mirrors CardFan's eased
-    /// follow (CardsConfig.FanFollowSmoothing default 16). CardFan's 4 mm dead zone is deliberately
-    /// NOT reproduced: it exists to hold the fan still through raw hand-tracking jitter, and the
-    /// peer's hand pose is already an interpolated, packet-rate signal.</summary>
-    private const float Smoothing = 16f;
+    /// <summary>Exponential follow/face sharpness (higher = snappier) — the OWNER's
+    /// <c>[Cards] FanFollowSmoothing</c>, record 28 id
+    /// <see cref="NetProtocol.TuneFanFollowSmoothing"/>. The INITIALISER is the shipped default,
+    /// which is what an untuned peer is still drawn with.
+    ///
+    /// <para>IT WAS A <c>const</c>, and its comment said it "mirrors CardFan's eased follow
+    /// (CardsConfig.FanFollowSmoothing default 16)". It mirrored the DEFAULT, which is a parity
+    /// that holds only until somebody moves the dial — and this dial has a QUALITATIVE end. At
+    /// <c>0</c> <c>CardFan.Tick</c> does not ease slowly: it takes the other branch entirely and
+    /// WELDS the fan to the palm ("Rigid (pre-Demeo, FanFollowSmoothing == 0): welded to
+    /// PalmCenter"), so the owner's fan has no follow lag at all while every peer watched a fan
+    /// that still eased. That is not a magnitude a peer could squint past; it is a different
+    /// animation. Neither is it a "sync sub-feature" needing a key of its own — it is the owner's
+    /// existing tuning arriving on the record that already carries the rest of their fan.</para>
+    ///
+    /// <para>The rate itself matters in between, which is why the number and not just the zero is
+    /// read: 60 ms after the palm moves, a fan at the shipped 16 has closed 62 % of the remaining
+    /// distance and one at the wire clamp's ceiling of 60 has closed 97 %.</para>
+    ///
+    /// <para>CardFan's 4 mm dead zone is still deliberately NOT reproduced: it exists to hold the
+    /// fan still through raw hand-tracking jitter, and the peer's hand pose is already an
+    /// interpolated, packet-rate signal.</para></summary>
+    private float _followSmoothing = Defaults.FanFollowSmoothing;
 
     // ---- HIGHLIGHT (extension record 6) --------------------------------------------------------
     // Verbatim copies of the LOCAL split + pop constants, so a peer's lifted card looks like the
@@ -1563,9 +1581,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _facing = targetRot;
             root.SetPositionAndRotation(target, ApplyGazeBias(_facing, biasYaw));
         }
+        else if (_followSmoothing <= 0f)
+        {
+            // RIGID, because the owner is rigid (see _followSmoothing): at FanFollowSmoothing == 0
+            // CardFan.Tick abandons the eased branch and parents the fan straight under PalmCenter,
+            // so their fan arrives at the palm pose on the frame the palm does. Asserting the target
+            // — the same two lines the _poseInit path uses — is that behaviour in this frame:
+            // there is no lag left to reproduce and no residual to carry, so _facing is written
+            // rather than slerped and a later return to a non-zero rate eases out of the true pose.
+            // BRANCHED, not merely scaled: k = 1 - exp(0) = 0 would have FROZEN the fan wherever it
+            // last stood instead of welding it to the hand — the opposite of rigid.
+            _facing = targetRot;
+            root.SetPositionAndRotation(target, ApplyGazeBias(_facing, biasYaw));
+        }
         else
         {
-            float k = 1f - Mathf.Exp(-Smoothing * Mathf.Max(dt, 0f));
+            float k = 1f - Mathf.Exp(-_followSmoothing * Mathf.Max(dt, 0f));
             _facing = Quaternion.Slerp(_facing, targetRot, k);
             root.SetPositionAndRotation(
                 Vector3.Lerp(root.position, target, k),
@@ -2377,6 +2408,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // The RATE, not just the amplitude. RemoteBoardTuning has already applied the owner's own
         // 1..30 clamp, so this is a rate they could actually have been easing at.
         _gazeSmoothing = t.FanGazeSmoothing;
+        // The fan's FOLLOW rate (id 181). RemoteBoardTuning has already applied the owner's own
+        // 0..60 clamp, and deliberately does NOT clamp zero away: zero is the rigid branch, not a
+        // degenerate value, so it has to survive the wire to reach the branch in TickPose.
+        _followSmoothing = t.FanFollowSmoothing;
         _splitMultiplier = t.FanSplitMultiplier;
         _splitFalloff = t.FanSplitFalloff;
         _splitScale = t.FanHoverSplitScale;

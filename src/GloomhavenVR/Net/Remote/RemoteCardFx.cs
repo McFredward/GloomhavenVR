@@ -41,9 +41,29 @@ internal sealed class RemoteCardFx
     /// the oldest slab is recycled — the animation is cosmetic, never a queue that may back up.</summary>
     private const int MaxFlights = 6;
 
-    /// <summary>Arc height as a fraction of the travelled distance — the value
-    /// <see cref="VRCard.FlyArcHeightFraction"/> uses locally, so the bow matches.</summary>
-    private const float ArcFraction = 0.28f;
+    /// <summary>Arc height as a fraction of the travelled distance —
+    /// <see cref="VRCard.FlyArcHeightFraction"/>, term for term.
+    ///
+    /// <para>THE COMMENT HERE WAS THE DEFECT (final 1:1 review). It read "the value
+    /// VRCard.FlyArcHeightFraction uses locally, so the bow matches" and stood over a
+    /// <c>0.28f</c> — while <c>VRCard.FlyArcHeightFraction</c> has been <c>0.55f</c> since it was
+    /// raised from 0.35 for user issue 3 ("a taller, clearly followable arch rather than a flat
+    /// pass"). The claim was never true at 0.55 and the number was never re-derived, so every
+    /// mirrored play, discard and burn flight bowed at 0.28/0.55 = 50.9 % of the height its owner
+    /// watched. On a 0.80 m hop at board scale 1 — long enough that the fraction beats the
+    /// floor on BOTH sides — the owner's card peaked 440 mm above the chord and the peer's
+    /// 224 mm: a skim across the board rather than an arch over it, which is exactly the flat
+    /// pass issue 3 removed locally. (Below ~0.47 m of travel the shared floor term hides part of
+    /// the gap, which is why short hops looked merely a little low and long ones looked wrong.)
+    /// A code LITERAL on both sides, not a dial: no wire field is owed, the two numbers simply
+    /// have to be the same number.</para>
+    ///
+    /// <para>The FLOOR term beside it (<see cref="MinArcCardHeights"/>) does NOT differ and is
+    /// left alone: <c>CardsDriver.BoardArcMin</c> is <c>boardScale × CardsConfig.CardHeight ×
+    /// 1.5</c>, and the max below already feeds it the OWNER's synced card height (see
+    /// <see cref="CardHeight"/>) times the owner's board scale — checked term for term against
+    /// <c>CardsDriver.4.Rebuild.BoardArcMin</c> while fixing this fraction.</para></summary>
+    private const float ArcFraction = 0.55f;
 
     /// <summary>Absolute minimum arc peak in board-scaled metres, mirroring
     /// <c>CardsDriver.BoardArcMin</c> (~1.5 card heights) so a short hop still clears the board.</summary>

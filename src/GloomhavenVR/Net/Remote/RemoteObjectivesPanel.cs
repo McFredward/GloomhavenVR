@@ -112,8 +112,28 @@ internal sealed class RemoteObjectivesPanel
         _root.localPosition = layout.ObjectivesMount;
         _root.localScale = Vector3.one * layout.ObjectivesScale;
 
-        // fitWidth:false mirrors ObjectivesSurface.FitWidthToMount — the container's content is
-        // already forced to the width budget, so re-fitting it would only re-scale the glyphs.
+        // fitWidth:false mirrors ObjectivesSurface.FitWidthToMount, and STAYS false: that override
+        // exists because the width budget is FORCED onto the content rather than measured from it,
+        // and feeding a forced width back into the uniform dock fit is what once made the 'Breite'
+        // dial behave like 'Größe' (TablePanelSurfaces derives it in full). Passing true here to get
+        // the owner's width in would re-import that defect, not fix anything.
+        //
+        // WHICH LEAVES A GAP THIS FILE CANNOT CLOSE, recorded here because the comment that used to
+        // stand on this line claimed a parity the chain does not have ("the container's content is
+        // already forced to the width budget"). It is — to the VIEWER's budget. The wrap column is
+        // written by ObjectivesSurface.ApplyContentWidth as wantPx = MountWidth · density onto the
+        // objectives container ROOT of this client's OWN live panel, with
+        //     MountWidth = PlayTray.ObjectivesMountWidth × CardsConfig.ObjectivesWidth(CurrentBoard)
+        // (TablePanelSurfaces) — the viewer's dial and the viewer's board style. RemoteWidgetMirror
+        // then CLONES that already-wrapped subtree, so the peer's task panel re-wraps every time the
+        // VIEWER touches their own 'Breite' and never when its owner does. layout.ObjectivesWidth
+        // below IS the owner's width (record 28 id 129) and it arrives here correctly, but with
+        // fitWidth:false the mirror only spends it on the oversize guard in TryMeasure: nothing
+        // applies it as a wrap column to the CLONE. Closing it means writing the owner's wantPx onto
+        // the cloned container root, which is RemoteWidgetMirror's job and not this file's — filed
+        // as a REQUEST rather than half-done here, because a change on this side alone can only move
+        // glyph SIZE, and size is the one thing that dial must not touch.
+        //
         // densityScale mirrors ObjectivesSurface.DensityScale (0.6): this ONE panel renders the
         // same content pixels onto ~1.67x more tray metres than the shared tray density, because
         // the objectives text was illegibly small at 1.0. Omitting it here rendered a peer's

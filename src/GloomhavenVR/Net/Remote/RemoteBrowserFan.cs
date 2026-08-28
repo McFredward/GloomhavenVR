@@ -126,6 +126,20 @@ internal sealed class RemoteBrowserFan
     /// <summary>The slab's resting local scale: the browse enlargement times the owner's width.</summary>
     private float SlabScale => CardScale * WidthRatio;
 
+    /// <summary>The OWNER's card HEIGHT in metres — their synced <c>[Cards] CardWidth</c> put through
+    /// the same 88/63.5 aspect <c>CardsConfig.CardHeight</c> derives it with. Used for the collapse
+    /// arc FLOOR, which the owner computes as <c>boardScale × CardHeight × 1.5</c>
+    /// (<c>CardsDriver.BoardArcMin</c>). <see cref="BeginCollapse"/> multiplied the NOMINAL
+    /// <see cref="CardH"/> instead, so a peer whose cards are bigger or smaller than this client's
+    /// got a floor measured in OUR cards. The product is <c>boardScale × CardWidth × 2.079</c>, so at
+    /// the ends of the <c>[Cards] CardWidth</c> range (0.03 .. 0.15 m against the shipped 0.0635 m)
+    /// this client's floor came out 2.12x TOO HIGH (132 mm where the owner folds at 62 mm) or
+    /// 2.36x TOO LOW (132 mm where the owner folds at 312 mm) at board scale 1 — 70 mm too much or
+    /// 180 mm too little arc peak on exactly the short folds the floor exists for.
+    /// <see cref="RemoteCardFx.CardHeight"/> is the same property for the same reason — this fan
+    /// was simply the one still reading its own card height.</summary>
+    private float OwnerCardHeight => CardH * WidthRatio;
+
     // ---- THE PRINTED FACE RECT (user report 12's second surface) -------------------------------
     //
     // A card SLAB is nominally 63.5 x 88 mm, and the face fitted onto it is a rect of a different
@@ -157,10 +171,20 @@ internal sealed class RemoteBrowserFan
     /// paying for the lerp.</summary>
     private const float EmergeSettleSeconds = 0.7f;
 
-    /// <summary>Arc height as a fraction of the collapse distance — <c>VRCard.FlyArcHeightFraction</c>.</summary>
-    private const float CollapseArcFraction = 0.28f;
+    /// <summary>Arc height as a fraction of the collapse distance — <c>VRCard.FlyArcHeightFraction</c>.
+    ///
+    /// <para>WAS <c>0.28f</c> under a comment that already named the local constant it was supposed
+    /// to be. <c>VRCard.FlyArcHeightFraction</c> is <c>0.55f</c> and has been since it was raised
+    /// from 0.35 for user issue 3 ("a taller, clearly followable arch rather than a flat pass"), so
+    /// the collapse folded at 50.9 % of the height its owner watched — 224 mm instead of 440 mm on
+    /// a 0.80 m fold at board scale 1. The same stale literal sat in <see cref="RemoteCardFx"/>;
+    /// both are code LITERALS on both sides, not dials, so no wire field is owed — the two numbers
+    /// simply have to be the same number.</para></summary>
+    private const float CollapseArcFraction = 0.55f;
 
-    /// <summary>Minimum collapse arc peak in card heights, mirroring <c>CardsDriver.BoardArcMin</c>.</summary>
+    /// <summary>Minimum collapse arc peak in card heights, mirroring <c>CardsDriver.BoardArcMin</c>
+    /// (<c>boardScale × CardsConfig.CardHeight × 1.5</c>). Multiplied by <see cref="OwnerCardHeight"/>,
+    /// never by <see cref="CardH"/>: the height in that product is the OWNER's.</summary>
     private const float CollapseMinArcCardHeights = 1.5f;
 
     private readonly RemoteAvatar _owner;
@@ -246,6 +270,13 @@ internal sealed class RemoteBrowserFan
         // Unclamped on purpose, like RemoteHandFan/RemoteItemFan: a lift of zero is a legitimate
         // "no pop", where a zero RADIUS above would collapse the arc onto a point.
         _popForward = t.FanSelectedPopForward;
+        // …and the SPLIT that same hover opens (ids 74 / 140 / 141 — see the field block).
+        // Unclamped like the lift and like the other two fan mirrors: a multiplier or a scale of
+        // zero is a legitimate "no split", the shape a player who dialled the gap away is looking
+        // at. Only the FALLOFF is guarded, inside SplitOffset, because it is a divisor.
+        _splitMultiplier = t.FanSplitMultiplier;
+        _splitFalloff = t.FanSplitFalloff;
+        _splitScale = t.FanHoverSplitScale;
         // …and the CARD's own size (id 70). It lands as a uniform slab-root scale rather than as a
         // new mesh box (see _cardWidth), so a change costs nothing but a rebuild of the arc — which
         // the _builtCount invalidation below asks for, because the slab bodies are baked at the
@@ -510,11 +541,24 @@ internal sealed class RemoteBrowserFan
                                   (Mathf.Cos(rad) - 1f) * _radius * ArchFactor,
                                   -ZStagger * i);
             var rot = Quaternion.Euler(0f, 0f, -angle * TiltFactor);
+            // THE SPLIT, applied to the finished arc pose before the lift, exactly as the owner
+            // applies it (PileBrowser.Relayout: "the highlighted card is the pivot and stays put;
+            // its neighbours slide aside so the winner is unmistakable"). Along each neighbour's
+            // OWN local right (rot * X, fan space), and xCardScale because the offsets are authored
+            // for the hand fan's card size and ride this arc's enlargement into it — the owner's
+            // own multiplication, not a fudge. The pivot itself does not move; its lift comes below.
+            //
+            // This block used to be a comment declining the split "because the local browse arc does
+            // not split either (only the hand fan does)". See the _splitMultiplier field block: it
+            // does, it has since FanSweep was extracted, and the claim cost the mirrored arc 24.6 mm
+            // of neighbour travel at the shipped defaults.
+            if (hovered >= 0 && i != hovered)
+                pos += rot * new Vector3(SplitOffset(i - hovered) * CardScale, 0f, 0f);
+
             // The LIFT, on top of the finished arc pose exactly as VRCard applies it: toward the
             // viewer along the card's own −Z, a touch up its +Y, 18 % bigger. The 0..1 ramp runs on
             // the LOCAL clock at VRCard's own rate, so the wire carries an index and never an
-            // animation. Deliberately NO whole-fan split here — the local browse arc does not split
-            // either (only the hand fan does), and inventing one would be a widget the owner lacks.
+            // animation.
             float popT = PopAmount(i, hovered, dt);
             if (popT > 0f)
                 pos += rot * new Vector3(0f, PopUp * popT, -_popForward * popT);
@@ -549,6 +593,59 @@ internal sealed class RemoteBrowserFan
     /// come further out while every peer watched them barely move.</para>
     /// </summary>
     private float _popForward = Defaults.FanSelectedPopForward;
+
+    // ---- and the SPLIT the same hover opens in the arc (ids 74 / 140 / 141) --------------------
+    // THE 1:1 GAP THESE CLOSE. The owner's browse arc does TWO things when a card is singled out:
+    // it LIFTS that card and it SPLITS the arc apart around it — PileBrowser.Relayout, under a
+    // section header that reads "HAND-FAN PARITY, part 2 (the split): the highlighted card is the
+    // pivot and stays put; its neighbours slide aside so the winner is unmistakable", through the
+    // shared FanSweep.SplitOffset and with the same xCardScale gain this fan's slabs carry.
+    //
+    // This renderer reproduced the lift and declined the split, under a comment claiming "the local
+    // browse arc does not split either (only the hand fan does)". That was simply false — it has
+    // split since FanSweep was extracted precisely so the pile arcs could share the formula — and it
+    // is the same wrong shape RemoteItemFan already recorded fixing for the item arc. At the shipped
+    // defaults (FanSplitMultiplier 0.02, FanSplitFalloff 1.6, FanHoverSplitScale 1.4) the nearest
+    // neighbour slides |exp(-(1/1.6)^2) x 0.02 x 1.4| x CardScale 1.3 = 24.63 mm of fan-local
+    // travel, the next one out 7.63 mm and the third 1.08 mm — a gap a peer never saw open.
+    //
+    // NO NEW FIELD: all three dials have ridden record 28 since it was paged and RemoteHandFan /
+    // RemoteItemFan have both been reading them for builds. This fan's SyncTuning simply never
+    // pulled them.
+    //
+    // WHAT THE WIRE CANNOT YET SAY (declared out loud rather than decided quietly). Record 6 carries
+    // ONE bare fan POSITION and no SOURCE for it. PileBrowser.HighlightedIndex reports the card the
+    // owner is singling out from EITHER source — it scans VRCard.IsHighlighted, which covers the
+    // hand sweep and the laser hover with one test — but PileBrowser.Relayout splits the arc for the
+    // HAND winner only (_handWinnerIndex), so on a pure laser hover the owner lifts a card in an arc
+    // that stays rigid. A mirror driven by the index alone therefore splits in one case the owner
+    // does not, and there is no bit on the wire to tell the two apart: the item fan's own
+    // ItemsPile.HighlightedIndex only PREFERS the hand winner (it still falls back to the laser),
+    // which is a sender-side tie-break and not a source flag, and no laser/pointer state rides
+    // PresenceState at all.
+    //
+    // The renderer is therefore built to split on the index it has, which is the state the already
+    // shipped RemoteItemFan is in — deliberately, not by drifting into it: the hand sweep is the
+    // browse arc's own interaction (UpdateHandSweep exists for it, and the split section header
+    // calls it hand-fan parity), so this trades a missing 24.6 mm gap on EVERY hand sweep for a
+    // spurious one on a laser-only hover, and leaves the two pile mirrors telling the same story
+    // rather than two different ones. Closing the remainder is ONE BIT — "this index is the hand
+    // sweep's winner" — filed as a REQUEST against NetProtocol / PresenceState / BoardTuning rather
+    // than invented here, because an id is not this file's to allocate. When it lands, both this fan
+    // and RemoteItemFan gate their split on it and the arcs are identical in both cases.
+    private float _splitMultiplier = Defaults.FanSplitMultiplier;
+    private float _splitFalloff = Defaults.FanSplitFalloff;
+    private float _splitScale = Defaults.FanHoverSplitScale;
+
+    /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> cards away from the
+    /// highlighted one — <c>FanSweep.SplitOffset</c> against the OWNER's three dials.
+    /// <c>RemoteHandFan.SplitOffset</c> / <c>RemoteItemFan.SplitOffset</c> are the same five terms;
+    /// the three fans genuinely share this one formula.</summary>
+    private float SplitOffset(int signed)
+    {
+        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
+        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
+    }
 
     /// <summary>VRCard's pop: the small upward component riding with the forward lift.</summary>
     private const float PopUp = 0.012f;
@@ -641,7 +738,11 @@ internal sealed class RemoteBrowserFan
         // stands 60 DEGREES off world up — the collapse swung forward across the board face on every
         // peer's screen while its owner watched the arc fold up toward the ceiling.
         _collapseArcUp = Vector3.up;
-        _collapseArc = Mathf.Max(CardH * CollapseMinArcCardHeights * bs,
+        // CardsDriver.BoardArcMin, term for term: boardScale x the OWNER's card height x 1.5 (see
+        // OwnerCardHeight). It read this client's NOMINAL card height before, so a peer with taller
+        // cards got a shallower minimum fold than the one they were watching — the identical defect
+        // RemoteCardFx records having fixed for itself.
+        _collapseArc = Mathf.Max(OwnerCardHeight * CollapseMinArcCardHeights * bs,
                                  Vector3.Distance(_cards[0].transform.position, stackWorld) * CollapseArcFraction);
 
         // Shrink toward the pile SLAB's real width (the local FlyToPile does exactly this, which is

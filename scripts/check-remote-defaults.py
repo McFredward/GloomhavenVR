@@ -307,6 +307,15 @@ PAIRS = [
     ("Net/Remote/RemoteAvatar.cs", "_handCurlAngles.y", "Hands", "CurlMiddle"),
     ("Net/Remote/RemoteAvatar.cs", "_handCurlAngles.z", "Hands", "CurlTip"),
     ("Net/Remote/RemoteAvatar.cs", "_handPinkySplay", "Hands", "GlovePinkyCounterAbduction"),
+    # THE FAN FOLLOW RATE and the BROWSE ARC's three split dials (2026-08-28). All four were const
+    # in their mirrors at the shipped defaults, so each agreed until somebody moved the dial -- the
+    # shape this whole list exists for. The follow rate is the interesting one: its zero end is
+    # QUALITATIVE (CardFan welds the fan to the palm instead of easing), so the mirror branches on
+    # it rather than scaling by it, and RemoteBoardTuning deliberately does not clamp zero away.
+    ("Net/Remote/RemoteHandFan.cs", "_followSmoothing", "Cards", "FanFollowSmoothing"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_splitMultiplier", "Cards", "FanSplitMultiplier"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_splitFalloff", "Cards", "FanSplitFalloff"),
+    ("Net/Remote/RemoteBrowserFan.cs", "_splitScale", "Cards", "FanHoverSplitScale"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"
