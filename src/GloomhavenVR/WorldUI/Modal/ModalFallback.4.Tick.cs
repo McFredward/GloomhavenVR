@@ -3025,9 +3025,9 @@ internal static partial class ModalFallback
             // the release re-face gate ("a window everyone shares keeps the orientation it is given")
             // and the remote pose easing. Both are reached from paths that hold only the mod-owned
             // grab: the handle's release edge, and the two net pose appliers. This is the one place
-            // per tick that knows both halves, so a window whose bar is blue is exactly a window
-            // that will not re-face — one fact, one evaluation, no second predicate to drift.
-            Converted[i].Grab?.SyncSharedBarTint(Converted[i].Window);
+            // per tick that knows both halves, so a window that wears the network badge is exactly a
+            // window that will not re-face — one fact, one evaluation, no second predicate to drift.
+            Converted[i].Grab?.SyncSharedState(Converted[i].Window);
             Converted[i].Grab?.Tick();
         }
         TickHoverCards();

@@ -1099,6 +1099,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
     void WorldUI.IPanelGrabOwner.OnGrabFinished() => PersistPoseToConfig();
 
+
     /// <summary>
     /// Test #14 ("Controllboard"): a clearly visible handle bar along the tray's
     /// bottom edge. Grip it to move/rotate the tray; grip with BOTH hands to resize
@@ -1106,6 +1107,46 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// the P2 ProximityGrabber arbitration applies — WorldGrab yields whenever the
     /// grip starts on (or highlights) the handle, and a grip anywhere else never
     /// touches the tray.
+    ///
+    /// <para><b>THE BAR IS A TURNED ROD, NOT A STRETCHED CUBE (2026-08-28).</b> It used to be
+    /// <c>CreatePrimitive(Cube)</c> scaled to <c>(BoardW·0.55, 0.024, 0.024)</c> and tinted a flat
+    /// brass <c>(0.62, 0.50, 0.28)</c> — one box, one colour, the same on all three boards. It is
+    /// now <see cref="GrabBarVisual"/>: a lathed shaft with two domed caps, wearing the strip of
+    /// the board the player actually chose. <c>overlay: false</c> because this rod is a lit object
+    /// in the world and draws through <c>GloomhavenVR/BoardLit</c> — the window rods pass true and
+    /// draw through the unlit overlay, and the two strips are authored differently for exactly that
+    /// reason (see <c>scripts/grabbar-strips.py</c>).</para>
+    ///
+    /// <para><b>WHY <see cref="GrabBarVisual.SetLength"/> IS CALLED FOR A LENGTH THAT NEVER
+    /// CHANGES.</b> Unlike the window bar, this one is a constant <c>BoardW · 0.55</c> — the board's
+    /// width is a const and the two-hand resize scales the whole tray uniformly, so nothing ever
+    /// re-lays this rod out. It is still called once: <c>Build</c> leaves the shaft at its unit
+    /// construction scale and BOTH caps at the origin, and <c>SetLength</c> is the only thing that
+    /// scales the one and positions the others. A rod that is never given a length is a rod with
+    /// its two end caps buried in each other at its middle.</para>
+    ///
+    /// <para><b>THE RESTING COLOUR IS WHITE NOW, AND IT IS NOT WRITTEN HERE.</b> The brass used to
+    /// BE the bar; on a textured rod it is a TINT multiplied onto the strip, so resting at brass
+    /// would draw the oak and the steel through a gold filter.
+    /// <c>PanelGrabHandle.Init</c> captures its <c>_barBaseColor</c> from
+    /// <c>bar.sharedMaterial.color</c>, and <c>GrabBarVisual.BuildMaterial</c> has already set that
+    /// to <see cref="GrabBarVisual.RestingTint"/> (white) when the strip decoded, or to the historic
+    /// brass when it did not — so the un-highlight falls back to the right value on BOTH paths
+    /// without this call site holding a second opinion about it. Checked, not assumed:
+    /// <c>PanelGrab.cs</c> Init reads the material, and <c>OnGrabHighlight</c> restores
+    /// <c>_barBaseColor</c> verbatim.</para>
+    ///
+    /// <para><b>THE THREE PIECES SHARE ONE MATERIAL, so the highlight still lights all of
+    /// them.</b> <c>OnGrabHighlight</c> is a single <c>sharedMaterial.color</c> write through the
+    /// ONE renderer handed to <c>Init</c>; <see cref="GrabBarVisual.Renderer"/> is the shaft's, and
+    /// the caps carry the same Material instance.</para>
+    ///
+    /// <para><b>NO EMISSION FLOOR, AND THAT IS NOT A REGRESSION.</b> The cube went through
+    /// <c>Tint</c>, which calls <c>CardMesh.ApplyEmissionFloor</c>; <see cref="GrabBarVisual"/> does
+    /// not. <c>ApplyEmissionFloor</c> returns immediately unless the material
+    /// <c>HasProperty("_EmissionColor")</c>, and <c>BoardLit.shader</c> declares no such property —
+    /// it carries its own <c>_Ambient</c> floor instead. So the call was already a no-op on this
+    /// exact material and nothing is lost by not making it.</para>
     /// </summary>
     private void BuildHandle()
     {
@@ -1115,12 +1156,20 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         handleGo.transform.SetParent(_root, worldPositionStays: false);
         handleGo.transform.localPosition = new Vector3(0f, -BoardH * 0.5f - 0.030f, 0.004f);
 
-        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        bar.name = "Bar";
-        Object.Destroy(bar.GetComponent<Collider>());
-        bar.transform.SetParent(handleGo.transform, worldPositionStays: false);
-        bar.transform.localScale = new Vector3(BoardW * 0.55f, 0.024f, 0.024f);
-        Tint(bar, new Color(0.62f, 0.5f, 0.28f)); // brass bar — reads as "grab me"
+        // CardsConfig.CurrentBoard is what this class already reads for every other per-board
+        // number it owns (asset pose, mount offsets, board tilt, board scale — see the rest of this
+        // file), so the rod is not a second opinion about which board is showing. It cannot go
+        // stale either: CardsDriver subscribes to CardsConfig.Board.SettingChanged and a switch
+        // tears the tray down and rebuilds it whole (CardsDriver.2.Update.cs OnBoardChanged /
+        // RebuildBoard) precisely because PlayTray.EnsureBuilt early-returns while _root exists.
+        // So BuildHandle re-runs on every style change and there is nothing here to re-style live.
+        GrabBarVisual bar = GrabBarVisual.Build(
+            handleGo.transform, "Bar", Core.GrabBarStyles.For(CardsConfig.CurrentBoard),
+            GrabBarMesh.DefaultRadius, overlay: false);
+        bar.SetLength(BoardW * 0.55f);
+        if (!bar.Textured)
+            VRLog.Warn("Cards", "Tray handle: the grab-bar strip did not load; the rod is drawn " +
+                                "in the fallback brass instead of the board's own material.");
 
         var box = handleGo.AddComponent<BoxCollider>();
         box.size = new Vector3(BoardW * 0.62f, 0.05f, 0.05f);
@@ -1128,7 +1177,44 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _handleZone = box; // VRCard dock-apron arbitration reads this (bar beats apron)
 
         _handle = handleGo.AddComponent<WorldUI.PanelGrabHandle>();
-        _handle.Init(this, bar.GetComponent<MeshRenderer>(), "Cards", "Tray");
+        _handle.Init(this, bar.Renderer, "Cards", "Tray");
+
+        // ---- THE LASER NOW AIMS AT THE ROD, THE HAND STILL REACHES FOR THE ZONE ---------------
+        // USER REPORT: the far ray grabbed the board handle while visibly missing it — the beam
+        // tested `box` above, which is 0.05 × 0.05 and 62 % of the board wide, against a rod that is
+        // 0.028 thick and 55 % of the board long.
+        //
+        // WHAT SetBarCollider ACTUALLY CHANGES, read rather than assumed. `BarCollider` has exactly
+        // TWO consumers in the tree:
+        //   * RayGrabDriver.cs:106 — `handle.BarCollider != null ? handle.BarCollider :
+        //     entries[i].Collider`. That is the FAR RAY only: the hover tint, the UiHitOverride beam
+        //     clamp, and the trigger that starts a laser-carry. All three are things the player
+        //     AIMS, which is the case for making them match the drawing.
+        //   * PanelGrab.cs:554 (ArmReel) — adds `struck.bounds.extents.magnitude` to the carry
+        //     reel's reach, using the same collider the ray tested. A capsule on the rod is smaller
+        //     than the box, so the reel's slack shrinks by roughly the difference in half-diagonal
+        //     (~2 cm at board scale). It is the honest number for what was struck.
+        // Nothing else in the codebase reads it (checked by grep across src/).
+        //
+        // WHAT IT DOES NOT TOUCH, which is why this is safe:
+        //   * THE NEAR-HAND PATH. PanelGrabHandle.OnEnable registers with
+        //     `VRInteractables.RegisterGrabbable(this, GetComponent<Collider>())` — the BoxCollider
+        //     on handleGo, added above and still the registered zone. ProximityGrabber's highlight
+        //     and grip range read that registration and never consult BarCollider. A palm reaching
+        //     for the handle keeps the full generous zone.
+        //   * THE DOCK-APRON ARBITRATION. VRCard.cs:189 and DecisionDockSurface.cs:1132 read
+        //     `PlayTray.Current?.HandleZone`, which is `_handleZone` — the box — directly. They
+        //     never go through the handle at all, so "bar beats apron" is decided on exactly the
+        //     volume it was decided on before.
+        // AND IT ADDS NO NEW PHYSICS VOLUME. The cube's own collider was explicitly destroyed;
+        // the capsule puts one back on the bar. Arithmetic, not assertion: BoardW = 0.64, so the
+        // capsule reaches ±0.176 along X and 0.014 × 1.10 = 0.0154 across, while the trigger box
+        // above reaches ±0.1984 and ±0.025. The capsule lies strictly INSIDE a trigger volume that
+        // was already there, so no scene query — trigger-including or not — can now strike
+        // anything at a point where it did not already strike the zone.
+        // ORDER MATTERS: AttachLaserTarget sizes the capsule from the length SetLength last saw,
+        // so it is attached after the layout above, not before it.
+        _handle.SetBarCollider(bar.AttachLaserTarget());
     }
 
     // ------------------------------------------------------------------ dashboard controls --

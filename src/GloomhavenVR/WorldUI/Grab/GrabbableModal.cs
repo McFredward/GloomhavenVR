@@ -9,7 +9,7 @@ namespace GloomhavenVR.WorldUI;
 /// Makes a floated modal window (<see cref="ModalFallback"/>) a GRABBABLE + SCALABLE
 /// world element — exactly like the control board / combat log — by reusing the SHARED
 /// grab core (<see cref="PanelGrabHandle"/> + <see cref="IPanelGrabOwner"/>): one hand
-/// grips the brass bar under the panel to MOVE it, two hands RESIZE it (the SHARED range
+/// grips the rod under the panel to MOVE it, two hands RESIZE it (the SHARED range
 /// <see cref="PanelGrabHandle.MinScale"/>–<see cref="PanelGrabHandle.MaxScale"/> = 0.15×–2×;
 /// the floor was lowered from 0.5 and a local re-clamp at 0.5 would re-cap the pinch). No new
 /// grab mechanism is invented; this only owns a small mod-owned holder/frame the same way
@@ -39,10 +39,48 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 {
     /// <summary>Gap below the panel's bottom edge to the bar centre (frame-local, scale-1 metres).</summary>
     private const float BarGapMeters = 0.03f;
-    private const float BarThickness = 0.024f;
+
+    /// <summary>
+    /// THE ROD'S NOMINAL RADIUS, in the same frame-local scale-1 metres <see cref="BarGapMeters"/>
+    /// is in. It is <see cref="GrabBarMesh.DefaultRadius"/> rather than a literal of this file's
+    /// own, because the board handle and the window handle are now ONE drawn object and two
+    /// hand-kept copies of its thickness is exactly how they drift apart.
+    ///
+    /// <para><b>WHAT THIS REPLACED, AND THE ONE NUMBER THAT CHANGED.</b> The bar was a unit cube
+    /// scaled to <c>barWidth x BarThickness x BarThickness</c> with <c>BarThickness = 0.024</c> —
+    /// a 24 mm strip at proportion 1 and diorama scale 1. The rod is 28 mm thick there
+    /// (<c>2 x 0.014</c>), which is the design sheet's 12.5 : 1 length-to-thickness ratio and the
+    /// value the user approved when it was raised as an ergonomics dial rather than a cosmetic one
+    /// (<see cref="GrabBarMesh.DefaultRadius"/> carries that exchange). NOTHING ELSE about the
+    /// number changed: <see cref="SyncBar"/> still multiplies it by the short-panel proportion and
+    /// by the diorama's world scale, in the same two places and the same order, so a short window
+    /// still gets a slimmer handle and a zoomed-out diorama a smaller one, in the ratios that
+    /// shipped.</para>
+    ///
+    /// <para>The SHAFT is what this measures. The two end knobs swell to <c>1.28 R</c> and the
+    /// shaft tapers to <c>0.89 R</c> at its own ends (<see cref="GrabBarVisual"/>'s laser-target
+    /// note states both), so the rod's silhouette is not one constant radius and no single number
+    /// here could be. Every consumer of this value in this file — the drawn thickness, and the top
+    /// gap the falsifier reports — is about the long uniform run, which is the shaft.</para>
+    /// </summary>
+    private const float BarRadius = GrabBarMesh.DefaultRadius;
     private const float BarWidthFraction = 0.55f;
     private const float ZoneWidthFraction = 0.62f;
-    private const float MinBarWidth = 0.04f;
+    // RAISED 0.04 -> 0.06 WHEN THE BAR BECAME A ROD, and the reason is arithmetic rather than
+    // taste. A rod cannot be drawn shorter than its own two end caps:
+    // 2 x CapLengthInRadii x DefaultRadius = 2 x 2.0 x 0.014 = 0.056 m. Below that
+    // GrabBarVisual.SetLength collapses the shaft to nothing and the two knobs meet in the middle —
+    // an honest picture of "as short as this bar gets", but a bar clamped to the old 0.04 would
+    // have been drawn ~40 % WIDER than it asked for, and the laser capsule (sized on the requested
+    // length) would have been shorter than the thing it is a target for. A floor under the rod's
+    // own minimum is a floor that does not hold.
+    //
+    // Only reachable with very narrow ink, and it moves in the safe direction: the floor exists so
+    // the grab and laser targets survive on a tiny window, and this makes them slightly larger.
+    // The two quantities are not in the same frame — this is frame-local metres and the rod's
+    // minimum is root-local — so at a heavily shrunken world scale the inequality can still bite;
+    // what it cannot do any more is bite at the ordinary scale, where it did.
+    private const float MinBarWidth = 0.06f;
 
     /// <summary>
     /// EMPTY-GOLD-PLATE FIX (torbogen screenshot 2026-08-02): panel height (real metres) at or
@@ -57,20 +95,29 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private const float BarFullSizePanelHeightMeters = 0.30f;
 
-    /// <summary>Floor of the short-panel bar proportion — the visible strip (and its padded
-    /// laser collider, which scales with it) must stay a comfortable target.</summary>
+    /// <summary>Floor of the short-panel bar proportion — the visible rod (and the laser capsule,
+    /// which rides the same uniform root scale) must stay a comfortable target.</summary>
     private const float MinBarProportion = 0.5f;
 
-    /// <summary>
-    /// LOST-MENU FIX: cross-section pad of the LASER-only bar collider, in bar-local units
-    /// (the bar cube is unit-sized, scaled to barWidth × BarThickness × BarThickness — so
-    /// 1.5 ≈ a 3.6 cm strip). Just enough slack to point at the 2.4 cm visible bar
-    /// comfortably, WITHOUT re-growing the swallow-everything zone the incident showed:
-    /// the palm ZONE collider (5 cm, 62% width) had been the laser target too, and since
-    /// the floated menu sits between the user and the board, every trigger aimed at the
-    /// cards hit it and dragged the (possibly off-view) menu instead.
-    /// </summary>
-    private const float BarColliderPad = 1.5f;
+    // ---- WHAT BECAME OF BarColliderPad, AND WHAT DID NOT GO WITH IT --------------------------
+    //
+    // IT WAS 1.5: the cross-section pad of the LASER-only bar collider, in bar-local units. The bar
+    // was a unit cube scaled to barWidth x BarThickness x BarThickness, so 1.5 made the BoxCollider
+    // HALF AGAIN AS THICK AS THE DRAWN BAR IN BOTH cross-section axes — a 3.6 cm box around a 2.4 cm
+    // strip. A beam could therefore grab the handle while visibly missing it by a third of its own
+    // width, which is the complaint this round set out to end.
+    //
+    // The pad is gone with the cube. The rod's laser target is GrabBarVisual.AttachLaserTarget's
+    // CapsuleCollider: round like the rod, down the rod's own axis, kept in step by SetLength, and
+    // padded by GrabBarVisual.LaserPad = 1.10 — a number documented over there AGAINST this one.
+    //
+    // WHAT DID NOT CHANGE IS THE REASON THE SPLIT EXISTS: the LOST-MENU FIX. RayGrabDriver ray-tests
+    // ONLY the collider handed to PanelGrabHandle.SetBarCollider and never the palm zone, because the
+    // palm ZONE collider (5 cm tall, 62 % of the window's width) HAD been the laser target too — and
+    // since a floated menu sits between the player and the board, every trigger aimed at the cards hit
+    // it and dragged the (possibly off-view) menu instead. The palm zone below is UNCHANGED, down to
+    // its literals, and deliberately stays that generous: a hand reaching for a handle should not have
+    // to be accurate; a beam being aimed at one should.
 
     /// <summary>
     /// Item 3: the brass grab bar must OCCLUDE the menu content behind it (foreground is
@@ -526,7 +573,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Transform? _holder;                 // identity pose, localScale = diorama WorldScale
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
     private Transform? _visual;                 // THE DRAWN pose — see the REMOTE POSE EASING block
-    private Transform? _bar;
+    private GrabBarVisual? _bar;                // the drawn rod: three pieces, ONE material
+    private Transform? _badge;                  // the shared-window mark, null until built
 
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
@@ -1327,17 +1375,41 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
     }
 
-    // ---- SHARED-WINDOW BAR COLOUR -----------------------------------------------------------
+    // ---- THE SHARED-WINDOW MARK -------------------------------------------------------------
     //
-    // USER REQUEST (2026-08-22, verbatim):
+    // ORIGINAL USER REQUEST (2026-08-22, verbatim):
     //
     //   "3) Die Fenster die für alle Spieler sichtbar sind sollen eine andere Farbe beim dem
     //    Greifbalken haben (zB Blau) um anzuzeigen, dass es ein Fenster ist das alle sehen."
     //
-    // WHERE THE COLOUR IS DECIDED: in <see cref="SyncSharedBarTint"/> below, and nowhere else. It
-    // asks <see cref="SharedWindows"/> — which owns the DEFINITION of "shared" and its whole
-    // rationale — and turns the answer into exactly one of two colours. This class contributes no
-    // policy: it does not know which windows are shared, only how to paint a bar.
+    // AND HIS RULING ON WHAT SHIPPED (2026-08-28, verbatim):
+    //
+    //   "Mach stattdessen rechts oben in der Ecke ein kleines (nicht aufdringliches)
+    //    Netzwerksymbol in das Fenster."
+    //
+    // SO THE BLUE BAR IS GONE, MECHANISM AND ALL. It is not left wired to a value nobody sets: the
+    // two-colour choice, the PrivateBarColor literal, the _barTint cache and the
+    // PanelGrabHandle.SetBarBaseColor call that carried it are all deleted, and SharedWindows.BarTint
+    // is deleted with them (it had exactly one reader — the line that used to be here). A shared
+    // window's rod is now drawn from the same texture, at the same resting tint, as a private one:
+    // there is no code path left that can make one look different from the other.
+    //
+    // WHY THE BAR WAS THE WRONG SURFACE FOR IT, recorded because the first answer was a reasonable
+    // one and the correction is about a constraint the first answer could not see. The rod is now a
+    // TEXTURED object (dark oiled walnut, aged-brass knobs) and its colour is a TINT MULTIPLIED onto
+    // that strip — so "paint the bar blue" is no longer painting, it is filtering a wood grain
+    // through blue, which reads as a fault rather than as a signal. The handle is also the one part
+    // of the window furniture the hand is meant to reach for, and the hover highlight already owns
+    // its colour; a status meaning stacked on top of a hover meaning on one 24 mm strip is two
+    // languages in one place. A badge is a mark whose ONLY job is to say something.
+    //
+    // WHERE THE ANSWER IS DECIDED: in <see cref="SyncSharedState"/> below, and nowhere else. It asks
+    // <see cref="SharedWindows"/> — which owns the DEFINITION of "shared" and its whole rationale —
+    // and turns the answer into one bool. This class contributes no policy: it does not know which
+    // windows are shared, only how to show a mark.
+    //
+    // WHERE THE BADGE GOES: BELOW the close X, sharing its right edge, seated from the SAME committed
+    // rectangle the bar and the X are seated from. The full argument is on <see cref="SyncBadge"/>.
     //
     // WHY IT IS RE-EVALUATED EVERY TICK RATHER THAN DECIDED AT BUILD. "Shared" is not a property of
     // the window CLASS, it is "shared FOR THIS CLIENT, RIGHT NOW" (SharedWindows' class doc), and
@@ -1348,44 +1420,78 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     // comparison per floated window per frame; the write itself is change-gated, so a standing
     // window costs the comparison and nothing else.
     //
-    // WHAT A PRIVATE BAR COSTS: nothing at all. _barTint starts at PrivateBarColor, which is the
-    // literal the bar material was constructed with, so the gate never opens for a private window —
-    // no material write, no log line, no behavioural change. That is the proof that today's picture
-    // is preserved for every window outside the shared set, INCLUDING the map story window and the
-    // quest popup for a player with the 3D map switched off, for whom those windows really are
-    // private (moving one moves nothing for anybody).
+    // WHAT A PRIVATE WINDOW COSTS: nothing that is drawn. The badge object exists on every floated
+    // window (one 4-vertex quad, built once), but it is INACTIVE unless the window is shared, so a
+    // single-player session draws exactly what it drew before this feature — and, unlike the tint it
+    // replaces, there is no material and no colour anywhere that a private window could be caught
+    // wearing. That includes the map story window and the quest popup for a player with the 3D map
+    // switched off, for whom those windows really are private (moving one moves nothing for anybody).
     //
     // WHAT WAS REJECTED:
-    //   * ONE SHARED BLUE MATERIAL for every shared bar. Rejected — and it is the obvious trap here.
-    //     WorldUIAssets.CreateFlatMaterial constructs a new Material per call, so every bar already
-    //     owns its own; the hover/held highlight then writes sharedMaterial.color on exactly one
-    //     bar. Hand two bars the same Material instance and a single hover would turn EVERY floated
-    //     window's bar gold, and this tint would turn every bar blue.
-    //   * WRITING THE MATERIAL FROM HERE. Rejected: the highlight re-derives the bar colour from
-    //     PanelGrabHandle's own base field whenever it goes out, so a write from outside would be
-    //     reverted to brass by the next un-highlight. The base colour is handed to the handle
-    //     instead (PanelGrabHandle.SetBarBaseColor), which is the single writer of that material.
-    //   * TINTING BY WINDOW CLASS ("a story box is always blue"). Rejected in SharedWindows' doc,
-    //     recorded here so it is not re-litigated at the paint end either.
-    //   * A CONFIG DIAL for the colour. Not asked for; the user named blue and the mod picks it.
+    //   * KEEPING THE BLUE BAR AS WELL AS THE BADGE. Refused by the ruling itself — "stattdessen".
+    //   * A uGUI Image on the host canvas, the way the close X is built. It would have been less
+    //     code (no mesh, no material, no order follower — the X's canvas already rides the ladder).
+    //     Rejected because the host canvas is GAME-OWNED and is released and re-converted under a
+    //     live GrabbableModal; the X survives that only because ModalCloseButton RE-FINDS its plate
+    //     every half second and this class stores nothing across a rebuild. The badge belongs to the
+    //     mod's own holder, which is destroyed and rebuilt as one object, so it has no such seam.
+    //   * DRAWING IT ON THE ROD (a coloured band, a second cap). Rejected: the rod is a shared
+    //     drawn object with ONE material across three renderers, and per-window state on it means
+    //     per-window materials — the exact trap GrabBarVisual's class doc names.
+    //   * A CONFIG DIAL for the badge. Not asked for, and it would be a per-sub-feature sync
+    //     setting in all but name.
+
+    /// <summary>The badge's manifest resource name. 256x256 RGBA with a keyed alpha and a warm
+    /// gold "two players" glyph; loaded (and cached, nulls included) by
+    /// <see cref="EmbeddedTexture"/>. It ships INSIDE the plugin DLL rather than in
+    /// <c>gloomhavenvr.bundle</c> — that bundle has been byte-identical since ModBuild 296 and every
+    /// install since is DLL-only, so a badge in it would cost the user a full re-install.</summary>
+    private const string BadgeResource = "GloomhavenVR.Assets.net_shared.png";
 
     /// <summary>
-    /// The bar's resting brass — the colour of a PRIVATE window's grab bar, unchanged since the
-    /// handle was introduced and deliberately still expressed as the same literal, so a private bar
-    /// is byte-identical to the one that shipped before the shared tint existed.
+    /// The badge's edge length in the window's OWN authored px — the unit the host rect, the ink
+    /// rect and the close X's inset are all in, so it scales with the window and with the user's
+    /// two-hand resize exactly as the rest of the chrome does.
+    ///
+    /// <para>JUDGED AGAINST THE CLOSE X RATHER THAN INVENTED. That plate is 34 px square
+    /// (<c>ModalCloseButton.ButtonSizePx</c>, read there — this file does not keep a copy, and the
+    /// one place the size is USED reads it live off the plate's own RectTransform, see
+    /// <see cref="SyncBadge"/>). 24 px is roughly seven tenths of it: unmistakably the smaller of
+    /// the two marks in that corner, so it can never read as the control. Against the X's GLYPH it
+    /// is larger — the X's crossed bars occupy 44 % of the plate, about 15 px — but the X carries a
+    /// dark plate behind it and the badge carries none, so what the eye compares is a 24 px keyed
+    /// glyph against a 34 px filled tile. "Nicht aufdringlich" is a statement about weight, not
+    /// about bounding boxes.</para>
     /// </summary>
-    private static readonly Color PrivateBarColor = new(0.62f, 0.5f, 0.28f);
+    private const float BadgeSizePx = 24f;
 
-    /// <summary>The bar's current RESTING colour (the highlight paints over it and falls back to
-    /// it). Seeded with the colour <see cref="EnsureFrame"/> builds the material with, so the
-    /// change gate below is closed for every window that is not shared.</summary>
-    private Color _barTint = PrivateBarColor;
+    /// <summary>How far the badge is inset from the committed rectangle's own top-right corner, in
+    /// host px. Used ONLY on the degenerate path where the window carries no close X — see
+    /// <see cref="SyncBadge"/>, which seats it off the plate whenever there is one.</summary>
+    private const float BadgeInsetPx = 6f;
+
+    /// <summary>Clear space between the close X's bottom edge and the badge's top edge, in host px
+    /// (~5 mm at the 0.773 mm/px the ModBuild 241 log reports for the options window). Small enough
+    /// that the two read as one column of window chrome, large enough that they never touch.</summary>
+    private const float BadgeGapPx = 6f;
+
+    /// <summary>
+    /// The badge's offset on its panel's live draw-order ladder, the same mechanism and the same
+    /// constraint as <see cref="BarOrderOffset"/>: it must draw OVER its own window's content (which
+    /// is depthless, so ORDER is what decides), and it must stay under
+    /// <c>CanvasConversion.PanelOrderStep</c> = 16 so a panel that is genuinely NEARER still
+    /// outranks it. One above the bar's 4 so the two pieces of mod chrome have a deterministic order
+    /// between them; they do not overlap today, and this is what keeps that from mattering if a
+    /// window ever brings them within a pixel of each other.
+    /// </summary>
+    private const int BadgeOrderOffset = 5;
 
     /// <summary>Is this window SHARED for this client right now — <see cref="SharedWindows.IsShared"/>
     /// as of the last tick. False for every window in a single-player session and for every private
     /// window in a multiplayer one, so both behaviours it gates (the release re-face and the remote
-    /// pose easing) are inert there. Written only by <see cref="SyncSharedBarTint"/>; see the note
-    /// there for why it is cached rather than asked.</summary>
+    /// pose easing) are inert there, along with the badge. Written only by
+    /// <see cref="SyncSharedState"/>; see the note there for why it is cached rather than
+    /// asked.</summary>
     private bool _shared;
 
     /// <summary>
@@ -1404,16 +1510,20 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     internal bool PeerPlaced { get; private set; }
 
     /// <summary>
-    /// Re-evaluate whether <paramref name="window"/> is shared FOR THIS CLIENT right now, and paint
-    /// the grab bar accordingly. Called once per tick per floated window; see the block above.
+    /// Re-evaluate whether <paramref name="window"/> is shared FOR THIS CLIENT right now. Called
+    /// once per tick per floated window; see the block above.
+    ///
+    /// <para>RENAMED FROM <c>SyncSharedBarTint</c> when the blue bar was dropped: it paints nothing
+    /// any more. It writes <see cref="_shared"/>, which the badge's visibility, the release re-face
+    /// gate and the remote pose easing all read.</para>
     /// </summary>
-    internal void SyncSharedBarTint(UIWindow? window)
+    internal void SyncSharedState(UIWindow? window)
     {
         if (_handle == null)
-            return; // not built yet (or already torn down) — nothing to paint
+            return; // not built yet (or already torn down) — nothing to answer for
         // This IS SharedWindows.IsShared(window), expanded only because the LOG LINE has to name the
-        // kind: a hardware report saying "the quest window was brass" must be readable against a log
-        // that says which kind that window was and whether this client took part in its sync.
+        // kind: a hardware report saying "the quest window showed no badge" must be readable against
+        // a log that says which kind that window was and whether this client took part in its sync.
         SharedWindowKind kind = SharedWindows.KindOf(window);
         bool shared = kind != SharedWindowKind.None && SharedWindows.ParticipatesHere(kind);
         // THE SAME ANSWER, CACHED FOR THE TWO CONSUMERS THAT CANNOT SEE THE UIWindow (2026-08-22,
@@ -1426,15 +1536,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // already carries, so a window whose grab bar is blue is exactly a window that will not
         // re-face. Recomputing it per release rather than caching would need this class to store the
         // UIWindow, i.e. a second reference to a game object whose lifetime ModalFallback owns.
+        //
+        // THE FIELD IS WRITTEN EVERY TICK; ONLY THE LOG IS CHANGE-GATED. The badge's own SetActive is
+        // change-gated in SyncBarVisibility, which is the one place that decides whether any piece of
+        // this window's furniture is on the screen — putting a second SetActive here would be two
+        // owners writing one flag ([[dont-win-a-write-war]]), and this one cannot see the empty-window
+        // rule that method enforces.
+        bool was = _shared;
         _shared = shared;
-        Color wanted = shared ? SharedWindows.BarTint : PrivateBarColor;
-        if (wanted == _barTint)
+        if (shared == was)
             return;
-        _barTint = wanted;
-        _handle.SetBarBaseColor(wanted);
-        VRLog.Info("WorldUI", $"SHARED WINDOW BAR: '{_logName}' (game window '{window?.name ?? "?"}', " +
-                              $"kind {kind}) now wears the {(shared ? "SHARED BLUE" : "private brass")} " +
-                              $"grab bar — {(shared
+        VRLog.Info("WorldUI", $"SHARED WINDOW BADGE: '{_logName}' (game window '{window?.name ?? "?"}', " +
+                              $"kind {kind}) now {(shared ? "SHOWS" : "hides")} the network badge in its " +
+                              $"top-right corner — {(shared
                                   ? "every player in this room sees this window's state, so moving it is a shared act"
                                   : "this window is private to this client right now (its sync is off, or it is not a shared kind)")}.");
     }
@@ -1489,49 +1603,69 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _visual = visualGo.transform;
         _visual.SetParent(_holder, worldPositionStays: false);
 
-        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        bar.name = "Bar";
-        // LOST-MENU FIX: keep the primitive's BoxCollider as the LASER-only drag-bar target
-        // instead of destroying it. The unit box scaled by the bar transform matches the
-        // VISIBLE brass strip exactly (padded slightly via BarColliderPad); handed to the
-        // shared handle as BarCollider so RayGrabDriver ray-tests ONLY this strip. It is a
-        // trigger on the mod render layer, so the physics ray (RayInteractor) still ignores
-        // it, and it is NOT registered with VRInteractables — the palm grab keeps using the
-        // generous frame zone below (near-grab is deliberate; the laser was the problem).
-        var barCollider = bar.GetComponent<BoxCollider>();
-        barCollider.isTrigger = true;
-        barCollider.size = new Vector3(1f, BarColliderPad, BarColliderPad);
-        // Under the DRAWN pose, not the frame: the visible bar and the window it belongs to must
-        // move as one object, and a glide moves the window. Its local numbers are unchanged —
-        // _visual carries the same localScale (the user grab factor) the frame does, so SyncBar's
-        // frame-local metres still mean what they meant.
-        bar.transform.SetParent(_visual, worldPositionStays: false);
-        bar.transform.localScale = new Vector3(0.2f, BarThickness, BarThickness);
-        var mr = bar.GetComponent<MeshRenderer>();
-        // Item 3: opaque brass that OCCLUDES the menu. The bundled GloomhavenVR/Overlay shader
-        // (overlay:true) exposes _ZWrite/_ZTest; force ZWrite ON so the bar draws solid (not the
-        // Sprites/Default alpha-blend that read semi-transparent), while leaving ZTest at the
-        // default LEqual so a hand held physically in front still occludes the solid handle. The
-        // sortingOrder below is what actually lifts it OVER the depthless menu canvas.
-        Material barMat = WorldUIAssets.CreateFlatMaterial(PrivateBarColor, overlay: true);
-        if (barMat.HasProperty("_ZWrite"))
-            barMat.SetInt("_ZWrite", 1);
-        mr.sharedMaterial = barMat;
-        // Rides the panel's ladder order at a fixed offset (see BarOrderOffset). Registered after
-        // the renderer exists; the order pass seats it immediately, so there is no unordered frame.
-        CanvasConversion.RegisterOrderFollower(_panel, mr, BarOrderOffset);
-        _bar = bar.transform;
+        // THE ROD. Under the DRAWN pose, not the frame: the visible handle and the window it
+        // belongs to must move as one object, and a glide moves the window. Its local numbers are
+        // unchanged from the cube's — _visual carries the same localScale (the user grab factor) the
+        // frame does, so SyncBar's frame-local metres still mean what they meant.
+        //
+        // overlay:true is what makes this the WINDOW rod rather than a board one: GrabBarVisual then
+        // builds it on the bundled GloomhavenVR/Overlay shader (through Cards.PlayTray's accessor and
+        // Core.BundleShaders — a bare Shader.Find on a GloomhavenVR/* name fails the build gate) and
+        // forces _ZWrite ON there, so the handle still draws SOLID and occludes the menu behind it
+        // while ZTest stays at the default LEqual and a hand held physically in front still occludes
+        // it. That set is NOT repeated here; one owner, over there.
+        //
+        // Style Generic is the neutral window rod — dark oiled walnut with small aged-brass knobs,
+        // chosen to sit on parchment without competing with the text on it. It is enum member 0, so
+        // this call could not accidentally have picked up a board's material.
+        GrabBarVisual bar = GrabBarVisual.Build(_visual, "Bar", GrabBarStyle.Generic,
+                                                BarRadius, overlay: true);
+
+        // ALL THREE RENDERERS RIDE THE ORDER LADDER, not one of them. The rod is a shaft and two
+        // caps; registering only the shaft would sort it over the menu and leave both knobs behind
+        // it, which is a bar with its ends bitten off. Registered after the renderers exist; the
+        // order pass seats them immediately, so there is no unordered frame.
+        for (int i = 0; i < bar.Renderers.Count; i++)
+            CanvasConversion.RegisterOrderFollower(_panel, bar.Renderers[i], BarOrderOffset);
+        if (!bar.Textured)
+            VRLog.Warn("WorldUI", $"MODAL GRAB: '{_logName}' built its handle WITHOUT the wood strip " +
+                                  "(the embedded texture did not decode — EmbeddedTexture has already " +
+                                  "named it). The rod falls back to the flat brass the cube wore, so " +
+                                  "the handle works and only the grain is lost.");
+        _bar = bar;
+
+        // LOST-MENU FIX, now round. The rod's laser target is a CapsuleCollider down its own axis
+        // that SetLength keeps in step — see the BarColliderPad block for the box it replaces and
+        // for why the split between laser and palm exists at all. It is a trigger on the mod render
+        // layer, so the physics ray (RayInteractor) still ignores it, and it is NOT registered with
+        // VRInteractables: the palm grab keeps using the generous frame zone below.
+        Collider barCollider = bar.AttachLaserTarget();
 
         // Grab zone + shared grab core (collider BEFORE the handle: its OnEnable registers it).
         _grabZone = frameGo.AddComponent<BoxCollider>();
         _grabZone.isTrigger = true;
         _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
         _handle = frameGo.AddComponent<PanelGrabHandle>();
-        _handle.Init(this, mr, "WorldUI", $"{_logName} menu");
+        // THE SHAFT'S RENDERER, and the three pieces share ONE Material — so PanelGrabHandle's single
+        // sharedMaterial.color write in OnGrabHighlight still lights the WHOLE rod, and its Init
+        // seeds _barBaseColor from that same material, which is GrabBarVisual.RestingTint (white) for
+        // a textured rod and the historic brass for an untextured one. Nothing in this class writes
+        // that base any more: the resting colour is now a TINT MULTIPLIED onto the strip, so it must
+        // stay white or the rod is drawn through a filter, and white is exactly what the handle
+        // already read off the material it was handed.
+        _handle.Init(this, bar.Renderer, "WorldUI", $"{_logName} menu");
         // LOST-MENU FIX: split laser vs palm — the far ray grabs ONLY the visible bar strip.
         _handle.SetBarCollider(barCollider);
 
-        // Render-only mod layer — grabs/pokes route through the registries, not layers.
+        // THE SHARED-WINDOW MARK, built beside the rod and under the same DRAWN pose so it travels
+        // with the window through a glide. Built for EVERY floated window and shown for none of them
+        // until SyncBarVisibility sees _shared — participation can flip while the window stands (the
+        // player may toggle the 3D world map with a story box open), so a badge decided at build time
+        // would be a false statement for the rest of that window's life.
+        BuildBadge();
+
+        // Render-only mod layer — grabs/pokes route through the registries, not layers. AFTER the rod
+        // and the badge exist, because it walks the tree it is given.
         VRLayers.Apply(holderGo);
 
         // User ruling 2026-08-02 round 2 ("ein Aufploppen der Greifbar ... woanders"): this holder
@@ -1569,7 +1703,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
             MinBarProportion, 1f);
         float gap = BarGapMeters * proportion * worldScale;
-        float thickness = BarThickness * proportion * worldScale;
+        // THE ROD'S ROOT TAKES A UNIFORM SCALE AND NOTHING ELSE. The cube carried the short-panel
+        // proportion and the diorama's world scale in its own localScale, one axis at a time; a rod
+        // cannot take that write (stretching along the axis smears the domed caps into ellipsoids and
+        // flattens the beaded rings, which is the whole reason GrabBarVisual exists). So the two
+        // factors that used to be a NON-uniform scale become a UNIFORM one on the root — which
+        // GrabBarVisual explicitly permits, and which the two-hand resize already applies further up
+        // the chain — and the LENGTH is handed in separately through SetLength.
+        float rodScale = Mathf.Max(proportion * worldScale, 1e-4f);
+        // The drawn shaft diameter, in frame-local metres. Same shape as the cube's
+        // `BarThickness * proportion * worldScale`, with the sheet's radius in place of the old
+        // half-thickness: 28 mm where it was 24 mm at proportion 1 and diorama scale 1.
+        float thickness = BarRadius * 2f * rodScale;
         float minWidth = MinBarWidth * worldScale;
         float zoneDepth = 0.05f * worldScale;
 
@@ -1597,8 +1742,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             zoneWidth = Mathf.Clamp(_inkRect.width * unit * ZoneWidthFraction, minWidth, frameZoneWidth);
         }
 
-        _bar.localPosition = new Vector3(x, y, 0f);
-        _bar.localScale = new Vector3(barWidth, thickness, thickness);
+        _bar.Root.localPosition = new Vector3(x, y, 0f);
+        _bar.Root.localScale = Vector3.one * rodScale;
+        // barWidth is in frame-local metres; SetLength wants the rod's OWN local metres, and the root
+        // it sits under is scaled by rodScale. Divide it back out and the drawn end-to-end length is
+        // barWidth exactly, as the cube's X scale made it.
+        _bar.SetLength(barWidth / rodScale);
         // The palm grab zone rides WITH the visible handle, as it always has — it is not the hit rect
         // (that contract, "always contains the host rect", belongs to the conversion and is untouched).
         _grabZone.center = new Vector3(x, y, 0f);
@@ -1609,6 +1758,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // THE CLOSE X RIDES THE SAME UNION AS THE BAR, on the same tick, from the same committed
         // rectangle — so the two pieces of chrome can never disagree about where the window is.
         SyncCloseX(hostRect);
+        // AFTER the X, because the badge is seated off the plate whenever there is one, and off the
+        // answer SyncCloseX just stored rather than off a second derivation of it.
+        SyncBadge(hostRect, unit);
 
         if (_inkReportDue || _inkFallbackDue)
         {
@@ -1616,7 +1768,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // from, so a report can never disagree with the placement it is describing. The intended
             // gap is to the bar's TOP EDGE: BarGapMeters is documented as the gap to the bar's CENTRE,
             // and half the thickness of the bar lies above that centre.
-            ReportBarPlacement(hostRect, unit,
+            ReportBarPlacement(hostRect, unit, barWidth, thickness,
                 intendedTopGapPx: (gap - thickness * 0.5f) / Mathf.Max(unit, 1e-9f),
                 mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f);
         }
@@ -1637,6 +1789,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// (<c>PanelGrabHandle.SetBarCollider</c>), so it goes with it; the palm zone lives on the frame
     /// object and is disabled here beside it.</para>
     ///
+    /// <para>THE ROD IS ONE GAMEOBJECT WITH THREE UNDER IT, and this switches the ROOT — so the
+    /// shaft, both caps and the laser capsule (which lives on the root) go together. There is no
+    /// state in which two thirds of a handle is on the screen.</para>
+    ///
+    /// <para>AND THE SHARED-WINDOW BADGE RIDES THE SAME ANSWER, ANDed with
+    /// <see cref="_shared"/>. It is the same rule for the same reason: a mark on a window that is
+    /// drawing nothing is a mark floating in the room, and the user's complaint that started this
+    /// method ("ich möchte gerne dass es instant reagiert") was about exactly that. The X is
+    /// deliberately still exempt — it is the rescue for a window the player can no longer see —
+    /// and the badge is not a rescue.</para>
+    ///
     /// <para>NEVER MID-GRAB. Pulling a collider out from under a live grab strands the hand's claim on
     /// an object it can no longer let go of, so a held handle stays until it is released.</para>
     /// </summary>
@@ -1651,10 +1814,166 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // handle standing on an empty window for the rest of its life, because the empty run that set
         // it only counts while a committed rectangle still exists.
         bool visible = !_barHiddenForEmpty || (_handle != null && _handle.IsGrabbed);
-        if (_bar.gameObject.activeSelf != visible)
-            _bar.gameObject.SetActive(visible);
+        if (_bar.Root.gameObject.activeSelf != visible)
+            _bar.Root.gameObject.SetActive(visible);
         if (_grabZone.enabled != visible)
             _grabZone.enabled = visible;
+
+        if (_badge != null)
+        {
+            bool badgeVisible = visible && _shared;
+            if (_badge.gameObject.activeSelf != badgeVisible)
+                _badge.gameObject.SetActive(badgeVisible);
+        }
+    }
+
+    /// <summary>
+    /// Build the shared-window badge under the DRAWN pose, beside the rod. Called once, from
+    /// <see cref="EnsureFrame"/>; the whole design and the user's ruling are on the SHARED-WINDOW
+    /// MARK block. Never throws: a window that cannot have a badge must still be a window.
+    /// </summary>
+    private void BuildBadge()
+    {
+        if (_visual == null || _panel == null)
+            return;
+
+        // Clamp, not Repeat: a badge is a single tile and Repeat would let bilinear filtering fetch
+        // the opposite edge at the border. EmbeddedTexture caches the answer INCLUDING a null, so a
+        // missing resource costs one warning for the process and not one per window.
+        Texture2D? tex = EmbeddedTexture.Get(BadgeResource, linear: false, TextureWrapMode.Clamp);
+        if (tex == null)
+            return; // already named over there. A white square in every corner is not an improvement.
+
+        // Through the accessor, never a bare Shader.Find on a GloomhavenVR/* name — that fails the
+        // build gate, and for good reason: Shader.Find only sees shaders something has already
+        // LOADED, and GloomhavenVR/Overlay is referenced by runtime C# alone. The two fallbacks are
+        // built-in names, which Shader.Find CAN resolve; both are alpha-blended and unlit, so a badge
+        // drawn through either is the same picture with a fixed ZWrite it does not need to change.
+        Shader? shader = Cards.PlayTray.OverlayShader()
+                         ?? Shader.Find("Sprites/Default")
+                         ?? Shader.Find("UI/Default");
+        if (shader == null)
+        {
+            VRLog.Warn("WorldUI", $"MODAL GRAB: '{_logName}' has no usable shader for the shared-window "
+                                  + "badge; the window is unaffected and the badge is skipped.");
+            return;
+        }
+
+        var go = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        go.name = "SharedBadge";
+        // Inert by construction. DestroyImmediate rather than Destroy so a collider sweep running
+        // later in THIS SAME FRAME can never meet it — a deferred destroy is still visible to one
+        // (the pattern RemoteEmptyFanHint.BuildPlate records for the same reason).
+        Collider? primitiveCollider = go.GetComponent<Collider>();
+        if (primitiveCollider != null)
+            Object.DestroyImmediate(primitiveCollider);
+        go.transform.SetParent(_visual, worldPositionStays: false);
+
+        var mr = go.GetComponent<MeshRenderer>();
+        mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        mr.receiveShadows = false;
+
+        // ZWRITE STAYS OFF, AND THIS IS THE ONE PLACE THE BADGE DELIBERATELY DOES NOT COPY THE BAR.
+        // The rod forces _ZWrite = 1 because it is opaque and must READ solid against the menu behind
+        // it. The badge is a keyed-alpha glyph drawn ON TOP OF the window's own content: writing
+        // depth through its transparent margin would stamp a 24 px box of "everything behind this is
+        // deleted" into whatever lies behind that corner. That is not a hypothetical — it is exactly
+        // the defect ModalCloseButton's XOrderOffset block records having removed from the X, one
+        // element smaller. GloomhavenVR/Overlay already defaults to _ZWrite 0 with SrcAlpha /
+        // OneMinusSrcAlpha and ZTest LEqual, which is precisely what is wanted, so nothing is set
+        // here at all and the default is the documented behaviour rather than an accident.
+        var material = new Material(shader) { color = Color.white };
+        if (material.HasProperty("_MainTex"))
+            material.mainTexture = tex;
+        mr.sharedMaterial = material;
+
+        // Over the depthless menu canvas by ORDER, the same way the bar and the X are (see
+        // BadgeOrderOffset). A MeshRenderer and a Canvas both sort by sortingLayer then sortingOrder,
+        // which is why one ladder serves both.
+        CanvasConversion.RegisterOrderFollower(_panel, mr, BadgeOrderOffset);
+
+        // OFF until SyncBarVisibility says otherwise. A private window never draws it, and because it
+        // is an INACTIVE GameObject the reveal gate's HideTree cannot record it either, so there is
+        // no path by which it comes back on behind this class's back.
+        go.SetActive(false);
+        _badge = go.transform;
+    }
+
+    /// <summary>
+    /// Seat the shared-window badge against the SAME committed rectangle the rod and the close X are
+    /// seated from, on the same tick, so the three pieces of chrome can never disagree about where
+    /// the window is. Placement only — <see cref="SyncBarVisibility"/> owns whether it is drawn.
+    ///
+    /// <para><b>BELOW THE X, NOT INBOARD OF IT, AND WHY.</b> The user asked for the mark "rechts oben
+    /// in der Ecke ... in das Fenster", which is the corner the close X has always occupied. Inboard
+    /// (to the X's LEFT) is the one placement that is actively wrong: <c>ModalCloseButton</c> puts
+    /// the plate's whole width CLEAR of the ink's right edge on purpose, because the ink is a tight
+    /// box around what the window paints and anything inset into it lands on a drawn row. The space
+    /// immediately to the X's left is therefore the window's content. Directly BELOW the plate, on
+    /// the plate's own right edge, is the same clear column the X already stands in — outside the ink
+    /// for the whole height of the window when the ink is narrow, and inside the frame's right margin
+    /// when the clamp bites, which is the identical compromise the X itself makes and no worse.</para>
+    ///
+    /// <para><b>AND THEY REALLY WOULD HAVE COLLIDED.</b> This is not a precaution taken on principle.
+    /// When the ink reaches the frame's right edge — the ordinary case for a window whose content
+    /// fills it — <c>PlaceAgainstInk</c> CLAMPS the plate to the frame's own corner, and a badge
+    /// seated at the ink's top-right corner clamps to the same place. The two rectangles then
+    /// overlap. Only the narrow-ink case separates them by itself.</para>
+    ///
+    /// <para><b>THE PLATE'S SIZE IS READ, NEVER COPIED.</b> <c>ModalCloseButton.ButtonSizePx</c> is
+    /// private to that class and it owns the plate's geometry; this reads the height off the plate's
+    /// own <c>RectTransform</c>, so a change over there moves the badge with it. Two hand-kept copies
+    /// of one boundary is how the caps end up painted in shaft material, and this project has paid
+    /// for that shape of drift often enough.</para>
+    ///
+    /// <para>THE DEGENERATE PATH IS NOT DEAD CODE, and that is worth stating because the brief for
+    /// this change assumed it was. A converted window has a close X only if
+    /// <c>ModalFallback.8.Convert</c> attached one, and the STORY BOX is explicitly excluded from
+    /// that ("Weiterhin darf dieses Story-Fenster kein 'x' haben, da man durchklicken muss") — while
+    /// being <c>SharedWindowKind.ScenarioStory</c>, i.e. the most frequently SHARED window there is.
+    /// The badge's most important customer is precisely a window with no X. That branch therefore
+    /// seats it at the committed rectangle's own top-right corner, inset by
+    /// <see cref="BadgeInsetPx"/>, with the same upward clamp the X uses and for the same reason: an
+    /// ink union may reach far ABOVE the frame (the ModBuild 241 options window measures
+    /// <c>y -540..1287</c> against a frame that ends at 540), and a mark seated at <c>ink.yMax</c>
+    /// would hang off in the room.</para>
+    /// </summary>
+    private void SyncBadge(Rect hostRect, float unit)
+    {
+        if (_badge == null || unit <= 1e-9f)
+            return;
+
+        // The badge's own TOP-RIGHT corner, in the host's authored px.
+        float cornerX = hostRect.xMax - BadgeInsetPx;
+        float cornerY = hostRect.yMax - BadgeInsetPx;
+        if (_inkValid && _inkRect.width > 0f && _inkRect.height > 0f)
+        {
+            cornerX = Mathf.Clamp(_inkRect.xMax - BadgeInsetPx, hostRect.xMin + BadgeSizePx, cornerX);
+            cornerY = Mathf.Clamp(_inkRect.yMax - BadgeInsetPx, hostRect.yMin + BadgeSizePx, cornerY);
+        }
+        if (_closeXPlaced && _closeX != null)
+        {
+            cornerX = _closeXPlacement.Corner.x;
+            // The lower clamp is a survival floor for a SHORT window, the same one PlaceAgainstInk
+            // gives the plate: a window barely taller than its own close button would otherwise have
+            // its badge hanging below its bottom edge, out in the room. It never bites on a window
+            // tall enough to hold both marks, which is every window this has been reasoned about on.
+            cornerY = Mathf.Max(_closeXPlacement.Corner.y - _closeX.rect.height - BadgeGapPx,
+                                hostRect.yMin + BadgeSizePx);
+        }
+
+        // Host px -> frame-local metres, the same conversion the bar's placement makes, against the
+        // same origin: the badge hangs under _visual, which carries the host's pose and the user's
+        // grab factor, and `unit` carries metersPerPixel x extraScale x worldScale.
+        float sizeM = BadgeSizePx * unit;
+        _badge.localPosition = new Vector3((cornerX - BadgeSizePx * 0.5f) * unit,
+                                           (cornerY - BadgeSizePx * 0.5f) * unit, 0f);
+        // A quad is 1x1 in its own local units, so this is a size and not a distortion; z stays 1
+        // because there is no z to scale. It sits AT z = 0, coplanar with the window's content and
+        // level with the rod, exactly as the bar does — the draw is decided by ORDER
+        // (BadgeOrderOffset), not by a depth offset, which is the ruling ModalCloseButton arrived at
+        // after a viewer nudge alone failed to decide it.
+        _badge.localScale = new Vector3(sizeM, sizeM, 1f);
     }
 
     /// <summary>
@@ -2270,7 +2589,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + "failure and nothing else's.");
     }
 
-    private void ReportBarPlacement(Rect hostRect, float unit, float intendedTopGapPx, float mmPerPx)
+    private void ReportBarPlacement(Rect hostRect, float unit, float barWidth, float thickness,
+                                    float intendedTopGapPx, float mmPerPx)
     {
         _inkReportDue = false;
         bool fallback = _inkFallbackDue;
@@ -2291,11 +2611,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         // Back out of frame-local metres into the window's own authored px — the unit the complaint
         // is in, and the unit the capture log quotes 'Rewards' at (-255,-913)-(284,-851) in.
-        Vector3 pos = _bar.localPosition;
-        Vector3 scale = _bar.localScale;
-        float barTopPx = (pos.y + scale.y * 0.5f) / unit;
+        // THE DRAWN NUMBERS ARE HANDED IN, NOT READ BACK OFF THE TRANSFORM, and since the cube became
+        // a rod that is no longer a style preference: the rod's root carries a UNIFORM scale (see
+        // SyncBar), so its localScale says nothing at all about how wide or how thick the handle is.
+        // barWidth and thickness are the two numbers SyncBar actually spent.
+        //
+        // WHAT thickness MEANS HERE: the SHAFT's diameter. The two end knobs stand proud of it at
+        // 1.28 R (GrabBarVisual's laser-target note), so at the bar's two extremities the drawn top
+        // edge is about a quarter of a shaft radius higher than this line reports. The claim being
+        // tested is about the long run clearing the ink, which is the shaft.
+        Vector3 pos = _bar.Root.localPosition;
+        float barTopPx = (pos.y + thickness * 0.5f) / unit;
         float barCentrePx = pos.x / unit;
-        float barHalfPx = scale.x * 0.5f / unit;
+        float barHalfPx = barWidth * 0.5f / unit;
         string suppressed = _inkReportsSuppressed > 0
             ? $" ({_inkReportsSuppressed} earlier line(s) suppressed by the {InkReportThrottleSeconds:F0} s rate limit)"
             : string.Empty;
@@ -2312,7 +2640,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             string handle = _barHiddenForEmpty
                 ? "THE HANDLE HAS BEEN TAKEN OFF THE SCREEN (ModBuild 243/251): this window drew "
                   + $"nothing for {InkEmptyConfirmSamples} agreeing walk(s) while its panel was on "
-                  + "the screen, so the brass bar and its laser collider are switched off and the "
+                  + "the screen, so the rod and its laser capsule are switched off and the "
                   + "close X is back on the frame's own corner. It all comes back on the first "
                   + "sample that measures ink again. The X was deliberately NOT hidden — it is the "
                   + "rescue for a window the player can no longer see. GREP EMPTY GRAB BAR TAKEN OFF "
@@ -2433,6 +2761,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _frame = null;
         _visual = null;
         _bar = null;
+        _badge = null;
         _grabZone = null;
         _handle = null;
         _visualValid = false;

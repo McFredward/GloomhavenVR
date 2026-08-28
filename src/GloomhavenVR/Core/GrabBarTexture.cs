@@ -128,3 +128,36 @@ internal enum GrabBarStyle
     /// <summary>Gold-brass crowns over verdigris hollows, bright gold caps — the Bronze board.</summary>
     Bronze = 3,
 }
+
+/// <summary>Which rod a control board wears.</summary>
+internal static class GrabBarStyles
+{
+    /// <summary>
+    /// THE ONE MAP FROM A BOARD TO ITS ROD, and it lives here because two call sites need it.
+    ///
+    /// <para>The local tray (<c>Cards.PlayTray.BuildHandle</c>) and the mirrored board
+    /// (<c>Net.Remote.RemoteBoardFurniture</c>) each wrote their own copy of this switch when they
+    /// were built in parallel, and the second one flagged the duplication itself. Two hand-kept
+    /// copies of one rule is how a peer's board ends up wearing a different rod from its owner's —
+    /// a 1:1 defect that no checker on this project would catch, because both copies would be
+    /// individually correct C#.</para>
+    ///
+    /// <para><b>NOT A CAST, DELIBERATELY.</b> <c>ControlBoard</c> is Oak = 0, Steel = 1, Bronze = 2
+    /// and <see cref="GrabBarStyle"/> is Generic = 0, Oak = 1, Steel = 2, Bronze = 3 — the ordinals
+    /// are OFF BY ONE and a cast would silently hand every board the wrong rod, with Bronze falling
+    /// off the end into nothing. The enums are numbered differently on purpose:
+    /// <see cref="GrabBarStyle.Generic"/> has to be member 0 so a caller that forgets gets the
+    /// neutral window rod rather than somebody else's board material.</para>
+    ///
+    /// <para>The default arm is OAK, not Generic: every <c>ControlBoard</c> value IS a board, so
+    /// falling through to the dark-walnut window rod would be the one material guaranteed not to
+    /// match. <c>ControlBoards.Clamp</c> already treats out-of-range as Oak, so this agrees with
+    /// it.</para>
+    /// </summary>
+    internal static GrabBarStyle For(Cards.ControlBoard board) => board switch
+    {
+        Cards.ControlBoard.Steel => GrabBarStyle.Steel,
+        Cards.ControlBoard.Bronze => GrabBarStyle.Bronze,
+        _ => GrabBarStyle.Oak,
+    };
+}

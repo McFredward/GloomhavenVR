@@ -1060,12 +1060,13 @@ internal static class RemoteMapStory
     ///
     /// <para><b>EVERY CLAUSE IS MEASURED THIS TICK AND NONE OF THEM IS A MECHANISM.</b> Which window
     /// answers the kind, whether the mod has a live floated panel and grab frame for it, whether the
-    /// shared predicate that paints the bar says blue, whether a pose block went out and whether one
+    /// shared predicate says this client takes part, whether a pose block went out and whether one
     /// came in with whose stamp, and which grab frame the move tracker's baseline is standing on.
-    /// [[an-instrument-can-assert-a-cause]] — the one thing it deliberately does NOT claim is the
-    /// PAINTED colour of the bar: that is written by <c>GrabbableModal.SyncSharedBarTint</c> from this
-    /// same predicate one tick later and reported by its own line, <c>SHARED WINDOW BAR</c>, so the
-    /// two together are the proof and neither pretends to be it alone.</para>
+    /// [[an-instrument-can-assert-a-cause]] — the one thing it deliberately does NOT claim is what
+    /// the window actually SHOWS: the corner network badge is switched by
+    /// <c>GrabbableModal.SyncSharedState</c> from this same predicate one tick later and reported by
+    /// its own line, <c>SHARED WINDOW BADGE</c>, so the two together are the proof and neither
+    /// pretends to be it alone.</para>
     ///
     /// <para><b>ModBuild 238 — THERE ARE THREE VERDICTS NOW AND THE THIRD IS WHY.</b> Through
     /// ModBuild 237 this line had two, and the negative one fired as a WARNING 24 times in one

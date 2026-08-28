@@ -25,11 +25,16 @@ namespace GloomhavenVR.Core;
 ///
 /// <para><b>THE BASE COLOUR IS NOW WHITE, AND THAT IS A REAL CHANGE FOR CALL SITES.</b> The colour
 /// used to BE the bar — a flat brass <c>(0.62, 0.50, 0.28)</c>. It is now a TINT multiplied onto the
-/// strip, so the resting value must be white or every rod is drawn through a brass filter. Call
-/// sites that keep a "resting colour" (<c>GrabbableModal._barTint</c>,
-/// <c>PanelGrabHandle.SetBarBaseColor</c>) must therefore rest at <see cref="RestingTint"/>, not at
-/// the old brass. If the texture is missing, <see cref="Build"/> falls back to the historic brass on
-/// an untextured material, so a broken resource loses the wood grain and keeps a usable handle.</para>
+/// strip, so the resting value must be white or every rod is drawn through a brass filter. A call
+/// site that keeps a "resting colour" must therefore rest at <see cref="RestingTint"/>, not at the
+/// old brass. The window bar no longer keeps one at all: <c>PanelGrabHandle.Init</c> seeds its
+/// highlight fallback from the MATERIAL of the renderer it is handed, which is this class's, so the
+/// right answer arrives without anyone naming it — and the blue shared-window tint that used to
+/// re-point it was dropped by the user on 2026-08-28 in favour of a corner network badge, taking
+/// <c>GrabbableModal._barTint</c> and <c>PanelGrabHandle.SetBarBaseColor</c> with it. If the texture
+/// is missing, <see cref="Build"/> falls back to the historic brass on an untextured material, so a
+/// broken resource loses the wood grain, keeps a usable handle, and — through that same seed — keeps
+/// a highlight that returns to brass rather than to white.</para>
 ///
 /// <para><b>THE PALM GRIP SURFACES ARE NOT GEOMETRY AND STILL DO NOT FOLLOW IT.</b>
 /// <c>PlayTray</c> keeps its 62 %-wide trigger, which the card dock-apron arbitration reads as
@@ -52,8 +57,8 @@ internal sealed class GrabBarVisual
     internal static readonly Color RestingTint = Color.white;
 
     /// <summary>The flat brass both bars were tinted before they had a texture
-    /// (<c>PlayTray.BuildHandle</c>, <c>GrabbableModal.PrivateBarColor</c> and the mirrored
-    /// <c>RemoteBoardFurniture.HandleColor</c> all carried this same literal). Used ONLY as the
+    /// (<c>PlayTray.BuildHandle</c>, <c>GrabbableModal</c>'s since-deleted <c>PrivateBarColor</c> and
+    /// the mirrored <c>RemoteBoardFurniture.HandleColor</c> all carried this same literal). Used ONLY as the
     /// fallback when the embedded strip could not be loaded, so a missing resource degrades to
     /// exactly the bar that shipped yesterday.</summary>
     internal static readonly Color UntexturedFallback = new(0.62f, 0.50f, 0.28f);
@@ -139,8 +144,14 @@ internal sealed class GrabBarVisual
     /// <param name="style">Which of the four strips to wear. <see cref="GrabBarStyle.Generic"/> is
     /// member 0, so a caller that does not say gets the neutral window rod rather than somebody
     /// else's board material.</param>
-    /// <param name="radius">Rod radius in LOCAL metres. The two bars shipped 0.024 m thick, so
-    /// 0.012 keeps them exactly as thick as they were.</param>
+    /// <param name="radius">Rod radius in LOCAL metres — pass
+    /// <see cref="GrabBarMesh.DefaultRadius"/> (0.014). This doc used to say 0.012, "so the bars
+    /// stay exactly as thick as they were", and that stopped being true when the profile was
+    /// measured against the design sheet: 0.014 is what 12.5 : 1 costs at the board bar's 0.352 m,
+    /// and 0.012 read visibly more slender than the sheet. A call site following the old prose
+    /// would have shipped one bar at the wrong thickness and the other at the right one — the
+    /// "comment asserting a parity the code does not have" pattern, caught by a lane rather than by
+    /// a checker.</param>
     /// <param name="overlay">TRUE for a rod drawn over a converted UI canvas (the window bars):
     /// uses <c>GloomhavenVR/Overlay</c>, the only shader that exposes <c>_ZTest</c>/<c>_ZWrite</c>,
     /// which is why those widgets stopped being occluded by the board. Overlay is UNLIT, and the
@@ -313,8 +324,15 @@ internal sealed class GrabBarVisual
     ///
     /// <para>A length below two caps would put the caps through each other. Rather than draw a
     /// knot, the shaft collapses to nothing and the two caps meet at the middle, which is the
-    /// honest picture of "this bar is as short as this bar gets" and is what the window's own
-    /// <c>MinBarWidth</c> floor already prevents in practice.</para>
+    /// honest picture of "this bar is as short as this bar gets".</para>
+    ///
+    /// <para>THIS DOC USED TO CLAIM the window's own <c>MinBarWidth</c> floor "already prevents"
+    /// that in practice. It did not: the floor was 0.040 m and the rod's minimum drawn length is
+    /// <c>2 x CapLengthInRadii x DefaultRadius</c> = 0.056 m, so a bar clamped to the floor was
+    /// drawn ~40 % wider than it asked for and its laser capsule came out shorter than the rod.
+    /// The floor has been raised to 0.06; the claim is true now, which it was not when it was
+    /// written. Caught by a lane reading the arithmetic, not by a checker — nothing in this
+    /// codebase compares a floor in one frame against a minimum in another.</para>
     /// </summary>
     internal void SetLength(float length)
     {

@@ -478,7 +478,6 @@ internal sealed class RemoteBoardFurniture
     /// and a board→colour mapping instead of one literal.</para></summary>
     private static Color PinIdleColor(Cards.ControlBoard? style) => Cards.PlayTray.BoardIdleColor(style);
     private static readonly Color SkipColor = new(0.37f, 0.44f, 0.56f);    // slate
-    private static readonly Color HandleColor = new(0.62f, 0.50f, 0.28f);  // brass bar
     private static readonly Color ShortRestColor = new(0.62f, 0.52f, 0.30f); // parchment-gold
     private static readonly Color LongRestColor = new(0.37f, 0.44f, 0.56f);  // antique slate-blue
 
@@ -1237,15 +1236,40 @@ internal sealed class RemoteBoardFurniture
                 proudZ: PinMount.z + tuning.PinOffset.z + Cards.BoardEngraving.PinCaptionProudLocalZ);
 
         // ---- grab-handle bar -------------------------------------------------------------------
-        // The local handle is a brass Cube PLUS a 62 %-wide trigger BoxCollider and a
-        // WorldUI.PanelGrabHandle that carries/rotates/resizes the board. The remote copy is the
-        // 3D BAR (the same cube the local board renders): no collider, no grab zone, no handle
-        // component. A peer's board can never be picked up — it follows the pose THEY broadcast
-        // and nothing else.
+        // THE ROD, IN THE OWNER'S BOARD STYLE. This was a flat brass Cube (LitCube, 0.024 square,
+        // a frozen copy of the local tint). It is now the SAME turned rod the local board builds —
+        // one shaft mesh plus two cap meshes off Core.GrabBarMesh, wearing the lathed strip for
+        // THEIR board (GrabBarStyles.For(_style), see that method for the proof it is the owner's
+        // style and not this client's). overlay:false because this rod stands in the WORLD on a
+        // board that is lit for real, not over a converted UI canvas; that is the branch
+        // GrabBarVisual documents for "the board bars" and it is the one that binds the normal and
+        // MRS maps.
+        //
+        // WHAT IS DELIBERATELY NOT COPIED. The local handle also carries a 62 %-wide trigger
+        // BoxCollider and a WorldUI.PanelGrabHandle that carries/rotates/resizes the board. The
+        // remote copy is the BAR ONLY: no collider, no grab zone, no handle component, and in
+        // particular NO GrabBarVisual.AttachLaserTarget() — that method exists to hand a capsule to
+        // PanelGrabHandle.SetBarCollider, and there is no PanelGrabHandle here. A peer's board can
+        // never be picked up; it follows the pose THEY broadcast and nothing else. StripColliders
+        // sweeps this whole root later in the constructor and would destroy a collider anyway, but
+        // relying on that sweep instead of not creating one is how the sweep becomes load-bearing.
+        //
+        // LENGTH, NOT SCALE. SetLength poses the rod for an end-to-end length; the root itself is
+        // never scaled non-uniformly, which is what keeps the round cross-section round and lets
+        // the shaft TILE its band instead of stretching it. BoardW * 0.55 is the same length term
+        // the cube's x scale carried, so the bar spans exactly what it did.
+        //
+        // NO "strip missing" LOG LINE HERE, on purpose. GrabBarTexture caches its failures, so a
+        // missing strip is one decode attempt for the whole process and the LOCAL board's own rod
+        // reports it from that same cache. A warn on this path would instead print once per peer
+        // per board rebuild — and a board rebuilds on every tuning revision — for a cause already
+        // named elsewhere.
         var handle = new GameObject("HandleBar").transform;
         handle.SetParent(_root, worldPositionStays: false);
         handle.localPosition = HandleMount;
-        LitCube(handle, "Bar", new Vector3(BoardW * 0.55f, 0.024f, 0.024f), HandleColor);
+        GrabBarVisual.Build(handle, "Bar", GrabBarStyles.For(_style),
+                            Core.GrabBarMesh.DefaultRadius, overlay: false)
+                     .SetLength(BoardW * 0.55f);
 
         // ---- the turn-flow SKIP cap — seat 2 of the generic cluster ---------------------------
         // Built by the SAME GenericCap call as Confirm and Undo, so it is their size, their depth,
@@ -3641,22 +3665,13 @@ internal sealed class RemoteBoardFurniture
     // see and the owner does not, and there is no owner-side state that could gate it, so it was
     // deleted rather than gated. Zero wire either way.
 
-    /// <summary>A collider-free LIT cube (BoardLit → Standard fallback) — the 3D handle bar and
-    /// any future solid furniture piece, shaded like the local board's own primitives instead of
-    /// the flat unlit quads of the 2D era.</summary>
-    private static void LitCube(Transform parent, string name, Vector3 size, Color color)
-    {
-        var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        go.name = name;
-        Object.Destroy(go.GetComponent<Collider>());
-        go.transform.SetParent(parent, worldPositionStays: false);
-        go.transform.localScale = size;
-        Shader? shader = Cards.PlayTray.BoardLitShader()
-                         ?? Shader.Find("Standard") ?? Shader.Find("Legacy Shaders/Diffuse")
-                         ?? Shader.Find("Sprites/Default");
-        if (shader != null)
-            go.GetComponent<MeshRenderer>().sharedMaterial = new Material(shader) { color = color };
-    }
+    // LitCube IS GONE. It built a collider-free lit primitive cube, and it had exactly ONE caller
+    // for its whole life: the mirrored grab-handle bar, which is a real lathed rod now
+    // (GrabBarVisual). Its doc comment offered it to "any future solid furniture piece" — an offer
+    // nothing took up in the intervening builds, and one that is the wrong shape of offer now,
+    // because the answer for a solid piece on this board is the SAME mesh the local board draws
+    // rather than a tinted primitive. Retired as a note rather than left as dead code, so the next
+    // reader knows where its one job went.
 
     // ---------------------------------------------------------------- change-gated setters --
 

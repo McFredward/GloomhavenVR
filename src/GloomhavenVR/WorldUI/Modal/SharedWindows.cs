@@ -35,15 +35,15 @@ namespace GloomhavenVR.WorldUI;
 ///
 /// <para><b>PARTICIPATION CAN FLIP WHILE A WINDOW STANDS</b> — the player toggles the 3D map mid
 /// life (<c>MapRoomDriver</c> reads its config live), and since ModBuild 290 the SESSION itself can
-/// come up or drop under a standing window. So a caller must re-evaluate the tint per tick and
-/// change-gate the write — one <see cref="Color"/> comparison per floated window per frame — rather
+/// come up or drop under a standing window. So a caller must re-evaluate the answer per tick and
+/// change-gate what it does with it — one bool comparison per floated window per frame — rather
 /// than deciding once at build time. The three BEHAVIOURS this predicate gates follow the same way
 /// and by the same route: <c>GrabbableModal._shared</c> is refreshed from
-/// <see cref="SharedWindows.ParticipatesHere"/> once per tick in <c>SyncSharedBarTint</c>, and the
-/// release re-face, the remote pose easing and the bar colour all read THAT — so a window that was
-/// open when the session came up starts behaving as shared without being reopened, and one that was
-/// blue and GRABBED when the session dropped simply finishes its carry as a private window (it
-/// re-faces on release, which is correct: there is no room left to disagree with).</para>
+/// <see cref="SharedWindows.ParticipatesHere"/> once per tick in <c>SyncSharedState</c>, and the
+/// release re-face, the remote pose easing and the corner network badge all read THAT — so a window
+/// that was open when the session came up starts behaving as shared without being reopened, and one
+/// that was BADGED and GRABBED when the session dropped simply finishes its carry as a private
+/// window (it re-faces on release, which is correct: there is no room left to disagree with).</para>
 ///
 /// <para><b>THE SCENARIO STORY WINDOW IS SHARED FOR EVERY PLAYER IN A SESSION</b> and must never
 /// acquire an opt-in gate OF ITS OWN — no 3D-map switch, no per-window preference: wire record 19
@@ -189,13 +189,14 @@ internal enum SharedWindowKind : byte
 /// grab-bar colour and the pose sync call.</summary>
 internal static class SharedWindows
 {
-    /// <summary>
-    /// The grab-bar tint a SHARED window's bar carries. Blue, because the user named blue ("zB
-    /// Blau") and because the private bar is a warm brass — the two are far apart in hue AND in
-    /// luminance, so they stay distinguishable for a red/green-deficient viewer and in the
-    /// desaturated periphery of a headset lens.
-    /// </summary>
-    internal static Color BarTint { get; } = new Color(0.24f, 0.47f, 0.78f);
+    // THE BLUE BAR TINT USED TO LIVE HERE, and it is gone rather than left standing with no reader.
+    // It was `internal static Color BarTint { get; } = new Color(0.24f, 0.47f, 0.78f)`, and it had
+    // exactly one reader in the whole codebase: the line in GrabbableModal that chose between it and
+    // a private brass. The user's ruling (2026-08-28) replaced the coloured bar outright — "Mach
+    // stattdessen rechts oben in der Ecke ein kleines (nicht aufdringliches) Netzwerksymbol in das
+    // Fenster" — so a shared window's rod must now look EXACTLY like a private one, and the way to
+    // guarantee that is for there to be no colour left to apply. What this file still owns is the
+    // PREDICATE (KindOf / ParticipatesHere); what a caller does with the answer moved to the badge.
 
     /// <summary>
     /// What kind of shared window this is, INDEPENDENT of whether this client currently

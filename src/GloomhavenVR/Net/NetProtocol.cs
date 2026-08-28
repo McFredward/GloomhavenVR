@@ -416,7 +416,63 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 315;
+    public const ushort ModBuild = 316;
+    // Build 316: THE GRAB BARS BECOME REAL RODS, AND THE BLUE BAR IS GONE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User: real meshes and a real texture, a different bar for the windows than for the boards,
+    //   "statt ein langes Rechteck will ich es eher rund", four rods in all — one per board style
+    //   plus a generic one for the windows — and the blue bar that marked a multiplayer window
+    //   replaced by "ein kleines (nicht aufdringliches) Netzwerksymbol" in the window's top-right.
+    //
+    //   WHAT SHIPS. A turned rod: tapered shaft, domed knob behind a beaded collar at each end,
+    //   built from a lathe in Core/GrabBar.cs and textured from four albedo + six map PNGs
+    //   EMBEDDED IN THE DLL, so the bundle stays byte-identical and nobody re-installs for a handle.
+    //   The shaft REPEATS its band length/0.60 m rather than stretching it, so a window bar that
+    //   changes length keeps its detail density; the band is mirror-symmetric so the wraps are
+    //   seamless. Meshes are cached by repeat count, not by length.
+    //
+    //   THE LASER NOW HITS THE ROD. The far ray used to test a BoxCollider padded to 1.5x the bar's
+    //   thickness in both cross-section axes — it could grab a handle while visibly missing it. It
+    //   tests a CapsuleCollider down the rod's axis now, on BOTH the window bar and the board bar
+    //   (the board never had a separate ray target at all). The PALM zones are untouched and stay
+    //   generous: a hand reaching for a handle should not have to be accurate, a beam aimed at one
+    //   should.
+    //
+    //   1:1: a peer's mirrored board wears the OWNER's board style, at zero new wire — the style
+    //   already travels, and RemoteBoardFurniture already held it as _style. It follows a runtime
+    //   style change through the existing teardown, including the flat-board case the style compare
+    //   alone would miss.
+    //
+    //   FOUR THINGS THE LANES CAUGHT THAT WOULD OTHERWISE HAVE SHIPPED SILENTLY:
+    //     * SetLength(barWidth) alone would have DROPPED TWO FACTORS the cube's localScale carried:
+    //       the short-panel slimming and the diorama world scale. A small window on a zoomed-out
+    //       board would have kept a full-size handle. They ride a uniform root scale now.
+    //     * Forcing _ZWrite on the badge — "handle it the way the bar does" — would have stamped a
+    //       24 px box of deleted background through its transparent margin. The bar is opaque; the
+    //       badge is not. It sets nothing.
+    //     * THE STORY BOX HAS NO CLOSE X and is the most-shared window there is, so "do not collide
+    //       with the X" is not the placement problem — the no-X seat is the badge's PRIMARY path.
+    //     * MinBarWidth (0.040) was BELOW the rod's own minimum drawn length (0.056), so a clamped
+    //       bar drew 40 % wider than it asked for and its capsule came out shorter than the rod.
+    //       Raised to 0.06.
+    //
+    //   AND ONE COMMENT THAT WAS LYING, unguarded: RemoteBoardFurniture.HandleColor was a frozen
+    //   hand-copy of PlayTray's brass tint under a comment claiming the pairing — and NEITHER
+    //   check-mirrors.sh NOR check-remote-defaults.py had ever watched it. Two lanes found this
+    //   independently. The literal is deleted rather than re-pointed.
+    //
+    //   TEST (two clients):
+    //     1. GREIFBALKEN — grab a window bar and a board bar by hand and by LASER. The beam must
+    //        now require hitting the rod itself; the hand must not.
+    //     2. LAENGE — open windows of very different widths. The scratches and the ornament must be
+    //        the same SIZE on all of them, not stretched or squeezed.
+    //     3. STIL — switch the control board style. The rod must change material with it, and a
+    //        peer's mirrored board must wear ITS OWNER's rod, not yours.
+    //     4. GETEILTES FENSTER — no blue bar anywhere. A small two-figure badge top-right instead,
+    //        and on the STORY box too (which has no close X).
+    //     5. STILL OWED FROM 302: card dust ON plus a second board dial moved.
+
     // Build 315: THE LAST THREE 1:1 ITEMS — AND TWO OF THE THREE COST NOTHING.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //
@@ -2043,10 +2099,11 @@ internal static class NetProtocol
     //   session counts as multiplayer; the new edge-triggered SHARED WINDOW SESSION GATE line
     //   prints IsOnline/IsHost/IsClient AND the player count so that reading can be settled from a
     //   hardware log with no code change.
-    //   THE BEHAVIOURAL HALVES WERE NOT LATCHED: bar tint, release re-face, the three facing
-    //   modes, remote easing and PanelPoseWatch.peerOwned all read GrabbableModal._shared, which
-    //   SyncSharedBarTint rewrites every tick from the same predicate. One frame of staleness,
-    //   both directions, no reopen needed.
+    //   THE BEHAVIOURAL HALVES WERE NOT LATCHED: the shared-window mark (a blue grab bar then, the
+    //   corner network badge since 2026-08-28), release re-face, the three facing modes, remote
+    //   easing and PanelPoseWatch.peerOwned all read GrabbableModal._shared, which SyncSharedState
+    //   (named SyncSharedBarTint at the time) rewrites every tick from the same predicate. One frame
+    //   of staleness, both directions, no reopen needed.
     //
     //   4. THE CAPES: THE PIN WAS THE MUSH. "Beim groesser machen werden sie steif und beim
     //   kleiner machen wird da ein Polygon matsch draus … Ist das moeglich?"
