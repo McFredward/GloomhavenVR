@@ -1551,6 +1551,26 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// The bound entry itself, for the ONE caller that needs the ConfigEntry rather than its value:
+    /// <c>Net/Board/BoardTuning</c>, which samples the owner's dials onto extension record 28 and
+    /// writes a field only when the live entry differs from the shipped default — so it needs the
+    /// entry to ask, and null while unbound has to mean "write nothing".
+    ///
+    /// <para>WHY THIS DIAL TRAVELS (wire id <see cref="Net.NetProtocol.TuneWindowLegibility"/>): a
+    /// peer's map-room hover placard used to be sized by the VIEWER's copy of it. The user ruled on
+    /// 2026-08-28 that the 1:1 rule governs there too — the placard is the owner's picture and
+    /// wears the owner's size. See that field's doc for the cost of the ruling, which is that this
+    /// is a LEGIBILITY dial and two players at opposite ends of the clamp differ by 75 %.</para>
+    /// </summary>
+    internal static BepInEx.Configuration.ConfigEntry<float>? WindowLegibilityEntry => _windowLegibility;
+
+    /// <summary>The shipped clamp on this dial, re-applied on the RECEIVING side so a corrupt field
+    /// cannot draw a peer's placard at any size the owner could not have chosen.</summary>
+    internal const float WindowLegibilityMin = MinWindowLegibility;
+    /// <inheritdoc cref="WindowLegibilityMin"/>
+    internal const float WindowLegibilityMax = MaxWindowLegibility;
+
+    /// <summary>
     /// The dial's live value, clamped, with a ONE line per change (never per read — this runs from
     /// every scale derivation). Falls back to the shipped default if the bind has not happened yet,
     /// which is a real case: a window can convert before the config browser ever force-binds.

@@ -18239,6 +18239,30 @@ internal static class NetProtocol
     /// </summary>
     public const byte TuneFanGazeSmoothing = 179;
 
+    /// <summary>
+    /// [WorldUI] WindowLegibility — how large the OWNER draws their floated windows, as a factor of
+    /// the shipped size (their dial is clamped 1.0..1.75, shipped 1.5).
+    ///
+    /// <para>ON THE WIRE BY USER RULING, 2026-08-28, and the ruling settled a question the code had
+    /// answered two different ways. A peer's map-room hover placard was sized by the VIEWER's copy
+    /// of this dial, with a written argument for it: "a peer's placard must be the SAME SIZE as the
+    /// card the local player gets for the same icon" — and one file over, <c>RemoteBoardTooltip</c>
+    /// sized a peer's board tooltip from the OWNER's <c>HoverInfoScale</c> instead. Asked which the
+    /// 1:1 rule meant here, the user ruled: "Auch hier soll die 1:1 Regel gelten, also die Größe
+    /// des Besitzers."</para>
+    ///
+    /// <para>WHY IT WAS A REAL QUESTION rather than an oversight, recorded so the argument is not
+    /// re-run from scratch: this dial is documented as a LEGIBILITY control, not a taste one — it
+    /// exists because floated game UI is authored at 1920x1080 and too few headset pixels land on
+    /// each authored pixel, which is a property of the viewer's eyes and headset. The cost of the
+    /// ruling is therefore real and is stated here: two players at opposite ends of the clamp
+    /// differ by 75 %, so a peer who needs 1.75 now puts a placard three quarters larger than your
+    /// own into your view. The user weighed that and chose the owner's picture.</para>
+    ///
+    /// <para>[WorldUI] WindowLegibility.</para>
+    /// </summary>
+    public const byte TuneWindowLegibility = 180;
+
     /// <summary>[Cards] RestStackSpacing — the same control for the short/long REST discs, as a
     /// multiple of that board's own rest-pad pitch. Successor to the retired per-board id 66; see
     /// <see cref="TuneButtonStackSpacing"/> for why it is a factor.</summary>

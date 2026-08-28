@@ -467,6 +467,12 @@ internal static class BoardTuningSampler
         // its owner's. A synced input does not make an unsynced coefficient synced.
         n += Fac(payload, ref i, NetProtocol.TuneFanGazeSmoothing,
                  CardsConfig.FanGazeSmoothing, Defaults.FanGazeSmoothing);
+        // THE OWNER'S WINDOW LEGIBILITY (id 180). By user ruling 2026-08-28 a peer's map-room hover
+        // placard is the OWNER's picture at the OWNER's size, not a card re-sized for whoever is
+        // looking at it. See NetProtocol.TuneWindowLegibility for the argument this settled and for
+        // what the ruling costs.
+        n += Fac(payload, ref i, NetProtocol.TuneWindowLegibility,
+                 WorldUI.ModalFallback.WindowLegibilityEntry, Defaults.WindowLegibility);
 
         // ---- ANGLE fields (ids 192..200) ------------------------------------------------------
         n += Ang(payload, ref i, NetProtocol.TuneAssetPitch,
@@ -988,6 +994,11 @@ internal readonly struct RemoteBoardTuning
     /// literal. Already clamped to the owner's own 1..30 window by the parser.</summary>
     public float FanGazeSmoothing { get; }
 
+    /// <summary>The owner's <c>[WorldUI] WindowLegibility</c> — how large THEY draw a floated
+    /// window, already re-clamped to their own 1.0..1.75 window on this side. Wire id
+    /// <see cref="NetProtocol.TuneWindowLegibility"/>.</summary>
+    public float WindowLegibility { get; }
+
     /// <summary>[Cards] InspectScale — how far a card GROWS while the owner holds it up to read it.
     /// The second factor of the held card's size; the first is <see cref="CardWidth"/>, and a
     /// receiver holding only that one draws a peer's held card 1.6x too small at shipped defaults.
@@ -1269,6 +1280,12 @@ internal readonly struct RemoteBoardTuning
         // The owner's own clamp (CardFan.UpdateCardPresentation: Clamp(value, 1, 30)) is re-applied
         // here rather than in the renderer, so every consumer reads a rate the owner could actually
         // have been easing at — and a corrupt field cannot freeze or explode a peer's fan.
+        // Re-clamped to the owner's own shipped window, for the reason every other clamped field
+        // on this record carries: a corrupt or hostile field must not be able to draw a peer's
+        // placard at a size no player could have chosen.
+        WindowLegibility = Mathf.Clamp(
+            F(payload, len, NetProtocol.TuneWindowLegibility, Defaults.WindowLegibility),
+            WorldUI.ModalFallback.WindowLegibilityMin, WorldUI.ModalFallback.WindowLegibilityMax);
         FanGazeSmoothing = Mathf.Clamp(
             F(payload, len, NetProtocol.TuneFanGazeSmoothing, Defaults.FanGazeSmoothing), 1f, 30f);
         // The owner's [Cards] InspectScale bound (0.5..4) applied on the receiving side for the same
