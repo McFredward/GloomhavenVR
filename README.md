@@ -76,13 +76,13 @@ Three pairs of hands, three masks, three control boards. One dropdown each, chan
 and the other players see the choice. All modelled for this project.
 
 <p align="center">
-  <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, three control boards, and the grab rod each board comes with">
+  <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, and three control boards with the grab rod each one comes with">
 </p>
 
-Each board comes with its own turned grab rod, in the bottom row — modelled from a lathe profile and
-textured one by one, down to the incised fillets, the knurled collars and the worn band where a hand
-has held it. Windows get a fourth, quieter walnut rod; it is not shown here because it is not a
-board style you pick.
+Each board is shown with the turned grab rod it comes with, at the spot along its bottom edge where
+you actually take hold of it. The rods are modelled from a lathe profile and textured one by one,
+down to the incised fillets, the knurled collars and the worn band where a hand has held it. Windows
+get a fourth, quieter walnut rod.
 
 ## Environments
 
