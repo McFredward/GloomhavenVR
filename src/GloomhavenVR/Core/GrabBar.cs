@@ -84,54 +84,92 @@ namespace GloomhavenVR.Core
         /// <see cref="ShaftU0"/>.</summary>
         internal const float ShaftU1 = 0.90f;
 
-        /// <summary>Radial segments around the rod. Sixteen is the point where the silhouette of a
-        /// 24 mm rod stops reading as faceted at arm's length in the headset; the whole bar is
-        /// ~700 triangles at this count, which is noise next to anything else on the board.</summary>
-        private const int RadialSegments = 16;
+        /// <summary>
+        /// Radial segments around the rod. TWENTY-FOUR, up from the sixteen the first cut used:
+        /// the beads and the neck are small-radius features, and at sixteen their silhouette read
+        /// as a polygon rather than a turned edge — which is half of why the first rods looked
+        /// machined out of a cube next to the design sheet. The whole bar is ~2,600 triangles,
+        /// still noise next to anything else on the board.
+        /// </summary>
+        private const int RadialSegments = 24;
 
-        /// <summary>Axial segments along the SHAFT. The shaft is not a plain tube — it carries the
-        /// slight mid-length swell the design sheets show, so it needs enough rings to curve. The swell
-        /// is a RADIUS profile, so it survives the axial scale that <see cref="GrabBarVisual.SetLength"/>
-        /// applies; a shaft built as two rings would flatten into a cone the moment it stretched.</summary>
-        private const int ShaftSegments = 20;
-
-        /// <summary>How far the shaft's radius grows at mid-length, as a fraction of the nominal
-        /// radius. Small on purpose: the sheets show a swell you feel rather than see, and anything
-        /// larger starts to read as a club rather than a handle.</summary>
-        private const float ShaftSwell = 0.06f;
-
-        /// <summary>Length of ONE end cap as a multiple of the rod's radius. The cap holds the dome and
-        /// both beaded rings, so it is the piece whose proportions carry the whole design; 2.2 R at the
-        /// shipped 12 mm radius is 26.4 mm of cap at each end.</summary>
-        internal const float CapLengthInRadii = 2.2f;
+        /// <summary>Axial segments along the SHAFT — enough to carry the taper smoothly.</summary>
+        private const int ShaftSegments = 28;
 
         /// <summary>
-        /// The cap's lathe profile, as (axial position in radii from the OUTER tip, radius in radii).
-        /// Read it outside-in: a dome, a neck, two beaded rings, then a shoulder that meets the shaft
-        /// at full radius. The dome is emitted as real arc points rather than listed here so it stays
-        /// smooth at any radial count.
+        /// THE SHAFT TAPERS, and this is the single biggest difference between the first rods and
+        /// the design the user approved. The first shaft was a near-constant tube with a 6 % swell;
+        /// the sheet shows a rod that is FULL in the middle and visibly slimmer at both ends, with
+        /// a waist before each cap. This is the radius at the shaft's two ends, as a fraction of
+        /// the nominal (mid-length) radius.
+        ///
+        /// <para>It is a RADIUS profile, so it survives the axial scale
+        /// <see cref="GrabBarVisual.SetLength"/> applies — a longer bar keeps the same silhouette
+        /// stretched, which is what the sheet shows at every length it was drawn at.</para>
         /// </summary>
-        private static readonly Vector2[] CapProfileAfterDome =
-        {
-            new(1.05f, 0.62f),   // neck behind the dome
-            new(1.15f, 0.80f),   // ring 1 rise
-            new(1.28f, 0.80f),   // ring 1 crown
-            new(1.38f, 0.62f),   // ring 1 fall
-            new(1.50f, 0.78f),   // ring 2 rise
-            new(1.62f, 0.78f),   // ring 2 crown
-            new(1.72f, 0.60f),   // ring 2 fall
-            new(1.90f, 0.88f),   // shoulder
-            new(2.20f, 1.00f),   // meets the shaft
-        };
+        private const float ShaftEndRadius = 0.72f;
 
-        /// <summary>Arc points used for the cap's dome, from the tip to where the neck starts.</summary>
-        private const int DomeSegments = 6;
+        /// <summary>
+        /// How much of each END of the shaft the taper occupies, as a fraction of its length. The
+        /// middle <c>1 - 2 x</c> of the rod stays at FULL radius.
+        ///
+        /// <para>THE SECOND ATTEMPT GOT THIS WRONG IN THE OPPOSITE DIRECTION and it is worth
+        /// recording. Replacing the near-constant first tube with a <c>sin^0.75</c> belly across the
+        /// whole length turned the rod into a lens — fat in the middle, pinched at both ends, a
+        /// rugby ball rather than a handle. The sheet shows something else: a rod that reads as one
+        /// even thickness for most of its run and eases down only in the last stretch before each
+        /// knob. Tapering over the outer 18 % a side gives that.</para>
+        /// </summary>
+        private const float TaperSpan = 0.18f;
 
-        /// <summary>Radius the dome reaches before the neck, in radii.</summary>
-        private const float DomeRadius = 0.92f;
+        /// <summary>Length of ONE end cap as a multiple of the nominal radius. The cap holds the
+        /// dome, the bead band and the neck; at the shipped 12 mm radius this is 20.4 mm.</summary>
+        internal const float CapLengthInRadii = 2.20f;
 
-        /// <summary>Axial length the dome occupies, in radii.</summary>
-        private const float DomeLength = 0.90f;
+        /// <summary>
+        /// Hemisphere radius of the end knob, in nominal radii. It must stand PROUD of the shaft's
+        /// tapered end (<see cref="ShaftEndRadius"/>) — that overhang is what makes it read as a
+        /// knob the hand stops against rather than as a rounded-off end. The second attempt set it
+        /// to 0.80 against a 0.68 end and the knobs came out THINNER than the shaft's belly; the
+        /// third put it at 0.98 against a 0.86 end, which is only a 14 % overhang and the bead band
+        /// vanished INTO the shaft. The sheet's knob is roughly a third wider than the rod beside
+        /// it, which is what 1.02 against a 0.72 shaft end gives.
+        /// </summary>
+        private const float DomeRadius = 1.12f;
+
+        /// <summary>Rings used for the knob's arc.</summary>
+        private const int DomeSegments = 12;
+
+        /// <summary>
+        /// How far the knob's arc sweeps, in degrees. PAST 90 on purpose: a bare quarter arc ends
+        /// at its widest point, so it reads as a rounded-off stump, while sweeping a little past
+        /// the equator tucks the profile back in and the knob reads as a BALL — which is what the
+        /// sheet draws and what the first three attempts all missed.
+        /// </summary>
+        private const float DomeSweepDegrees = 104f;
+
+        /// <summary>
+        /// HOW MANY BEADS SIT BEHIND THE KNOB. The sheet shows a tight band of many FINE rings; the
+        /// first cut had three fat ones spread over most of the cap and they rendered as stacked
+        /// plates. Five over half a radius is the sheet's density.
+        /// </summary>
+        private const int BeadCount = 5;
+
+        /// <summary>Axial length of one bead, in nominal radii.</summary>
+        private const float BeadLength = 0.10f;
+
+        /// <summary>Radius a bead falls to between crowns, in nominal radii.</summary>
+        private const float BeadRoot = 0.72f;
+
+        /// <summary>How far a bead's crown rises above <see cref="BeadRoot"/>.</summary>
+        private const float BeadRise = 0.11f;
+
+        /// <summary>Points across ONE bead. Four makes each bead a real arc; the first cut used a
+        /// rise/crown/fall triple and every bead came out a flat disc.</summary>
+        private const int BeadSegments = 4;
+
+        /// <summary>Where the bead band starts, in nominal radii from the dome's tip.</summary>
+        private const float BeadBandStart = 1.42f;
 
         private static readonly Dictionary<int, Mesh> _shaftCache = new();
         private static readonly Dictionary<int, Mesh> _capCache = new();
@@ -164,9 +202,14 @@ namespace GloomhavenVR.Core
             for (int a = 0; a <= ShaftSegments; a++)
             {
                 float t = (float)a / ShaftSegments;
-                profile.Add(new Vector3(t - 0.5f,
-                                        radius * (1f + ShaftSwell * Mathf.Sin(Mathf.PI * t)),
-                                        Mathf.Lerp(ShaftU0, ShaftU1, t)));
+                // Distance from the NEARER end, normalised against the taper span, then
+                // smoothstepped so the shoulder is a curve and not a crease.
+                float edge = Mathf.Clamp01(Mathf.Min(t, 1f - t) / TaperSpan);
+                float ease = edge * edge * (3f - 2f * edge);
+                profile.Add(new Vector3(
+                    t - 0.5f,
+                    radius * (ShaftEndRadius + (1f - ShaftEndRadius) * ease),
+                    Mathf.Lerp(ShaftU0, ShaftU1, t)));
             }
             Lathe(profile, verts, norms, uvs, tris);
 
@@ -196,16 +239,43 @@ namespace GloomhavenVR.Core
             var uvs = new List<Vector2>();
             var tris = new List<int>();
 
-            var profile = new List<Vector2>();
-            // The dome, as a real quarter arc so it stays smooth: x sweeps 0…DomeLength while the
-            // radius sweeps 0…DomeRadius on a sine, which puts the pole exactly at the tip.
+            // THE CAP PROFILE, outside-in: a small hemispherical knob, a collar, a tight band of
+            // fine beads, a waisted neck, then a flare that meets the shaft's tapered end. Every
+            // part is generated as a real arc rather than listed as corner points — that is what
+            // separates a turned edge from a stack of discs, and the first cut got it wrong in
+            // exactly that way.
+            var profile = new List<Vector2>();   // (x, r) in nominal radii
+
+            // The knob: a true hemisphere, so the pole sits exactly at the tip.
             for (int d = 0; d <= DomeSegments; d++)
             {
-                float t = (float)d / DomeSegments;
-                profile.Add(new Vector2(DomeLength * (1f - Mathf.Cos(t * Mathf.PI * 0.5f)),
-                                        DomeRadius * Mathf.Sin(t * Mathf.PI * 0.5f)));
+                float ang = (float)d / DomeSegments * DomeSweepDegrees * Mathf.Deg2Rad;
+                profile.Add(new Vector2(DomeRadius * (1f - Mathf.Cos(ang)),
+                                        DomeRadius * Mathf.Sin(ang)));
             }
-            profile.AddRange(CapProfileAfterDome);
+
+            // The collar the beads sit against.
+            profile.Add(new Vector2(BeadBandStart, BeadRoot + BeadRise * 0.55f));
+
+            // The bead band. Each bead is a half-sine in radius, so consecutive beads meet at
+            // BeadRoot and the band reads as beading rather than as ribs.
+            for (int b = 0; b < BeadCount; b++)
+            {
+                float x0 = BeadBandStart + b * BeadLength;
+                for (int k = 1; k <= BeadSegments; k++)
+                {
+                    float t = (float)k / BeadSegments;
+                    profile.Add(new Vector2(x0 + t * BeadLength,
+                                            BeadRoot + BeadRise * Mathf.Sin(Mathf.PI * t)));
+                }
+            }
+
+            // The waist, then the flare into the shaft's tapered end. The waist sits just under
+            // the bead root so the band reads as applied to the rod rather than cut from it.
+            float bandEnd = BeadBandStart + BeadCount * BeadLength;
+            profile.Add(new Vector2(bandEnd + 0.06f, BeadRoot - 0.05f));
+            profile.Add(new Vector2(CapLengthInRadii - 0.08f, ShaftEndRadius - 0.03f));
+            profile.Add(new Vector2(CapLengthInRadii, ShaftEndRadius));
 
             var lathed = new List<Vector3>();    // (x, r, u), in METRES
             for (int i = 0; i < profile.Count; i++)
@@ -289,6 +359,20 @@ namespace GloomhavenVR.Core
                 }
             }
         }
+
+        /// <summary>How hard the generated normal map bites. The maps are derived from the
+        /// albedo's own luminance rather than sculpted, so this stays moderate: past ~1.5 the wood
+        /// grain reads as carving rather than as grain. Lives here, in the file the Unity preview
+        /// symlinks, so the station and the game shade alike.</summary>
+        internal const float NormalStrength = 1.0f;
+
+        /// <summary>Feeds <c>GloomhavenVR/BoardLit</c>'s <c>_SpecStrength</c>. It MUST be non-zero:
+        /// that shader's whole specular block is gated behind <c>_SpecStrength &gt; 0</c> and the
+        /// property defaults to 0, so leaving it alone is the same as shipping no MRS map — which
+        /// is exactly why the first rods rendered matte. The board's own material ships 0.85; the
+        /// rods sit at the same value so a rod and the board it is bolted to catch the light
+        /// alike.</summary>
+        internal const float SpecStrength = 0.85f;
 
         /// <summary>
         /// WHERE THE THREE PIECES GO for a total end-to-end <paramref name="length"/>. Lives here,

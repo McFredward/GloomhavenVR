@@ -40,6 +40,26 @@
                       LogicalName="GloomhavenVR.Assets.grabbar_bronze.png" />
     <EmbeddedResource Include="Assets\grabbar_generic.png"
                       LogicalName="GloomhavenVR.Assets.grabbar_generic.png" />
+
+    <!--
+      NORMAL + MRS for the three LIT rods. GloomhavenVR/BoardLit gates its specular block behind
+      _SpecStrength > 0 and reads _BumpMap / _MRSMap (R = metallic, G = roughness); without these
+      the rods render matte. The GENERIC rod has none on purpose — it draws through the unlit
+      Overlay shader, which samples _MainTex * _Color and nothing else, so a normal map for it
+      would be a texture nothing ever reads.
+    -->
+    <EmbeddedResource Include="Assets\grabbar_oak_n.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_oak_n.png" />
+    <EmbeddedResource Include="Assets\grabbar_oak_mrs.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_oak_mrs.png" />
+    <EmbeddedResource Include="Assets\grabbar_steel_n.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_steel_n.png" />
+    <EmbeddedResource Include="Assets\grabbar_steel_mrs.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_steel_mrs.png" />
+    <EmbeddedResource Include="Assets\grabbar_bronze_n.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_bronze_n.png" />
+    <EmbeddedResource Include="Assets\grabbar_bronze_mrs.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_bronze_mrs.png" />
   </ItemGroup>
 
   <ItemGroup>

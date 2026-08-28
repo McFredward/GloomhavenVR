@@ -5,6 +5,20 @@
 //           -executeMethod GloomhavenVR.GrabBarPreview.RenderAll -logFile grabbar-preview.log -quit
 //   (needs a graphics device — do NOT pass -nographics.)
 //
+// TOUCH THE SYMLINK FIRST. ALWAYS:
+//
+//   touch -h Assets/Editor/GrabBarMeshLink.cs
+//
+// UNITY DOES NOT REIMPORT A SYMLINKED SOURCE FILE when only its TARGET changes — the link's own
+// mtime never moves, so the asset database sees nothing and rebuilds nothing, and the run compiles
+// the PREVIOUS version of GrabBar.cs while reporting complete success. This cost two full rounds:
+// a normals fix and a whole profile rework both landed in the source, were confirmed by the build,
+// and did not appear in a single rendered pixel. The runs that DID change the picture had all
+// touched a real file in this folder as well, which is what masked it.
+//
+// The tell, if it happens again: the [GrabBarPreview] MESH line prints the OLD vertex count and the
+// OLD bounds. That line exists for this.
+//
 // WHY THIS EXISTS, and what makes it worth trusting.
 //
 // The four grab bars are built at RUNTIME by the plugin, not baked into the bundle, so nothing in
@@ -136,8 +150,13 @@ namespace GloomhavenVR
                 // horizontal half-angle instead, and leave 12 % margin.
                 float hFov = 2f * Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad)
                                              * ((float)rtW / rtH));
-                float dist = (length * 1.12f * 0.5f) / Mathf.Tan(hFov * 0.5f);
-                camGo.transform.position = new Vector3(0f, dist * 0.34f, -dist);
+                float dist = (length * 1.34f * 0.5f) / Mathf.Tan(hFov * 0.5f);
+                // A THREE-QUARTER HERO ANGLE, not a side elevation — the same view the design
+                // sheets were drawn at. Judging a flat side-on render against a three-quarter
+                // reference compares two different pictures and flatters neither: foreshortening
+                // is what shows a rod's taper, and an oblique view is the only one where the
+                // knob's ball reads as a ball.
+                camGo.transform.position = new Vector3(dist * 0.42f, dist * 0.30f, -dist * 0.86f);
                 camGo.transform.LookAt(Vector3.zero);
 
                 var rt = new RenderTexture(rtW, rtH, 24);
@@ -177,6 +196,36 @@ namespace GloomhavenVR
             go.AddComponent<MeshRenderer>().sharedMaterial = mat;
         }
 
+        /// <summary>Bind one map off src/GloomhavenVR/Assets — the same PNG the plugin embeds.
+        /// Returns false, loudly, when the file is not there, so a missing map is a log line rather
+        /// than a silently matte rod.</summary>
+        private static bool Bind(Material mat, string property, string style, string suffix,
+                                 bool linear)
+        {
+            if (!mat.HasProperty(property))
+                return false;
+            string png = Path.GetFullPath(Path.Combine(
+                "..", "..", "src", "GloomhavenVR", "Assets",
+                "grabbar_" + style + suffix + ".png"));
+            if (!File.Exists(png))
+            {
+                Debug.LogError("[GrabBarPreview] map missing: " + png);
+                return false;
+            }
+            var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true, linear);
+            if (!tex.LoadImage(File.ReadAllBytes(png)))
+            {
+                Debug.LogError("[GrabBarPreview] could not decode " + png);
+                return false;
+            }
+            tex.wrapMode = TextureWrapMode.Repeat;
+            tex.filterMode = FilterMode.Bilinear;
+            tex.anisoLevel = 4;
+            tex.Apply(true);
+            mat.SetTexture(property, tex);
+            return true;
+        }
+
         private static Material BuildMaterial(string style, bool overlay)
         {
             // Same two shaders the runtime picks, resolved through AssetDatabase so they compile
@@ -194,27 +243,18 @@ namespace GloomhavenVR
 
             var mat = new Material(shader) { color = Color.white };
 
-            string png = Path.GetFullPath(Path.Combine(
-                "..", "..", "src", "GloomhavenVR", "Assets", "grabbar_" + style + ".png"));
-            if (File.Exists(png))
+            Bind(mat, "_MainTex", style, "", linear: false);
+            if (!overlay)
             {
-                var tex = new Texture2D(2, 2, TextureFormat.RGBA32, true, false);
-                if (tex.LoadImage(File.ReadAllBytes(png)))
-                {
-                    tex.wrapMode = TextureWrapMode.Repeat;
-                    tex.filterMode = FilterMode.Bilinear;
-                    tex.anisoLevel = 4;
-                    tex.Apply(true);
-                    mat.mainTexture = tex;
-                }
-                else
-                {
-                    Debug.LogError("[GrabBarPreview] could not decode " + png);
-                }
-            }
-            else
-            {
-                Debug.LogError("[GrabBarPreview] strip missing: " + png);
+                // The three LIT rods. Without these two the shader's specular block never runs
+                // (_SpecStrength defaults to 0) and the render comes out matte — which is what the
+                // first pass shipped, and most of why the rods looked nothing like the design sheet.
+                if (Bind(mat, "_BumpMap", style, "_n", linear: true)
+                    && mat.HasProperty("_NormalStrength"))
+                    mat.SetFloat("_NormalStrength", GloomhavenVR.Core.GrabBarMesh.NormalStrength);
+                if (Bind(mat, "_MRSMap", style, "_mrs", linear: true)
+                    && mat.HasProperty("_SpecStrength"))
+                    mat.SetFloat("_SpecStrength", GloomhavenVR.Core.GrabBarMesh.SpecStrength);
             }
 
             if (overlay && mat.HasProperty("_ZWrite"))

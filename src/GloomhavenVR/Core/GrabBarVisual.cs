@@ -54,6 +54,13 @@ internal sealed class GrabBarVisual
 
     private const string Scope = "Core";
 
+    /// <summary>Forwarded from <see cref="GrabBarMesh.NormalStrength"/> — declared there because
+    /// the Unity preview symlinks that file and must shade the rods the same way.</summary>
+    private const float NormalStrength = GrabBarMesh.NormalStrength;
+
+    /// <summary>Forwarded from <see cref="GrabBarMesh.SpecStrength"/>.</summary>
+    private const float SpecStrength = GrabBarMesh.SpecStrength;
+
     private readonly Transform _shaft;
     private readonly Transform _capA;
     private readonly Transform _capB;
@@ -114,8 +121,8 @@ internal sealed class GrabBarVisual
         Transform root = rootGo.transform;
         root.SetParent(parent, worldPositionStays: false);
 
-        Texture2D? strip = GrabBarTexture.Get(style);
-        Material material = BuildMaterial(strip, overlay);
+        GrabBarTexture.Maps maps = GrabBarTexture.Get(style);
+        Material material = BuildMaterial(maps, overlay);
 
         Mesh shaftMesh = GrabBarMesh.Shaft(radius);
         Mesh capMesh = GrabBarMesh.Cap(radius);
@@ -125,7 +132,7 @@ internal sealed class GrabBarVisual
             Piece(root, "Shaft", shaftMesh, material),
             Piece(root, "CapA", capMesh, material),
             Piece(root, "CapB", capMesh, material),
-            radius, material, strip != null);
+            radius, material, maps.Albedo != null);
 
         bar._renderers.Add(bar._shaft.GetComponent<MeshRenderer>());
         bar._renderers.Add(bar._capA.GetComponent<MeshRenderer>());
@@ -153,7 +160,7 @@ internal sealed class GrabBarVisual
         return go.transform;
     }
 
-    private static Material BuildMaterial(Texture2D? strip, bool overlay)
+    private static Material BuildMaterial(GrabBarTexture.Maps maps, bool overlay)
     {
         // Both shaders come through PlayTray's accessors, which go through Core.BundleShaders — a
         // bare Shader.Find on a "GloomhavenVR/*" name fails the build gate, and for good reason:
@@ -170,11 +177,11 @@ internal sealed class GrabBarVisual
         }
 
         var material = new Material(shader);
-        if (strip != null)
+        if (maps.Albedo != null)
         {
             material.color = RestingTint;
             if (material.HasProperty("_MainTex"))
-                material.mainTexture = strip;
+                material.mainTexture = maps.Albedo;
         }
         else
         {
@@ -188,6 +195,31 @@ internal sealed class GrabBarVisual
             // occludes the menu behind it, while ZTest stays at the default LEqual so a hand held
             // physically in front still occludes the handle.
             material.SetInt("_ZWrite", 1);
+        }
+
+        // ---- WHERE THE MATERIAL DEPTH COMES FROM, and why the first rods had none ------------
+        // The first cut bound the albedo and nothing else. GloomhavenVR/BoardLit gates its whole
+        // specular block behind `if (_SpecStrength > 0.0)` and _SpecStrength DEFAULTS TO ZERO, so
+        // the branch never executed: the rods rendered matte, with no sheen along the crown and no
+        // darkening in the crevices, and read as plastic next to the design sheet. The shader's own
+        // header says what it wants — "the AI-authored albedo already carries baked detail; this
+        // adds just enough normal-mapped shape so the brass/woodgrain reads" — and it wants three
+        // things, not one.
+        //
+        // The window rod passes none of this: Overlay is unlit and samples _MainTex * _Color only,
+        // which is exactly why its strip carries a baked body gradient and a baked highlight
+        // instead (see scripts/grabbar-strips.py).
+        if (maps.Normal != null && material.HasProperty("_BumpMap"))
+        {
+            material.SetTexture("_BumpMap", maps.Normal);
+            if (material.HasProperty("_NormalStrength"))
+                material.SetFloat("_NormalStrength", NormalStrength);
+        }
+        if (maps.Mrs != null && material.HasProperty("_MRSMap"))
+        {
+            material.SetTexture("_MRSMap", maps.Mrs);
+            if (material.HasProperty("_SpecStrength"))
+                material.SetFloat("_SpecStrength", SpecStrength);
         }
         return material;
     }

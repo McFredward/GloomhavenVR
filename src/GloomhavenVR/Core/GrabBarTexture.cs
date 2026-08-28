@@ -46,17 +46,46 @@ internal static class GrabBarTexture
 
     private const string Scope = "Core";
 
-    private static readonly Dictionary<GrabBarStyle, Texture2D?> _cache = new();
+    private static readonly Dictionary<string, Texture2D?> _cache = new();
+
+    /// <summary>
+    /// The three maps one rod draws with. <see cref="Normal"/> and <see cref="Mrs"/> are null for
+    /// the window rod ON PURPOSE — it draws through the UNLIT overlay shader, which reads neither,
+    /// so shipping them would be two textures nothing samples.
+    /// </summary>
+    internal readonly struct Maps
+    {
+        internal Maps(Texture2D? albedo, Texture2D? normal, Texture2D? mrs)
+        {
+            Albedo = albedo;
+            Normal = normal;
+            Mrs = mrs;
+        }
+
+        /// <summary>Colour. Null means the resource was missing — the caller falls back to a flat
+        /// tint rather than drawing nothing.</summary>
+        internal Texture2D? Albedo { get; }
+
+        /// <summary>Tangent-space normal, LINEAR. Null for the window rod.</summary>
+        internal Texture2D? Normal { get; }
+
+        /// <summary>R = metallic, G = roughness, LINEAR — the packing
+        /// <c>GloomhavenVR/BoardLit</c> declares. Null for the window rod.</summary>
+        internal Texture2D? Mrs { get; }
+    }
 
     /// <summary>Manifest resource name per style. These must match the <c>LogicalName</c> attributes
     /// in <c>GloomhavenVR.csproj</c> exactly.</summary>
-    private static string ResourceName(GrabBarStyle style) => style switch
+    private static string BaseName(GrabBarStyle style) => style switch
     {
-        GrabBarStyle.Oak => "GloomhavenVR.Assets.grabbar_oak.png",
-        GrabBarStyle.Steel => "GloomhavenVR.Assets.grabbar_steel.png",
-        GrabBarStyle.Bronze => "GloomhavenVR.Assets.grabbar_bronze.png",
-        _ => "GloomhavenVR.Assets.grabbar_generic.png",
+        GrabBarStyle.Oak => "grabbar_oak",
+        GrabBarStyle.Steel => "grabbar_steel",
+        GrabBarStyle.Bronze => "grabbar_bronze",
+        _ => "grabbar_generic",
     };
+
+    private static string ResourceName(string baseName, string suffix) =>
+        "GloomhavenVR.Assets." + baseName + suffix + ".png";
 
     /// <summary>
     /// The albedo strip for one rod, decoded once and cached for the process. Null means the
@@ -69,21 +98,46 @@ internal static class GrabBarTexture
     /// past. This project has shipped a probe that kept blitting for 44,200 ticks after it had its
     /// answer; a failed lookup is an answer.</para>
     /// </summary>
-    internal static Texture2D? Get(GrabBarStyle style)
+    internal static Maps Get(GrabBarStyle style)
     {
-        if (_cache.TryGetValue(style, out Texture2D? cached))
+        string baseName = BaseName(style);
+        // The window rod is unlit; a normal and an MRS map for it would be two textures nothing
+        // ever samples, so the pipeline does not build them and this does not ask for them.
+        bool lit = style != GrabBarStyle.Generic;
+        return new Maps(
+            Load(ResourceName(baseName, string.Empty), linear: false),
+            lit ? Load(ResourceName(baseName, "_n"), linear: true) : null,
+            lit ? Load(ResourceName(baseName, "_mrs"), linear: true) : null);
+    }
+
+    /// <summary>
+    /// Decode one embedded PNG, once per process.
+    ///
+    /// <para>A NULL IS CACHED TOO, on purpose. Without that, a missing resource would re-attempt a
+    /// <c>LoadImage</c> on every bar built — and the window bars are rebuilt whenever a window is —
+    /// which turns one silent failure into a per-window allocation and a log line nobody can read
+    /// past. This project has shipped a probe that kept blitting for 44,200 ticks after it had its
+    /// answer; a failed lookup is an answer.</para>
+    ///
+    /// <para><paramref name="linear"/> is not cosmetic: a normal or an MRS map decoded as sRGB
+    /// feeds the shader gamma-curved numbers where it expects raw ones, which shows up as a normal
+    /// that leans the wrong way and a roughness that is wrong everywhere except 0 and 1.</para>
+    /// </summary>
+    private static Texture2D? Load(string resource, bool linear)
+    {
+        if (_cache.TryGetValue(resource, out Texture2D? cached))
             return cached;
 
         Texture2D? tex = null;
         try
         {
-            byte[]? bytes = ReadResource(ResourceName(style));
+            byte[]? bytes = ReadResource(resource);
             if (bytes != null)
             {
                 // mipChain: true — these rods are seen at every distance from a hand's width to
                 // across the room, and an unmipped 1024-wide strip on a 24 mm rod is the classic
                 // per-eye shimmer this project has already chased once in the wall fade.
-                tex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true, linear: false);
+                tex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true, linear: linear);
                 if (tex.LoadImage(bytes))
                 {
                     // The strip wraps around the rod in v and butts cap-to-cap in u; Repeat is
@@ -93,30 +147,28 @@ internal static class GrabBarTexture
                     tex.anisoLevel = 4;
                     tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
                     VRLog.Info(Scope,
-                        $"Grab-bar strip '{style}' decoded: {tex.width}x{tex.height} " +
-                        $"({bytes.Length} bytes).");
+                        $"Grab-bar map '{resource}' decoded: {tex.width}x{tex.height} " +
+                        $"({bytes.Length} bytes, linear={linear}).");
                 }
                 else
                 {
                     UnityEngine.Object.Destroy(tex);
                     tex = null;
-                    VRLog.Warn(Scope, $"Grab-bar strip '{style}' failed to decode; using flat tint.");
+                    VRLog.Warn(Scope, $"Grab-bar map '{resource}' failed to decode.");
                 }
             }
             else
             {
-                VRLog.Warn(Scope,
-                    $"Grab-bar strip '{style}' is not embedded in the plugin " +
-                    $"('{ResourceName(style)}'); using flat tint.");
+                VRLog.Warn(Scope, $"Grab-bar map '{resource}' is not embedded in the plugin.");
             }
         }
         catch (Exception e)
         {
-            VRLog.Warn(Scope, $"Grab-bar strip '{style}' load threw ({e.GetType().Name}); using flat tint.");
+            VRLog.Warn(Scope, $"Grab-bar map '{resource}' load threw ({e.GetType().Name}).");
             tex = null;
         }
 
-        _cache[style] = tex;
+        _cache[resource] = tex;
         return tex;
     }
 
