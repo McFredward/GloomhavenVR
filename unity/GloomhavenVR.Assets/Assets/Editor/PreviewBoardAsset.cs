@@ -101,7 +101,15 @@ namespace GloomhavenVR
             try
             {
                 board.transform.position = Vector3.zero;
-                board.transform.rotation = Quaternion.identity;
+                // LAY THE BOARD FLAT, because that is the pose the other tiles were shot in.
+                // PlayTray is a VERTICAL panel in the game — it faces the player — so a 50 degree
+                // down-look sees it nearly edge-on. render_asset.py's boards arrive from FBX lying
+                // flat, which is what its own note is about: "PITCH 18 IS EDGE-ON. A tray lies
+                // FLAT. Shot from 18 degrees it is a sliver; the player looks down at it, so 50
+                // does what his eye does." Rotating -90 about X turns the board's face (+Z) up to
+                // +Y and puts it in that same frame. The rod is a CHILD, so it follows.
+                // (-90 lays it face DOWN and renders the plain back of the tray — checked.)
+                board.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
                 AttachRod(board.transform, rodStyle);
 
                 Camera cam = camGo.AddComponent<Camera>();
@@ -111,8 +119,41 @@ namespace GloomhavenVR
                 cam.orthographicSize = OrthoWidth * 0.5f;          // square render: half the width
                 cam.nearClipPlane = 0.01f;
                 cam.farClipPlane = 20f;
-                camGo.transform.rotation = Quaternion.Euler(Pitch, -Yaw, 0f);
-                camGo.transform.position = -camGo.transform.forward * 2f;
+                // THE CAMERA POSE IS TAKEN FROM render_asset.py, NOT GUESSED AT.
+                //
+                // The first cut wrote Quaternion.Euler(pitch, -yaw, 0) and the boards came out
+                // visibly more isometric than the shipped tiles — a different photograph of the
+                // same object, which in a matrix reads as the rows disagreeing about what a board
+                // looks like. Euler angles are a convention, and Blender's is not Unity's.
+                //
+                // That script builds a DIRECTION and puts the camera on it:
+                //
+                //     d = ( sin(yaw)*cos(pitch), -cos(yaw)*cos(pitch), sin(pitch) )   [Blender]
+                //
+                // in Blender's Z-up right-handed frame. Its own header gives the mapping —
+                // "(x, y, z)_unity -> (x, z, y)_blender" — so the same direction in Unity is
+                //
+                //     d = ( sin(yaw)*cos(pitch), sin(pitch), -cos(yaw)*cos(pitch) )
+                //
+                // which at yaw 35 / pitch 50 is (0.369, 0.766, -0.527). Placing the camera along it
+                // and looking back gives the same photograph, with no convention left to get wrong.
+                float y = Yaw * Mathf.Deg2Rad, pi = Pitch * Mathf.Deg2Rad;
+                // The yaw is NEGATED across the two engines. Renaming axes is not enough: Blender
+                // is right-handed and Unity is left-handed, so the same formula walks the camera
+                // around the object the other way. Without the flip the board's long axis ran
+                // upper-left to lower-right where the shipped tiles run lower-left to upper-right —
+                // a mirrored photograph of the same object.
+                var dir = new Vector3(-Mathf.Sin(y) * Mathf.Cos(pi),
+                                      Mathf.Sin(pi),
+                                      -Mathf.Cos(y) * Mathf.Cos(pi)).normalized;
+
+                // FRAME ON WHAT IS DRAWN, board AND rod together. The Blender script auto-fits to
+                // the object it was handed; the rod hangs 204 mm below the board's centre, so
+                // aiming at the board's own centre would push it toward the bottom edge and, at a
+                // pinned ortho width, off it.
+                Bounds b = Content(board);
+                camGo.transform.position = b.center + dir * 2f;
+                camGo.transform.LookAt(b.center);
 
                 // BoardLit bakes its own two light directions, so the scene's lighting has no say
                 // here — which is the point. An ambient floor is set anyway for anything on the
@@ -170,6 +211,19 @@ namespace GloomhavenVR
                   new Vector3(shaftLen, 1f, 1f));
             Piece(root, "CapA", cap, mat, leftPos, Quaternion.identity, Vector3.one);
             Piece(root, "CapB", cap, mat, rightPos, Core.GrabBarMesh.RightCapRotation, Vector3.one);
+        }
+
+        /// <summary>The union of every enabled renderer under <paramref name="root"/> — what the
+        /// picture actually contains, which is the board plus its rod.</summary>
+        private static Bounds Content(GameObject root)
+        {
+            var rs = root.GetComponentsInChildren<Renderer>(false);
+            if (rs.Length == 0)
+                return new Bounds(root.transform.position, Vector3.one * 0.1f);
+            Bounds b = rs[0].bounds;
+            for (int i = 1; i < rs.Length; i++)
+                b.Encapsulate(rs[i].bounds);
+            return b;
         }
 
         private static void Piece(Transform parent, string name, Mesh mesh, Material mat,
