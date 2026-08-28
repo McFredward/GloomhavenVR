@@ -70,9 +70,13 @@ namespace GloomhavenVR.Net;
 ///     Nothing on the wire says which card, so a peer's fan never splits. Costs a byte + a flag to
 ///     fix; the extras flag byte is full, so it would have to claim one of the RESERVED bits 5-7 of
 ///     the pile-browse payload byte A (see PresenceState's layout contract).
-///   * GAZE-BIAS YAW ([Cards] FanGazeBias): opt-in, OFF by default and superseded by the toe-in.
-///     The receiver could compute the whole eased/hysteretic yaw from the peer's synced head gaze,
-///     but not whether the SENDER has the toggle on — that one bit is the only missing input.
+/// (GAZE-BIAS YAW left this list. It said the receiver "could compute the whole eased/hysteretic
+/// yaw from the peer's synced head gaze, but not whether the SENDER has the toggle on — that one bit
+/// is the only missing input", and that was true and then simply stood there: an owner who switched
+/// [Cards] FanGazeBias on yawed their fan on their own screen and on nobody else's. The yaw is
+/// DERIVED here now — see the gaze-facing-bias region — and the one bit is the only thing still
+/// outstanding, which is the renderer-first order this project requires: a wire field whose receiver
+/// ignores it reads green in scripts/check-wire-coverage.py while the picture stays wrong.)
 /// CLOSED SINCE EXTENSION RECORD 28 — the TUNED Fan* CONFIG. The geometry fields below used to be
 /// consts seeded to the CardsConfig DEFAULTS, on the argument that "a peer's fan must not depend on
 /// the LOCAL player's Cards config being bound or tuned". That argument is still right and still
@@ -218,6 +222,22 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private float _archFactor = Defaults.FanFlatCurvatureFactor;
     private float _tiltFactor = Defaults.FanTiltFactor;
     private int _maxHandForCurve = Defaults.FanMaxHandForCurve;
+
+    /// <summary>
+    /// Whether THIS OWNER has curvature-by-fill on — their <c>[Cards] FanCurveByFill</c>, wire id
+    /// <see cref="NetProtocol.TuneFanCurveByFillOn"/>, defaulting to the shipped <c>true</c> so an
+    /// older or untuned peer renders exactly what they rendered before the field existed.
+    ///
+    /// <para>IT IS A GATE THIS FILE NEVER HAD. Both of the two fill multiplies below ran
+    /// UNCONDITIONALLY, and the wire-coverage exemption that stood over the dial — "a local hand-fill
+    /// heuristic feeding dials that ARE on the wire" — was the mirror image of the data flow: the
+    /// dial does not feed <c>FanCurvePower</c> (135) and <c>FanCurveMinCards</c> (224); those cross
+    /// RAW and the RECEIVER does the multiply. So an owner who switched it off flattened their own
+    /// fan and nobody else's. Cached here beside the other dozen mirrored dials rather than read per
+    /// frame, for the reason given above.</para>
+    /// </summary>
+    private bool _curveByFillOn = Defaults.FanCurveByFill;
+
     private const float ZStagger = 0.004f;                         // CardFan.ZStagger (draw order)
     private const int MaxCards = 12;                               // hard clamp on the broadcast count
 
@@ -315,6 +335,16 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private readonly List<RemoteCardArt> _faces = new(MaxCards); // per-slab cloned-front overlays (parallel to _cards)
     private int _builtCount = -1;          // how many card slabs currently exist (-1 = never built)
     private bool _poseInit;                // snap (no ease) on the first pose after (re)activation
+
+    /// <summary>
+    /// The eased BASE billboard — the fan's rotation WITHOUT the gaze-bias yaw. Held apart from
+    /// <c>_root.rotation</c> because the yaw is composed on top of it: easing from a rotation that
+    /// already carries the yaw toward a target that does not would feed the lean back into its own
+    /// source each frame and settle it short of the owner's. Seeded from the live root rotation on
+    /// every (re)appearance (see <see cref="PoseFan"/>), so with the bias off it is bit-for-bit the
+    /// rotation this file produced before it existed.
+    /// </summary>
+    private Quaternion _facing = Quaternion.identity;
 
     // FAN-OUT REVEAL (report 6, "Fächer ist sichtbar" / the fan being RAISED). The local fan does a
     // Demeo fan-in on Open (CardFan._openElapsed: every card seeds at the middle slot and flies out
@@ -486,7 +516,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// (−1) — CardFan.SwapGatherPoint against the OWNER's own resolved dials.</summary>
     private void SwapGatherPoint(int n, float side, out Vector3 pos, out Quaternion rot)
     {
-        float fill = Mathf.Clamp01((float)Mathf.Max(n, 1) / Mathf.Max(1, _maxHandForCurve));
+        // Gated on the owner's [Cards] FanCurveByFill exactly as the steady layout is — the gather
+        // point sits ON the arc the fan describes, so a flattened fan must throw from a flattened end.
+        float fill = _curveByFillOn
+            ? Mathf.Clamp01((float)Mathf.Max(n, 1) / Mathf.Max(1, _maxHandForCurve))
+            : 1f;
         float arch = _archFactor * fill;
         float tilt = _tiltFactor * fill;
         float step = n > 1 ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1)) : 0f;
@@ -1489,33 +1523,61 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
 
         // Face the owner's head: the fan's +Z points AWAY from the head so the card fronts (-Z)
         // look toward the owner and their BACKS face everyone else — exactly like the local fan.
+        // On a (re)appearance the base is seeded from wherever the root actually is, so the
+        // degenerate fallbacks below still mean "keep the current rotation", as they did when this
+        // method eased root.rotation directly.
+        if (_poseInit)
+            _facing = root.rotation;
+
         Transform head = _owner.HeadHolder;
-        Quaternion targetRot;
+        Quaternion targetRot = _facing;
+        float biasYaw = 0f;
         if (head != null)
         {
             Vector3 away = target - head.position;
-            targetRot = away.sqrMagnitude > 1e-6f
-                ? Quaternion.LookRotation(away.normalized, Vector3.up)
-                : root.rotation;
-        }
-        else
-        {
-            targetRot = root.rotation;
+            if (away.sqrMagnitude > 1e-6f)
+            {
+                targetRot = Quaternion.LookRotation(away.normalized, Vector3.up);
+
+                // [Cards] FanGazeBias — the extra yaw that turns the fan partway toward the owner's
+                // gaze. See the gaze-facing-bias region for the port and for why the toggle is the
+                // only input that is not already on the wire. Inert (biasYaw stays exactly 0) for
+                // every peer whose toggle is off, which today is all of them.
+                if (_gazeBiasOn)
+                {
+                    biasYaw = UpdateGazeBias(away, head.forward, dt);
+                }
+                else if (_gazeBiasYaw != 0f || _gazeSide != 0)
+                {
+                    // Switched off mid-bias (their tuning revision moved): drop the residual so a
+                    // re-enable eases out from centre — CardFan.Tick's own else-branch, verbatim.
+                    _gazeBiasYaw = 0f;
+                    _gazeSide = 0;
+                }
+            }
         }
 
         if (_poseInit)
         {
             _poseInit = false;
-            root.SetPositionAndRotation(target, targetRot);
+            _facing = targetRot;
+            root.SetPositionAndRotation(target, ApplyGazeBias(_facing, biasYaw));
         }
         else
         {
             float k = 1f - Mathf.Exp(-Smoothing * Mathf.Max(dt, 0f));
+            _facing = Quaternion.Slerp(_facing, targetRot, k);
             root.SetPositionAndRotation(
                 Vector3.Lerp(root.position, target, k),
-                Quaternion.Slerp(root.rotation, targetRot, k));
+                ApplyGazeBias(_facing, biasYaw));
         }
     }
+
+    /// <summary>Compose the eased gaze-bias yaw onto the base billboard — CardFan.Tick's
+    /// <c>AngleAxis(biasYaw, up) * baseFacing</c>, including its exact-zero short circuit so a fan
+    /// with the toggle off is handed the identical quaternion this file always produced.</summary>
+    private static Quaternion ApplyGazeBias(Quaternion baseFacing, float biasYaw)
+        => biasYaw != 0f ? Quaternion.AngleAxis(biasYaw, Vector3.up) * baseFacing : baseFacing;
 
     /// <summary>
     /// Arc the card slabs in the fan-local frame, reproducing CardFan.Relayout. Positions are real
@@ -1543,8 +1605,15 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         float step = n > 1 ? Mathf.Min(_perCardStepDegrees, _arcSweepDegrees / (n - 1)) : 0f;
         float start = -step * (n - 1) * 0.5f;
 
-        // Curvature-by-fill: a few cards read nearly flat/untilted, a full hand arches and tilts.
-        float fill = Mathf.Clamp01((float)n / _maxHandForCurve);
+        // Curvature-by-fill: a few cards read nearly flat/untilted, a full hand arches and tilts —
+        // but ONLY where the OWNER has [Cards] FanCurveByFill on (see _curveByFillOn). With it off
+        // CardFan drops the fill term entirely and uses the two factors at every hand size (the
+        // legacy, pre-Demeo look), so the mirror must too — this multiply used to run unconditionally.
+        // MAGNITUDE at the shipped 0.55 arch / 0.85 tilt over FanMaxHandForCurve = 10: nothing at all
+        // for a FULL hand (fill = 1, the two agree exactly) and largest in the middle of the range —
+        // a 5-card hand's end card sits 7 mm deeper and rolled 12° further with the dial OFF than
+        // with it on, a 3-card hand 2.5 mm and 8°. The ROLL is the half an onlooker actually reads.
+        float fill = _curveByFillOn ? Mathf.Clamp01((float)n / _maxHandForCurve) : 1f;
         float arch = _archFactor * fill;
         float tilt = _tiltFactor * fill;
 
@@ -1903,6 +1972,158 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                           "pop, from the INDEX alone (extension record 6: no card identity).");
     }
 
+    // ----------------------------------------------------------------- gaze-facing bias (derived) --
+    // [Cards] FanGazeBias, ported from CardFan.UpdateGazeBias term for term: an eased extra YAW about
+    // world up that turns the whole fan ROOT partway toward where the owner is looking, so the
+    // looked-at end of the arc tips toward them. OPT-IN and OFF in the shipped config, so every fan
+    // drawn today is unchanged — biasYaw stays exactly 0 and ApplyGazeBias returns the billboard.
+    //
+    // WHY IT IS DERIVABLE. The yaw is a pure function of two things the rig packet already carries —
+    // the head->fan vector and the head's GAZE, the same pair TrackGazeApex below already runs on —
+    // and of six CONSTANTS that live in CardFan as private consts rather than in [Cards], so they are
+    // copied here like every other presentation constant in this file. Nothing about the SHAPE needs
+    // transmitting. The one input that is genuinely not derivable is the toggle itself: whether the
+    // sender switched it on.
+    //
+    // RENDERER FIRST, FIELD SECOND. That bit is NOT on the wire yet, deliberately — this project's
+    // FanCloseDuration trap is a wire field whose receiver ignores it, which turns
+    // scripts/check-wire-coverage.py green while the picture stays wrong. This is the honest way
+    // round: the picture is ready and the checker still says PENDING. When the id lands, _gazeBiasOn
+    // becomes one line in SyncTuning and nothing else here changes.
+    //
+    // MAGNITUDES at the shipped constants: no yaw at all until the gaze clears 20° off the fan
+    // centre, smoothstep-ramped to full weight by 42°, 0.6 of the offset applied, hard-clamped at
+    // 32°, eased at 9/s — so the visible swing runs 0° … 32° and the fan can never spin away from
+    // the palm. How that 20° deadzone compares with the angle a hand actually subtends is argued in
+    // CardFan's own ROUND-2 AUDIT NOTE beside these constants; read it before retuning either side,
+    // and retune BOTH — a constant that drifts here and not there is a 1:1 defect by construction.
+
+    /// <summary>
+    /// Whether THIS OWNER has <c>[Cards] FanGazeBias</c> on.
+    ///
+    /// <para>NOT WIRE-FED YET — see the region note above. It resolves to the shipped default
+    /// (<c>false</c>) for every peer, so the renderer below is armed and idle. The integration commit
+    /// that lands the id needs exactly one line, in <see cref="SyncTuning"/> beside the other
+    /// mirrored dials: <c>_gazeBiasOn = t.FanGazeBiasOn;</c></para>
+    /// </summary>
+    private bool _gazeBiasOn = Defaults.FanGazeBias;
+
+    /// <summary>Gaze offset (deg off "looking straight at the fan centre") the head must CLEAR before
+    /// the bias commits to a side — CardFan.GazeBiasDeadzoneDeg. WIDE, and paired with
+    /// <see cref="GazeBiasReleaseDeg"/>: once committed, a side only relaxes back to centre inside the
+    /// smaller release band, so a head shake sweeping through centre cannot flip the lean's sign.</summary>
+    private const float GazeBiasDeadzoneDeg = 20f;
+
+    /// <summary>Gaze offset (deg) at which a committed side RELEASES back to centre — CardFan's
+    /// hysteresis floor, below the deadzone.</summary>
+    private const float GazeBiasReleaseDeg = 10f;
+
+    /// <summary>Gaze offset (deg) at which the bias reaches full weight, smoothstep-ramped from the
+    /// deadzone — CardFan.GazeBiasFullDeg (~the half-arc a full hand subtends).</summary>
+    private const float GazeBiasFullDeg = 42f;
+
+    /// <summary>Fraction of the gaze offset the fan turns at full weight — CardFan.GazeBiasGain.
+    /// Below 1 on purpose: it opens the gazed edge forward without full gaze-lock swim.</summary>
+    private const float GazeBiasGain = 0.6f;
+
+    /// <summary>Hard clamp on the applied extra yaw (deg) — CardFan.GazeBiasMaxYawDeg.</summary>
+    private const float GazeBiasMaxYawDeg = 32f;
+
+    /// <summary>Exponential ease rate (1/s) of the applied yaw toward its target —
+    /// CardFan.GazeBiasSmoothing. A CONSTANT on both sides, so unlike <see cref="_gazeSmoothing"/>
+    /// there is no rate here for an owner to have tuned out from under the mirror.</summary>
+    private const float GazeBiasSmoothing = 9f;
+
+    /// <summary>Eased state: extra yaw (deg about world up) currently applied to this fan's root —
+    /// CardFan._gazeBiasYaw.</summary>
+    private float _gazeBiasYaw;
+
+    /// <summary>Hysteresis state: which side the bias is COMMITTED to (0 = centre, -1 = the owner's
+    /// left / card i=0, +1 = right) — CardFan._gazeSide. The target's SIGN comes from this latch and
+    /// not from the live signed angle, which is what stops the dither.</summary>
+    private int _gazeSide;
+
+    /// <summary>Throttle clock for the gaze-bias diagnostic (unscaled seconds of the last line).</summary>
+    private float _gazeBiasLogTime;
+
+    /// <summary>
+    /// Compute + ease the owner's gaze-facing bias — CardFan.UpdateGazeBias, term for term.
+    /// <paramref name="away"/> is head->fan (the base billboard forward), <paramref name="headForward"/>
+    /// is their gaze, and the return is the eased extra yaw in degrees about world up (0 = inside the
+    /// centre dead zone, or eased back below the 0.05° floor). Allocation-free.
+    /// </summary>
+    private float UpdateGazeBias(Vector3 away, Vector3 headForward, float dt)
+    {
+        Vector3 up = Vector3.up;
+        Vector3 awayH = Vector3.ProjectOnPlane(away, up);
+        Vector3 gazeH = Vector3.ProjectOnPlane(headForward, up);
+
+        float target = 0f;
+        float gazeOffset = 0f;
+        if (awayH.sqrMagnitude > 1e-6f && gazeH.sqrMagnitude > 1e-6f)
+        {
+            // Signed horizontal angle of the gaze off "looking straight at the fan centre".
+            // AngleAxis(gazeOffset, up) rotates awayH exactly onto gazeH, so turning the fan toward
+            // the gaze is sign-consistent with ApplyGazeBias's composition.
+            gazeOffset = Vector3.SignedAngle(awayH, gazeH, up);
+            float mag = Mathf.Abs(gazeOffset);
+            int side = gazeOffset < 0f ? -1 : 1;
+
+            // The committed side is a LATCH, not the live sign: centre commits only past the wide
+            // deadzone, a committed side releases only inside the smaller band, and an opposite side
+            // is taken only on a firm past-deadzone crossing.
+            if (_gazeSide == 0)
+            {
+                if (mag > GazeBiasDeadzoneDeg)
+                    _gazeSide = side;
+            }
+            else if (mag < GazeBiasReleaseDeg)
+            {
+                _gazeSide = 0;
+            }
+            else if (side != _gazeSide && mag > GazeBiasDeadzoneDeg)
+            {
+                _gazeSide = side;
+            }
+
+            if (_gazeSide != 0)
+            {
+                float t = Mathf.Clamp01((mag - GazeBiasDeadzoneDeg)
+                                        / Mathf.Max(0.01f, GazeBiasFullDeg - GazeBiasDeadzoneDeg));
+                t = t * t * (3f - 2f * t); // smoothstep ease-in/out of the weight
+                target = Mathf.Clamp(_gazeSide * mag * GazeBiasGain * t,
+                                     -GazeBiasMaxYawDeg, GazeBiasMaxYawDeg);
+            }
+        }
+        else
+        {
+            _gazeSide = 0;
+        }
+
+        // Eased on the caller's already-unscaled dt, clamped like CardFan clamps unscaledDeltaTime so
+        // one long frame cannot snap the lean.
+        float d = Mathf.Min(Mathf.Max(dt, 0f), 0.05f);
+        _gazeBiasYaw = Mathf.Lerp(_gazeBiasYaw, target, 1f - Mathf.Exp(-GazeBiasSmoothing * d));
+        if (Mathf.Abs(_gazeBiasYaw) < 0.05f)
+            _gazeBiasYaw = 0f;
+
+        // Throttled diagnostic in the same shape and units as CardFan's own, so an owner's log and a
+        // viewer's log can be read side by side — the only way to see that a peer's fan leans the
+        // same WAY and by the same number of DEGREES as the fan its owner is holding.
+        float now = Time.unscaledTime;
+        if ((Mathf.Abs(gazeOffset) > GazeBiasDeadzoneDeg || Mathf.Abs(_gazeBiasYaw) > 0.5f)
+            && now - _gazeBiasLogTime > 1f)
+        {
+            _gazeBiasLogTime = now;
+            string end = _gazeSide == 0 ? "CENTER" : _gazeSide < 0 ? "LEFT" : "RIGHT";
+            VRLog.Info("Net",
+                $"Remote hand fan [player {_owner.PlayerId}] gaze-bias: gazeOff={gazeOffset:F1}deg " +
+                $"committed={end} biasYaw={_gazeBiasYaw:F1}deg (n={_cards.Count})");
+        }
+
+        return _gazeBiasYaw;
+    }
+
     // ---------------------------------------------------------------- card presentation (derived) --
     // Verbatim ports of CardFan's presentation maths, driven by the peer's already-synced head. The
     // formulas (and the round-2 root causes behind their exact shape — one shared corner at the fan
@@ -2141,11 +2362,18 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         _archFactor = t.FanFlatCurvatureFactor;
         _tiltFactor = t.FanTiltFactor;
         _maxHandForCurve = Mathf.Max(1, t.FanMaxHandForCurve);
+        // The GATE over the two factors above, not another factor: with it off CardFan uses them at
+        // every hand size (the legacy, pre-Demeo look) instead of scaling them by how full the hand is.
+        _curveByFillOn = t.FanCurveByFillOn;
         _faceViewer = t.FanFaceViewer;
         _sideDepthCurve = t.FanSideDepthCurve;
         _curvePower = t.FanCurvePower;
         _curveMinCards = Mathf.Max(0, t.FanCurveMinCards);
         _gazeApexFollow = t.FanGazeApexFollow;
+        // The gaze-bias TOGGLE. Renderer-first: the yaw has been derived in this file since the
+        // renderer landed, idle behind this bit. NOT a shape parameter — every one of those is a
+        // const on both sides, which is why this dial costs exactly one bit and not seven fields.
+        _gazeBiasOn = t.FanGazeBiasOn;
         // The RATE, not just the amplitude. RemoteBoardTuning has already applied the owner's own
         // 1..30 clamp, so this is a rate they could actually have been easing at.
         _gazeSmoothing = t.FanGazeSmoothing;
@@ -2389,6 +2617,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // that popped open already leaning would read as a glitch) and the next appearance logs its
         // geometry once so a hardware log has a line per fan, not one per session.
         _gazeX = 0f;
+        // …and the gaze LEAN with it: CardFan.Open zeroes _gazeBiasYaw beside _gazeX for the same
+        // reason, so a raised hand starts squarely billboarded and eases into any bias. It leaves
+        // _gazeSide latched — harmless, and mirrored here rather than "tidied": with the yaw at 0 a
+        // still-committed side simply eases out from centre on the next frame, which is the intent.
+        _gazeBiasYaw = 0f;
         _loggedCount = -1;
     }
 

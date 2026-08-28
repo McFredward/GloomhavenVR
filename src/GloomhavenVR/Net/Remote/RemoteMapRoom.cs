@@ -1066,15 +1066,41 @@ internal static class RemoteMapRoom
         ///
         /// <para>THE REAL NUMBER IS MEASURED, NOT THIS ONE: a peer's placard must be the same size
         /// as the card the local player gets for the same icon, and that size is
-        /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap (0.7) times the live
-        /// <c>[WorldUI] WindowLegibility</c> dial (1.25 shipped) — both private to a file this lane
-        /// does not own. <c>HoverCardPose.LocalCardHostScale</c> reads the answer off the local card
-        /// the moment one is seated; this value is the shipped product of those two, used only
-        /// before that has happened, and it is a stated approximation rather than a second source
-        /// of truth. If a placard is ever visibly the wrong size before the local player has
-        /// hovered anything, this constant is why.</para>
+        /// <c>ModalFallback.DeriveWindowScale</c> — the small-dialog cap
+        /// (<see cref="ModalFallback.WindowScaleFactor"/>, 0.7) times the live
+        /// <c>[WorldUI] WindowLegibility</c> dial. <c>HoverCardPose.LocalCardHostScale</c> reads the
+        /// answer off the local card the moment one is seated; this value is the SHIPPED product of
+        /// those two, used only before that has happened, and it is a stated approximation rather
+        /// than a second source of truth (it does not follow the live dial — see the ownership
+        /// paragraph below). If a placard is ever visibly the wrong size before the local player
+        /// has hovered anything, this constant is why.</para>
+        ///
+        /// <para>DERIVED, NOT TYPED — AND THAT IS THE DEFECT IT CLOSES. This was <c>0.875f</c>:
+        /// 0.7 × 1.25, the product of the cap and the legibility default of a PREVIOUS build. The
+        /// shipped dial is <see cref="Defaults.WindowLegibility"/> = 1.5, so the correct product is
+        /// 1.05 and every peer's placard was drawn at 83 % of the size the same icon gives the
+        /// local player — ~17 % undersized, for the whole session, until this viewer happened to
+        /// hover an icon themselves and <c>LocalCardHostScale</c> stopped being NaN. Nothing could
+        /// catch it: it is a PRODUCT of two defaults, which is precisely the case
+        /// <c>scripts/check-remote-defaults.py</c> documents itself as unable to pin (see its
+        /// RemoteItemFan._radius note — "their two factors are pinned individually instead"), and
+        /// the one surviving doc calling 1.25 "the default" sits in ModalFallback.9.Spawn.cs beside
+        /// <c>DefaultWindowLegibility</c>, which is itself already <c>Defaults.WindowLegibility</c>.
+        /// Written as the MULTIPLY so that moving either factor moves this with it and the stale
+        /// copy cannot come back; neither factor may be re-typed as a number here.</para>
+        ///
+        /// <para>WHOSE DIAL IT IS REMAINS OPEN, AND IS NOT SETTLED HERE. The LIVE local legibility
+        /// is deliberately still not read. <c>HoverCardPose.LocalCardHostScale</c>'s own doc chooses
+        /// the VIEWER's dial ("a peer's placard must be the SAME SIZE as the card the local player
+        /// gets for the same icon"), while <see cref="RemoteBoardTooltip"/>'s constructor sets the
+        /// opposite precedent for a structurally identical case — it sizes a peer's board tooltip
+        /// from the OWNER's <c>HoverInfoScale</c> off record 28, because a remote board is a picture
+        /// of its owner's. That is a user ruling nobody has made yet, not a measurement, and it is
+        /// recorded at those two sites. The constant above was stale under EITHER answer, so it is
+        /// fixed on its own and the ownership question is left exactly where it stands.</para>
         /// </summary>
-        private const float FallbackScaleFactor = 0.875f;
+        private const float FallbackScaleFactor =
+            ModalFallback.WindowScaleFactor * Defaults.WindowLegibility;
 
         private sealed class Card
         {

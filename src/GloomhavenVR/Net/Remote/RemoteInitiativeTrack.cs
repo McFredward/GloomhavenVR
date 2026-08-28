@@ -84,7 +84,11 @@ namespace GloomhavenVR.Net;
 ///     <c>Instantiate</c> cloned it and <c>Pair.Apply</c> drove it: every peer's board wore the
 ///     OBSERVER's ring set and never the owner's. It costs no wire of its own — record 27's owned
 ///     mask names the owner's characters, and whether one has COMMITTED is read here from the
-///     replicated model (<c>CCharacterClass.RoundAbilityCards</c> / <c>LongRest</c>).
+///     replicated model (<c>CCharacterClass.RoundAbilityCards</c> / <c>LongRest</c>). The one
+///     thing it does take off the wire is the owner's own <c>[SelectionReady] Enabled</c> — one
+///     field on the SHARED tuning record 28 (id 238, <see cref="_selectionReadyOn"/>), not a
+///     record of its own — because without it the mirror kept drawing rings for an owner who had
+///     switched the cue out of their options.
 ///
 /// DELIBERATELY NOT MIRRORED (the ruling's own exception, "während der Auswahlphase die
 /// tatsächlichen Oberseiten der Karten"): the INITIATIVE NUMBER and the initiative FX state of a
@@ -174,8 +178,19 @@ internal sealed class RemoteInitiativeTrack
     /// grows up from it (the two numbers a "sits far too high" report is decided by).</summary>
     public string SeatLine => $"mount={_root.localPosition:F3} via {_mirror.MeasurePath}";
 
-    public RemoteInitiativeTrack(Transform boardRoot, in RemoteBoardLayout layout)
+    public RemoteInitiativeTrack(Transform boardRoot, in RemoteBoardLayout layout,
+                                 in RemoteBoardTuning tuning)
     {
+        // THE OWNER'S OWN [SelectionReady] Enabled (record 28, wire id 238) — see
+        // _selectionReadyOn for what it gates and for why the client this board belongs to is the
+        // right one to take it from. Seeded here rather than read per frame because a change to
+        // the owner's tuning tears this board down and rebuilds it (RemoteControlBoard's
+        // _builtTuningRevision latch), which is the contract every other dial on this board is
+        // already seated under; and an absent or pre-field record resolves to the shipped
+        // Defaults.SelectionReady_Enabled inside RemoteBoardTuning itself, so the default has
+        // exactly one home and this class holds no second copy of it.
+        _selectionReadyOn = tuning.SelectionReadyOn;
+
         _root = new GameObject("InitiativeTrack").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
         // The mount convention (PlayTray: bottom-centre of the initiative panel, grows UP above the
@@ -756,6 +771,39 @@ internal sealed class RemoteInitiativeTrack
                           "ENEMY block never permutes and is left to the mirror).");
     }
 
+    /// <summary>
+    /// The BOARD OWNER's <c>[SelectionReady] Enabled</c> — whether they want the amber "still
+    /// choosing" ring drawn AT ALL (record 28, wire id
+    /// <see cref="NetProtocol.TuneSelectionReadyOn"/>, resolved as
+    /// <see cref="RemoteBoardTuning.SelectionReadyOn"/>).
+    ///
+    /// <para>WHY IT HAD TO CROSS. Every other ingredient of this ring was already here — record
+    /// 27's owned mask for whose characters they are, the replicated model for whether each has
+    /// committed — so <see cref="ApplySelectionGlow"/> lit rings for an owner who had switched the
+    /// cue OFF in their own options (<c>Board.SelectionReadyHighlighter</c>'s own gate): gone from
+    /// their initiative bar, still burning around their figures on every peer's screen. The
+    /// direction is the unusual one — the mirror drawing MORE than its owner, not less — and it is
+    /// the same rule that put the other four overrides in this class here: a remote board is a
+    /// picture of its OWNER's board, and that includes what they have chosen not to see. Shipped
+    /// <c>true</c>, so the divergence only opens once somebody turns it off, which is why it
+    /// survived four builds of this method.</para>
+    ///
+    /// <para>WHOSE DIAL THIS IS — SETTLED, NOT ASSUMED. The ring is drawn per FIGURE on a track
+    /// that carries the whole scenario's actors, so the dial that governs an entry must be the one
+    /// belonging to the client that CONTROLS THAT FIGURE. It is emphatically NOT this client's own
+    /// <c>SelectionReadyHighlighter.EnabledEntry</c>: gating on the local dial would let one
+    /// player's options silently suppress another player's ring, which is the same defect in the
+    /// other direction. On this mirror the entry's controller and the board's owner are the same
+    /// client BY CONSTRUCTION, and that is a check rather than a coincidence — step (2) of
+    /// <see cref="ApplySelectionGlow"/> only ever lights a node <see cref="PeerOwns"/> accepts,
+    /// i.e. one that record 27's owned mask names as being under THIS peer's control, and record
+    /// 28 arrives from that same peer. If that gate is ever relaxed — a board lighting a ring for
+    /// an actor a THIRD client controls — this field stops being the right answer and the dial
+    /// would have to be resolved per actor from that actor's controller's own record 28. There is
+    /// no such path today, and there is no per-actor tuning lookup to build it out of.</para>
+    /// </summary>
+    private readonly bool _selectionReadyOn;
+
     /// <summary>Change-gate for the selection-glow coverage line (one-shot per session).</summary>
     private bool _loggedGlowCoverage;
 
@@ -789,6 +837,15 @@ internal sealed class RemoteInitiativeTrack
     /// <c>(!FFSNetwork.IsOnline || IsUnderMyControl)</c> clause — a deliberate LOCAL gate over data
     /// that is present, not a data gap. So the receiver derives it.</para>
     ///
+    /// <para>ONE FIELD ON A SHARED RECORD, WHICH IS THE ONE THING THE PARAGRAPH ABOVE DOES NOT
+    /// BUY. Deriving WHAT the owner's cue would show is not the same as knowing WHETHER they want
+    /// it shown: <c>SelectionReadyHighlighter</c> is behind a toggle, and every derivation here is
+    /// blind to it, so an owner who switched it off had rings burning on every peer's screen. That
+    /// gate is <see cref="_selectionReadyOn"/> — record 28's id 238, a field on the tuning record
+    /// this board already resolves, defaulting to the shipped <c>true</c> so a pre-field peer
+    /// mirrors exactly what they mirror today. See that field for whose dial it has to be and why
+    /// the answer is not the local player's.</para>
+    ///
     /// <para>NO DISCLOSURE. "That character has not committed yet" is already broadcast by vanilla
     /// twice over — the multiplayer ready tracker shows a per-character ready marker for the whole
     /// selection phase, and the hand tabs print every player's live "selected/2" count with no
@@ -817,7 +874,13 @@ internal sealed class RemoteInitiativeTrack
         // and no separate phase read is needed or wanted (a local phase read would be this
         // client's phase, not the owner's).
         bool window = _peerOrderCount > 0;
-        Color tint = window ? WorldUI.Surfaces.InitiativeSelectionGlow.PendingRingTint() : default;
+
+        // ...AND THE OWNER WANTS THE CUE AT ALL (record 28, id 238 — see _selectionReadyOn). Kept
+        // separate from `window` on purpose: `window` still decides the coverage log below, so an
+        // owner who has switched the ring off says so in the log instead of looking like a peer
+        // who never entered the selection phase.
+        bool draw = window && _selectionReadyOn;
+        Color tint = draw ? WorldUI.Surfaces.InitiativeSelectionGlow.PendingRingTint() : default;
 
         int lit = 0;
         for (int i = 0; i < _hoverNodes.Count; i++)
@@ -832,7 +895,7 @@ internal sealed class RemoteInitiativeTrack
             // (2) THE OWNER'S RING.
             if (node.PendingRing == null)
                 continue;
-            bool want = window && PeerOwns(node.ActorId) && StillChoosing(node.Player);
+            bool want = draw && PeerOwns(node.ActorId) && StillChoosing(node.Player);
             if (want)
             {
                 lit++;
@@ -855,7 +918,16 @@ internal sealed class RemoteInitiativeTrack
                               "whose characters they are comes from record 27's owned mask, and " +
                               "whether each has committed is read from the replicated model " +
                               "(CCharacterClass.RoundAbilityCards / LongRest), never from the " +
-                              "local IsCardSelectionReady, which is gated to this client.");
+                              "local IsCardSelectionReady, which is gated to this client. The " +
+                              "owner's own [SelectionReady] Enabled is " +
+                              (_selectionReadyOn
+                                  ? "ON, so their pending characters wear the ring here exactly "
+                                    + "as they do on their own initiative bar."
+                                  : "OFF (record 28, id 238), so NO ring is lit on this board at "
+                                    + "all — the owner has switched the cue out of their own "
+                                    + "options and a mirror may not draw more than the board it "
+                                    + "is a picture of. The LOCAL player's dial is deliberately "
+                                    + "not consulted either way."));
         }
     }
 

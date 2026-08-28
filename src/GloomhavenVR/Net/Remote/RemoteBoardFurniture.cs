@@ -424,10 +424,35 @@ internal sealed class RemoteBoardFurniture
     // part of the board's construction contract and the frame metric beside it is very much in use
     // — it simply has nothing to size any more.
 
-    /// <summary>Authored card size for the item-use RECESS (the recess is card-sized at the
-    /// UNSCALED card metric on the local board).</summary>
-    private const float ItemCardW = 0.0635f;
-    private const float ItemCardH = ItemCardW * (88f / 63.5f);
+    /// <summary>The game card's authored aspect — the 88:63.5 mm the local board derives
+    /// <c>CardsConfig.CardHeight</c> from, so a retuned width takes the height with it on both
+    /// boards. <c>internal</c> so a consumer outside this class can derive the recess the same way
+    /// rather than re-typing the ratio (see <see cref="ItemUseInnerWidth"/>).</summary>
+    internal const float ItemCardAspect = 88f / 63.5f;
+
+    /// <summary>
+    /// Card size for the item-use RECESS on THIS board — the OWNER's <c>[Cards] CardWidth</c> off
+    /// record 28 (<see cref="NetProtocol.TuneCardWidth"/>, id 70), at the UNSCALED card metric,
+    /// exactly as the owner's own <c>Cards.PlayTray.BuildItemUseSlot</c> reads the live dial.
+    ///
+    /// <para>IT WAS A BARE <c>const 0.0635f</c>, AND THAT IS THE DEFECT
+    /// <c>Net.RemoteActiveCards.LegacyCardW</c> already writes up: a literal mirroring a dial has
+    /// no pair for scripts/check-remote-defaults.py to hold it against, so it survives every
+    /// checker and diverges the day the owner moves the dial — a peer who widened their cards saw
+    /// their own item recess grow while every team-mate's copy of it stayed at the shipped size,
+    /// with the card lying in it fitted to a berth that is no longer that shape.</para>
+    ///
+    /// <para>A SEEDED FIELD AND NOT A CONST, in that class's shape: the INITIALISER is
+    /// <c>Defaults.CardWidth</c> — the very entry the local <c>[Cards] CardWidth</c> bind takes its
+    /// default from, so the untuned and the pre-record-28 cases are correct BY CONSTRUCTION and the
+    /// pair is one check-remote-defaults.py row rather than a literal nobody can pin — and the
+    /// constructor overwrites it with the owner's value.</para>
+    /// </summary>
+    private readonly float _itemCardW = Defaults.CardWidth;
+
+    /// <summary>…and its height, in <see cref="ItemCardAspect"/>, exactly as the owner derives
+    /// theirs (<c>CardsConfig.CardHeight</c>).</summary>
+    private readonly float _itemCardH = Defaults.CardWidth * ItemCardAspect;
 
     // ---- palette (verbatim from the local widgets so the boards match) -------------------------
     private static readonly Color ConfirmColor = new(0.35f, 0.46f, 0.28f); // muted sage "go"
@@ -607,14 +632,24 @@ internal sealed class RemoteBoardFurniture
     /// the cue that named its destination.</para></summary>
     internal const float UseSlotInnerFactor = 1.04f;
 
-    /// <summary>Board-local size of that clear area on THIS board — what a mirrored card lying in
-    /// the recess is fitted into (<see cref="RemoteItemFan"/>). Derived from the very constants
-    /// <see cref="BuildItemUseRecess"/> lays the berth out from, so the fit and the art cannot
-    /// drift apart.</summary>
-    internal const float ItemUseInnerWidth = ItemCardW * UseSlotInnerFactor;
+    /// <summary>
+    /// Board-local size of that clear area at the SHIPPED card width — what a mirrored card lying
+    /// in the recess is fitted into (<see cref="RemoteItemFan"/>).
+    ///
+    /// <para>NO LONGER THE WHOLE ANSWER, and left standing only until its one consumer moves. The
+    /// berth art is laid out from <see cref="_itemCardW"/>, the OWNER's <c>[Cards] CardWidth</c>
+    /// off record 28 id 70; this pair is that same derivation frozen at
+    /// <c>Defaults.CardWidth</c>, so on a board whose owner has retuned the dial the two disagree
+    /// by exactly the owner's tuning. It stays <c>const</c> for one reason: its only reader is
+    /// <c>RemoteItemFan.RecessFitScale</c>, which is not this lane's file, and which already holds
+    /// the owner's width in its own <c>_cardWidth</c> — see the REQUEST filed with this change.
+    /// Once that method derives the plate from <c>_cardWidth * UseSlotInnerFactor</c> (and its
+    /// height through <see cref="ItemCardAspect"/>) this pair has no callers and goes.</para>
+    /// </summary>
+    internal const float ItemUseInnerWidth = Defaults.CardWidth * UseSlotInnerFactor;
 
     /// <inheritdoc cref="ItemUseInnerWidth"/>
-    internal const float ItemUseInnerHeight = ItemCardH * UseSlotInnerFactor;
+    internal const float ItemUseInnerHeight = Defaults.CardWidth * ItemCardAspect * UseSlotInnerFactor;
     /// <summary>The mirrored decision AREA's CEILING in board-root-local metres — the owner's
     /// <c>WorldUI.Surfaces.DecisionDockSurface.AreaCeilingUp</c> expressed in this frame. Every piece
     /// of the mirrored display (prompt line, button row, use-bar drawer) descends from it, so a
@@ -1230,6 +1265,12 @@ internal sealed class RemoteBoardFurniture
         _itemBerthPingSeconds = Mathf.Max(0f, tuning.ItemBerthPingSeconds);
         _itemBerthPingReach = Mathf.Max(1f, tuning.ItemBerthPingReach);
         _itemBerthRevealSeconds = Mathf.Max(0.01f, tuning.ItemBerthRevealSeconds);
+        // …AND THE METRIC THOSE FIVE FACTORS MULTIPLY: the owner's own [Cards] CardWidth (id 70),
+        // the dial their Cards.PlayTray.BuildItemUseSlot reads live. It was a bare const 0.0635f
+        // here — see the _itemCardW doc. Clamped like every other wire length: a zero or negative
+        // width would collapse the berth to a point on a peer's board and nowhere else.
+        _itemCardW = Mathf.Max(0.002f, tuning.CardWidth);
+        _itemCardH = _itemCardW * ItemCardAspect;
         _itemUse = BuildItemUseRecess(ItemUseMount + tuning.ItemUseSlotOffset, out _itemUseReveal);
 
         // ---- shared decision drawer -----------------------------------------------------------
@@ -1291,7 +1332,12 @@ internal sealed class RemoteBoardFurniture
         // …and the REAL widget mirror that hangs at the same seat and normally replaces the plates
         // above (ModBuild 105). Built empty and hidden; it claims the seat on the first refresh
         // where the owner's prompt is a take-damage one and record 29 named its widgets.
-        _decisionWidgets = new RemoteDecisionWidgets(_decision, decisionScale);
+        // LabelFill goes with it — the OWNER's [ButtonColors] fill, the same clamped value the
+        // keycaps above are lettered out of. The clone used to letter itself from this VIEWER's
+        // NativeButtonSkin.LabelColor, which is the leak WorldUI.NativeButtonSkin.LabelOwner
+        // documents; handing it the field the caps already use is what makes the two rows on one
+        // mirrored board agree with each other as well as with the owner.
+        _decisionWidgets = new RemoteDecisionWidgets(_decision, decisionScale, LabelFill);
         // ---- the SECOND drawer: the mirrored use-slot bars (wire record 25) -------------------
         // The owner's UseBarsSurface stacks its bars BELOW the decision row: while a row is docked
         // the stack top hangs DecisionClearance under the row's measured bottom edge, otherwise it
@@ -2178,10 +2224,10 @@ internal sealed class RemoteBoardFurniture
         rev.Configure(_itemBerthRevealSeconds);
         reveal = rev;
 
-        float rectW = ItemCardW * ItemBerthRectFactor;
-        float rectH = ItemCardH * ItemBerthRectFactor;
+        float rectW = _itemCardW * ItemBerthRectFactor;
+        float rectH = _itemCardH * ItemBerthRectFactor;
         float band = Mathf.Max(0.0008f, _itemBerthRingThickness);
-        float corner = ItemCardW * ItemBerthCornerFactor;
+        float corner = _itemCardW * ItemBerthCornerFactor;
         // The berth's gold, run through the chroma-key guard exactly as the owner's is, so no key
         // preset can turn a peer's berth into a hole through to their passthrough room. KeySafe
         // reads the LOCAL player's key colour, which is correct: this is drawn on their headset.
@@ -2193,7 +2239,7 @@ internal sealed class RemoteBoardFurniture
         {
             GameObject field = WorldUI.SoftCueArt.FieldQuad("Field", berth,
                 new Vector3(0f, 0f, ItemBerthFieldZ),
-                ItemCardW * ItemBerthFieldFactor, ItemCardH * ItemBerthFieldFactor,
+                _itemCardW * ItemBerthFieldFactor, _itemCardH * ItemBerthFieldFactor,
                 new Color(0.92f, 0.85f, 0.5f, glow)); // BuildUseGhost's own wash, at rest level
             rev.Track(field);
         }
@@ -2229,7 +2275,7 @@ internal sealed class RemoteBoardFurniture
         // a TextMeshPro draws through one font-atlas material shared with every label in the game
         // and its MR backing plate through one shared plate material (see SoftCueReveal.Track).
         TextMeshPro caption = RemoteBoardContent.Label(berth, "Label",
-            new Vector3(0f, -(ItemCardH * 0.5f + 0.026f), -0.001f),
+            new Vector3(0f, -(_itemCardH * 0.5f + 0.026f), -0.001f),
             new Vector2(0.095f, 0.024f), 0.22f,
             new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center);
         caption.text = Loc.Mod("item_use_area").ToUpperInvariant();
@@ -2550,9 +2596,11 @@ internal sealed class RemoteBoardFurniture
     ///     tinted with the local dock's own <c>AntiqueTint</c> constant. The flat gold-rim/dark-body
     ///     quads it replaces are kept only as the fallback for the window before a live button has
     ///     been sampled.</item>
-    ///   <item>LABEL — the game HUD font (<c>NativeButtonSkin.ApplyFont</c>), the dock's
-    ///     <c>LabelColor</c>, and the shared un-renderable-glyph strip, so the wording reads
-    ///     identically to the owner's caption.</item>
+    ///   <item>LABEL — the game HUD font (<c>NativeButtonSkin.ApplyFont</c>), the OWNER's
+    ///     <c>[ButtonColors]</c> label fill (<see cref="LabelFill"/>, record 28 id 48 — the same
+    ///     value the mirrored keycaps wear, NOT this viewer's dial: see
+    ///     <c>WorldUI.NativeButtonSkin.LabelOwner</c>), and the shared un-renderable-glyph strip,
+    ///     so the wording reads identically to the owner's caption.</item>
     ///   <item>SIZE — plates are CONTENT-TRUE (the game fits each option button to its wording),
     ///     laid out inside the very envelope the owner's dock fits its row into
     ///     (<c>PlayTray.DecisionMountWidth</c> × the authored dock scale), so a short "Schaden
@@ -2607,9 +2655,11 @@ internal sealed class RemoteBoardFurniture
 
         bool native = WorldUI.NativeButtonSkin.HasSprite;
         _decisionRowNative = native;
-        Color gold = WorldUI.NativeButtonSkin.HasFont
-            ? WorldUI.NativeButtonSkin.LabelColor
-            : new Color(0.91f, 0.82f, 0.62f);
+        // THE OWNER'S LABEL FILL, through the same accessor as the plates' repaint below — see
+        // BaseLabelGold for the defect this one line carried and why the HasFont ladder that used
+        // to stand here is gone. The SPRITE gate above stays: a face cannot be drawn out of a
+        // sprite nobody has harvested yet, while a colour needs nothing harvested at all.
+        Color gold = BaseLabelGold();
         float x = -rowW * 0.5f;
         for (int i = 0; i < n; i++)
         {
@@ -2712,11 +2762,29 @@ internal sealed class RemoteBoardFurniture
     /// there.</summary>
     private static float PressMul => WorldUI.NativeButtonSkin.PressedMul;
 
-    /// <summary>The label gold the mirrored plates letter in — the dock's own
-    /// <c>NativeButtonSkin.LabelColor</c> when a live button has been sampled.</summary>
-    private static Color BaseLabelGold() => WorldUI.NativeButtonSkin.HasFont
-        ? WorldUI.NativeButtonSkin.LabelColor
-        : new Color(0.91f, 0.82f, 0.62f);
+    /// <summary>
+    /// The label gold the mirrored plates letter in — THE BOARD OWNER's
+    /// <c>[ButtonColors] LabelR/G/B</c> (<see cref="LabelFill"/>, record 28 id 48), which is the
+    /// same clamped field the mirrored KEYCAPS on this board are already lettered out of.
+    ///
+    /// <para>IT USED TO BE <c>NativeButtonSkin.HasFont ? NativeButtonSkin.LabelColor : (0.91,
+    /// 0.82, 0.62)</c>, AND BOTH HALVES WERE WRONG ON A MIRROR. The first read THIS VIEWER's dial:
+    /// a player who set their own labels to red saw red lettering on every team-mate's decision
+    /// plates while each of those team-mates saw parchment on their own — the 1:1 ruling broken in
+    /// the direction where the viewer's tuning leaks onto somebody else's board, exactly as
+    /// <c>WorldUI.NativeButtonSkin.LabelOwner</c> now records. The wire field it should have been
+    /// reading had been decoded and correctly used for the KEYCAPS one screen away since the
+    /// [ButtonColors] family was paged. The second half was a smaller defect of its own: the
+    /// owner's dock (<c>DecisionDockSurface.AdjustDockedRow</c>) has NO <c>HasFont</c> gate and
+    /// letters in <c>LabelColor</c> from its first frame, so until this client had harvested a game
+    /// button the mirrored plates stood in a duller gold than the plates they mirror — once per
+    /// session, and for every pair of players who never touched the dial.</para>
+    ///
+    /// <para>An INSTANCE method now (it was static), because the owner is a property of THIS
+    /// board and not of the process.</para>
+    /// </summary>
+    private Color BaseLabelGold() => WorldUI.NativeButtonSkin.LabelColorFor(
+        WorldUI.NativeButtonSkin.LabelOwner.TheBoardOwnersDial, LabelFill);
 
     /// <summary>
     /// Paint the owner's OPTION STATES (wire record 23) onto the mirrored plates: greyed where the

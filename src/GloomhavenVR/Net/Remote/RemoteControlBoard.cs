@@ -76,7 +76,10 @@ namespace GloomhavenVR.Net;
 /// The rest stay MOD-DRAWN, at the same board-local offsets the LOCAL board docks its panels at:
 ///   • the element infusions               (<see cref="RemoteElementStrip"/>    — GLOBAL),
 ///   • the round number                    (<see cref="RemoteStatusReadouts"/>  — GLOBAL),
-///   • their short/long rest state         (<see cref="RemoteStatusReadouts"/>  — per-actor, split gate),
+///     (their short/long rest state used to be listed here as its own readout. It is still SHOWN —
+///      by the mirrored rest disc CAPS, which the interactive-furniture bullet below covers — but
+///      the plate that carried it was deleted on 2026-08-28: the owner has no such widget, so it
+///      was a thing every peer could see and its owner could not. See RemoteStatusReadouts.)
 ///   • their discard/burnt/item pile COUNTS on the three stacks (per-actor, public),
 ///   • their active/persistent cards       (<see cref="RemoteActiveCards"/>     — per-actor, gated),
 ///   • and every piece of INTERACTIVE FURNITURE the local board wears
@@ -1105,7 +1108,6 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                       $"char='{Board.CharacterFocus.Describe(actor)}', " +
                       $"round='{(_status != null ? _status.RoundText : "-")}', " +
                       $"initiative={(_status != null ? _status.InitiativeText : "?")}, " +
-                      $"rest='{(_status != null ? _status.RestText : string.Empty)}', " +
                       $"piles d/b/i={discard}/{burnt}/{items}" +
                       $"{(_owner.HasPileCounts ? "(synced)" : "(model)")}, " +
                       $"item-cue={(_owner.ItemsPileUsableCue ? "beating" : "off")}, " +
@@ -1555,8 +1557,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // visual construction the owner's own stacks use (PileViewer.PileStack.Create — a 4-slab
         // jittered mini pile at the authored 0.62× card footprint, per-pile tint, count ON the top
         // slab, localized caption beneath, top slab greying out at zero) instead of the old single
-        // flat card-back quad. Colors are the local stacks' verbatim; sizes come from the authored
-        // Defaults so every client renders a given board identically regardless of local tuning.
+        // flat card-back quad. Colors are the local stacks' verbatim; the SIZE is the OWNER's own
+        // [Cards] CardWidth off the wire (record 28 id 70), never this viewer's copy of the dial —
+        // the line that used to stand here said "sizes come from the authored Defaults … regardless
+        // of local tuning" and was half right for the wrong reason: it correctly refused the
+        // VIEWER's config and silently refused the OWNER's with it. See PileCounter._cardWidth.
         // …and the OWNER's own item-cue dials ride along (record 28, ids 161..165): only the items
         // stack ever builds the cue, but all three are handed the tuning so the day another stack
         // grows one there is no second place to remember.
@@ -1579,7 +1584,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _pickBanner = new RemotePickBanner(contentParent, _layout);
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
         _active = new RemoteActiveCards(contentParent, _layout);
-        _track = new RemoteInitiativeTrack(contentParent, _layout);
+        _track = new RemoteInitiativeTrack(contentParent, _layout, _owner.BoardTuning);
         // THE GLOW BASE, NOT AnchorLocalLive (2026-08-27). Those two were the same vector until this
         // round and are not any more: AnchorLocalLive is the CARD's seat now (it carries the owner's
         // [Cards] SlotCardInset and the in-plane overlay term), while the furniture adds the in-plane
@@ -1748,9 +1753,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// thin jittered slabs stepping into the board, per-pile tint with darkened lower slabs, the
     /// live COUNT on the top slab, the localized caption beneath, and the top slab greying out at
     /// zero exactly like the local stack). It is also the destination a <see cref="RemoteCardFx"/>
-    /// flight lands on. Sized from the authored Defaults (<c>Defaults.CardWidth</c> ×
-    /// <c>PileViewer.PileStack.SlabFactor</c>) — the OWNER's [Cards] tuning is local config and
-    /// deliberately not applied, as everywhere on this board. Collider-free by construction.
+    /// flight lands on. Sized from the OWNER's own <c>[Cards] CardWidth</c> (extension record 28,
+    /// id 70) × <c>PileViewer.PileStack.SlabFactor</c>, with the shipped default as the fallback for
+    /// a sender who has not moved that dial — see <see cref="PileCounter._cardWidth"/>, which also
+    /// records the RETIRED policy this paragraph used to state ("the OWNER's [Cards] tuning is local
+    /// config and deliberately not applied"). It has been false since record 28 was paged, and it is
+    /// the VIEWER's config — never the owner's — that this board must refuse. Collider-free by
+    /// construction.
     ///
     /// The count is PUBLIC information — vanilla lets any player open ANY other player's full card
     /// overview straight off the initiative track (<c>InitiativeTrackPlayerAvatar.OnClick</c> →
@@ -1759,10 +1768,40 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// </summary>
     private sealed class PileCounter
     {
-        /// <summary>Authored slab footprint — the local stack's <c>CardsConfig.CardWidth ×
-        /// SlabFactor</c> at the shipped default.</summary>
-        private const float SlabW = Defaults.CardWidth * PileViewer.PileStack.SlabFactor;
-        private const float SlabH = SlabW * (88f / 63.5f);
+        /// <summary>
+        /// The OWNER's own <c>[Cards] CardWidth</c> (extension record 28, id 70) — the metric their
+        /// stack is built from, seeded in the constructor and held against the shipped default by
+        /// scripts/check-remote-defaults.py.
+        ///
+        /// <para>IT WAS A <c>const</c> UNTIL THIS ROUND, and the class doc above stated the reason as
+        /// standing policy: "the OWNER's [Cards] tuning is local config and deliberately not
+        /// applied". That policy was retired when record 28 was PAGED — id 70 has carried this dial
+        /// for builds, and every other remote card surface already reads it (RemoteHandFan,
+        /// RemoteItemFan, RemoteBrowserFan, RemoteCardFx, RemoteActiveCards). This board was the last
+        /// surface still drawing a peer's cards at a number their owner never chose. Exactly the
+        /// defect RemoteActiveCards.LegacyCardW spells out, and it survived for the same reason: the
+        /// coverage guard watches DIALS and cannot see that the metric underneath them is a
+        /// constant.</para>
+        ///
+        /// <para>MAGNITUDE. The dial is bounded 0.03..0.15 m against a 0.0635 m default (user ruling
+        /// 2026-08-13), so the frozen footprint was correct only for an untuned owner and off by up
+        /// to 2.4x once they touched it: 39.4 × 54.5 mm here at the shipped default, against
+        /// 18.6 × 25.8 mm for an owner at the low bound and 93 × 129 mm at the high one. And it is
+        /// not only the slabs — the count/caption fits, the ember emitter's box and the ring seed are
+        /// all derived from this metric, exactly as the owner derives theirs.</para>
+        ///
+        /// <para>A CONSTRUCTOR-TIME READ IS A LIVE READ here: any record-28 change tears this board
+        /// down and rebuilds it (<c>_builtTuningRevision</c>, see the rebuild ladder in Tick), which
+        /// is the same seam <c>_slotCardInset</c> and the cue dials below are taken on.</para>
+        /// </summary>
+        private readonly float _cardWidth = Defaults.CardWidth;
+
+        /// <summary>Slab footprint — the owner's card size × <c>PileViewer.PileStack.SlabFactor</c>
+        /// (0.62), the same product their own <c>PileStack.Create</c> forms. 39.4 mm at the shipped
+        /// default; the height keeps the game's 63.5:88 card aspect (54.5 mm), exactly as
+        /// <c>CardsConfig.CardHeight</c> derives it on the owner's side.</summary>
+        private float SlabW => _cardWidth * PileViewer.PileStack.SlabFactor;
+        private float SlabH => SlabW * (88f / 63.5f);
 
         private readonly TextMeshPro _count;
         private readonly Material? _topMaterial;
@@ -1857,6 +1896,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             _itemCueEmberRate = Mathf.Max(0f, tuning.ItemCueEmberRate);
             _itemCueEmberSize = Mathf.Max(0.1f, tuning.ItemCueEmberSize);
 
+            // …and the METRIC the whole stack is measured in (record 28, id 70), taken on the same
+            // seam and for the same reason. Clamped to the dial's OWN shipped bound rather than to a
+            // bare Mathf.Max: [Cards] CardWidth is bounded 0.03..0.15 m on the sender, so anything
+            // outside that window is a corrupt or hostile packet and must not be able to draw a
+            // metre-wide pile on this client's board. An absent field already resolves to
+            // Defaults.CardWidth in RemoteBoardTuning, so the clamp only ever sees a real value.
+            _cardWidth = Mathf.Clamp(tuning.CardWidth, 0.03f, 0.15f);
+
             // Stack body — the local recipe verbatim (PileViewer.PileStack.Create): 4 thin slabs,
             // each a step behind the previous (+Z is into the board) with a small alternating
             // jitter/tilt so it reads as a real pile; lower slabs darkened 45 %.
@@ -1877,6 +1924,19 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                     {
                         color = i == 3 ? color : Color.Lerp(color, Color.black, 0.45f),
                     };
+                    // THE LIGHTING FIX, MIRRORED (round 15 — CardMesh.EmissionFloorFactor). The
+                    // owner's own PileStack.Create floors these four materials and this mirror did
+                    // not, which is not a tuning difference but an unfinished shader setup: Standard
+                    // outputs albedo × incoming light and the VR scenes are dark, so a peer's stacks
+                    // rendered at the ~0.16 × albedo residual karten4 measured while the owner's
+                    // rendered at albedo × (1.00 floor + 0.16 residual) — a ~7x luminance gap, at
+                    // the SHIPPED defaults, on every board but your own. It is a shader-completion
+                    // step both sides must perform, not owner state, so it owes no wire field: the
+                    // floor is derived from the material's own albedo, which is already identical on
+                    // both sides — the per-pile tints handed to this constructor are the local
+                    // stacks' verbatim (see EnsureBuilt). No-op on the Sprites/Default fallback,
+                    // which is unlit and has no hole to floor.
+                    CardMesh.ApplyEmissionFloor(material);
                     slab.GetComponent<MeshRenderer>().sharedMaterial = material;
                     if (i == 3)
                         _topMaterial = material;
@@ -1918,7 +1978,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             {
                 Color want = count > 0 ? _baseColor : Color.Lerp(_baseColor, Color.gray, 0.7f);
                 if (_topMaterial.color != want)
+                {
                     _topMaterial.color = want;
+                    // The emission floor is DERIVED from the albedo tint, so a tint change must
+                    // re-sync it or the greyed-out top slab would keep self-illuminating at the full
+                    // colour and read brighter than the pile it caps. Change-gated with the colour
+                    // write and idempotent — the same pairing PileStack.SetCount uses.
+                    CardMesh.ApplyEmissionFloor(_topMaterial);
+                }
             }
         }
 

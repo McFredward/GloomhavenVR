@@ -17,8 +17,12 @@ namespace GloomhavenVR.Hands;
 /// Actual joint rotations are smoothed (exponential lerp) to avoid jitter from the
 /// binary touch signals and controller value noise.
 ///
+/// WHOSE grip a curler animates is stated by the caller (<see cref="GripLimits"/>): the
+/// local dials by default, the hand OWNER's synced ones for a peer's hands.
+///
 /// FIST DIAGNOSTICS (on-device "mostly no fist" investigation): the full-curl joint
-/// angles are read live from <see cref="HandsConfig"/> (defaults 75/95/65; thumb
+/// angles are read live from those limits (the local <see cref="HandsConfig"/> dials
+/// unless the caller supplied the owner's; defaults 75/95/65; thumb
 /// 25/45/60 scaled proportionally), the actually-applied per-joint angles are recorded
 /// for <see cref="GetAppliedAngles"/>, and <see cref="Tick"/> measures whether any
 /// driven joint was rotated AWAY from what we applied last frame (an Animator or other
@@ -62,6 +66,94 @@ internal sealed class FingerCurler
     /// deliberately, not as a side effect.</para>
     /// </summary>
     internal const float DefaultGlovePinkyCounterAbductionDeg = Defaults.GlovePinkyCounterAbduction;
+
+    /// <summary>
+    /// WHOSE grip this curler is animating — and therefore WHO gets to say how many DEGREES a full
+    /// curl is. Shaped after <see cref="Cards.CardDustFx.Permission"/>, which is this project's
+    /// post-mortem for exactly this defect class, and added for exactly the same reason.
+    ///
+    /// <para>THE DEFECT, stated so it cannot come back: a finger rides the wire as a curl 0..1 and
+    /// nothing else, so <c>Net.Remote.RemoteAvatar</c> fed a peer's OWN curl into a curler that then
+    /// asked the LOCAL <see cref="HandsConfig"/> how far "fully curled" is. Every one of the four
+    /// answers was the viewer's: [Hands] CurlProximal/CurlMiddle/CurlTip (75/95/65 degrees shipped)
+    /// and GlovePinkyCounterAbduction (14 degrees shipped), all live-tunable from the in-VR options.
+    /// Set CurlTip to 130 in your own options and every teammate's fingertips folded to 130 on YOUR
+    /// screen while their own screens kept 65 — your grip imposed on everyone you looked at. The
+    /// owner's four now ride record 28 (ids 201..204) and arrive here through
+    /// <see cref="FromOwner"/>.</para>
+    ///
+    /// <para>Deliberately NOT a "remote" boolean. One <see cref="FingerCurler"/> serves the local
+    /// hands (<c>Hands.VRHand</c>), this player's own mirror (<c>WorldUI.AvatarMirror</c> — still
+    /// the LOCAL answer, it is this player) and every peer's hands, and a bool would have to be read
+    /// as "am I remote?" at each of them. This states which QUESTION is still open instead, and
+    /// <c>default</c> is <see cref="Whose.AskMyOwnDials"/>, so a future call site that forgets can
+    /// only fall back to today's local behaviour — never curl one player's fingers by another
+    /// player's dials.</para>
+    /// </summary>
+    internal readonly struct GripLimits
+    {
+        /// <summary>Who has already answered "how many degrees is a full curl?".</summary>
+        internal enum Whose
+        {
+            /// <summary>
+            /// "How far do MY OWN fingers curl?" — the local [Hands] dials are the whole answer and
+            /// this struct asks them. Every local hand path means this.
+            ///
+            /// <para>It is the DEFAULT deliberately: an omitted answer resolves to the one that is
+            /// always safe to give, because the local dials are by definition the right dials for
+            /// the local player, and a peer's hands are built at exactly two call sites.</para>
+            /// </summary>
+            AskMyOwnDials = 0,
+
+            /// <summary>
+            /// "How far does the OWNER of this hand curl their fingers?" — already answered by the
+            /// caller off that owner's tuning record (wire ids 201..204) and clamped to the owner's
+            /// own 0..130 / -30..30 windows by <c>Net.RemoteBoardTuning</c> before it got here. The
+            /// viewer's own dials are not consulted and MUST not be: they answer a question about
+            /// the viewer's OWN hands. The only caller is the remote avatar.
+            /// </summary>
+            OwnerAlreadyAnswered,
+        }
+
+        private readonly Whose _whose;
+        private readonly Vector3 _fingerMaxAngles;
+        private readonly float _pinkySplayDeg;
+
+        private GripLimits(Whose whose, Vector3 fingerMaxAngles, float pinkySplayDeg)
+        {
+            _whose = whose;
+            _fingerMaxAngles = fingerMaxAngles;
+            _pinkySplayDeg = pinkySplayDeg;
+        }
+
+        /// <summary>
+        /// The hand OWNER's own full-curl angles (degrees, root/mid/tip — pass
+        /// <c>RemoteBoardTuning.HandCurlAngles</c>, which is this exact triple as one value) and
+        /// their glove-pinky counter-abduction. Re-clamped to the same windows the local reads use
+        /// (0..130 and -30..30) so the guarantee "no angle a player could not have curled to" is
+        /// this struct's own rather than borrowed — a no-op for today's only caller, whose four
+        /// values <c>RemoteBoardTuning</c> already clamped on receipt.
+        /// </summary>
+        internal static GripLimits FromOwner(Vector3 fingerMaxAngles, float pinkySplayDeg) =>
+            new(Whose.OwnerAlreadyAnswered,
+                new Vector3(
+                    Mathf.Clamp(fingerMaxAngles.x, 0f, 130f),
+                    Mathf.Clamp(fingerMaxAngles.y, 0f, 130f),
+                    Mathf.Clamp(fingerMaxAngles.z, 0f, 130f)),
+                Mathf.Clamp(pinkySplayDeg, -30f, 30f));
+
+        /// <summary>Full-curl joint angles (degrees: root/mid/tip); 75/95/65 at the shipped
+        /// defaults, whichever player they came from.</summary>
+        internal Vector3 FingerMaxAngles => _whose == Whose.OwnerAlreadyAnswered
+            ? _fingerMaxAngles
+            : HandsConfig.FingerMaxAnglesSafe(DefaultFingerMaxAngles);
+
+        /// <summary>Glove-pinky counter-abduction at full curl (degrees); 14 at the shipped
+        /// defaults. Only the glove rig applies it — see <c>_pinkySplaySign</c>.</summary>
+        internal float PinkySplayDegrees => _whose == Whose.OwnerAlreadyAnswered
+            ? _pinkySplayDeg
+            : HandsConfig.GlovePinkyCounterAbductionSafe(DefaultGlovePinkyCounterAbductionDeg);
+    }
 
     /// <summary>
     /// Per-STYLE curl-range clamp, indexed by (int)<see cref="HandStyle"/> (Glove/
@@ -161,12 +253,17 @@ internal sealed class FingerCurler
         return drift;
     }
 
-    /// <summary>Advance smoothing and write joint rotations. Called once per frame by VRHand.</summary>
-    public void Tick(float deltaTime)
+    /// <summary>
+    /// Advance smoothing and write joint rotations. Called once per frame by VRHand.
+    /// <paramref name="limits"/> states WHOSE grip dials decide how far a full curl is; omitting it
+    /// means the LOCAL player's, which is what every local hand wants — see <see cref="GripLimits"/>.
+    /// </summary>
+    public void Tick(float deltaTime, GripLimits limits = default)
     {
-        // Live-tunable max angles ([Hands] CurlProximal/CurlMiddle/CurlTip). The thumb
-        // keeps its authored 25/45/60 proportions by scaling with the finger ratios.
-        Vector3 fingerMax = HandsConfig.FingerMaxAnglesSafe(DefaultFingerMaxAngles) * _curlScale;
+        // Live-tunable max angles ([Hands] CurlProximal/CurlMiddle/CurlTip, 75/95/65 degrees at the
+        // shipped defaults) — this player's own unless the caller supplied the hand OWNER's. The
+        // thumb keeps its authored 25/45/60 proportions by scaling with the finger ratios.
+        Vector3 fingerMax = limits.FingerMaxAngles * _curlScale;
         Vector3 thumbMax = new(
             DefaultThumbMaxAngles.x * (fingerMax.x / DefaultFingerMaxAngles.x),
             DefaultThumbMaxAngles.y * (fingerMax.y / DefaultFingerMaxAngles.y),
@@ -195,10 +292,11 @@ internal sealed class FingerCurler
             }
 
             _appliedAngles[f] = max * curl;
-            // Glove-pinky counter-abduction: curl-coupled local-Z on the ROOT joint only.
+            // Glove-pinky counter-abduction: curl-coupled local-Z on the ROOT joint only. Same
+            // ownership rule as the curl angles above — 14 degrees at the shipped defaults, and
+            // whose 14 it is comes from the caller, not from this client's config.
             float rootRz = f == (int)Finger.Pinky && _pinkySplaySign != 0f
-                ? _pinkySplaySign * HandsConfig.GlovePinkyCounterAbductionSafe(
-                    DefaultGlovePinkyCounterAbductionDeg) * curl
+                ? _pinkySplaySign * limits.PinkySplayDegrees * curl
                 : 0f;
             written[0] = joints.Root.localRotation = baseRot[0] * Quaternion.Euler(max.x * curl, 0f, rootRz);
             written[1] = joints.Mid.localRotation = baseRot[1] * Quaternion.Euler(max.y * curl, 0f, 0f);

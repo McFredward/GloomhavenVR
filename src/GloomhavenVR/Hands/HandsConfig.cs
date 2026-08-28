@@ -28,6 +28,13 @@ namespace GloomhavenVR.Hands;
 ///
 /// All reads go through the *Safe accessors so <see cref="FingerCurler"/> (also used by
 /// Net.RemoteAvatar) never throws before <see cref="Bind"/> ran.
+///
+/// WHOSE HAND THESE ANSWER FOR: this client's own, and no other. The curl a peer's finger is at
+/// rides the wire as 0..1; the DEGREES it is applied at are a per-player choice and ride record 28
+/// (ids 201..204) with it, so a remote hand resolves its limits from the OWNER's record and never
+/// from the accessors below. That distinction is not left to the reader — every FingerCurler call
+/// site states it through <see cref="FingerCurler.GripLimits"/>, which defaults to "ask my own
+/// dials" so a path that forgets can only fall back to the local answer.
 /// </summary>
 internal static class HandsConfig
 {
@@ -91,7 +98,10 @@ internal static class HandsConfig
         }
     }
 
-    /// <summary>The three configured per-joint max angles (fallback = the FingerCurler defaults).</summary>
+    /// <summary>THIS VIEWER's three configured per-joint max angles (fallback = the FingerCurler
+    /// defaults, 75/95/65 degrees). Only ever an answer about the LOCAL player's hands — a peer's
+    /// come off their own tuning record; see the class remarks and
+    /// <see cref="FingerCurler.GripLimits"/>.</summary>
     public static Vector3 FingerMaxAnglesSafe(Vector3 fallback)
     {
         try
@@ -109,7 +119,8 @@ internal static class HandsConfig
         }
     }
 
-    /// <summary>Glove-pinky counter-abduction at full curl (degrees, safe fallback).</summary>
+    /// <summary>THIS VIEWER's glove-pinky counter-abduction at full curl (degrees, safe fallback;
+    /// 14 shipped). Local hands only, for the reason <see cref="FingerMaxAnglesSafe"/> gives.</summary>
     public static float GlovePinkyCounterAbductionSafe(float fallback)
     {
         try

@@ -76,6 +76,25 @@ internal sealed class RemoteAvatar
     private float _appliedScale = -1f;
     private float _appliedStyleScale = -1f; // per-style visual scale currently on the hand visual roots
 
+    // ---- THE OWNER'S GRIP (record 28 ids 201..204) -------------------------------------------
+    // A finger rides the wire as a curl 0..1 and nothing else. The DEGREES that 1.0 means are a
+    // per-player choice, and this file used to have no copy of them: it handed the owner's synced
+    // curl to a FingerCurler that then asked the LOCAL HandsConfig how far "fully curled" is. All
+    // four dials behind that answer are live-tunable from the in-VR options — [Hands] CurlProximal/
+    // CurlMiddle/CurlTip (75/95/65 degrees shipped) and GlovePinkyCounterAbduction (14 degrees) —
+    // so a viewer who set CurlTip to 130 folded every teammate's fingertips to 130 on their screen
+    // while those teammates' own screens kept 65. Whatever grip you picked, you imposed it on
+    // everyone you looked at; nobody could see it from inside their own headset.
+    //
+    // Seeded from Defaults so scripts/check-remote-defaults.py can pin what an untuned or pre-field
+    // peer is drawn with, refreshed off the owner's tuning on its REVISION edge (see Tick) rather
+    // than read per frame out of a wide struct — the same shape as the held-card pair below. The
+    // three curls are kept as ONE Vector3, taken whole from RemoteBoardTuning.HandCurlAngles in the
+    // shape FingerCurler consumes, so this file cannot pair an owner's proximal with anyone's tip.
+    private Vector3 _handCurlAngles = new(Defaults.CurlProximal, Defaults.CurlMiddle, Defaults.CurlTip);
+    private float _handPinkySplay = Defaults.GlovePinkyCounterAbduction;
+    private int _handGripRevision = -1;
+
     // ---- THE HELD CARD'S SIZE (record 28 ids 70 + 178) --------------------------------------
     // Two dials, one product, and for a long time NEITHER of them reached this file: the held slab
     // was built at the nominal card metric times the sender's RIG scale and nothing else, so a peer
@@ -1415,9 +1434,14 @@ internal sealed class RemoteAvatar
 
         // THE SENDER'S hand scale, not ours. This used to read the RECEIVER's
         // [Hands] {Style}Scale, so a peer who had never touched it drew your hands at their own
-        // size — the last per-player choice that did not travel. It arrives in the extras
-        // extension tail; a sender who is on the default 1.00x sends no record and HandScale stays
-        // 1, which is exactly what the old default rendered.
+        // size. It arrives in the extras extension tail; a sender who is on the default 1.00x sends
+        // no record and HandScale stays 1, which is exactly what the old default rendered.
+        //   CORRECTION (2026-08-28). This comment used to call that "the last per-player choice
+        // that did not travel". It was not, and it was wrong about the very hand it was written on:
+        // FOUR more were still local-only right here — [Hands] CurlProximal/CurlMiddle/CurlTip and
+        // GlovePinkyCounterAbduction, the degrees a peer's synced 0..1 curl is applied AT. They ride
+        // record 28 (ids 201..204) now and are resolved on the revision edge below. "The last one"
+        // is a claim about everything you did NOT look at; this file states what it carries instead.
         if (_leftRig != null)
         {
             float styleScale = HandScale;
@@ -1429,6 +1453,18 @@ internal sealed class RemoteAvatar
                 if (_rightRig != null && _rightRig.Root != null)
                     HandVisuals.ApplyStyleScale(_rightRig.Root, _rightRig, styleScale);
             }
+        }
+
+        // THE OWNER'S GRIP (ids 201..204) — same revision edge, same reason; see the fields. Four
+        // dials, one pull: the three curl limits come across as ONE vector so this file cannot mix
+        // an owner's proximal with a viewer's tip, and RemoteBoardTuning has already clamped all
+        // four to the owner's own windows (0..130 degrees, -30..30 for the splay). One int compare
+        // per frame, two field writes per actual config edit on their side.
+        if (_handGripRevision != BoardTuningRevision)
+        {
+            _handGripRevision = BoardTuningRevision;
+            _handCurlAngles = BoardTuning.HandCurlAngles;
+            _handPinkySplay = BoardTuning.HandPinkySplay;
         }
 
         // THE HELD CARD'S TWO SIZE DIALS. They ride the tuning record, which lands in SetExtras
@@ -1452,8 +1488,13 @@ internal sealed class RemoteAvatar
         if (_hasTarget)
         {
             UpdatePart(_headHolder, _target.HeadValid, in _target.Head, k);
-            UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt);
-            UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt);
+            // THEIR grip, stated out loud: the five curls in the rig packet are 0..1 and mean
+            // nothing without the owner's degrees. Two cached field reads and a struct construct —
+            // no config lookup, no wide struct read.
+            FingerCurler.GripLimits grip =
+                FingerCurler.GripLimits.FromOwner(_handCurlAngles, _handPinkySplay);
+            UpdateHand(_leftHolder, _leftCurler, in _target.Left, _target.HasFingers, k, dt, grip);
+            UpdateHand(_rightHolder, _rightCurler, in _target.Right, _target.HasFingers, k, dt, grip);
             UpdateHeldCard(k);
         }
 
@@ -1535,7 +1576,14 @@ internal sealed class RemoteAvatar
             Quaternion.Slerp(holder.rotation, pose.Rotation, k));
     }
 
-    private static void UpdateHand(Transform holder, FingerCurler? curler, in HandStateSample hand, bool fingers, float k, float dt)
+    /// <summary>
+    /// Ease one hand holder toward its target and drive its fingers. <paramref name="grip"/> is the
+    /// HAND OWNER's answer to "how many degrees is a full curl?" (ids 201..204) — this method must
+    /// be handed it rather than letting the curler fall back to its default, which asks the local
+    /// viewer's [Hands] dials and is only ever right for the local player's own hands.
+    /// </summary>
+    private static void UpdateHand(Transform holder, FingerCurler? curler, in HandStateSample hand, bool fingers, float k, float dt,
+                                   FingerCurler.GripLimits grip)
     {
         UpdatePart(holder, hand.Tracked, in hand.Pose, k);
         if (!hand.Tracked || curler == null)
@@ -1548,7 +1596,7 @@ internal sealed class RemoteAvatar
             curler.SetTarget(Finger.Ring, hand.Curl3);
             curler.SetTarget(Finger.Pinky, hand.Curl4);
         }
-        curler.Tick(dt);
+        curler.Tick(dt, grip);
     }
 
     /// <summary>

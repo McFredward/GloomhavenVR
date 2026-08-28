@@ -416,7 +416,76 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 311;
+    public const ushort ModBuild = 312;
+    // Build 312: THE AUDIT'S REMAINING FINDINGS, SEVEN LANES, AND FIVE CORRECTIONS TO MY OWN BRIEFS.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. WIRE WIDENED (record 28 ids 201..204, 237..239). ***
+    //
+    //   Every remaining finding of the 2026-08-27 receiver audit, one lane each, each told to verify
+    //   the finding before fixing it. FIVE came back having corrected the brief, and in three cases
+    //   the correction was worth more than the patch.
+    //
+    //   THE FINGERS. A peer's finger rides the wire as a curl 0..1 and nothing else — the DEGREES
+    //   that 1.0 means were the VIEWER's. Set [Hands] CurlTip to 130 in your own options and every
+    //   team-mate's fingertips folded to 130 on YOUR screen while their own kept 65: your grip
+    //   imposed on everyone you looked at, invisible from inside your own headset. Ids 201..204.
+    //
+    //   THE DECISION LABELS, the purest instance of the same class. Three mirror sites read this
+    //   client's [ButtonColors] LabelR/G/B while the owner's colour (id 48) had been decoded and
+    //   correctly used for the KEYCAPS one screen away since the family was paged. The lane
+    //   corrected me twice: the field I told it to use has never had a consumer, and the one it
+    //   picked instead is the clamped, opaque value the caps already wear — mine could have let a
+    //   board's plates and its keycaps disagree on a corrupt payload.
+    //
+    //   THE PILE STACKS rendered at 0.16x albedo where the owner renders at 1.16x — a 7.25x
+    //   luminance gap on every board but your own, from one missing shader-completion step. The
+    //   same file's frozen card width fed FIVE consumers, not one: slabs, caption fit, ember box
+    //   and ring seed, so a tuned owner's mirrored ANIMATION was the wrong size too.
+    //
+    //   THE PHANTOM REST PLATE is deleted. A widget every peer could see and its owner could not.
+    //
+    //   AND MY TOOLTIP INSTRUCTION WAS WRONG IN THE EXPENSIVE DIRECTION. I told the lane to scope
+    //   the board measurement to the prefab clone. It measured: the re-authored slabs are 0.640 x
+    //   0.320, the authored plate to five decimals — that scope would have moved the tooltip ZERO
+    //   MILLIMETRES and looked fixed. The cause is the DOCKS hanging off the board root, and
+    //   because the measurement is on |x| a dock on the RIGHT widens the LEFT corner: 88 mm always,
+    //   ~210 mm with a card in the active column. It also found a feedback loop I had not seen — in
+    //   MR the mirror's own backing plate is a MeshRenderer UNDER the board root, so measuring
+    //   while visible would walk the tooltip up the board until the sanity clamp caught it.
+    //
+    //   THE GAZE-BIAS YAW: renderer first, field second, in that order and on purpose. The mirror
+    //   now derives the whole eased, hysteretic yaw from the synced head pose — all six shape
+    //   parameters are consts on both sides — and id 239 carries only the owner's say-so. Landing
+    //   the field first would have turned check-wire-coverage.py green over a wrong picture.
+    //
+    //   THE SPENT-ITEM GHOST SHIPPED, AND THE HAZARD THAT PARKED IT WAS FALSIFIED RATHER THAN
+    //   ROUTED AROUND. The strip note claimed ItemCardEffects drives the same screen-space
+    //   _PosAndBounds material that renders an ability card DEEP BLACK. It does not: CardEffects
+    //   SWAPS to a different material asset, ItemCardEffects instances the card's own. And the
+    //   decisive evidence is already shipping — ItemsPile.TryHostRealCard runs the FULL ghost
+    //   through this exact material on a WORLD-SPACE canvas where _PosAndBounds was written from a
+    //   position in METRES against a PIXEL rect, the most mis-scaled value it can be handed, and
+    //   that is the ghost the user asked to have back. Nonzero FX plus a meaningless _PosAndBounds
+    //   is an accepted configuration, not a guess. The lane still reads the property as a refusal
+    //   gate and never writes it, and it found the thing that would have defeated the fix silently:
+    //   the dedup key was pure item identity, so a card ghosted AFTER its face was up would never
+    //   have rebuilt.
+    //
+    //   PENDING wire debts on record 28: ZERO. Wire coverage 193 dials.
+    //
+    //   TEST (two clients):
+    //     1. FINGERS — one player sets [Hands] CurlTip to an extreme. Their hand changes on BOTH
+    //        screens; every other player's hand changes on NEITHER.
+    //     2. LABELS — one player sets [ButtonColors] LabelR/G/B to red, then triggers a damage
+    //        prompt on a team-mate. Only their OWN board's buttons go red.
+    //     3. STACKS — compare the three mini pile stacks on your board and a team-mate's. Both
+    //        legible wood, neither a black lump.
+    //     4. REST — a team-mate short-rests. No plate appears on their mirrored board; the rest
+    //        DISC CAPS show it, as they do on their own.
+    //     5. SPENT ITEM — use an item. On every other screen it must lie tapped 90 degrees AND
+    //        ghosted grey. WATCH THE LOG for "Remote ITEM used-look REFUSED": that means the
+    //        bounds gate fired and the card stayed fresh, which is the safe failure.
+    //     6. Still owed from 302: card dust ON *plus* a second board dial moved.
+    //
     // Build 311: THE PEER-BOARD SEE-THROUGH TAKES THE WALL'S OWN DWELLS.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO WIRE CHANGE. ***
     //
@@ -18385,6 +18454,22 @@ internal static class NetProtocol
     /// <para>[SelectionReady] Enabled.</para>
     /// </summary>
     public const byte TuneSelectionReadyOn = 238;
+
+    /// <summary>
+    /// [Cards] FanGazeBias — whether the OWNER's hand fan yaws to follow where they are looking.
+    ///
+    /// <para>THE RENDERER LANDED FIRST, deliberately, and this bit is the second half. CardFan
+    /// rotates the whole fan ROOT by an eased, hysteretic yaw (0..32 degrees at the shipped
+    /// constants) and <c>RemoteHandFan</c> now reproduces it from the peer's synced head pose — the
+    /// shape needs no wire at all, because every one of its six parameters is a private const on
+    /// both sides. This bit is the single input that cannot be derived: whether the sender has the
+    /// toggle on. Landing it before the renderer existed would have been the FanCloseDuration trap
+    /// — a field whose receiver ignores it turns scripts/check-wire-coverage.py green while the
+    /// picture stays wrong.</para>
+    ///
+    /// <para>[Cards] FanGazeBias.</para>
+    /// </summary>
+    public const byte TuneFanGazeBiasOn = 239;
 
     /// <summary>
     /// RESERVED, AND NEVER LIVE — the id <see cref="TuneCardDustOn"/> was mistakenly given in

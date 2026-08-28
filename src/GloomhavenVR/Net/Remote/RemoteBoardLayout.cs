@@ -113,13 +113,27 @@ internal readonly struct RemoteBoardLayout
     /// <c>PlayTray.PickBannerLocalPosition</c>.</summary>
     public Vector3 PickBannerMount { get; }
 
-    /// <summary>TOOLTIP AREA origin — the board's authored top-LEFT corner
-    /// (<c>PlayTray.TooltipAreaBase</c> + the SHIPPED per-board <c>HoverHintOffset</c>), where
-    /// <see cref="RemoteBoardTooltip"/> seats a peer's synced tooltip (extension record 9). The
-    /// owner's LOCAL area refines the corner from measured renderer bounds; the remote mirror
-    /// uses the authored constant, the same authored-vs-measured split every dock on this board
-    /// lives with. The DELIBERATELY-NOT rule applies as everywhere here: a peer's private
-    /// debug-menu re-tuning of the offset never rides the wire.</summary>
+    /// <summary>TOOLTIP AREA origin, AUTHORED — the board's authored top-LEFT corner
+    /// (<c>PlayTray.TooltipAreaBase</c>) plus the OWNER'S OWN <c>HoverHintOffset</c>: record 28
+    /// id 8 when they have moved that dial, the shipped constant for their synced style when they
+    /// have not. This is the PRE-MEASURE seat and the degradation fallback for
+    /// <see cref="RemoteBoardTooltip"/> (extension record 9), not the final corner — that class
+    /// runs the owner's own <c>PlayTray.MeasureBoardLocalExtents</c> over the peer's board root and
+    /// corrects this seat by what it finds, because the authored plate is not the visible board:
+    /// the docks hanging off the board root reach past it, on the owner's board and on the mirror
+    /// alike.
+    ///
+    /// <para>TWO SENTENCES THAT USED TO STAND HERE WERE WRONG, recorded so nobody re-derives them.
+    /// (1) "the remote mirror uses the authored constant, the same authored-vs-measured split every
+    /// dock on this board lives with" — it did, and that WAS the defect: the bare
+    /// <c>TooltipAreaBase</c> is the exact expression the OWNER-side fix replaced after the
+    /// <c>WorldTooltips</c> "still inside" report, so the mirror was faithfully reproducing a
+    /// corner the owner had already stopped using. (2) "the DELIBERATELY-NOT rule applies as
+    /// everywhere here: a peer's private debug-menu re-tuning of the offset never rides the wire" —
+    /// it rides the wire, and has since record 28; the section above retired that clause for every
+    /// dial on this type, and the constructor below has been adding <c>tuning.HoverHintOffset</c>
+    /// all along. Prose that contradicts the code is an instruction to rebuild the bug class it
+    /// describes.</para></summary>
     public Vector3 TooltipMount { get; }
 
     /// <summary>Derive the seats from the peer's own tuning (record 28), falling back per field to

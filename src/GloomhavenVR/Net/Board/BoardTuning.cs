@@ -568,6 +568,13 @@ internal static class BoardTuningSampler
         // unusual direction: the mirror draws MORE than the owner without it.
         n += Bool8(payload, ref i, NetProtocol.TuneSelectionReadyOn,
                    Board.SelectionReadyHighlighter.EnabledEntry, Defaults.SelectionReady_Enabled);
+        // …and the fan's gaze-bias toggle (id 239), now the highest id this record writes. The YAW
+        // itself is DERIVED on the receiver from the synced head pose — every one of its six shape
+        // parameters is a private const on both sides — so this is only the owner's say-so.
+        // RemoteHandFan's renderer was built BEFORE this bit existed, on purpose: a field whose
+        // receiver ignores it turns check-wire-coverage.py green over a wrong picture.
+        n += Bool8(payload, ref i, NetProtocol.TuneFanGazeBiasOn,
+                   Cards.CardsConfig.FanGazeBias, Defaults.FanGazeBias);
 
         if (n == 0)
             return 0;                  // every dial at its shipped default — write NO record
@@ -902,6 +909,11 @@ internal readonly struct RemoteBoardTuning
     /// choosing" ring drawn at all. Wire id <see cref="NetProtocol.TuneSelectionReadyOn"/>.</summary>
     public bool SelectionReadyOn { get; }
 
+    /// <summary>The owner's <c>[Cards] FanGazeBias</c> — whether their hand fan yaws to follow their
+    /// gaze. Defaults to the shipped <c>false</c> for a peer from a build before this field existed.
+    /// Wire id <see cref="NetProtocol.TuneFanGazeBiasOn"/>.</summary>
+    public bool FanGazeBiasOn { get; }
+
     /// <summary>The owner's <c>[Hands] CurlProximal</c> in degrees, already clamped to their own
     /// 0..130 window. Wire id <see cref="NetProtocol.TuneHandCurlProximal"/>.</summary>
     public float HandCurlProximal { get; }
@@ -1198,6 +1210,8 @@ internal readonly struct RemoteBoardTuning
                              Defaults.FanCurveByFill ? 1 : 0) != 0;
         SelectionReadyOn = C(payload, len, NetProtocol.TuneSelectionReadyOn,
                              Defaults.SelectionReady_Enabled ? 1 : 0) != 0;
+        FanGazeBiasOn = C(payload, len, NetProtocol.TuneFanGazeBiasOn,
+                          Defaults.FanGazeBias ? 1 : 0) != 0;
         // THE OWNER'S HAND, clamped to their own windows on THIS side (0..130 for the three curl
         // joints, -30..30 for the splay). Clamping here rather than in the renderer means every
         // consumer reads an angle the owner could actually have curled to, and a corrupt field

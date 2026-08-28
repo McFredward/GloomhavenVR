@@ -57,6 +57,8 @@ internal static class PeerBoardFadeTuning
     internal static ConfigEntry<float>? ExitDwellMoved;
     /// <summary>Come-back dwell while the head has only ROTATED (no recent translation/recenter).</summary>
     internal static ConfigEntry<float>? ExitDwellStationary;
+    /// <summary>One-shot marker for the 2026-08-28 dwell alignment — see <see cref="Bind"/>.</summary>
+    internal static ConfigEntry<bool>? DwellsMigrated312;
 
     internal static void Bind()
     {
@@ -96,6 +98,60 @@ internal static class PeerBoardFadeTuning
             Defaults.PeerBoardExitDwellStationary,
             "Come-back dwell while the head has only ROTATED recently — rotation alone should " +
             "almost never bring a board back. Live; never below ExitDwellMovedSeconds.");
+
+        // ONE-SHOT: THE 2026-08-28 DWELL ALIGNMENT, WHICH A CHANGED DEFAULT CANNOT DELIVER ON ITS
+        // OWN. The user asked for these two to match the walls' ("Pass die default configs ... an
+        // die der Waende an") and the shipped constants moved 2.5/7 -> 0.5/3.6 — but BepInEx has
+        // already WRITTEN 2.5 and 7 into every existing dev.gloomhavenvr.boardfade.cfg, and a
+        // default never reaches a key that is already on disk. Without this block the alignment
+        // would have been correct in the source, green in every checker, and inert on the one rig
+        // that asked for it. That is the same trap [WallFade] WallFadeBarsMigrated252 was written
+        // for, and this is that block in its shape.
+        //
+        // IT REWRITES ONLY THE EXACT OLD PAIR. A cfg holding 2.5 AND 7 is a cfg nobody has touched
+        // — those were the shipped numbers — so moving it is completing the default change, not
+        // overriding a choice. Any other value, on either key, is a decision somebody made and is
+        // left alone; the marker is still spent, so a deliberate 2.5 typed in later is never
+        // second-guessed.
+        DwellsMigrated312 = config.Bind("PeerBoardFade", "DwellsMigrated312",
+            Defaults.PeerBoardDwellsMigrated312,
+            "One-shot migration marker, not a setting. FALSE on a fresh install; set TRUE the " +
+            "first time this build inspects an existing config. If ExitDwellMovedSeconds and " +
+            "ExitDwellStationarySeconds were both found at the OLD shipped pair (2.5 / 7), they " +
+            "are moved to the wall see-through's own values (0.5 / 3.6) at the same moment, " +
+            "because a changed default cannot reach a key BepInEx has already written. Any other " +
+            "value is left alone. Afterwards both are ordinary settings again and anything you " +
+            "tune is kept for ever. Set this back to false to re-run.");
+        if (DwellsMigrated312 is { Value: false })
+        {
+            DwellsMigrated312.Value = true;
+            float hadMoved = ExitDwellMoved != null ? ExitDwellMoved.Value : Defaults.PeerBoardExitDwellMoved;
+            float hadStat = ExitDwellStationary != null
+                ? ExitDwellStationary.Value
+                : Defaults.PeerBoardExitDwellStationary;
+            // The OLD shipped pair, named here rather than in Defaults: they are history now, and a
+            // Defaults entry for a retired value would look like something a fresh install gets.
+            bool untouched = Mathf.Approximately(hadMoved, 2.5f) && Mathf.Approximately(hadStat, 7f);
+            if (untouched && ExitDwellMoved != null && ExitDwellStationary != null)
+            {
+                ExitDwellMoved.Value = Defaults.PeerBoardExitDwellMoved;
+                ExitDwellStationary.Value = Defaults.PeerBoardExitDwellStationary;
+            }
+            VRLog.Info("Net", untouched
+                ? $"One-shot migration: [PeerBoardFade] ExitDwellMovedSeconds {hadMoved:F1} / " +
+                  $"ExitDwellStationarySeconds {hadStat:F1} were the OLD shipped pair, i.e. nobody " +
+                  "had tuned them. Moved to the wall see-through's own values " +
+                  $"{Defaults.PeerBoardExitDwellMoved:F1} / " +
+                  $"{Defaults.PeerBoardExitDwellStationary:F1}, which is what a fresh install now " +
+                  "gets and what the user asked these two to match. The board fade was hand-copied " +
+                  "from the wall before the wall's own tuning round, so it had been carrying the " +
+                  "wall's PRE-tuning numbers while its doc still called them 'the wall's'. This " +
+                  "runs ONCE — both are ordinary settings from here on and anything you tune is kept."
+                : $"One-shot migration: nothing to do — [PeerBoardFade] ExitDwellMovedSeconds " +
+                  $"{hadMoved:F1} / ExitDwellStationarySeconds {hadStat:F1} is not the old shipped " +
+                  "pair, so somebody has chosen these and they were left exactly as they are. The " +
+                  "marker is now spent and these two will never be rewritten again.");
+        }
     }
 
     // Clamped live accessors — safe before Bind() (fall back to the shipped defaults, i.e. OFF).

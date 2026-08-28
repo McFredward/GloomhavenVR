@@ -152,23 +152,25 @@ EXEMPT = {
     ("Cards", "RevealIgnoreWhenGrabbing"): ("COMFORT", "as RevealMode"),
     ("Cards", "FanFollowSmoothing"): ("COMFORT", "how lazily THEIR fan chases THEIR palm; the mirror follows the synced hand"),
     ("Cards", "FanFollowDeadzone"): ("COMFORT", "as FanFollowSmoothing"),
-    # RECLASSIFIED COMFORT -> PENDING (2026-08-27), found while wiring its two neighbours. The old
-    # reason -- "driven by THEIR head; the mirror re-derives from the synced head pose" -- describes
-    # an INPUT, and the dial does not merely scale an input: CardFan reads it live and rotates the
-    # WHOLE FAN ROOT by an eased yaw (`_root.rotation = AngleAxis(biasYaw, up) * baseFacing`), and
-    # RemoteHandFan implements none of that. Its own KNOWN GAPS note says so and names the single
-    # missing input: whether the SENDER has the toggle on. So an owner who switches it on yaws their
-    # fan on their own screen and on nobody else's.
+    # [Cards] FanGazeBias STOOD HERE AND IS NOW WIRED (id 239, 2026-08-28). It is the one entry that
+    # went COMFORT -> PENDING -> wired, and the MIDDLE STEP IS THE POINT.
     #
-    # PENDING and not wired here, deliberately: the RENDERER does not exist yet, and adding the bit
-    # first is the FanCloseDuration trap this file's own notes warn about -- a field whose receiver
-    # ignores it turns this checker green while the picture stays wrong, which is the exact failure
-    # mode the three entries around it were just fixed for.
-    ("Cards", "FanGazeBias"): ("PENDING", "board-affecting and NOT covered: CardFan yaws the whole fan root by an eased "
-                                          "gaze bias, and RemoteHandFan implements none of it -- its own KNOWN GAPS note "
-                                          "says the only missing input is the one bit saying whether the sender has the "
-                                          "toggle on. Unblocked by giving the mirror the yaw FIRST (renderer first, field "
-                                          "second); the bit is then one COUNT-range id"),
+    # The reason it was exempt -- "driven by THEIR head; the mirror re-derives from the synced head
+    # pose" -- described an INPUT, and the dial does not scale an input: CardFan rotates the whole
+    # fan ROOT by an eased, hysteretic yaw, and RemoteHandFan implemented none of it. So an owner
+    # who switched it on yawed their fan on their own screen and on nobody else's, while this table
+    # said the dial was covered.
+    #
+    # It was then held at PENDING ON PURPOSE for one round while RemoteHandFan grew the renderer,
+    # because landing the field first is the FanCloseDuration trap: a receiver that ignores its
+    # field turns THIS CHECKER GREEN over a picture that is still wrong, which is strictly worse
+    # than an honest debt. Renderer first, field second -- in that order, and the order is the rule.
+    #
+    # Worth keeping about the shape: the yaw needs NO wire beyond this one bit. All six of its
+    # parameters (deadzone 20 deg, release 10, full 42, gain 0.6, clamp 32, ease 9/s) are private
+    # consts on BOTH sides, so what travels is the owner's say-so and nothing else. A dial whose
+    # renderer is derivable from already-synced state costs one bit; the trap is assuming that
+    # before someone has written the renderer.
     # [Cards] FanGazeSmoothing STOOD HERE AS COMFORT ("as FanGazeBias") AND IS NOW WIRED (id 179,
     # 2026-08-27). Worth one line on the way out: it was exempt by ASSOCIATION -- it pointed at a
     # neighbouring entry's reasoning instead of stating its own -- and the neighbour's reasoning
@@ -319,6 +321,20 @@ EXEMPT = {
 # blanket rule to cover. A NEW [ButtonColors] dial will now fail this script by default, which is
 # the behaviour every other board section already has and the reason not to leave the rule behind
 # as a catch-all.
+#
+# "AND THE MIRROR READS THEM" WAS TRUE OF THE KEYCAPS AND FALSE OF THE DECISION ROW FOR THREE
+# BUILDS, and that gap is why this paragraph now names the READER as well as the id. Ids 48..53 were
+# decoded into RemoteBoardTuning and consumed by RemoteBoardFurniture's InertCap the day they were
+# paged; the three DECISION sites beside them went on calling the local NativeButtonSkin.LabelColor
+# -- RemoteDecisionWidgets.Apply, RemoteBoardFurniture.SetDecisionLines and its BaseLabelGold -- so
+# a viewer who reddened their own labels saw red lettering on every team-mate's decision buttons
+# while each of those team-mates saw parchment. Nothing on this script's side could see it: a dial
+# that is SAMPLED, has an id, and is READ SOMEWHERE passes, and "somewhere" was the wrong surface.
+# THE LESSON: a coverage guard proves a dial crossed the wire, never that every surface drawn from
+# it stopped asking the local config. The receiver-side half is a code question, and the shape that
+# makes it answerable is WorldUI.NativeButtonSkin.LabelOwner -- an accessor a call site cannot use
+# without naming whose value it wants. Closed for LabelR/G/B (2026-08-28); ids 48..53 are read by
+# the caps AND by all three decision sites now.
 
 DEFAULTS_DIR = SRC / "Defaults"
 NET_PROTOCOL = SRC / "Net" / "NetProtocol.cs"

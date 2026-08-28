@@ -272,6 +272,41 @@ PAIRS = [
     ("Net/Remote/RemoteItemFan.cs", "_cardWidth", "Cards", "CardWidth"),
     ("Net/Remote/RemoteBrowserFan.cs", "_cardWidth", "Cards", "CardWidth"),
     ("Net/Remote/RemoteCardFx.cs", "_cardWidth", "Cards", "CardWidth"),
+    # ...and the FOURTH holder of the same metric, found 2026-08-28: the three mini pile stacks on a
+    # peer's board (RemoteControlBoard.PileCounter) were sized from
+    # `const SlabW = Defaults.CardWidth * SlabFactor`, under a class doc that stated the freeze as
+    # POLICY -- "the OWNER's [Cards] tuning is local config and deliberately not applied". That
+    # policy died when record 28 was paged; the const outlived it by several builds. Same shape as
+    # the three above and the same blind spot: [Cards] CardWidth was on the wire and read everywhere
+    # else, while the one product that consumed it here was a compile-time constant nothing could
+    # check. The dial is bounded 0.03..0.15 m against a 0.0635 m default, so a tuned owner's stacks
+    # were up to 2.4x the wrong size on every peer's board (39.4 mm slab width shipped, 18.6 mm at
+    # the owner's low bound, 93 mm at their high one) -- plus the count/caption fit, the ember box
+    # and the ring seed, all derived from it.
+    ("Net/Remote/RemoteControlBoard.cs", "_cardWidth", "Cards", "CardWidth"),
+    # ...AND A FIFTH, found by the [ButtonColors] round and fixed with it: the item-use RECESS on a
+    # mirrored board was laid out from `const ItemCardW = 0.0635f` while the owner's own
+    # PlayTray.BuildItemUseSlot reads CardsConfig.CardWidth.Value live. Correct at the shipped
+    # defaults and wrong the moment anybody moved the dial -- the berth, its outline, its warm field
+    # and its caption all stayed at 63.5 mm on every peer's screen. Seeded field now, so this row is
+    # the pin the bare literal could never have.
+    ("Net/Remote/RemoteBoardFurniture.cs", "_itemCardW", "Cards", "CardWidth"),
+    # THE OWNER'S GRIP (2026-08-28, wire ids 201..204) -- the first [Hands] family on this list, and
+    # a family nothing else can watch: check-wire-coverage.py's BOARD_SECTIONS does not include
+    # [Hands], so these four dials are invisible to it and it cannot tell anyone if a receiver stops
+    # reading them. A peer's finger rides the wire as a curl 0..1; the DEGREES that 1.0 means were
+    # the VIEWER's, because RemoteAvatar fed the owner's curl to a FingerCurler that then asked the
+    # local HandsConfig how far "fully curled" is. Set [Hands] CurlTip to 130 in your own VR options
+    # and every teammate's fingertips folded to 130 on YOUR screen while their own kept 65 -- your
+    # grip on everyone you looked at, and nobody could see it from inside their own headset. All
+    # four are seeded wire-overridable fields now; the initialiser is what an untuned or pre-field
+    # peer is drawn with, which is exactly what puts them here.
+    #   The three curls are ONE Vector3 (the shape FingerCurler consumes, so no caller can pair an
+    #   owner's proximal with a viewer's tip), so they are pinned per COMPONENT -- see frozen().
+    ("Net/Remote/RemoteAvatar.cs", "_handCurlAngles.x", "Hands", "CurlProximal"),
+    ("Net/Remote/RemoteAvatar.cs", "_handCurlAngles.y", "Hands", "CurlMiddle"),
+    ("Net/Remote/RemoteAvatar.cs", "_handCurlAngles.z", "Hands", "CurlTip"),
+    ("Net/Remote/RemoteAvatar.cs", "_handPinkySplay", "Hands", "GlovePinkyCounterAbduction"),
 ]
 
 DEFAULTS_DIR = SRC / "Defaults"
@@ -329,17 +364,42 @@ def bind_reference(section, key):
     return None
 
 
+VECTOR_COMPONENT = {"x": 0, "y": 1, "z": 2}
+
+
 def frozen(rel, const):
     """What the Remote renderer's constant/fallback field resolves to: a Defaults name, or a
     literal. Accepts both the frozen `const float X =` form and the wire-overridable
-    `private float _x =` form — see the header for why they carry the same guarantee."""
+    `private float _x =` form — see the header for why they carry the same guarantee.
+
+    A pair may also name ONE COMPONENT of a seeded Vector3 field — `_handCurlAngles.x` against
+    `private Vector3 _handCurlAngles = new(Defaults.CurlProximal, …)`. Some values only make sense
+    as a vector: the three finger-curl joint limits are carried whole precisely so no caller can
+    pair one player's proximal with another's tip, and splitting them into three float fields to
+    make them checkable would put that mixing hazard back. This form keeps both — one field, three
+    pinned components. (Contrast RemoteItemFan._radius, still deliberately unlisted: that is a
+    PRODUCT of two entries, not one entry per slot, and this checker verifies a constant IS one
+    named Defaults entry.)"""
     text = (SRC / rel).read_text(encoding="utf-8")
-    m = re.search(r"const float " + const + r" *= *([^;]+);", text)
-    if not m:
-        m = re.search(r"private (?:readonly )?float " + const + r" *= *([^;]+);", text)
-    if not m:
-        return None
-    raw = m.group(1).strip()
+    if "." in const:
+        field, component = const.rsplit(".", 1)
+        if component not in VECTOR_COMPONENT:
+            return None
+        m = re.search(r"private (?:readonly )?Vector3 " + re.escape(field)
+                      + r" *= *new\(([^;]*)\) *;", text)
+        if not m:
+            return None
+        parts = [p.strip() for p in m.group(1).split(",")]
+        if len(parts) != 3:
+            return ("expr", m.group(1).strip())
+        raw = parts[VECTOR_COMPONENT[component]]
+    else:
+        m = re.search(r"const float " + const + r" *= *([^;]+);", text)
+        if not m:
+            m = re.search(r"private (?:readonly )?float " + const + r" *= *([^;]+);", text)
+        if not m:
+            return None
+        raw = m.group(1).strip()
     if raw.startswith("Defaults."):
         return ("ref", raw[len("Defaults."):])
     try:

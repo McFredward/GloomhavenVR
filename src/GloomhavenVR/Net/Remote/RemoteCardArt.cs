@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Rig;
@@ -44,6 +45,15 @@ namespace GloomhavenVR.Net;
 /// the real header art even if the (hidden) source hand never had it loaded; if the source skin is
 /// itself null the clone still shows the copied frame/actions/enhancements minus the header art.
 ///
+/// STATE DECORATIONS ARE PART OF THE PICTURE, NOT AN EXTRA. The FX driver components are stripped off
+/// every clone (see <see cref="StripFragileEffects"/>) because they cannot be run on a detached,
+/// inactive, world-space copy — but for an ITEM card that used to mean a peer's SPENT item looked
+/// FRESH while its owner's own board showed it ghosted grey, and the 1:1 ruling covers displays.
+/// <see cref="ApplySpentLook"/> rebuilds that decoration from the game's own settled end-state onto
+/// materials this overlay mints and destroys. Read its doc before touching either method: it also
+/// records the three independent reasons the obvious fix (playing the game's own state FX on the
+/// borrowed widget) cannot work, so nobody re-derives them.
+///
 /// Cheap to drive per frame: the clone is (re)built only when the shown card identity changes (or a
 /// front first appears), and torn down on hide/rebuild/teardown — no per-frame allocations.
 /// </summary>
@@ -89,6 +99,49 @@ internal sealed class RemoteCardArt
     /// than our own does.
     /// </summary>
     private readonly Cards.CardArtWatch _artWatch = new();
+
+    /// <summary>
+    /// WHICH "already used" look the game plays over an ITEM card face, if any. The three values are
+    /// exactly the three arms of <c>ItemCardUI.UpdateState</c> (ItemCardUI.cs:376-395) —
+    /// <c>Spent</c> → <c>ItemCardEffects.GhostOutOnTimeline</c>, <c>Consumed</c> →
+    /// <c>ItemCardEffects.BurnCardTimeline</c>, everything else → the card's REST look — so the
+    /// mirror can never invent a fourth state the owner's board does not have.
+    /// </summary>
+    internal enum SpentLook
+    {
+        None = 0,
+        Spent = 1,
+        Consumed = 2,
+    }
+
+    /// <summary>
+    /// The <c>ItemCardEffects</c> draw rig, lifted off the CLONE in the instant before that component
+    /// is destroyed (see <see cref="StripFragileEffects"/>).
+    ///
+    /// <para>THE CAPTURE IS ON THE CLONE AND NEVER ON THE BORROWED SOURCE, and that is the whole
+    /// design. <c>Object.Instantiate</c> re-points a serialized reference that names an object INSIDE
+    /// the copied hierarchy at the copy, so <c>imgComp</c>/<c>txtComp</c> read off the clone's own
+    /// component are the clone's own Images and texts. Reading them off the pooled widget instead
+    /// would hand us the GAME's objects, and everything downstream of that is a write into game
+    /// state.</para>
+    /// </summary>
+    private readonly struct ItemFxRig
+    {
+        public readonly UnityEngine.UI.Image[]? Images;
+        public readonly TMPro.TextMeshProUGUI[]? Texts;
+
+        public ItemFxRig(UnityEngine.UI.Image[]? images, TMPro.TextMeshProUGUI[]? texts)
+        {
+            Images = images;
+            Texts = texts;
+        }
+    }
+
+    /// <summary>Materials this overlay MINTED for the shown clone and therefore owns outright. They
+    /// die with the clone in <see cref="DestroyClone"/>: a <c>Destroy</c> of a GameObject does not
+    /// take the materials its Images point at, so without this list a fan that re-ghosts a card on
+    /// every state flip would leak one material per card image per flip.</summary>
+    private readonly List<Material> _ownedMaterials = new(8);
 
     public RemoteCardArt(Transform slab, float cardWidth, float cardHeight)
     {
@@ -149,9 +202,14 @@ internal sealed class RemoteCardArt
     /// <paramref name="beforeActivate"/> runs on the clone while it is still INACTIVE — the seam where
     /// a caller re-plants the non-serialized model reference its widget dereferences in
     /// <c>OnEnable</c> (an <c>ItemCardUI</c> reads <c>item.ID</c> the instant it activates).
+    ///
+    /// <paramref name="spentLook"/> is the "already used" decoration the OWNER's board is showing over
+    /// this card right now (item cards only; see <see cref="ApplySpentLook"/>). It is part of the DEDUP
+    /// KEY at the caller, not a property of the clone — a card whose state flips must re-key, or the
+    /// face that is already up would keep its old look forever.
     /// </summary>
     public bool ShowFront(GameObject sourceGo, int key, FullAbilityCard? skinSource = null,
-        System.Action<GameObject>? beforeActivate = null)
+        System.Action<GameObject>? beforeActivate = null, SpentLook spentLook = SpentLook.None)
     {
         if (sourceGo == null)
         {
@@ -186,7 +244,7 @@ internal sealed class RemoteCardArt
             _clone = clone;
 
             Neutralize(clone);
-            StripFragileEffects(clone);
+            ItemFxRig itemFx = StripFragileEffects(clone);
             if (skinSource != null)
                 TryReapplySkin(skinSource, clone);
             beforeActivate?.Invoke(clone);
@@ -206,6 +264,11 @@ internal sealed class RemoteCardArt
 
             _host.SetActive(true);   // clone activates → OnEnable → ShowCard reloads the real art
             FitClone(clone);         // final pose write, so OnEnable's own reposition can't offset it
+
+            // THE OWNER'S "already used" LOOK, rebuilt on materials this overlay owns. AFTER the
+            // activation on purpose: the widget's own OnEnable is the last thing that could touch its
+            // Images, so writing here means nothing the game runs can land on top of the result.
+            ApplySpentLook(itemFx, spentLook);
 
             // MIP BAKE (user report: "the aliasing on the remote cards is extreme — the fix for my
             // own local cards should apply here too"). The clone's Image sprites are verbatim
@@ -377,19 +440,30 @@ internal sealed class RemoteCardArt
     /// here since the clone has never been active (no Awake yet) and all game refs to cardEffects are
     /// null-guarded in the widget code we let run.
     ///
-    /// <para><c>ItemCardEffects</c> is the ITEM card's twin of the same hazard and is stripped for the
-    /// same reason: it drives the identical <c>_PosAndBounds</c> screen-space material (ItemCardEffects.cs:15)
-    /// plus a particle emitter whose size is only valid at the card's original canvas scale —
-    /// <c>Cards.ItemsPile</c> keeps it alive only because it hosts the widget at a measured scale and
-    /// clamps that emitter (<c>ClampCardEffectSmoke</c>). A detached clone has neither. The cost is the
-    /// "spent"/"consumed" tint, which is a STATE decoration, not the card's identity — the art, title,
-    /// symbol and condition icon all survive, so the card stays fully readable, which is what the
-    /// ruling asks for. The strip also removes the one component <c>ItemCardUI.OnReturnedToPool</c>
-    /// dereferences without a null check — harmless here because a clone is never recycled, and the
-    /// BORROWED source is never touched by this method.</para>
+    /// <para><c>ItemCardEffects</c> is the ITEM card's twin and is stripped too, but NOT for the same
+    /// reason and NOT at the same cost — see <see cref="ApplySpentLook"/>, which puts the look the
+    /// strip used to throw away back on the clone. It is stripped because it cannot be run here at all:
+    /// it drives a particle emitter whose size is only valid at the card's original canvas scale
+    /// (<c>Cards.ItemsPile</c> keeps it alive only because it hosts the widget at a measured scale and
+    /// clamps that emitter — <c>ClampCardEffectSmoke</c>; a detached clone has no such clamp), its
+    /// <c>GhostOutOn</c>/<c>BurnCard</c> entry points route through
+    /// <c>Choreographer.s_Choreographer.StartCoroutine</c> and fall back to <c>StartCoroutine</c> on a
+    /// widget we require to be INACTIVE (which throws), and both timelines dereference
+    /// <c>Timekeeper.instance.m_GlobalClock</c>. The strip also removes the one component
+    /// <c>ItemCardUI.OnReturnedToPool</c> dereferences without a null check — harmless here because a
+    /// clone is never recycled, and the BORROWED source is never touched by this method.</para>
+    ///
+    /// <para>WHAT IT RETURNS, AND WHY IT HAS TO. <c>ItemCardEffects</c> is also the only object that
+    /// knows WHICH of the card's Images and texts the state FX paint (<c>imgComp</c>/<c>txtComp</c>,
+    /// ItemCardEffects.cs:54/56) — a hand-authored subset, not "every Graphic". Those two arrays are
+    /// lifted off the CLONE's own component here, in the last instant they exist, and handed back so
+    /// <see cref="ApplySpentLook"/> can reproduce the look on them. Capturing them AFTER the destroy is
+    /// impossible and capturing them from the SOURCE would name the game's objects instead of ours.</para>
     /// </summary>
-    private static void StripFragileEffects(GameObject clone)
+    private static ItemFxRig StripFragileEffects(GameObject clone)
     {
+        UnityEngine.UI.Image[]? images = null;
+        TMPro.TextMeshProUGUI[]? texts = null;
         try
         {
             var effects = clone.GetComponentsInChildren<CardEffects>(includeInactive: true);
@@ -401,14 +475,280 @@ internal sealed class RemoteCardArt
             var itemEffects = clone.GetComponentsInChildren<ItemCardEffects>(includeInactive: true);
             for (int i = 0; i < itemEffects.Length; i++)
             {
-                if (itemEffects[i] != null)
-                    Object.DestroyImmediate(itemEffects[i]);
+                if (itemEffects[i] == null)
+                    continue;
+                // First rig wins: an item card carries exactly one of these, and a face that somehow
+                // carried two would be a card inside a card — take the outermost and say nothing.
+                if (images == null)
+                {
+                    images = itemEffects[i].imgComp;
+                    texts = itemEffects[i].txtComp;
+                }
+                Object.DestroyImmediate(itemEffects[i]);
             }
         }
         catch (System.Exception ex)
         {
             VRLog.Debug("Net", $"RemoteCardArt CardEffects strip skipped: {ex.Message}");
         }
+        return new ItemFxRig(images, texts);
+    }
+
+    // ─────────────────────────────────── the "already used" look on a peer's item card ──────────
+
+    /// <summary>The four state terms <c>ItemCardEffects</c> drives on a card image, plus the four that
+    /// SHAPE them. Ids, never names: the same call the game itself makes on the same property.</summary>
+    private static readonly int GreyOutId = Shader.PropertyToID("_GreyOut");
+    private static readonly int FlowId = Shader.PropertyToID("_Flow");
+    private static readonly int DissolveId = Shader.PropertyToID("_Dissolve");
+    private static readonly int BurnId = Shader.PropertyToID("_Burn");
+    private static readonly int BurnColourTintId = Shader.PropertyToID("_Burn_ColourTint");
+    private static readonly int FlowOffsetId = Shader.PropertyToID("_Flow_Offset");
+    private static readonly int FlowSpeedId = Shader.PropertyToID("_Flow_Speed");
+    private static readonly int AnimNoiseMaskId = Shader.PropertyToID("_AnimNoise_Mask");
+    private static readonly int DissolveVerticalGradientId = Shader.PropertyToID("_Dissolve_VerticalGradient");
+
+    /// <summary>The SIGNATURE that identifies a card-FX material without naming a shader or an asset:
+    /// <c>_GreyOut</c> AND <c>_PosAndBounds</c> together, the same pair — for the same reason — that
+    /// <see cref="Cards.CardHalfTone"/> uses. A shader name is a string a game patch can change; a
+    /// property pair is what the code actually reads. <c>_PosAndBounds</c> is READ here (as the refusal
+    /// gate) and NEVER written.</summary>
+    private static readonly int PosAndBoundsId = Shader.PropertyToID("_PosAndBounds");
+
+    /// <summary>One-shot latches: the first face that takes the look, and the first face refused by the
+    /// bounds gate. Never per card, never per frame.</summary>
+    private static bool s_spentLookLogged;
+    private static bool s_spentBoundsRefused;
+
+    /// <summary>
+    /// REBUILD THE OWNER'S "already used" DECORATION ON A CLONE WE OWN OUTRIGHT.
+    ///
+    /// <para>THE DEFECT. A spent item is ghosted grey on its owner's board — <c>Cards.ItemsPile</c>
+    /// hosts a LIVE <c>ItemCardUI</c> and calls <c>UpdateState(item.SlotState, force: true)</c>
+    /// (ItemsPile.cs:5086) which reaches <c>ItemCardEffects.GhostOutOnTimeline</c> — and it was fresh on
+    /// every peer's, because this class strips the component that plays it. Under the 1:1 ruling a peer
+    /// must see what the owner sees, DISPLAYS included, so the look is owed. There is no wire debt: the
+    /// item model that manufactures the face carries <c>SlotState</c> on every client already
+    /// (<see cref="RemoteItemCardSource"/> reads it off the same host-replicated list
+    /// <c>RemotePileFronts.TryResolveItemSpentFlags</c> walks).</para>
+    ///
+    /// <para>WHY THE OBVIOUS FIX — call the game's own <c>UpdateState</c> on the borrowed widget — IS
+    /// DEAD, three times over. DO NOT RE-ATTEMPT IT. (1) <c>RemoteItemCardSource.TryPooledClone</c>
+    /// hands the widget back through <c>ObjectPool.RecycleCard</c> in a <c>finally</c>;
+    /// <c>ObjectPool.cs:560</c> calls <c>OnReturnedToPool()</c>, which is
+    /// <c>cardEffects.RestoreCard()</c> (ItemCardUI.cs:363), which re-zeroes
+    /// <c>_GreyOut/_Flow/_Dissolve/_Burn</c> on <c>imgComp[i].material</c> — the very material objects
+    /// <c>Instantiate</c> handed the clone BY REFERENCE. The look would be undone synchronously before
+    /// the clone drew a single frame. (2) The borrow is <c>activate: false</c> under an inactive
+    /// holder, so <c>ItemCardEffects.Initialize</c> — the method that mints the per-Image
+    /// <c>new Material(...)</c> — has never run on it: <c>imgCount</c> is 0 and the image loop is a
+    /// no-op, but <c>GhostOutOnTimeline</c> still does <c>fgFx.gameObject.SetActive(true)</c> and eight
+    /// <c>fgFx.material.Set*</c> calls on the SHARED AUTHORED MATERIAL of a widget going straight back
+    /// into the game's own pool. That is presentation code writing game state and this project forbids
+    /// it outright. (3) Even if it stuck, the clone's Images point at the POOLED widget's materials, so
+    /// the next borrow of that pool entry would repaint a peer's card underneath it.</para>
+    ///
+    /// <para>SO THE LOOK IS REBUILT, NOT REPLAYED. Every write here lands on a <c>new Material</c> this
+    /// overlay minted and this overlay destroys (<see cref="_ownedMaterials"/>), assigned to the CLONE's
+    /// own Images. Nothing the game owns is read-modify-written, no restore contract is created, and
+    /// there is no shared asset anywhere in the chain — which answers all three blockers at once. The
+    /// numbers are the game's own settled end-states, copied verbatim from the non-animated arms of
+    /// <c>GhostOutOnTimeline</c> (ItemCardEffects.cs:464-486) and <c>BurnCardTimeline</c>
+    /// (:356-372); the mirror plays no animation, because a peer's card can appear on our board long
+    /// after the owner's timeline ran and a fade starting THEN would be a picture the owner never had.</para>
+    ///
+    /// <para>THE <c>_PosAndBounds</c> HAZARD, AND WHY IT DOES NOT REACH THIS WRITE. The strip above
+    /// exists for the "card renders DEEP BLACK" incident, so a write that turns the FX terms ON has to
+    /// answer it. It is an ABILITY-card mechanism: <c>CardEffects.Initialize</c> SWAPS every image to
+    /// <c>new Material(_lowMaterial)</c> under <c>_useLowEffect</c> (CardEffects.cs:318-322) and then
+    /// writes a canvas-space <c>_PosAndBounds</c> into it. <c>ItemCardEffects.Initialize</c> swaps
+    /// NOTHING (ItemCardEffects.cs:159-174): it instances the Image's ALREADY-AUTHORED material and
+    /// writes the same property into the copy — so an item card draws through its FX material with or
+    /// without that component, which is why the peer's item face renders correctly TODAY at
+    /// <c>_GreyOut = _Flow = _Dissolve = _Burn = 0</c>. And the terms have been proven nonzero on a
+    /// world-space canvas already: <c>ItemsPile.TryHostRealCard</c> runs the full ghost on a
+    /// <c>RenderMode.WorldSpace</c> canvas where <c>Initialize</c> wrote <c>_PosAndBounds</c> from a VR
+    /// WORLD position in METRES against a PIXEL rect — the most mis-scaled value this material will ever
+    /// be handed — and the result is the ghost the user is looking at on his own board and asked to have
+    /// back (INVARIANTS-Cards.md, "the whole 'verbraucht' look … must stay live"). Nonzero FX plus a
+    /// meaningless <c>_PosAndBounds</c> is a SHIPPED, ACCEPTED configuration, not a guess.</para>
+    ///
+    /// <para>WHAT IS STILL GUARDED ANYWAY. We do not WRITE <c>_PosAndBounds</c> — reconstructing it is
+    /// exactly the guess the strip exists to avoid, and <see cref="Cards.CardHalfTone"/> already carries
+    /// that standing ruling. We READ it instead: a card-FX material whose extents are still (0, 0) would
+    /// hand the shader a degenerate footprint the instant the terms stop being 0, so such a face is
+    /// REFUSED whole and stays fresh, once-logged. Missing grey is a small divergence; a black card on a
+    /// peer's board is not.</para>
+    ///
+    /// <para>TWO PARTS OF THE GAME'S LOOK ARE DELIBERATELY NOT REPRODUCED. The <c>fx_Smoke</c> emitter
+    /// both timelines switch on is the diorama-fogging particle system <c>ItemsPile</c> only dares keep
+    /// because it CLAMPS it (<c>ClampCardEffectSmoke</c>) — a fan slab has no such clamp, and fog over a
+    /// peer's board is a worse divergence than the one being fixed. The <c>fgFx</c> overlay quad is a
+    /// second, unmeasured material driven by nine more properties and drawn over the WHOLE card; if any
+    /// of that lands wrong the failure is a full-card artefact, which is the one class of failure this
+    /// method is written to avoid. Cost: the ghost's faint blue-white frame sheen. The dominant term,
+    /// the <c>_GreyOut</c> desaturation, and the greyed card text are both here.</para>
+    /// </summary>
+    private void ApplySpentLook(in ItemFxRig rig, SpentLook look)
+    {
+        if (look == SpentLook.None || rig.Images == null)
+            return;
+        try
+        {
+            // MEASURE FIRST, ALL OR NOTHING. A face with three of its eight images ghosted reads as a
+            // rendering fault, not as a used card, so the bounds gate decides for the whole face.
+            int qualifying = 0;
+            for (int i = 0; i < rig.Images.Length; i++)
+            {
+                Material? mat = MaterialOf(rig.Images[i]);
+                if (mat == null || !IsCardFxMaterial(mat))
+                    continue;   // not an FX image — the game's own write is inert on it too
+                Vector4 bounds = mat.GetVector(PosAndBoundsId);
+                if (bounds.z == 0f && bounds.w == 0f)
+                {
+                    ReportBoundsRefusal(look);
+                    return;
+                }
+                qualifying++;
+            }
+            if (qualifying == 0)
+                return;
+
+            for (int i = 0; i < rig.Images.Length; i++)
+            {
+                UnityEngine.UI.Image image = rig.Images[i];
+                Material? mat = MaterialOf(image);
+                if (mat == null || !IsCardFxMaterial(mat))
+                    continue;
+                Material copy;
+                try
+                {
+                    copy = new Material(mat) { name = mat.name + " (VR-used)" };
+                }
+                catch (System.Exception)
+                {
+                    continue;   // one image short of the look is still a readable card
+                }
+                WriteUsedTerms(copy, look);
+                image.material = copy;
+                _ownedMaterials.Add(copy);
+            }
+
+            // The card TEXT is not a material write at all — the game just recolours it, and the two
+            // timelines disagree on the colour: the ghost lerps all the way to WHITE and kills the
+            // vertex gradient (ItemCardEffects.cs:483-484), the burn goes to mid grey and leaves the
+            // gradient alone (:370).
+            if (rig.Texts != null)
+            {
+                Color used = look == SpentLook.Spent ? Color.white : new Color(0.5f, 0.5f, 0.5f, 1f);
+                for (int i = 0; i < rig.Texts.Length; i++)
+                {
+                    TMPro.TextMeshProUGUI text = rig.Texts[i];
+                    if (text == null)
+                        continue;
+                    text.color = used;
+                    if (look == SpentLook.Spent)
+                        text.enableVertexGradient = false;
+                }
+            }
+
+            ReportLookOnce(look, qualifying);
+        }
+        catch (System.Exception ex)
+        {
+            // NEVER throw from this path: the front is already up and correct without the decoration.
+            VRLog.Debug("Net", $"Remote ITEM used-look skipped ({ex.Message}) — the peer's card shows " +
+                               "the FRESH face.");
+        }
+    }
+
+    /// <summary>The settled end-state of one timeline on one card image. Every value is read off the
+    /// game's own non-animated arm; a property the material does not expose is skipped rather than
+    /// logged, because the low-effect material variant genuinely does not carry all of them.</summary>
+    private static void WriteUsedTerms(Material material, SpentLook look)
+    {
+        bool ghost = look == SpentLook.Spent;
+        SetFloatIfPresent(material, GreyOutId, 1f);
+        SetFloatIfPresent(material, FlowId, 1f);
+        SetFloatIfPresent(material, DissolveId, 0.646f);          // mc_Dissolve, identical in both
+        SetFloatIfPresent(material, BurnId, ghost ? 0.7f : 0.691f);
+        SetFloatIfPresent(material, FlowOffsetId, 0.03f);         // mc_Flow_Offset, identical in both
+        SetFloatIfPresent(material, FlowSpeedId, ghost ? 0.2f : 0.4f);
+        SetFloatIfPresent(material, DissolveVerticalGradientId, 0.2f);
+        if (material.HasProperty(BurnColourTintId))
+        {
+            material.SetColor(BurnColourTintId, ghost
+                ? new Color(0.24313726f, 24f / 85f, 29f / 85f, 0.5f)
+                : new Color(0.36862746f, 0.14509805f, 0.07450981f, 0.601f));
+        }
+        if (material.HasProperty(AnimNoiseMaskId))
+        {
+            float tile = ghost ? 10f : 40f;   // mc_AnimNoise_Mask_tile
+            material.SetTextureScale(AnimNoiseMaskId, new Vector2(tile, tile));
+        }
+    }
+
+    private static void SetFloatIfPresent(Material material, int id, float value)
+    {
+        if (material.HasProperty(id))
+            material.SetFloat(id, value);
+    }
+
+    /// <summary>Unity-null-aware read of an Image's effective material (a Graphic with none set
+    /// answers with the shared built-in UI material, which the signature test then rejects).</summary>
+    private static Material? MaterialOf(UnityEngine.UI.Image? image)
+    {
+        try
+        {
+            return image != null ? image.material : null;
+        }
+        catch (System.Exception)
+        {
+            return null;
+        }
+    }
+
+    private static bool IsCardFxMaterial(Material material)
+    {
+        try
+        {
+            return material.HasProperty(GreyOutId) && material.HasProperty(PosAndBoundsId);
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
+    }
+
+    private static void ReportLookOnce(SpentLook look, int images)
+    {
+        if (s_spentLookLogged)
+            return;
+        s_spentLookLogged = true;
+        VRLog.Info("Net", $"Remote ITEM used-look = {look} on {images} card image(s) — a peer's " +
+                          "already-used item now carries the same grey-out/dissolve/burn terms and the " +
+                          "same greyed card text the OWNER's board shows, rebuilt from the game's own " +
+                          "settled end-state onto materials this overlay minted and destroys with the " +
+                          "clone. The game's ItemCardEffects is still stripped (it cannot run on an " +
+                          "inactive detached clone, and running it would write the game's pooled " +
+                          "widget); the smoke emitter and the fgFx overlay quad are deliberately not " +
+                          "reproduced. Zero wire traffic: the state comes from CItem.SlotState on the " +
+                          "host-replicated inventory every client already holds.");
+    }
+
+    private static void ReportBoundsRefusal(SpentLook look)
+    {
+        if (s_spentBoundsRefused)
+            return;
+        s_spentBoundsRefused = true;
+        VRLog.Warn("Net", $"Remote ITEM used-look ({look}) REFUSED: a card-FX material on this face " +
+                          "still carries _PosAndBounds extents of 0x0, so switching its FX terms on " +
+                          "would hand the shader a degenerate card footprint — the 'card renders DEEP " +
+                          "BLACK' failure mode. The peer's card stays FRESH, which is a missing grey " +
+                          "tint and nothing worse. If this line appears, the item card's authored " +
+                          "material has changed: read the extents on ItemsPile's own hosted card (the " +
+                          "same material, where ItemCardEffects.Initialize writes them) before " +
+                          "loosening the gate.");
     }
 
     /// <summary>Best-effort: re-hand the source widget's runtime <c>_skin</c> to the clone so its
@@ -470,6 +810,15 @@ internal sealed class RemoteCardArt
             Object.Destroy(_clone);
             _clone = null;
         }
+        // …and the materials minted for it (see ApplySpentLook). Destroying a GameObject does NOT
+        // destroy the materials its Images point at, and these have no other owner — the clone they
+        // were assigned to is on its way out in the same frame.
+        for (int i = 0; i < _ownedMaterials.Count; i++)
+        {
+            if (_ownedMaterials[i] != null)
+                Object.Destroy(_ownedMaterials[i]);
+        }
+        _ownedMaterials.Clear();
         _artWatch.Clear(); // the watched Images belong to the clone that just died
         _shownSourceId = int.MinValue;
     }

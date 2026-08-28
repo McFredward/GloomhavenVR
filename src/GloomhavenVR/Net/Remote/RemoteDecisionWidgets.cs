@@ -220,13 +220,32 @@ internal sealed class RemoteDecisionWidgets
     public float RowHeight => Showing ? _mirror.FittedSize.y * _dockScale : 0f;
 
     /// <summary>
+    /// THE OWNER's engraved-label FILL — their <c>[ButtonColors] LabelR/G/B</c> off record 28
+    /// (<see cref="NetProtocol.TuneLabelColor"/>, id 48), handed down at construction by
+    /// <see cref="RemoteBoardFurniture"/> from the very field its own mirrored KEYCAPS are lettered
+    /// out of, already clamped to 0..1 and opaque.
+    ///
+    /// <para>WHY IT IS HELD AND NOT ASKED FOR PER PAINT. It is the same shape the cap palette
+    /// beside it uses: a board is rebuilt when its owner's tuning revision moves, so a value taken
+    /// once at construction cannot go stale, and <see cref="Apply"/> runs on the content cadence
+    /// AND on the 90 Hz pointer drive — a per-paint wire read would be a struct copy in both.</para>
+    ///
+    /// <para>It replaces a <c>NativeButtonSkin.LabelColor</c> read that was THIS VIEWER's dial: see
+    /// <c>WorldUI.NativeButtonSkin.LabelOwner</c> for the defect and why the enum exists.</para>
+    /// </summary>
+    private readonly Color _ownerLabelColor;
+
+    /// <summary>
     /// Build the mirror under <paramref name="decisionRoot"/> — the drawer transform whose origin is
     /// the widget-block TOP EDGE the owner's own dock anchors at. Content grows DOWN from it, into
     /// the same width × height envelope the owner's dock fits their real row into.
+    /// <paramref name="ownerLabelColor"/> is the BOARD OWNER's label fill (see
+    /// <see cref="_ownerLabelColor"/>) — never this client's own.
     /// </summary>
-    public RemoteDecisionWidgets(Transform decisionRoot, float dockScale)
+    public RemoteDecisionWidgets(Transform decisionRoot, float dockScale, Color ownerLabelColor)
     {
         _dockScale = dockScale > 0f ? dockScale : 1f;
+        _ownerLabelColor = ownerLabelColor;
 
         // THE SCALE NODE. The owner's dock states its budget in MOUNT-LOCAL units and lets the
         // mount's own lossyScale (board root x [Cards] DecisionScale) carry it into world metres —
@@ -757,9 +776,15 @@ internal sealed class RemoteDecisionWidgets
     ///   <item>the damage NUMBER and the lethal / shielded / mandatory picture — record 29 flags,
     ///     because the receiver's own panel holds a stale copy (ShowOtherPlayer never repaints the
     ///     row, and the amount moves live as the owner toggles shields).</item>
-    ///   <item>the ANTIQUE TINT and the parchment label colour — the LOCAL dock's own constants
-    ///     (<c>DecisionDockSurface.AntiqueTint</c>, <c>NativeButtonSkin.LabelColor</c>), so the
-    ///     mirrored row wears the same VR restyle the owner's docked row wears.</item>
+    ///   <item>the ANTIQUE TINT — the LOCAL dock's own constant
+    ///     (<c>DecisionDockSurface.AntiqueTint</c>), so the mirrored row wears the same VR restyle
+    ///     the owner's docked row wears. It is a fixed part of that restyle and not a dial, so
+    ///     there is nothing about it that could differ between two clients.</item>
+    ///   <item>the parchment LABEL COLOUR — record 28 id 48, the OWNER's
+    ///     <c>[ButtonColors] LabelR/G/B</c> (<see cref="_ownerLabelColor"/>). It used to be the
+    ///     local <c>NativeButtonSkin.LabelColor</c> in this same list, which was the one line here
+    ///     that read a VIEWER dial to decide what a PEER's board looks like — see
+    ///     <c>WorldUI.NativeButtonSkin.LabelOwner</c>.</item>
     /// </list></para>
     /// </summary>
     private void Apply(RemoteAvatar owner, byte[] roles)
@@ -831,10 +856,15 @@ internal sealed class RemoteDecisionWidgets
                 shown++;
         }
 
-        // 2. The dock's parchment labels (AdjustDockedRow's own restyle, on the clone).
-        Color gold = WorldUI.NativeButtonSkin.HasFont
-            ? WorldUI.NativeButtonSkin.LabelColor
-            : new Color(0.91f, 0.82f, 0.62f);
+        // 2. The dock's parchment labels (AdjustDockedRow's own restyle, on the clone) — in the
+        //    OWNER's [ButtonColors] fill, not this viewer's. This line used to be
+        //    `HasFont ? NativeButtonSkin.LabelColor : new Color(0.91f, 0.82f, 0.62f)`, and both
+        //    halves of it were wrong on a mirror: the first read the VIEWER's dial (so a viewer
+        //    who set their labels red saw red lettering on every team-mate's decision row while
+        //    the team-mate saw parchment), and the second stood in a duller gold than the owner's
+        //    own dock, which has no HasFont gate at all. See WorldUI.NativeButtonSkin.LabelOwner.
+        Color gold = WorldUI.NativeButtonSkin.LabelColorFor(
+            WorldUI.NativeButtonSkin.LabelOwner.TheBoardOwnersDial, _ownerLabelColor);
         for (int i = 0; i < _labels.Length; i++)
         {
             TMP_Text t = _labels[i];

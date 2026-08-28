@@ -101,10 +101,92 @@ internal static class NativeButtonSkin
     /// fill. The antique look is kept — it is a paler parchment, not a cold white.
     /// USER DEBUG OPTION (2026-07 — "give me the TEXT COLORS as a debug option"): now the live
     /// <see cref="ButtonTuning.LabelColor"/> bind ([ButtonColors] LabelR/G/B), whose DEFAULT is
-    /// this exact #FBF3E0, so nothing changes until the user tunes it. Every consumer (cluster
+    /// this exact #FBF3E0, so nothing changes until the user tunes it. Every LOCAL consumer (cluster
     /// caps, board keycaps, docked native captions) reads this property, so a stepper edit
-    /// re-colours them all (keycaps on the ButtonTuning.Version rebuild, the cluster per-tick).</summary>
-    internal static Color LabelColor => ButtonTuning.LabelColor;
+    /// re-colours them all (keycaps on the ButtonTuning.Version rebuild, the cluster per-tick).
+    /// A MIRRORED board must NOT read it — see <see cref="LabelOwner"/> and
+    /// <see cref="LabelColorFor"/>, which is this same value with the question spelled out.</summary>
+    internal static Color LabelColor => LabelColorFor(LabelOwner.ThisViewersOwnDial);
+
+    /// <summary>
+    /// WHOSE label colour a call site is asking for — the question <see cref="LabelColor"/> on its
+    /// own cannot express, and the one the mirrored DECISION row answered wrongly for its whole
+    /// shipped life.
+    ///
+    /// <para>THE DEFECT, STATED SO IT CANNOT COME BACK. <see cref="LabelColor"/> is THIS client's
+    /// <c>[ButtonColors] LabelR/G/B</c>. On the owner's own dock
+    /// (<c>WorldUI.Surfaces.DecisionDockSurface.AdjustDockedRow</c>) that is correct BY DEFINITION —
+    /// this client IS the owner there. On a MIRRORED board it is not, and three sites read it
+    /// anyway: <c>Net.RemoteDecisionWidgets.Apply</c> (the cloned game widgets),
+    /// <c>Net.RemoteBoardFurniture.SetDecisionLines</c> and its <c>BaseLabelGold</c> (the mod-drawn
+    /// plate fallback). A player who set their labels to red therefore saw red lettering on every
+    /// team-mate's decision buttons while each of those team-mates saw parchment on their own — the
+    /// 1:1 ruling broken in the direction nobody looks for: not "the owner's tuning is missing" but
+    /// "the VIEWER's tuning has leaked onto somebody else's board".</para>
+    ///
+    /// <para>IT IS THE SAME DEFECT THE KEYCAPS ALREADY CLOSED, one screen away — see the second
+    /// <see cref="StyleEngravedLabel(TMP_Text, Color, float, bool, bool)"/> overload, whose note
+    /// describes this exact leak for the engraved KEYLINE while the FILL on the decision row went
+    /// on reading the viewer's dial. Nothing was ever missing but a way for a call site to SAY
+    /// which of the two colours it means: the owner's has been on the wire the whole time
+    /// (<c>Net.NetProtocol.TuneLabelColor</c>, id 48 → <c>Net.RemoteBoardTuning.LabelColor</c>) and
+    /// the mirrored keycaps beside these plates were already lettered out of it.</para>
+    ///
+    /// <para>An ENUM and not a bool, for the reason <c>Cards.CardDustFx.Permission</c> records: the
+    /// two are different QUESTIONS with different owners, and a boolean at a call site reads as
+    /// neither of them.</para>
+    /// </summary>
+    internal enum LabelOwner
+    {
+        /// <summary>
+        /// "What do MY OWN buttons letter in?" — this client's <c>[ButtonColors] LabelR/G/B</c> is
+        /// the whole answer, and this class asks it. Every local face means this: the cluster caps,
+        /// the tray caps, the map rail, the options rows, and the owner's own docked decision row.
+        ///
+        /// <para>It is the ZERO member deliberately, so <c>default(LabelOwner)</c> — and any future
+        /// call site with no peer colour to hand — resolves to the LOCAL answer. A label can then
+        /// only ever come out in the colours of the board it is standing on: an answer that is
+        /// right on every local surface and merely stale on a mirror, where the opposite default
+        /// would letter a LOCAL button out of a peer's palette, which is right nowhere.</para>
+        /// </summary>
+        ThisViewersOwnDial = 0,
+
+        /// <summary>
+        /// "What does the OWNER of the board this label is drawn on letter in?" — already answered
+        /// by the caller, off that owner's record-28 <c>LabelColor</c>, before it got here. This
+        /// client's own dial is not consulted and MUST NOT be: it answers a question about this
+        /// client's OWN buttons. The only callers are the remote mirrors.
+        /// </summary>
+        TheBoardOwnersDial,
+    }
+
+    /// <summary>
+    /// <see cref="LabelColor"/> with the CALL SITE naming whose dial it means — the sibling the
+    /// mirror needed (see <see cref="LabelOwner"/>). <paramref name="ownersLabelColor"/> is that
+    /// board owner's own <c>[ButtonColors] LabelR/G/B</c> off the wire; it is read ONLY for
+    /// <see cref="LabelOwner.TheBoardOwnersDial"/>, and its ALPHA is discarded exactly as
+    /// <c>ButtonTuning.LabelColor</c>'s is hardwired opaque — a label's alpha belongs to the label
+    /// (the mirrors fade their own), never to the palette. Naming that member and handing it no
+    /// colour yields a BLACK label rather than a quietly wrong one: a caller that only half
+    /// answered the question failing loudly is the whole point of making it answer.
+    ///
+    /// <para>THERE IS NO <c>HasFont</c> LADDER HERE, AND THAT IS A SECOND FIX RATHER THAN AN
+    /// OMISSION. Each of the three mirror sites fell back to a hardcoded
+    /// <c>new Color(0.91f, 0.82f, 0.62f)</c> for as long as <see cref="HasFont"/> was false, while
+    /// the owner's own dock has no such gate and letters in <see cref="LabelColor"/> (shipped
+    /// 0.984/0.953/0.878) from its first frame. So until this client had harvested a game button,
+    /// every mirrored plate stood in a duller gold than the plate it mirrors — transient, once per
+    /// session, and wrong for every pair of players who never touched the dial. The colour never
+    /// depended on sampling at all: it is a config bind on one side and a wire field on the other,
+    /// and both are known before anything is harvested. (The KEYCAPS' own
+    /// <c>HasFont ? Fill : white</c> ladder in <c>Net.RemoteBoardFurniture.InertCap.BuildLabel</c>
+    /// is a different rule and stays: it reproduces the ladder the LOCAL cap runs, so the two
+    /// boards agree in the un-skinned case as well as the skinned one.)</para>
+    /// </summary>
+    internal static Color LabelColorFor(LabelOwner whose, Color ownersLabelColor = default) =>
+        whose == LabelOwner.TheBoardOwnersDial
+            ? new Color(ownersLabelColor.r, ownersLabelColor.g, ownersLabelColor.b, 1f)
+            : ButtonTuning.LabelColor;
 
     /// <summary>Engraved-label outline colour — live <see cref="ButtonTuning.LabelOutlineColor"/>
     /// bind ([ButtonColors] LabelOutlineR/G/B); default dark umber, fully opaque.</summary>

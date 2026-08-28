@@ -240,7 +240,14 @@ internal static partial class ModalFallback
     private const float LevelMessageDistanceMeters = 0.95f;
 
     /// <summary>Extra shrink on the host scale (a full-screen-wide window subtends ~60° at 1.2 m).</summary>
-    private const float WindowScaleFactor = 0.7f;
+    // INTERNAL SINCE 2026-08-28 so it can be DERIVED rather than copied. RemoteMapRoom's
+    // pre-hover placard fallback is this cap times [WorldUI] WindowLegibility, and it had been
+    // TYPED as their product: 0.875f = 0.7 x 1.25, the legibility default of a PREVIOUS build.
+    // The shipped dial is 1.5, so every peer's first placard was drawn at 83 % of the size the
+    // same icon gives the local player. A product of two defaults is exactly the case
+    // check-remote-defaults.py declares out of scope, so nothing could have caught it — the only
+    // durable fix is that neither factor is ever re-typed as a number anywhere else.
+    internal const float WindowScaleFactor = 0.7f;
 
     /// <summary>
     /// Item 1 (size): board-relative DEFAULT width for a floated menu, real meters — the same

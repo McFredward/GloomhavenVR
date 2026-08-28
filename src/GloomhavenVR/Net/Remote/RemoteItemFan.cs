@@ -1101,9 +1101,19 @@ internal sealed class RemoteItemFan
     /// <remarks>Instance-scoped since 2026-08-13: the fit is against the slab's REAL height
     /// (<see cref="_cardH"/>, measured from the item footprint), not the old constant guess — the
     /// local twin fits the chip's measured face for exactly the same reason.</remarks>
-    private float RecessFitScale() =>
-        Mathf.Min(RemoteBoardFurniture.ItemUseInnerWidth / ChipBoxW,
-                  RemoteBoardFurniture.ItemUseInnerHeight / _cardH) * UseSlotFillFraction;
+    private float RecessFitScale()
+    {
+        // THE PLATE IS THE OWNER'S, NOT THE SHIPPED DEFAULT. This used to read
+        // RemoteBoardFurniture.ItemUseInnerWidth/Height, a const pair frozen at Defaults.CardWidth,
+        // while the berth those numbers describe is laid out from the owner's own [Cards] CardWidth
+        // (record 28 id 70) — so on a board whose owner had retuned the dial, the card was fitted
+        // to a berth of a different size than the one drawn under it. _cardWidth is that same wire
+        // value, already held and refreshed here by SyncTuning, so the two derivations are one.
+        float innerW = _cardWidth * RemoteBoardFurniture.UseSlotInnerFactor;
+        float innerH = _cardWidth * RemoteBoardFurniture.ItemCardAspect
+                       * RemoteBoardFurniture.UseSlotInnerFactor;
+        return Mathf.Min(innerW / ChipBoxW, innerH / _cardH) * UseSlotFillFraction;
+    }
 
     /// <summary>
     /// Per-frame service of the slab left LYING IN the mirrored recess after the owner's arc folded

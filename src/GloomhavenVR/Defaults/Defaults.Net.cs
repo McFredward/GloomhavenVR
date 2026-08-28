@@ -49,6 +49,7 @@ internal static partial class Defaults
     // (the wall's is its room's WHOLE floor grid, the board's is the IN-VIEW play-field samples
     // only), so 0.35 on one is not the same physical situation as 0.35 on the other and copying
     // them across would be a retune wearing an alignment's clothes.
-    internal const float PeerBoardExitDwellMoved = 0.5f;                               // => [PeerBoardFade] ExitDwellMovedSeconds
-    internal const float PeerBoardExitDwellStationary = 3.6f;                          // => [PeerBoardFade] ExitDwellStationarySeconds
+    internal const float PeerBoardExitDwellMoved = 0.5f;                               // => [PeerBoardFade] ExitDwellMovedSeconds  (pinned: cfg drop holds the pre-2026-08-28 pair; the DwellsMigrated312 one-shot moves it on the rig)
+    internal const float PeerBoardExitDwellStationary = 3.6f;                          // => [PeerBoardFade] ExitDwellStationarySeconds  (pinned: cfg drop holds the pre-2026-08-28 pair; the DwellsMigrated312 one-shot moves it on the rig)
+    internal const bool PeerBoardDwellsMigrated312 = false;                             // => [PeerBoardFade] DwellsMigrated312  (pinned: one-shot migration marker — a fresh install must start false)
 }

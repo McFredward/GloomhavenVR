@@ -58,9 +58,64 @@ internal static class RemoteItemCardSource
     /// item, and the two must not dedup into one face when the fan re-orders. <c>CItem</c> is a plain
     /// model object whose <c>GetHashCode</c> the game is free to override, so the key is taken through
     /// <c>RuntimeHelpers.GetHashCode</c> — the identity hash, which no override can move.</para>
+    ///
+    /// <para>…TIMES THE USED-STATE, because this key is also the REBUILD TRIGGER. Spending an item does
+    /// not change which item it is, so on identity alone the face already up would keep the FRESH look
+    /// for as long as the peer kept the item equipped — the decoration would be right only for cards
+    /// that happened to arrive already spent. Folding the state in makes a state flip a key change,
+    /// which is exactly the event <see cref="RemoteCardArt.ShowsKey"/> already exists to detect; the
+    /// rebuild then lands on <see cref="RemotePileFronts"/>'s normal content cadence. A FRESH card keys
+    /// bit-for-bit as it always did, so nothing that was settled before this existed rebuilds now.</para>
     /// </summary>
-    internal static int KeyFor(CItem item) =>
-        System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item);
+    internal static int KeyFor(CItem item)
+    {
+        int identity = System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(item);
+        int look = (int)LookOf(item);
+        if (look == 0)
+            return identity;
+        unchecked
+        {
+            // A fixed odd multiplier, so Spent and Consumed land far apart in the key space and a
+            // one-bit state cannot alias two different items onto one face.
+            return identity ^ (look * (int)0x9E3779B1u);
+        }
+    }
+
+    /// <summary>
+    /// WHICH "already used" decoration the OWNER's board is drawing over <paramref name="item"/> right
+    /// now — the mirror's half of <c>ItemCardUI.UpdateState</c> (ItemCardUI.cs:376-395), which maps the
+    /// same two slot states onto the same two <c>ItemCardEffects</c> timelines and treats every other
+    /// state as a fresh card.
+    ///
+    /// <para>ZERO WIRE, and read off the SAME object that manufactures the face. The item instance this
+    /// method is handed came out of <c>RemotePileFronts.Resolve</c>'s walk of the host-replicated
+    /// <c>CPlayerActor.Inventory.AllItems</c> — the identical list, in the identical order, that
+    /// <c>RemotePileFronts.TryResolveItemSpentFlags</c> walks for the fan's tapped ROTATION. So the
+    /// ghost and the tap are two readings of one model and cannot disagree about which chip is spent,
+    /// and no new wire field is owed for either. Never gated by <see cref="RevealGate"/> on its own: it
+    /// only ever runs on a face the caller has ALREADY decided may be shown.</para>
+    ///
+    /// <para>Guarded, because it is called from <see cref="KeyFor"/>, which sits OUTSIDE the try in
+    /// <see cref="ShowFace"/> — a throwing model read must cost the decoration, never the face.</para>
+    /// </summary>
+    private static RemoteCardArt.SpentLook LookOf(CItem? item)
+    {
+        try
+        {
+            if (item == null)
+                return RemoteCardArt.SpentLook.None;
+            return item.SlotState switch
+            {
+                CItem.EItemSlotState.Spent => RemoteCardArt.SpentLook.Spent,
+                CItem.EItemSlotState.Consumed => RemoteCardArt.SpentLook.Consumed,
+                _ => RemoteCardArt.SpentLook.None,
+            };
+        }
+        catch (System.Exception)
+        {
+            return RemoteCardArt.SpentLook.None;
+        }
+    }
 
     /// <summary>
     /// Show <paramref name="item"/>'s REAL card face on <paramref name="art"/>. Returns true iff a
@@ -108,10 +163,15 @@ internal static class RemoteItemCardSource
     ///     never render for a frame — the same "no face can leak ahead of the gate" construction the
     ///     ability borrow uses;
     ///   * <c>Show()</c>/<c>UpdateState()</c> are NOT called on the borrowed widget. Both exist to play
-    ///     the state FX through <c>ItemCardEffects</c>, which <see cref="RemoteCardArt"/> strips off
-    ///     the clone anyway (see its note) — and <c>Show()</c> would also activate a widget we require
-    ///     to stay dark. The clone runs its OWN <c>OnEnable → LoadBackground</c> once it activates,
-    ///     which is where the background art actually arrives.
+    ///     the state FX through <c>ItemCardEffects</c>, and on THIS widget they cannot: it has never
+    ///     been active, so that component's <c>Initialize</c> never minted its per-image materials and
+    ///     its writes would land on the game's SHARED authored material — a pool widget we are about to
+    ///     hand back. <c>Show()</c> would also activate a widget we require to stay dark. The "already
+    ///     used" look those calls exist for is NOT lost: it is rebuilt on the CLONE, from the game's own
+    ///     settled end-state, by <c>RemoteCardArt.ApplySpentLook</c> — read that method's doc before
+    ///     reconsidering this line, it records why every route through the borrowed widget is dead. The
+    ///     clone runs its OWN <c>OnEnable → LoadBackground</c> once it activates, which is where the
+    ///     background art actually arrives.
     /// The <c>item</c> field is re-planted ON THE CLONE while it is still inactive
     /// (<c>beforeActivate</c>): it is a plain managed reference that <c>Object.Instantiate</c> does not
     /// carry across, and <c>ItemCardUI.OnEnable → LoadBackground</c> dereferences <c>item.ID</c> the
@@ -159,7 +219,7 @@ internal static class RemoteItemCardSource
                 var cloneUi = clone.GetComponent<ItemCardUI>();
                 if (cloneUi != null)
                     cloneUi.item = captured;
-            });
+            }, spentLook: LookOf(item));
             if (shown)
                 ReportOnce(item);
             return shown;

@@ -66,9 +66,12 @@ namespace GloomhavenVR.Net;
 ///     be a DELIBERATELY-NOT note; under the 1:1 ruling a tuned owner's tooltip must read the same
 ///     size and sit at the same corner everywhere. Untuned players are unaffected by a byte.
 ///
-/// WHERE IT SITS: <see cref="RemoteBoardLayout.TooltipMount"/> -- the owner's own
-/// <c>PlayTray.TooltipAreaBase</c> (the board's authored top-left corner, already proud of the
-/// board face) plus the SHIPPED per-board offset.
+/// WHERE IT SITS: at the board's MEASURED top-left corner -- <see cref="Reseat"/> runs the owner's
+/// own <c>PlayTray.MeasureBoardLocalExtents</c> over this peer's board root and expresses the
+/// answer as a correction on <see cref="RemoteBoardLayout.TooltipMount"/> (the AUTHORED
+/// <c>PlayTray.TooltipAreaBase</c> corner, already proud of the board face, plus the owner's tuned
+/// per-board offset). The authored corner ALONE is the expression the owner-side fix replaced --
+/// see <see cref="Reseat"/> for what it was costing here.
 ///
 /// MIXED REALITY: the background is a GAME sprite on a GAME material, so it must never be
 /// re-tinted or alpha-forced the way the old mod plate was (<c>MrBacking.Opacify</c> writes into
@@ -122,6 +125,25 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     private static readonly Color FallbackTextInk = new(0.93f, 0.90f, 0.83f);
 
     private readonly Transform _root;
+
+    /// <summary>The peer's board root -- the subtree the area corner is MEASURED off, which is the
+    /// same subtree the owner measures (<c>WorldTooltips.TryGetBoardRoot</c> hands
+    /// <c>MeasureBoardLocalExtents</c> the tray ROOT). Kept as a field because the corner is
+    /// re-resolved every time the hint comes up, not once at build.</summary>
+    private readonly Transform _boardRoot;
+
+    /// <summary>The AUTHORED seat this mirror used to sit at outright:
+    /// <see cref="RemoteBoardLayout.TooltipMount"/> = <c>PlayTray.TooltipAreaBase</c> + the owner's
+    /// tuned <c>HoverHintOffset</c>. The measurement is applied as a CORRECTION on it, so the
+    /// owner's dial rides through untouched and an unmeasurable board degrades to exactly the old
+    /// seat.</summary>
+    private readonly Vector3 _authoredSeat;
+
+    /// <summary>The last correction <see cref="Reseat"/> applied (board-local metres) -- carried
+    /// only so the layout line can state how far the measured corner sits from the authored one.
+    /// No separate log token: it rides the line that was already there.</summary>
+    private Vector3 _seatCorrection;
+
     private readonly GameObject _hostGo;
     private readonly Canvas _canvas;
     private readonly RectTransform _hostRect;
@@ -151,7 +173,9 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         // Layout() lays the fitted box out in host-PIXEL space, growing up/right from it.
         _root = new GameObject("BoardTooltip").transform;
         _root.SetParent(boardRoot, worldPositionStays: false);
-        _root.localPosition = layout.TooltipMount;
+        _boardRoot = boardRoot;
+        _authoredSeat = layout.TooltipMount;
+        Reseat();   // nothing of ours renders yet, so this first walk cannot see itself
 
         // The host canvas: uGUI pixels in, the OWNER's board-local metres out. Everything below is
         // therefore expressed in the game's own pixel numbers (257 px wide, 16 px type, the
@@ -255,8 +279,15 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         if (text == _shown && !upgrade)
             return;
         _shown = text!;
+        // THE CORNER IS RE-MEASURED ON THE WAY UP ONLY, and the flag below is what enforces it --
+        // see Reseat's last paragraph: our own MR backing plate is a MeshRenderer parented under
+        // this root, so a walk taken while we are visible would feed our own box back into the
+        // corner that seats us.
+        bool comingUp = _root != null && !_root.gameObject.activeSelf;
+        if (comingUp)
+            Reseat();
         Layout(_shown, upgrade);
-        if (_root != null && !_root.gameObject.activeSelf)
+        if (comingUp && _root != null)
             _root.gameObject.SetActive(true);
     }
 
@@ -268,6 +299,61 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     }
 
     // ------------------------------------------------------------------ layout --
+
+    /// <summary>
+    /// Seat the area origin at the board's MEASURED top-left corner -- the owner's own rule
+    /// (<c>WorldTooltips.TryGetBoardAreaPose</c> -&gt; <c>PlayTray.MeasureBoardLocalExtents</c>),
+    /// run against this peer's clone of the same board.
+    ///
+    /// <para>WHY THE AUTHORED CONSTANT IS NOT ENOUGH. This mirror used to sit at
+    /// <c>PlayTray.TooltipAreaBase</c> = <c>(-BoardW x 0.5, BoardH x 0.5, -0.02)</c> outright --
+    /// the AUTHORED PLATE corner, and the exact expression the owner-side fix replaced after the
+    /// "still inside" report. What makes the difference today is NOT the bundled slab: the
+    /// re-authored Oak/Steel/Bronze meshes measure 0.640 x 0.320, i.e. the authored plate to five
+    /// decimals, so a walk over the prefab clone alone would return the constant and move nothing.
+    /// It is the board's own DOCKS, which hang off the board root on the owner's board and on this
+    /// mirror alike: the discard/burnt/item stacks reach x ~ 0.408 board-local (the number
+    /// <c>PlayTray.BuildMounts</c>' own collision note carries), and the active-card column is
+    /// docked further out again at <c>ActiveMountBase.x</c> = 0.502, its cards reaching x ~ 0.53.
+    /// The measurement is on |x|, so a dock on the RIGHT widens the LEFT corner too: 0.408 - 0.320
+    /// = 88 mm off the pile stacks, which are always drawn, and ~210 mm while the owner has a
+    /// persistent card in the active column. The owner's hint has been reading that corner since
+    /// the fix; a peer's was still reading the plate.</para>
+    ///
+    /// <para>SCOPE -- THE WHOLE BOARD ROOT, BECAUSE THAT IS THE OWNER'S SCOPE, not a wider one:
+    /// <c>WorldTooltips.TryGetBoardRoot</c> hands the measurement <c>PlayTray.Root</c>, whose
+    /// children include those same pile and active mounts (<c>PlayTray.BuildMounts</c> parents
+    /// both under the root and lets them host mod-owned stacks directly). The risk this scope has
+    /// to answer is the mirror's OWN furniture dragging the corner somewhere the owner has no
+    /// corner -- and after the rest plate went (<see cref="RemoteStatusReadouts"/>) the only piece
+    /// on a peer's board with no owner-side original is the "INI" badge, which spans x +-0.055 and
+    /// y 0.111..0.153: wholly inside the 0.32 x 0.16 authored plate, which is this measurement's
+    /// clamp FLOOR. It therefore cannot move either extent by construction, not by luck.</para>
+    ///
+    /// <para>WHEN -- on build, and on every transition from hidden to shown, never while the hint
+    /// is already up. That is correctness, not thrift: in MIXED REALITY this mirror's own
+    /// <c>MrBacking</c> plate is a <c>MeshRenderer</c> parented under our root, hence under the
+    /// BOARD root, so a walk taken while we are visible would measure our own box, push the corner
+    /// up, and walk the hint up the board on every re-layout until the sanity clamp caught it. The
+    /// owner's tooltip cannot do this -- their canvas is not parented to their board. Measuring
+    /// only while our root is inactive removes the loop by construction (the walk skips inactive
+    /// renderers), and a corner only moves when the board's DOCKS change, which no single hint
+    /// outlives.</para>
+    /// </summary>
+    private void Reseat()
+    {
+        if (_root == null || _boardRoot == null)
+            return;
+        Cards.PlayTray.MeasureBoardLocalExtents(_boardRoot, out float topLocalY, out float halfLocalX);
+        // Expressed as a correction ON the authored seat: the owner's tuned HoverHintOffset
+        // (record 28, id 8) is already inside _authoredSeat and must not be re-derived here, and a
+        // board with nothing measurable degrades to the authored constants -- which cancel to zero.
+        _seatCorrection = new Vector3(
+            Cards.PlayTray.BoardHalfWidthLocal - halfLocalX,
+            topLocalY - Cards.PlayTray.BoardTopLocalY,
+            0f);
+        _root.localPosition = _authoredSeat + _seatCorrection;
+    }
 
     /// <summary>
     /// CONTENT-FITTED layout, done entirely in the GAME's own uGUI pixels: measure the text at the
@@ -307,7 +393,12 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
                           $"(art={GameSkin.Describe()}, wrap {wrapPx:F0} px, font {_label.fontSize:F0} px, " +
                           $"pad {pad.x:F0}/{pad.w:F0}/{pad.z:F0}/{pad.y:F0}) — content-fitted in the " +
                           "GAME's own pixels at the owner's metre-per-pixel, bottom-left " +
-                          $"{MarginY:F3} m above the area origin at board-local {_root.localPosition:F3}.");
+                          $"{MarginY:F3} m above the area origin at board-local {_root.localPosition:F3} " +
+                          $"= the authored plate corner {_authoredSeat:F3} corrected by " +
+                          $"({_seatCorrection.x * 1000f:F0}, {_seatCorrection.y * 1000f:F0}) mm from " +
+                          "the board's MEASURED extents (PlayTray.MeasureBoardLocalExtents, the " +
+                          "owner's own rule — zero here means the docks reach no further than the " +
+                          "authored plate).");
     }
 
     /// <summary>Copy the sampled game presentation onto our frame + label (idempotent).</summary>

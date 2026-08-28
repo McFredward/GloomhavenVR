@@ -7,11 +7,11 @@ using UnityEngine;
 namespace GloomhavenVR.Net;
 
 // =================================================================================================
-//  Round number / initiative / rest — GLOBAL + PER-ACTOR MODEL
+//  Round number / initiative — GLOBAL + PER-ACTOR MODEL
 // =================================================================================================
 
 /// <summary>
-/// The three small readouts on a peer's board frame:
+/// The two small readouts on a peer's board frame:
 ///
 /// ROUND (GLOBAL) — "Runde N" on the top-right, the mirror of the local board's own round readout
 /// (<c>PlayTray.BuildRoundReadout</c>) reading the SAME state through
@@ -26,27 +26,35 @@ namespace GloomhavenVR.Net;
 /// So this shows "?" in exactly the frames vanilla shows "?", and the real number in exactly the
 /// frames vanilla already shows it on the shared initiative track. No new information exists.
 ///
-/// REST (PER-ACTOR MODEL, split gate) — <c>CCharacterClass.HasShortRested</c> /
-/// <c>HasLongRested</c> are PAST-TENSE facts about a rest that already resolved in front of
-/// everybody, so they are shown unconditionally. <c>CCharacterClass.LongRest</c> is the PENDING
-/// long-rest SELECTION and is therefore secret during the selection phase — vanilla gates its own
-/// display of it on the same condition (<c>InitiativeTrackActorAvatar</c>: the long-rest branch is
-/// inside the <c>flag</c> = not-hidden test), so this one goes through
-/// <see cref="RevealGate.ShowRoundCardFronts"/> as well.
+/// REST — THE PLATE IS GONE, AND IT MAY NOT COME BACK. This class used to draw a third readout:
+/// a 0.19 x 0.036 m plate at the board's bottom-left carrying a bold "SHORT REST" / "LONG REST",
+/// fed by <c>CCharacterClass.HasShortRested</c> / <c>HasLongRested</c> (past-tense facts, shown
+/// unconditionally) and by the pending <c>LongRest</c> SELECTION behind
+/// <see cref="RevealGate.ShowRoundCardFronts"/>. The GATING was sound. The WIDGET was not: THE
+/// OWNER HAS NO SUCH PLATE. Grepping those three members across <c>Cards/</c> and <c>WorldUI/</c>
+/// finds no owner-side readout at all, because the local board states a rest through its rest DISC
+/// CAPS — and this mirror already reproduces their four states off the synced cap byte
+/// (<c>RemoteBoardFurniture.ApplyCapStates</c>), so the information was never missing here either.
+/// It was therefore a widget every peer could see and the owner could not, which is exactly what
+/// <c>RemoteBoardFurniture.BuildHalfDivider</c> was deleted for, and it goes the same way: no wire
+/// field was owed and none could have helped, because there is no owner-side state to gate it on.
+/// Deleted rather than gated. Zero wire either way.
+///
+/// The "INI" badge below survives the same question only because it is a STAND-IN for a widget the
+/// owner DOES have — their docked initiative track — and takes itself off the board the moment that
+/// track is really being mirrored (<see cref="SetShownWhileTrackFallback"/>). A rest plate had no
+/// such counterpart to stand in for.
 /// </summary>
 /// <remarks>CLASSIFICATION: MIXED (GLOBAL + PER-ACTOR MODEL) — ZERO wire either way. The ROUND
-/// number is GLOBAL (<c>CardsGameApi.RoundNumber()</c>); the INITIATIVE number and the REST state
-/// are PER-ACTOR MODEL, read off the host-replicated <c>CPlayerActor.CharacterClass</c> via
-/// <c>NetPlayerActors.ActorFor</c> and gated by <see cref="RevealGate"/> (rest uses the SPLIT gate
-/// described above). One of the three genuinely MIXED types — which is why the classification is a
-/// doc tag and not a marker interface: an interface would have to lie about this one. See
-/// INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
+/// number is GLOBAL (<c>CardsGameApi.RoundNumber()</c>); the INITIATIVE number is PER-ACTOR MODEL,
+/// read off the host-replicated <c>CPlayerActor</c> via <c>NetPlayerActors.ActorFor</c> and gated
+/// by <see cref="RevealGate"/>. One of the three genuinely MIXED types — which is why the
+/// classification is a doc tag and not a marker interface: an interface would have to lie about
+/// this one. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemoteStatusReadouts
 {
     private readonly TextMeshPro _round;
     private readonly TextMeshPro _initiative;
-    private readonly TextMeshPro _rest;
-    private readonly Transform _restRoot;
     private readonly Transform _iniRoot;
 
     private int _roundShown = int.MinValue;
@@ -66,7 +74,6 @@ internal sealed class RemoteStatusReadouts
 
     /// <summary>Last rendered values, for the change-gated diagnostic line.</summary>
     public string InitiativeText { get; private set; } = "?";
-    public string RestText { get; private set; } = string.Empty;
     public string RoundText { get; private set; } = "-";
 
     public RemoteStatusReadouts(Transform boardRoot, in RemoteBoardLayout layout)
@@ -154,20 +161,9 @@ internal sealed class RemoteStatusReadouts
             new Color(1f, 0.93f, 0.72f), TextAlignmentOptions.Center, FontStyles.Bold);
         RemoteBoardContent.SetText(_initiative, "?");
 
-        // --- rest: bottom-left, the local board's rest zone. Collision budget (board-local, the
-        //     same arithmetic PlayTray.BuildMounts documents for its own furniture): the plate spans
-        //     x −0.295..−0.105 and y −0.146..−0.110, so it clears the round-card slot above it
-        //     (slot 0 bottom edge y −0.104) by 6 mm and stays inside the board (bottom edge −0.16).
-        _restRoot = new GameObject("RestReadout").transform;
-        _restRoot.SetParent(boardRoot, worldPositionStays: false);
-        _restRoot.localPosition = new Vector3(-0.20f, -0.128f, RemoteControlBoard.ProudZLocal);
-        BoardVisual.Quad(_restRoot, "Plate", new Vector2(0.19f, 0.036f),
-            BoardVisual.Unlit(new Color(0.14f, 0.12f, 0.10f, 1f)))
-            .transform.localPosition = new Vector3(0f, 0f, 0.001f);
-        _rest = RemoteBoardContent.Label(_restRoot, "Text", Vector3.zero,
-            new Vector2(0.18f, 0.028f), 0.05f,
-            new Color(0.95f, 0.86f, 0.62f), TextAlignmentOptions.Center, FontStyles.Bold);
-        _restRoot.gameObject.SetActive(false);
+        // NO REST READOUT IS BUILT HERE — see the class note. The bottom-left plate that used to
+        // stand at (−0.20, −0.128) was the one widget on this board with no owner-side original,
+        // and a rest already reads off the mirrored rest disc caps.
     }
 
     /// <summary>
@@ -184,7 +180,7 @@ internal sealed class RemoteStatusReadouts
             _iniRoot.gameObject.SetActive(shown);
     }
 
-    /// <summary>Re-read round / initiative / rest. <paramref name="showFronts"/> is the shared
+    /// <summary>Re-read round / initiative. <paramref name="showFronts"/> is the shared
     /// <see cref="RevealGate"/> answer for this actor.</summary>
     public void Refresh(CPlayerActor actor, bool showFronts)
     {
@@ -231,24 +227,5 @@ internal sealed class RemoteStatusReadouts
         }
         InitiativeText = ini;
         RemoteBoardContent.SetText(_initiative, ini);
-
-        // Rest — past-tense facts always, the pending long-rest SELECTION only once revealed.
-        CCharacterClass cc = actor.CharacterClass;
-        string rest = string.Empty;
-        if (cc != null)
-        {
-            if (cc.HasLongRested)
-                rest = Loc.Game("GUI_LONG_REST", "Long rest");
-            else if (cc.HasShortRested)
-                rest = Loc.Mod("short_rest");
-            else if (showFronts && cc.LongRest)
-                rest = Loc.Game("GUI_LONG_REST", "Long rest");
-        }
-        RestText = rest;
-        bool show = rest.Length > 0;
-        if (_restRoot.gameObject.activeSelf != show)
-            _restRoot.gameObject.SetActive(show);
-        if (show)
-            RemoteBoardContent.SetText(_rest, rest.ToUpperInvariant());
     }
 }
