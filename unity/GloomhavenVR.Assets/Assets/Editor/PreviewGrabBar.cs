@@ -80,11 +80,17 @@ namespace GloomhavenVR
                 bool overlay = style == "generic";
                 Shoot(style, overlay, BoardBarLength, "long", outDir);
                 Shoot(style, overlay, ShortBarLength, "short", outDir);
+                // A DEPTH TEST, not a beauty shot. Looking almost straight down the rod's axis,
+                // the FAR cap is entirely behind the shaft and must be completely invisible. If any
+                // part of it shows, the pieces are not depth-sorting against each other and the rod
+                // is drawing itself inside out — which is what a user reported seeing.
+                Shoot(style, overlay, BoardBarLength, "axial", outDir, axial: true);
             }
             Debug.Log("[GrabBarPreview] done.");
         }
 
-        private static void Shoot(string style, bool overlay, float length, string tag, string outDir)
+        private static void Shoot(string style, bool overlay, float length, string tag,
+                                  string outDir, bool axial = false)
         {
             var root = new GameObject("GrabBarPreviewRoot");
             try
@@ -157,7 +163,9 @@ namespace GloomhavenVR
                 // reference compares two different pictures and flatters neither: foreshortening
                 // is what shows a rod's taper, and an oblique view is the only one where the
                 // knob's ball reads as a ball.
-                camGo.transform.position = new Vector3(dist * 0.42f, dist * 0.30f, -dist * 0.86f);
+                camGo.transform.position = axial
+                    ? new Vector3(dist * 0.97f, dist * 0.12f, -dist * 0.21f)
+                    : new Vector3(dist * 0.42f, dist * 0.30f, -dist * 0.86f);
                 camGo.transform.LookAt(Vector3.zero);
 
                 var rt = new RenderTexture(rtW, rtH, 24);

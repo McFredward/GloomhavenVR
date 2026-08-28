@@ -47,38 +47,78 @@ CS = os.path.join(ROOT, 'src', 'GloomhavenVR', 'Core', 'GrabBar.cs')
 
 W, H = 1024, 256
 
-SWATCH = ("A seamless tiling MATERIAL SWATCH, photographed flat and straight on, filling the whole "
-          "frame edge to edge. Orthographic, no perspective, no object, no background, no shadow, "
-          "no vignette, no text, no border, completely even flat lighting with no highlight and no "
-          "hotspot. This is an albedo map for a game engine: colour only. ")
+# ---------------------------------------------------------------------------------------------
+#  THE STRIPS ARE UNWRAPPED RODS, NOT MATERIAL SWATCHES.
+#
+#  The first set asked for six seamless material tiles and composited them. The user's verdict was
+#  that they were "deutlich besser" on the design sheet and that the rods needed "Details ...
+#  Dekorationen, Kratzer etc. ... immersiv und lebendig". A tile cannot carry any of that: it is
+#  uniform by definition, and uniform is exactly what reads as plastic.
+#
+#  So each rod's shaft is now generated as ITS OWN UNWRAP, with the layout stated to the model:
+#
+#      HORIZONTAL  = along the rod          (grain, scratches, wear run this way)
+#      VERTICAL    = around the circumference — so a decorative RING must be drawn as a
+#                    VERTICAL BAND, and anything drawn as a horizontal band would spiral
+#
+#  The aspect is deliberate too. The shaft band is 820 x 256 texels covering ~0.30 m along the rod
+#  and pi x 0.028 = 0.088 m around it, i.e. 2733 px/m against 2909 px/m — near enough isotropic. So
+#  the generated image is CROPPED to 3.2:1 rather than squashed into it; squashing would stretch
+#  every scratch by four.
+# ---------------------------------------------------------------------------------------------
+
+UNWRAP = ("A flat orthographic TEXTURE UNWRAP for a game asset, filling the entire frame edge to "
+          "edge with no border, no background, no perspective, no shadow, no vignette, no text and "
+          "no watermark. Completely even lighting: this is an albedo map, colour only, with no "
+          "baked highlight and no baked shadow. It is the surface of a slender turned HANDLE rod "
+          "unrolled flat: the HORIZONTAL axis runs ALONG the rod and the VERTICAL axis runs AROUND "
+          "its circumference, so any decorative ring must appear as a VERTICAL band spanning the "
+          "full height, and the grain must run HORIZONTALLY. ")
+
+WEAR = ("Make it lived-in and specific rather than uniform: fine scratches at shallow angles, a "
+        "few deeper nicks and chips, small dents, uneven staining, a subtly worn and darkened band "
+        "across the middle third where a hand has held it for years, and cleaner less-touched "
+        "surface toward the two ends. No two areas of the frame should look the same. ")
 
 SWATCHES = {
-    'sw_oak': SWATCH + ("Aged honey-brown oak, straight grain running strictly HORIZONTALLY across "
-                        "the frame, softly polished by handling, warm mid-brown with lighter and "
-                        "darker grain lines."),
-    'sw_steel': SWATCH + ("Cool blue-grey forged steel with a mottled cloudy patina and faint "
-                          "hammer marks, desaturated, no rust, no gold, no warm tones at all."),
-    'sw_bronze': SWATCH + ("Aged bronze: warm gold-brass base with blue-green verdigris settled "
-                           "into it in irregular patches, the way a handled bronze fitting "
-                           "patinates."),
-    'sw_walnut': SWATCH + ("Dark oiled walnut, fine straight grain running strictly HORIZONTALLY, "
-                           "deep neutral brown, quiet and even, nothing bright."),
-    'sw_brass': SWATCH + ("Aged tarnished brass, warm and slightly dull, faint fine scratches, "
-                          "darker in the micro-pits, not mirror polished."),
-    'sw_gold': SWATCH + ("Polished warm gold-brass, bright and clean with only faint wear, the "
-                         "colour of a well-kept gilt fitting."),
-    # ANTIQUE, not merely darker. The first strips used the bright sw_brass on the oak and walnut
-    # caps and they came out a pale yellow-olive next to the design sheet's DARK bronze knobs. That
-    # is a different material, not a brightness slider, so it gets its own swatch.
-    'sw_antique': SWATCH + ("Dark antique bronze, heavily tarnished to a deep brown-bronze with "
-                            "almost black recesses and only a faint warm sheen on the high points, "
-                            "the patina of an old door fitting nobody has polished in decades."),
+    'sw_oak': UNWRAP + WEAR + (
+        "Material: aged honey-brown oak, straight horizontal grain with darker medullary streaks. "
+        "Decoration: three narrow VERTICAL incised fillet lines, unevenly spaced, one of them "
+        "doubled, cut shallowly into the wood and slightly darkened in the groove. A short vertical "
+        "band of tiny chisel facets near one end. The wood is oiled, not painted."),
+
+    'sw_steel': UNWRAP + WEAR + (
+        "Material: cool blue-grey forged steel, mottled cloudy patina, faint hammer facets. "
+        "Decoration: two narrow VERTICAL bands of shallow diagonal knurling, and one plain raised "
+        "vertical collar line. Scattered small rust-brown pinpricks in the deeper pits. "
+        "Utilitarian and cold — no gold, no warm tones anywhere."),
+
+    'sw_bronze': UNWRAP + WEAR + (
+        "Material: aged bronze, warm gold-brass where handling has polished it and blue-green "
+        "verdigris crusted into everything that is not touched. Decoration: a VERTICAL band of "
+        "engraved interlaced knotwork, and two narrower vertical beaded lines elsewhere, all "
+        "filled with verdigris in the recesses and rubbed bright on the crowns."),
+
+    'sw_walnut': UNWRAP + WEAR + (
+        "Material: dark oiled walnut, fine horizontal grain, deep neutral brown, quiet. "
+        "Decoration: two narrow VERTICAL inlaid brass pinstripes, slightly tarnished, and a "
+        "sparse scatter of tiny brass pins. Restrained — this rod sits against a page of text and "
+        "must not shout."),
+
+    'sw_antique': UNWRAP + (
+        "Material: dark antique bronze, tarnished to a deep brown-bronze with nearly black "
+        "recesses and a faint warm sheen on the high points. Decoration: closely spaced fine "
+        "VERTICAL beading across the whole frame, like the knurled collar of an old door fitting, "
+        "with the tarnish heaviest between the beads. Small casting pits and a few bright rubbed "
+        "spots where a thumb would land."),
+
+    'sw_gold': UNWRAP + (
+        "Material: warm gilt bronze, softly polished, with age in it rather than showroom shine. "
+        "Decoration: closely spaced fine VERTICAL beading across the whole frame, the hollows "
+        "between the beads darkened with old tarnish and a trace of verdigris, the crowns rubbed "
+        "bright. A few fine scratches and one small dent."),
 }
 
-# Per-material shading, consumed by the MRS map. R = metallic, G = roughness — the packing
-# GloomhavenVR/BoardLit declares. Wood is dielectric and satin; the fittings are metal and
-# fairly tight. Without this map _SpecStrength has nothing to read and the rods render matte,
-# which is most of why the first set looked flat beside the sheet.
 # R = metallic, G = roughness.
 #
 # THE WOODS CARRY A SMALL METALLIC, AND THAT IS AN AUTHORING CHOICE, NOT A CLAIM ABOUT OAK.
@@ -138,7 +178,7 @@ def regenerate(swatch_dir):
         req = urllib.request.Request(
             'https://api.openai.com/v1/images/generations',
             data=json.dumps({'model': 'gpt-image-2', 'prompt': prompt,
-                             'size': '1024x1024', 'n': 1}).encode('utf-8'),
+                             'size': '1536x1024', 'n': 1}).encode('utf-8'),
             headers={'Authorization': 'Bearer ' + key, 'Content-Type': 'application/json'})
         try:
             with urllib.request.urlopen(req, timeout=600) as r:
@@ -149,23 +189,61 @@ def regenerate(swatch_dir):
         print('generated', name)
 
 
-def cap_fraction():
-    """Read ShaftU0 out of the C# so the layout cannot drift away from the mesh's UVs."""
+def cs_const(name):
+    """Read one float constant out of GrabBar.cs.
+
+    Every number this script needs about the mesh is READ, never re-typed. The band boundary, the
+    knob's arc and the cap's length all live in the C# because the mesh is authored there; a copy
+    here would be one more pair of numbers to keep in step, and this project has paid for that
+    shape of drift more than once.
+    """
     if not os.path.exists(CS):
         return None
-    m = re.search(r'ShaftU0\s*=\s*([0-9.]+)f', io.open(CS, encoding='utf-8').read())
+    m = re.search(name + r'\s*=\s*([0-9.]+)f', io.open(CS, encoding='utf-8').read())
     return float(m.group(1)) if m else None
 
 
+def cap_fraction():
+    return cs_const('ShaftU0')
+
+
+def dome_fraction():
+    """How much of the CAP band, in u, the smooth knob occupies — the rest is the beaded collar.
+
+    The cap's u runs from the dome's tip to the shoulder across CapLengthInRadii, and the dome
+    itself is DomeRadius x (1 - cos(sweep)) long. Without this split the beading generated for the
+    collar is painted across the whole cap, and the knob renders as a beehive instead of the smooth
+    ball the design sheet shows.
+    """
+    dome_r = cs_const('DomeRadius')
+    sweep = cs_const('DomeSweepDegrees')
+    cap_len = cs_const('CapLengthInRadii')
+    if None in (dome_r, sweep, cap_len) or cap_len <= 0:
+        return None
+    return (dome_r * (1.0 - math.cos(math.radians(sweep)))) / cap_len
+
+
 def band(swatch_dir, name, width, height):
-    """Centre-crop-and-scale one swatch to a band. Never squashes: a squashed grain reads wrong."""
+    """Crop one unwrap to the band's aspect, then scale. NEVER squashes.
+
+    The generated unwraps are near-square; a shaft band is 3.2:1. Resizing straight to the band
+    would stretch every scratch and every incised line by a factor of four along the rod, which is
+    precisely the smeared, characterless look this whole pass exists to remove. So the largest
+    region of the SOURCE aspect is cropped first and only then scaled.
+    """
     im = grade(Image.open(os.path.join(swatch_dir, name + '.png')).convert('RGB'), name)
     sw, sh = im.size
-    scale = max(width / sw, height / sh)
-    im = im.resize((max(1, int(sw * scale)), max(1, int(sh * scale))), Image.LANCZOS)
-    sw, sh = im.size
-    left, top = (sw - width) // 2, (sh - height) // 2
-    return im.crop((left, top, left + width, top + height))
+    want = width / float(height)
+    have = sw / float(sh)
+    if have > want:                       # source too wide -> trim its sides
+        nw = int(round(sh * want))
+        left = (sw - nw) // 2
+        im = im.crop((left, 0, left + nw, sh))
+    else:                                 # source too tall -> trim top and bottom
+        nh = int(round(sw / want))
+        top = (sh - nh) // 2
+        im = im.crop((0, top, sw, top + nh))
+    return im.resize((width, height), Image.LANCZOS)
 
 
 # A per-swatch albedo grade: (gain, saturation). The generated oak came back a bright saturated
@@ -200,6 +278,38 @@ def grade(img, name):
                         min(255, max(0, int(g * gain))),
                         min(255, max(0, int(b * gain))))
     return img
+
+
+def cap_band(swatch_dir, name, width, height, dome_frac):
+    """The cap's strip: a SMOOTH knob, then the beaded collar.
+
+    The generated cap unwraps are beaded edge to edge, which is right for the collar and wrong for
+    the ball — painted across the dome it renders as a beehive. The dome's share of the band is
+    computed from the mesh's own constants, and over that stretch the beading is dissolved away
+    with a heavy blur, leaving the material (tarnish, pits, rubbed spots) but not the ridges. A
+    short crossfade keeps the join from reading as a hard edge.
+    """
+    sharp = band(swatch_dir, name, width, height)
+    smooth = sharp.filter(ImageFilter.GaussianBlur(max(2.0, width * 0.10)))
+    out = sharp.copy()
+    px_out = out.load()
+    px_s = smooth.load()
+    px_h = sharp.load()
+    dome_px = dome_frac * width
+    fade = max(1.0, width * 0.10)
+    for x in range(width):
+        # 1 at the tip (all smooth), 0 past the crossfade (all beading).
+        t = 1.0 - min(1.0, max(0.0, (x - (dome_px - fade)) / fade))
+        if t >= 0.999:
+            for y in range(height):
+                px_out[x, y] = px_s[x, y]
+        elif t > 0.001:
+            for y in range(height):
+                a, b = px_s[x, y], px_h[x, y]
+                px_out[x, y] = (int(a[0] * t + b[0] * (1 - t)),
+                                int(a[1] * t + b[1] * (1 - t)),
+                                int(a[2] * t + b[2] * (1 - t)))
+    return out
 
 
 def bake_round(img):
@@ -326,19 +436,23 @@ def main():
     frac = cap_fraction()
     if frac is None:
         sys.exit('GrabBarMesh.ShaftU0 not parseable — refusing to guess the band boundary.')
+    dome_frac = dome_fraction()
+    if dome_frac is None:
+        sys.exit('GrabBarMesh dome constants not parseable — refusing to guess where the knob ends.')
     cap_px = int(round(W * frac))
+    print(f'dome occupies {dome_frac:.3f} of the cap band -> smooth knob, beaded collar')
     print(f'ShaftU0={frac} -> cap band {cap_px} px of {W}')
 
     os.makedirs(OUT, exist_ok=True)
     for name, shaft_sw, cap_sw, round_bake in STRIPS:
         img = Image.new('RGB', (W, H))
         shaft_w = W - 2 * cap_px
-        img.paste(band(args.swatches, cap_sw, cap_px, H), (0, 0))
+        img.paste(cap_band(args.swatches, cap_sw, cap_px, H, dome_frac), (0, 0))
         img.paste(band(args.swatches, shaft_sw, shaft_w, H), (cap_px, 0))
         # The far cap is the near cap MIRRORED, so both ends carry the same material and the wrap
         # at u=1 meets u=0 on identical pixels.
-        img.paste(band(args.swatches, cap_sw, cap_px, H).transpose(Image.FLIP_LEFT_RIGHT),
-                  (W - cap_px, 0))
+        img.paste(cap_band(args.swatches, cap_sw, cap_px, H, dome_frac)
+                  .transpose(Image.FLIP_LEFT_RIGHT), (W - cap_px, 0))
         # Feather the two band joins so no mip level shows a hard vertical line where the materials
         # meet.
         for x in (cap_px, W - cap_px):

@@ -390,8 +390,25 @@ namespace GloomhavenVR.Core
                     int i1 = i0 + 1;
                     int i2 = i0 + stride;
                     int i3 = i2 + 1;
-                    tris.Add(i0); tris.Add(i2); tris.Add(i1);
-                    tris.Add(i1); tris.Add(i2); tris.Add(i3);
+                    // WINDING — checked by hand, not assumed, because this is the eighth mesh in
+                    // this project to be built wound against the side it is seen from and the
+                    // first seven all shipped.
+                    //
+                    // Take a unit cylinder quad: ring i at x=0, ring i+1 at x=1, r=1, seg s at
+                    // angle 0 and s+1 at a small e. Then i0=(0,1,0), i1=(0,1,e), i2=(1,1,0), and
+                    // the ORIGINAL order (i0,i2,i1) gives (i2-i0)x(i1-i0) = (0,-e,0) — pointing
+                    // INWARD at a point whose outward direction is +Y. Every face on every rod was
+                    // therefore back-facing.
+                    //
+                    // IT WAS NEARLY INVISIBLE, which is why it needs the note. Back-culling a tube
+                    // removes the near wall and leaves the far wall's interior, and a textured tube
+                    // looks much the same either way — so the shaft read as correct from every
+                    // angle. It only showed where a dome faces the camera head-on: the knob
+                    // vanished and you looked straight through the bead ring into the shaft. The
+                    // WINDOW rod hid it completely, because GloomhavenVR/Overlay defaults to
+                    // _Cull = 0 (two-sided) and drew the inside faces anyway.
+                    tris.Add(i0); tris.Add(i1); tris.Add(i2);
+                    tris.Add(i1); tris.Add(i3); tris.Add(i2);
                 }
             }
         }
