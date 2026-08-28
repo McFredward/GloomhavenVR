@@ -84,6 +84,12 @@ namespace GloomhavenVR
                 // band repeating rather than stretching is that the DETAIL DENSITY stays put while
                 // the bar does not. That is a claim about three pictures, not one: rendered side by
                 // side, the scratches and the ornament must come out the same SIZE in all of them.
+                // THE README ASSET SHOT: transparent ground, square-ish framing, so the rod can be
+                // dropped into unity/asset-preview/build_readme_images.py's styles matrix beside
+                // the hands, masks and boards. That matrix composites TRANSPARENT renders onto
+                // white, so a rod shot on this station's usual dark ground would arrive as a dark
+                // rectangle. Same mesh, same material, same code — only the clear colour differs.
+                Shoot(style, overlay, BoardBarLength, "asset", outDir, asset: true);
                 Shoot(style, overlay, 0.16f, "len016", outDir);
                 Shoot(style, overlay, 0.34f, "len034", outDir);
                 Shoot(style, overlay, 0.70f, "len070", outDir);
@@ -97,7 +103,7 @@ namespace GloomhavenVR
         }
 
         private static void Shoot(string style, bool overlay, float length, string tag,
-                                  string outDir, bool axial = false)
+                                  string outDir, bool axial = false, bool asset = false)
         {
             var root = new GameObject("GrabBarPreviewRoot");
             try
@@ -154,7 +160,10 @@ namespace GloomhavenVR
                 var camGo = new GameObject("Cam");
                 Camera cam = camGo.AddComponent<Camera>();
                 cam.clearFlags = CameraClearFlags.SolidColor;
-                cam.backgroundColor = new Color(0.18f, 0.18f, 0.19f);
+                // Alpha 0 for the asset shot so the README matrix can composite it onto white.
+                cam.backgroundColor = asset
+                    ? new Color(0f, 0f, 0f, 0f)
+                    : new Color(0.18f, 0.18f, 0.19f, 1f);
                 cam.orthographic = false;
                 cam.fieldOfView = 24f;
                 // NEAR CLIP, and it is not housekeeping. Framing on a 0.35 m rod puts the camera
@@ -169,12 +178,14 @@ namespace GloomhavenVR
                 // which is the only thing this station exists to judge. Solve the distance from the
                 // horizontal half-angle instead, and leave 12 % margin.
                 float hFov = 2f * Mathf.Atan(Mathf.Tan(cam.fieldOfView * 0.5f * Mathf.Deg2Rad)
-                                             * ((float)rtW / rtH));
+                                             * (asset ? 1200f / 640f : (float)rtW / rtH));
                 // The sweep shots are framed on a FIXED width rather than on the rod, so a
                 // scratch that is the same size in metres comes out the same size in pixels in all
                 // three. Framing each on its own length would rescale every picture and hide
                 // exactly the thing the sweep exists to show.
-                float frame = tag.StartsWith("len") ? 0.72f : length * 1.34f;
+                float frame = tag.StartsWith("len") ? 0.72f
+                            : asset ? length * 1.12f
+                            : length * 1.34f;
                 float dist = (frame * 0.5f) / Mathf.Tan(hFov * 0.5f);
                 // A THREE-QUARTER HERO ANGLE, not a side elevation — the same view the design
                 // sheets were drawn at. Judging a flat side-on render against a three-quarter
@@ -186,11 +197,15 @@ namespace GloomhavenVR
                     : new Vector3(dist * 0.42f, dist * 0.30f, -dist * 0.86f);
                 camGo.transform.LookAt(Vector3.zero);
 
-                var rt = new RenderTexture(rtW, rtH, 24);
+                var rt = asset
+                    ? new RenderTexture(1200, 640, 24, RenderTextureFormat.ARGB32)
+                    : new RenderTexture(rtW, rtH, 24);
                 cam.targetTexture = rt;
                 cam.Render();
                 RenderTexture.active = rt;
-                var shot = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+                var shot = new Texture2D(rt.width, rt.height,
+                                         asset ? TextureFormat.RGBA32 : TextureFormat.RGB24,
+                                         false);
                 shot.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
                 shot.Apply();
                 RenderTexture.active = null;

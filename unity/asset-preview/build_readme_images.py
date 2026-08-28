@@ -179,7 +179,19 @@ styles_matrix([[('hand_glove.png', 'Leather glove'), ('hand_plate.png', 'Plate g
                [('mask_2.png', 'Grimhorn'), ('mask_0.png', 'Ironwatch'),
                 ('mask_1.png', 'Runeveil')],
                [('board_oak.png', 'Oak'), ('board_steel.png', 'Steel'),
-                ('board_bronze.png', 'Bronze')]], 'styles.png')
+                ('board_bronze.png', 'Bronze')],
+               # THE GRAB ROD EACH BOARD COMES WITH, directly under its board so the column says
+               # which belongs to which. THREE, not four: the fourth rod is the windows' and is not
+               # a selectable board style, so it has no column here — a chooser matrix should only
+               # show things that can be chosen. (User, 2026-08-28: "Mach sie unter den Boards in
+               # der Matrix die du eh schon renderst.")
+               #
+               # These come from unity/GloomhavenVR.Assets/Assets/Editor/PreviewGrabBar.cs's
+               # "asset" shot, which clears to alpha 0 for exactly this: the matrix composites
+               # TRANSPARENT renders onto white, and the station's usual dark ground would arrive
+               # here as a dark rectangle.
+               [('rod_oak.png', 'Oak rod'), ('rod_steel.png', 'Steel rod'),
+                ('rod_bronze.png', 'Bronze rod')]], 'styles.png')
 logo()
 poster('card-fan.mp4', 'card-fan-poster.jpg', '0:05')
 poster('figure-grab.mp4', 'figure-grab-poster.jpg', '0:06')
