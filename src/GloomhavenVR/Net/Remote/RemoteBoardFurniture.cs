@@ -101,12 +101,18 @@ namespace GloomhavenVR.Net;
 /// zones the owner's own board deliberately never draws, so under the 1:1 rule it was a widget peers
 /// saw and the owner did not. Deleted, not gated — there is no owner-side state to gate it by.
 ///
-/// COST. Built once, torn down with the board root, and refreshed on the shared
-/// <see cref="RemoteBoardContent.RefreshSeconds"/> (4 Hz) cadence with change-gated writes. The
-/// per-frame work is the single <see cref="RemoteGlowPulse"/> component (only while a pulse is
-/// visible) plus one <see cref="RemoteCapFx"/> per cap, which early-returns on the first line
-/// unless that cap is mid-press or mid-dissolve — an idle board does no per-frame work at all, and
-/// nothing here logs per frame.
+/// COST. Built once, torn down with the board root, and refreshed in TWO passes with change-gated
+/// writes throughout. <see cref="Refresh"/> is the STRUCTURAL pass and keeps the shared
+/// <see cref="RemoteBoardContent.RefreshSeconds"/> (4 Hz) cadence: it is the one that rebuilds
+/// rows, clones game widgets, composes strings and walks this client's own use-bar children.
+/// <see cref="TickWire"/> is the WIRE pass and runs PER FRAME, because the records it applies carry
+/// events shorter than 250 ms (a keycap press, a pointer crossing an option) that the cadence
+/// dropped outright; on an unchanged frame it is ~60 comparisons with no allocation and no Unity
+/// call at all — the arithmetic is on that method. The rest of the per-frame work is the single
+/// <see cref="RemoteGlowPulse"/> component (only while a pulse is visible) plus one
+/// <see cref="RemoteCapFx"/> per cap, which early-returns on the first line unless that cap is
+/// mid-press or mid-dissolve — an idle board does almost no per-frame work at all, and nothing
+/// here logs per frame.
 /// </summary>
 /// <remarks>CLASSIFICATION: MIXED (PER-ACTOR MODEL + VR-ONLY-derived + one small record of its
 /// own). The old "NEUTRAL LOOKS" / "LOCAL-ONLY STATE" reading of this file — button
@@ -744,6 +750,13 @@ internal sealed class RemoteBoardFurniture
     /// sampled four times a second reaches a viewer as a stutter. See
     /// <c>RemoteDecisionWidgets.TickPointer</c>, which is a gate and returns on nearly every frame
     /// without touching anything.</para>
+    ///
+    /// <para>THIS WAS THE PRECEDENT for <see cref="TickWire"/>. It answered the hover and press of
+    /// the MIRRORED GAME WIDGETS while the mod-drawn plates' identical bits (and the cap press, the
+    /// cap states, the use-bar slot states, the wanted glow and the snap rim) were still being read
+    /// on the content cadence — the same event, the same wire bits, two different sample rates on
+    /// one board. They now run in the same frame; this method stays separate only because it is
+    /// driven before the cadence block, from the board's own pointer group.</para>
     /// </summary>
     public void TickDecisionPointer(RemoteAvatar owner) => _decisionWidgets?.TickPointer(owner);
 
@@ -831,8 +844,10 @@ internal sealed class RemoteBoardFurniture
     private readonly GameObject?[] _wanted = new GameObject?[2];
     private readonly GameObject?[] _snap = new GameObject?[2];
 
-    // ---- change gates (a TMP/material write per tick is exactly the churn the 4 Hz cadence is
-    //      there to avoid; every setter below no-ops until the value really moves) --------------
+    // ---- change gates. These carry more weight since the wire half went per frame: an
+    //      unconditional TMP/material/SetActive write here would now be 90 writes a second per
+    //      peer instead of 4. Every setter below no-ops — before it touches a Transform, a
+    //      Material or a SetActive — until the value really moves. ------------------------------
     private bool _shownArmed;
     private int _shownWantedMask = -1;
     private int _shownSnapMask = -1;
@@ -1476,27 +1491,51 @@ internal sealed class RemoteBoardFurniture
     // ---------------------------------------------------------------- refresh --
 
     /// <summary>
-    /// Re-read everything knowable and repaint what changed. Called on the shared 4 Hz content
-    /// cadence from <see cref="RemoteControlBoard"/> — with or without an actor (the synced
-    /// board-UI state below is wire-fed, so an actorless peer's board still mirrors its owner's
-    /// controls; only the slot-occupancy-derived pieces need the actor-fed slot flags).
+    /// The STRUCTURAL half of the mirrored furniture: (re)build the rows this board draws and the
+    /// art on them. Called on the shared 4 Hz content cadence from <see cref="RemoteControlBoard"/>
+    /// — with or without an actor (an actorless peer still gets the whole drawer; only the use-bar
+    /// SYMBOLS need the actor, and they self-refuse without one).
     ///
-    /// <paramref name="slotMask"/> says which of that peer's card slots currently hold a card — the
-    /// mask <c>RemoteControlBoard.SeatSlots</c> already resolved for the slots themselves, handed
-    /// down rather than re-derived, so nothing here can disagree with the cards or leak anything
-    /// the board does not already show. It feeds ONE thing now: the LEGACY snap-glow fallback for a
-    /// sender that carries no board-UI record (a synced sender's gold rim follows their actual
-    /// hover — see the snap block below).
+    /// <para>THIS METHOD USED TO BE THE WHOLE FURNITURE REFRESH, AND THE COMMENT AT ITS CALL SITE
+    /// SAID SO WRONGLY. <c>RemoteControlBoard.Tick</c>'s cadence block was introduced with the note
+    /// "everything below is a MODEL read, not a wire read", and that sentence is exactly why the
+    /// 4 Hz gate looked safe here — but almost everything this method did was a WIRE read: the
+    /// owner's live button visibility, their cap states, their cap PRESS, their cap wordings, their
+    /// decision option states, their use-bar slot states, the FOLLOW/PIN toggle, the item-USE cap,
+    /// the wanted glow and the snap-hover rim. On the 4 Hz gate every one of those landed up to
+    /// 250 ms after the owner saw it, and anything shorter than the gate period — a quick press, a
+    /// pointer crossing an option — could fall between two samples and never be drawn at all.</para>
     ///
-    /// <para>The <c>showFronts</c> / <c>faceMask</c> pair this method used to take is GONE with the
-    /// half-card divider that was their only consumer (see the ctor's slot-overlay block for why
-    /// that widget was deleted). The reveal gate itself is untouched — it still governs the CARDS,
-    /// upstream in <see cref="RemoteControlBoard"/>, exactly as before.</para>
+    /// <para>THE SENDER HAD ALREADY DECIDED THE OTHER WAY. <c>NetAvatarDriver</c> pre-empts its own
+    /// 5 Hz extras gate OUTRIGHT for every one of these records (the board-UI record's non-snap
+    /// bits, records 12/13/23/24/25, the cap-press latch) precisely so they land on the peer's next
+    /// FRAME — see the field docs on <c>_lastSentDecisionLines</c> ("a decision row that appears on
+    /// the peer's copy 200 ms after the owner's reads as 'not synced'"), <c>_lastSentDecisionState</c>,
+    /// <c>_lastSentUseBarMask</c> and the snap-field split in <c>TickExtrasSend</c>. The receiver
+    /// was the asymmetry, exactly as it was for the board SCALE. See <see cref="TickWire"/>.</para>
+    ///
+    /// <para>WHAT STAYS HERE, AND WHY. Everything left in this method either allocates, rebuilds
+    /// geometry or walks somebody else's children: <c>RemoteDecisionWidgets.Refresh</c> drives a
+    /// cloned game subtree and runs the mirror walk TWICE (paint, then re-fit);
+    /// <see cref="SetDecisionLines"/> destroys and re-creates a whole plate row;
+    /// <see cref="SetDecisionPrompt"/> composes a localized string on every call (ungated) and
+    /// forces a TMP mesh update; <see cref="SetUseBars"/> destroys and re-creates the tile rows;
+    /// <see cref="ApplyUseBarSymbols"/> walks THIS client's own live bar containers child by child
+    /// through <c>RemoteUseBarSymbols.Resolve</c>; and <see cref="StateLine"/> builds a long
+    /// interpolated diagnostic string. None of those may run 90 times a second per peer. The
+    /// STRUCTURE and the ART are one build and stay together for that reason too: a drawer that
+    /// appeared per-frame but was decorated on the cadence would stand anonymous for up to
+    /// 250 ms.</para>
+    ///
+    /// <para>The <c>slotMask</c> parameter has moved to <see cref="TickWire"/> with its only
+    /// consumers (the legacy wanted-glow and snap-glow fallbacks). The <c>showFronts</c> /
+    /// <c>faceMask</c> pair this method used to take is GONE with the half-card divider that was
+    /// their only consumer (see the ctor's slot-overlay block for why that widget was deleted). The
+    /// reveal gate itself is untouched — it still governs the CARDS, upstream in
+    /// <see cref="RemoteControlBoard"/>, exactly as before.</para>
     /// </summary>
-    public void Refresh(CPlayerActor? actor, RemoteAvatar owner, int slotMask)
+    public void Refresh(CPlayerActor? actor, RemoteAvatar owner)
     {
-        bool slot0 = (slotMask & 1) != 0;
-        bool slot1 = (slotMask & 2) != 0;
         // Diagnostic label only — the see-through driver decides everything else from geometry.
         _fade?.Note(owner.PlayerId);
         // A language switch invalidates every cached label (the local board self-heals the same way).
@@ -1506,6 +1545,187 @@ internal sealed class RemoteBoardFurniture
             _langShown = lang;
             ApplyLabels();
         }
+
+        // THE WIRE BLOCK THAT USED TO STAND HERE — the board-UI button mask, the cap states, the
+        // cap press and the cap wordings — now runs PER FRAME in TickWire. Nothing about what it
+        // does changed; only when the receiver reads it. See the split note on this method.
+
+        // ---- SYNCED DECISION DISPLAY (wire records 12 + 23 — task 2 "die Entscheidungsbuttons
+        //      1:1", extended by the 2026-08-08 ruling to the WHOLE decision display: "alle
+        //      Interaktionen, Animationen und Anzeigen des Controllboards … so wie der Spieler sie
+        //      sieht"). Three passes, in the order the owner's own dock builds them:
+        //        • the LABELS of the row their dock really shows, as inert plates at the same
+        //          bar-anchored seat (record 12; without labels the captioned idle drawer stands in);
+        //        • their per-option STATES — greyed / dimmed / chosen (record 23), repainted without
+        //          rebuilding the row, because those move on every click while the wordings do not;
+        //          THAT SECOND PASS NOW RUNS PER FRAME (TickWire) — it was the pass a hover or a
+        //          press moved, and the 4 Hz gate is longer than either of them lasts;
+        //        • the PROMPT TEXT above the plates, composed HERE from the record's variant id and
+        //          this client's own localization (the words never ride the wire — see
+        //          RemoteDecisionPrompt).
+        //      All three vanish together the moment the owner's row does — including when they
+        //      focus another character and their own board goes blank at this seat.
+        //
+        //      SINCE ModBuild 105 THE FIRST PASS IS A FALLBACK, NOT THE MAIN PATH (user report
+        //      2026-08-09: "Die Entscheidungsbuttons sollen auch 1:1 aussehen … Es sah so aus als
+        //      wären die Buttons und der Text eigens nachgebaut und hier nicht die Spielelemente
+        //      genutzt"). For the take-damage prompt this board now clones THIS CLIENT'S OWN
+        //      TakeDamagePanel widgets and drives them from wire record 29 — real button art, real
+        //      damage/fatal icons, real damage number, every wording in the VIEWER's own language
+        //      (see RemoteDecisionWidgets). The mod-drawn plates below are what stands in when that
+        //      cannot be done: a prompt whose widgets a peer cannot resolve (a DialogPopup), a
+        //      client that owns no short-rest dialog yet, or a sender predating record 29.
+        bool realWidgets = _decisionWidgets != null && _decisionWidgets.Refresh(owner);
+        SetDecisionLines(realWidgets ? null : owner.DecisionLines);
+        // ApplyDecisionOptionStates has moved to TickWire, which RemoteControlBoard drives
+        // IMMEDIATELY AFTER this cadence block in the same frame — so a row SetDecisionLines has
+        // just rebuilt (it nulls _shownOptionStates on a rebuild) is painted before anything
+        // renders, and never stands one frame in its unpainted default look.
+        // The idle drawer is SetDecisionLines' own "a prompt is docked but I have no labels" look;
+        // with the real widgets up it would sit behind them, so it is forced down here.
+        if (realWidgets && _drawerIdle != null && _drawerIdle.gameObject.activeSelf)
+            _drawerIdle.gameObject.SetActive(false);
+        SetDecisionPrompt(actor, owner, realWidgets);
+
+        // ---- SYNCED USE-BAR DRAWER (wire record 25 — the SECOND drawer, the same 2026-08-08
+        //      ruling). Two passes, the same structure/state split the decision row uses:
+        //        • the bar STRUCTURE — which of the four bars the owner has up and how many slots
+        //          each shows — as inert tile rows below the mirrored decision row;
+        //        • their per-slot STATES (offered / dimmed / chosen) and each bar's open
+        //          element/option sub-picker, repainted without rebuilding the rows — THAT PASS NOW
+        //          RUNS PER FRAME (TickWire), because a slot lighting under the owner's pointer is
+        //          shorter-lived than the 4 Hz gate.
+        //      Both vanish the moment the owner's bars do — including when the owner focuses
+        //      another character and a bar render-hides on their own board.
+        SetUseBars(owner);
+        // …AND THE SLOT SYMBOLS (user 2026-08-13: "alle anderen Dinge wie entscheidungen wegen
+        // Gegenständen etc. sieht man nur eine box … das gleiche Symbol vom Spiel"). A THIRD pass,
+        // for the same reason the states are a second one: the game re-decorates a slot in place
+        // while the bar structure stands still.
+        //
+        // KEPT ON THE CADENCE, BESIDE THE STRUCTURE IT DECORATES. Two reasons, and the second is
+        // the load-bearing one. (1) It is the only thing in this file that reaches into somebody
+        // else's hierarchy: RemoteUseBarSymbols.Resolve walks THIS client's live bar container
+        // child by child and reads a sprite off each slot, ungated — up to 4 bars × 8 children per
+        // call, which is exactly the shape of walk this project has lost a frame budget to before.
+        // (2) A structure rebuild and its decoration are ONE build: if SetUseBars ran per frame and
+        // this did not, a bar that appeared between two cadence ticks would stand with anonymous
+        // tiles for up to 250 ms — the very defect this round is closing, moved one layer down.
+        // So the pair stays together, and only the per-slot STATE bytes go per-frame.
+        ApplyUseBarSymbols(actor, owner);
+
+        // THE SECOND WIRE BLOCK THAT USED TO STAND HERE — the FOLLOW/PIN toggle, the item-USE
+        // cap's armed bit, the wanted-glow mask and the snap-hover rim — now runs PER FRAME in
+        // TickWire, for the reason stated on this method. The three fields the diagnostic line
+        // below reports (_shownArmed / _shownWantedMask / _shownSnapMask) are what that pass last
+        // applied; on a cadence frame TickWire runs a few statements later, so the line states the
+        // PREVIOUS frame's values — 11 ms of staleness in a log string, which is what a change-gated
+        // diagnostic is worth against a per-frame allocation.
+        bool syncedNow = owner.HasBoardUi;
+        StateLine = $"use={(_shownArmed ? "armed" : "idle")}, " +
+                    $"buttons={(syncedNow ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
+                    $"capStates={(owner.HasCapStates ? "0x" + owner.CapStateMask.ToString("X2") : "legacy")}, " +
+                    $"wanted={(_shownWantedMask < 0 ? "unset" : _shownWantedMask.ToString())}" +
+                    $"{(syncedNow ? "(synced)" : string.Empty)}, " +
+                    $"snap={(_shownSnapMask < 0 ? "unset" : _shownSnapMask.ToString())}" +
+                    $"{(syncedNow ? "(hover)" : "(occupancy edge)")}, " +
+                    $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(syncedNow ? "(synced)" : "(default)")}, " +
+                    $"capLabels[confirm={(owner.ConfirmCapLabel != null ? "'" + owner.ConfirmCapLabel + "'" : "neutral")}, " +
+                    $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}, " +
+                    $"undo={(owner.UndoCapLabel != null ? "'" + owner.UndoCapLabel + "'" : "neutral")}, " +
+                    $"use={(owner.ItemUseCapLabel != null ? "'" + owner.ItemUseCapLabel + "'" : "neutral")}], " +
+                    // WHICH RENDERER IS DRAWING THE DECISION — the one fact a "1:1 sieht falsch aus"
+                    // report needs from a hardware log without a screenshot. 'GAME WIDGETS' means
+                    // this board shows a clone of THIS client's own TakeDamagePanel (records
+                    // 12/24/29, the ModBuild 105 path); 'plates' means the mod-drawn fallback, and
+                    // it says WHY.
+                    $"decision={(_decisionWidgets != null && _decisionWidgets.Showing ? "GAME WIDGETS (cloned, records 12/24/29)" : "plates: " + (_decisionWidgets != null ? _decisionWidgets.Reason : "-"))}" +
+                    $", plates={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
+                    $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
+                    // Single quotes around the line, like the cap labels above: a nested \" inside
+                    // an interpolation hole trips the patch-inventory source scanner.
+                    $", prompt={(_shownPromptText != null ? "'" + StripRichText(_shownPromptText) + "'" : "none")}" +
+                    $", useBars={(owner.UseBarsMask == 0 ? "none" : "0x" + owner.UseBarsMask.ToString("X2") + " (" + _useBarRows.Count + " row(s))")}";
+    }
+
+    /// <summary>
+    /// The WIRE half of the mirrored furniture, driven PER FRAME from
+    /// <see cref="RemoteControlBoard"/> immediately after its 4 Hz content block. Every line below
+    /// applies a value the owner has already put on the wire — the board-UI record's button mask,
+    /// cap states and cap press, the cap wordings (record 13), the decision option states
+    /// (record 23/24), the use-bar slot states (record 25), the FOLLOW/PIN bit, the item-USE cap
+    /// bit, the wanted-glow mask and the snap-hover rim.
+    ///
+    /// <para>WHY PER FRAME. The rule is that a remote player sees 1:1 what the owner sees,
+    /// animations included, and the 4 Hz content cadence is 250 ms — longer than the events these
+    /// records carry. A keycap press dips and springs back; a pointer crosses a decision option; a
+    /// use-bar slot lights while the owner's cursor is over it. Sampled at 4 Hz those arrive up to
+    /// 250 ms late, and anything shorter than the gate period falls between two samples and is
+    /// never drawn at all — a quick press was simply invisible to the rest of the table.</para>
+    ///
+    /// <para>THE SENDER ALREADY AGREED. <c>NetAvatarDriver</c> pre-empts its own 5 Hz extras gate
+    /// OUTRIGHT for every one of these records so they land on the peer's NEXT FRAME (see
+    /// <c>_lastSentDecisionLines</c>, <c>_lastSentDecisionState</c>, <c>_lastSentUseBarMask</c>, the
+    /// cap-press latch, and the board-UI record's split change test in <c>TickExtrasSend</c> — only
+    /// the hand-following SNAP field is rate-capped there, and it is capped to the RIG interval, not
+    /// to 4 Hz). There was no matching pre-emption on receive, so the sender's next-frame guarantee
+    /// was being spent in a receiver-side queue. THE PRECEDENT IS ALSO LOCAL:
+    /// <see cref="TickDecisionPointer"/> was lifted out of this same cadence for this same reason,
+    /// as were the half-card hover/selection and the mirrored widget drive on the board above.</para>
+    ///
+    /// <para>WHAT IT COSTS, PER BOARD PER FRAME, ON THE UNCHANGED PATH — the arithmetic, because a
+    /// per-frame path that rebuilt a plate row would be a worse defect than the one being fixed:
+    /// <list type="bullet">
+    /// <item>6 int/bool compares that early-return — the button mask, the cap-state byte, the
+    /// cap-press latch, <c>_shownArmed</c>, the wanted mask, the snap mask;</item>
+    /// <item>1 <c>bool?</c> compare (FOLLOW/PIN);</item>
+    /// <item>4 string compares for the cap wordings. These are reference-equal until a new record
+    /// 13 decodes (the reader hands out the same instance), so <c>string ==</c> takes its
+    /// <c>ReferenceEquals</c> fast path and never walks a character;</item>
+    /// <item>2 array compares (<c>SameStates</c>). Both early-return on an empty row list, so a
+    /// board with no prompt and no drawer docked pays nothing. Fully docked they walk at most
+    /// <c>DecisionStateMaxOptions</c> = 8 option bytes plus <c>UseBarsCount</c> = 4 flag bytes and
+    /// <c>UseBarsCount * UseBarsMaxSlots</c> = 32 slot bytes: 44 byte compares, the wire buffers'
+    /// own worst case.</item>
+    /// </list>
+    /// Worst case ≈ 60 comparisons. ZERO allocations, zero <c>GetComponent</c>, zero
+    /// <c>Find*</c>/scene query, zero Unity API call at all while nothing has changed — every
+    /// applier returns before it touches a <c>Transform</c>, a <c>Material</c> or a
+    /// <c>SetActive</c>. At a four-player table this class exists for the three REMOTE peers, so
+    /// 3 boards × 90 Hz × ~60 compares ≈ 16k comparisons per second, well under 0.01 ms of an
+    /// 11.11 ms frame. When something DOES change the work is the same work the cadence used to do,
+    /// once, on the frame it changed — the wire's own edge rate bounds it, not the frame rate.</para>
+    ///
+    /// <para>THE ONE THING THAT IS NOT A PURE COMPARE, stated rather than glossed: the LEGACY
+    /// wanted-glow branch (a sender with no board-UI record) reads
+    /// <c>RevealGate.InScenario &amp;&amp; RevealGate.IsSecretSelectionPhase</c> unconditionally.
+    /// Those are singleton property reads and an enum compare — no scene query, no allocation, no
+    /// <c>GetComponent</c> — but they are two indirections rather than a field compare, and they run
+    /// per frame instead of four times a second. It is bounded to peers that predate the record,
+    /// which is every sender before ModBuild 4 and none since; a synced peer takes the branch above
+    /// it and reads one wire int. It is left as-is because restructuring it would change BEHAVIOUR
+    /// on the one path nobody can hardware-test any more.</para>
+    ///
+    /// <para>WHAT IS DELIBERATELY NOT HERE: the row builds and the art. See <see cref="Refresh"/>
+    /// for the itemised argument — the decision-widget clone walk, the plate-row rebuild, the
+    /// prompt's string composition and TMP re-measure, the use-bar rebuild, the use-bar symbol
+    /// resolve (a walk over THIS client's live bar children) and the diagnostic
+    /// <see cref="StateLine"/> all allocate, rebuild geometry or walk somebody else's hierarchy,
+    /// and all of them stay on the 4 Hz cadence.</para>
+    ///
+    /// <para><paramref name="slotMask"/> says which of that peer's card slots currently hold a card
+    /// — the mask <c>RemoteControlBoard.SeatSlots</c> already resolved for the slots themselves,
+    /// handed down rather than re-derived, so nothing here can disagree with the cards or leak
+    /// anything the board does not already show. It feeds only the LEGACY fallbacks for a sender
+    /// that carries no board-UI record (a synced sender's wanted glow and gold rim come off the
+    /// wire). Running the legacy snap fallback per frame is a strict improvement in its own right:
+    /// its <c>SnapGlowSeconds</c> window is now sampled at frame rate instead of being rounded to
+    /// the nearest 250 ms.</para>
+    /// </summary>
+    public void TickWire(RemoteAvatar owner, int slotMask)
+    {
+        bool slot0 = (slotMask & 1) != 0;
+        bool slot1 = (slotMask & 2) != 0;
 
         // ---- SYNCED BOARD-UI (extension record 4 — defect 5 "genau die Buttons, die der
         //      Besitzer sieht"). When the owner broadcasts their live control visibility, the
@@ -1576,53 +1796,24 @@ internal sealed class RemoteBoardFurniture
         //      verbatim in their language; absent record = the neutral ApplyLabels fallback.
         SetCapLabels(owner);
 
-        // ---- SYNCED DECISION DISPLAY (wire records 12 + 23 — task 2 "die Entscheidungsbuttons
-        //      1:1", extended by the 2026-08-08 ruling to the WHOLE decision display: "alle
-        //      Interaktionen, Animationen und Anzeigen des Controllboards … so wie der Spieler sie
-        //      sieht"). Three passes, in the order the owner's own dock builds them:
-        //        • the LABELS of the row their dock really shows, as inert plates at the same
-        //          bar-anchored seat (record 12; without labels the captioned idle drawer stands in);
-        //        • their per-option STATES — greyed / dimmed / chosen (record 23), repainted without
-        //          rebuilding the row, because those move on every click while the wordings do not;
-        //        • the PROMPT TEXT above the plates, composed HERE from the record's variant id and
-        //          this client's own localization (the words never ride the wire — see
-        //          RemoteDecisionPrompt).
-        //      All three vanish together the moment the owner's row does — including when they
-        //      focus another character and their own board goes blank at this seat.
-        //
-        //      SINCE ModBuild 105 THE FIRST PASS IS A FALLBACK, NOT THE MAIN PATH (user report
-        //      2026-08-09: "Die Entscheidungsbuttons sollen auch 1:1 aussehen … Es sah so aus als
-        //      wären die Buttons und der Text eigens nachgebaut und hier nicht die Spielelemente
-        //      genutzt"). For the take-damage prompt this board now clones THIS CLIENT'S OWN
-        //      TakeDamagePanel widgets and drives them from wire record 29 — real button art, real
-        //      damage/fatal icons, real damage number, every wording in the VIEWER's own language
-        //      (see RemoteDecisionWidgets). The mod-drawn plates below are what stands in when that
-        //      cannot be done: a prompt whose widgets a peer cannot resolve (a DialogPopup), a
-        //      client that owns no short-rest dialog yet, or a sender predating record 29.
-        bool realWidgets = _decisionWidgets != null && _decisionWidgets.Refresh(owner);
-        SetDecisionLines(realWidgets ? null : owner.DecisionLines);
-        ApplyDecisionOptionStates(realWidgets ? null : owner.DecisionOptionStates);
-        // The idle drawer is SetDecisionLines' own "a prompt is docked but I have no labels" look;
-        // with the real widgets up it would sit behind them, so it is forced down here.
-        if (realWidgets && _drawerIdle != null && _drawerIdle.gameObject.activeSelf)
-            _drawerIdle.gameObject.SetActive(false);
-        SetDecisionPrompt(actor, owner, realWidgets);
 
-        // ---- SYNCED USE-BAR DRAWER (wire record 25 — the SECOND drawer, the same 2026-08-08
-        //      ruling). Two passes, the same structure/state split the decision row uses:
-        //        • the bar STRUCTURE — which of the four bars the owner has up and how many slots
-        //          each shows — as inert tile rows below the mirrored decision row;
-        //        • their per-slot STATES (offered / dimmed / chosen) and each bar's open
-        //          element/option sub-picker, repainted without rebuilding the rows.
-        //      Both vanish the moment the owner's bars do — including when the owner focuses
-        //      another character and a bar render-hides on their own board.
-        SetUseBars(owner);
+        // ---- SYNCED DECISION OPTION STATES (wire records 23/24) -------------------------------
+        // The decision row's SECOND pass, split off Refresh's first for the reason stated there:
+        // greyed / dimmed / chosen move on a click, and HOVER / PRESS (bits 3/4) move under a
+        // pointer that is nowhere near still for 250 ms. The `realWidgets` answer is read back off
+        // the mirror rather than recomputed — RemoteDecisionWidgets.Showing IS the value
+        // Refresh's own call returned — so the two passes cannot disagree about which renderer is
+        // up. While the game widgets are up there are no plates and the call early-returns on an
+        // empty list; their own hover/press is driven by TickDecisionPointer, which was lifted out
+        // of this cadence first and is the precedent for this whole method.
+        bool realWidgets = _decisionWidgets != null && _decisionWidgets.Showing;
+        ApplyDecisionOptionStates(realWidgets ? null : owner.DecisionOptionStates);
+
+        // ---- SYNCED USE-BAR SLOT STATES (wire record 25) --------------------------------------
+        // The drawer's SECOND pass, split off its structure pass for the same reason and gated the
+        // same way (two SameStates walks over the wire buffers, early-returning while no row is
+        // docked). The STRUCTURE and the SYMBOLS stay on the cadence in Refresh — see there.
         ApplyUseBarStates(owner);
-        // …AND THE SLOT SYMBOLS (user 2026-08-13: "alle anderen Dinge wie entscheidungen wegen
-        // Gegenständen etc. sieht man nur eine box … das gleiche Symbol vom Spiel"). A THIRD pass,
-        // for the same reason the states are a second one: the game re-decorates a slot in place
-        // while the bar structure stands still.
-        ApplyUseBarSymbols(actor, owner);
 
         // ---- FOLLOW / PIN toggle (defect (a)) -------------------------------------------------
         // The owner's tray anchor mode now rides the board-UI record (byte 1 bit 2), so this cap
@@ -1737,30 +1928,12 @@ internal sealed class RemoteBoardFurniture
         }
         SetSnap(snapMask);
 
-        _settled = true;
 
-        StateLine = $"use={(armed ? "armed" : "idle")}, " +
-                    $"buttons={(synced ? "0x" + owner.BoardButtonsMask.ToString("X2") : "legacy")}, " +
-                    $"capStates={(owner.HasCapStates ? "0x" + owner.CapStateMask.ToString("X2") : "legacy")}, " +
-                    $"wanted={wantedMask}{(synced ? "(synced)" : string.Empty)}, " +
-                    $"snap={snapMask}{(synced ? "(hover)" : "(occupancy edge)")}, " +
-                    $"tray={(owner.TrayPinned ? "PINNED" : "FOLLOW")}{(synced ? "(synced)" : "(default)")}, " +
-                    $"capLabels[confirm={(owner.ConfirmCapLabel != null ? "'" + owner.ConfirmCapLabel + "'" : "neutral")}, " +
-                    $"skip={(owner.SkipCapLabel != null ? "'" + owner.SkipCapLabel + "'" : "neutral")}, " +
-                    $"undo={(owner.UndoCapLabel != null ? "'" + owner.UndoCapLabel + "'" : "neutral")}, " +
-                    $"use={(owner.ItemUseCapLabel != null ? "'" + owner.ItemUseCapLabel + "'" : "neutral")}], " +
-                    // WHICH RENDERER IS DRAWING THE DECISION — the one fact a "1:1 sieht falsch aus"
-                    // report needs from a hardware log without a screenshot. 'GAME WIDGETS' means
-                    // this board shows a clone of THIS client's own TakeDamagePanel (records
-                    // 12/24/29, the ModBuild 105 path); 'plates' means the mod-drawn fallback, and
-                    // it says WHY.
-                    $"decision={(_decisionWidgets != null && _decisionWidgets.Showing ? "GAME WIDGETS (cloned, records 12/24/29)" : "plates: " + (_decisionWidgets != null ? _decisionWidgets.Reason : "-"))}" +
-                    $", plates={(_shownDecisionLines != null ? _shownDecisionLines.Split('\n').Length + " synced button(s)" : "drawer")}" +
-                    $"[{DescribeStates(_shownOptionStates, _decisionPlates.Count)}]" +
-                    // Single quotes around the line, like the cap labels above: a nested \" inside
-                    // an interpolation hole trips the patch-inventory source scanner.
-                    $", prompt={(_shownPromptText != null ? "'" + StripRichText(_shownPromptText) + "'" : "none")}" +
-                    $", useBars={(owner.UseBarsMask == 0 ? "none" : "0x" + owner.UseBarsMask.ToString("X2") + " (" + _useBarRows.Count + " row(s))")}";
+        // The furniture has now applied the owner's real state at least once, so the next pass may
+        // ANIMATE its transitions rather than seed them. This latch lives here rather than in
+        // Refresh because all three of its readers moved here with it: the keycap dust burst above,
+        // the item-USE cap's SetShown and ApplyCapPress's first-press suppression.
+        _settled = true;
     }
 
     /// <summary>
@@ -1776,9 +1949,10 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     private readonly TMPro.TextMeshPro? _shortRestEngraving, _longRestEngraving, _pinEngraving;
 
-    /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first refresh
+    /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first pass
     /// always states it). Change-gated because both writes it drives — a TMP label and three
-    /// material colours — are exactly the per-tick churn the 4 Hz cadence exists to avoid.</summary>
+    /// material colours — are exactly the per-tick churn that must not run per frame; this setter
+    /// is on the <see cref="TickWire"/> path, so the gate is what keeps it free.</summary>
     private bool? _shownPinned;
 
     /// <summary>Apply the owner's tray anchor mode to the inert FOLLOW/PIN cap: the local board's
@@ -1955,9 +2129,9 @@ internal sealed class RemoteBoardFurniture
     }
 
     /// <summary>Change-safe activeSelf flip for a plain furniture root.</summary>
-    /// <summary>Show/hide one engraved caption. Change-gated: this runs on the 4 Hz content
-    /// cadence and a SetActive that is already right is exactly the churn that cadence exists to
-    /// avoid.</summary>
+    /// <summary>Show/hide one engraved caption. Change-gated: its callers are on the per-frame
+    /// <see cref="TickWire"/> path, and a SetActive that is already right is exactly the churn that
+    /// must never reach a frame loop.</summary>
     private static void SetShown(TMPro.TextMeshPro? label, bool shown)
     {
         if (label != null && label.gameObject.activeSelf != shown)
@@ -2797,6 +2971,13 @@ internal sealed class RemoteBoardFurniture
     /// would rebuild a handful of quads several times per decision; this repaints four material
     /// colours instead, and only when the bytes actually change.</para>
     ///
+    /// <para>AND WHY THAT PASS IS THE ONE THAT WENT PER FRAME (<see cref="TickWire"/>) while the
+    /// row build stayed on the 4 Hz cadence: bits 3/4 are HOVER and PRESS. A pointer crossing an
+    /// option and a button held down are both shorter than 250 ms, so on the cadence they arrived
+    /// late or not at all. The gate here is <see cref="SameStates"/> over at most
+    /// <c>NetProtocol.DecisionStateMaxOptions</c> = 8 bytes, and it early-returns outright while no
+    /// plate row is docked — which is nearly always.</para>
+    ///
     /// <para>A sender that predates record 23 delivers no states: every plate then keeps the plain
     /// look every build before this one drew — never a guess at which option is live, which would
     /// be a lie about somebody else's decision.</para>
@@ -3241,9 +3422,15 @@ internal sealed class RemoteBoardFurniture
     /// it showed in every build before this one — an anonymous plate — because a symbol from
     /// somebody else's decision would be worse than none.</para>
     ///
-    /// <para>Runs on the content cadence beside <see cref="ApplyUseBarStates"/> rather than at build
-    /// time: the game re-decorates a slot in place (an item is spent, a bonus is consumed) without
-    /// the bar's STRUCTURE changing, and the structure key is what gates the rebuild.</para>
+    /// <para>Runs on the content cadence rather than at build time: the game re-decorates a slot in
+    /// place (an item is spent, a bonus is consumed) without the bar's STRUCTURE changing, and the
+    /// structure key is what gates the rebuild. It stays on that cadence — unlike
+    /// <see cref="ApplyUseBarStates"/>, which went per frame — because it is UNGATED at entry and
+    /// walks THIS client's live bar containers child by child through
+    /// <c>RemoteUseBarSymbols.Resolve</c> (up to <c>UseBarsCount</c> = 4 bars x
+    /// <c>UseBarsMaxSlots</c> = 8 children, with a component read per child). That is a foreign-
+    /// hierarchy walk, and it belongs beside the rebuild it decorates rather than in a frame
+    /// loop.</para>
     /// </summary>
     private void ApplyUseBarSymbols(CPlayerActor? actor, RemoteAvatar owner)
     {
@@ -3314,6 +3501,13 @@ internal sealed class RemoteBoardFurniture
     /// splits its labels from its option states: the structure is constant for a whole bar while the
     /// states move on every click. This repaints a handful of material colours; a rebuild would
     /// re-create quads several times per decision.</para>
+    ///
+    /// <para>PER FRAME (<see cref="TickWire"/>), while the structure and the symbols stay on the
+    /// 4 Hz cadence. Bits 3/4 here are HOVER and PRESS, exactly as on the decision option byte, and
+    /// a slot lighting under the owner's pointer does not last 250 ms. The gate is two
+    /// <see cref="SameStates"/> walks over at most <c>NetProtocol.UseBarsCount</c> = 4 flag bytes
+    /// and <c>UseBarsCount * UseBarsMaxSlots</c> = 32 slot bytes, and it early-returns outright
+    /// while no row is docked.</para>
     /// </summary>
     private void ApplyUseBarStates(RemoteAvatar owner)
     {

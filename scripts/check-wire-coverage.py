@@ -150,7 +150,22 @@ EXEMPT = {
     ("Cards", "RevealEnterDegrees"): ("COMFORT", "as RevealMode"),
     ("Cards", "RevealExitDegrees"): ("COMFORT", "as RevealMode"),
     ("Cards", "RevealIgnoreWhenGrabbing"): ("COMFORT", "as RevealMode"),
-    ("Cards", "FanFollowSmoothing"): ("COMFORT", "how lazily THEIR fan chases THEIR palm; the mirror follows the synced hand"),
+    # [Cards] FanFollowSmoothing STOOD HERE AND IS NOW WIRED (id 181, 2026-08-28) -- and the
+    # exemption it leaves behind is the FOURTH in this file to have described a mechanism nobody
+    # checked against the mechanism. It read "the mirror follows the synced hand", which is true of
+    # the INPUT and silent about the RATE: RemoteHandFan re-derived the target from the peer's
+    # synced hand correctly and then eased toward it at its own `const 16f`.
+    #
+    # WORSE THAN A MAGNITUDE MISMATCH, which is why it outranked its three siblings: this dial has a
+    # QUALITATIVE end. At 0 CardFan.Tick does not ease slowly, it takes the other branch entirely and
+    # WELDS the fan to the palm -- so an owner who chose a rigid fan was drawn eased on every peer's
+    # screen, an animation nobody else had. The mirror branches on zero now rather than scaling by
+    # it (scaling gives k = 0, which FREEZES the fan where it last stood -- the opposite of rigid).
+    #
+    # AND THE LINE OUTLIVED ITS OWN FIELD BY ONE COMMIT. ab1e119c landed id 181 and did not delete
+    # this entry, so the checker was RED on a clean tree until the lane that consumed the field
+    # reported it. Landing a field and retiring its exemption are one change; splitting them across
+    # commits leaves the guard failing for reasons unrelated to whoever next runs it.
     ("Cards", "FanFollowDeadzone"): ("COMFORT", "as FanFollowSmoothing"),
     # [Cards] FanGazeBias STOOD HERE AND IS NOW WIRED (id 239, 2026-08-28). It is the one entry that
     # went COMFORT -> PENDING -> wired, and the MIDDLE STEP IS THE POINT.

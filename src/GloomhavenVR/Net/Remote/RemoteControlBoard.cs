@@ -753,9 +753,28 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _focusOutline?.Tick(visible: true, _tag.AvatarQuad, OwnerTag.AvatarQuadSize);
 
         // Content (objectives / elements / round / initiative / rest / pile counts / active cards)
-        // on the shared cadence — everything below is a MODEL read, not a wire read. Before the
-        // actor exists only the GLOBAL panels refresh (they are bit-identical on every client);
-        // the per-actor surfaces stay blank until the host assigns the character.
+        // on the shared cadence. Before the actor exists only the GLOBAL panels refresh (they are
+        // bit-identical on every client); the per-actor surfaces stay blank until the host assigns
+        // the character.
+        //
+        // THIS COMMENT USED TO READ "everything below is a MODEL read, not a wire read", AND THAT
+        // SENTENCE WAS THE DEFECT. It was true of the objectives, the elements, the initiative
+        // track and the active-card column, and it is why the 250 ms gate looked safe — but the
+        // furniture refresh reached from here (RemoteBoardFurniture.Refresh) was almost entirely
+        // WIRE reads: the owner's live button visibility, their cap states, their cap PRESS, their
+        // cap wordings, their decision option states, their use-bar slot states, the FOLLOW/PIN
+        // toggle, the wanted glow and the snap-hover rim. Every one of those landed up to 250 ms
+        // after the owner saw it, and anything briefer than the gate period — a quick press, a
+        // pointer crossing an option — fell between two samples and was never drawn at all. The
+        // SENDER had already ruled the other way: NetAvatarDriver pre-empts its own 5 Hz extras
+        // gate OUTRIGHT for those records so they land on the peer's next FRAME, and the receiver
+        // was spending that guarantee in a queue.
+        //
+        // The wire half now runs per frame in _furniture.TickWire, immediately after this block
+        // (see below). What is still reached from HERE is genuinely cadence work: model reads, and
+        // the furniture's own structural half — row rebuilds, a cloned-widget mirror walk, a
+        // localized string composition, a TMP re-measure and a walk over this client's live use-bar
+        // children. Read RemoteBoardFurniture.Refresh / TickWire for the itemised split.
         if (Time.unscaledTime >= _nextRefreshAt)
         {
             _nextRefreshAt = Time.unscaledTime + RemoteBoardContent.RefreshSeconds;
@@ -770,6 +789,25 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // spends at its creation order instead of its board's cluster slot.
             _nextOrderSweepAt = 0f;
         }
+
+        // THE FURNITURE'S WIRE HALF, PER FRAME — the owner's button mask, cap states, cap PRESS,
+        // cap wordings, decision option states (hover/press included), use-bar slot states,
+        // FOLLOW/PIN, the item-USE cap, the wanted glow and the snap-hover rim. Beside
+        // TickDecisionPointer above and for the identical reason it was lifted first: these are
+        // EDGES on live state, and a 4 Hz sample is longer than the events last.
+        //
+        // DELIBERATELY AFTER the cadence block rather than before it. On a cadence frame the
+        // structural pass runs first and this pass then paints what it just built in the SAME
+        // frame — a row that Refresh rebuilt (which nulls its applied-state gates) never renders
+        // one frame in its unpainted default look, and the use-bar drawer is never seated against
+        // a decision-row height that has already moved.
+        //
+        // COST ON THE UNCHANGED PATH: ~60 comparisons, zero allocations, zero GetComponent, zero
+        // scene query — the arithmetic is in TickWire's own doc. At a four-player table this runs
+        // for the three remote peers: 3 x 90 Hz x ~60 compares is under 0.01 ms of the 11.11 ms
+        // budget. The expensive halves (row rebuilds, the widget-mirror walk, the use-bar symbol
+        // resolve) stay on the 4 Hz cadence above, where they always were.
+        _furniture?.TickWire(_owner, _slotOccupiedMask);
 
         // THE MIRRORED WIDGETS RUN PER FRAME, not on the content cadence. They are clones of live
         // game panels driven from the original (RemoteWidgetMirror), and the user's requirement is
@@ -908,7 +946,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // hard false here because occupancy was a per-ACTOR read; since it rides the wire, an
             // actorless peer's recesses are knowable too, so the masks SeatSlots just resolved are
             // passed through unchanged and the join-time board gets its snap glow like any other.
-            _furniture?.Refresh(null, _owner, _slotOccupiedMask);
+            _furniture?.Refresh(null, _owner);
             // Pile counts are wire-fed too (extension record 15), so an ACTORLESS peer's stacks
             // can already show the owner's real numbers — before this the actor path was the
             // only writer and a join-time board stood at 0/0/0 regardless.
@@ -960,7 +998,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // not already show. It no longer needs the reveal answer or the face mask: their only
             // consumer was the half-card divider, which the 1:1 round deleted (the owner's own
             // half-poke zones are invisible by design, so a peer must not see a marker either).
-            _furniture?.Refresh(actor, _owner, _slotOccupiedMask);
+            _furniture?.Refresh(actor, _owner);
 
             // Pile counts. PREFERRED SOURCE since the count-lag defect (hardware MP test
             // 2026-08-04, 'ABGEWORFEN 0' standing while the owner's board read 2): the OWNER's
