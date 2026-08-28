@@ -60,6 +60,15 @@
                       LogicalName="GloomhavenVR.Assets.grabbar_bronze_n.png" />
     <EmbeddedResource Include="Assets\grabbar_bronze_mrs.png"
                       LogicalName="GloomhavenVR.Assets.grabbar_bronze_mrs.png" />
+
+    <!--
+      THE SHARED-WINDOW BADGE. Replaces the blue grab bar that used to mark a multiplayer window:
+      a small unobtrusive 'two players' glyph in the window's top-right corner, RGBA with a keyed
+      alpha. Cut from the six-variant sheet the user picked from, not regenerated — the sheet is
+      what was approved.
+    -->
+    <EmbeddedResource Include="Assets\net_shared.png"
+                      LogicalName="GloomhavenVR.Assets.net_shared.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Reflection;
 using UnityEngine;
 
 namespace GloomhavenVR.Core;
@@ -44,9 +40,6 @@ internal static class GrabBarTexture
     /// <summary>Where the shaft ends and the far CAP band begins, in <c>u</c>.</summary>
     internal const float ShaftU1 = GrabBarMesh.ShaftU1;
 
-    private const string Scope = "Core";
-
-    private static readonly Dictionary<string, Texture2D?> _cache = new();
 
     /// <summary>
     /// The three maps one rod draws with. <see cref="Normal"/> and <see cref="Mrs"/> are null for
@@ -105,103 +98,11 @@ internal static class GrabBarTexture
         // ever samples, so the pipeline does not build them and this does not ask for them.
         bool lit = style != GrabBarStyle.Generic;
         return new Maps(
-            Load(ResourceName(baseName, string.Empty), linear: false),
-            lit ? Load(ResourceName(baseName, "_n"), linear: true) : null,
-            lit ? Load(ResourceName(baseName, "_mrs"), linear: true) : null);
+            EmbeddedTexture.Get(ResourceName(baseName, string.Empty), linear: false),
+            lit ? EmbeddedTexture.Get(ResourceName(baseName, "_n"), linear: true) : null,
+            lit ? EmbeddedTexture.Get(ResourceName(baseName, "_mrs"), linear: true) : null);
     }
 
-    /// <summary>
-    /// Decode one embedded PNG, once per process.
-    ///
-    /// <para>A NULL IS CACHED TOO, on purpose. Without that, a missing resource would re-attempt a
-    /// <c>LoadImage</c> on every bar built — and the window bars are rebuilt whenever a window is —
-    /// which turns one silent failure into a per-window allocation and a log line nobody can read
-    /// past. This project has shipped a probe that kept blitting for 44,200 ticks after it had its
-    /// answer; a failed lookup is an answer.</para>
-    ///
-    /// <para><paramref name="linear"/> is not cosmetic: a normal or an MRS map decoded as sRGB
-    /// feeds the shader gamma-curved numbers where it expects raw ones, which shows up as a normal
-    /// that leans the wrong way and a roughness that is wrong everywhere except 0 and 1.</para>
-    /// </summary>
-    private static Texture2D? Load(string resource, bool linear)
-    {
-        if (_cache.TryGetValue(resource, out Texture2D? cached))
-            return cached;
-
-        Texture2D? tex = null;
-        try
-        {
-            byte[]? bytes = ReadResource(resource);
-            if (bytes != null)
-            {
-                // mipChain: true — these rods are seen at every distance from a hand's width to
-                // across the room, and an unmipped 1024-wide strip on a 24 mm rod is the classic
-                // per-eye shimmer this project has already chased once in the wall fade.
-                tex = new Texture2D(2, 2, TextureFormat.RGBA32, mipChain: true, linear: linear);
-                if (tex.LoadImage(bytes))
-                {
-                    // The strip wraps around the rod in v and butts cap-to-cap in u; Repeat is
-                    // correct in both and Clamp would show a seam line at v=0.
-                    tex.wrapMode = TextureWrapMode.Repeat;
-                    tex.filterMode = FilterMode.Bilinear;
-                    tex.anisoLevel = 4;
-                    tex.Apply(updateMipmaps: true, makeNoLongerReadable: true);
-                    VRLog.Info(Scope,
-                        $"Grab-bar map '{resource}' decoded: {tex.width}x{tex.height} " +
-                        $"({bytes.Length} bytes, linear={linear}).");
-                }
-                else
-                {
-                    UnityEngine.Object.Destroy(tex);
-                    tex = null;
-                    VRLog.Warn(Scope, $"Grab-bar map '{resource}' failed to decode.");
-                }
-            }
-            else
-            {
-                VRLog.Warn(Scope, $"Grab-bar map '{resource}' is not embedded in the plugin.");
-            }
-        }
-        catch (Exception e)
-        {
-            VRLog.Warn(Scope, $"Grab-bar map '{resource}' load threw ({e.GetType().Name}).");
-            tex = null;
-        }
-
-        _cache[resource] = tex;
-        return tex;
-    }
-
-    private static byte[]? ReadResource(string name)
-    {
-        Assembly asm = typeof(GrabBarTexture).Assembly;
-        Stream? stream = asm.GetManifestResourceStream(name);
-        if (stream == null)
-        {
-            // Suffix scan, same degradation MainMenuLogoSwap uses: a renamed Assets folder becomes
-            // a log line rather than a silent no-op.
-            string tail = name.Substring(name.LastIndexOf('.', name.Length - 5) + 1);
-            foreach (string candidate in asm.GetManifestResourceNames())
-            {
-                if (!candidate.EndsWith(tail, StringComparison.OrdinalIgnoreCase))
-                    continue;
-                VRLog.Warn(Scope,
-                    $"Embedded resource '{name}' not found; using '{candidate}' instead — the " +
-                    "LogicalName in GloomhavenVR.csproj and ResourceName here have drifted apart.");
-                stream = asm.GetManifestResourceStream(candidate);
-                break;
-            }
-        }
-        if (stream == null)
-            return null;
-
-        using (stream)
-        using (var ms = new MemoryStream())
-        {
-            stream.CopyTo(ms);
-            return ms.ToArray();
-        }
-    }
 }
 
 /// <summary>
