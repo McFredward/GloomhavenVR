@@ -21,6 +21,25 @@
     -->
     <EmbeddedResource Include="Assets\GloomhavenVR_logo.png"
                       LogicalName="GloomhavenVR.Assets.GloomhavenVR_logo.png" />
+
+    <!--
+      THE FOUR GRAB-BAR ALBEDO STRIPS, for the same reason and by the same route as the wordmark
+      above: the bundle has been byte-identical since ModBuild 296 and every install since is
+      plugin-DLL-only, so four small handle textures do not get to cost the user a re-install.
+      1024x256 each, ~1.4 MB for the set. LogicalName is pinned so a folder rename cannot silently
+      change the manifest name Core/GrabBarTexture.cs asks for. They are BUILT, not hand-painted —
+      scripts/grabbar-strips.py composites them from the swatches in unity/board-prep/grabbar/ and
+      reads the band boundary out of GrabBarTexture.ShaftU0 so the layout cannot drift away from
+      the mesh's UVs.
+    -->
+    <EmbeddedResource Include="Assets\grabbar_oak.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_oak.png" />
+    <EmbeddedResource Include="Assets\grabbar_steel.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_steel.png" />
+    <EmbeddedResource Include="Assets\grabbar_bronze.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_bronze.png" />
+    <EmbeddedResource Include="Assets\grabbar_generic.png"
+                      LogicalName="GloomhavenVR.Assets.grabbar_generic.png" />
   </ItemGroup>
 
   <ItemGroup>
