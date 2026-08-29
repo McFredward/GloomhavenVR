@@ -231,6 +231,7 @@ public class Plugin : BaseUnityPlugin
     /// default). Consulted live by Core.WallSegmentFade each frame.
     /// </summary>
     internal static ConfigEntry<bool> WallFade = null!;
+    internal static ConfigEntry<bool> ControlsLesson = null!;
 
 
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
@@ -703,6 +704,17 @@ public class Plugin : BaseUnityPlugin
             "solid — the VR behavior so far. Purely visual and local (per-renderer material " +
             "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
             "settings panel.");
+        ControlsLesson = Config.Bind(
+            "Compat", "ControlsLesson", Defaults.ControlsLesson,
+            "Teach the VR controls during the first tutorial. Your hands become the controller " +
+            "you are actually holding, the key you need lights up on it, and every step ends " +
+            "when you DO the thing rather than when you have read about it: point and click, " +
+            "reach and grab, drag the table, zoom and turn it, take a card, hold one properly " +
+            "in your hand, fly, snap-turn, pick with a fingertip, reel a window in, ping a hex " +
+            "and re-seat yourself. Any step can be passed with NEXT and the whole lesson with " +
+            "SKIP, so it can never strand you. Runs in tutorial scenarios only, which are " +
+            "single-player, so nothing about it goes on the wire. OFF: the tutorial behaves as " +
+            "before.");
         // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13). "OFF restores fully vanilla
         // tutorial behavior" was true and that is exactly the problem: vanilla's camera-
         // familiarization step waits on CameraRoomButtonPressed, whose only producer

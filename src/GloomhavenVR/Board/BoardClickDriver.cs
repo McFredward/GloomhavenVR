@@ -272,6 +272,10 @@ internal static class BoardClickDriver
 
                 LogTouchCommit(hand);
                 RequestClick(hand, "fingertip touch");
+                // Controls lesson: the "hold the grip and touch it" step. Reported HERE rather
+                // than at the contact test, so only a commit that actually passed every gate
+                // (grip held, depth reached, no UI in the way, cooldown clear) counts.
+                Compat.ControlsProgress.Notify(Compat.ControlAction.FingertipPick);
 
                 // P5 (MISSION A.8): poking an actor miniature additionally announces
                 // the actor on the bus — WorldUI opens its world-space stat panel.
@@ -648,6 +652,8 @@ internal static class BoardClickDriver
         {
             ArmPlacementTile();
             RequestClick(hand, "trigger");
+            // Controls lesson: the "point and pull the trigger" step.
+            Compat.ControlsProgress.Notify(Compat.ControlAction.LaserClick);
         }
     }
 

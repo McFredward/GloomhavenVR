@@ -194,6 +194,124 @@ internal static partial class Loc
 
     private static Dictionary<string, Dictionary<string, string>> Build() => new(64)
     {
+        // ---- the controls lesson (Compat/Tutorial/Controls) ----
+        // Each taught control is a {id}_t title and a {id}_b body. The wording names the KEY
+        // in words as well as lighting it, because two of the shipped controller models cannot
+        // light every key: the Valve Index's grip is a force sensor that moves nothing, and the
+        // generic fallback device has no face buttons at all.
+        ["ctl_next"] = Pair("NEXT", "WEITER"),
+        ["ctl_cant"] = Pair("NOT NOW", "GEHT GERADE NICHT"),
+        ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
+        ["ctl_good"] = Pair("Done.", "Erledigt."),
+
+        ["ctl_welcome_t"] = Pair("Your controllers", "Deine Controller"),
+        ["ctl_welcome_b"] = Pair(
+            "Your hands have become the controller you are actually holding. From here on a key "
+            + "lights up on it — do that, and the step moves on by itself.\n\n"
+            + "NEXT passes a step you cannot do right now. SKIP ends the lesson.",
+            "Deine Hände sind jetzt der Controller, den du wirklich in der Hand hältst. Ab hier "
+            + "leuchtet jeweils eine Taste darauf auf — mach das, und der Schritt geht von "
+            + "selbst weiter.\n\nWEITER überspringt einen Schritt, der gerade nicht geht. "
+            + "ÜBERSPRINGEN beendet die Erklärung."),
+
+        ["ctl_laser_t"] = Pair("Point and click", "Zeigen und auswählen"),
+        ["ctl_laser_b"] = Pair(
+            "A laser comes out of each hand. Point it at something — a hex, a figure, a button — "
+            + "and pull the TRIGGER.",
+            "Aus jeder Hand kommt ein Laserstrahl. Ziel damit auf etwas — ein Feld, eine Figur, "
+            + "eine Taste — und drück den ABZUG."),
+
+        ["ctl_grab_t"] = Pair("Reach out and grab", "Zugreifen"),
+        ["ctl_grab_b"] = Pair(
+            "You do not have to point at everything. Move your hand to the thing itself and "
+            + "squeeze the TRIGGER. Figures, chests, gold piles, traps and cards all work this way.",
+            "Du musst nicht auf alles zeigen. Fahr mit der Hand direkt hin und drück den ABZUG. "
+            + "Figuren, Truhen, Geldhaufen, Fallen und Karten gehen alle so."),
+
+        ["ctl_drag_t"] = Pair("Move the table", "Den Tisch verschieben"),
+        ["ctl_drag_b"] = Pair(
+            "Press ONE thumbstick straight down, hold it, and move your hand: the whole table "
+            + "comes with you.",
+            "Drück EINEN Stick gerade nach unten, halte ihn und bewege die Hand: Der ganze Tisch "
+            + "kommt mit."),
+
+        ["ctl_zoom_t"] = Pair("Zoom in and out", "Heran- und wegzoomen"),
+        ["ctl_zoom_b"] = Pair(
+            "Press BOTH thumbsticks down. Pull your hands apart to zoom in, bring them together "
+            + "to zoom out.",
+            "Drück BEIDE Sticks nach unten. Zieh die Hände auseinander, um heranzuzoomen, und "
+            + "führ sie zusammen, um wegzuzoomen."),
+
+        ["ctl_rotate_t"] = Pair("Turn the table", "Den Tisch drehen"),
+        ["ctl_rotate_b"] = Pair(
+            "With both thumbsticks still held down, turn your hands around each other — the "
+            + "table turns with them.",
+            "Mit beiden Sticks weiterhin gedrückt: Dreh die Hände umeinander — der Tisch dreht "
+            + "sich mit."),
+
+        ["ctl_card_take_t"] = Pair("Take a card", "Eine Karte nehmen"),
+        ["ctl_card_take_b"] = Pair(
+            "Turn a palm up towards you and your hand of cards fans out in front of it. Take one "
+            + "with the TRIGGER.",
+            "Dreh eine Handfläche zu dir, dann fächert sich deine Kartenhand davor auf. Nimm eine "
+            + "mit dem ABZUG."),
+
+        ["ctl_card_hold_t"] = Pair("Hold a card properly", "Eine Karte richtig halten"),
+        ["ctl_card_hold_b"] = Pair(
+            "A card you take floats so that you can read it. Hold the GRIP button as well and it "
+            + "sits in your hand instead, between thumb and finger — turn it round, show it to "
+            + "the others. Let the grip go and it floats again.",
+            "Eine genommene Karte schwebt so, dass du sie lesen kannst. Hältst du zusätzlich die "
+            + "GREIFTASTE, liegt sie stattdessen wirklich in deiner Hand, zwischen Daumen und "
+            + "Zeigefinger — dreh sie um, zeig sie den anderen. Lässt du die Greiftaste los, "
+            + "schwebt sie wieder."),
+
+        ["ctl_fly_t"] = Pair("Move yourself", "Dich selbst bewegen"),
+        ["ctl_fly_b"] = Pair(
+            "Push a thumbstick to move through the room. This moves YOU, not the table.",
+            "Drück einen Stick in eine Richtung, um dich durch den Raum zu bewegen. Das bewegt "
+            + "DICH, nicht den Tisch."),
+
+        ["ctl_turn_t"] = Pair("Turn round", "Dich umdrehen"),
+        ["ctl_turn_b"] = Pair(
+            "Flick a thumbstick left or right to turn on the spot.",
+            "Tipp einen Stick nach links oder rechts, um dich auf der Stelle zu drehen."),
+
+        ["ctl_fingertip_t"] = Pair("Pick with a fingertip", "Mit der Fingerspitze auswählen"),
+        ["ctl_fingertip_b"] = Pair(
+            "Hold the GRIP button and touch the board with a fingertip. The grip is required on "
+            + "purpose: a hand that merely sweeps across the board must never select anything.",
+            "Halte die GREIFTASTE und tipp das Spielfeld mit einer Fingerspitze an. Die "
+            + "Greiftaste ist Absicht: Eine Hand, die nur über das Feld streicht, soll nie "
+            + "versehentlich etwas auswählen."),
+
+        ["ctl_reel_t"] = Pair("Pull a window closer", "Ein Fenster heranziehen"),
+        ["ctl_reel_b"] = Pair(
+            "Point the laser at a window's bar and hold the trigger to carry it. While you do, "
+            + "push the thumbstick forward to send it away and pull back to reel it in.",
+            "Ziel mit dem Laser auf die Leiste eines Fensters und halte den Abzug, um es zu "
+            + "tragen. Dabei schiebst du es mit dem Stick nach vorn weg und ziehst es nach "
+            + "hinten heran."),
+
+        ["ctl_ping_t"] = Pair("Mark a hex", "Ein Feld markieren"),
+        ["ctl_ping_b"] = Pair(
+            "Point at a hex and press A (X on the left controller) to mark it for everyone.",
+            "Zeig auf ein Feld und drück A (links X), um es für alle zu markieren."),
+
+        ["ctl_recenter_t"] = Pair("Re-seat yourself", "Dich neu setzen"),
+        ["ctl_recenter_b"] = Pair(
+            "Hold B and Y — the upper button on BOTH controllers — for a second and you are put "
+            + "back at the table.",
+            "Halte B und Y — die obere Taste auf BEIDEN Controllern — eine Sekunde lang, dann "
+            + "sitzt du wieder am Tisch."),
+
+        ["ctl_done_t"] = Pair("That is the lot", "Das war alles"),
+        ["ctl_done_b"] = Pair(
+            "Everything else the game explains as you go, and every control you have just "
+            + "learnt can be adjusted or switched off under VR Options.",
+            "Alles Weitere erklärt dir das Spiel unterwegs. Jede Steuerung, die du gerade "
+            + "gelernt hast, lässt sich in den VR-Einstellungen anpassen oder abschalten."),
+
         // ---- generic (frame pins / gear / rest / active) ----
         ["follow"] = Pair("FOLLOW", "FOLGEN"),
         ["pinned"] = Pair("PINNED", "FIXIERT"),

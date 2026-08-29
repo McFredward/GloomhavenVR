@@ -332,6 +332,9 @@ internal sealed class ProximityGrabber
             SetHighlighted(null);
         Held.OnGrab(_hand);
         _hand.SendHaptic(HapticPreset.GrabPulse);
+        // Controls lesson: "reach out and take hold of something". Any near grab counts —
+        // a figure, a prop or a card are all the same gesture, which is the thing being taught.
+        Compat.ControlsProgress.Notify(Compat.ControlAction.ProximityGrab);
         LogGrab($"{_hand.Side} grab — {_grabLabel}.");
     }
 

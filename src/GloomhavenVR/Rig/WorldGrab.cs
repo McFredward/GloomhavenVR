@@ -295,6 +295,9 @@ internal sealed class WorldGrab : MonoBehaviour
         // deliberate VR locomotion IS the "got familiar with the camera" the flat tutorial
         // waits for (Compat.TutorialVR; cold path = two static reads outside tutorials).
         Compat.TutorialVR.NotifyLocomotion(applied.magnitude / scale, 0f, 0f);
+        // Controls lesson: its "drag the table" step needs drag SEPARATELY from flying, which
+        // the bridge above deliberately conflates (any locomotion satisfies it).
+        Compat.ControlsProgress.Notify(Compat.ControlAction.WorldDrag, applied.magnitude / scale);
         // Spawn ring: the player just placed themselves. Closes the join-placement window for
         // good — nothing may teleport a moving player (VRRigDriver.NotifyPlayerLocomotion).
         VRRigDriver.NotifyPlayerLocomotion("world grab drag");
@@ -378,6 +381,12 @@ internal sealed class WorldGrab : MonoBehaviour
             Vector3.Distance(mid, _prevMid),
             Mathf.DeltaAngle(yawBefore, yaw),
             Mathf.Log(s / sBefore, 2f));
+        // Controls lesson: rotate and zoom are two SEPARATE steps, so they are reported apart —
+        // a player told to turn the table has not turned it by pulling their hands apart.
+        Compat.ControlsProgress.Notify(Compat.ControlAction.WorldRotate,
+            Mathf.Abs(Mathf.DeltaAngle(yawBefore, yaw)));
+        Compat.ControlsProgress.Notify(Compat.ControlAction.WorldZoom,
+            Mathf.Abs(Mathf.Log(s / sBefore, 2f)));
         // Spawn ring: rotating/zooming the table is the player placing themselves too — the
         // join-placement window closes here as well (VRRigDriver.NotifyPlayerLocomotion).
         VRRigDriver.NotifyPlayerLocomotion("world grab rotate/zoom");

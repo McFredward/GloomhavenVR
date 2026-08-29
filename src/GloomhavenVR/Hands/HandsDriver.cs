@@ -44,6 +44,7 @@ internal sealed class HandsDriver : MonoBehaviour
     private System.Action? _tickGrip;
     private System.Action? _tickCloth;
     private System.Action? _tickGhost;
+    private System.Action? _tickLesson;
 
     private void Awake()
     {
@@ -52,6 +53,10 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickGrip = Cards.HeldCardGrip.Tick;
         _tickCloth = SceneClothHands.Tick;
         _tickGhost = HandGhosts.Tick;
+        // The controls lesson lives here because it drives BOTH hands (their meshes step
+        // aside for the real controller) and because TickGuard already isolates a throw in
+        // this list — a teaching aid must never be able to starve the input pipeline.
+        _tickLesson = Compat.ControlsTutorial.Tick;
 
         // BOOT STALL (hardware log ModBuild 107 / b765a5b6e): the mod's first touch of
         // gloomhavenvr.bundle cost 981.48 ms on the main thread, under the black Unity splash.
@@ -122,6 +127,7 @@ internal sealed class HandsDriver : MonoBehaviour
         // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
         // guard so a material/shader surprise can never abort hand tracking itself.
         TickGuard.Run("Hands.Ghost", _tickGhost!);
+        TickGuard.Run("Hands.ControlsLesson", _tickLesson!);
     }
 
     /// <summary>
@@ -282,6 +288,10 @@ internal sealed class HandsDriver : MonoBehaviour
         // left holding a destroyed collider never simulates correctly again, and a scene that is
         // merely being re-entered keeps its curtains.
         SceneClothHands.Shutdown();
+        // Controls lesson: it holds a controller model parented to each hand and a list of the
+        // hand renderers it switched off. Both die with the tree below, but the panel does not
+        // and the progress channel would keep waiting for a step nobody can perform.
+        Compat.ControlsTutorial.Shutdown();
         if (_handsRoot != null)
             Destroy(_handsRoot);
         _handsRoot = null;

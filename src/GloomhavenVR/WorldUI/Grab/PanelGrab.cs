@@ -970,7 +970,13 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
                                * Rig.ComfortSettings.LaserCarryReelSpeed.Value * Time.unscaledDeltaTime;
                 float step = meters * scale; // + stick (FORWARD) = further away; see DIRECTION above
                 if (!HeadGuardRefuses(step, rayDir, scale))
+                {
                     _carryDistance += step;
+                    // Controls lesson: the "reel a window in" step, in APPARENT metres — the same
+                    // unit the player's dial is in, so the target does not change with the zoom.
+                    Compat.ControlsProgress.Notify(Compat.ControlAction.PanelReel,
+                        Mathf.Abs(meters));
+                }
             }
             _carryDistance = Mathf.Clamp(_carryDistance, _reelMinMeters * scale, _reelMaxMeters * scale);
         }

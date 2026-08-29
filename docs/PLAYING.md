@@ -18,6 +18,27 @@ Everything below is adjustable. The settings live in the game's own Options wind
 
 ---
 
+## The tutorial teaches all of this
+
+You do not have to read the tables below. Start the tutorial and, a couple of seconds in, **your
+hands become the controller you are actually holding** — a Quest 3, a Pico 4 or a Valve Index as
+its own model, anything else as a generic controller with the same keys in the same places. The
+key you need lights up on it, and each step ends when you *do* the thing, not when you have read
+about it.
+
+Thirteen controls, in the order they become useful: point and click, reach and grab, drag the
+table, zoom, rotate, take a card, hold one properly in your hand, fly, turn round, pick with a
+fingertip, reel a window in, ping a hex, re-seat yourself.
+
+**NEXT** passes any single step — useful when the room is not offering what a step asks for, such
+as an open window to reel in — and **SKIP** ends the lesson. Switch it off for good under
+**Komfort ▸ Hände & Zielen** (`[Compat] ControlsLesson`).
+
+*Valve's Steam Frame is shown the generic controller: no openly-licensed model of its controllers
+exists, and the licence on the ones we do ship forbids inventing one.*
+
+---
+
 ## Moving around
 
 | Action | Control |

@@ -55,6 +55,10 @@ internal sealed partial class VRRigDriver
         if (_rigRoot == null || _camera == null)
             return;
 
+        // Controls lesson: the "re-seat yourself" step. Reported once the recentre is going to
+        // happen, before the per-rig-kind branches — all three of them are a recentre.
+        Compat.ControlsProgress.Notify(Compat.ControlAction.Recenter);
+
         if (_kind == RigKind.Menu)
         {
             RecenterMenu();

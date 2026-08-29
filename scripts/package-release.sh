@@ -79,6 +79,11 @@ BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
 [[ -f "$BUNDLE" ]] || BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 if [[ -f "$BUNDLE" ]]; then
     cp "$BUNDLE" "$PLUGDIR/gloomhavenvr.bundle"
+    # The bundle carries third-party art (the WebXR Input Profiles controller models,
+    # MIT). That licence requires its notice to travel with the copies, and the bundle
+    # builder deliberately excludes .txt files from the archive itself, so the notice
+    # ships beside it.
+    cp "$ROOT/packaging/THIRD-PARTY.txt" "$PLUGDIR/THIRD-PARTY.txt"
 else
     cat > "$PLUGDIR/gloomhavenvr.bundle.README.txt" <<'EOF'
 gloomhavenvr.bundle — OPTIONAL asset bundle (hand gloves, card backing, table props).

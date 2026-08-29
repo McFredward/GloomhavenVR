@@ -416,7 +416,91 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 323;
+    public const ushort ModBuild = 324;
+    // Build 324: THE FIRST TUTORIAL NOW TEACHES THE CONTROLS, ON THE PLAYER'S OWN CONTROLLER.
+    // *** FULL INSTALL: the bundle changed, 70,204,340 -> 73,049,712 bytes (+2.8 MB for eight
+    // *** controller prefabs). A DLL-only update leaves the models missing; the lesson then runs
+    // *** without them and says so in the log, but that is not the feature. NO NEW WIRE FIELD.
+    //
+    //   User: "Die Ueberarbeitung des ersten Tutorials um Neulingen alles zu erklaeren inklusive
+    //   der Steuerung ... besorg dir die 3D Assets von allen ueblichen modernen VR-Controllern
+    //   (Quest, Pico, Index, Steam-Frame) ... Waehrend dieser Phase sollen die Haende mit dem
+    //   jeweiligen Controller ersetzt werden, die Tasten die man druecken soll, sollen dann auf
+    //   dem Controller entsprechend leuchten ... Baue auch jeweils Pruefungen ein, ob der Spieler
+    //   die Anweisung erledigt hat."
+    //
+    //   THE MODELS ARE THE VENDORS' OWN, not approximations: the W3C immersive-web
+    //   `webxr-input-profiles` asset package (MIT, Amazon 2019) is what browsers already draw for
+    //   each controller. Every profile in it uses the SAME standardised node names
+    //   (xr_standard_trigger / _squeeze / _thumbstick, a_/x_button, b_/y_button), which is the
+    //   whole reason one lesson table can light the right key on any device with no per-device
+    //   branch anywhere in the runtime.
+    //
+    //   STEAM FRAME IS NOT THERE, AND CANNOT BE. No openly-licensed model of its controllers
+    //   exists -- the profiles registry has no Valve entry beyond the Index -- and the upstream
+    //   trademark clause forbids inventing one. A Steam Frame therefore gets the generic
+    //   controller, whose keys sit in the same places, and every instruction names its key in
+    //   words as well as lighting it. Two other gaps are handled the same deliberate way: the
+    //   Index's grip is a force sensor that moves nothing (it ships as an ANCHOR with no mesh, so
+    //   a marker is placed on it instead), and the generic profile has no face buttons at all.
+    //
+    //   THE IMPORTER WAS CHECKED, NOT TRUSTED, AND IT DID NOT PASS. Unity 2021.3 cannot read
+    //   .glb, so controllers_pipeline.py parses the glTF directly and writes one OBJ per KEY --
+    //   that split is what makes "this key, now" a property-block write on one renderer. Unity's
+    //   OBJ importer then NEGATES X, which is the defect that looks almost right: every key in a
+    //   believable place, on the wrong side of the controller. It was caught on the first build
+    //   only because the pipeline records each mesh's bounds and signed volume in the manifest and
+    //   BuildControllers.cs compares them. The builder undoes the mirroring and decides FROM THE
+    //   IMPORTED MESH'S OWN SIGNED VOLUME whether the winding must also be reversed, then
+    //   re-checks both numbers before saving.
+    //
+    //   A PHASE BESIDE THE TUTORIAL, NOT A STEP INSIDE IT. The tutorial's chain is a serialized
+    //   CCustomLevelData blob: every hint appears and closes on a CLevelTrigger matching an engine
+    //   SEvent or a client UIEvent. There is no trigger for "the player turned the table with both
+    //   thumbsticks", so a controls step could only be woven in by inventing synthetic events --
+    //   writing mod state into the machine the whole rest of the tutorial depends on, to teach
+    //   something that is not a rule of Gloomhaven. The lesson runs ALONGSIDE that chain: no
+    //   message suppressed, no trigger posted, no game state written. The camera-step bridge in
+    //   TutorialVR is untouched.
+    //
+    //   THIRTEEN CONTROLS, AND THE LIST IS DOCS/PLAYING.MD CROSS-CHECKED AGAINST THE CODE that
+    //   reads each key: laser click, reach-and-grab, world drag, zoom, rotate, take a card, hold a
+    //   card in the hand, fly, snap turn, fingertip pick, reel a window, ping, recentre. The
+    //   thumbstick appears five times because five different motions live on it (clicked vs
+    //   pushed, one hand vs two) and merging them would light one key and teach nothing.
+    //
+    //   EVERY STEP IS CHECKED, and the checks are the mod's own subsystems reporting what the
+    //   player did (ControlsProgress). A separate channel from TutorialVR.NotifyLocomotion on
+    //   purpose: that one is load-bearing (it posts a real UIEvent to break the flat-camera
+    //   deadlock) and it deliberately CONFLATES drag with flight, which a lesson must separate.
+    //   Two steps are polled instead, because a card already in the hand is a STATE that would
+    //   never arrive as an event.
+    //
+    //   IT CANNOT STRAND ANYONE. NEXT passes any single step, SKIP ends the lesson, [Compat]
+    //   ControlsLesson switches it off for good, and a throw anywhere in it disarms the whole
+    //   thing for the session and puts the hands back. Renderers are restored BY IDENTITY -- only
+    //   the ones this switched off -- so a hand another subsystem had hidden stays hidden.
+    //
+    //   NOTHING ON THE WIRE. Tutorial scenarios are single-player and TutorialVR.IsTutorialActive
+    //   refuses while FFSNetwork.IsOnline, so no peer can see a hand that has become a controller.
+    //
+    //   THE ZOOM NEEDED NO CODE. The model hangs off the raw device pose, which is already under
+    //   the rig scale the mod zooms -- so the controller grows and shrinks with the hand it
+    //   replaces at every zoom level and hand size. ControllerVisual contains no scale arithmetic,
+    //   which is the point: any it contained would be a second opinion about a number the rig owns.
+    //
+    //   TEST:
+    //     1. START a tutorial scenario. After ~2.5 s the hands become YOUR controller and the
+    //        panel appears. The log line "controller reported as '<name>'" names the device the
+    //        runtime saw -- read it even when the right model appeared.
+    //     2. EVERY STEP: the named key must LIGHT UP on both controllers, and the bar must fill as
+    //        you perform the motion, not when you read it.
+    //     3. THE FIVE THUMBSTICK STEPS must be distinguishable: drag (one stick clicked), zoom and
+    //        rotate (both clicked), fly (pushed), snap turn (flicked).
+    //     4. NEXT on a step, SKIP mid-lesson: hands must come straight back, both times.
+    //     5. OFF -- [Compat] ControlsLesson = false -- no panel, no controllers, tutorial as before.
+    //     6. IF YOU HAVE A SECOND HEADSET: an Index or a Pico should show its own model.
+    //
     // Build 323: CHESTS, GOLD, TRAPS AND OBSTACLES GO IN THE HAND - THROUGH THE FIGURE MACHINERY.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //

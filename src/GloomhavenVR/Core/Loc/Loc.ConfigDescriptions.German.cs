@@ -1313,6 +1313,20 @@ internal static partial class Loc
             ["Compat/DisableComponents"] =
                 "Zusätzliche, kommagetrennte vollständige Komponenten-Typnamen (optional 'FullName, "
                 + "Assembly'), die abgeschaltet werden, solange VR aktiv ist, z. B. 'BeautifyEffect.Beautify'.",
+            ["Compat/ControlsLesson"] =
+                "Erklärt die VR-Steuerung während des ersten Tutorials. Deine Hände werden zu "
+                + "dem Controller, den du wirklich in der Hand hältst — Quest 3, Pico 4 und "
+                + "Valve Index als eigenes Modell, alles andere als generischer Controller mit "
+                + "denselben Tasten an denselben Stellen. Die Taste, die du brauchst, LEUCHTET "
+                + "darauf auf, und jeder Schritt endet, wenn du es TUST, nicht wenn du es "
+                + "gelesen hast: zeigen und klicken, zugreifen, Tisch verschieben, zoomen, "
+                + "drehen, Karte nehmen, Karte richtig in die Hand nehmen, fliegen, umdrehen, "
+                + "mit der Fingerspitze auswählen, ein Fenster heranziehen, ein Feld markieren "
+                + "und dich neu setzen. Jeden einzelnen Schritt kannst du mit WEITER übergehen "
+                + "und die ganze Erklärung mit ÜBERSPRINGEN beenden — sie kann dich also nie "
+                + "festsetzen. Läuft nur in Tutorial-Szenarien, und die sind Einzelspieler — "
+                + "es geht also nichts davon über die Leitung. Aus: Das Tutorial verhält sich "
+                + "wie bisher.",
             ["Compat/WallFade"] =
                 "Wände durchsichtig in VR. AN blendet eine Wand, die zwischen deinem Kopf und dem "
                 + "betrachteten Teil des Spielbereichs steht, ALS GANZES aus (weiches Auflösen, ~0.35s) bis auf "

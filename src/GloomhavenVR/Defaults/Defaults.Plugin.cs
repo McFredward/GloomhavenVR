@@ -91,6 +91,7 @@ internal static partial class Defaults
     internal const bool DisableVolumetricFog = true;                         // => [Compat] DisableVolumetricFog
     internal const string DisableComponents = "";                            // => [Compat] DisableComponents
     internal const bool WallFade = true;                                     // => [Compat] WallFade
+    internal const bool ControlsLesson = true;                               // => [Compat] ControlsLesson
     // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13): its OFF restored the vanilla
     // camera-step DEADLOCK the bridge exists to break (Compat/Tutorial/TutorialVR.cs).
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand

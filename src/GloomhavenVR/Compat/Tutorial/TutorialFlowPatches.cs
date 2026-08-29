@@ -40,6 +40,11 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
                 return;
 
+            // The controls phase. Queued rather than started: the hands, the asset bundle and
+            // the panel machinery all come up over the first second of a scenario. It runs
+            // ALONGSIDE the scripted chain dumped below and touches none of it.
+            ControlsTutorial.RequestForTutorial();
+
             var sb = new StringBuilder(2048);
             List<CLevelMessage>? msgs = __instance.m_MessagesToShow;
             int n = msgs?.Count ?? 0;

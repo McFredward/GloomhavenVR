@@ -121,7 +121,9 @@ internal sealed class BoardPing : MonoBehaviour
             return;
         }
 
-        TryPingClientTile(clientTile, "laser A-press");
+        if (TryPingClientTile(clientTile, "laser A-press"))
+            // Controls lesson: the "mark a hex" step — only a ping that actually fired counts.
+            Compat.ControlsProgress.Notify(Compat.ControlAction.Ping);
     }
 
     /// <summary>

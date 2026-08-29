@@ -259,6 +259,10 @@ internal static partial class VROptionsTab
                     LocKey = "sec_hands_aim",
                     Entries = new CuratedEntry[]
                     {
+                        // The controls lesson. It belongs on the FIRST page a newcomer
+                        // opens, next to the other "how do my hands work" rows, because
+                        // that is where somebody goes when the controls are the problem.
+                        new("Compat", "ControlsLesson", ""),
                         new("Hands", "PrimaryHand", "vr_o_primaryhand"),
                         // The grip-gated fingertip hex touch — an INPUT decision the tutorial
                         // teaches by name, so it belongs on the everyday list next to the laser

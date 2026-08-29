@@ -1,0 +1,44 @@
+GloomhavenVR — third-party assets shipped inside gloomhavenvr.bundle
+====================================================================
+
+VR CONTROLLER MODELS
+--------------------
+The controller models shown during the tutorial's controls lesson (Meta Quest
+Touch Plus, Pico 4, Valve Index, and the generic fallback controller) come from
+the W3C Immersive Web Community Group's WebXR Input Profiles asset package:
+
+    https://github.com/immersive-web/webxr-input-profiles
+    packages/assets
+
+They were converted from glTF to Unity meshes; their shape and textures are
+unmodified.
+
+    MIT License
+
+    Copyright (c) 2019 Amazon
+
+    Permission is hereby granted, free of charge, to any person obtaining a copy
+    of this software and associated documentation files (the "Software"), to deal
+    in the Software without restriction, including without limitation the rights
+    to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+    copies of the Software, and to permit persons to whom the Software is furnished
+    to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice (including the next
+    paragraph) shall be included in all copies or substantial portions of the
+    Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+    FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+    OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+    WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF
+    OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+Trademark note, from the upstream package: some assets portray registered
+trademarks of the device manufacturers in the interest of accurately depicting
+the corresponding physical device. The licence does not grant permission to use
+those trademarks in derivative works (such as alternate controller skins), and
+they may not be used to endorse or promote products derived from this software
+without specific prior written permission. GloomhavenVR uses the models solely
+to show a player the controller they are physically holding.

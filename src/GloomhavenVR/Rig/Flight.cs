@@ -381,6 +381,8 @@ internal sealed class Flight : MonoBehaviour
         // Tutorial camera step: flying is camera familiarization exactly like a stick turn is, and
         // the bridge measures it in metres (cold path = two static reads outside scripted levels).
         Compat.TutorialVR.NotifyLocomotion(Mathf.Abs(meters), 0f, 0f);
+        // Controls lesson: "fly" is its own step; the bridge above cannot tell it from a drag.
+        Compat.ControlsProgress.Notify(Compat.ControlAction.Fly, Mathf.Abs(meters));
         // Spawn ring: the player moving THEMSELVES closes the join-placement window, so a late
         // multiplayer seat correction can never yank a flying player back to the ring.
         VRRigDriver.NotifyPlayerLocomotion(what);
