@@ -416,7 +416,54 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 320;
+    public const ushort ModBuild = 321;
+    // Build 321: THE GRIP SWITCHES THE MODE, NOT THE GRAB - WHICH IS WHAT UNLOCKS THE LASER CARDS.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User: "Das soll ueberall moeglich sein, wo man die Karten nehmen kann, d.h. auch in der Map
+    //   Umgebung zB. oder auch wenn man nicht dran ist. Das soll mit beiden Haenden moeglich sein,
+    //   also wenn man die Kartenhand wechselt und dann mit der Greiftaste (gedrueckt gehalten) den
+    //   modus wechselt."
+    //
+    //   ONE LINE DELETED, AND IT WAS THE LINE THAT WAS WRONG. Since 317 the mode had an ARM: the
+    //   grip had to be ALREADY DOWN when the trigger took the card. That was a defensible reading of
+    //   his first description and it quietly excluded a whole acquisition route - because
+    //   RayInteractor.Active requires !GripSuppressed, i.e. HOLDING THE GRIP TURNS THE BEAM OFF (his
+    //   own request, 2026-08-24). A card taken with the LASER therefore could never be armed at grab
+    //   time and could never enter the mode at all. Two of his own requirements, three builds apart,
+    //   were in direct contradiction and nothing in the code knew it.
+    //
+    //   The grip now simply IS the mode for as long as a card is held, in either hand, however the
+    //   card arrived - which is what his follow-up describes. Nothing is lost: while a card is held
+    //   the grip is otherwise completely unused, and the mod already knew that - Rig.ComfortGizmos
+    //   prints "grip(unused)" for exactly that state, every other grip consumer guards on
+    //   Grabber.Held == null, and world locomotion rides the thumbstick click.
+    //
+    //   "UEBERALL, WO MAN DIE KARTEN NEHMEN KANN" WAS ALREADY TRUE, AND IT IS TRUE BY CONSTRUCTION
+    //   RATHER THAN BY LUCK - checked against source rather than assumed:
+    //     * THE MAP ROOM builds real VRCards and hands them to the SAME CardsDriver and the SAME
+    //       CardFan the scenario uses ("There is exactly one implementation of 'a hand of cards' in
+    //       this mod again", MapRoomHand.2.Fan.cs), and it resolves to VRMode.TableIdle, whose
+    //       interactor row is Poke|Grab|PalmGate on BOTH hands.
+    //     * OUT OF TURN, CardsDriver's inspectGrab arm keeps hand-fan, browse-arc and active-column
+    //       cards pickable "in every phase and every mode" - his own 2026-08-08 ruling.
+    //     * AND THE TYPE GATE CANNOT MISS ONE: VRCard and ItemChip are the only card grabbables that
+    //       exist. The other three are a pile STACK, a board FIGURE and a window HANDLE, and none of
+    //       them should have this mode.
+    //   The mode gate asks exactly one question - is this hand holding a card? - and carries no
+    //   mode, phase or turn term at all, which is why it reaches all of the above for free.
+    //
+    //   BOTH HANDS was already structural too: the state, the blend, the curls, the ghost, the
+    //   mirror and both wire bits are per-hand and symmetric, and the two can be in the mode at the
+    //   same time. Switching the card hand changes which hand may grab the fan's own cards
+    //   (VRCard.AllowsGateHand - the fan hangs off the gate hand's palm) and nothing else.
+    //
+    //   TEST: adds to 318/319/320.
+    //     2d. UEBERALL - take a card with the LASER and then squeeze the grip: it must go in-hand.
+    //         Same in the campaign map room, and while another player is on turn.
+    //     2e. BEIDE HAENDE - switch the card hand, hold a card in the other one, squeeze: same
+    //         behaviour. Both hands at once must work too.
+    //
     // Build 320: THE HAND CLOSES ON THE CARD, IT DOES NOT APPEAR AROUND IT - AND ITEM CARDS TOO.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //

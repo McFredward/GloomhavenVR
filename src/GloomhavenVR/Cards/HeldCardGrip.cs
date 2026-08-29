@@ -26,17 +26,25 @@ namespace GloomhavenVR.Cards;
 /// the other player sees a hand holding a card.</description></item>
 /// </list>
 ///
-/// <para>THE STATE MACHINE IS TWO LINES, and both of them are the user's sentences:</para>
-/// <list type="number">
-/// <item><description>ARM — the hold begins in-hand only if the GRIP was already down when the
-/// trigger took the card. This is what keeps the mode out of the way of a player who never uses
-/// the gesture: a plain trigger grab can never turn into an in-hand hold, however the grip is
-/// squeezed afterwards.</description></item>
-/// <item><description>FOLLOW — while armed, the mode simply IS the grip button. Releasing the grip
-/// drops back to reading mode (his second sentence, literally), and squeezing it again returns —
-/// which he did not ask for and gets for free, and is the behaviour that makes the mode usable:
-/// read the card, show the card, read it again, without ever letting go.</description></item>
-/// </list>
+/// <para>THE STATE MACHINE IS ONE LINE: while a hand holds a card, the mode IS that hand's grip
+/// button. Press to take the card into the fist, release to let it float readable again, press
+/// again to show it — at any point in the hold, in either hand, however the card got there.</para>
+///
+/// <para>IT WAS TWO LINES FOR THREE BUILDS, and the extra one was wrong. The first version also
+/// required the grip to be ALREADY DOWN when the trigger took the card ("armed"), so that a player
+/// who never uses the gesture could not fall into it. That reading of the user's sentence quietly
+/// excluded every card taken with the LASER — because <c>RayInteractor.Active</c> requires
+/// <c>!GripSuppressed</c>, i.e. holding the grip TURNS THE BEAM OFF (his own request, 2026-08-24).
+/// A laser-plucked card therefore could not be armed at grab time and could never enter the mode at
+/// all. His follow-up settled it in his own words — "wenn man die Kartenhand wechselt und dann mit
+/// der Greiftaste (gedrückt gehalten) den modus wechselt" — the grip SWITCHES the mode, whenever it
+/// is pressed, not only at the moment of the grab.</para>
+///
+/// <para>Nothing is lost by dropping the arm: while a card is held the grip is otherwise completely
+/// unused, and the mod knows it — <c>Rig.ComfortGizmos</c> literally prints "grip(unused)" for that
+/// state. Every other grip consumer guards on <c>Grabber.Held == null</c>, and world locomotion
+/// rides the thumbstick click. And the whole feature has a switch ([Cards] InHandHold) for anyone
+/// who would rather the button stayed dead.</para>
 ///
 /// <para>WHY A ONE-PLACE ANSWER RATHER THAN A FLAG ON THE CARD. Five subsystems have to agree on
 /// this bit within a frame — the card's own pose solver, the finger curls
@@ -56,8 +64,6 @@ namespace GloomhavenVR.Cards;
 /// </summary>
 internal static class HeldCardGrip
 {
-    private static bool _leftArmed;
-    private static bool _rightArmed;
     private static bool _leftInHand;
     private static bool _rightInHand;
 
@@ -158,8 +164,8 @@ internal static class HeldCardGrip
     /// </summary>
     internal static void Tick()
     {
-        Evaluate(VRHands.Left, ref _leftArmed, ref _leftInHand);
-        Evaluate(VRHands.Right, ref _rightArmed, ref _rightInHand);
+        Evaluate(VRHands.Left, ref _leftInHand);
+        Evaluate(VRHands.Right, ref _rightInHand);
         // UNSCALED time on purpose. The card phases pause timeScale (the same reason the fan reveal
         // and the card release glide run unscaled), and a hand that freezes half-closed round a card
         // because the game paused is exactly the frame-to-frame artefact this animation exists to
@@ -175,45 +181,43 @@ internal static class HeldCardGrip
     /// <summary>Module shutdown / hot reload: forget both hands.</summary>
     internal static void Shutdown()
     {
-        _leftArmed = _rightArmed = false;
         _leftInHand = _rightInHand = false;
         _leftBlend = _rightBlend = 0f;
     }
 
-    private static void Evaluate(VRHand? hand, ref bool armed, ref bool inHand)
+    private static void Evaluate(VRHand? hand, ref bool inHand)
     {
-        // NOT HOLDING A CARD - disarm. This is the only place the arm latch clears, and it clears
-        // on the ABSENCE of a held card rather than on a release edge on purpose: a card can leave
-        // a hand without OnRelease ever running here (ProximityGrabber.HealDeadHeld force-drops a
-        // stuck hold, a pooled card is destroyed under the hand, the interactor is switched off by
-        // mode policy). A latch that only a release edge clears is a latch that survives all three.
+        // NOT HOLDING A CARD - back to the reading mode. Keyed on the ABSENCE of a held card rather
+        // than on a release edge, because a card can leave a hand without OnRelease ever running
+        // here (ProximityGrabber.HealDeadHeld force-drops a stuck hold, a pooled card is destroyed
+        // under the hand, the interactor is switched off by mode policy). The blend then runs back
+        // down on its own, so a hand whose card is taken away OPENS rather than staying clenched.
+        //
+        // NO MODE, PHASE OR TURN GATE, and that is deliberate rather than an omission (user:
+        // "Das soll überall möglich sein, wo man die Karten nehmen kann, d.h. auch in der Map
+        // Umgebung zB. oder auch wenn man nicht dran ist"). This asks ONE question - is this hand
+        // holding a card? - so the mode reaches wherever a card can be held, by construction:
+        //   * the map room builds real VRCards and hands them to the same CardsDriver and the same
+        //     CardFan the scenario uses (WorldUI/MapRoom/MapRoomHand.2.Fan.cs: "There is exactly one
+        //     implementation of 'a hand of cards' in this mod again"), and it resolves to
+        //     VRMode.TableIdle, whose interactor row carries Grab on BOTH hands;
+        //   * out of turn, CardsDriver's inspectGrab arm keeps hand-fan, browse-arc and
+        //     active-column cards pickable "in every phase and every mode" (his 2026-08-08 ruling);
+        //   * and the two card types named below are the only card grabbables that exist - the
+        //     others are a pile STACK, a board figure and a window handle.
         if (hand == null || !IsCard(hand))
         {
-            armed = false;
             inHand = false;
-            return;   // the blend runs back down on its own — a released card's hand OPENS
-        }
-
-        // ARM: the grip must ALREADY be down when the card arrives. Sampled here rather than in
-        // VRCard.OnGrab because the two card grabbables (ability card and item chip) would need
-        // the identical hook twice, and because the grab can also come from the laser pluck
-        // (ProximityGrabber.ForceGrab), which is a third entry. This step runs after the hands
-        // have ticked, so the grip state read here is the one the frame's grab saw.
-        if (!armed)
-        {
-            if (!Enabled || !hand.GripPressed)
-                return;      // reading mode; re-checked next frame only while the card is held
-            armed = true;
+            return;
         }
 
         bool want = Enabled && hand.GripPressed;
         if (want == inHand)
             return;
         inHand = want;
-        // Edge-gated, never per-frame: this fires on a deliberate button press, at most a handful
-        // of times per hold. It names every consequence because the mode changes five things at
-        // once, and a hardware report saying "the card behaved oddly" has to be attributable to
-        // one of them.
+        // Edge-gated, never per-frame: this fires on a deliberate button press. It names every
+        // consequence because the mode changes five things at once, and a hardware report saying
+        // "the card behaved oddly" has to be attributable to one of them.
         VRLog.Info("Cards", $"Held card ({hand.Side}): {(want ? "IN-HAND" : "READING")} - "
             + (want
                 ? "grip held, so the card is rigid in the fist (turn the wrist to show it); "

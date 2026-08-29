@@ -715,13 +715,15 @@ internal static class CardsConfig
         InHandHold = _file.Bind("Cards", "InHandHold", Defaults.InHandHold,
             "Take a card INTO YOUR HAND (2026-08-29). Normally a grabbed card floats so its face " +
             "always turns to you, however you move your wrist - that stays exactly as it was. " +
-            "With this on you get a SECOND way to hold one: keep the GRIP button held while you " +
-            "pull the trigger to take the card, and the card sits rigidly in your fist instead - " +
-            "your fingers close on its bottom edge and turning your wrist turns the card, so you " +
-            "can hold it up and show its face to another player. Let the grip go (keep the " +
-            "trigger) and it floats readable again; squeeze the grip to show it again. The " +
-            "ghost hand belongs to the reading mode only - a hand that is really holding a card " +
-            "stays solid. Off: the grip does nothing while a card is held, exactly as before.");
+            "With this on you get a SECOND way to hold one: while you are holding a card, press " +
+            "and HOLD THE GRIP button. The card then sits rigidly in your fist - your fingers " +
+            "close on its bottom edge and turning your wrist turns the card, so you can hold it " +
+            "up and show its face to another player. Let the grip go and it floats readable " +
+            "again; press it again to show it again. It works in EITHER hand, at any point during " +
+            "the hold, and everywhere a card can be taken at all - the campaign map room included, " +
+            "and when it is not your turn. The ghost hand belongs to the reading mode only: a hand " +
+            "that is really holding a card stays solid. Off: the grip does nothing while a card is " +
+            "held, exactly as before.");
         InHandPitch = _file.Bind("Cards", "InHandPitch", Defaults.InHandPitch, new ConfigDescription(
             "In-hand grip: how far the card leans back, degrees. The card is held the way you " +
             "really hold one - thumb flat on its face near a bottom corner, the other four " +
