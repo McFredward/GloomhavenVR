@@ -25,13 +25,28 @@ internal static class ControllerKey
 /// duration of the controls lesson and the real device takes its place, with the key the lesson
 /// is talking about lit up on it.
 ///
-/// <para>WHY THE DEVICE POSE AND NOT THE HAND ROOT. The model is parented to
-/// <c>VRHand.transform</c>, which carries the raw <c>devicePosition/deviceRotation</c> — the same
-/// grip pose the profile's authors modelled these meshes around. <c>_handRoot</c> below it exists
-/// to hold the hand ART at a configurable visual offset, and it additionally carries the per-style
-/// hand SCALE ([Hands] GloveScale/PlateScale/ArcaneScale). A controller is a real object of a real
-/// size; hanging it off the art offset would move and resize a physical device to match a
-/// stylistic choice about gloves.</para>
+/// <para>WHY THE DEVICE POSE AND NOT THE HAND ROOT — MEASURED, after the reasoned version of this
+/// paragraph was very nearly wrong. The model is parented to <c>VRHand.transform</c>, which carries
+/// the raw <c>devicePosition/deviceRotation</c>. <c>_handRoot</c> below it holds the hand ART at a
+/// configurable visual offset and carries the per-style hand SCALE
+/// ([Hands] GloveScale/PlateScale/ArcaneScale); a controller is a real object of a real size, so
+/// hanging it there would move and resize a physical device to match a stylistic choice about
+/// gloves.</para>
+///
+/// <para>THE PROOF IS THE PROFILE'S OWN POINTING_POSE NODE (Editor/PreviewControllers.cs renders
+/// the check). The generic profile ships the OpenXR AIM pose relative to the GRIP pose its meshes
+/// are authored around; after the glTF→Unity conversion it lands 7.2 cm forward, 3.0 cm below and
+/// pitched 17.5° down from +Z — exactly OpenXR's grip-to-aim relationship. So the converted model
+/// frame IS the frame Unity reports, and identity is right.</para>
+///
+/// <para>THE FIRST RENDER APPEARED TO REFUTE THAT, and the refutation was a red herring worth
+/// recording: the controller did not sit in the glove's hand. The glove is not evidence about
+/// where a device is. <c>Anchor_Grab</c> sits 4 cm from the device pose and about 90° off it,
+/// because the hand art is stylised and hand-seated — the shipped glove carries a 7 cm comfort
+/// SPREAD the user dialled in. Parenting to <c>Anchor_Grab</c> instead was tried and buries the
+/// controller in the wrist. One visible consequence remains and is correct: when the lesson starts,
+/// the controller appears where the player's REAL controller is, which is not quite where the
+/// stylised glove was.</para>
 ///
 /// <para>THE ZOOM IS ALREADY HANDLED, and not by anything here. The rig — not the board — is what
 /// the mod scales, so the device pose is already under the diorama scale and the controller grows
