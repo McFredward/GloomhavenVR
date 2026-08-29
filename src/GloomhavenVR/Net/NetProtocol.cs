@@ -416,7 +416,48 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 328;
+    public const ushort ModBuild = 329;
+    // Build 329: THE FIGURES' OWN EFFECTS TOO — AND THE SCAN NOW NAMES WHAT IT SKIPPED.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE FIELD.
+    //
+    //   User: "Gilt 3 auch für Partikel die von dem Figuren kommen? Falls noch nicht, hier will
+    //   ich das auch."
+    //
+    //   IT ALREADY DID, and the reason is worth writing down rather than just answering: this
+    //   class adopts by DISTANCE, not by ownership. A character's aura, a monster's smoke and the
+    //   wash of a cast are ordinary particle systems that CastEffectsSMB spawns on and around the
+    //   actors (AuraEffects / TargetHexEffects / AreaHexEffects), and nothing in the adopt path
+    //   ever asked who owns one. That is the deliberate difference from SceneClothHands, which
+    //   MUST skip actor cloth because FigureClothHands owns it and two writers on one authored
+    //   array corrupt each other. A particle system's collision module has no second owner, so
+    //   there is nothing to yield to. Pick a figure up and its aura travels to your other hand.
+    //
+    //   SO WHAT CHANGED IS THE ABILITY TO PROVE IT, which is the part that was actually missing:
+    //     * THE SCAN NAMES WHAT IT SKIPPED. It now reports how many systems were adopted, HOW MANY
+    //       OF THOSE SIT ON FIGURES, how many were skipped as game-managed, how many of THOSE are
+    //       on figures — and the names of the first six. A bare count cannot tell anybody whether
+    //       the effect they wanted to feel is inside it; a name can, on the first hardware run.
+    //     * NO SILENT CAP. An effect dropped for being too dense now says so once, by name and
+    //       with its particle count. A cap that drops silently reads in a log as "there was
+    //       nothing there", which is the one thing it does not mean.
+    //     * THE CAP MOVED, 400 -> 900 live particles. A character's spell wash is exactly the sort
+    //       of dense effect a player puts a hand into ON PURPOSE, and 400 would have dropped it.
+    //
+    //   AND THE RFX4 EXCLUSION IS NOW PROVEN, not merely prudent. 328 skipped those systems for
+    //   the uncapped Instantiate in RFX4_ParticleCollisionHandler. Reading the companion script
+    //   settles it a second way: RFX4_CollisionPropertyDeactiavtion.Update writes
+    //   collisionModule.enabled = false EVERY FRAME once its delay has passed — no guard flag, no
+    //   early-out — so adopting one is a write war that cannot be won, whatever one thinks of the
+    //   spawning. Two independent reasons, both from source.
+    //
+    //   TEST:
+    //     1. Reach into a character's AURA and into a monster's effect: both must part around the
+    //        hand, and snap back the moment it leaves.
+    //     2. Pick a figure up with one hand and put the other into its aura.
+    //     3. Read the scan line. The "N of them ON FIGURES" term and the named skips are the
+    //        answer to "does this cover the figures" — read them even if it already looked right.
+    //     4. If a named skip is an effect you wanted to feel, that name is what to send back.
+    //
     // Build 328: PUT A HAND IN THE SMOKE AND THE SMOKE GOES ROUND IT.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE FIELD.
     //

@@ -23,7 +23,10 @@ namespace GloomhavenVR.Hands;
 /// point — "a visible reaction with zero cook". Reading that handler in full shows why it must be
 /// left alone: it does <c>Instantiate</c> ONCE PER COLLISION EVENT PER PREFAB, every frame, with no
 /// cap and no rate limit. A hand parked in a burning brazier is an unbounded spawn loop, and this
-/// project has paid for that shape twice already. So:
+/// project has paid for that shape twice already. The companion script settles it a second way:
+/// <c>RFX4_CollisionPropertyDeactiavtion.Update</c> writes <c>collisionModule.enabled = false</c>
+/// EVERY FRAME once its delay has passed — no guard flag, no early-out — so adopting one of those
+/// systems is a write war that cannot be won, whatever one thinks of the spawning. So:
 /// <list type="bullet">
 ///   <item>Systems that carry <c>RFX4_ParticleCollisionHandler</c> or
 ///   <c>RFX4_CollisionPropertyDeactiavtion</c> are SKIPPED ENTIRELY. The second one also writes
@@ -45,6 +48,20 @@ namespace GloomhavenVR.Hands;
 /// can answer. Other mod-owned colliders on that layer would also deflect particles; in practice
 /// the mod's interaction colliders are TRIGGERS, which particle collision ignores, so the probes
 /// are what particles meet.</para>
+///
+/// <para>EFFECTS ON FIGURES ARE INCLUDED, and nothing had to be added for that (user, 2026-08-29:
+/// "Gilt 3 auch für Partikel die von dem Figuren kommen?"). A character's aura, a monster's smoke,
+/// the wash of a cast — <c>CastEffectsSMB</c> spawns those as ordinary particle systems on and
+/// around the actors, and this class adopts by DISTANCE, not by ownership. That is the deliberate
+/// difference from <see cref="SceneClothHands"/>, which must skip actor cloth because
+/// <c>FigureClothHands</c> owns it and two writers on one authored array corrupt each other. No
+/// second owner exists for a particle system's collision module, so there is nothing to yield to
+/// — and a figure carried in the hand brings its aura with it, right where the other hand is.</para>
+///
+/// <para>WHAT IS SKIPPED IS NAMED, NOT COUNTED. The scan line reports how many systems were
+/// adopted, how many of those sit on figures, and — with the names of the first few — how many
+/// were skipped as game-managed. A number alone ("K skipped") cannot tell anybody whether the
+/// effects they wanted to feel are in that K; the names can, on the first hardware run.</para>
 ///
 /// <para>PURELY LOCAL, LIKE THE CURTAINS. Particle effects were never on the wire, so every player
 /// disturbs their own copy of the room and nothing can diverge. No wire field, no sync, no
@@ -73,9 +90,12 @@ internal static class SceneVfxHands
     private const int MaxSystemsPerHand = 3;
 
     /// <summary>A system with more live particles than this is never adopted, whatever the
-    /// distance: the per-particle cost is the cost, and a thousand-particle wash is not worth a
-    /// frame.</summary>
-    private const int MaxParticlesToAdopt = 400;
+    /// distance: the per-particle cost is the cost. Raised from 400 to 900 once figures came into
+    /// scope — a character's spell wash is exactly the sort of dense effect a player will put a
+    /// hand into on purpose, and silently dropping it is the "no silent caps" failure. Every drop
+    /// is logged with the system's name and its particle count, so the number can be argued with
+    /// from hardware instead of from here.</summary>
+    private const int MaxParticlesToAdopt = 900;
 
     /// <summary>Registry refresh, in seconds. FindObjectsOfType is the project's default suspect
     /// for a per-frame cost that grows with the scene; this runs it on a cadence and never in a
@@ -200,6 +220,7 @@ internal static class SceneVfxHands
         _nextScanAt = 0f;
         _scansTimed = 0;
         _loggedFirstAdopt = false;
+        _tooDense.Clear();
     }
 
     private static void Clear()
@@ -267,6 +288,20 @@ internal static class SceneVfxHands
         return true;
     }
 
+    /// <summary>A dropped effect names itself once. A cap that drops silently reads, in a log, as
+    /// "there was nothing there" — which is the one thing it does not mean.</summary>
+    private static void NoteTooDense(ParticleSystem ps)
+    {
+        if (!_tooDense.Add(ps.name))
+            return;
+        VRLog.Info("Hands", $"Hands disturb VFX: '{ps.name}' was NOT adopted — "
+            + $"{ps.particleCount} live particles is over the {MaxParticlesToAdopt} cap that keeps "
+            + "per-particle collision off the frame budget. Reported once per effect name; if this "
+            + "names an effect you wanted to feel, the cap is the dial.");
+    }
+
+    private static readonly HashSet<string> _tooDense = new(8, StringComparer.Ordinal);
+
     private static void Rescan()
     {
         float now = Time.unscaledTime;
@@ -278,18 +313,32 @@ internal static class SceneVfxHands
         ParticleSystem[] found = UnityEngine.Object.FindObjectsOfType<ParticleSystem>();
         _scene.Clear();
         int gameManaged = 0;
+        int onFigures = 0;
+        int gameManagedOnFigures = 0;
+        System.Text.StringBuilder? skipped = watch != null ? new System.Text.StringBuilder(128) : null;
         for (int i = 0; i < found.Length; i++)
         {
             ParticleSystem ps = found[i];
             if (ps == null || !ps.gameObject.activeInHierarchy)
                 continue;
+            // "Does this effect belong to a figure?" is a RELATEDNESS question, which is the one
+            // thing GetComponentInParent actually answers. It is a CENSUS term only — it changes
+            // no decision below, because a figure's effects are adopted exactly like the room's.
+            bool onFigure = ps.GetComponentInParent<ActorBehaviour>() != null;
             // The two RFX4 collision scripts are the game's own collision management. See the
-            // class doc for why adopting one is both a spawn hazard and a write war.
+            // class doc for why adopting one is both a spawn hazard and an unwinnable write war.
             if (HasGameCollisionScript(ps))
             {
                 gameManaged++;
+                if (onFigure)
+                    gameManagedOnFigures++;
+                if (skipped != null && gameManaged <= 6)
+                    skipped.Append(skipped.Length == 0 ? "" : ", ").Append('\'').Append(ps.name)
+                           .Append('\'').Append(onFigure ? " (figure)" : "");
                 continue;
             }
+            if (onFigure)
+                onFigures++;
             _scene.Add(ps);
         }
 
@@ -298,8 +347,12 @@ internal static class SceneVfxHands
             watch.Stop();
             _scansTimed++;
             VRLog.Info("Hands", $"VFX scan #{_scansTimed}: {_scene.Count} adoptable particle "
-                + $"system(s) of {found.Length} found ({gameManaged} skipped as game-managed "
-                + $"collision) in {watch.Elapsed.TotalMilliseconds:F3} ms. Runs every "
+                + $"system(s) of {found.Length} found — {onFigures} of them ON FIGURES (auras, "
+                + "casts, monster effects), which are adopted exactly like the room's. "
+                + $"{gameManaged} skipped as game-managed collision ({gameManagedOnFigures} of "
+                + "those on figures)"
+                + (skipped != null && skipped.Length > 0 ? $": {skipped}" : "")
+                + $". Scan took {watch.Elapsed.TotalMilliseconds:F3} ms and runs every "
                 + $"{RescanSeconds:0.#} s while a hand is tracked, never per frame.");
         }
     }
@@ -376,7 +429,10 @@ internal static class SceneVfxHands
                 if (ps == null || !ps.gameObject.activeInHierarchy || _held.Contains(ps))
                     continue;
                 if (ps.particleCount > MaxParticlesToAdopt)
+                {
+                    NoteTooDense(ps);
                     continue;
+                }
                 if (Distance(ps, at) > reach)
                     continue;
                 if (Adopt(ps))

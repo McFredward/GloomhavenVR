@@ -426,8 +426,11 @@ internal static class HandsConfig
         HandsDisturbVfx = config.Bind(
             "Hands", "HandsDisturbVfx", Defaults.HandsDisturbVfx,
             "Put a hand in the smoke and the smoke goes ROUND it. The scenario's own effects - " +
-            "fire, smoke, embers, dust, the wash of a spell - deflect off your hands while they " +
-            "are inside, and are restored to the authored settings the moment you leave. The " +
+            "fire, smoke, embers, dust - AND the effects that come off the figures themselves - a " +
+            "character's aura, a monster's smoke, the wash of a cast - deflect off your hands " +
+            "while they are inside, and are restored to the authored settings the moment you " +
+            "leave. Pick a figure up and its aura comes with it, right where your other hand is. " +
+            "The " +
             "reaction is purely kinematic: particles bounce, slow a little and die slightly " +
             "early. Nothing is ever spawned - effects the game manages its own collision on are " +
             "skipped entirely, and collision MESSAGES stay off, so no impact effect can be " +

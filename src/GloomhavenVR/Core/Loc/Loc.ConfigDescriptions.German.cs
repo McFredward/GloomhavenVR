@@ -2741,7 +2741,9 @@ internal static partial class Loc
                 + "könnte. Aus: nur Figuren, wie bisher.",
             ["Hands/HandsDisturbVfx"] =
                 "Halt die Hand in den Rauch, und der Rauch geht DRUMHERUM. Die Effekte des "
-                + "Szenarios — Feuer, Rauch, Funken, Staub, der Schwall eines Zaubers — werden "
+                + "Szenarios — Feuer, Rauch, Funken, Staub — UND die Effekte, die von den Figuren "
+                + "selbst ausgehen — die Aura eines Charakters, der Qualm eines Monsters, der "
+                + "Schwall eines Zaubers — werden "
                 + "von deinen Händen abgelenkt, solange sie darin stecken, und sind exakt "
                 + "wiederhergestellt, sobald du wieder heraus bist. Die Reaktion ist rein "
                 + "kinematisch: Partikel prallen ab, werden etwas langsamer und sterben ein wenig "
@@ -2752,7 +2754,8 @@ internal static partial class Loc
                 + "also seine eigene Kopie des Raums, und nichts kann auseinanderlaufen. Kostet "
                 + "etwas Bildzeit, solange eine Hand wirklich in einem Effekt steckt (Partikel"
                 + "kollision wird pro Partikel geprüft), und sonst gar nichts. Aus: Effekte gehen "
-                + "durch deine Hände hindurch, wie bisher.",
+                + "durch deine Hände hindurch, wie bisher. (Hebst du eine Figur hoch, "
+                + "kommt ihre Aura mit — genau dorthin, wo deine andere Hand ist.)",
             ["Hands/HandsDisturbScenery"] =
                 "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
                 + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "
