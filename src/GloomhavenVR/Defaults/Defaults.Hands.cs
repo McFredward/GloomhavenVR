@@ -17,6 +17,7 @@ internal static partial class Defaults
     internal const float GlovePinkyCounterAbduction = 14f;  // => [Hands] GlovePinkyCounterAbduction
     internal const bool GhostHandOnFan = true;              // => [Hands] GhostHandOnFan
     internal const bool GhostHandOnHeldCard = true;         // => [Hands] GhostHandOnHeldCard
+    internal const bool HandsDisturbScenery = true;         // => [Hands] HandsDisturbScenery
     internal const float GhostHandStrength = 0.55f;         // => [Hands] GhostHandStrength
     internal const bool TestFist = false;                   // => [Hands] TestFist
     internal const float CurlProximal = 75f;                // => [Hands] CurlProximal

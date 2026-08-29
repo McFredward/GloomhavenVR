@@ -42,6 +42,7 @@ internal sealed class HandsDriver : MonoBehaviour
     private System.Action? _tickRig;
     private System.Action? _tickSim;
     private System.Action? _tickGrip;
+    private System.Action? _tickCloth;
     private System.Action? _tickGhost;
 
     private void Awake()
@@ -49,6 +50,7 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickRig = TickRig;
         _tickSim = AnimateSimulation;
         _tickGrip = Cards.HeldCardGrip.Tick;
+        _tickCloth = SceneClothHands.Tick;
         _tickGhost = HandGhosts.Tick;
 
         // BOOT STALL (hardware log ModBuild 107 / b765a5b6e): the mod's first touch of
@@ -111,6 +113,11 @@ internal sealed class HandsDriver : MonoBehaviour
         // what each hand grabbed and what its grip button is doing this frame, and BEFORE the ghost
         // step, which is one of its five readers — a hand really holding a card must not fade.
         TickGuard.Run("Hands.CardGrip", _tickGrip!);
+        // Scenery cloth ([Hands] HandsDisturbScenery): arm the hand-shaped collider probe on any
+        // curtain or hanging a hand is inside. AFTER the rig step, because it reads live hand
+        // anchors, and under its own guard because it writes into the GAME's Cloth components —
+        // a surprise there must not be able to abort hand tracking itself.
+        TickGuard.Run("Hands.SceneCloth", _tickCloth!);
         // Ghost hand ([Hands] GhostHandOnFan): fade the hand carrying the OPEN card fan. Runs
         // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
         // guard so a material/shader surprise can never abort hand tracking itself.
@@ -271,6 +278,10 @@ internal sealed class HandsDriver : MonoBehaviour
         // already in the grip with no card in it — and the ghost, the curls and the wire bit all
         // read that latch.
         Cards.HeldCardGrip.Shutdown();
+        // Scenery cloth: write the authored collider arrays back BEFORE the hands die. A curtain
+        // left holding a destroyed collider never simulates correctly again, and a scene that is
+        // merely being re-entered keeps its curtains.
+        SceneClothHands.Shutdown();
         if (_handsRoot != null)
             Destroy(_handsRoot);
         _handsRoot = null;

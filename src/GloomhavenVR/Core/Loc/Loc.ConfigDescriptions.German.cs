@@ -2715,6 +2715,16 @@ internal static partial class Loc
                 "ROLLEN nur des Brett-Meshes, in Grad — rollt das Asset um die Brettwurzel. Anker und "
                 + "angedockte Elemente bleiben stehen. Der Mesh-Collider wandert mit, der Laser trifft "
                 + "also weiterhin, was du siehst. PRO BRETT. Ausgeliefert mit 0.",
+            ["Hands/HandsDisturbScenery"] =
+                "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
+                + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "
+                + "sie darin steckt: mit beiden Händen, egal ob du gerade etwas hältst oder nicht. Die "
+                + "eigenen Kollider des Stoffes bleiben erhalten, und alles wird exakt "
+                + "wiederhergestellt, sobald deine Hand ihn verlässt. Rein lokal und rein kosmetisch: "
+                + "Stoff war noch nie im Netzwerk, jeder Spieler bewegt also seine eigene Kopie des "
+                + "Raums, und nichts kann auseinanderlaufen. Aus: Die Umgebung hängt still wie bisher. "
+                + "(Der Umhang einer gehaltenen Figur ist ein eigener Schalter, [FigureGrab] "
+                + "ClothFollowsFreeHand.)",
             ["Hands/GhostHandOnHeldCard"] =
                 "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
                 + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "

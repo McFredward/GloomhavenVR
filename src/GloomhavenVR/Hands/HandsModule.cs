@@ -71,6 +71,8 @@ internal sealed class HandsModule : IVRModule
         HandGhosts.Shutdown();
         // …and the held-card mode latch with it, for the same hot-reload reason.
         Cards.HeldCardGrip.Shutdown();
+        // …and every scenery cloth gets its authored colliders back, for the same reason.
+        SceneClothHands.Shutdown();
 
         // Hot-reload hygiene: registries and the asset bundle are static.
         VRInteractables.Clear();

@@ -151,6 +151,10 @@ internal static class HandsConfig
     /// <summary>Also ghost a hand while it HOLDS a card (independent of the fan toggle).</summary>
     public static ConfigEntry<bool> GhostHandOnHeldCard = null!;
 
+    /// <summary>Do the hands push scenery cloth (curtains, hangings) out of the way?
+    /// See <see cref="SceneClothHands"/>.</summary>
+    public static ConfigEntry<bool> HandsDisturbScenery = null!;
+
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
 
@@ -408,6 +412,16 @@ internal static class HandsConfig
             "on without the other, and both hands can ghost at once (a card in each). Shares " +
             "GhostHandStrength, is live-tunable, fully reversible, and synchronized — other " +
             "players see your hands exactly as you do.");
+        HandsDisturbScenery = config.Bind(
+            "Hands", "HandsDisturbScenery", Defaults.HandsDisturbScenery,
+            "Reach through a curtain and it MOVES. Any simulated cloth the room already has - " +
+            "curtains, hangings - is pushed aside by your hand while it is inside it, with either " +
+            "hand, whether you are holding something or not. The cloth's own authored colliders " +
+            "are kept and everything is restored exactly when your hand leaves. Purely local and " +
+            "purely cosmetic: cloth has never been networked, so every player's own hands stir " +
+            "their own copy of the room and nothing can desync. Off: the scenery hangs still, " +
+            "exactly as before. (A held figure's cape is a separate switch, [FigureGrab] " +
+            "ClothFollowsFreeHand.)");
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", Defaults.GhostHandStrength,
             new ConfigDescription(

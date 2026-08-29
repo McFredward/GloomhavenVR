@@ -416,7 +416,82 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 321;
+    public const ushort ModBuild = 322;
+    // Build 322: REACH THROUGH A CURTAIN AND IT MOVES.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User, picking from the interaction survey: "Ich will die 6" - the environment reacting to
+    //   the hands. This is that half; the prop-pickup half is a separate build and its blocking
+    //   question is now answered (below).
+    //
+    //   THE ART IS ALREADY IN THE GAME, and that was established from source rather than from a
+    //   headset, because he cannot test right now: the scenario scenery ships real
+    //   UnityEngine.Cloth. EN_CR_Curtain_Cloth and EN_CR_Hanging_01_Cloth_Post both appear BY NAME
+    //   in the wall-fade census (Core/WallFade/WallSegmentFade.*), which only lists objects it has
+    //   actually walked in a shipped room. So this adds no assets and authors no cloth.
+    //
+    //   IT IS THE SAME PROBE FigureClothHands ALREADY USES, pointed somewhere else - a sphere PAIR
+    //   (a conic capsule, i.e. the shape of a hand from palm to fingertip) on a scene-root object at
+    //   unit scale, on the Ignore Raycast layer. That class's measurements carry over unchanged
+    //   because it is the same operation on the same array: assigning sphereColliders is
+    //   0.008-0.017 ms and FLAT in vertex count, while a re-cook is linear in it. Assigning does
+    //   not re-cook.
+    //
+    //   THREE HAZARDS THE FIGURE VERSION DOES NOT HAVE, and each one shaped the file:
+    //     * TWO HANDS ON ONE CURTAIN. The naive per-probe capture is wrong in a way that only
+    //       appears when both hands touch the same cloth: hand B captures an array that ALREADY
+    //       contains hand A's pair, and restoring B later writes A's pair back into a cloth A left
+    //       long ago - permanently, because A restored its own correct capture first. The captures
+    //       therefore live in a dictionary keyed by CLOTH, taken once by whoever arrives first, and
+    //       the live array is rebuilt as original + whichever hands are currently on it. The defect
+    //       is unrepresentable rather than guarded against.
+    //     * ACTOR CLOTH BELONGS TO SOMEBODY ELSE. FigureClothHands owns a held figure's cape and
+    //       both classes write the WHOLE array, so two owners on one cloth would corrupt each
+    //       other's capture. Any cloth with an ActorBehaviour above it is skipped - which is also
+    //       just what was asked for, since this one is about the environment.
+    //     * NO OWNER TO HANG THE SCAN OFF. A held figure gives the other class a root to walk; a
+    //       room does not. So there is a registry, and it is refreshed every 3 s while a hand is
+    //       tracked - never per frame. FindObjectsOfType is the default suspect in this project
+    //       ("near-free is false and has shipped twice"; once it owned 12.6 ms of an 11.11 ms
+    //       budget), so the first three scans are TIMED and logged with their object count. The
+    //       next hardware log will carry the real number instead of this comment's assurance.
+    //
+    //   SCALE, since he asked the survey to account for it: every radius and the reach are REAL
+    //   METRES AT THE HAND x VRHand.WorldScale - the convention ProximityGrabber.ReachMeters and
+    //   FigureGrabConfig.PickRadiusRealMeters already follow, and the one his own ruling demands
+    //   ("der Bereich nicht groesser wird mit dem zoomen sondern an der Hand bleibt"). The zoom
+    //   scales the RIG, so the room keeps its world size while the player grows; only a
+    //   hand-anchored reach still means "my hand is in the curtain" across the 8:1 zoom band.
+    //
+    //   MULTIPLAYER: ZERO WIRE BYTES, and not by omission. Cloth vertex positions have never been a
+    //   wire field - NetFigures carries a figure's POSE and its held size factor, not its
+    //   simulation - so two clients have always disagreed about the exact swing of a cape. Every
+    //   player's own hands stir their own copy of the room. Nothing can desync because nothing is
+    //   claimed.
+    //
+    //   AND THE BLOCKING QUESTION FOR THE PROP-PICKUP BUILD IS ANSWERED IN SOURCE. FigureGrabDriver
+    //   finds its candidates through WorldspaceUITools._panelUIControllers and then requires a
+    //   CInteractableActor on the figure - and CInteractableActor.Start resolves its actor from
+    //   GetComponentInParent<CharacterManager>(), so it exists for CHARACTERS AND MONSTERS ONLY.
+    //   Props are not interactables at all; the game interacts with them through their HEX
+    //   (CInteractableTile). That is why chests, traps and gold are invisible to the figure registry
+    //   today, and it means the prop build needs its own discovery path -
+    //   Choreographer.FindClientActorGameObject(actor, shouldReturnDummyActorsProp: true), which
+    //   maps a CObjectActor to its scene object. The INFO half needs nothing new at all:
+    //   ActorStatPanel.Show(CActor) already carries a CObjectActor branch (titleKey
+    //   "GUI_OBJECT_WITH_HEALTH", loc key and portrait taken from AttachedProp.PropHealthDetails,
+    //   modifier and current-turn blocks hidden), and every prop becomes a CObjectActor via
+    //   CMap -> ScenarioManager.Scenario.AddObject(..., IsAttachedToProp).
+    //
+    //   TEST:
+    //     1. VORHANG - reach through a curtain or a hanging with either hand, holding something or
+    //        nothing. It must move, and it must settle back when the hand leaves.
+    //     2. BEIDE HAENDE - both hands in the same curtain at once, then take them out one at a
+    //        time. The cloth must behave the whole time and be normal at the end.
+    //     3. LOG - "Scenery cloth scan #1: N simulating scenery cloth(s) ... in X ms" names the real
+    //        cost and the real count for the room. Both numbers are wanted.
+    //     4. AUS - [Hands] "Hände bewegen Vorhänge" off: the scenery hangs still, as before.
+    //
     // Build 321: THE GRIP SWITCHES THE MODE, NOT THE GRAB - WHICH IS WHAT UNLOCKS THE LASER CARDS.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //
