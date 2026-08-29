@@ -115,6 +115,11 @@ Scenarios can be played in one of two hand-built environments — a **candle-lit
 firelight, drips, cobwebs, moonbeams through the trees and quiet spatial ambience. Or pick
 **Standard** for the game's own look, or **Off** for plain black.
 
+Your hands are part of the room, not visitors to it: reach through a **curtain** and it is pushed
+aside, put a hand in **smoke or fire** and the particles go round it. Both are purely local — cloth
+and effects have never been networked — and both have their own switch under **Komfort ▸ Hände &
+Zielen**.
+
 Both rooms also hide rare, quiet apparitions: a face at the barred window as the moonlight dims,
 someone standing in the dark of the stair shaft, eyes that blink once in the undergrowth. They are
 lit by the room and by nothing else, they are **never over the board and never two at once**, and
@@ -157,7 +162,6 @@ Honest list. None of these is a bug report worth filing — they are known.
 - **A couple of texts still live only on the flat screen** — notably the "waiting for other
   players" hint and the multiplayer lock overlay. In VR you see the effect (a button changes)
   but not the sentence.
-- **Peer cards in the map room show as backs**, not fronts.
 - **VR field of view makes distant models drop to a coarser version slightly earlier** than the
   game intends. Real, small, and deliberately left alone.
 - **Per-pixel lights are expensive** and ship off by default; at zero, some lights can flicker.

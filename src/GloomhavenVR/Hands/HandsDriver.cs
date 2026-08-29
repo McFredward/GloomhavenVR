@@ -43,6 +43,7 @@ internal sealed class HandsDriver : MonoBehaviour
     private System.Action? _tickSim;
     private System.Action? _tickGrip;
     private System.Action? _tickCloth;
+    private System.Action? _tickVfx;
     private System.Action? _tickGhost;
     private System.Action? _tickLesson;
 
@@ -52,6 +53,7 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickSim = AnimateSimulation;
         _tickGrip = Cards.HeldCardGrip.Tick;
         _tickCloth = SceneClothHands.Tick;
+        _tickVfx = SceneVfxHands.Tick;
         _tickGhost = HandGhosts.Tick;
         // The controls lesson lives here because it drives BOTH hands (their meshes step
         // aside for the real controller) and because TickGuard already isolates a throw in
@@ -123,6 +125,7 @@ internal sealed class HandsDriver : MonoBehaviour
         // anchors, and under its own guard because it writes into the GAME's Cloth components —
         // a surprise there must not be able to abort hand tracking itself.
         TickGuard.Run("Hands.SceneCloth", _tickCloth!);
+        TickGuard.Run("Hands.SceneVfx", _tickVfx!);
         // Ghost hand ([Hands] GhostHandOnFan): fade the hand carrying the OPEN card fan. Runs
         // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
         // guard so a material/shader surprise can never abort hand tracking itself.
@@ -288,6 +291,10 @@ internal sealed class HandsDriver : MonoBehaviour
         // left holding a destroyed collider never simulates correctly again, and a scene that is
         // merely being re-entered keeps its curtains.
         SceneClothHands.Shutdown();
+        // Scenery VFX: write the authored collision settings back BEFORE the probe colliders die.
+        // A particle system left pointing at a destroyed collider collides against nothing for the
+        // rest of its life, and a scene that is merely being re-entered keeps its effects.
+        SceneVfxHands.Shutdown();
         // Controls lesson: it holds a controller model parented to each hand and a list of the
         // hand renderers it switched off. Both die with the tree below, but the panel does not
         // and the progress channel would keep waiting for a step nobody can perform.

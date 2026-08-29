@@ -416,7 +416,70 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 327;
+    public const ushort ModBuild = 328;
+    // Build 328: PUT A HAND IN THE SMOKE AND THE SMOKE GOES ROUND IT.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE FIELD.
+    //
+    //   The scenario's own particle effects — fire, smoke, embers, dust, the wash of a spell —
+    //   deflect off the player's hands while they are inside, and are restored to the authored
+    //   settings, field for field, the moment they leave. New: Hands/SceneVfxHands.cs and
+    //   [Hands] HandsDisturbVfx. Purely local and purely cosmetic; particles were never on the
+    //   wire, so every player stirs their own copy of the room and nothing can diverge.
+    //
+    //   THE GROUNDWORK WAS ALREADY IN THE SCENE. Unity particle systems carry a collision module
+    //   the game leaves off on ordinary effects, so nothing is simulated, cooked or added to a
+    //   scene object: switching that module on with a mask naming the hand's own sphere is the
+    //   whole mechanism. This is candidate 3b of .planning/scene-interactables-PARKED.md.
+    //
+    //   AND THE PARKED SURVEY'S OWN ROUTE IS THE ONE THIS REFUSES. It pointed at the RFX4
+    //   effects, whose collision the game enables for a one-second window and whose
+    //   RFX4_ParticleCollisionHandler spawns an impact effect at the contact point — "a visible
+    //   reaction with zero cook". Reading that handler in full says otherwise: it Instantiates
+    //   ONCE PER COLLISION EVENT PER PREFAB, every frame, with no cap. A hand parked in a burning
+    //   brazier is an unbounded spawn loop, and this project has paid for that shape before. So
+    //   systems carrying either RFX4 collision script are SKIPPED ENTIRELY — the second of them
+    //   also writes collision.enabled from its own Update, which would be a write war on top —
+    //   only systems whose collision is ALREADY OFF are adopted, and sendCollisionMessages is
+    //   forced FALSE on every one of them. The effect is purely kinematic and cannot spawn a
+    //   single object.
+    //
+    //   THE MASK NAMES ONE LAYER, the mod's own (VRLayers.ModLayer, the first unnamed layer, so
+    //   the game authored nothing on it). Nothing here depends on the "Ignore Raycast" convention
+    //   holding for particle queries, which is not a question this machine can answer. The probe
+    //   spheres are deliberately NOT triggers, which is why they exist instead of reusing an
+    //   interaction collider: particle collision ignores triggers, and every collider the mod puts
+    //   in the player's hands for poking and grabbing is one.
+    //
+    //   COST IS BOUNDED AT BOTH ENDS: collision quality High raycasts PER PARTICLE, so at most 3
+    //   systems per hand, never one over 400 live particles, only within 0.30 real metres of what
+    //   the effect DRAWS (renderer bounds, not the emitter pivot, which is routinely a metre off),
+    //   with 1.5x release hysteresis. The registry is rebuilt every 3 s while a hand is tracked
+    //   and never in a frame path; the first three scans are timed and logged.
+    //
+    //   ALSO IN THIS BUILD, and it is the more useful half: TWO OF MY OWN CLAIMS WERE WRONG and
+    //   the user caught both.
+    //     * "The mod has no interaction sounds" was grep -c on PlayOneShot. The mod does not own
+    //       AudioSources for this on purpose: it plays the GAME's bank through
+    //       Core/Sound/GameAudio + UiSoundEar, at ~64 sites across ten sound events
+    //       (PlaySound_CardUI 18x, PlaySound_UICardTabSelect 15x, PlaySound_EnemyCardDraw 6x, …).
+    //       That is the better design, not a gap, and the instrument measured the wrong term.
+    //     * "Peer cards in the map room show as backs" was read out of docs/PLAYING.md, which had
+    //       gone stale: RemoteHandFan.ResolveMapFronts has shown map-room fronts since ModBuild
+    //       192, and RemotePileFronts made the secrecy rule a PHASE rather than a PLACE in the
+    //       2026-08-08 ruling. The stale line is deleted — a document is not a measurement, and
+    //       this one was cited as if it were.
+    //
+    //   TEST:
+    //     1. Hold a hand in a brazier / torch / spell effect: the particles must go AROUND it and
+    //        snap back to normal the instant the hand leaves.
+    //     2. Log line "VFX scan #1: N adoptable particle system(s) of M found (K skipped as
+    //        game-managed collision) in X ms" — read N, K and X; all three are interesting.
+    //     3. Park a hand in the biggest effect you can find and watch the frame time. If it hurts,
+    //        MaxSystemsPerHand and MaxParticlesToAdopt are the dials.
+    //     4. Nothing may ever SPAWN from a hand touching an effect. If anything does, the
+    //        game-managed skip has a hole in it.
+    //     5. Off ([Hands] HandsDisturbVfx = false): effects pass through, exactly as before.
+    //
     // Build 327: THE FIVE THUMBSTICK LESSONS BECOME ONE LESSON ABOUT ONE STICK.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE CHANGE.
     //

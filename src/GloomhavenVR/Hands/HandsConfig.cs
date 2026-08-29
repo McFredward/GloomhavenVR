@@ -154,6 +154,7 @@ internal static class HandsConfig
     /// <summary>Do the hands push scenery cloth (curtains, hangings) out of the way?
     /// See <see cref="SceneClothHands"/>.</summary>
     public static ConfigEntry<bool> HandsDisturbScenery = null!;
+    public static ConfigEntry<bool> HandsDisturbVfx = null!;
 
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
@@ -422,6 +423,19 @@ internal static class HandsConfig
             "their own copy of the room and nothing can desync. Off: the scenery hangs still, " +
             "exactly as before. (A held figure's cape is a separate switch, [FigureGrab] " +
             "ClothFollowsFreeHand.)");
+        HandsDisturbVfx = config.Bind(
+            "Hands", "HandsDisturbVfx", Defaults.HandsDisturbVfx,
+            "Put a hand in the smoke and the smoke goes ROUND it. The scenario's own effects - " +
+            "fire, smoke, embers, dust, the wash of a spell - deflect off your hands while they " +
+            "are inside, and are restored to the authored settings the moment you leave. The " +
+            "reaction is purely kinematic: particles bounce, slow a little and die slightly " +
+            "early. Nothing is ever spawned - effects the game manages its own collision on are " +
+            "skipped entirely, and collision MESSAGES stay off, so no impact effect can be " +
+            "triggered by your hand. Purely local and purely cosmetic: particles have never been " +
+            "networked, so every player stirs their own copy of the room and nothing can desync. " +
+            "Costs a little frame time while a hand is actually inside an effect (particle " +
+            "collision is tested per particle), and never anything when it is not. Off: effects " +
+            "pass through your hands, exactly as before.");
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", Defaults.GhostHandStrength,
             new ConfigDescription(

@@ -2739,6 +2739,20 @@ internal static partial class Loc
                 + "— das Spiel setzt beim Loslassen alles auf sein Feld zurück. Gelände, durch das man "
                 + "nur langsamer läuft, ist bewusst NICHT dabei: das ist nichts, was man hochheben "
                 + "könnte. Aus: nur Figuren, wie bisher.",
+            ["Hands/HandsDisturbVfx"] =
+                "Halt die Hand in den Rauch, und der Rauch geht DRUMHERUM. Die Effekte des "
+                + "Szenarios — Feuer, Rauch, Funken, Staub, der Schwall eines Zaubers — werden "
+                + "von deinen Händen abgelenkt, solange sie darin stecken, und sind exakt "
+                + "wiederhergestellt, sobald du wieder heraus bist. Die Reaktion ist rein "
+                + "kinematisch: Partikel prallen ab, werden etwas langsamer und sterben ein wenig "
+                + "früher. Es entsteht dabei NICHTS: Effekte, deren Kollision das Spiel selbst "
+                + "verwaltet, werden komplett ausgelassen, und die Kollisionsmeldungen bleiben "
+                + "aus — deine Hand kann also keinen Einschlagseffekt auslösen. Rein lokal und "
+                + "rein kosmetisch: Partikel waren noch nie im Netzwerk, jeder Spieler verwirbelt "
+                + "also seine eigene Kopie des Raums, und nichts kann auseinanderlaufen. Kostet "
+                + "etwas Bildzeit, solange eine Hand wirklich in einem Effekt steckt (Partikel"
+                + "kollision wird pro Partikel geprüft), und sonst gar nichts. Aus: Effekte gehen "
+                + "durch deine Hände hindurch, wie bisher.",
             ["Hands/HandsDisturbScenery"] =
                 "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
                 + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "
