@@ -1457,13 +1457,14 @@ internal static partial class Loc
                 + "hält, bleibt sichtbar. Aus: Die Greiftaste tut nichts, während du eine Karte hältst, "
                 + "genau wie vorher.",
             ["Cards/InHandPitch"] =
-                "In der Hand: wie weit die Karte AUS deiner Handfläche aufsteht, in Grad. 0 legt sie flach "
-                + "entlang der Finger — der eine Wert, den man meiden sollte, denn dann steht deine eigene "
-                + "Hand von der einen Seite direkt hinter und von der anderen direkt vor der Karte. 90 "
-                + "stellt sie senkrecht aus dem Griff, frei von allen Fingern außer den beiden haltenden; "
-                + "der Standardwert neigt sie von dort noch etwas zum Handgelenk, so wie eine Hand eine "
-                + "Karte wirklich hält, die sie gleich lesen will. Betrifft nur den In-der-Hand-Modus — "
-                + "die schwebende Lesepose stellt HeldFaceBias ein.",
+                "In der Hand: wie weit die Karte zurückgeneigt ist, in Grad. Die Karte wird so gehalten, "
+                + "wie man eine Karte wirklich hält — der Daumen liegt flach auf ihrer Vorderseite nahe "
+                + "einer unteren Ecke, die anderen vier Finger sind dahinter eingerollt —, wohin sie ZEIGT "
+                + "entscheidet also dein Daumen und ist keine Einstellung. Das hier ist das Einzige, was "
+                + "übrig bleibt: 0 richtet die Karte gerade an deinen Fingerspitzen vorbei nach vorn, 90 "
+                + "stellt sie senkrecht aus der Faust, und der Standardwert liegt dazwischen, dort wo eine "
+                + "Hand eine Karte wirklich trägt. Betrifft nur den In-der-Hand-Modus — die schwebende "
+                + "Lesepose stellt HeldFaceBias ein.",
             ["Cards/InHandPinchOffset"] =
                 "In der Hand, Feinjustage: Versatz (Meter), der auf den modellierten Griffpunkt ADDIERT "
                 + "wird, in Achsen des Greif-Ankers: +Y aus der Handfläche heraus, +Z entlang der Finger, "

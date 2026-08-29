@@ -153,8 +153,8 @@ internal static class HeldCardGrip
     }
 
     /// <summary>
-    /// The in-hand pose for a card of <paramref name="cardHeight"/> metres (at its HELD scale),
-    /// in the holding hand's grab-anchor frame. False - and nothing written - when that hand is
+    /// The in-hand pose for a card of <paramref name="cardWidth"/> x <paramref name="cardHeight"/>
+    /// metres (at its HELD scale), in the holding hand's grab-anchor frame. False - and nothing written - when that hand is
     /// not in the in-hand mode this frame, which is the caller's cue to keep the billboard.
     ///
     /// <para>SAMPLED EVERY FRAME, not captured at grab time like the reading pose. The pinch point
@@ -170,19 +170,26 @@ internal static class HeldCardGrip
     /// its own comment - and the 2026-08-09 report is what that cost: the left-hand mirror was
     /// fixed in one copy and not the other, and the item card sat 11 cm out for five days.</para>
     /// </summary>
-    internal static bool TryPose(VRHand? hand, float cardHeight, out Vector3 pos, out Quaternion rot)
+    internal static bool TryPose(VRHand? hand, float cardWidth, float cardHeight,
+                                 out Vector3 pos, out Quaternion rot)
     {
         pos = Vector3.zero;
         rot = Quaternion.identity;
         if (hand == null || !InHand(hand.Side) || hand.Rig == null || hand.Rig.GrabAnchor == null)
             return false;
 
+        // THE TWO THINGS THAT SANDWICH THE CARD, and they are NOT the two fingertips. This hold
+        // is the thumb flat along the card's face with the fingers curled behind it (see
+        // CardGripPose.Curls for why a tip-to-tip pinch is not producible on these rigs), so the
+        // contacts are the THUMB TIP and the INDEX KNUCKLE — the middle phalanx a card really rests
+        // against. Taking the index TIP instead would put the reference deep in the curled palm and
+        // drag the card in after it.
         Vector3 pinchLocal;
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
         FingerJoints index = hand.Rig.GetFinger(Finger.Index);
         if (thumb.IsValid && index.IsValid)
         {
-            Vector3 pinchWorld = (thumb.Tip.position + index.Tip.position) * 0.5f;
+            Vector3 pinchWorld = (thumb.Tip.position + index.Mid.position) * 0.5f;
             pinchLocal = hand.Rig.GrabAnchor.InverseTransformPoint(pinchWorld);
         }
         else
@@ -202,7 +209,12 @@ internal static class HeldCardGrip
             offset.x = -offset.x;
         pinchLocal += offset;
 
-        CardGripPose.Solve(CardsConfig.InHandPitch.Value, pinchLocal, cardHeight, out pos, out rot);
+        // +1 on the right hand, -1 on the left: the anchor frames are mirrors, so the lateral axis
+        // - which IS the card's face normal in this pose - points at the thumb on one hand and at
+        // the pinky on the other. Handed once, here, exactly like the offset above.
+        float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
+        CardGripPose.Solve(CardsConfig.InHandPitch.Value, thumbSide, pinchLocal,
+                           cardWidth, cardHeight, out pos, out rot);
         return true;
     }
 

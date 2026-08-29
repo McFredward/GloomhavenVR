@@ -6652,8 +6652,9 @@ internal sealed class ItemsPile
         private void TickHeldPose()
         {
             float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+            float cardW = (_faceWidth > 0.001f ? _faceWidth : CardsConfig.CardWidth.Value) * _heldScale;
             float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale;
-            if (HeldCardGrip.TryPose(Holder, cardH, out Vector3 gripPos, out Quaternion gripRot))
+            if (HeldCardGrip.TryPose(Holder, cardW, cardH, out Vector3 gripPos, out Quaternion gripRot))
             {
                 transform.localPosition = Vector3.Lerp(transform.localPosition, gripPos, t);
                 transform.localRotation = Quaternion.Slerp(transform.localRotation, gripRot, t);

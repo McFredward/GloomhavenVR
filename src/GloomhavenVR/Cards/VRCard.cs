@@ -1352,8 +1352,9 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     private void TickHeldPose()
     {
         float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+        float cardW = CardsConfig.CardWidth.Value * _heldScale;
         float cardH = CardsConfig.CardHeight * _heldScale;
-        if (HeldCardGrip.TryPose(Holder, cardH, out Vector3 gripPos, out Quaternion gripRot))
+        if (HeldCardGrip.TryPose(Holder, cardW, cardH, out Vector3 gripPos, out Quaternion gripRot))
         {
             transform.localPosition = Vector3.Lerp(transform.localPosition, gripPos, t);
             transform.localRotation = Quaternion.Slerp(transform.localRotation, gripRot, t);

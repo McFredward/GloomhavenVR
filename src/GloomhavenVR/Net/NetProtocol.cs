@@ -416,7 +416,65 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 317;
+    public const ushort ModBuild = 318;
+    // Build 318: THE IN-HAND CARD IS HELD THE WAY A HAND HOLDS ONE.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD (317's stands). ***
+    //
+    //   User, on 317's renders: "In deinen Bildern clippen Finger durch die Karte, das ist kein
+    //   natuerlicher Griff. Eine Karte haelt man auch nicht mit der Handflaeche nach oben, sondern
+    //   zwischen Daumen und Zeigefinger." Both true, and the second is the cause of the first.
+    //
+    //   317 PUT THE CARD'S FACE ALONG THE PALM NORMAL, so the card stood up out of an open palm and
+    //   its plane lay ACROSS the hand - across the very direction the fingers close in. Every finger
+    //   therefore passed through it, and no amount of curl tuning could have fixed that, because the
+    //   plane was in their way by construction. The card's plane is now the LATERAL one: +X in the
+    //   grab-anchor frame, the thumb's side, so the thumb lies flat on the face and the fingers curl
+    //   behind it in a direction PARALLEL to the card. The palm turns sideways, which is what a hand
+    //   holding a card does.
+    //
+    //   AND A TIP-TO-TIP PINCH IS NOT PRODUCIBLE ON THESE RIGS, which is worth writing down because
+    //   it is a property of the asset contract, not a tuning failure: FingerCurler drives exactly
+    //   ONE flexion axis per joint, so the thumb can only flex in its own plane - it can never
+    //   rotate round to oppose the index across a card. Measured, the best pinch pair put the two
+    //   tips 7 mm apart ACROSS the card and a finger is about 18 mm thick, so no plane existed with
+    //   one cleanly on each side. What the rigs CAN do is the one-handed hold: thumb 0.40, four
+    //   fingers curled 0.90..1.00, which leaves 24 / 21 / 18 mm between the thumb tip and the
+    //   backing knuckle on glove / plate / arcane - a real sandwich on all three.
+    //
+    //   THE INSTRUMENT IS THE STORY OF THIS BUILD. "Do fingers clip?" was decided by looking at a
+    //   render, which is how 317 shipped. PreviewCardGrip now tests every driven joint against the
+    //   card RECTANGLE and reports which SIDE of the plane it is on, plus the clearance in
+    //   millimetres and where on the card the thumb lands. It then caught three things the eye did
+    //   not, in order:
+    //     * THE THUMB WAS NOT ON THE CARD AT ALL on the glove - clearance "Infinity", i.e. no thumb
+    //       joint inside the card's rectangle. A card held by four fingers with a thumb just under
+    //       its edge is not something a render flags. GripFraction 0.05 -> 0.14.
+    //     * THE THUMB LANDED DEAD CENTRE (u -0.09..-0.17), which on an ability card is exactly where
+    //       the INITIATIVE NUMBER sits. The tidiest-looking grip covered the most-read glyph on the
+    //       card. GripAcross moves it to a bottom corner.
+    //     * AND MY OWN MIRRORING CLAIM WAS FALSE. The comment said the corner offset "already
+    //       mirrors itself because the card's right axis flips with the hand" - it flips in WORLD
+    //       terms, but the offset is added in the CARD's frame, so it moved both hands the same way
+    //       in card space while the natural landing points were mirrored: right hands at u -0.51,
+    //       left at -0.33. This is the 2026-08-04 held-card report for the third time. The rule is
+    //       now stated as an unconditional: if it multiplies X, it multiplies thumbSide.
+    //   Final state, all six hands: THROUGH 0, GRAZING 0, thumb 8.8-12.0 mm in front of the card and
+    //   the nearest knuckle the same distance behind it, thumb at u +/-0.55..0.63 / v -0.71..-0.98.
+    //
+    //   ALSO CORRECTED: the instrument's own first version counted every joint within a fingertip
+    //   radius of the plane as CLIPPING, and reported the arcane glove's correct 8.8 mm sandwich as
+    //   two clips. An instrument that calls a good grip a defect is one nobody reads. The headline
+    //   claim carries no threshold at all now - THROUGH is decided by the SIDE, and the clearances
+    //   are printed as millimetres for the reader to judge.
+    //
+    //   NOTHING ON THE WIRE CHANGED. Record 34 and its one bit per held-card slot are 317's and are
+    //   untouched; the finger curls that carry this pose to every peer and to the mirror were
+    //   already riding every rig packet.
+    //
+    //   TEST: 318 replaces 317's item 2 and inherits the rest.
+    //     2. GRIFF - the card must look HELD: thumb flat on its face near a bottom corner, the other
+    //        fingers behind it, and no finger through it, on all three hand styles.
+    //
     // Build 317: A CARD CAN BE TAKEN INTO THE HAND, AND SHOWN.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NEW WIRE FIELD: record 34. ***
     //

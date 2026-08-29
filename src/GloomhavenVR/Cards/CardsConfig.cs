@@ -720,13 +720,13 @@ internal static class CardsConfig
             "ghost hand belongs to the reading mode only - a hand that is really holding a card " +
             "stays solid. Off: the grip does nothing while a card is held, exactly as before.");
         InHandPitch = _file.Bind("Cards", "InHandPitch", Defaults.InHandPitch, new ConfigDescription(
-            "In-hand grip: how far the card stands UP out of your palm, degrees. 0 lays it flat " +
-            "along your fingers - the one value to avoid, because then your own hand is directly " +
-            "behind the card from one side and directly in front of it from the other. 90 stands " +
-            "it straight up out of the pinch, clear of every finger but the two holding it; the " +
-            "default leans it back a little further, toward your wrist, which is what a hand " +
-            "really does with a card it is about to read. Only affects the in-hand mode - the " +
-            "floating reading pose is HeldFaceBias.",
+            "In-hand grip: how far the card leans back, degrees. The card is held the way you " +
+            "really hold one - thumb flat on its face near a bottom corner, the other four " +
+            "fingers curled behind it - so which WAY it faces is settled by your thumb and is not " +
+            "a setting. This is the one thing left to choose: 0 points the card straight out past " +
+            "your fingertips, 90 stands it straight up out of your fist, and the default sits " +
+            "between them, where a hand really carries a card. Only affects the in-hand mode - " +
+            "the floating reading pose is HeldFaceBias.",
             new AcceptableValueRange<float>(0f, 120f)));
         InHandPinchOffset = _file.Bind("Cards", "InHandPinchOffset", Defaults.InHandPinchOffset,
             "In-hand grip fine-tune: offset (meters) ADDED to the modelled pinch point, in " +

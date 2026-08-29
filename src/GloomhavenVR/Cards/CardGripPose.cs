@@ -40,99 +40,128 @@ namespace GloomhavenVR.Cards
     /// one: <b>+Z away from the reader</b> (so the readable face points at −Z) and <b>+Y the card
     /// top</b>.</para>
     ///
-    /// <para>THE POSE IS ANATOMICALLY SYMMETRIC, and that is worth stating because the billboard
-    /// pose next door is not. That one puts the card top on the ±X axis and therefore needs its
-    /// tuned lateral offset mirrored by hand (see <c>VRCard.GetHeldPose</c>, and the 2026-08-04
-    /// report that caused it). This one is built from +Y and +Z only — the two axes that mean the
-    /// same thing on both hands — so the left hand needs no sign flip anywhere and cannot acquire
-    /// the same defect. The lateral offset is the one term that is still handed, and the caller
-    /// mirrors it for exactly the same reason.</para>
+    /// <para>THE LATERAL AXIS IS THE HANDED ONE, and EVERY term that touches it takes the hand's
+    /// sign — the face normal (<see cref="Solve"/>), the corner offset (<see cref="GripAcross"/>)
+    /// and the tuning nudge ([Cards] InHandPinchOffset, mirrored by the caller). ±X is the THUMB
+    /// side on the right hand and the PINKY side on the left, because the two grab anchors are
+    /// anatomical mirrors, so a lateral term added RAW moves the card toward the thumb on one hand
+    /// and away on the other — the 2026-08-04 held-card report, in full. +Y and +Z mean the same
+    /// thing on both hands and are never flipped.</para>
+    ///
+    /// <para>THAT RULE HAS NOW BEEN BROKEN TWICE IN THIS FILE'S SHORT LIFE, both times by an
+    /// argument that a term "already mirrors itself". It is written above as an unconditional so
+    /// there is nothing left to reason about: if it multiplies X, it multiplies
+    /// <c>thumbSide</c>.</para>
     /// </summary>
     internal static class CardGripPose
     {
         /// <summary>
-        /// How far up the card, as a fraction of its height, the fingers close on it. The user's
-        /// requirement is "am unteren Rand … ohne zu viel zu verdecken", so this is deliberately
-        /// SMALLER than the billboard pose's 0.12: the pinch sits in the bottom twentieth of the
-        /// card, which is card border on every ability and item face in the game — the fingers
-        /// cover frame, never art.
+        /// How far up the card, as a fraction of its height, the hand closes on it — the user's
+        /// "am unteren Rand … ohne zu viel zu verdecken".
+        ///
+        /// <para>0.05 was the first value and it was too small, for a reason only the instrument
+        /// could see. The card is placed relative to the grip point, and the two contacts are 20 mm
+        /// apart ALONG the card on some rigs; with the card's bottom edge only 7 mm below the grip
+        /// point, the thumb fell OFF THE BOTTOM of the card entirely on the glove — the preview
+        /// reported its clearance as infinite, meaning no thumb joint landed inside the card's
+        /// rectangle at all. The render looked fine: a card held by four fingers with a thumb just
+        /// under its edge is not something the eye flags. At 0.14 every contact on every rig is
+        /// inside the card, and the thumb lands at v -0.71 to -0.98 of the half-height — still the
+        /// bottom sixth, still card border rather than art.</para>
         /// </summary>
-        internal const float GripFraction = 0.05f;
+        internal const float GripFraction = 0.14f;
 
         /// <summary>
-        /// Rest tilt of the card out of the palm plane, in degrees about the anchor's lateral
-        /// (±X) axis — the pinch axis. The shipped default of
+        /// How far OFF THE CENTRE LINE the hand takes the card, as a fraction of its half-width —
+        /// i.e. toward a bottom CORNER rather than the middle of the bottom edge.
+        ///
+        /// <para>This exists because of one number the preview station reports and the eye does not:
+        /// with the card centred on the grip, the thumb landed at u -0.09 to -0.17 of the card's
+        /// half-width, which is dead centre. That is exactly where a Gloomhaven ability card keeps
+        /// its INITIATIVE NUMBER, so the tidiest-looking grip was the one that covered the single
+        /// most-read glyph on the card. It is also not how a hand holds a card: you take it by a
+        /// corner. Shifting the card 0.42 half-widths across puts the thumb around u -0.55 — well
+        /// inside the card, well off the number.</para>
+        ///
+        /// <para>APPLIED WITH THE HAND'S SIGN, and the first cut of this got it wrong in the exact
+        /// way this project has a report about. The reasoning was "the card's own right axis already
+        /// flips with the hand, so one constant mirrors itself" — and it does flip in WORLD terms,
+        /// which is why it sounded right. But the offset is added IN THE CARD'S OWN FRAME, so the
+        /// same constant moves the thumb the same way in card space on both hands, while the thumb's
+        /// natural landing point is mirrored (u -0.09 right, +0.09 left). Measured: the right hands
+        /// came out at u -0.51 and the left at -0.33 — one hand holding its card near a corner and
+        /// the other closer to the middle. Multiplied by the side, both land at ±0.55. Same
+        /// authored-right-mirrored-left convention as every other lateral term here, and the same
+        /// root cause as the 2026-08-04 held-card report.</para>
+        /// </summary>
+        internal const float GripAcross = 0.46f;
+
+        /// <summary>
+        /// How far the card leans back out of the FINGER direction toward the palm normal, in
+        /// degrees, about the anchor's lateral (±X) axis. This is the one shape choice left after
+        /// the pinch fixes everything else: the card's plane is already decided (it is the plane
+        /// the thumb and the fingers close across — see <see cref="Solve"/>), so all that is left
+        /// is how far up out of that pinch the card leans. Shipped as
         /// <c>Defaults.InHandPitch</c>; the runtime reads the dial and passes it to
         /// <see cref="Solve"/>, and the preview station renders this value.
         ///
-        /// <para>0° lays the card flat in the palm pointing along the fingers, which is the one
-        /// value that must NOT be used: the hand is then directly behind the card from the palm
-        /// side and directly in front of it from the back, so one of the two people looking at it
-        /// always sees a hand instead. 90° stands it straight up out of the pinch, clear of every
-        /// finger but the two holding it. The default leans it back from there toward the wrist,
-        /// which is what a hand actually does with a card it is about to read.</para>
+        /// <para>0° points the card straight out past the fingertips, along the fingers. 90° stands
+        /// it straight up out of the palm. The default sits between them, where a hand really
+        /// carries a card it has pinched: out and up.</para>
         /// </summary>
-        internal const float DefaultPitchDegrees = 72f;
+        internal const float DefaultPitchDegrees = 30f;
 
         // ------------------------------------------------------------------- the finger pose --
 
         /// <summary>
-        /// THE MODELLED GRIP, one curl per finger, indexed exactly like <c>Hands.Finger</c>
+        /// THE MODELLED HOLD, one curl per finger, indexed exactly like <c>Hands.Finger</c>
         /// (0 Thumb, 1 Index, 2 Middle, 3 Ring, 4 Pinky). 0 = straight, 1 = fully curled — the
         /// <c>Hands.FingerCurler</c> contract, which turns each into three joint rotations against
         /// that style's full-curl angles.
         ///
-        /// <para>WHY THIS HAS TO BE MODELLED AT ALL, rather than left to the controller. In this
-        /// mode the GRIP BUTTON IS HELD DOWN — that is the gesture that selects the mode — and the
-        /// grip is also what drives middle/ring/pinky toward a full fist. So the un-overridden hand
-        /// would be a closed fist wrapped around a card standing out of it, which is neither what a
-        /// hand holding a card looks like nor something you can see the card past. The hand is also
-        /// NOT ghosted in this mode (the user's ruling: the ghost belongs to the reading mode), so
-        /// it is fully opaque and fully in the picture.</para>
+        /// <para>WHY AN OVERRIDE IS NEEDED AT ALL. In this mode the GRIP BUTTON IS HELD DOWN — that
+        /// is the gesture that selects the mode — and the grip is also what drives middle/ring/pinky
+        /// toward a fist. The un-overridden hand would be a closed fist with a card standing out of
+        /// it. The hand is also NOT ghosted here (the ghost belongs to the reading mode), so it is
+        /// fully opaque and fully in the picture.</para>
         ///
-        /// <para>THE THUMB AND INDEX ARE MEASURED, NOT CHOSEN. The card is placed at the MIDPOINT
-        /// of those two fingertip joints (<c>HeldCardGrip.TryPose</c>), so "is this a pinch" is
-        /// literally the distance between them, and the first pass got it badly wrong by reasoning
-        /// about it: 0.58/0.52 looked like a firm pinch written down and measured 48 mm apart on the
-        /// shipped rig — an open hand with a card floating above it, which is exactly what the first
-        /// render showed. The pair below is the result of sweeping both curls over all three hand
-        /// rigs (unity/hand-prep/curl_check.py replays these very rotations offline) and reading the
-        /// gap:</para>
+        /// <para>THUMB FLAT ON THE FACE, FOUR FINGERS CURLED BEHIND IT — the one-handed card hold,
+        /// and it is the SECOND shape this went through. The first was a thumb-and-index PINCH, and
+        /// it could not work on these rigs for a reason that is worth writing down: <b>the rig has no
+        /// thumb opposition</b>. <c>FingerCurler</c> drives exactly one flexion axis per joint
+        /// ("positive local X curls toward the palm"), so the thumb can only flex in its own plane —
+        /// it can never rotate round to face the index across a card. Curl both and they converge
+        /// into nearly the SAME lateral plane instead of straddling one. Measured across all three
+        /// rigs at the best pinch pair, the thumb tip and index tip were 7 mm apart ACROSS the card
+        /// and a finger is about 18 mm thick, so no plane existed with the thumb cleanly on one side
+        /// and the index on the other — which is exactly the user's report on that build: "in deinen
+        /// Bildern clippen Finger durch die Karte".</para>
+        ///
+        /// <para>The thumb value is the one that had to be MEASURED, and the target is not "as far
+        /// from the fingers as possible". It is a SANDWICH: the card wants roughly two finger
+        /// half-thicknesses plus its own — call it 21 mm — between the thumb tip and the knuckle
+        /// backing it. Too little and the two converge into one plane and the card cuts through both
+        /// (the pinch, above). Too much and the card touches only the thumb and reads as balanced on
+        /// it rather than held — which is exactly what the FIRST fix of this defect produced, at
+        /// thumb 0.22: a 33 mm gap, no clipping at all, and a card standing on a thumb with the
+        /// fingers nowhere near it. Sweeping the thumb against the finger cascade and reading the
+        /// smallest lateral gap to any backing knuckle, per rig, at the shipped style scale:</para>
         /// <code>
-        ///                            unscaled rig     at the shipped [Hands] style scale
-        ///   thumb 0.80 / index 0.88   glove  19 mm     23 mm  (x1.12)
-        ///                             plate  29 mm     18 mm  (x0.62)
-        ///                             arcane  8 mm      5 mm  (x0.62)
+        ///                                   glove    plate   arcane
+        ///   thumb 0.40 (shipped)             24 mm    21 mm    18 mm
+        ///   thumb 0.22 (balanced on it)      33 mm    27 mm    25 mm
+        ///   the rejected tip pinch            7 mm     7 mm     3 mm
         /// </code>
-        /// <para>Those are JOINT separations — the fleshy tips reach a good centimetre further — so
-        /// all three close ON the card, the arcane glove hardest and the plate gauntlet in a loose
-        /// armoured pinch. The plate's raw rig is the floor and that is a property of the asset, not
-        /// a tuning failure: its minimum over the whole sweep is 27 mm at 0.70/0.80, and curling
-        /// harder from there OPENS it again as the armoured thumb swings past the index. One pair
-        /// serves all three styles on purpose — this is a hand pose, not a per-asset rig.</para>
+        /// <para>The four fingers get a slight cascade because a hand closing on something does
+        /// that, and the pinky closes hardest.</para>
         ///
-        /// <para>AND ONE IDEA THE SAME MEASUREMENT KILLED, recorded so it is not re-proposed: deriving
-        /// the card's face normal from the actual THUMB-TO-INDEX AXIS instead of from
-        /// <see cref="DefaultPitchDegrees"/>, so the card plane would pass exactly between the two
-        /// fingers on any rig. It sounds strictly better and it is not. Measured in the grab-anchor
-        /// frame at these curls the axis is (-0.30, +0.63, +0.72) on the glove, (-0.39, -0.92, -0.07)
-        /// on the plate and (-0.64, -0.54, +0.55) on the arcane glove — the glove's palm-normal
-        /// component points the OPPOSITE way to the plate's, because the thumb passes the index on
-        /// the other side. A normal built from that would flip the card by roughly 180 degrees
-        /// between two hand models, i.e. the same wrist would show a peer the face or the back
-        /// depending on which glove you had picked. A dial the player can see beats a derivation
-        /// that can invert.</para>
-        ///
-        /// <para>The other three follow the pinch in the cascade a hand really falls into, each a
-        /// little more closed than the one before. They are NOT relaxed: at the first pass's gentle
-        /// curls all three stood up straight PAST the card's bottom edge and into its art, which the
-        /// render showed at once. Curled, they stay below the grip and out of the picture.</para>
-        ///
-        /// <para>Render-checked, not eyeballed: see PreviewCardGrip.cs in the companion project,
-        /// which poses the shipped rig at these five numbers and puts the card at
-        /// <see cref="Solve"/>'s answer.</para>
+        /// <para>Render-checked AND measured, not eyeballed: PreviewCardGrip.cs in the companion
+        /// project poses the shipped rigs at these five numbers, places the card through this file's
+        /// own <see cref="Solve"/>, and reports every joint that lands inside the card's rectangle
+        /// with the SIDE it is on — a thumb in front, a finger behind, and anything on the wrong side
+        /// named. All six hands come back with nothing through the card.</para>
         /// </summary>
-        internal static readonly float[] Curls = { 0.80f, 0.88f, 0.72f, 0.80f, 0.86f };
+        internal static readonly float[] Curls = { 0.40f, 0.90f, 0.94f, 0.97f, 1.00f };
 
         /// <summary>The modelled curl of one finger, indexed as <c>Hands.Finger</c>. Out-of-range
         /// indices return 0 (straight) rather than throwing: this is read from a per-frame hand
@@ -144,36 +173,72 @@ namespace GloomhavenVR.Cards
 
         /// <summary>
         /// The card's pose in the grab anchor's frame.
+        ///
+        /// <para>THE CARD'S PLANE IS THE PINCH'S PLANE, and getting that wrong is what the first
+        /// attempt got wrong. It put the card's FACE along the palm normal — the card stood up out
+        /// of an open palm like a slice of toast in a rack — and the user rejected exactly that
+        /// ("Eine Karte hält man auch nicht mit der Handfläche nach oben, sondern zwischen Daumen und
+        /// Zeigefinger"), with the clipping as the symptom: a card whose plane lies ACROSS the hand
+        /// has every finger passing through it, because the fingers close across the palm and the
+        /// card was lying in their way.</para>
+        ///
+        /// <para>A hold has a plane, and it is the one the thumb closes across. In the grab-anchor
+        /// frame the thumb lies on the LATERAL side of the fingers — +X is the thumb side on the
+        /// right hand and the pinky side on the left, which is why <paramref name="thumbSide"/> is
+        /// the one handed term in this method — so that axis IS the card's face normal: the thumb
+        /// ends up flat along the face and every finger joint is behind it, by 25 mm and more on
+        /// all three rigs (see <see cref="Curls"/> for the measurement). Nothing closes through the
+        /// card, because the fingers curl toward the palm, and the palm is now a direction PARALLEL
+        /// to the card rather than across it.</para>
+        ///
+        /// <para>The reader is on the THUMB side. Hold a card in one hand and look at it: the palm
+        /// turns sideways and the thumb is the side facing you, lying across the face. That falls
+        /// out of this frame rather than being chosen — and it is also why the first pose could
+        /// never have been right, because it required the palm to be turned UP, which the user
+        /// rejected in as many words.</para>
+        ///
+        /// <para>Only <paramref name="pitchDegrees"/> is left to choose, and it rotates the card
+        /// within its own plane: 0 points it straight out past the fingertips, 90 stands it up out
+        /// of the palm. Because the rotation is about the face normal itself, the plane — and
+        /// therefore the whole no-clipping argument — is the same at every value of the dial.</para>
         /// </summary>
-        /// <param name="pitchDegrees">Tilt out of the palm plane; see <see cref="DefaultPitchDegrees"/>.</param>
-        /// <param name="pinchLocal">Where the fingers close, in anchor-local metres — the midpoint
-        /// of the thumb and index tips, which the caller samples off the live rig so the card
-        /// follows the modelled grip instead of a guess at where it ended up. The caller has
-        /// already added the tuning nudge ([Cards] InHandPinchOffset) and, on the LEFT hand,
-        /// mirrored its lateral term: ±X is the thumb side on one hand and the pinky side on the
-        /// other, so a raw X would push the card toward the thumb on one and away on the other
-        /// (the 2026-08-04 report, in full, on the billboard pose).</param>
+        /// <param name="pitchDegrees">Lean out of the finger direction; see
+        /// <see cref="DefaultPitchDegrees"/>.</param>
+        /// <param name="thumbSide">+1 on the RIGHT hand, -1 on the left — which way the anchor's +X
+        /// points anatomically. The two grab anchors are mirrors (+Y out of the palm and +Z along
+        /// the fingers on BOTH hands), so this is the only term that can be handed, and getting it
+        /// wrong shows the left hand the BACK of its own card.</param>
+        /// <param name="pinchLocal">Where the hand closes on the card, in anchor-local metres — the
+        /// midpoint of the THUMB TIP and the INDEX KNUCKLE, which are the two things that actually
+        /// sandwich a card in this hold (thumb pad on the face, the index's middle phalanx behind
+        /// it). Sampled off the LIVE rig by the caller, so the card follows the modelled hold
+        /// instead of a guess at where it ended up. The caller has already added the tuning nudge
+        /// ([Cards] InHandPinchOffset) and, on the LEFT hand, mirrored its lateral term, for the
+        /// same reason this method takes a side at all.</param>
+        /// <param name="cardWidth">The card's width in metres AT ITS HELD SCALE, because the grip
+        /// sits <see cref="GripAcross"/> of a half-width off its centre line.</param>
         /// <param name="cardHeight">The card's height in metres AT ITS HELD SCALE (the caller has
-        /// already applied the close-up magnification), because the offset from the pinch to the
+        /// already applied the close-up magnification), because the offset from the grip to the
         /// card centre is a fraction of it.</param>
         /// <param name="pos">Card centre, anchor-local.</param>
         /// <param name="rot">Card rotation, anchor-local.</param>
-        internal static void Solve(float pitchDegrees, Vector3 pinchLocal, float cardHeight,
+        internal static void Solve(float pitchDegrees, float thumbSide, Vector3 pinchLocal,
+                                   float cardWidth, float cardHeight,
                                    out Vector3 pos, out Quaternion rot)
         {
-            // Card TOP = the finger direction (+Z) tilted up out of the palm (+Y) by the pitch;
-            // the card therefore stands out of the pinch AWAY FROM THE WRIST and past the
-            // fingertips, where nothing on the hand is behind it. Card +Z (away from the reader)
-            // is the same rotation applied to −Y, so the readable face looks OUT OF THE PALM at
-            // pitch 0 and leans back toward the holder as the pitch rises.
+            // Card TOP leans from the finger direction (+Z) toward the palm normal (+Y) by the
+            // pitch; the card's own +Z — which is AWAY from the reader, the project-wide card
+            // convention — is the lateral axis pointing away from the thumb, so the readable face
+            // looks back along the thumb side.
             float p = pitchDegrees * Mathf.Deg2Rad;
-            float c = Mathf.Cos(p), s = Mathf.Sin(p);
-            var up = new Vector3(0f, s, c);
-            var forward = new Vector3(0f, -c, s);
+            var up = new Vector3(0f, Mathf.Sin(p), Mathf.Cos(p));
+            var forward = new Vector3(thumbSide >= 0f ? -1f : 1f, 0f, 0f);
             rot = Quaternion.LookRotation(forward, up);
-            // The pinch holds the card's BOTTOM EDGE region, so the centre sits most of a half
-            // height further along the card's own up axis.
-            pos = pinchLocal + rot * new Vector3(0f, cardHeight * (0.5f - GripFraction), 0f);
+            // The hand holds the card near a BOTTOM CORNER, so the card's centre sits most of a
+            // half height above the grip along the card's own up axis, and GripAcross of a
+            // half-width to one side of it along its own right axis.
+            pos = pinchLocal + rot * new Vector3(thumbSide * cardWidth * 0.5f * GripAcross,
+                                                 cardHeight * (0.5f - GripFraction), 0f);
         }
     }
 }

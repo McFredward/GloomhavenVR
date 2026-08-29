@@ -184,18 +184,31 @@ namespace GloomhavenVR
                 // socket, so anchor-local there IS real metres, and dividing this prefab's own
                 // import scale back out here would silently change the units the pose is solved in.
                 Transform thumbTip = Find(hand.transform, "Anchor_Thumb_Tip");
-                Transform indexTip = Find(hand.transform, "Anchor_Index_Tip");
+                Transform indexTip = Find(hand.transform, "Anchor_Index_Mid");
                 if (thumbTip == null || indexTip == null)
                 {
-                    Debug.LogError("[CardGripPreview] " + tag + ": no thumb/index tip anchors.");
+                    Debug.LogError("[CardGripPreview] " + tag + ": no thumb tip / index knuckle.");
                     return;
                 }
                 Vector3 pinchWorld = (thumbTip.position + indexTip.position) * 0.5f;
                 Vector3 pinchLocal = Quaternion.Inverse(anchor.rotation)
                                      * (pinchWorld - anchor.position);
 
+                // +1 right / -1 left, and MEASURED rather than taken from the file name: the
+                // thumb's own lateral sign in the anchor frame is the fact the pose depends on, so
+                // a prefab that disagrees with its name is named here instead of quietly rendering
+                // the card's BACK.
+                float thumbSide = tag.Contains("_right") ? 1f : -1f;
+                float measuredSide = Mathf.Sign((Quaternion.Inverse(anchor.rotation)
+                                                 * (thumbTip.position - anchor.position)).x);
+                if (!Mathf.Approximately(thumbSide, measuredSide))
+                    Debug.LogError("[CardGripPreview] " + tag + ": the thumb sits on the "
+                        + (measuredSide > 0f ? "+X" : "-X") + " side of the grab anchor, which is "
+                        + "not what this hand's name says. The card would show its BACK.");
+
                 float cardH = CardHeight * InspectScale;
-                Cards.CardGripPose.Solve(Cards.CardGripPose.DefaultPitchDegrees, pinchLocal, cardH,
+                Cards.CardGripPose.Solve(Cards.CardGripPose.DefaultPitchDegrees, thumbSide,
+                                         pinchLocal, CardWidth * InspectScale, cardH,
                                          out Vector3 localPos, out Quaternion localRot);
 
                 Quaternion cardRot = anchor.rotation * localRot;
@@ -216,6 +229,20 @@ namespace GloomhavenVR
                     tag, gap, pinchLocal.ToString("F4"), CardWidth * InspectScale, cardH,
                     cardPos.ToString("F4"), Content(hand).size.magnitude,
                     pinchAxis.ToString("F3"), axisVsNormal));
+
+                // CLIPPING, AS A NUMBER. The user's report on the first pose was "in deinen Bildern
+                // clippen Finger durch die Karte", and an impression of a render is a bad instrument
+                // for that: a finger can pass a millimetre behind the card and read as through it,
+                // or pierce it where the shot cannot see. So every driven joint of every digit is
+                // tested against the card RECTANGLE — signed distance to the plane, whether its
+                // footprint lands inside the card at all, and which SIDE it is on (see Report).
+                //
+                // JOINTS, NOT THE MESH, and the difference is stated so nobody over-trusts this: the
+                // skinned finger is a tube around the bone, so the test carries a radius rather than
+                // pretending the bone is the finger. It cannot see a knuckle bulge. What it does see
+                // is the class of defect that was there — a whole digit standing through the card.
+                Report(tag, cardPos, cardRot, CardWidth * InspectScale, cardH,
+                       hand.transform, thumbSide);
 
                 Bounds b = Content(hand);
                 b.Encapsulate(Content(card));
@@ -258,6 +285,99 @@ namespace GloomhavenVR
                     Object.DestroyImmediate(card);
                 Object.DestroyImmediate(hand);
             }
+        }
+
+        /// <summary>
+        /// THE SIDE TEST, and it is a different question from "how close is it".
+        ///
+        /// <para>The first version of this counted every joint within a fingertip's radius of the
+        /// card plane as CLIPPING, and that was wrong in a way worth keeping: a card held between a
+        /// thumb and a knuckle is SUPPOSED to have both of them within a fingertip's radius — that
+        /// is what holding it means. On the arcane glove the two sit at exactly -8.8 and +8.8 mm, a
+        /// 17.6 mm sandwich on a card, and the old count called that two clips. An instrument that
+        /// reports a correct grip as a defect is an instrument that gets ignored.
+        ///
+        /// <para>What actually distinguishes a grip from a pass-through is the SIDE. In this hold
+        /// the thumb belongs on the reader's side of the card and every finger joint behind it, so
+        /// a joint on the WRONG side is the defect — the card has been laid through the hand rather
+        /// than in it. Reported separately: THROUGH (wrong side, inside the card's rectangle) is a
+        /// failure; GRAZING (right side but under 2 mm) is a warning that the sandwich has no
+        /// clearance left; everything else is a hold.</para>
+        /// </summary>
+        private const float GrazeMillimetres = 2f;
+
+        /// <summary>Per-joint side report; see <see cref="GrazeMillimetres"/> for what it decides
+        /// and the call site for what it cannot see.</summary>
+        private static void Report(string tag, Vector3 cardPos, Quaternion cardRot,
+                                   float w, float h, Transform hand, float thumbSide)
+        {
+            string[] digits = { "Thumb", "Index", "Middle", "Ring", "Pinky" };
+            string[] joints = { "Root", "Mid", "Tip" };
+            Vector3 n = cardRot * Vector3.forward;      // card +Z, AWAY from the reader
+            Vector3 right = cardRot * Vector3.right;
+            Vector3 up = cardRot * Vector3.up;
+            int through = 0, grazing = 0;
+            float nearestThumb = float.PositiveInfinity, nearestFinger = float.PositiveInfinity;
+            float thumbU = float.NaN, thumbV = float.NaN, thumbNear = float.PositiveInfinity;
+            var bad = new System.Text.StringBuilder();
+            foreach (string d in digits)
+            {
+                // The thumb lies on the READER's side (card -Z); every finger backs it (card +Z).
+                float wantSign = d == "Thumb" ? -1f : 1f;
+                foreach (string j in joints)
+                {
+                    Transform t = Find(hand, "Anchor_" + d + "_" + j);
+                    if (t == null)
+                        continue;
+                    Vector3 v = t.position - cardPos;
+                    float dist = Vector3.Dot(v, n) * 1000f;
+                    float u = Vector3.Dot(v, right) / (w * 0.5f);
+                    float q = Vector3.Dot(v, up) / (h * 0.5f);
+                    if (Mathf.Abs(u) > 1f || Mathf.Abs(q) > 1f)
+                        continue;                       // beside the card, not against it
+                    string label = " " + d + "_" + j + "("
+                        + dist.ToString("F1", CultureInfo.InvariantCulture) + "mm)";
+                    if (Mathf.Sign(dist) != wantSign && Mathf.Abs(dist) > GrazeMillimetres)
+                    {
+                        through++;
+                        bad.Append(label);
+                    }
+                    else if (Mathf.Abs(dist) <= GrazeMillimetres)
+                    {
+                        grazing++;
+                        bad.Append(label);
+                    }
+                    if (d == "Thumb")
+                    {
+                        nearestThumb = Mathf.Min(nearestThumb, Mathf.Abs(dist));
+                        // WHERE ON THE CARD the thumb lands, as a fraction of half-width/half-height
+                        // from the centre. Dead centre at the bottom is where an ability card keeps
+                        // its initiative number, so u near 0 is a covered number, not a tidy grip.
+                        if (Mathf.Abs(dist) < thumbNear)
+                        {
+                            thumbNear = Mathf.Abs(dist);
+                            thumbU = u;
+                            thumbV = q;
+                        }
+                    }
+                    else
+                        nearestFinger = Mathf.Min(nearestFinger, Mathf.Abs(dist));
+                }
+            }
+            // THE HEADLINE CLAIM CARRIES NO THRESHOLD. "THROUGH 0" is decided by the SIDE, which
+            // needs no calibration, and the two clearances are printed as the millimetres they are
+            // rather than as a count against a radius nobody has measured on these gauntlets. A
+            // reader can then apply their own idea of how thick a finger is — which is the whole
+            // difference between an instrument and an opinion with a number in it.
+            Debug.Log(string.Format(CultureInfo.InvariantCulture,
+                "[CardGripPreview] {0}: THROUGH {1}, GRAZING {2}{3} Clearance from the card plane: "
+                + "nearest thumb joint {4:F1} mm (in front), nearest finger joint {5:F1} mm (behind); "
+                + "a finger is roughly 9-13 mm thick, so both are touching it. THUMB LANDS at "
+                + "u {6:F2} / v {7:F2} of the card's half-extents (0,0 = dead centre). "
+                + "(thumb side {8:F0})",
+                tag, through, grazing,
+                bad.Length > 0 ? " —" + bad + "." : " — nothing passes through the card.",
+                nearestThumb, nearestFinger, thumbU, thumbV, thumbSide));
         }
 
         /// <summary>FingerCurler's three lines, verbatim: each of a digit's joints takes its
