@@ -709,9 +709,10 @@ public class Plugin : BaseUnityPlugin
             "Teach the VR controls during the first tutorial. Your hands become the controller " +
             "you are actually holding, the key you need lights up on it, and every step ends " +
             "when you DO the thing rather than when you have read about it: point and click, " +
-            "reach and grab, drag the table, zoom and turn it, take a card, hold one properly " +
-            "in your hand, fly, snap-turn, pick with a fingertip, reel a window in, ping a hex " +
-            "and re-seat yourself. Any step can be passed with NEXT and the whole lesson with " +
+            "reach and grab, then all four ways of getting about — drag the table, fly, turn, " +
+            "zoom and rotate — then take a card, hold one properly in your hand, pick with a " +
+            "fingertip, reel a window in, ping a hex and re-seat yourself. Any step can be " +
+            "passed with NEXT and the whole lesson with " +
             "SKIP, so it can never strand you. Runs in tutorial scenarios only, which are " +
             "single-player, so nothing about it goes on the wire. OFF: the tutorial behaves as " +
             "before.");

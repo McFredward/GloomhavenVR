@@ -55,19 +55,25 @@ internal readonly struct ControlsStep
 /// ProximityGrabber's trigger, BoardClickDriver's laser and fingertip routes, LaserCarryReel's
 /// stick, BoardPing's A/X, the B+Y recentre chord, and HeldCardGrip's grip-plus-trigger). Written
 /// out that way it comes to thirteen, which is more than a tutorial should ask anyone to sit
-/// through in one go — so the order matters: the first four are what you cannot play without, and
+/// through in one go — so the order matters: the first seven are what you cannot play without, and
 /// everything after that is a convenience the player can walk away from at any point via SKIP.</para>
 ///
 /// <para>ORDER. Point and click first, because that is how the player answers the panel in front
 /// of them. Then reach and grab, which is the one thing a flat-screen player has no instinct for.
-/// Then the three ways to move the world, cheapest first. Then the cards, which are the game.
-/// Everything after is a convenience.</para>
+/// Then ALL FOUR WAYS OF GETTING ABOUT, TOGETHER: drag the table, fly, turn, then zoom and rotate.
+/// The one-handed three come first and the two-handed pair after (user, 2026-08-29) — moving
+/// yourself is what a newcomer reaches for in the first minute, and it needs the same single stick
+/// the drag just taught. Postponing it behind the two-handed gestures, as the first version did,
+/// split the stick's lesson in half and put the harder grip in the middle of it. Then the cards,
+/// which are the game. Everything after is a convenience.</para>
 ///
 /// <para>WHY THE THUMBSTICK APPEARS FIVE TIMES, and why that is the honest way round. Drag,
-/// rotate, zoom, fly and snap-turn all live on the thumbstick, distinguished by CLICKING it in
+/// fly, snap-turn, zoom and rotate all live on the thumbstick, distinguished by CLICKING it in
 /// versus PUSHING it, and by one hand versus two. Merging them into "the thumbstick moves you"
 /// would light one key and teach nothing; five short steps, each ending the moment the player
-/// does the actual motion, is what makes the distinction land.</para>
+/// does the actual motion, is what makes the distinction land. They are now CONSECUTIVE, which
+/// is what lets the five read as one lesson about one stick rather than as five unrelated
+/// controls that happen to share it.</para>
 /// </summary>
 internal static class ControlsLesson
 {
@@ -78,7 +84,16 @@ internal static class ControlsLesson
         // --- what you cannot play without -------------------------------------------------
         new(ControlAction.LaserClick, "ctl_laser", ControllerKey.Trigger),
         new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger),
+
+        // GETTING ABOUT, ALL FOUR TOGETHER AND ONE-HANDED FIRST (user, 2026-08-29: fly and turn
+        // belong straight after the drag). Drag moves the TABLE, fly and turn move YOU, and those
+        // three are what a player reaches for in the first minute — each needs one hand and one
+        // stick. The two-handed zoom and rotate come after, because they are a different gesture
+        // (both sticks clicked in at once) and asking for it before the one-handed stick is
+        // understood is what makes the stick feel like five unrelated controls.
         new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick, target: 0.25f),
+        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick, target: 0.8f),
+        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, target: 20f),
         new(ControlAction.WorldZoom, "ctl_zoom", ControllerKey.Thumbstick, target: 0.35f),
         new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick, target: 25f),
 
@@ -87,8 +102,6 @@ internal static class ControlsLesson
         new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, situational: true),
 
         // --- conveniences -----------------------------------------------------------------
-        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick, target: 0.8f),
-        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, target: 20f),
         new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze, situational: true),
         new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, situational: true),
         new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, situational: true,

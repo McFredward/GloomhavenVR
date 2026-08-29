@@ -416,7 +416,35 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 326;
+    public const ushort ModBuild = 327;
+    // Build 327: THE FIVE THUMBSTICK LESSONS BECOME ONE LESSON ABOUT ONE STICK.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE CHANGE.
+    //
+    //   User, on the lesson order: "8 & 9 sollte an den Anfang nach 3" — flying and turning
+    //   belong straight after dragging the table, not eight steps later among the conveniences.
+    //
+    //   He is right, and the reason is sharper than "earlier is better". FIVE OF THE THIRTEEN
+    //   STEPS ARE THE SAME KEY: drag, fly, snap-turn, zoom and rotate all live on the thumbstick,
+    //   told apart only by CLICKING it in versus PUSHING it, and by one hand versus two. The old
+    //   order taught drag, then jumped to the TWO-HANDED zoom and rotate, then the cards, and only
+    //   came back to the one-handed fly and turn near the end. That splits one stick's lesson in
+    //   half and puts the harder grip in the middle of it, which is exactly how five short steps
+    //   stop reading as one control and start reading as five unrelated ones.
+    //
+    //   NEW ORDER: point and click, reach and grab, then ALL FOUR WAYS OF GETTING ABOUT together
+    //   and one-handed first — drag (the table moves), fly (YOU move), turn — then the two-handed
+    //   pair, zoom and rotate. Then the cards, then the conveniences. The "moves the table" /
+    //   "moves YOU" contrast now lands on consecutive cards, where it can actually be felt.
+    //
+    //   Table order only: no step was added, removed, retargeted or reworded, and every check,
+    //   threshold and key highlight is byte-for-byte what 326 shipped. The three places that
+    //   NAME the order in prose — the config description in both languages and docs/PLAYING.md —
+    //   were updated with it, because an order listed in three places is an order that goes stale
+    //   in two of them.
+    //
+    //   TEST: steps 3-7 must now be drag, fly, turn, zoom, rotate, and the counter must still
+    //   read n/13.
+    //
     // Build 326: 325 SHIPPED A BLACK MIRROR FOR A WHITE CONTROLLER. THIS FIXES IT.
     // *** FULL INSTALL: bundle 74,637,398 -> 74,359,898 bytes. DLL unchanged in behaviour;
     // *** everything here is asset-side. NO WIRE CHANGE.
