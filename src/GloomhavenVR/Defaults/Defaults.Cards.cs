@@ -36,6 +36,7 @@ internal static partial class Defaults
     internal const bool InHandHold = true;                                                            // => [Cards] InHandHold
     internal const float InHandPitch = CardGripPose.DefaultPitchDegrees;                              // => [Cards] InHandPitch
     internal static readonly Vector3 InHandPinchOffset = Vector3.zero;                                // => [Cards] InHandPinchOffset
+    internal const float InHandGraspSeconds = CardGripPose.DefaultGraspSeconds;                       // => [Cards] InHandGraspSeconds
     internal const float TrayForward = 0.54232f;                                                      // => [Cards] TrayForward
     internal const float TrayDown = 0.060066f;                                                        // => [Cards] TrayDown
     internal const float TrayRight = -0.113245f;                                                      // => [Cards] TrayRight

@@ -1023,10 +1023,13 @@ internal sealed class AvatarMirror
         // note says `carried` is correct for — R' · (R⁻¹ · cardRot), the pose carried through the
         // rendered mirror hand's frame, exactly as the held FIGURE is carried. So the fix is to
         // stop overriding it, not to compute anything new: the value was already here.
-        bool rigid = HeldCardGrip.InHand(hand.Side);
-        Quaternion r = !rigid && TryBillboardToMirrorHead(p, out Quaternion billboard)
-            ? billboard
-            : carried;
+        // BLENDED, exactly like the real card: the reflection has to travel between the two rules
+        // over the same window, or it switches under a card that is still moving.
+        float grasp = HeldCardGrip.Blend(hand.Side);
+        bool rigid = grasp >= 1f;
+        Quaternion r = carried;
+        if (grasp < 1f && TryBillboardToMirrorHead(p, out Quaternion billboard))
+            r = grasp <= 0f ? billboard : Quaternion.Slerp(billboard, carried, grasp);
 
         bool logged = hand.Side == HandSide.Left
             ? ReferenceEquals(_loggedCardLeft, card)

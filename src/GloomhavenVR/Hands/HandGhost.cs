@@ -585,12 +585,16 @@ internal static class HandGhosts
         // carry this all the way out, so the mirror and every peer's copy of these hands stop
         // fading with them — a peer must see a solid hand holding the card they are being shown.
         bool heldCards = HeldCardEnabled;
+        // AT THE HALFWAY MARK of the grasp, not at its start. The ghost is a material swap and has
+        // no midpoint — it cannot fade along with the fingers — so the only choice is WHERE to put
+        // the one discontinuity, and the least conspicuous place is the middle of a motion that is
+        // already carrying the eye.
         bool ghostLeft = (fanHand != null && fanHand.Side == HandSide.Left)
                          || (heldCards && left != null && IsHeldCard(left.Grabber.Held)
-                             && !HeldCardGrip.InHand(HandSide.Left));
+                             && !HeldCardGrip.PastHalf(HandSide.Left));
         bool ghostRight = (fanHand != null && fanHand.Side == HandSide.Right)
                           || (heldCards && right != null && IsHeldCard(right.Grabber.Held)
-                              && !HeldCardGrip.InHand(HandSide.Right));
+                              && !HeldCardGrip.PastHalf(HandSide.Right));
 
         LocalLeft = ghostLeft;
         LocalRight = ghostRight;

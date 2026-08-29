@@ -1465,6 +1465,13 @@ internal static partial class Loc
                 + "stellt sie senkrecht aus der Faust, und der Standardwert liegt dazwischen, dort wo eine "
                 + "Hand eine Karte wirklich trägt. Betrifft nur den In-der-Hand-Modus — die schwebende "
                 + "Lesepose stellt HeldFaceBias ein.",
+            ["Cards/InHandGraspSeconds"] =
+                "In der Hand: wie lange deine Hand braucht, um sich um die Karte zu SCHLIESSEN — und "
+                + "wieder zu öffnen, wenn du die Greiftaste loslässt. Deine Finger wandern in den Griff "
+                + "und die Karte wandert mit ihnen, auf einer einzigen weichen Bewegung: Sie beginnt aus "
+                + "der Ruhe, wird schneller und kommt in Ruhe an, statt zu springen oder nachzufedern. "
+                + "Bewusst kurz. 0 ist nicht erlaubt — genau das ist das Umspringen, das diese Bewegung "
+                + "beseitigt.",
             ["Cards/InHandPinchOffset"] =
                 "In der Hand, Feinjustage: Versatz (Meter), der auf den modellierten Griffpunkt ADDIERT "
                 + "wird, in Achsen des Greif-Ankers: +Y aus der Handfläche heraus, +Z entlang der Finger, "

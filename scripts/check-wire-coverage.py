@@ -226,6 +226,14 @@ EXEMPT = {
                                           "card's world rotation is what travels"),
     ("Cards", "InHandPinchOffset"): ("DERIVED", "as InHandHold - it only moves the held card, and the "
                                                 "held card's world position is what travels"),
+    # The grasp DURATION is the same argument once more, and it is worth one extra sentence because
+    # a timing dial is the kind that looks like it needs syncing. It does not: the held card's pose
+    # is SAMPLED every packet, so a peer watches the owner's animation play out frame by frame in
+    # the poses that arrive, at whatever speed the owner set. Shipping the duration would let a
+    # receiver re-time a motion it is already being shown.
+    ("Cards", "InHandGraspSeconds"): ("DERIVED", "the grasp is transmitted as the POSES it produces, "
+                                                 "sampled every packet; a peer sees the owner's "
+                                                 "animation, not a recipe for one"),
     # [Cards] InspectScale STOOD HERE AS COMFORT AND IS NOW WIRED (id 178, 2026-08-27). ITS REASON
     # WAS NOT STALE, IT WAS FALSE, and stating the difference is the point of keeping this line.
     # It read "the held slab is drawn at the synced card width" -- an assertion about a MECHANISM,

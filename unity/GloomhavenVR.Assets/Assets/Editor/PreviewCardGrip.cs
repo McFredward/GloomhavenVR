@@ -150,11 +150,11 @@ namespace GloomhavenVR
             Directory.CreateDirectory(outDir);
             Debug.Log("[CardGripPreview] out = " + outDir);
             Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "[CardGripPreview] POSE: pitch {0:F1} deg, grip fraction {1:F3}, thumb per style "
+                "[CardGripPreview] POSE: pitch {0:F1} deg, grip {1:F1} mm above the card's bottom edge, thumb per style "
                 + "(glove/plate/arcane) {2}, fingers I{3:F2} M{4:F2} R{5:F2} P{6:F2} — read from the "
                 + "SYMLINKED CardGripPose.cs. If these are not the values you just edited, the "
                 + "symlink was not touched.",
-                Cards.CardGripPose.DefaultPitchDegrees, Cards.CardGripPose.GripFraction,
+                Cards.CardGripPose.DefaultPitchDegrees, Cards.CardGripPose.GripBelowMetres * 1000f,
                 string.Join(" / ", System.Array.ConvertAll(
                     Cards.CardGripPose.ThumbCurlByStyle,
                     v => v.ToString("F2", CultureInfo.InvariantCulture))),
@@ -170,8 +170,14 @@ namespace GloomhavenVR
                 for (int i = 0; i < Hands.Length; i++)
                 {
                     var (style, left, right, scale) = Hands[i];
-                    Shoot(style + "_left", left, scale, i, face, back, outDir);
-                    Shoot(style + "_right", right, scale, i, face, back, outDir);
+                    Shoot(style + "_left", left, scale, i, -1f, false, face, back, outDir);
+                    Shoot(style + "_right", right, scale, i, 1f, false, face, back, outDir);
+                    // AND THE SAME HOLD ON AN ITEM CARD (user requirement, 2026-08-29: "Das ganze
+                    // soll auch den Gegenstandskarten möglich sein"). An item card is NEAR-SQUARE,
+                    // not the tall 63.5:88 ability rect, and the grip is a fraction of the card's
+                    // own height — so "it works for ability cards" is not evidence that it works
+                    // for these. Rendered rather than asserted.
+                    Shoot(style + "_item", right, scale, i, 1f, true, face, back, outDir);
                 }
             }
             finally
@@ -183,6 +189,7 @@ namespace GloomhavenVR
         }
 
         private static void Shoot(string tag, string prefabPath, float styleScale, int style,
+                                  float thumbSide, bool item,
                                   Texture2D face, Texture2D back, string outDir)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
@@ -231,30 +238,42 @@ namespace GloomhavenVR
                 Vector3 pinchLocal = Quaternion.Inverse(anchor.rotation)
                                      * (pinchWorld - anchor.position);
 
-                // +1 right / -1 left, and MEASURED rather than taken from the file name: the
-                // thumb's own lateral sign in the anchor frame is the fact the pose depends on, so
-                // a prefab that disagrees with its name is named here instead of quietly rendering
-                // the card's BACK.
-                float thumbSide = tag.Contains("_right") ? 1f : -1f;
+                // +1 right / -1 left. PASSED IN, and cross-checked against the rig.
+                //
+                // It was DERIVED FROM THE TAG STRING for one build — tag.Contains("_right") — and
+                // that lasted exactly as long as it took to add a shot whose tag was "<style>_item".
+                // Every item render came out solved for the left hand on a right-hand prefab: the
+                // card's plane landed on the wrong side of the thumb and eleven joints reported
+                // THROUGH. A name is not a fact about geometry; the caller knows which prefab it
+                // handed over, so it says so.
+                //
+                // The check below is what turned that from a puzzle into a sentence, and it stays:
+                // the thumb's own lateral sign in the anchor frame is the fact the pose depends on.
                 float measuredSide = Mathf.Sign((Quaternion.Inverse(anchor.rotation)
                                                  * (thumbTip.position - anchor.position)).x);
                 if (!Mathf.Approximately(thumbSide, measuredSide))
                     Debug.LogError("[CardGripPreview] " + tag + ": the thumb sits on the "
                         + (measuredSide > 0f ? "+X" : "-X") + " side of the grab anchor, which is "
-                        + "not what this hand's name says. The card would show its BACK.");
+                        + "not the side this shot was solved for. The card would show its BACK.");
 
-                float cardH = CardHeight * InspectScale;
+                // ITEM CARDS ARE SQUARE, and that number is the game's, not a guess: ItemsPile's
+                // own face fit falls back to a native 300x300 rect with the comment "item cards
+                // are ~square", and ItemChip.TickHeldPose hands its measured _faceWidth/_faceHeight
+                // to the very solver called below. A square of the card's width is what that
+                // arithmetic produces.
+                float cardW = CardWidth * InspectScale;
+                float cardH = (item ? CardWidth : CardHeight) * InspectScale;
                 Cards.CardGripPose.Solve(Cards.CardGripPose.DefaultPitchDegrees, thumbSide,
-                                         pinchLocal, CardWidth * InspectScale, cardH,
+                                         pinchLocal, cardW, cardH,
                                          out Vector3 localPos, out Quaternion localRot);
 
                 Quaternion cardRot = anchor.rotation * localRot;
                 Vector3 cardPos = anchor.position + anchor.rotation * localPos;
-                card = BuildCard(cardPos, cardRot, CardWidth * InspectScale, cardH, face, back);
+                card = BuildCard(cardPos, cardRot, cardW, cardH, face, back);
 
                 // MEASUREMENTS, not decoration. A scale surprise on an imported prefab shows up as
                 // a pinch gap of the wrong order, and a grip that has crept off the card's bottom
-                // edge shows up as a fraction outside [0, GripFraction].
+                // edge shows up as a v coordinate outside the grip band.
                 float gap = Vector3.Distance(thumbTip.position, indexTip.position);
                 Vector3 pinchAxis = Quaternion.Inverse(anchor.rotation)
                                     * (indexTip.position - thumbTip.position).normalized;
@@ -263,7 +282,7 @@ namespace GloomhavenVR
                     "[CardGripPreview] {0}: thumb-index gap {1:F4} m, pinch anchor-local {2}, "
                     + "card {3:F4} x {4:F4} m at {5}, hand span {6:F4} m, pinch AXIS (anchor-local) "
                     + "{7} = {8:F1} deg off the card normal",
-                    tag, gap, pinchLocal.ToString("F4"), CardWidth * InspectScale, cardH,
+                    tag, gap, pinchLocal.ToString("F4"), cardW, cardH,
                     cardPos.ToString("F4"), Content(hand).size.magnitude,
                     pinchAxis.ToString("F3"), axisVsNormal));
 
@@ -278,8 +297,7 @@ namespace GloomhavenVR
                 // skinned finger is a tube around the bone, so the test carries a radius rather than
                 // pretending the bone is the finger. It cannot see a knuckle bulge. What it does see
                 // is the class of defect that was there — a whole digit standing through the card.
-                Report(tag, cardPos, cardRot, CardWidth * InspectScale, cardH,
-                       hand.transform, thumbSide);
+                Report(tag, cardPos, cardRot, cardW, cardH, hand.transform, thumbSide);
 
                 Bounds b = Content(hand);
                 b.Encapsulate(Content(card));
@@ -487,7 +505,7 @@ namespace GloomhavenVR
         /// <summary>
         /// The preview card FACE. Not decoration — every mark on it is one of the two questions:
         /// the GRIP BAND across the bottom is the fraction of the card the fingers are supposed to
-        /// stay inside (CardGripPose.GripFraction doubled, so the band's top edge is where "too far
+        /// stay inside (twice CardGripPose.GripBelowMetres, so the band's top edge is where "too far
         /// up the card" begins), and the big arrow says which way is up without any text.
         /// </summary>
         private static Texture2D BuildFace()
@@ -497,7 +515,13 @@ namespace GloomhavenVR
             var ink = new Color(0.20f, 0.16f, 0.12f);
             var band = new Color(0.85f, 0.32f, 0.22f);
             var art = new Color(0.42f, 0.52f, 0.46f);
-            int bandTop = Mathf.RoundToInt(FaceTexPx * Cards.CardGripPose.GripFraction * 2f);
+            // The grip band is drawn at twice the grip depth, so its top edge is where
+            // "too far up the card" begins. Sized off the ABILITY card because the texture is
+            // shared by both shots; on the square item card the same strip is a larger share of
+            // the face, which is exactly what a fixed hand distance does to a shorter card.
+            int bandTop = Mathf.RoundToInt(FaceTexPx * 2f
+                * Cards.CardGripPose.GripBelow(CardHeight * InspectScale)
+                / (CardHeight * InspectScale));
             for (int y = 0; y < FaceTexPx; y++)
             {
                 for (int x = 0; x < FaceTexPx; x++)

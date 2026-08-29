@@ -235,12 +235,17 @@ internal static class LocalRigSampler
         bool right = HoldsCardShape(VRHands.Right);
         byte mask = 0;
         // Slot 1 = the LEFT hand's card when the left hand holds one, otherwise the right's.
+        // SET FOR THE WHOLE JOURNEY, not just at the ends: a bit means "do not billboard this one",
+        // and for every frame of the grasp the card is somewhere between the two poses, which is
+        // somewhere the billboard rule cannot predict. Reading the BLEND rather than the mode is
+        // what makes a peer's copy travel with the owner's instead of jumping at each end of it.
+        bool leftGrasp = Cards.HeldCardGrip.Blend(HandSide.Left) > 0f;
+        bool rightGrasp = Cards.HeldCardGrip.Blend(HandSide.Right) > 0f;
         bool firstIsLeft = left;
-        if (firstIsLeft ? Cards.HeldCardGrip.LeftInHand
-                        : right && Cards.HeldCardGrip.RightInHand)
+        if (firstIsLeft ? leftGrasp : right && rightGrasp)
             mask |= NetProtocol.HeldCardGripFirstBit;
         // Slot 2 exists only while BOTH hands hold one, and is then the RIGHT hand's by definition.
-        if (left && right && Cards.HeldCardGrip.RightInHand)
+        if (left && right && rightGrasp)
             mask |= NetProtocol.HeldCardGripSecondBit;
         return mask;
     }

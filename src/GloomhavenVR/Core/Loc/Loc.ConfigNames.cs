@@ -342,6 +342,7 @@ internal static partial class Loc
             ["Cards/InHandHold"] = Pair("Take card into hand", "Karte in die Hand nehmen"),
             ["Cards/InHandPitch"] = Pair("In hand: card angle (°)", "In der Hand: Winkel (°)"),
             ["Cards/InHandPinchOffset"] = Pair("In hand: grip offset (m)", "In der Hand: Griff-Versatz (m)"),
+            ["Cards/InHandGraspSeconds"] = Pair("In hand: grasp time (s)", "In der Hand: Greifdauer (s)"),
             // 2026-08 naming pass: one object name for the fallback pair ("Ersatzkarte", like its twin).
             ["Cards/HeldForward"] = Pair("Held (fallback): fwd (m)", "Ersatzkarte: vor (m)"),
             ["Cards/HeldOffPalm"] = Pair("Held (fallback): gap (m)", "Ersatzkarte: Abstand (m)"),

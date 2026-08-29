@@ -416,7 +416,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 319;
+    public const ushort ModBuild = 320;
+    // Build 320: THE HAND CLOSES ON THE CARD, IT DOES NOT APPEAR AROUND IT - AND ITEM CARDS TOO.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User: "Das ganze soll auch den Gegenstandskarten moeglich sein. Weiterhin soll die
+    //   Handposition auch nicht von einem Frame zum anderen sofort in die Position gehen sondern
+    //   die Finger sollen sich aktiv in die Position begeben (Animation) genau wie die Karte selber
+    //   auch. Das soll schon schnell gehen, aber eben mit der Animation."
+    //
+    //   (1) ITEM CARDS WERE ALREADY IN, AND SAYING SO WAS NOT ENOUGH. Every gate that decides this
+    //   mode already names ItemChip beside VRCard - the mode gate, the ghost, the wire sampler - and
+    //   ProximityGrabber.IsTriggerOnly names it too, so the arming gesture is identical. But "the
+    //   ability card works" is not evidence for a card of a DIFFERENT SHAPE, and rendering one
+    //   proved it: an item card is near-square (ItemsPile fits them to a native ~300x300 rect) and
+    //   40 mm shorter than an ability card, and the grip offset was a FRACTION of the card's height,
+    //   so the shorter card's bottom edge rose 5 mm and the GLOVE'S THUMB FELL OFF IT ENTIRELY. The
+    //   station reported its clearance as Infinity: no thumb joint inside the card at all.
+    //
+    //   THE FIX IS THE MODEL, NOT THE NUMBER: the grip point is a fact about the HAND, so its
+    //   distance to the card's edge is a hand distance and does not scale with the card. 20 mm
+    //   absolute, clamped so it can never pass a small card's middle. On the tall ability card that
+    //   is 14.2 % - the fraction it replaces - so the geometry already render-verified in 319 is
+    //   preserved exactly, and both card shapes are now right for one reason instead of two.
+    //
+    //   (2) NOTHING EVER SNAPPED, AND HE WAS STILL RIGHT TO ASK. The curls rode FingerCurler's
+    //   exponential at 18/s and the card its own at ~21/s - both ~95 % converged in 0.15 s. But an
+    //   exponential starts at full speed and decelerates: it reads as a spring relaxing, not as a
+    //   hand deciding to take hold of something. There is now ONE eased 0..1 grasp per hand
+    //   ([Cards] InHandGraspSeconds, 0.22 s, smoothstep) and every part of the motion reads it: the
+    //   five finger curls (blended from the controller's own targets, so the whole input path stays
+    //   live underneath), the card's position AND rotation, the mirror, the wire bit and the ghost.
+    //   One progress, because two timers would let the fingers arrive before the card - a hand
+    //   closing on empty air and then a card appearing in it. The old smoothers still ride on top
+    //   and now smooth a signal that is already smooth.
+    //
+    //   FIVE READERS, FIVE SLIGHTLY DIFFERENT MEANINGS, all from the one number: fingers and card
+    //   INTERPOLATE along it; the mirror slerps between the same two rules so the reflection travels
+    //   with the real card instead of switching under it; the WIRE bit is set for anything above 0,
+    //   because for the whole journey the card is somewhere the receiver's billboard rule cannot
+    //   predict; and the GHOST crosses at the halfway mark, since a material swap has no midpoint
+    //   and the least conspicuous place for one is the middle of a motion.
+    //
+    //   THE CARD BLENDS IN THE HAND SOCKET'S FRAME, which is why the billboard target is converted
+    //   INTO it rather than the grip pose out of it. Interpolating two hand-local poses tracks the
+    //   wrist; interpolating two WORLD poses would make the card lag the hand for the length of the
+    //   animation. At blend 0 the branch does not run at all and the shipped billboard path is
+    //   byte-for-byte what it always was.
+    //
+    //   AND THE PREVIEW STATION CAUGHT ITS OWN AUTHOR AGAIN. The item shots came out with eleven
+    //   joints reporting THROUGH, because the thumb side was being derived from the TAG STRING
+    //   (tag.Contains("_right")) and the new shots are tagged "<style>_item" - so every item render
+    //   was solved for the left hand on a right-hand prefab. The rig cross-check added in 318 named
+    //   it in one line: "the thumb sits on the +X side ... the card would show its BACK". The side
+    //   is passed in now. A name is not a fact about geometry.
+    //
+    //   Final state, nine shots (three styles x ability + item, plus both hands): THROUGH 0,
+    //   GRAZING 0, thumb 12.0-13.7 mm in front with the nearest knuckle the same behind, landing at
+    //   u -0.54..-0.58 / v -0.62..-0.98 on every card of either shape.
+    //
+    //   TEST: adds to 318/319.
+    //     2b. GEGENSTANDSKARTE - the same hold, taken from the item fan. Near-square card, same
+    //         grip, nothing through it.
+    //     2c. ANIMATION - the fingers must TRAVEL into the grip and the card with them, in about a
+    //         fifth of a second, and travel back out when the grip is released. Nothing may jump.
+    //
     // Build 319: THE THUMB IS PER HAND STYLE, BECAUSE ONE NUMBER COULD NOT DO BOTH.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //

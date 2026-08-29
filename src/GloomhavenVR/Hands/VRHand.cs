@@ -1069,7 +1069,18 @@ internal sealed class VRHand : MonoBehaviour
             //
             // NOTHING NEW GOES ON THE WIRE FOR THIS: curls already ride every rig packet, so a
             // peer's hand closes into the same modelled grip from the numbers written here.
-            if (Cards.HeldCardGrip.InHand(Side))
+            // BLENDED, NOT SWITCHED (user 2026-08-29: "die Finger sollen sich aktiv in die Position
+            // begeben (Animation) ... Das soll schon schnell gehen, aber eben mit der Animation").
+            // The grasp is a short eased 0..1 that Cards.HeldCardGrip advances once per frame, and
+            // the fingers TRAVEL along it from wherever the controller has them to the modelled
+            // hold, and back out again when the grip is released. Blending the TARGETS rather than
+            // overriding them keeps the whole existing input path live underneath: at blend 0 this
+            // block writes exactly what the lines above wrote.
+            //
+            // Read GetTarget, never GetCurl: GetCurl is this same curler's smoothed output, so
+            // blending from it would feed the smoother its own result and never reach either end.
+            float grasp = Cards.HeldCardGrip.Blend(Side);
+            if (grasp > 0f)
             {
                 // The THUMB curl is per hand style — the three assets' thumbs start at different
                 // distances from the card and the same fraction of a fixed full-curl angle either
@@ -1077,7 +1088,12 @@ internal sealed class VRHand : MonoBehaviour
                 // CardGripPose.ThumbCurlByStyle for the render family that forced that.
                 int style = (int)Rig.VisualStyle;
                 for (int f = 0; f < 5; f++)
-                    _curler.SetTarget((Finger)f, Cards.CardGripPose.CurlFor(f, style));
+                {
+                    var finger = (Finger)f;
+                    _curler.SetTarget(finger, Mathf.Lerp(_curler.GetTarget(finger),
+                                                         Cards.CardGripPose.CurlFor(f, style),
+                                                         grasp));
+                }
             }
         }
 

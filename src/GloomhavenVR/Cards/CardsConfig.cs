@@ -78,6 +78,9 @@ internal static class CardsConfig
     /// <summary>In-hand grip: fine-tune offset added to the modelled pinch point, GrabAnchor-local meters.</summary>
     internal static ConfigEntry<Vector3> InHandPinchOffset = null!;
 
+    /// <summary>In-hand grip: how long the hand takes to close on the card (and to let go), seconds.</summary>
+    internal static ConfigEntry<float> InHandGraspSeconds = null!;
+
     /// <summary>Tray placement offset from the head, real meters: forward distance.</summary>
     internal static ConfigEntry<float> TrayForward = null!;
 
@@ -735,6 +738,14 @@ internal static class CardsConfig
             "hand so the card sits at the same anatomical spot in both - same convention as " +
             "HeldPinchOffset. Ships at zero: the fingers are modelled FOR this pose, so there " +
             "should be nothing to correct - this is here for taste, not for a known error.");
+        InHandGraspSeconds = _file.Bind("Cards", "InHandGraspSeconds", Defaults.InHandGraspSeconds,
+            new ConfigDescription(
+                "In-hand grip: how long your hand takes to CLOSE on the card, in seconds - and to " +
+                "open again when you let the grip go. Your fingers travel into the grip and the " +
+                "card travels with them, on one shared, eased motion: it starts from rest, speeds " +
+                "up, and arrives at rest, rather than snapping or springing. Short on purpose. 0 " +
+                "is not allowed - that IS the snap this exists to remove.",
+                new AcceptableValueRange<float>(0.05f, 1f)));
         TrayForward = _file.Bind("Cards", "TrayForward", Defaults.TrayForward,
             "Control board placement: forward distance from the head at placement time, meters.");
         TrayDown = _file.Bind("Cards", "TrayDown", Defaults.TrayDown,

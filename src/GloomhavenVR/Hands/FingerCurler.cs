@@ -236,6 +236,16 @@ internal sealed class FingerCurler
     /// <summary>Set the target curl of a finger (clamped 0..1).</summary>
     public void SetTarget(Finger finger, float curl) => _target[(int)finger] = Mathf.Clamp01(curl);
 
+    /// <summary>The curl TARGET of a finger — what it is heading for, not
+    /// <see cref="GetCurl"/>'s where-it-is-now.
+    ///
+    /// <para>Exists for the in-hand card grasp (<c>Cards.HeldCardGrip</c>), which blends the
+    /// controller-driven curls toward a modelled hand pose over a short eased window. That blend
+    /// has to read the value it is blending FROM, and reading the smoothed CURRENT value instead
+    /// would feed this smoother its own output — a lag that compounds every frame and never
+    /// reaches either end.</para></summary>
+    public float GetTarget(Finger finger) => _target[(int)finger];
+
     /// <summary>The per-joint angles (degrees: root/mid/tip) actually written on the last <see cref="Tick"/>.</summary>
     public Vector3 GetAppliedAngles(Finger finger) => _appliedAngles[(int)finger];
 

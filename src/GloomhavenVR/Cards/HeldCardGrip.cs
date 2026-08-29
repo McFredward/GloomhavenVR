@@ -61,6 +61,13 @@ internal static class HeldCardGrip
     private static bool _leftInHand;
     private static bool _rightInHand;
 
+    // THE GRASP, 0 = reading pose, 1 = fully in the fist. Raw linear progress; every reader takes
+    // it through CardGripPose.Ease. One per hand, advanced once per frame in Tick, and it is the
+    // ONLY thing that moves between the two poses - the curls, the card's position, its rotation,
+    // the mirror and the ghost all read this same number so nothing can arrive early.
+    private static float _leftBlend;
+    private static float _rightBlend;
+
     /// <summary>The feature switch ([Cards] InHandHold); false before the config is bound. Same
     /// defensive read as <see cref="HandGhosts.Enabled"/>, and for the same reason: this is called
     /// from a per-frame path that runs before and after the config's lifetime.</summary>
@@ -85,9 +92,61 @@ internal static class HeldCardGrip
     /// <summary>True while the RIGHT hand holds its card in the rigid in-hand grip.</summary>
     internal static bool RightInHand => _rightInHand;
 
-    /// <summary>The mode of one hand — false = reading (billboard), true = in-hand.</summary>
+    /// <summary>The mode of one hand — false = reading (billboard), true = in-hand. This is the
+    /// INTENT (the grip button), which flips in one frame; what actually moves is
+    /// <see cref="Blend"/>.</summary>
     internal static bool InHand(HandSide side) =>
         side == HandSide.Left ? _leftInHand : _rightInHand;
+
+    /// <summary>
+    /// HOW FAR INTO THE GRASP one hand is, eased: 0 = the card is billboarding at the head and the
+    /// fingers are wherever the controller puts them, 1 = the card is rigid in the modelled fist.
+    /// Everything in between is the animation.
+    ///
+    /// <para>Every consumer reads THIS rather than <see cref="InHand"/>, and each of them means
+    /// something slightly different by it, which is worth stating once:</para>
+    /// <list type="bullet">
+    /// <item><description>the FINGERS blend from the controller's curls to the modelled ones;</description></item>
+    /// <item><description>the CARD blends between the billboard pose and the grip pose;</description></item>
+    /// <item><description>the MIRROR blends between the same two rules, so the reflection travels
+    /// with the real card instead of switching under it;</description></item>
+    /// <item><description>the WIRE bit is set for anything above 0 — a peer must use the transmitted
+    /// rotation for the whole journey, because for the whole journey the card is somewhere the
+    /// billboard rule cannot predict;</description></item>
+    /// <item><description>the GHOST crosses at the halfway mark, because it is a material swap with
+    /// no midpoint and the least conspicuous place for one is the middle of a motion.</description></item>
+    /// </list>
+    /// </summary>
+    internal static float Blend(HandSide side) =>
+        CardGripPose.Ease(side == HandSide.Left ? _leftBlend : _rightBlend);
+
+    /// <summary>The grasp progress of one hand; 0 for a hand that does not exist this frame.</summary>
+    internal static float Blend(VRHand? hand) => hand != null ? Blend(hand.Side) : 0f;
+
+    /// <summary>True once the grasp is past halfway — the ghost hand's edge. See
+    /// <see cref="Blend(HandSide)"/> for why this one is a threshold and the others are not.</summary>
+    internal static bool PastHalf(HandSide side) =>
+        (side == HandSide.Left ? _leftBlend : _rightBlend) >= 0.5f;
+
+    /// <summary>Seconds the grasp takes ([Cards] InHandGraspSeconds); the shipped default before
+    /// the config is bound. Clamped away from zero — a zero duration is the snap this exists to
+    /// remove, and it would also divide by itself.</summary>
+    private static float GraspSeconds
+    {
+        get
+        {
+            try
+            {
+                return CardsConfig.InHandGraspSeconds != null
+                    ? Mathf.Max(0.02f, CardsConfig.InHandGraspSeconds.Value)
+                    : CardGripPose.DefaultGraspSeconds;
+            }
+            catch
+            {
+                return CardGripPose.DefaultGraspSeconds;
+            }
+        }
+    }
 
     /// <summary>The mode of one hand; false for a hand that does not exist this frame.</summary>
     internal static bool InHand(VRHand? hand) => hand != null && InHand(hand.Side);
@@ -101,13 +160,24 @@ internal static class HeldCardGrip
     {
         Evaluate(VRHands.Left, ref _leftArmed, ref _leftInHand);
         Evaluate(VRHands.Right, ref _rightArmed, ref _rightInHand);
+        // UNSCALED time on purpose. The card phases pause timeScale (the same reason the fan reveal
+        // and the card release glide run unscaled), and a hand that freezes half-closed round a card
+        // because the game paused is exactly the frame-to-frame artefact this animation exists to
+        // avoid. Capped per frame so a hitch cannot teleport the grasp.
+        float step = Mathf.Min(Time.unscaledDeltaTime, 0.05f) / GraspSeconds;
+        Advance(ref _leftBlend, _leftInHand, step);
+        Advance(ref _rightBlend, _rightInHand, step);
     }
+
+    private static void Advance(ref float blend, bool want, float step) =>
+        blend = Mathf.Clamp01(blend + (want ? step : -step));
 
     /// <summary>Module shutdown / hot reload: forget both hands.</summary>
     internal static void Shutdown()
     {
         _leftArmed = _rightArmed = false;
         _leftInHand = _rightInHand = false;
+        _leftBlend = _rightBlend = 0f;
     }
 
     private static void Evaluate(VRHand? hand, ref bool armed, ref bool inHand)
@@ -121,7 +191,7 @@ internal static class HeldCardGrip
         {
             armed = false;
             inHand = false;
-            return;
+            return;   // the blend runs back down on its own — a released card's hand OPENS
         }
 
         // ARM: the grip must ALREADY be down when the card arrives. Sampled here rather than in
@@ -175,7 +245,9 @@ internal static class HeldCardGrip
     {
         pos = Vector3.zero;
         rot = Quaternion.identity;
-        if (hand == null || !InHand(hand.Side) || hand.Rig == null || hand.Rig.GrabAnchor == null)
+        // Gated on the BLEND, not on the mode: the grip pose is needed for the whole journey, and
+        // on the way back out too — the caller is interpolating toward it, or away from it.
+        if (hand == null || Blend(hand.Side) <= 0f || hand.Rig == null || hand.Rig.GrabAnchor == null)
             return false;
 
         // THE TWO THINGS THAT SANDWICH THE CARD, and they are NOT the two fingertips. This hold

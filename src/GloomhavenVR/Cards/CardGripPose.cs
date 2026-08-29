@@ -56,20 +56,34 @@ namespace GloomhavenVR.Cards
     internal static class CardGripPose
     {
         /// <summary>
-        /// How far up the card, as a fraction of its height, the hand closes on it — the user's
+        /// How far ABOVE THE CARD'S BOTTOM EDGE the hand closes on it, in metres — the user's
         /// "am unteren Rand … ohne zu viel zu verdecken".
         ///
-        /// <para>0.05 was the first value and it was too small, for a reason only the instrument
-        /// could see. The card is placed relative to the grip point, and the two contacts are 20 mm
-        /// apart ALONG the card on some rigs; with the card's bottom edge only 7 mm below the grip
-        /// point, the thumb fell OFF THE BOTTOM of the card entirely on the glove — the preview
-        /// reported its clearance as infinite, meaning no thumb joint landed inside the card's
-        /// rectangle at all. The render looked fine: a card held by four fingers with a thumb just
-        /// under its edge is not something the eye flags. At 0.14 every contact on every rig is
-        /// inside the card, and the thumb lands at v -0.71 to -0.98 of the half-height — still the
-        /// bottom sixth, still card border rather than art.</para>
+        /// <para>A DISTANCE, NOT A FRACTION, and that correction came from the item cards. It was
+        /// 0.14 of the card's HEIGHT, which is the same thing for one card size and wrong for two:
+        /// an item card is near-square (ItemsPile fits them to a native ~300x300 rect) and 40 mm
+        /// shorter than an ability card, so the same fraction lifted its bottom edge 5 mm and the
+        /// glove's thumb — which sits at v -0.98 on an ability card, right at the edge — fell off
+        /// it entirely. The station reported the thumb clearance as Infinity, meaning no thumb joint
+        /// inside the card at all.</para>
+        ///
+        /// <para>The grip point is a fact about the HAND, so its distance to the card's edge is a
+        /// hand distance and does not scale with the card. Stated that way it is right for both
+        /// sizes at once, and it reproduces the tall-card geometry that was already
+        /// render-verified: 20 mm of a 140.8 mm held ability card is 14.2 %, which is the fraction
+        /// it replaces.</para>
+        ///
+        /// <para>The clamp is the one guard: on a card small enough that 20 mm would be past its
+        /// middle, the grip moves back to a third of its height so the hand can never hold a card
+        /// by its centre.</para>
         /// </summary>
-        internal const float GripFraction = 0.14f;
+        internal const float GripBelowMetres = 0.020f;
+
+        /// <summary>The grip's distance below the card's centre line, for a card of
+        /// <paramref name="cardHeight"/> metres — <see cref="GripBelowMetres"/>, clamped so it can
+        /// never pass the card's middle.</summary>
+        internal static float GripBelow(float cardHeight) =>
+            Mathf.Min(GripBelowMetres, cardHeight * 0.33f);
 
         /// <summary>
         /// How far OFF THE CENTRE LINE the hand takes the card, as a fraction of its half-width —
@@ -95,6 +109,40 @@ namespace GloomhavenVR.Cards
         /// root cause as the 2026-08-04 held-card report.</para>
         /// </summary>
         internal const float GripAcross = 0.46f;
+
+        /// <summary>
+        /// How long the hand takes to CLOSE on the card, in seconds — the shipped
+        /// <c>Defaults.InHandGraspSeconds</c>.
+        ///
+        /// <para>The user's requirement, verbatim: "die Handposition [soll] auch nicht von einem
+        /// Frame zum anderen sofort in die Position gehen sondern die Finger sollen sich aktiv in
+        /// die Position begeben (Animation) genau wie die Karte selber auch. Das soll schon schnell
+        /// gehen, aber eben mit der Animation." Both halves matter: it is an animation, and it is a
+        /// short one.</para>
+        ///
+        /// <para>EASED, NOT DECAYED, and that is the difference between "actively moving into
+        /// position" and "settling". The five curls and the card pose already rode exponential
+        /// smoothers (FingerCurler at 18/s, the card at ~21/s, both ~95 % converged in 0.15 s), so
+        /// nothing ever snapped — but an exponential starts at full speed and decelerates, which
+        /// reads as a spring relaxing rather than as a hand deciding to take hold of something. This
+        /// duration drives a <see cref="Ease"/>d 0..1 progress instead, so the motion starts from
+        /// rest, accelerates, and arrives at rest. The old smoothers still ride on top and cost
+        /// nothing: they are now smoothing a signal that is already smooth.</para>
+        ///
+        /// <para>ONE progress drives EVERYTHING — the five finger curls, the card's position and its
+        /// rotation, on the local hand, in the mirror and on every peer. That is not tidiness: two
+        /// timers would let the fingers arrive before the card, which is a hand closing on empty air
+        /// and then a card appearing in it.</para>
+        /// </summary>
+        internal const float DefaultGraspSeconds = 0.22f;
+
+        /// <summary>Smoothstep — the ease every part of the grasp shares. Starts and ends at rest,
+        /// fastest in the middle.</summary>
+        internal static float Ease(float t)
+        {
+            t = t < 0f ? 0f : t > 1f ? 1f : t;
+            return t * t * (3f - 2f * t);
+        }
 
         /// <summary>
         /// How far the card leans back out of the FINGER direction toward the palm normal, in
@@ -279,7 +327,7 @@ namespace GloomhavenVR.Cards
             // half height above the grip along the card's own up axis, and GripAcross of a
             // half-width to one side of it along its own right axis.
             pos = pinchLocal + rot * new Vector3(thumbSide * cardWidth * 0.5f * GripAcross,
-                                                 cardHeight * (0.5f - GripFraction), 0f);
+                                                 cardHeight * 0.5f - GripBelow(cardHeight), 0f);
         }
     }
 }
