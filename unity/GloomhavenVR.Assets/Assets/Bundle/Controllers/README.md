@@ -17,23 +17,37 @@ controller is exactly the permitted use; nothing here is re-skinned or re-brande
 
 ## What ships
 
-| Device | Profile | Triangles | Albedo | Normal | Metallic/roughness |
-|---|---|---:|:-:|:-:|:-:|
-| Meta Quest 3 | `meta-quest-touch-plus-v2` | 4 470 | ✓ | — | ✓ |
-| Pico 4 | `pico-4` | 4 525 | ✓ | — | — |
-| Valve Index | `valve-index` | 8 933 | ✓ | — | ✓ |
-| fallback | `generic-trigger-squeeze-thumbstick` | 5 945 | ✓ | ✓ | ✓ |
+| Device | Profile | Triangles | Albedo | Normal | Metallic / roughness |
+|---|---|---:|:-:|:-:|---|
+| Meta Quest 3 | `meta-quest-touch-plus` | 4 470 | ✓ | — | constant 0 / 0.55 |
+| Pico 4 | `pico-4` | 4 525 | ✓ | — | constant 0 / 0.55 |
+| Valve Index | `valve-index` | 8 933 | ✓ | — | map (metallic 0.34 avg) |
+| fallback | `generic-trigger-squeeze-thumbstick` | 5 945 | ✓ | ✓ | map (0.42 / 0.42 avg) |
 
-**`meta-quest-touch-plus-v2`, not `-plus`.** Identical geometry, but v2 ships a
-metallic/roughness map and v1 does not — and a controller with no specular response reads as
-matte cardboard under every light. That is most of what "looks low-poly" actually means when the
-geometry is fine: at ~4.5 k triangles these meshes are smooth, and a flat-shaded untextured
-preview of them is not evidence about the model.
+**At ~4.5 k triangles these meshes are smooth**, and a flat-shaded untextured preview of them is
+not evidence about the model — that was the first thing this folder's renders got wrong. What
+*does* make a controller read as cardboard is shipping the albedo alone: BoardLit's specular
+branch stays off, and no light ever catches the plastic. So every material now carries a
+metallic/roughness pack.
 
-Missing parts, both deliberate and both recorded in the manifest so the runtime can degrade
-rather than guess: the **Index's grip** is a force sensor in the handle that moves nothing, so it
-ships as an anchor with no mesh and gets a marker instead of a tint; the **generic** profile has
-no face buttons at all, not even anchors, so those two steps are text-only on it.
+**Every number in it comes from the source material, factors included.** glTF multiplies the pack
+by `metallicFactor` / `roughnessFactor`, and that is not decoration — see below. Where a profile
+ships no pack at all (Quest, Pico: metallic 0, roughness 0.5528) a 4×4 constant is written from
+the factors, because BoardLit's "no map" default is metallic 0 / **roughness 0**, which is a
+mirror rather than plastic.
+
+### `meta-quest-touch-plus`, not `-v2`, and the reason is measured
+
+v2 ships a metallic/roughness map that v1 lacks, which looked like a straight upgrade until both
+were opened:
+
+* v2's **base colour averages RGB 19** — a near-black texture for a controller that is white.
+  v1's averages 167.
+* v2's pack reads **metallic = 1.0 on every pixel**, which its own `metallicFactor` of **0**
+  cancels exactly.
+
+Taking v2 would have traded a correct albedo for a black mirror. It is also what proved the
+factors have to be applied rather than ignored.
 
 ## Valve's Steam Frame
 

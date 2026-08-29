@@ -145,7 +145,7 @@
     "roughness": 0.5527864098548889,
     "texture": "tex_0.png",
     "normalTexture": null,
-    "mrsTexture": null
+    "mrsTexture": "mrs_const_000_140.png"
    },
    {
     "index": 1,
@@ -160,7 +160,7 @@
     "roughness": 0.5527864098548889,
     "texture": null,
     "normalTexture": null,
-    "mrsTexture": null
+    "mrsTexture": "mrs_const_000_140.png"
    }
   ],
   "anchors": [
@@ -349,7 +349,7 @@
     "roughness": 0.5527864098548889,
     "texture": "tex_0.png",
     "normalTexture": null,
-    "mrsTexture": null
+    "mrsTexture": "mrs_const_000_140.png"
    },
    {
     "index": 1,
@@ -364,7 +364,7 @@
     "roughness": 0.5527864098548889,
     "texture": null,
     "normalTexture": null,
-    "mrsTexture": null
+    "mrsTexture": "mrs_const_000_140.png"
    }
   ],
   "anchors": [

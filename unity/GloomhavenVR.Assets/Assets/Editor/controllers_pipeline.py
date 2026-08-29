@@ -31,7 +31,8 @@ Output -> unity/GloomhavenVR.Assets/Assets/Bundle/Controllers/
     <profile>/<hand>_<part>__m<N>.obj     one mesh per part per material
     <profile>/tex_<N>.(png|jpg)           base-colour textures, downscaled
     <profile>/nrm_<N>.png                 tangent-space normal maps, where the profile has one
-    <profile>/mrs_<N>.png                 metallic(R)/roughness(G), repacked from glTF's B/G
+    <profile>/mrs_*.png                   metallic(R)/roughness(G): the glTF pack times its
+                                          factors, or a 4x4 constant when there is no pack
     <profile>/controller.json             parts, materials, key anchors, bounds
     LICENSE-webxr-input-profiles.txt      upstream MIT text, shipped with the assets
 """
@@ -60,10 +61,12 @@ UA = {"User-Agent": "GloomhavenVR-controller-build/1.0"}
 # registry has no valve entry beyond the Index, and the trademark clause above forbids
 # inventing one).
 PROFILES = {
-    # v2 over v1: the SAME geometry (4470 triangles either way) but it ships a
-    # metallic/roughness map as well as the albedo, and a controller without one reads as
-    # matte plastic under any light. Checked, not assumed -- see the map table in the README.
-    "quest3":  "meta-quest-touch-plus-v2",
+    # NOT -v2, AND THE REASON IS MEASURED. v2 ships a metallic/roughness map that v1 lacks,
+    # which looked like a straight upgrade until both were opened: v2's base colour averages
+    # RGB 19 -- a near-black texture for a controller that is white -- while v1's averages 167.
+    # v2's pack also reads metallic = 1.0 over every pixel, which its own metallicFactor of 0
+    # then cancels. Shipping it would have traded a correct albedo for a black mirror.
+    "quest3":  "meta-quest-touch-plus",
     "pico4":   "pico-4",
     "index":   "valve-index",
     "generic": "generic-trigger-squeeze-thumbstick",
@@ -380,30 +383,52 @@ def export_textures(g, binary, out_dir):
               f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
         return fn
 
-    def mrs(src):
-        """glTF packs roughness in G and metallic in B; BoardLit's _MRSMap wants metallic in R
-        and roughness in G (see BuildHands). Repack rather than hand the shader the wrong
-        channels -- which would read as a uniformly metal controller."""
-        key = ("m", src)
+    def mrs(src, metal_factor, rough_factor):
+        """The material's EFFECTIVE metallic and roughness, in BoardLit's packing.
+
+        Three things have to be right here and each of them has bitten:
+
+        * CHANNELS. glTF puts roughness in G and metallic in B; BoardLit's _MRSMap wants
+          metallic in R and roughness in G (see BuildHands). Handing over the raw channels
+          reads as a uniformly metal controller.
+        * FACTORS. glTF multiplies the texture by metallicFactor / roughnessFactor, and the
+          factor is not decoration: meta-quest-touch-plus-v2 ships a pack that is metallic 1.0
+          on every pixel and a metallicFactor of 0 that cancels it exactly. A repack that
+          ignores the factors ships a material the source never described.
+        * NO TEXTURE IS STILL AN ANSWER. A profile with only factors (the Quest and the Pico
+          both say metallic 0, roughness 0.55) gets a tiny constant map, because BoardLit's
+          "no map" default is metallic 0 / ROUGHNESS 0 -- a mirror, not plastic -- and the
+          alternative of leaving _SpecStrength at 0 is the matte-cardboard look this whole
+          change exists to fix.
+        """
+        key = ("m", src, round(metal_factor, 4), round(rough_factor, 4))
         if key in tex_files:
             return tex_files[key]
-        a = np.asarray(decode_image(g, binary, src).convert("RGB"))
-        packed = np.zeros_like(a)
-        packed[..., 0] = a[..., 2]     # metallic  <- B
-        packed[..., 1] = a[..., 1]     # roughness <- G
-        fn = f"mrs_{src}.png"          # PNG: linear data, never JPEG
-        Image.fromarray(packed).save(os.path.join(out_dir, fn), optimize=True)
+        if src is None:
+            metal = np.full((4, 4), metal_factor, dtype=np.float64)
+            rough = np.full((4, 4), rough_factor, dtype=np.float64)
+            fn = f"mrs_const_{int(metal_factor * 255):03d}_{int(rough_factor * 255):03d}.png"
+            note = f"constant (metallic {metal_factor:.2f}, roughness {rough_factor:.2f})"
+        else:
+            a = np.asarray(decode_image(g, binary, src).convert("RGB")).astype(np.float64) / 255.0
+            metal = a[..., 2] * metal_factor
+            rough = a[..., 1] * rough_factor
+            fn = f"mrs_{src}.png"
+            note = (f"{a.shape[1]}x{a.shape[0]} metallic {metal.mean():.2f} avg, "
+                    f"roughness {rough.mean():.2f} avg")
+        packed = np.zeros(metal.shape + (3,), dtype=np.uint8)
+        packed[..., 0] = np.clip(metal * 255.0, 0, 255).astype(np.uint8)
+        packed[..., 1] = np.clip(rough * 255.0, 0, 255).astype(np.uint8)
+        Image.fromarray(packed).save(os.path.join(out_dir, fn), optimize=True)  # PNG: linear data
         tex_files[key] = fn
-        print(f"    mrs    {fn} {a.shape[1]}x{a.shape[0]} "
-              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+        print(f"    mrs    {fn} {note}")
         return fn
 
     for mi, mat in enumerate(g.get("materials", [])):
         pbr = mat.get("pbrMetallicRoughness", {})
         entry = {"index": mi, "name": mat.get("name", f"material{mi}"),
                  "baseColorFactor": pbr.get("baseColorFactor", [1, 1, 1, 1]),
-                 "metallic": pbr.get("metallicFactor", 1.0),
-                 "roughness": pbr.get("roughnessFactor", 1.0),
+                 "metallic": 1.0, "roughness": 1.0,   # replaced with the real factors below
                  "texture": None, "normalTexture": None, "mrsTexture": None}
         src = texture_source(g, pbr, "baseColorTexture")
         if src is not None:
@@ -411,9 +436,13 @@ def export_textures(g, binary, out_dir):
         src = texture_source(g, mat, "normalTexture")
         if src is not None:
             entry["normalTexture"] = normal(src)
-        src = texture_source(g, pbr, "metallicRoughnessTexture")
-        if src is not None:
-            entry["mrsTexture"] = mrs(src)
+        # glTF's own defaults are 1.0 for both factors when the field is absent.
+        metal_factor = pbr.get("metallicFactor", 1.0)
+        rough_factor = pbr.get("roughnessFactor", 1.0)
+        entry["metallic"] = metal_factor
+        entry["roughness"] = rough_factor
+        entry["mrsTexture"] = mrs(texture_source(g, pbr, "metallicRoughnessTexture"),
+                                  metal_factor, rough_factor)
         mats.append(entry)
     return mats
 

@@ -416,7 +416,42 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 325;
+    public const ushort ModBuild = 326;
+    // Build 326: 325 SHIPPED A BLACK MIRROR FOR A WHITE CONTROLLER. THIS FIXES IT.
+    // *** FULL INSTALL: bundle 74,637,398 -> 74,359,898 bytes. DLL unchanged in behaviour;
+    // *** everything here is asset-side. NO WIRE CHANGE.
+    //
+    //   WHAT 325 GOT WRONG, caught by rendering what it had built instead of trusting the
+    //   version number that motivated it. 325 moved the Quest profile to
+    //   meta-quest-touch-plus-v2 because v2 ships a metallic/roughness map and v1 does not, and
+    //   called that a straight upgrade. Opening BOTH says otherwise:
+    //     * v2's base colour averages RGB 19 — a near-black texture for a controller that is
+    //       WHITE. v1's averages 167.
+    //     * v2's pack reads metallic = 1.0 on EVERY pixel, and its own metallicFactor is 0,
+    //       which cancels it exactly.
+    //   325's repack ignored the factors, so it would have shipped a near-black albedo lit as
+    //   fully metal: a black mirror where the user's actual controller is white. The profile is
+    //   back to meta-quest-touch-plus.
+    //
+    //   THE FACTORS ARE APPLIED NOW, everywhere. glTF multiplies the pack by metallicFactor /
+    //   roughnessFactor, and v2 is the proof that the factor is load-bearing rather than
+    //   decorative — a repack that drops it describes a material the source never had.
+    //
+    //   AND A PROFILE WITH NO PACK STILL GETS ONE. The Quest and the Pico ship metallic 0 /
+    //   roughness 0.5528 as FACTORS and no texture; they now get a 4x4 constant built from
+    //   exactly those numbers. Leaving them mapless was the matte-cardboard look this change
+    //   exists to fix, and setting _SpecStrength with no map is worse: BoardLit's "no map"
+    //   default is metallic 0 / ROUGHNESS 0, which is a mirror, not plastic.
+    //
+    //   Effective values now shipped, all read out of the source materials:
+    //     quest3   albedo 1024 (RGB 167 avg)   metallic 0.00  roughness 0.55  (constant)
+    //     pico4    albedo 1024 (RGB 158 avg)   metallic 0.00  roughness 0.55  (constant)
+    //     index    albedo 1024                 metallic 0.34  roughness 1.00  (map)
+    //     generic  albedo + NORMAL map         metallic 0.42  roughness 0.42  (map)
+    //
+    //   TEST: the Quest 3 controller must be WHITE with a dark face plate, as the real one is.
+    //   If it is dark or mirror-like, this build did not take.
+    //
     // Build 325: THE CONTROLLERS GET THEIR SPECULAR BACK, AND THE STEAM FRAME GETS ITS NAME.
     // *** FULL INSTALL: bundle 73,049,712 -> 74,637,398 bytes (the normal / metallic-roughness
     // *** maps). NO NEW WIRE FIELD. NO BEHAVIOUR CHANGE to anything outside the lesson.
