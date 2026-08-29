@@ -1,3 +1,4 @@
+using ScenarioRuleLibrary;
 using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
@@ -75,8 +76,21 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     // Keyed by the figure's interactable collider component (Unity-nullable key, like
     // ActorBars' controller map — a destroyed key stays a valid CLR dictionary key).
-    private readonly Dictionary<CInteractableActor, Adopted> _adoptions = new();
-    private readonly List<CInteractableActor> _scratch = new(32);
+    // KEYED BY Component, NOT BY CInteractableActor, since ModBuild 323 — and the key is only
+    // ever an IDENTITY here: nothing in this file reads a member off it, it is compared to null
+    // and used to look a row up. That is what made the widening safe.
+    //
+    // WHY IT HAD TO WIDEN: figures are keyed by their CInteractableActor, and props do not have
+    // one. CInteractableActor.Start resolves its actor from GetComponentInParent<CharacterManager>(),
+    // so the component exists for CHARACTERS AND MONSTERS ONLY — the game reaches a chest or a
+    // trap through its HEX (CInteractableTile) instead. Props are therefore keyed by their
+    // ActorBehaviour, which every client object carries (Choreographer.FindClientObjectActor
+    // resolves them with ActorBehaviour.GetActor). One dictionary, one set of per-frame loops,
+    // one FigureGrabbable class: the highlight, the haptics, the hold gate, the info panel, the
+    // ghosts and both multiplayer slots come to props for free because none of them ever knew
+    // what the key was.
+    private readonly Dictionary<Component, Adopted> _adoptions = new();
+    private readonly List<Component> _scratch = new(32);
 
     /// <summary>
     /// [Optimize] FigureScanCache: figure GameObject instance id → its CInteractableActor, so the
@@ -469,7 +483,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         if (_adoptions.Count == 0)
             return;
         _scratch.Clear();
-        foreach (KeyValuePair<CInteractableActor, Adopted> pair in _adoptions)
+        foreach (KeyValuePair<Component, Adopted> pair in _adoptions)
         {
             // GameCollider as well as Collider: on an extended figure the two are different
             // objects, and it is the GAME's collider dying that means the figure is gone.
@@ -479,12 +493,143 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         for (int i = 0; i < _scratch.Count; i++)
             Drop(_scratch[i]);
 
+        AdoptProps();
+
         // REACH VOLUMES ride the registry tick rather than becoming an eighth step in
         // FigureGrabDriver.Update's locked frame order: they are part of keeping the adoption set
         // current, which is exactly this method's job, and a new locked step is a Tier 3 change
         // that this fix does not need. Self-limiting -- 8 samples per figure over its first 4 s
         // and then never again (see TickReachVolumes).
         TickReachVolumes();
+    }
+
+    /// <summary>
+    /// PROPS — chests, gold piles, traps and obstacles go in the hand too (user, 2026-08-29: "ich
+    /// finde ich es eine gute Idee, dass man auch Geldhaufen, Fallen und co in die Hand heben kann,
+    /// statt nur Figuren").
+    ///
+    /// <para>THEY NEED THEIR OWN DISCOVERY PASS, and finding out why is what made this small. The
+    /// loop above walks <c>WorldspaceUITools._panelUIControllers</c> and then demands a
+    /// <c>CInteractableActor</c> — and that component resolves its actor from
+    /// <c>GetComponentInParent&lt;CharacterManager&gt;()</c>, so it exists for CHARACTERS AND
+    /// MONSTERS ONLY. The game reaches a chest through its HEX (<c>CInteractableTile</c>), never
+    /// through the chest. That is the whole reason props have been invisible to this registry, and
+    /// no widening of the existing loop could have found them.</para>
+    ///
+    /// <para>The right source is <c>Choreographer.m_ClientObjects</c> — the client's object actors,
+    /// the very list <c>FindClientObjectActor</c> searches, and every entry carries an
+    /// <c>ActorBehaviour</c> (that method resolves them with <c>ActorBehaviour.GetActor</c>). So a
+    /// prop needs no new grabbable, no new highlight and no new info panel: it is adopted into the
+    /// SAME dictionary as a figure, wrapped in the SAME <see cref="FigureGrabbable"/>, and every
+    /// per-frame loop in this file already iterates it. The hover tint, the haptic, the hold gate,
+    /// the ghost, the stat panel and both multiplayer figure slots arrive with it.</para>
+    ///
+    /// <para>ONLY WHAT A HAND COULD LIFT, which is a WHITELIST and not a filter — the user drew the
+    /// line himself ("Beschränke dich auf Dinge die man in die Hand nehmen kann, Gelände in dem man
+    /// mehr laufen muss kann man nicht in die Hand nehmen"). Chest, gold pile, trap, obstacle,
+    /// quest item and loose resource are in. Difficult and hazardous terrain are not objects you
+    /// lift, a door is part of the wall, a pressure plate is part of the floor and a portal is not
+    /// a thing at all. A whitelist also means a prop type the game adds later is NOT liftable until
+    /// somebody decides it is, which is the safe default for a list nobody will remember to check.</para>
+    ///
+    /// <para>A PROP MAY HAVE NO COLLIDER, precisely because it was never interactable. When it has
+    /// none, one is built from its renderer bounds on a child object this driver owns, on the
+    /// Ignore Raycast layer and as a TRIGGER, so it can never enter the game's physics or its
+    /// picking — it exists only for the proximity election to measure against. That mirrors what
+    /// <see cref="SizeReachVolume"/> already does for a figure whose authored collider is too
+    /// small.</para>
+    /// </summary>
+    private void AdoptProps()
+    {
+        if (!FigureGrabConfig.GrabPropsEnabled)
+            return;
+        Choreographer? ch = Choreographer.s_Choreographer;
+        if (ch == null)
+            return;
+        List<GameObject> objects = ch.m_ClientObjects;
+        if (objects == null)
+            return;
+
+        for (int i = 0; i < objects.Count; i++)
+        {
+            GameObject go = objects[i];
+            if (go == null)
+                continue;
+            ActorBehaviour actor = ActorBehaviour.GetActorBehaviour(go);
+            if (actor == null || _adoptions.ContainsKey(actor))
+                continue;
+            if (!IsLiftable(ActorBehaviour.GetActor(go)))
+                continue;
+
+            Collider? game = go.GetComponentInChildren<Collider>();
+            Collider? collider = game != null ? game : BuildPropCollider(go);
+            if (collider == null)
+                continue;
+
+            var grabbable = new FigureGrabbable(actor, collider);
+            var adopted = new Adopted
+            {
+                Grabbable = grabbable, Collider = collider, GameCollider = collider,
+                Figure = go, HeadBone = null,   // a chest has no head bone; every reader guards it
+                ReachSamplesLeft = ReachSampleBudget,
+                NextReachSample = Time.unscaledTime + ReachSampleIntervalSeconds,
+            };
+            SizeReachVolume(adopted);
+            VRInteractables.RegisterGrabbable(grabbable, adopted.Collider);
+            _adoptions[actor] = adopted;
+            if (!_loggedProp)
+            {
+                _loggedProp = true;
+                VRLog.Info("FigureGrab", $"Props are grabbable: adopted '{go.name}' "
+                    + $"({ActorBehaviour.GetActor(go)?.GetType().Name}) through Choreographer."
+                    + "m_ClientObjects, with the SAME FigureGrabbable a miniature uses — so it gets "
+                    + "the same highlight, haptic, hold gate, stat panel and MP slot. Collider: "
+                    + (game != null ? "the prop's own." : "built from its renderer bounds (it had none)."));
+            }
+        }
+    }
+
+    private bool _loggedProp;
+
+    /// <summary>Is this actor a prop a hand could pick up? See <see cref="AdoptProps"/> for why
+    /// this is a whitelist.</summary>
+    private static bool IsLiftable(CActor? actor)
+    {
+        if (actor is not CObjectActor obj)
+            return false;
+        CObjectProp? prop = obj.AttachedProp;
+        return prop is CObjectChest or CObjectGoldPile or CObjectTrap or CObjectObstacle
+                    or CObjectQuestItem or CObjectResource;
+    }
+
+    /// <summary>A trigger collider sized to what the prop DRAWS, for a prop the game never gave
+    /// one. Ignore Raycast + isTrigger: invisible to the game's physics and to every picking path,
+    /// mod and vanilla, so it can only ever be measured against by the proximity election.</summary>
+    private static Collider? BuildPropCollider(GameObject go)
+    {
+        Renderer[] renderers = go.GetComponentsInChildren<Renderer>(false);
+        if (renderers.Length == 0)
+            return null;
+        Bounds b = renderers[0].bounds;
+        for (int i = 1; i < renderers.Length; i++)
+            b.Encapsulate(renderers[i].bounds);
+        if (b.size.sqrMagnitude <= 1e-10f)
+            return null;
+
+        var holder = new GameObject("GloomhavenVR.PropReach") { layer = 2 };
+        holder.transform.SetParent(go.transform, worldPositionStays: true);
+        holder.transform.position = b.center;
+        holder.transform.rotation = Quaternion.identity;
+        var box = holder.AddComponent<BoxCollider>();
+        box.isTrigger = true;
+        // Sized in WORLD units and then divided by the prop's own lossyScale, because the holder
+        // inherits that scale and a size written raw would be multiplied by it a second time.
+        Vector3 lossy = go.transform.lossyScale;
+        box.size = new Vector3(
+            b.size.x / Mathf.Max(1e-4f, Mathf.Abs(lossy.x)),
+            b.size.y / Mathf.Max(1e-4f, Mathf.Abs(lossy.y)),
+            b.size.z / Mathf.Max(1e-4f, Mathf.Abs(lossy.z)));
+        return box;
     }
 
     /// <summary>
@@ -1478,7 +1623,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     // nearest one inside its 13 cm palm reach. That branch now publishes a veto like any other —
     // see ApplySuppression, which also explains why the held figure is the winner there.
 
-    private void Drop(CInteractableActor key)
+    private void Drop(Component key)
     {
         if (_adoptions.TryGetValue(key, out Adopted adopted))
         {
@@ -1491,7 +1636,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private void ReleaseAll()
     {
-        foreach (KeyValuePair<CInteractableActor, Adopted> pair in _adoptions)
+        foreach (KeyValuePair<Component, Adopted> pair in _adoptions)
         {
             pair.Value.Grabbable.Restore();
             VRInteractables.UnregisterGrabbable(pair.Value.Grabbable);

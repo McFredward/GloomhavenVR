@@ -2715,6 +2715,15 @@ internal static partial class Loc
                 "ROLLEN nur des Brett-Meshes, in Grad — rollt das Asset um die Brettwurzel. Anker und "
                 + "angedockte Elemente bleiben stehen. Der Mesh-Collider wandert mit, der Laser trifft "
                 + "also weiterhin, was du siehst. PRO BRETT. Ausgeliefert mit 0.",
+            ["FigureGrab/GrabProps"] =
+                "Auch GEGENSTÄNDE aufnehmen, nicht nur Figuren — Schatztruhen, Geldhaufen, Fallen, "
+                + "Hindernisse, Questgegenstände und lose Ressourcen. Sie verhalten sich in der Hand "
+                + "exakt wie eine Miniatur: dieselbe Reichweite, dasselbe Hervorheben und dieselbe "
+                + "Vibration beim Hinfahren, dieselbe Info-Tafel daneben (bei einer Falle steht dort, "
+                + "was sie anrichtet), eines pro Hand gleichzeitig, und derselbe rein kosmetische Halt "
+                + "— das Spiel setzt beim Loslassen alles auf sein Feld zurück. Gelände, durch das man "
+                + "nur langsamer läuft, ist bewusst NICHT dabei: das ist nichts, was man hochheben "
+                + "könnte. Aus: nur Figuren, wie bisher.",
             ["Hands/HandsDisturbScenery"] =
                 "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
                 + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "

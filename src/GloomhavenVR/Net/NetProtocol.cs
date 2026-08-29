@@ -416,7 +416,70 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 322;
+    public const ushort ModBuild = 323;
+    // Build 323: CHESTS, GOLD, TRAPS AND OBSTACLES GO IN THE HAND - THROUGH THE FIGURE MACHINERY.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User: "auch Geldhaufen, Fallen und co in die Hand heben ... Dort soll dann auch eine
+    //   entsprechende Info erscheinen an der selben Stelle wie die Figurinfo ... Nutze die Widgets
+    //   aus dem Spiel nichts neues ... in beiden [Haenden] ... auch ggf. gleichzeitig ... das
+    //   gleiche highlighting und Feedback ... Beschraenke dich auf Dinge die man in die Hand nehmen
+    //   kann."
+    //
+    //   ALMOST NOTHING NEW WAS WRITTEN, and that is the point. A prop is adopted into the SAME
+    //   registry as a miniature and wrapped in the SAME FigureGrabbable, so the hover highlight,
+    //   the haptic, the hold gate, the stat panel, the ghost hand and BOTH multiplayer figure slots
+    //   arrive with it - none of those ever knew what kind of thing they were holding. The user's
+    //   four requirements (same info, same place, same widget, both hands at once, same feedback)
+    //   are consequences of that choice rather than four separate implementations.
+    //
+    //   THE INFO PANEL COST ZERO LINES. FigureGrabbable already hands StatPanelSurface.ShowHeldFigure
+    //   its ActorBehaviour's CActor, and ActorStatPanel.Show(CActor) has carried a CObjectActor
+    //   branch all along: titleKey "GUI_OBJECT_WITH_HEALTH", the loc key and portrait taken from
+    //   AttachedProp.PropHealthDetails, and the modifier/current-turn blocks hidden. Every prop
+    //   becomes a CObjectActor via CMap -> ScenarioManager.Scenario.AddObject(..., IsAttachedToProp).
+    //   "Nutze die Widgets aus dem Spiel, nichts Neues" was not a constraint here, it was the
+    //   shortest path.
+    //
+    //   TWO THINGS HAD TO CHANGE, and finding out WHY is what kept them small:
+    //     * DISCOVERY. The existing loop walks WorldspaceUITools._panelUIControllers and then
+    //       demands a CInteractableActor - and that component resolves its actor from
+    //       GetComponentInParent<CharacterManager>(), so it exists for CHARACTERS AND MONSTERS
+    //       ONLY. The game reaches a chest through its HEX (CInteractableTile), never through the
+    //       chest. No widening of that loop could ever have found a prop. The right source is
+    //       Choreographer.m_ClientObjects - the list FindClientObjectActor searches, every entry
+    //       carrying an ActorBehaviour.
+    //     * THE REGISTRY KEY. _adoptions was keyed by CInteractableActor, which props do not have.
+    //       It is keyed by Component now and props go in under their ActorBehaviour. That was safe
+    //       because the key was only ever an IDENTITY: nothing in the file reads a member off it.
+    //       Checked before changing it, not after.
+    //
+    //   A WHITELIST, NOT A FILTER, and the user drew the line: chest, gold pile, trap, obstacle,
+    //   quest item and loose resource are in. Difficult and hazardous terrain are not things you
+    //   lift, a door is part of the wall, a pressure plate part of the floor. A whitelist also means
+    //   a prop type the game adds later is not liftable until somebody decides it is.
+    //
+    //   A PROP MAY HAVE NO COLLIDER AT ALL, precisely because it was never interactable. One is
+    //   then built from its renderer bounds, on a child this driver owns, on the Ignore Raycast
+    //   layer and as a TRIGGER - so it can never enter the game's physics or any picking path, mod
+    //   or vanilla. Its size is divided by the prop's lossyScale, because the holder inherits that
+    //   scale and a raw world size would be multiplied by it twice.
+    //
+    //   NOTHING ON THE WIRE, AND NOTHING AUTHORITATIVE. The hold is cosmetic exactly as a figure's
+    //   is - ActorBehaviour's transform writes are suppressed while held and the game snaps the
+    //   object back to its cell on release - and a held prop rides the two figure slots that
+    //   already exist, so a peer sees it lifted with no new field.
+    //
+    //   TEST:
+    //     1. GREIFEN - reach for a gold pile, a chest, a trap and an obstacle. Each must highlight
+    //        and buzz on approach exactly like a miniature, and lift on the trigger.
+    //     2. INFO - the panel must appear beside it, in the same place a figure's does, showing the
+    //        game's own object card. A TRAP's panel is the one to read.
+    //     3. BEIDE HAENDE - a prop in each hand at once, or a prop and a figure. Two panels.
+    //     4. GELAENDE - difficult/hazardous terrain must NOT be pickable.
+    //     5. LOG - "Props are grabbable: adopted '<name>' ..." names the first one and says whether
+    //        it used the prop's own collider or a built one. Both answers are interesting.
+    //
     // Build 322: REACH THROUGH A CURTAIN AND IT MOVES.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //

@@ -211,6 +211,14 @@ internal static class FigureGrabConfig
     /// </summary>
     public static ConfigEntry<bool> HeldFigureInfo = null!;
 
+    /// <summary>May chests, gold piles, traps and obstacles be picked up like a figure?
+    /// See <c>FigureGrabDriver.AdoptProps</c>.</summary>
+    public static ConfigEntry<bool> GrabProps = null!;
+
+    /// <summary>True unless the player switched prop pickup off; true before the config is
+    /// bound, matching HeldFigureInfoEnabled's shape next door.</summary>
+    internal static bool GrabPropsEnabled => GrabProps == null || GrabProps.Value;
+
     /// <summary>Technical floor on the stretch factor while <see cref="StretchLimits"/> is OFF —
     /// not a size opinion, only "the scale must stay positive and finite" (a zero or negative
     /// scale breaks renderer bounds and the release glide's lerp).</summary>
@@ -553,6 +561,16 @@ internal static class FigureGrabConfig
             "stat card the game shows on mouse-over). Off = picking a figure up shows no panel. " +
             "Live: turning it off closes an open held-figure panel immediately; turning it on " +
             "takes effect on the next pickup.");
+        GrabProps = config.Bind(
+            "FigureGrab", "GrabProps", Defaults.GrabProps,
+            "Pick up PROPS as well as figures - treasure chests, gold piles, traps, " +
+            "obstacles, quest items and loose resources. They behave exactly like a " +
+            "miniature in the hand: the same reach, the same hover highlight and haptic, " +
+            "the same info panel docked beside them (a trap's panel is where you read what " +
+            "it does), one in each hand at once, and the same purely-cosmetic hold - the " +
+            "game snaps everything back to its cell when you let go. Terrain you merely " +
+            "walk through more slowly is deliberately NOT included: it is not a thing you " +
+            "could lift. Off = only figures, as before.");
         // The five entries below are LEGACY (see the per-STYLE block further down, which
         // superseded them): each is read exactly once, as the bind DEFAULT that seeds its
         // three per-style successors the first time this cfg file is written, and never

@@ -171,6 +171,7 @@ internal static partial class Loc
             ["Hands/GhostHandOnFan"] = Pair("Ghost hand on open fan", "Geisterhand bei Fächer"),
             ["Hands/GhostHandOnHeldCard"] = Pair("Ghost hand on held card", "Geisterhand bei Karte"),
             ["Hands/HandsDisturbScenery"] = Pair("Hands move curtains", "Hände bewegen Vorhänge"),
+            ["FigureGrab/GrabProps"] = Pair("Pick up chests and traps", "Truhen und Fallen aufnehmen"),
             ["Hands/GhostHandStrength"] = Pair("Ghost hand strength", "Geisterhand-Stärke"),
             ["Hands/TestFist"] = Pair("Debug: force fist", "Debug: Faust erzwingen"),
             ["Hands/CurlProximal"] = Pair("Finger curl: knuckle (°)", "Krümmung: Wurzel (°)"),
