@@ -34,8 +34,11 @@ fingertip, reel a window in, ping a hex, re-seat yourself.
 as an open window to reel in — and **SKIP** ends the lesson. Switch it off for good under
 **Komfort ▸ Hände & Zielen** (`[Compat] ControlsLesson`).
 
-*Valve's Steam Frame is shown the generic controller: no openly-licensed model of its controllers
-exists, and the licence on the ones we do ship forbids inventing one.*
+*Valve's Steam Frame is recognised by name and shown the neutral controller. Valve deliberately
+does not distribute a model of it — their guidance is to fetch one from the runtime — and putting a
+Meta controller in a Valve owner's hands instead is the one thing the licence on the models we do
+ship asks nobody to do. Its four top inputs are a D-pad, and the steps that name a face button say
+so.*
 
 ---
 

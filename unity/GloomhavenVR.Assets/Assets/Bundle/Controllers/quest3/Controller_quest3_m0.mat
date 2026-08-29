@@ -25,11 +25,11 @@ Material:
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MRSMap:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 0c637ab8756339d09a90c47d6aaf2cc9, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 2800000, guid: ab895ceacbd08a8c8afcd2125911f174, type: 3}
+        m_Texture: {fileID: 2800000, guid: 8cec16e2dd464dabfa5346d0f69e8f68, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
@@ -38,7 +38,7 @@ Material:
     - _Cull: 2
     - _LightBoost: 0.85
     - _NormalStrength: 1
-    - _SpecStrength: 0
+    - _SpecStrength: 1
     m_Colors:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []

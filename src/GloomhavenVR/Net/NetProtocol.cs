@@ -416,7 +416,64 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 324;
+    public const ushort ModBuild = 325;
+    // Build 325: THE CONTROLLERS GET THEIR SPECULAR BACK, AND THE STEAM FRAME GETS ITS NAME.
+    // *** FULL INSTALL: bundle 73,049,712 -> 74,637,398 bytes (the normal / metallic-roughness
+    // *** maps). NO NEW WIRE FIELD. NO BEHAVIOUR CHANGE to anything outside the lesson.
+    //
+    //   User, three things: "Die Controller sollen ohne jegliche offsets oder so 1:1 an dem
+    //   echten physischen Ort ... Die Modelle sind sehr low-poly, gibt es nicht bessere? Oder
+    //   sieht das nur am Render so aus? Die Steam-Frame released in Kuerze ... Recherchier
+    //   nochmal. Sie sind im Grunde wie die Quest3 Controller nur noch mit einem Steuerkreuz."
+    //
+    //   1:1 WAS ALREADY THE CASE and stays untouched: the model is parented to VRHand.transform
+    //   -- the raw devicePosition/deviceRotation -- at localPosition zero, identity rotation, unit
+    //   scale. ModBuild 324 proved that frame is the right one from the profile's own
+    //   POINTING_POSE node. Nothing was added here, which is the correct amount.
+    //
+    //   "LOW-POLY" WAS THE RENDER, AND ALSO NOT ONLY THE RENDER. The contact sheet that prompted
+    //   the question was flat-shaded and untextured, which makes any mesh look faceted; re-rendered
+    //   with the OBJ's own normals and its albedo, the same meshes are smooth and read as the
+    //   real devices at ~4.5k triangles. But the question found a real defect underneath: the
+    //   pipeline was exporting the ALBEDO ONLY and discarding maps the profiles ship and the
+    //   bundled BoardLit shader reads. A controller with no specular response renders as matte
+    //   cardboard under every light, which is most of what "low-poly" means when the geometry is
+    //   fine. Now exported and wired: the normal map (generic) and a metallic/roughness pack
+    //   (Quest, Index, generic), REPACKED from glTF's B/G into BoardLit's R/G -- handing the
+    //   shader the wrong channels would have read as a uniformly metal controller. _SpecStrength
+    //   is the opt-in, so a profile with no pack renders exactly as before.
+    //
+    //   AND THE QUEST PROFILE CHANGED: meta-quest-touch-plus-v2 instead of -plus. Identical
+    //   geometry (4470 triangles either way), but v2 ships the metallic/roughness map and v1 does
+    //   not. Checked against the glTF material tables, not assumed from the version number.
+    //
+    //   THE STEAM FRAME: RESEARCHED AGAIN, AND THE ANSWER MOVED. It is not that no model exists
+    //   -- it is that Valve does not DISTRIBUTE one, on purpose. The profiles registry still has
+    //   no Valve entry beyond the Index; Valve's own Unity package (ValveSoftware/Unity) ships the
+    //   interaction profile /interaction_profiles/valve/frame_controller_valve and NO art at all;
+    //   and Valve's documented guidance is to fetch the model from the RUNTIME
+    //   (XR_EXT_render_model / XR_EXT_interaction_render_model, or OpenVR IVRRenderModel) so that
+    //   future devices work without an app update. There is therefore nothing to ship, and
+    //   dressing a Frame in a Meta controller because the two are shaped alike would show a Valve
+    //   owner someone else's hardware -- the one thing the upstream trademark note asks nobody to
+    //   do. So the Frame is now RECOGNISED AND NAMED, wearing the neutral model:
+    //     * a device table replaces the old id list: needle -> {id, model, label, hasDpad}, and
+    //       the panel greets the player with their controller's real name.
+    //     * ITS FOUR TOP INPUTS ARE A D-PAD, as the user said, and the two lessons that name a
+    //       face button now say so. Valve's own Touch-compatibility mapping sends A/X to the
+    //       BOTTOM of the D-pad and B/Y to all three of the others
+    //       (partner.steamgames.com/doc/steamhardware/steamframe/controllers), so a Frame owner
+    //       reads "the bottom of the D-pad" where a Quest owner reads "A (X on the left)".
+    //   The clean upgrade, when a runtime in this loop exposes it, is runtime retrieval -- which
+    //   would cover the Frame and every device after it, and needs hardware to verify.
+    //
+    //   TEST (adds to 324's list):
+    //     1. LOOK at the controller in a lit room: the plastic must now catch a highlight rather
+    //        than reading flat. Quest and Index gained the pack; Pico ships none and is unchanged.
+    //     2. The welcome card must name YOUR controller ("deine Quest 3-Controller").
+    //     3. The log line now reads "reported as '<name>' -> '<id>' (<label>), showing the
+    //        '<model>' model" -- it says both what was detected AND what is being drawn.
+    //
     // Build 324: THE FIRST TUTORIAL NOW TEACHES THE CONTROLS, ON THE PLAYER'S OWN CONTROLLER.
     // *** FULL INSTALL: the bundle changed, 70,204,340 -> 73,049,712 bytes (+2.8 MB for eight
     // *** controller prefabs). A DLL-only update leaves the models missing; the lesson then runs

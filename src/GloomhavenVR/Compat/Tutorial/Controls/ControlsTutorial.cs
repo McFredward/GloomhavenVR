@@ -175,6 +175,13 @@ internal static class ControlsTutorial
         ref readonly ControlsStep step = ref ControlsLesson.Steps[_index];
         bool teaches = step.Action != ControlAction.None;
         string body = Loc.Mod(step.Id + "_b");
+        // The key's NAME, and the controller's, are filled in per device: "press A" names nothing
+        // on a Steam Frame, whose top inputs are a D-pad.
+        if (step.KeyNameId != null)
+            body = SafeFormat(body, Loc.Mod(step.KeyNameId
+                + (ControllerVisual.HasDpad ? "_dpad" : string.Empty)));
+        else if (step.Id == "ctl_welcome")
+            body = SafeFormat(body, ControllerVisual.DeviceLabel);
         if (done)
             body += "\n\n" + Loc.Mod("ctl_good");
         _panel.SetStep(
@@ -184,6 +191,20 @@ internal static class ControlsTutorial
             teaches ? Loc.Mod(step.Situational ? "ctl_cant" : "ctl_next") : Loc.Mod("ctl_next"),
             done ? 1f : ControlsLesson.Progress(in step),
             teaches);
+    }
+
+    /// <summary>A body whose {0} could not be filled is still a usable instruction; a lesson
+    /// that disarms itself over a translator's stray brace is not. Never throws.</summary>
+    private static string SafeFormat(string body, string argument)
+    {
+        try
+        {
+            return string.Format(body, argument);
+        }
+        catch (FormatException)
+        {
+            return body;
+        }
     }
 
     /// <summary>Steps that actually teach a control — the welcome and closing cards are not

@@ -204,13 +204,27 @@ internal static partial class Loc
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
         ["ctl_good"] = Pair("Done.", "Erledigt."),
 
+        // KEY NAMES, substituted into {0} of the bodies below. The _dpad variants exist for the
+        // Steam Frame: its four top inputs are a D-PAD, and Valve's own Touch-compatibility
+        // mapping sends A/X to the BOTTOM of it and B/Y to all three of the others
+        // (partner.steamgames.com/doc/steamhardware/steamframe/controllers).
+        ["ctl_key_primary"] = Pair("A (X on the left controller)",
+                                   "A (auf der linken Hand X)"),
+        ["ctl_key_primary_dpad"] = Pair("the BOTTOM of the D-pad",
+                                        "UNTEN auf dem Steuerkreuz"),
+        ["ctl_key_secondary"] = Pair("B and Y — the upper button on BOTH controllers",
+                                     "B und Y — die obere Taste auf BEIDEN Controllern"),
+        ["ctl_key_secondary_dpad"] = Pair(
+            "the top of BOTH D-pads — left, up or right all count",
+            "oben auf BEIDEN Steuerkreuzen — links, oben und rechts zählen alle"),
+
         ["ctl_welcome_t"] = Pair("Your controllers", "Deine Controller"),
         ["ctl_welcome_b"] = Pair(
-            "Your hands have become the controller you are actually holding. From here on a key "
-            + "lights up on it — do that, and the step moves on by itself.\n\n"
+            "Your hands have become your {0} controllers, in the place they really are. From here "
+            + "on a key lights up on them — do that, and the step moves on by itself.\n\n"
             + "NEXT passes a step you cannot do right now. SKIP ends the lesson.",
-            "Deine Hände sind jetzt der Controller, den du wirklich in der Hand hältst. Ab hier "
-            + "leuchtet jeweils eine Taste darauf auf — mach das, und der Schritt geht von "
+            "Deine Hände sind jetzt deine {0}-Controller, genau dort, wo sie wirklich sind. Ab "
+            + "hier leuchtet jeweils eine Taste darauf auf — mach das, und der Schritt geht von "
             + "selbst weiter.\n\nWEITER überspringt einen Schritt, der gerade nicht geht. "
             + "ÜBERSPRINGEN beendet die Erklärung."),
 
@@ -295,15 +309,13 @@ internal static partial class Loc
 
         ["ctl_ping_t"] = Pair("Mark a hex", "Ein Feld markieren"),
         ["ctl_ping_b"] = Pair(
-            "Point at a hex and press A (X on the left controller) to mark it for everyone.",
-            "Zeig auf ein Feld und drück A (links X), um es für alle zu markieren."),
+            "Point at a hex and press {0} to mark it for everyone.",
+            "Zeig auf ein Feld und drück {0}, um es für alle zu markieren."),
 
         ["ctl_recenter_t"] = Pair("Re-seat yourself", "Dich neu setzen"),
         ["ctl_recenter_b"] = Pair(
-            "Hold B and Y — the upper button on BOTH controllers — for a second and you are put "
-            + "back at the table.",
-            "Halte B und Y — die obere Taste auf BEIDEN Controllern — eine Sekunde lang, dann "
-            + "sitzt du wieder am Tisch."),
+            "Hold {0} for a second and you are put back at the table.",
+            "Halte {0} eine Sekunde lang, dann sitzt du wieder am Tisch."),
 
         ["ctl_done_t"] = Pair("That is the lot", "Das war alles"),
         ["ctl_done_b"] = Pair(

@@ -30,6 +30,8 @@ one -- pico-4's root carries scale (-1,1,1) -- does not).
 Output -> unity/GloomhavenVR.Assets/Assets/Bundle/Controllers/
     <profile>/<hand>_<part>__m<N>.obj     one mesh per part per material
     <profile>/tex_<N>.(png|jpg)           base-colour textures, downscaled
+    <profile>/nrm_<N>.png                 tangent-space normal maps, where the profile has one
+    <profile>/mrs_<N>.png                 metallic(R)/roughness(G), repacked from glTF's B/G
     <profile>/controller.json             parts, materials, key anchors, bounds
     LICENSE-webxr-input-profiles.txt      upstream MIT text, shipped with the assets
 """
@@ -58,7 +60,10 @@ UA = {"User-Agent": "GloomhavenVR-controller-build/1.0"}
 # registry has no valve entry beyond the Index, and the trademark clause above forbids
 # inventing one).
 PROFILES = {
-    "quest3":  "meta-quest-touch-plus",
+    # v2 over v1: the SAME geometry (4470 triangles either way) but it ships a
+    # metallic/roughness map as well as the albedo, and a controller without one reads as
+    # matte plastic under any light. Checked, not assumed -- see the map table in the README.
+    "quest3":  "meta-quest-touch-plus-v2",
     "pico4":   "pico-4",
     "index":   "valve-index",
     "generic": "generic-trigger-squeeze-thumbstick",
@@ -316,43 +321,99 @@ def convert(profile_dir, hand, glb, out_dir, prefix):
     return g, wm, written
 
 
+def decode_image(g, binary, src):
+    """One glTF image, decoded and capped at MAX_TEX."""
+    img = g["images"][src]
+    bv = g["bufferViews"][img["bufferView"]]
+    start = bv.get("byteOffset", 0)
+    im = Image.open(io.BytesIO(binary[start:start + bv["byteLength"]]))
+    im.load()
+    if max(im.size) > MAX_TEX:
+        scale = MAX_TEX / max(im.size)
+        im = im.resize((max(1, int(im.width * scale)),
+                        max(1, int(im.height * scale))), Image.LANCZOS)
+    return im
+
+
+def texture_source(g, node, key):
+    t = node.get(key)
+    if t is None:
+        return None
+    return g["textures"][t["index"]].get("source")
+
+
 def export_textures(g, binary, out_dir):
+    """Albedo, normal and a metallic/roughness pack -- ALL THREE, because the bundled BoardLit
+    shader reads all three and dropping two of them is what makes a plastic controller read as
+    matte cardboard. Which maps exist varies by profile and is recorded in the manifest rather
+    than assumed: the Index and the generic fallback ship metallic/roughness, the generic one
+    also ships a normal map, and the Quest and Pico ship albedo only."""
     mats = []
     tex_files = {}
+
+    def albedo(src):
+        if src in tex_files:
+            return tex_files[src]
+        im = decode_image(g, binary, src)
+        has_alpha = im.mode in ("RGBA", "LA") and \
+            np.asarray(im.convert("RGBA"))[..., 3].min() < 255
+        if has_alpha:
+            fn = f"tex_{src}.png"
+            im.convert("RGBA").save(os.path.join(out_dir, fn), optimize=True)
+        else:
+            fn = f"tex_{src}.jpg"
+            im.convert("RGB").save(os.path.join(out_dir, fn), quality=92)
+        tex_files[src] = fn
+        print(f"    albedo {fn} {im.size[0]}x{im.size[1]} "
+              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+        return fn
+
+    def normal(src):
+        key = ("n", src)
+        if key in tex_files:
+            return tex_files[key]
+        im = decode_image(g, binary, src).convert("RGB")
+        fn = f"nrm_{src}.png"          # PNG: a normal map must not be JPEG-rung
+        im.save(os.path.join(out_dir, fn), optimize=True)
+        tex_files[key] = fn
+        print(f"    normal {fn} {im.size[0]}x{im.size[1]} "
+              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+        return fn
+
+    def mrs(src):
+        """glTF packs roughness in G and metallic in B; BoardLit's _MRSMap wants metallic in R
+        and roughness in G (see BuildHands). Repack rather than hand the shader the wrong
+        channels -- which would read as a uniformly metal controller."""
+        key = ("m", src)
+        if key in tex_files:
+            return tex_files[key]
+        a = np.asarray(decode_image(g, binary, src).convert("RGB"))
+        packed = np.zeros_like(a)
+        packed[..., 0] = a[..., 2]     # metallic  <- B
+        packed[..., 1] = a[..., 1]     # roughness <- G
+        fn = f"mrs_{src}.png"          # PNG: linear data, never JPEG
+        Image.fromarray(packed).save(os.path.join(out_dir, fn), optimize=True)
+        tex_files[key] = fn
+        print(f"    mrs    {fn} {a.shape[1]}x{a.shape[0]} "
+              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+        return fn
+
     for mi, mat in enumerate(g.get("materials", [])):
         pbr = mat.get("pbrMetallicRoughness", {})
         entry = {"index": mi, "name": mat.get("name", f"material{mi}"),
                  "baseColorFactor": pbr.get("baseColorFactor", [1, 1, 1, 1]),
                  "metallic": pbr.get("metallicFactor", 1.0),
                  "roughness": pbr.get("roughnessFactor", 1.0),
-                 "texture": None}
-        bct = pbr.get("baseColorTexture")
-        if bct is not None:
-            src = g["textures"][bct["index"]].get("source")
-            if src is not None:
-                if src not in tex_files:
-                    img = g["images"][src]
-                    bv = g["bufferViews"][img["bufferView"]]
-                    start = bv.get("byteOffset", 0)
-                    raw = binary[start:start + bv["byteLength"]]
-                    im = Image.open(io.BytesIO(raw))
-                    im.load()
-                    if max(im.size) > MAX_TEX:
-                        scale = MAX_TEX / max(im.size)
-                        im = im.resize((max(1, int(im.width * scale)),
-                                        max(1, int(im.height * scale))), Image.LANCZOS)
-                    has_alpha = im.mode in ("RGBA", "LA") and \
-                        np.asarray(im.convert("RGBA"))[..., 3].min() < 255
-                    if has_alpha:
-                        fn = f"tex_{src}.png"
-                        im.convert("RGBA").save(os.path.join(out_dir, fn), optimize=True)
-                    else:
-                        fn = f"tex_{src}.jpg"
-                        im.convert("RGB").save(os.path.join(out_dir, fn), quality=92)
-                    tex_files[src] = fn
-                    print(f"    tex {fn} {im.size[0]}x{im.size[1]} "
-                          f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
-                entry["texture"] = tex_files[src]
+                 "texture": None, "normalTexture": None, "mrsTexture": None}
+        src = texture_source(g, pbr, "baseColorTexture")
+        if src is not None:
+            entry["texture"] = albedo(src)
+        src = texture_source(g, mat, "normalTexture")
+        if src is not None:
+            entry["normalTexture"] = normal(src)
+        src = texture_source(g, pbr, "metallicRoughnessTexture")
+        if src is not None:
+            entry["mrsTexture"] = mrs(src)
         mats.append(entry)
     return mats
 

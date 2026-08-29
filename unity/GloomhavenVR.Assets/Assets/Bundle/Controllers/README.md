@@ -15,19 +15,47 @@ trademarks in order to portray the physical devices accurately, and the licence 
 grant permission to re-skin them or to use the marks for endorsement. Showing a player their own
 controller is exactly the permitted use; nothing here is re-skinned or re-branded.
 
-## What ships, and what does not
+## What ships
 
-| Device | Profile | Notes |
-|---|---|---|
-| Meta Quest 3 | `meta-quest-touch-plus` | all keys separate |
-| Pico 4 | `pico-4` | all keys separate |
-| Valve Index | `valve-index` | **no grip mesh** — the grip is a force sensor in the handle and moves nothing, so it ships as an anchor only |
-| anything else | `generic-trigger-squeeze-thumbstick` | fallback; that profile has **no face buttons at all**, not even anchors |
+| Device | Profile | Triangles | Albedo | Normal | Metallic/roughness |
+|---|---|---:|:-:|:-:|:-:|
+| Meta Quest 3 | `meta-quest-touch-plus-v2` | 4 470 | ✓ | — | ✓ |
+| Pico 4 | `pico-4` | 4 525 | ✓ | — | — |
+| Valve Index | `valve-index` | 8 933 | ✓ | — | ✓ |
+| fallback | `generic-trigger-squeeze-thumbstick` | 5 945 | ✓ | ✓ | ✓ |
 
-**Valve's Steam Frame is not here, and cannot be.** No openly-licensed model of its controllers
-exists — the profiles registry has no Valve entry beyond the Index — and the trademark note above
-rules out inventing one. A Steam Frame is therefore shown the generic controller, with its keys in
-the right places and named in the text.
+**`meta-quest-touch-plus-v2`, not `-plus`.** Identical geometry, but v2 ships a
+metallic/roughness map and v1 does not — and a controller with no specular response reads as
+matte cardboard under every light. That is most of what "looks low-poly" actually means when the
+geometry is fine: at ~4.5 k triangles these meshes are smooth, and a flat-shaded untextured
+preview of them is not evidence about the model.
+
+Missing parts, both deliberate and both recorded in the manifest so the runtime can degrade
+rather than guess: the **Index's grip** is a force sensor in the handle that moves nothing, so it
+ships as an anchor with no mesh and gets a marker instead of a tint; the **generic** profile has
+no face buttons at all, not even anchors, so those two steps are text-only on it.
+
+## Valve's Steam Frame
+
+**Recognised, named, and wearing the generic model — there is no other honest option.**
+
+* The profiles registry has no Valve entry beyond the Index.
+* Valve's own Unity package, [`ValveSoftware/Unity`](https://github.com/ValveSoftware/Unity),
+  ships the interaction profile (`/interaction_profiles/valve/frame_controller_valve`) and **no
+  art whatsoever**.
+* Valve's guidance is to fetch the model from the **runtime** — `XR_EXT_render_model` /
+  `XR_EXT_interaction_render_model`, or OpenVR's `IVRRenderModel` — rather than ship one, so that
+  future devices work without an update.
+
+Dressing it in a Meta controller because the two are shaped alike would show a Valve owner
+somebody else's hardware, which is the one thing the trademark note above asks nobody to do.
+
+Its four top inputs are a **D-pad**, so the lesson words those steps for it: Valve's
+Touch-compatibility mapping sends A/X to the *bottom* of the D-pad and B/Y to all three of the
+others ([Steamworks](https://partner.steamgames.com/doc/steamhardware/steamframe/controllers)).
+
+The clean upgrade, when a runtime that exposes it is in the loop, is runtime retrieval — which
+would cover the Frame and every device after it.
 
 ## Pipeline
 
@@ -35,9 +63,10 @@ the right places and named in the text.
     scripts/build-bundles.sh          # after ControllersBuilder has run
 
 `controllers_pipeline.py` downloads each `.glb`, converts it to **one OBJ per key per material**
-(that split is what makes "this key, now" a material swap at runtime), exports the base-colour
-texture at 1024², and writes `controller.json` with the parts, the materials, each key's anchor,
-and every mesh's bounds and signed volume.
+(that split is what makes "this key, now" a material swap at runtime), exports the albedo, the
+normal map and a metallic/roughness pack **repacked from glTF's B/G into BoardLit's R/G**, and
+writes `controller.json` with the parts, the materials, each key's anchor, and every mesh's
+bounds and signed volume.
 
 `BuildControllers.cs` (menu: *GloomhavenVR ▸ Build Controller Prefabs*) assembles one prefab per
 device and hand, with one child per key.

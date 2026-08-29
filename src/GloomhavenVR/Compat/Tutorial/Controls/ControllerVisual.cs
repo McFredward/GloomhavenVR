@@ -71,21 +71,50 @@ internal sealed class ControllerVisual
     /// <summary>Asset folder ids, matching the prefab folders under Assets/Bundle/Controllers.</summary>
     private const string Generic = "generic";
 
-    /// <summary>Substring → device id, first match wins, matched case-insensitively against
+    /// <summary>A recognised controller: how to spot it, which model to show, what to call it,
+    /// and whether its face buttons are a D-Pad rather than a diamond of four.</summary>
+    private readonly struct Device
+    {
+        internal readonly string Id;      // log + panel identity
+        internal readonly string Model;   // asset folder under Assets/Bundle/Controllers
+        internal readonly string Label;   // what the player calls it
+        internal readonly bool Dpad;      // the face inputs are a D-pad; word the steps that way
+
+        internal Device(string id, string model, string label, bool dpad = false)
+        {
+            Id = id; Model = model; Label = label; Dpad = dpad;
+        }
+    }
+
+    /// <summary>Substring → device, FIRST MATCH WINS, matched case-insensitively against
     /// <c>InputDevice.name</c>. The names are what OpenXR runtimes report ("Oculus Touch
     /// Controller OpenXR", "Index Controller OpenXR", …); the REAL name is logged once per
     /// session either way, so an unrecognised device names itself in the next hardware log
-    /// instead of being guessed at from here.</summary>
-    private static readonly (string Needle, string Id)[] DeviceTable =
+    /// rather than being guessed at from here.
+    ///
+    /// <para>THE STEAM FRAME IS RECOGNISED BUT WEARS THE GENERIC MODEL, and that is a decision
+    /// rather than a gap. No openly-licensed model of its controllers exists anywhere: the
+    /// webxr-input-profiles registry has no Valve entry beyond the Index, Valve's own Unity
+    /// package ships the interaction profile
+    /// (<c>/interaction_profiles/valve/frame_controller_valve</c>) and no art at all, and
+    /// Valve's guidance is to fetch the model from the RUNTIME (<c>XR_EXT_render_model</c> /
+    /// OpenVR's <c>IVRRenderModel</c>) instead of shipping one. Dressing it in a Meta controller
+    /// because the two are shaped alike would show a Valve owner someone else's hardware —
+    /// exactly what the upstream trademark note asks nobody to do. So it gets the neutral model,
+    /// its own NAME, and wording that matches its real keys.</para></summary>
+    private static readonly (string Needle, Device Device)[] DeviceTable =
     {
-        ("quest touch plus", "quest3"),
-        ("touch plus", "quest3"),
-        ("meta quest", "quest3"),
-        ("oculus touch", "quest3"),
-        ("quest", "quest3"),
-        ("pico", "pico4"),
-        ("index", "index"),
-        ("knuckles", "index"),
+        ("quest touch plus", new Device("quest3", "quest3", "Quest 3")),
+        ("touch plus", new Device("quest3", "quest3", "Quest 3")),
+        ("meta quest", new Device("quest3", "quest3", "Quest")),
+        ("oculus touch", new Device("quest3", "quest3", "Quest")),
+        ("quest", new Device("quest3", "quest3", "Quest")),
+        ("pico", new Device("pico4", "pico4", "Pico 4")),
+        ("knuckles", new Device("index", "index", "Valve Index")),
+        ("index", new Device("index", "index", "Valve Index")),
+        ("frame_controller", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
+        ("steam frame", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
+        ("frame", new Device("steamframe", Generic, "Steam Frame", dpad: true)),
     };
 
     private const float PulseHz = 1.6f;
@@ -97,7 +126,7 @@ internal sealed class ControllerVisual
     /// length in the mod.</summary>
     private const float MarkerRadiusRealMeters = 0.010f;
 
-    private static string? _resolvedId;
+    private static Device? _resolved;
     private static bool _loggedDevice;
 
     private readonly VRHand _hand;
@@ -113,51 +142,63 @@ internal sealed class ControllerVisual
 
     internal bool IsShowing => _model != null;
 
-    /// <summary>The device id whose model is being shown, for the panel's own text.</summary>
-    internal static string DeviceId => _resolvedId ?? Generic;
+    /// <summary>The device id whose model is being shown, for the log.</summary>
+    internal static string DeviceId => _resolved?.Id ?? Generic;
+
+    /// <summary>What the player calls their controller, for the panel.</summary>
+    internal static string DeviceLabel => _resolved?.Label ?? "VR";
+
+    /// <summary>True when the face inputs are a D-PAD, so the steps that talk about A/X and B/Y
+    /// name what is actually under the player's thumb. The Steam Frame is the case that made this
+    /// necessary: its four top inputs are a D-pad, and Valve's Touch-compatibility mapping sends
+    /// A/X to the BOTTOM of it and B/Y to all three of the others.</summary>
+    internal static bool HasDpad => _resolved?.Dpad ?? false;
 
     /// <summary>
-    /// Which of the shipped models matches the connected controller. Falls back to the generic
-    /// model for anything unrecognised — including Valve's Steam Frame, for which no openly
-    /// licensed controller model exists (see the Controllers README).
+    /// Which recognised controller is connected. Falls back to a neutral generic device for
+    /// anything the table does not know — and the Steam Frame reaches the generic MODEL by a
+    /// different route: it IS recognised, but no openly licensed model of it exists (see the
+    /// Controllers README and the device table above).
     /// </summary>
-    private static string ResolveDeviceId(VRHand hand)
+    private static Device ResolveDevice(VRHand hand)
     {
-        if (_resolvedId != null)
-            return _resolvedId;
+        if (_resolved.HasValue)
+            return _resolved.Value;
         string name;
         try
         {
-            InputDevice device = InputDevices.GetDeviceAtXRNode(
+            InputDevice xr = InputDevices.GetDeviceAtXRNode(
                 hand.Side == HandSide.Left ? XRNode.LeftHand : XRNode.RightHand);
-            name = device.isValid ? device.name ?? string.Empty : string.Empty;
+            name = xr.isValid ? xr.name ?? string.Empty : string.Empty;
         }
         catch (Exception)
         {
             name = string.Empty;
         }
         string lower = name.ToLowerInvariant();
-        string id = Generic;
-        foreach ((string needle, string mapped) in DeviceTable)
+        var device = new Device(Generic, Generic, "VR");
+        foreach ((string needle, Device candidate) in DeviceTable)
         {
             if (lower.Contains(needle))
             {
-                id = mapped;
+                device = candidate;
                 break;
             }
         }
         if (!_loggedDevice)
         {
             _loggedDevice = true;
-            VRLog.Info("Tutorial", $"Controls lesson: controller reported as '{name}' → showing "
-                + $"the '{id}' model"
-                + (id == Generic
-                    ? " (no bespoke model for this device; the generic one has the same keys in "
-                      + "the same places, and every instruction still names the key)."
-                    : "."));
+            VRLog.Info("Tutorial", $"Controls lesson: controller reported as '{name}' → "
+                + $"'{device.Id}' ({device.Label}), showing the '{device.Model}' model"
+                + (device.Model == Generic
+                    ? " — no vendor model of this device is publicly licensed, so the neutral one "
+                      + "is used; its keys are in the same places and every instruction names the "
+                      + "key in words."
+                    : ".")
+                + (device.Dpad ? " Face inputs are a D-PAD; the steps are worded for it." : ""));
         }
-        _resolvedId = id;
-        return id;
+        _resolved = device;
+        return device;
     }
 
     /// <summary>Put the controller in this hand and take the hand mesh away. Idempotent.</summary>
@@ -165,7 +206,8 @@ internal sealed class ControllerVisual
     {
         if (_model != null)
             return;
-        string id = ResolveDeviceId(_hand);
+        Device device = ResolveDevice(_hand);
+        string id = device.Model;
         string hand = _hand.Side == HandSide.Left ? "left" : "right";
         string path = $"Assets/Bundle/Controllers/{id}/Controller_{id}_{hand}.prefab";
         GameObject? prefab = WorldUI.WorldUIAssets.TryLoadPrefab(path);

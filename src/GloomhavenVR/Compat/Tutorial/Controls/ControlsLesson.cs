@@ -19,6 +19,14 @@ internal readonly struct ControlsStep
     /// (metres, degrees, log2 octaves, or 1 for a discrete event).</summary>
     internal readonly float Target;
 
+    /// <summary>
+    /// Loc id of a KEY NAME to substitute into <c>{0}</c> of the body, or null. It exists because
+    /// the same key is not called the same thing on every device: the Steam Frame's four top
+    /// inputs are a D-PAD, and telling its owner to "press A" names nothing their thumb can find.
+    /// <see cref="ControllerVisual.HasDpad"/> picks the <c>_dpad</c> variant.
+    /// </summary>
+    internal readonly string? KeyNameId;
+
     /// <summary>The step depends on something the room may not be offering right now (an open
     /// window to reel, a card in hand). It is still shown and still checked — it simply must not
     /// be the thing that strands a player, so the panel offers "skip" from the first frame
@@ -26,13 +34,14 @@ internal readonly struct ControlsStep
     internal readonly bool Situational;
 
     internal ControlsStep(ControlAction action, string id, string? key, float target = 1f,
-                          bool situational = false)
+                          bool situational = false, string? keyNameId = null)
     {
         Action = action;
         Id = id;
         Key = key;
         Target = target;
         Situational = situational;
+        KeyNameId = keyNameId;
     }
 }
 
@@ -82,8 +91,10 @@ internal static class ControlsLesson
         new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, target: 20f),
         new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze, situational: true),
         new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, situational: true),
-        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, situational: true),
-        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary),
+        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, situational: true,
+            keyNameId: "ctl_key_primary"),
+        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary,
+            keyNameId: "ctl_key_secondary"),
 
         new(ControlAction.None, "ctl_done", null),
     };

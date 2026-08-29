@@ -49,7 +49,10 @@ namespace GloomhavenVR
         [Serializable] private sealed class MaterialEntry
         {
             public int index; public string name; public float[] baseColorFactor;
-            public float metallic; public float roughness; public string texture;
+            public float metallic; public float roughness;
+            public string texture;        // base colour (sRGB)
+            public string normalTexture;  // tangent-space normal, where the profile ships one
+            public string mrsTexture;     // metallic(R)/roughness(G), linear
         }
 
         [Serializable] private sealed class AnchorEntry
@@ -164,8 +167,12 @@ namespace GloomhavenVR
             string prefabPath = $"{dir}/Controller_{id}_{hand}.prefab".Replace('\\', '/');
             PrefabUtility.SaveAsPrefabAsset(root, prefabPath);
             UnityEngine.Object.DestroyImmediate(root);
+            MaterialEntry first = entry.materials?.FirstOrDefault();
             Debug.Log($"[GloomhavenVR] {prefabPath}: {byPart.Count} key part(s) — "
-                      + string.Join(", ", byPart.Keys.OrderBy(k => k)));
+                      + string.Join(", ", byPart.Keys.OrderBy(k => k))
+                      + $"; maps: albedo={(first?.texture ?? "none")}, "
+                      + $"normal={(first?.normalTexture ?? "none")}, "
+                      + $"metallic/roughness={(first?.mrsTexture ?? "none")}");
         }
 
         private static Transform GetOrCreatePart(Transform root,
@@ -317,11 +324,67 @@ namespace GloomhavenVR
                 else
                     Debug.LogWarning($"[GloomhavenVR] {texPath} missing — {id} renders as a flat tint.");
             }
+
+            // NORMAL AND METALLIC/ROUGHNESS, where the profile ships them. Without the specular
+            // pack a controller renders as matte plastic under every light, which is most of what
+            // makes a model read as "low-poly" when the geometry is fine. _SpecStrength is the
+            // opt-in (BoardLit does not execute its specular branch at 0), so a profile that
+            // ships no pack renders exactly as it did before this existed.
+            if (!string.IsNullOrEmpty(me?.normalTexture))
+            {
+                string path = $"{dir}/{me.normalTexture}".Replace('\\', '/');
+                ConfigureNormalImport(path);
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                if (tex != null)
+                    mat.SetTexture("_BumpMap", tex);
+            }
+            if (!string.IsNullOrEmpty(me?.mrsTexture))
+            {
+                string path = $"{dir}/{me.mrsTexture}".Replace('\\', '/');
+                ConfigureLinearImport(path);
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(path);
+                if (tex != null)
+                {
+                    mat.SetTexture("_MRSMap", tex);
+                    mat.SetFloat("_SpecStrength", 1f);
+                }
+            }
             mat.SetFloat("_Cull", 2f); // Back: the meshes are closed and correctly wound.
             string matPath = $"{dir}/Controller_{id}_m{index}.mat".Replace('\\', '/');
             AssetDatabase.CreateAsset(mat, matPath);
             cache[index] = mat;
             return mat;
+        }
+
+        /// <summary>A normal map imported as a colour texture is silently wrong: Unity neither
+        /// unpacks it nor drops its sRGB curve, and the shading comes out subtly inverted.</summary>
+        private static void ConfigureNormalImport(string path)
+        {
+            var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (ti == null)
+                return;
+            bool dirty = false;
+            if (ti.textureType != TextureImporterType.NormalMap)
+            { ti.textureType = TextureImporterType.NormalMap; dirty = true; }
+            if (ti.maxTextureSize > 1024) { ti.maxTextureSize = 1024; dirty = true; }
+            if (dirty)
+                ti.SaveAndReimport();
+        }
+
+        /// <summary>Metallic/roughness is DATA, not colour: sRGB must be off or every value the
+        /// shader reads is gamma-curved.</summary>
+        private static void ConfigureLinearImport(string path)
+        {
+            var ti = AssetImporter.GetAtPath(path) as TextureImporter;
+            if (ti == null)
+                return;
+            bool dirty = false;
+            if (ti.textureType != TextureImporterType.Default)
+            { ti.textureType = TextureImporterType.Default; dirty = true; }
+            if (ti.sRGBTexture) { ti.sRGBTexture = false; dirty = true; }
+            if (ti.maxTextureSize > 1024) { ti.maxTextureSize = 1024; dirty = true; }
+            if (dirty)
+                ti.SaveAndReimport();
         }
 
         private static void ConfigureAlbedoImport(string path)
