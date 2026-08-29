@@ -68,6 +68,16 @@ internal static class CardsConfig
     /// <summary>Held card: fine-tune offset added to the thumb/index pinch point, GrabAnchor-local meters.</summary>
     internal static ConfigEntry<Vector3> HeldPinchOffset = null!;
 
+    /// <summary>Feature switch: may a card be taken INTO THE HAND (grip held while the trigger
+    /// grabs it) instead of always floating readable? See <see cref="HeldCardGrip"/>.</summary>
+    internal static ConfigEntry<bool> InHandHold = null!;
+
+    /// <summary>In-hand grip: rest tilt of the card out of the palm plane, degrees.</summary>
+    internal static ConfigEntry<float> InHandPitch = null!;
+
+    /// <summary>In-hand grip: fine-tune offset added to the modelled pinch point, GrabAnchor-local meters.</summary>
+    internal static ConfigEntry<Vector3> InHandPinchOffset = null!;
+
     /// <summary>Tray placement offset from the head, real meters: forward distance.</summary>
     internal static ConfigEntry<float> TrayForward = null!;
 
@@ -699,6 +709,32 @@ internal static class CardsConfig
             "sign-flipped on the left hand so the card sits at the same anatomical " +
             "spot in both. Example {x:0, y:0.01, z:0.02} lifts the card 1 cm off " +
             "the palm and shifts it 2 cm toward the fingertips.");
+        InHandHold = _file.Bind("Cards", "InHandHold", Defaults.InHandHold,
+            "Take a card INTO YOUR HAND (2026-08-29). Normally a grabbed card floats so its face " +
+            "always turns to you, however you move your wrist - that stays exactly as it was. " +
+            "With this on you get a SECOND way to hold one: keep the GRIP button held while you " +
+            "pull the trigger to take the card, and the card sits rigidly in your fist instead - " +
+            "your fingers close on its bottom edge and turning your wrist turns the card, so you " +
+            "can hold it up and show its face to another player. Let the grip go (keep the " +
+            "trigger) and it floats readable again; squeeze the grip to show it again. The " +
+            "ghost hand belongs to the reading mode only - a hand that is really holding a card " +
+            "stays solid. Off: the grip does nothing while a card is held, exactly as before.");
+        InHandPitch = _file.Bind("Cards", "InHandPitch", Defaults.InHandPitch, new ConfigDescription(
+            "In-hand grip: how far the card stands UP out of your palm, degrees. 0 lays it flat " +
+            "along your fingers - the one value to avoid, because then your own hand is directly " +
+            "behind the card from one side and directly in front of it from the other. 90 stands " +
+            "it straight up out of the pinch, clear of every finger but the two holding it; the " +
+            "default leans it back a little further, toward your wrist, which is what a hand " +
+            "really does with a card it is about to read. Only affects the in-hand mode - the " +
+            "floating reading pose is HeldFaceBias.",
+            new AcceptableValueRange<float>(0f, 120f)));
+        InHandPinchOffset = _file.Bind("Cards", "InHandPinchOffset", Defaults.InHandPinchOffset,
+            "In-hand grip fine-tune: offset (meters) ADDED to the modelled pinch point, in " +
+            "GrabAnchor-local axes: +Y out of the palm, +Z along the fingers, +X sideways. " +
+            "Authored for the RIGHT hand; the X term is automatically sign-flipped on the left " +
+            "hand so the card sits at the same anatomical spot in both - same convention as " +
+            "HeldPinchOffset. Ships at zero: the fingers are modelled FOR this pose, so there " +
+            "should be nothing to correct - this is here for taste, not for a known error.");
         TrayForward = _file.Bind("Cards", "TrayForward", Defaults.TrayForward,
             "Control board placement: forward distance from the head at placement time, meters.");
         TrayDown = _file.Bind("Cards", "TrayDown", Defaults.TrayDown,

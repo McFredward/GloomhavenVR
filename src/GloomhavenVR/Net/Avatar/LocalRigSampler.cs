@@ -195,10 +195,55 @@ internal static class LocalRigSampler
     }
 
     /// <summary>True when <paramref name="hand"/> holds either wire-visible card shape (ability
-    /// card or item chip) — the same pattern <see cref="TryHeldCard"/> matches, sans pose.</summary>
+    /// card or item chip) — the same pattern <see cref="TryHeldCard"/> matches, sans pose.
+    ///
+    /// <para>THE LIVE-TRANSFORM TEST IS PART OF THE PATTERN, not extra caution. Without it this
+    /// predicate is very slightly WIDER than <see cref="TryHeldCard"/>, which also requires a
+    /// transform — and the two are used to answer the same question about the same hand in two
+    /// places. A card destroyed under the hand mid-hold (pooled away, scene torn down) would pass
+    /// here and fail there, and every caller that pairs them would then disagree about which slot
+    /// holds which card: <see cref="TrySampleSecondHeldCard"/> would claim a second card while the
+    /// first slot had already fallen through to the right hand's, sending ONE card twice. It has
+    /// always been a narrow window and it has never been reported; it is closed here because
+    /// <see cref="SampleHeldCardGripMask"/> makes the pairing load-bearing rather than incidental
+    /// — its bits name POSE SLOTS, and a slot rule that disagrees with the slots is a bit
+    /// describing the wrong card.</para></summary>
     private static bool HoldsCardShape(VRHand? hand)
         => hand != null && hand.Grabber != null
-           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip || hand.Grabber.Held is Cards.VRCard);
+           && (hand.Grabber.Held is Cards.ItemsPile.ItemChip chip && chip != null
+               || hand.Grabber.Held is Cards.VRCard card && card != null);
+
+    /// <summary>
+    /// WHICH HELD-CARD POSE SLOTS ARE RIGID — extension record
+    /// <see cref="NetProtocol.ExtIdHeldCardGrip"/>'s whole payload, as
+    /// <see cref="NetProtocol.HeldCardGripFirstBit"/> |
+    /// <see cref="NetProtocol.HeldCardGripSecondBit"/>. 0 = both held cards billboard at this
+    /// player's head, which is every packet before ModBuild 317 and every packet from a player who
+    /// does not use the gesture; the writer then omits the record entirely.
+    ///
+    /// <para>THE BITS NAME SLOTS, NOT HANDS, and that is the only thing this method has to get
+    /// right. The two poses are assigned by a left-first rule that lives in two other methods
+    /// (<see cref="TrySampleHeldCard"/> takes the LEFT hand's card when the left hand holds one,
+    /// otherwise the right's; <see cref="TrySampleSecondHeldCard"/> takes the right's, and only
+    /// while BOTH hold). Re-deriving that rule here from the same predicate is what keeps a bit
+    /// from describing the other hand's card — the classic "a ratio with two populations" defect,
+    /// where the numerator and the denominator were counted over different sets.</para>
+    /// </summary>
+    public static byte SampleHeldCardGripMask()
+    {
+        bool left = HoldsCardShape(VRHands.Left);
+        bool right = HoldsCardShape(VRHands.Right);
+        byte mask = 0;
+        // Slot 1 = the LEFT hand's card when the left hand holds one, otherwise the right's.
+        bool firstIsLeft = left;
+        if (firstIsLeft ? Cards.HeldCardGrip.LeftInHand
+                        : right && Cards.HeldCardGrip.RightInHand)
+            mask |= NetProtocol.HeldCardGripFirstBit;
+        // Slot 2 exists only while BOTH hands hold one, and is then the RIGHT hand's by definition.
+        if (left && right && Cards.HeldCardGrip.RightInHand)
+            mask |= NetProtocol.HeldCardGripSecondBit;
+        return mask;
+    }
 
     private static bool TryHeldCard(VRHand? hand, out Vector3 pos, out Quaternion rot)
     {

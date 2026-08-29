@@ -835,6 +835,18 @@ internal static partial class VROptionsTab
                     {
                         new("Cards", "RevealMode", "vr_o_revealmode"),
                         new("Cards", "InspectScale", "vr_o_inspectscale"),
+                        // TAKE A CARD INTO YOUR HAND (2026-08-29). This is the everyday door to a
+                        // whole second way of holding a card, and it belongs on the page called
+                        // "Karten & Hand" for the same reason RevealMode does: it is about what
+                        // happens when you take a card, not about how one looks.
+                        //
+                        // ONLY THE SWITCH IS HERE. Its two pose dials (InHandPitch, the card's
+                        // angle out of the palm; InHandPinchOffset, a nudge on the grip point) stay
+                        // in the raw Erweitert catalog — they tune a hand-modelled grip, which is
+                        // exactly the kind of value that gets set once after a look in the headset
+                        // and never again. Empty caption key: the localized name ("Karte in die
+                        // Hand nehmen") is already written for a player.
+                        new("Cards", "InHandHold", ""),
                         // THE card size — 49 read sites, the single most player-visible size
                         // dial in the whole [Cards] section (audit 01 NORMAL).
                         new("Cards", "CardWidth", "vr_o_cardwidth"),

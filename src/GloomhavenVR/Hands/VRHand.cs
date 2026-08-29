@@ -1055,6 +1055,25 @@ internal sealed class VRHand : MonoBehaviour
                               || (gripFist && (_indexTouchSupported ? IndexTouch : triggerCurl > 0.5f));
             float thumbCurl = fistIntent ? 1f : (ThumbTouch ? 0.65f : 0.15f);
             _curler.SetTarget(Finger.Thumb, thumbCurl);
+
+            // THE MODELLED CARD GRIP overrides all five, and ONLY while this hand really holds a
+            // card in the in-hand mode ([Cards] InHandHold; Cards.HeldCardGrip owns that answer,
+            // and it is false whenever no card is held). Last, so it wins the whole block.
+            //
+            // WHY AN OVERRIDE IS NOT OPTIONAL HERE. The gesture that selects the mode is the GRIP
+            // BUTTON HELD DOWN, and the grip is exactly what drives middle/ring/pinky toward a
+            // fist three lines up — so the un-overridden hand would be a closed fist with a card
+            // standing out of it. It is also the one mode in which the hand is NOT ghosted (the
+            // user's ruling: the ghost belongs to the reading pose), so it is fully opaque and
+            // fully in the picture, on this player's screen, in their mirror, and on every peer's.
+            //
+            // NOTHING NEW GOES ON THE WIRE FOR THIS: curls already ride every rig packet, so a
+            // peer's hand closes into the same modelled grip from the numbers written here.
+            if (Cards.HeldCardGrip.InHand(Side))
+            {
+                for (int f = 0; f < 5; f++)
+                    _curler.SetTarget((Finger)f, Cards.CardGripPose.CurlFor(f));
+            }
         }
 
         TickFistDiagnostics();

@@ -205,6 +205,27 @@ EXEMPT = {
     ("Cards", "HeldOffPalm"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldPinchOffset"): ("COMFORT", "as HeldForward"),
     ("Cards", "HeldFaceBias"): ("COMFORT", "as HeldForward"),
+    # THE IN-HAND GRIP (ModBuild 317). Three dials, one answer, and it is the SAME answer the four
+    # Held* dials above already got: a card in a hand is not board furniture. It is sampled as a
+    # WORLD POSE and drawn by peers at that pose (LocalRigSampler.TryHeldCard ->
+    # RemoteAvatar.UpdateCardSlab), so anything that moves the held card is baked into what travels
+    # before it leaves this machine. Syncing the recipe on top of the result is what DERIVED exists
+    # to refuse.
+    #
+    # THE ONE THING THAT IS *NOT* DERIVED HERE RIDES ITS OWN RECORD, and naming it is the point of
+    # this comment. The receiver does not simply draw the transmitted rotation: it RE-DERIVES the
+    # billboard at the owner's synced head, because a reading card re-billboards every frame and a
+    # quantized snapshot would lag out of that relationship. An in-hand card does not billboard at
+    # all, so the receiver has to be told which rule to draw it under - one bit per held-card slot,
+    # extension record 34 (NetProtocol.ExtIdHeldCardGrip). That is the RESULT crossing the wire; the
+    # three dials below are the recipe that produced it.
+    ("Cards", "InHandHold"): ("DERIVED", "the feature switch for the in-hand grip; whether a card is "
+                                         "being held rigidly is on the wire as record 34, and where "
+                                         "it ends up is baked into the held-card world pose"),
+    ("Cards", "InHandPitch"): ("DERIVED", "as InHandHold - it only turns the held card, and the held "
+                                          "card's world rotation is what travels"),
+    ("Cards", "InHandPinchOffset"): ("DERIVED", "as InHandHold - it only moves the held card, and the "
+                                                "held card's world position is what travels"),
     # [Cards] InspectScale STOOD HERE AS COMFORT AND IS NOW WIRED (id 178, 2026-08-27). ITS REASON
     # WAS NOT STALE, IT WAS FALSE, and stating the difference is the point of keeping this line.
     # It read "the held slab is drawn at the synced card width" -- an assertion about a MECHANISM,

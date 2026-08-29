@@ -1327,16 +1327,39 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     }
 
     /// <summary>
-    /// Fly-in to the in-hand pose: the card sits at the pinch point (position lerped
+    /// Fly-in to the in-hand pose. TWO MODES, and which one is live is
+    /// <see cref="HeldCardGrip"/>'s answer, not this method's:
+    ///
+    /// <para>READING (the default, unchanged): the card sits at the pinch point (position lerped
     /// in GrabAnchor-local space, so it tracks the wrist 1:1) but per-frame BILLBOARDS
     /// its face to the head — same convention as CardFan.Tick — so a grabbed card is
     /// readable without twisting the wrist. The initial grab snap (_heldRot) still
     /// orients the card the instant it is picked up; this override then eases the face
-    /// toward the viewer. Scale lerps as before.
+    /// toward the viewer.</para>
+    ///
+    /// <para>IN-HAND (grip held, user 2026-08-29): the card is RIGID in the fist. Both position
+    /// and rotation ease toward <see cref="HeldCardGrip.TryPose"/>'s answer in grab-anchor-local
+    /// space, so the card turns with the wrist and can be aimed at another player. The pose is
+    /// re-solved every frame rather than reused from the grab edge — the modelled grip curls are
+    /// still easing in, and the pinch point is sampled off the fingertips they move.</para>
+    ///
+    /// <para>The mode can flip mid-hold (that is the whole gesture), so nothing here latches: the
+    /// same exponential lerp carries the card between the two poses, which is why a switch reads
+    /// as the card turning in the hand instead of snapping.</para>
+    ///
+    /// Scale lerps identically in both.
     /// </summary>
     private void TickHeldPose()
     {
         float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+        float cardH = CardsConfig.CardHeight * _heldScale;
+        if (HeldCardGrip.TryPose(Holder, cardH, out Vector3 gripPos, out Quaternion gripRot))
+        {
+            transform.localPosition = Vector3.Lerp(transform.localPosition, gripPos, t);
+            transform.localRotation = Quaternion.Slerp(transform.localRotation, gripRot, t);
+            transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
+            return;
+        }
         transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
         if (head != null)

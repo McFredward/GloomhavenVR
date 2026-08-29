@@ -5182,6 +5182,98 @@ internal static class GoldenVectors
                 "the LAST-but-one field still resolves after two colour fields were stepped over — "
                 + "the proof that the new width is walked at 3 and not at 6 or 2");
 
+        // -- 7x. HELD-CARD GRIP (extension record 34) --------------------------------------
+        // ModBuild 317. A held card has always been drawn on the receiver by RE-DERIVING the
+        // billboard at the sender's synced head, because a card held for READING re-billboards to
+        // its owner's eyes every frame and a quantized rotation snapshot would lag out of that
+        // relationship. The 2026-08-29 in-hand grip breaks the PREMISE: a card taken into the fist
+        // is rigid, and the whole point is that turning the wrist aims its face at somebody. So the
+        // receiver has to be told WHICH RULE to draw each held card under — one bit per held-card
+        // POSE SLOT, and the rotations themselves are already on the wire in both slots.
+        t.Case("7x. extras, held-card grip record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardGrip = true,
+            HeldCardGripMask = NetProtocol.HeldCardGripFirstBit,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            22 01            // record: id 34 (held-card grip), len 1
+            01               // mask: slot 1 (the rig packet's FlagHeldCard card) is RIGID
+            "), ext, m, "the held-card grip record is [id 34][len 1][flags] — no pose, no identity");
+        t.Equal(14, m, "header 7 + handCardCount 1 + block 2 + tail 1 + 2 + 1 = 14 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hg), "and it parses");
+        t.True(hg.HasHeldCardGrip, "the grip mask is delivered");
+        t.Equal(NetProtocol.HeldCardGripFirstBit, hg.HeldCardGripMask,
+                "with exactly the bit that was sent — slot 1 rigid, slot 2 still billboarding");
+
+        // ABSENT WHILE NOTHING IS HELD RIGIDLY, which is nearly every packet ever sent and the
+        // whole backward-compatibility argument for the sender side: a player who never squeezes
+        // the grip on a held card is byte-for-byte a ModBuild-316 sender. An all-zero MASK counts
+        // as absent too — the writer gates on the mask, not on the Has flag, so a sender cannot
+        // spend three bytes saying "nothing".
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "no rigid card -> no record, no tail, no block: byte-identical to build 316");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noHg), "and it parses");
+        t.True(!noHg.HasHeldCardGrip && noHg.HeldCardGripMask == 0,
+               "with the mask 0 (peers billboard every held slab, exactly as before)");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HandCardCount = 5, HasHeldCardGrip = true, HeldCardGripMask = 0,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "…and an EMPTY mask is the same packet: the record cannot open the tail on its own");
+
+        // UNDEFINED BITS ARE MASKED OFF BY THE READER, not stored. A future sender that spends
+        // bit 2 on a third card slot must not make this build mark a slot it has no pose for.
+        ext[0] = 0x31; ext[1] = 0x52; ext[2] = 0x56; ext[3] = 0x47;
+        ext[4] = 0x03; ext[5] = 0x01; ext[6] = 0x80; ext[7] = 0x00;
+        ext[8] = 0x80; ext[9] = 0x00; ext[10] = 0x01;
+        ext[11] = 0x22; ext[12] = 0x01; ext[13] = 0xF6;   // bits 1,2,4,5,6,7 — only bit 1 is ours
+        t.True(PresenceSerializer.TryRead(ext, 14, out PresenceState futHg),
+               "a future sender's extra grip bits still parse");
+        t.Equal(NetProtocol.HeldCardGripSecondBit, futHg.HeldCardGripMask,
+                "and only the bits THIS build defines survive the read");
+
+        // ORDERED LAST, behind record 10 — id order (… 10, …, 33, 34); a reorder in Write shows up
+        // right here, which is what these vectors exist for.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasSecondHeldCard = true, SecondHeldCardPose = Card(),
+            HasHeldCardGrip = true,
+            HeldCardGripMask = (byte)(NetProtocol.HeldCardGripFirstBit
+                                      | NetProtocol.HeldCardGripSecondBit),
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            02               // tail: 2 records
+            0A 14            // record 10: second held card, len 20
+            " + PoseCard + @"
+            22 01 03         // record 34: held-card grip, len 1, BOTH slots rigid
+            "), ext, m, "record 34 is written behind record 10 — the tail stays in id order");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState gripBoth),
+               "the two-record packet parses");
+        t.True(gripBoth.HasSecondHeldCard && gripBoth.HasHeldCardGrip,
+               "and both records are delivered");
+        t.Equal(3, gripBoth.HeldCardGripMask, "with both slots marked rigid");
+
+        // A TRUNCATED record is simply not delivered — the same rule every record here follows.
+        ext[10] = 0x01;                  // tail: 1 record
+        ext[11] = 0x22; ext[12] = 0x00;  // id 34, len 0 — below HeldCardGripRecordBytes
+        t.True(PresenceSerializer.TryRead(ext, 13, out PresenceState cutHg),
+               "a truncated grip record still parses the packet");
+        t.True(!cutHg.HasHeldCardGrip, "and the incomplete record is simply not delivered");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -5224,6 +5316,11 @@ internal static class GoldenVectors
         foreach (var s in new[] { ExtrasEverything(), ExtrasMaskSizeOnly(), withDefaults,
                                   ExtrasBoardUiAndFanAnchor(), ExtrasSecondFigure(),
                                   ExtrasSecondHeldCard(), ExtrasSlotCardSize(),
+                                  new PresenceState
+                                  {
+                                      HasHeldCardGrip = true,
+                                      HeldCardGripMask = NetProtocol.HeldCardGripFirstBit,
+                                  },
                                   new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" },
                                   new PresenceState { HasDecisionLines = true, DecisionLinesText = "Ja\nNein" },
                                   new PresenceState
@@ -5345,6 +5442,8 @@ internal static class GoldenVectors
         && x.BoardTooltipText == y.BoardTooltipText
         && x.HasSecondHeldCard == y.HasSecondHeldCard
         && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position
+        && x.HasHeldCardGrip == y.HasHeldCardGrip
+        && x.HeldCardGripMask == y.HeldCardGripMask
         && x.HasSlotCardSize == y.HasSlotCardSize
         && x.SlotFrameWidthCode == y.SlotFrameWidthCode
         && x.SlotCardWidthCode == y.SlotCardWidthCode

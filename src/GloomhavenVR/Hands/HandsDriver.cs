@@ -41,12 +41,14 @@ internal sealed class HandsDriver : MonoBehaviour
     // method groups would allocate a fresh delegate each frame). Built once in Awake.
     private System.Action? _tickRig;
     private System.Action? _tickSim;
+    private System.Action? _tickGrip;
     private System.Action? _tickGhost;
 
     private void Awake()
     {
         _tickRig = TickRig;
         _tickSim = AnimateSimulation;
+        _tickGrip = Cards.HeldCardGrip.Tick;
         _tickGhost = HandGhosts.Tick;
 
         // BOOT STALL (hardware log ModBuild 107 / b765a5b6e): the mod's first touch of
@@ -103,6 +105,12 @@ internal sealed class HandsDriver : MonoBehaviour
         TickGuard.Run("Hands.Rig", _tickRig!);
         if (_simActive)
             TickGuard.Run("Hands.Simulation", _tickSim!);
+        // Held-card MODE ([Cards] InHandHold): is each hand READING its card (it billboards to
+        // your head) or HOLDING it (rigid in the fist, turnable, shown to others)? This sits
+        // between the two steps it sits between for a reason: AFTER the rig step, because it reads
+        // what each hand grabbed and what its grip button is doing this frame, and BEFORE the ghost
+        // step, which is one of its five readers — a hand really holding a card must not fade.
+        TickGuard.Run("Hands.CardGrip", _tickGrip!);
         // Ghost hand ([Hands] GhostHandOnFan): fade the hand carrying the OPEN card fan. Runs
         // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
         // guard so a material/shader surprise can never abort hand tracking itself.
@@ -258,6 +266,11 @@ internal sealed class HandsDriver : MonoBehaviour
         // materials are ASSETS — Unity does not free them with the GameObject that referenced
         // them, so a style switch or rig rebuild under an open fan would leak one per renderer.
         HandGhosts.Shutdown();
+        // Held-card MODE: forget which hand was holding rigidly. The hands about to be destroyed
+        // are the ones the latch names, so leaving it set would let a rebuilt hand come back
+        // already in the grip with no card in it — and the ghost, the curls and the wire bit all
+        // read that latch.
+        Cards.HeldCardGrip.Shutdown();
         if (_handsRoot != null)
             Destroy(_handsRoot);
         _handsRoot = null;

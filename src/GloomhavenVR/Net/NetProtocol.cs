@@ -416,7 +416,92 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 316;
+    public const ushort ModBuild = 317;
+    // Build 317: A CARD CAN BE TAKEN INTO THE HAND, AND SHOWN.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NEW WIRE FIELD: record 34. ***
+    //
+    //   User: "Wenn man mit trigger eine Karte greift, schwebt sie immer so, dass man sie direkt
+    //   sehen kann. Das will ich auch weiterhin so. Jetzt kann es aber auch nuetzlich sein, die
+    //   Karte so halten, dass wie die Hand-Orientierung ist um zB anderen Spielern aktiv die Karte
+    //   zeigen zu koennen." Grip held while the trigger takes the card = the card is RIGID in the
+    //   fist and turns with the wrist. Let the grip go (trigger still held) and it billboards again.
+    //   The ghost hand belongs to the reading mode only. A modelled grip per hand, on the card's
+    //   lower edge, covering as little as possible. Fully visible in multiplayer and in the mirror.
+    //   Switchable off.
+    //
+    //   THE STATE MACHINE IS TWO LINES AND BOTH ARE HIS SENTENCES. ARM: the hold begins in-hand
+    //   only if the grip was ALREADY down when the trigger took the card, so a player who never
+    //   uses the gesture can never fall into it. FOLLOW: while armed the mode simply IS the grip
+    //   button — release to read, squeeze to show, without ever letting go of the card. Cards/
+    //   HeldCardGrip.cs owns that answer for all five readers (pose, curls, ghost, mirror, wire),
+    //   because two of them cannot see a card at all — they know a HAND.
+    //
+    //   THE GESTURE WAS FREE, and that is checked rather than assumed: every other grip consumer
+    //   in the mod already guards on `Grabber.Held == null` (PokeInteractor, BoardClickDriver,
+    //   BoardPick, FlatScreen, PlayTray's nested clicks), and world locomotion rides the THUMBSTICK
+    //   CLICK. Rig/ComfortGizmos even prints "grip(unused)" for exactly this state. One consequence
+    //   is real and pre-existing: RayInteractor suppresses that hand's laser while the grip is held,
+    //   so the showing hand has no beam for as long as it is showing.
+    //
+    //   THE FINGER POSE IS MEASURED, AND THE FIRST ONE WAS WRONG. The card is placed at the MIDPOINT
+    //   of the thumb and index tip joints, so "is this a pinch" IS the distance between them. The
+    //   first pass reasoned about it — 0.58/0.52 reads as a firm pinch written down — and measured
+    //   48 mm on the shipped rig: an open hand with a card floating above it, which is exactly what
+    //   the first render showed, three fingers standing up THROUGH the card's art. Sweeping both
+    //   curls over all three hand rigs offline (unity/hand-prep/curl_check.py replays FingerCurler's
+    //   own rotations) gave 0.80/0.88, which closes to 23 / 18 / 5 mm on glove / plate / arcane at
+    //   their shipped style scales. One pair for all three: this is a hand pose, not a per-asset rig.
+    //
+    //   AND THE SAME MEASUREMENT KILLED THE OBVIOUS IMPROVEMENT. Deriving the card's face normal
+    //   from the real thumb-to-index axis — so the card plane would pass exactly between the fingers
+    //   on any rig — sounds strictly better. Measured in the grab-anchor frame the axis is
+    //   (-0.30, +0.63, +0.72) on the glove and (-0.39, -0.92, -0.07) on the plate: the palm-normal
+    //   component points the OTHER WAY, because the armoured thumb passes the index on the other
+    //   side. A normal built from that flips the card ~180 deg between two hand models — the same
+    //   wrist would show a peer the face or the back depending on which glove you picked. The pitch
+    //   stays a dial the player can see.
+    //
+    //   1:1, AND ONE BIT WAS GENUINELY OWED. A held card's slab has always been drawn on the
+    //   receiver by RE-DERIVING the billboard at the sender's synced head, and that was right: a
+    //   READING card re-billboards every frame, so a quantized rotation snapshot would lag out of
+    //   that relationship and, after packet loss, point at where the head WAS. An in-hand card does
+    //   not billboard at all, and a receiver that kept re-deriving would refuse to show the one
+    //   thing the gesture exists for. Record 34 is one flag byte, one bit per held-card POSE SLOT
+    //   (not per hand — the bits are filled by the same left-first rule that fills the slots), sent
+    //   only while a bit is set. Everything else was already travelling: the finger curls ride every
+    //   rig packet, so a peer's hand closes into the modelled grip for free, and the ghost sides ride
+    //   record 2, so peers stop fading a hand that is really holding a card.
+    //
+    //   THE MIRROR NEEDED NO NEW VALUE AT ALL, only a gate. AvatarMirror already computes the
+    //   wrist-CARRIED rotation (the pose carried through the rendered mirror hand's frame) and then
+    //   overrides it with a billboard at the mirrored head. Its own root-cause note says `carried` is
+    //   the correct expression for something RIGIDLY parented to the hand — which is precisely what
+    //   this mode makes the card. The fix is to stop overriding it.
+    //
+    //   ONE LATENT BUG CLOSED ON THE WAY. LocalRigSampler.HoldsCardShape was very slightly WIDER
+    //   than TryHeldCard beside it (no live-transform test), so a card destroyed under the hand
+    //   mid-hold could make the two disagree about which slot held which card and send ONE card
+    //   twice. Never reported, always narrow — closed because record 34's bits name SLOTS, which
+    //   makes that pairing load-bearing instead of incidental.
+    //
+    //   TEST (two clients):
+    //     1. IN DIE HAND NEHMEN — hold the GREIFTASTE, then trigger-grab a card from the fan. It
+    //        must sit in the fist and turn with the wrist. Let the grip go (keep the trigger): it
+    //        must billboard to your eyes again. Squeeze again: back in the fist.
+    //     2. GRIFF — the fingers must close on the card's LOWER EDGE and cover as little of it as
+    //        possible. Check all three hand styles (Handschuh / Platte / Arkan) — the plate gauntlet
+    //        holds it loosest by a property of that asset.
+    //     3. GEISTERHAND — the hand must stay SOLID while it holds a card in-hand, and fade again
+    //        the moment you drop back to the reading mode.
+    //     4. MULTIPLAYER — the peer must see the card TURN with your wrist, with your fingers closed
+    //        on it and your hand solid. Then drop back to reading mode: their copy must go back to
+    //        facing YOU. Try it with a card in each hand (both slots), and with an ITEM card.
+    //     5. SPIEGEL — the same, in the mirror: the reflection's card must turn with the reflected
+    //        wrist instead of holding still.
+    //     6. AUS — [Cards] "Karte in die Hand nehmen" off: the grip must do nothing while a card is
+    //        held, exactly as in 316.
+    //     7. (STILL OWED FROM 302) card dust ON plus a second board dial moved.
+    //
     // Build 316: THE GRAB BARS BECOME REAL RODS, AND THE BLUE BAR IS GONE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
     //
@@ -17610,6 +17695,57 @@ internal static class NetProtocol
     /// used to render.</summary>
     public const int DecisionNamesMaxBytes = 160;
 
+    /// <summary>
+    /// Extension record id: WHICH HELD CARD IS BEING HELD RIGIDLY, one bit per held-card slot.
+    ///
+    /// <para>WHAT IT FIXES, and why one bit is the whole record. A held card has always been drawn
+    /// on the receiver by RE-DERIVING the billboard at the sender's synced head
+    /// (<c>RemoteAvatar.UpdateCardSlab</c>) rather than by slerping toward the transmitted
+    /// rotation. That was not a shortcut, it was the correct reading of the rule: the owner's card
+    /// re-billboards to their own eyes every frame, so a rotation snapshot quantized to 16 bits,
+    /// sampled at the send rate and eased independently would lag OUT of "facing its owner" during
+    /// motion and, after packet loss, keep pointing at where their head WAS. Re-deriving from the
+    /// already-eased head costs no wire field and cannot drift.</para>
+    ///
+    /// <para>The 2026-08-29 IN-HAND mode breaks that rule's premise, not its arithmetic. A card
+    /// taken into the fist ([Cards] InHandHold — grip held while the trigger takes it) is RIGID:
+    /// no billboard runs on the owner's side, and the entire point of the mode is that turning the
+    /// wrist aims the face at another player. A receiver that keeps re-deriving would refuse to
+    /// show exactly the thing the gesture exists to show — the peer would see the card holding
+    /// still while its owner turned it. So the receiver has to know WHICH RULE applies, and that is
+    /// one bit per card. The rotation it then uses is already on the wire in both slots.</para>
+    ///
+    /// <para>LAYOUT — one byte of flags: <see cref="HeldCardGripFirstBit"/> for the card in the rig
+    /// packet's <see cref="FlagHeldCard"/> slot, <see cref="HeldCardGripSecondBit"/> for the one in
+    /// record <see cref="ExtIdSecondHeldCard"/>. The two bits name the two POSE SLOTS, not the two
+    /// hands, and they are filled by the same left-first rule those slots are filled by
+    /// (<c>LocalRigSampler</c>) so a bit can never describe the other hand's card.</para>
+    ///
+    /// <para>Written ONLY while a bit is actually set, so a player who never uses the gesture — and
+    /// every idle player — emits the exact bytes the previous build emitted. Absence means "both
+    /// held cards billboard", which is both the old behaviour and what a peer predating the record
+    /// draws by stepping over it. ADDITIVE TLV like every record before it.</para>
+    ///
+    /// <para>THE FINGER POSE NEEDS NOTHING HERE. The modelled grip is five curl values and curls
+    /// already ride every rig packet, so a peer's hand closes on the card from data that was
+    /// already travelling. Nor does the hand's GHOST: the ghost sides ride record 2 and the sender
+    /// stops ghosting a hand that is really holding a card, so peers stop fading it with them.</para>
+    /// </summary>
+    public const byte ExtIdHeldCardGrip = 34;
+
+    /// <summary>Payload length of <see cref="ExtIdHeldCardGrip"/>: one flag byte. A reader requires
+    /// at least this much before it trusts the record.</summary>
+    public const int HeldCardGripRecordBytes = 1;
+
+    /// <summary><see cref="ExtIdHeldCardGrip"/>: the card in the rig packet's
+    /// <see cref="FlagHeldCard"/> slot is held rigidly in the fist — the receiver keeps the
+    /// TRANSMITTED rotation for it instead of re-deriving the billboard.</summary>
+    public const byte HeldCardGripFirstBit = 1 << 0;
+
+    /// <summary><see cref="ExtIdHeldCardGrip"/>: the same, for the card in record
+    /// <see cref="ExtIdSecondHeldCard"/>'s slot.</summary>
+    public const byte HeldCardGripSecondBit = 1 << 1;
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------
@@ -17623,8 +17759,8 @@ internal static class NetProtocol
     // because the obvious cheap fix — "spill into record 29" — was considered and REJECTED: a
     // continuation record only doubles the ceiling, it is the same wall a bit further away, and it
     // spends a scarce id every time the wall is reached again. Paging keeps one id and has no wall
-    // at all. Ids in use today: 1..33 CONTIGUOUSLY (18..21 were reserved and have since been
-    // claimed). FREE: 34..255.
+    // at all. Ids in use today: 1..34 CONTIGUOUSLY (18..21 were reserved and have since been
+    // claimed; 34 is ExtIdHeldCardGrip, ModBuild 317). FREE: 35..255.
     //
     // THAT LINE USED TO READ "1..17 and 22..29. FREE: 30..255" and it was WRONG BY FOUR when the
     // ModBuild-307 record went looking for a number: 30, 31 and 32 had been taken in the meantime

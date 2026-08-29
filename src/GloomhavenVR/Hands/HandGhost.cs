@@ -575,11 +575,22 @@ internal static class HandGhosts
         // socket, and Engage's IsAttachment filter excludes socketed objects by design.
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
+        // …EXCEPT WHEN THE HAND IS REALLY HOLDING IT (user 2026-08-29, verbatim: "Die Geisterhand
+        // soll nur normalen Modus sein"). The ghost exists to stop the hand mesh covering a card
+        // the player is trying to READ, and in the reading mode that is exactly what the hand is
+        // doing — it is a carrier, and the card is billboarded past it at the head. The in-hand
+        // mode inverts the premise: the hand is not in the way of the card, the hand IS the point.
+        // The player is showing a card to somebody, the fingers are closed on its bottom edge in a
+        // modelled grip, and fading them turns a held card into a floating one. LocalLeft/LocalRight
+        // carry this all the way out, so the mirror and every peer's copy of these hands stop
+        // fading with them — a peer must see a solid hand holding the card they are being shown.
         bool heldCards = HeldCardEnabled;
         bool ghostLeft = (fanHand != null && fanHand.Side == HandSide.Left)
-                         || (heldCards && left != null && IsHeldCard(left.Grabber.Held));
+                         || (heldCards && left != null && IsHeldCard(left.Grabber.Held)
+                             && !HeldCardGrip.InHand(HandSide.Left));
         bool ghostRight = (fanHand != null && fanHand.Side == HandSide.Right)
-                          || (heldCards && right != null && IsHeldCard(right.Grabber.Held));
+                          || (heldCards && right != null && IsHeldCard(right.Grabber.Held)
+                              && !HeldCardGrip.InHand(HandSide.Right));
 
         LocalLeft = ghostLeft;
         LocalRight = ghostRight;

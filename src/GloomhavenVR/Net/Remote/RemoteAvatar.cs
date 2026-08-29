@@ -140,6 +140,12 @@ internal sealed class RemoteAvatar
     // itself does not.
     private Transform? _secondCardHolder;
     private bool _hasSecondHeldCard;
+
+    // Extension record 34: which of the two held-card slabs is being held RIGIDLY in the owner's
+    // fist. 0 - the value before any packet carries the record, and the value a peer predating it
+    // leaves here - means "billboard both", which is what every build before ModBuild 317 did.
+    private byte _heldCardGripMask;
+    private bool _loggedHeldCardRigid;
     private RigPose _secondHeldCardPose;
 
     /// <summary>Seconds since the last accepted packet (staleness bookkeeping).</summary>
@@ -875,6 +881,11 @@ internal sealed class RemoteAvatar
         // reset is right in both cases: the slab hides, and the FIRST card's slab (rig packet) is
         // untouched.
         _hasSecondHeldCard = p.HasSecondHeldCard;
+        // Record 34, and the absence of it is meaningful: a packet without the record says both
+        // held cards billboard. Written unconditionally from the parsed state for that reason -
+        // latching the last non-zero mask would leave a card frozen mid-turn after its owner let
+        // the grip go.
+        _heldCardGripMask = p.HasHeldCardGrip ? p.HeldCardGripMask : (byte)0;
         if (p.HasSecondHeldCard)
             _secondHeldCardPose = p.SecondHeldCardPose;
 
@@ -1504,7 +1515,8 @@ internal sealed class RemoteAvatar
         // head billboard inside simply keeps the transmitted rotation until a synced head exists.
         UpdateCardSlab(ref _secondCardHolder, "HeldCard2",
                        _hasSecondHeldCard, in _secondHeldCardPose, k,
-                       HeldCardSizing.OwnerHeldCard);
+                       HeldCardSizing.OwnerHeldCard,
+                       (_heldCardGripMask & NetProtocol.HeldCardGripSecondBit) != 0);
 
         // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
         // authoritative when present (a held card can ghost EITHER hand, or both); a sender too
@@ -1627,7 +1639,8 @@ internal sealed class RemoteAvatar
     private void UpdateHeldCard(float k)
         => UpdateCardSlab(ref _heldCardHolder, "HeldCard",
                           _target.HasHeldCard, in _target.HeldCardPose, k,
-                          HeldCardSizing.OwnerHeldCard);
+                          HeldCardSizing.OwnerHeldCard,
+                          (_heldCardGripMask & NetProtocol.HeldCardGripFirstBit) != 0);
 
     /// <summary>
     /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
@@ -1660,7 +1673,8 @@ internal sealed class RemoteAvatar
     /// </summary>
     private void UpdateCardSlab(ref Transform? holder, string name,
                                 bool held, in RigPose pose, float k,
-                                HeldCardSizing sizing = HeldCardSizing.NominalCardOnly)
+                                HeldCardSizing sizing = HeldCardSizing.NominalCardOnly,
+                                bool rigid = false)
     {
         if (holder == null)
         {
@@ -1693,6 +1707,32 @@ internal sealed class RemoteAvatar
         UpdatePart(holder, held, in pose, k);
         if (!held || !holder.gameObject.activeSelf)
             return;
+        if (rigid)
+        {
+            // IN-HAND GRIP (extension record 34, ModBuild 317): this card is not billboarding on
+            // its owner's side either — it is rigid in their fist and they are turning it AT
+            // somebody, which is the whole reason the mode exists. Re-deriving a billboard here
+            // would refuse to show the one thing the gesture is for: the peer would watch the card
+            // hold still while its owner turned it.
+            //
+            // So the eased TRANSMITTED rotation stands, exactly as UpdatePart left it. The three
+            // objections in the doc above are objections to using it for a card that IS
+            // billboarding — quantization, independent easing, and a stale post-loss snapshot all
+            // measure drift out of a relationship with the owner's HEAD, and this card has no such
+            // relationship to drift out of. What it has is a relationship with the owner's WRIST,
+            // and the wrist is on the wire in the same packet, sampled at the same rate, eased by
+            // the same sharpness. 16-bit quantization is ~0.005 deg per component, invisible on a
+            // card somebody is turning by hand.
+            if (!_loggedHeldCardRigid)
+            {
+                _loggedHeldCardRigid = true;
+                VRLog.Info("Net", $"Remote held card: player {PlayerId} is holding a card IN HAND "
+                    + "(record 34) — the transmitted rotation stands and the receiver-side billboard "
+                    + "is skipped for that slab, so it turns with their wrist. Their fingers close "
+                    + "on it from the curls the rig packet already carries.");
+            }
+            return;
+        }
         if (!_hasTarget || !_target.HeadValid || !_headHolder.gameObject.activeSelf)
             return; // no synced head this frame — keep the transmitted rotation
 

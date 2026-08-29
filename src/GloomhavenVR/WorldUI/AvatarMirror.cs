@@ -1015,8 +1015,18 @@ internal sealed class AvatarMirror
         if (!viaHand)
             Reflect(ct.position, ct.rotation, planePoint, normal, out p, out carried);
 
-        // REPORT 2: reproduce the real card's "always facing" rule against the MIRRORED viewpoint.
-        Quaternion r = TryBillboardToMirrorHead(p, out Quaternion billboard) ? billboard : carried;
+        // REPORT 2: reproduce the real card's "always facing" rule against the MIRRORED viewpoint —
+        // BUT ONLY IN THE MODE THAT HAS ONE. A card held in the IN-HAND grip ([Cards] InHandHold,
+        // 2026-08-29) is rigid in the fist: no billboard runs on the real card, so re-deriving one
+        // here would invent a rotation the player is not producing, and the reflection would refuse
+        // to turn while its hand turned. That case is the RIGID one this method's own root-cause
+        // note says `carried` is correct for — R' · (R⁻¹ · cardRot), the pose carried through the
+        // rendered mirror hand's frame, exactly as the held FIGURE is carried. So the fix is to
+        // stop overriding it, not to compute anything new: the value was already here.
+        bool rigid = HeldCardGrip.InHand(hand.Side);
+        Quaternion r = !rigid && TryBillboardToMirrorHead(p, out Quaternion billboard)
+            ? billboard
+            : carried;
 
         bool logged = hand.Side == HandSide.Left
             ? ReferenceEquals(_loggedCardLeft, card)
@@ -1026,8 +1036,12 @@ internal sealed class AvatarMirror
             if (hand.Side == HandSide.Left) _loggedCardLeft = card; else _loggedCardRight = card;
             VRLog.Info("WorldUI", $"Mirror held-card attach: hand={hand.Side}, kind={(isItem ? "Item" : "Ability")}, "
                 + $"pos={(viaHand ? "hand-frame" : "plane-reflect")}, handLocalOffset={lp.ToString("F3")} "
-                + $"(real hand frame; re-emitted X-reflected); orient=billboard->mirrored head "
-                + $"(delta vs wrist-carry {Quaternion.Angle(carried, r):F1} deg).");
+                + $"(real hand frame; re-emitted X-reflected); "
+                + (rigid
+                    ? "orient=WRIST-CARRY (in-hand grip: the real card is rigid in the fist, so the "
+                      + "reflection turns with the mirrored wrist and no billboard is derived)."
+                    : $"orient=billboard->mirrored head (delta vs wrist-carry "
+                      + $"{Quaternion.Angle(carried, r):F1} deg)."));
         }
         return PlaceSlabAt(used, p, r, ct.lossyScale, w, h) ? used + 1 : used;
     }

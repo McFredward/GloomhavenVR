@@ -28,6 +28,14 @@ internal static partial class Defaults
     internal const float HeldForward = 0.005f;                                                        // => [Cards] HeldForward
     internal const float HeldOffPalm = 0.0148f;                                                       // => [Cards] HeldOffPalm
     internal static readonly Vector3 HeldPinchOffset = new Vector3(-0.055f, 0.035f, 0f);              // => [Cards] HeldPinchOffset
+
+    // THE SECOND WAY TO HOLD A CARD (user 2026-08-29): grip held while the trigger takes it =
+    // the card is rigid in the fist and turns with the wrist, so it can be SHOWN to somebody.
+    // Ships ON: the gesture is additive - a plain trigger grab still gets the reading pose that
+    // has always existed, and nothing at all changes for a player who never squeezes the grip.
+    internal const bool InHandHold = true;                                                            // => [Cards] InHandHold
+    internal const float InHandPitch = CardGripPose.DefaultPitchDegrees;                              // => [Cards] InHandPitch
+    internal static readonly Vector3 InHandPinchOffset = Vector3.zero;                                // => [Cards] InHandPinchOffset
     internal const float TrayForward = 0.54232f;                                                      // => [Cards] TrayForward
     internal const float TrayDown = 0.060066f;                                                        // => [Cards] TrayDown
     internal const float TrayRight = -0.113245f;                                                      // => [Cards] TrayRight

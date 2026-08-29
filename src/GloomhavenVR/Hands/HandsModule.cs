@@ -69,6 +69,8 @@ internal sealed class HandsModule : IVRModule
         // Ghost hand: restore the original shared materials before the hand tree goes away, so a
         // hot reload can never leave a cloned material (or a faded hand) behind.
         HandGhosts.Shutdown();
+        // …and the held-card mode latch with it, for the same hot-reload reason.
+        Cards.HeldCardGrip.Shutdown();
 
         // Hot-reload hygiene: registries and the asset bundle are static.
         VRInteractables.Clear();

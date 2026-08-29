@@ -404,6 +404,25 @@ internal struct PresenceState
     /// </summary>
     public bool HasSecondHeldCard;
 
+    /// <summary>
+    /// True when at least one held card is being held RIGIDLY in the fist and this packet carries
+    /// the flag byte (extension record <see cref="NetProtocol.ExtIdHeldCardGrip"/>). False - the
+    /// overwhelmingly common case - keeps the record off the wire entirely, which is what makes
+    /// every packet from a player who does not use the gesture byte-identical to the previous
+    /// build's.
+    /// </summary>
+    public bool HasHeldCardGrip;
+
+    /// <summary>
+    /// Which held-card POSE SLOTS are rigid, as
+    /// <see cref="NetProtocol.HeldCardGripFirstBit"/> | <see cref="NetProtocol.HeldCardGripSecondBit"/>
+    /// (meaningful only when <see cref="HasHeldCardGrip"/>). SLOTS, not hands: bit 0 describes
+    /// whatever card the rig packet's <see cref="NetProtocol.FlagHeldCard"/> block carries and bit 1
+    /// whatever record 10 carries, so the sampler fills them by the same left-first rule those two
+    /// slots are filled by and a bit can never end up describing the other hand's card.
+    /// </summary>
+    public byte HeldCardGripMask;
+
     /// <summary>World-frame pose of the second held card (meaningful only when
     /// <see cref="HasSecondHeldCard"/>). The shared 20-byte pose encoding — and the ENTIRE
     /// payload: no hand byte, because the receiver renders the slab at this absolute pose and
@@ -1240,6 +1259,13 @@ internal struct SharedWindowEntry
 ///                        per-client focus point; an unknown frame drops the pose and keeps the
 ///                        page. Written only while MapRoomDriver.Active, see
 ///                        NetProtocol.ExtIdSharedWindow)
+///                        34 HELD-CARD GRIP ([flags] - one bit per held-card POSE SLOT: bit 0 for
+///                        the rig packet's FlagHeldCard card, bit 1 for record 10's. Set means that
+///                        card is held RIGIDLY in the sender's fist, so the receiver keeps the
+///                        TRANSMITTED rotation for it instead of re-deriving the billboard at the
+///                        sender's head. Written only while a bit is set, so a player who never
+///                        uses the gesture emits the exact bytes the previous build did, see
+///                        NetProtocol.ExtIdHeldCardGrip)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1430,6 +1456,10 @@ internal static class PresenceSerializer
         bool extensions = state.HasHandScale || state.HasGhostSides || state.HasModVersion
                           || state.HasBoardUi || state.HasFanAnchor || state.HasCardHighlight
                           || state.HasSecondFigure || state.HasSecondHeldCard
+                          // Record 34 is written only while a card is really held rigidly, so it
+                          // must open the tail on its own - and only then, which is what keeps a
+                          // packet from every player who never uses the gesture byte-identical.
+                          || (state.HasHeldCardGrip && state.HeldCardGripMask != 0)
                           || state.HasSlotCardSize
                           || state.HasPileCounts || state.HasHalfHover || state.HasCapPress
                           // The item-use clip is written only while a card really lies in the
@@ -2432,6 +2462,21 @@ internal static class PresenceSerializer
                         records++;
                     }
                 }
+                if (state.HasHeldCardGrip && state.HeldCardGripMask != 0
+                    && i + 2 + NetProtocol.HeldCardGripRecordBytes <= buffer.Length)
+                {
+                    // HELD-CARD GRIP (34): one flag byte, bit per held-card POSE SLOT - bit 0 for
+                    // the rig packet's FlagHeldCard card, bit 1 for record 10's. Set means "this
+                    // one is rigid in the fist, use the rotation I sent instead of billboarding it
+                    // at my head". Written ONLY while a bit is set (the tail gate above uses the
+                    // same test), so a player who never squeezes the grip on a held card - and
+                    // every idle player - emits the exact bytes the previous build emitted.
+                    // Appended LAST, in id order behind record 33, per the tail's id-order contract.
+                    buffer[i++] = NetProtocol.ExtIdHeldCardGrip;
+                    buffer[i++] = (byte)NetProtocol.HeldCardGripRecordBytes;
+                    buffer[i++] = state.HeldCardGripMask;
+                    records++;
+                }
                 buffer[countAt] = records;
             }
         }
@@ -3388,6 +3433,24 @@ internal static class PresenceSerializer
                         {
                             state.HasSecondHeldCard = true;
                             state.SecondHeldCardPose = cardPose;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdHeldCardGrip
+                             && len >= NetProtocol.HeldCardGripRecordBytes)
+                    {
+                        // HELD-CARD GRIP: one flag byte. UNDEFINED BITS ARE MASKED OFF rather than
+                        // stored, so a future sender that spends bit 2 on a third card slot cannot
+                        // make this build read a slot it has no pose for; and an ALL-ZERO byte
+                        // decodes to "record absent" (both cards billboard), which is exactly what
+                        // a peer predating the record renders. No pose and no identity here at all
+                        // - this record only says WHICH RULE the poses that are already on the
+                        // wire should be drawn under.
+                        byte grip = (byte)(buffer[i] & (NetProtocol.HeldCardGripFirstBit
+                                                        | NetProtocol.HeldCardGripSecondBit));
+                        if (grip != 0)
+                        {
+                            state.HasHeldCardGrip = true;
+                            state.HeldCardGripMask = grip;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

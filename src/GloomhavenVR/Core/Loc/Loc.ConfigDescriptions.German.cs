@@ -1444,6 +1444,34 @@ internal static partial class Loc
                 + "die Karte zu lesen; die Pose steuert jetzt stattdessen HeldFaceBias. Bleibt nur gebunden, "
                 + "damit vorhandene Konfigurationsdateien sauber laden. HINWEIS: [FigureGrab] HeldTiltDegrees "
                 + "ist ein ANDERER, aktiver Eintrag.",
+            ["Cards/InHandHold"] =
+                "Karte wirklich IN DIE HAND nehmen (2026-08-29). Normalerweise schwebt eine gegriffene "
+                + "Karte immer so, dass ihre Vorderseite zu dir zeigt, egal wie du das Handgelenk drehst "
+                + "— das bleibt genau so. Mit dieser Option bekommst du eine ZWEITE Art zu halten: "
+                + "Halte die GREIFTASTE gedrückt, während du mit dem Trigger die Karte nimmst, und die "
+                + "Karte sitzt fest in deiner Faust — deine Finger schließen sich am unteren Rand, und "
+                + "wenn du das Handgelenk drehst, dreht sich die Karte mit. So kannst du sie hochhalten "
+                + "und einem Mitspieler ihre Vorderseite zeigen. Lässt du die Greiftaste los (Trigger "
+                + "weiter gedrückt), schwebt sie wieder lesbar; drückst du sie erneut, zeigst du sie "
+                + "wieder. Die Geisterhand gehört nur zum Lese-Modus — eine Hand, die wirklich eine Karte "
+                + "hält, bleibt sichtbar. Aus: Die Greiftaste tut nichts, während du eine Karte hältst, "
+                + "genau wie vorher.",
+            ["Cards/InHandPitch"] =
+                "In der Hand: wie weit die Karte AUS deiner Handfläche aufsteht, in Grad. 0 legt sie flach "
+                + "entlang der Finger — der eine Wert, den man meiden sollte, denn dann steht deine eigene "
+                + "Hand von der einen Seite direkt hinter und von der anderen direkt vor der Karte. 90 "
+                + "stellt sie senkrecht aus dem Griff, frei von allen Fingern außer den beiden haltenden; "
+                + "der Standardwert neigt sie von dort noch etwas zum Handgelenk, so wie eine Hand eine "
+                + "Karte wirklich hält, die sie gleich lesen will. Betrifft nur den In-der-Hand-Modus — "
+                + "die schwebende Lesepose stellt HeldFaceBias ein.",
+            ["Cards/InHandPinchOffset"] =
+                "In der Hand, Feinjustage: Versatz (Meter), der auf den modellierten Griffpunkt ADDIERT "
+                + "wird, in Achsen des Greif-Ankers: +Y aus der Handfläche heraus, +Z entlang der Finger, "
+                + "+X seitwärts. Für die RECHTE Hand geschrieben; der X-Anteil wird für die linke Hand "
+                + "automatisch gespiegelt, damit die Karte an beiden Händen anatomisch gleich sitzt — "
+                + "dieselbe Konvention wie bei HeldPinchOffset. Ab Werk null: Die Finger sind FÜR diese "
+                + "Pose modelliert, es sollte also nichts zu korrigieren geben — das hier ist Geschmack, "
+                + "kein bekannter Fehler.",
             ["Cards/HeldFaceBias"] =
                 "Gehaltene Karte lesbar (Test #13): Neigung der KARTENSEITE in Grad aus \"flach auf der "
                 + "Handfläche\" (0 = alte Pose, Seite entlang der Handflächen-Normale — nur per "

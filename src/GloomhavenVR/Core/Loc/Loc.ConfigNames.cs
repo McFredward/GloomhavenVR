@@ -337,6 +337,11 @@ internal static partial class Loc
             // 2026-08 naming pass: a size dial must not read as a switch.
             ["Cards/InspectScale"] = Pair("Close-up: size", "Nahansicht: Größe"),
             ["Cards/HeldFaceBias"] = Pair("Held card: face tilt (°)", "Handkarte: Winkel (°)"),
+            // THE SECOND WAY TO HOLD A CARD (2026-08-29). Named for the GESTURE, not for the
+            // mechanism: a player looking for this is looking for "take it into my hand".
+            ["Cards/InHandHold"] = Pair("Take card into hand", "Karte in die Hand nehmen"),
+            ["Cards/InHandPitch"] = Pair("In hand: card angle (°)", "In der Hand: Winkel (°)"),
+            ["Cards/InHandPinchOffset"] = Pair("In hand: grip offset (m)", "In der Hand: Griff-Versatz (m)"),
             // 2026-08 naming pass: one object name for the fallback pair ("Ersatzkarte", like its twin).
             ["Cards/HeldForward"] = Pair("Held (fallback): fwd (m)", "Ersatzkarte: vor (m)"),
             ["Cards/HeldOffPalm"] = Pair("Held (fallback): gap (m)", "Ersatzkarte: Abstand (m)"),

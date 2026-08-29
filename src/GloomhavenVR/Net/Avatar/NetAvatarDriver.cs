@@ -458,6 +458,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // EDGES that pre-empt the gate outright, so the second slab appears and vanishes with the
     // gesture rather than up to an extras interval later. A perfectly still second card falls
     // back to the idle 5 Hz — nothing moves, so nothing is observable there.
+    // Extension record 34: the held-card grip mask most recently put on the wire. 0 = both held
+    // cards billboard, which is also the pre-session value, so the first packet of a session that
+    // never uses the gesture is unchanged.
+    private byte _lastSentCardGripMask;
+    private bool _loggedCardGrip;
+
     // _sentSecondCardValid false = nothing sent yet this session.
     private bool _sentSecondCardValid;
     private Vector3 _lastSentSecondCardPos;
@@ -727,6 +733,8 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sentSecondFigureValid = false; // nor a new session's second held figure
         _lastSentSecondActorId = 0;
         _sentSecondCardValid = false;   // nor its second held card
+        _lastSentCardGripMask = 0;      // nor which of them was held rigidly (record 34)
+        _loggedCardGrip = false;
         _lastSentStretchPrimary = NetProtocol.HeldStretchCodeNeutral;   // nor a stale stretch
         _lastSentStretchSecondary = NetProtocol.HeldStretchCodeNeutral; // (record 30)
         _loggedStretch = false;
@@ -1443,6 +1451,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || Quaternion.Angle(secondCardRot, _lastSentSecondCardRot) > 0.05f);
         bool secondCardDue = secondCardMoving && _extrasAccumulator >= fastInterval;
 
+        // HELD-CARD GRIP (extension record 34): which of the two held-card pose slots is being held
+        // RIGIDLY in the fist rather than billboarded at this player's head. A DISCRETE HUMAN ACT —
+        // a grip press on a card already in hand — whose entire purpose is that somebody else looks
+        // at it, so it PRE-EMPTS the cadence outright rather than riding the fast interval: up to
+        // 200 ms of "I turned the card and you did not see it turn" is exactly the latency this
+        // gesture cannot afford. It is also two bits, so pre-empting costs three bytes.
+        byte cardGripMask = LocalRigSampler.SampleHeldCardGripMask();
+        bool cardGripChanged = cardGripMask != _lastSentCardGripMask;
+
         // HELD-FIGURE STRETCH (extension record 30): the manual two-hand resize factor of each
         // held-figure slot, quantized HERE so the change test compares wire codes, not floats.
         // A mid-gesture drag is a MOTION, not an edge — it rides the fast interval exactly like a
@@ -1649,6 +1666,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !cardGripChanged
             && !stretchDue
             && !tooltipChanged && !slotCardSizeChanged
             && !pileCountsChanged && !halfHoverDue && !halfSelChanged && !slotOrderChanged
@@ -2792,6 +2810,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _sentSecondCardValid = secondCard;
         _lastSentSecondCardPos = secondCardPos;
         _lastSentSecondCardRot = secondCardRot;
+
+        // HELD-CARD GRIP (extension record 34): one flag byte, bit per held-card pose slot. Written
+        // only while a bit is set (PresenceSerializer's own gate), so a player who never squeezes
+        // the grip on a held card emits the exact bytes the previous build emitted.
+        if (cardGripMask != 0)
+        {
+            extras.HasHeldCardGrip = true;
+            extras.HeldCardGripMask = cardGripMask;
+        }
+        if (cardGripChanged)
+        {
+            if (cardGripMask != 0)
+            {
+                _loggedCardGrip = true;
+                VRLog.Info("Net", $"Held-card grip SENT: mask 0x{cardGripMask:X2} (record 34) — "
+                    + "the named slot(s) are RIGID in this player's fist, so peers keep the "
+                    + "transmitted rotation for them instead of re-deriving the billboard at this "
+                    + "head. The finger pose needs nothing: curls already ride every rig packet.");
+            }
+            else if (_loggedCardGrip)
+            {
+                _loggedCardGrip = false;
+                VRLog.Info("Net", "Held-card grip SENT: released — record omitted; peers go back to "
+                    + "billboarding every held slab at this player's head, exactly as before.");
+            }
+        }
+        _lastSentCardGripMask = cardGripMask;
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is

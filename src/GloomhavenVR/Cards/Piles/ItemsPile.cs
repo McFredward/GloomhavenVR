@@ -6642,10 +6642,24 @@ internal sealed class ItemsPile
         /// GrabAnchor-local space, so it tracks the wrist 1:1) but per-frame BILLBOARDS its face to the
         /// head, and lerps scale — VRCard.TickHeldPose verbatim, so a held item card is at the same
         /// place/orientation as a held ability card (at the pinch, always facing the player).
+        ///
+        /// <para>AND THE SECOND MODE WITH IT (user 2026-08-29). An item card is a card you hold up and
+        /// show, exactly like an ability card — <c>HandGhosts.IsHeldCard</c> already had to learn that
+        /// lesson the hard way — so grip-held takes it rigidly into the fist here too, at the same
+        /// modelled grip. The card HEIGHT handed over is the chip's own near-square one, so the fingers
+        /// close on ITS bottom edge rather than on a tall ability card's fraction of it.</para>
         /// </summary>
         private void TickHeldPose()
         {
             float t = 1f - Mathf.Exp(-CardsConfig.CardLerpSpeed.Value * 1.5f * Time.deltaTime);
+            float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * _heldScale;
+            if (HeldCardGrip.TryPose(Holder, cardH, out Vector3 gripPos, out Quaternion gripRot))
+            {
+                transform.localPosition = Vector3.Lerp(transform.localPosition, gripPos, t);
+                transform.localRotation = Quaternion.Slerp(transform.localRotation, gripRot, t);
+                transform.localScale = Vector3.Lerp(transform.localScale, Vector3.one * _heldScale, t);
+                return;
+            }
             transform.localPosition = Vector3.Lerp(transform.localPosition, _heldPos, t);
             Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
             if (head != null)
