@@ -1,0 +1,239 @@
+{
+ "modId": "generic",
+ "profile": "generic-trigger-squeeze-thumbstick",
+ "source": "https://raw.githubusercontent.com/immersive-web/webxr-input-profiles/main/packages/assets/profiles/generic-trigger-squeeze-thumbstick",
+ "left": {
+  "meshes": [
+   {
+    "part": "body",
+    "material": 0,
+    "mesh": "generic_left_body__m0",
+    "vertices": 2735,
+    "triangles": 4412,
+    "min": [
+     -0.03664970281533897,
+     -0.03243136035798005,
+     -0.07318448695069295
+    ],
+    "max": [
+     0.028363228193484247,
+     0.015841834625581506,
+     0.05869006978997573
+    ],
+    "signedVolume": 0.0001339768047616054
+   },
+   {
+    "part": "squeeze",
+    "material": 0,
+    "mesh": "generic_left_squeeze__m0",
+    "vertices": 164,
+    "triangles": 231,
+    "min": [
+     -0.0036179176704864173,
+     -0.0022211711140399733,
+     -0.02605377375202967
+    ],
+    "max": [
+     0.009952388021495288,
+     0.00925526033742999,
+     -0.000535252382154015
+    ],
+    "signedVolume": 1.9710627904061358e-06
+   },
+   {
+    "part": "thumbstick",
+    "material": 0,
+    "mesh": "generic_left_thumbstick__m0",
+    "vertices": 577,
+    "triangles": 900,
+    "min": [
+     -0.009764569332628368,
+     0.0032402564571666938,
+     0.010195163425601318
+    ],
+    "max": [
+     0.010433655772587237,
+     0.02030479928911283,
+     0.03070327627979364
+    ],
+    "signedVolume": 2.9707768842230615e-06
+   },
+   {
+    "part": "trigger",
+    "material": 0,
+    "mesh": "generic_left_trigger__m0",
+    "vertices": 263,
+    "triangles": 402,
+    "min": [
+     -0.013145424383823155,
+     -0.040190344149191856,
+     0.03550782117951111
+    ],
+    "max": [
+     0.01798117570552736,
+     -0.015117313636258593,
+     0.0565983412191045
+    ],
+    "signedVolume": 1.1981817910186932e-05
+   }
+  ],
+  "materials": [
+   {
+    "index": 0,
+    "name": "generic_trigger_grip_thumbstick_R_mat",
+    "baseColorFactor": [
+     0.5,
+     0.5,
+     0.5,
+     1.0
+    ],
+    "metallic": 1.0,
+    "roughness": 1.0,
+    "texture": "tex_2.jpg"
+   }
+  ],
+  "anchors": [
+   {
+    "part": "squeeze",
+    "position": [
+     -0.0024107231353915457,
+     -0.0022211700261640763,
+     -0.01493117744531459
+    ]
+   },
+   {
+    "part": "thumbstick",
+    "position": [
+     0.00015531644514403425,
+     0.0007992408326793121,
+     0.01753249186033409
+    ]
+   },
+   {
+    "part": "trigger",
+    "position": [
+     0.00248383334837854,
+     -0.01815689179449297,
+     0.054665482248586264
+    ]
+   }
+  ]
+ },
+ "right": {
+  "meshes": [
+   {
+    "part": "body",
+    "material": 0,
+    "mesh": "generic_right_body__m0",
+    "vertices": 2735,
+    "triangles": 4412,
+    "min": [
+     -0.028363228193484247,
+     -0.032431360357979756,
+     -0.0731844869506923
+    ],
+    "max": [
+     0.03664970281533897,
+     0.015841834625581364,
+     0.0586900697899752
+    ],
+    "signedVolume": 0.000133976804761603
+   },
+   {
+    "part": "squeeze",
+    "material": 0,
+    "mesh": "generic_right_squeeze__m0",
+    "vertices": 164,
+    "triangles": 231,
+    "min": [
+     -0.009952388021495284,
+     -0.0022211711140399538,
+     -0.02605377375202944
+    ],
+    "max": [
+     0.0036179176704864173,
+     0.009255260337429906,
+     -0.000535252382154015
+    ],
+    "signedVolume": 1.9710627904061e-06
+   },
+   {
+    "part": "thumbstick",
+    "material": 0,
+    "mesh": "generic_right_thumbstick__m0",
+    "vertices": 577,
+    "triangles": 900,
+    "min": [
+     -0.010508332368813624,
+     0.003233693336780084,
+     0.01016149709390853
+    ],
+    "max": [
+     0.009764094855209156,
+     0.020298634338767607,
+     0.03068254798104158
+    ],
+    "signedVolume": 2.9697959023352083e-06
+   },
+   {
+    "part": "trigger",
+    "material": 0,
+    "mesh": "generic_right_trigger__m0",
+    "vertices": 263,
+    "triangles": 402,
+    "min": [
+     -0.01798117570552736,
+     -0.040190344149191495,
+     0.03550782117951078
+    ],
+    "max": [
+     0.013145424383823153,
+     -0.015117313636258454,
+     0.05659834121910399
+    ],
+    "signedVolume": 1.1981817910186722e-05
+   }
+  ],
+  "materials": [
+   {
+    "index": 0,
+    "name": "generic_trigger_grip_thumbstick_R_mat",
+    "baseColorFactor": [
+     0.5,
+     0.5,
+     0.5,
+     1.0
+    ],
+    "metallic": 1.0,
+    "roughness": 1.0,
+    "texture": "tex_2.jpg"
+   }
+  ],
+  "anchors": [
+   {
+    "part": "squeeze",
+    "position": [
+     0.0024107231353915457,
+     -0.0022211700261640563,
+     -0.014931177445314456
+    ]
+   },
+   {
+    "part": "thumbstick",
+    "position": [
+     -0.0005312847773293014,
+     0.0007992408326342654,
+     0.017532491860301633
+    ]
+   },
+   {
+    "part": "trigger",
+    "position": [
+     -0.00248383334837854,
+     -0.018156891794492806,
+     0.05466548224858577
+    ]
+   }
+  ]
+ }
+}
