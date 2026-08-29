@@ -137,7 +137,9 @@ namespace GloomhavenVR.Cards
         /// and the index on the other — which is exactly the user's report on that build: "in deinen
         /// Bildern clippen Finger durch die Karte".</para>
         ///
-        /// <para>The thumb value is the one that had to be MEASURED, and the target is not "as far
+        /// <para>NOTE the thumb entry here is the GLOVE's; the two gauntlets take theirs from
+        /// <see cref="ThumbCurlByStyle"/>, which is the one value this pose could not share. The
+        /// thumb is also the value that had to be MEASURED, and the target is not "as far
         /// from the fingers as possible". It is a SANDWICH: the card wants roughly two finger
         /// half-thicknesses plus its own — call it 21 mm — between the thumb tip and the knuckle
         /// backing it. Too little and the two converge into one plane and the card cuts through both
@@ -148,8 +150,8 @@ namespace GloomhavenVR.Cards
         /// smallest lateral gap to any backing knuckle, per rig, at the shipped style scale:</para>
         /// <code>
         ///                                   glove    plate   arcane
-        ///   thumb 0.40 (shipped)             24 mm    21 mm    18 mm
-        ///   thumb 0.22 (balanced on it)      33 mm    27 mm    25 mm
+        ///   the shipped thumb per style      24 mm    27 mm    25 mm   (0.40 / 0.20 / 0.20)
+        ///   a single 0.22 everywhere         33 mm    27 mm    25 mm
         ///   the rejected tip pinch            7 mm     7 mm     3 mm
         /// </code>
         /// <para>The four fingers get a slight cascade because a hand closing on something does
@@ -163,11 +165,50 @@ namespace GloomhavenVR.Cards
         /// </summary>
         internal static readonly float[] Curls = { 0.40f, 0.90f, 0.94f, 0.97f, 1.00f };
 
-        /// <summary>The modelled curl of one finger, indexed as <c>Hands.Finger</c>. Out-of-range
-        /// indices return 0 (straight) rather than throwing: this is read from a per-frame hand
-        /// tick.</summary>
-        internal static float CurlFor(int finger) =>
-            finger >= 0 && finger < Curls.Length ? Curls[finger] : 0f;
+        /// <summary>
+        /// THE THUMB IS THE ONE VALUE THAT IS PER HAND STYLE, indexed as <c>Hands.HandStyle</c>
+        /// (0 Glove, 1 Plate, 2 Arcane). Everything else in <see cref="Curls"/> is shared.
+        ///
+        /// <para>This is a concession, and it was forced by measurement rather than chosen. The user
+        /// on ModBuild 318: "beim Arcane und Platte ist der Daumen unnatürlich gebogen." Rendering
+        /// the whole family — the same hold at thumb 0.00 to 0.80, all three styles, through the
+        /// preview station's CARDGRIP_THUMB override — shows two curves that do not intersect:</para>
+        /// <code>
+        ///           0.20        0.25        0.30        0.40
+        ///   glove   thumb OFF   thumb OFF   thumb OFF   on the card, 12.0 mm
+        ///           the card    the card    the card    and straight
+        ///   plate   straight    straight    tip hooks   tip clearly crooked
+        ///   arcane  straight    slight      tip hooks   pronounced hook
+        /// </code>
+        /// <para>"Thumb OFF the card" is not a judgement: the station reports the glove's thumb
+        /// clearance as INFINITY below 0.40, meaning no thumb joint lands inside the card's
+        /// rectangle at all. So the glove needs 0.40 to touch its card and the two gauntlets are
+        /// already over-flexed there. One number cannot do both.</para>
+        ///
+        /// <para>WHY THE STYLES DIFFER, since it is not obvious: the curl is a FRACTION of a fixed
+        /// full-curl angle (FingerCurler's 25/45/60 for the thumb), and the three assets have
+        /// different thumb rest poses and different segment lengths. The glove's thumb starts
+        /// further from the card and has to travel; the gauntlets' start closer and arrive early,
+        /// after which the same fraction keeps bending the distal joint into a hook. FingerCurler
+        /// drives one flexion axis per joint, so there is no abduction to trade against it.</para>
+        ///
+        /// <para>The four FINGERS are unaffected — they measured within a couple of degrees of each
+        /// other on all three rigs (unity/hand-prep/splay_check.py), which is why only the thumb
+        /// gets a table.</para>
+        /// </summary>
+        internal static readonly float[] ThumbCurlByStyle = { 0.40f, 0.20f, 0.20f };
+
+        /// <summary>The modelled curl of one finger, indexed as <c>Hands.Finger</c>, for a hand of
+        /// <paramref name="style"/> (indexed as <c>Hands.HandStyle</c>). Out-of-range indices return
+        /// the shared value rather than throwing: this is read from a per-frame hand tick, and a
+        /// style this table has not been extended for should get a hand pose, not an
+        /// exception.</summary>
+        internal static float CurlFor(int finger, int style)
+        {
+            if (finger == 0 && style >= 0 && style < ThumbCurlByStyle.Length)
+                return ThumbCurlByStyle[style];
+            return finger >= 0 && finger < Curls.Length ? Curls[finger] : 0f;
+        }
 
         // ------------------------------------------------------------------------ the solver --
 

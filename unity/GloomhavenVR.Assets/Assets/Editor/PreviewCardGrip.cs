@@ -84,6 +84,8 @@ namespace GloomhavenVR
         // the three attachment sockets, so a card hanging off the grab anchor keeps its own world
         // size. Building the card's world pose from the anchor's position and ROTATION only — never
         // its scale — reproduces exactly that.
+        // The tuple's index is also the Hands.HandStyle ordinal (0 Glove, 1 Plate, 2 Arcane), which
+        // is what CardGripPose.ThumbCurlByStyle is indexed by. Kept in that order deliberately.
         private static readonly (string Style, string Left, string Right, float Scale)[] Hands =
         {
             ("glove",  "Assets/Bundle/Hands/VRHand_L.prefab",
@@ -108,6 +110,38 @@ namespace GloomhavenVR
             ("quarter", new Vector3(-0.62f, 0.30f, -0.72f)),
         };
 
+        /// <summary>
+        /// THUMB-CURL OVERRIDE, for looking at a FAMILY rather than a value.
+        ///
+        /// <para>"The thumb looks unnatural" is not a claim any single number settles — the splay
+        /// check says the flexion axis is fine, and the pose numbers say the sandwich is fine, and
+        /// the thumb still reads wrong on two of the three gauntlets. The only instrument for that
+        /// is a row of renders at different curls, side by side, so set CARDGRIP_THUMB to a value
+        /// and the station poses the thumb at it instead of at the shipped
+        /// <c>CardGripPose.Curls[0]</c>. Everything else — including the card, which is placed off
+        /// the LIVE thumb — follows, so each frame in the row is a complete, self-consistent
+        /// hold rather than the same card with a different thumb drawn near it.</para>
+        ///
+        /// <para>NaN (unset) means "use the shipped value", which is what every normal run does.</para>
+        /// </summary>
+        private static float ThumbOverride()
+        {
+            string v = System.Environment.GetEnvironmentVariable("CARDGRIP_THUMB");
+            return !string.IsNullOrEmpty(v)
+                   && float.TryParse(v, System.Globalization.NumberStyles.Float,
+                                     CultureInfo.InvariantCulture, out float f)
+                ? f
+                : float.NaN;
+        }
+
+        private static float Curl(int finger, int style)
+        {
+            float over = ThumbOverride();
+            return finger == 0 && !float.IsNaN(over)
+                ? over
+                : Cards.CardGripPose.CurlFor(finger, style);
+        }
+
         public static void RenderAll()
         {
             string outDir = System.Environment.GetEnvironmentVariable("CARDGRIP_PREVIEW_OUT");
@@ -116,13 +150,15 @@ namespace GloomhavenVR
             Directory.CreateDirectory(outDir);
             Debug.Log("[CardGripPreview] out = " + outDir);
             Debug.Log(string.Format(CultureInfo.InvariantCulture,
-                "[CardGripPreview] POSE: pitch {0:F1} deg, grip fraction {1:F3}, curls "
-                + "T{2:F2} I{3:F2} M{4:F2} R{5:F2} P{6:F2} — read from the SYMLINKED CardGripPose.cs. "
-                + "If these are not the values you just edited, the symlink was not touched.",
+                "[CardGripPreview] POSE: pitch {0:F1} deg, grip fraction {1:F3}, thumb per style "
+                + "(glove/plate/arcane) {2}, fingers I{3:F2} M{4:F2} R{5:F2} P{6:F2} — read from the "
+                + "SYMLINKED CardGripPose.cs. If these are not the values you just edited, the "
+                + "symlink was not touched.",
                 Cards.CardGripPose.DefaultPitchDegrees, Cards.CardGripPose.GripFraction,
-                Cards.CardGripPose.CurlFor(0), Cards.CardGripPose.CurlFor(1),
-                Cards.CardGripPose.CurlFor(2), Cards.CardGripPose.CurlFor(3),
-                Cards.CardGripPose.CurlFor(4)));
+                string.Join(" / ", System.Array.ConvertAll(
+                    Cards.CardGripPose.ThumbCurlByStyle,
+                    v => v.ToString("F2", CultureInfo.InvariantCulture))),
+                Curl(1, 0), Curl(2, 0), Curl(3, 0), Curl(4, 0)));
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
             RenderSettings.ambientLight = new Color(0.5f, 0.5f, 0.5f);
@@ -131,10 +167,11 @@ namespace GloomhavenVR
             Texture2D back = BuildBack();
             try
             {
-                foreach (var (style, left, right, scale) in Hands)
+                for (int i = 0; i < Hands.Length; i++)
                 {
-                    Shoot(style + "_left", left, scale, face, back, outDir);
-                    Shoot(style + "_right", right, scale, face, back, outDir);
+                    var (style, left, right, scale) = Hands[i];
+                    Shoot(style + "_left", left, scale, i, face, back, outDir);
+                    Shoot(style + "_right", right, scale, i, face, back, outDir);
                 }
             }
             finally
@@ -145,7 +182,7 @@ namespace GloomhavenVR
             Debug.Log("[CardGripPreview] done.");
         }
 
-        private static void Shoot(string tag, string prefabPath, float styleScale,
+        private static void Shoot(string tag, string prefabPath, float styleScale, int style,
                                   Texture2D face, Texture2D back, string outDir)
         {
             var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
@@ -175,7 +212,7 @@ namespace GloomhavenVR
                 // THE MODELLED GRIP, applied exactly as FingerCurler applies it.
                 string[] digits = { "Thumb", "Index", "Middle", "Ring", "Pinky" };
                 for (int f = 0; f < digits.Length; f++)
-                    Curl(hand.transform, digits[f], Cards.CardGripPose.CurlFor(f),
+                    Bend(hand.transform, digits[f], Curl(f, style),
                          f == 0 ? ThumbMaxAngles : FingerMaxAngles);
 
                 // THE PINCH POINT, sampled off the POSED fingertips — the same midpoint the runtime
@@ -382,7 +419,7 @@ namespace GloomhavenVR
 
         /// <summary>FingerCurler's three lines, verbatim: each of a digit's joints takes its
         /// AUTHORED local rotation times Euler(maxAngle * curl, 0, 0) about local X.</summary>
-        private static void Curl(Transform root, string digit, float curl, Vector3 max)
+        private static void Bend(Transform root, string digit, float curl, Vector3 max)
         {
             string[] joints = { "Root", "Mid", "Tip" };
             for (int j = 0; j < joints.Length; j++)

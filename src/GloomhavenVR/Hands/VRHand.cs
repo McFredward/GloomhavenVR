@@ -1071,8 +1071,13 @@ internal sealed class VRHand : MonoBehaviour
             // peer's hand closes into the same modelled grip from the numbers written here.
             if (Cards.HeldCardGrip.InHand(Side))
             {
+                // The THUMB curl is per hand style — the three assets' thumbs start at different
+                // distances from the card and the same fraction of a fixed full-curl angle either
+                // leaves the glove's thumb off the card or bends the gauntlets' into a hook. See
+                // CardGripPose.ThumbCurlByStyle for the render family that forced that.
+                int style = (int)Rig.VisualStyle;
                 for (int f = 0; f < 5; f++)
-                    _curler.SetTarget((Finger)f, Cards.CardGripPose.CurlFor(f));
+                    _curler.SetTarget((Finger)f, Cards.CardGripPose.CurlFor(f, style));
             }
         }
 

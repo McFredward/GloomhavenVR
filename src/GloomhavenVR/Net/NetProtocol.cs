@@ -416,7 +416,52 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 318;
+    public const ushort ModBuild = 319;
+    // Build 319: THE THUMB IS PER HAND STYLE, BECAUSE ONE NUMBER COULD NOT DO BOTH.
+    // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***
+    //
+    //   User, on 318: "beim Arcane und Platte ist der Daumen unnatuerlich gebogen."
+    //
+    //   TWO INSTRUMENTS SAID THE POSE WAS FINE AND HE WAS STILL RIGHT, which is the useful part of
+    //   this round. splay_check.py's thumb "AXIS ERR" of 44-60 deg looked like a smoking gun and is
+    //   not one - that metric builds its anatomical hinge as (mesh direction x PALM NORMAL), which
+    //   is the flexion plane of a FINGER; a thumb's plane is roughly perpendicular to the palm, so
+    //   the number is meaningless for it and the CONING column beside it (-0.7 to +7.5 deg) is the
+    //   one that applies. The grip instrument said THROUGH 0 with a symmetric sandwich on all three
+    //   hands. Neither could see "that thumb is bent like no thumb bends", because neither was
+    //   asked that question. The instrument that could was a RENDER FAMILY: the same hold at thumb
+    //   0.00 through 0.80 on all three styles, through the preview station's new CARDGRIP_THUMB
+    //   override, read as a row.
+    //
+    //   AND THE ROW SHOWS TWO CURVES THAT DO NOT INTERSECT:
+    //
+    //             0.20        0.25        0.30        0.40
+    //     glove   thumb OFF   thumb OFF   thumb OFF   ON the card, 12.0 mm, straight
+    //             the card    the card    the card
+    //     plate   straight    straight    tip hooks   tip clearly crooked
+    //     arcane  straight    slight      tip hooks   pronounced hook
+    //
+    //   "Thumb OFF the card" is the station reporting the glove's thumb clearance as INFINITY -
+    //   no thumb joint inside the card's rectangle at all. So the glove needs 0.40 to touch its
+    //   card and the gauntlets are already over-flexed there. ONE NUMBER CANNOT DO BOTH, and the
+    //   thumb curl becomes a three-entry table indexed by HandStyle: 0.40 / 0.20 / 0.20. The four
+    //   fingers stay shared - they measured within a couple of degrees of each other on all three
+    //   rigs, which is why only the thumb gets a table.
+    //
+    //   WHY THE STYLES DIFFER, since a per-asset constant deserves a reason and not just a value:
+    //   the curl is a FRACTION of a fixed full-curl angle (FingerCurler's 25/45/60 for the thumb),
+    //   and the three assets have different thumb rest poses and segment lengths. The glove's thumb
+    //   starts further from the card and has to travel; the gauntlets' arrive early, after which
+    //   the same fraction keeps bending the distal joint into a hook. FingerCurler drives one
+    //   flexion axis per joint, so there is no abduction to trade against it.
+    //
+    //   Final state, all six hands: THROUGH 0, GRAZING 0, thumb 12.0 / 13.7 / 12.5 mm in front of
+    //   the card with the nearest knuckle the same distance behind it, thumb landing at
+    //   u -0.54..-0.58 / v -0.73..-0.98 - a bottom corner, off the initiative number, on every one.
+    //
+    //   TEST: unchanged from 318. Item 2 (GRIFF) is the one this build is about, and it now has to
+    //   be checked on all three hand styles specifically for the THUMB.
+    //
     // Build 318: THE IN-HAND CARD IS HELD THE WAY A HAND HOLDS ONE.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD (317's stands). ***
     //
