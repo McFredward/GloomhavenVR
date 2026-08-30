@@ -714,7 +714,8 @@ public class Plugin : BaseUnityPlugin
             "when you DO the thing rather than when you have read about it: point and click, " +
             "reach and grab, then all four ways of getting about — drag the table, fly, turn, " +
             "zoom and rotate — then take a card, hold one properly in your hand, pick with a " +
-            "fingertip, reel a window in, ping a hex and re-seat yourself. Any step can be " +
+            "fingertip, reel a window in, ping a hex, re-seat yourself and open the menu. Any " +
+            "step can be " +
             "passed with NEXT and the whole lesson with " +
             "SKIP, so it can never strand you. Runs in tutorial scenarios only, which are " +
             "single-player, so nothing about it goes on the wire. OFF: the tutorial behaves as " +

@@ -416,7 +416,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 331;
+    public const ushort ModBuild = 332;
+    // Build 332: THE LESSON NOW TEACHES HOW TO OPEN THE MENU — FOURTEEN STEPS.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
+    //
+    //   User: "Beim Tutorial bei den Dingen die du hinzugefuegt hast, will ich auch dass dem User
+    //   erklaert wird, wie man das Optionsmenu oeffnet, fueg dafuer auch eine Aufgabe ein."
+    //
+    //   A gap worth closing, and the mod's own doc says why: a SHORT TAP of the NON-dominant lower
+    //   face button (A/X) opens and closes the pause menu (OptionsToggle), and that is the door to
+    //   every setting the mod has -- including switching off anything the lesson just taught. A
+    //   player who never finds it is stuck with whatever the defaults gave them.
+    //
+    //   IT IS THE SAME KEY AS THE PING STEP, AND THAT IS THE POINT. Ping reads the DOMINANT hand's
+    //   A/X while pointing; the menu is the OTHER hand's A/X, tapped. One key, two hands, two
+    //   meanings -- exactly the kind of distinction a text-only control sheet fails to land and a
+    //   step that ends when you do it does. The body says "the hand you do NOT point with", and on
+    //   a Steam Frame it says "the bottom of the D-pad" through the same key-name slot the other
+    //   face-button steps use.
+    //
+    //   PLACED LAST OF THE TEACHING CARDS, so it hands the player everything else: the closing
+    //   card now ends "behind the menu you just opened" instead of naming settings they have no
+    //   route to. The counter goes 13 -> 14 on its own (TeachingStepCount counts the table).
+    //
+    //   THE CHECK IS A VERIFIED OPEN. The notify sits inside the branch that has already asked the
+    //   window whether it is actually up -- OptionsToggle verifies rather than asserts, because
+    //   UIWindow.Show() can return with the window still hidden. A step that ticked on a tap which
+    //   did nothing would teach the player something false about their own controller.
+    //
+    //   TEST:
+    //     1. The lesson must now count to 14, and the last teaching card must be the menu.
+    //     2. Tapping A/X on the pointing hand must NOT satisfy it; the other hand must.
+    //     3. The pause menu opens over the lesson panel; closing it must leave the next card up.
+    //
     // Build 331: THE LOG IS QUIET NOW, AND "DEBUG" IS EXACTLY WHAT IT USED TO BE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
     //

@@ -29,7 +29,7 @@ about it.
 Thirteen controls, in the order they become useful: point and click, reach and grab, then all
 four ways of getting about together — drag the table, fly, turn round, zoom, rotate — then take a
 card, hold one properly in your hand, pick with a fingertip, reel a window in, ping a hex, re-seat
-yourself. The three one-handed stick moves come before the two-handed pair, so the thumbstick
+yourself, and open the menu. The three one-handed stick moves come before the two-handed pair, so the thumbstick
 reads as one lesson rather than five unrelated controls.
 
 **NEXT** passes any single step — useful when the room is not offering what a step asks for, such

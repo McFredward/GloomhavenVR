@@ -248,8 +248,15 @@ internal sealed class OptionsToggle
             ArmReconcile(intendedOpen: true, pressId);
             NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
             if (opened)
+            {
+                // Controls lesson: the "open the menu" step. Reported on a VERIFIED open only —
+                // the branch it sits in is the one that already asked the window whether it is
+                // actually up. A step that ticked on a tap which did nothing would teach the
+                // player something false about their own controller.
+                Compat.ControlsProgress.Notify(Compat.ControlAction.OpenMenu);
                 VRLog.Info("WorldUI", $"OPTIONS TAP: {menuName} OPENED (X tap) — floats in front of the " +
                                       "player in VR. VERIFIED: the window reports IsOpen after Show().");
+            }
             else
                 VRLog.Error("WorldUI", $"OPTIONS TAP: {menuName} DID NOT OPEN (X tap) — Show() returned and " +
                                        $"the window still reports IsOpen=false. REASON: {why}. This violates " +

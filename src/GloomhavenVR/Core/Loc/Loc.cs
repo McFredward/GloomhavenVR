@@ -317,12 +317,22 @@ internal static partial class Loc
             "Hold {0} for a second and you are put back at the table.",
             "Halte {0} eine Sekunde lang, dann sitzt du wieder am Tisch."),
 
+        ["ctl_menu_t"] = Pair("Open the menu", "Das Menü öffnen"),
+        ["ctl_menu_b"] = Pair(
+            "Tap {0} on the hand you do NOT point with. A short tap opens the pause menu in front "
+            + "of you; another closes it. Everything this mod can do sits behind its VR entry "
+            + "there — including switching off anything you have just learnt.",
+            "Tipp {0} auf der Hand, mit der du NICHT zeigst. Ein kurzer Tipp öffnet das Pausenmenü "
+            + "vor dir, ein zweiter schließt es wieder. Alles, was dieser Mod kann, steckt dort "
+            + "hinter dem VR-Eintrag — auch das Abschalten von allem, was du gerade gelernt hast."),
+
         ["ctl_done_t"] = Pair("That is the lot", "Das war alles"),
         ["ctl_done_b"] = Pair(
-            "Everything else the game explains as you go, and every control you have just "
-            + "learnt can be adjusted or switched off under VR Options.",
-            "Alles Weitere erklärt dir das Spiel unterwegs. Jede Steuerung, die du gerade "
-            + "gelernt hast, lässt sich in den VR-Einstellungen anpassen oder abschalten."),
+            "Everything else the game explains as you go. Every control you have just learnt "
+            + "can be adjusted or switched off under VR — behind the menu you just opened.",
+            "Alles Weitere erklärt dir das Spiel unterwegs. Jede Steuerung, die du gerade gelernt "
+            + "hast, lässt sich unter VR anpassen oder abschalten — hinter dem Menü, das du "
+            + "gerade geöffnet hast."),
 
         // ---- generic (frame pins / gear / rest / active) ----
         ["follow"] = Pair("FOLLOW", "FOLGEN"),

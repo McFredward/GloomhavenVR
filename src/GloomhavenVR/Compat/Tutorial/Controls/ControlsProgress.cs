@@ -24,6 +24,7 @@ internal enum ControlAction
     PanelReel,      // laser holds a window, stick reels it closer/further
     Ping,           // A/X marks a hex for the others
     Recenter,       // hold B+Y to re-seat yourself
+    OpenMenu,       // short tap of the NON-dominant A/X -> the pause menu
 }
 
 /// <summary>

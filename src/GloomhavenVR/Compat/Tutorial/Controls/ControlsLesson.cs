@@ -108,6 +108,10 @@ internal static class ControlsLesson
             keyNameId: "ctl_key_primary"),
         new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary,
             keyNameId: "ctl_key_secondary"),
+        // LAST, and on purpose: it is the card that hands the player everything else. The closing
+        // card then points at the settings they have just seen how to reach.
+        new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary,
+            keyNameId: "ctl_key_primary"),
 
         new(ControlAction.None, "ctl_done", null),
     };
