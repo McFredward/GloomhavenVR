@@ -369,14 +369,17 @@ public class Plugin : BaseUnityPlugin
             "Master switch. Set to false to run the game completely vanilla (the mod does nothing).");
         LogLevel = Config.Bind(
             "General", "LogLevel", Defaults.LogLevel,
-            "How much the mod writes to LogOutput.log. Off = silent. Errors = only what failed. " +
-            "Warnings = also what degraded silently (a missing asset, a fallback engaging) — the " +
-            "floor at which a bug report is still worth reading. Normal = also the few lines that " +
-            "say which build is running and whether VR came up. Verbose = also every subsystem's " +
-            "running commentary, several hundred lines a session. Trace = everything, including " +
-            "debug chatter. Trace is the DEFAULT for now, so the log is exactly what it has always " +
-            "been; drop to Warnings or Normal once the current round of debugging is done. Takes " +
-            "effect on the next line — no restart.");
+            "How much the mod writes to LogOutput.log.\n" +
+            "Off = silent.\n" +
+            "Error = only what actually failed.\n" +
+            "Warning = also the short list you can DO something about: the asset bundle missing, " +
+            "VR not starting, an update that could not install.\n" +
+            "Info (DEFAULT) = also what the mod is and what it just did — build and version, VR up " +
+            "and down, the room it built. Tens of lines a session.\n" +
+            "Debug = also everything every subsystem says about itself, warnings and all. This is " +
+            "EXACTLY what the mod printed before the levels were re-decided: thousands of lines. " +
+            "Set it before reproducing anything for a bug report, and send that log.\n" +
+            "Takes effect on the next line — no restart.");
         VRLog.Level = LogLevel.Value;
         // BUILD BANNER (added after a hardware round was accidentally run on the previous
         // build and its log misread as a fix failure): ModBuild is the same monotonic

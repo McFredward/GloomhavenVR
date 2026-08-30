@@ -786,7 +786,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
 
         _pendingRecenter = true;
 
-        VRLog.Info("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
+        // NOTE, not Info: "VR came up, and at what scale" is the one line that answers "is it
+        // actually running" for somebody who is not debugging anything.
+        VRLog.Note("Rig", $"VR rig built at focus {controller.FocusPoint}, world scale {scale:F1} " +
                           $"(base {baseScale:F1}, auto from " +
                           $"tile size {UnityGameEditorRuntime.s_TileSize.x:F2}); owned head camera " +
                           $"'GloomhavenVR.HeadCamera' (anchor '{anchor.name}' mask 0x{anchor.cullingMask:X8} → " +

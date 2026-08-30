@@ -232,7 +232,10 @@ internal static class OpenXRRuntimeRegistry
         using RegistryKey? key = Registry.LocalMachine.OpenSubKey(KhronosKey);
         if (key == null)
         {
-            VRLog.Warn("Core", @"No HKLM\SOFTWARE\Khronos\OpenXR\1 key — is any OpenXR runtime installed?");
+            // ALERT: without a registered runtime there is no VR at all, and the answer is
+            // on the player's machine (install/repair Virtual Desktop, SteamVR, the Oculus
+            // runtime). This is the one line that names the cause.
+            VRLog.Alert("Core", @"No HKLM\SOFTWARE\Khronos\OpenXR\1 key — is any OpenXR runtime installed?");
             return null;
         }
 

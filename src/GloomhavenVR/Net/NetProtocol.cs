@@ -416,7 +416,61 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 330;
+    public const ushort ModBuild = 331;
+    // Build 331: THE LOG IS QUIET NOW, AND "DEBUG" IS EXACTLY WHAT IT USED TO BE.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
+    //
+    //   User: "Das Logging ist fuer normale Spieler viel zu verbose. Gehe alle logging aufrufe
+    //   durch und entscheide das log level neu. Ueber die cfg Einstellung soll das log level
+    //   einstellbar sein. So wie es jetzt ist, soll es genau beim log-level 'debug' sein."
+    //
+    //   THE NUMBERS SAY HE IS RIGHT: 1,705 Info, 600 Warn, 95 Error, 94 Debug, 11 Note call sites.
+    //   And a random sample of the WARNINGS settles what they actually are -- "MODAL WINDOW:
+    //   one-shot fit found nothing", "DESTINATIONS DISCOVERY BASELINE DISAGREES", "MOD VERSION
+    //   LABEL: NOT ACHIEVED", "could not read the room's light rig". Every one is a subsystem
+    //   reporting on itself and not one is something a player can act on. They are debug output
+    //   that happens to be spelled "warning".
+    //
+    //   SO THE RE-DECISION IS APPLIED WHERE THE DECISION LIVES: in what each severity MEANS, not
+    //   by editing two and a half thousand call sites one at a time -- which is several hundred
+    //   judgement calls and as many chances to silence the one line somebody later needs.
+    //     Error -> Error tier     (95 sites, all genuine: exceptions and self-disarms)
+    //     Alert -> Warning tier   (NEW: the short list a player can act on)
+    //     Note  -> Info tier      (what the mod is and what it just did)
+    //     Warn  -> DEBUG tier     (the 600 self-reports; still PRINTED as warnings)
+    //     Info  -> DEBUG tier     (the 1,705-line running commentary)
+    //     Debug -> DEBUG tier     (the per-subsystem chatter)
+    //   Nothing was deleted and nothing changed its wording. Every line still exists and still
+    //   prints at its original BepInEx severity; what changed is the level you must ask for.
+    //   [General] LogLevel = Debug therefore reproduces the old output EXACTLY, which is the
+    //   contract asked for in those words. The tiers are now Off/Error/Warning/Info/Debug --
+    //   Normal, Verbose and Trace are gone, and a config carrying one of those old names falls
+    //   back to the new default rather than failing.
+    //
+    //   THE DEFAULT MOVED, Trace -> Info. The mod shipped at its most verbose because the levels
+    //   were a blunt re-tiering of severities nobody had judged. They are judged now.
+    //
+    //   PROMOTED, because promotion is the direction that cannot lose evidence -- the worst case
+    //   is one line too many in a quiet log:
+    //     * the three AssetBundle.LoadFromFile failures (hands, table, cards) -> Alert. Every 3D
+    //       asset has just degraded to a procedural fallback and reinstalling is the fix.
+    //     * "style prefab not in bundle (old bundle?)" -> Alert. The player picked a hand style
+    //       and did not get it, because their bundle is older than their DLL.
+    //     * "No HKLM\\SOFTWARE\\Khronos\\OpenXR\\1 key" -> Alert. Without a registered runtime
+    //       there is no VR at all, and the fix is on their machine.
+    //     * "VR rig built at focus ..., world scale ..." -> Note. The one line that answers "is it
+    //       actually running" for somebody who is not debugging.
+    //   Further promotion is ONE WORD per line and is best driven by what is actually missed in a
+    //   real session, rather than guessed at here.
+    //
+    //   TEST:
+    //     1. Play a normal session at the default. The log should be dozens of lines, not
+    //        thousands, and every one of them should be worth reading.
+    //     2. Set [General] LogLevel = Debug live (no restart) and confirm the flood returns
+    //        exactly as it was, warnings included.
+    //     3. If anything you WANT at the default is missing, name the line -- promoting it is a
+    //        one-word edit.
+    //
     // Build 330: VR IS ITS OWN PAUSE-MENU ENTRY NOW, ONE LEVEL UP, WITH AN EMBLEM TO MATCH.
     // *** FULL INSTALL: bundle 74,359,898 -> 74,376,373 bytes (the generated menu icon).
     // *** NO WIRE FIELD.

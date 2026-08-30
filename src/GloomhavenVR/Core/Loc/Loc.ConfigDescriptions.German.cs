@@ -1348,15 +1348,19 @@ internal static partial class Loc
                 + "Prefab des Stils in einem älteren Asset-Bundle fehlt, und ohne Bundle auf die prozedurale "
                 + "Hand.",
             ["General/LogLevel"] =
-                "Wie viel der Mod in die LogOutput.log schreibt. Aus = still. Errors = nur was "
-                + "fehlgeschlagen ist. Warnings = zusätzlich, was still degradiert ist (ein fehlendes "
-                + "Asset, ein greifender Notbehelf) — die Untergrenze, ab der ein Fehlerbericht noch "
-                + "brauchbar ist. Normal = zusätzlich die wenigen Zeilen, die sagen, welcher Build "
-                + "läuft und ob VR hochgekommen ist. Verbose = zusätzlich der laufende Kommentar "
-                + "jedes Subsystems, mehrere hundert Zeilen pro Sitzung. Trace = alles, samt "
-                + "Debug-Geplauder. Trace ist VORERST die Voreinstellung, das Log ist damit exakt "
-                + "das gewohnte; stell auf Warnings oder Normal, sobald die aktuelle Fehlersuche "
-                + "durch ist. Wirkt ab der nächsten Zeile — kein Neustart nötig.",
+                "Wie viel der Mod in die LogOutput.log schreibt.\n"
+                + "Aus = still.\n"
+                + "Error = nur, was tatsächlich fehlgeschlagen ist.\n"
+                + "Warning = zusätzlich die kurze Liste, bei der DU etwas tun kannst: das "
+                + "Asset-Bundle fehlt, VR startet nicht, ein Update ließ sich nicht installieren.\n"
+                + "Info (VOREINSTELLUNG) = zusätzlich, was der Mod ist und gerade getan hat — "
+                + "Build und Version, VR hoch und runter, der gebaute Raum. Dutzende Zeilen pro "
+                + "Sitzung, nicht Hunderte.\n"
+                + "Debug = zusätzlich alles, was jedes Subsystem über sich selbst sagt, samt "
+                + "seiner Warnungen. Das ist EXAKT das, was der Mod vor der Neueinstufung der "
+                + "Stufen geschrieben hat: Tausende Zeilen. Stell das ein, bevor du etwas für "
+                + "einen Fehlerbericht nachstellst, und schick dieses Log mit.\n"
+                + "Wirkt ab der nächsten Zeile — kein Neustart nötig.",
             ["Hands/ScrollWithStickOnly"] =
                 "Listen werden NUR mit dem Stick gescrollt. Ein Laser steht nie ganz still, und da die "
                 + "Zieh-Schwelle abgeschaltet ist, verschiebt jeder Druck auch die Liste darunter — genau "

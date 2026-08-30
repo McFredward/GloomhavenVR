@@ -133,7 +133,7 @@ internal static class WorldUIAssets
 
         _bundle = AssetBundle.LoadFromFile(bundlePath);
         if (_bundle == null)
-            VRLog.Warn("WorldUI", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural table assets active. " +
+            VRLog.Alert("WorldUI", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural table assets active. " +
                                   $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
         return _bundle;
     }

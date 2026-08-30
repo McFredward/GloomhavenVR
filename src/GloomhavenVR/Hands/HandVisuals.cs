@@ -280,7 +280,10 @@ internal static class HandVisuals
                 effectiveStyle = style;
                 return styled;
             }
-            VRLog.Warn("Hands", $"{side}: style {style} prefab not in bundle (old bundle?) — falling back to Glove.");
+            // ALERT: the player picked a hand style and did not get it. The fix is theirs
+            // (the bundle is older than the DLL — reinstall both halves), and this line is
+            // the only place they would find that out.
+            VRLog.Alert("Hands", $"{side}: style {style} prefab not in bundle (old bundle?) — falling back to Glove.");
         }
 
         string[] candidates = side == HandSide.Left
@@ -448,7 +451,9 @@ internal static class HandVisuals
         if (_bundle == null)
         {
             string? path = BundlePath();
-            VRLog.Warn("Hands", $"AssetBundle.LoadFromFileAsync failed for {path} — procedural hands active. " +
+            // ALERT: every 3D asset in the mod has just degraded to its procedural fallback.
+            // Reinstalling is the fix, and BundleDiagnostics already says which one it is.
+            VRLog.Alert("Hands", $"AssetBundle.LoadFromFileAsync failed for {path} — procedural hands active. " +
                                 $"Cause: {(path != null ? BundleDiagnostics.Explain(path) : "file missing")}");
         }
     }
@@ -491,7 +496,7 @@ internal static class HandVisuals
             _bundle = AssetBundle.LoadFromFile(bundlePath);
             _bundleOwned = _bundle != null;
             if (_bundle == null)
-                VRLog.Warn("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
+                VRLog.Alert("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
                                     $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
             return _bundle;
         }

@@ -16,7 +16,11 @@ internal static partial class Defaults
 {
     // ---- Plugin.cs -----------------------------------------------------------------
     internal const bool General_Enabled = true;                              // => [General] Enabled
-    internal const VRLogLevel LogLevel = VRLogLevel.Trace;                   // => [General] LogLevel
+    // INFO, not Debug (2026-08-30 re-decision). The mod used to ship at its most verbose
+    // because the levels were a blunt re-tiering of severities nobody had judged; they are
+    // judged now, so the default is the one an ordinary player should live with. Set Debug
+    // to reproduce the old output exactly.
+    internal const VRLogLevel LogLevel = VRLogLevel.Info;                    // => [General] LogLevel
     internal const string RuntimeOverride = "";                              // => [General] RuntimeOverride
     internal const string RuntimePriority = "auto";                          // => [Core] RuntimePriority
     internal const bool SkipRuntimeCandidates = false;                       // => [Core] SkipRuntimeCandidates

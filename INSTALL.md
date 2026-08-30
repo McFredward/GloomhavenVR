@@ -237,9 +237,12 @@ Send **that whole file**, plus:
 - your headset and which app you streamed with (Virtual Desktop, Quest Link, SteamVR),
 - whether the other players in the session had the mod.
 
-The log is deliberately verbose right now — several hundred lines a session is normal, and the
-first lines name the exact version you are running, which is the single most useful thing in a
-report. If you want it quieter, `[General] LogLevel` accepts `Warnings` or `Normal`.
+**Before you reproduce it, set `[General] LogLevel = Debug`** and send *that* log. At the default
+(`Info`) the mod writes only a few dozen lines a session — what it is, that VR came up, and
+anything you could act on — which is right for playing and far too little for a report. At `Debug`
+every subsystem writes its own running commentary, thousands of lines, and that is what makes a
+report answerable. Either way the first lines name the exact version you are running, which is the
+single most useful thing in it.
 
 Things that are already known and are not worth reporting are listed under
 [known limitations](docs/PLAYING.md#known-limitations).

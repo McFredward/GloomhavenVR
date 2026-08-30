@@ -268,7 +268,7 @@ internal sealed class VRCardFactory
         _bundle = AssetBundle.LoadFromFile(bundlePath);
         _bundleOwned = _bundle != null;
         if (_bundle == null)
-            VRLog.Warn("Cards", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural visuals active. " +
+            VRLog.Alert("Cards", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural visuals active. " +
                                 $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
         return _bundle;
     }
