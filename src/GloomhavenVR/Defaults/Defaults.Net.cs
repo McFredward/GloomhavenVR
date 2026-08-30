@@ -21,6 +21,12 @@ internal static partial class Defaults
     internal const bool MirrorEnabled = false;                                         // => [Net] MirrorEnabled
     internal const bool Net_VersionGuard = true;                                       // => [Net] VersionGuard
     internal const RemoteBoardVisibility RemoteBoards = RemoteBoardVisibility.Always;  // => [Net] RemoteBoards
+    // 15 s, against the game's own 5 s. THREE TIMES, not ten: the number is not a wish, it is how
+    // long a slow VR client plausibly needs to finish an animation plus a hitch and arrive at the
+    // phase. Wider costs nothing when the session is healthy and only delays the verdict when it
+    // is not -- but a very wide value would turn a genuinely dead session into a minute of the
+    // player wondering, which is worse than the truth. See DESYNC-ANALYSIS.md R2.
+    internal const float DesyncPatienceSeconds = 15f;                                  // => [Net] DesyncPatienceSeconds
 
     // ---- Net/PeerBoardFade.cs ------------------------------------------------------
     // THESE SIX WERE LITERALS AT THE BIND CALL until the 2026-08-22 settings audit found them

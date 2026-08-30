@@ -52,6 +52,20 @@ internal sealed class NetModule : IVRModule
     /// <see cref="WorldUI.AvatarMirror"/> preview. Bound independently of <see cref="Enabled"/> so
     /// the mask picker + mirror work even with the networking hook turned off.
     /// </summary>
+    /// <summary>
+    /// How long this client waits, in seconds, for its local phase to catch up with an incoming
+    /// action before the GAME declares a desynchronisation and ends the session. The game's own
+    /// value is 5 s (<c>NetworkManager.incorrectActionDetectedTimeOutDuration</c>); this writes
+    /// <c>ActionProcessor.MaxConsecutiveIncorrectActionsAllowed</c> to match the number set here.
+    ///
+    /// <para>STRICTLY LOCAL and cannot corrupt anything: each client counts its own retries, and
+    /// an action is still only ever executed once its phase matches. Being patient cannot make a
+    /// peer desynchronise, cannot apply anything early and cannot apply anything twice. Set to 5
+    /// to leave the game's behaviour exactly as shipped. See
+    /// <c>.planning/multiplayer/DESYNC-ANALYSIS.md</c> §3 and R2.</para>
+    /// </summary>
+    internal static ConfigEntry<float> DesyncPatienceSeconds = null!;
+
     internal static ConfigEntry<int> MaskId = null!;
 
     /// <summary>
@@ -102,6 +116,7 @@ internal sealed class NetModule : IVRModule
     private static ConfigFile? _config;
 
     private GameObject? _driverGo;
+    private GameObject? _watchGo;
     private INetTransport? _transport;
     private NetAvatarDriver? _driver;
 
@@ -127,6 +142,16 @@ internal sealed class NetModule : IVRModule
             "netcode so other VR players see you (Demeo style), and render remote VR players. " +
             "Cosmetic only, never affects game state; a no-op in single-player and safe with " +
             "flat/non-modded players. Turn OFF to fully remove the networking hook.");
+        DesyncPatienceSeconds = _config.Bind("Net", "DesyncPatienceSeconds", Defaults.DesyncPatienceSeconds,
+            new ConfigDescription(
+                "Wie lange dieser Client wartet, bis seine lokale Phase zu einer eingehenden Aktion " +
+                "aufgeschlossen hat, bevor das SPIEL eine Desynchronisation meldet und die Sitzung " +
+                "beendet. Das Spiel selbst gibt dafuer 5 Sekunden — in VR ist der lokale Client " +
+                "messbar der langsamere, und jeder Ruckler geht von diesem Budget ab. Wirkt NUR " +
+                "lokal: jeder Client zaehlt seine eigenen Versuche, eine Aktion wird weiterhin erst " +
+                "ausgefuehrt wenn die Phase passt, und Geduld kann bei niemandem sonst etwas " +
+                "ausloesen. 5 = exakt das Verhalten des unmodifizierten Spiels.",
+                new AcceptableValueRange<float>(5f, 60f)));
         MaskId = _config.Bind("Net", "MaskId", Defaults.MaskId,
             new ConfigDescription(
                 "Which head mask the local player wears (0..2). Picked in the in-VR settings panel; " +
@@ -165,6 +190,16 @@ internal sealed class NetModule : IVRModule
     public void Init()
     {
         BindConfig();
+
+        // BEFORE the kill-switch, deliberately. This watches the GAME's netcode, not the mod's
+        // avatar sync — and "turn the VR networking off because multiplayer is misbehaving" is
+        // precisely the session whose desync report is worth the most. See DesyncWatch.
+        Desync.DesyncWatch.Install();
+        _watchGo = new GameObject("GloomhavenVR.DesyncWatch");
+        Object.DontDestroyOnLoad(_watchGo);
+        _watchGo.hideFlags = HideFlags.HideAndDontSave;
+        _watchGo.AddComponent<Desync.DesyncWatchDriver>();
+
         if (!Enabled.Value)
         {
             VRLog.Info(Name, "VR embodiment sync disabled by config — networking hook not installed.");
@@ -197,6 +232,13 @@ internal sealed class NetModule : IVRModule
 
     public void Shutdown()
     {
+        Desync.DesyncWatch.Uninstall();
+        if (_watchGo != null)
+        {
+            Object.Destroy(_watchGo);
+            _watchGo = null;
+        }
+
         _transport?.Uninstall();
         _transport = null;
 

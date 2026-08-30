@@ -416,7 +416,74 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 332;
+    public const ushort ModBuild = 333;
+    // Build 333: THE DESYNC IS USUALLY NOT A DESYNC — RECORDER, WARNING, AND ONE LOCAL DIAL.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD. NO HARMONY PATCH.
+    //
+    //   User: "Das Basisspiel selber ist bekannt dafuer im Multiplayer immer mal wieder desyncs
+    //   zu haben die einen Zwingen neu zu laden. [...] Versuche systematisch herauszufinden was
+    //   im Spiel dazu fuehren koennte und entwickle geeignete Massnahmen."
+    //
+    //   THE METHOD, AND WHY THE ANSWER IS NOT WHAT THE WORD SUGGESTS: enumerate every call site
+    //   of FFSNetwork.HandleDesync -- 31 of them -- instead of reasoning about what "desync"
+    //   usually means. It does not mean here what it usually means. Full evidence with line
+    //   citations in .planning/multiplayer/DESYNC-ANALYSIS.md.
+    //
+    //   FINDING 1 -- THE RECEIVE PATH *IS* THE UI LAYER. ActionProcessor.TryProcessNextAction
+    //   wraps the whole dispatch in catch (Exception ex) { HandleDesync(ex); }, and 60 of the
+    //   ~121 entries in GameAction's dispatch table dereference a Singleton<T>.Instance -- plain
+    //   _instance, null before Awake and null again after OnDestroy -- with NO null check at the
+    //   call site. Top receivers: Choreographer.s_Choreographer (27 actions), CardsHandManager
+    //   (13), MapChoreographer (11), NewPartyDisplayUI (10), UIReadyToggle (8). A window that has
+    //   not been built yet is therefore reported to the player as a desynchronisation. Nothing
+    //   compared any state. GHNetworkControllable adds eight Bolt state callbacks of the same
+    //   shape.
+    //
+    //   FINDING 2 -- A FIVE-SECOND DEADLINE NOBODY CAN SEE. When the head of the action queue
+    //   does not belong to the local phase, the processor retries every 0.3 s and counts; at
+    //   round(5.0 / 0.3) = 17 it THROWS, into the same catch. Any local stall spends that budget,
+    //   and in VR the local client is measurably the slower one. The game already has an idiom
+    //   for "busy, ask me again" that is exempt from the counter -- it applies it to exactly one
+    //   action out of 121 (ConfirmAction).
+    //
+    //   SHIPPED THIS BUILD, all three through public statics -- ZERO Harmony patches, so nothing
+    //   here can be the thing that breaks:
+    //     * RECORDER. FFSNetwork.OnDesyncDetected is a public multicast delegate, so the mod
+    //       subscribes and the game's own dialog still runs. On fire: the phase, the processor
+    //       state, THE PENDING QUEUE WITH EACH ACTION'S TARGET PHASE vs the current one (this one
+    //       block separates finding 1 from finding 2 at a glance), the players, and -- the honest
+    //       part -- whether "GloomhavenVR" appears in the stack. Half the HandleDesync sites
+    //       build new Exception("...") with NO stack at all, so today the artefact is one line.
+    //     * WARNING. The five seconds are silent. The watch names the stalling action, both
+    //       phases and the remaining budget once the mismatch has stood 1.5 s, and says when it
+    //       clears and how long it took. That line is also the evidence for whether the dial
+    //       below is needed at all.
+    //     * PATIENCE. [Net] DesyncPatienceSeconds writes
+    //       ActionProcessor.MaxConsecutiveIncorrectActionsAllowed; 15 s against the game's 5.
+    //       STRICTLY LOCAL: each client counts its own retries, an action is still executed only
+    //       when the phase matches, and being patient cannot make a peer desynchronise, apply
+    //       anything early, or apply anything twice. Re-applied each tick because
+    //       NetworkManager.OnEnable recomputes it -- and NetworkManager must not be patched.
+    //
+    //   NOT DONE, ON PURPOSE: suppression. Patching HandleDesync to swallow, or clearing
+    //   AutoShutdownUponDesynchronization, would let a session run past a REAL divergence and
+    //   write a corrupt campaign save. At the throw site nothing can tell a false positive from a
+    //   real one, so the only honest lever is patience -- never suppression.
+    //
+    //   MEASURED AND OWED (next build): 12 mod patch classes target a type that receives network
+    //   actions, and 11 of the 12 have NO try/catch in their patch body. A throw there, on a
+    //   dispatch path, is shown to the player as the GAME's desynchronisation dialog with our
+    //   stack inside it.
+    //
+    //   TEST:
+    //     1. Host a session. The log must carry one "DESYNC watch armed" line and one
+    //        "DESYNC patience: phase-mismatch retries 17 -> 50" line.
+    //     2. Play normally. If any "DESYNC STALL" line appears, note the action and the seconds;
+    //        a "STALL CLEARED after Ns" line following it is the system working.
+    //     3. If a desync happens: the whole DESYNC block in the log is the report. Its "verdict"
+    //        line names the mechanism, and MOD-IMPLICATED means it was ours.
+    //     4. [Net] DesyncPatienceSeconds = 5 restores the game's own timing exactly.
+    //
     // Build 332: THE LESSON NOW TEACHES HOW TO OPEN THE MENU — FOURTEEN STEPS.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
     //
