@@ -416,7 +416,63 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 329;
+    public const ushort ModBuild = 330;
+    // Build 330: VR IS ITS OWN PAUSE-MENU ENTRY NOW, ONE LEVEL UP, WITH AN EMBLEM TO MATCH.
+    // *** FULL INSTALL: bundle 74,359,898 -> 74,376,373 bytes (the generated menu icon).
+    // *** NO WIRE FIELD.
+    //
+    //   User: "Ich moechte das VR Menu auf eine hoehere Ebene setzen, also das die VR Optionen
+    //   direkt auf einer Ebene mit den Optionen sind im Pausenmenu erreichbar statt ein Tab in den
+    //   Optionen selber."
+    //
+    //   A CLONE OF THE OPTIONS BUTTON, inserted directly under it, for the same reasons
+    //   VROptionsTab clones a tab: the row has to join the same ToggleGroup, animate like its
+    //   neighbours, carry the hover/focus wiring and be reachable by the gamepad navigation — all
+    //   of which lives in serialized references inside the shipped prefab. Selecting it opens the
+    //   game's own options window ANCHORED AT OUR ROW and then selects the VR tab, so there stays
+    //   exactly one settings surface rather than two that can disagree, and the whole VR modal path
+    //   the options window already has comes with it. One injection covers both pause menus:
+    //   UIMapEscMenu and UIScenarioEscMenu are subclasses of ESCMenu and optionsButton is on the
+    //   base.
+    //
+    //   THE TAB STAYS, AND THAT IS DELIBERATE — two reasons, neither of them inertia:
+    //     * It is the ONLY route from the MAIN menu, which is not an ESCMenu at all (its list is
+    //       GLOOM.MainMenu.UIMainOptionsMenu.menuOptions). Deleting the tab would make every VR
+    //       setting unreachable before a game is loaded.
+    //     * The standing ruling is that the settings must never become unreachable. A top-level row
+    //       that fails to inject after a game update would do exactly that; the tab is what makes
+    //       that failure survivable. The entry is the front door, the tab is the fire exit.
+    //   Adding the same row to the MAIN menu is the obvious follow-up and was not done here.
+    //
+    //   THE EMBLEM: generated with gpt-image-2, a gold woodcut headset on transparency, trimmed to
+    //   its DRAWN pixels and squared (a mostly-transparent asset aligned to its frame has shipped
+    //   2.35x too wide in this project once already). It is loaded as a Texture2D and made into a
+    //   Sprite at runtime, because a sprite IMPORT is a per-asset setting nothing in the build
+    //   checks and one that silently reverts ships a texture no Image can draw.
+    //
+    //   AND IT IS ONLY WORN IF THE MENU HAS SOMEWHERE TO WEAR IT. UIMainMenuOption declares NO
+    //   icon field — a TMP label, a focus mask, a locked mask, nothing else — and whether the
+    //   shipped PREFAB puts an Image beside the text is authored data this repo cannot read (only
+    //   the Managed DLLs are on disk). So the runtime does not decide, it LOOKS: exactly one
+    //   non-mask sprite image on the row means there is a slot and ours goes in it; zero or several
+    //   means the rows are text-only and so is ours. An icon none of its neighbours have would not
+    //   match the menu, it would break it. Both outcomes are logged once, which turns a question
+    //   that cannot be answered here into one the next hardware run answers.
+    //
+    //   ALSO: .planning/ATTACK-MODIFIER-DECK.md parks the modifier-deck research at the user's
+    //   word — the complete rules model that IS available, the fact that the digital edition has
+    //   symbols and not card faces, why composing faces is now off the table, and the
+    //   player-supplied art folder as the only route that respects both his requirement and the
+    //   licence.
+    //
+    //   TEST:
+    //     1. Open the pause menu in a scenario AND in the map room: a "VR Optionen" row must sit
+    //        directly under "Optionen" and look like it belongs.
+    //     2. Pick it: the options window opens ON THE VR TAB.
+    //     3. Read the log line about the icon — it says whether the rows have an icon slot at all.
+    //        That is the answer this machine could not give.
+    //     4. The VR tab inside Optionen must still be there and still work.
+    //
     // Build 329: THE FIGURES' OWN EFFECTS TOO — AND THE SCAN NOW NAMES WHAT IT SKIPPED.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,359,898 bytes. NO WIRE FIELD.
     //

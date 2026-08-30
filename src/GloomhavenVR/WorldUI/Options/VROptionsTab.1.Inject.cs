@@ -296,7 +296,7 @@ internal static partial class VROptionsTab
     /// the clone — the field is the authored one, the sweep is what keeps this working if a game
     /// update re-authors the row.
     /// </summary>
-    private static void SetCaption(UIMainMenuOption option, string caption)
+    internal static void SetCaption(UIMainMenuOption option, string caption)
     {
         TextMeshProUGUI? label = option.text;
         if (label == null)
@@ -647,6 +647,26 @@ internal static partial class VROptionsTab
     /// Remove the tab and destroy both clones — the exact inverse of <see cref="Inject"/>. Called
     /// from <c>WorldUIModule.OnDestroy</c>; safe to call when nothing was ever injected.
     /// </summary>
+    /// <summary>Select the VR tab, if it is injected. Used by <see cref="VRMenuEntry"/>, which
+    /// opens the options window from its own pause-menu row and wants the player to land on the VR
+    /// page rather than on whatever was selected last. A no-op when the tab is not there, which is
+    /// the honest outcome: the window still opens, on its own first tab.</summary>
+    internal static void SelectTab()
+    {
+        if (_toggle == null)
+            return;
+        try
+        {
+            _toggle.Select();
+        }
+        catch (Exception ex)
+        {
+            Core.VRLog.Warn("WorldUI", "Could not select the VR tab after opening the options "
+                + $"window from the pause menu ({ex.GetType().Name}); the window is open on its "
+                + "own tab and the VR tab is one click away.");
+        }
+    }
+
     internal static void Shutdown()
     {
         try

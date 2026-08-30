@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 using GloomhavenVR.Core;
@@ -27,6 +28,38 @@ internal static class WorldUIAssets
     {
         AssetBundle? bundle = GetBundle();
         return bundle != null ? bundle.LoadAsset<GameObject>(assetPath) : null;
+    }
+
+    private static readonly Dictionary<string, Sprite?> _sprites = new(4);
+
+    /// <summary>
+    /// A bundled PNG as a uGUI <see cref="Sprite"/>, built at RUNTIME from the texture rather than
+    /// imported as a sprite in the editor. That is deliberate: a sprite import is a per-asset
+    /// setting in the companion project that nothing checks, and one that silently reverts to
+    /// "Default" ships a texture no <c>Image</c> can draw. Building it here needs no import
+    /// configuration at all, so it cannot be got wrong in a place the build does not look.
+    /// Cached, including the miss, because a failed lookup asked every frame is still a lookup.
+    /// </summary>
+    internal static Sprite? TryLoadSprite(string assetPath)
+    {
+        if (_sprites.TryGetValue(assetPath, out Sprite? cached))
+            return cached;
+        Sprite? sprite = null;
+        AssetBundle? bundle = GetBundle();
+        var texture = bundle != null ? bundle.LoadAsset<Texture2D>(assetPath) : null;
+        if (texture != null)
+        {
+            sprite = Sprite.Create(texture, new Rect(0f, 0f, texture.width, texture.height),
+                                   new Vector2(0.5f, 0.5f), 100f);
+            sprite.name = assetPath;
+        }
+        else
+        {
+            VRLog.Warn("WorldUI", $"{assetPath} is not in the bundle — whatever asked for it "
+                + "degrades without it. (A bundle older than the asset does this.)");
+        }
+        _sprites[assetPath] = sprite;
+        return sprite;
     }
 
     /// <summary>

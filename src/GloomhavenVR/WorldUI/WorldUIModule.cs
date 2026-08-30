@@ -277,6 +277,7 @@ internal sealed class WorldUIModule : IVRModule
                 ("ModalFallback", ModalFallback.Tick),      // before the flat screen reads ScreenWanted
                 ("OptionsToggle", _optionsToggle.Tick),     // reads the settled short-tap edge (after the hold arbiters)
                 ("VROptionsTab", VROptionsTab.Tick),        // after OptionsToggle: the pause menu it opens is where the tab is reached
+                ("VRMenuEntry", VRMenuEntry.Tick),          // after the tab: the pause-menu row opens the window and then SELECTS that tab
                 ("VRKeyboard", VRKeyboard.Tick),            // reads the settled uGUI focus, so after the windows have had their say
             };
             for (int i = 0; i < _slotSurfaces.Length; i++)
@@ -460,6 +461,9 @@ internal sealed class WorldUIModule : IVRModule
             TickGuard.Run("WorldUI.Shutdown.LoadingIndicator", _loadingIndicator.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.FlatScreen", _flatScreen.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.OptionsTab", VROptionsTab.Shutdown, "WorldUI");
+            // The pause-menu row is a clone parented into the GAME's menu, so it has to go
+            // back with the tab -- otherwise a torn-down mod leaves a dead entry behind.
+            TickGuard.Run("WorldUI.Shutdown.MenuEntry", VRMenuEntry.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.Keyboard", VRKeyboard.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.AvatarMirror", _avatarMirror.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.Tooltips", _tooltips.Shutdown, "WorldUI");
