@@ -214,7 +214,16 @@ internal static class PartyPanelStackingHide
     [HarmonyPrefix]
     [HarmonyPatch(typeof(NewPartyDisplayUI), nameof(NewPartyDisplayUI.Hide),
         typeof(object), typeof(bool), typeof(Action), typeof(bool))]
+    // ISOLATED (ModBuild 334). NewPartyDisplayUI.PartyDisplay receives 10 of the game's ~121
+    // network actions, and this is a SKIP prefix: a throw would both surface as the game's
+    // desynchronisation dialog and leave the panel in an undefined state. On a throw we return
+    // TRUE — vanilla Hide runs, which is the behaviour this suppression exists to refine, not to
+    // depend on. See docs/NET-ACTION-SURFACE.md.
     private static bool BeforeHide(NewPartyDisplayUI __instance, object request)
+        => Net.Desync.DispatchGuard.Run("PartyPanelStackingHide", () => HideBody(__instance, request),
+                                        onThrow: true, "WorldUI");
+
+    private static bool HideBody(NewPartyDisplayUI __instance, object request)
     {
         string who = request != null ? request.GetType().Name : "<null requester>";
         bool firstOfKind = SeenRequesters.Add(who);

@@ -153,9 +153,17 @@ internal static class Placement_UpdateGate_Diagnostics
 [HarmonyPatch(typeof(Choreographer), nameof(Choreographer.TileHandler))]
 internal static class Placement_Click_Diagnostics
 {
+    // ISOLATED (ModBuild 334). Choreographer is the heaviest network-action receiver in the
+    // game — 27 of ~121 GameAction entries dispatch into Choreographer.s_Choreographer — and
+    // ActionProcessor turns ANY exception under that dispatch into "Desynchronization occurred"
+    // plus a forced session shutdown. This body is a DIAGNOSTIC. A log line must never be able
+    // to end somebody's multiplayer evening. See docs/NET-ACTION-SURFACE.md.
     private static void Prefix(Choreographer __instance, CClientTile clientTile)
+        => Net.Desync.DispatchGuard.Run("Placement_Click_Diagnostics", () => Body(__instance, clientTile), "Board");
+
+    private static void Body(Choreographer __instance, CClientTile clientTile)
     {
-        if (__instance.m_WaitState == null
+        if (__instance == null || __instance.m_WaitState == null
             || __instance.m_WaitState.m_State != Choreographer.ChoreographerStateType.WaitingForCardSelection)
             return;
         bool actorSelected = InitiativeTrack.Instance != null

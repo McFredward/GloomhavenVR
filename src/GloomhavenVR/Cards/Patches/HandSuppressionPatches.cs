@@ -92,11 +92,19 @@ internal static class CardsHandManager_ShowAll_Patch
 [HarmonyPatch(typeof(CardsHandManager), "ShowHands")]
 internal static class CardsHandManager_ShowHands_Patch
 {
+    // ISOLATED (ModBuild 334) — and the ONLY one of the three Show postfixes that needs it.
+    // The other two hand VREvents.Raise a literal and are covered by VREvents.Invoke's own
+    // subscriber guard; this one reads two members off the live CardsHandManager first, and
+    // CardsHandManager receives 13 of the game's ~121 network actions, whose dispatch turns any
+    // exception into the player-facing "Desynchronization occurred". See NET-ACTION-SURFACE.md.
     private static void Postfix(CardsHandManager __instance)
-    {
-        HandSuppression.Arm();
-        VREvents.Raise(new HandShownEvent(__instance.ActivePlayer, __instance.m_PushPopCardHandMode));
-    }
+        => Net.Desync.DispatchGuard.Run("CardsHandManager_ShowHands_Patch", () =>
+        {
+            HandSuppression.Arm();
+            if (__instance == null)
+                return;
+            VREvents.Raise(new HandShownEvent(__instance.ActivePlayer, __instance.m_PushPopCardHandMode));
+        }, "Cards");
 }
 
 /// <summary>Per-frame visual suppression state (driven by <see cref="CardsDriver"/>).</summary>

@@ -416,7 +416,63 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 333;
+    public const ushort ModBuild = 334;
+    // Build 334: THE MOD CAN NO LONGER BE MISTAKEN FOR A DESYNC — AND A GATE THAT KEEPS IT SO.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
+    //
+    //   R0 from DESYNC-ANALYSIS.md: before asking what the GAME does wrong, prove the mod is not
+    //   the cause. It patches the five heaviest receivers in the game's action dispatch table --
+    //   Choreographer (27 of ~121 actions), CardsHandManager (13), NewPartyDisplayUI (10),
+    //   UIReadyToggle (8), TakeDamagePanel (3) -- and ActionProcessor turns ANY exception under
+    //   that dispatch into the player-facing "Desynchronization occurred" plus a forced shutdown,
+    //   with OUR stack inside the game's error box.
+    //
+    //   *** CORRECTION TO BUILD 333's CLOSING NOTE. It said "11 of the 12 have NO try/catch in
+    //   their patch body". Literally true, and misleading: I had counted the token `try` inside
+    //   each body, which is not the same question as "can this body throw into the dispatch".
+    //   Reading all twelve gives a much smaller answer, and this is what the ledger records:
+    //     2 SELF-GUARDED   -- already carry a full try/catch with a stated fallback. The model is
+    //                         Choreographer_TileHandler_OwnershipGuard: "a throwing guard must
+    //                         never eat the game's click dispatch."
+    //     4 GUARDED-DEEPER -- their one call is VREvents.Raise, and VREvents.Invoke has carried a
+    //                         subscriber guard from the start, with a doc comment saying exactly
+    //                         why. Wrapping them again would add noise, not safety.
+    //     3 CANNOT-THROW   -- expression-bodied `=> false`, a single bool write, a throttled log
+    //                         whose only game read is null-guarded.
+    //     3 ISOLATED       -- the real finding, wrapped this build.
+    //   The instrument was measuring one term of what the question asked. Same failure the
+    //   analysis names in the GAME's desync detector, one directory over.
+    //
+    //   WRAPPED THIS BUILD, in the new Net.Desync.DispatchGuard (isolate + attribute + throttle,
+    //   never rethrow -- TickGuard's contract without its PerfMonitor coupling, because a patch
+    //   body fires on the GAME's cadence and folding it into the per-frame STEPS ranking would
+    //   make that instrument answer a question nobody asked):
+    //     * Placement_Click_Diagnostics -- a DIAGNOSTIC prefix on Choreographer.TileHandler, the
+    //       heaviest receiver in the game. A log line must never be able to end somebody's
+    //       multiplayer evening.
+    //     * CardsHandManager_ShowHands_Patch -- the ONE of the three Show postfixes that reads
+    //       live game state (ActivePlayer, m_PushPopCardHandMode) before reaching the guarded
+    //       Raise.
+    //     * PartyPanelStackingHide -- a SKIP prefix on NewPartyDisplayUI.Hide. On a throw it
+    //       returns TRUE: vanilla Hide runs, which is the behaviour this suppression refines and
+    //       not one it may depend on.
+    //
+    //   AND THE PART THAT LASTS: scripts/check-desync-surface.py + docs/NET-ACTION-SURFACE.md,
+    //   wired into refactor-guard.sh check. Every patch class on a receiver type must carry a
+    //   recorded verdict; a THIRTEENTH one fails the gate until somebody has read the body. The
+    //   receiver list (37 types) is committed with its provenance, because decompiled/ lives
+    //   outside this repository. Falsified both ways before shipping: removing a row fails,
+    //   an unknown verdict fails.
+    //
+    //   NOT SUPPRESSION, and the distinction matters: nothing here touches the GAME's exceptions.
+    //   It stops OUR additions from raising one. That removes a cause instead of hiding an effect
+    //   -- the opposite of the thing the analysis rules out.
+    //
+    //   TEST:
+    //     1. Nothing should look different. This build removes a failure mode; it adds no feature.
+    //     2. If a "DISPATCH GUARD: patch body '<name>' threw and was ISOLATED" line ever appears,
+    //        that is a mod bug we would previously have seen as the game's desync dialog. Send it.
+    //
     // Build 333: THE DESYNC IS USUALLY NOT A DESYNC — RECORDER, WARNING, AND ONE LOCAL DIAL.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD. NO HARMONY PATCH.
     //

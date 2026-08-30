@@ -210,9 +210,27 @@ dialog, with our stack inside it.
 
 So the first measure is a **checker**, not a feature: enumerate every mod patch whose
 target type appears in the `GameAction` dispatch table or in `GHNetworkControllable`, and
-require its body to be exception-isolated. Same shape as `check-instrument-writes.py`.
-Costs nothing at runtime, and it is the difference between "the mod is innocent" being a
-belief and being a measurement.
+require each body to carry a recorded verdict. Costs nothing at runtime, and it is the
+difference between "the mod is innocent" being a belief and being a measurement.
+
+**DONE, ModBuild 334.** `scripts/check-desync-surface.py` + `docs/NET-ACTION-SURFACE.md`,
+wired into `refactor-guard.sh check`. Twelve patch classes sit on a receiver type; a
+thirteenth fails the gate until somebody reads the body.
+
+**The measured result, and a correction.** The first pass counted the token `try` inside
+each patch body and reported "11 of 12 unguarded". That is not the same question as "can
+this body throw into the dispatch", and reading all twelve gives a much smaller answer:
+2 already carry their own `try/catch`, 4 do nothing but call `VREvents.Raise` — which has
+been guarded from the start, with a doc comment saying exactly why — and 3 are a constant
+expression or a single bool write. **Three** genuinely read game state unguarded, and
+those are now wrapped in `Net.Desync.DispatchGuard`: `Placement_Click_Diagnostics` (a
+*diagnostic* prefix on the heaviest receiver in the game), `CardsHandManager_ShowHands_Patch`
+(the one Show postfix that reads `ActivePlayer` before reaching the guarded `Raise`), and
+`PartyPanelStackingHide` (a skip prefix; on a throw it returns `true`, so vanilla runs).
+
+Worth recording as method, not just as result: the bad first number came from an
+instrument that measured **one term** of what the question asked — the same failure this
+document attributes to the game's own desync detector, one directory over.
 
 ## R1 — the desync recorder (read-only, event-driven)
 

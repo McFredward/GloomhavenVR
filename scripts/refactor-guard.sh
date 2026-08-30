@@ -40,6 +40,9 @@
 #                                      parts of a partial type, and MSBuild sorts the glob
 #   scripts/check-instrument-writes.py a diagnostic that writes state the MECHANISM reads can no
 #                                      longer be gated off or retired — baseline, fails on new
+#   scripts/check-desync-surface.py    a patch on a type the game dispatches NETWORK ACTIONS
+#                                      into can turn its own exception into the GAME's
+#                                      "Desynchronization occurred" dialog; each must be judged.
 #   scripts/check-tune-fields.py       a record-28 field id outside every width range silently
 #                                      kills the WHOLE record; the sampler must also ascend
 set -euo pipefail
@@ -213,6 +216,13 @@ case "${1:-check}" in
         # WHOLE board-tuning record — see NetProtocol.TuneNeverLive248 for the build it shipped on.
         python3 "$ROOT/scripts/check-tune-fields.py" \
             || { echo "error: a board-tuning field id is out of range or out of order (see above)" >&2; exit 1; }
+        # An exception thrown from a mod patch that sits on a type the game dispatches NETWORK
+        # ACTIONS into is not logged as a mod bug: ActionProcessor catches it and shows the player
+        # the GAME's "Desynchronization occurred" dialog, then kills the session. The mod patches
+        # the five heaviest receivers in that table. Every such patch must carry a recorded verdict
+        # in docs/NET-ACTION-SURFACE.md; this fails on a NEW one nobody has read.
+        python3 "$ROOT/scripts/check-desync-surface.py" \
+            || { echo "error: a patch on a network-action receiver is unclassified (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \
