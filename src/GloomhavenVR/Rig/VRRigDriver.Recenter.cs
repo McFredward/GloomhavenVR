@@ -139,11 +139,14 @@ internal sealed partial class VRRigDriver
         // the standing eye height and applies to RING seats only — the B+Y recenter chord keeps
         // the plain table-edge seat, because that gesture means "put me back AT the table", while
         // the ring is an ARRIVAL pose: a slightly elevated vantage reads the whole field at a
-        // glance, and with stick flight the player descends in a second if they want to. Real
-        // metres (times rig scale), same unit as the eye-height preset beside it.
+        // glance, and with stick flight the player descends in a second if they want to.
+        //
+        // THE HEIGHT COMES FROM SpawnRing.RingHeadAboveFocusMeters, not from a second copy of the
+        // sum. The solver measures the picture at the head pose it is asking for; if this call site
+        // computed a different height, the framing the log proves and the framing the player gets
+        // would be two different things. seat.HeadWorld is that same pose, already resolved.
         Vector3 desiredHeadWorld = seat.HeadFlat
-                                   + Vector3.up * ((ComfortSettings.EffectiveEyeHeightMeters
-                                                    + SpawnRing.RingSeatLiftMeters) * scale);
+                                   + Vector3.up * (SpawnRing.RingHeadAboveFocusMeters * scale);
         Vector3 headOffsetWorld = seatYaw * (_camera.transform.localPosition * scale);
         _rigRoot.transform.position = desiredHeadWorld - headOffsetWorld;
         RigClamp.Apply(_rigRoot.transform);
@@ -161,13 +164,48 @@ internal sealed partial class VRRigDriver
     /// because X" — leaves its own line. That is a hard user requirement: the next hardware test
     /// must be diagnosable from the log alone.
     ///
-    /// <para>THE WINDOW (opened at the FIRST TRACKED POSE, not at rig build — the round-1 window
-    /// was largely consumed by the scenario load before the player was even tracked) is what keeps
-    /// this from being a leash. Inside it we retry while the board or the peers are still coming
-    /// up, place ONCE, and allow at most ONE correction if a peer's first pose lands after we were
-    /// seated. It also closes EARLY the moment the player moves themselves
-    /// (<see cref="CloseRingWindow"/>) — from that instant their own locomotion is authoritative
-    /// and nothing may move them again.</para>
+    /// <para>ROUND 4 (2026-09-02, "man spawned IM Spielfeld ... kommt es immer noch vor"). The
+    /// hardware log holds the whole failure in three lines: the ring armed, its FIRST attempt found
+    /// <c>board tiles=0</c>, and the window was then closed by "the player moved themselves (stick
+    /// flight)" after TWO attempts — inside ~35 frames of the rig existing. Both halves of that were
+    /// this method's fault, and neither was the seat geometry:</para>
+    ///
+    /// <para>(1) THE TRIGGER WAS A CLOCK. The ring retried on a cadence and gave up on a deadline,
+    /// so whether it ran at all depended on how the load happened to be paced. The trigger is now
+    /// the BOARD BECOMING MEASURABLE — the tile cache going from empty to non-empty, confirmed by
+    /// one repeat poll (<see cref="RingBoardStablePolls"/>). The game offers no event to hang this
+    /// on: <c>ObjectCacheService</c> has no add/complete callback and there is no
+    /// <c>OnBoardReady</c> anywhere in the decompile, so a cheap <c>HashSet.Count</c> read is as
+    /// close to the event as the game allows. The deadline that remains answers only "is there a
+    /// board in this rig at all", and its expiry is a CORRECT outcome rather than a give-up: a
+    /// scenario with no tiles has nothing to frame, so the ordinary table-edge seat is right.</para>
+    ///
+    /// <para>(2) THE FUSE COULD NOT TELL A HAND FROM AN ESCAPE. "The player moved themselves"
+    /// closed the window permanently — but the thing a player DOES when they are dropped inside the
+    /// diorama is fly, to get out of it. The guard was reading the symptom as consent. It is now a
+    /// judgement about the RESULTING VANTAGE rather than about the input:
+    /// <list type="bullet">
+    /// <item>after the ring has seated the player, ANY locomotion closes the window at once — they
+    /// are refining a vantage the ring gave them, and that is theirs;</item>
+    /// <item>before the ring has ever seated them, locomotion is RECORDED, not obeyed. When the
+    /// board becomes measurable, the player's own head is measured against the same acceptance test
+    /// the seat has to pass (<see cref="SpawnRing.Framing"/>). Clear of the play field ⇒ they placed
+    /// themselves, close the window and never move them. Down among the tiles
+    /// (<see cref="SpawnRing.Framing.InsideTheDiorama"/>) ⇒ they are escaping a bad spawn, seat them
+    /// ONCE and then close.</item>
+    /// </list>
+    /// FALSE POSITIVE, stated plainly: a player who, in the first seconds of a scenario and before
+    /// any ring seat existed, deliberately flies DOWN INTO the diorama gets pulled out to the ring
+    /// seat exactly once. It is bounded to one teleport, to the arrival window, and to the state in
+    /// which the player has never had a ring seat — and the alternative is the shipped bug. FALSE
+    /// NEGATIVE: a player who is badly spawned but flies to some other bad vantage that is merely
+    /// OUTSIDE the footprint is left there. That is deliberate — outside the board is a vantage
+    /// somebody might choose, inside it is not.</para>
+    ///
+    /// <para>THE WINDOW is opened at the FIRST TRACKED POSE (the round-1 window was largely
+    /// consumed by the scenario load before the player was even tracked). Inside it we place ONCE
+    /// and allow at most ONE correction — for a peer's first pose landing late, or for the
+    /// footprint growing under us.</para>
     /// </summary>
     private void TickSpawnRingSettle()
     {
@@ -194,70 +232,166 @@ internal sealed partial class VRRigDriver
             return;
         }
 
-        if (Time.unscaledTime >= _ringWindowEnd)
+        float now = Time.unscaledTime;
+        float scale = _rigRoot.transform.localScale.x;
+
+        // ---- THE TRIGGER: has the board arrived? -------------------------------------------
+        // One HashSet.Count plus a pass over the tile transforms; 3 Hz, and the whole step is
+        // removed from the frame the moment the ring is done (see the poll gate in UpdateBody).
+        bool measurable = SpawnRing.TryFootprint(controller.FocusPoint.y, out SpawnRing.Footprint board);
+        if (measurable)
+            _ringBoardSeen = true;
+
+        // ---- THE DEADLINE, and why each of its three expiries is CORRECT ---------------------
+        if (now >= _ringWindowEnd)
         {
-            CloseRingWindow(_ringPlaced
-                ? $"the {SpawnRingSettleSeconds:F0}s window closed on a placed seat — it is final now"
-                : $"the {SpawnRingSettleSeconds:F0}s window closed WITHOUT a placement after " +
-                  $"{_ringAttempts} attempt(s); last reason: {_ringOutcome} ({_ringProbe}). " +
-                  "The ordinary table-edge seat stands");
+            if (_ringPlaced)
+                CloseRingWindow($"the {SpawnRingSettleSeconds:F0}s arrival window closed on a placed " +
+                                "seat — it is final now");
+            else if (!_ringBoardSeen)
+                // NOT A GIVE-UP. No tile ever reached the object cache in this rig, which means
+                // there is no play field to sit around and nothing the ring could improve. The
+                // ordinary table-edge seat is exactly right in that world.
+                CloseRingWindow($"no scenario board ever reached the object cache in " +
+                                $"{SpawnRingSettleSeconds:F0}s — there is nothing to sit around, so the " +
+                                "ordinary table-edge seat is exactly right");
+            else
+                CloseRingWindow($"DEFECT: the board WAS measurable but the {SpawnRingSettleSeconds:F0}s " +
+                                $"arrival window closed without a seat. Last outcome {_ringOutcome} " +
+                                $"({_ringProbe}). The player is on the board-blind table-edge seat", alert: true);
             return;
         }
 
         _ringAttempts++;
-        float scale = _rigRoot.transform.localScale.x;
+
+        if (!measurable)
+        {
+            // Waiting for the board. Not an error and not a timeout — the tile cache goes from
+            // empty to complete inside a single frame (SpawnRing.TryFootprint doc), we simply have
+            // not reached that frame yet.
+            _ringTileCount = 0;
+            _ringStablePolls = 0;
+            bool changed = _ringOutcome != SpawnRing.Outcome.BoardPending || _ringAttempts == 1;
+            _ringOutcome = SpawnRing.Outcome.BoardPending;
+            if (changed || now >= _ringNextLogTime)
+            {
+                _ringNextLogTime = now + RingLogIntervalSeconds;
+                VRLog.Info("Rig", "Spawn ring: waiting for the board — the scenario's hex tiles are not " +
+                                  $"in the object cache yet. Attempt {_ringAttempts}, board tiles=0. " +
+                                  "The ordinary table-edge seat stands until then; the ring places on the " +
+                                  "tiles ARRIVING, not on a timer" +
+                                  $"{(_ringPlayerMoved ? $", and the player's own movement ({_ringPlayerMovedWhat}) has NOT closed the window — it is judged when the board can be measured" : "")}.");
+            }
+            return;
+        }
+
+        // ---- CONFIRM THE MEASUREMENT ---------------------------------------------------------
+        // Two agreeing polls before anything is written. A map-alignment retry DestroyImmediates
+        // and rebuilds every map (decompiled Choreographer.cs:14844-14850), so a footprint caught
+        // mid-churn is a perfect measurement of a board that is about to stop existing.
+        if (board.TileCount != _ringTileCount)
+        {
+            _ringTileCount = board.TileCount;
+            _ringStablePolls = 1;
+            return;
+        }
+        if (_ringStablePolls < RingBoardStablePolls)
+        {
+            _ringStablePolls++;
+            if (_ringStablePolls < RingBoardStablePolls)
+                return;
+        }
+
+        // ---- CONSENT: did the player put themselves somewhere, and is it survivable? ----------
+        // Measured on the PLAYER'S OWN HEAD with the same test the seat must pass, which is the
+        // only way "I chose this" and "I am escaping" can be told apart.
+        SpawnRing.Framing playerFraming = SpawnRing.Frame(board, _camera.transform.position, scale);
+        if (_ringPlayerMoved && !_ringPlaced && !playerFraming.InsideTheDiorama)
+        {
+            // HW-VERIFY: this is the line that says the new consent rule fired and chose to keep
+            // its hands off — a hardware round that reports "it moved me when I did not want it to"
+            // is decided here.
+            VRLog.Note("Rig", $"Spawn ring: STANDING DOWN — the player moved themselves " +
+                              $"({_ringPlayerMovedWhat}) and their own vantage is clear of the play " +
+                              $"field, so it is theirs: {playerFraming}. Board tiles={board.TileCount}.");
+            CloseRingWindow("the player placed themselves and their vantage is clear of the play field");
+            return;
+        }
+
+        bool overridingPlayer = _ringPlayerMoved && !_ringPlaced;
+
         SpawnRing.Outcome outcome = SpawnRing.Solve(controller.FocusPoint, _scenarioBaseYaw, scale,
                                                     out SpawnRing.Seat seat, out SpawnRing.Probe probe);
-        bool outcomeChanged = outcome != _ringOutcome || _ringAttempts == 1;
+        bool outcomeChanged = outcome != _ringOutcome;
         _ringOutcome = outcome;
         _ringProbe = probe;
 
         if (outcome != SpawnRing.Outcome.Placed)
         {
-            // NOT PLACED — and that is a logged event, not silence. Offline latches nothing (a
-            // session can come online while a scenario already runs: the 2026-08-02 host log shows
-            // exactly that host, alone in its scenario, going online ~600 log lines after its
-            // recenter), so we keep polling the window out; we simply do not spam it. Offline is
-            // logged on CHANGE only — single player must not repeat the same line ten times per
-            // scenario — while the two transient "still coming up" reasons do beat, because how
-            // long they persist is exactly what a future test needs to see.
-            if (outcomeChanged
-                || (outcome != SpawnRing.Outcome.Offline && Time.unscaledTime >= _ringNextLogTime))
+            // NOT PLACED — and that is a logged event, not silence. The only reachable reason here
+            // is PeersUnknown (multiplayer, no peer position known yet); BoardPending cannot occur,
+            // the footprint was measured two lines above. We keep polling the window out.
+            if (outcomeChanged || now >= _ringNextLogTime)
             {
-                _ringNextLogTime = Time.unscaledTime + RingLogIntervalSeconds;
+                _ringNextLogTime = now + RingLogIntervalSeconds;
                 VRLog.Info("Rig", $"Spawn ring: NOT SEATED ({Explain(outcome)}) — attempt " +
                                   $"{_ringAttempts}, {probe}. Keeping the ordinary table-edge seat; " +
-                                  $"retrying for another {Mathf.Max(0f, _ringWindowEnd - Time.unscaledTime):F0}s.");
+                                  $"retrying for another {Mathf.Max(0f, _ringWindowEnd - now):F0}s.");
             }
             return;
         }
 
-        // PLACED. Either the join seat (first placement) or the ONE allowed correction.
+        // PLACED. Either the join seat (first placement) or the ONE allowed correction. A
+        // correction needs something genuinely new: a peer we could not see before, or a footprint
+        // that grew under the seat we already wrote.
         bool correction = _ringPlaced;
-        if (correction && seat.PeerCount <= _ringPeersAtPlacement)
-            return; // nothing new to correct with — never re-write a settled seat
+        if (correction)
+        {
+            bool newPeer = seat.PeerCount > _ringPeersAtPlacement;
+            bool grew = _ringTilesAtPlacement > 0
+                        && seat.TileCount > _ringTilesAtPlacement * RingFootprintGrowthFactor;
+            if (!newPeer && !grew)
+                return; // nothing new to correct with — never re-write a settled seat
+        }
 
         Vector3 head = ApplyRingSeat(seat);
         _ringPlaced = true;
         _ringPeersAtPlacement = seat.PeerCount;
-        _ringNextLogTime = Time.unscaledTime + RingLogIntervalSeconds;
+        _ringTilesAtPlacement = seat.TileCount;
+        _ringNextLogTime = now + RingLogIntervalSeconds;
 
-        // THE HARDWARE-LOG PROOF LINE: everything needed to verify the placement from a log alone —
-        // the chosen azimuth, the angular distance it achieved (180° = straight across from a lone
-        // peer), where the radius came from, the footprint it was measured on, and the evidence.
-        VRLog.Info("Rig", $"Spawn ring: SEATED{(correction ? " (CORRECTION)" : "")}" +
+        // VERIFY THE OUTCOME, NOT THE PATH. Everything above describes what was ASKED for. This
+        // re-reads the head the player actually ends up with — after RigClamp, after the transform
+        // write, through the real camera transform — and re-runs the acceptance test on it. A seat
+        // that was computed and a seat that frames the board are two different claims, and only the
+        // second one is the requirement.
+        SpawnRing.Framing achieved = SpawnRing.Frame(board, _camera.transform.position, scale);
+
+        // HW-VERIFY: THE PROOF LINE. It states the picture the player got — clear of the board by
+        // how much, how high above it, and how much of the view the play field takes — not merely
+        // that a seat was solved. If the next hardware round still reports spawning inside the
+        // board, this line either did not appear (the ring never ran: read the "waiting for the
+        // board" / "window closed" lines instead) or it appeared with ACHIEVED saying OVER THE
+        // BOARD, which localises the defect to the geometry rather than to the trigger.
+        VRLog.Note("Rig", $"Spawn ring: SEATED{(correction ? " (CORRECTION)" : "")}" +
+                          $"{(overridingPlayer ? " [OVER THE PLAYER'S OWN MOVEMENT — they were inside the diorama, which is an escape, not a choice]" : "")}" +
                           $"{(seat.Solo ? " [SOLO — no peers, azimuth from the scenario base yaw; the ring supplies the RADIUS so the seat cannot land on the board]" : "")} at azimuth " +
                           $"{seat.AngleDegrees:F1}deg, nearest peer {seat.MinGapDegrees:F1}deg away " +
                           $"(180 = straight across the board), facing the board centre {seat.Center}. " +
                           $"Radius {seat.RadiusMeters:F2} m ({seat.RadiusWorld:F2} world units) = board " +
-                          $"edge {seat.EdgeMeters:F2} m along that direction + {SpawnRing.EdgeClearanceMeters:F2} m " +
-                          $"standing clearance{(seat.RadiusClamped ? $" [CLAMPED to {SpawnRing.MinRadiusMeters:F2}..{SpawnRing.MaxRadiusMeters:F2} m]" : "")}; " +
-                          $"board half-extents {seat.BoardHalfMeters.x:F2}x{seat.BoardHalfMeters.y:F2} m. " +
+                          $"edge {seat.EdgeMeters:F2} m along that direction + {seat.ClearanceMeters:F2} m " +
+                          $"clearance{(seat.FramingSteps > 0 ? $" [BACKED OFF {seat.FramingSteps} step(s) to fit the play field in view]" : "")}" +
+                          $"{(seat.RadiusRaisedToFloor ? $" [raised to the {SpawnRing.MinRadiusMeters:F2} m table-edge floor]" : "")}; " +
+                          $"board half-extents {seat.BoardHalfMeters.x:F2}x{seat.BoardHalfMeters.y:F2} m over " +
+                          $"{seat.TileCount} tile(s). SOLVED FOR: {seat.Framing}. ACHIEVED: {achieved} " +
+                          $"=> {(achieved.Acceptable ? "REQUIREMENT MET" : "REQUIREMENT NOT MET")}. " +
                           $"{probe}{(seat.FromIndexFallback ? " — INDEX FALLBACK (no peer pose yet; the one correction will refine it)" : "")}. " +
                           $"Head at {head}, rig root at {_rigRoot.transform.position}.");
 
-        if (correction)
-            CloseRingWindow("the one allowed correction has been spent — the seat is final");
+        if (correction || overridingPlayer)
+            CloseRingWindow(overridingPlayer
+                ? "the one seat allowed over the player's own movement has been spent — the ring is done"
+                : "the one allowed correction has been spent — the seat is final");
     }
 
     /// <summary>Human-readable WHY for a non-placing outcome (log text only).</summary>
@@ -275,31 +409,87 @@ internal sealed partial class VRRigDriver
 
     /// <summary>
     /// Close the spawn-ring window for good and say why. Called on every terminal path: window
-    /// expiry, the spent correction, the config gate, and — the "do not fight the player" rule —
-    /// the first time the player moves themselves (<see cref="NotifyPlayerLocomotion"/>).
-    /// Idempotent, and silent once latched.
+    /// expiry, the spent correction, the config gate, and the player placing themselves somewhere
+    /// the ring accepts. Idempotent, and silent once latched.
+    ///
+    /// <para>AT THE <c>Note</c> TIER ON PURPOSE. This is the ring's terminal verdict, one line per
+    /// scenario, and it is what a hardware round reads when the answer is "it did nothing".</para>
     /// </summary>
-    private void CloseRingWindow(string reason)
+    /// <param name="reason">Why the window closed — printed verbatim.</param>
+    /// <param name="alert">True for the one expiry that is a genuine defect rather than a correct
+    /// outcome (a measurable board and no seat).</param>
+    private void CloseRingWindow(string reason, bool alert = false)
     {
         if (_ringSettled)
             return;
         _ringSettled = true;
-        if (_kind == RigKind.Scenario)
-            VRLog.Info("Rig", $"Spawn ring: window closed — {reason}. " +
-                              $"{(_ringPlaced ? "Seated" : "Never seated")} after {_ringAttempts} attempt(s).");
+        if (_kind != RigKind.Scenario)
+            return;
+
+        string line = $"Spawn ring: window closed — {reason}. " +
+                      $"{(_ringPlaced ? "Seated" : "Never seated")} after {_ringAttempts} attempt(s); " +
+                      $"board {(_ringBoardSeen ? $"was measurable ({_ringTileCount} tile(s))" : "NEVER appeared")}" +
+                      $"{(_ringPlayerMoved ? $"; the player had moved themselves ({_ringPlayerMovedWhat})" : "")}.";
+        if (alert)
+            // HW-VERIFY: the ring had a board and still left the player on the board-blind seat.
+            // This is the one line that says the round-4 fix itself failed.
+            VRLog.Alert("Rig", line);
+        else
+            // HW-VERIFY: the ring's terminal verdict. When a hardware round reports a bad spawn and
+            // no SEATED line exists, this line names the reason there is none.
+            VRLog.Note("Rig", line);
     }
 
     /// <summary>
-    /// The player moved themselves — world grab, stick turn, manual recenter. The spawn ring is a
-    /// JOIN placement and nothing more, so this closes its window permanently: after this, only
-    /// the player's own locomotion ever moves the player. Static and cheap (one null check plus an
-    /// already-latched early-out) because it is called from per-frame locomotion paths.
+    /// The player moved themselves — world grab, stick turn, stick flight, manual recenter.
+    ///
+    /// <para>THIS IS NO LONGER A KILL SWITCH, and that change is the round-4 fix. It used to close
+    /// the ring's window on the first frame of any locomotion, which on 2026-09-02 ended the whole
+    /// feature ~35 frames into a scenario, before the board had even reached the object cache —
+    /// because the player was flying to get OUT of the board they had been dropped into. A fuse
+    /// that counts the escape as consent protects the bug.</para>
+    ///
+    /// <para>What it does now depends on whether the ring has already done its job:
+    /// <list type="bullet">
+    /// <item>SEATED ALREADY ⇒ close immediately, exactly as before. The player is adjusting a
+    /// vantage the ring gave them and nothing may move them again.</item>
+    /// <item>NOT SEATED YET ⇒ record it. <see cref="TickSpawnRingSettle"/> judges it against the
+    /// board once there IS a board, and only overrules the player if their head is down among the
+    /// tiles.</item>
+    /// </list></para>
+    ///
+    /// <para>Static and cheap (one null check plus an already-latched early-out) because it is
+    /// called from per-frame locomotion paths; the log line below is guarded by
+    /// <c>_ringPlayerMoved</c> and therefore fires at most once per scenario.</para>
     /// </summary>
     internal static void NotifyPlayerLocomotion(string what)
     {
         VRRigDriver? drv = Instance;
-        if (drv != null && !drv._ringSettled)
-            drv.CloseRingWindow($"the player moved themselves ({what})");
+        if (drv == null || drv._ringSettled)
+            return;
+
+        if (drv._ringPlaced)
+        {
+            drv.CloseRingWindow($"the player moved themselves ({what}) after the ring had seated " +
+                                "them — the vantage is theirs from here");
+            return;
+        }
+
+        if (drv._ringPlayerMoved)
+            return;
+
+        drv._ringPlayerMoved = true;
+        drv._ringPlayerMovedWhat = what;
+        if (drv._kind == RigKind.Scenario)
+            // HW-VERIFY: the moment the old fuse used to blow. If a hardware round shows this line
+            // followed by neither a SEATED nor a STANDING DOWN line, the ring is stuck waiting for
+            // a board that never arrives — which is a different defect from the one this fixes.
+            VRLog.Note("Rig", $"Spawn ring: the player moved themselves ({what}) before a seat was " +
+                              "placed. NOT closing the window — a player who was dropped inside the " +
+                              "board flies to get out of it, and that is the symptom, not consent. " +
+                              "The move is judged against the play field as soon as the board can be " +
+                              "measured: clear of it and the vantage is theirs, inside it and the ring " +
+                              "seats them once.");
     }
 
     /// <summary>

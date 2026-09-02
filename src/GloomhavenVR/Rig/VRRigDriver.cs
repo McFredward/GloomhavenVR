@@ -122,12 +122,23 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// <summary>
     /// How long after the FIRST TRACKED POSE the spawn ring may still act, seconds (unscaled).
     ///
-    /// <para>THIS BOUND IS HALF THE SAFETY ARGUMENT — the other half is
-    /// <see cref="NotifyPlayerLocomotion"/>, which closes the window the instant the player moves
-    /// themselves. Placement is a JOIN comfort, not a leash: inside the window we (a) retry while
-    /// the board or the peers are still coming up, and (b) allow exactly ONE correction if a peer's
-    /// first pose lands after we were seated. After it, the ring is inert for the rest of the
-    /// scenario.</para>
+    /// <para>WHAT THIS BOUND IS, AND WHAT IT IS NOT (rewritten 2026-09-02). It is NOT the deadline
+    /// for placing a seat, and enlarging it would fix nothing. The ring places on the BOARD
+    /// ARRIVING (<see cref="TickSpawnRingSettle"/>), which is an event, not a moment on this clock.
+    /// This bound answers one question — "is there a play field in this rig at all?" — and its
+    /// expiry is a CORRECT outcome rather than a give-up: a rig whose object cache never holds a
+    /// tile has nothing to sit around, and the ordinary table-edge seat is exactly right there. The
+    /// third expiry (a board WAS measurable and no seat was placed) is logged as a defect, because
+    /// that is what it would be.</para>
+    ///
+    /// <para>THE OTHER HALF OF THE SAFETY ARGUMENT USED TO BE
+    /// <see cref="NotifyPlayerLocomotion"/> closing the window the instant the player moved. That
+    /// is exactly what broke on 2026-09-02 — the player's escape flight read as consent — so the
+    /// guard is now a judgement about the vantage the player ended up in rather than about whether
+    /// they touched a stick. Read <see cref="TickSpawnRingSettle"/> for the rule and its false
+    /// positive. Placement is still a JOIN comfort and not a leash: inside the window we place ONCE
+    /// and allow at most ONE correction (a peer's first pose landing late, or the footprint growing
+    /// under us). After it, the ring is inert for the rest of the scenario.</para>
     ///
     /// <para>ROUND 2 — 12 s WAS MEASURED FROM THE WRONG EVENT AND WAS TOO SHORT. It ran from the
     /// RIG BUILD, and the 2026-08-02 hardware log shows the scenario load eating a large part of it
@@ -143,6 +154,27 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// outcome always logs immediately; this only throttles the repeats, and every line carries the
     /// attempt counter so the throttling never hides how often it really ran.</summary>
     private const float RingLogIntervalSeconds = 3f;
+
+    /// <summary>
+    /// How many CONSECUTIVE polls must agree on the live tile count before the spawn ring is
+    /// willing to solve a seat on it.
+    ///
+    /// <para>NOT A WAIT — A CONFIRMATION. The tile cache goes from empty to complete inside one
+    /// synchronous frame (SpawnRing.TryFootprint doc), so under normal loading the second poll
+    /// simply agrees and the ring places 1/3 s later. The reason two are required at all is
+    /// <c>Choreographer.GenerateProcgenLevel</c>'s map-alignment retry, which
+    /// <c>DestroyImmediate</c>s every map and rebuilds it (decompiled Choreographer.cs:14844-14850):
+    /// a footprint sampled mid-churn is a perfect measurement of a board that is about to stop
+    /// existing.</para>
+    /// </summary>
+    private const int RingBoardStablePolls = 2;
+
+    /// <summary>How much the footprint has to grow, as a multiple of the tile count the seat was
+    /// solved on, before the spawn ring will spend its ONE correction on re-measuring. 1.10 = a
+    /// tenth more board. Defensive only: the decompile says the footprint is complete from the
+    /// frame it appears and reveals never add tiles, so this should never fire — and if it does,
+    /// the CORRECTION tag in the proof line says the decompile was read wrong.</summary>
+    private const float RingFootprintGrowthFactor = 1.10f;
 
     /// <summary>
     /// What the current rig is built around (P5: menu rig added, MISSION A.7; the MAP rig added
@@ -211,7 +243,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private Quaternion _scenarioBaseYaw = Quaternion.identity;
 
     // Settle-window state, all reset per rig build. _ringPlaced: the join placement has landed;
-    // _ringPeersAtPlacement: how many peer poses it saw (the trigger for the ONE correction);
+    // _ringPeersAtPlacement: how many peer poses it saw (one trigger for the ONE correction);
     // _ringSettled: the ring is done and will never act again this rig; _ringWindowEnd: unscaled
     // time the window closes (armed at the FIRST TRACKED POSE, not at rig build); _ringOutcome +
     // _ringProbe: what the last attempt decided and on what evidence — both exist so the terminal
@@ -226,6 +258,21 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private int _ringAttempts;
     private float _ringNextLogTime;
     private int _circleReseatCountdown;
+
+    // ROUND-4 STATE (2026-09-02). _ringBoardSeen: the tile cache has been non-empty at least once —
+    // it is what separates "no board in this rig, the ordinary seat is right" from "there was a
+    // board and we still did nothing, which is a defect"; _ringTileCount + _ringStablePolls: the
+    // two-agreeing-polls confirmation of the footprint (RingBoardStablePolls);
+    // _ringTilesAtPlacement: the footprint the placed seat was solved on, so a grown board can
+    // trigger the one correction; _ringPlayerMoved + _ringPlayerMovedWhat: the player has moved
+    // themselves, RECORDED rather than obeyed — TickSpawnRingSettle judges it against the play
+    // field once there is a board to judge it against (see NotifyPlayerLocomotion).
+    private bool _ringBoardSeen;
+    private int _ringTileCount;
+    private int _ringStablePolls;
+    private int _ringTilesAtPlacement;
+    private bool _ringPlayerMoved;
+    private string? _ringPlayerMovedWhat;
 
     /// <summary>Cached settle-poll delegate ([Optimize] CacheTickDelegates).</summary>
     private System.Action? _tickSpawnRingSettle;
@@ -772,6 +819,12 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _ringAttempts = 0;
         _ringNextLogTime = 0f;
         _ringWindowEnd = 0f;
+        _ringBoardSeen = false;
+        _ringTileCount = 0;
+        _ringStablePolls = 0;
+        _ringTilesAtPlacement = 0;
+        _ringPlayerMoved = false;
+        _ringPlayerMovedWhat = null;
         _circleReseatCountdown = CircleReseatIntervalFrames;
 
         // Clip planes seeded for this scale (~5 real cm near plane) and kept
