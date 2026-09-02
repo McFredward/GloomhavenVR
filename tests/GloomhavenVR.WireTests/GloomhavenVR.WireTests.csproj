@@ -332,6 +332,26 @@
     <Compile Include="WallCommitDiffVectors.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file, and here for the WallStandingProp reason applied to a figure instead of a
+       wall: it decides WHOSE GEOMETRY GETS THE HOVER GLOW — the miniature's body, or the actor
+       furniture hanging off it — and it fails in complete silence. "Der Boss-Drache hat immer noch
+       KEIN Highlighting" was filed against ModBuild 293 and not answered until ModBuild 342, and
+       every build in between compiled with zero warnings, produced an empty guard diff, engaged the
+       highlight six times against six CLEARs and returned true from Apply. The glow WAS drawn. It
+       was drawn on a dart, because MF.GetGameObjectAnimator returns the first Animator its
+       depth-first walk reaches and the boss carries a WP_Scoundrel_Dart. Nothing in this repository
+       could have said so: the defect is not an exception, a null or a byte, it is a JUDGEMENT whose
+       output is a picture inside a headset. The judgement is arithmetic though — five integers in,
+       one grade out — so FigureGlowGrade.cs was split out of FigureHighlight.cs (GameObject,
+       Renderer, LayerMask, the whole clone factory) into a part of that same class free of
+       UnityEngine ENTIRELY, precisely so the shipped GradeOf and RestrictFor could be linked here
+       and driven figure by figure. It is LINKED and not copied for the reason HauntFigures.Math is:
+       a mirrored re-implementation would have passed happily through all 49 of those builds. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Board\FigureGrab\FigureGlowGrade.cs" Link="board\FigureGlowGrade.cs" />
+    <Compile Include="FigureHighlightGradeVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

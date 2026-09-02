@@ -80,6 +80,13 @@ internal static class Program
             // becomes permanently solid — which reads as wall see-through being switched off.
             WallStandingPropVectors.Run(t);
             WallSignatureCulpritVectors.Run(t);
+            // WHOSE GEOMETRY GETS THE HOVER GLOW — the miniature's body or the furniture hanging
+            // off it. The report it answers ("der Boss-Drache hat immer noch KEIN Highlighting")
+            // took from ModBuild 293 to ModBuild 342, and every build in between compiled clean,
+            // engaged the highlight and returned true: the glow was drawn on a dart. The judgement
+            // is five integers in and one grade out, so the part that does not need a headset is
+            // settled here — against the SHIPPED methods, which are linked in, not copied.
+            FigureHighlightGradeVectors.Run(t);
             // WHETHER THE SLICED TABLE AND THE ATOMIC ONE ARE THE SAME TABLE. The gate that
             // decides whether PERF B may ship, on a subsystem whose behaviour the user has just
             // called perfect — and its whole value is that it can FAIL, so it is driven here on
