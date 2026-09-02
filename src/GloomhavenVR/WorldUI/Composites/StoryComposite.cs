@@ -435,7 +435,58 @@ namespace GloomhavenVR.WorldUI;
 /// never over it.</item>
 /// <item><b>THE FLOOR.</b> <see cref="TickDeadlockFloor"/> now also watches the curtain: zero
 /// floated windows while it is refusing prints <c>MODAL DEADLOCK FLOOR</c> and lifts it for good.</item>
+/// <item><b>THE MUTUAL-HOLD ARM (ModBuild 364).</b> <see cref="TickMutualHold"/>. Bound 2 and the
+/// backdrop claim's own honesty clause can BLOCK EACH OTHER, and did. See the section below.</item>
 /// </list>
+///
+/// <para>=====================================================================================
+/// ModBuild 364 — TWO HONEST CLAUSES, EACH SATISFIED BY WHAT THE OTHER ONE IS STUCK ON
+/// =====================================================================================</para>
+///
+/// <para><b>USER REPORT (2026-09-03), verbatim:</b> <i>"(beinahe) DEADLOCK in der map! Nach der
+/// Auswahl einer Quest und nach der Story war da nurnoch das Fenster 'Warte bis zur Auswahl [...]'
+/// für die privaten Ziele aber das Fenster ist nicht erschienen! Dieses Fenster sollte auch gar
+/// nicht offen bleiben. Erst als ich das Optionsmenu geöffnet und wieder geschlossen habe ist das
+/// Fenster erschienen und das andere verschwunden wie es sein sollte. Schau dir das an und fix das.
+/// Das hatten wir alles schon einmal optimiert - wie kann es sein das hier wieder ein regression
+/// stattgefunden hat?"</i></para>
+///
+/// <para><b>THE ANSWER TO HIS QUESTION, AND IT IS NOT A COMFORTABLE ONE.</b> No commit from that
+/// week broke this. Both clauses are byte-unchanged since 2026-08-23:
+/// <see cref="AnyNonMemberFloated"/> came in with ModBuild 235 (<c>df694497</c>) and
+/// <c>somethingElseOnScreen</c> with ModBuild 238 (<c>4324f4d0</c>), and <c>git log -S</c> on each
+/// name returns exactly one commit, ever. <b>WHAT CHANGED IS THE WORLD, AND IT CHANGED TEN DAYS
+/// EARLIER.</b> ModBuild 243 (<c>b6e790c8</c>, 2026-08-24) stopped the quest log leaking back into
+/// the float set when the game re-opened it — that leak WAS the ModBuild 242 bug. While it leaked,
+/// there was a third floated window in this phase, <c>CountFloatsOtherThan(loadout) &gt; 0</c> was
+/// satisfied for free, and the mutual hold below could not form. Fixing a real defect removed the
+/// accident that had been holding a latent one shut. So: a genuine regression in what the player
+/// sees, caused by a correct fix, latent since ModBuild 238 and reachable since ModBuild 243.</para>
+///
+/// <para><b>AND ModBuild 238 PREDICTED IT IN WRITING.</b> Its own notes warn that freezing the float
+/// set at the confirm would refuse the Character-UI "when it returns CARRYING THE BATTLE-GOAL PICKER
+/// AND THE ENTER BUTTON — the 234 deadlock rebuilt from parts". That is this, exactly.</para>
+///
+/// <para><b>THE MECHANISM, IN THE ModBuild 362 LOG'S OWN FIELDS.</b> The curtain holds
+/// <c>'New Party display'</c>, and the battle-goal picker is that window's CHILD, so the picker's
+/// visibility is entirely a function of the Character-UI floating (:15924,
+/// <c>NESTED IN A WINDOW THAT IS REFUSED FOR THE MOMENT</c> — printed once, and then nothing for 23
+/// seconds). The curtain holds honestly, because <c>'UI Loadout Window'</c> IS on screen and is not a
+/// member (:15787). The backdrop claim cannot withdraw that window, because it is the ONLY thing on
+/// screen (:15879, <c>the honesty clause … reads False</c>). Each clause is correct. Together they
+/// are a deadly embrace, and the tester broke it by ADDING a window — the map ESC menu at :16197 let
+/// the claim raise on the very next tick (:16204), and closing it let the curtain lapse (:16266).</para>
+///
+/// <para><b>WHY NEITHER EXISTING ARM OF THE FLOOR FIRED, AND NEITHER WAS WRONG.</b>
+/// <see cref="TripsDeadlockFloor"/> requires an EMPTY room; this room held one window. The control
+/// arm requires the continue control to be unreachable; it was reachable, on that same window. That
+/// is why he wrote "beinahe DEADLOCK" and not "DEADLOCK". The log's own
+/// <c>lifted by the deadlock floor=False</c> reads False on all six ticks that printed it.</para>
+///
+/// <para><b>THE REMEDY IS A TICK COUNT, NOT A LEVEL</b> (ModBuild 353's ruling). See
+/// <see cref="TickMutualHold"/> for the arm, <see cref="MutualHoldTicks"/> for why 90 and not a
+/// level, and <see cref="BackdropHonestySettleTicks"/> for the oscillation the same log shows at
+/// :16204 / :16267 / :16354 — three edges in 150 lines, the last of them at 2 of 2 cycles.</para>
 ///
 /// <para><b>ONE CHANGE IS NEEDED OUTSIDE THIS FILE and the feature degrades honestly without it.</b>
 /// ModBuild 234 said that change was "<c>FloatRefusalTable</c> has to ask
@@ -1481,6 +1532,47 @@ internal static class StoryComposite
     /// <summary><see cref="MaxOneWindowReports"/>'s number and argument.</summary>
     private const int MaxBackdropReports = 6;
 
+    // ---- ModBuild 364: the backdrop claim's INTENT, and the settle under its honesty clause ------
+
+    /// <summary>
+    /// THE WINDOW THIS CLAIM IS AIMED AT THIS TICK, or null while the phase it belongs to is not
+    /// live. It is the loadout window during the interval where <see cref="TerminatedBy"/> has spoken,
+    /// the map room is up and the claim has not been lifted — i.e. the interval in which this class
+    /// is actively trying to take that window OFF the screen, whether or not the claim currently
+    /// stands.
+    ///
+    /// <para><b>WHY THE INTENT AND NOT THE LEVEL.</b> <see cref="TickMutualHold"/> needs to know that
+    /// the one window on screen is one this class WANTS gone. The level (<see cref="_backdropStanding"/>)
+    /// cannot answer that: in the reported stall it read False for the whole 23 seconds, precisely
+    /// because the claim was blocked. A clause that can only see the other clause's current STATE and
+    /// never its INTENT is what made the two of them wait for each other.</para>
+    /// </summary>
+    private static UIWindow? _backdropSubject;
+
+    /// <summary>
+    /// HOW MANY CONSECUTIVE TICKS A STANDING BACKDROP CLAIM MAY SURVIVE ITS OWN HONESTY CLAUSE
+    /// READING ZERO. The oscillation damper, and the number is measured rather than chosen.
+    ///
+    /// <para><b>WHAT IT DAMPS.</b> In the ModBuild 362 log the claim raised at :16204 (cycle 1 of 2),
+    /// lapsed at :16267 and raised again at :16354 (cycle 2 of 2) — three edges inside 150 lines, and
+    /// the second raise put it AT the cap, one flap away from leaving the backdrop window on screen
+    /// for the rest of the quest. The middle edge is the one that had no business happening: the
+    /// curtain lapsed at :16266 and the claim lapsed at :16267, the SAME tick, because the curtain's
+    /// members had not been converted yet — 'New Party display' floats at :16272-16273, one convert
+    /// pass later. The honesty clause was reading a one-pass gap as an empty room.</para>
+    ///
+    /// <para><b>THE DERIVATION.</b> The mechanism's own worst case for that gap is one full convert
+    /// pass after the refusal drops plus <see cref="HoldBridgeTicks"/> of bridge = 3 ticks. Eight is
+    /// over twice that and is still under a tenth of a second at the 90 Hz the reported run measured
+    /// (:16210, 2286 frames over 25.4 s). <b>THE COST OF BEING WRONG IS BOUNDED AND IT IS PAID IN
+    /// FULL:</b> while the settle runs the room really is empty, so this may never be raised to a
+    /// number a player could see, and when it expires the claim lapses exactly as it does today.</para>
+    /// </summary>
+    private const int BackdropHonestySettleTicks = 8;
+
+    private static int _backdropHonestySettle;
+    private static bool _backdropSettleReported;
+
     /// <summary>
     /// IS THE MOD WITHHOLDING THIS LOADOUT WINDOW'S FLOAT RIGHT NOW? The question
     /// <c>FloatRefusalTable</c>'s ROW 4 asks, and a PURE read — no state, no logging, safe from the
@@ -1555,8 +1647,19 @@ internal static class StoryComposite
         // something requires Y to ACTUALLY be showing it.
         bool somethingElseOnScreen = loadout != null
                                      && ModalFallback.CountFloatsOtherThan(loadout) > 0;
-        if (!_backdropLifted && MapRoomDriver.Active && loadout != null && loadout.IsOpen
-            && terminator != null && somethingElseOnScreen
+        // ModBuild 364 — THE PHASE TERMS ARE NAMED SEPARATELY FROM THE HONESTY CLAUSE, and that
+        // separation is the whole of what this class now publishes about itself. `phaseLive` is "this
+        // class is trying to take that window off the screen"; the honesty clause is "it is allowed
+        // to right now". Up to 363 the two were one boolean, so the only thing another clause could
+        // read was the LEVEL — and in the reported stall the level read False for 23 seconds for
+        // exactly the reason the other clause needed to know about. The evaluation ORDER is unchanged
+        // and so is the short circuit: ContinueReachableOffTheLoadout is still only called when
+        // `somethingElseOnScreen` already holds, because it can end in a painted-bounds sweep
+        // [[one-line-owned-the-frame]].
+        bool phaseLive = !_backdropLifted && MapRoomDriver.Active && loadout != null
+                         && loadout.IsOpen && terminator != null;
+        _backdropSubject = phaseLive ? loadout : null;
+        if (phaseLive && somethingElseOnScreen
             && LoadoutConfirmPark.ContinueReachableOffTheLoadout(loadout))
         {
             want = true;
@@ -1568,6 +1671,53 @@ internal static class StoryComposite
                   + "that fact with THIS window excluded from the answer, so the instant the control "
                   + "is not drawing anywhere else the claim is false and this window floats again "
                   + "with its own button on it";
+        }
+
+        // ModBuild 364 — THE OSCILLATION DAMPER, AND IT ONLY EVER DELAYS A LAPSE THIS CLAUSE WOULD
+        // HAVE TAKEN ANYWAY.
+        //
+        // It runs in exactly one state: the claim is STANDING, every phase term still holds, and the
+        // only failing term is the honesty clause. That is the shape of the ModBuild 362 flap at
+        // :16266-16267 — the curtain lapsed and this claim lapsed on the same tick, before the
+        // curtain's members had been through a convert pass. Nothing else can reach this branch: a
+        // closed loadout screen, a re-running intro, a lift by the floor and an unreachable continue
+        // control all fail `phaseLive` or the control test and lapse on the tick, as they always did.
+        //
+        // WHY A LAPSE IS EXPENSIVE ENOUGH TO BE WORTH DELAYING: each one costs a cycle out of
+        // MaxBackdropCycles, and at the cap the backdrop window stays on screen for the rest of the
+        // quest. A claim that lapses on a one-pass gap and re-raises spends the budget on nothing.
+        // WHAT IT COSTS TO BE WRONG: up to BackdropHonestySettleTicks ticks of a genuinely empty room
+        // — bounded, counted, printed, and then the lapse happens exactly as it does today.
+        if (!want && _backdropStanding && phaseLive && !somethingElseOnScreen
+            && LoadoutConfirmPark.ContinueReachableOffTheLoadout(loadout))
+        {
+            if (_backdropHonestySettle < BackdropHonestySettleTicks)
+            {
+                _backdropHonestySettle++;
+                want = true;
+                if (!_backdropSettleReported)
+                {
+                    _backdropSettleReported = true;
+                    VRLog.Warn(Scope, "LOADOUT BACKDROP CLAIM SETTLING UNDER ITS HONESTY CLAUSE — the "
+                                      + "mod is floating nothing this claim is not withholding, but "
+                                      + "every other term still holds, so the claim is HELD for up to "
+                                      + $"{BackdropHonestySettleTicks} tick(s) instead of lapsing. THE "
+                                      + "STATE THIS DAMPS (ModBuild 362 log :16266-16267): the story "
+                                      + "curtain lapsed and this claim lapsed on the same tick, before "
+                                      + "the curtain's members had been through one convert pass — "
+                                      + "'New Party display' floated at :16272 — and the re-raise at "
+                                      + ":16354 put the claim at 2 of 2 cycles for nothing. WHAT IT "
+                                      + "COSTS IF THE SETTLE IS WRONG: the room is empty for at most "
+                                      + $"{BackdropHonestySettleTicks} tick(s) and then this claim "
+                                      + "lapses exactly as it always did. NOTHING IS WRITTEN TO THE "
+                                      + "GAME by holding it.");
+                }
+            }
+        }
+        else
+        {
+            _backdropHonestySettle = 0;
+            _backdropSettleReported = false;
         }
 
         if (want && !_backdropStanding)
@@ -1799,7 +1949,13 @@ internal static class StoryComposite
 
         if (!loadoutFloated)
         {
-            VRLog.Info(Scope, "LOADOUT BACKGROUND WITHDRAWN: CONFIRMED — the window that carried only "
+            // ModBuild 364 — PROMOTED FROM Info TO Alert, TEXT UNCHANGED. Its NOT ACHIEVED sibling
+            // below is the single line that decides the reported near-deadlock, and a verdict line
+            // whose failure prints while its clearing does not is a trap for the next reader
+            // [[quiet-log-silenced-the-backlog]]. Both branches are change-gated on the verdict and
+            // capped at MaxBackdropReports, so this is bounded at six lines per quest.
+            // HW-VERIFY
+            VRLog.Alert(Scope, "LOADOUT BACKGROUND WITHDRAWN: CONFIRMED — the window that carried only "
                               + "the backdrop picture is no longer being floated, so the player has "
                               + "one window to watch and not two. MEASURED THIS TICK: " + measured
                               + ". USER REQUEST THIS LINE ANSWERS: \"Ich möchte das letzte lokale "
@@ -1812,7 +1968,18 @@ internal static class StoryComposite
                               + "CONFIRM REACHABLE for whether he can press it at all.");
             return;
         }
-        VRLog.Warn(Scope, "LOADOUT BACKGROUND WITHDRAWN: NOT ACHIEVED — the story is told and the "
+        // ModBuild 364 — PROMOTED FROM Warn TO Alert, TEXT UNCHANGED so every existing grep still
+        // finds it. This is the line the ModBuild 362 stall printed, once, at :15879, with the
+        // honesty clause reading False — and it did not print at the shipped default, so the fault
+        // was only visible because that tester happened to be running at Debug.
+        //
+        // A WARNING ABOUT ITS OWN "READ IT LIKE THIS" CLAUSE, WHICH IS WRONG FOR THIS FAULT AND MAY
+        // NOT BE RE-WORDED (check-surface.py treats a vanished token as a removal): it points the
+        // reader at 'reachable somewhere that is NOT this window'=False as the likely failure. In the
+        // reported stall that term read TRUE and the ONLY False term was the honesty clause. Read the
+        // honesty clause first; MUTUAL HOLD MEASURED now says the same thing without the misdirection.
+        // HW-VERIFY
+        VRLog.Alert(Scope, "LOADOUT BACKGROUND WITHDRAWN: NOT ACHIEVED — the story is told and the "
                           + "background window is still on screen. MEASURED THIS TICK: " + measured
                           + ". READ IT LIKE THIS: 'reachable somewhere that is NOT this window'=False "
                           + "is the SAFE failure and the most likely one — the continue control is not "
@@ -2596,6 +2763,228 @@ internal static class StoryComposite
                           + "is strictly under the fuse with a tick to spare.");
     }
 
+    // ---- ModBuild 364: THE MUTUAL-HOLD ARM ------------------------------------------------------
+
+    /// <summary>
+    /// HOW MANY CONSECUTIVE TICKS THE TWO HONESTY CLAUSES MAY WAIT FOR EACH OTHER BEFORE ONE OF THEM
+    /// IS MADE TO YIELD. <b>A TICK COUNT, NOT A LEVEL</b> — ModBuild 353's ruling, and the reason is
+    /// that the state below is legitimately reachable for a handful of ticks in every ordinary quest
+    /// start: on the tick the intro terminates, the loadout window is the only thing floated and the
+    /// curtain's members have not been through a convert pass yet. A rule that fired on the LEVEL
+    /// would lift the curtain in that seam every single time and put the quest log back on screen for
+    /// no reason at all.
+    ///
+    /// <para><b>THE NUMBER IS DERIVED FROM BOTH ENDS OF THE MEASURED RANGE AND IS INSENSITIVE TO THE
+    /// FRAME RATE.</b> The ModBuild 362 log measures the legitimate resolution of this exact state at
+    /// ONE tick: the ESC menu floated at :16197 and the claim raised at :16204, the very next tick,
+    /// confirming at :16214. It measures the stall at roughly 2 000 ticks — ~23 s at the 90 Hz its own
+    /// :16210 reports (2 286 frames over 25.4 s). Ninety ticks sits two orders of magnitude above the
+    /// transition and more than an order below the stall, so halving or doubling the headset's frame
+    /// rate cannot move it onto either side.</para>
+    ///
+    /// <para><b>WHAT ONE SECOND OF BEING WRONG COSTS:</b> the quest log, the quest popup and the event
+    /// window come back on screen about a second early. That is the ModBuild 233/237 presentation this
+    /// file already calls "ugly, and NOT a deadlock", and it is the presentation the tester's own ESC
+    /// detour produced and accepted (:16373 — 'New Party display' and 'UI Quest Popup' floated).</para>
+    /// </summary>
+    private const int MutualHoldTicks = 90;
+
+    /// <summary>How long after the lift the outcome is given to happen before this arm says whether it
+    /// worked. Derived from the mechanism: the refusal drops on the lift tick, the convert loop floats
+    /// the members on the next pass and the backdrop claim raises the tick after that — the ModBuild
+    /// 362 log walks that whole chain in six lines (:16266 → :16273). Thirty ticks is five times the
+    /// chain and still a third of a second.</summary>
+    private const int MutualHoldResolveTicks = 30;
+
+    private static int _mutualHoldTicks;
+    private static bool _mutualHoldReported;
+    private static bool _mutualHoldLifted;
+    private static int _mutualHoldSince;
+    private static bool _mutualHoldOutcomeReported;
+
+    /// <summary>
+    /// THE MUTUAL-HOLD ARM — the third arm of the floor, and the one the reported near-deadlock
+    /// needed. <b>THE CAUSE IT ENDS:</b> two honesty clauses, each individually correct, each
+    /// satisfied by the very thing the other one is stuck on.
+    ///
+    /// <para><b>THE STATE, IN THE ModBuild 362 LOG'S OWN FIELDS.</b> :15787 — the curtain is holding
+    /// and <c>OTHER floated window(s): 1 ['UI Loadout Window' (a curtain member: False)]</c>, so
+    /// <see cref="AnyNonMemberFloated"/> is TRUE and the curtain holds honestly. :15879 — the backdrop
+    /// claim's <c>honesty clause — the mod is floating 0 window(s) this claim is not withholding —
+    /// reads False</c>, so it cannot withdraw that same window. :15924 — the battle-goal picker is
+    /// therefore never drawn, because its ancestor 'New Party display' is a curtain member. The room
+    /// held one window for ~23 s and the user's report is
+    /// <i>"(beinahe) DEADLOCK in der map! … aber das Fenster ist nicht erschienen!"</i></para>
+    ///
+    /// <para><b>WHY THE CURTAIN IS THE ONE THAT YIELDS, AND IT IS A STRUCTURAL ARGUMENT RATHER THAN A
+    /// PREFERENCE.</b> Lifting the curtain can only ever ADD to the float set — it stops refusing, and
+    /// a window nobody refuses may float. Lifting the backdrop claim can only ever REMOVE from it — it
+    /// withdraws the one window on screen. In this state the float set has exactly one member, so
+    /// yielding the backdrop claim would leave ZERO floated windows, which is ModBuild 231's ending
+    /// verbatim: <i>"Nach der Begegnung sind alle Fenster verschwunden und es nichts mehr weiter
+    /// passiert."</i> Against the standing ruling <i>"Es darf niemals leere Fenster geben"</i> the
+    /// monotone-adding side is the only one that can be yielded at all. THE COST OF YIELDING THE
+    /// CURTAIN, NAMED: the quest log, the quest popup and the event window come back beside the
+    /// battle-goal picker for the rest of the pre-scenario phase. That is precisely the picture the
+    /// tester's ESC-menu detour produced (:16373) and called <i>"wie es sein sollte"</i>.</para>
+    ///
+    /// <para><b>AND THE OUTCOME IS VERIFIED, NOT ASSUMED.</b> A floor that lifts a suppression and
+    /// does not check that the room actually filled is a remedy with no falsifier
+    /// [[verify-outcome-not-path]]. <see cref="MutualHoldResolveTicks"/> ticks after the lift this arm
+    /// states RESOLVED or NOT RESOLVED at a printing tier, measured from the float set.</para>
+    ///
+    /// <para><b>IT IS DISJOINT FROM THE OTHER TWO ARMS BY CONSTRUCTION.</b> The empty-room floor
+    /// (<see cref="TripsDeadlockFloor"/>) requires <c>floated == 0</c>; this arm requires
+    /// <c>floated &gt; 0</c>. The control arm requires the continue control to be unreachable
+    /// ANYWHERE; here it is reachable, on the very window that is stuck — which is exactly why the
+    /// user wrote "beinahe DEADLOCK" and not "DEADLOCK", and exactly why neither existing arm fired
+    /// (the ModBuild 362 log's <c>lifted by the deadlock floor=False</c> on all six ticks that printed
+    /// it, and <c>the deadlock floor did not trip</c> at :17407).</para>
+    ///
+    /// <para>ONE GREP: <c>MUTUAL HOLD</c>. Nothing is written to the game here either — the lift sets
+    /// <see cref="_curtainLifted"/>, which makes <see cref="CurtainRefuses"/> stop saying no. No Hide,
+    /// no Escape, no SetActive, no CanvasGroup.</para>
+    /// </summary>
+    private static void TickMutualHold(int floated)
+    {
+        // THE ARM RE-ARMS WITH THE THING IT LIFTED, and it has to. `_curtainLifted` is cleared by
+        // RaiseCurtain, so a curtain raised again inside the same gate is a curtain this arm has not
+        // stood down — and a one-shot latch that outlived its subject would be a remedy that fired
+        // once and then watched the same fault form again in silence. The lift itself is still
+        // bounded, because MaxCurtainCycles caps how many times the curtain can be raised at all.
+        if (_mutualHoldLifted && !_curtainLifted)
+        {
+            VRLog.Warn(Scope, "MUTUAL HOLD ARM RE-ARMED — the story curtain was raised again after "
+                              + "this arm stood it down, so the arm goes back on watch with it. The "
+                              + $"curtain has used {_curtainCycles} of {MaxCurtainCycles} cycle(s), "
+                              + "which is what bounds how often this can happen.");
+            _mutualHoldLifted = false;
+            _mutualHoldOutcomeReported = false;
+            _mutualHoldSince = 0;
+            _mutualHoldTicks = 0;
+            _mutualHoldReported = false;
+        }
+
+        if (_mutualHoldLifted)
+        {
+            if (_mutualHoldOutcomeReported)
+                return;
+            _mutualHoldSince++;
+            // RESOLVED means the thing the user could not see is on screen: the mod is floating at
+            // least one window that is NOT the window the backdrop claim was aimed at. Measured from
+            // the float set, never from a claim's own belief [[measure-the-picture-not-the-state]].
+            int others = _backdropSubject != null
+                ? ModalFallback.CountFloatsOtherThan(_backdropSubject)
+                : floated;
+            if (others > 0)
+            {
+                _mutualHoldOutcomeReported = true;
+                // HW-VERIFY
+                VRLog.Alert(Scope, "MUTUAL HOLD LIFT: RESOLVED — the story curtain stood down and the "
+                                   + $"room filled: the mod is floating {others} window(s) that are not "
+                                   + "the backdrop window, so the battle-goal picker's host is drawing "
+                                   + "again and the backdrop claim's honesty clause can now let that "
+                                   + $"window go. It took {_mutualHoldSince} tick(s) after the lift. "
+                                   + "USER REPORT THIS ANSWERS: \"Nach der Auswahl einer Quest und nach "
+                                   + "der Story war da nurnoch das Fenster 'Warte bis zur Auswahl "
+                                   + "[...]' für die privaten Ziele aber das Fenster ist nicht "
+                                   + "erschienen!\"");
+                return;
+            }
+            if (_mutualHoldSince < MutualHoldResolveTicks)
+                return;
+            _mutualHoldOutcomeReported = true;
+            // HW-VERIFY
+            VRLog.Alert(Scope, "MUTUAL HOLD LIFT: NOT RESOLVED — the story curtain was stood down "
+                               + $"{_mutualHoldSince} tick(s) ago and the mod is STILL floating nothing "
+                               + "but the backdrop window. THE CURTAIN WAS NOT THE ONLY THING HOLDING "
+                               + "THE PICKER BACK and this arm's premise is wrong: the next round "
+                               + "starts at whatever else is refusing 'New Party display'. GREP FOR IT: "
+                               + "FLOAT REFUSED and NESTED IN A WINDOW THAT IS REFUSED FOR THE MOMENT, "
+                               + "for that window's name. Nothing further is lifted here — the backdrop "
+                               + "claim is NOT stood down, because withdrawing the only window on "
+                               + "screen is the one thing this floor exists to prevent.");
+            return;
+        }
+
+        // The two terms of the embrace, each measured this tick and neither of them a value this
+        // class believes about itself. `CurtainWithheldNow` counts members the GAME still has open —
+        // i.e. windows that would be on screen if the curtain were not standing.
+        bool curtainHolding = _curtainStanding && !_curtainLifted && CurtainWithheldNow() > 0;
+        bool roomIsOnlyTheBlockedWindow =
+            floated > 0 && _backdropSubject != null
+            && ModalFallback.CountFloatsOtherThan(_backdropSubject) == 0;
+        bool embrace = curtainHolding && roomIsOnlyTheBlockedWindow && !_backdropStanding;
+
+        if (!embrace)
+        {
+            if (_mutualHoldTicks > 0)
+                VRLog.Warn(Scope, $"MUTUAL HOLD CLEARED ON ITS OWN after {_mutualHoldTicks} tick(s) — "
+                                  + "the two honesty clauses stopped waiting for each other without "
+                                  + "this arm doing anything, which is the ordinary case and the reason "
+                                  + $"the threshold is {MutualHoldTicks} ticks rather than a level. "
+                                  + $"MEASURED THIS TICK: curtain holding={curtainHolding}, the only "
+                                  + $"floated window is the backdrop claim's subject="
+                                  + $"{roomIsOnlyTheBlockedWindow}, backdrop claim standing="
+                                  + $"{_backdropStanding}, {floated} window(s) floated in total.");
+            _mutualHoldTicks = 0;
+            _mutualHoldReported = false;
+            return;
+        }
+
+        _mutualHoldTicks++;
+        if (!_mutualHoldReported)
+        {
+            _mutualHoldReported = true;
+            // HW-VERIFY
+            VRLog.Alert(Scope, "MUTUAL HOLD MEASURED — two of this lane's honesty clauses are waiting "
+                               + "for each other, and each one is individually correct. THE STORY "
+                               + $"CURTAIN is withholding {CurtainWithheldNow()} window(s) the game has "
+                               + $"open, from the frozen member set [{_curtainNames}], and it holds "
+                               + "because there IS something on screen it is not withholding. THE "
+                               + "LOADOUT BACKDROP CLAIM wants "
+                               + $"'{(_backdropSubject != null ? _backdropSubject.name : "<none>")}' "
+                               + "withdrawn and cannot, because that window is the ONLY thing on "
+                               + $"screen ({floated} floated in total). EACH CLAUSE IS SATISFIED BY THE "
+                               + "THING THE OTHER ONE IS STUCK ON. If this state lasts "
+                               + $"{MutualHoldTicks} consecutive tick(s) the STORY CURTAIN — and only "
+                               + "the story curtain — is stood down, because lifting it can only ADD "
+                               + "windows to the room while lifting the other one would empty it. IF "
+                               + "YOU ARE READING THIS IN A HARDWARE LOG the next line to look for is "
+                               + "MUTUAL HOLD BROKEN, and after it MUTUAL HOLD LIFT: RESOLVED.");
+        }
+        if (_mutualHoldTicks < MutualHoldTicks)
+            return;
+
+        _mutualHoldLifted = true;
+        _mutualHoldSince = 0;
+        _mutualHoldOutcomeReported = false;
+        _curtainLifted = true;
+        // HW-VERIFY
+        VRLog.Alert(Scope, "MUTUAL HOLD BROKEN — THE STORY CURTAIN YIELDS. It has been in the mutual "
+                           + $"hold above for {MutualHoldTicks} consecutive tick(s), which is two "
+                           + "orders of magnitude longer than the ONE tick the ModBuild 362 log "
+                           + "measures for the legitimate version of this state (:16197 → :16204). "
+                           + $"THE CURTAIN'S {CurtainMembers.Count} FROZEN MEMBER(S) [{_curtainNames}] "
+                           + "FLOAT AGAIN FROM THIS TICK with everything on them, and the battle-goal "
+                           + "picker draws inside 'New Party display' as soon as that window is "
+                           + "converted. WHICH CLAUSE WAS LIFTED AND WHY THAT ONE: the curtain, "
+                           + "because standing it down can only ADD windows to the room, while "
+                           + "standing down the loadout backdrop claim would withdraw the ONLY window "
+                           + "on screen and leave the room empty — ModBuild 231's ending, and against "
+                           + "the standing ruling \"Es darf niemals leere Fenster geben\". THE COST, "
+                           + "NAMED: the quest log, the quest popup and the event window come back "
+                           + "beside the picker for the rest of the pre-scenario phase, which is the "
+                           + "picture the ModBuild 362 tester's own ESC-menu detour produced at :16373 "
+                           + "and called \"wie es sein sollte\". THE COUNT IS KEPT — lift the verdict, "
+                           + $"keep the count: {_curtainCycles} of {MaxCurtainCycles} curtain cycle(s) "
+                           + $"and {_backdropCycles} of {MaxBackdropCycles} backdrop cycle(s) used. "
+                           + "NOTHING IS WRITTEN TO THE GAME: this only stops a FloatRefusalTable "
+                           + "refusal from saying no — no Hide, no Escape, no SetActive, no "
+                           + "CanvasGroup.");
+        _mutualHoldTicks = 0;
+    }
+
     /// <summary>
     /// THE FLOOR. If this class's own suppression is why the room is empty, say so by name and then
     /// stand down. Reads the previous convert pass (see <see cref="_heldThisPass"/> for the one-tick
@@ -2688,6 +3077,16 @@ internal static class StoryComposite
         // CLAUSE IS THE BUG and the line below says so by name — which is exactly what a floor is
         // for. It is checked before the bridge because it is the cheaper of the two to be wrong
         // about: a curtain lifted for nothing costs a quest log back on screen.
+        // ModBuild 364 — THE THIRD ARM, AND IT IS THE ModBuild 235 LESSON AT A NEW PLACE. That round
+        // widened the floor because "the floor measures an empty room, and the reported deadlock was a
+        // full one". The room reported this time held ONE window and the continue control was
+        // reachable on it, so neither existing arm could fire and neither was wrong to sit still: the
+        // fault is not an empty room and not an unreachable control, it is two of this lane's own
+        // clauses each waiting for the other. It is asked BEFORE the empty-room arm below because the
+        // two are disjoint (this one needs floated > 0, that one needs floated == 0) and because this
+        // is the state that actually happened.
+        TickMutualHold(floated);
+
         int withheld = CurtainWithheldNow();
         if (withheld > 0
             && TripsDeadlockFloor("StoryComposite.CurtainRefuses (the point-of-no-return story curtain)",
@@ -3083,6 +3482,17 @@ internal static class StoryComposite
         _backdropLifted = false;
         _backdropVerdict = string.Empty;
         _backdropReports = 0;
+        // ModBuild 364 — THE MUTUAL-HOLD ARM AND THE HONESTY SETTLE ARE PER GATE, for this block's
+        // own reason: a new point-of-no-return edge is a new quest, and a hold measured against the
+        // last one's window set is not evidence about this one.
+        _backdropSubject = null;
+        _backdropHonestySettle = 0;
+        _backdropSettleReported = false;
+        _mutualHoldTicks = 0;
+        _mutualHoldReported = false;
+        _mutualHoldLifted = false;
+        _mutualHoldSince = 0;
+        _mutualHoldOutcomeReported = false;
         // ModBuild 242 — AND THE HANDOVER IS RE-ARMED HERE AND ONLY HERE, for the same reason as the
         // budget above: a new point-of-no-return edge is a new quest, with a new story window to
         // hand a place over from.
@@ -4209,6 +4619,16 @@ internal static class StoryComposite
         _backdropCapReported = false;
         _backdropVerdict = string.Empty;
         _backdropReports = 0;
+        // ModBuild 364 — and the mutual-hold arm with it, for this block's own reason: a hold measured
+        // in a session that no longer exists is not evidence about the next one.
+        _backdropSubject = null;
+        _backdropHonestySettle = 0;
+        _backdropSettleReported = false;
+        _mutualHoldTicks = 0;
+        _mutualHoldReported = false;
+        _mutualHoldLifted = false;
+        _mutualHoldSince = 0;
+        _mutualHoldOutcomeReported = false;
         _handoverDone = false;
         _backdropWhy = "the loadout backdrop claim has been torn down with the module";
         _storyGameOpenAt = float.NegativeInfinity;
