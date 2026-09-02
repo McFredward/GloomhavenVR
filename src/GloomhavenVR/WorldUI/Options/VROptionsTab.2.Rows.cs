@@ -853,6 +853,15 @@ internal static partial class VROptionsTab
     private static void BuildRow(Transform parent, ConfigCatalog.ConfigItem item, int component,
                                 string? caption = null, string? hintKey = null)
     {
+        // …and three that are not edited with a CONTROL at all: the environment, the hand style and
+        // the head mask are picked from a strip of PICTURES (user, 2026-09-02: "das umstellen der
+        // Assets etwas praesenter […] als Kacheln mit einem Bild darin"). This runs BEFORE
+        // TryBuildSpecialRow because [Sky] Style and [Net] MaskId already have dropdown definitions
+        // there — and those definitions stay, deliberately, as the working fallback if this hook is
+        // ever removed. See WorldUI/Options/VariantTiles.cs.
+        if (component == 0 && TryBuildVariantTiles(parent, item, caption, hintKey))
+            return;
+
         // A few entries' stored type says nothing useful about how they should be edited.
         if (component == 0 && TryBuildSpecialRow(parent, item, caption, hintKey))
             return;

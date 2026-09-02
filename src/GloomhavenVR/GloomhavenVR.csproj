@@ -69,6 +69,33 @@
     -->
     <EmbeddedResource Include="Assets\net_shared.png"
                       LogicalName="GloomhavenVR.Assets.net_shared.png" />
+    <!-- The eleven ASSET-PICKER TILES (ModBuild 347). LogicalName is pinned on every one, so the
+      PNGs may be relocated without the resource names WorldUI/Options/VariantTilesTable.cs asks
+      for moving with them. They ride the DLL rather than the bundle on purpose: the bundle has
+      been byte-identical since ModBuild 296 and every install since has been a DLL drop, so
+      putting thumbnails in it would cost every user a full re-install for a menu picture. -->
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_env_default.png"
+                      LogicalName="GloomhavenVR.Assets.tile_env_default.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_env_cellar.png"
+                      LogicalName="GloomhavenVR.Assets.tile_env_cellar.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_env_swamp.png"
+                      LogicalName="GloomhavenVR.Assets.tile_env_swamp.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_env_offblack.png"
+                      LogicalName="GloomhavenVR.Assets.tile_env_offblack.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_env_mr.png"
+                      LogicalName="GloomhavenVR.Assets.tile_env_mr.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_hand_glove.png"
+                      LogicalName="GloomhavenVR.Assets.tile_hand_glove.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_hand_plate.png"
+                      LogicalName="GloomhavenVR.Assets.tile_hand_plate.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_hand_arcane.png"
+                      LogicalName="GloomhavenVR.Assets.tile_hand_arcane.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_mask_0.png"
+                      LogicalName="GloomhavenVR.Assets.tile_mask_0.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_mask_1.png"
+                      LogicalName="GloomhavenVR.Assets.tile_mask_1.png" />
+    <EmbeddedResource Include="WorldUI\Options\VariantTiles\tile_mask_2.png"
+                      LogicalName="GloomhavenVR.Assets.tile_mask_2.png" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,0 +1,207 @@
+using System;
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
+using GloomhavenVR.Net;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI;
+
+/// <summary>
+/// WHAT EACH OF THE THREE PICTURE PICKERS OFFERS. Separated from the widget that draws them
+/// (<c>VariantTiles.cs</c>) because these two things change for different reasons: the drawing is
+/// settled, while the CONTENT grows every time an asset ships.
+///
+/// <para><b>NO NEW CONFIG KEYS AND NO CHANGED VALUES.</b> Every tile writes an entry that already
+/// existed and reads it back the same way its dropdown did. The three live in three different
+/// files — <c>[Sky] Style</c> in <c>rig</c>, <c>[Hands] HandStyle</c> in the main config,
+/// <c>[Net] MaskId</c> in <c>net</c> — which is why each is reached through its own owner rather
+/// than through <c>item.Entry</c>: that is what the dropdowns did too, and a BoxedValue write would
+/// have to guess the stored type.</para>
+///
+/// <para><b>EVERY STRIP ALWAYS HAS EXACTLY ONE TILE LIT.</b> Both numeric pickers CLAMP when they
+/// decide what is selected, matching what the game actually does with an out-of-range value rather
+/// than what the file happens to say: <see cref="HandStyles.Clamp"/> is what the loader wears, the
+/// mask id is clamped by both the wire and <c>HeadMaskLibrary.BuildHead</c>, and a <see
+/// cref="SkyStyle"/> that is not a defined non-Default member is treated as Default by
+/// <c>SkyAlternative.Tick</c>. A strip with nothing lit would read as broken, and a hand-edited cfg
+/// is enough to produce one.</para>
+/// </summary>
+internal static partial class VROptionsTab
+{
+    private const string TileResourcePrefix = "GloomhavenVR.Assets.";
+
+    /// <summary>The tiles for one picker, or null when this setting is not one.</summary>
+    private static VariantTile[]? VariantTilesFor(ConfigCatalog.ConfigItem item)
+    {
+        if (string.Equals(item.Section, "Sky", StringComparison.Ordinal)
+            && string.Equals(item.Key, "Style", StringComparison.Ordinal))
+            return EnvironmentTiles();
+
+        if (string.Equals(item.Section, "Hands", StringComparison.Ordinal)
+            && string.Equals(item.Key, "HandStyle", StringComparison.Ordinal))
+            return HandTiles();
+
+        if (string.Equals(item.Section, "Net", StringComparison.Ordinal)
+            && string.Equals(item.Key, "MaskId", StringComparison.Ordinal))
+            return MaskTiles();
+
+        return null;
+    }
+
+    // ---- environment ------------------------------------------------------------------------
+
+    /// <summary>Is mixed reality on? False whenever the entry has not been bound yet, which is the
+    /// same answer <c>MixedReality.BackingsWanted</c> gives before the rig has ticked.</summary>
+    private static bool MixedRealityOn => MixedReality.Enabled != null && MixedReality.Enabled.Value;
+
+    /// <summary>
+    /// The sky the game is actually showing. Not a bare equality against the stored value:
+    /// <c>Enum.Parse</c> accepts numeric strings, so a hand-edited cfg can hold <c>(SkyStyle)7</c>,
+    /// and <c>SkyAlternative.Tick</c> renders that as Default. This agrees with the picture.
+    /// </summary>
+    private static SkyStyle EffectiveSky()
+    {
+        if (SkyAlternative.Style == null)
+            return SkyStyle.Default;
+        SkyStyle style = SkyAlternative.Style.Value;
+        return style is SkyStyle.Cellar or SkyStyle.SwampNight or SkyStyle.OffBlack
+            ? style
+            : SkyStyle.Default;
+    }
+
+    /// <summary>
+    /// Pick a sky. Clears mixed reality ONLY IF it was on — otherwise the player picks "Keller" and
+    /// keeps looking at their living room, which is the one outcome this strip exists to prevent.
+    /// Returns true in exactly that case, because <c>[MixedReality] Enabled</c> is a dependency
+    /// parent and its children have to fold away with it.
+    /// </summary>
+    private static bool ChooseSky(SkyStyle style)
+    {
+        if (SkyAlternative.Style != null)
+            SkyAlternative.Style.Value = style;
+
+        if (!MixedRealityOn)
+            return false;
+        MixedReality.Enabled.Value = false;
+        return true;
+    }
+
+    /// <summary>
+    /// Turn mixed reality on WITHOUT touching <c>[Sky] Style</c>. MR is a mode laid over the
+    /// environment choice, not another value of it: leaving the sky alone means switching MR back
+    /// off returns the room the player had picked, instead of silently resetting them to Default.
+    /// </summary>
+    private static bool ChooseMixedReality()
+    {
+        if (MixedReality.Enabled == null || MixedReality.Enabled.Value)
+            return false;
+        MixedReality.Enabled.Value = true;
+        return true;
+    }
+
+    private static VariantTile SkyTile(SkyStyle style, string art, string locKey) => new()
+    {
+        Resource = TileResourcePrefix + art + ".png",
+        Label = () => Loc.Mod(locKey),
+        // A sky tile is lit only while MR is OFF: with MR on, none of these is what the player sees.
+        Selected = () => !MixedRealityOn && EffectiveSky() == style,
+        Choose = () => ChooseSky(style),
+    };
+
+    /// <summary>
+    /// The five environments the player perceives, in the order the user listed them as a group.
+    /// Four are <see cref="SkyStyle"/> members; the fifth is <c>[MixedReality] Enabled</c> — see the
+    /// class doc on <c>VariantTiles.cs</c> for why one strip spans two keys.
+    /// </summary>
+    private static VariantTile[] EnvironmentTiles() => new[]
+    {
+        SkyTile(SkyStyle.Default, "tile_env_default", "sky_default"),
+        SkyTile(SkyStyle.Cellar, "tile_env_cellar", "sky_cellar"),
+        SkyTile(SkyStyle.SwampNight, "tile_env_swamp", "sky_swamp"),
+        SkyTile(SkyStyle.OffBlack, "tile_env_offblack", "sky_off"),
+        new VariantTile
+        {
+            Resource = TileResourcePrefix + "tile_env_mr.png",
+            Label = () => Loc.Mod("mixed_reality"),
+            Selected = () => MixedRealityOn,
+            Choose = ChooseMixedReality,
+        },
+    };
+
+    // ---- hands ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// One tile per <see cref="HandStyle"/>. The names are the ones the per-variant heading already
+    /// uses (<c>vr_style_*</c> — "Lederhandschuh", "Panzerhandschuh", "Magierhandschuh"), which also
+    /// closes an old wart: the row used to be the GENERIC enum control and showed the raw English
+    /// member names Glove/Plate/Arcane in a German menu.
+    ///
+    /// <para>No rebuild is requested from here. <c>[Hands] HandStyle</c> is a variant selector, and
+    /// <c>Apply</c> rebuilds the page for those on its own so the per-variant rows below become the
+    /// new hand's.</para>
+    /// </summary>
+    private static VariantTile[] HandTiles()
+    {
+        var art = new Dictionary<HandStyle, string>(3)
+        {
+            [HandStyle.Glove] = "tile_hand_glove",
+            [HandStyle.Plate] = "tile_hand_plate",
+            [HandStyle.Arcane] = "tile_hand_arcane",
+        };
+
+        var tiles = new List<VariantTile>(HandStyles.Count);
+        for (int i = 0; i < HandStyles.Count; i++)
+        {
+            HandStyle style = HandStyles.Clamp(i);
+            string name = style.ToString();
+            tiles.Add(new VariantTile
+            {
+                Resource = art.TryGetValue(style, out string? file) ? TileResourcePrefix + file + ".png" : string.Empty,
+                Label = () => Loc.Mod("vr_style_" + name.ToLowerInvariant()),
+                Selected = () => Plugin.HandStyle != null
+                                 && HandStyles.Clamp((int)Plugin.HandStyle.Value) == style,
+                Choose = () =>
+                {
+                    if (Plugin.HandStyle != null)
+                        Plugin.HandStyle.Value = style;
+                    return false;
+                },
+            });
+        }
+        return tiles.ToArray();
+    }
+
+    // ---- masks ------------------------------------------------------------------------------
+
+    /// <summary>
+    /// One tile per head mask, built from <c>HeadMaskLibrary.MaskCount</c> and its own name table —
+    /// the same property the dropdown had, and for the same reason: a fourth mask is one edit in
+    /// <c>HeadMaskLibrary</c> plus its loc string, and this strip grows on its own. A mask that has
+    /// no tile art yet degrades to a labelled tile rather than vanishing from the picker.
+    /// </summary>
+    private static VariantTile[] MaskTiles()
+    {
+        string[] names = HeadMaskLibrary.MaskNames();
+        var tiles = new List<VariantTile>(names.Length);
+        for (int i = 0; i < names.Length; i++)
+        {
+            int id = i;
+            string name = names[i];
+            tiles.Add(new VariantTile
+            {
+                Resource = TileResourcePrefix + "tile_mask_" + id + ".png",
+                Label = () => name,
+                Selected = () => NetModule.MaskId != null
+                                 && Mathf.Clamp(NetModule.MaskId.Value, 0, names.Length - 1) == id,
+                Choose = () =>
+                {
+                    if (NetModule.MaskId != null)
+                        NetModule.MaskId.Value = id;
+                    return false;
+                },
+            });
+        }
+        return tiles.ToArray();
+    }
+}
