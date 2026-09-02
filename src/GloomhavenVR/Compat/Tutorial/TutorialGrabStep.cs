@@ -85,6 +85,12 @@ namespace GloomhavenVR.Compat;
 /// </summary>
 internal static class TutorialGrabStep
 {
+    /// <summary>Chain-hold owner token — see <see cref="TutorialChainHold.Engage"/>. The other
+    /// owner is the controls lesson, which holds the chain from the tutorial's opening dialogue
+    /// until it ends; while it does, no scripted message is shown at all, so this step's own
+    /// attach point can never be reached and the two can never contend.</summary>
+    internal const string HoldOwner = "figure-grab-step";
+
     /// <summary>The scripted strip we attach to: "point the laser at the enemy portrait…"
     /// (flow dump entry [17], 'HT_10'). Keyed on the TITLE KEY, not the message name, for the
     /// same reason <see cref="TutorialHints"/> is: the loc key is the stable identity of the
@@ -153,7 +159,7 @@ internal static class TutorialGrabStep
     /// still withheld belongs to the level that just ended and is dropped with it.</summary>
     internal static void Reset()
     {
-        if (TutorialChainHold.Engaged)
+        if (TutorialChainHold.IsHeldBy(HoldOwner))
             TutorialChainHold.Discard("a new scenario started while the VR figure-grab step was pending");
         ClearState();
         _doneThisScenario = false;
@@ -198,7 +204,7 @@ internal static class TutorialGrabStep
 
         _startedAt = Time.unscaledTime;
         _doneThisScenario = true; // one attempt per scenario, decided here
-        TutorialChainHold.Engage($"'{messageDismissed.MessageName}' (the laser/portrait step) was "
+        TutorialChainHold.Engage(HoldOwner, $"'{messageDismissed.MessageName}' (the laser/portrait step) was "
             + "completed, so the VR-only follow-up step (hold a figure to see the same turn "
             + "preview) is now pending");
         VRLog.Info("Tutorial", "VR figure-grab step ARMED — it will show as soon as the help-text "
@@ -227,7 +233,7 @@ internal static class TutorialGrabStep
             // handed back immediately and never held again this session.
             _disabledByError = true;
             try { Finish("the step threw"); }
-            catch (Exception) { TutorialChainHold.Release("the step threw during its own teardown"); }
+            catch (Exception) { TutorialChainHold.Release(HoldOwner, "the step threw during its own teardown"); }
             VRLog.Error("Tutorial", "VR figure-grab tutorial step threw and is disabled for this "
                 + $"session: {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
         }
@@ -316,7 +322,7 @@ internal static class TutorialGrabStep
         DismissIfOurs(reason);
         ClearState();
         _doneThisScenario = true;
-        TutorialChainHold.Release(reason);
+        TutorialChainHold.Release(HoldOwner, reason);
     }
 
     /// <summary>Only ever dismisses while the strip provably still shows OUR message — the game's

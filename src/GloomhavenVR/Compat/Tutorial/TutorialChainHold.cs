@@ -95,9 +95,24 @@ internal static class TutorialChainHold
     private static bool _degraded;
     private static bool _replaying;
 
-    /// <summary>True while scripted messages are being withheld. Read by
-    /// <see cref="TutorialGrabStep"/> only — nothing else may engage or release the hold.</summary>
+    /// <summary>
+    /// WHO holds the chain, or null. There are two owners — <see cref="ControlsTutorial"/> (the
+    /// controls lesson, which holds from the tutorial's opening dialogue until it ends) and
+    /// <see cref="TutorialGrabStep"/> (the figure-grab step, which arms at <c>HT_10</c>). They
+    /// cannot overlap: while the lesson holds, no scripted message is shown at all, so the chain
+    /// can never reach <c>HT_10</c>. The token turns that from a property of the current step
+    /// order into a CHECKED invariant — a second owner is refused and says so, instead of
+    /// silently taking a hold the first one will then release out from under it.
+    /// </summary>
+    private static string? _owner;
+
+    /// <summary>True while scripted messages are being withheld.</summary>
     internal static bool Engaged => _engaged;
+
+    /// <summary>Is the hold currently held by this owner? (Owners are named by their own
+    /// constants — <c>ControlsTutorial.HoldOwner</c>, <c>TutorialGrabStep.HoldOwner</c>.)</summary>
+    internal static bool IsHeldBy(string owner) =>
+        _engaged && string.Equals(_owner, owner, StringComparison.Ordinal);
 
     /// <summary>True when the patch resolved its target and a hold is therefore possible at all.
     /// False means a game update moved the method: the VR step then runs unsequenced instead of
@@ -180,7 +195,7 @@ internal static class TutorialChainHold
     /// walks <c>m_MessagesToShow</c>. That ordering is what lets the same event's follow-up
     /// message be caught (see the class doc). Returns false when the patch degraded.
     /// </summary>
-    internal static bool Engage(string why)
+    internal static bool Engage(string owner, string why)
     {
         if (!Available)
         {
@@ -189,9 +204,17 @@ internal static class TutorialChainHold
             return false;
         }
         if (_engaged)
-            return true;
+        {
+            if (string.Equals(_owner, owner, StringComparison.Ordinal))
+                return true;
+            VRLog.Warn("Tutorial", $"VR step HOLD REFUSED for '{owner}' — '{_owner}' already holds "
+                + $"the scripted chain. {why} will run WITHOUT holding the chain back; the "
+                + "existing hold is left exactly as it is.");
+            return false;
+        }
         _engaged = true;
-        VRLog.Info("Tutorial", $"VR step HOLD ENGAGED — {why}. Every scripted level message the "
+        _owner = owner;
+        VRLog.Info("Tutorial", $"VR step HOLD ENGAGED by '{owner}' — {why}. Every scripted level message the "
             + "tutorial tries to show from now on is withheld (the scenario-won/lost message "
             + "excepted) until the step is satisfied or a failsafe fires.");
         return true;
@@ -202,11 +225,14 @@ internal static class TutorialChainHold
     /// entry point they were taken from. The reason is logged with their names so the next
     /// hardware log proves the sequencing end to end.
     /// </summary>
-    internal static void Release(string reason)
+    internal static void Release(string owner, string reason)
     {
         if (!_engaged)
             return;
+        if (!string.Equals(_owner, owner, StringComparison.Ordinal))
+            return; // not this owner's hold to release — see _owner
         _engaged = false;
+        _owner = null;
 
         LevelEventsController? controller = _controller;
         _controller = null;
@@ -272,6 +298,7 @@ internal static class TutorialChainHold
     private static void FailOpen()
     {
         _engaged = false;
+        _owner = null;
         _controller = null;
         HeldMessages.Clear();
     }

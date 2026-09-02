@@ -415,10 +415,20 @@ internal static class LevelMessagePageUI_OnLanguageChanged_Patch
     {
         try
         {
-            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
-                return;
             CLevelMessagePage? page = __instance.page; // publicized private
             if (page == null || __instance.information == null)
+                return;
+            // The CONTROLS LESSON's own page, matched on the page OBJECT. Checked before the
+            // tutorial gate on purpose: the page belongs to a message this mod created and is
+            // showing right now, which is a stronger identity than any context test — and a
+            // gate that read false for one frame here would leave the game's tutorial box on
+            // screen with a placeholder in it.
+            if (ControlsBox.TryPage(page, __instance.information, out string lesson))
+            {
+                __instance.information.text = lesson;
+                return;
+            }
+            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
                 return;
             if (TutorialHints.TryOverrideBody(page.PageTextKey, page.PageTextKeyController,
                     __instance.information.text, out string text))
@@ -440,7 +450,22 @@ internal static class LevelMessageUILayout_Title_Patch
     [HarmonyPostfix]
     [HarmonyPatch("Init")]
     private static void InitPostfix(LevelMessageUILayout __instance, CLevelMessage message)
-        => Apply(__instance, message);
+    {
+        Apply(__instance, message);
+        // ONLY from Init: this builds (or removes) the controls lesson's NEXT/SKIP buttons inside
+        // the game's box, and Init is the one call that (re)builds the layout for a message. It
+        // runs for EVERY message, ours or not — for a foreign one it is the cleanup that stops a
+        // leftover button riding along on a scripted message reusing the same layout object.
+        try
+        {
+            ControlsBox.Decorate(__instance, message);
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("Tutorial", $"controls-lesson box decoration failed: "
+                + $"{ex.GetType().Name}: {ex.Message}");
+        }
+    }
 
     [HarmonyPostfix]
     [HarmonyPatch("OnLanguageChanged")]
@@ -451,9 +476,16 @@ internal static class LevelMessageUILayout_Title_Patch
     {
         try
         {
-            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
-                return;
             if (message == null || ui.title == null || !ui.title.gameObject.activeSelf)
+                return;
+            // The CONTROLS LESSON's own message, matched by reference — see the page postfix for
+            // why that check comes before the tutorial context gate.
+            if (ControlsBox.TryTitle(message, ui.title, out string lesson))
+            {
+                ui.title.text = lesson;
+                return;
+            }
+            if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
                 return;
             if (TutorialHints.TryOverrideTitle(message, ui.title.text, out string text))
                 ui.title.text = text;

@@ -220,13 +220,21 @@ internal static partial class Loc
 
         ["ctl_welcome_t"] = Pair("Your controllers", "Deine Controller"),
         ["ctl_welcome_b"] = Pair(
-            "Your hands have become your {0} controllers, in the place they really are. From here "
-            + "on a key lights up on them — do that, and the step moves on by itself.\n\n"
+            // ModBuild 343: the tense moved. The controller models are no longer up for the whole
+            // lesson — they appear only on a step that asks for a press (user, 2026-09-02: "Die
+            // 3D-meshes der Controller sollen NUR dann angezeigt werden wenn eine Aufgabe des
+            // Tutorials gerade etwas verlangt"), and this card is not such a step, so the player
+            // is reading it with their own hands in front of them. "Your hands HAVE BECOME" would
+            // describe something they cannot see.
+            "Whenever a step asks you to press something, your hands become your {0} controllers "
+            + "for as long as it does, in the place they really are, with the key lit up on them "
+            + "— do that, and the step moves on by itself.\n\n"
             + "NEXT passes a step you cannot do right now. SKIP ends the lesson.",
-            "Deine Hände sind jetzt deine {0}-Controller, genau dort, wo sie wirklich sind. Ab "
-            + "hier leuchtet jeweils eine Taste darauf auf — mach das, und der Schritt geht von "
-            + "selbst weiter.\n\nWEITER überspringt einen Schritt, der gerade nicht geht. "
-            + "ÜBERSPRINGEN beendet die Erklärung."),
+            "Sobald ein Schritt einen Tastendruck von dir verlangt, werden deine Hände für so "
+            + "lange zu deinen {0}-Controllern, genau dort, wo sie wirklich sind, mit der "
+            + "passenden Taste beleuchtet — mach das, und der Schritt geht von selbst weiter."
+            + "\n\nWEITER überspringt einen Schritt, der gerade nicht geht. ÜBERSPRINGEN "
+            + "beendet die Erklärung."),
 
         ["ctl_laser_t"] = Pair("Point and click", "Zeigen und auswählen"),
         ["ctl_laser_b"] = Pair(

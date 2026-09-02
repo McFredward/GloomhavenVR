@@ -155,6 +155,18 @@ internal sealed class ControllerVisual
     internal static bool HasDpad => _resolved?.Dpad ?? false;
 
     /// <summary>
+    /// Identify the device WITHOUT showing anything. Since the 2026-09-02 ruling the models are
+    /// only up while a step actually asks for a key press, but the very first card names the
+    /// device in words ("your {0} controllers") — so the name has to be resolved before the first
+    /// model ever appears. Idempotent; the log line still happens exactly once per session.
+    /// </summary>
+    internal static void EnsureResolved(VRHand? hand)
+    {
+        if (hand != null)
+            ResolveDevice(hand);
+    }
+
+    /// <summary>
     /// Which recognised controller is connected. Falls back to a neutral generic device for
     /// anything the table does not know — and the Steam Frame reaches the generic MODEL by a
     /// different route: it IS recognised, but no openly licensed model of it exists (see the

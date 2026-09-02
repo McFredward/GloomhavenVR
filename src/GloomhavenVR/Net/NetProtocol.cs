@@ -416,7 +416,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 342;
+    public const ushort ModBuild = 343;
     // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //
@@ -1327,6 +1327,9 @@ internal static class NetProtocol
     //     4. NEXT on a step, SKIP mid-lesson: hands must come straight back, both times.
     //     5. OFF -- [Compat] ControlsLesson = false -- no panel, no controllers, tutorial as before.
     //     6. IF YOU HAVE A SECOND HEADSET: an Index or a Pico should show its own model.
+    //   SUPERSEDED BY BUILD 343 in two ways, and this note is left as written because it is the
+    //   record of what shipped THEN: there is no separate panel any more (the lesson lives in the
+    //   game's own tutorial box), and the controller models are no longer up for the whole lesson.
     //
     // Build 323: CHESTS, GOLD, TRAPS AND OBSTACLES GO IN THE HAND - THROUGH THE FIGURE MACHINERY.
     // *** DLL-ONLY INSTALL. No bundle change: 70,204,340 bytes. NO NEW WIRE FIELD. ***

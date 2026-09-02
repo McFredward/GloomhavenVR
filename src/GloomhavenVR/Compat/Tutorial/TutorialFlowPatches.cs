@@ -40,14 +40,32 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             if (!TutorialVR.Enabled || !TutorialVR.IsTutorialActive)
                 return;
 
-            // The controls phase. Queued rather than started: the hands, the asset bundle and
-            // the panel machinery all come up over the first second of a scenario. It runs
-            // ALONGSIDE the scripted chain dumped below and touches none of it.
-            ControlsTutorial.RequestForTutorial();
+            // Scenario boundary for the controls phase — anything still open belongs to the level
+            // that just ended (this postfix is the one point where a new scripted level begins).
+            ControlsTutorial.Reset();
 
             var sb = new StringBuilder(2048);
             List<CLevelMessage>? msgs = __instance.m_MessagesToShow;
             int n = msgs?.Count ?? 0;
+            // Does this level open with a story dialogue, and which one? The controls lesson takes
+            // the game's tutorial box over at exactly the moment that dialogue is dismissed —
+            // which is the display trigger of the first box the tutorial itself would open (flow
+            // dump: TB_2_1 waits on LevelMessageDismissed ctxId='TB_1'). Read from the
+            // controller's own queue, in queue order and by NAME: the tutorial carries a SECOND
+            // StoryDialog at the very end (TB_25), so "any story dialogue" would also match the
+            // closing one, and waiting for a dialogue this level never queues is how a lesson
+            // silently never runs.
+            string? openingDialog = null;
+            for (int i = 0; i < n; i++)
+                if (msgs![i] != null
+                    && msgs[i].LayoutType == CLevelMessage.ELevelMessageLayoutType.StoryDialog)
+                {
+                    openingDialog = msgs[i].MessageName;
+                    break;
+                }
+            // Queued rather than started: the hands, the asset bundle and the message handler all
+            // come up over the first second of a scenario.
+            ControlsTutorial.RequestForTutorial(openingDialog);
             sb.Append($"Tutorial flow dump — {n} scripted message(s) queued "
                 + "(display trigger ⇒ shows the hint; dismiss trigger ⇒ closes it):");
             for (int i = 0; i < n; i++)
@@ -135,6 +153,11 @@ internal static class LevelEventsController_MessageWasDismissed_Patch
             TutorialVR.InvalidateWaitCache();
             VRLog.Info("Tutorial", $"hint DISMISSED '{messageDismissed.MessageName}' — "
                 + "the next pending display trigger is now the active wait.");
+            // THE CONTROLS LESSON'S SLOT. FIRST, because the dismissal it waits for is the
+            // tutorial's opening STORY DIALOGUE and it engages the chain hold from inside this
+            // very call — before ProcessEvent gets to walk m_MessagesToShow for the follow-up
+            // box. It runs at most once per scenario and is inert for every other dismissal.
+            ControlsTutorial.NoteMessageDismissed(messageDismissed);
             // ARM the mod-owned follow-up step (no separate Harmony patch needed: this postfix
             // already sees every dismissal). It only records the moment — TutorialGrabStep.Tick
             // does the showing once the handover has settled and the strip is provably free.

@@ -29,16 +29,33 @@ internal readonly struct ControlsStep
 
     /// <summary>The step depends on something the room may not be offering right now (an open
     /// window to reel, a card in hand). It is still shown and still checked — it simply must not
-    /// be the thing that strands a player, so the panel offers "skip" from the first frame
+    /// be the thing that strands a player, so the box offers "skip" from the first frame
     /// instead of after a delay.</summary>
     internal readonly bool Situational;
 
-    internal ControlsStep(ControlAction action, string id, string? key, float target = 1f,
-                          bool situational = false, string? keyNameId = null)
+    /// <summary>
+    /// THIS STEP ASKS FOR, OR DEMONSTRATES, A KEY (user ruling 2026-09-02: <i>"Die 3D-meshes der
+    /// Controller sollen NUR dann angezeigt werden wenn eine Aufgabe des Tutorials gerade etwas
+    /// verlangt oder zeigt das man etwas drücken muss mit den entsprechenden Highlights."</i>).
+    ///
+    /// <para>It is DECLARED per step rather than derived from <see cref="Key"/> being non-null,
+    /// and that is the point of it: the two happen to agree for every row of the table today, but
+    /// they are different facts. "Which key do I light" is about the model; "does this step show
+    /// the player a press at all" is about the lesson. A future step could name a key only in
+    /// words (a chord the model cannot show), or show the device for a step that lights nothing —
+    /// and inferring one from the other would silently get such a step wrong.
+    /// <see cref="ControlsTutorial"/> asserts the two agree and says so in the log if they do
+    /// not.</para>
+    /// </summary>
+    internal readonly bool ShowsController;
+
+    internal ControlsStep(ControlAction action, string id, string? key, bool showsController,
+                          float target = 1f, bool situational = false, string? keyNameId = null)
     {
         Action = action;
         Id = id;
         Key = key;
+        ShowsController = showsController;
         Target = target;
         Situational = situational;
         KeyNameId = keyNameId;
@@ -79,11 +96,14 @@ internal static class ControlsLesson
 {
     internal static readonly ControlsStep[] Steps =
     {
-        new(ControlAction.None, "ctl_welcome", null),
+        // THE CONTROLLER MESHES ARE OFF HERE, and on for every step that lights a key. The
+        // welcome and the closing card ask for nothing and show no press, so the player sees
+        // their own hands (user ruling 2026-09-02).
+        new(ControlAction.None, "ctl_welcome", null, showsController: false),
 
         // --- what you cannot play without -------------------------------------------------
-        new(ControlAction.LaserClick, "ctl_laser", ControllerKey.Trigger),
-        new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger),
+        new(ControlAction.LaserClick, "ctl_laser", ControllerKey.Trigger, showsController: true),
+        new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger, showsController: true),
 
         // GETTING ABOUT, ALL FOUR TOGETHER AND ONE-HANDED FIRST (user, 2026-08-29: fly and turn
         // belong straight after the drag). Drag moves the TABLE, fly and turn move YOU, and those
@@ -91,29 +111,38 @@ internal static class ControlsLesson
         // stick. The two-handed zoom and rotate come after, because they are a different gesture
         // (both sticks clicked in at once) and asking for it before the one-handed stick is
         // understood is what makes the stick feel like five unrelated controls.
-        new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick, target: 0.25f),
-        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick, target: 0.8f),
-        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, target: 20f),
-        new(ControlAction.WorldZoom, "ctl_zoom", ControllerKey.Thumbstick, target: 0.35f),
-        new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick, target: 25f),
+        new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick, showsController: true,
+            target: 0.25f),
+        new(ControlAction.Fly, "ctl_fly", ControllerKey.Thumbstick, showsController: true,
+            target: 0.8f),
+        new(ControlAction.SnapTurn, "ctl_turn", ControllerKey.Thumbstick, showsController: true,
+            target: 20f),
+        new(ControlAction.WorldZoom, "ctl_zoom", ControllerKey.Thumbstick, showsController: true,
+            target: 0.35f),
+        new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick, showsController: true,
+            target: 25f),
 
         // --- the game ---------------------------------------------------------------------
-        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger, situational: true),
-        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, situational: true),
+        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger, showsController: true,
+            situational: true),
+        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, showsController: true,
+            situational: true),
 
         // --- conveniences -----------------------------------------------------------------
-        new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze, situational: true),
-        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, situational: true),
-        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, situational: true,
-            keyNameId: "ctl_key_primary"),
-        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary,
+        new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze,
+            showsController: true, situational: true),
+        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, showsController: true,
+            situational: true),
+        new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, showsController: true,
+            situational: true, keyNameId: "ctl_key_primary"),
+        new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary, showsController: true,
             keyNameId: "ctl_key_secondary"),
         // LAST, and on purpose: it is the card that hands the player everything else. The closing
         // card then points at the settings they have just seen how to reach.
-        new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary,
+        new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary, showsController: true,
             keyNameId: "ctl_key_primary"),
 
-        new(ControlAction.None, "ctl_done", null),
+        new(ControlAction.None, "ctl_done", null, showsController: false),
     };
 
     /// <summary>Progress of the running step, 0..1, for the panel's bar. A discrete step is
