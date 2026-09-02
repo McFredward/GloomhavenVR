@@ -87,6 +87,16 @@ internal static partial class Defaults
     //                      recorded, write level-triggered, restored on stand-down.
     internal const float MapPartyMarkerScale = 2.76815f;                     // => [MapRoom] PartyMarkerScale
     internal const float MapPathWidthScale = 2.72753f;                       // => [MapRoom] PathWidthScale
+    // THE MOUSEOVER ANIMATION ON A MAP SYMBOL, OFF BY DEFAULT (user, 2026-09-03: "Bitte
+    // deaktiviere die animationen für das mouseover im Kartenraum wenn ich über ein Kartensymbol
+    // hovere - an der Stelle möchte ich es nicht."). FALSE IS THE REQUEST, not a conservative
+    // guess: he asked for the animations gone, so the shipped build must be the build he asked
+    // for and the dial exists only so a taste ruling on a visual can be taken back without a new
+    // build. It suppresses exactly two of the four things MapLocation.Highlight does on a hover
+    // (decompiled MapLocation.cs:525-555) — the 20 % scale pop on MeshParent and the
+    // NodeHoverIndicator particle effect — and leaves the highlight sprite, the highlighted decal
+    // material and the whole quest-preview card alone. See WorldUI/MapRoom/MapIconHoverAnimation.
+    internal const bool MapHoverAnimation = false;                           // => [MapRoom] HoverAnimation
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
     internal const float MaskedReaimHeadRate = 30f;                          // => [Rig] MaskedReaimHeadRate
     internal const float MaskedReaimGain = 0.15f;                            // => [Rig] MaskedReaimGain

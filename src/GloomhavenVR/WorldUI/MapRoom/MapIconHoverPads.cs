@@ -87,6 +87,19 @@ internal sealed class MapIconHoverPads
     /// the hover target would inflate 20% as soon as it was acquired and shrink again as soon as it
     /// was lost, which is a latch that makes a hover both harder to leave and able to reach over a
     /// neighbour's icon while it lasts.
+    ///
+    /// <para>ModBuild 365 — STILL LIVE CODE, AND STILL LOAD-BEARING, but it is no longer the
+    /// unconditional divide it was. The user asked for the mouseover animation to stop ("Bitte
+    /// deaktiviere die animationen für das mouseover im Kartenraum…"), and with
+    /// <c>[MapRoom] HoverAnimation</c> off — the shipped default — a HOVER's inflation is put back
+    /// in the same frame it is made (<see cref="MapIconHoverAnimation"/>). Dividing by 1.2 anyway
+    /// would then make every hovered pad 17% SMALLER than the icon it shadows, which is the
+    /// ModBuild 188 defect re-opened from the other side. A SELECTION still inflates, because the
+    /// suppression is deliberately hover-only — so the question "is this icon inflated right now"
+    /// is no longer answerable from <c>IsHighlighted</c> alone and is asked of
+    /// <see cref="MapIconHoverAnimation.IsInflated"/>, which is the one place that knows the
+    /// policy. The factor is NOT retired: with the dial on it is exactly the pre-364 arithmetic,
+    /// and it is what keeps the pads honest if the animation ever comes back.</para>
     /// </summary>
     private const float HighlightedNodeScaleFactor = 1.2f;
 
@@ -236,13 +249,14 @@ internal sealed class MapIconHoverPads
 
     /// <summary>
     /// The drawn footprint: <c>decal.lossyScale.xz</c> — the value <see cref="MapIconLayer"/> feeds
-    /// its quad matrix — with the highlight inflation divided back out (see
-    /// <see cref="HighlightedNodeScaleFactor"/>) and the pad's thickness on Y.
+    /// its quad matrix — with the highlight inflation divided back out WHEN IT IS ACTUALLY THERE
+    /// (see <see cref="HighlightedNodeScaleFactor"/> and
+    /// <see cref="MapIconHoverAnimation.IsInflated"/>) and the pad's thickness on Y.
     /// </summary>
     private static Vector3 FootprintOf(Transform decal, MapLocation loc)
     {
         Vector3 ds = decal.lossyScale;
-        float inflate = loc != null && loc.IsHighlighted ? HighlightedNodeScaleFactor : 1f;
+        float inflate = MapIconHoverAnimation.IsInflated(loc) ? HighlightedNodeScaleFactor : 1f;
         // ModBuild 189 — THE PAD IS THE DRAWN ICON, SO IT TAKES THE SIZE DIAL TOO. The user asked
         // for the map symbols to be enlargeable ("Die Symbole auf der Map sind sehr klein"), and
         // MapIconLayer multiplies each drawn quad by a size dial. This class's whole contract is

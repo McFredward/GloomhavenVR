@@ -282,6 +282,15 @@ internal static partial class Loc
                 Pair("3D map: party marker", "Karte 3D: Gruppen-Marker"),
             ["MapRoom/PathWidthScale"] =
                 Pair("3D map: route width", "Karte 3D: Wegbreite"),
+            // THE ONE MAP-ROOM ROW THAT IS NOT A SIZE (ModBuild 365, user 2026-09-03: "Bitte
+            // deaktiviere die animationen für das mouseover im Kartenraum wenn ich über ein
+            // Kartensymbol hovere - an der Stelle möchte ich es nicht."). Same "Karte 3D: …"
+            // family as the five dials above, because the player finds it under the same heading;
+            // the second half says WHICH thing rather than which map, for the same reason
+            // PartyMarkerScale and PathWidthScale do. 26 characters including the prefix, inside
+            // the ~28 the caption column keeps before it clips.
+            ["MapRoom/HoverAnimation"] =
+                Pair("3D map: symbol animation", "Karte 3D: Symbol-Animation"),
             // THE MAP ROOM'S CARD HAND (ModBuild ~188). Its config KEY lives in the [WorldUI]
             // section — it is bound on worldui's file by the code that owns it — but the FEATURE
             // is the 3D map room's, so it is named here with its two siblings and carries the

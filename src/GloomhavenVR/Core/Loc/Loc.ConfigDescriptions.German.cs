@@ -1276,6 +1276,23 @@ internal static partial class Loc
                 + "und wird kein glattes Band. Wie beim Gruppen-Marker wird hier etwas am Kartenobjekt des "
                 + "Spiels geändert; beim Verlassen wird es exakt zurückgesetzt, und an "
                 + "Mitspieler geht nichts. Wirkt sofort, ohne Neustart.",
+            // DER EINZIGE [MapRoom]-EINTRAG, DER KEINE GRÖSSE IST (ModBuild 365, user 2026-09-03:
+            // "Bitte deaktiviere die animationen für das mouseover im Kartenraum wenn ich über ein
+            // Kartensymbol hovere - an der Stelle möchte ich es nicht."). Der erste Satz sagt, dass
+            // die Vorgabe AUS ist und dass das so gewünscht war — eine Geschmacksentscheidung
+            // gehört an die Stelle, an der sie zurückgenommen werden kann. Der zweite sagt
+            // ausdrücklich, was NICHT verschwindet (Hervorhebung, Quest-Karte, Klick), weil genau
+            // diese Sorge einen Spieler den Regler wieder anschalten ließe. Eingesammelte Länge
+            // nach ConfigCatalog.Collapse: 611 (Grenze 620), gemessen, nicht geschätzt.
+            ["MapRoom/HoverAnimation"] =
+                "MOUSEOVER-ANIMATION eines Ortssymbols im 3D-Kartenraum. Standardmäßig AUS, wie "
+                + "gewünscht: Ein Symbol, auf das du zeigst, springt nicht mehr. Das Anvisieren "
+                + "bleibt unverändert — das Symbol wird weiterhin hervorgehoben, seine Quest-Karte "
+                + "erscheint weiterhin darüber und der Trigger wählt es aus. Weg ist nur die "
+                + "Bewegung: Das Spiel vergrößert das Symbol beim Anvisieren um 20% und startet "
+                + "einen Partikeleffekt darauf; beides wird sofort zurückgenommen. Der unbewegte "
+                + "Teil — Leuchtring und hellere Grafik — bleibt, damit du siehst, worauf du "
+                + "zeigst. Einschalten holt sie zurück. Wirkt sofort, nur im 3D-Kartenraum.",
             ["Rig/WorldTiltDegrees"] =
                 "ALT — ohne Wirkung (Funktion 2026-08 auf Nutzerwunsch GEPARKT: die Weltneigung machte zu "
                 + "viele Probleme und ist vorerst abgeschaltet; sie kommt eventuell später wieder). Das war "

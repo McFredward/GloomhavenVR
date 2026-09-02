@@ -196,6 +196,27 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<float> MapPathWidthScale = null!;
 
     /// <summary>
+    /// [MapRoom] Whether a map symbol still PLAYS ITS MOUSEOVER ANIMATION in the 3D map room.
+    /// OFF by default, which is the state the user asked for in those words (2026-09-03: "Bitte
+    /// deaktiviere die animationen für das mouseover im Kartenraum wenn ich über ein Kartensymbol
+    /// hovere - an der Stelle möchte ich es nicht.").
+    ///
+    /// <para>The hover ITSELF is untouched - the symbol still highlights, the quest card still
+    /// appears above it and the click still selects. What stops is the movement:
+    /// <c>MapLocation.Highlight</c> (decompiled MapLocation.cs:525-555) scales the symbol's
+    /// <c>MeshParent</c> to 1.2x and switches on a <c>NodeHoverIndicator</c> particle effect the
+    /// moment a hover starts, and those two are put straight back. The highlight sprite and the
+    /// highlighted decal material - the still, non-moving half of the same reaction - stay, because
+    /// removing them would remove the hover indication he did not ask to lose.</para>
+    ///
+    /// <para>3D MAP ROOM ONLY: the suppression is gated on <c>MapRoomDriver.Active</c>, so with
+    /// [Rig] Vanilla2DMap on (the flat 2D campaign map) the game animates exactly as it always
+    /// has. Local presentation only - no game state is written, and nothing about a hover reaches
+    /// another player. See <c>WorldUI/MapRoom/MapIconHoverAnimation</c>.</para>
+    /// </summary>
+    internal static ConfigEntry<bool> MapHoverAnimation = null!;
+
+    /// <summary>
     /// [Rig] Demeo-style world tilt (degrees, 0-60) — FEATURE PARKED (user ruling 2026-08:
     /// "macht zu viele Probleme, vorerst entfernen"). The entry stays bound so a tuned value
     /// survives in the .cfg, but the runtime clamps the effective tilt to 0
@@ -653,6 +674,28 @@ public class Plugin : BaseUnityPlugin
                 + "is put back exactly as it was the moment you leave the room, and it is never "
                 + "sent to other players. Applies live, no restart.",
                 new AcceptableValueRange<float>(0.5f, 4f)));
+        // THE ONE [MapRoom] DIAL THAT IS NOT A SIZE (user, 2026-09-03: "Bitte deaktiviere die
+        // animationen für das mouseover im Kartenraum wenn ich über ein Kartensymbol hovere - an
+        // der Stelle möchte ich es nicht."). Same section as the five size dials because it is the
+        // same room and folds under the same [Rig] Vanilla2DMap switch, but it ships FALSE - the
+        // default IS the request, and the dial exists only so a taste ruling on a visual can be
+        // taken back without waiting for a build.
+        MapHoverAnimation = Config.Bind(
+            "MapRoom", "HoverAnimation", Defaults.MapHoverAnimation,
+            // WRITTEN AGAINST ConfigCatalog.MaxDescriptionChars = 620 AND MEASURED, not estimated:
+            // 611 characters after ConfigCatalog.Collapse's whitespace rule. The five [MapRoom]
+            // size dials above shipped at 1062 and 772 and were clipped mid-word in the headset,
+            // and the reader lost exactly the closing sentences — so this one was cut to fit
+            // before it shipped rather than after a report.
+            new ConfigDescription(
+                "MOUSEOVER ANIMATION of a location symbol in the 3D map room. OFF by default, as "
+                + "asked: a symbol you point at no longer jumps. The hover itself is untouched — "
+                + "the symbol still highlights, its quest card still appears above it and the "
+                + "trigger still selects it. Only the movement stops: the game grows the symbol "
+                + "20% the instant you point at it and starts a particle effect on it, and both "
+                + "are put straight back. The still half — glow ring and brighter artwork — "
+                + "stays, so you still see what you point at. Turn it on for the game's original "
+                + "behaviour. Applies live, 3D map room only; the flat 2D map is unaffected."));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(

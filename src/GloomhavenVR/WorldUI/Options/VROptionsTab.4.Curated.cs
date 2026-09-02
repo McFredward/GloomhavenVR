@@ -830,6 +830,29 @@ internal static partial class VROptionsTab
                         // the box. Empty caption key: the localized name and the German description
                         // carry the row.
                         new("WorldUI", "MapRoomHand", ""),
+                        // THE MOUSEOVER ANIMATION ON A MAP SYMBOL (user, 2026-09-03: "Bitte
+                        // deaktiviere die animationen für das mouseover im Kartenraum wenn ich
+                        // über ein Kartensymbol hovere - an der Stelle möchte ich es nicht.").
+                        //
+                        // FILED BY WHAT THE PLAYER LOOKS AT, which is the map room — the same
+                        // heading as the switch that decides there IS a map room and as the room's
+                        // card hand, one row up. Filing it by its owning file would have put it
+                        // under a hover/pointer heading, where nobody tuning the 3D map would
+                        // look; that is the ModBuild 340 defect ("Weiterhin finde ich den offset
+                        // für die healthbar nicht") in its general form.
+                        //
+                        // IT IS NOT A SIZE DIAL, so the standing ruling that sent the five
+                        // [MapRoom] size dials to Erweitert ("Symbolgrößen gehören ins ERWEITERT
+                        // Menü!", ModBuild 196) does not reach it and is not being re-litigated:
+                        // this is a yes/no about whether a thing MOVES, the same kind of row as
+                        // the two above it. It folds under Vanilla2DMap == Off with the rest of
+                        // its section (VROptionsTab.8.Dependencies' [MapRoom] section rule), so it
+                        // is only ever on screen while there is a map room for it to act in.
+                        //
+                        // Empty caption key: the localized display name ("Karte 3D: Symbol-
+                        // Animation") and the German description carry the row, exactly like
+                        // MapRoomHand above.
+                        new("MapRoom", "HoverAnimation", ""),
                         // NOT HERE, and neither is on this page by accident:
                         //   * the five [MapRoom] SIZE dials — "Symbolgrößen gehören ins ERWEITERT
                         //     Menü!" (user ruling, hardware, ModBuild 196). They are Erweitert ▸

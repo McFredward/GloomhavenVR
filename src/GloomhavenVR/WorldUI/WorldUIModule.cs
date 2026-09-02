@@ -68,6 +68,15 @@ internal sealed class WorldUIModule : IVRModule
         // camera's screen centre and would cancel the laser's hover every frame. Pure early-out,
         // keyed on MapRoomDriver.Active — inert in every other scene.
         VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
+        // User request 2026-09-03: "Bitte deaktiviere die animationen für das mouseover im
+        // Kartenraum wenn ich über ein Kartensymbol hovere - an der Stelle möchte ich es nicht."
+        // MapLocation.Highlight pops the symbol to 1.2x and starts a NodeHoverIndicator particle
+        // effect the instant a hover begins; the postfix puts both back and leaves the highlight
+        // sprite, the highlighted material, the quest preview card and the navigation alone.
+        // Gated on MapRoomDriver.Active and on [MapRoom] HoverAnimation (ships off = his request),
+        // so it is inert on the flat 2D map and in every other scene.
+        // See MapLocationHoverAnimationGate and WorldUI/MapRoom/MapIconHoverAnimation.
+        VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationHoverAnimationGate));
         // ModBuild 188: the game's character-display refcount is respected by exactly ONE of the
         // four things Hide() does — beautify.enabled. isHidden, the model SetActive(false) and
         // HideAll's unload all fire for any requester, and Display's early-return path never takes
