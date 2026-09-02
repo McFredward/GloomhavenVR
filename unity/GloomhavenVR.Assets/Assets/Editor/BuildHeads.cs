@@ -32,6 +32,11 @@ namespace GloomhavenVR
         private const string Head = "Assets/Bundle/Head";
         private const string ShaderName = "GloomhavenVR/HeadUnlit"; // self-contained, bundled, unlit
 
+        /// <summary>The mask height contract, in metres. See the assertion in AssemblePrefab for
+        /// why this is a unit check with a wide band rather than a size opinion.</summary>
+        private const float MinHeightMetres = 0.10f;
+        private const float MaxHeightMetres = 0.60f;
+
         private struct HeadDef { public string Fbx, Albedo, Mat, Prefab, Root; }
 
         // Deterministic filename->prefab mapping (prep sorts the GLBs ascending:
@@ -77,7 +82,21 @@ namespace GloomhavenVR
         {
             var importer = (ModelImporter)AssetImporter.GetAtPath(d.Fbx)
                            ?? throw new FileNotFoundException($"Model importer not found for {d.Fbx}.");
-            importer.useFileScale = true;      // FBX authored in metres (~0.22 m tall)
+            // THE DECLARED UNIT IS NOT TRUSTED (2026-09-02). useFileScale makes Unity honour the
+            // FBX's own UnitScaleFactor header, and a delivery is free to declare whatever its
+            // exporter felt like. The shipped Mask_0/Mask_1 declare 100 (centimetres); the new
+            // Grimhorn delivery declares 1 (metres) — with IDENTICAL vertex coordinates, which
+            // Blender confirms reads 0.230 x 0.114 x 0.220 m for both. Unity scales by
+            // UnitScaleFactor/100, so the same mesh imported at 0.220 m and at 0.0022 m: a mask
+            // one hundred times too small, and nothing about it would have looked like an error
+            // until somebody put the headset on.
+            //
+            // The contract has always been "the vertex data is metres, ~0.22 m tall" (the Blender
+            // prep bakes it). So take the vertex data at face value and ignore what the file
+            // CLAIMS about its units. Both shipped masks are unaffected: their raw coordinates are
+            // the same 0.22, so they import at the same size they always did — which the height
+            // assertion in AssemblePrefab now proves rather than prints.
+            importer.useFileScale = false;
             importer.globalScale = 1f;
             importer.importCameras = false;
             importer.importLights = false;
@@ -164,6 +183,25 @@ namespace GloomhavenVR
                 Vector3 localCenter = root.transform.InverseTransformPoint(b.center);
                 Debug.Log($"[GloomhavenVR]   {d.Root} world-bounds size={b.size:F3} (height={b.size.y:F3} m), " +
                           $"center rel. to eye-pivot={localCenter:F3} (face should extend +Z, up +Y)");
+
+                // AND THE HEIGHT IS NOW ASSERTED, NOT MERELY PRINTED (2026-09-02). The line above
+                // already reported the Grimhorn delivery at 0.002 m against the other two masks'
+                // 0.220 m, and a printed number that nothing checks is a number nobody reads until
+                // the round is wasted. A mask is worn at the tracked head pose: too small is
+                // invisible, too large swallows the player's view. Both are silent in every gate
+                // this repository has except this one.
+                //
+                // The band is generous on purpose — it is a UNIT check, not a size opinion. An
+                // artist retouching the silhouette moves this by centimetres; a wrong unit header
+                // moves it by a factor of a hundred.
+                if (b.size.y < MinHeightMetres || b.size.y > MaxHeightMetres)
+                    throw new System.Exception(
+                        $"Head '{d.Root}' imported {b.size.y:F4} m tall, outside the "
+                        + $"{MinHeightMetres:F2}..{MaxHeightMetres:F2} m contract (the other masks "
+                        + "are ~0.22 m). A factor of ~100 here means the FBX declares a different "
+                        + "UnitScaleFactor than its vertex data implies — check the header rather "
+                        + "than rescaling the mesh, because the vertex data is almost certainly "
+                        + "already correct. Source: " + d.Fbx);
             }
 
             var saved = PrefabUtility.SaveAsPrefabAsset(root, d.Prefab, out bool ok);

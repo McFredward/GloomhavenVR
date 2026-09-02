@@ -479,6 +479,15 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             _adoptions[interactable] = adopted;
         }
 
+        // PROPS get their own discovery pass over a DIFFERENT registry, and it runs HERE, ABOVE the
+        // prune's early-out. It used to sit below it. That guard exists to skip a walk over an
+        // empty dictionary -- but it also returned before this call, so in any frame where no
+        // FIGURE had yet been adopted no prop was looked for either (a board of props and no
+        // miniatures, and every frame of a scenario load before the first figure lands). Nothing in
+        // the prune depends on the props having been adopted first, so the move is free.
+        AdoptProps();
+        LogPropCensus();
+
         // Prune figures whose collider/actor died (actor removed / scene unloading).
         if (_adoptions.Count == 0)
             return;
@@ -492,8 +501,6 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         }
         for (int i = 0; i < _scratch.Count; i++)
             Drop(_scratch[i]);
-
-        AdoptProps();
 
         // REACH VOLUMES ride the registry tick rather than becoming an eighth step in
         // FigureGrabDriver.Update's locked frame order: they are part of keeping the adoption set
@@ -538,6 +545,54 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// picking — it exists only for the proximity election to measure against. That mirrors what
     /// <see cref="SizeReachVolume"/> already does for a figure whose authored collider is too
     /// small.</para>
+    ///
+    /// <para><b>CORRECTION (ModBuild 335, after the hardware report "Ich kann keine Hindernisse,
+    /// Goldhaufen oder Truhen in die Hand nehmen ... auch wird mir kein highlighting angezeigt").
+    /// TWO of the premises above are FALSE, and each one alone is enough to explain the
+    /// report.</b></para>
+    ///
+    /// <para>(1) <b>A PROP IS NOT IN <c>m_ClientObjects</c> UNLESS IT HAS HEALTH.</b> Every add to
+    /// that list is <c>CreateCharacterActor(tile, CObjectActor)</c> over
+    /// <c>ScenarioManager.Scenario.Objects</c> (Choreographer.cs:1453-1460, :13433-13440,
+    /// SummonSMB.cs:114, LevelEditorController.cs:2013) -- so an entry exists only where a
+    /// <c>CObjectActor</c> exists. A prop gets one ONLY through CMap.cs:502-518, which is guarded
+    /// by <c>if (forLevelEditor || prop.PropHealthDetails == null ||
+    /// !prop.PropHealthDetails.HasHealth) continue;</c>, and <c>CObjectActor.SetAttachedToProp</c>
+    /// (CObjectActor.cs:99-104) refuses outright for a prop that is "not configured for health
+    /// Correctly". <c>CObjectChest</c> carries items, gold and XP and no health at all; the same
+    /// holds for gold piles, quest items and resources, and for every obstacle the scenario did
+    /// not make destructible. Those props therefore have NO actor, are in NO Choreographer list,
+    /// and this pass has never seen a single one of them.</para>
+    ///
+    /// <para>(2) <b>THE ENTRY FOR A PROP THAT DOES HAVE HEALTH IS NOT THE PROP.</b> It is a
+    /// separate, INVISIBLE <c>PropDummyObject</c> character standing on the hex
+    /// (PropHealthDetails.cs:161, CClass.ENPCModel.PropDummyObject at CClass.cs:178) -- the game
+    /// itself has to go and fetch the real mesh's outline from the prop when it wants to highlight
+    /// one (Choreographer.cs:933-936 and :1118-1121 fall back to
+    /// <c>ObjectCacheService.GetPropObject(cObjectActor.AttachedProp)</c>). Adopting the dummy
+    /// gives a grabbable that draws nothing: no hover tint (FigureHighlight builds its overlay
+    /// from renderers, and there are none), and a grab that moves an empty transform while the
+    /// rock stays on the board. That is the second half of the report, exactly as written.</para>
+    ///
+    /// <para><b>WHERE THE PROPS REALLY LIVE:</b> <c>ObjectCacheService._propsCache</c>
+    /// (<c>Dictionary&lt;CObjectProp, GameObject&gt;</c>), written by every prop-instantiating site
+    /// (Choreographer.SpawnProp:13159, PlaceRandomProps:15459, DelayedDropSMB.cs:181,
+    /// UnityGameEditorRuntime.cs:784/:832, ClientScenarioManager.cs:220) and read back with
+    /// <c>GetPropObject(prop)</c>. The enumerable half is
+    /// <c>ScenarioManager.CurrentScenarioState.Props</c>. Adopting from there is NOT something this
+    /// file can do on its own: a prop GameObject has no <c>ActorBehaviour</c> anywhere in its
+    /// subtree, and <see cref="FigureGrabbable"/> is an ActorBehaviour wrapper end to end (its
+    /// <c>Root</c> is <c>_actor.m_RootGameObject</c>, its hold goes through
+    /// <c>HeldFigures</c>/<c>NetHeldFigures</c>, and both wire slots key on an ActorGuid a prop
+    /// does not have). See <see cref="LogPropCensus"/> for the instrument that measures all of
+    /// this on the next hardware run, and this round's report for the cross-file work.</para>
+    ///
+    /// <para>WHAT THIS PASS STILL DOES, therefore: it keeps the whitelist (now stated in terms that
+    /// survive a state copy -- see <see cref="IsLiftableProp"/>) and it refuses to adopt an actor
+    /// that DRAWS NOTHING. That refusal is the behaviour change: an invisible prop dummy carrying
+    /// the actor prefab's 1 x 2 x 1 capsule was a silent grab target sitting on the board, close
+    /// enough to steal a proximity election from a real miniature on a neighbouring hex, and it
+    /// could never have been seen, highlighted or lifted.</para>
     /// </summary>
     private void AdoptProps()
     {
@@ -558,7 +613,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             ActorBehaviour actor = ActorBehaviour.GetActorBehaviour(go);
             if (actor == null || _adoptions.ContainsKey(actor))
                 continue;
-            if (!IsLiftable(ActorBehaviour.GetActor(go)))
+            if (!IsLiftable(actor.Actor))
+                continue;
+            // DRAWS NOTHING => NOT A THING A HAND CAN HOLD. See the correction in this method's
+            // doc: the m_ClientObjects entry for a prop with health is an invisible PropDummyObject
+            // and not the prop's mesh, so adopting it registers a grab volume the player can
+            // neither see nor highlight, on top of a hex where a real figure may be standing.
+            if (!DrawsSomething(go))
                 continue;
 
             Collider? game = go.GetComponentInChildren<Collider>();
@@ -580,11 +641,22 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             if (!_loggedProp)
             {
                 _loggedProp = true;
-                VRLog.Info("FigureGrab", $"Props are grabbable: adopted '{go.name}' "
-                    + $"({ActorBehaviour.GetActor(go)?.GetType().Name}) through Choreographer."
-                    + "m_ClientObjects, with the SAME FigureGrabbable a miniature uses — so it gets "
-                    + "the same highlight, haptic, hold gate, stat panel and MP slot. Collider: "
-                    + (game != null ? "the prop's own." : "built from its renderer bounds (it had none)."));
+                // Note, not Info: Info is the DEBUG tier here and a default-level hardware log
+                // does not carry it -- which is exactly why ModBuild 334 came back with no
+                // evidence about this pass at all.
+                CObjectProp? adoptedProp = (actor.Actor as CObjectActor)?.AttachedProp;
+                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+                VRLog.Note("FigureGrab", $"Props are grabbable: adopted '{go.name}' "
+                    + $"({(actor.Actor != null ? actor.Actor.GetType().Name : "?")}, import type "
+                    + $"{(adoptedProp != null ? adoptedProp.ObjectType.ToString() : "n/a")}) through "
+                    + "Choreographer.m_ClientObjects, with the SAME FigureGrabbable a miniature uses "
+                    + "— so it gets the same highlight, haptic, hold gate, stat panel and MP slot. "
+                    + "Collider: "
+                    + (game != null ? "the prop's own." : "built from its renderer bounds (it had none).")
+                    + " NOTE this pass can only ever reach a prop that HAS AN ACTOR, which means one "
+                    + "with health — see the [Props] census line for how many liftable props the "
+                    + "scenario actually holds.");
             }
         }
     }
@@ -594,12 +666,225 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// <summary>Is this actor a prop a hand could pick up? See <see cref="AdoptProps"/> for why
     /// this is a whitelist.</summary>
     private static bool IsLiftable(CActor? actor)
+        => actor is CObjectActor obj && IsLiftableProp(obj.AttachedProp);
+
+    /// <summary>
+    /// THE WHITELIST, stated in the one term a state copy cannot destroy.
+    ///
+    /// <para>It used to read <c>prop is CObjectChest or CObjectGoldPile or ...</c> -- a test on the
+    /// RUNTIME TYPE, and the runtime type of a <c>CObjectProp</c> is not safe to ask for. Every
+    /// other place the rule library copies a prop preserves the derived type with a long chained
+    /// type-switch (CTile.cs:64, ScenarioState.cs:428, CActor.cs:3676), but the one that copies
+    /// <c>CObjectActor.m_PropAttachedTo</c> does not: CObjectActor.cs:21-27 falls back to
+    /// <c>new CObjectProp(state.m_PropAttachedTo, references)</c>, so a chest that reaches that
+    /// branch comes out the other side as a PLAIN <c>CObjectProp</c> and <c>prop is CObjectChest</c>
+    /// is false. Whether it bites is traversal-order dependent (the <c>references.Get</c> on the
+    /// line above returns the correctly-typed instance if some other path registered it first),
+    /// which is exactly the kind of question a whitelist must not depend on.</para>
+    ///
+    /// <para><c>ObjectType</c> cannot be lost the same way: it is a plain enum field and the base
+    /// copy constructor -- the very one the lossy branch calls -- assigns it unconditionally on its
+    /// second line (<c>ObjectType = state.ObjectType;</c>, CObjectProp.cs:123), as does the
+    /// deserializing constructor (CObjectProp.cs:251-253) and both authoring constructors
+    /// (:339, :355). The game's own rules ask the same question the same way -- see
+    /// <c>ScenarioState.ChestProps</c>/<c>DoorProps</c>/<c>ResourceProps</c> (ScenarioState.cs:94-100)
+    /// and the loot branch in <c>CObjectProp.Activate</c> (CObjectProp.cs:380).</para>
+    ///
+    /// <para>STILL A WHITELIST, and the same one the user drew ("Beschränke dich auf Dinge die man
+    /// in die Hand nehmen kann, Gelände in dem man mehr laufen muss kann man nicht in die Hand
+    /// nehmen"). <c>GoalChest</c> joins it because it is a chest the old list already meant to
+    /// cover -- <c>CObjectChest</c> is the class behind both import types. Everything else stays
+    /// out by construction: <c>Door</c>, <c>DifficultTerrain</c>-style terrain
+    /// (<c>TerrainHotCoals</c>, <c>TerrainWater</c>, <c>TerrainRubble</c>, <c>TerrainThorns</c>),
+    /// <c>PressurePlate</c>, <c>Portal</c>, <c>Spawner</c>, <c>TerrainVisualEffect</c>,
+    /// <c>Coverage</c>, <c>GenericProp</c>, <c>MonsterGrave</c>, and every non-prop type
+    /// (<c>Hero</c>, <c>Monster</c>, <c>Tile</c>, <c>EdgeTile</c>, <c>HeroSummons</c>,
+    /// <c>None</c>). A type the game adds later is not liftable until somebody decides it is.</para>
+    /// </summary>
+    private static bool IsLiftableProp(CObjectProp? prop)
     {
-        if (actor is not CObjectActor obj)
+        if (prop == null)
             return false;
-        CObjectProp? prop = obj.AttachedProp;
-        return prop is CObjectChest or CObjectGoldPile or CObjectTrap or CObjectObstacle
-                    or CObjectQuestItem or CObjectResource;
+        switch (prop.ObjectType)
+        {
+            case ScenarioManager.ObjectImportType.Chest:
+            case ScenarioManager.ObjectImportType.GoalChest:
+            case ScenarioManager.ObjectImportType.MoneyToken:
+            case ScenarioManager.ObjectImportType.Trap:
+            case ScenarioManager.ObjectImportType.Obstacle:
+            case ScenarioManager.ObjectImportType.CarryableQuestItem:
+            case ScenarioManager.ObjectImportType.Resource:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Does this object put anything on the screen? An enabled renderer with a non-degenerate world
+    /// bound anywhere in its subtree. Cheap by placement -- <see cref="AdoptProps"/> only asks it
+    /// about entries that already passed the whitelist, which is a handful per scenario.
+    /// </summary>
+    private static bool DrawsSomething(GameObject go)
+    {
+        Renderer[] renderers = go.GetComponentsInChildren<Renderer>(includeInactive: false);
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r != null && r.enabled && r.bounds.size.sqrMagnitude > 1e-8f)
+                return true;
+        }
+        return false;
+    }
+
+    // ---- PROP DISCOVERY CENSUS -------------------------------------------------------------
+    //
+    // WHY THIS EXISTS AT ALL. The last hardware round could not tell "AdoptProps rejected every
+    // prop" from "AdoptProps never ran" from "there were no props" -- because the only line it
+    // emitted was a SUCCESS line (VRLog.Info, which is the DEBUG tier and does not appear in a
+    // default-level log at all). The project already paid for that lesson twice: log the failure,
+    // not just the success, and name the thing that was rejected rather than counting it.
+    //
+    // It walks BOTH candidate registries, because the fix above is knowingly incomplete and the
+    // open question is a comparison between them: how many liftable props the scenario state holds
+    // versus how many of them ever reach Choreographer.m_ClientObjects. The diagnosis in
+    // AdoptProps predicts that second number is ZERO for chests, gold piles, quest items and
+    // resources -- one line settles it.
+
+    /// <summary>Walks this census may run per driver instance. Twelve at
+    /// <see cref="PropCensusIntervalSeconds"/> covers the first ~24 s of a scenario, which is the
+    /// whole of the load and reveal that populates both registries, and then costs exactly nothing
+    /// for the rest of the session. A registry walk is NOT free (findobjectsoftype-is-the-default-
+    /// suspect: "near-free" has shipped as a per-frame cost twice), so it gets a hard budget rather
+    /// than a cadence that runs forever.</summary>
+    private const int PropCensusWalkBudget = 12;
+
+    private const float PropCensusIntervalSeconds = 2f;
+
+    /// <summary>How many rejected entries / liftable props the line NAMES. A count alone says a
+    /// door was refused and a chest was refused in exactly the same way.</summary>
+    private const int PropCensusNamedSamples = 4;
+
+    private int _propCensusWalksLeft = PropCensusWalkBudget;
+
+    private float _nextPropCensus;
+
+    /// <summary>The last line emitted -- an unchanged census is not news and is not re-logged.</summary>
+    private string? _lastPropCensus;
+
+    private readonly List<string> _censusRejects = new(PropCensusNamedSamples);
+
+    private readonly List<string> _censusProps = new(PropCensusNamedSamples);
+
+    /// <summary>
+    /// One INFO-tier line naming what prop discovery found and what it threw away. Deliberately
+    /// <c>VRLog.Note</c> and not <c>VRLog.Info</c>: in this project Info is the DEBUG tier and is
+    /// absent from a default-level log, which is why the ModBuild 334 hardware log carried none of
+    /// this subsystem's diagnostics.
+    /// </summary>
+    private void LogPropCensus()
+    {
+        if (_propCensusWalksLeft <= 0)
+            return;
+        Choreographer? ch = Choreographer.s_Choreographer;
+        if (ch == null)
+            return;                       // no board yet: not a walk, and not a spent budget
+        float now = Time.unscaledTime;
+        if (now < _nextPropCensus)
+            return;
+        _nextPropCensus = now + PropCensusIntervalSeconds;
+        _propCensusWalksLeft--;
+
+        // --- registry 1: the object ACTORS this pass adopts from.
+        int entries = 0, withBehaviour = 0, liftable = 0, drawing = 0, adopted = 0;
+        _censusRejects.Clear();
+        List<GameObject>? objects = ch.m_ClientObjects;
+        if (objects != null)
+        {
+            entries = objects.Count;
+            for (int i = 0; i < objects.Count; i++)
+            {
+                GameObject go = objects[i];
+                if (go == null)
+                    continue;
+                // ActorBehaviour.GetActor(GameObject) dereferences its own lookup without a null
+                // check (ActorBehaviour.cs:174-177), so it throws on anything that has none. Go
+                // through the behaviour's own Actor property instead.
+                ActorBehaviour behaviour = ActorBehaviour.GetActorBehaviour(go);
+                CActor? actor = behaviour != null ? behaviour.Actor : null;
+                CObjectProp? prop = (actor as CObjectActor)?.AttachedProp;
+                bool lift = behaviour != null && IsLiftableProp(prop);
+                bool draws = DrawsSomething(go);
+                if (behaviour != null)
+                    withBehaviour++;
+                if (lift)
+                {
+                    liftable++;
+                    if (draws)
+                        drawing++;
+                    if (behaviour != null && _adoptions.ContainsKey(behaviour))
+                        adopted++;
+                }
+                if ((lift && draws) || _censusRejects.Count >= PropCensusNamedSamples)
+                    continue;
+                _censusRejects.Add($"'{go.name}' actor={(actor != null ? actor.GetType().Name : "none")}"
+                    + $" prop={(prop != null ? prop.GetType().Name : "none")}"
+                    + $" importType={(prop != null ? prop.ObjectType.ToString() : "n/a")}"
+                    + $" behaviour={(behaviour != null ? "yes" : "NO")}"
+                    + $" liftable={(lift ? "yes" : "no")} draws={(draws ? "yes" : "NO")}");
+            }
+        }
+
+        // --- registry 2: the props the scenario state actually holds, actor or not. This is the
+        // control: it is the population registry 1 is supposed to be a view of, and the diagnosis
+        // says it is not.
+        int propTotal = 0, propLiftable = 0, propVisualFound = 0;
+        _censusProps.Clear();
+        List<CObjectProp>? props = ScenarioManager.CurrentScenarioState?.Props;
+        if (props != null)
+        {
+            propTotal = props.Count;
+            for (int i = 0; i < props.Count; i++)
+            {
+                CObjectProp prop = props[i];
+                if (!IsLiftableProp(prop))
+                    continue;
+                propLiftable++;
+                if (_censusProps.Count >= PropCensusNamedSamples)
+                    continue;
+                // The visual lookup is done for the NAMED SAMPLES ONLY: GetPropObject logs a
+                // warning of the game's own on a miss, and a census must not be the loudest thing
+                // in the log it is meant to make readable.
+                GameObject? visual = Singleton<Script.Controller.ObjectCacheService>.IsInitialized
+                    ? Singleton<Script.Controller.ObjectCacheService>.Instance.GetPropObject(prop)
+                    : null;
+                if (visual != null)
+                    propVisualFound++;
+                _censusProps.Add($"'{prop.InstanceName}' {prop.ObjectType} type={prop.GetType().Name}"
+                    + $" visual={(visual != null ? "'" + visual.name + "'" : "NOT IN ObjectCacheService")}"
+                    + $" collider={(visual != null && visual.GetComponentInChildren<Collider>() != null ? "yes" : "no")}"
+                    + $" actorBehaviour={(visual != null && ActorBehaviour.GetActorBehaviour(visual) != null ? "yes" : "NO")}");
+            }
+        }
+
+        string line = $"[Props] census: Choreographer.m_ClientObjects held {entries} entr(y/ies), "
+            + $"{withBehaviour} with an ActorBehaviour, {liftable} liftable by import type, "
+            + $"{drawing} of those drawing anything, {adopted} adopted. "
+            + $"ScenarioState.Props held {propTotal} prop(s), {propLiftable} liftable "
+            + $"({propVisualFound} of the {_censusProps.Count} sampled resolved to a GameObject). "
+            + $"GrabProps={(FigureGrabConfig.GrabPropsEnabled ? "on" : "OFF")}. "
+            + $"Refused from m_ClientObjects: {(_censusRejects.Count == 0 ? "none" : string.Join(" | ", _censusRejects))}. "
+            + $"Liftable props in the scenario state: {(_censusProps.Count == 0 ? "none" : string.Join(" | ", _censusProps))}. "
+            + "READ IT LIKE THIS: 'liftable props' far above 'liftable m_ClientObjects entries' is "
+            + "the predicted result and means the chests/gold/obstacles are real but have no actor "
+            + "to be discovered through -- a prop only gets a CObjectActor when it has HEALTH "
+            + "(CMap.cs:502), and that actor is an invisible PropDummyObject, not the mesh.";
+        if (line == _lastPropCensus)
+            return;
+        _lastPropCensus = line;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab", line);
     }
 
     /// <summary>A trigger collider sized to what the prop DRAWS, for a prop the game never gave
@@ -1654,5 +1939,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // The hold-gate's per-actor animator cache is a shortcut over these same adoptions —
         // dropped with them, exactly like _figureInteractables above.
         FigureBusy.ClearCache();
+        // The prop census is per SCENARIO, and this is the one place that means "the adoption set
+        // just ended" — a scenario teardown, or the config gate going off. Re-arming it here is
+        // what makes a re-enable (and the next board) report its own numbers instead of staying
+        // silent because the first board's line is still latched in _lastPropCensus.
+        _propCensusWalksLeft = PropCensusWalkBudget;
+        _nextPropCensus = 0f;
+        _lastPropCensus = null;
+        _loggedProp = false;
     }
 }
