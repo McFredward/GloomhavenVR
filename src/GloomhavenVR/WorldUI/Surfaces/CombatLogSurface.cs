@@ -1,5 +1,6 @@
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using UnityEngine;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
@@ -38,10 +39,13 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// first places from the persisted offsets (head-relative fallback pose when no
 /// table anchor exists yet), then freezes. FOLLOW re-derives the POSITION from
 /// the persisted offsets every tick (moves with recenters/diorama like every
-/// panel) but never the rotation. Poke always works on the pin
-/// (PokeableBehaviour self-registration); the laser reaches it through the
-/// tray's LaserTargets list while a tray exists and is visible (CardsDriver
-/// ray-tests that list — without a tray the pin is poke-only).
+/// panel) but never the rotation. Poke always works on the pin and on the X
+/// (PokeableBehaviour self-registration); SINCE ModBuild 351 THE LASER DOES TOO,
+/// AND IT NO LONGER DEPENDS ON THE CONTROL BOARD — this surface runs its own
+/// geometric scan over its own two caps (see TickCapLaser). Up to 350 both caps
+/// rode PlayTray.LaserTargets, whose scan returns immediately when the tray is
+/// hidden, so a combat log standing on its own had a close cross the laser could
+/// not press.
 ///
 /// TRANSFORM LAYOUT: holder (identity pose, localScale = diorama WorldScale)
 /// → frame (grab root at the BAR CENTER; localScale = user size factor 0.5–2)
@@ -133,7 +137,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private Transform? _pinAnchor;
     private PlayTray.BoardButton? _close;
     private Transform? _closeAnchor;
-    private PlayTray? _laserTray;
+    private PlayTray.BoardButton? _laserHover; // the cap the beam is on (this surface owns the scan)
     private float _builtBarWidth = -1f;
     private bool _placedFromConfig;
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
@@ -196,6 +200,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (Panel == null)
         {
             _placedFromConfig = false;
+            // The beam hover is dropped HERE and not only in TickCapLaser, because Place() — where
+            // the scan lives — returns before it whenever the panel is down or the table anchor is
+            // missing. A hover that survives its own control is the [[gate-outliving-its-edge]]
+            // shape: the cap would stay lit and pressed-looking with nothing behind it.
+            ClearCapLaserHover();
             if (_holder != null && _holder.gameObject.activeSelf)
                 _holder.gameObject.SetActive(false);
         }
@@ -220,7 +229,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pinAnchor = null;
         _close = null;
         _closeAnchor = null;
-        _laserTray = null;
+        ClearCapLaserHover();
         _builtBarWidth = -1f;
         _placedFromConfig = false;
         _facedPoseVersion = -1;
@@ -363,7 +372,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             _closeAnchor.localPosition = new Vector3(halfWidth - inset, topEdge - inset, -0.004f);
         }
 
-        TickPin();
+        TickCapLaser();
     }
 
     /// <summary>
@@ -424,7 +433,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pinAnchor = null;
         _close = null;
         _closeAnchor = null;
-        _laserTray = null;
+        ClearCapLaserHover();
         _builtBarWidth = -1f;
 
         var holderGo = new GameObject("GloomhavenVR.CombatLogPanel");
@@ -521,22 +530,127 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     }
 
     /// <summary>
-    /// Laser support rides the tray's LaserTargets list (CardsDriver ray-tests it
-    /// while the tray is visible); the list dies with each tray, so re-register per
-    /// tray INSTANCE. Poke needs none of this (PokeableBehaviour self-registers).
+    /// THIS PANEL'S OWN LASER SCAN OVER ITS OWN TWO KEYCAPS (FOLLOW/PINNED and the X).
+    ///
+    /// <para><b>USER RULING (ModBuild 348 multiplayer hardware test), verbatim, item 2:</b> <i>"Alle
+    /// buttons müssen auch mit dem Laser drückbar sein. … Prüfe, dass das bei allen Knöpfen der Fall
+    /// ist."</i></para>
+    ///
+    /// <para><b>WHAT WAS WRONG, AND THIS CLASS'S OWN DOC ADMITTED IT IN WRITING.</b> Up to ModBuild
+    /// 350 the two caps were handed to <c>PlayTray.RegisterLaserTarget</c>, i.e. their ONLY laser
+    /// route was the control board's scan — and that scan's first statement is
+    /// <c>if (!_tray.IsVisible …) { ClearBoardHover(); return; }</c>
+    /// (Cards/Driver/CardsDriver.3.Laser.cs:1252). The combat log is a GRABBABLE, independently
+    /// placed panel with its own show/hide seam: it is routinely up while the board is not. The
+    /// old doc said so in as many words — "without a tray the pin is poke-only" — and the same
+    /// sentence was true of the X, which is the panel's ONLY close affordance besides the settings
+    /// toggle. A panel you cannot close with the laser is the shape of a window that will not go
+    /// away, and it was one tray rebuild away even while the board WAS up: the registration was per
+    /// tray INSTANCE and the list dies with each tray.</para>
+    ///
+    /// <para><b>THE SHAPE IS <c>MapButtonRail.TickLaser</c>'s, for its reason.</b> A geometric
+    /// <c>Collider.Raycast</c> over this surface's own caps needs no physics layer and no mask, so
+    /// it cannot disturb anybody else's pick mask, and it is owned by the object that owns the
+    /// caps' lifetime — so it cannot go stale when some third party is rebuilt. The tray
+    /// registration is GONE rather than kept alongside: two scans over one collider would fight for
+    /// the hover (the press itself is debounced, the hover is not).</para>
+    ///
+    /// <para><b>PRECEDENCE.</b> A nearer uGUI hit wins (a click on a floated window's widget must
+    /// never also press a cap behind it) and so does a nearer SOLID mod surface — the control board
+    /// or a raised card fan — read off the ray's own precomputed
+    /// <c>RayInteractor.SolidOccluderDistance</c>, the same term <c>RayUguiDriver</c> uses, so this
+    /// panel is treated exactly like every other world panel standing behind the board.</para>
+    ///
+    /// <para><b>NO COMMIT GATE, DELIBERATELY.</b> The board's own laser path suppresses presses while
+    /// a blocking modal is open, because tray keycaps call game APIs directly and END TURN is not
+    /// undoable. Neither of these two caps touches the game: the X flips this mod's own
+    /// user-visible flag and the pin flips a BepInEx config key. Suppressing them under a modal
+    /// would only mean a log panel the player cannot get out of his way while he reads a dialog.
+    /// </para>
+    ///
+    /// <para><b>MULTIPLAYER: nothing here goes on the wire.</b> It is a local hit test over two
+    /// local colliders that drive two local presentation flags.</para>
     /// </summary>
-    private void TickPin()
+    private void TickCapLaser()
     {
-        if (_pin == null)
-            return;
-        PlayTray? tray = PlayTray.Current;
-        if (tray != null && !ReferenceEquals(tray, _laserTray) && _pin.Collider != null)
+        VRHand? hand = VRHands.Primary;
+        if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
         {
-            tray.RegisterLaserTarget(_pin.Collider, _pin);
-            if (_close?.Collider != null)
-                tray.RegisterLaserTarget(_close.Collider, _close);
-            _laserTray = tray;
+            ClearCapLaserHover();
+            return;
         }
+
+        hand.GetAimRay(out Vector3 origin, out Vector3 direction);
+        var ray = new Ray(origin, direction);
+        float best = MaxCapLaserMeters * hand.WorldScale;
+        PlayTray.BoardButton? hit = null;
+        Vector3 hitPoint = default;
+
+        TryCapHit(_pin, ray, ref best, ref hit, ref hitPoint);
+        TryCapHit(_close, ray, ref best, ref hit, ref hitPoint);
+
+        if (hit == null)
+        {
+            ClearCapLaserHover();
+            return;
+        }
+        // A nearer game-UI hit wins, and so does a nearer solid mod surface (control board / raised
+        // fan) — the same two vetoes RayUguiDriver applies to a uGUI panel standing behind them.
+        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
+            || hand.Ray.SolidOccluderDistance < best - SolidOccluderEpsilonMeters * hand.WorldScale)
+        {
+            ClearCapLaserHover();
+            return;
+        }
+
+        if (!ReferenceEquals(hit, _laserHover))
+        {
+            ClearCapLaserHover();
+            _laserHover = hit;
+            hit.OnPokeEnter(hand); // the cap does its own hover tint/haptic vocabulary
+        }
+        hand.Ray.UiHitOverride = hitPoint; // beam clamps to the cap (also suppresses the far click)
+
+        if (hand.TriggerDown)
+        {
+            hand.Ray.SuppressFarClick();
+            hit.Press(hand, $"combat-log laser ({hand.Side})");
+        }
+    }
+
+    /// <summary>How far the beam may reach a combat-log cap, in real meters before diorama scale —
+    /// the same budget <c>MapButtonRail.TickLaser</c> gives its table caps.</summary>
+    private const float MaxCapLaserMeters = 20f;
+
+    /// <summary>Shared with <c>RayUguiDriver</c>'s occlusion epsilon: a surface coplanar with (or
+    /// proud of) its own occluder must not sit in that occluder's shadow.</summary>
+    private const float SolidOccluderEpsilonMeters = 0.005f;
+
+    private static void TryCapHit(PlayTray.BoardButton? cap, Ray ray, ref float best,
+                                  ref PlayTray.BoardButton? hit, ref Vector3 hitPoint)
+    {
+        if (cap == null || cap.Collider == null || !cap.Collider.enabled
+            || !cap.gameObject.activeInHierarchy)
+            return;
+        if (!cap.Collider.Raycast(ray, out RaycastHit rh, best))
+            return;
+        hit = cap;
+        best = rh.distance;
+        hitPoint = rh.point;
+    }
+
+    /// <summary>Drop the beam hover. Cleared FIRST so a re-entrant <c>OnPokeExit</c> cannot loop,
+    /// and Unity-null-checked because the two teardown paths call it after the caps are gone.
+    /// </summary>
+    private void ClearCapLaserHover()
+    {
+        PlayTray.BoardButton? cap = _laserHover;
+        _laserHover = null;
+        if (cap == null)
+            return;
+        VRHand? hand = VRHands.Primary;
+        if (hand != null)
+            cap.OnPokeExit(hand);
     }
 
     // ---- persistence --------------------------------------------------------------------------

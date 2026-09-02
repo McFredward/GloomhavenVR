@@ -122,8 +122,94 @@ internal static partial class ModalFallback
     /// is never pushed overhead. A little headroom (was 0.05 m) lets a tall window rise far enough
     /// to clear a tall board's top edge before this cap wins; at/near eye level the window is
     /// readable, which is the actual goal (readability always beats full board clearance in the
-    /// degenerate case of a table plane above the head).</summary>
+    /// degenerate case of a table plane above the head).
+    ///
+    /// <para><b>ModBuild 351 — IT IS A CAP IN BOTH DIRECTIONS NOW, AND UNTIL 350 IT WAS ONLY A
+    /// FLOOR.</b> The whole height clamp was one statement, <c>if (pos.y &lt; targetY) pos.y =
+    /// targetY;</c> — so a pose that arrived ABOVE this cap sailed straight through it and the log
+    /// line said "NOT raised (the raw pose was already at or above it)", which is true and reads
+    /// like a pass. The ModBuild 350 single-player log has five such spawns with the window's
+    /// CENTRE 0.12 m, 0.19 m, 0.21 m and 0.37 m above eye level (second_logs/LogOutput.log, the
+    /// HEIGHT DECISION blocks at :8281, :10086, :14580, :15024). A constant documented as "never
+    /// pushed overhead" that cannot lower anything is the shape of a claim nobody re-checked.</para>
+    /// </summary>
     private const float MaxAboveEyeMeters = 0.10f;
+
+    /// <summary>
+    /// THE VERTICAL CENTRE OF A SPAWNING WINDOW SITS ON THE HORIZONTAL RAY THROUGH THE HEAD.
+    ///
+    /// <para><b>USER RULING (ModBuild 350 single-player hardware test), verbatim:</b> <i>"Der
+    /// Spawnpunkt neuer Fenster wie dem Optionsmenu etc. ist viel zu hoch - ich will das der
+    /// vertikale mittelpunkt genau im mittleren Blickfeld liegt wenn ein Fenster spawnt, so dass
+    /// man es angenehm lesen kann - zum aktuellen Zeitpunkt muss man nach oben schauen leicht."</i>
+    /// </para>
+    ///
+    /// <para><b>WHY THE RULE IS EYE LEVEL AND NOT THE GAZE RAY, WHICH IS THE ONE CHOICE THIS WHOLE
+    /// BLOCK TURNS ON.</b> Up to ModBuild 350 the spawn pose was <c>headPos + gazeForward ×
+    /// distance</c>, i.e. the centre already WAS on the gaze ray — and that is exactly what
+    /// produced the complaint, because the gaze at the instant a window opens is wherever the
+    /// player happened to be looking (at a keycap, at a floating window, up at the cellar ceiling)
+    /// and NOT the posture he then reads in. A pose on the gaze ray is right for one instant and
+    /// wrong for every instant after it. The horizontal ray through the head is the SAME thing for
+    /// a level head — which is the posture "angenehm lesen" describes — and it is stable, which the
+    /// gaze is not. It also reconciles this ruling with his ModBuild 251 one, <i>"Die Begegnung ist
+    /// zu tief gespawned … das darf nie passieren"</i>: one says never low, this one says never
+    /// high, and a centre at eye level is the only height that satisfies both by construction
+    /// rather than by two clamps arguing.</para>
+    ///
+    /// <para><b>IT IS ONLY Y, AND THAT IS WHAT MAKES IT SAFE.</b> The azimuth still comes from the
+    /// gaze and the reading distance is preserved exactly: the head→window offset is flattened and
+    /// re-extended to its own original length, so the window keeps the direction the player was
+    /// facing and the distance its family asked for. Nothing about the arc reservation, the cone
+    /// clamp or the stagger's lateral step can be changed by a pure Y write — the same argument the
+    /// map room's bar-height block already makes one screen down.</para>
+    ///
+    /// <para><b>AND IT IS A RULE ABOUT THE CENTRE, SO IT DOES NOT DEPEND ON THE HEIGHT.</b> That
+    /// matters here more than it looks. The spawn clamps run TWICE — once from the PRE-fit rect and
+    /// again from the final fitted geometry (<c>MODAL SPAWN CLAMP (RE-PLACE at the FINAL fitted
+    /// geometry)</c>) — and a rule stated about a window's BOTTOM edge is a different number at the
+    /// two stages, which is how <c>[[one-step-too-early]]</c> gets in. The centre is the same number
+    /// at both. Only the board-top FLOOR carries a half-height term, and it is the thing the
+    /// re-place exists to correct.</para>
+    ///
+    /// <para><b>THE LEVEL-MESSAGE FAMILY IS EXEMPT, DELIBERATELY.</b> Its own ruling (the torbogen
+    /// report) is that a tutorial box must ALWAYS spawn inside the CURRENT view, and the hard view
+    /// cone below enforces it. Seating that family at eye level would fight that clamp rather than
+    /// help it: the cone would simply rotate it back toward the gaze. Its spawns are the two
+    /// <c>maxPitch 30°</c> lines in the 350 log and they are not what the report is about.</para>
+    /// </summary>
+    /// <param name="headPos">The head/eye reference the whole placement is measured from — already
+    /// height-corrected by <c>HeadEyeHeight.CorrectVerticalReference</c> at the call site.</param>
+    /// <param name="headForward">Fallback direction for the degenerate straight-up/straight-down
+    /// gaze, where flattening the offset leaves nothing to point along.</param>
+    /// <param name="pos">The candidate pose; only its Y is written.</param>
+    /// <returns>The clamp-line note, or null when the pose was already at eye level.</returns>
+    private static string? SeatCentreAtEyeLevel(Vector3 headPos, Vector3 headForward,
+                                                ref Vector3 pos, float scale)
+    {
+        Vector3 offset = pos - headPos;
+        float wasY = pos.y;
+        if (Mathf.Abs(offset.y) < 1e-4f)
+            return null;
+        // Preserve the reading distance EXACTLY: flatten the offset and re-extend it to the length
+        // the caller chose. Simply writing pos.y = headPos.y would shorten the window's distance by
+        // cos(pitch) and quietly make a steeply-gazed spawn land nearer than its family's dial says.
+        float want = offset.magnitude;
+        Vector3 flat = new Vector3(offset.x, 0f, offset.z);
+        if (flat.sqrMagnitude < 1e-6f)
+        {
+            flat = new Vector3(headForward.x, 0f, headForward.z);
+            if (flat.sqrMagnitude < 1e-6f)
+                flat = Vector3.forward;
+        }
+        pos = headPos + flat.normalized * want;
+        float metres = scale > 1e-4f ? (pos.y - wasY) / scale : 0f;
+        return $"vertical CENTRE seated at EYE LEVEL {headPos.y:F2} (was {wasY:F2}, "
+               + $"{metres:+0.000;-0.000} m) — the window's midpoint goes on the horizontal ray "
+               + "through the head, which is the middle of the field of view for the posture the "
+               + "player reads in. Only Y was written: the azimuth is still the gaze's and the "
+               + $"reading distance is unchanged at {want / Mathf.Max(scale, 1e-4f):F2} m";
+    }
 
     // MaxSpawnTiltDeg (15° upward tilt, top toward the player) IS GONE, AND THE ABSENCE IS THE
     // INVARIANT — user ruling ModBuild 189, verbatim:
@@ -192,9 +278,22 @@ internal static partial class ModalFallback
     /// Returns the human-readable clamp reason, or null when the pose passed through unchanged.
     /// </summary>
     private static string? ClampSpawnPose(Vector3 headPos, Vector3 headForward, ref Vector3 pos,
-        float scale, Vector2 half, float maxPitchDeg, out HeightDecision height)
+        float scale, Vector2 half, float maxPitchDeg, bool centreAtEyeLevel,
+        out HeightDecision height)
     {
         string? reason = null;
+
+        // 0. THE CENTRE RULE (ModBuild 351) — FIRST, so every clamp below argues about a height
+        //    that already means something. See SeatCentreAtEyeLevel for the ruling and for why the
+        //    reference is eye level rather than the gaze ray. Exempt: the level-message family,
+        //    which has its own "always inside the CURRENT view" ruling and its own hard cone.
+        if (centreAtEyeLevel)
+            reason = SeatCentreAtEyeLevel(headPos, headForward, ref pos, scale);
+
+        // The baseline is recorded AFTER the centre rule on purpose: HeightDecision.FromY is "the
+        // height the clamps started from", and after 351 that is the seated centre, not the raw
+        // gaze. The RAW gaze y is printed beside it on the same line from rawPos, so both are
+        // readable and neither is inferred from the other.
         height = HeightDecision.None(headPos.y, pos.y, half.y);
 
         // 1. Steep-gaze pitch clamp (placement direction, not the panel's own rotation).
@@ -240,13 +339,38 @@ internal static partial class ModalFallback
         if (TryGetBoardPlaneY(out float boardY))
         {
             float boardTopFloorY = boardY + BoardTopClearanceMeters * scale + half.y;
-            float eyeCapY = headPos.y + MaxAboveEyeMeters * scale;
+            // ModBuild 351 — THE CEILING ON THE RAISE IS THE CENTRE RULE ITSELF FOR A CENTRED
+            // WINDOW, AND THIS IS WHERE THE TWO RULES ARE ORDERED.
+            //
+            // "Der vertikale mittelpunkt genau im mittleren Blickfeld" is a statement about the
+            // CENTRE; the board-top floor is a statement about the BOTTOM EDGE. For a window taller
+            // than twice the eye-to-board-top gap the two cannot both hold, and the ModBuild 350
+            // log's ESC menu is exactly that window: board-top floor 19.62 against an eye level of
+            // 14.99 (half-height 12.83 wu = 0.57 m), i.e. the floor wanted the centre 0.20 m over
+            // his eyes. Up to 350 the tie was broken at eye level + MaxAboveEyeMeters, so the menu
+            // spawned 0.10 m above the eyes and he had to look up at it.
+            //
+            // THE CENTRE RULE WINS, AND WHAT HE GETS INSTEAD IS STATED RATHER THAN HIDDEN: the
+            // window sits with its midpoint dead ahead and its lower edge overlapping the board.
+            // That is the trade this file's own constants already promise in prose — "readability
+            // deliberately WINS over full board clearance", BoardTopClearanceMeters' neighbour —
+            // and it is the one a player can act on, because he can grab the window and move it,
+            // while he cannot lower his own eyes.
+            //
+            // MaxAboveEyeMeters SURVIVES AS THE ABSOLUTE CEILING for the paths that are NOT
+            // centred: the level-message family (its own view-cone ruling) and the overlap
+            // resolver's raise, which may still lift a centred window that would otherwise spawn
+            // INSIDE the control board. See the report line on ResolveSpawnOverlap.
+            float eyeCapY = centreAtEyeLevel
+                ? headPos.y
+                : headPos.y + MaxAboveEyeMeters * scale;
             bool eyeCapWon = eyeCapY < boardTopFloorY; // readability wins in the degenerate case
             float targetY = eyeCapWon ? eyeCapY : boardTopFloorY;
             bool raised = pos.y < targetY;
             height = new HeightDecision
             {
                 Have = true,
+                CentreRuleCeiling = centreAtEyeLevel,
                 EyeY = headPos.y,
                 BoardY = boardY,
                 HalfHeight = half.y,
@@ -257,11 +381,32 @@ internal static partial class ModalFallback
                 Raised = raised,
                 FromY = pos.y,
             };
+            // THE CAP LOWERS TOO (ModBuild 351). Until 350 this was the only statement here and
+            // it was `if (raised)`, so a pose ABOVE the cap passed through untouched and the line
+            // read "NOT raised (the raw pose was already at or above it)" — five spawns in the
+            // 350 log with the centre 0.12-0.37 m above eye level. The centre rule above already
+            // makes that impossible for its own family; this closes the same hole for every path
+            // that reaches here without it (the level-message family, and any future caller).
+            if (!raised && pos.y > eyeCapY)
+            {
+                height.LoweredToCap = true;
+                string cap = $"lowered y {pos.y:F2} -> {eyeCapY:F2} - THE EYE CAP DECIDED IT, AS A "
+                             + "CEILING: the pose arrived "
+                             + $"{(pos.y - headPos.y) / Mathf.Max(scale, 1e-4f):F2} m above eye "
+                             + $"level {headPos.y:F2}, and nothing may spawn higher than "
+                             + $"{MaxAboveEyeMeters:F2} m over the eyes";
+                reason = reason == null ? cap : $"{reason}; {cap}";
+                pos.y = eyeCapY;
+            }
             if (raised)
             {
                 string floor = eyeCapWon
-                    ? $"raised y {pos.y:F2} → {targetY:F2} — THE EYE CAP DECIDED IT: eye level "
-                      + $"{headPos.y:F2} + {MaxAboveEyeMeters:F2} m × scale {scale:F2} = {eyeCapY:F2}, "
+                    ? $"raised y {pos.y:F2} → {targetY:F2} — THE EYE CAP DECIDED IT: "
+                      + (centreAtEyeLevel
+                          ? $"the ceiling is EYE LEVEL {headPos.y:F2} itself (ModBuild 351 centre "
+                            + "rule), "
+                          : $"eye level {headPos.y:F2} + {MaxAboveEyeMeters:F2} m × scale "
+                            + $"{scale:F2} = {eyeCapY:F2}, ")
                       + $"which is BELOW the board-top floor of {boardTopFloorY:F2} (board plane "
                       + $"{boardY:F2} + top-clear {BoardTopClearanceMeters:F2} m × scale {scale:F2} + "
                       + $"half-height {half.y:F2}), so the window is readable rather than fully clear "
@@ -298,8 +443,16 @@ internal static partial class ModalFallback
         /// <summary>Candidate 1 — the centre height at which the window's BOTTOM clears the board top.</summary>
         public float BoardTopFloorY;
 
-        /// <summary>Candidate 2 — eye level plus <see cref="MaxAboveEyeMeters"/>, the readability cap.</summary>
+        /// <summary>Candidate 2 — the raise ceiling: EYE LEVEL itself for a centred window
+        /// (ModBuild 351), eye level plus <see cref="MaxAboveEyeMeters"/> for the level-message
+        /// family. Which one it was is <see cref="CentreRuleCeiling"/>, so the log line can name
+        /// the rule it came from instead of quoting a formula it did not evaluate — the ModBuild
+        /// 199 defect this whole struct exists to prevent.</summary>
         public float EyeCapY;
+
+        /// <summary>ModBuild 351: <see cref="EyeCapY"/> is eye level itself because this window is
+        /// centred, rather than eye level + <see cref="MaxAboveEyeMeters"/>.</summary>
+        public bool CentreRuleCeiling;
 
         /// <summary>The lower of the two, i.e. the floor the pose was actually held to.</summary>
         public float TargetY;
@@ -309,6 +462,11 @@ internal static partial class ModalFallback
 
         /// <summary>Whether the pose was below <see cref="TargetY"/> and therefore actually moved.</summary>
         public bool Raised;
+
+        /// <summary>ModBuild 351: whether the pose arrived ABOVE <see cref="EyeCapY"/> and was
+        /// brought down to it. Mutually exclusive with <see cref="Raised"/> by construction - a
+        /// pose cannot be below the target and above the ceiling at once.</summary>
+        public bool LoweredToCap;
 
         public float FromY;
 
@@ -959,7 +1117,7 @@ internal static partial class ModalFallback
         };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
         string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg,
-            out HeightDecision height);
+            centreAtEyeLevel: !levelMessage, out HeightDecision height);
 
         // User request A: never spawn INSIDE the control board or another open modal —
         // raise / swing laterally toward free space (spawn/refloat/recall only, never per
@@ -1158,20 +1316,34 @@ internal static partial class ModalFallback
                     + $"scale {scale:F2})"
                   : " (world units; no rig root, so no tracking floor to express metres against)")
               + $": raw gaze y {Wu(rawPos.y)}"
-              + $" | y at the plane clamp {Wu(height.FromY)} (after any steep-gaze flatten)"
+              + $" | y at the plane clamp {Wu(height.FromY)} (after the ModBuild 351 centre rule "
+              + "and any steep-gaze flatten — compare it with the raw gaze y to the left to see "
+              + "what the centre rule moved)"
               + $" | eye level {Wu(height.EyeY)}"
               + $" | board plane {Wu(height.BoardY)}"
               + $" | half-height {height.HalfHeight:F2} wu"
               + $" | CANDIDATE board-top floor = board plane + {BoardTopClearanceMeters:F2} m × scale + "
               + $"half-height = {Wu(height.BoardTopFloorY)}"
-              + $" | CANDIDATE eye cap = eye level + {MaxAboveEyeMeters:F2} m × scale = {Wu(height.EyeCapY)}"
+              + $" | CANDIDATE eye cap = {(height.CentreRuleCeiling
+                  ? "EYE LEVEL ITSELF (the ModBuild 351 centre rule: a centred window is never "
+                    + "raised above the middle of the field of view)"
+                  : $"eye level + {MaxAboveEyeMeters:F2} m × scale (level-message family — not centred)")} "
+              + $"= {Wu(height.EyeCapY)}"
               + $" | WINNER {(height.EyeCapWon ? "EYE CAP" : "BOARD-TOP FLOOR")} (the lower of the two) "
               + $"⇒ target {Wu(height.TargetY)}"
-              + $" | {(height.Raised ? "RAISED to the target" : "NOT raised (the raw pose was already at or above it)")}"
+              + $" | {(height.Raised ? "RAISED to the target"
+                  : height.LoweredToCap ? "LOWERED to the eye cap (it arrived above the ceiling)"
+                  : "NOT raised (the pose was already at or above the target, and at or below the eye cap)")}"
               + $" ⇒ RESULT {Wu(pos.y)}."
             : $" HEIGHT DECISION: no board/table plane in reach, so no height clamp ran — the pose "
               + $"kept its raw height, RESULT {Wu(pos.y)}.";
-        VRLog.Info("WorldUI", "MODAL SPAWN CLAMP" +
+        // ModBuild 351 — PROMOTED TO Note, TEXT UNCHANGED. This is the ONLY line that can answer
+        // "is the window's vertical centre where the ruling says it is?", and at VRLog.Info it was
+        // on the DEBUG tier, i.e. absent from the log a tester at the shipped default sends back
+        // [[quiet-log-silenced-the-backlog]]. It fires once per spawn/refloat/recall and never per
+        // frame — the ModBuild 350 session carries 18 of them.
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "MODAL SPAWN CLAMP" +
                               (replay.HasValue ? " (RE-PLACE at the FINAL fitted geometry)" : "") + ": pose " +
                               $"({rawPos.x:F2},{rawPos.y:F2},{rawPos.z:F2}) → " +
                               $"({pos.x:F2},{pos.y:F2},{pos.z:F2})" +

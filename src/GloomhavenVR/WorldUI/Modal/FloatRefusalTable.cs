@@ -236,6 +236,38 @@ internal static class FloatRefusalTable
         // THE OBJECT IDENTITY IS CHECKED, NOT JUST THE FLAG. UIReadyToggle is a SINGLETON reused
         // across flows; a claim about one use of it must not silently refuse another. So the row
         // asks whether the claim is about THIS GameObject.
+        //
+        // ModBuild 351 — A THIRD CLAIMANT, AND IT IS THE SAME SINGLETON WEARING A THIRD LABEL.
+        //
+        // USER REPORT (ModBuild 348 multiplayer hardware test), verbatim, item 1: "'Auswahl
+        // beenden' wird aktuell als Fenster gespawnt zusätzlich zum physischen Knopf auf dem Board.
+        // Das darf nicht sein. Siehe auswahl-beenden.jpg." THE OBJECT IS THIS ROW'S OBJECT. During
+        // ONLINE card selection the game labels this same singleton "Auswahl beenden"
+        // (UIScenarioMultiplayerController.InitializeReadyToggleForCardSelection, :260-297, whole
+        // body inside `if (FFSNetwork.IsOnline)`, readyTextLoc "GUI_END_SELECTION"), so the object
+        // the user photographed is the 300x60 px bare button this row was written for, floated in a
+        // scenario instead of on the map. The catch-all said so in its own words —
+        // .planning/debug/LogOutput.log:23901, "CATCH-ALL: unknown scenario window 'Multiplayer
+        // Ready Toggle' (ID None) floated — enroll it explicitly." — and that same log contains
+        // ZERO "FLOAT REFUSED" lines, because BOTH parkers above are map-room/loadout-screen
+        // subsystems that are stood down inside a scenario.
+        //
+        // AND A SECOND ROW WOULD HAVE BEEN UNREACHABLE CODE. `Refuses` below walks this table and,
+        // on the FIRST row whose component matches, `return false`s when that row's claim is not
+        // held — it does not `continue` to a later row. So a scenario-phase UIReadyToggle row added
+        // beneath this one could never be evaluated. The right shape is another claimant on THIS
+        // row, which is exactly what ModBuild 235 did when the loadout screen joined the map room.
+        //
+        // THE THIRD CLAIMANT IS NOT A PARKER, AND THE DIFFERENCE IS THE POINT. The other two MOVE
+        // the game's own button into a floated window. WorldUI/Modal/BoardConfirmStandIn moves
+        // nothing at all: the mod already presents this act as an INDEPENDENT physical keycap on
+        // the control board (Cards/Tray/PlayTray.6.Build.cs:426-441), driven by the same predicate
+        // the game gates the toggle on (CardsGameApi.ReadyToggleAvailable(), read at
+        // Cards/Tray/PlayTray.5.Status.cs:236-246) and wearing the game's own wording — the 348
+        // log's BUTTON ALIGN line (:961) reads "CONFIRM 'Auswahl beenden' and item-USE 'Benutzen'
+        // are written to this one pose". So the claim is a REPORT that the act is already in the
+        // room as a physical object, and its deadlock floor is measured rather than promised: see
+        // that file for why the floor is a tick COUNT and not a level.
         new(typeof(UIReadyToggle), FloatRefusalClass.BareControl,
             "it is a BARE CONFIRM BUTTON that happens to carry a UIWindow (307x65 px, "
             + "[RequireComponent(typeof(Toggle), typeof(UIWindow))]) — online it is the 'Quest "
@@ -250,10 +282,22 @@ internal static class FloatRefusalTable
             + "UIReadyToggle.cs:452/467), WorldUI/LoadoutConfirmPark parks it into the floated "
             + "Character-UI 'New Party display', under that window's own painted content. The two "
             + "conditions are mutually exclusive by that field, so exactly one of them ever writes "
-            + "this claim",
-            heldBy: go => MapRoom.ReadyToggleParkClaim.Claimed
-                          && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, go),
-            whyHeld: () => MapRoom.ReadyToggleParkClaim.Why),
+            + "this claim. AND INSIDE A SCENARIO NEITHER OF THEM IS RUNNING: there the act is "
+            + "'Auswahl beenden' during online card selection, and the mod presents it as the "
+            + "control board's own physical CONFIRM keycap, which is not a park at all — "
+            + "WorldUI/Modal/BoardConfirmStandIn only REPORTS that the keycap is there, and stands "
+            + "down the moment the game says the toggle is clickable while the board offers nothing",
+            heldBy: go => (MapRoom.ReadyToggleParkClaim.Claimed
+                           && ReferenceEquals(MapRoom.ReadyToggleParkClaim.ClaimedObject, go))
+                          || BoardConfirmStandIn.StandsInFor(go),
+            // BOTH CLAIMANTS SPEAK, ALWAYS, AND EACH IS NAMED. ModBuild 235 fixed exactly this
+            // instrument defect once already: a lapse line that prints one claimant's words for a
+            // refusal the OTHER one was holding sends the next round to the wrong file
+            // ([[an-instrument-can-assert-a-cause]]). Which of the two was speaking is not
+            // recoverable after the fact — a lapse is by definition the instant they are both
+            // silent — so the line carries both rather than guessing.
+            whyHeld: () => $"PARK CLAIM (map room / loadout screen): {MapRoom.ReadyToggleParkClaim.Why}"
+                           + $" || BOARD KEYCAP STAND-IN (in a scenario): {BoardConfirmStandIn.Why}"),
 
         // -------------------------------------------------------------------------------------
         // ROW 3 — THE CAMPAIGN MAP'S STORY WINDOW, WHILE ITS OWN CONTENT IS BEING DRAWN INSIDE THE
@@ -606,7 +650,14 @@ internal static class FloatRefusalTable
         if (refuse && !wasRefused)
         {
             RefusedNow.Add(window);
-            VRLog.Info(Scope, $"FLOAT REFUSED: '{window.name}' (ID {window.ID}) is a "
+            // ModBuild 351 — PROMOTED TO Note, TEXT UNCHANGED. Whether the 'Auswahl beenden'
+            // toggle was refused, and by which claimant, is the one thing the next hardware test
+            // has to report back; at VRLog.Info this line sits on the DEBUG tier and a tester at
+            // the shipped default sends back a log that cannot answer it
+            // [[quiet-log-silenced-the-backlog]]. It is edge-gated — one line per window per
+            // refusal, never per tick.
+            // HW-VERIFY
+            VRLog.Note(Scope, $"FLOAT REFUSED: '{window.name}' (ID {window.ID}) is a "
                               + $"{rule!.Class} and is NOT floated — {rule.Reason}. INSTEAD: "
                               + $"{rule.Instead}."
                               + (rule.IsConditional

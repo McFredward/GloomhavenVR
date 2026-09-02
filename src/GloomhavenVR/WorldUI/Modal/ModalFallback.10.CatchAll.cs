@@ -188,6 +188,17 @@ internal static partial class ModalFallback
         // audit. See the class note on EnchantressComposite for why that is structural.
         EnchantressComposite.Tick();
 
+        // ModBuild 351 — THE BOARD-KEYCAP STAND-IN, and it sits above the early return for the
+        // third time in this method for the third instance of the same reason. It owns a CLAIM that
+        // FloatRefusalTable ROW 2 reads, and above all a DEADLOCK FLOOR that has to be able to stand
+        // the claim down on a tick in which nothing at all is tracked — the exact tick on which the
+        // toggle would otherwise never come back ([[gated-remedy-never-ran]]).
+        //
+        // IT REACHES NO GATE IN THIS FILE. It writes nothing anywhere: it reads the game's phase,
+        // FFSNetwork.IsOnline, and two read-only properties on the control board, and publishes one
+        // bool plus one sentence. See WorldUI/Modal/BoardConfirmStandIn.
+        BoardConfirmStandIn.Tick();
+
         if (UnknownShown.Count == 0)
             return;
 
@@ -1392,6 +1403,7 @@ internal static partial class ModalFallback
         UnknownShown.Clear();
         CatchAllWarned.Clear();
         FloatRefusalTable.Reset(); // ModBuild 232 — the refusal table's edge state and lapse counters
+        BoardConfirmStandIn.Reset(); // ModBuild 351 — and the board-keycap claimant it now reads
         AncestorRefusalWarned.Clear();
         AncestorHeldOutWarned.Clear();
         IntervalAncestorWarned.Clear();
