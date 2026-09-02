@@ -375,9 +375,7 @@ internal static class FigureOverlay
     /// </summary>
     internal static string DescribeSource(Renderer r)
     {
-        Mesh? mesh = r is SkinnedMeshRenderer s ? s.sharedMesh
-                   : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh
-                   : null;
+        Mesh? mesh = SourceMesh(r);
         Bounds b = r.bounds;
         var sb = new System.Text.StringBuilder(160);
         sb.Append('\'').Append(r.name).Append("' (").Append(r.GetType().Name);
@@ -411,6 +409,35 @@ internal static class FigureOverlay
           .Append("), y ").Append(b.min.y.ToString("F2")).Append("..")
           .Append(b.max.y.ToString("F2")).Append(')');
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The mesh a renderer would be CLONED FROM — <c>sharedMesh</c> for a skinned renderer, the
+    /// sibling <c>MeshFilter</c>'s for a mesh renderer, null for anything else (which is exactly
+    /// the set <see cref="FigureHighlight"/>'s clone step refuses). One accessor, because two
+    /// callers now decide things with it — <see cref="DescribeSource"/> writes it into a log line,
+    /// and <see cref="VertexCount"/> feeds the miniature verdict, which can CHANGE what is cloned.
+    /// A second copy of this expression is a second place for the two to disagree.
+    /// </summary>
+    internal static Mesh? SourceMesh(Renderer r) =>
+        r is SkinnedMeshRenderer s ? s.sharedMesh
+      : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh
+      : null;
+
+    /// <summary>
+    /// How much geometry a renderer would contribute to an overlay: its source mesh's vertex
+    /// count, or 0 when it has no clonable mesh at all.
+    ///
+    /// <para>This is the size term the miniature verdict compares the KEPT set against the DROPPED
+    /// set with (<see cref="FigureHighlight.Judge"/>). Vertex count, not bounds volume, because a
+    /// bounding box cannot separate a 60-vertex band that happens to hang across the width of a
+    /// dragon's snout from a wing; and not renderer COUNT, because one skinned body mesh against
+    /// two bands is 1-against-2 and would read as a minority.</para>
+    /// </summary>
+    internal static int VertexCount(Renderer r)
+    {
+        Mesh? mesh = SourceMesh(r);
+        return mesh != null ? mesh.vertexCount : 0;
     }
 
     /// <summary>Match <paramref name="clone"/>'s WORLD scale to <paramref name="source"/>'s while it

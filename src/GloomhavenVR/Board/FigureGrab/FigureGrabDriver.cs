@@ -479,6 +479,16 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             // must count the game's colliders and not ours, or the next round reads our own volume
             // back as evidence about the game's prefab.
             LogFigureReach(grabbable, interactable, figure, collider);
+            // MINIATURE AUDIT (ModBuild 342) — grade this figure's renderer layout against the
+            // m_AnimatedGameObject rule the pre-grab glow depends on, ONCE per distinct model per
+            // session, whether or not a hand ever reaches it. FigureHighlight.Apply calls this too,
+            // so the audit can never be lost by an edit here; what THIS call adds is COVERAGE — it
+            // turns "the figures he happened to hover" (four types in the 13 MB ModBuild 340 log)
+            // into "every figure the scenario spawned", which is the only way the roster of a game
+            // whose figure prefabs live in unopenable asset bundles gets enumerated at all.
+            FigureHighlight.AuditFigure(figure, actor.m_AnimatedGameObject,
+                                        actor.m_Hilight != null ? actor.m_Hilight.transform : null,
+                                        grabbable.Label);
             var adopted = new Adopted
             {
                 Grabbable = grabbable, Collider = collider, GameCollider = collider,

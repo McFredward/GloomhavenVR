@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.Rendering;
 using Object = UnityEngine.Object;
@@ -85,6 +86,54 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// object holds no clonable renderer at all, the whole actor root is used and the report says so,
 /// so the "wrong Animator" case 294 was written against is visible in one line instead of being
 /// silently glowed.</para>
+///
+/// <para><b>ModBuild 341 — THE MINIATURE VERDICT: WHERE THE GUARANTEE STOPS, SAID OUT LOUD.</b>
+/// The user's question after 340 was "kannst du nun mit Sicherheit sagen, dass es mit ALLEN Figuren
+/// im gesamten Spiel funktioniert?" — and the 13 MB hardware log that fixed the boss contains
+/// exactly FOUR figure types (<c>HE_Brute</c>, <c>HE_Mindthief</c>, <c>MO_SpittingDrake</c>,
+/// <c>MO_Elder_Drake</c>) out of a roster of 22 playable classes and 215 <c>CClass.ENPCModel</c>
+/// entries. The figure prefabs live in Addressable asset bundles that are not on this machine, so
+/// no offline enumeration of their renderer LAYOUT is possible at all. A "yes" backed by four
+/// observations out of ~238 would be a guess.</para>
+///
+/// <para>So the answer is made structural instead of statistical, and it rests on two facts read
+/// out of the decompiled game rather than out of a log:</para>
+/// <list type="number">
+///   <item><description><b>The game itself defines an actor's renderers as this exact subtree.</b>
+///   <c>ActorBehaviour.SetActor</c> (decompiled ActorBehaviour.cs:121) sets
+///   <c>m_Renderers = m_Animator.gameObject.GetComponentsInChildren&lt;Renderer&gt;()</c> — that is
+///   the array its invisibility dissolve walks (:398-418). Any renderer outside
+///   <c>m_AnimatedGameObject</c> is one the game will not even hide when the figure turns
+///   invisible.</description></item>
+///   <item><description><b>The game MOVES that subtree and not the root.</b>
+///   <c>ActorBehaviour.DoTransform</c> (:468-548) writes
+///   <c>m_AnimatedGameObject.transform.position</c> on every locomotion path and gives the root
+///   only a rotation. A body renderer parented outside the animated object would therefore STAY
+///   BEHIND every time the figure walks — a defect the base game would show without the mod. That
+///   is not a hypothesis about the boss's bands; it is what the wall-fade census actually recorded
+///   about them ("FLOATING … drifting frame to frame").</description></item>
+/// </list>
+///
+/// <para>Between them those two close the "real body geometry outside <c>m_AnimatedGameObject</c>"
+/// case for any figure that moves. What they do NOT close is the second case:
+/// <c>MF.GetGameObjectAnimator</c>'s depth-first walk reaching a FOREIGN animated object before the
+/// body, which would make the field point at the wrong subtree entirely. So
+/// <see cref="Judge"/> adds a guard and a verdict:</para>
+/// <list type="bullet">
+///   <item><description>the restriction is REFUSED when it would discard at least as many vertices
+///   as it keeps — a proven no-op on all five figures ever measured (four drop nothing at all; the
+///   boss drops 120 vertices against 14 846), which turns that failure from an invisible
+///   under-glow into a visible over-glow;</description></item>
+///   <item><description>every figure is graded PROVEN / ROOT FALLBACK / FURNITURE DROPPED /
+///   RESTRICTION REFUSED, and the grade is printed — <c>PROVEN</c> meaning the restriction dropped
+///   NOTHING on this figure, so its glow is the same set of renderers the pre-340 whole-root glow
+///   would have cloned and nothing about it rests on an assumption;</description></item>
+///   <item><description><see cref="AuditFigure"/> runs that grade at ADOPTION, on every figure the
+///   scenario spawns rather than only the ones a hand reaches, one line per distinct model per
+///   session. A played session therefore PRODUCES the roster the bundles refuse to hand over, with
+///   a verdict attached to each entry, and anything that is not PROVEN arrives as a
+///   <c>VRLog.Alert</c>.</description></item>
+/// </list>
 /// </summary>
 internal sealed class FigureHighlight
 {
@@ -106,10 +155,168 @@ internal sealed class FigureHighlight
     /// are still eligible when pass 2 decides which of them are the MINIATURE.</summary>
     private static readonly List<Renderer> Candidates = new(16);
 
+    /// <summary>Scratch for <see cref="AuditFigure"/>, which runs on a different call than
+    /// <see cref="Apply"/> and must not share <see cref="Candidates"/> with a live hover.</summary>
+    private static readonly List<Renderer> AuditScratch = new(16);
+
+    /// <summary>
+    /// Figures already audited this session — <see cref="AuditFigure"/> writes one line per
+    /// DISTINCT figure, not one per spawn. Never read outside the audit.
+    ///
+    /// <para>The key is the class id PLUS the name of <c>m_AnimatedGameObject</c>, not the class id
+    /// alone, because one class can wear more than one model and the model is what this audit is
+    /// about: <c>CClass.Models</c> / <c>CActor.ChosenModelIndex</c> pick between several, and the
+    /// Demolitionist's mech form is an <c>OverrideCharacterModel</c> on the SAME
+    /// <c>CCharacterClass</c> (decompiled CChangeCharacterModelActiveBonus.cs:18 →
+    /// ChangeModelSMB.cs:49-71, which despawns the old figure and spawns a new one). Keying on the
+    /// class id alone would audit the Demolitionist and then skip her mech.</para>
+    /// </summary>
+    private static readonly HashSet<string> Audited = new();
+
     private GameObject? _overlayRoot;
 
     /// <summary>True while the highlight overlay exists.</summary>
     public bool Active => _overlayRoot != null;
+
+    /// <summary>How the pass-1 filters disposed of the renderers they refused, for the report.</summary>
+    private struct Filtered
+    {
+        public int OnActiveObjects, Kind, ModOwned, Ring, Disabled;
+    }
+
+    /// <summary>
+    /// WHAT THE ModBuild 340 RULE ASSUMES ABOUT ONE FIGURE, AND WHETHER THAT FIGURE HONOURS IT.
+    /// See the MINIATURE VERDICT note on <see cref="FigureHighlight"/> for why each grade means
+    /// what it means.
+    /// </summary>
+    internal enum MiniatureGrade
+    {
+        /// <summary>No clonable renderer at all. Nothing to glow, and nothing to reason about.</summary>
+        Nothing,
+
+        /// <summary>The restriction would drop NOTHING — every candidate already lies under
+        /// <c>m_AnimatedGameObject</c>, or the actor has none and the whole root is used. The glow
+        /// is then the same set of renderers the pre-340 whole-root glow would have cloned, so no
+        /// assumption about that field is load-bearing on this figure.</summary>
+        Proven,
+
+        /// <summary>The actor HAS an <c>m_AnimatedGameObject</c> and it holds not one clonable
+        /// renderer, so the whole actor root is used. Over-glow, not under-glow — but it means the
+        /// game's own <c>m_Renderers</c> array is empty for this actor, which is worth a look.</summary>
+        RootFallback,
+
+        /// <summary>The restriction drops renderers, and what it KEEPS carries strictly more
+        /// geometry than what it drops. This is the boss shape: a body plus actor furniture.</summary>
+        Furniture,
+
+        /// <summary>The restriction would drop AT LEAST AS MUCH geometry as it keeps, so
+        /// <c>m_AnimatedGameObject</c> is not plausibly the miniature. The restriction is REFUSED
+        /// and the whole actor root is glowed instead — over-glow, which is visible, rather than
+        /// under-glow, which is not.</summary>
+        Refused,
+    }
+
+    /// <summary>
+    /// The structural answer for ONE figure: what the ModBuild 340 rule would do to it, how much
+    /// geometry that keeps and drops, and how many Animators the game had to choose between when it
+    /// picked <c>m_AnimatedGameObject</c>. <see cref="Restrict"/> is the DECISION the clone loop
+    /// obeys, so the verdict and the behaviour cannot drift apart.
+    /// </summary>
+    internal readonly struct MiniatureVerdict
+    {
+        public MiniatureVerdict(MiniatureGrade grade, bool restrict, int candidates, int underAnimated,
+                                int keptVerts, int droppedVerts, int animators, string animatedLayer,
+                                string droppedNames)
+        {
+            Grade = grade;
+            Restrict = restrict;
+            Candidates = candidates;
+            UnderAnimated = underAnimated;
+            KeptVerts = keptVerts;
+            DroppedVerts = droppedVerts;
+            Animators = animators;
+            AnimatedLayer = animatedLayer;
+            DroppedNames = droppedNames;
+        }
+
+        public readonly MiniatureGrade Grade;
+
+        /// <summary>True when the clone loop must copy ONLY the renderers under
+        /// <c>m_AnimatedGameObject</c>. False means the whole actor root.</summary>
+        public readonly bool Restrict;
+
+        public readonly int Candidates;
+        public readonly int UnderAnimated;
+        public readonly int KeptVerts;
+        public readonly int DroppedVerts;
+
+        /// <summary>Animators owning a <c>runtimeAnimatorController</c> on an ACTIVE object under
+        /// the actor root — the exact population <c>MF.GetGameObjectAnimator</c> picks the FIRST of.
+        /// 1 means the game had no choice to get wrong.</summary>
+        public readonly int Animators;
+
+        /// <summary>
+        /// THE GAME'S OWN LABEL FOR "THIS IS THE ANIMATED MINIATURE OBJECT": the Unity layer name of
+        /// <c>m_AnimatedGameObject</c>, or <c>&lt;none&gt;</c> when the actor has no such object.
+        ///
+        /// <para><c>Choreographer.CreateCharacterActor</c> (decompiled Choreographer.cs:886, and the
+        /// identical predicate at :1069) does NOT use <c>MF.GetGameObjectAnimator</c> to find the
+        /// character. It picks <c>GetComponentsInChildren&lt;Animator&gt;().FirstOrDefault(x =&gt;
+        /// x.gameObject.layer == LayerMask.NameToLayer("Hero") || ... "Monster")</c> and parents the
+        /// interaction object under it — with an explicit <c>LogWarning</c> fallback for "unable to
+        /// find animator on correct layer". So the game maintains a SECOND, layer-based notion of
+        /// which Animator is the miniature, and the two can in principle disagree.</para>
+        ///
+        /// <para>Reporting the layer is therefore an INDEPENDENT check on the same question the
+        /// vertex comparison answers by size: if <c>m_AnimatedGameObject</c> sits on Hero or
+        /// Monster, the game's own two mechanisms agree about it. It is reported, never acted on —
+        /// a layer name is data, and a new instrument's first output is a hypothesis.</para>
+        /// </summary>
+        public readonly string AnimatedLayer;
+
+        /// <summary>Up to four <see cref="FigureOverlay.DescribeSource"/> strings for the renderers
+        /// the restriction drops, or the empty string when it drops none.</summary>
+        public readonly string DroppedNames;
+
+        public int Dropped => Candidates - UnderAnimated;
+
+        /// <summary>True when nothing about this figure rests on a judgement — the restricted and
+        /// unrestricted candidate sets are the SAME set, so the rule cannot have removed anything
+        /// the player can see.</summary>
+        public bool ProvenByConstruction => Grade == MiniatureGrade.Proven;
+
+        /// <summary>One sentence, appended to the always-printed hover line and reused verbatim by
+        /// <see cref="AuditFigure"/>, so the two can never say different things about one figure.</summary>
+        public string Headline => Grade switch
+        {
+            MiniatureGrade.Nothing =>
+                "VERDICT: NOTHING TO GLOW — no clonable renderer survived the filters.",
+            MiniatureGrade.Proven =>
+                $"VERDICT: PROVEN — the m_AnimatedGameObject restriction drops NOTHING here "
+                + $"({UnderAnimated} of {Candidates} candidate renderer(s) already lie under it), so "
+                + "this glow is the same set of renderers the whole-actor-root glow would have "
+                + "cloned. No assumption is load-bearing on this figure.",
+            MiniatureGrade.RootFallback =>
+                $"VERDICT: ROOT FALLBACK — m_AnimatedGameObject (layer '{AnimatedLayer}') holds NOT "
+                + $"ONE of the {Candidates} clonable renderer(s), so the whole actor root is glowed. "
+                + "That is the game's own m_Renderers array empty for this actor — the shape of a "
+                + "CObjectActor whose visible geometry is an AttachedProp outside its own root. The "
+                + "glow errs toward MORE, never less.",
+            MiniatureGrade.Furniture =>
+                $"VERDICT: FURNITURE DROPPED — the restriction removes {Dropped} of {Candidates} "
+                + $"candidate renderer(s), {DroppedVerts} vertices against the {KeptVerts} it keeps. "
+                + $"m_AnimatedGameObject is on layer '{AnimatedLayer}' and the game chose it from "
+                + $"{Animators} Animator(s) with a controller under this actor. This figure's glow "
+                + $"rests on that choice being the miniature. DROPPED: {DroppedNames}",
+            _ =>
+                "VERDICT: RESTRICTION REFUSED — restricting to m_AnimatedGameObject would have "
+                + $"dropped {Dropped} of {Candidates} candidate renderer(s) carrying {DroppedVerts} "
+                + $"vertices against only {KeptVerts} kept, so it is not plausibly the miniature "
+                + $"(layer '{AnimatedLayer}', chosen from {Animators} Animator(s) with a controller "
+                + "under this actor). The WHOLE ACTOR ROOT is glowed instead — too much rather than "
+                + $"too little. WOULD HAVE DROPPED: {DroppedNames}",
+        };
+    }
 
     /// <summary>
     /// Build the animated additive overlay over the figure at <paramref name="figureRoot"/>. No-op
@@ -117,11 +324,11 @@ internal sealed class FigureHighlight
     /// false). The overlay container is parented under <paramref name="figureRoot"/> so the game's
     /// own renderer sweeps (jump-exit opacity, invisibility) never enumerate the extra passes.
     ///
-    /// <para><paramref name="animatedRoot"/> is no longer what is cloned — it is measured ALONGSIDE
-    /// the clone so the report can say whether the game's own <c>m_AnimatedGameObject</c> is the
-    /// figure at all. <paramref name="excludeSubtree"/> is the actor's selection ring
-    /// (<c>m_Hilight</c>), which hangs off the actor root, draws <c>ZTest Always</c> and is not part
-    /// of the miniature: gilding it would change how every figure looks, not just the boss.</para>
+    /// <para><paramref name="animatedRoot"/> is the game's <c>m_AnimatedGameObject</c>; whether the
+    /// clone is restricted to it is decided by <see cref="Judge"/> and stated in the same line.
+    /// <paramref name="excludeSubtree"/> is the actor's selection ring (<c>m_Hilight</c>), which
+    /// hangs off the actor root, draws <c>ZTest Always</c> and is not part of the miniature:
+    /// gilding it would change how every figure looks, not just the boss.</para>
     ///
     /// <para>Returns true when at least one renderer was cloned; <paramref name="report"/> is always
     /// written and is what the caller logs.</para>
@@ -138,6 +345,14 @@ internal sealed class FigureHighlight
             return false;
         }
 
+        // THE AUDIT MUST NOT DEPEND ON THE DRIVER REMEMBERING TO CALL IT. AuditFigure's real home is
+        // the adoption pass, where it sees every figure the scenario spawns; calling it here as well
+        // costs one dictionary probe per hover (it is keyed per model and returns immediately on the
+        // second call) and guarantees that a build which loses the adoption call still grades every
+        // figure the player actually reaches. A verdict nobody invokes is the shape of the "gated
+        // remedy that never ran" — the fix shipped behind the instrument built to test it.
+        AuditFigure(figureRoot, animatedRoot, excludeSubtree, label);
+
         Material? mat = FigureOverlay.MakeOverlayMaterial(GlowTint, additive: true);
         if (mat == null)
         {
@@ -148,83 +363,25 @@ internal sealed class FigureHighlight
         var root = new GameObject("VRFigureHighlight");
         root.transform.SetParent(figureRoot.transform, worldPositionStays: false);
 
-        Scratch.Clear();
-        figureRoot.GetComponentsInChildren(includeInactive: false, Scratch);
-        int onActiveObjects = Scratch.Count;
-
-        int cloned = 0;
-        int skippedModOwned = 0;
-        int skippedRing = 0;
-        int skippedDisabled = 0;
-        int skippedKind = 0;
-        Bounds originals = default;
-        Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
-
         // PASS 1 — WHICH RENDERERS ARE CANDIDATES AT ALL (kind, ours, the ring, switched off).
         Candidates.Clear();
-        for (int i = 0; i < Scratch.Count; i++)
-        {
-            Renderer r = Scratch[i];
-            if (r == null)
-                continue;
-            // Only SURFACE geometry, the same filter ActorBars and FigureGrabDriver use: a particle
-            // or trail renderer is an effect volume, and an additive clone of one is a smear.
-            if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
-            {
-                skippedKind++;
-                continue;
-            }
-            if (IsUnder(r.transform, root.transform) || HasModOwnedAncestor(r.transform, figureRoot.transform))
-            {
-                skippedModOwned++;
-                continue;
-            }
-            if (excludeSubtree != null && IsUnder(r.transform, excludeSubtree))
-            {
-                skippedRing++;
-                continue;
-            }
-            // A renderer the game has switched OFF must not acquire a glowing double. This is not
-            // hypothetical: the async material loader disables the component while materials stream
-            // (MaterialLoaderData.LoadMaterials), and a sheathed weapon is disabled outright. The
-            // pre-ModBuild-294 code walked with includeInactive:TRUE and never checked `enabled`,
-            // so every hidden prop on the figure got a visible amber ghost of itself in mid-air.
-            if (!r.enabled)
-            {
-                skippedDisabled++;
-                continue;
-            }
-            Candidates.Add(r);
-        }
-        Scratch.Clear();
+        Filtered f = CollectCandidates(figureRoot, excludeSubtree, root.transform,
+                                       requireEnabled: true, Candidates);
 
-        // PASS 2 — WHICH OF THE CANDIDATES ARE THE MINIATURE. See the ACTOR FURNITURE note on the
-        // class. Restrict to m_AnimatedGameObject whenever that subtree holds a candidate of its
-        // own; fall back to the whole actor root when it holds none, so a figure whose meshes are
-        // NOT under the game's animator object still gets a glow rather than nothing.
-        int candidates = Candidates.Count;
-        int underAnimatedCandidates = 0;
-        if (animatedT != null)
-        {
-            for (int i = 0; i < Candidates.Count; i++)
-                if (IsUnder(Candidates[i].transform, animatedT))
-                    underAnimatedCandidates++;
-        }
-        bool restrict = animatedT != null && underAnimatedCandidates > 0;
+        // PASS 2 — WHICH OF THE CANDIDATES ARE THE MINIATURE. The rule and its verdict are ONE
+        // computation (see Judge): `verdict.Restrict` is what the loop below obeys, so no future
+        // edit can improve the rule while leaving the report describing the old one.
+        MiniatureVerdict verdict = Judge(figureRoot, animatedRoot, Candidates);
+        Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
 
+        int cloned = 0;
+        Bounds originals = default;
         var clonedDesc = new List<string>(6);
-        var foreignDesc = new List<string>(4);
-        int foreign = 0;
         for (int i = 0; i < Candidates.Count; i++)
         {
             Renderer r = Candidates[i];
-            if (restrict && !IsUnder(r.transform, animatedT!))
-            {
-                foreign++;
-                if (foreignDesc.Count < 4)
-                    foreignDesc.Add(FigureOverlay.DescribeSource(r));
-                continue;
-            }
+            if (verdict.Restrict && !IsUnder(r.transform, animatedT!))
+                continue; // actor furniture — named by the verdict, not listed a second time here
 
             if (!CloneOne(r, root.transform, mat))
                 continue;
@@ -248,11 +405,11 @@ internal sealed class FigureHighlight
         {
             Object.Destroy(root);
             Object.Destroy(mat);
-            report = $"NOTHING TO GLOW — {onActiveObjects} renderer(s) on active objects under the "
-                     + $"actor root, {skippedKind} non-mesh, {skippedDisabled} with "
-                     + $"Renderer.enabled=false, {skippedRing} on the selection ring, "
-                     + $"{skippedModOwned} mod-owned, {foreign} actor furniture outside "
-                     + "m_AnimatedGameObject";
+            report = $"NOTHING TO GLOW — {f.OnActiveObjects} renderer(s) on active objects under the "
+                     + $"actor root, {f.Kind} non-mesh, {f.Disabled} with "
+                     + $"Renderer.enabled=false, {f.Ring} on the selection ring, "
+                     + $"{f.ModOwned} mod-owned, {verdict.Dropped} actor furniture outside "
+                     + $"m_AnimatedGameObject. {verdict.Headline}";
             return false;
         }
 
@@ -273,36 +430,293 @@ internal sealed class FigureHighlight
         // it was written to answer is "I cannot see it". FigureOverlay.MeasureClones now walks the
         // container that was just built, and OverlayVisibilityProbe reports two frames later
         // whether anything actually drew it.
-        string sourceSays = restrict
+        //
+        // ...AND FROM ModBuild 341 IT CARRIES THE VERDICT. Every number above still had to be read
+        // and divided by a human before it said whether the 340 rule was SAFE on this figure: the
+        // clause "1 of 3 candidate renderer(s) lie under it" is the whole boss defect written as an
+        // arithmetic problem nobody was asked to solve. verdict.Headline states the answer instead.
+        string sourceSays = verdict.Restrict
             ? $"Cloned from m_AnimatedGameObject '{animatedRoot!.name}', not the whole actor root: "
-              + $"{underAnimatedCandidates} of {candidates} candidate renderer(s) lie under it."
+              + $"{verdict.UnderAnimated} of {verdict.Candidates} candidate renderer(s) lie under it."
             : animatedT == null
                 ? "Cloned from the ACTOR ROOT; the actor has NO m_AnimatedGameObject."
-                : $"Cloned from the ACTOR ROOT; m_AnimatedGameObject '{animatedRoot!.name}' holds "
-                  + "NOT ONE clonable renderer of its own, so restricting to it would have glowed "
-                  + "nothing — which is itself the shape of a highlight that fires and cannot be "
-                  + "seen.";
-
-        string foreignSays = foreign == 0
-            ? " Nothing was excluded as actor furniture."
-            : $" EXCLUDED {foreign} renderer(s) hanging off the actor OUTSIDE its animated object — "
-              + "actor furniture, not the miniature; on the boss these are the thin bands that were "
-              + $"being gilded at its head: {string.Join("; ", foreignDesc)}"
-              + (foreign > foreignDesc.Count ? $" (+{foreign - foreignDesc.Count} more not named)" : "")
-              + ".";
+                : $"Cloned from the ACTOR ROOT; m_AnimatedGameObject '{animatedRoot!.name}' is not "
+                  + "the subtree the glow was restricted to — see the verdict.";
 
         report = FigureOverlay.MeasureClones(root.transform, "GLOW", cloned > 0, originals, cloned)
                  + " " + sourceSays
                  + $" CLONED: {string.Join("; ", clonedDesc)}"
                  + (cloned > clonedDesc.Count ? $" (+{cloned - clonedDesc.Count} more not named)" : "")
                  + "."
-                 + foreignSays
                  + " Skipped: "
-                 + $"{skippedKind} non-mesh, {skippedDisabled} with Renderer.enabled=false, "
-                 + $"{skippedRing} on the selection ring, {skippedModOwned} mod-owned, of "
-                 + $"{onActiveObjects} renderer(s) on active objects.";
+                 + $"{f.Kind} non-mesh, {f.Disabled} with Renderer.enabled=false, "
+                 + $"{f.Ring} on the selection ring, {f.ModOwned} mod-owned, of "
+                 + $"{f.OnActiveObjects} renderer(s) on active objects. "
+                 + verdict.Headline;
         OverlayVisibilityProbe.Attach(root, $"{label}/glow", $"GLOW on {label}");
         return true;
+    }
+
+    /// <summary>
+    /// THE ENUMERATION MECHANISM. Judge ONE figure the moment the driver adopts it — hovered or
+    /// not — and write one line per DISTINCT figure class per session, so a played session produces
+    /// the roster of every miniature that stood on the board together with the verdict for each.
+    ///
+    /// <para><b>Why this is not folded into <see cref="Apply"/>.</b> Apply only ever runs on a
+    /// figure the player's hand reached. The ModBuild 340 hardware log is 13 MB and contains four
+    /// figure types for exactly that reason, out of a roster of many — which is why "does it work
+    /// for ALL figures?" could not be answered from it at all. Auditing at ADOPTION turns the
+    /// question from "which figures did he happen to hover" into "which figures did the scenario
+    /// spawn".</para>
+    ///
+    /// <para><b>Why it counts DISABLED renderers too</b> (<c>requireEnabled: false</c>). Adoption
+    /// happens the frame a figure appears, while <c>MaterialLoaderData.LoadMaterials</c> may still
+    /// have its renderer components switched off. The audit asks a STRUCTURAL question — which
+    /// subtree holds this figure's geometry — and a renderer that is momentarily disabled is
+    /// structurally in the same place. <see cref="Apply"/>'s own verdict, computed with the live
+    /// filter, is printed on every hover and is the one that describes what was actually drawn.</para>
+    ///
+    /// <para><b>Cost.</b> Two <c>GetComponentsInChildren</c> walks over one actor subtree (36
+    /// renderers on the largest figure measured), ONCE per figure class per session, on the same
+    /// call that already runs <c>FigureGrabDriver.LogFigureReach</c>. Nothing per frame.</para>
+    /// </summary>
+    internal static void AuditFigure(GameObject? figureRoot, GameObject? animatedRoot,
+                                     Transform? excludeSubtree, string label)
+    {
+        string model = animatedRoot != null ? animatedRoot.name : "<no animated object>";
+        if (figureRoot == null || string.IsNullOrEmpty(label) || !Audited.Add(label + "|" + model))
+            return;
+
+        AuditScratch.Clear();
+        CollectCandidates(figureRoot, excludeSubtree, ownContainer: null,
+                          requireEnabled: false, AuditScratch);
+        MiniatureVerdict verdict = Judge(figureRoot, animatedRoot, AuditScratch);
+        AuditScratch.Clear();
+
+        string who = $"'{label}' (m_AnimatedGameObject '{model}', layer '{verdict.AnimatedLayer}', "
+                     + $"{verdict.Animators} Animator(s) with a controller under the actor)";
+
+        if (verdict.ProvenByConstruction)
+        {
+            // HW-VERIFY: this is the roster line — one per distinct figure per session, PROVEN or
+            // not. It must stay at a tier the DEFAULT log level prints, because a session whose
+            // audit printed nothing is indistinguishable from a session in which the audit never
+            // ran, and that ambiguity is the whole reason the line exists.
+            VRLog.Note("FigureGrab",
+                $"MINIATURE AUDIT {Audited.Count}: {who} — {verdict.Headline}");
+            return;
+        }
+
+        // HW-VERIFY: the figures that are NOT proven by construction are the entire residual risk
+        // in "does the glow work on every figure". This must print at the default level or a figure
+        // can under-glow in a corner of the game with nothing in the log to say so — which is
+        // exactly what happened to the boss for sixteen builds.
+        VRLog.Alert("FigureGrab",
+            $"MINIATURE AUDIT {Audited.Count}: {who} is NOT proven by construction — {verdict.Headline}");
+    }
+
+    /// <summary>
+    /// PASS 1, SHARED. Fill <paramref name="into"/> with the renderers under
+    /// <paramref name="figureRoot"/> that could be cloned at all, and report how the refusals split.
+    /// <paramref name="requireEnabled"/> is the one axis on which the hover path and the audit
+    /// differ, and it is a PARAMETER rather than a second copy of the loop for the same reason
+    /// <see cref="FigureOverlay.SourceMesh"/> exists: two copies are two places to disagree.
+    /// </summary>
+    private static Filtered CollectCandidates(GameObject figureRoot, Transform? excludeSubtree,
+                                              Transform? ownContainer, bool requireEnabled,
+                                              List<Renderer> into)
+    {
+        var f = default(Filtered);
+        Scratch.Clear();
+        figureRoot.GetComponentsInChildren(includeInactive: false, Scratch);
+        f.OnActiveObjects = Scratch.Count;
+
+        for (int i = 0; i < Scratch.Count; i++)
+        {
+            Renderer r = Scratch[i];
+            if (r == null)
+                continue;
+            // Only SURFACE geometry, the same filter ActorBars and FigureGrabDriver use: a particle
+            // or trail renderer is an effect volume, and an additive clone of one is a smear.
+            if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
+            {
+                f.Kind++;
+                continue;
+            }
+            if ((ownContainer != null && IsUnder(r.transform, ownContainer))
+                || HasModOwnedAncestor(r.transform, figureRoot.transform))
+            {
+                f.ModOwned++;
+                continue;
+            }
+            if (excludeSubtree != null && IsUnder(r.transform, excludeSubtree))
+            {
+                f.Ring++;
+                continue;
+            }
+            // A renderer the game has switched OFF must not acquire a glowing double. This is not
+            // hypothetical: the async material loader disables the component while materials stream
+            // (MaterialLoaderData.LoadMaterials), and a sheathed weapon is disabled outright. The
+            // pre-ModBuild-294 code walked with includeInactive:TRUE and never checked `enabled`,
+            // so every hidden prop on the figure got a visible amber ghost of itself in mid-air.
+            if (requireEnabled && !r.enabled)
+            {
+                f.Disabled++;
+                continue;
+            }
+            into.Add(r);
+        }
+        Scratch.Clear();
+        return f;
+    }
+
+    /// <summary>
+    /// THE RULE AND ITS OWN VERDICT, IN ONE PLACE. Decide whether the clone must be restricted to
+    /// <c>m_AnimatedGameObject</c>, and grade how much that decision rests on an assumption.
+    ///
+    /// <para><b>The rule (ModBuild 340, unchanged).</b> Restrict when that subtree holds at least
+    /// one candidate; fall back to the whole actor root when it holds none.</para>
+    ///
+    /// <para><b>The guard (ModBuild 341, new).</b> REFUSE the restriction when it would discard at
+    /// least as many vertices as it keeps. That comparison cannot fire on any figure measured so
+    /// far — the four known-good ones drop nothing at all, and the boss drops 120 vertices against
+    /// 14 846 — so it is a proven no-op on every piece of evidence that exists, and it converts the
+    /// one remaining structural failure (<c>MF.GetGameObjectAnimator</c>'s depth-first walk
+    /// reaching a FOREIGN animated object before the body) from an invisible under-glow into a
+    /// visible over-glow that also announces itself.</para>
+    ///
+    /// <para><b>Why vertex count.</b> See <see cref="FigureOverlay.VertexCount"/>: renderer COUNT
+    /// makes one body mesh a minority against two bands, and a bounding BOX cannot separate a band
+    /// stretched across a snout from a wing.</para>
+    ///
+    /// <para><b>The Animator census is the term that measures case (ii).</b>
+    /// <c>ActorBehaviour.SetActor</c> sets <c>m_Animator = MF.GetGameObjectAnimator(root)</c> and
+    /// <c>m_AnimatedGameObject = m_Animator.gameObject</c> (decompiled ActorBehaviour.cs:114-115),
+    /// and that method (decompiled MF.cs:395-406) returns the FIRST Animator in
+    /// <c>GetComponentsInChildren&lt;Animator&gt;()</c> order — active objects only — that owns a
+    /// <c>runtimeAnimatorController</c>. When exactly ONE such Animator exists under the actor the
+    /// game had no choice to get wrong, and <c>m_AnimatedGameObject</c> IS the animated character.
+    /// The count is REPORTED rather than acted on, because a figure carrying two of them is not
+    /// thereby wrong — it is thereby worth looking at.</para>
+    /// </summary>
+    internal static MiniatureVerdict Judge(GameObject figureRoot, GameObject? animatedRoot,
+                                           List<Renderer> candidates)
+    {
+        Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
+        int under = 0, keptVerts = 0, droppedVerts = 0;
+        var droppedDesc = new List<string>(4);
+
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            Renderer r = candidates[i];
+            int verts = FigureOverlay.VertexCount(r);
+            if (animatedT == null || IsUnder(r.transform, animatedT))
+            {
+                under++;
+                keptVerts += verts;
+            }
+            else
+            {
+                droppedVerts += verts;
+                if (droppedDesc.Count < 4)
+                    droppedDesc.Add(FigureOverlay.DescribeSource(r));
+            }
+        }
+
+        int dropped = candidates.Count - under;
+        string droppedNames = droppedDesc.Count == 0
+            ? string.Empty
+            : string.Join("; ", droppedDesc)
+              + (dropped > droppedDesc.Count ? $" (+{dropped - droppedDesc.Count} more not named)" : "")
+              + ".";
+        int animators = CountAnimatorsWithController(figureRoot);
+        string layer = animatedRoot != null ? LayerMask.LayerToName(animatedRoot.layer) : "<none>";
+        if (string.IsNullOrEmpty(layer))
+            layer = animatedRoot != null ? $"#{animatedRoot.layer} (unnamed)" : "<none>";
+
+        bool hasAnimated = animatedT != null;
+        MiniatureGrade grade = GradeOf(candidates.Count, under, keptVerts, droppedVerts, hasAnimated);
+        return new MiniatureVerdict(grade, RestrictFor(grade, hasAnimated), candidates.Count, under,
+                                    keptVerts, droppedVerts, animators, layer,
+                                    grade == MiniatureGrade.Proven || grade == MiniatureGrade.Nothing
+                                        ? string.Empty : droppedNames);
+    }
+
+    // BEGIN PURE DECISION — no Unity type crosses this line. FigureHighlightGradeVectors drives
+    // these two methods directly, outside the engine; see the falsification note in the report for
+    // ModBuild 341. Keep them free of UnityEngine so that stays possible.
+
+    /// <summary>
+    /// THE WHOLE RULE, AS ARITHMETIC. Five numbers in, one grade out, no Unity type involved — so
+    /// the decision that governs whether a figure's body or its furniture gets the glow can be
+    /// driven case by case without a headset, an engine or a scenario.
+    ///
+    /// <list type="bullet">
+    ///   <item><description><paramref name="candidates"/> — clonable renderers under the actor root.</description></item>
+    ///   <item><description><paramref name="under"/> — how many of those lie under <c>m_AnimatedGameObject</c>.</description></item>
+    ///   <item><description><paramref name="keptVerts"/> / <paramref name="droppedVerts"/> — the
+    ///   vertex totals of the two halves that split makes.</description></item>
+    ///   <item><description><paramref name="hasAnimatedObject"/> — false for every board PROP,
+    ///   which has no <c>ActorBehaviour</c> and therefore no such field.</description></item>
+    /// </list>
+    /// </summary>
+    internal static MiniatureGrade GradeOf(int candidates, int under, int keptVerts,
+                                           int droppedVerts, bool hasAnimatedObject)
+    {
+        if (candidates <= 0)
+            return MiniatureGrade.Nothing;
+
+        // No animated object at all: the whole root is used and NOTHING is dropped, so there is no
+        // judgement to get wrong. Every prop takes this branch.
+        if (!hasAnimatedObject)
+            return MiniatureGrade.Proven;
+
+        // An animated object that holds no clonable renderer: fall back to the whole root. This is
+        // the safety ModBuild 294 moved to the root FOR, and it over-glows rather than under-glows.
+        if (under <= 0)
+            return MiniatureGrade.RootFallback;
+
+        // The restriction removes nothing — the restricted and unrestricted sets are the SAME set.
+        if (under >= candidates)
+            return MiniatureGrade.Proven;
+
+        // THE GUARD. `under < candidates` is established, so something really would be dropped and
+        // two meshless sets cannot produce a false refusal out of 0 >= 0.
+        if (droppedVerts >= keptVerts)
+            return MiniatureGrade.Refused;
+
+        return MiniatureGrade.Furniture;
+    }
+
+    /// <summary>
+    /// Whether a grade means "clone only <c>m_AnimatedGameObject</c>".
+    ///
+    /// <para><paramref name="hasAnimatedObject"/> is not decoration: <see cref="MiniatureGrade.Proven"/>
+    /// is reached BOTH by "every candidate is already under the animated object" and by "there is no
+    /// animated object", and a true here in the second case would send the clone loop into an
+    /// ancestor test against a null transform. Restricting under Proven changes nothing either way
+    /// — the two sets are equal by definition of the grade — so this returns true there only to
+    /// keep the log saying "Cloned from m_AnimatedGameObject 'HE_Brute'", the vocabulary every
+    /// hardware round since ModBuild 294 has been read in.</para>
+    /// </summary>
+    internal static bool RestrictFor(MiniatureGrade grade, bool hasAnimatedObject) =>
+        hasAnimatedObject
+        && (grade == MiniatureGrade.Furniture || grade == MiniatureGrade.Proven);
+
+    // END PURE DECISION.
+
+    /// <summary>
+    /// How many Animators owning a <c>runtimeAnimatorController</c> sit on ACTIVE objects under
+    /// <paramref name="figureRoot"/> — deliberately the same population, and the same
+    /// <c>includeInactive:false</c> default, that <c>MF.GetGameObjectAnimator</c> takes the first of.
+    /// </summary>
+    private static int CountAnimatorsWithController(GameObject figureRoot)
+    {
+        int n = 0;
+        foreach (Animator a in figureRoot.GetComponentsInChildren<Animator>())
+            if (a != null && a.runtimeAnimatorController != null)
+                n++;
+        return n;
     }
 
     /// <summary>Destroy the overlay (idempotent). Restores the figure byte-identical — its own
