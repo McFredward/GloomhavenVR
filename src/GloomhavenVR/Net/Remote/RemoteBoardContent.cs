@@ -125,6 +125,14 @@ internal static class RemoteBoardContent
         tmp.alignment = align;
         tmp.color = color;
         tmp.fontStyle = style;
+        // THE SAME RIM THE LOCAL BOARD'S FLOATING LABELS NOW CARRY (user request 5, 2026-09-03).
+        // A peer's board hangs in the same scenario the local one does, so its readouts cross the
+        // same lit rock and the same black litter; relieving one board and not the other would be
+        // the 1:1 ruling broken in the direction that is hardest to notice, because the owner of
+        // that board sees his own copy relieved and only the VIEWER sees the bare one. There is no
+        // dial and no wire field here — it is one constant recipe applied identically on both
+        // sides, which is what makes the two pictures the same.
+        WorldUI.NativeButtonSkin.StyleWorldReadableLabel(tmp);
         TmpFit.Fit(tmp, box.x, box.y, maxFont, wrap);
         return tmp;
     }

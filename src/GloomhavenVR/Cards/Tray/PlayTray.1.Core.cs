@@ -513,6 +513,19 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     internal float BoardFaceFrontZ { get; private set; } = float.NaN;
 
     /// <summary>
+    /// THE BOARD'S FACE FRAME IN WORLD SPACE — the single rotation every element on this board is
+    /// meant to be drawn in, and the one <c>LiveBoardAnchors</c> writes onto the bundle's own
+    /// anchors at build time (<c>live[i].rotation = faceWorld</c>).
+    ///
+    /// <para>Exposed for <see cref="BoardEngraving.SeatFacing"/>, which re-asserts it on every board
+    /// caption rather than trusting each caption's parent chain to have preserved it. <c>_root</c>
+    /// null (no board built) answers with identity, which SeatFacing treats as "no frame to assert"
+    /// the same way every other reader of this class does.</para>
+    /// </summary>
+    internal Quaternion BoardFaceWorld =>
+        _root != null ? _root.rotation * _boardFaceFrame : Quaternion.identity;
+
+    /// <summary>
     /// Where <paramref name="t"/> sits along the board's face normal, in board-root-local metres —
     /// the one frame in which every seat constant in this class and in <see cref="BoardEngraving"/>
     /// is written. Negative is toward the player.
@@ -834,6 +847,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // transparent renderer at order 0 — join the board's furniture order group so a panel
         // BEHIND the board can no longer paint over it (the opaque plate needs nothing).
         AdoptFurniture(readoutGo);
+        // THE CONTROL FOR THE MIRRORED-CAPTION MEASUREMENT. "RUNDE 2" reads correctly in
+        // text-board.jpg and hangs off a _root child carrying the same _boardFaceFrame the FIXIERT
+        // caption's anchor carries — so this caption's four facing numbers are what the broken one's
+        // are compared against. It gets the same unconditional write, which for a caption that is
+        // already right is the value it already had.
+        BoardEngraving.SeatFacing(_roundLabel, "RoundText", BoardFaceWorld);
         // THE ONE ENGRAVING THAT ALWAYS RENDERED, AND WHY IT IS INSTRUMENTED TOO. It is not seated
         // any better than the three that did not — it is the only one with a per-board depth dial,
         // and every shipped value of [Cards] ReadoutOffset_{board} has a NEGATIVE Z (−24 mm Oak,
@@ -1297,7 +1316,23 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             // dust dissolve never sees it). The WORD is engraved into the board beside it, and
             // flips with the symbol.
             capRole: CardsConfig.TrayFollow.Value ? CapRole.FixedFollow : CapRole.FixedPinned,
-            capStyle: CardsConfig.CurrentBoard);
+            capStyle: CardsConfig.CurrentBoard,
+            // NO WELL BEHIND THIS ONE. User, 2026-09-03: "ich mag den schwebenden braunen
+            // Hintergrund nicht auf dem der button sitzt - der button alleine reicht, lösche diese
+            // hintergrund mesh auf dem der button sitzt, er kann direkt unter dem controllboard
+            // schweben ohne Unterlage."
+            //
+            // IT IS THIS CALL AND ONLY THIS CALL, and the reason is physical rather than aesthetic.
+            // Every other board button — Confirm, Undo, Skip, the item-use confirm, both rest discs
+            // — sits ON the board, in a recess the board's own art already has, and its dark well is
+            // what makes the key read as seated in that recess. This toggle does not: its anchor is
+            // BELOW the board's bottom edge (PinBase y = −BoardH/2 − 0.030 against a −0.16 edge), so
+            // its well was not lining a recess, it was a loose brown tile hanging in the air behind
+            // a key hanging in the air. Removing it here removes it from nothing else — and the
+            // mirror of this cap does the same (Net.RemoteBoardFurniture.InertCap.Square), because
+            // a plate deleted on the owner's board and left on every peer's copy of it is the 1:1
+            // ruling broken in the one direction the owner can never see.
+            wellPlate: false);
         _followToggle.WireCap = Net.NetProtocol.CapPressFollowPin;
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
@@ -1327,6 +1362,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 BoardEngraving.CaptionMaxFontSize, CardsConfig.CurrentBoard,
                 proudZ: BoardEngraving.PinCaptionProudLocalZ);
             AdoptFurniture(_followEngraving.gameObject); // see BoardEngraving.Create
+            // …AND FACING THE WAY THE BOARD FACES, ASSERTED RATHER THAN INHERITED. This is the
+            // caption text-board.jpg shows drawn MIRRORED while the two beside it read correctly —
+            // see BoardEngraving.SeatFacing for the measurement that established that and for why
+            // the write is unconditional on every caption instead of gated on a diagnosis.
+            BoardEngraving.SeatFacing(_followEngraving, "FollowEngraving", BoardFaceWorld);
             RefreshFollowEngraving();
             BoardEngraving.LogSeat(_followEngraving, "FollowEngraving", CardsConfig.CurrentBoard,
                 BoardFaceDepth(_followEngraving.transform), BoardFaceDepth(_followAnchor),

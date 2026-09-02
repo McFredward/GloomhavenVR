@@ -52,6 +52,15 @@ The sheet each style takes them from is the sheet that style's BOARD took them f
 cap carries the plaited crescent its bronze pad carries and an oak cap carries the guild
 one.
 
+ONE ROLE SYMBOL IS NOT GENERATED EITHER, AND THAT IS THE DIRECTION OF TRAVEL
+---------------------------------------------------------------------------
+`FixedPinned` (cell 7) was the sheet's anchor and the user rejected it on sight ("Ich mag das
+Symbol nicht"). It is now DRAWN, by `cap_stencils.py`, as a picket pin. The argument for drawing
+it is the one this file already makes for everything else: a generated image reaches the carve
+as a BINARY STENCIL, so the generator was only ever contributing an OUTLINE, and an outline is
+something a few polygons can state exactly, revise on request, and reproduce with no `../out/`
+image present at all. Nothing about the carve, the bevel or the material changed with it.
+
 THE GENERATED INPUTS -- four images, all accepted first try, none re-rolled
 --------------------------------------------------------------------------
     ../out/keycap_symbols_sheet.png   1024^2, 3x3, the five ROLE symbols + spares
@@ -85,6 +94,7 @@ sys.path.insert(0, HERE)
 import tex_common as T          # noqa: E402
 import tex_symbols as S         # noqa: E402
 import cap_object as O          # noqa: E402  (round 3: the registered object cells)
+import cap_stencils as D        # noqa: E402  (round 7: the DRAWN stencils)
 
 REPO = os.path.dirname(os.path.dirname(PREP))
 BUNDLE = os.path.join(REPO, "unity", "GloomhavenVR.Assets", "Assets", "Bundle", "Table")
@@ -106,7 +116,22 @@ GRID = (4, 4)                   # cols, rows
 # index -> (role name, symbol source, layout)
 #   symbol source: ("sheet", cell)      one cell of ../out/keycap_symbols_sheet.png
 #                  ("motif", name)      ../out/motifs_<sheet>/<name>_mask.png, per style
+#                  ("draw",  name)      cap_stencils.stencil(name) -- DRAWN, no image at all
 #                  None                 no symbol; plain material
+#
+# WHY THE FOURTH KIND EXISTS, and why it is not a step down from the first. A generated cell
+# reaches the carve as a BINARY STENCIL and nothing else -- that is the rule at the top of this
+# file -- so the only thing the generator ever contributed to a cap was an OUTLINE. `cap_stencils`
+# draws the outline instead, which costs no `../out/` image (that directory is gitignored, so a
+# fresh clone cannot rebuild a sheet-sourced cell at all), makes the limb widths AUTHORED rather
+# than discovered, and makes the motif revisable where a generated one can only be re-rolled.
+# A drawn stencil arrives trimmed and squarified, exactly as `tex_symbols._cell_binary` leaves a
+# sheet cell, so everything from `place()` onward treats the two kinds identically.
+#
+# THE ONE NUMBER THAT IS NOT COMPARABLE ACROSS THE KINDS is `min limb ... px src`: a sheet cell's
+# source resolution is whatever the trim left (~265 px), a drawn one's is `cap_stencils
+# .DEFAULT_SIDE` (1024). The `-> ... px cell` figure is the same measurement at the same scale for
+# every kind and is the one the legibility bar is set on.
 #   layout:        "text"    the cap ALSO carries live game text -> symbol in the upper band
 #                  "solo"    the symbol is the whole face -> centred and large
 #                  "plain"   no symbol
@@ -118,7 +143,15 @@ CELLS = [
     dict(idx=4, role="ItemUse",     src=("sheet", "C3"),   layout="text"),
     dict(idx=5, role="ShortRest",   src=("motif", "rest_short"), layout="solo"),
     dict(idx=6, role="LongRest",    src=("motif", "rest_long"),  layout="solo"),
-    dict(idx=7, role="FixedPinned", src=("sheet", "B2"),   layout="solo"),
+    # ROUND 7. The anchor this replaces was generated art and the user rejected it outright
+    # ("Ich mag das Symbol nicht"). It is DRAWN now -- see cap_stencils.py for the four
+    # candidates and .planning/debug/renders/fixiert-*.png for the size test that chose between
+    # them. A picket pin -- ring head, tapering spike, ground line -- because the requirement is
+    # not "a nice symbol": it is a silhouette a player can tell apart from cell 8's TWO
+    # FOOTPRINTS in one glance, since the two are the two states of ONE toggle. Feet that walk
+    # against iron driven into the earth. The INDEX is untouched; `Cards/Caps/CapSymbols.cs` and
+    # `CapCellMath` mirror this table by index on both sides of the wire.
+    dict(idx=7, role="FixedPinned", src=("draw", "picket"), layout="solo"),
     dict(idx=8, role="FixedFollow", src=("sheet", "B3"),   layout="solo"),
     # ROUND 6. Not a control -- the ROUND sibling of cell 0. Every cap's bevel ring and side
     # walls sample a PLAIN cell, and before this there was exactly one, built against the SQUARE
@@ -138,7 +171,11 @@ SHEET_CELLS = {
     "A2": "undo (counter-clockwise return arrow)",
     "A3": "skip (two triangles against an upright bar)",
     "B1": "item_use ALTERNATE (apothecary phial with rays)",
-    "B2": "fixed_pinned (anchor)",
+    # B2 IS NO LONGER USED BY ANY CELL -- round 7 replaced it with a drawn picket pin after the
+    # user rejected the anchor. It stays in this table because the table describes THE SHEET, not
+    # the atlas: the sheet still has an anchor in that cell, and a reader who deletes the entry
+    # loses the only record of what the delivered image contains.
+    "B2": "fixed_pinned (anchor) -- SUPERSEDED, see CELLS[7]",
     "B3": "fixed_follow (two footprints)",
     "C1": "confirm ALTERNATE (check mark in a ring)",
     "C2": "undo ALTERNATE (plain arc arrow)",
@@ -477,6 +514,28 @@ def load_motif_mask(name, sheet_letter, motif_root):
     if not os.path.isfile(path):
         return None
     return np.asarray(Image.open(path).convert("L"), dtype=np.uint8) > 127
+
+
+def resolve_mask(src, style, sheet_masks, motif_root):
+    """The stencil a cell's `src` names, whatever KIND it names it as. None if there is none.
+
+    ONE resolver, and it is one because there were TWO. `cap_check.symbols` carried its own copy
+    of this branch, so the first cell to use a kind that copy had never heard of came out as
+    "SOURCE MISSING" -- an acceptance instrument failing a cell that is fine, which is worse than
+    no instrument. A vocabulary with more than one reader belongs in one function; anything that
+    walks `CELLS` calls this rather than re-deriving it.
+    """
+    if src is None:
+        return None
+    kind, key = src
+    if kind == "sheet":
+        return sheet_masks.get(key)
+    if kind == "draw":
+        return D.stencil(key)
+    if kind == "motif":
+        return load_motif_mask(key, STYLE_MOTIF_SHEET[style], motif_root)
+    raise KeyError(f"unknown symbol source kind {kind!r} in {src!r} -- the vocabulary is "
+                   f"documented above CELLS")
 
 
 def place(mask, cell_px, size_frac, cy_frac):
@@ -834,8 +893,7 @@ def build_style(style, cell_px, sheet_masks, motif_root, plates_dir, out_dir, re
             src_note = "plain"
             if spec["src"] is not None:
                 kind, key = spec["src"]
-                mask = (sheet_masks.get(key) if kind == "sheet"
-                        else load_motif_mask(key, STYLE_MOTIF_SHEET[style], motif_root))
+                mask = resolve_mask(spec["src"], style, sheet_masks, motif_root)
                 if mask is None:
                     src_note = f"{kind}:{key} MISSING -> plain"
                 else:
@@ -965,6 +1023,23 @@ def main():
         print(f"  {cell}: {what:<50} {m.shape[0]:4d}px stencil, ink "
               f"{m.mean() * 100:5.1f}%, threshold {n['thr']:.3f}, "
               f"min limb {min_feature_px(m):.1f}px")
+
+    # The DRAWN stencils, listed the same way and for the same reason: so the numbers that decide
+    # whether a symbol survives the carve are printed beside the numbers for the generated ones,
+    # in one table, rather than in two places that can disagree. There is no threshold to print --
+    # a drawn stencil is binary before it is anything else -- and `min limb` is given at the CELL
+    # scale as well, because that is the only scale the two kinds compare at (see the src
+    # vocabulary above). A name with no cell pointing at it is an ALTERNATE kept for the next time
+    # this question is asked, exactly as B1 / C1 / C2 are on the sheet.
+    used = {c["src"][1] for c in CELLS if c["src"] and c["src"][0] == "draw"}
+    print(f"drawn stencils: {D.__file__}")
+    for name in D.NAMES:
+        m = D.stencil(name)
+        cov = place(m, args.cell, SOLO_SIZE, SOLO_CY)
+        print(f"  {name:<9} {D.WHAT[name]:<50} {m.shape[0]:4d}px stencil, ink "
+              f"{m.mean() * 100:5.1f}%, min limb {min_feature_px(m):5.1f}px src "
+              f"-> {min_feature_px(cov >= 0.5):4.1f}px cell"
+              f"{'   <- IN USE' if name in used else ''}")
 
     recs = []
     for style in args.styles:

@@ -2037,6 +2037,81 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
     /// and idempotent by construction — the target is derived from the CONFIG, never from the live
     /// (already widened) width, so re-running can never compound.
     /// </summary>
+    /// <summary>Next unscaled time <see cref="StyleObjectivesText"/> may sweep the objectives
+    /// subtree, and how many labels the last sweep had to relieve.</summary>
+    private float _nextObjectivesStyleAt;
+
+    private int _objectivesStyled;
+
+    /// <summary>Sweep cadence. The game rebuilds these rows on every objective change and on every
+    /// language change, and a rebuilt row is a fresh TMP with a fresh shared material — so this
+    /// cannot be a one-shot. Four times a second over a subtree of ~10 nodes is nothing; per frame
+    /// would be a per-frame <c>GetComponentsInChildren</c> allocation, which is the shape of defect
+    /// this project has shipped three times.</summary>
+    private const float ObjectivesStyleInterval = 0.25f;
+
+    /// <summary>
+    /// LEGIBILITY RELIEF ON THE GAME'S OWN OBJECTIVES TEXT (user request 5, 2026-09-03).
+    ///
+    /// <para><b>WHICH TEXT.</b> "Versengter Gipfel / - Tötet den Drakenfürsten." in his screenshot
+    /// is not drawn by this mod at all — it is the game's own <c>TextMeshProUGUI</c> rows inside the
+    /// objectives canvas this surface re-hosts in world space. Until now the mod touched only their
+    /// container's WIDTH. Measured off text-board.jpg with the glyphs masked out, that line runs at
+    /// 17.28:1 over the black leaf litter and 7.90:1 against the worst ground it crosses — so in
+    /// THIS screenshot it is not the failing one, and saying so is the point: the relief is applied
+    /// here for consistency with the three labels beside it and because a scenario with a bright
+    /// floor puts this row in the same position the battle goal is already in, NOT because a
+    /// measurement caught it failing. The measurement that did catch a failure is on the battle
+    /// goal (2.24:1) and, far worse, on the board's own engraved captions (1.64:1).</para>
+    ///
+    /// <para><b>WHICH SIDE OF THE 1:1 RULE THIS IS ON, AND IT IS THE OWNER'S.</b>
+    /// <c>Net.Remote.RemoteObjectivesPanel</c> mirrors this panel by <c>Object.Instantiate</c> of
+    /// the owner's live subtree (<c>RemoteWidgetMirror</c>: "the source still owns every glyph,
+    /// colour, sprite and progress fill"), so a relief written HERE is carried to every peer by the
+    /// clone itself — no wire field, no second rule to keep in step. The mirror applies the SAME
+    /// constant recipe on its own clone as well, and that is not a viewer dial being ANDed with an
+    /// owner dial: there is no dial. It is one fixed constant applied on both sides so that a clone
+    /// taken before the owner's font landed cannot end up showing a different picture from the one
+    /// the owner is looking at.</para>
+    ///
+    /// <para><b>WHY IT WRITES TO A GAME-OWNED COMPONENT AND WHY THAT IS SAFE.</b> TMP's
+    /// <c>fontMaterial</c> accessor mints a PER-LABEL material instance the first time it is read;
+    /// the game's shared font asset is never touched, and the mod already relies on exactly this
+    /// for every label it owns (<c>NativeButtonSkin.MakeLabelDepthHonest</c>). Nothing is written
+    /// to the label's text, colour, size or layout — the row is the game's row, with a rim.</para>
+    /// </summary>
+    private void StyleObjectivesText()
+    {
+        if (Time.unscaledTime < _nextObjectivesStyleAt)
+            return;
+        _nextObjectivesStyleAt = Time.unscaledTime + ObjectivesStyleInterval;
+        RectTransform? lever = Panel?.Target;
+        if (lever == null)
+            return;
+        int styled = 0;
+        foreach (TMP_Text t in lever.GetComponentsInChildren<TMP_Text>(includeInactive: true))
+        {
+            if (NativeButtonSkin.HasWorldReadableRelief(t))
+                continue;
+            NativeButtonSkin.StyleWorldReadableLabel(t);
+            if (NativeButtonSkin.HasWorldReadableRelief(t))
+                styled++;
+        }
+        if (styled <= 0 || styled == _objectivesStyled)
+            return;
+        _objectivesStyled = styled;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"OBJECTIVES RELIEF: {styled} of the game's own objectives labels " +
+            "under '" + lever.name + "' were re-lettered with the world-readable keyline this " +
+            "sweep (see the WORLD-LABEL LEGIBILITY line for the recipe and the measured contrast). " +
+            "Change-gated on the COUNT, so this re-prints when the game rebuilds the rows and goes " +
+            "quiet while it does not — a repeat of the same number is the panel being rebuilt at " +
+            "the same size, a rising number is rows being added, and SILENCE after the first line " +
+            "is the steady state. Zero lines at all means the sweep found no TMP under that " +
+            "container, which is the objectives panel not being converted rather than the relief " +
+            "failing.");
+    }
+
     private void ApplyContentWidth()
     {
         if (Panel == null)
@@ -2415,6 +2490,8 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         {
             ApplyContentWidth(); // the 'Breite' dial's real lever — see ApplyContentWidth
             LogWidthVerification();
+            StyleObjectivesText(); // user request 5 — see the method
+
         }
         else if (wasConverted)
         {
@@ -2473,6 +2550,14 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         if (Time.unscaledTime >= _nextQuestRefresh)
         {
             _nextQuestRefresh = Time.unscaledTime + QuestRefreshInterval;
+            // THE RELIEF, RE-APPLIED UNTIL IT TAKES. NativeButtonSkin harvests the game's HUD font
+            // off a live widget, so a label built before one existed has font == null and the
+            // legibility recipe written at build time wrote to nothing at all — the "gated remedy
+            // never ran" shape exactly. This costs one float read off a material once per refresh
+            // tick and stops asking the moment the material reads back as already relieved, so it
+            // is not a probe that outlives its answer either.
+            if (_questTmp != null && !NativeButtonSkin.HasWorldReadableRelief(_questTmp))
+                NativeButtonSkin.StyleWorldReadableLabel(_questTmp);
             string text = BuildQuestText(out bool unanswerable);
             if (text.Length > 0)
             {
@@ -2837,8 +2922,20 @@ internal sealed class ObjectivesSurface : TrayMountedPanelSurface
         _questAppliedOrder = int.MinValue;
         _questPlateRenderer = null; // the old plate died with the old label — re-find under the new one
         _questTmp.alignment = TextAlignmentOptions.Top;
+        // THE FILL COLOUR IS DELIBERATELY UNCHANGED (user request 5, 2026-09-03). He asked for
+        // legibility "indem du die Schriftfarbe entsprechend wählst" AND for it to stay immersive —
+        // and measuring his screenshot showed the fill is not the term that is wrong: this text
+        // crosses ground running from L=0.0003 to L=0.3365 WITHIN ONE LINE, so the same cream that
+        // reads at 17.2:1 over the leaf litter reads at 2.24:1 over the lit stone a few glyphs
+        // later — under the 3:1 floor, while the rest of the sentence is fine.
+        // What it lacks is a rim of its own, not a different colour. See StyleWorldReadableLabel.
         _questTmp.color = new Color(0.92f, 0.88f, 0.76f);
         NativeButtonSkin.ApplyFont(_questTmp); // native HUD font, like the pile captions
+        // …AND THE RIM. Opt-in by name — ApplyFont still outlines nothing (NativeButtonSkin's own
+        // note). Re-applied by RankQuestLabel's tick, because ApplyFont has no font to mint a
+        // material from until the mod has harvested one off a live game widget, and a relief
+        // written to a null material is a fix that never ran.
+        NativeButtonSkin.StyleWorldReadableLabel(_questTmp);
         // Label-local units: scale = panel width, so 0.96 ≈ full panel width; auto-size
         // shrinks/wraps long localized strings inside the block (TmpFit policy).
         TmpFit.Fit(_questTmp, 0.96f, QuestRectHeightFrac, maxFontSize: 0.65f);

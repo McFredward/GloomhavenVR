@@ -338,8 +338,18 @@ internal static class NativeButtonSkin
     /// design (width 0.10 of the SDF range); properties are probed so any TMP shader
     /// variant without an outline is a clean no-op. Idempotent — safe after every font
     /// (re)assignment; call AFTER <see cref="ApplyFont"/> (which mints the material
-    /// instance this writes to). Deliberately NOT part of ApplyFont itself: captions,
-    /// HUD lines and the quest block share that path and must stay un-outlined.
+    /// instance this writes to). Deliberately NOT part of ApplyFont itself, and that has NOT
+    /// changed: ApplyFont is shared by every mod label in the game and folding a relief recipe
+    /// into it would style things nobody has looked at.
+    ///
+    /// <para><b>WHAT DID CHANGE (2026-09-03, user request 5).</b> This comment used to name "the
+    /// quest block" among the labels that "must stay un-outlined". That was never a rule about the
+    /// quest block, it was a description of who happened to call ApplyFont — and it read as a
+    /// standing ruling for long enough that the battle-goal text shipped bare over a forest floor,
+    /// where the worst ground it crosses drops it to 2.24:1 — under the 3:1 large-text floor. The
+    /// rule is still "ApplyFont does not outline"; labels that need relief
+    /// now OPT IN by name. For a label that floats over the SCENE rather than over a cap, the
+    /// opt-in is <see cref="StyleWorldReadableLabel"/>, not this one.</para>
     /// </summary>
     internal static void StyleEngravedLabel(TMP_Text label) =>
         StyleEngravedLabel(label, EngraveOutlineColor, EngraveOutlineWidth,
@@ -362,11 +372,6 @@ internal static class NativeButtonSkin
     internal static void StyleEngravedLabel(TMP_Text label, Color outlineColor, float outlineWidth,
                                             bool outlineOn, bool underlayOn)
     {
-        if (label == null || label.font == null)
-            return; // no font yet — the caller re-applies fonts late, restyle then
-        Material mat = label.fontMaterial; // per-label instance (never the shared asset)
-        if (mat == null)
-            return;
         // CONTRAST FIX (user #3): a fully-opaque, thicker dark keyline. On a LIGHT brass/
         // parchment cap the old 0.10-wide, 85%-alpha umber outline barely registered, so the
         // bright glyphs and the bright cap merged; a full-opacity 0.20 rim now clearly rings
@@ -376,38 +381,14 @@ internal static class NativeButtonSkin
         // gated on the LabelOutline toggle (OFF → width 0 + keyword off = a flat label). Applied on
         // the keycap rebuild that a ButtonColors edit triggers (ButtonTuning.Version), so toggling
         // it live takes effect on the next re-skin.
-        if (mat.HasProperty("_OutlineColor"))
-            mat.SetColor("_OutlineColor", outlineColor);
-        if (mat.HasProperty("_OutlineWidth"))
-        {
-            mat.SetFloat("_OutlineWidth", outlineOn ? outlineWidth : 0f);
-            if (outlineOn)
-                mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
-            else
-                mat.DisableKeyword("OUTLINE_ON");
-        }
+        //
         // A soft dark drop-shadow underlay sells the carved depth AND adds a second contrast
         // cue on light caps (a shaded halo below/right of the glyphs). Darkened and its alpha
         // raised (0.55 → 0.70) so it holds on a bright brass cap (UNDERLAY_ON gates the pass).
         // User debug option: gated on the LabelUnderlay toggle (OFF → keyword off = no shadow).
-        if (mat.HasProperty("_UnderlayColor"))
-        {
-            if (underlayOn)
-            {
-                mat.SetColor("_UnderlayColor", new Color(0.05f, 0.03f, 0.02f, 0.70f));
-                if (mat.HasProperty("_UnderlaySoftness"))
-                    mat.SetFloat("_UnderlaySoftness", 0.35f);
-                if (mat.HasProperty("_UnderlayOffsetX"))
-                    mat.SetFloat("_UnderlayOffsetX", 0.30f);
-                if (mat.HasProperty("_UnderlayOffsetY"))
-                    mat.SetFloat("_UnderlayOffsetY", -0.30f);
-                mat.EnableKeyword("UNDERLAY_ON");
-            }
-            else
-            {
-                mat.DisableKeyword("UNDERLAY_ON");
-            }
-        }
+        if (!ApplySdfRelief(label, outlineColor, outlineWidth, outlineOn,
+                            underlayOn, CapUnderlayColor, CapUnderlaySoftness, CapUnderlayOffset))
+            return;
 
         if (!_styleLogged)
         {
@@ -420,6 +401,204 @@ internal static class NativeButtonSkin
                                   $"width {outlineWidth:F2}, + dark underlay shadow — readable on both " +
                                   "light (brass/parchment) and dark (wood/pewter) caps.");
         }
+    }
+
+    // ------------------------------------------------------------------ world-readable labels --
+
+    /// <summary>The keycap recipe's underlay: a warm near-black shadow, soft and offset down-RIGHT,
+    /// because a cap label sits PROUD of its cap and a proud thing casts its shadow away from
+    /// BoardLit's baked key. Named rather than inline so the world-label recipe below can differ
+    /// from it deliberately instead of by a copy nobody compared.</summary>
+    private static readonly Color CapUnderlayColor = new(0.05f, 0.03f, 0.02f, 0.70f);
+
+    private const float CapUnderlaySoftness = 0.35f;
+
+    private static readonly Vector2 CapUnderlayOffset = new(0.30f, -0.30f);
+
+    /// <summary>
+    /// The keyline for a label that floats over the SCENE — near-black and fully opaque.
+    ///
+    /// <para><b>WHY NEAR-BLACK AND NOT THE KEYCAP'S UMBER.</b> A cap label has a known background:
+    /// its own cap, whose colour this mod chose. A HUD label hanging beside the board has no
+    /// background at all — it has whatever the scenario put behind it, which in the scene this was
+    /// measured from is a black forest AND pale lit rock within the same line of text. Against the
+    /// rock the umber keyline (0.5, 0.5, 0.5) is worth 1.9:1; near-black is worth 7.3:1. The fill
+    /// keeps the light parchment, so on the black half nothing changes at all.</para>
+    /// </summary>
+    private static readonly Color WorldLabelKeyline = new(0.05f, 0.04f, 0.03f, 1f);
+
+    /// <summary>Keyline width for a world label, in SDF range. Wider than the keycap's 0.20 because
+    /// the glyphs it has to ring are a THIN SERIF at HUD size seen through a headset's per-eye
+    /// resolution: at 0.20 the rim survives on the cap (a large glyph on a known ground) and gets
+    /// eaten by the scene here. 0.26 is the widest the shipped TMP SDF material renders without the
+    /// counters of 'e'/'a' filling in at this point size — checked against the quest block's own
+    /// solved font size, not chosen for roundness.</summary>
+    private const float WorldLabelKeylineWidth = 0.26f;
+
+    /// <summary>A world label's drop shadow: pure black, near-opaque, tight and cast DOWN-RIGHT.
+    /// Tighter than the cap's (0.25 vs 0.35 softness, 0.22 vs 0.30 offset) because it is doing a
+    /// different job — on a cap the shadow sells depth, here it is a second, lower-frequency dark
+    /// ground under the glyph for the case where the keyline alone is not enough (a scene feature
+    /// whose own edge runs along a stroke).</summary>
+    private static readonly Color WorldLabelUnderlayColor = new(0f, 0f, 0f, 0.85f);
+
+    private const float WorldLabelUnderlaySoftness = 0.25f;
+
+    private static readonly Vector2 WorldLabelUnderlayOffset = new(0.22f, -0.22f);
+
+    private static bool _worldStyleLogged;
+
+    /// <summary>
+    /// LEGIBILITY RELIEF FOR A LABEL THAT FLOATS OVER THE SCENE — light parchment fill, an opaque
+    /// near-black SDF keyline, and a tight black drop shadow. NO PLATE.
+    ///
+    /// <para><b>THE REQUEST</b> (user, 2026-09-03): <i>"Gewährleiste, dass der Text lesbar ist auf
+    /// den Boards, indem du die Schriftfarbe entsprechend wählst. Es soll immersiv sein weiterhin
+    /// und gut aussehen, aber lesbar sein! Siehe text-board.jpg, dort sieht du das der Text im
+    /// Hintergrund untergeht."</i></para>
+    ///
+    /// <para><b>THIS IS THE SECOND HALF OF REQUEST 5, AND THE SMALLER ONE.</b> The user said "auf
+    /// den Boards", and the text literally cut INTO the boards was far worse — 1.64–1.96:1, fixed
+    /// by deepening the carve in <c>Cards.Caps.BoardEngraving</c>. This is the floating half: the
+    /// battle goal, the game's objectives block, the item-use caption and the peer readouts, which
+    /// hang beside the board with the scenario behind them.</para>
+    ///
+    /// <para><b>WHY A COLOUR ALONE CANNOT DO IT, MEASURED OFF HIS OWN SCREENSHOT, AND THE HONEST
+    /// SIZE OF IT.</b> Sampling text-board.jpg along those lines WITH THE GLYPHS MASKED OUT (a
+    /// threshold plus a 3 px dilation, so no antialiased edge pixel is counted as bright ground —
+    /// the first pass of this measurement did count them and overstated the defect by an order of
+    /// magnitude): the ground is near-black for the great majority of every line (p50 L=0.0003 to
+    /// L=0.0008, fill 17.1–17.3:1), and the WORST ground the strokes cross is L=0.3365 on quest
+    /// line 2 and L=0.2586 on line 3. The rendered cream fill measures L=0.8165. So the fill falls
+    /// to <b>2.24:1</b> and <b>2.81:1</b> at those points — under the 3:1 floor for large text —
+    /// while the same line reads at 17:1 two words away. The defect is LOCAL, and that is precisely
+    /// why no fill colour fixes it: darker wins the rock and loses the litter, lighter the reverse.
+    /// It is a RELIEF problem, not a palette problem.</para>
+    ///
+    /// <para><b>WHAT THIS BUYS, IN THE SAME UNITS.</b> The keyline is measured against the
+    /// backgrounds, not against the fill: near-black over the L=0.3365 stone is <b>7.26:1</b> where
+    /// the fill was 2.24:1, and over the L=0.2586 stone <b>5.80:1</b> where the fill was 2.81:1 —
+    /// so every stroke carries at least one edge above the floor everywhere in that screenshot,
+    /// and the black-litter majority is untouched at 17:1. The second reason, which a screenshot
+    /// cannot measure: at this angular size through a Quest 3 the serif strokes are one to two
+    /// pixels PER EYE, and a dark rim is what gives them an edge that survives the panel and the
+    /// reprojection. That half is a hardware question, not a claim made here.</para>
+    ///
+    /// <para><b>AND NOT A PLATE.</b> <i>"Es soll immersiv sein weiterhin und gut aussehen."</i> A
+    /// dark quad behind the text is the crude answer and this project has already ruled against it
+    /// twice — the round readout's backing plate was deleted on the user's own instruction ("nativ
+    /// und immersiv in dem board verarbeitet, nicht einfach als schwebender Text darüber"), and
+    /// <c>Cards.Caps.BoardEngraving</c> carries "NO BACKING PLATE, EVER" in its class doc. This
+    /// adds no geometry and no second draw: it is three properties on the label's own font material
+    /// instance, which is the same mechanism every keycap caption on the board already uses. The
+    /// fill colour, the font and the size are untouched, so the look is the shipped look plus the
+    /// shadow an inscription would have cast anyway.</para>
+    ///
+    /// <para><b>THIS IS NOT PART OF <see cref="ApplyFont"/>.</b> Labels opt in by name — see the
+    /// note on <see cref="StyleEngravedLabel(TMP_Text)"/>. Idempotent, safe to re-apply after any
+    /// font (re)assignment, and a clean no-op on a TMP shader variant with no outline pass.</para>
+    /// </summary>
+    internal static void StyleWorldReadableLabel(TMP_Text label)
+    {
+        if (!ApplySdfRelief(label, WorldLabelKeyline, WorldLabelKeylineWidth, outlineOn: true,
+                            underlayOn: true, WorldLabelUnderlayColor, WorldLabelUnderlaySoftness,
+                            WorldLabelUnderlayOffset))
+            return;
+
+        if (_worldStyleLogged)
+            return;
+        _worldStyleLogged = true;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "WORLD-LABEL LEGIBILITY (user request 5, 'der Text im Hintergrund " +
+            "untergeht'): the battle goal, the scenario objectives block, the item-use caption and " +
+            "the peer-board readouts now carry an opaque near-black SDF keyline RGBA(" +
+            $"{WorldLabelKeyline.r:F2},{WorldLabelKeyline.g:F2},{WorldLabelKeyline.b:F2}," +
+            $"{WorldLabelKeyline.a:F2}) at width {WorldLabelKeylineWidth:F2} plus a black underlay " +
+            $"at alpha {WorldLabelUnderlayColor.a:F2}, softness {WorldLabelUnderlaySoftness:F2}, " +
+            $"offset ({WorldLabelUnderlayOffset.x:F2}, {WorldLabelUnderlayOffset.y:F2}). NO PLATE " +
+            "and NO fill-colour change. Measured off text-board.jpg: that text crosses ground " +
+            "running from L=0.0003 (black litter, fill 17.2:1) to L=0.3365 (lit stone, fill " +
+            "2.24:1, under the 3:1 floor) WITHIN ONE LINE, so no single fill colour can serve " +
+            "both; the keyline is 7.26:1 against that stone. The BOARD's own engraved captions " +
+            "were the larger half of the same request and are fixed separately — see BOARD " +
+            "ENGRAVING. If the tester reports this text still sinking, the field that decides it " +
+            "is WHICH ground it sinks against: dark means the fill is the term to change, pale " +
+            "means the keyline is not thick enough at that angular size.");
+    }
+
+    /// <summary>
+    /// The SDF relief writes both label recipes share — outline colour/width + keyword, and the
+    /// underlay colour/softness/offset + keyword — on the label's own per-instance font material.
+    ///
+    /// <para>Extracted so the two recipes differ only in their NUMBERS. They were one copied block
+    /// for exactly as long as there was one recipe; the moment a second appeared, the shipped
+    /// version of "which properties does a TMP relief consist of" would have had two homes and the
+    /// keyword gating (<c>OUTLINE_ON</c> / <c>UNDERLAY_ON</c>, which mobile TMP variants need and
+    /// desktop ones ignore) would have been the half that got missed in the copy.</para>
+    ///
+    /// <para>Returns false when there is nothing to write to yet — no font, so no material instance
+    /// — which is the caller's cue that its own log line has not earned the right to claim
+    /// anything. Every property is probed, so a TMP shader variant without an outline or underlay
+    /// pass is a clean no-op rather than an exception.</para>
+    /// </summary>
+    private static bool ApplySdfRelief(TMP_Text label, Color outlineColor, float outlineWidth,
+                                       bool outlineOn, bool underlayOn, Color underlayColor,
+                                       float underlaySoftness, Vector2 underlayOffset)
+    {
+        if (label == null || label.font == null)
+            return false; // no font yet — the caller re-applies fonts late, restyle then
+        Material mat = label.fontMaterial; // per-label instance (never the shared asset)
+        if (mat == null)
+            return false;
+        if (mat.HasProperty("_OutlineColor"))
+            mat.SetColor("_OutlineColor", outlineColor);
+        if (mat.HasProperty("_OutlineWidth"))
+        {
+            mat.SetFloat("_OutlineWidth", outlineOn ? outlineWidth : 0f);
+            if (outlineOn)
+                mat.EnableKeyword("OUTLINE_ON"); // mobile TMP variants gate outline on this; no-op elsewhere
+            else
+                mat.DisableKeyword("OUTLINE_ON");
+        }
+        if (mat.HasProperty("_UnderlayColor"))
+        {
+            if (underlayOn)
+            {
+                mat.SetColor("_UnderlayColor", underlayColor);
+                if (mat.HasProperty("_UnderlaySoftness"))
+                    mat.SetFloat("_UnderlaySoftness", underlaySoftness);
+                if (mat.HasProperty("_UnderlayOffsetX"))
+                    mat.SetFloat("_UnderlayOffsetX", underlayOffset.x);
+                if (mat.HasProperty("_UnderlayOffsetY"))
+                    mat.SetFloat("_UnderlayOffsetY", underlayOffset.y);
+                mat.EnableKeyword("UNDERLAY_ON");
+            }
+            else
+            {
+                mat.DisableKeyword("UNDERLAY_ON");
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// True when <paramref name="label"/> already wears the world-readable relief, read off the
+    /// material rather than off a bookkeeping set.
+    ///
+    /// <para><b>WHY IT READS THE PICTURE AND NOT A FLAG.</b> The callers that need this are sweeping
+    /// a subtree the GAME owns and rebuilds — the objectives panel — so any set of "labels I have
+    /// styled" is a set of instance ids that go stale silently on every rebuild and leak across
+    /// scene loads. The material's own <c>_OutlineWidth</c> cannot go stale: if it reads back as
+    /// this recipe's width, this recipe is what is on screen.</para>
+    /// </summary>
+    internal static bool HasWorldReadableRelief(TMP_Text? label)
+    {
+        if (label == null || label.font == null)
+            return false;
+        Material mat = label.fontMaterial;
+        return mat != null
+               && mat.HasProperty("_OutlineWidth")
+               && Mathf.Abs(mat.GetFloat("_OutlineWidth") - WorldLabelKeylineWidth) < 1e-4f;
     }
 
     /// <summary>

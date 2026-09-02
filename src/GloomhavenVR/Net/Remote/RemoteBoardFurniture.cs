@@ -1217,7 +1217,15 @@ internal sealed class RemoteBoardFurniture
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
             new Vector2(_pinCapW, _dashCapH), _dashCapD, PinIdleColor(_style), DashCapTint, labels,
             travel: _dashCapTravel, accent: PinAccentColor,
-            role: Cards.CapRole.FixedFollow, style: _style, anim: _capAnim);
+            role: Cards.CapRole.FixedFollow, style: _style, anim: _capAnim,
+            // NO WELL BEHIND THIS ONE EITHER — the mirror of the owner's `wellPlate: false`
+            // (Cards.PlayTray.CreateDashboardButtons, user request 6b). Same argument, from the
+            // other side: this toggle hangs BELOW the board's bottom edge rather than in one of the
+            // board's own recesses, so its plate was a loose brown tile floating behind a floating
+            // key. Deleting it locally and not here would leave every peer looking at the plate the
+            // owner just had removed, on the owner's own board — the 1:1 ruling broken in the one
+            // direction the owner has no way to notice.
+            wellPlate: false);
         // …and the word for it, cut into the board above the toggle. Seated off the SAME mount the
         // cap is (PinMount + the owner's tuned PinOffset) and lifted by the shared
         // BoardEngraving.PinCaptionLiftY, so it tracks the owner's dial the way the cap does.
@@ -3894,7 +3902,8 @@ internal sealed class RemoteBoardFurniture
             float depth, Color color, Color capTint, in CapLabelStyle labels,
             in CapAnim anim,
             float travel = 0f, Color? accent = null,
-            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
+            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null,
+            bool wellPlate = true)
         {
             GameObject go = NewRoot(parent, name, localPos);
             // WHICH CONTROL, AND WHOSE BOARD. The style is the PEER's synced board style, so a peer
@@ -3914,13 +3923,20 @@ internal sealed class RemoteBoardFurniture
             Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
 
             // Base plate: the recessed well the cap sits in — BoardButton's own non-round branch.
-            var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            basePlate.name = "Base";
-            Object.Destroy(basePlate.GetComponent<Collider>());
-            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-            basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
-            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
-            TintLit(basePlate, WorldUI.ButtonTuning.CapWellColor); // the colour SeatedCapColor floors against
+            // …UNLESS THE CALLER OPTED OUT, which mirrors BoardButton.Create's `wellPlate` exactly:
+            // the one cap that hangs below the board's edge rather than in one of its recesses gets
+            // no plate on the owner's board and none here (user request 6b). Not built rather than
+            // built-and-hidden, for the same reason the owner's side gives.
+            if (wellPlate)
+            {
+                var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                basePlate.name = "Base";
+                Object.Destroy(basePlate.GetComponent<Collider>());
+                basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+                basePlate.transform.localScale = new Vector3(size.x + 0.008f, size.y + 0.008f, 0.006f);
+                basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+                TintLit(basePlate, WorldUI.ButtonTuning.CapWellColor); // the colour SeatedCapColor floors against
+            }
 
             float capThick = Mathf.Max(0.012f, depth);
             var capMesh = new GameObject("CapMesh");

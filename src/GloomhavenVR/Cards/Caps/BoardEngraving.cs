@@ -90,31 +90,74 @@ internal static class BoardEngraving
     /// would have been DARKER than the 0.418 board around it, inverting the one cue that says the
     /// mark is cut IN rather than raised. An engraving's reference is the surface it is engraved
     /// into; there was never a second candidate.</para>
+    ///
+    /// <para><b>THE CUT WAS DEEPENED (user request 5, 2026-09-03): "Gewährleiste, dass der Text
+    /// lesbar ist AUF DEN BOARDS, indem du die Schriftfarbe entsprechend wählst. Es soll immersiv
+    /// sein weiterhin und gut aussehen, aber lesbar sein!"</b> The multipliers moved; the derivation
+    /// did not. groove 0.45 → 0.13, lit lip 1.35 → 1.60, keyline 0.22 → 0.07 (and
+    /// <see cref="KeylineWidth"/> 0.09 → 0.14, <see cref="LipAlpha"/> 0.85 → 1.00). Re-derive with
+    /// <c>unity/board-prep/buttons/cap_check.py --palette</c>, whose printed multipliers are updated
+    /// to match.</para>
+    ///
+    /// <para><b>MEASURED, OFF HIS OWN SCREENSHOT, BEFORE ANY OF IT WAS CHANGED.</b> Sampling the
+    /// three engraved captions in text-board.jpg (darkest tenth = the groove, middle third = the
+    /// stone, brightest tenth = the lip):</para>
+    /// <list type="bullet">
+    /// <item>"LANGE RAST." groove 1.64:1 against its own stone, lip 1.50:1, and the carve's own
+    /// dark-to-light step across a stroke only 2.46:1.</item>
+    /// <item>"RUNDE 2" 1.96:1 / 1.83:1, step 3.59:1.</item>
+    /// <item>"FIXIERT" 1.68:1 / 1.99:1, step 3.34:1.</item>
+    /// </list>
+    /// <para>Every one of those is under the 3:1 floor for large text. That is what "der Text
+    /// untergeht" IS on the board itself, and it is a much larger effect than anything measured on
+    /// the floating labels beside it (whose median is 17:1).</para>
+    ///
+    /// <para><b>WHY THE FIX IS A DEEPER CUT AND NOT A BRIGHTER FILL.</b> Glyph-vs-stone has a
+    /// CEILING here that no colour can beat: the board renders at L≈0.11 in this scene, so even a
+    /// perfectly black groove tops out at (0.11+0.05)/0.05 = 3.2:1. Making the fill LIGHTER instead
+    /// would invert the carve into raised lettering, which is the one thing the user has ruled out
+    /// twice ("nativ und immersiv in dem board verarbeitet"). What is NOT capped is the carve's own
+    /// internal step — the groove floor against the lit lip on the other side of the same stroke —
+    /// because that spans the whole range rather than one side of the stone. So the groove goes
+    /// DEEP (a real incision's floor is near-black in ambient occlusion, which is the physically
+    /// honest value and not a legibility cheat), the lip goes brighter (a deeper chamfer catches
+    /// more of the same key), and the shaded wall gets real area at HUD size. Computed on the same
+    /// scene factor the measurement above establishes (0.826, rendered stone L over albedo L):</para>
+    /// <list type="bullet">
+    /// <item>groove-vs-stone: Oak 2.49 → <b>3.63:1</b>, Steel 2.20 → <b>2.99:1</b>, Bronze
+    /// 2.19 → <b>2.97:1</b>.</item>
+    /// <item>the carve's internal step: Oak 3.66 → <b>8.49:1</b>, Steel 3.14 → <b>6.62:1</b>,
+    /// Bronze 3.12 → <b>6.55:1</b> — 2.1x to 2.3x.</item>
+    /// </list>
+    /// <para>Nothing was added behind the glyphs. The class rule below still holds.</para>
     /// </summary>
     private static readonly Color[] GrooveFloor =
     {
-        new(0.260f, 0.192f, 0.129f, 1f), // Oak    — shadowed heartwood
-        new(0.188f, 0.178f, 0.174f, 1f), // Steel  — the dark of a struck groove in brushed steel
-        new(0.201f, 0.177f, 0.118f, 1f), // Bronze — shadowed metal under the patina
+        new(0.075f, 0.056f, 0.037f, 1f), // Oak    — deep shadowed heartwood (face × 0.13)
+        new(0.054f, 0.051f, 0.050f, 1f), // Steel  — the dark of a struck groove in brushed steel
+        new(0.058f, 0.051f, 0.034f, 1f), // Bronze — shadowed metal under the patina
     };
 
     private static readonly Color[] LitLip =
     {
-        new(0.780f, 0.577f, 0.387f, 1f),
-        new(0.565f, 0.535f, 0.522f, 1f),
-        new(0.604f, 0.531f, 0.353f, 1f),
+        new(0.925f, 0.683f, 0.459f, 1f), // face × 1.60 — the chamfer of a deeper cut catching the
+        new(0.669f, 0.634f, 0.619f, 1f), // same baked key over more of its length. Oak's red channel
+        new(0.715f, 0.629f, 0.419f, 1f), // is the binding one at 0.925 and is deliberately under 1.
     };
 
     private static readonly Color[] Keyline =
     {
-        new(0.127f, 0.094f, 0.063f, 1f),
-        new(0.092f, 0.087f, 0.085f, 1f),
-        new(0.098f, 0.087f, 0.057f, 1f),
+        new(0.040f, 0.030f, 0.020f, 1f), // face × 0.07 — the shaded wall, darker than the floor it
+        new(0.029f, 0.028f, 0.027f, 1f), // runs down to, which is what a wall in shadow is
+        new(0.031f, 0.028f, 0.018f, 1f),
     };
 
-    /// <summary>Width of the shaded keyline as a fraction of the SDF spread. Thin: it is the wall
-    /// of a cut seen almost edge-on, not a drawn border.</summary>
-    private const float KeylineWidth = 0.09f;
+    /// <summary>Width of the shaded keyline as a fraction of the SDF spread. Still the wall of a cut
+    /// seen almost edge-on rather than a drawn border — but 0.09 gave that wall almost no AREA at
+    /// the angular size a board caption is actually read at, so the dark half of the carve was
+    /// carried by the fill alone. 0.14 is the widest that does not start closing the counters of
+    /// 'e' and 'a' at the solved caption font size these labels land on (36, band 0.045..0.111).</summary>
+    private const float KeylineWidth = 0.14f;
 
     /// <summary>How far the lit lip peeks out from under the glyph, in SDF units. Negative X and Y
     /// = down and LEFT, i.e. the two walls the baked key actually falls on (see the class doc).</summary>
@@ -125,9 +168,12 @@ internal static class BoardEngraving
     /// chamfer catching light along its length, not a shadow thrown onto a surface behind.</summary>
     private const float LipSoftness = 0.14f;
 
-    /// <summary>The lit lip's opacity. Below 1 because the lip is a narrow face at a glancing angle
-    /// to the key, not a fully-lit surface.</summary>
-    private const float LipAlpha = 0.85f;
+    /// <summary>The lit lip's opacity. It WAS 0.85 "because the lip is a narrow face at a glancing
+    /// angle to the key, not a fully-lit surface" — true of the shallow cut this started as, and the
+    /// 0.85 was then multiplying a lip that already measured only 1.42–1.47:1 against its own stone.
+    /// A deeper cut turns its chamfer further INTO the key rather than further away from it, so 1.0
+    /// is the same physical argument at the new depth, not an exception to it.</summary>
+    private const float LipAlpha = 1.00f;
 
     // ---- WHERE THE CAPTIONS SIT — one home, two boards ---------------------------------------
     //
@@ -242,6 +288,13 @@ internal static class BoardEngraving
         var tmp = go.AddComponent<TextMeshPro>();
         tmp.text = string.Empty;
         tmp.alignment = align;
+        // STATED, NOT ASSUMED. A TMP whose isRightToLeftText is true lays its glyphs out along
+        // local -X, which on a board caption is indistinguishable at a glance from a mirrored
+        // transform and is one of the two things that could produce the reversed FIXIERT caption in
+        // text-board.jpg. It defaults to false, so this line changes nothing today — it exists so
+        // that the NEXT reader of LogFacing's output can rule the RTL half out from the log instead
+        // of from a memory of what TMP's default is.
+        tmp.isRightToLeftText = false;
         // The game's own HUD face, so the cut looks like it was made by whoever made the board —
         // the same font every native caption on this board already uses. Font BEFORE style: the
         // material instance a font swap creates would otherwise be styled and then thrown away
@@ -300,7 +353,13 @@ internal static class BoardEngraving
         if (!_logged)
         {
             _logged = true;
-            VRLog.Info("Cards", $"BOARD ENGRAVING ({style}): fill {GrooveFloor[row]} (the groove " +
+            // HW-VERIFY
+            // TIER PROMOTED, TEXT UNTOUCHED (2026-09-03). This line already named every number the
+            // legibility round changed — the groove floor, the keyline and its width, the lit lip
+            // and its alpha — and it was at Info, which the shipped log level drops. So the one line
+            // that says what the carve actually got was invisible in exactly the report it would
+            // have answered. Promoting the tier is the sanctioned move; the words are the words.
+            VRLog.Note("Cards", $"BOARD ENGRAVING ({style}): fill {GrooveFloor[row]} (the groove " +
                 $"floor — that board's own material in shadow), keyline {Keyline[row]} at width " +
                 $"{KeylineWidth:F2} (the shaded wall of the cut), lit lip {LitLip[row]} at alpha " +
                 $"{LipAlpha:F2} offset ({LipOffsetX:F2}, {LipOffsetY:F2}) — DOWN and LEFT, which is " +
@@ -381,6 +440,117 @@ internal static class BoardEngraving
             VRLog.Warn("Cards", line);
         else
             VRLog.Info("Cards", line);
+    }
+
+    /// <summary>Captions whose facing has already been reported (see <see cref="SeatFacing"/>).
+    /// Every one of these is destroyed and rebuilt on a board switch and on any ButtonTuning edit,
+    /// so an ungated line would be hundreds of copies of an answer that cannot change between
+    /// them — the same argument RestControls makes for its own seat log.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> _facingLogged = new();
+
+    /// <summary>
+    /// SEAT A CAPTION AGAINST THE BOARD'S OWN FACE FRAME, AND SAY WHICH WAY IT ENDED UP FACING.
+    ///
+    /// <para><b>THE DEFECT THIS EXISTS FOR.</b> In text-board.jpg the FIXIERT caption on the board's
+    /// bottom frame is drawn MIRRORED — it reads "TЯƎIXIꟻ". "LANGE RAST." and "RUNDE 2" on the SAME
+    /// board in the SAME frame read correctly, so it is not a whole-board handedness flip. Confirmed
+    /// numerically rather than by eye: correlating each caption's column ink profile against a
+    /// rendered reference and against that reference mirrored, the two known-good captions prefer
+    /// the un-mirrored reference (LANGE RAST 48/48 windows, RUNDE 2 39/48) and FIXIERT prefers the
+    /// MIRRORED one in 40 of 40 windows. TMP's distance-field material ships Cull Off, so a
+    /// back-facing or mirror-scaled label is not culled — it is simply drawn reversed.</para>
+    ///
+    /// <para><b>WHY THE CAUSE IS NOT IN THIS FILE'S SIGHT, AND WHY THAT MADE AN INSTRUMENT THE
+    /// DELIVERABLE.</b> Every transform in the FollowEngraving's chain is shared with a caption that
+    /// renders correctly: its anchor is a <c>_root</c> child carrying <c>_boardFaceFrame</c>, which
+    /// is exactly what the round readout's holder carries, and the round readout is right. The
+    /// existing ITEM2 diagnostic already reports that anchor as "vs faceNormal dot 1.00 → FACES the
+    /// player". Nothing in the board path multiplies a negative scale or a 180° roll. So a static
+    /// read cannot name the culprit, and shipping a guess would be the fifth round of that on this
+    /// board. What was missing was a MEASUREMENT of the rendered basis — nothing anywhere logged the
+    /// handedness of a caption's world matrix or which of its faces the eye is on.</para>
+    ///
+    /// <para><b>WHAT THIS DOES, AND IT IS NOT GATED ON THE FINDING.</b> It writes the caption's
+    /// WORLD rotation from the board's own frame, unconditionally, for every caption — so a parent
+    /// chain that has picked up a roll anywhere is overwritten by the one frame the board defines,
+    /// whether or not anybody has proved that is what happened. It then measures the result: the
+    /// determinant of the world basis (negative = mirrored by scale, which a rotation write cannot
+    /// undo, so that case is corrected on the caption's own localScale.x and said out loud), the
+    /// world direction the glyph advance actually points, and which face the eye is on. The line
+    /// prints at a tier the shipped log carries, on every caption, pass or fail — a remedy that only
+    /// speaks when it fires is a remedy whose silence means nothing.</para>
+    /// </summary>
+    /// <param name="boardFaceWorld">The board's own face frame in WORLD space — for the local board
+    /// <c>_root.rotation * _boardFaceFrame</c>, i.e. the exact rotation the bundle's own anchors
+    /// were aligned to.</param>
+    internal static void SeatFacing(TMP_Text? label, string what, Quaternion boardFaceWorld)
+    {
+        if (label == null)
+            return;
+        Camera? head = Rig.VRRigDriver.HeadCamera != null ? Rig.VRRigDriver.HeadCamera : Camera.main;
+        bool eyeKnown = head != null;
+        Vector3 eye = eyeKnown ? head!.transform.position : Vector3.zero;
+        Transform t = label.transform;
+
+        // THE ROLL, OVERWRITTEN BY CONSTRUCTION. Position is untouched — Transform.rotation moves
+        // nothing — so a caption whose chain was already correct is written the value it already
+        // had and nothing about the shipped picture changes.
+        Quaternion before = t.rotation;
+        t.rotation = boardFaceWorld;
+
+        // THE MIRROR, WHICH A ROTATION CANNOT FIX. Transform.rotation is a quaternion and knows
+        // nothing about a negative scale anywhere above; the basis the mesh is actually drawn with
+        // does. Read it off the matrix, which is the thing the GPU gets.
+        Matrix4x4 m = t.localToWorldMatrix;
+        Vector3 bx = m.MultiplyVector(Vector3.right);
+        Vector3 by = m.MultiplyVector(Vector3.up);
+        Vector3 bz = m.MultiplyVector(Vector3.forward);
+        float det = Vector3.Dot(Vector3.Cross(bx, by), bz);
+        bool mirrored = det < 0f;
+        if (mirrored)
+        {
+            Vector3 s = t.localScale;
+            t.localScale = new Vector3(-s.x, s.y, s.z);
+            m = t.localToWorldMatrix;
+            bx = m.MultiplyVector(Vector3.right);
+        }
+
+        // WHICH WAY THE GLYPHS ADVANCE, IN THE WORLD. TMP lays a left-to-right line along local +X,
+        // so this vector IS the direction the reader's eye travels along the word — and comparing it
+        // to the board's own in-plane right is the whole question "is this word reversed on the
+        // board", asked of the matrix rather than of the hierarchy.
+        Vector3 boardRight = boardFaceWorld * Vector3.right;
+        float advance = Vector3.Dot(bx.normalized, boardRight);
+
+        // WHICH FACE THE EYE IS ON. A TMP is readable from its -Z side, so the eye is on the correct
+        // side when the label's world forward points AWAY from the eye.
+        Vector3 fwd = (boardFaceWorld * Vector3.forward).normalized;
+        float eyeSide = eyeKnown ? Vector3.Dot(fwd, (t.position - eye).normalized) : float.NaN;
+
+        if (!_facingLogged.Add(what))
+            return;
+        float rolled = Quaternion.Angle(before, boardFaceWorld);
+        string verdict = mirrored
+            ? "MIRRORED BY SCALE — corrected on this caption's own localScale.x"
+            : advance < 0f
+                ? "ADVANCE REVERSED even after the frame write, which the frame write cannot explain"
+                : rolled > 1f
+                    ? $"ROLLED {rolled:F1}° out of the board frame and re-seated"
+                    : "correct as built — nothing was corrected";
+        // HW-VERIFY
+        VRLog.Note("Cards", $"ENGRAVING FACING — {what}: {verdict}. World-basis determinant " +
+            $"{det:F4} (negative = mirrored; a rotation write cannot undo that, a localScale flip " +
+            $"can). Glyph advance · board right = {advance:+0.000;-0.000} (want ≈ +1; −1 is the " +
+            $"word running backwards). Rotation was {rolled:F2}° off the board face frame before " +
+            "this write. Label forward · (label − eye) = " +
+            (eyeKnown ? $"{eyeSide:+0.000;-0.000} (want > 0: a TMP is readable from its −Z side, " +
+                        "so a NEGATIVE value is the player looking at the BACK of the caption, " +
+                        "which TMP's Cull Off draws as a mirror image)"
+                      : "eye unknown (no camera this frame)") +
+            $", isRightToLeftText={label.isRightToLeftText} (true would reverse the run without " +
+            "touching a single transform). THIS IS THE LINE THAT DECIDES THE REVERSED 'FIXIERT' " +
+            "CAPTION: compare this caption's four numbers against LongRestEngraving's and RoundText's " +
+            "in the same log — three of them render correctly, so whichever term differs is the cause.");
     }
 
     /// <summary>Change-gated text write. TMP rewrites re-trigger auto-size layout (the badge

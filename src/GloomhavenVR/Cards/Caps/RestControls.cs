@@ -191,6 +191,13 @@ internal sealed class RestControls
         // renderer the board carries — see BoardEngraving.Create for why a carving needs it too.
         if (_shortCaption != null) PlayTray.AdoptFurniture(_shortCaption.gameObject);
         if (_longCaption != null) PlayTray.AdoptFurniture(_longCaption.gameObject);
+        // THE OTHER TWO CONTROLS FOR THE MIRRORED-CAPTION MEASUREMENT. "LANGE RAST." reads
+        // correctly in text-board.jpg, and unlike the follow caption these hang off the BUNDLE's own
+        // anchors rather than off a mod-built one — which is the difference the reversed FIXIERT
+        // has to be explained by, if it is a transform at all. Same unconditional write, so if one
+        // of these ever picks up a roll it is corrected here too rather than reported later.
+        BoardEngraving.SeatFacing(_shortCaption, "ShortRestEngraving", tray.BoardFaceWorld);
+        BoardEngraving.SeatFacing(_longCaption, "LongRestEngraving", tray.BoardFaceWorld);
         RefreshLabels();
 
         SetOffset(offset, spacing); // shared X/Y nudge in plane, Z proud, ± the scaled pad pitch along Y

@@ -145,9 +145,11 @@ def symbols(args):
         for spec in A.CELLS:
             if spec["src"] is None:
                 continue
-            kind, key = spec["src"]
-            mask = (sheet_masks.get(key) if kind == "sheet"
-                    else A.load_motif_mask(key, A.STYLE_MOTIF_SHEET[style], args.motifs))
+            # Through cap_atlas's OWN resolver, not a copy of it. This line used to be a
+            # two-way branch over ("sheet", ...) / ("motif", ...) and it silently reported every
+            # DRAWN cell as SOURCE MISSING the moment that kind was added -- the instrument
+            # failing the atlas rather than the other way round.
+            mask = A.resolve_mask(spec["src"], style, sheet_masks, args.motifs)
             if mask is None:
                 print(f"    [{spec['idx']}] {spec['role']:<12} SOURCE MISSING")
                 bad += 1
@@ -216,7 +218,17 @@ def palette(args):
     would have put a 70 % drop where 55 % was meant and made the "lit lip" DARKER than the surface
     it is supposed to be catching light against, inverting the one cue that says the mark is a cut.
     """
-    print("style      board face mean RGB    groove x0.45         lit lip x1.35        keyline x0.22")
+    # THE MULTIPLIERS MOVED, 2026-09-03 (user request 5: "Gewaehrleiste, dass der Text lesbar
+    # ist auf den Boards ... Es soll immersiv sein weiterhin und gut aussehen, aber lesbar
+    # sein"). Measured off his text-board.jpg BEFORE the change: the three engraved captions ran
+    # at 1.64-1.96:1 groove-vs-stone with a carve internal step of only 2.46-3.59:1, every one of
+    # them under the 3:1 floor. Glyph-vs-stone is CAPPED at ~3.2:1 by how dark the board itself
+    # renders, so the only lever left is the carve's OWN dark-to-light step: a deeper groove and
+    # a brighter chamfer. The derivation lives on BoardEngraving.GrooveFloor. If these three
+    # numbers and that file's literals ever disagree, the file is what ships and this print is
+    # the thing that is wrong.
+    GROOVE, LIP, KEY = 0.13, 1.60, 0.07
+    print(f"style      board face mean RGB    groove x{GROOVE:<12.2f} lit lip x{LIP:<12.2f} keyline x{KEY:.2f}")
     for style in args.styles:
         p = os.path.join(args.refs, f"ref_face_{style}.png")
         a = np.asarray(Image.open(p).convert("RGB"), dtype=np.float64) / 255.0
@@ -225,7 +237,7 @@ def palette(args):
         def fmt(v):
             return "(" + ", ".join(f"{x:.3f}" for x in np.clip(v, 0, 1)) + ")"
 
-        print(f"{style:<10} {fmt(mean)}  {fmt(mean * 0.45)}  {fmt(mean * 1.35)}  {fmt(mean * 0.22)}")
+        print(f"{style:<10} {fmt(mean)}  {fmt(mean * GROOVE)}  {fmt(mean * LIP)}  {fmt(mean * KEY)}")
     print("\nThese are the literals in src/GloomhavenVR/Cards/BoardEngraving.cs. They are AUTHORED")
     print("there, not sampled at runtime: the board atlases import with isReadable = 0, so the")
     print("plugin cannot call GetPixel on one, and making a 4 MB texture readable to recover three")

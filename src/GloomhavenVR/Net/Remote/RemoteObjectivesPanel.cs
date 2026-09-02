@@ -208,12 +208,58 @@ internal sealed class RemoteObjectivesPanel
             RowCount = CountLiveRows(container);
             _signature = string.Empty;  // a later fallback must repaint from scratch
             _shownRows = -1;
+            StyleMirroredText();
             return;
         }
 
         Source = RemoteWidgetMirror.Fidelity.ModDrawn;
         _mirror.SetShown(false);
         RefreshFallback();
+    }
+
+    /// <summary>How many mirrored labels the last sweep had to relieve (change-gated log).</summary>
+    private int _styledRows = -1;
+
+    /// <summary>
+    /// THE SAME LEGIBILITY RELIEF THE OWNER'S OWN OBJECTIVES PANEL WEARS, applied to the CLONE
+    /// (user request 5, 2026-09-03 — <c>ObjectivesSurface.StyleObjectivesText</c> is the local half
+    /// and carries the measurement).
+    ///
+    /// <para><b>WHY BOTH SIDES AND NOT JUST THE OWNER'S.</b> The mirror is an
+    /// <c>Object.Instantiate</c> of the owner's live subtree, and Instantiate copies the serialized
+    /// font-material reference — so a clone taken AFTER the owner's relief landed already carries
+    /// it for free, and one taken BEFORE carries the bare material until the next clone rebuild.
+    /// That is a window in which the owner reads a relieved panel and his team-mates read a bare
+    /// one, which is the 1:1 ruling broken by TIMING rather than by design. Applying the identical
+    /// constant on the clone closes it: there is no dial on either side to disagree about, so the
+    /// two sides cannot land on different pictures no matter when the clone was taken.</para>
+    ///
+    /// <para>Swept over the whole panel root, so the mod-drawn FALLBACK rows are covered by the same
+    /// pass — they come from <c>RemoteBoardContent.Label</c>, which already relieves them, and the
+    /// material read-back makes re-visiting them free.</para>
+    /// </summary>
+    private void StyleMirroredText()
+    {
+        int styled = 0;
+        foreach (TMP_Text t in _root.GetComponentsInChildren<TMP_Text>(includeInactive: true))
+        {
+            if (WorldUI.NativeButtonSkin.HasWorldReadableRelief(t))
+                continue;
+            WorldUI.NativeButtonSkin.StyleWorldReadableLabel(t);
+            if (WorldUI.NativeButtonSkin.HasWorldReadableRelief(t))
+                styled++;
+        }
+        if (styled <= 0 || styled == _styledRows)
+            return;
+        _styledRows = styled;
+        // HW-VERIFY
+        VRLog.Note("Net", $"PEER OBJECTIVES RELIEF: {styled} label(s) on the MIRRORED objectives " +
+            "panel were re-lettered with the world-readable keyline this sweep — the same constant " +
+            "the owner's own panel uses (WORLD-LABEL LEGIBILITY names the recipe). A non-zero " +
+            "count here is the clone having been taken before the owner's relief landed, which is " +
+            "expected and is exactly what this pass exists to close; the count going quiet is the " +
+            "two boards agreeing. A count that RISES every sweep would mean the clone is being " +
+            "rebuilt every 250 ms, which is a different defect entirely.");
     }
 
     /// <summary>Active row count of the LIVE container (what the mirrored picture is showing) —

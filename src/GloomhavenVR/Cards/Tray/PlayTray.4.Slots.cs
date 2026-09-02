@@ -649,6 +649,14 @@ internal sealed partial class PlayTray
         label.alignment = TextAlignmentOptions.Center;
         label.color = ItemUseLabelColor;
         WorldUI.NativeButtonSkin.ApplyFont(label);
+        // …AND THE RIM (user request 5, 2026-09-03: "Gewährleiste, dass der Text lesbar ist auf den
+        // Boards"). This caption is parked OUTSIDE the recess, which is the same sentence two lines
+        // down that explains why it needs an MR backing — and outside the recess means that in
+        // NORMAL VR there is nothing behind it either, only whatever the scenario put there (the
+        // battle goal, measured on the same scene, falls to 2.24:1 where it crosses lit stone). The
+        // colour is unchanged; it gains the dark keyline the battle goal and the objectives block
+        // now carry, so all three read the same way against the same forest.
+        WorldUI.NativeButtonSkin.StyleWorldReadableLabel(label);
         // The pile captions' own fit call. Note it is WIDER and SHORTER than the card-width box that
         // used to be here: the width is what stops a long word ("BENUTZEN") from being squeezed, and
         // the 2.4 cm height is what keeps the glyphs at caption size instead of letting TMP grow them

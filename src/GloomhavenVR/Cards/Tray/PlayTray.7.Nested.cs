@@ -604,6 +604,46 @@ internal sealed partial class PlayTray
         /// <summary>Throttle for the watchdog line — a relayout can force several caps at once.</summary>
         private static float _nextFadeHealLogAt;
 
+        /// <summary>Names of the plate-less caps already reported (see <see cref="LogPlatelessCap"/>).
+        /// A rebuild on every <c>ButtonTuning.Version</c> bump would otherwise print this line every
+        /// time the user moves a slider.</summary>
+        private static readonly System.Collections.Generic.HashSet<string> _platelessLogged = new();
+
+        /// <summary>
+        /// WHAT A CAP WITH NO WELL BEHIND IT IS SEATED AGAINST — once per named cap, at a tier the
+        /// shipped log prints.
+        ///
+        /// <para><b>WHY IT EXISTS.</b> <c>ButtonTuning.SeatedCapColor</c> floors every cap FACE
+        /// against <c>CapWellColor</c> so a cap can never render darker than the recess it sits in,
+        /// and <c>LogCapSurface</c> states that comparison as "vs the WELL it sits in". Take the
+        /// well away and that floor still runs, but its REFERENCE is gone: what is behind this cap
+        /// now is the board's own face, or the scene. The number is deliberately UNCHANGED — the
+        /// floor can only ever add light, this cap's shipped colour (0.58, 0.46, 0.26) clears it by
+        /// a factor of three, and raising it would silently re-tint a button the user has already
+        /// dialled in. But "unchanged and now measured against something else" is exactly the kind
+        /// of fact that a later round re-derives from scratch because nothing wrote it down.</para>
+        /// </summary>
+        private static void LogPlatelessCap(string name, Color accent)
+        {
+            if (!_platelessLogged.Add(name))
+                return;
+            // HW-VERIFY
+            VRLog.Note("Cards", $"PLATELESS CAP: '{name}' was built with NO 'Base' well behind it " +
+                "(user request 6b: \"ich mag den schwebenden braunen Hintergrund nicht auf dem der " +
+                "button sitzt - der button alleine reicht\"). It floats directly on whatever is " +
+                "behind it. Its trigger collider is UNCHANGED — the seat plane the box is measured " +
+                "back to is where the plate WOULD have been, so nothing about poke or laser reach " +
+                $"moved. ButtonTuning.SeatedCapColor still floors its face against CapWellColor " +
+                $"RGB({WorldUI.ButtonTuning.CapWellColor.r:F2}," +
+                $"{WorldUI.ButtonTuning.CapWellColor.g:F2}," +
+                $"{WorldUI.ButtonTuning.CapWellColor.b:F2}) even though no well is drawn there any " +
+                $"more; this cap's accent RGB({accent.r:F2},{accent.g:F2},{accent.b:F2}) clears " +
+                $"that floor already, so the floor is the identity here — floor engages: " +
+                $"{WorldUI.ButtonTuning.CapSeatFloorEngages(accent)}. If the tester reports this " +
+                "key reading as a hole rather than as a raised button, THAT boolean is the field " +
+                "that decides whether the floor is the thing to raise.");
+        }
+
         /// <summary>
         /// True when this cap's body was built WITHOUT the bundled <c>GloomhavenVR/BoardLit</c>
         /// shader (see <see cref="TryHealCapMaterial"/>). The competing hypothesis for the same user
@@ -646,13 +686,31 @@ internal sealed partial class PlayTray
         /// always use the procedural palette cap (the native skin's 9-slice is a rounded
         /// RECTANGLE, never a circle), so they read as turned-into-the-board discs. The
         /// existing cap-travel machinery, label and trigger collider are unchanged.
+        ///
+        /// <para><paramref name="wellPlate"/> = false builds the cap with NO "Base" well behind it —
+        /// the key floats on whatever is behind it instead of on a plate of its own. User request 6b
+        /// (2026-09-03), about the FIXIERT toggle specifically: <i>"ich mag den schwebenden braunen
+        /// Hintergrund nicht auf dem der button sitzt - der button alleine reicht, lösche diese
+        /// hintergrund mesh auf dem der button sitzt, er kann direkt unter dem controllboard
+        /// schweben ohne Unterlage."</i></para>
+        ///
+        /// <para><b>WHY IT IS A PARAMETER AND NOT A DELETION.</b> This one method builds the well
+        /// for EVERY board button — Confirm, Undo, Skip, the item-use confirm and both rest discs.
+        /// Those five sit ON the board, in recesses the board's own art has, and their well is what
+        /// makes the cap read as seated in one; deleting it here would take the plate off all six
+        /// controls to answer a complaint about one. And it has to be a build-time parameter rather
+        /// than a post-build cleanup, because <c>PlayTray.RebuildDashboardButtons</c> destroys and
+        /// re-creates this cap on every <c>ButtonTuning.Version</c> bump — a cleanup pass would have
+        /// to be remembered and re-run by every future caller, which is the same shape as the
+        /// engraving that got re-created on every edit until somebody noticed the stack.</para>
         /// </summary>
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,
             bool round = false, float diameter = 0f, float thickness = 0.01f,
             bool overlay = false, bool boxy = false, float travel = CapTravel,
             WorldUI.ButtonTuning.CapCategory capCategory = WorldUI.ButtonTuning.CapCategory.Rest,
-            CapRole capRole = CapRole.Plain, ControlBoard? capStyle = null)
+            CapRole capRole = CapRole.Plain, ControlBoard? capStyle = null,
+            bool wellPlate = true)
         {
             // WHICH CONTROL THIS IS, and therefore which cell of which board's keycap atlas its
             // face wears (see CapSymbols). Resolved ONCE, here, because every downstream decision
@@ -679,8 +737,20 @@ internal sealed partial class PlayTray
             // 'round' buttons showed visible CORNERS from Unity's ~20-sided primitive cylinder) —
             // CardMesh.GetRoundCap authors the disc directly in the button's local frame (front
             // face toward the viewer, -Z), so no primitive rotation/scale is needed.
-            GameObject basePlate;
-            if (round)
+            // NO PLATE AT ALL when the caller opted out (user request 6b — see the parameter's note
+            // on Create). Null, not disabled: an inactive renderer is still a renderer that every
+            // sweep in this mod has to classify, the appear/dissolve pass would still be handed it,
+            // and the next reader would have to work out whether "Base exists but is off" is the
+            // shipped state or a bug. Nothing else in the button derives from it — the Cap sits at
+            // its own CapRestZ under the button root, the caption is a sibling under the ANCHOR
+            // (BoardEngraving, not a child of the plate) and the trigger collider is independent
+            // geometry — so its absence removes exactly one mesh and nothing else.
+            GameObject? basePlate = null;
+            if (!wellPlate)
+            {
+                // deliberately nothing
+            }
+            else if (round)
             {
                 // Smooth generated disc (user: the 'round' buttons showed visible CORNERS — Unity's
                 // primitive cylinder is only ~20-sided). Identity rotation / unit scale: the mesh is
@@ -710,7 +780,10 @@ internal sealed partial class PlayTray
             // well around the cap reads as part of the physical panel, not a hole under a glassy key.
             // The colour is ButtonTuning.CapWellColor because SeatedCapColor floors every cap face
             // against it (2026-08-09 round 3) — a floor and its reference must not be able to drift.
-            Tint(basePlate, WorldUI.ButtonTuning.CapWellColor, overlay: overlay);
+            if (basePlate != null)
+                Tint(basePlate, WorldUI.ButtonTuning.CapWellColor, overlay: overlay);
+            else
+                LogPlatelessCap(go.name, accent);
 
             // Native look (test #25 item 3): when a live game button has been sampled,
             // the travelling cap is an EMPTY holder carrying the game's own 9-sliced
@@ -960,9 +1033,19 @@ internal sealed partial class PlayTray
             // beveled keycap's front plateau (CapRestZ - capThick ≈ -0.034): the laser passed
             // over the box and never landed, so gear/pin (and any Square-shaped cap) could not
             // be laser-pressed even though poke worked (the fingertip reaches the box from its
-            // 35 mm hover). Size the box from the cap's own frontmost local-Z back to the base
-            // plate's rear face, so it hugs the whole visible cap for every shape.
-            const float baseBackZ = 0.007f;                     // base plate rear face (localPos.z 0.004 + half depth 0.003)
+            // 35 mm hover). Size the box from the cap's own frontmost local-Z back to the SEAT
+            // PLANE behind it, so it hugs the whole visible cap for every shape.
+            //
+            // THE SEAT PLANE IS NOT THE PLATE, AND THAT DISTINCTION IS NOW LOAD-BEARING. This
+            // number was written as "base plate rear face (localPos.z 0.004 + half depth 0.003)",
+            // which is true and is also a comment that goes stale the moment a cap is built with no
+            // plate (user request 6b — the FIXIERT toggle). What 7 mm actually is, and always was,
+            // is the local-Z of the SURFACE THE CAP IS SEATED AGAINST: the plate is drawn there
+            // when there is one, and the board face is there when there is not. So the collider is
+            // deliberately IDENTICAL either way — the same reach, the same hit box, the same laser
+            // and poke behaviour on a button the user has already tuned through six rounds. Taking
+            // a mesh out of the picture must not quietly re-shape what the finger can hit.
+            const float baseBackZ = 0.007f;                     // the cap's seat plane; see above
             float boxFrontZ = Mathf.Min(capFrontZ, -0.006f);    // never shallower than the old front
             var box = go.AddComponent<BoxCollider>();
             box.size = new Vector3(size.x, size.y, baseBackZ - boxFrontZ);
