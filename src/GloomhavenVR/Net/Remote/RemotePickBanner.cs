@@ -44,15 +44,24 @@ namespace GloomhavenVR.Net;
 /// sender-side identity gate. See INVARIANTS-Net-Rig.md "Net — content classification".</remarks>
 internal sealed class RemotePickBanner
 {
-    /// <summary>Plate size, metres — the owner's own placard is 0.44 × 0.055 (localScale of a
-    /// unit quad in <c>PlayTray.EnsurePickBanner</c>).</summary>
-    private static readonly Vector2 PlateSize = new(0.44f, 0.055f);
+    // THE THREE NUMBERS ARE THE OWNER'S, READ — NOT COPIED. Until now this class carried its own
+    // 0.44 × 0.055, 0.42 × 0.048 and 0.30, with a doc comment stating they were the owner's values
+    // and nothing checking that they still were. Under the 1:1 ruling a peer's placard must look
+    // the way it looks for its owner, and "look" includes its SIZE; a mirror that is allowed to
+    // drift is how this defect comes back. scripts/check-mirrors.sh exists to catch exactly that
+    // kind of pair — and its own header keeps saying that DELETING the second copy beats linting
+    // it, which is what these three aliases do: one value, one place to tune, nothing to drift.
 
-    /// <summary>Text box inside the plate — the owner fits to 0.42 × 0.048 at font 0.30.</summary>
-    private static readonly Vector2 TextBox = new(0.42f, 0.048f);
-    private const float MaxFont = 0.30f;
+    /// <summary>Plate size, metres — the owner's own authored placard size, and here as there a
+    /// MINIMUM the drawn text can grow (<see cref="Apply"/>).</summary>
+    private static readonly Vector2 PlateSize = Cards.PlayTray.PickPlateSize;
+
+    /// <summary>Text box inside the plate — the owner's own fit box and font ceiling.</summary>
+    private static readonly Vector2 TextBox = Cards.PlayTray.PickTextBox;
+    private const float MaxFont = Cards.PlayTray.PickMaxFont;
 
     private readonly Transform _root;
+    private readonly Transform _plate;
     private readonly TextMeshPro _label;
     private string _shown = string.Empty;
 
@@ -67,6 +76,7 @@ internal sealed class RemotePickBanner
         MeshRenderer plate = BoardVisual.Quad(_root, "Plate", PlateSize,
             BoardVisual.Unlit(new Color(0.85f, 0.78f, 0.62f, 0.85f)));
         plate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+        _plate = plate.transform;   // grown to contain the drawn text, exactly as the owner's is
         // MR readability (user: the text backing must appear on REMOTE boards exactly as on the
         // owner's): the owner's own placard parchment is Opacified (PlayTray.5.Status), so this
         // mirror's 0.85 parchment gets the identical treatment — alpha 1 while MR is on, restored
@@ -108,6 +118,28 @@ internal sealed class RemotePickBanner
             return;
         _shown = line!;
         RemoteBoardContent.SetText(_label, _shown);
+
+        // THE 2026-09-02 SCREENSHOT'S ACTUAL DEFECT, MADE AUDIBLE. The user reported a placard whose
+        // sentence stops mid-word ("…eine Karte zum Tauschen zur"), and the recorded diagnosis read
+        // that as text overflowing its plate. It is not: the visible string is BYTE-EXACTLY what
+        // EncodePickBannerText produces from the full German line at the shipped
+        // NetProtocol.PickBannerTextMaxBytes = 96 (107 B in, 96 B out, the tail "ücknehmen)" gone).
+        // TMP's word wrapping cannot break a word that fits on a line, so a mid-word stop can only
+        // come from the codec.
+        //
+        // WHAT THIS SIDE CAN AND CANNOT KNOW: the receiver never sees the sender's original, so it
+        // cannot report how much was lost. A line arriving AT the cap is the signature of a line
+        // that was cut down to it, and that is what is said — no more.
+        int bytes = System.Text.Encoding.UTF8.GetByteCount(_shown);
+        if (bytes >= NetProtocol.PickBannerTextMaxBytes)
+            // HW-VERIFY: this line decides item 12. While it fires, the peer's placard is showing a
+            // sentence the WIRE cut, and no plate size can put the missing words back.
+            VRLog.Alert("Net", $"Remote pick banner: the line arrived AT the wire cap — {bytes} of " +
+                               $"{NetProtocol.PickBannerTextMaxBytes} B — so it is almost certainly " +
+                               $"truncated: \"{_shown}\". EncodePickBannerText drops whole characters " +
+                               "off the end with no ellipsis, which is what a placard stopping " +
+                               "mid-word looks like. Raise PickBannerTextMaxBytes; the plate below " +
+                               "will grow to hold the longer line, but it cannot restore it.");
         // THE WARNING HERE WAS RIGHT AND A SUPPRESSION WOULD HAVE HIDDEN A CRASH.
         //
         // `_root` is a readonly Transform assigned in the constructor, so it is never null in the
@@ -124,6 +156,28 @@ internal sealed class RemotePickBanner
         {
             if (!_root.gameObject.activeSelf)
                 _root.gameObject.SetActive(true);
+            // 1:1 — the peer's plate follows the peer's text exactly as the owner's does: the same
+            // helper, the same authored minimum, the same padding, grow-only. A mirror that kept a
+            // fixed plate would draw the owner's long line off a peer's parchment. Sized AFTER the
+            // activation because the measurement is a forced mesh update, and a mesh forced on an
+            // inactive object measures nothing. Runs once per distinct line — Apply is change-gated
+            // on the text above — so it costs nothing per frame.
+            Vector2 want = Core.TmpFit.PlateSizeFor(_label, PlateSize,
+                                                    Cards.PlayTray.PickPlatePadding,
+                                                    out string measurement);
+            if (_plate != null
+                && (Mathf.Abs(_plate.localScale.x - want.x) > 1e-4f
+                    || Mathf.Abs(_plate.localScale.y - want.y) > 1e-4f))
+            {
+                _plate.localScale = new Vector3(want.x, want.y, 1f);
+                // HW-VERIFY: the mirrored placard's parchment now contains its own sentence. A
+                // height above the authored minimum means the text needed more room and got it;
+                // exactly the minimum is ambiguous from the number, so the measurement text says
+                // whether TMP was read or the readback failed.
+                VRLog.Note("Net", $"Remote pick banner plate sized from the drawn text: " +
+                                  $"{want.x:F3} x {want.y:F3} m (authored minimum " +
+                                  $"{PlateSize.x:F3} x {PlateSize.y:F3} m; {measurement}).");
+            }
             VRLog.Info("Net", $"Remote pick banner: \"{_shown}\" at board-local {_root.localPosition:F3}.");
         }
         else

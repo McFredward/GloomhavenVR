@@ -79,6 +79,78 @@ internal static class TmpFit
         tmp.overflowMode = TextOverflowModes.Overflow;
     }
 
+    /// <summary>
+    /// SIZE A BACKING PLATE FROM WHAT THE LABEL ACTUALLY DREW.
+    ///
+    /// <para><b>USER REPORT, verbatim, MP item 12:</b> <i>"Beim Test hatte die Anweisung so einen
+    /// abgeschnitten Text oben (siehe abgeschnittener-text.jpg)."</i> That screenshot's own defect
+    /// turned out to be a WIRE cap and not a layout one (see <c>Net.RemotePickBanner</c>), but the
+    /// placard's plate and its text box really are two hard-coded sizes with nothing measuring the
+    /// string, and lifting the wire cap is exactly what lets a longer line reach this box.
+    /// <see cref="Fit"/> deliberately never truncates (see the class header), so a string needing
+    /// more lines than the box holds is DRAWN past the bottom of its own parchment, onto whatever
+    /// is behind it. That is not a clipping bug, it is a plate that was never told how big its
+    /// text is.</para>
+    ///
+    /// <para><b>MEASURED, NOT MODELLED.</b> The extent comes from <c>GetRenderedValues</c> after a
+    /// forced mesh update — the same readback <see cref="VerifyAndReport"/> uses, in the same
+    /// order — so it is the real font, the real auto-sized size and the real line breaks. A
+    /// modelled height would be a second opinion about the same thing, and this project has a
+    /// ledger of those.</para>
+    ///
+    /// <para><b>GROW-ONLY, so a short caption is untouched.</b> The authored size stays the
+    /// MINIMUM: the common case (one short line) renders byte-identically to before, and only a
+    /// string that genuinely does not fit moves anything.</para>
+    ///
+    /// <para><b>FAILS TO THE AUTHORED SIZE — AND SAYS SO.</b> A label with no font asset yet
+    /// returns zeros from the readback; a dead probe must never produce a layout, so a
+    /// non-positive or NaN measurement returns the authored size unchanged rather than collapsing
+    /// the plate. The authored size is ALSO what a short string legitimately produces, so the two
+    /// are indistinguishable from the number alone — which is why <paramref name="measurement"/>
+    /// names WHICH case fired, and why every caller prints it.</para>
+    /// </summary>
+    /// <param name="tmp">The label whose drawn extent decides the plate.</param>
+    /// <param name="authoredPlate">The tuned plate size, local metres — kept as the MINIMUM.</param>
+    /// <param name="paddingMeters">Margin per side between the drawn text and the plate edge.</param>
+    /// <param name="measurement">What the readback did, for the caller's log line: the drawn size,
+    /// or the reason there is none. Never null.</param>
+    internal static Vector2 PlateSizeFor(TMP_Text? tmp, Vector2 authoredPlate, float paddingMeters,
+                                         out string measurement)
+    {
+        if (tmp == null)
+        {
+            measurement = "NOT MEASURED — there is no label";
+            return authoredPlate;
+        }
+
+        Vector2 rendered;
+        try
+        {
+            // THE ORDER IS THE WHOLE POINT: force the mesh, THEN read it back. A size read before
+            // the update is a flawless measurement of the PREVIOUS string.
+            tmp.ForceMeshUpdate();
+            rendered = tmp.GetRenderedValues(false);
+        }
+        catch (System.Exception e)
+        {
+            measurement = $"NOT MEASURED — the readback threw {e.GetType().Name}: {e.Message}";
+            return authoredPlate;
+        }
+
+        if (float.IsNaN(rendered.x) || float.IsNaN(rendered.y)
+            || !(rendered.x > 0f) || !(rendered.y > 0f))
+        {
+            measurement = $"NOT MEASURED — the readback returned {rendered.x:F4} x {rendered.y:F4} m "
+                          + "(no font asset yet, or an empty string)";
+            return authoredPlate;
+        }
+
+        measurement = $"TMP drew {rendered.x:F3} x {rendered.y:F3} m";
+        return new Vector2(
+            Mathf.Max(authoredPlate.x, rendered.x + 2f * paddingMeters),
+            Mathf.Max(authoredPlate.y, rendered.y + 2f * paddingMeters));
+    }
+
     // =====================================================================================
     // THE KEYCAP CAPTION — the one label family that gets a solved layout instead of auto-size.
     // =====================================================================================

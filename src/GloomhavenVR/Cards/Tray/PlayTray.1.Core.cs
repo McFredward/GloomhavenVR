@@ -166,6 +166,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     // SetPickStatus. Null override = the keycap follows its normal game-state logic.
     private GameObject? _pickBannerRoot;
     private TextMeshPro? _pickBannerLabel;
+    /// <summary>The placard's parchment quad. Held because it is no longer a fixed size: it is
+    /// GROWN to contain what the label actually drew (<c>SizePickBannerPlate</c>).</summary>
+    private Transform? _pickBannerPlate;
     private string? _pickBannerText;
     private string? _pickConfirmLabel;
     private string? _pickUndoLabel;
@@ -1488,6 +1491,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _skip = null;
         _pickBannerRoot = null;  // child of _root, destroyed with it
         _pickBannerLabel = null;
+        _pickBannerPlate = null;
         _pickBannerText = null;
         _pickConfirmLabel = null;
         _pickUndoLabel = null;

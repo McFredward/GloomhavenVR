@@ -416,7 +416,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 356;
+    public const ushort ModBuild = 357;
     // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //
@@ -17140,10 +17140,33 @@ internal static class NetProtocol
     /// </summary>
     public const byte ExtIdPickBanner = 7;
 
-    /// <summary>UTF8 byte cap for <see cref="ExtIdPickBanner"/>. The composed line is one short
-    /// sentence; the cap bounds a single extras record and is re-clamped on read (never trust the
-    /// wire). Truncation is on a UTF8 CHARACTER boundary, never mid-sequence.</summary>
-    public const int PickBannerTextMaxBytes = 96;
+    /// <summary>
+    /// UTF8 byte cap for <see cref="ExtIdPickBanner"/>. The cap bounds a single extras record and
+    /// is re-clamped on read (never trust the wire); truncation is on a UTF8 CHARACTER boundary,
+    /// never mid-sequence.
+    ///
+    /// <para><b>IT WAS 96, AND 96 WAS THE 2026-09-02 DEFECT (user item 12, "so einen abgeschnitten
+    /// Text").</b> "one short sentence" was measured against the ENGLISH strings. The German
+    /// <c>pick_confirm_hint</c> composed with a character name is 107 bytes — "Testi: Alle Karten
+    /// liegen — mit der Board-Taste abschließen (oder eine Karte zum Tauschen zurücknehmen)" — so
+    /// every peer saw it stop at "…zum Tauschen zur", byte-exactly the 96-byte cut, with nothing
+    /// anywhere saying so. A cap that silently deletes the end of a sentence is the ModBuild 281
+    /// truncation defect one layer down, and the standing ruling is the same one:
+    /// <i>"Der Text muss immer voll lesbar sein."</i></para>
+    ///
+    /// <para>160 B is the same budget the decision-button lines already carry
+    /// (<see cref="DecisionLinesMaxBytes"/>), leaves ~50 B of headroom over the longest composed
+    /// German line, and stays BELOW <see cref="TooltipTextMaxBytes"/> (192), which a wire-suite
+    /// assertion requires. The record's write site is length-guarded against the packet buffer
+    /// like every other extras record, so a longer line can only be dropped, never overrun.</para>
+    ///
+    /// <para>WHY NOT "no cap": the record's length prefix is ONE BYTE, so 255 is the framing
+    /// ceiling; and a bounded record is what lets the READER re-clamp without trusting the sender.
+    /// A peer on an OLDER build clamps the incoming length to ITS 96 by BYTES, which can land
+    /// mid-UTF8-sequence and render a replacement glyph — a mismatched-build case the version
+    /// dialog already covers, and strictly no worse than today's silent cut.</para>
+    /// </summary>
+    public const int PickBannerTextMaxBytes = 160;
 
     /// <summary>
     /// Extension record id: the sender's SECOND held figure — the mini in their OTHER hand.

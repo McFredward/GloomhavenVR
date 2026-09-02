@@ -644,7 +644,40 @@ internal sealed partial class PlayTray
             _pickBannerLabel.text = banner;
         if (_pickBannerRoot != null && !_pickBannerRoot.activeSelf)
             _pickBannerRoot.SetActive(true);
+        // AFTER the activation, deliberately: the plate is sized from a FORCED MESH UPDATE, and a
+        // mesh forced on a still-inactive object is a measurement of nothing. The text write above
+        // is change-gated (the early return at the top of this method), so this measurement runs
+        // once per distinct placard line and never per frame.
+        SizePickBannerPlate();
         VRLog.Info("Cards", $"Pick banner: \"{banner}\".");
+    }
+
+    /// <summary>
+    /// THE PLACARD IS SIZED FROM ITS TEXT. Grow-only, measured off the drawn glyphs, called from
+    /// the ONE change-gated place the text is written so it costs nothing per frame. See
+    /// <see cref="Core.TmpFit.PlateSizeFor"/> for why the measurement is a readback and not a
+    /// model, and why only the PLATE moves: growing the label's own rect could feed back into
+    /// auto-sizing, and with <c>Overflow</c> the label does not need a truthful height — TMP
+    /// centres the block on the rect, so a plate grown about the same centre covers it.
+    /// </summary>
+    private void SizePickBannerPlate()
+    {
+        if (_pickBannerPlate == null || _pickBannerLabel == null)
+            return;
+        Vector2 want = Core.TmpFit.PlateSizeFor(_pickBannerLabel, PickPlateSize, PickPlatePadding,
+                                                out string measurement);
+        Vector3 have = _pickBannerPlate.localScale;
+        if (Mathf.Abs(have.x - want.x) < 1e-4f && Mathf.Abs(have.y - want.y) < 1e-4f)
+            return;
+        _pickBannerPlate.localScale = new Vector3(want.x, want.y, 1f);
+        // HW-VERIFY: this is the line that says whether the placard's parchment now contains its
+        // own sentence. A height ABOVE the authored 0.055 m means the text needed more room and
+        // got it; a height of exactly 0.055 m is ambiguous from the number alone, which is why
+        // the measurement text says whether TMP was read or the readback failed.
+        VRLog.Note("Cards", $"Pick banner plate sized from the drawn text: {want.x:F3} x "
+                            + $"{want.y:F3} m (authored minimum {PickPlateSize.x:F3} x "
+                            + $"{PickPlateSize.y:F3} m, padding {PickPlatePadding:F3} m per side; "
+                            + $"{measurement}).");
     }
 
     /// <summary>
@@ -670,7 +703,8 @@ internal sealed partial class PlayTray
         plate.name = "Plate";
         Object.Destroy(plate.GetComponent<Collider>());
         plate.transform.SetParent(_pickBannerRoot.transform, worldPositionStays: false);
-        plate.transform.localScale = new Vector3(0.44f, 0.055f, 1f);
+        plate.transform.localScale = new Vector3(PickPlateSize.x, PickPlateSize.y, 1f);
+        _pickBannerPlate = plate.transform;   // grown to contain the drawn text, never shrunk
         plate.transform.localPosition = new Vector3(0f, 0f, 0.004f); // behind the text, toward the board
         Core.VRLayers.Apply(plate);
         Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
@@ -687,7 +721,8 @@ internal sealed partial class PlayTray
         _pickBannerLabel = textGo.AddComponent<TextMeshPro>();
         _pickBannerLabel.alignment = TextAlignmentOptions.Center;
         _pickBannerLabel.color = new Color(0.24f, 0.17f, 0.10f); // ink brown on parchment
-        Core.TmpFit.Fit(_pickBannerLabel, 0.42f, 0.048f, maxFontSize: 0.30f, wrap: true);
+        Core.TmpFit.Fit(_pickBannerLabel, PickTextBox.x, PickTextBox.y,
+                        maxFontSize: PickMaxFont, wrap: true);
 
         // The placard is the "Statustafel" of the 2026-08-04 report: a Sprites/Default quad +
         // plain TMP, both transparent and depth-less at sortingOrder 0 — any converted panel
@@ -707,6 +742,28 @@ internal sealed partial class PlayTray
     /// (<c>Net.RemotePickBanner</c>) instead of duplicating the arithmetic.
     /// </summary>
     internal static readonly Vector3 PickBannerBase = new(0f, BoardH * 0.5f + 0.10f, -0.02f);
+
+    /// <summary>The placard's AUTHORED plate size, local metres — a hand-tuned value, and now a
+    /// MINIMUM rather than the size: <c>SizePickBannerPlate</c> grows it to contain a line that
+    /// needs more room and never shrinks it, so a short caption is bit-identical to before.
+    /// Internal so <c>Net.RemotePickBanner</c> READS these numbers instead of repeating them —
+    /// it held its own hand-copied 0.44/0.055 until now, which is exactly how the owner's placard
+    /// and a peer's mirror stop agreeing.</summary>
+    internal static readonly Vector2 PickPlateSize = new(0.44f, 0.055f);
+
+    /// <summary>The text box inside <see cref="PickPlateSize"/>. The WIDTH is the tuned,
+    /// board-relative dimension and it is FIXED: wrapping is only stable if the width is, and the
+    /// 2026-09-02 screenshot's right-edge "cut" was the WIRE cap (see
+    /// <c>NetProtocol.PickBannerTextMaxBytes</c>), not a line too wide for this box.</summary>
+    internal static readonly Vector2 PickTextBox = new(0.42f, 0.048f);
+
+    /// <summary>Preferred font size for a short line (the auto-size ceiling).</summary>
+    internal const float PickMaxFont = 0.30f;
+
+    /// <summary>Margin per side between the drawn text and the parchment edge, local metres. It is
+    /// the authored plate's OWN horizontal margin — (0.44 − 0.42) / 2 = 0.010 m — used on both
+    /// axes, so a grown plate keeps the look the short line already has.</summary>
+    internal const float PickPlatePadding = 0.010f;
 
     /// <summary>
     /// The TOOLTIP AREA's origin in board-local metres: the board's AUTHORED top-LEFT corner,

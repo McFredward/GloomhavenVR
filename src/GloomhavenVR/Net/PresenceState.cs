@@ -1370,7 +1370,7 @@ internal static class PresenceSerializer
     /// ghost strength 1 + item-fan 1 + card-fx 2 + pile-browse 2 + mask size 1 = 39 — plus the
     /// extension tail: 1 count byte + 3 (hand scale) + 3 (ghost sides) + up to 2+2+20 = 24
     /// (mod version) + 5 (board UI: 2 + 3) + 14 (fan anchor) + 4 (card highlight)
-    /// + 98 (pick banner: 2 + its 96-byte cap) + 27 (second held figure: 2 + 25)
+    /// + 162 (pick banner: 2 + its 160-byte cap) + 27 (second held figure: 2 + 25)
     /// + 194 (board tooltip: 2 + its 192-byte cap) + 22 (second held card: 2 + 20)
     /// + 6 (slot-card size: 2 + 4) + 162 (decision lines: 2 + its 160-byte cap)
     /// + 199 (cap labels: 2 + mask 1 + 4 × (len 1 + 48-byte cap))
@@ -1396,7 +1396,15 @@ internal static class PresenceSerializer
     /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248)
     /// + 4 (PER-ITEM USABLE MASK: 2 + <c>NetProtocol.ItemUsableRecordBytes</c> 2)
     /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
-    /// = 1449.
+    /// = 1513.
+    ///
+    /// <para>1449 → 1513 on 2026-09-03: the PICK BANNER cap went 96 → 160 B because 96 was
+    /// silently deleting the end of the German placard sentence (user item 12 of the
+    /// 2026-09-02 round). NO new record — an EXISTING term grew, which is the case the rule
+    /// below is easiest to forget for, so it is stated here in the same commit.
+    /// <see cref="MaxSize"/> is UNCHANGED at 1800 — the margin is 287 bytes, still more than
+    /// the largest single record (257, board tuning), so the rule is satisfied without a
+    /// raise.</para>
     ///
     /// <para>1439 → 1449 on the 2026-09-02 report round: the PER-ITEM USABLE MASK record (35) added
     /// its worst case of 4 bytes and the HELD-CARD FACE record (36) its worst case of 6, in their
