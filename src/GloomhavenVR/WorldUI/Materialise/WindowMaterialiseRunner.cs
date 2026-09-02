@@ -79,6 +79,30 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     private WindowMaterialise.DebrisCloud? _debris;
     private MaterialPropertyBlock? _mpb;
 
+    /// <summary>
+    /// <b>Who owns the window's visibility while a VANISH plays.</b> Null on an appear and on a
+    /// vanish that found no <c>UIWindow</c> to hold.
+    ///
+    /// <para>Without it the dissolve draws on a window the game has already emptied: the game's own
+    /// <c>UIWindow</c> fades its <c>CanvasGroup</c> to 0 in 0.1 s, deactivates the GameObject and
+    /// switches the <c>Canvas</c> off, all of it inside the first ninth of a 0.9 s vanish. That is
+    /// the 2026-09-02 report in one sentence — <i>"ploppt das Fenster erst weg, danach kommt die
+    /// Animation"</i>. See <see cref="WindowVisibilityHold"/> for the decompiled line numbers and
+    /// for which of the three channels is conceded and which two are owned in LateUpdate.</para>
+    /// </summary>
+    private WindowVisibilityHold? _hold;
+
+    /// <summary>How many <c>UIWindow</c>s the hold covers, kept separately because the hold is
+    /// released before <see cref="Report"/> runs — and this is the number a hardware log is read
+    /// against to answer "did the ownership engage at all, or did the dissolve draw on a window the
+    /// game had already emptied?".</summary>
+    private int _held;
+
+    /// <summary>Whether the hold came from the CLOSE EDGE rather than from this call. The
+    /// difference is one <c>ModalFallback.Tick</c>, and it is the difference that matters on an
+    /// INSTANT hide, where the game empties the window inside its own call.</summary>
+    private bool _heldFromEdge;
+
     // Measured, not estimated. Printed once per effect at its end.
     private readonly Stopwatch _watch = new();
     private double _worstMs;
@@ -120,6 +144,34 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         runner._seconds = Mathf.Max(seconds, WindowMaterialise.MinSeconds);
         runner._materialising = materialising;
         runner._onDone = onDone;
+
+        // THE VISIBILITY HOLD IS TAKEN BEFORE ANYTHING IS DRAWN, and on a VANISH ONLY. On a vanish
+        // the game has already started emptying the window from under us (its own 0.1 s alpha
+        // tween, its ChangeActive and its _disableCanvas switch — all three verified in
+        // WindowVisibilityHold's doc), so this is what makes the dissolve a dissolve instead of an
+        // animation played over a window that has already gone.
+        //
+        // AN APPEAR IS DELIBERATELY LEFT ALONE. The user's report on 334 was explicit that the
+        // fade-in already works ("Das Einfaden funktioniert schon gut"), the game is on its way to
+        // SHOWING that window rather than emptying it, and a live window whose focus, re-show and
+        // parallel-window behaviour the game still manages is not one a decoration should be
+        // holding switches on. One direction, one reason.
+        //
+        // The hold is CLAIMED from the close edge when there is one — handed over live, so the
+        // window's visibility passes from one owner to the next without a frame in between — and
+        // taken fresh otherwise, which is the path an interrupted or re-entered vanish takes.
+        if (!materialising)
+        {
+            runner._hold = WindowMaterialise.ClaimPreRoll(panel);
+            runner._heldFromEdge = runner._hold != null;
+            if (runner._hold == null)
+            {
+                var hold = new WindowVisibilityHold();
+                hold.Capture(host, panel.Target);
+                runner._hold = hold.Count > 0 ? hold : null;
+            }
+            runner._held = runner._hold?.Count ?? 0;
+        }
 
         var build = Stopwatch.StartNew();
         try
@@ -341,6 +393,11 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     /// </summary>
     private void Apply(float k)
     {
+        // FIRST, AND IN LateUpdate, WHICH IS WHY IT WINS. The game's tween runner writes its two
+        // booleans from the Update phase; this is the last writer in the frame, so the value the
+        // renderer sees is this one. The same argument the element alphas below rest on.
+        _hold?.Assert();
+
         WindowMaterialiseField.Progresses(k, _materialising,
                                           out float elementProgress, out float debrisFront);
 
@@ -397,6 +454,15 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
 
         if (restore)
             RestoreAll();
+
+        // THE VISIBILITY HOLD GOES BACK BEFORE THE CALLBACK, for exactly the reason the element
+        // alphas do: the callback is the window's real teardown, and handing a window back with a
+        // CanvasGroup this effect had switched off would make it invisible in the flat game with
+        // nothing left alive to fix it. Released unconditionally — a hold is given back on a
+        // cancel, a watchdog, a throw and a destroy alike, not only on a clean finish, because the
+        // three switches it holds are the game's and not ours.
+        _hold?.Release(reason);
+        _hold = null;
 
         Report(reason);
         WindowMaterialise.Unregister(this);
@@ -495,7 +561,23 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                           + "not enter the per-frame cost, because every shard's trajectory is a "
                           + "closed function of one uniform evaluated on the GPU. One-off build cost "
                           + $"{_buildMs:F3} ms (element walk + shard seeding), paid in the frame the "
-                          + "window opens. Debris: "
+                          + "window opens. "
+                          + (_materialising
+                              ? "VISIBILITY: not held — an appear leaves the game's own show "
+                                + "transition alone, by design."
+                              : _held > 0
+                                  ? $"VISIBILITY: OWNED for {_held} UIWindow(s), claimed "
+                                    + (_heldFromEdge
+                                        ? "ON THE CLOSE EDGE (one ModalFallback.Tick before this "
+                                          + "runner existed)"
+                                        : "at the release tick (no close-edge hold was standing)")
+                                    + " — the game's 0.1 s alpha tween, its ChangeActive and its "
+                                    + "_disableCanvas switch could not empty the window under this "
+                                    + "animation."
+                                  : "VISIBILITY: NOT HELD — no UIWindow was found under the host, so "
+                                    + "the game's own 0.1 s hide fade is still the thing that "
+                                    + "removes this window and the dissolve is drawn over it.")
+                          + " Debris: "
                           + (shards > 0
                               ? "drawn"
                               : "NOT drawn (no shader / degenerate rect / no visible element / "

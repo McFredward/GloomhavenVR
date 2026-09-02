@@ -3,7 +3,7 @@
 The effect exists three times on purpose, and this is the copy the reviewed renders are
 driven from:
 
-  1. src/GloomhavenVR/WorldUI/WindowMaterialiseField.cs   the erosion field + the two fronts
+  1. src/GloomhavenVR/WorldUI/Materialise/WindowMaterialiseField.cs   the erosion field + the two fronts
      src/GloomhavenVR/WorldUI/WindowMaterialiseDebris.cs  the shard seeding and the mesh gate
   2. unity/GloomhavenVR.Assets/Assets/Bundle/Table/WindowMaterialise.shader   the trajectory
   3. this file
@@ -31,7 +31,8 @@ F32 = np.float32
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ROOT = os.path.abspath(os.path.join(_HERE, "..", ".."))
-_FIELD_CS = os.path.join(_ROOT, "src", "GloomhavenVR", "WorldUI", "WindowMaterialiseField.cs")
+_FIELD_CS = os.path.join(_ROOT, "src", "GloomhavenVR", "WorldUI", "Materialise",
+                         "WindowMaterialiseField.cs")
 _DEFAULTS_CS = os.path.join(_ROOT, "src", "GloomhavenVR", "Defaults", "Defaults.WorldUI.cs")
 
 

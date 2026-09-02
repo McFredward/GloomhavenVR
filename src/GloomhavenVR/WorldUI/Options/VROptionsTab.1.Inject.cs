@@ -13,28 +13,49 @@ namespace GloomhavenVR.WorldUI;
 // reasoning: FlatScreen.1.Core.cs).
 
 /// <summary>
-/// "VR Optionen" as a REAL TAB of the game's own options window, alongside Sprache / Anzeige /
-/// Schwierigkeit — reachable from the main menu and, in a scenario, from the pause menu's Options
-/// button. It replaces the mod's free-floating settings panel and the control-board gear entirely.
+/// THE VR SETTINGS MENU — A WINDOW OF ITS OWN, no longer a tab of the game's Optionen.
 ///
-/// <para>WHY A CLONE AND NOT A PREFAB OF OUR OWN. The tab has to behave like the game's: join the
-/// same <c>ToggleGroup</c> (so selecting it deselects the others), animate the same way, register
-/// with <c>UIWindowManager</c> as an escapable, and be reachable by the gamepad navigation the
-/// window builds over its tabs. All of that lives in serialized references and component wiring
-/// that only exist inside the shipped prefab, so the tab toggle and its window are INSTANTIATED
-/// FROM A LIVE DONOR TAB and then re-labelled. Nothing about the donor is modified.</para>
+/// <para>User, 2026-09-02: <i>"Lösche das 'VR Optionen' in den 'Optionen' … Es soll garnicht mehr
+/// ein 'Tab' von 'Optionen' sein, sondern ein ganz eigenständiges Menu! Daher braucht es auch die
+/// Einstellungstabs links dann nicht mehr anzeigen — wie zuvor. Bau es entsprechend so um das die
+/// VR Optionstabs ganz links sind."</i> Three things follow from that and this file does all
+/// three: the row is gone from the game's category column, the game's Optionen window is never
+/// opened on our behalf (so its tab rail is never on screen beside our settings), and with that
+/// rail gone the mod's own topic column IS the leftmost thing in the menu.</para>
 ///
-/// <para>WHY THE VR MODAL PATH NEEDS NO WORK. <c>UIOptionsWindow</c> and <c>UISubmenuGOWindow</c>
-/// are already in <see cref="ModalFallback"/>'s family (ModalFallback.1.Core.cs :279/:281), so a
-/// tab window built here floats in front of the player in VR by the same route every other option
-/// tab already takes. This class deliberately adds no rendering, no placement and no input path.
-/// </para>
+/// <para>WHY THE CONTENT IS STILL A CLONE OF A TAB WINDOW. Nothing about the settings themselves
+/// changed — only their HOST. The pane still has to behave like the game's: the masked scroll
+/// viewport, the scrollbar art, the show animation, the <c>ControllerInputAreaLocal</c> and the
+/// <c>UIWindow</c> registration all live in serialized references inside the shipped prefab, so
+/// the panel is still INSTANTIATED FROM A LIVE DONOR TAB. What is new is that the clone is then
+/// DETACHED from the options window and re-parented to the canvas, which is the whole of the
+/// change: a <c>UISubmenuGOWindow</c> shows and hides itself (<c>UISubmenuGOWindow.cs</c> :62/:95),
+/// it needs no owner, and once it is not a descendant of <c>UIOptionsWindow</c> nothing about the
+/// options window can reach it — not its <c>CanvasGroup</c> alpha, not the <c>CloseWindows()</c>
+/// that <c>OnShow</c> runs on every open (<c>UIOptionsWindow.cs</c> :203/:276), and not
+/// <c>ModalFallback</c>'s "the ancestor wins" rule, which is why the mod's pane used to be drawn
+/// INSIDE the options window's world panel instead of getting one of its own.</para>
 ///
-/// <para>REVERSIBILITY. Everything this creates is a mod-owned clone parented into the game's
-/// hierarchy; nothing of the game's is re-layered, re-parented or edited. <see cref="Shutdown"/>
-/// removes our entry from <c>m_Tabs</c> and destroys the two clones, leaving the window exactly as
-/// it shipped. The one game-object write outside our own clones is that removal, and it is undone
-/// by the same call that made it.</para>
+/// <para>WHY THE VR MODAL PATH STILL NEEDS NO WORK. <c>UIWindowID.OptionsSubmenu</c> is already in
+/// <see cref="ModalFallback"/>'s family (ModalFallback.1.Core.cs), and the clone carries the
+/// donor's window id. Detached, it is a top-level window with no floatable ancestor, so it is
+/// floated as its OWN panel — with the grab bar and the close button every floated modal gets.
+/// This class still adds no rendering, no placement and no input path.</para>
+///
+/// <para>THE FIRE EXIT. Detaching is the one step that can fail on a game update (no usable
+/// re-parent anchor, or a throw). If it does, the class falls back to EXACTLY the shipped
+/// behaviour it replaces — the clone stays inside the options window and is registered as a tab —
+/// so the standing rule that the settings must never become unreachable is kept by a path that has
+/// already shipped rather than by a promise. <see cref="IsStandalone"/> says which mode is live and
+/// <see cref="VRMenuEntry"/> opens the menu accordingly.</para>
+///
+/// <para>NEVER AN EMPTY WINDOW. <see cref="CanOpen"/> is false until there is a pane AND a content
+/// root to build into, and <see cref="VRMenuEntry"/> does not inject a row that cannot open
+/// anything. <c>Rebuild</c> writes a header even when a category resolves to zero rows.</para>
+///
+/// <para>REVERSIBILITY. Everything this creates is a mod-owned clone; the only write to a game
+/// object is the fire exit's <c>m_Tabs</c> entry, and <see cref="Shutdown"/> undoes it. In the
+/// normal (standalone) mode nothing of the game's is touched at all.</para>
 ///
 /// <para>THE PROBE. The prefab hierarchy inside a tab window cannot be read from the decompiled
 /// sources — it is authored data. <see cref="Probe"/> therefore logs what was actually found the
@@ -43,17 +64,58 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal static partial class VROptionsTab
 {
-    /// <summary>The options window we are currently injected into (null = not injected).</summary>
+    /// <summary>The options window we cloned from (null = nothing built yet). In standalone mode
+    /// this is a SOURCE, not a host: nothing of it is written to.</summary>
     private static UIOptionsWindow? _host;
 
-    /// <summary>Our cloned tab toggle in the left-hand option list.</summary>
+    /// <summary>
+    /// The cloned tab toggle in the game's left-hand option column — FIRE EXIT ONLY. Null in the
+    /// normal standalone mode, because that is the row the user asked to be gone.
+    /// </summary>
     private static UIMainMenuOption? _toggle;
 
-    /// <summary>Our cloned tab window — the panel that opens when the toggle is selected.</summary>
+    /// <summary>Our cloned pane: the standalone VR settings window.</summary>
     private static UISubmenuGOWindow? _window;
 
     private static bool _probed;
     private static bool _degraded;
+
+    /// <summary>
+    /// True once the pane has been detached from the options window and lives on the canvas as a
+    /// window of its own. False means the fire exit is live and the pane is still a tab.
+    /// </summary>
+    internal static bool IsStandalone { get; private set; }
+
+    /// <summary>
+    /// Is there a menu to open at all? False until there is BOTH a pane and a content root to build
+    /// into — <see cref="VRMenuEntry"/> refuses to inject a row that would open nothing, which is
+    /// the "never an empty window" rule enforced at the door rather than apologised for after.
+    /// </summary>
+    internal static bool CanOpen => !_degraded && _window != null && ContentRoot != null;
+
+    /// <summary>Is the standalone menu on screen right now?</summary>
+    internal static bool IsOpen
+    {
+        get
+        {
+            if (_window == null)
+                return false;
+            var win = _window.GetComponent<UIWindow>();
+            return win != null && win.IsOpen;
+        }
+    }
+
+    /// <summary>
+    /// What to call when the pane hides, whoever hid it — the pause-menu row's own
+    /// <c>Deselect</c>, so a row cannot stay lit over a closed menu. Cleared as it fires; the
+    /// listener behind it is added once and never removed.
+    /// </summary>
+    private static Action? _onHidden;
+    private static bool _hiddenHooked;
+
+    /// <summary>FIRE EXIT ONLY: select our tab the next time the options window finishes showing.
+    /// Set by <see cref="Open"/> in tab mode, consumed by the shown listener.</summary>
+    private static bool _selectOnShow;
 
     /// <summary>
     /// Root our content is built under — the clone's own child, so the donor's original content
@@ -63,17 +125,23 @@ internal static partial class VROptionsTab
     internal static RectTransform? ContentRoot { get; private set; }
 
     /// <summary>
-    /// The sub-tab bar: a strip pinned to the TOP of the tab window, outside the scroll view.
+    /// The topic column: the mod's own category chooser, pinned down the LEFT edge of the pane,
+    /// outside the scroll view so it cannot scroll away.
     ///
-    /// <para>It is a COLUMN DOWN THE LEFT, not a strip across the top, because that is the shape
-    /// this window already uses: the options window itself is a left column of tabs beside a
-    /// content pane, and the sub-chooser reads as part of the menu when it repeats that. The strip
-    /// version also had two practical faults — twelve captions across one width came out cramped
-    /// and staggered, and it was anchored to the window root rather than the content pane, so it
-    /// landed outside the visible panel where nothing could click it.</para>
+    /// <para><b>THIS IS NOW THE MENU'S ONLY RAIL, AND THAT IS THE POINT.</b> User, 2026-09-02:
+    /// <i>"Bau es entsprechend so um das die VR Optionstabs ganz links sind."</i> It was already
+    /// at x=0 of the pane; what was to the left of it was the GAME's settings tab rail, because the
+    /// pane was a tab inside the game's options window. Detaching the pane (see
+    /// <c>TryDetach</c>) removes that rail from the screen entirely, which makes this column the
+    /// leftmost thing in the menu without moving it a pixel. Its geometry is deliberately
+    /// unchanged: the caption fit below is hand-tuned against this exact width.</para>
     ///
-    /// <para>Earlier still it was the first ROW of the scrolled list, where it scrolled out of
-    /// sight almost immediately — the opposite of what a chooser is for.</para>
+    /// <para>It is a COLUMN, not a strip across the top, because that is the shape the game's own
+    /// settings screen uses. The strip version had two practical faults — twelve captions across
+    /// one width came out cramped and staggered, and it was anchored to the window root rather than
+    /// the content pane, so it landed outside the visible panel where nothing could click it.
+    /// Earlier still it was the first ROW of the scrolled list, where it scrolled out of sight
+    /// almost immediately — the opposite of what a chooser is for.</para>
     /// </summary>
     internal static RectTransform? TabBarRoot { get; private set; }
 
@@ -120,16 +188,26 @@ internal static partial class VROptionsTab
             return;
         }
 
-        if (ReferenceEquals(host, _host) && _toggle != null && _window != null)
+        // THE GUARD MUST ASK FOR WHAT THIS MODE ACTUALLY BUILDS. It used to require a toggle, and
+        // a standalone menu never has one — so the guard could never be satisfied and Inject would
+        // have run EVERY FRAME, cloning a fresh pane per frame. The fire exit keeps the old
+        // question because in that mode the toggle is exactly what must still exist.
+        if (ReferenceEquals(host, _host) && _window != null && (IsStandalone || _toggle != null))
             return;
 
         Inject(host);
     }
 
     /// <summary>
-    /// Build the tab. Every failure degrades to "no tab" with one explanatory line — the options
-    /// window must keep working exactly as it did, since it is the player's only way to reach the
-    /// game's own settings.
+    /// Build the menu. Every failure degrades to "no VR menu" with one explanatory line — the
+    /// game's own options window has to keep working exactly as it did either way, since it is the
+    /// player's only route to the game's own settings.
+    ///
+    /// <para>Two outcomes, in order of preference. STANDALONE: the pane is detached from the
+    /// options window and lives on the canvas as a window of its own; the game's tab rail is never
+    /// involved and no game object is written to. FIRE EXIT: detaching was not possible, so the
+    /// pane is registered as a tab exactly as it shipped — worse, but reachable, and the log says
+    /// which one happened and why.</para>
     /// </summary>
     private static void Inject(UIOptionsWindow host)
     {
@@ -150,43 +228,354 @@ internal static partial class VROptionsTab
                 return;
             }
 
-            UIMainMenuOption? toggle = CloneToggle(donor.OptionToggle);
-            if (toggle == null)
-            {
-                Degrade("the tab toggle could not be cloned");
-                return;
-            }
+            // Measured while the donor is still sitting in its authored place. Detaching collapses
+            // the pane's anchors to the middle of its new parent, so the size has to be an absolute
+            // number taken BEFORE the move, or the panel silently re-solves against a different rect.
+            Vector2 paneSize = MeasurePaneSize(host);
 
             UISubmenuGOWindow? window = CloneWindow(donor.TabWindow);
             if (window == null)
             {
-                UnityEngine.Object.Destroy(toggle.gameObject);
                 Degrade("the tab window could not be cloned");
                 return;
             }
 
             _host = host;
-            _toggle = toggle;
             _window = window;
+            _toggle = null;
+            IsStandalone = false;
 
             // The template comes from a LIVE row, so it has to be stamped while the donor tabs are
             // still intact — and the content is built on first show, not now, because the config
             // registry is not necessarily complete at injection time.
             CaptureRowTemplates(host);
             HookContentBuild(window);
+            HookHidden(window);
 
-            // Join the game's own tab bookkeeping LAST, so a half-built tab is never reachable.
-            host.m_Tabs.Add(new UIOptionsWindow.OptionTab { OptionToggle = toggle, TabWindow = window });
-            host.InitializeOption(toggle, window);
+            IsStandalone = TryDetach(window, host, paneSize);
+
+            if (!IsStandalone)
+            {
+                // FIRE EXIT — the shipped behaviour, unchanged: a real tab of the game's window.
+                UIMainMenuOption? toggle = CloneToggle(donor.OptionToggle);
+                if (toggle == null)
+                {
+                    UnityEngine.Object.Destroy(window.gameObject);
+                    Degrade("the pane could not be detached AND the tab toggle could not be cloned");
+                    return;
+                }
+
+                _toggle = toggle;
+                // Join the game's own bookkeeping LAST, so a half-built tab is never reachable.
+                host.m_Tabs.Add(new UIOptionsWindow.OptionTab { OptionToggle = toggle, TabWindow = window });
+                host.InitializeOption(toggle, window);
+                HookShownForTabSelect(host);
+
+                VRLog.Warn("WorldUI",
+                    "VR options: the pane could NOT be detached from the options window, so it is "
+                    + $"registered as tab #{host.m_Tabs.Count} the way it shipped (cloned from tab "
+                    + $"#{donorIndex} '{donor.OptionToggle.name}', label '{Loc.Mod("vr_options")}'). "
+                    + "The settings stay reachable, but the game's own tab rail is on screen beside "
+                    + "them — which is exactly what this build was meant to remove. The reason is on "
+                    + "the warning line above this one.");
+                return;
+            }
 
             VRLog.Info("WorldUI",
-                $"VR options tab: injected as tab #{host.m_Tabs.Count} (cloned from tab #{donorIndex} "
-                + $"'{donor.OptionToggle.name}'). Label '{Loc.Mod("vr_options")}'. Reachable from the "
-                + "main menu and from the pause menu's Options button.");
+                $"VR options: STANDALONE menu built (pane cloned from tab #{donorIndex} "
+                + $"'{donor.OptionToggle.name}', {paneSize.x:F0}x{paneSize.y:F0} px, label "
+                + $"'{Loc.Mod("vr_options")}'). It is NOT a tab: nothing was added to the options "
+                + "window's m_Tabs, no toggle was cloned into its category column, and the options "
+                + "window is never opened on our behalf — so its tab rail never appears beside the "
+                + "VR settings. The mod's own topic column is now the leftmost thing in the menu.");
         }
         catch (Exception e)
         {
             Degrade($"injection threw: {e}");
+        }
+    }
+
+    /// <summary>
+    /// The authored size of a tab pane, in canvas pixels, measured off the LIVE tabs.
+    ///
+    /// <para>Every tab window is the same rect, so the largest one any tab reports is the answer —
+    /// taking the max rather than the first is what makes this immune to the donor being an
+    /// INACTIVE tab (<see cref="PickDonor"/> prefers one) whose rect has never been driven.</para>
+    ///
+    /// <para>The last resort is the options window's own rect, and after that a literal. A literal
+    /// is a poor answer, but a pane sized zero is a worse one: it would be an invisible window that
+    /// every instrument reports as open.</para>
+    /// </summary>
+    private static Vector2 MeasurePaneSize(UIOptionsWindow host)
+    {
+        var best = Vector2.zero;
+
+        if (host.m_Tabs != null)
+        {
+            for (int i = 0; i < host.m_Tabs.Count; i++)
+            {
+                UISubmenuGOWindow? tab = host.m_Tabs[i]?.TabWindow;
+                if (tab == null || tab.transform is not RectTransform rect)
+                    continue;
+                Rect r = rect.rect;
+                if (r.width * r.height > best.x * best.y)
+                    best = new Vector2(r.width, r.height);
+            }
+        }
+
+        if (best.x >= 200f && best.y >= 200f)
+            return best;
+
+        if (host.transform is RectTransform hostRect
+            && hostRect.rect.width >= 200f && hostRect.rect.height >= 200f)
+        {
+            VRLog.Warn("WorldUI", "VR options: no tab pane reported a usable rect "
+                + $"({best.x:F0}x{best.y:F0} px) — falling back to the options window's own "
+                + $"({hostRect.rect.width:F0}x{hostRect.rect.height:F0} px).");
+            return new Vector2(hostRect.rect.width, hostRect.rect.height);
+        }
+
+        VRLog.Warn("WorldUI", "VR options: neither a tab pane nor the options window reported a "
+            + $"usable rect ({best.x:F0}x{best.y:F0} px) — the standalone menu is sized "
+            + "1500x950 px so that it is at least visible and reportable.");
+        return new Vector2(1500f, 950f);
+    }
+
+    /// <summary>
+    /// Lift the cloned pane out of the options window and park it on the canvas.
+    ///
+    /// <para>THIS IS THE WHOLE OF "eigenständiges Menu". A <c>UISubmenuGOWindow</c> already shows
+    /// and hides itself; what made it a tab was WHERE IT SAT. As a descendant of
+    /// <c>UIOptionsWindow</c> it inherited that window's <c>CanvasGroup</c> alpha (so it could only
+    /// be seen while the options window was up, tab rail and all), it was swept off by the
+    /// <c>CloseWindows()</c> that <c>OnShow</c> runs on every open, and <c>ModalFallback</c>
+    /// refused to float it because an ancestor window would be floated instead — which is why the
+    /// mod's settings have always been drawn inside the options window's panel.</para>
+    ///
+    /// <para>THE ANCHOR IS CHOSEN, NOT ASSUMED. It must carry no <c>UIWindow</c> at or above it, or
+    /// the float would defer to that one and nothing would have changed. The root canvas is tried
+    /// first (always active, the full screen rect, and it is where a top-level window belongs);
+    /// failing that, the first window-free ancestor of the options window. If neither exists this
+    /// returns false and the caller takes the fire exit.</para>
+    ///
+    /// <para>The rect is then made ABSOLUTE — centre anchors and an explicit size — so the pane
+    /// keeps the size it was authored at instead of re-solving against whatever the new parent
+    /// happens to be. That is the same shape <c>CanvasConversion</c> gives every window it floats,
+    /// so the two agree rather than fight.</para>
+    /// </summary>
+    private static bool TryDetach(UISubmenuGOWindow window, UIOptionsWindow host, Vector2 paneSize)
+    {
+        try
+        {
+            if (window.transform is not RectTransform rect)
+            {
+                VRLog.Warn("WorldUI", "VR options: the cloned pane has no RectTransform, so it "
+                    + "cannot be parked on the canvas.");
+                return false;
+            }
+
+            Transform? anchor = null;
+            string how = "none";
+
+            Canvas? canvas = host.GetComponentInParent<Canvas>();
+            Canvas? root = canvas != null ? canvas.rootCanvas : null;
+            if (root != null && !HasWindowAtOrAbove(root.transform))
+            {
+                anchor = root.transform;
+                how = $"root canvas '{root.name}'";
+            }
+
+            if (anchor == null)
+            {
+                for (Transform? t = host.transform.parent; t != null; t = t.parent)
+                {
+                    if (HasWindowAtOrAbove(t))
+                        continue;
+                    anchor = t;
+                    how = $"first window-free ancestor '{t.name}'";
+                    break;
+                }
+            }
+
+            if (anchor == null)
+            {
+                VRLog.Warn("WorldUI", "VR options: every candidate parent above the options window "
+                    + "carries a UIWindow of its own, so a detached pane would still defer to an "
+                    + "ancestor float. Staying a tab.");
+                return false;
+            }
+
+            rect.SetParent(anchor, worldPositionStays: false);
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = paneSize;
+            rect.localScale = Vector3.one;
+            rect.localRotation = Quaternion.identity;
+            rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y, 0f);
+            rect.SetAsLastSibling();
+
+            VRLog.Info("WorldUI", $"VR options: pane detached from '{host.name}' and parked on the "
+                + $"{how}, centred at {paneSize.x:F0}x{paneSize.y:F0} px. It is now a top-level "
+                + "window with no floatable ancestor, so ModalFallback floats it as a panel of its "
+                + "own rather than drawing it inside the options window's.");
+            return true;
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options: detaching the pane threw ({e.GetType().Name}: "
+                + $"{e.Message}) — staying a tab, which is the shipped behaviour.");
+            return false;
+        }
+    }
+
+    /// <summary>Does this transform, or anything above it, carry a <c>UIWindow</c>?</summary>
+    private static bool HasWindowAtOrAbove(Transform node)
+    {
+        for (Transform? t = node; t != null; t = t.parent)
+        {
+            if (t.GetComponent<UIWindow>() != null)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// One listener, added once, that fires whoever asked to be told when the menu closes — the
+    /// pause-menu row's <c>Deselect</c>, so the row cannot stay lit over a menu that is gone.
+    ///
+    /// <para>Guarded, and the callback is cleared BEFORE it runs: a <c>UnityEvent</c> has no
+    /// per-listener catch, so a throw here would amputate every listener the game put on the same
+    /// event.</para>
+    /// </summary>
+    private static void HookHidden(UISubmenuGOWindow window)
+    {
+        if (_hiddenHooked)
+            return;
+        _hiddenHooked = true;
+
+        window.OnHidden.AddListener(() =>
+        {
+            Action? pending = _onHidden;
+            _onHidden = null;
+            if (pending == null)
+                return;
+            try
+            {
+                pending();
+            }
+            catch (Exception e)
+            {
+                VRLog.Warn("WorldUI", "VR options: the close callback threw "
+                    + $"({e.GetType().Name}: {e.Message}); the menu is closed either way.");
+            }
+        });
+    }
+
+    /// <summary>
+    /// FIRE EXIT ONLY. Selecting our tab straight after <c>UIOptionsWindow.Show()</c> is a RACE and
+    /// always was: the window fades in, and the <c>onShown</c> that lands at the end of that fade
+    /// runs <c>OnShow</c> then <c>CloseWindows()</c> then <c>m_ToggleGroup.SetAllTogglesOff()</c>
+    /// (UIOptionsWindow.cs :201/:276-281), which turns the tab we just selected back off. That is
+    /// what "wenn man es darüber öffnet ist es auch völlig kaputt" was. So in tab mode the
+    /// selection waits for the shown edge instead of preceding it.
+    /// </summary>
+    private static void HookShownForTabSelect(UIOptionsWindow host)
+    {
+        var win = host.GetComponent<UIWindow>();
+        if (win == null)
+            return;
+
+        win.onShown.AddListener(() =>
+        {
+            if (!_selectOnShow)
+                return;
+            _selectOnShow = false;
+            SelectTab();
+        });
+    }
+
+    /// <summary>
+    /// Open the VR settings menu. Returns false when there is nothing to open, and that is the
+    /// caller's cue to leave its row un-lit rather than to present an empty window.
+    /// </summary>
+    /// <param name="onHidden">Called once when the menu closes, however it closes.</param>
+    /// <param name="pointAt">FIRE EXIT ONLY: the menu row the game's options window should aim its
+    /// vertical pointer at (<c>UIOptionsWindow.Show</c> passes it straight to
+    /// <c>VerticalPointerUI.PointAt</c>). Ignored by the standalone window, which has no pointer.
+    /// </param>
+    internal static bool Open(Action? onHidden, RectTransform? pointAt = null)
+    {
+        if (!CanOpen || _window == null)
+        {
+            VRLog.Warn("WorldUI", "VR options: asked to open, but there is no menu to open "
+                + $"(degraded={_degraded}, pane={_window != null}, content={ContentRoot != null}). "
+                + "Nothing is shown — an empty window would be worse than none.");
+            return false;
+        }
+
+        _onHidden = onHidden;
+
+        if (IsStandalone)
+        {
+            _window.Show();
+            return true;
+        }
+
+        // FIRE EXIT: the menu is a tab, so the game's window has to carry it.
+        if (!Singleton<UIOptionsWindow>.IsInitialized)
+        {
+            _onHidden = null;
+            return false;
+        }
+
+        _selectOnShow = true;
+        Singleton<UIOptionsWindow>.Instance.Show(pointAt, () =>
+        {
+            Action? pending = _onHidden;
+            _onHidden = null;
+            pending?.Invoke();
+        });
+        return true;
+    }
+
+    /// <summary>
+    /// Close the menu, whichever mode it is in. A no-op when it is not open.
+    ///
+    /// <para>IT GOES THROUGH <see cref="ModalFallback.CloseFloatedWindow"/>, NOT
+    /// <c>UISubmenuGOWindow.Hide()</c>, AND THAT IS NOT A DETAIL. The pane's window id is
+    /// <c>OptionsSubmenu</c>, which is in <c>ModalFallback</c>'s parallel-menu family — so its
+    /// float is STICKY: the mod deliberately keeps such a window on screen after the GAME hides it,
+    /// because that is what lets Options and Multiplayer stand side by side instead of the ESC
+    /// menu's single-select ToggleGroup taking one away. Only <c>UserClosing</c> ever drops a
+    /// sticky float, and that flag is what <c>CloseFloatedWindow</c> sets. A plain <c>Hide()</c>
+    /// here would hide the window in the game's own bookkeeping and leave the panel standing in
+    /// front of the player — a menu that had been asked to close and did not.</para>
+    /// </summary>
+    internal static void Close()
+    {
+        try
+        {
+            if (IsStandalone)
+            {
+                if (_window == null)
+                    return;
+                var win = _window.GetComponent<UIWindow>();
+                if (win != null)
+                    ModalFallback.CloseFloatedWindow(win);
+                else
+                    _window.Hide();
+                return;
+            }
+
+            _selectOnShow = false;
+            if (Singleton<UIOptionsWindow>.IsInitialized)
+                Singleton<UIOptionsWindow>.Instance.Hide();
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options: closing threw ({e.GetType().Name}: {e.Message}).");
         }
     }
 
@@ -628,12 +1017,22 @@ internal static partial class VROptionsTab
             return;
         _degraded = true;
         Forget();
-        VRLog.Warn("WorldUI", $"VR options tab: not available — {reason}. The game's own options "
-                              + "window is untouched and every VR setting remains editable in "
-                              + "BepInEx/config/dev.gloomhavenvr*.cfg.");
+        VRLog.Warn("WorldUI", $"VR options: no VR settings menu this session — {reason}. The game's "
+                              + "own options window is untouched and still opens normally, and every "
+                              + "VR setting remains editable in BepInEx/config/dev.gloomhavenvr*.cfg. "
+                              + "The pause-menu VR row is not injected either, because a row that "
+                              + "opens nothing is worse than no row.");
     }
 
-    /// <summary>Drop references without touching anything (the objects are already gone).</summary>
+    /// <summary>
+    /// Drop references without touching anything (the objects are already gone).
+    ///
+    /// <para>THE ONE-SHOT HOOK FLAGS BELONG HERE TOO, and leaving them out was a real defect: they
+    /// guard "add this listener to THE window", and after a scene change the window is a different
+    /// object. A <c>_showHooked</c> that survived the old pane meant the NEW pane's
+    /// <c>OnShow</c> was never subscribed, so its content was never built — an options menu that
+    /// opened onto an empty panel for the rest of the session.</para>
+    /// </summary>
     private static void Forget()
     {
         _host = null;
@@ -641,16 +1040,16 @@ internal static partial class VROptionsTab
         _window = null;
         ContentRoot = null;
         TabBarRoot = null;
+        IsStandalone = false;
+        _onHidden = null;
+        _hiddenHooked = false;
+        _selectOnShow = false;
+        _showHooked = false;
     }
 
-    /// <summary>
-    /// Remove the tab and destroy both clones — the exact inverse of <see cref="Inject"/>. Called
-    /// from <c>WorldUIModule.OnDestroy</c>; safe to call when nothing was ever injected.
-    /// </summary>
-    /// <summary>Select the VR tab, if it is injected. Used by <see cref="VRMenuEntry"/>, which
-    /// opens the options window from its own pause-menu row and wants the player to land on the VR
-    /// page rather than on whatever was selected last. A no-op when the tab is not there, which is
-    /// the honest outcome: the window still opens, on its own first tab.</summary>
+    /// <summary>FIRE EXIT ONLY: select the VR tab, if there is one. A no-op in the normal
+    /// standalone mode, where there is no tab and nothing to select — the menu is its own
+    /// window and <see cref="Open"/> shows it directly.</summary>
     internal static void SelectTab()
     {
         if (_toggle == null)
@@ -667,6 +1066,11 @@ internal static partial class VROptionsTab
         }
     }
 
+    /// <summary>
+    /// Destroy the pane and — in fire-exit mode only — take our entry back out of the options
+    /// window's <c>m_Tabs</c> and drop the toggle: the exact inverse of <see cref="Inject"/>.
+    /// Called from <c>WorldUIModule.OnDestroy</c>; safe when nothing was ever built.
+    /// </summary>
     internal static void Shutdown()
     {
         try

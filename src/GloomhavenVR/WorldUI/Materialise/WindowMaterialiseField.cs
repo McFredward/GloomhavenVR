@@ -112,32 +112,62 @@ internal static class WindowMaterialiseField
     // ParticleSystemScalingMode — the setting 37 of 43 of the game's own systems get wrong at this
     // rig scale — is not a parameter of it. See WindowMaterialiseDebris for why not, at length.
 
-    /// <summary>Shards per square metre of APPARENT window area. A 0.80 x 0.52 m modal is 0.42 m2,
-    /// so about 290 shards: a few hundred pieces of a window, not a dust cloud.</summary>
-    internal const float DebrisPerSquareMetre = 700f;
+    // ---- DUST, NOT CHIPS. The 2026-09-02 hardware ruling, and the arithmetic behind it --------
+    // User, after the ModBuild 334 test: "Statt Partikel sind es visible Dreiecke, ich moechte
+    // lieber das es 'Staub' also wirklich kleine partikel sind." - "instead of particles they are
+    // visible triangles; I would rather it were 'dust', i.e. really small particles."
+    //
+    // He is describing an ANGULAR size, and the numbers agree with him. The old range was 4-22 mm
+    // apparent with a median near 8 mm. A Quest 3 resolves about 20 pixels per degree (Meta quotes
+    // 25 at the sweet spot; 20 is the conservative figure, and every number below is stated at it).
+    // A floated window sits at roughly 1.5 m, so:
+    //
+    //     22 mm at 1.5 m = 0.84 deg = ~17 px across   <- a tetrahedron at 17 px has a legible
+    //                                                    TRIANGULAR silhouette. That is the report.
+    //      8 mm at 1.5 m = 0.31 deg = ~ 6 px          <- the median piece; still a readable shape.
+    //
+    // A speck reads as dust when it is a few pixels across and no more: big enough that both eyes
+    // rasterise the same thing - this project's flicker history is spatial aliasing read as stereo
+    // rivalry, so SUB-pixel is the one regime that is off the table - and small enough to carry no
+    // silhouette. That is about 1.5-5 px, which at 1.5 m and 20 ppd is 2.0-6.5 mm. The range below
+    // is 2.2-6.0 mm = 0.084-0.229 deg = 1.7-4.6 px at 1.5 m, and 2.8-7.6 px at the 0.9 m a window
+    // is ever read at closest. Nothing in the cloud is sub-pixel at either distance, and nothing in
+    // it is large enough to show four faces.
 
-    /// <summary>Hard cap on shards for one window, whatever its area. The map room can hold several
-    /// windows at once and each shard is 12 vertices.</summary>
-    internal const int DebrisMaxCount = 420;
+    /// <summary>Motes per square metre of APPARENT window area. A 0.80 x 0.52 m modal is 0.42 m2,
+    /// so about 840 motes. RAISED WITH THE SHRINK, and it had to be: a mote now covers about a
+    /// tenth of the solid angle a 2026-08 shard did, so the same count would have read as a
+    /// sprinkle rather than as dust. The build stays affordable because a mote is FOUR vertices
+    /// rather than twelve (see <c>WindowMaterialiseDebris.VertsPerShard</c>) — 840 motes upload
+    /// 3360 verts, fewer than the 5040 the old 420-shard cap did.</summary>
+    internal const float DebrisPerSquareMetre = 2000f;
 
-    /// <summary>Floor, so a tiny fitted window (the ESC menu fits to a few centimetres) still breaks
-    /// into something rather than into four chips.</summary>
-    internal const int DebrisMinCount = 90;
+    /// <summary>Hard cap on motes for one window, whatever its area. The map room can hold several
+    /// windows at once; at four vertices each, this cap is 3600 verts — still below the old cap's
+    /// 5040.</summary>
+    internal const int DebrisMaxCount = 900;
 
-    /// <summary>Smallest shard, in apparent metres. NOT smaller, and the reason is stereo: this
+    /// <summary>Floor, so a tiny fitted window (the ESC menu fits to a few centimetres) still
+    /// dissolves into dust rather than into a dozen specks.</summary>
+    internal const int DebrisMinCount = 240;
+
+    /// <summary>Smallest mote, in apparent metres. NOT smaller, and the reason is stereo: this
     /// project's flicker history is spatial aliasing read as rivalry, and sub-pixel geometry is
-    /// exactly that regime. 4 mm at 0.9 m is about 0.25 deg, roughly ten headset pixels across.
-    /// </summary>
-    internal const float DebrisMinMetres = 0.004f;
+    /// exactly that regime. 2.2 mm is 0.084 deg at 1.5 m — about 1.7 headset pixels at 20 ppd, and
+    /// 2.8 at the 0.9 m a window is read at closest. Above the floor at both distances.</summary>
+    internal const float DebrisMinMetres = 0.0022f;
 
-    /// <summary>Largest shard, in apparent metres. 22 mm is a readable chip of window at arm's
-    /// length without becoming a flying plate.</summary>
-    internal const float DebrisMaxMetres = 0.022f;
+    /// <summary>Largest mote, in apparent metres. 6.0 mm is 0.229 deg at 1.5 m — about 4.6 headset
+    /// pixels, which is a speck. THIS is the number the user's complaint was about: at the old
+    /// 22 mm the biggest pieces spanned ~17 px and read as triangles rather than as dust.</summary>
+    internal const float DebrisMaxMetres = 0.0060f;
 
     /// <summary>Skew of the size distribution: <c>size = lerp(min, max, r^SizePower)</c>. Above 1
-    /// means most shards are small and a few are large, which is what a broken thing looks
-    /// like.</summary>
-    internal const float DebrisSizePower = 2.2f;
+    /// means most motes are small and a few are large, which is what dust looks like. SOFTENED from
+    /// 2.2 with the shrink: over a 2.2-6.0 mm range a 2.2 power would pile most of the cloud onto
+    /// the 2.2 mm floor, i.e. onto the one size where per-eye aliasing is closest. At 1.6 the
+    /// median mote is 3.4 mm (~2.6 px at 1.5 m) and the distribution has somewhere to go.</summary>
+    internal const float DebrisSizePower = 1.6f;
 
     /// <summary>
     /// How far a shard travels DOWNWIND (in the window's plane, along <see cref="Wind"/>) by the end

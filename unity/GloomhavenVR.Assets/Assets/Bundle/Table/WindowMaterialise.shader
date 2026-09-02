@@ -36,8 +36,12 @@
 // left the window's plane, which is exactly what the user objected to.
 //
 // The one remaining per-eye risk is spatial: sub-pixel geometry aliases differently in each eye
-// whatever the shader does. That is answered in C# rather than here, by a 4 mm floor on shard size
-// (~0.25 deg at 0.9 m, roughly ten headset pixels) which WindowMaterialiseDebris logs.
+// whatever the shader does. That is answered in C# rather than here, by a floor on shard size which
+// WindowMaterialiseDebris logs. That floor MOVED on 2026-09-02: the user reported the pieces
+// reading as "visible Dreiecke" rather than dust, so it went 4 mm -> 2.2 mm (0.084 deg at 1.5 m,
+// ~1.7 px at a conservative 20 px/deg on a Quest 3; the old 4-22 mm range spanned 3-17 px, and a
+// 17 px chip HAS a silhouette). The floor exists to keep motes ABOVE one pixel per eye — if a
+// hardware round reports twinkling at the far end of the cloud, this number is raised, not lowered.
 //
 // TRAP 4 - FREQUENCY SCRUBBING. A strength dial that multiplies a FREQUENCY riding the shared
 // clock is correct only at t=0. There is no clock here at all. The one time-like input is _Front,

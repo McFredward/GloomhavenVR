@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
+using GloomhavenVR.Core.Events;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -184,9 +185,11 @@ internal static partial class WindowMaterialise
         _intensity = file.Bind("WorldUI", "WindowMaterialiseIntensity",
             Defaults.WindowMaterialiseIntensity,
             new ConfigDescription(
-                "How large the flying debris is. 0 leaves the element-by-element dissolve with no "
-                + "debris at all (a clean directional wipe, and no extra geometry is built at all); "
-                + "1 is the shipped look; 2 is heavy rubble. This scales an AMPLITUDE only — it "
+                "How large the flying dust is. 0 leaves the element-by-element dissolve with no "
+                + "dust at all (a clean directional wipe, and no extra geometry is built at all); "
+                + "1 is the shipped look — motes of 2.2-6.0 apparent mm, which is about two to five "
+                + "headset pixels at the distance a window sits; 2 doubles that into coarse grit. "
+                + "This scales an AMPLITUDE only — it "
                 + "cannot change how "
                 + "fast anything moves, because the effect has no clock: every position in it is a "
                 + "function of progress. Range 0-2.",
@@ -291,6 +294,150 @@ internal static partial class WindowMaterialise
 
     internal static void Unregister(WindowMaterialiseRunner r) => Live.Remove(r);
 
+    // ---- the close edge -----------------------------------------------------------------------
+
+    /// <summary>Close-edge holds waiting to be claimed by a vanish. Bounded by the number of
+    /// floated windows and by <see cref="WindowMaterialisePreRoll.GraceSeconds"/>, which is why a
+    /// list and a linear walk are the right shape here too.</summary>
+    private static readonly List<WindowMaterialisePreRoll> PreRolls = new(4);
+
+    private static bool _subscribed;
+
+    /// <summary>
+    /// <b>Listen for the close edge.</b> Subscribed lazily from <see cref="PlayIn"/> and
+    /// <see cref="PlayOut"/> rather than from a module boot, because a window has to be FLOATED
+    /// before it can be released and both of those run first — so there is no window whose close
+    /// edge can be missed, and no ordering to get wrong against <c>VREventsModule</c>'s own patch
+    /// installation.
+    ///
+    /// <para>The event itself is not this class's to raise: it is
+    /// <c>VREvents.WindowVisibility</c>, published from the Harmony postfix on
+    /// <c>UIWindow.EvaluateAndTransitionToVisualState</c> — the single choke point every visibility
+    /// change funnels through (<c>Core/Events/GameEventPatches.cs</c>). Subscribing rather than
+    /// adding a second patch keeps the mod to one patch on that method, and
+    /// <c>VREvents.Invoke</c> already guards every handler so a throw here cannot reach the game's
+    /// message pump.</para>
+    /// </summary>
+    private static void EnsureSubscribed()
+    {
+        if (_subscribed)
+            return;
+        _subscribed = true;
+        VREvents.WindowVisibility += OnWindowVisibility;
+    }
+
+    /// <summary>
+    /// A window changed visual state. On the FALLING edge of one this mod is currently floating,
+    /// take the visibility hold immediately — see <see cref="WindowMaterialisePreRoll"/> for why the
+    /// hold moves to the edge and the ANIMATION does not.
+    /// </summary>
+    private static void OnWindowVisibility(WindowVisibilityEvent e)
+    {
+        // THIS HANDLER MUST NOT THROW, and not for the usual reason. VREvents.Invoke wraps the
+        // whole multicast delegate in ONE try, so a throw here does not merely lose this
+        // subscriber's work — UnityEvent-style, it amputates every subscriber registered after it
+        // on the same event. A decoration is never allowed to take another feature's notification
+        // away, so the body is wrapped and a failure costs the animation and nothing else.
+        try
+        {
+            if (e.Shown)
+                return;
+            if (!Enabled || VanishSeconds <= 0f)
+                return;
+            UIWindow w = e.Window;
+            if (w == null)
+                return;
+
+            ConvertedPanel? panel = PanelUnder(w.transform);
+            if (panel == null)
+                return;
+            // A vanish that is already playing owns the window's visibility itself; an appear that
+            // is playing is about to be cancelled by the vanish that claims this hold. Neither
+            // wants a second owner.
+            if (IsAnimating(panel) || FindPreRoll(panel) != null)
+                return;
+
+            WindowMaterialisePreRoll? pre = WindowMaterialisePreRoll.Begin(panel);
+            if (pre != null)
+                PreRolls.Add(pre);
+        }
+        catch (Exception ex)
+        {
+            VRLog.Error(Scope, "WINDOW MATERIALISE: taking the close-edge visibility hold threw "
+                               + $"({ex.GetType().Name}: {ex.Message}). The dissolve still starts "
+                               + "from the release tick one tick later, which is where it started "
+                               + "before this hold existed.");
+        }
+    }
+
+    /// <summary>
+    /// The converted panel whose host <paramref name="t"/> currently lives under, or null.
+    ///
+    /// <para>Matched by ANCESTRY against <c>HostRect</c> and not by reference against
+    /// <c>Target</c>: the rect a window is converted THROUGH is not required to be the
+    /// <c>UIWindow</c>'s own transform (<c>ModalFallback.8.Convert.cs:345</c>), and containment is
+    /// not identity — but "is inside this panel's host" is precisely a containment question, so
+    /// containment is the right test here.</para>
+    /// </summary>
+    private static ConvertedPanel? PanelUnder(Transform? t)
+    {
+        if (t == null)
+            return null;
+        IReadOnlyList<ConvertedPanel> panels = CanvasConversion.ActivePanels;
+        for (int i = 0; i < panels.Count; i++)
+        {
+            ConvertedPanel p = panels[i];
+            RectTransform? host = p?.HostRect;
+            if (host == null)
+                continue;
+            if (ReferenceEquals(t, host) || t.IsChildOf(host))
+                return p;
+        }
+        return null;
+    }
+
+    private static WindowMaterialisePreRoll? FindPreRoll(ConvertedPanel panel)
+    {
+        for (int i = PreRolls.Count - 1; i >= 0; i--)
+        {
+            WindowMaterialisePreRoll pre = PreRolls[i];
+            if (pre == null)
+            {
+                PreRolls.RemoveAt(i);
+                continue;
+            }
+            if (ReferenceEquals(pre.Panel, panel))
+                return pre;
+        }
+        return null;
+    }
+
+    internal static void UnregisterPreRoll(WindowMaterialisePreRoll pre) => PreRolls.Remove(pre);
+
+    /// <summary>
+    /// <b>Claim the close-edge hold for this panel's dissolve, or return null if there is none.</b>
+    /// The hold is handed over LIVE — the pre-roll never releases it — so the window's visibility
+    /// passes from one owner to the next inside a single statement and is not unheld for a frame.
+    /// </summary>
+    internal static WindowVisibilityHold? ClaimPreRoll(ConvertedPanel panel)
+    {
+        WindowMaterialisePreRoll? pre = FindPreRoll(panel);
+        return pre?.Adopt();
+    }
+
+    /// <summary>
+    /// Drop a close-edge hold without a dissolve claiming it — the window goes exactly where the
+    /// game was sending it. For the paths that deliberately do NOT animate: a re-opened window, and
+    /// the empty-release rule (a window that is drawing nothing has nothing to dissolve, and
+    /// holding its pixels would be holding no pixels).
+    /// </summary>
+    internal static void DropPreRoll(ConvertedPanel? panel, string reason)
+    {
+        if (panel == null)
+            return;
+        FindPreRoll(panel)?.End(reason);
+    }
+
     /// <summary>
     /// <b>Is this panel mid-effect?</b> Offered so the liveness rule ("no empty windows", 2.0 s of
     /// nothing drawing) can tell a window that is deliberately dissolving from one that has died.
@@ -363,6 +510,7 @@ internal static partial class WindowMaterialise
     /// </summary>
     internal static void PlayIn(ConvertedPanel? panel)
     {
+        EnsureSubscribed();
         if (panel == null || !panel.IsAlive || panel.HostGo == null)
             return;
         if (!Enabled)
@@ -374,6 +522,10 @@ internal static partial class WindowMaterialise
         try
         {
             Cancel(panel, "a new appear started");
+            // A window that is APPEARING is not one whose pixels need holding: the game is on its
+            // way to showing it, and a stale close-edge hold from a previous close would be a
+            // second owner of the same three switches.
+            DropPreRoll(panel, "the window re-opened");
             WindowMaterialiseRunner.Begin(panel, seconds, materialising: true, onDone: null);
         }
         catch (Exception ex)
@@ -409,6 +561,7 @@ internal static partial class WindowMaterialise
                 "PlayOut's whole contract is that the callback runs; a null one is a caller bug, "
                 + "and swallowing it would defer a window's release forever.");
 
+        EnsureSubscribed();
         if (panel == null || !panel.IsAlive || panel.HostGo == null)
         {
             onDone();
@@ -477,6 +630,11 @@ internal static partial class WindowMaterialise
         for (int i = Live.Count - 1; i >= 0; i--)
             Live[i]?.Finish(reason, restore: true);
         Live.Clear();
+        // The close-edge holds go with them, and for the same reason: a bulk release must not leave
+        // a window's visibility owned by a decoration in a scene that is being torn down.
+        for (int i = PreRolls.Count - 1; i >= 0; i--)
+            PreRolls[i]?.End(reason);
+        PreRolls.Clear();
     }
 
     // ---- helpers ------------------------------------------------------------------------------

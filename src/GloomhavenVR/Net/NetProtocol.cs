@@ -416,7 +416,105 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 334;
+    public const ushort ModBuild = 335;
+    // Build 335: THE FIRST HARDWARE ROUND IN EIGHTEEN BUILDS — AND THE LOG COULD NOT ANSWER IT.
+    // *** FULL INSTALL (bundle changed: new plate PBR set + new Grimhorn mask).
+    //
+    //   Round of 2026-09-02 on ModBuild 334. Nine items reported. Full accounting of the log in
+    //   .planning/HARDWARE-2026-09-02.md.
+    //
+    //   ITEM 9 FIRST, BECAUSE IT GOVERNS THE OTHER EIGHT. Player.log carried FIFTEEN mod lines:
+    //   Tutorial 0, Hands 0, FigureGrab 0, Cards 0, Board 0, Net 0, WorldUI 0. Every question in
+    //   the backlog is answered by a VRLog.Info line, and ModBuild 331 mapped Info to the DEBUG
+    //   tier. His cfg still said LogLevel=Trace, which 331 removed, so it fell back to the new
+    //   Info default -- exactly as designed. The design was right; what was missing is that 331
+    //   never asked which lines a PENDING hardware round was waiting on. Even the desync recorder
+    //   shipped two days earlier was silent: its "watch armed" line is the only proof it armed.
+    //     * 14 verdict lines promoted Info -> Note. TEXT UNTOUCHED -- check-surface.py treats a
+    //       vanished log marker as a removal and would fail on a rewording.
+    //     * scripts/check-hw-verify.py, wired into refactor-guard: a `// HW-VERIFY` site must log
+    //       at a tier the DEFAULT level prints, and must not sit in a per-frame method. Falsified
+    //       both ways before shipping.
+    //   Also from that log: 7 Errors per session chasing 'OcclusionVolume'. Its MeshRenderer is
+    //   only ever drawn into an occlusion buffer with the GENERATOR'S material
+    //   (TilesOcclusionGenerator.cs:179-181), so "it stays hidden" was correct and the alarm was
+    //   the instrument's. Excluded by component, not by name.
+    //
+    //   ITEM 3 -- HEALTH BARS TOO HIGH (hb_problem.jpg). `top` was max(live extent, head joint),
+    //   so on a spread-winged flyer the anchor was the WINGTIP: the hero's bar sits 6 % above its
+    //   helmet, the boss dragon's above its wings, both obeying the same rule. ModBuild 294
+    //   replaced the baked box with the live extent for a good reason and that stands; what it
+    //   also did was hand the anchor to whichever bone is highest this frame. "How tall is this
+    //   creature" and "what is the top of its silhouette" are different questions. The head now
+    //   decides where there is one -- and the evidence was already in the file: on 5 figures out
+    //   of 5 the artists' m_WorldspaceOffsetY lands within 0.15 wu of the LIVE HEAD JOINT,
+    //   ElderDrakeID included. That table justified a FLOOR while the wings still raised the bar
+    //   above it.
+    //
+    //   ITEM 5 -- THE BOSS LEFT NO GHOST. FigureGhosts cloned actor.m_AnimatedGameObject, which
+    //   the game sets to MF.GetGameObjectAnimator(root) -- the FIRST Animator in the subtree with
+    //   a controller, depth-first (MF.cs:135-146). The boss's subtree carries foreign animated
+    //   content (WP_Scoundrel_Dart, two WP_Dummy), so the ghost was a dart. FigureHighlight drew
+    //   this conclusion in 294 and moved ITSELF to the actor root; this class was left behind.
+    //   One shared GhostSource() now serves the local and remote paths.
+    //   THE HIGHLIGHT HALF IS NOT GUESSED AT. The instrument built to settle it is the Apply
+    //   report, and item 9 is why it was unreadable. It is now at Note.
+    //
+    //   ITEM 4 -- PROPS. My own hypothesis (a lossy prop copy at CObjectActor.cs:21-27) was
+    //   FALSIFIED. The real cause: a prop only gets a CObjectActor when it has HEALTH
+    //   (CMap.cs:501-518, CObjectActor.cs:98-104), and chests, gold piles, quest items, resources
+    //   and non-destructible obstacles have none -- they are in NO Choreographer list, so
+    //   AdoptProps has never seen one. Those that DO have health appear as an invisible
+    //   PropDummyObject (PropHealthDetails.cs:161), which is exactly "no highlight": no renderers
+    //   to overlay. Shipped: the liftable test moved to CObjectProp.ObjectType (which the lossy
+    //   copy cannot destroy), invisible actors are no longer adopted, an ordering bug that skipped
+    //   AdoptProps whenever no FIGURE was adopted is fixed, and a [Props] census names refusals.
+    //   Actually lifting them needs FigureGrabbable + the held-sets + a wire field: SCOPED, NOT
+    //   STARTED, because it touches the MP contract.
+    //
+    //   ITEM 2 -- THE WINDOW VANISH. My handed-down diagnosis was also half wrong and the lane
+    //   said so: the release-tick latency is ~14 ms, at which point a 0.1 s InOutQuint alpha is
+    //   still 0.999. The pop is the game emptying the window through THREE channels while our
+    //   0.9 s animation plays -- CanvasGroup.alpha (UIWindow.cs:622), gameObject.SetActive via
+    //   ChangeActive (:744-746) and Canvas.enabled (:584/:594). The remedy concedes the alpha
+    //   entirely (CanvasGroup.enabled = false, so the tween writes a number nothing reads) and
+    //   owns the other two in LateUpdate as the last writer, releasing by re-deriving the game's
+    //   own predicates. PlayOut's callback still runs exactly once on every path.
+    //   (a) Dust, not triangles: 4-22 mm (3-17 px at 1.5 m, 20 px/deg) -> 2.2-6.0 mm (1.7-4.6 px),
+    //   density 700 -> 2000/m2, and 12 verts/shard -> 4 shared corners with smooth normals, so
+    //   900 motes upload FEWER verts than 420 shards did. Flat shading was right for a 17 px chip
+    //   and strobes on a 3 px mote.
+    //
+    //   ITEM 6 -- VR OPTIONS ARE THEIR OWN MENU. The pane is re-parented OUT of UIOptionsWindow
+    //   onto the root canvas: no toggle is cloned and nothing is added to m_Tabs, which is the
+    //   literal deletion of the tab. It carries UIWindowID.OptionsSubmenu, already in
+    //   FallbackIds, so it floats as its own panel with the standard grab bar and X, and the mod's
+    //   topic column was ALREADY at x=0 -- the game's rail was what stood left of it. Fire exit:
+    //   if detaching fails it re-registers as a tab and logs why; if the pane cannot be cloned at
+    //   all, no menu row is injected (never a dead door). A main-menu row was added because the
+    //   tab was the only route from there.
+    //
+    //   ASSETS. New plate PBR set (normal map 71.6 % of pixels changed; metallic/roughness packed;
+    //   displacement deliberately NOT shipped -- BoardLit has no height term) and a new Grimhorn
+    //   mask (93.2 % of pixels, new mesh). THE BAKE CAUGHT A 100x ERROR: Mask_2 imported 0.002 m
+    //   against the other masks' 0.220 m because the delivery declares UnitScaleFactor 1 where the
+    //   shipped masks declare 100, with IDENTICAL vertex data. BuildHeads now ignores the declared
+    //   unit and HARD-FAILS outside 0.10..0.60 m. The height was already printed; a printed number
+    //   nothing checks is read only after the round is wasted.
+    //
+    //   TEST -- and this time the log will carry the answers:
+    //     1. Health bars: the boss dragon's bar must sit just above its HEAD, like the hero's.
+    //     2. Grab the boss: a translucent ghost must stay at its home hex. Grep `ghost spawned`.
+    //     3. Close any window: it must stay opaque and erode. Grep `VISIBILITY:` on the VANISH
+    //        line -- `NOT HELD` means no UIWindow was found and the fix is inert there.
+    //     4. The dust must read as specks. TWINKLING at the far end means the 2.2 mm floor is too
+    //        close to sub-pixel on this rig and must be RAISED.
+    //     5. Optionen must have NO "VR Optionen" row; the pause-menu VR row must open one panel
+    //        with no game tab rail and our topics hard left. Judge whether it has a BACKGROUND and
+    //        whether it RESIZES while scrolling -- both are one-line fixes already written down.
+    //     6. Send the whole log. Every `[Props] census`, `highlight ENGAGED`, `VFX scan`,
+    //        `Controls lesson` and `DESYNC` line should now be in it.
+    //
     // Build 334: THE MOD CAN NO LONGER BE MISTAKEN FOR A DESYNC — AND A GATE THAT KEEPS IT SO.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,376,373 bytes. NO WIRE FIELD.
     //

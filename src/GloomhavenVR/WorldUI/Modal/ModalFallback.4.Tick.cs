@@ -2835,9 +2835,20 @@ internal static partial class ModalFallback
             // release of a window that is already dark.
             ConvertedPanel? dying = wp.Panel;
             if (wp.EmptyReleasePending)
+            {
+                // ...and an empty release drops the close-edge visibility hold too, if this window
+                // took one. That hold exists to keep a CLOSING window's pixels on screen while the
+                // dissolve plays; a window this rule is releasing is by definition drawing nothing,
+                // so there are no pixels to hold and no dissolve coming to claim it. Dropping it
+                // here rather than letting it lapse means the window goes exactly where the game
+                // was sending it, in this frame, as it did before the effect existed.
+                WindowMaterialise.DropPreRoll(dying, "an empty release — nothing to dissolve");
                 CanvasConversion.Release(dying); // restores the exact 2D home
+            }
             else
+            {
                 WindowMaterialise.PlayOut(dying, () => CanvasConversion.Release(dying));
+            }
             if (wp.EmptyReleasePending)
             {
                 // HOLD IT OUT OF THE FLOAT SET UNTIL ITS CONTENT COMES BACK. The game may still

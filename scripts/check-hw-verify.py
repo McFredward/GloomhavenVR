@@ -50,6 +50,14 @@ SRC = ROOT / "src"
 
 MARKER = "HW-VERIFY"
 
+# The marker must OPEN a comment line — `// HW-VERIFY: …` — and not merely appear in one.
+# Prose that discusses the convention quotes its own name (the ModBuild 335 notes in
+# NetProtocol.cs say "a `// HW-VERIFY` site must log at…"), and a substring match reads that as
+# a marked site with no call after it. This is the same trap check-surface.py documents for
+# config keys and log markers: the repository's comments quote the very strings being censused,
+# so the pattern has to be anchored rather than searched.
+MARK_RE = re.compile(r"^\s*//+\s*" + MARKER)
+
 # VRLog method -> is it printed at the shipped default level?
 TIERS = {
     "Error": True,
@@ -77,7 +85,7 @@ def sites() -> list[tuple[Path, int, str, str]]:
             continue
         lines = text.split("\n")
         for i, line in enumerate(lines):
-            if MARKER not in line:
+            if not MARK_RE.match(line):
                 continue
             # The call is the next line that carries one, skipping the marker's own
             # continuation comment lines. Look at most 4 lines ahead.

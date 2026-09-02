@@ -112,12 +112,30 @@ internal static partial class WindowMaterialise
 
     private const int DebrisBehindOrderOffset = -1;
 
-    /// <summary>Vertices per shard: four triangular faces, each with its own three vertices so the
-    /// faces are FLAT-shaded. Sharing the four corners would smooth the normals across the faces and
-    /// the shard would read as a blob rather than as a chip of something broken — which at these
-    /// angular sizes (a 22 mm shard at 0.9 m is ~1.4 deg, tens of headset pixels) is clearly
-    /// visible.</summary>
-    internal const int VertsPerShard = 12;
+    /// <summary>
+    /// Vertices per mote: FOUR, one per corner, shared across the four faces — so a mote is
+    /// smooth-shaded rather than faceted.
+    ///
+    /// <para><b>This was 12 (each face with its own three vertices, flat-shaded) and the 2026-09-02
+    /// hardware ruling is why it is not any more.</b> Flat shading was the right call for a 22 mm
+    /// CHIP at ~17 headset pixels: the four facets are what made it read as a piece of something
+    /// broken. It is the wrong call for a 2-5 px mote, twice over. Legibly: there is no silhouette
+    /// left to articulate, so the facets buy nothing. Measurably: a tumbling mote whose whole
+    /// 2-pixel body flips between the shader's key term and its fill term (0.34 to 1.12, a 3.3x
+    /// brightness swing) STROBES, and this project reads strobing geometry as stereo rivalry. With
+    /// the corners shared, the fragment stage interpolates across the mote instead, so its
+    /// brightness slides rather than steps.</para>
+    ///
+    /// <para>It is also three times cheaper. The build's measured slowest stage was the mesh upload
+    /// (1.70 ms of a 3.17 ms build at 420 shards), which is per-VERTEX — so 900 motes at four verts
+    /// upload less than 420 shards at twelve did. That is what pays for the raised mote count in
+    /// <see cref="WindowMaterialiseField.DebrisPerSquareMetre"/>.</para>
+    ///
+    /// <para>The winding gate is UNAFFECTED and is not weakened: it is derived from
+    /// <see cref="TetraFace"/> indexing <see cref="TetraCorner"/>, which is exactly what the index
+    /// buffer now does directly. See <see cref="GateShardWinding"/>.</para>
+    /// </summary>
+    internal const int VertsPerShard = 4;
 
     /// <summary>The canonical unit tetrahedron, corners at unit radius. Winding is verified rather
     /// than trusted — see <see cref="GateShardWinding"/>.</summary>
@@ -173,6 +191,13 @@ internal static partial class WindowMaterialise
             a[i] = new List<T>(VertsPerShard * WindowMaterialiseField.DebrisMaxCount);
         return a;
     }
+
+    /// <summary>One mote's four squashed corners and the vertex normals accumulated onto them.
+    /// Static scratch rather than locals so a 900-mote build allocates nothing at all; the build is
+    /// single-threaded and one mote is finished before the next starts.</summary>
+    private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    private static readonly Vector3[] NormalScratch = new Vector3[4];
 
     /// <summary>Cumulative emission weight per candidate element, rebuilt per effect.</summary>
     private static readonly List<float> EmitCumulative = new(256);
@@ -415,25 +440,37 @@ internal static partial class WindowMaterialise
             List<int> idx = BufIdx[half];
             if (behind) behindCount++; else frontCount++;
 
+            // FOUR SHARED CORNERS, SMOOTH-SHADED. The face normals are still derived here — they
+            // are what the vertex normals are accumulated from, and deriving them from the SQUASHED
+            // corners rather than from the canonical ones is what keeps the shading correct for a
+            // flattened mote. See VertsPerShard for why a mote is no longer faceted.
+            for (int c = 0; c < 4; c++)
+            {
+                CornerScratch[c] = Vector3.Scale(TetraCorner[c], lift);
+                NormalScratch[c] = Vector3.zero;
+            }
             for (int f = 0; f < 4; f++)
             {
                 int i0 = TetraFace[f * 3], i1 = TetraFace[f * 3 + 1], i2 = TetraFace[f * 3 + 2];
-                Vector3 a = Vector3.Scale(TetraCorner[i0], lift);
-                Vector3 b = Vector3.Scale(TetraCorner[i1], lift);
-                Vector3 c = Vector3.Scale(TetraCorner[i2], lift);
-                Vector3 n = Vector3.Cross(b - a, c - a);
+                Vector3 a = CornerScratch[i0], b = CornerScratch[i1], c2 = CornerScratch[i2];
+                Vector3 n = Vector3.Cross(b - a, c2 - a);
                 n = n.sqrMagnitude > 1e-9f ? n.normalized : Vector3.forward;
-
-                AddShardVertex(half, birthLocal, n, a, sizeCanvas, uv, threshold, seedA,
-                               axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
-                AddShardVertex(half, birthLocal, n, b, sizeCanvas, uv, threshold, seedA,
-                               axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
-                AddShardVertex(half, birthLocal, n, c, sizeCanvas, uv, threshold, seedA,
-                               axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB, shade);
-
-                idx.Add(baseVert + f * 3);
-                idx.Add(baseVert + f * 3 + 1);
-                idx.Add(baseVert + f * 3 + 2);
+                NormalScratch[i0] += n;
+                NormalScratch[i1] += n;
+                NormalScratch[i2] += n;
+                // The index buffer IS the gated table, walked directly: TetraFace into TetraCorner
+                // is exactly what GateShardWinding derives its signed volume and outwardness from.
+                idx.Add(baseVert + i0);
+                idx.Add(baseVert + i1);
+                idx.Add(baseVert + i2);
+            }
+            for (int c = 0; c < 4; c++)
+            {
+                Vector3 vn = NormalScratch[c];
+                vn = vn.sqrMagnitude > 1e-9f ? vn.normalized : CornerScratch[c].normalized;
+                AddShardVertex(half, birthLocal, vn, CornerScratch[c], sizeCanvas, uv, threshold,
+                               seedA, axis, spinTurns, liftCanvas, driftScale, wanderAmp, seedB,
+                               shade);
             }
         }
 
@@ -556,7 +593,8 @@ internal static partial class WindowMaterialise
     /// reproduce the identical cloud, so a preview render is evidence about the shipped effect and
     /// not merely a picture of the same idea.
     ///
-    /// <para><c>POSITION</c> birth point (host-local) · <c>NORMAL</c> face normal (shard-local) ·
+    /// <para><c>POSITION</c> birth point (host-local) · <c>NORMAL</c> vertex normal (shard-local;
+    /// the mean of the three faces meeting at this corner, so a mote is smooth-shaded) ·
     /// <c>TANGENT</c> corner offset xyz (shard-local, unit) + size w (host-local) ·
     /// <c>TEXCOORD0</c> birth uv xy, threshold z, seedA w · <c>TEXCOORD1</c> tumble axis xyz, turns w
     /// · <c>TEXCOORD2</c> out-of-plane velocity x, drift scale y, seedB z, wander amplitude w ·
@@ -742,10 +780,17 @@ internal static partial class WindowMaterialise
 
         GateShardWinding(out float vol, out float outward);
 
-        // Angular size at a typical 0.9 m reading distance, which is what decides whether the debris
-        // is in the spatial-aliasing regime this project has read as stereo rivalry before.
-        float minDeg = 2f * Mathf.Atan2(minSizeM * 0.5f, 0.9f) * Mathf.Rad2Deg;
-        float maxDeg = 2f * Mathf.Atan2(maxSizeM * 0.5f, 0.9f) * Mathf.Rad2Deg;
+        // ANGULAR SIZE IS THE UNIT THE COMPLAINT WAS IN, so it is the unit this line reports in.
+        // Reported at BOTH distances a floated window is read at — 1.5 m is where one normally
+        // sits, 0.9 m is as close as one is ever pulled — because the two ends of the answer live
+        // at opposite ends of that range: "is anything sub-pixel?" is decided at 1.5 m and "is
+        // anything big enough to show a silhouette?" is decided at 0.9 m. Pixels are quoted at
+        // 20 px/deg, the conservative Quest 3 figure.
+        const float FarMetres = 1.5f, NearMetres = 0.9f, PixelsPerDegree = 20f;
+        float minDeg = 2f * Mathf.Atan2(minSizeM * 0.5f, FarMetres) * Mathf.Rad2Deg;
+        float maxDeg = 2f * Mathf.Atan2(maxSizeM * 0.5f, FarMetres) * Mathf.Rad2Deg;
+        float minDegNear = 2f * Mathf.Atan2(minSizeM * 0.5f, NearMetres) * Mathf.Rad2Deg;
+        float maxDegNear = 2f * Mathf.Atan2(maxSizeM * 0.5f, NearMetres) * Mathf.Rad2Deg;
 
         VRLog.Info(Scope,
             $"WINDOW MATERIALISE debris geometry, MEASURED on '{Name(panel)}': host rect "
@@ -755,8 +800,15 @@ internal static partial class WindowMaterialise
             + $"window is {panelWm:F3} x {panelHm:F3} m to the eye. {shards} shard(s) built "
             + $"({front} in front of the plane, {behind} behind it), {shards * VertsPerShard} verts "
             + $"and {shards * 4} tris total, sized {minSizeM * 1000f:F1}-{maxSizeM * 1000f:F1} mm "
-            + $"(~{minDeg:F2}-{maxDeg:F2} deg at 0.9 m, i.e. well above the sub-pixel regime that "
-            + "aliases per eye). MESH GATE: signed volume of the canonical shard "
+            + $"(~{minDeg:F3}-{maxDeg:F3} deg at {FarMetres:F1} m = "
+            + $"{minDeg * PixelsPerDegree:F1}-{maxDeg * PixelsPerDegree:F1} px at "
+            + $"{PixelsPerDegree:F0} px/deg; ~{minDegNear:F3}-{maxDegNear:F3} deg = "
+            + $"{minDegNear * PixelsPerDegree:F1}-{maxDegNear * PixelsPerDegree:F1} px at "
+            + $"{NearMetres:F1} m). THIS IS DUST, NOT CHIPS: the smallest figure must stay ABOVE "
+            + "1 px or it aliases per eye and reads as stereo flicker, and the largest must stay "
+            + "BELOW about 6 px or a mote's tetrahedral silhouette becomes a legible triangle — "
+            + "which is exactly what the 2026-09-02 hardware test reported at the old 4-22 mm. "
+            + "MESH GATE: signed volume of the canonical shard "
             + $"{vol:F4} (must be > 0; a shard is a CLOSED solid so this is the strong form), worst "
             + $"face outwardness {outward:F4} (must be > 0). UV signed area is NOT APPLICABLE and is "
             + "not reported: a shard carries no texture coordinates and the shader samples no "
