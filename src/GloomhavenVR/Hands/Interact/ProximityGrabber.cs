@@ -19,8 +19,10 @@ namespace GloomhavenVR.Hands.Interact;
 /// INDEPENDENTLY: a grip press with a trigger-only highlight falls through to the
 /// nearest grip-grabbable in reach (<see cref="TryGripFallThrough"/> — a highlighted
 /// card must not eat the grip meant for the tray bar, hardware test 2026-08-11).
-/// The Trigger path defers to any ray/UI click
-/// via <see cref="RayInteractor.HasFreshUiHit"/> (see Tick), and shares the
+/// The Trigger path defers to a real ray/UI CLAIM
+/// via <see cref="RayInteractor.HasFreshUiHit"/> (see <see cref="BeamOwnsTrigger"/>) but NOT to a
+/// bare panel hover — an open menu may not decide whether a figure can be picked up (user
+/// 2026-09-03) — and shares the
 /// trigger-up release edge with the laser pluck (<see cref="ForceGrab"/>). While a
 /// trigger-taken card is held, the grip is ignored for it entirely — the hold loop
 /// reads only the button that grabbed.
@@ -124,6 +126,21 @@ internal sealed class ProximityGrabber
     private float _nextDropLogAt;
     private int _dropsSinceLastLog;
 
+    // TRIGGER FALL-THROUGH (ModBuild 359, the mirror of TryGripFallThrough): the nearest
+    // in-reach grabbable that takes the TRIGGER and passed every gate this frame. Collected by
+    // UpdateHighlight inside its EXISTING sweep — one extra comparison per entry, no second scan
+    // — so it can never disagree with the election that produced Highlighted.
+    private IGrabbable? _triggerCandidate;
+
+    // Published for RayUguiDriver / RayGrabDriver (see TriggerGrabOffered).
+    private bool _triggerGrabOffered;
+
+    // Refusal / override instrumentation throttles (see LogTriggerRefused, LogPanelVetoOverridden).
+    private float _nextTriggerRefusedLogAt;
+    private int _triggerRefusalsSinceLastLog;
+    private float _nextOverrideLogAt;
+    private int _overridesSinceLastLog;
+
     internal ProximityGrabber(VRHand hand) => _hand = hand;
 
     /// <summary>The current grab candidate (highlighted), if any.</summary>
@@ -131,6 +148,23 @@ internal sealed class ProximityGrabber
 
     /// <summary>The object currently held by this hand, if any.</summary>
     public IGrabbable? Held { get; private set; }
+
+    /// <summary>
+    /// Does this hand have a live near-field TRIGGER grab offer right now — an elected, in-reach,
+    /// fully gated grabbable that the trigger would take this instant?
+    ///
+    /// <para>Read by <see cref="RayUguiDriver"/> and <see cref="RayGrabDriver"/>, which stand down
+    /// from claiming the trigger while it is true (ModBuild 359). It is written at the END of
+    /// <see cref="Tick"/>, and those two drivers tick BEFORE the Grabber (VRHand.UpdateBody
+    /// .interactors is a locked order), so they read the previous frame's answer — see the
+    /// exclusivity comment in RayUguiDriver for why an 11 ms lag is the right trade here.</para>
+    ///
+    /// <para>It is true for a grip-only highlight too, whenever a trigger-taking target is in
+    /// reach behind it: since the trigger now FALLS THROUGH a grip-only highlight
+    /// (<see cref="TryTriggerFallThrough"/>), that is a real offer and the drivers must yield to
+    /// it exactly as they yield to a lit one.</para>
+    /// </summary>
+    internal bool TriggerGrabOffered => _triggerGrabOffered;
 
     /// <summary>Fired when the highlight candidate changes (null = none).</summary>
     public event Action<VRHand, IGrabbable?>? HighlightChanged;
@@ -151,6 +185,12 @@ internal sealed class ProximityGrabber
 
     internal void Tick()
     {
+        // Published for the two ray drivers, and false by default: every early return below is a
+        // frame in which this hand offers no near-field trigger grab (policy-off, no pose, or
+        // already holding something), so the beam keeps the trigger unchallenged.
+        _triggerGrabOffered = false;
+        _triggerCandidate = null;
+
         if (!_enabled)
         {
             // User bug A ("bars vibrate but won't grab", hardware log 4125-4193): the
@@ -187,6 +227,12 @@ internal sealed class ProximityGrabber
         }
 
         UpdateHighlight();
+
+        // The offer, decided from the election that just ran (see TriggerGrabOffered): either the
+        // lit candidate takes the trigger itself, or a trigger-taking target sits in reach behind
+        // a grip-only highlight and the fall-through would take it.
+        _triggerGrabOffered = _triggerCandidate != null
+                              && (_highlightGrabbable || (Highlighted != null && Highlighted.GrabWithGrip));
 
         if (Highlighted == null)
         {
@@ -235,10 +281,32 @@ internal sealed class ProximityGrabber
         // Test #27: grip-only grabbables (world panels/boards) always take the GRIP
         // button — the tester found grip more intuitive for moving boards, while cards
         // keep the Demeo trigger grab.
+        //
+        // THE TRIGGER FALLS THROUGH IT (ModBuild 359), the exact mirror of the grip
+        // fall-through below and justified by the same user ruling (2026-08-11): "damit es da
+        // nicht zu verwechslung kommt sind es zwei verschiedene Tasten mit denen man es bedient
+        // (greiftaste für den Balken und trigger für die Karte)". Only ONE direction of that
+        // independence was ever built. Until now a grip-only highlight ATE the trigger outright:
+        // this branch tested GripDown and returned, with no log at any tier.
+        //
+        // That is not hypothetical. A floated window's palm grab zone is a 0.25 x 0.05 x 0.05 m
+        // box on its frame (GrabbableModal), and in his ModBuild 356 log — line 10613, inside the
+        // open-options-window interval, in the same second as six failed figure grabs — it held
+        // the RIGHT hand's highlight: "Right hover ENDED on 'Frame' … it is 161 mm real from the
+        // palm, inside the 176 mm exit ring, so DISTANCE is not what ended this hover … 1 further
+        // hover end(s) in the last second are not printed". While that bar owned the highlight,
+        // every trigger pull at the figure the hand was actually inside did nothing at all.
+        //
+        // The bar's own highlight is left UNTOUCHED (clearHighlight: false), for the same reason
+        // the grip fall-through leaves the card's: the grabbed target was never the lit one, so
+        // there is no affordance to hand over, and clearing would flash the bar tint off and back
+        // on around every grab.
         if (Highlighted.GrabWithGrip)
         {
             if (_hand.GripDown)
                 BeginGrab(Highlighted, releaseOnTriggerUp: false, "grip", "proximity");
+            else if (_hand.TriggerDown)
+                TryTriggerFallThrough();
             return;
         }
 
@@ -264,11 +332,15 @@ internal sealed class ProximityGrabber
         // falls straight through to the UI/board click exactly as before. When the
         // laser-pluck and a proximity highlight coincide, whichever grabs first sets
         // Held and the other early-outs on Held != null — no double grab.
+        //
+        // WITH ONE EXCEPTION SINCE ModBuild 359 — see BeamOwnsTrigger. A bare panel HOVER is
+        // not a rival for this pull, and treating it as one is what made an open menu decide
+        // whether a figure could be picked up.
         if (IsTriggerOnly(Highlighted))
         {
-            if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+            if (_hand.TriggerDown)
             {
-                BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
+                TryTriggerGrab(Highlighted, "proximity");
             }
             else if (_hand.GripDown)
             {
@@ -283,9 +355,9 @@ internal sealed class ProximityGrabber
         // tray bars the GrabWithGrip branch, pile stacks refuse CanGrab), so the dial
         // switched nothing. Trigger is the Demeo default a future grabbable in neither
         // class inherits.
-        if (_hand.TriggerDown && !_hand.Ray.HasFreshUiHit)
+        if (_hand.TriggerDown)
         {
-            BeginGrab(Highlighted, releaseOnTriggerUp: true, "trigger", "proximity");
+            TryTriggerGrab(Highlighted, "proximity");
             return;
         }
         // Grip independence holds for this class too: a default-trigger highlight must not
@@ -335,6 +407,157 @@ internal sealed class ProximityGrabber
         LogRefusal($"'{DescribeGrabbable(Highlighted!)}' is trigger-only (cards and figures " +
                    "grab with the TRIGGER; grip operates tray bars/panels — user 2026-08-11) " +
                    "and no grip-grabbable is in reach — grip ignored");
+    }
+
+    /// <summary>
+    /// TRIGGER FALL-THROUGH (ModBuild 359) — the mirror of <see cref="TryGripFallThrough"/>, for
+    /// the other button and the other object class. A grip-only highlight (a window's or tray's
+    /// drag bar) must not eat a trigger meant for the figure or card the hand is actually inside;
+    /// the two buttons operate two DIFFERENT object classes independently, which is the user's own
+    /// 2026-08-11 ruling read in the direction nobody built.
+    ///
+    /// <para>The target is <see cref="_triggerCandidate"/>, collected by
+    /// <see cref="UpdateHighlight"/>'s existing sweep this same frame under the SAME gates
+    /// (registered, collider alive, in reach, CanGrab, AllowsHand) — no second election that
+    /// could disagree with the first, and no extra per-frame scan. When none exists the refusal
+    /// is NAMED, because the whole point of this round is that a dead trigger must never again
+    /// be a silent one.</para>
+    /// </summary>
+    private void TryTriggerFallThrough()
+    {
+        IGrabbable? target = _triggerCandidate;
+        if (target != null && !ReferenceEquals(target, Highlighted))
+        {
+            TryTriggerGrab(target, "proximity fall-through", clearHighlight: false);
+            return;
+        }
+        LogRefusal($"'{DescribeGrabbable(Highlighted!)}' is grip-only (window and tray drag bars "
+                   + "take the GRIP; trigger operates figures and cards — user 2026-08-11) and no "
+                   + "trigger-grabbable is in reach behind it — trigger ignored");
+    }
+
+    /// <summary>
+    /// The one trigger-grab entry, and the one place the beam's veto is arbitrated.
+    /// Returns true when the grab was taken.
+    /// </summary>
+    private bool TryTriggerGrab(IGrabbable target, string source, bool clearHighlight = true)
+    {
+        if (BeamOwnsTrigger(target))
+            return false;
+        BeginGrab(target, releaseOnTriggerUp: true, "trigger", source, clearHighlight);
+        return true;
+    }
+
+    /// <summary>
+    /// Does the beam own this trigger pull, or does the hand?
+    ///
+    /// <para>USER, 2026-09-03, verbatim: "Im Test während das Menu offen war konnte ich mit der
+    /// rechten Hand kaum mehr Figuren greifen, mit der linken ging es und das Problem verschwand
+    /// als ich das Menu geschlossen habe - das Menu soll keinerlei Einfluss nehmen darauf ob und
+    /// wie ich die Figuren nehmen kann!" The ruling is absolute: an open menu must have NO
+    /// influence whatsoever on whether and how figures can be grabbed.</para>
+    ///
+    /// <para>WHAT WAS WRONG. <c>Ray.HasFreshUiHit</c> exists so that a trigger pull aimed at UI is
+    /// not ALSO a world grab, and that intent is legitimate. The ARBITRATION was not: the flag is
+    /// raised by a MERE HOVER of a registered canvas plane (RayUguiDriver) or of a floated
+    /// window's drag bar (RayGrabDriver), on the dominant hand only — which is the whole of both
+    /// the menu-dependence and the left/right asymmetry, since only the dominant hand is granted
+    /// a ray at all (VRModeStateMachine). His ModBuild 356 log carries the measurement: the open
+    /// options window's hit rect was 1164x2700 px against a 1164x1080 canvas, and THIRTY-SIX
+    /// right-hand trigger pulls landed on that invisible apron as "NO uGUI hit under the beam
+    /// (raycast miss: the press dies on the canvas plane, no widget, no handler)" — each one doing
+    /// nothing as a click and vetoing the grab anyway, interleaved in the log with pinch
+    /// candidates at 0/4/21/22/26/28 mm and pre-grab glows on RendingDrakeElite, Mindthief and
+    /// Brute.</para>
+    ///
+    /// <para>THE RULE. An ELECTED, in-reach, fully gated near-field candidate is an unambiguous
+    /// world grab — nothing is elected unless the hand is physically at the object — so a panel
+    /// the beam merely crosses does not outrank it. A real rival for the pull still does: a fan or
+    /// board card laser, FigureGrabDriver's far-pluck clamp, FigureStretch, the flat screen, the
+    /// pile browser, a live uGUI press already in flight, or a bare <c>SuppressFarClick</c> claim
+    /// all leave <see cref="RayInteractor.FreshUiHitIsPanelHoverOnly"/> false and are deferred to
+    /// exactly as before, so no double grab is created anywhere.</para>
+    ///
+    /// <para>THE COST, and where it is paid: the same trigger can no longer do both. The two ray
+    /// drivers stand down from CLAIMING the trigger while this hand offers a near-field grab
+    /// (<see cref="TriggerGrabOffered"/>), so a widget under the beam is not clicked in the same
+    /// pull that takes a figure — a silently flipped settings toggle would be worse than the
+    /// defect being fixed. What the player loses is starting a menu click while his hand is inside
+    /// a lit grabbable; both ray drivers print a Note naming that when it happens.</para>
+    /// </summary>
+    private bool BeamOwnsTrigger(IGrabbable target)
+    {
+        if (!_hand.Ray.HasFreshUiHit)
+            return false;
+        if (_hand.Ray.FreshUiHitIsPanelHoverOnly)
+        {
+            LogPanelVetoOverridden(target);
+            return false;
+        }
+        LogTriggerRefused(target);
+        return true;
+    }
+
+    /// <summary>
+    /// THE LINE THE LAST SIX HARDWARE ROUNDS DID NOT HAVE. Until ModBuild 359 the beam's veto was
+    /// completely silent: this branch's <c>if</c> simply evaluated false and the method returned,
+    /// <c>FigureGrabDriver</c>'s own <c>foreignUi</c> guard returns silently too, and its
+    /// <c>NoteReachMiss</c> cannot fire because it requires <c>winner == null</c> while here a
+    /// winner IS elected. So the one defect the user actually reported was the one defect the log
+    /// could not name.
+    ///
+    /// <para>Names the BLOCKER, not the number: which term said no and WHAT raised it. Throttled
+    /// to one per second per hand, carrying the count it swallowed — a trigger refused on every
+    /// pull of a burst must read as a burst, not as one tidy event.</para>
+    /// </summary>
+    private void LogTriggerRefused(IGrabbable target)
+    {
+        _triggerRefusalsSinceLastLog++;
+        if (Time.unscaledTime < _nextTriggerRefusedLogAt)
+            return;
+        _nextTriggerRefusedLogAt = Time.unscaledTime + 1f;
+        int swallowed = _triggerRefusalsSinceLastLog - 1;
+        _triggerRefusalsSinceLastLog = 0;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} TRIGGER REFUSED on the elected candidate '{DescribeGrabbable(target)}' — "
+            + "the blocker is Ray.HasFreshUiHit, raised by " + _hand.Ray.FreshUiHitSource
+            + ". That is a real rival for this pull, so the grab defers to it by design. If this "
+            + "line names a UI PANEL the arbitration is wrong and ModBuild 359's override did not "
+            + "engage."
+            + (swallowed > 0
+                ? $" {swallowed} further refusal(s) in the last second are not printed."
+                : ""));
+    }
+
+    /// <summary>
+    /// The falsifier for the ModBuild 359 fix: the beam wanted this trigger for a panel it was
+    /// only HOVERING, and the hand took it anyway. This is the line that proves an open menu no
+    /// longer decides whether a figure can be picked up — its ABSENCE while the user reports the
+    /// symptom means the veto was never the cause on that run. Throttled to one per second per
+    /// hand with the swallowed count.
+    /// </summary>
+    private void LogPanelVetoOverridden(IGrabbable target)
+    {
+        _overridesSinceLastLog++;
+        if (Time.unscaledTime < _nextOverrideLogAt)
+            return;
+        _nextOverrideLogAt = Time.unscaledTime + 1f;
+        int swallowed = _overridesSinceLastLog - 1;
+        _overridesSinceLastLog = 0;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} PANEL VETO OVERRIDDEN — the trigger takes "
+            + $"'{DescribeGrabbable(target)}' in the hand even though the beam is clamped to "
+            + _hand.Ray.FreshUiHitSource
+            + ". A hover of a panel is not a rival for this pull; the hand is physically inside an "
+            + "elected, gated grabbable within the palm reach. Ruling 2026-09-03: 'das Menu soll "
+            + "keinerlei Einfluss nehmen darauf ob und wie ich die Figuren nehmen kann'."
+            + (swallowed > 0
+                ? $" {swallowed} further override(s) in the last second are not printed."
+                : ""));
     }
 
     /// <summary>
@@ -523,13 +746,23 @@ internal sealed class ProximityGrabber
         return target.GetType().Name;
     }
 
-    /// <summary>Throttled (1/s per hand) refusal diagnostic — Info level so hardware logs carry it.</summary>
+    /// <summary>
+    /// Throttled (1/s per hand) refusal diagnostic.
+    ///
+    /// <para>TIER PROMOTED Info -> Note in ModBuild 359, text untouched. It was written "Info
+    /// level so hardware logs carry it", which stopped being true when ModBuild 331 moved
+    /// <c>VRLog.Info</c> to the DEBUG tier: every named grab refusal has been invisible at the
+    /// shipped default log level ever since. A control-feel complaint ("I could hardly grab
+    /// figures any more") is answered by exactly these lines, so they must print.</para>
+    /// </summary>
     private void LogRefusal(string reason)
     {
         if (Time.unscaledTime < _nextRefusalLogAt)
             return;
         _nextRefusalLogAt = Time.unscaledTime + 1f;
-        Core.VRLog.Info("Interact", $"{_hand.Side} grab refused — {reason}.");
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact", $"{_hand.Side} grab refused — {reason}.");
     }
 
     /// <summary>
@@ -622,6 +855,8 @@ internal sealed class ProximityGrabber
 
         IGrabbable? nearest = null;
         float nearestDist = float.MaxValue;
+        float nearestTriggerDist = float.MaxValue; // ModBuild 359: the trigger fall-through target
+        _triggerCandidate = null;
         float currentDist = float.MaxValue; // distance to the CURRENT highlight while it is measurable
         bool currentMeasured = false;       // its collider is alive, so currentDist means something
         bool currentEligible = false;       // it passed every gate this frame (the pre-336 condition)
@@ -690,6 +925,15 @@ internal sealed class ProximityGrabber
             {
                 nearestDist = dist;
                 nearest = target;
+            }
+            // TRIGGER FALL-THROUGH candidate (ModBuild 359), collected in THIS sweep so it can
+            // never disagree with the election above: the nearest in-reach target that takes the
+            // TRIGGER, having passed every gate the highlight had to pass. One comparison per
+            // entry — no second scan of the registry.
+            if (!target.GrabWithGrip && dist <= reach && dist < nearestTriggerDist)
+            {
+                nearestTriggerDist = dist;
+                _triggerCandidate = target;
             }
         }
 

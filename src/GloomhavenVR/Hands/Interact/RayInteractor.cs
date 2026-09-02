@@ -67,11 +67,99 @@ internal sealed class RayInteractor : IPickProvider
         {
             _uiHitOverride = value;
             _uiHitOverrideFrame = Time.frameCount;
+            _uiHitFromPanel = false;
+            _uiHitLabel = UnlabelledUiHitSource;
         }
     }
 
     private Vector3? _uiHitOverride;
     private int _uiHitOverrideFrame = -1;
+
+    // ---- WHO raised the beam's UI hit (ModBuild 359, user 2026-09-03) -------------------
+    //
+    // User, verbatim: "Im Test während das Menu offen war konnte ich mit der rechten Hand kaum
+    // mehr Figuren greifen, mit der linken ging es und das Problem verschwand als ich das Menu
+    // geschlossen habe - das Menu soll keinerlei Einfluss nehmen darauf ob und wie ich die
+    // Figuren nehmen kann!"
+    //
+    // HasFreshUiHit is a shared bus with two very different kinds of producer, and until now it
+    // could not tell them apart:
+    //
+    //   (a) A UI PANEL the beam merely HOVERS — RayUguiDriver's canvas-plane hit and
+    //       RayGrabDriver's window drag bar. No press is required, and the surface is the host
+    //       CANVAS RECT, which is contractually never narrower than the visible window: his own
+    //       ModBuild 356 log measured the open options window's hit rect at 1164x2700 px against
+    //       a 1164x1080 canvas ("GROWN — this window draws past its own rect"), and 36 of his
+    //       right-hand trigger pulls landed on that invisible apron with "NO uGUI hit under the
+    //       beam (raycast miss: the press dies on the canvas plane, no widget, no handler)".
+    //       Each of those did NOTHING as a click and still vetoed the near-hand figure grab.
+    //
+    //   (b) A WORLD OBJECT that is genuinely claiming THIS trigger for itself — the fan/board
+    //       card laser, FigureGrabDriver's far-pluck clamp, FigureStretch, the flat screen, the
+    //       pile browser, the combat-log cap, the map rail. Those are real rivals for the pull.
+    //
+    // Deferring to (b) is right and is untouched. Deferring to (a) is the defect: a beam's
+    // opinion about a panel metres away must not outrank a hand that is physically inside a
+    // figure. So the raise now carries its PROVENANCE. HasFreshUiHit itself is unchanged for
+    // every consumer (BoardClickDriver's far click, PickingPatches, FigureGrabDriver's foreignUi
+    // test all read exactly what they read before); only ProximityGrabber's near-field
+    // arbitration consults the narrower signal below.
+    //
+    // The plain property setter is the DEFAULT and is deliberately pessimistic: a producer that
+    // does not label itself is treated as (b), so no unlabelled call site can be weakened by
+    // accident. Only the two drivers in this folder label themselves as panel hovers.
+    private const string UnlabelledUiHitSource =
+        "an unlabelled beam claim (a world laser: the card fan/board laser, FigureGrabDriver's "
+        + "far-pluck clamp, FigureStretch, the flat screen, the pile browser, the combat-log cap "
+        + "or the map rail)";
+
+    private bool _uiHitFromPanel;
+    private string _uiHitLabel = UnlabelledUiHitSource;
+
+    /// <summary>
+    /// Raise <see cref="UiHitOverride"/> and record that it was a UI PANEL HOVER that raised it
+    /// (see the provenance block above). <paramref name="label"/> is what the refusal
+    /// instrumentation prints, so it must name the surface a human can point at.
+    /// </summary>
+    internal void SetPanelUiHit(Vector3 point, string label)
+    {
+        _uiHitOverride = point;
+        _uiHitOverrideFrame = Time.frameCount;
+        _uiHitFromPanel = true;
+        _uiHitLabel = label;
+    }
+
+    /// <summary>
+    /// True while the FRESH ui hit is nothing but a UI panel hover — no world object is claiming
+    /// this trigger. This is the term a near-field proximity grab is allowed to outrank; a false
+    /// reading means a real rival owns the pull and the grab must still defer.
+    ///
+    /// <para>The <see cref="SuppressFarClick"/> half is excluded explicitly: it is the pure
+    /// "I own this trigger" claim with no beam clamp, and every caller of it is a world laser.</para>
+    /// </summary>
+    internal bool FreshUiHitIsPanelHoverOnly =>
+        _uiHitFromPanel
+        && _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1
+        && Time.frameCount - _farClickFrame > 1;
+
+    /// <summary>
+    /// In words, what raised the fresh UI hit — for the refusal instrumentation. Reports the LIVE
+    /// fields, so a line built from it says what actually happened rather than what the caller
+    /// expected (see <c>VRHand.TickGripLaserFalsifier</c> for the same discipline).
+    /// </summary>
+    internal string FreshUiHitSource
+    {
+        get
+        {
+            bool clamp = _uiHitOverride.HasValue && Time.frameCount - _uiHitOverrideFrame <= 1;
+            bool farClick = Time.frameCount - _farClickFrame <= 1;
+            if (!clamp && !farClick)
+                return "nothing (the beam is not claiming this frame)";
+            if (!clamp)
+                return "SuppressFarClick() — a world laser claimed the trigger without clamping the beam";
+            return farClick ? _uiHitLabel + ", plus a SuppressFarClick() claim the same frame" : _uiHitLabel;
+        }
+    }
 
     /// <summary>
     /// Claim the trigger for this frame WITHOUT moving the beam — the far-click half of
@@ -543,6 +631,10 @@ internal sealed class RayInteractor : IPickProvider
                 _uiHitOverride = null;
                 _uiHitOverrideFrame = -1;
                 _farClickFrame = -1;
+                // The provenance goes with the residue it describes — a stale "it was only a
+                // panel hover" left standing would answer a question about a beam that is down.
+                _uiHitFromPanel = false;
+                _uiHitLabel = UnlabelledUiHitSource;
             }
             _current.HasHit = false;
             FanOccluderDistance = float.PositiveInfinity;

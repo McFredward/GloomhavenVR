@@ -253,7 +253,15 @@ internal sealed class RayUguiDriver
 
         HasHit = true;
         HitDistance = bestDist;
-        _hand.Ray.UiHitOverride = bestPoint; // beam clamps to the panel (one-frame latch)
+        // Beam clamps to the panel (one-frame latch). LABELLED as a panel hover
+        // (RayInteractor.SetPanelUiHit): this raise happens on MERE HOVER of a canvas PLANE — no
+        // press, and not even a widget under the beam, because the host rect is contractually
+        // never narrower than the visible window. ProximityGrabber's near-field arbitration is
+        // allowed to outrank a raise carrying this label; nothing else about the raise changed,
+        // so HasFreshUiHit still reads identically for the board far-click, PickingPatches and
+        // FigureGrabDriver.
+        _hand.Ray.SetPanelUiHit(bestPoint, $"a HOVER of the uGUI panel '{_canvas.name}' "
+                                           + "(RayUguiDriver — canvas plane, no press required)");
 
         Vector2 screenPos = ToScreen(_canvas, bestPoint);
         bool hit = _pointer.TryRaycast(_canvas, screenPos, out RaycastResult top);
@@ -273,10 +281,67 @@ internal sealed class RayUguiDriver
 
         if (_hand.TriggerDown && hit && _hand.Grabber.Held == null)
         {
+            // EXCLUSIVITY, the price of letting a near-field grab outrank a panel hover
+            // (ModBuild 359). ProximityGrabber no longer defers to a bare panel HOVER, so
+            // without this the one trigger pull would do BOTH: grab the figure AND click the
+            // widget under the beam — and silently flipping a settings toggle is worse than the
+            // defect being fixed. The near-hand gesture wins outright: the hand is physically
+            // inside a grabbable it has ELECTED and lit, which is a far stronger statement of
+            // intent than where a beam happens to be pointing.
+            //
+            // SCOPE, deliberately narrow. Only the START of a press is refused. A press or drag
+            // ALREADY in flight never reaches here (Tick returns into TickPressed above), so a
+            // slider being dragged cannot be dropped by the other hand's owner drifting near a
+            // card; hover, hover haptics and stick-scroll are untouched; and the beam still
+            // clamps, so the board far-click and the game's own picking stay suppressed exactly
+            // as before.
+            //
+            // The flag is last frame's (Grabber ticks after this driver — VRHand.UpdateBody
+            // .interactors, a LOCKED order). That is the right lag: a highlight is established
+            // by the hand ARRIVING and is held by a 0.20 s hover tail, so by the time a trigger
+            // is pulled it has stood for many frames. The only unreachable-in-practice hole is a
+            // highlight born in the very same 11 ms as the pull.
+            if (_hand.Grabber.TriggerGrabOffered)
+            {
+                LogPressYielded();
+                return;
+            }
             _pressing = true;
             _pointer.Press(screenPos);
             _hand.SendHaptic(HapticPreset.ClickPulse);
         }
+    }
+
+    /// <summary>Next unscaled time <see cref="LogPressYielded"/> may print, and what it swallowed.</summary>
+    private float _nextPressYieldLogAt;
+    private int _pressYieldsSinceLastLog;
+
+    /// <summary>
+    /// The other half of the ModBuild 359 arbitration, and the line that says what it COST: a
+    /// uGUI press this beam would have delivered was handed to the hand instead. Throttled to one
+    /// per second per hand and carrying the count it swallowed, so a player mashing the trigger
+    /// reads as mashing rather than as one tidy event.
+    /// </summary>
+    private void LogPressYielded()
+    {
+        _pressYieldsSinceLastLog++;
+        if (Time.unscaledTime < _nextPressYieldLogAt)
+            return;
+        _nextPressYieldLogAt = Time.unscaledTime + 1f;
+        int swallowed = _pressYieldsSinceLastLog - 1;
+        _pressYieldsSinceLastLog = 0;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} uGUI press YIELDED to the hand — the beam was on '{_pointer.Hovered?.name ?? "?"}' "
+            + $"of panel '{_canvas?.name ?? "?"}', but this hand has an elected, lit near-field grab "
+            + "offer within the palm reach, and a hand inside an object outranks a beam pointing at a "
+            + "panel. No pointer-down/click/drag reached the widget; the trigger went to the grab."
+            + (swallowed > 0
+                ? $" {swallowed} further yield(s) in the last second are not printed — a count above "
+                  + "zero here means the player is repeatedly trying to click a panel with a live "
+                  + "grab offer in his palm, which is the case this trade-off gets wrong."
+                : ""));
     }
 
     /// <summary>
@@ -381,6 +446,9 @@ internal sealed class RayUguiDriver
         point = t.TransformPoint(local);
 
         HasHit = true;
+        // NOT SetPanelUiHit: a press/drag is IN FLIGHT on this panel, so the panel is no longer
+        // merely hovered — it genuinely owns this pull, and ProximityGrabber must keep deferring
+        // to it exactly as it did before. Only the hover raise in Tick carries the panel label.
         _hand.Ray.UiHitOverride = point;
 
         Vector2 screenPos = ToScreen(canvas, point);

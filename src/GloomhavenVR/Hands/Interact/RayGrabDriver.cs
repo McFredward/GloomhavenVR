@@ -157,17 +157,71 @@ internal sealed class RayGrabDriver
             best.OnGrabHighlight(_hand, true);
             _hand.SendHaptic(HapticPreset.HoverTick); // debounced: only on hover change
         }
-        _hand.Ray.UiHitOverride = bestPoint;
+        // LABELLED as a panel hover (ModBuild 359, RayInteractor.SetPanelUiHit): like the uGUI
+        // canvas raise, this happens on MERE HOVER of a floated window's drag bar — no press. It
+        // is the second of the two menu-dependent producers that were vetoing near-hand figure
+        // grabs, and ProximityGrabber's near-field arbitration may now outrank it. The raise
+        // itself is unchanged, so the beam still clamps to the bar and the board far-click stays
+        // suppressed exactly as before.
+        _hand.Ray.SetPanelUiHit(bestPoint, $"a HOVER of the window drag bar '{best.name}' "
+                                           + "(RayGrabDriver — the bar collider, no press required)");
 
         // TriggerDown → start a laser-carry grab at the captured range (release on trigger-up).
         if (_hand.TriggerDown && _hand.Grabber.Held == null)
         {
+            // EXCLUSIVITY (ModBuild 359): the near-hand grab now outranks this driver's beam
+            // clamp, so the laser carry must not start on the same pull — otherwise the window
+            // would fly off on its reel in the moment the player closed his hand on a figure.
+            // This is the exact defect the LOST-MENU comment above records, arriving through the
+            // other door. A carry ALREADY in flight is untouched: Grabber.Held is non-null by
+            // then and this branch is not what keeps it alive.
+            //
+            // THE HOVER TINT IS DELIBERATELY LEFT ON. The file's rule is "no grab available ⇒ no
+            // grab affordance", written for a SUSTAINED unavailability (the interactor being
+            // policy-off). This one is momentary and self-explaining — it lasts exactly as long
+            // as the hand sits inside a figure, the figure carries its own pre-grab glow saying
+            // so, and dropping and restoring the bar's tint every time the hand brushes past a
+            // card is the "grab flashes" defect class.
+            if (_hand.Grabber.TriggerGrabOffered)
+            {
+                LogCarryYielded(best);
+                return;
+            }
             PanelGrabHandle target = best;
             ClearHover();
             target.BeginLaserCarry(_hand, bestDist, bestPoint);
             if (!_hand.Grabber.ForceGrab(target, releaseOnTriggerUp: true))
                 target.CancelLaserCarry();
         }
+    }
+
+    /// <summary>Next unscaled time <see cref="LogCarryYielded"/> may print, and what it swallowed.</summary>
+    private float _nextCarryYieldLogAt;
+    private int _carryYieldsSinceLastLog;
+
+    /// <summary>
+    /// The cost line for the ModBuild 359 arbitration on this driver: a laser-carry this beam
+    /// would have started was handed to the hand instead. Throttled to one per second per hand,
+    /// carrying the count it swallowed.
+    /// </summary>
+    private void LogCarryYielded(PanelGrabHandle bar)
+    {
+        _carryYieldsSinceLastLog++;
+        if (Time.unscaledTime < _nextCarryYieldLogAt)
+            return;
+        _nextCarryYieldLogAt = Time.unscaledTime + 1f;
+        int swallowed = _carryYieldsSinceLastLog - 1;
+        _carryYieldsSinceLastLog = 0;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} laser-carry YIELDED to the hand — the beam was on the drag bar '{bar.name}', "
+            + "but this hand has an elected, lit near-field grab offer within the palm reach, and a "
+            + "hand inside an object outranks a beam pointing at a window. No carry was started; the "
+            + "trigger went to the grab."
+            + (swallowed > 0
+                ? $" {swallowed} further yield(s) in the last second are not printed."
+                : ""));
     }
 
     /// <summary>Drop any hover tint (hand lost, ray off, dominance switch, target gone).</summary>
