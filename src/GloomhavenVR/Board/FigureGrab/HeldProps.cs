@@ -65,9 +65,21 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// the raw 36-character string either; four bytes are enough and match the established id
 /// space.</para>
 ///
-/// <para>Record ids in use today are 1..34 contiguously, so the new record takes <b>35</b> (the
-/// file's own free-list note says 35..255 are free, and it says to re-derive rather than trust
-/// it — enumerate the <c>ExtId*</c> constants before claiming).</para>
+/// <para><b>THE ID, RE-DERIVED 2026-09-03 — AND THE OLD NUMBER HERE WAS WRONG.</b> This note used
+/// to read "ids 1..34 are in use, so the new record takes 35". Both halves have expired: ModBuild
+/// 356 shipped <c>ExtIdItemUsable = 35</c> and <c>ExtIdHeldCardFace = 36</c>
+/// (<c>Net/NetProtocol.cs:19114</c> and <c>:19190</c>). The next free id is <b>37</b>. This is
+/// exactly the debt-outlives-its-truth case the project has recorded before: the evidence was
+/// right when it was written, the conclusion was never re-checked, and an id outside its declared
+/// range kills the WHOLE record rather than one field. Enumerate the <c>ExtId*</c> constants at
+/// the moment of claiming; do not trust this sentence either.</para>
+///
+/// <para><b>AND THE HELD-PROP STRETCH NEEDS NOTHING HERE</b> (ModBuild 362). Map items can now be
+/// resized in the hand exactly as figures can (<see cref="GrabbableProp.SetStretch"/>), and a
+/// figure's factor needs the wire (<c>NetProtocol.ExtIdHeldStretch</c>, record 30) only because a
+/// peer RENDERS the held figure and cannot derive the manual factor. No peer renders a held prop
+/// at all, so a prop factor would be a number nothing reads. When the record above is finally
+/// claimed, the stretch is one of its fields from the start — it syncs fully or not at all.</para>
 /// </summary>
 internal static class HeldProps
 {

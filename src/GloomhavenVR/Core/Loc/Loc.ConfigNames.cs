@@ -313,14 +313,21 @@ internal static partial class Loc
             // row with no line here, so a German menu captioned it "Stretch Reach Millimeters".
             // Named after the GESTURE it opens (the two-hand resize), because "Reichweite" alone
             // reads as the grab radius two rows up.
+            //
+            // WIDENED FOR MAP ITEMS (ModBuild 362). The two-hand resize now drives a held CHEST,
+            // gold pile or obstacle through the identical gesture, and these four dials govern it —
+            // they were not copied for props because every one of them is size-neutral by
+            // construction (Min/Max are factors of the object's OWN board size; the reach is
+            // measured from its own surface). A caption still saying "Figur" would send the player
+            // hunting for a map-item row that does not exist, which is the ModBuild 340 defect.
             ["FigureGrab/StretchReachMillimeters"] =
-                Pair("Figure: resize reach (mm)", "Figur: Greifweite Größe (mm)"),
+                Pair("Figure/map item: resize reach (mm)", "Figur/Map-Item: Greifweite Größe (mm)"),
             ["FigureGrab/StretchScaleMin"] =
-                Pair("Figure: min size in hand", "Figur: Mindestgröße in Hand"),
+                Pair("Figure/map item: min size in hand", "Figur/Map-Item: Mindestgröße in Hand"),
             ["FigureGrab/StretchScaleMax"] =
-                Pair("Figure: max size in hand", "Figur: Maximalgröße in Hand"),
+                Pair("Figure/map item: max size in hand", "Figur/Map-Item: Maximalgröße in Hand"),
             ["FigureGrab/StretchLimits"] =
-                Pair("Figure: size limits on/off", "Figur: Größen-Grenzen an/aus"),
+                Pair("Figure/map item: size limits on/off", "Figur/Map-Item: Größen-Grenzen an/aus"),
             ["FigureGrab/HeldFigureInfo"] =
                 Pair("Figure: info on pickup", "Figur: Info beim Aufnehmen"),
             ["FigureGrab/HeldUprightAtGrab"] = Pair("Figure: upright on grab", "Figur: aufrecht greifen"),

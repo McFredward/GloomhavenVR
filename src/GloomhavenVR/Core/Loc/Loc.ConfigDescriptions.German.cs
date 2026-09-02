@@ -3066,12 +3066,15 @@ internal static partial class Loc
             // Nachgetragen beim Einstellungs-Audit vom 2026-08-22 (§3.4) — die einzige angebotene
             // [FigureGrab]-Zeile ohne deutschen Namen UND ohne deutschen Hilfetext.
             ["FigureGrab/StretchReachMillimeters"] =
-                "Während eine Hand eine Figur HÄLT: wie nah der Greifpunkt deiner ANDEREN Hand an "
-                + "diese Figur heran muss, damit Trigger-Halten und Ziehen sie in der Größe ändert "
+                "Während eine Hand eine Figur ODER EIN MAP-ITEM (Truhe, Goldhaufen, Hindernis) "
+                + "HÄLT: wie nah der Greifpunkt deiner ANDEREN Hand daran heran muss, damit "
+                + "Trigger-Halten und Ziehen es in der Größe ändert "
                 + "(nach außen = größer, nach innen = kleiner) — in echten MILLIMETERN AN DEINER "
                 + "HAND, dieselbe Einheit wie der Greifradius, sodass Zoomen nie das Gefühl ändert. "
-                + "Bewusst weiter als der Greifradius: Die Figur ist in deiner eigenen Hand, es gibt "
-                + "keine Nachbarfigur, von der sie zu unterscheiden wäre. Innerhalb dieser Zone "
+                + "Gemessen ab der OBERFLÄCHE des Objekts, die Zone wächst also mit dem, was du "
+                + "hältst, und mit dem, wie weit du es schon größer gezogen hast. "
+                + "Bewusst weiter als der Greifradius: Das Objekt ist in deiner eigenen Hand, es gibt "
+                + "nichts Benachbartes, von dem es zu unterscheiden wäre. Innerhalb dieser Zone "
                 + "gehört der Trigger der Geste; eine angepeilte Karte behält ihren eigenen Griff.",
             ["FigureGrab/PickRadiusMillimeters"] =
                 "Wie nah dein GREIFPUNKT (die Stelle zwischen Daumen und Zeigefinger, an der eine gehaltene "
@@ -3083,27 +3086,32 @@ internal static partial class Loc
                 + "erwischen. Kleiner stellen, falls du weiterhin versehentlich Figuren aufnimmst; 130 ist "
                 + "die alte handbreite Reichweite, bei der Schweben irgendwo über einer Figur genügte.",
             ["FigureGrab/StretchScaleMin"] =
-                "Kleinste GESAMTGRÖSSE, die eine Figur in deiner Hand haben darf, als Faktor der Größe, die "
-                + "sie beim STANDARD-Tischzoom zeigt (0,5 = halb so groß). Die Grenze greift, egal wie die "
-                + "Größe zustande kam: eine Figur, die du weit herausgezoomt greifst, kommt genau in dieser "
-                + "Größe in die Hand statt noch winziger, und auch die Zwei-Hand-Ziehgeste kann sie nicht "
-                + "darunter schrumpfen. Die Geste ist ein Verhältnis — ziehst du zurück nach außen, läuft die "
-                + "Figur durch jede Größe zurück — das hier ist also eine Klemme, keine Stufe. Ohne Wirkung, "
+                "Kleinste GESAMTGRÖSSE, die eine Figur ODER EIN MAP-ITEM in deiner Hand haben darf, als "
+                + "Faktor der Größe, die es beim STANDARD-Tischzoom zeigt (0,5 = halb so groß). Weil es ein "
+                + "Faktor der EIGENEN Größe jedes Objekts ist, passt eine Zahl für eine 30-mm-Figur und für "
+                + "eine hexgroße Truhe gleichermaßen. Die Grenze greift, egal wie die "
+                + "Größe zustande kam: ein Objekt, das du weit herausgezoomt greifst, kommt genau in dieser "
+                + "Größe in die Hand statt noch winziger, und auch die Zwei-Hand-Ziehgeste kann es nicht "
+                + "darunter schrumpfen. Die Geste ist ein Verhältnis — ziehst du zurück nach außen, läuft es "
+                + "durch jede Größe zurück — das hier ist also eine Klemme, keine Stufe. Ohne Wirkung, "
                 + "solange StretchLimits aus ist.",
             ["FigureGrab/StretchScaleMax"] =
-                "Größte GESAMTGRÖSSE, die eine Figur in deiner Hand haben darf, als Faktor der Größe, die "
-                + "sie beim STANDARD-Tischzoom zeigt (3 = dreifach). Die Grenze greift, egal wie die Größe "
-                + "zustande kam: eine Figur, die du so tief hereingezoomt greifst, dass sie größer wäre, "
-                + "kommt genau in dieser Größe in die Hand, und auch die Zwei-Hand-Ziehgeste kann sie nicht "
-                + "darüber hinaus vergrößern. Gilt nur für das Halten: Loslassen gleitet die Figur immer auf "
-                + "ihre echte Brettgröße zurück. Ohne Wirkung, solange StretchLimits aus ist.",
+                "Größte GESAMTGRÖSSE, die eine Figur ODER EIN MAP-ITEM in deiner Hand haben darf, als "
+                + "Faktor der Größe, die es beim STANDARD-Tischzoom zeigt (3 = dreifach). Weil es ein Faktor "
+                + "der EIGENEN Größe jedes Objekts ist, passt eine Zahl für eine 30-mm-Figur und für eine "
+                + "hexgroße Truhe gleichermaßen. Die Grenze greift, egal wie die Größe "
+                + "zustande kam: ein Objekt, das du so tief hereingezoomt greifst, dass es größer wäre, "
+                + "kommt genau in dieser Größe in die Hand, und auch die Zwei-Hand-Ziehgeste kann es nicht "
+                + "darüber hinaus vergrößern. Gilt nur für das Halten: Loslassen gleitet es immer auf "
+                + "seine echte Brettgröße zurück. Ohne Wirkung, solange StretchLimits aus ist.",
             ["FigureGrab/StretchLimits"] =
-                "Ober- und Untergrenze der Figurengröße in der Hand (StretchScaleMin/Max) überhaupt "
-                + "durchsetzen. Aus = eine Figur in der Hand darf jede Größe annehmen, die Greif-Zoom und "
+                "Ober- und Untergrenze der Größe in der Hand (StretchScaleMin/Max) überhaupt "
+                + "durchsetzen — für Figuren und für Map-Items gleichermaßen. Aus = was du in der Hand "
+                + "hältst, darf jede Größe annehmen, die Greif-Zoom und "
                 + "Ziehgeste ergeben; nur eine winzige technische Untergrenze hält die Größe positiv. Live: "
-                + "der nächste Griff und der nächste Gesten-Frame folgen der neuen Einstellung; eine bereits "
-                + "gehaltene Figur behält ihre Größe, bis du etwas tust (sie an Ort und Stelle umzuklemmen "
-                + "wäre ein sichtbarer Sprung).",
+                + "der nächste Griff und der nächste Gesten-Frame folgen der neuen Einstellung; was bereits "
+                + "in der Hand liegt, behält seine Größe, bis du etwas tust (es an Ort und Stelle "
+                + "umzuklemmen wäre ein sichtbarer Sprung).",
             ["FigureGrab/HeldFigureInfo"] =
                 "Zeigt beim Aufnehmen einer Figur die neben ihr angedockte Info-Tafel (dieselbe "
                 + "Werte-Karte, die das Spiel beim Daraufzeigen zeigt). Aus = beim Aufnehmen erscheint "

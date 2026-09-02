@@ -186,6 +186,22 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private Quaternion _uprightBase = Quaternion.identity;
     private Vector3 _heldLocalScale = Vector3.one;
 
+    // --- THE MAP-ITEM STRETCH (ModBuild 362). The figure's four fields, field for field, for the
+    //     same reasons; see the Stretch region at the end of this class for the account and for
+    //     which lesson each one carries.
+    private float _stretch = 1f;
+    private float _latchTotalRatio = 1f;
+    private Renderer[]? _stretchBoundsRenderers;
+    private float _captureBodyRadiusReal = float.NaN;
+    private float _captureCeilingReal = float.NaN;
+
+    // --- the last held pose this class WROTE, so the animation A/B instrument can tell whether
+    //     anything else rewrote it between our re-asserts. Diagnostic-only (PropAnimWatch reads
+    //     it; nothing else does), and three struct stores on a path that already writes them.
+    private Vector3 _wrotePos;
+    private Quaternion _wroteRot = Quaternion.identity;
+    private Vector3 _wroteScale = Vector3.one;
+
     // --- the pickup info panel (defect (d)).
     private bool _infoShown;
     private string _infoTitle = string.Empty;
@@ -263,6 +279,20 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             return ReferenceEquals(_holder, hand); // the holder keeps its hold; nobody else joins
         if (_collider == null || hand == null)
             return false;
+
+        // THE STRETCH VETO, and this is the only place a prop can publish one (ModBuild 362). A
+        // hand inside the resize zone of the OTHER hand's held object elects nobody and grabs
+        // nothing — the figure path gets that from FigureGrabDriver.SelectByOffsetAnchor's
+        // ApplySuppression, but a prop is not elected centrally: this method IS the election. So
+        // the veto lives here, and answering false removes this prop from the ProximityGrabber's
+        // candidate list for the frame, which takes the hover highlight with it. Without it a hand
+        // resizing a chest would light up every chest it swept past mid-gesture. Note the ORDER:
+        // the holder's own early-out is above, so this can never refuse the hand that is holding.
+        if (FigureStretch.Engaged(hand.Side))
+        {
+            _inReach[(int)hand.Side] = false; // and drop the hysteresis latch with the candidacy
+            return false;
+        }
 
         int side = (int)hand.Side;
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
@@ -375,6 +405,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // diorama zoom mid-hold cannot resize what is in the palm ("die Größe soll nur abhängig
         // sein wann sie greift und dann fix in der Hand sein - auch wenn man dabei zoomed").
         _heldLocalScale = t.localScale;
+
+        // THE MAP-ITEM STRETCH, per-hold state. Reset at every grab for the figure's own reason:
+        // the user asked to change "die Größe ... in der Hand", not to set a standing preference.
+        _stretch = 1f;
+        _stretchBoundsRenderers = null;      // the visual may differ between holds
+        _captureBodyRadiusReal = float.NaN;  // "never measured" until a free hand runs the test
+        _captureCeilingReal = float.NaN;
+        ApplyGrabTimeStretchClamp(anchor);   // …then the TOTAL size bound may trim the latch itself
+
         _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
 
@@ -383,6 +422,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         ShowInfo();
         _probeFrame = Time.frameCount + 2; // arm the held-visibility probe (see TickProbe)
         BeginWatch();                      // arm the PER-FRAME hold watch (see BeginWatch)
+        PropAnimWatch.NotifyGrab(_visual, Label); // …and the ANIMATION A/B (see PropAnimWatch)
 
         if (_grabLogsLeft <= 0)
             return;
@@ -479,6 +519,16 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         HandSide side = _holder.Side;
         Transform t = _visual.transform;
 
+        // THE POSE-STOMP PROBE (2026-09-03). Before overwriting, ask whether the transform still
+        // holds what WE last wrote. If it does not, something else wrote it between our
+        // re-asserts — which for a prop whose own Animator drives a transform channel means this
+        // very line is erasing the game's animation every frame. Read-only, gated on a watch
+        // actually running, and the answer is reported by PropAnimWatch's one verdict line.
+        if (PropAnimWatch.WatchingHand
+            && (t.localPosition != _wrotePos || t.localScale != _wroteScale
+                || Quaternion.Angle(t.localRotation, _wroteRot) > 0.01f))
+            PropAnimWatch.NotePoseStomp();
+
         // Pinch position: the grab-anchor-local offset toward the thumb-index fingertips, mirrored
         // across the hand frame's left-right axis for the left hand.
         t.localPosition = PropHeldPose.HeldOffsetFor(side);
@@ -489,8 +539,17 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             ? PropHeldPose.HeldUprightRotation(side)
             : PropHeldPose.HeldPalmRotation());
 
-        // SIZE — the value latched at the grab, re-asserted and never re-derived.
-        t.localScale = _heldLocalScale;
+        // SIZE — the value LATCHED at the grab times the manual two-hand stretch of THIS hold
+        // (ModBuild 362). The latch is re-asserted and never re-derived, so a diorama zoom mid-hold
+        // still cannot resize what is in the palm; the stretch is a separate, factorable term for
+        // the reason FigureGrabbable._stretch states — folding it into the latch would make "the
+        // size it entered the hand at" unrecoverable, and the size BOUNDS are stated against the
+        // product of the two.
+        t.localScale = HeldLocalScale();
+
+        _wrotePos = t.localPosition;
+        _wroteRot = t.localRotation;
+        _wroteScale = t.localScale;
     }
 
     /// <summary>
@@ -509,6 +568,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
                 // re-instantiating Apparance-placed content out from under the hand, which is
                 // the ModBuild 341 question). This used to be silent; the watch is the record.
                 p.EmitWatch("visual DESTROYED mid-hold");
+                PropAnimWatch.NotifyGone(p._visual);
                 Live.RemoveAt(i);
                 continue;
             }
@@ -567,6 +627,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _glideFromPos = t.localPosition;
         _glideFromRot = t.localRotation;
         _glideFromScale = t.localScale;
+        _stretchBoundsRenderers = null; // per-hold, like the figure's — the next hold re-walks
         _glideStartTime = Time.unscaledTime;
         _glideActive = true;
         Gliding.Add(this);
@@ -622,6 +683,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
         RestoreLayers();
         HeldProps.Remove(_prop);
+        PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -662,9 +724,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
         _attached = false;
         _anchor = null;
+        _stretchBoundsRenderers = null;
         RestoreLayers();
         _holder = null;
         HeldProps.Remove(_prop);
+        PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -1469,6 +1533,225 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         Thawing.Clear();
     }
 
+    // ---- THE MAP-ITEM STRETCH (ModBuild 362) ----------------------------------------------------
+
+    /// <summary>
+    /// RESIZE A HELD MAP ITEM WITH THE OTHER HAND — the figure's gesture, on a prop, through the
+    /// figure's own code.
+    ///
+    /// <para><b>THE REPORT (2026-09-03), verbatim.</b> <i>"Die props in der Hand soll man wie die
+    /// Figuren entsprechend auf skallieren können! (mit exakt den selben Lösungen auf die Probleme
+    /// die dafür schon implementiert wurden, nuzte am Besten denselben Code wenmöglich)."</i></para>
+    ///
+    /// <para><b>WHAT IS REUSED, WHICH IS ALMOST ALL OF IT.</b> The gesture itself —
+    /// <see cref="FigureStretch"/> — is not duplicated, not forked and not parameterised: it was
+    /// re-typed onto <see cref="StretchTarget"/>, a ten-member adapter, and a held prop answers the
+    /// same ten questions a held mini does. So a chest inherits every lesson that file paid for,
+    /// unchanged:</para>
+    /// <list type="bullet">
+    ///   <item><b>REAL METRES AT THE HAND</b> (FigureStretch.cs:21-26). Both gesture distances and
+    ///   the capture test divide by the hand's rig scale, so a diorama zoom mid-gesture cannot
+    ///   masquerade as hand motion. Nothing prop-specific: the divisor is the HAND's.</item>
+    ///   <item><b>SURFACE-BASED CAPTURE, CENTRE-BASED RATIO</b> (FigureStretch.cs:59-64). The zone
+    ///   is measured to the nearest point of the item's visible body (so it scales with the item
+    ///   by construction — <see cref="HeldRenderers"/> feeds it), while d0/d stay measured to
+    ///   <see cref="TryGetHeldCenter"/>, because a surface point moves WITH the scale being written
+    ///   and would feed the output back into the input. This matters MORE for a chest than for a
+    ///   mini: a hex-sized box has a surface far from its centre, so a centre-based zone would sit
+    ///   inside the model.</item>
+    ///   <item><b>THE CLAMP BOUNDS THE TOTAL, NOT THE BARE FACTOR</b> (FigureStretch.cs:28-33).
+    ///   <see cref="GetStretchFactorBounds"/> converts the total bounds at this hold's own latch
+    ///   ratio, and <see cref="ApplyGrabTimeStretchClamp"/> is the grab-time half — clamping the
+    ///   factor alone let a figure grabbed at 2× reach 6×, and would do exactly the same to a
+    ///   chest grabbed while zoomed in.</item>
+    ///   <item><b>THE INTERACTION ZONE SCALES IN BOTH DIRECTIONS</b> (FigureStretch.cs:41-48,
+    ///   FigureStretchMath.cs:18-31,53-58). <see cref="TotalHeldSizeRatio"/> feeds
+    ///   <c>FigureStretchMath.CaptureCeilingRealMeters</c>, whose <c>Max(1, …)</c> floor is the
+    ///   shrink-side symmetry. That file is pure arithmetic and is reused VERBATIM — it never knew
+    ///   what a figure was.</item>
+    ///   <item><b>THE ANCHOR-LOCAL LATCH</b> (FigureGrabbable.cs:140-150). Already the prop's own
+    ///   rule since ModBuild 349: <see cref="_heldLocalScale"/> is read back off the
+    ///   <c>worldPositionStays</c> reparent, so no opinion about which transform in the chain
+    ///   carries the zoom is needed.</item>
+    ///   <item><b>THE GESTURE FACTOR STAYS SEPARATE AND FACTORABLE</b> (FigureGrabbable.cs:173-180).
+    ///   <see cref="_stretch"/> is never folded into the latch, because the latch is "the size it
+    ///   entered the hand at" and the size BOUNDS are stated against the product of the two.</item>
+    /// </list>
+    ///
+    /// <para><b>THE DIALS ARE THE FIGURES', AND THAT IS A DECISION, NOT AN OMISSION.</b> ModBuild
+    /// 350 gave map items their own eight held-POSE keys because he asked for them and because
+    /// those numbers are ABSOLUTE GEOMETRY — metres out of the palm and degrees of pitch, and a
+    /// hex-sized box does not want a 30 mm miniature's offsets. The four stretch dials are not
+    /// that kind of number. <c>[FigureGrab] StretchScaleMin/Max</c> bound the TOTAL size as a
+    /// RATIO of the object's own board size at the default zoom, so 0.5×..3× means "half to three
+    /// times this chest" exactly as it means "half to three times this mini";
+    /// <c>StretchReachMillimeters</c> is real millimetres from the object's own SURFACE, with a
+    /// sanity ceiling that already scales with the held size. Every one of the four is size-neutral
+    /// by construction, so a separate prop copy would be four more settings whose correct value is
+    /// provably the same number — and this project has already paid for a dial the player could not
+    /// find. The captions and the German help text were widened instead, so the menu says these
+    /// govern figures AND map items. Splitting them later is purely additive and the exact patch is
+    /// written out in <c>.planning/LANE-PROPS-357-NEEDED-OUTSIDE.md</c>.</para>
+    ///
+    /// <para><b>MULTIPLAYER — NO WIRE RECORD IS NEEDED, and this is a conclusion rather than a
+    /// deferral.</b> A figure's stretch needs record 30 because a peer RENDERS the held figure and
+    /// cannot derive the manual factor from anything it has. A prop hold is local-only by
+    /// construction: <see cref="HeldProps"/> sends nothing, <see cref="CanGrab"/> consults no
+    /// remote lock, <see cref="PropHeldPose"/> states the same, and a peer therefore never draws a
+    /// held prop AT ALL — there is no mirrored visual for a factor to be wrong on. Sending one
+    /// would be a number nothing reads. When prop holds DO go on the wire, the stretch is part of
+    /// that record from the start (the standing ruling: it syncs fully or not at all, and the
+    /// OWNER's value drives every viewer).</para>
+    ///
+    /// <para><b>THE APPARANCE FREEZE IS UNAFFECTED</b> (see <see cref="FreezeApparance"/> and
+    /// <see cref="ThawDelayFrames"/>). Writing the scale every frame adds nothing new while
+    /// <c>MonitorMovement</c> is false — <see cref="ApplyHeldPose"/> was already the per-frame
+    /// <c>Transform.hasChanged</c> producer the freeze exists to neutralise. And the thaw's
+    /// three-frame settle still holds, because the stretch cannot be pending at landing: the
+    /// gesture ends the instant the hold does (<c>FigureStretch.TickActive</c> checks
+    /// <see cref="IsHeld"/> first), <see cref="SetStretch"/> is a no-op once <c>_attached</c> is
+    /// false, and <see cref="FinishGlide"/> writes the exact home <c>_origLocalScale</c> BEFORE
+    /// scheduling the thaw. So the landing pose is still the only pending change when
+    /// <c>MonitorMovement</c> comes back.</para>
+    /// </summary>
+    private Vector3 HeldLocalScale() => _heldLocalScale * _stretch;
+
+    /// <summary>The manual in-hand stretch factor of this hold (1 = untouched).</summary>
+    internal float Stretch => _stretch;
+
+    /// <summary>Write the factor and re-assert the held pose in the same call, so the item tracks
+    /// the gesture hand within the frame. A dumb store on purpose — <see cref="FigureStretch"/>
+    /// owns the clamp, so nothing can ever see two differently-clamped values. Harmless once the
+    /// hold has ended: <see cref="ApplyHeldPose"/> returns on its own <c>_attached</c> test, which
+    /// is what keeps a last gesture frame from writing an anchor-local scale onto a prop that has
+    /// already been reparented for its release glide.</summary>
+    internal void SetStretch(float factor)
+    {
+        _stretch = factor;
+        ApplyHeldPose();
+    }
+
+    /// <summary>
+    /// The GESTURE half of the total size bound: the per-hold factor envelope
+    /// <see cref="FigureStretch"/> clamps into, derived by converting the TOTAL bounds
+    /// (<c>[FigureGrab] StretchScaleMin/Max</c>) at this latch's ratio — total = ratio × factor, so
+    /// factor is in [Min/ratio .. Max/ratio]. Recomputed per call so a live dial edit governs the
+    /// very next gesture frame. <c>FigureGrabbable.GetStretchFactorBounds</c>, line for line.
+    /// </summary>
+    internal void GetStretchFactorBounds(out float min, out float max)
+    {
+        if (!FigureGrabConfig.StretchLimitsEnabled)
+        {
+            min = FigureGrabConfig.StretchHardFloor;
+            max = float.MaxValue;
+            return;
+        }
+        float ratio = Mathf.Max(_latchTotalRatio, 1e-6f);
+        min = FigureGrabConfig.StretchScaleMinValue / ratio;
+        max = FigureGrabConfig.StretchScaleMaxValue / ratio;
+    }
+
+    /// <summary>
+    /// GRAB-TIME half of the total size bound — <c>FigureGrabbable.ApplyGrabTimeStretchClamp</c>,
+    /// on a prop. Computes the zoom ratio the fresh latch stands at (the item's held size relative
+    /// to its board-home size at the DEFAULT diorama zoom) and, while
+    /// <c>[FigureGrab] StretchLimits</c> is on, scales the latch so that ratio lands exactly ON the
+    /// violated bound. Runs BEFORE the first <see cref="ApplyHeldPose"/> of the hold, so the
+    /// clamped size is the first held frame ever rendered — no pop.
+    ///
+    /// <para>Degenerate input (dead rig, zero anchor scale, non-finite ratio) leaves the latch
+    /// alone: a bounds feature must never be the thing that breaks a grab.</para>
+    /// </summary>
+    private void ApplyGrabTimeStretchClamp(Transform anchor)
+    {
+        _latchTotalRatio = 1f;
+        float baseScale = GloomhavenVR.Rig.RigTarget.BaseScale;
+        float anchorScale = anchor.lossyScale.x;
+        if (baseScale <= 1e-6f || anchorScale <= 1e-6f)
+            return;
+        float ratio = baseScale / anchorScale;
+        if (float.IsNaN(ratio) || float.IsInfinity(ratio) || ratio <= 0f)
+            return;
+        _latchTotalRatio = ratio;
+
+        if (!FigureGrabConfig.StretchLimitsEnabled)
+            return; // limits off: the latch keeps the true grab-zoom size, whatever it is
+        float min = FigureGrabConfig.StretchScaleMinValue;
+        float max = FigureGrabConfig.StretchScaleMaxValue;
+        float clamped = Mathf.Clamp(ratio, min, max);
+        if (Mathf.Approximately(clamped, ratio))
+            return;
+        _heldLocalScale *= clamped / ratio; // uniform trim — the latch's own frame, no reparent
+        _latchTotalRatio = clamped;
+    }
+
+    /// <summary>This hold's TOTAL size in default-zoom units — the very product
+    /// <c>[FigureGrab] StretchScaleMin/Max</c> bound, and the ZOOM-INDEPENDENT size variable the
+    /// capture ceiling scales by (<c>FigureStretchMath.CaptureCeilingRealMeters</c>).</summary>
+    internal float TotalHeldSizeRatio => _latchTotalRatio * _stretch;
+
+    /// <summary>The held item's centre in world space — its visual root's position, deliberately
+    /// NOT a surface point (which would move with the gesture and feed the scale back into the
+    /// distance that drives it). False when not attached to a hand.</summary>
+    internal bool TryGetHeldCenter(out Vector3 world)
+    {
+        world = default;
+        if (!_attached || _visual == null)
+            return false;
+        world = _visual.transform.position;
+        return true;
+    }
+
+    /// <summary>
+    /// The held visual's renderers, for the surface-based capture test — walked ONCE per hold and
+    /// cached, because that test runs every frame for a free hand and
+    /// <c>GetComponentsInChildren</c> allocates. Renderer WORLD bounds are read by the caller per
+    /// frame, so the cached array stays correct as the item stretches.
+    ///
+    /// <para>DELIBERATELY NOT SHARED WITH <see cref="_watch"/>, the hold watch's array, even though
+    /// both walk the same subtree: that one is armed only while a verdict budget remains and is
+    /// nulled the moment it reports, so leaning on it would make the gesture's reach depend on how
+    /// many diagnostics a session had already printed. Entries can go Unity-null mid-hold if the
+    /// engine rebuilds the content (see <see cref="FreezeApparance"/> for when that happens); the
+    /// consumer null-checks each.</para>
+    /// </summary>
+    internal Renderer[]? HeldRenderers()
+    {
+        if (!_attached || _visual == null)
+            return null;
+        return _stretchBoundsRenderers ??= _visual.GetComponentsInChildren<Renderer>(true);
+    }
+
+    /// <summary>Diagnostic bookkeeping written by the capture test — the interaction volume the
+    /// player is really reaching into. Nothing reads it to make a decision.</summary>
+    internal void NoteCaptureVolume(float bodyRadiusRealMeters, float ceilingRealMeters)
+    {
+        _captureBodyRadiusReal = bodyRadiusRealMeters;
+        _captureCeilingReal = ceilingRealMeters;
+    }
+
+    /// <summary>Radius of the visible body the capture test last trusted, real metres at the hand.
+    /// NaN = not measured this hold; +Inf = every renderer was excluded (centre fallback).</summary>
+    internal float CaptureBodyRadiusRealMeters => _captureBodyRadiusReal;
+
+    /// <summary>The sanity ceiling the capture test last applied, real metres.</summary>
+    internal float CaptureCeilingRealMeters => _captureCeilingReal;
+
+    /// <summary>The prop currently ATTACHED to <paramref name="side"/>'s hand, or null. Walks
+    /// <see cref="Live"/> (never more than two entries). Gliding props are deliberately absent — a
+    /// released item cannot be stretched, which is the same rule <c>FigureGrabbable.HeldBy</c>
+    /// states.</summary>
+    internal static GrabbableProp? HeldBy(HandSide side)
+    {
+        for (int i = 0; i < Live.Count; i++)
+        {
+            GrabbableProp p = Live[i];
+            if (p._attached && p._holder != null && p._holder.Side == side)
+                return p;
+        }
+        return null;
+    }
+
     // ---- layer parking ------------------------------------------------------------------------
 
     /// <summary>
@@ -1539,5 +1822,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _watchesLeft = WatchBudget;
         _loggedInfoWriteWar = false;
         _loggedFreeze = false;
+        PropAnimWatch.Reset();
     }
 }

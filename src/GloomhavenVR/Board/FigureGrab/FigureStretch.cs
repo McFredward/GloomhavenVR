@@ -5,7 +5,20 @@ using UnityEngine;
 namespace GloomhavenVR.Board.FigureGrab;
 
 /// <summary>
-/// HELD-FIGURE STRETCH — resize the mini in one hand by pinch-dragging it with the OTHER hand.
+/// HELD-OBJECT STRETCH — resize the thing in one hand by pinch-dragging it with the OTHER hand.
+/// A miniature, and since ModBuild 362 a MAP ITEM (a chest, a gold pile, a destructible obstacle)
+/// through the identical code path.
+///
+/// <para>MAP ITEMS, USER REQUEST (2026-09-03, verbatim): "Die props in der Hand soll man wie die
+/// Figuren entsprechend auf skallieren können! (mit exakt den selben Lösungen auf die Probleme die
+/// dafür schon implementiert wurden, nuzte am Besten denselben Code wenmöglich)." Taken literally:
+/// not one line of the mathematics, the clamp, the capture zone, the smoothing, the haptics or the
+/// trigger arbitration below is duplicated for props. The only change this file needed was to stop
+/// naming <see cref="FigureGrabbable"/> as a TYPE — every question it asks of the thing it is
+/// resizing now goes through <see cref="StretchTarget"/>, a ten-member adapter, and a held prop
+/// answers all ten. So every lesson in the paragraphs below — real metres at the hand, the
+/// centre-based ratio against a surface-based capture, the TOTAL-based clamp, the ceiling that
+/// scales in both directions — applies to a chest for free, because it is the same code.</para>
 ///
 /// <para>USER REQUEST (2026-08-11, verbatim): "Ich möchte, dass die Größe der Figur in der Hand
 /// änderbar ist. Dabei stelle ich mir vor, dass ich mit der anderen Hand zu der Figur gehe und
@@ -81,8 +94,11 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// on. The ceiling is now <c>0.5 m × max(1, this hold's total size ratio)</c>, hard-capped at 3 m;
 /// <see cref="FigureStretchMath"/> holds the arithmetic, the shrink-side floor that keeps the fix
 /// symmetric, and the bound. Growing it cannot steal a neighbour's grab: the zone belongs to the
-/// OTHER hand's HELD mini alone (<c>FigureGrabbable.HeldBy</c>), and a captured hand already elects
-/// NOBODY and vetoes every adopted board figure for that frame (the collision story below).</para>
+/// OTHER hand's HELD mini alone (<c>StretchTarget.HeldBy</c>), and a captured hand already elects
+/// NOBODY and vetoes every adopted board figure for that frame (the collision story below) — and,
+/// since ModBuild 362, every board PROP too: <c>GrabbableProp.AllowsHand</c> carries the same
+/// <see cref="Engaged"/> early-out, which is the prop half of that veto and is why a gesture hand
+/// sweeping past a chest cannot light it up mid-resize.</para>
 ///
 /// <para>CONTINUITY BY CONSTRUCTION, no pops anywhere: at trigger-down d == d0, so the first
 /// frame's target IS the current factor; every later frame moves through a light exponential
@@ -106,6 +122,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   the zone with the trigger already going down, an ALREADY-HIGHLIGHTED board figure may still
 ///   win — which is the affordance the player is literally looking at, so the highlight never
 ///   lies.</item>
+///   <item>OTHER board PROPS near either hand (ModBuild 362): a prop is not elected centrally —
+///   <c>GrabbableProp.AllowsHand</c> runs its own per-prop reach test, so there is no
+///   <c>ApplySuppression</c> seam to lean on. The veto is therefore published where the decision
+///   is actually made: that method answers false for an <see cref="Engaged"/> hand, which removes
+///   the prop from the <c>ProximityGrabber</c>'s candidate list for that frame and takes the
+///   highlight with it. Without it a hand resizing a chest would light up the neighbouring chest
+///   it happened to sweep past.</item>
 ///   <item>CARDS: a hand hovering a card (<c>Grabber.Highlighted</c> is a card) does NOT capture —
 ///   the card's visible highlight keeps its promise and the trigger grabs it, exactly as outside
 ///   the zone. Once captured, the beam is clamped to the mini (<c>Ray.UiHitOverride</c>), which
@@ -152,9 +175,11 @@ internal static class FigureStretch
     /// centimetre of travel a ×10.</summary>
     private const float MinGestureDistanceRealMeters = 0.01f;
 
-    /// <summary>The figure last warned about by the bounds sanity clamp — the once-per-figure
-    /// throttle for <see cref="CaptureDistanceReal"/>'s warning (the test runs every frame).</summary>
-    private static FigureGrabbable? _boundsWarnTarget;
+    /// <summary>The object last warned about by the bounds sanity clamp — the once-per-target
+    /// throttle for <see cref="CaptureDistanceReal"/>'s warning (the test runs every frame). Held
+    /// as the <see cref="StretchTarget.Owner"/> rather than as the adapter, because adapters are
+    /// re-pointed every frame and would throttle the wrong thing.</summary>
+    private static object? _boundsWarnTarget;
 
     private sealed class HandState
     {
@@ -165,8 +190,15 @@ internal static class FigureStretch
         /// <summary>The gesture is live: trigger held, factor being written.</summary>
         public bool Active;
 
-        /// <summary>The figure being stretched (only meaningful while <see cref="Active"/>).</summary>
-        public FigureGrabbable? Target;
+        /// <summary>The object being stretched (only meaningful while <see cref="Active"/>) — a
+        /// held miniature or a held MAP ITEM, reached through the same ten-member adapter.</summary>
+        public StretchTarget? Target;
+
+        /// <summary>The grabbable <see cref="Target"/> pointed at when the gesture began. Adapters
+        /// are re-pointed every frame (see <see cref="StretchTarget"/>), so this is the identity
+        /// that decides whether the gesture is still on the SAME object; a release-and-regrab
+        /// inside one gesture must end it, not silently continue on the newcomer.</summary>
+        public object? TargetOwner;
 
         /// <summary>Pinch-to-centre distance at trigger-down, real metres, floored.</summary>
         public float StartDistReal;
@@ -195,8 +227,10 @@ internal static class FigureStretch
             Hands[i].Captured = false;
             Hands[i].Active = false;
             Hands[i].Target = null;
+            Hands[i].TargetOwner = null;
         }
         _boundsWarnTarget = null; // do not pin a torn-down grabbable just to throttle a warning
+        StretchTarget.ClearAll();  // …and the adapters hold one too
     }
 
     /// <summary>Per-frame gesture tick. Called from <c>FigureGrabDriver.Update</c> BEFORE the
@@ -243,10 +277,18 @@ internal static class FigureStretch
         // A hovered CARD keeps its trigger — its highlight is a promise the player is looking at.
         // A hovered FIGURE does not block: the capture veto clears that highlight one frame later
         // (see the class doc's collision story).
-        if (hand.Grabber.Highlighted != null && hand.Grabber.Highlighted is not FigureGrabbable)
+        // MAP ITEMS ARE ON THIS LIST TOO (2026-09-03). A hovered GrabbableProp used to fall into
+        // the "keeps its own trigger" branch and silently refuse every capture — which would have
+        // made the prop resize unreachable exactly where props are, i.e. everywhere the gesture
+        // hand is likely to be. It joins the figure for the same reason the figure is exempt: the
+        // capture veto clears that highlight, and for props that veto is published by
+        // GrabbableProp.AllowsHand's own FigureStretch.Engaged early-out.
+        if (hand.Grabber.Highlighted != null
+            && hand.Grabber.Highlighted is not FigureGrabbable
+            && hand.Grabber.Highlighted is not GrabbableProp)
             return;
 
-        FigureGrabbable? target = FigureGrabbable.HeldBy(Other(hand.Side));
+        StretchTarget? target = StretchTarget.HeldBy(Other(hand.Side));
         if (target == null || !target.TryGetHeldCenter(out Vector3 center))
             return;
 
@@ -273,6 +315,7 @@ internal static class FigureStretch
         {
             st.Active = true;
             st.Target = target;
+            st.TargetOwner = target.Owner;
             // d0 is CENTRE distance, NOT the surface distance the capture used — the ratio's
             // reference must not move with the scale it drives (class doc, mathematics paragraph).
             st.StartDistReal = Mathf.Max(RealDistance(hand, center), MinGestureDistanceRealMeters);
@@ -294,7 +337,16 @@ internal static class FigureStretch
 
     private static void TickActive(VRHand hand, HandState st)
     {
-        FigureGrabbable? target = st.Target;
+        StretchTarget? target = st.Target;
+
+        // The adapter is re-pointed every frame, so "still held" is not enough: the hand may have
+        // released this object and grabbed another one, and the adapter would answer for the
+        // newcomer. Re-resolve and compare the OWNER captured at trigger-down.
+        if (target != null && !ReferenceEquals(target.Owner, st.TargetOwner))
+        {
+            EndGesture(hand, st, "the object under the gesture was swapped");
+            return;
+        }
 
         // The hold under the gesture can end at any time (holder released, busy-gate auto-release,
         // authoritative move, teardown), and the gesture hand can still fill itself mid-gesture —
@@ -345,8 +397,9 @@ internal static class FigureStretch
         if (!st.Active)
             return;
         st.Active = false;
-        FigureGrabbable? target = st.Target;
+        StretchTarget? target = st.Target;
         st.Target = null;
+        st.TargetOwner = null;
         VRLog.Info("FigureGrab",
             $"{hand.Side} STRETCH ended ({why}) — "
             + (target != null ? $"{target.Label} at factor {target.Stretch:0.###}." : "target gone."));
@@ -369,7 +422,7 @@ internal static class FigureStretch
     /// report the interaction volume the player is really reaching into — including the case that
     /// caused the report, "every renderer was excluded and this is the CENTRE fallback".</para>
     /// </summary>
-    private static float CaptureDistanceReal(VRHand hand, FigureGrabbable target, Vector3 centerWorld)
+    private static float CaptureDistanceReal(VRHand hand, StretchTarget target, Vector3 centerWorld)
     {
         Vector3 pinch = PinchPoint(hand);
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
@@ -389,9 +442,9 @@ internal static class FigureStretch
                     (Vector3.Distance(centerWorld, b.center) + b.extents.magnitude) / scale;
                 if (impliedRadiusReal > ceiling)
                 {
-                    if (!ReferenceEquals(_boundsWarnTarget, target))
+                    if (!ReferenceEquals(_boundsWarnTarget, target.Owner))
                     {
-                        _boundsWarnTarget = target;
+                        _boundsWarnTarget = target.Owner;
                         VRLog.Warn("FigureGrab",
                             $"STRETCH capture bounds clamped on {target.Label}: renderer "
                             + $"'{r.name}' implies a figure radius of {impliedRadiusReal:0.##} m "

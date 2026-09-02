@@ -493,11 +493,14 @@ internal static class FigureGrabConfig
         StretchReachMillimeters = config.Bind(
             "FigureGrab", "StretchReachMillimeters", Defaults.StretchReachMillimeters,
             new ConfigDescription(
-                "While one hand HOLDS a figure: how close your OTHER hand's pinch point must come " +
-                "to that mini before holding TRIGGER and dragging resizes it (outward = larger, " +
+                "While one hand HOLDS a figure OR A MAP ITEM (chest, gold pile, obstacle): how close " +
+                "your OTHER hand's pinch point must come to it before holding TRIGGER and dragging " +
+                "resizes it (outward = larger, " +
                 "inward = smaller), in REAL MILLIMETRES AT YOUR HAND — the same unit as the pick " +
-                "radius, so zooming the table never changes the feel. Wider than the pick radius " +
-                "on purpose: the mini is in your own hand, there is no neighbouring figure to " +
+                "radius, so zooming the table never changes the feel. Measured from the object's own " +
+                "SURFACE, so the zone grows with whatever you are holding and with however far " +
+                "you have already stretched it. Wider than the pick radius " +
+                "on purpose: the object is in your own hand, there is nothing neighbouring to " +
                 "disambiguate from. Inside this zone the trigger belongs to the gesture; a hovered " +
                 "card still wins its own grab.",
                 new AcceptableValueRange<float>(PickRadiusMinMm, 300f)));
@@ -529,31 +532,38 @@ internal static class FigureGrabConfig
         StretchScaleMin = config.Bind(
             "FigureGrab", "StretchScaleMin", Defaults.StretchScaleMin,
             new ConfigDescription(
-                "Smallest TOTAL size a figure may have in your hand, as a factor of the size it " +
-                "shows at the DEFAULT table zoom (0.5 = half). It bounds the size however it " +
-                "arose: a figure grabbed while zoomed far out enters the hand at exactly this " +
+                "Smallest TOTAL size a figure OR MAP ITEM may have in your hand, as a factor of the " +
+                "size it " +
+                "shows at the DEFAULT table zoom (0.5 = half). Because it is a factor of each " +
+                "object's OWN size, one number fits a 30 mm miniature and a hex-sized chest " +
+                "alike. It bounds the size however it " +
+                "arose: an object grabbed while zoomed far out enters the hand at exactly this " +
                 "size instead of tinier, and the two-hand stretch gesture cannot shrink it below " +
-                "it either. The gesture is a ratio — slide back out and the figure returns " +
+                "it either. The gesture is a ratio — slide back out and it returns " +
                 "through every size — so this is a clamp, not a step. Ignored while " +
                 "StretchLimits is off.",
                 new AcceptableValueRange<float>(StretchScaleFloor, 1f)));
         StretchScaleMax = config.Bind(
             "FigureGrab", "StretchScaleMax", Defaults.StretchScaleMax,
             new ConfigDescription(
-                "Largest TOTAL size a figure may have in your hand, as a factor of the size it " +
-                "shows at the DEFAULT table zoom (3 = three times). It bounds the size however " +
-                "it arose: a figure grabbed while zoomed in so deep that it would be bigger than " +
+                "Largest TOTAL size a figure OR MAP ITEM may have in your hand, as a factor of the " +
+                "size it " +
+                "shows at the DEFAULT table zoom (3 = three times). Because it is a factor of each " +
+                "object's OWN size, one number fits a 30 mm miniature and a hex-sized chest " +
+                "alike. It bounds the size however " +
+                "it arose: an object grabbed while zoomed in so deep that it would be bigger than " +
                 "this enters the hand at exactly this size, and the two-hand stretch gesture " +
                 "cannot grow it past it either. Applies to the hold only: releasing always " +
-                "glides the figure back to its true board size. Ignored while StretchLimits is " +
+                "glides it back to its true board size. Ignored while StretchLimits is " +
                 "off.",
                 new AcceptableValueRange<float>(1f, StretchScaleCeiling)));
         StretchLimits = config.Bind(
             "FigureGrab", "StretchLimits", Defaults.StretchLimits,
-            "Enforce the min/max held-figure size (StretchScaleMin/Max) at all. Off = a figure " +
-            "in the hand may take any size the grab zoom and the stretch gesture produce, with " +
+            "Enforce the min/max held size (StretchScaleMin/Max) at all, for figures and for map " +
+            "items alike. Off = whatever is " +
+            "in your hand may take any size the grab zoom and the stretch gesture produce, with " +
             "only a tiny technical floor keeping the scale positive. Live: the next grab and " +
-            "the next gesture frame honour the new setting; a figure already in the hand keeps " +
+            "the next gesture frame honour the new setting; something already in the hand keeps " +
             "its current size until you act on it (re-clamping it in place would make it pop).");
         HeldFigureInfo = config.Bind(
             "FigureGrab", "HeldFigureInfo", Defaults.HeldFigureInfo,
