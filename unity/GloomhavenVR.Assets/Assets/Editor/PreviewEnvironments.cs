@@ -2988,4 +2988,467 @@ namespace GloomhavenVR
             Debug.Log(log.ToString());
         }
     }
+
+    // ======================================================================
+    // THE CLOUD'S SIGN — is the layer a cloud, or a negative of one?
+    // ======================================================================
+    //
+    // Batch: CLOUDNEG_OUT=<dir> xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity \
+    //          -batchmode -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+    //          -executeMethod GloomhavenVR.CloudSignPreview.RenderAll -logFile cloudneg.log
+    //   WITHOUT -nographics. Run EnvironmentsBuilder.BuildAll first.
+    //
+    // USER, 2026-09-02 hardware test, verbatim: "Ich mag die Wolken, um den Mond
+    // herum sehen sie gut aus, aber außerhalb des Monds sieht es eher aus wie als
+    // wären die Wolken ein Negativbild - AUF SCREENSHOTS SIEHT MAN DAS LEIDER
+    // NICHT SO GUT. Ich will dass die Wolken auch gut aussehen wenn sie nicht
+    // direkt vom Mond angestrahlt werden."
+    //
+    // The capitalised clause is why this station exists and why it is a
+    // MEASUREMENT and not a frame. He is describing a defect he can see in a
+    // headset and cannot photograph, so a render that "looks fine" is worth
+    // nothing here — this project has a recorded lesson for exactly that shape of
+    // mistake (open-the-screenshot-first, and its converse: a preview station
+    // agrees with you). What can settle it is the sign of one number.
+    //
+    // THE NUMBER. The layer composites premultiplied (Blend One OneMinusSrcAlpha),
+    // so with A the alpha it writes and L the premultiplied radiance it adds,
+    //     out = L + (1 - A) * bg      and therefore      out - bg = A * (C - bg)
+    // with C = L / A the layer's INTRINSIC radiance — what an opaque patch of it
+    // would show. The sign of (C - bg) is the entire complaint:
+    //   C > bg : a thicker wisp is BRIGHTER than the sky it lies on. A cloud.
+    //   C < bg : a thicker wisp is DARKER. The layer draws its own structure
+    //            INVERTED over the background. A negative.
+    //
+    // HOW IT IS READ, and none of it trusts the shader's source:
+    //   * bg   the shipped sky with the CloudBand node switched off.
+    //   * out  the same frame with it on. Same camera, same clock, same encode.
+    //   * A    recovered the way PreviewClouds recovers it, from the isolated
+    //          shell over a BLACK clear and over a WHITE one: premultiplied gives
+    //          black -> L and white -> L + (1 - A), so A = 1 - (white - black),
+    //          with no reliance on what L is. Clipped fragments come back A = 0.
+    //   * C    = L / A on the same pixels, so the intrinsic radiance is measured
+    //          rather than computed from the constants it was authored with.
+    // Every pixel is then binned by its own ANGLE FROM THE MOON, computed from
+    // the camera ray, because "away from the moon" is the axis the complaint is
+    // about.
+    //
+    // AND IT IS REPORTED TWICE. The catalogue star POINTS are 8-bit-saturating
+    // dots far brighter than any cloud; a cloud is SUPPOSED to dim those and a
+    // per-pixel sign test would count every one of them as a defect. So the sky's
+    // CONTINUOUS layer (gradient + Milky Way + sub-visual dust) is measured with
+    // the StarField renderer off, which is the population the complaint is about,
+    // and the whole sky is measured again with it on so nothing is hidden.
+    public static class CloudSignPreview
+    {
+        private const string Root = "Assets/Bundle/Environments";
+        private const int W = 1024, H = 1024;
+        private const float HalfIpd = 0.0315f;
+
+        private static readonly float MoonAz =
+            Mathf.Atan2(EnvironmentsBuilder.MoonDir.x, EnvironmentsBuilder.MoonDir.z) * Mathf.Rad2Deg;
+        private static readonly float MoonAlt =
+            Mathf.Asin(EnvironmentsBuilder.MoonDir.y) * Mathf.Rad2Deg;
+
+        private static GameObject _inst, _cloudBand, _roomGeo;
+        private static Renderer _domeRen, _starsRen;
+        private static Camera _cam;
+        private static string _out;
+
+        [MenuItem("GloomhavenVR/Measure Cloud Sign")]
+        public static void RenderFromMenu() => Render();
+
+        /// <summary>THE COST, from the real compiler and not from counting lines
+        /// by eye. Asks the editor to disassemble the shipped EnvCloud pass and
+        /// prints the "// Stats:" line the D3D11 backend emits — math ops, temp
+        /// registers, texture units and branches. Requirement 5 of this effect
+        /// ("die Umgebungen sind nur Beiwerk") is the one that outranks the
+        /// others, so a round that changes the fragment has to say what it
+        /// changed by.</summary>
+        public static void DumpCost()
+        {
+            try
+            {
+                foreach (var name in new[] { "GloomhavenVR/EnvCloud", "GloomhavenVR/EnvStars" })
+                {
+                    var sh = Shader.Find(name);
+                    if (sh == null) { Debug.LogError($"[CloudSign] shader not found: {name}"); continue; }
+                    var mi = typeof(ShaderUtil).GetMethod("OpenCompiledShader",
+                        System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public
+                        | System.Reflection.BindingFlags.NonPublic);
+                    if (mi == null) { Debug.LogError("[CloudSign] OpenCompiledShader not found"); return; }
+                    var ps = mi.GetParameters();
+                    var args = new object[ps.Length];
+                    args[0] = sh;
+                    for (int i = 1; i < ps.Length; i++)
+                        args[i] = ps[i].ParameterType == typeof(bool) ? (object)false
+                                : ps[i].ParameterType == typeof(int) ? (object)(i == 1 ? 1 : 4) : null;
+                    mi.Invoke(null, args);
+                    string file = "Temp/Compiled-" + name.Replace('/', '-') + ".shader";
+                    if (!File.Exists(file))
+                    {
+                        foreach (var f in Directory.GetFiles("Temp", "Compiled-*.shader"))
+                            Debug.Log("[CloudSign] found " + f);
+                        Debug.LogError("[CloudSign] no dump at " + file);
+                        continue;
+                    }
+                    foreach (var line in File.ReadAllLines(file))
+                        if (line.Contains("Stats:") || line.StartsWith("-- Vertex") || line.StartsWith("-- Fragment"))
+                            Debug.Log($"[GloomhavenVR][CloudSign] COST {name}: {line.Trim()}");
+                }
+            }
+            catch (Exception e) { Debug.LogError("[CloudSign] cost dump failed: " + e); }
+            if (Application.isBatchMode) EditorApplication.Exit(0);
+        }
+
+        public static void RenderAll()
+        {
+            try
+            {
+                Render();
+                Debug.Log("[GloomhavenVR][CloudSign] RenderAll OK");
+                if (Application.isBatchMode) EditorApplication.Exit(0);
+            }
+            catch (Exception e)
+            {
+                Debug.LogError($"[GloomhavenVR][CloudSign] RenderAll FAILED: {e}");
+                if (Application.isBatchMode) EditorApplication.Exit(1);
+                throw;
+            }
+        }
+
+        private static void Render()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+                throw new Exception("No graphics device — run WITHOUT -nographics (xvfb-run on headless).");
+            _out = Environment.GetEnvironmentVariable("CLOUDNEG_OUT");
+            if (string.IsNullOrEmpty(_out)) _out = "cloud-sign";
+            Directory.CreateDirectory(_out);
+
+            var prefab = AssetDatabase.LoadAssetAtPath<GameObject>($"{Root}/Env_Swamp.prefab")
+                         ?? throw new Exception("Env_Swamp.prefab missing — run EnvironmentsBuilder.BuildAll.");
+            EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            _inst = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
+            var dome = _inst.transform.Find("StarDome") ?? throw new Exception("StarDome missing.");
+            _domeRen = dome.GetComponent<Renderer>();
+            _starsRen = dome.Find("StarField")?.GetComponent<Renderer>();
+            _cloudBand = dome.Find("CloudBand")?.gameObject
+                         ?? throw new Exception("CloudBand missing — the bake did not run.");
+            _roomGeo = _inst.transform.Find("RoomGeo")?.gameObject;
+
+            Shader.SetGlobalFloat("_GhvrIndoor", 0f);
+            Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
+            Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
+            Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
+            Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+            Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+
+            var camGo = new GameObject("CloudSignCam");
+            _cam = camGo.AddComponent<Camera>();
+            _cam.clearFlags = CameraClearFlags.SolidColor;
+            _cam.backgroundColor = Color.black;
+            _cam.nearClipPlane = 0.05f;
+            _cam.farClipPlane = 300f;
+            if (_roomGeo != null) _roomGeo.SetActive(false);   // sky only: the layer is judged on the dome
+
+            try
+            {
+                // A/B IN ONE PROCESS, ON ONE INSTRUMENT. The "before" column is
+                // the SHIPPED material with only the two in-scatter dials wound
+                // back to what ModBuild 336 carried — same mesh, same noise, same
+                // alpha, same camera, same clock, same readback. A before/after
+                // measured by two separate runs of two separate builds is a
+                // comparison with the build in it; this one has only the change.
+                foreach (bool old in new[] { true, false })
+                {
+                    Dials(old);
+                    Measure(starPoints: false, old);
+                    Measure(starPoints: true, old);
+                    Frames(old);
+                }
+                Dials(false);
+                Stereo(true);
+                Dials(true);
+                Stereo(false);
+                Dials(false);
+            }
+            finally
+            {
+                RenderTexture.active = null;
+                _cam.targetTexture = null;
+                if (_starsRen != null) _starsRen.enabled = true;
+                if (_roomGeo != null) _roomGeo.SetActive(true);
+                if (_oldDials != null) { UnityEngine.Object.DestroyImmediate(_oldDials); _oldDials = null; }
+                _shipped = null;
+                UnityEngine.Object.DestroyImmediate(camGo);
+                UnityEngine.Object.DestroyImmediate(_inst);
+                Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
+            }
+        }
+
+        // ------------------------------------------------------------ plumbing
+        private static void Aim(Vector3 euler, float fov)
+        {
+            // The seat, at the rig's real scale. Height is irrelevant to a dome at
+            // 45 m but it is the pose everything else in this project is shot from.
+            _cam.transform.position = new Vector3(0f, 2.30f, 0f);
+            _cam.transform.rotation = Quaternion.Euler(euler);
+            _cam.fieldOfView = fov;
+        }
+
+        /// <summary>RAW LINEAR floats, no gamma: what is being measured is drawn
+        /// energy, not what a picture looks like.</summary>
+        private static Color[] Grab(Color clear)
+        {
+            var rt = new RenderTexture(W, H, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear);
+            var tex = new Texture2D(W, H, TextureFormat.RGBAFloat, false);
+            _cam.backgroundColor = clear;
+            _cam.targetTexture = rt;
+            _cam.Render();
+            RenderTexture.active = rt;
+            tex.ReadPixels(new Rect(0, 0, W, H), 0, 0);
+            var px = tex.GetPixels();
+            RenderTexture.active = null;
+            _cam.targetTexture = null;
+            UnityEngine.Object.DestroyImmediate(tex);
+            UnityEngine.Object.DestroyImmediate(rt);
+            return px;
+        }
+
+        private static float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+        private static void Clouds(bool on) => _cloudBand.SetActive(on);
+        private static void Isolate(bool on)
+        {
+            if (_domeRen != null) _domeRen.enabled = !on;
+            if (_starsRen != null) _starsRen.enabled = !on && _wantStars;
+        }
+        private static bool _wantStars = true;
+        private static Material _shipped, _oldDials;
+
+        /// <summary>Swap the cloud band between the SHIPPED in-scatter and
+        /// ModBuild 336's. Nothing else moves: same alpha ceiling, same coverage,
+        /// same taper, same wind, same noise, same mesh.</summary>
+        private static void Dials(bool old)
+        {
+            var mr = _cloudBand.GetComponent<MeshRenderer>();
+            if (_shipped == null) _shipped = mr.sharedMaterial;
+            if (_oldDials == null)
+            {
+                _oldDials = new Material(_shipped);
+                _oldDials.SetFloat("_CloudScatBase", 0.028f);   // ModBuild 336
+                _oldDials.SetFloat("_CloudScatWide", 0f);       // did not exist
+            }
+            mr.sharedMaterial = old ? _oldDials : _shipped;
+        }
+
+        /// <summary>The angle from the moon of the ray through pixel (i, j), in
+        /// degrees. Derived from the camera the frame was actually shot with — a
+        /// station that carried its own copy of where it was pointing is how this
+        /// project has photographed the wrong corner for four rounds twice.</summary>
+        private static float[] MoonAngleMap()
+        {
+            var a = new float[W * H];
+            float tanY = Mathf.Tan(_cam.fieldOfView * 0.5f * Mathf.Deg2Rad);
+            float tanX = tanY * ((float)W / H);
+            var rot = _cam.transform.rotation;
+            var md = EnvironmentsBuilder.MoonDir.normalized;
+            for (int j = 0; j < H; j++)
+                for (int i = 0; i < W; i++)
+                {
+                    float nx = (i + 0.5f) / W * 2f - 1f, ny = (j + 0.5f) / H * 2f - 1f;
+                    var d = (rot * new Vector3(nx * tanX, ny * tanY, 1f)).normalized;
+                    a[j * W + i] = Mathf.Acos(Mathf.Clamp(Vector3.Dot(d, md), -1f, 1f)) * Mathf.Rad2Deg;
+                }
+            return a;
+        }
+
+        // ----------------------------------------------------- THE MEASUREMENT
+        private static void Measure(bool starPoints, bool old)
+        {
+            _wantStars = starPoints;
+            if (_starsRen != null) _starsRen.enabled = starPoints;
+
+            // FOUR FRAMES that between them cover the whole reachable dome: the
+            // moon's own bearing, 60 deg off it, 120 deg off it, and the half of
+            // the sky OPPOSITE the moon — which is the half his complaint is
+            // about and the half every previous cloud frame in this project has
+            // been shot away from.
+            var shots = new (string name, Vector3 euler, float fov)[]
+            {
+                ("at the moon",        new Vector3(-MoonAlt, MoonAz, 0f), 80f),
+                ("60 deg off",         new Vector3(-34f, MoonAz + 60f, 0f), 80f),
+                ("120 deg off",        new Vector3(-34f, MoonAz + 120f, 0f), 80f),
+                ("opposite the moon",  new Vector3(-40f, MoonAz + 180f, 0f), 80f),
+            };
+
+            // 15-degree bins of angle-from-moon, 0..180
+            const int NB = 12;
+            var n = new long[NB];
+            var sumBg = new double[NB];
+            var sumOut = new double[NB];
+            var sumC = new double[NB];
+            var sumA = new double[NB];
+            var neg = new long[NB];
+            var worstNeg = new double[NB];
+            long nAll = 0, negAll = 0;
+            double worstAll = 0;
+
+            foreach (var s in shots)
+            {
+                Aim(s.euler, s.fov);
+                var ang = MoonAngleMap();
+
+                Clouds(false); Isolate(false);
+                var bg = Grab(Color.black);
+                Clouds(true);
+                var outp = Grab(Color.black);
+
+                Isolate(true);                       // the shell alone
+                var cb = Grab(Color.black);          // -> L
+                var cw = Grab(Color.white);          // -> L + (1 - A)
+                Isolate(false);
+
+                for (int p = 0; p < bg.Length; p++)
+                {
+                    float A = Mathf.Clamp01(1f - (cw[p].g - cb[p].g));
+                    if (A < 0.03f) continue;         // no cloud worth judging here
+                    float lb = Lum(bg[p]), lo = Lum(outp[p]), ll = Lum(cb[p]);
+                    float C = ll / A;
+                    int b = Mathf.Clamp((int)(ang[p] / 15f), 0, NB - 1);
+                    n[b]++; sumBg[b] += lb; sumOut[b] += lo; sumC[b] += C; sumA[b] += A;
+                    nAll++;
+                    double d = lo - lb;
+                    if (d < 0)
+                    {
+                        neg[b]++; negAll++;
+                        if (-d > worstNeg[b]) worstNeg[b] = -d;
+                        if (-d > worstAll) worstAll = -d;
+                    }
+                }
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"[GloomhavenVR][CloudSign] [{(old ? "BEFORE — ModBuild 336 in-scatter" : "AFTER  — the floor")}] "
+                      + $"CLOUD vs SKY, {(starPoints ? "WHOLE SKY (catalogue star points INCLUDED)" : "THE SKY'S CONTINUOUS LAYER (gradient + Milky Way + dust; star POINTS off)")}.\n");
+            sb.Append("    out - bg = A x (C - bg). NEGATIVE means the cloud draws itself INVERTED over the sky.\n");
+            sb.Append("    Four 80 deg frames (at the moon, 60/120 deg off, opposite), 1024^2, pixels with A > 0.03.\n");
+            sb.Append("    moon angle |    px | mean A |  cloud C | mean sky bg | mean out-bg | share darker | worst darker\n");
+            for (int b = 0; b < NB; b++)
+            {
+                if (n[b] == 0) continue;
+                double mA = sumA[b] / n[b], mC = sumC[b] / n[b], mBg = sumBg[b] / n[b], mOut = sumOut[b] / n[b];
+                sb.Append($"    {b * 15,3}-{(b + 1) * 15,3} deg | {n[b],6} | {mA,6:F3} | {mC,8:F4} | "
+                          + $"{mBg,11:F4} | {mOut - mBg,11:F4} | {100.0 * neg[b] / n[b],11:F1}% | {worstNeg[b],12:F4}\n");
+            }
+            sb.Append($"    OVERALL: {nAll} cloud pixels, {100.0 * negAll / Mathf.Max(1, nAll):F2}% of them DARKER "
+                      + $"than the bare sky behind them, worst single pixel {worstAll:F4} darker.\n");
+            sb.Append("    A cloud reads as a cloud where 'mean out-bg' is POSITIVE and 'share darker' is near zero. "
+                      + "The user's report was that everything outside the corona failed that test.");
+            Debug.Log(sb.ToString());
+        }
+
+        // ------------------------------------------------------------- frames
+        private static void Frames(bool old)
+        {
+            string tag = old ? "336" : "now";
+            _wantStars = true;
+            if (_starsRen != null) _starsRen.enabled = true;
+            var shots = new (string name, Vector3 euler, float fov)[]
+            {
+                ("moon",     new Vector3(-MoonAlt, MoonAz, 0f), 80f),
+                ("off60",    new Vector3(-34f, MoonAz + 60f, 0f), 80f),
+                ("off120",   new Vector3(-34f, MoonAz + 120f, 0f), 80f),
+                ("opposite", new Vector3(-40f, MoonAz + 180f, 0f), 80f),
+            };
+            foreach (var s in shots)
+            {
+                Aim(s.euler, s.fov);
+                Clouds(false); Isolate(false);
+                var bg = Grab(Color.black);
+                Clouds(true);
+                var outp = Grab(Color.black);
+                Write($"sky_{s.name}_{tag}_nocloud", bg, 1f);
+                Write($"sky_{s.name}_{tag}_cloud", outp, 1f);
+                Write($"sky_{s.name}_{tag}_nocloud_x6", bg, 6f);
+                Write($"sky_{s.name}_{tag}_cloud_x6", outp, 6f);
+                // THE SIGN MAP. Red where the cloud made the sky DARKER (the
+                // defect), cyan where it made it brighter, black where it changed
+                // nothing. This is the picture the complaint is actually about and
+                // it is the one a screenshot of the sky cannot show.
+                var sign = new Color[bg.Length];
+                for (int p = 0; p < bg.Length; p++)
+                {
+                    float d = Lum(outp[p]) - Lum(bg[p]);
+                    float k = Mathf.Clamp01(Mathf.Abs(d) * 40f);
+                    sign[p] = d < 0f ? new Color(k, 0f, 0f, 1f) : new Color(0f, k, k, 1f);
+                }
+                WriteRaw($"sign_{s.name}_{tag}", sign);
+            }
+        }
+
+        private static void Write(string name, Color[] px, float lift)
+        {
+            var q = new Color[px.Length];
+            for (int i = 0; i < px.Length; i++)
+            {
+                var c = px[i];
+                if (lift != 1f) { c.r *= lift; c.g *= lift; c.b *= lift; }
+                c = c.gamma; c.a = 1f; q[i] = c;
+            }
+            WriteRaw(name, q);
+        }
+
+        private static void WriteRaw(string name, Color[] px)
+        {
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false);
+            tex.SetPixels(px); tex.Apply();
+            string path = Path.Combine(_out, name + ".png");
+            File.WriteAllBytes(path, tex.EncodeToPNG());
+            UnityEngine.Object.DestroyImmediate(tex);
+            Debug.Log($"[GloomhavenVR][CloudSign] wrote {Path.GetFullPath(path)}");
+        }
+
+        // ------------------------------------------------------------- stereo
+        // The one number this project watches on this layer, re-measured with the
+        // SAME instrument PreviewClouds uses so the two are comparable: mean
+        // |L - R| over a parallel 63 mm pair, with clouds and on the bare sky.
+        private static void Stereo(bool shipped)
+        {
+            _wantStars = true;
+            if (_starsRen != null) _starsRen.enabled = true;
+            var euler = new Vector3(-MoonAlt + 4f, MoonAz, 0f);
+            var rot = Quaternion.Euler(euler);
+            var right = rot * Vector3.right;
+            var basePos = new Vector3(0f, 2.80f, 0f);
+            if (_roomGeo != null) _roomGeo.SetActive(true);
+            Isolate(false);
+
+            Color[] Eye(float s, bool clouds)
+            {
+                Clouds(clouds);
+                _cam.transform.position = basePos + right * s;
+                _cam.transform.rotation = rot;
+                _cam.fieldOfView = 26f;
+                return Grab(new Color(0.01f, 0.01f, 0.015f));
+            }
+            var l = Eye(-HalfIpd, true); var r = Eye(+HalfIpd, true);
+            var l0 = Eye(-HalfIpd, false); var r0 = Eye(+HalfIpd, false);
+            Clouds(true);
+            if (_roomGeo != null) _roomGeo.SetActive(false);
+
+            double Mean(Color[] a, Color[] b)
+            {
+                double s = 0;
+                for (int i = 0; i < a.Length; i++)
+                    s += Mathf.Abs(a[i].r - b[i].r) + Mathf.Abs(a[i].g - b[i].g) + Mathf.Abs(a[i].b - b[i].b);
+                return s / (a.Length * 3);
+            }
+            double withC = Mean(l, r), without = Mean(l0, r0);
+            Debug.Log($"[GloomhavenVR][CloudSign] STEREO [{(shipped ? "AFTER" : "BEFORE")}] (parallel, IPD 63 mm, 26 deg fov, canopy-tear framing, "
+                      + $"{W}x{H}): mean |L-R| in LINEAR radiance = {withC:E3} with clouds vs {without:E3} on the "
+                      + $"SHIPPED sky alone, ratio {withC / Math.Max(without, 1e-12):F2}x. Same instrument as "
+                      + "CloudsPreview.Stereo — what would indicate rivalry is the clouds RAISING it.");
+        }
+    }
 }

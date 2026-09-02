@@ -17,6 +17,13 @@ Five requirements, and the fifth outranks the other four. What shipped:
 | 4 | leicht bewegen | additive uv wind, never a frequency | **0.055 °/s** at the moon's elevation |
 | 5 | **performant** | a shell, not a dome; 71 fragment instructions; 2 fetches | **17 %** of what the sky it draws over already costs |
 
+> **§11 (2026-09-02, second hardware test) supersedes the SHADING.** The in-scatter was a single
+> flat ambient term and the layer therefore drew itself INVERTED wherever the sky behind it was
+> brighter than that term — which is the whole Milky Way band. Row 1 above ("realistisch") was the
+> requirement that failed. `_CloudScatBase` 0.028 → 0.090 plus a new side-scatter lobe; **`.a` and
+> every guarantee derived from it are untouched.** Read §11 before quoting any in-scatter number
+> from §1–§10.
+>
 > **§10 supersedes the numbers in rows 2 and 3.** The 2026-09-02 hardware test asked for more
 > visible clouds and the ceiling went 0.42 → 0.62. **Everything else in this document still holds
 > as written** — the arguments in §2–§6 are about the arithmetic, and not one of them has a value
@@ -373,8 +380,9 @@ manual `.gamma` encode, no exposure and no tonemap; 1280×720. All of it lands i
 | `cloud_moon_occlusion.png` / `.tsv` | the occlusion series, plotted and tabulated |
 | `cloud_cellar_unchanged_*.png` | the cellar, on record as untouched |
 
-Two of them and the plot are committed under `.planning/forest-clouds/`; the rest are ~20 MB and
-stay on the worktree's disk, following the precedent of `render/windowmaterialise/`.
+Two of them and the plot sit under `.planning/debug/renders/forest-clouds/`; the rest are ~20 MB
+and stay on the worktree's disk. That whole tree is GITIGNORED — user ruling 2026-09-02: renders
+belong in the debug folder, never in the tracked planning tree.
 
 **My own verdict on the look, since the brief asks for one rather than a defence.** The wide sky
 frame is the one that convinced me: thin streaks lying along the wind, stars visibly blotted where a
@@ -653,3 +661,231 @@ grep -aE 'CloudPreview\] (LOOP|STEREO|MOON|NEVER|SHELL|FILL|CELLAR|moon disc)' c
 
 The plot is regenerated from the new TSV with §8's script, with the floor argument changed from
 `0.853` to `0.783`.
+
+---
+
+## 11. The negative image — 2026-09-02, second hardware test
+
+> **User, verbatim.** "Ich mag die Wolken, um den Mond herum sehen sie gut aus, aber außerhalb des
+> Monds sieht es eher aus wie als wären die Wolken ein Negativbild — auf Screenshots sieht man das
+> leider nicht so gut. Ich will dass die Wolken auch gut aussehen wenn sie nicht direkt vom Mond
+> angestrahlt werden."
+
+**He is reporting a sign, and it is a sign this document could have computed before he ever put the
+headset on.** The clause about screenshots is the important one and it is why nothing below is a
+frame: what settles this is one number, measured.
+
+### 11.1 The arithmetic he is describing
+
+The layer composites premultiplied, so with `A` the alpha it writes and `L` the premultiplied
+radiance it adds,
+
+```
+out = L + (1 - A)·bg            and therefore            out - bg = A · (C - bg)
+```
+
+where **`C = L/A` is the layer's INTRINSIC radiance** — what an opaque patch of it would show. The
+sign of `(C - bg)` *is* the complaint:
+
+| | |
+|---|---|
+| `C > bg` | a thicker wisp is **brighter** than the sky it lies on. That is a cloud. |
+| `C < bg` | a thicker wisp is **darker**. The layer draws its own structure **inverted** over the background. That is a negative. |
+
+With the single ambient term that shipped, `C = lum(tint) × _CloudScatBase = 0.777 × 0.028 =
+0.0218`, **flat over the whole sky outside the corona**. And the sky it lies on is not flat:
+
+| the sky's own layers | linear luminance |
+|---|---|
+| horizon gradient (`_HorizonCol`) | 0.0039 |
+| zenith gradient (`_TopCol`) | 0.0121 |
+| **Milky Way band** (`_MwGain` 0.040 × mottle × `mwCol`) | **~0.048–0.064** |
+| galactic bulge core | ~0.12 |
+| sub-visual dust dots (`_DustGain` 0.085) | ~0.078 at a dot |
+| catalogue stars (`_Gain` 2.6) | far above all of it |
+
+So the shipped cloud was **brighter than the empty gaps and two to three times darker than the
+band** — a contrast inversion over exactly the part of the sky the eye is drawn to. Near the moon
+the forward lobe puts `C` at 0.45 and the question does not arise, **which is precisely why he
+likes the clouds there and nowhere else.**
+
+**And §10's own comment contains the mistake.** It read: *"the peak in-scatter away from the moon is
+~0.020 of that colour against a zenith sky of ~0.012, i.e. the cloud is barely brighter than the sky
+it hides."* Both halves are arithmetically true. The conclusion is not, because **the sky it hides
+is not the zenith gradient** — it is the gradient *plus* the Milky Way *plus* the dust. This is this
+project's recorded *one contributor is not the union* / *an instrument that measures one term*
+failure, in a comment rather than in an instrument.
+
+### 11.2 The fix: a floor, and it is physical
+
+A cloud under a gibbous moon is not lit only by the single-scattered beam. It is lit by **multiple
+scattering inside its own droplets**, by the **moonlit air column under it**, and by the
+**skyglow** — all three near-isotropic, none of them dying when you turn away from the moon. That
+is why real thin cloud is visibly grey right across a moonlit sky, and it is the term this model
+never had. Three terms now, in `EnvCloud.cginc`:
+
+```hlsl
+float fwd  = pow(saturate(m), _CloudScatPow);
+float side = 0.5 * m + 0.5;                       // 1 at the moon, 0 opposite
+float3 L = _CloudTint.rgb * (_CloudScatBase
+                           + _CloudScatWide * (side * side)
+                           + _CloudScatFwd  * fwd) * a;
+```
+
+| dial | was | now | what it is |
+|---|---|---|---|
+| `_CloudScatBase` | 0.028 | **0.090** | the isotropic **floor**. `C` can never fall under `lum(tint) × this` = **0.0700** |
+| `_CloudScatWide` | — | **0.055** | a broad side-scatter lobe, so the floor is not a flat grey: 1.45× brighter 45° from the moon than opposite it |
+| `_CloudScatFwd` | 0.55 | **0.55** | **unchanged.** The corona is the part he said was right |
+| `_CloudScatPow` | 90 | **90** | unchanged |
+| `_CloudAlpha` | 0.62 | **0.62** | **unchanged — deliberately.** See 11.4 |
+
+**`.a` is untouched and that is a decision, not an omission.** Halving the alpha would also raise
+`C/A` and remove the inversion — but every guarantee this effect carries ("niemals dicht", the
+moon's transmitted floor) is a statement about that number, the bake asserts them from
+`CloudAlpha × CloudMoonMin`, and `PreviewClouds` recovers it from a black/white clear pair. A layer
+whose alpha meant something other than its ceiling would make all three of those quietly wrong.
+
+### 11.3 Measured — the number he could not photograph
+
+`CloudSignPreview` (new, in `Assets/Editor/PreviewEnvironments.cs`) reads the sign directly:
+`bg` with the `CloudBand` node off, `out` with it on, and `A` recovered the way §3 recovers it, from
+the isolated shell over a **black** clear and a **white** one (`A = 1 − (white − black)`), so `C =
+L/A` is *measured* and not computed from the constants it was authored with. Every pixel is binned
+by **its own angle from the moon**, taken from the camera ray. Four 80° frames (at the moon, 60°
+off, 120° off, opposite), 1024², pixels with `A > 0.03`, 1.10 M of them.
+
+**Both columns come from ONE process on ONE instrument**: the "before" is the shipped material with
+only `_CloudScatBase`/`_CloudScatWide` wound back to ModBuild 336 — same mesh, same noise, same
+alpha, same camera, same clock, same readback. There is no build in the comparison, only the change.
+
+Star **points** are excluded from the table below (they are 8-bit-saturating dots far brighter than
+any cloud; a cloud is *supposed* to dim those). The whole-sky figures including them are in the log
+and differ in the third decimal.
+
+| angle from moon | cloud `C` before → after | mean sky `bg` | mean `out − bg` before → after | share of pixels **darker** before → after |
+|---|---|---|---|---|
+| 0–15° | 0.0913 → **0.1570** | 0.0122 | +0.0057 → **+0.0112** | 1.2 % → **0.9 %** ¹ |
+| 15–30° | 0.0179 → **0.0820** | 0.0074 | +0.0014 → **+0.0104** | 1.0 % → **0.0 %** |
+| 30–45° | 0.0159 → **0.0769** | 0.0038 | +0.0018 → **+0.0112** | 0.2 % → **0.0 %** |
+| 45–60° | 0.0159 → **0.0707** | 0.0014 | +0.0017 → **+0.0082** | 0.1 % → **0.0 %** |
+| 60–75° | 0.0159 → **0.0664** | 0.0026 | +0.0017 → **+0.0083** | 6.3 % → **0.0 %** |
+| 75–90° | 0.0159 → **0.0616** | 0.0043 | +0.0020 → **+0.0106** | 11.3 % → **0.0 %** |
+| 90–105° | 0.0159 → **0.0579** | 0.0054 | +0.0013 → **+0.0070** | **17.2 %** → **0.0 %** |
+| 105–120° | 0.0159 → **0.0544** | 0.0028 | +0.0023 → **+0.0087** | 2.9 % → **0.0 %** |
+| 120–135° | 0.0159 → **0.0530** | 0.0009 | +0.0017 → **+0.0058** | 0.0 % → **0.0 %** |
+| **overall** | | | | **5.77 % → 0.06 %** |
+
+¹ the residual in the innermost bin is **the moon's own disc**, which the veil is allowed to dim by
+up to 21.7 % and does. That is the requirement, not a defect.
+
+Read the two columns that matter together. Before, `C` was a flat **0.0159** everywhere outside the
+corona and the mean lift over the sky was **+0.0014 to +0.0023** — under one 8-bit step — while
+**17 % of the pixels 90–105° from the moon were actually darker** than the sky behind them. After,
+`C` runs **0.053 (opposite the moon) to 0.157 (on it)**, the mean lift is **4–6× larger and positive
+in every bin**, and the inverted population is **gone**: 0.06 % of 1.1 M pixels, all of them on the
+moon disc.
+
+**And the bake now refuses to lose it again.** `AssertCloudsAreNotANegative()` recomputes `C`'s
+minimum from the shipped constants and throws if it falls under the sky's continuous layer:
+
+```
+CLOUD NEGATIVE-IMAGE GATE holds. C = lum(tint) x (base + wide x s^2 + fwd x m^90) runs
+0.0700 (opposite the moon) .. 0.5403 (on it), against a sky whose continuous layer runs
+0.0039 (horizon gradient) .. 0.0121 (zenith gradient) .. 0.0482 (Milky Way band).
+The MINIMUM clears the band by 45%.
+```
+
+It is a bound on the **minimum**: `C = lum(tint)·(base + wide·s² + fwd·mⁿ)` with `s`, `mⁿ` both in
+`[0,1]`, so `C ≥ lum(tint)·base` **anywhere in the sky, at any instant, for any content of the
+noise**. Nothing in that depends on time or on where the player stands.
+
+### 11.4 The three constraints that had to survive, and did
+
+**The moon.** `CloudAlpha` and `CloudMoonMin` did not move, and the alpha formula did not change, so
+the whole of §3 stands **bit for bit**:
+
+```
+CLOUD/MOON GUARANTEE holds. ... MAX cloud opacity over the moon = 0.62 x 0.35 = 0.217,
+so the moon is NEVER less than 78.3% transmitted, at any instant, from any viewpoint
+— clearing the 75% floor by 3.3 points. Ceiling anywhere in the sky: 0.62.
+```
+
+Every alpha-derived measurement in §3 and §10 is unchanged **by construction**, because this round
+changed only `.rgb`.
+
+**Cost.** From the real compiler (`ShaderUtil.OpenCompiledShader`, d3d11, same run reporting
+`EnvStars` for scale):
+
+| | vertex | fragment |
+|---|---|---|
+| `EnvCloud` **before** | 8 math, 2 temps | 63 math, 4 temps, 2 textures, **0 branches** |
+| `EnvCloud` **after** | 8 math, 2 temps | **66 math, 4 temps, 2 textures, 0 branches** |
+| `EnvStars` (the layer it draws over) | 8 math, 2 temps | 362 math, 10 temps, 7 textures, 9 branches |
+
+**+3 fragment ALU, +0 textures, +0 branches, +0 temp registers, +0 draw calls, +0 bundle bytes** —
+one `mad` for `side`, one `mul` for `side*side`, one `mad` to fold it into the sum. The cloud
+fragment goes from **17.4 % to 18.2 %** of the sky shader's math and its texture fetches are
+unchanged at 28.6 % of `EnvStars`'. The **blend** cost is unchanged too, because the `clip()`
+threshold is on `.a` and `.a` did not move — the same fragments reach the frame buffer as in §10's
+table. Requirement 5 ("die Umgebungen sind nur Beiwerk") is untouched to within three instructions
+on a shader that is a sixth of the one already shipped underneath it.
+
+**Stereo — this got worse and it is the one number that did.** `CloudsPreview.Stereo`, the
+project's own instrument, unchanged, on the shipped build:
+
+| | mean \|L−R\|, clouds | bare sky | ratio |
+|---|---|---|---|
+| ModBuild 336 (§10) | 1.818 × 10⁻³ | 1.100 × 10⁻³ | 1.65× |
+| **shipped now** | **2.320 × 10⁻³** | 1.100 × 10⁻³ | **2.11×** |
+
+A second, independent station (`CloudSignPreview.Stereo`, 1024² square, both dial sets in **one
+process** so the only difference is the dials) reads **1.47× → 1.71×** on the same change. The two
+absolute numbers differ because the framings differ; both say the same thing, which is that the
+ratio rose by a quarter to a third.
+
+**Why, and why I think it is benign but am not asserting it.** A dome at 45 m has real parallax at
+63 mm (≈0.08°, 2–3 px at this fov); the layer is now several times brighter, and a brighter layer
+necessarily makes more of the frame differ between the eyes. The mechanism is **smooth parallax on
+a smooth gradient**, not a screen-keyed pattern: §6's constant-buffer proof is unchanged — the
+fragment still binds no eye state, still does not read `SV_POSITION`, and the three new instructions
+read only `m`, which is a function of the fragment's own object-space position. But 2.11× is a real
+rise on a number this project watches and it goes on the hardware-test list, not in a footnote.
+
+**Everything else the canonical station measures is unchanged, as it must be** — this round did not
+touch `.a`:
+
+| | ModBuild 336 | now |
+|---|---|---|
+| worst single pixel on the moon's disc, 240 samples over the full cycle | α 0.1661 → 83.39 % transmitted | α **0.1664 → 83.36 %** |
+| worst disc **mean** | 90.24 % | **90.24 %** |
+| most opaque pixel anywhere, 60 instants | α 0.620 | **α 0.6202** |
+| share of sky over 2 % opacity | 44.4 % | **44.4 %** |
+| loop closure \|t=0 − t=1440 s\| | 7.6 × 10⁻⁶ | **7.6 × 10⁻⁵**, against a 9.3 × 10² positive control |
+| cellar | no `CloudBand` node | **no `CloudBand` node** |
+
+### 11.5 The frames
+
+`.planning/debug/renders/cloudsign/` (gitignored — user ruling 2026-09-02, renders do not go in the
+tracked planning tree):
+
+| file | what |
+|---|---|
+| `sky_moon_336_cloud.png` / `sky_moon_now_cloud.png` | **the pair the defect is judged on**, at true exposure. In the "336" frame the wisps in the lower half are visibly *darker* than the sky between them; in "now" they are grey |
+| `sky_off120_336_cloud_x6.png` / `sky_off120_now_cloud_x6.png` | 120° from the moon at 6× lift — the flattest, least moon-lit part of the sky |
+| `sky_opposite_now_cloud.png` | opposite the moon, true exposure: thin grey cirrus with stars through the gaps, and the sky between them still near-black |
+| `sign_<view>_336.png` / `sign_<view>_now.png` | **the sign map.** Red where the cloud made the sky darker, cyan where brighter. This is the picture the complaint is about and the one an ordinary screenshot cannot show |
+
+### 11.6 What is still not settled without a headset
+
+1. **Whether 0.090 is the right floor rather than merely a sufficient one.** It is derived (C's
+   minimum ≥ the band's luminance) and it clears that bar by 45 %, which is margin chosen so the
+   *typical* band pixel is cleared rather than only the mean. If the veil now reads as too grey on
+   hardware, `CloudScatBase` is the single dial and the gate above states its floor.
+2. **The galactic bulge core.** At ~0.12 it is still brighter than `C` at its minimum, so a thick
+   wisp crossing the very centre of the Milky Way dims it by up to ~20 %. That is what a real cloud
+   in front of the Milky Way does and it is deliberately not chased: matching it would need
+   `CloudScatBase ≈ 0.16`, which is an overcast.
+3. **The stereo rise, 1.65x -> 2.11x on the project's own instrument** (11.4). It is the one number that moved the wrong way.
+4. Everything in §10's list that this round did not touch: GPU time, real MultiPass, per-eye mip
+   selection, absolute brightness, aliasing, two live peers.

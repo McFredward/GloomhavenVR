@@ -37,9 +37,10 @@ Material:
     - _CloudMoonOut: 0.89879405
     - _CloudRatio: 3.1
     - _CloudScale: 0.3
-    - _CloudScatBase: 0.028
+    - _CloudScatBase: 0.09
     - _CloudScatFwd: 0.55
     - _CloudScatPow: 90
+    - _CloudScatWide: 0.055
     - _CloudSharp: 3.6
     m_Colors:
     - _CloudMoonDir: {r: 0.4925564, g: 0.64270705, b: 0.58678424, a: 0}

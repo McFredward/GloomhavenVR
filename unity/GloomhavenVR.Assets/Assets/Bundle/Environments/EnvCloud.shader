@@ -85,7 +85,11 @@ Shader "GloomhavenVR/EnvCloud"
         _CloudEdge ("Clear-patch rim wobble (cos units)", Range(0,0.05)) = 0.010
 
         _CloudTint ("Cloud colour", Color) = (0.72,0.78,0.92,1)
-        _CloudScatBase ("Ambient in-scatter", Range(0,1)) = 0.028
+        // THE FLOOR. See EnvCloud.cginc's in-scatter block: an alpha-blended
+        // layer whose intrinsic radiance is under the background it lies on is a
+        // NEGATIVE image of itself, and this is the number that stops that.
+        _CloudScatBase ("Ambient in-scatter (THE FLOOR)", Range(0,1)) = 0.090
+        _CloudScatWide ("Side-scatter lobe", Range(0,1)) = 0.055
         _CloudScatFwd ("Forward-scatter peak", Range(0,4)) = 0.55
         _CloudScatPow ("Forward lobe hardness", Range(4,400)) = 90
     }

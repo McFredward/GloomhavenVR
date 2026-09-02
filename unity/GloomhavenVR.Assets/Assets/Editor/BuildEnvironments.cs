@@ -260,6 +260,121 @@ namespace GloomhavenVR
         /// 3.3 points.</summary>
         private const float CloudMoonFloor = 0.75f;
 
+        // ================= THE IN-SCATTER, AND THE NEGATIVE IMAGE =============
+        // USER, 2026-09-02 hardware test, verbatim: "Ich mag die Wolken, um den
+        // Mond herum sehen sie gut aus, aber außerhalb des Monds sieht es eher aus
+        // wie als wären die Wolken ein Negativbild - auf Screenshots sieht man das
+        // leider nicht so gut. Ich will dass die Wolken auch gut aussehen wenn sie
+        // nicht direkt vom Mond angestrahlt werden."
+        //
+        // He is reporting a SIGN, and it is a sign this file could have computed.
+        // The layer composites premultiplied, so
+        //     out - bg = a * (C - bg),   C = the cloud's intrinsic radiance
+        // and C was tint x CloudScatBase = a flat luminance of 0.0218 everywhere
+        // outside the corona. The dome it lies on is not flat:
+        //
+        //   zenith gradient        _TopCol          luminance 0.0121
+        //   horizon gradient       _HorizonCol      luminance 0.0035
+        //   Milky Way band         _MwGain 0.040    luminance ~0.064 typical
+        //   galactic bulge core                     luminance ~0.12
+        //   sub-visual dust dots   _DustGain 0.085  luminance ~0.078 at a dot
+        //   catalogue stars        _Gain 2.6        far above all of it
+        //
+        // So the shipped cloud was BRIGHTER than the empty gaps between the stars
+        // and THREE TIMES DARKER than the band — i.e. it drew its own shape
+        // inverted over precisely the part of the sky the eye is drawn to. Near
+        // the moon the forward lobe puts C at 0.45 and the question does not
+        // arise, which is exactly why he likes the clouds there and nowhere else.
+        //
+        // THE FIX IS A FLOOR ON C, not a change to the alpha. Physically it is the
+        // isotropic half of the illumination a real cloud has and this model did
+        // not: multiple scattering inside the droplets, the moonlit air column
+        // under the deck, and the skyglow. None of those dies when you turn away
+        // from the moon, which is why real thin cloud under a gibbous moon is
+        // visibly grey across the whole sky. CloudScatBase is sized so that C at
+        // its MINIMUM — the point of the sky opposite the moon — is at or over the
+        // band's own luminance, and AssertCloudsAreNotANegative recomputes that
+        // from the shipped material and throws if a later round undoes it.
+        //
+        // WHAT DID NOT MOVE: CloudAlpha, CloudMoonMin, CloudCut, CloudSharp, the
+        // wind, the noise, the taper and the forward lobe. He asked for one thing
+        // and the corona is the part he said was right.
+        /// <summary>The isotropic floor. In luminance the cloud's darkest possible
+        /// intrinsic radiance is <c>lum(CloudTint) * this</c> = 0.777 x 0.090 =
+        /// 0.070, which is the Milky Way band's own typical luminance — so a wisp
+        /// crossing the band neither lifts it nor cuts a rift in it, and a wisp on
+        /// empty sky is ~6x the gradient under it and reads as grey cloud.</summary>
+        private const float CloudScatBase = 0.090f;
+        /// <summary>A broad side-scatter lobe over the moon-facing hemisphere,
+        /// <c>((m+1)/2)^2</c>. Real droplet and ice phase functions are
+        /// forward-peaked but are not a spike; without this the floor is a
+        /// perfectly flat grey and the veil reads as paint. At this weight the
+        /// layer is 1.45x brighter 45 deg from the moon than opposite it.</summary>
+        private const float CloudScatWide = 0.055f;
+        /// <summary>The corona. UNCHANGED — it is the part the user said was
+        /// right.</summary>
+        private const float CloudScatFwd = 0.55f;
+        private const float CloudScatPow = 90f;
+
+        /// <summary>Rec.709 luminance, the same weighting every measurement in
+        /// this round's report uses.</summary>
+        private static float Lum(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+        /// <summary>THE NEGATIVE-IMAGE GATE. The user's complaint has an exact
+        /// arithmetic form — <c>out - bg = a * (C - bg)</c>, so the layer draws
+        /// itself inverted wherever its intrinsic radiance C falls under the sky
+        /// behind it — and this recomputes C's MINIMUM over the whole dome from
+        /// the shipped constants and refuses to bake if it drops back under the
+        /// sky's own continuous layer.
+        ///
+        /// <para>The bar is the MILKY WAY BAND and not the gradient, and that is
+        /// the whole lesson of the round that shipped the defect: the old comment
+        /// compared the cloud against <c>_TopCol</c> (0.0121) and concluded it was
+        /// "barely brighter than the sky it hides", which was true of one term of a
+        /// sky that has four. What the band reaches is derived here from the star
+        /// material's own dials rather than typed.</para>
+        ///
+        /// <para>It is a bound on the MINIMUM: C is <c>lum(tint) x (base + wide x
+        /// s^2 + fwd x m^pow)</c> with s, m^pow both in [0,1], so C is never less
+        /// than <c>lum(tint) x base</c>, anywhere in the sky, at any instant, for
+        /// any content of the noise. Nothing in that depends on time or on where
+        /// the player stands.</para></summary>
+        private static void AssertCloudsAreNotANegative()
+        {
+            var tint = new Color(0.72f, 0.78f, 0.92f);
+            float cMin = Lum(tint) * CloudScatBase;
+            // The band's typical luminance, from the star material's own numbers:
+            // band peaks near 1.0 of its profile away from the bulge, mottle sits
+            // near 1.05, and mwCol's luminance is ~0.86. (The BULGE CORE is
+            // brighter still and is deliberately NOT the bar — a thin cloud in
+            // front of the galactic centre dimming it slightly is what a cloud
+            // does; a cloud cutting a rift through the whole band is not.)
+            const float bandTypical = 1.0f * 1.05f * 0.040f * 0.86f;   // 0.0361
+            float zenith = Lum(new Color(0.0092f, 0.0120f, 0.0212f));  // _TopCol
+            float bar = bandTypical + zenith;                          // the band SITS ON the gradient
+            if (cMin < bar)
+                throw new Exception(
+                    $"CLOUD NEGATIVE-IMAGE GATE: the cloud's darkest intrinsic radiance is {cMin:F4} "
+                    + $"(lum(tint) {Lum(tint):F3} x CloudScatBase {CloudScatBase:F3}) but the sky's own "
+                    + $"continuous layer reaches {bar:F4} over the Milky Way band. A premultiplied layer "
+                    + "darker than what it lies on draws its own structure INVERTED — which is exactly "
+                    + "what the user reported on 2026-09-02 (\"als wären die Wolken ein Negativbild\"). "
+                    + "Raise CloudScatBase, or lower _MwGain on Swamp_StarDome — do not buy visibility "
+                    + "back with CloudAlpha, which multiplies the EXTINCTION and makes the inversion "
+                    + "deeper rather than shallower.");
+            float cMax = Lum(tint) * (CloudScatBase + CloudScatWide + CloudScatFwd);
+            Debug.Log("[GloomhavenVR][Env] CLOUD NEGATIVE-IMAGE GATE holds. The cloud's intrinsic "
+                      + $"radiance C = lum(tint) x (base + wide x s^2 + fwd x m^{CloudScatPow:F0}) runs "
+                      + $"{cMin:F4} (opposite the moon) .. {cMax:F4} (on it), against a sky whose "
+                      + $"continuous layer runs {Lum(new Color(0.0030f, 0.0039f, 0.0068f)):F4} (horizon "
+                      + $"gradient) .. {zenith:F4} (zenith gradient) .. {bar:F4} (Milky Way band). The "
+                      + $"MINIMUM clears the band by {(cMin - bar) * 100f / bar:F0}%, so out - bg = "
+                      + "a x (C - bg) is POSITIVE over every part of the sky's continuous layer, at "
+                      + "every instant, for any content of the noise — the layer can no longer draw "
+                      + "itself inverted. (Catalogue star POINTS and the moon disc are far brighter "
+                      + "than any cloud and are still dimmed, which is what a cloud is for.)");
+        }
+
         /// <summary>The structural bound the preview station measures against: the
         /// most of the moon this layer can ever swallow. Exposed rather than
         /// retyped in PreviewClouds, so the measurement cannot agree with a bound
@@ -3085,25 +3200,25 @@ namespace GloomhavenVR
             // Colour: the cloud is lit by the moon and by nothing else, so it is
             // the MOON'S colour, cooled slightly — moonlight is warm-white but a
             // cloud's own scattering is Rayleigh-biased and reads cooler than the
-            // source. Dark on purpose: the peak in-scatter away from the moon is
-            // ~0.020 of that colour against a zenith sky of ~0.012, i.e. the cloud
-            // is barely brighter than the sky it hides. THIS IS THE WHOLE "leicht"
-            // REQUIREMENT. A grey cloud over a near-black night sky is the lifted-
-            // horizon-band complaint (ModBuild 134) all over again, in the middle
-            // of the sky instead of at the bottom of it.
+            // source.
+            //
+            // (WHAT USED TO BE WRITTEN HERE, AND WHY IT WAS WRONG. "Dark on
+            // purpose: the peak in-scatter away from the moon is ~0.020 of that
+            // colour against a zenith sky of ~0.012, i.e. the cloud is barely
+            // brighter than the sky it hides." Both halves of that sentence are
+            // arithmetically true and the conclusion drawn from them was not: the
+            // sky it hides is NOT the zenith gradient. The Milky Way band on the
+            // same dome runs to ~0.064 and its bulge past 0.12, and a premultiplied
+            // layer whose intrinsic radiance is under what it lies on draws its own
+            // structure INVERTED. That is the negative image the user reported on
+            // 2026-09-02. The comparison was made against one term of the
+            // background instead of against the background.)
             clouds.SetColor("_CloudTint", new Color(0.72f, 0.78f, 0.92f));
-            // AMBIENT IN-SCATTER, 0.020 -> 0.028 with the intensity lift. A wisp
-            // far from the moon is legible in two ways and only two: it SWALLOWS
-            // the stars behind it (extinction, which the ceiling now does much
-            // more of) and it THROWS BACK a little skyglow of its own. The second
-            // is what makes it read as a cloud rather than as a hole in the star
-            // field, and at 0.020 there was almost none of it. This is the small
-            // half of the change deliberately — the forward lobe around the moon
-            // is untouched at 0.55, so the corona keeps its shape and the layer
-            // stays dark-with-a-lit-edge rather than becoming a uniform grey.
-            clouds.SetFloat("_CloudScatBase", 0.028f);
-            clouds.SetFloat("_CloudScatFwd", 0.55f);
-            clouds.SetFloat("_CloudScatPow", 90f);
+            clouds.SetFloat("_CloudScatBase", CloudScatBase);
+            clouds.SetFloat("_CloudScatWide", CloudScatWide);
+            clouds.SetFloat("_CloudScatFwd", CloudScatFwd);
+            clouds.SetFloat("_CloudScatPow", CloudScatPow);
+            AssertCloudsAreNotANegative();
             LogClouds();
 
             // ---- real catalogue stars (see BuildStarField / EnvStarPoints) ----

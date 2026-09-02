@@ -83,7 +83,8 @@ float _CloudMoonMin;    // taper floor on the moon's disc
 float _CloudMoonIn;     // cos(inner clear angle)  - full taper inside this
 float _CloudMoonOut;    // cos(outer clear angle)  - no taper outside this
 float _CloudEdge;       // bounded noise nudge on m; |nudge| <= 0.5*_CloudEdge
-float _CloudScatBase;   // ambient in-scatter (away from the moon)
+float _CloudScatBase;   // AMBIENT in-scatter — the floor, everywhere in the sky
+float _CloudScatWide;   // side-scatter lobe (wide, moon-facing hemisphere)
 float _CloudScatFwd;    // forward-scatter peak (the corona around the moon)
 float _CloudScatPow;    // forward lobe hardness
 
@@ -136,16 +137,64 @@ float4 GhvrCloudLayer (float3 u, float t)
 
     float a = _CloudAlpha * ev * taper * cov;
 
-    // -------- in-scatter. A thin cloud at night is not a grey smudge: it is
-    // dark almost everywhere and BRIGHT around the moon, because single
-    // scattering in water/ice is strongly forward-peaked. pow(m, n) is a cheap
-    // stand-in for that lobe; at the shipped exponent its half-width is about
-    // sqrt(2/n) radians, which puts the corona right where the taper is
-    // thinning the cloud. The two together are the actual look being aimed at:
-    // the moon BURNING THROUGH a veil, not a hole cut around it.
+    // -------- in-scatter, IN THREE TERMS, AND THE FIRST OF THEM IS THE ONE
+    // THAT WAS MISSING.
+    //
+    // USER, 2026-09-02 hardware test, verbatim: "Ich mag die Wolken, um den Mond
+    // herum sehen sie gut aus, aber ausserhalb des Monds sieht es eher aus wie
+    // als waeren die Wolken ein Negativbild ... Ich will dass die Wolken auch gut
+    // aussehen wenn sie nicht direkt vom Mond angestrahlt werden."
+    //
+    // HE IS DESCRIBING AN ARITHMETIC FACT AND NOT A TASTE. This layer composites
+    // premultiplied, so what the frame buffer ends up with is
+    //     out = L + (1 - a) * bg    and therefore    out - bg = a * (C - bg)
+    // where C = L/a is the cloud's INTRINSIC radiance — what an opaque patch of
+    // it would show. The sign of (C - bg) is the whole of his complaint:
+    //
+    //   * C > bg  -> a thicker wisp is BRIGHTER. That is a cloud.
+    //   * C < bg  -> a thicker wisp is DARKER. The layer's own structure is drawn
+    //                INVERTED against whatever it lies on. That is a negative.
+    //
+    // With the old single ambient term C was tint x 0.028, i.e. a LUMINANCE of
+    // 0.0218, flat over the whole sky outside the corona. The sky it lies on runs
+    // from 0.0035 (horizon gradient) through 0.0121 (zenith gradient) to about
+    // 0.064 over the Milky Way band and past 0.12 in the galactic bulge. So the
+    // shipped cloud was brighter than the empty gaps and three times darker than
+    // the band — which is exactly a negative image, and exactly where the eye
+    // looks. Near the moon the forward lobe put C at 0.45 and swamped the whole
+    // question, which is why the corona was the one part he liked.
+    //
+    // THE FIX IS A FLOOR, and it is physical rather than a fudge. A cloud under a
+    // gibbous moon is not lit only by the single-scattered beam: it is lit by
+    // MULTIPLE scattering inside its own droplets, by the moonlit air column
+    // under it, and by the skyglow. All three are near-isotropic and none of them
+    // dies when you turn away from the moon, which is why real thin cloud is
+    // visibly grey right across a moonlit sky. Three terms now, cheapest first:
+    //
+    //   BASE   isotropic. The floor. Sized so that C at its MINIMUM (the point of
+    //          the sky opposite the moon) is at or over the sky's own band
+    //          luminance, which is what makes "never a negative" a property of
+    //          the numbers rather than of where the wisp happens to be.
+    //   WIDE   a broad side-scatter lobe over the moon-facing hemisphere. Real
+    //          droplet and ice phase functions are forward-peaked but they are not
+    //          a spike — there is real scattering at 90 deg. Without this the
+    //          floor is a perfectly flat grey and the layer reads as paint; with
+    //          it the veil is about 1.5x brighter 45 deg from the moon than it is
+    //          opposite, which is the gradient a real deck has. ((m+1)/2)^2 is two
+    //          instructions and is the cheap stand-in.
+    //   FWD    the corona. UNCHANGED, at the same peak and the same exponent: it
+    //          is the part he said was right.
     float fwd = pow(saturate(m), _CloudScatPow);
-    float3 L = _CloudTint.rgb * (_CloudScatBase + _CloudScatFwd * fwd) * a;
+    float side = 0.5 * m + 0.5;                      // 1 at the moon, 0 opposite
+    float3 L = _CloudTint.rgb * (_CloudScatBase + _CloudScatWide * (side * side)
+                                                + _CloudScatFwd * fwd) * a;
 
+    // .a IS STILL THE PLAIN OPTICAL DEPTH. It is deliberately NOT scaled here:
+    // every guarantee this effect carries ("niemals dicht", the moon's transmitted
+    // floor) is a statement about this number, the bake asserts them from
+    // CloudAlpha x CloudMoonMin, and PreviewClouds recovers it from a black/white
+    // clear pair. A layer whose alpha meant something different from its ceiling
+    // would make all three of those quietly wrong.
     return float4(L, a);
 }
 #endif // GHVR_ENV_CLOUD_INCLUDED

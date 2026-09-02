@@ -4168,10 +4168,18 @@ namespace GloomhavenVR
             return new Vector3(-CW / 2f, d.height * 0.48f, -CD / 2f + (d.xMin + d.xMax) * 0.5f);
         }
 
-        /// <summary>The outside ground level: the OUTER cill. Every tree in the
-        /// wood beyond the window stands on it, and it is 2.343 m — ABOVE every
-        /// eye height this room has, which is why the ground itself is never in
-        /// view from inside.</summary>
+        /// <summary>The outside ground level AT THE WALL: the OUTER cill, 2.343 m
+        /// — ABOVE every eye height this room has, which is why the ground itself
+        /// is never in view from inside. It is where the earth meets the opening
+        /// and it is the level HauntFigures' window figure is sunk against, so it
+        /// does not move.
+        /// <para>IT IS NOT THE LEVEL UNDER THE TREES ANY MORE. Since 2026-09-02
+        /// ("Macht den Waldboden noch etwas tiefer unter dem Fenster (nur ein
+        /// Meter ca.)") the floor falls <see cref="WoodGroundDrop"/> m away from
+        /// the window over <see cref="WoodDropIn"/>..<see cref="WoodDropOut"/> m,
+        /// so out where the wood stands it is about 1.34 m. Anything that needs
+        /// the floor at a POINT must call <c>CellarWoodGroundY</c>; this returns
+        /// the datum, not the surface.</para></summary>
         public static float CellarOutsideGroundY()
         {
             var wh = SnappedHole(WindowHole, CW, CH, WallCell);
@@ -4241,6 +4249,94 @@ namespace GloomhavenVR
         /// by it. AddWoodOutsideWindow reads this and throws rather than shipping
         /// a wood the sky erases.</summary>
         private const float NightSkyR = 26f;
+
+        // =============== THE FOREST FLOOR OUTSIDE THE WINDOW, ONE FUNCTION ====
+        // USER, 2026-09-02 hardware test, verbatim: "Macht den Waldboden noch
+        // etwas tiefer unter dem Fenster (nur ein Meter ca.)."
+        //
+        // It is ONE function now and it was two copies of nothing before: the
+        // heightfield lived as a local `Hgt` inside AddNightOutsideWindow and the
+        // trunks were bedded against the FLAT base level, which is why a trunk on
+        // the low side of a mound could already stand 0.14 m clear of the earth
+        // it was supposed to be planted in. With the floor dropping a whole metre
+        // that stops being a rounding error and becomes the exact complaint this
+        // wood exists to answer ("keine kleinen schwebenden Bäume"), so the mesh
+        // and every trunk foot now read the SAME function.
+        //
+        // WHY THE DROP IS GATED AND THE FIRST METRE IS NOT ALLOWED TO MOVE.
+        // HauntFigures' cellar-window card stands a real game monster at room
+        // z = 5.35, i.e. 0.30 m off the outer face, sunk so that only its head and
+        // shoulders clear y = 2.343 — and the whole staging of that event is
+        // "the outside ground hides everything below the outer cill" (see
+        // HauntFigures.Events.cs, THE FIGURE IS SUNK). That is another lane's
+        // geometry and a flat 1 m drop everywhere would expose a whole figure
+        // standing in a field, seen from the tabletop vantage. So the drop rides
+        // its own gate: dead flat at the shipped level out to WoodDropIn, full
+        // WoodGroundDrop by WoodDropOut. The mound gate (5..11 m) is unchanged and
+        // exists for the same reason.
+        /// <summary>Metres the wood's floor falls below the outer cill. The user
+        /// asked for "ca. ein Meter" on 2026-09-02 and this is that metre.</summary>
+        private const float WoodGroundDrop = 1.00f;
+        /// <summary>Where the drop starts and where it is complete, as a distance
+        /// from the window in the ground plane. The inner bound is NOT a taste: it
+        /// is what keeps the earth under HauntFigures' window figure (0.30 m out,
+        /// with a body about 0.6 m wide) at exactly the level its staging was
+        /// authored against.</summary>
+        private const float WoodDropIn = 1.10f, WoodDropOut = 4.20f;
+
+        /// <summary>The forest floor outside the cellar window at (x, z) in room
+        /// coordinates. <paramref name="gy0"/> is the outer cill —
+        /// <see cref="CellarOutsideGroundY"/> — which is the level the floor still
+        /// has at the wall and falls away from.</summary>
+        private static float CellarWoodGroundY(float x, float z, float winX, float oz, float gy0)
+        {
+            // distance from the WINDOW, not from the patch centre: both gates have
+            // to be concentric on the opening, because both of them exist to
+            // protect what stands right outside it.
+            float d = new Vector2(x - winX, z - oz).magnitude;
+            float mound = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5.0f, 11.0f, d));
+            float drop = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(WoodDropIn, WoodDropOut, d));
+            // two octaves at long wavelengths: mounds a wood really has, not
+            // noise. +-0.42 m at full gate.
+            float n = Fbm2(x * 0.085f + 11.3f, z * 0.085f, 2, 4703) - 0.5f;
+            // The DRIFT term is deliberately small (about 1 deg). A ground that
+            // rises steeply away is the prettier picture from outside and the
+            // wrong one from inside: every sightline out of this window already
+            // rises (+1.7 deg minimum over the whole floor), so a steeply climbing
+            // earth would start filling the bottom of the aperture with ground the
+            // room was never meant to show. 1 deg keeps the far ground from
+            // collapsing to a mathematical line without doing that.
+            return gy0 - WoodGroundDrop * drop + mound * (0.84f * n + 0.018f * d);
+        }
+
+        /// <summary>The ground mesh's tessellation, hoisted out of the builder
+        /// because the trunk-bedding gate has to know where the mesh's own
+        /// vertices are. 1040 tris over 44 x 34 m; the extent is FROZEN (see the
+        /// mesh's own note: SkyAlternative turns the prefab's total AABB into the
+        /// camera's far plane and this plane is already the widest thing the room
+        /// contains).</summary>
+        private const int WoodGroundNX = 26, WoodGroundNZ = 20;
+        private const float WoodGroundHalfX = 22f, WoodGroundHalfZ = 17f;
+
+        /// <summary>A CONSERVATIVE lower bound on the ground MESH's surface at
+        /// (x, z) — the lowest of the four grid corners of the cell the point
+        /// falls in. The analytic field is not what a trunk stands on; the
+        /// TRIANGLES are, and a linear triangle can sag below the field it was
+        /// sampled from. Taking the cell's minimum means the bedding gate below
+        /// cannot pass on a curvature the mesh does not actually have.</summary>
+        private static float CellarWoodGroundMeshMinY(float x, float z, float winX, float oz, float gy0)
+        {
+            float x0 = -WoodGroundHalfX, z0 = oz;
+            float dx = 2f * WoodGroundHalfX / WoodGroundNX, dz = 2f * WoodGroundHalfZ / WoodGroundNZ;
+            int i = Mathf.Clamp(Mathf.FloorToInt((x - x0) / dx), 0, WoodGroundNX - 1);
+            int j = Mathf.Clamp(Mathf.FloorToInt((z - z0) / dz), 0, WoodGroundNZ - 1);
+            float lo = float.MaxValue;
+            for (int a = 0; a <= 1; a++)
+                for (int b = 0; b <= 1; b++)
+                    lo = Mathf.Min(lo, CellarWoodGroundY(x0 + (i + a) * dx, z0 + (j + b) * dz,
+                                                         winX, oz, gy0));
+            return lo;
+        }
 
         private static void AddNightOutsideWindow(Transform root, Vector3 winMid,
             float wx0, float wy0, float wx1, float wy1, float hd)
@@ -4436,33 +4532,18 @@ namespace GloomhavenVR
             float gy = oy0;
             var gnd = new Acc();
             {
-                const int NX = 26, NZ = 20;                 // 1040 tris, no fill from inside
-                var c = new Vector3(0f, gy, oz + 17f);
-                float Hgt(float x, float z)
-                {
-                    // distance from the WINDOW, not from the patch centre: the flat
-                    // zone has to be around the opening, which is where the figure
-                    // stands and where the outer cill has to meet the earth flush.
-                    float d = new Vector2(x - winMid.x, z - oz).magnitude;
-                    float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5.0f, 11.0f, d));
-                    // two octaves at long wavelengths: mounds a wood really has,
-                    // not noise. +-0.42 m at full gate.
-                    float n = Fbm2(x * 0.085f + 11.3f, z * 0.085f, 2, 4703) - 0.5f;
-                    // The DRIFT term is deliberately small (about 1 deg). A ground
-                    // that rises steeply away is the prettier picture from outside
-                    // and the wrong one from inside: every sightline out of this
-                    // window already rises (+1.7 deg minimum over the whole floor),
-                    // so a steeply climbing earth would start filling the bottom of
-                    // the aperture with ground the room was never meant to show —
-                    // and the wood's own visibility gate is measured against what
-                    // the aperture used to show. 1 deg keeps the far ground from
-                    // collapsing to a mathematical line without doing that.
-                    return gy + gate * (0.84f * n + 0.018f * d);
-                }
+                const int NX = WoodGroundNX, NZ = WoodGroundNZ;   // 1040 tris, no fill from inside
+                var c = new Vector3(0f, gy, oz + WoodGroundHalfZ);
+                // ONE function, shared with every trunk foot — see
+                // CellarWoodGroundY. It is not a local any more precisely because
+                // the trunks have to be bedded in the surface that is really built
+                // rather than in the flat level it used to be measured from.
+                float Hgt(float x, float z) => CellarWoodGroundY(x, z, winMid.x, oz, gy);
                 for (int j = 0; j <= NZ; j++)
                     for (int i = 0; i <= NX; i++)
                     {
-                        float x = c.x - 22f + 44f * i / NX, z = c.z - 17f + 34f * j / NZ;
+                        float x = c.x - WoodGroundHalfX + 2f * WoodGroundHalfX * i / NX;
+                        float z = c.z - WoodGroundHalfZ + 2f * WoodGroundHalfZ * j / NZ;
                         // the surface's own normal, by central difference, so the
                         // mounds are shaded as mounds instead of as a flat plane
                         const float e = 0.6f;
@@ -4864,7 +4945,8 @@ namespace GloomhavenVR
         /// ground, which is exactly the half of a trunk this room must not pay
         /// for.</summary>
         private static void AddWoodTrunk(Acc a, Vector3 baseAt, float h, float rb, float y0,
-                                         Vector2 lean, float sd, int segs, int rings, Color tint)
+                                         Vector2 lean, float sd, int segs, int rings, Color tint,
+                                         float foot)
         {
             int b0 = a.Count;
             // THE FOOT, 2026-09-02. Two changes and they are one idea: a tree does
@@ -4883,8 +4965,22 @@ namespace GloomhavenVR
             //    first metre or so. It is scaled by height rather than fixed,
             //    because the flare of a 15 m tree and of a 7 m one are not the
             //    same size — and it is what actually reads as "planted".
+            //
+            // AND `foot` IS WHY BOTH OF THOSE ARE STILL TRUE AFTER 2026-09-02.
+            // It is the real floor under THIS trunk, in the trunk's own frame:
+            // CellarWoodGroundY(x, z) minus the wood's origin level, so it is 0 for
+            // a tree on the old flat plane, about -1 with the metre the user asked
+            // for, and it also picks up the +-0.42 m of mound the ground has always
+            // had. Both the bedding depth and the flare's decay are measured DOWN
+            // FROM IT rather than from the origin — which is what makes "the trunks
+            // meet the earth" a property of the two meshes agreeing rather than of
+            // a constant that happened to be bigger than the disagreement. (Before
+            // this, a trunk sitting where the mound dips 0.42 m had its lowest ring
+            // 0.14 m clear of the ground: a floating tree, at the exact defect this
+            // wood was rebuilt to fix, hidden only by the fact that nothing had
+            // ever framed the feet.)
             float bed = y0 <= 1e-4f ? 0.28f : 0f;
-            float yLo = y0 - bed;
+            float yLo = y0 <= 1e-4f ? foot - bed : y0;
             for (int j = 0; j <= rings; j++)
             {
                 // RINGS BIASED TO THE BASE (^1.55). Evenly spaced rings put the
@@ -4893,7 +4989,10 @@ namespace GloomhavenVR
                 float y = Mathf.Lerp(yLo, h, Mathf.Pow(j / (float)rings, 1.55f));
                 float f = Mathf.Clamp01(y / h);
                 float rad = Mathf.Lerp(rb, rb * 0.30f, Mathf.Pow(f, 1.9f));
-                rad *= 1f + 0.55f * Mathf.Pow(Mathf.Clamp01(1f - y / (0.85f + 0.055f * h)), 2.2f);
+                // the flare decays over the first metre ABOVE THE REAL GROUND,
+                // which is `foot` and not 0 — a flare left at the old origin with
+                // the earth a metre lower is a bulge floating in mid-trunk.
+                rad *= 1f + 0.55f * Mathf.Pow(Mathf.Clamp01(1f - (y - foot) / (0.85f + 0.055f * h)), 2.2f);
                 rad *= 1f + 0.13f * (Fbm2(f * 8f, sd * 3f, 3, 991) - 0.5f);
                 var c = baseAt + new Vector3(lean.x * f * f, y, lean.y * f * f)
                         + new Vector3(Mathf.Sin(f * 3.1f + sd), 0f, Mathf.Cos(f * 2.4f + sd * 1.7f))
@@ -4961,6 +5060,10 @@ namespace GloomhavenVR
             var foliage = new Acc();
             int placed = 0, dropped = 0, trunkRingsSaved = 0, candidates = 0;
             float woodReach = 0f;
+            // the range of real floor levels the built trunks are bedded into,
+            // reported rather than assumed — see THE FLOOR WENT DOWN in the log
+            float footLo = float.MaxValue, footHi = float.MinValue;
+            float bedWorst = float.MaxValue;
             float nearest = float.MaxValue, farthest = 0f;
             // WHY THE WOOD IS 8.5-17 m OUT AND ITS TREES ARE 7-12.5 m TALL, and
             // it is a bound and not a taste: the night sky is a SPHERE of
@@ -5060,7 +5163,13 @@ namespace GloomhavenVR
                     // The rule stays because it is the rule, and the log reports
                     // that it saved nothing rather than pretending it saved
                     // something.
-                    float seenLo = WoodLowestSeenY(eyes, p.x, p.z, rb * 2.2f, gy, gy + h,
+                    // THE REAL FLOOR UNDER THIS TRUNK, in the trunk's own frame.
+                    // Same function the ground mesh is built from, so the two
+                    // cannot disagree — see CellarWoodGroundY.
+                    float foot = CellarWoodGroundY(p.x, p.z, winMid.x, oz, gy) - gy;
+                    footLo = Mathf.Min(footLo, foot); footHi = Mathf.Max(footHi, foot);
+                    float seenLo = WoodLowestSeenY(eyes, p.x, p.z, rb * 2.2f,
+                                                   gy + Mathf.Min(0f, foot), gy + h,
                                                    wx0, wy0, wx1, wy1, hd);
                     float y0 = float.IsInfinity(seenLo) ? 0f
                              : Mathf.Clamp(seenLo - gy - 0.35f, 0f, h * 0.55f);
@@ -5073,6 +5182,13 @@ namespace GloomhavenVR
                     // flare; the four far ones drop to five sides and four rings.
                     int Segs = b <= 1 ? 7 : 5, Rings = b <= 1 ? 6 : 4;
                     int rings = Mathf.Max(2, Mathf.RoundToInt(Rings * (1f - y0 / h)));
+                    // ...AND ONE MORE WHERE THE FOOT REACHES DOWN A LONG WAY. The
+                    // rings are biased to the base by ^1.55, so stretching the
+                    // trunk another metre downward without a ring spends the two
+                    // lowest ones on the metre UNDER the earth and leaves the flare
+                    // — the part that actually reads as planted — as a single
+                    // facet. One ring, on the trees that need it, is 10 triangles.
+                    if (y0 <= 1e-4f && foot < -0.5f) rings += 1;
                     trunkRingsSaved += Rings - rings;
 
                     // THE VALUE, which is the whole of the look. It falls with
@@ -5096,7 +5212,28 @@ namespace GloomhavenVR
                     var barkTint = new Color(depth, depth, depth, 1f);
                     var folTint = new Color(depth * 0.88f, depth * 0.88f, depth * 0.88f, 1f);
 
-                    AddWoodTrunk(bark, p, h, rb, y0, lean, sd, Segs, rings, barkTint);
+                    // ---- AND THE FOOT MUST BE IN THE EARTH ---------------
+                    // The gate the whole of defect 7 was about, and it is measured
+                    // against the MESH rather than against the field: a linear
+                    // triangle sags below the surface it was sampled from, so the
+                    // cell minimum is the only bound that is safe. This is what
+                    // makes "the floor moved a metre and the trunks came with it"
+                    // a check instead of a claim.
+                    if (y0 <= 1e-4f)
+                    {
+                        float ringLo = gy + foot - 0.28f;
+                        float meshLo = CellarWoodGroundMeshMinY(p.x, p.z, winMid.x, oz, gy);
+                        float clear = meshLo - ringLo;
+                        bedWorst = Mathf.Min(bedWorst, clear);
+                        if (clear <= 0.01f)
+                            throw new Exception($"A tree outside the cellar window has its lowest ring at "
+                                + $"y {ringLo:F3} but the ground mesh under it is as low as {meshLo:F3} — "
+                                + "it stands ON or OVER the earth instead of IN it, which is the floating "
+                                + "trunk this wood was rebuilt to fix (user, ModBuild 296: \"keine kleinen "
+                                + "schwebenden Bäume\"). Deepen the bedding in AddWoodTrunk or soften the "
+                                + "ground's mound amplitude — do not raise the trunk.");
+                    }
+                    AddWoodTrunk(bark, p, h, rb, y0, lean, sd, Segs, rings, barkTint, foot);
                     AddWoodCrown(foliage, p, h, lean, sd, crownR, folTint, b <= 1);
                     placed++;
                 }
@@ -5359,13 +5496,25 @@ namespace GloomhavenVR
                       + $"being outside every sightline ({100f * dropped / Mathf.Max(1, candidates):F0}% "
                       + $"of the polar grid), standing {nearest:F1}..{farthest:F1} m from the opening "
                       + $"in an az {fanLo:F0}..{fanHi:F0} deg fan DERIVED from the bundle's own hull "
-                      + $"(not typed). {trunkRingsSaved} trunk rings were skipped below the height at "
-                      + "which their column first becomes visible — and at this range that is "
-                      + "correctly nearly none: the outside ground is 2.343 m up the room's wall and "
-                      + "every eye in the room is under it, so a sightline out of this window RISES "
-                      + $"and clears the cill only 0.3-0.7 m above the ground at {WoodNear:F1}-{WoodFar:F0} m. The feet "
-                      + "ARE in view here. (At 40 m they would not be, which is what the rule is "
-                      + "for.)\n"
+                      + $"(not typed). The ring budget moved by {-trunkRingsSaved:+d} across the wood: the "
+                      + "rule that skips rings below the height at which a column first becomes "
+                      + "visible saves nothing at this range and correctly says so — the outside "
+                      + "ground is 2.343 m up the room's wall and every eye in the room is under it, "
+                      + "so a sightline out of this window RISES and clears the cill only 0.3-0.7 m "
+                      + $"above the ground at {WoodNear:F1}-{WoodFar:F0} m, i.e. the feet ARE in view (at "
+                      + "40 m they would not be, which is what the rule is for) — and the deepened "
+                      + "floor then ADDS one ring to every trunk whose foot now reaches more than "
+                      + "0.5 m down, so the root flare is still a curve and not a single facet.\n"
+                      + $"    THE FLOOR WENT DOWN {WoodGroundDrop:F2} m (user, 2026-09-02: \"Macht den "
+                      + "Waldboden noch etwas tiefer unter dem Fenster (nur ein Meter ca.)\"). The drop "
+                      + $"rides its own gate — flat at the outer cill {gy:F3} m out to {WoodDropIn:F2} m "
+                      + $"from the opening, full by {WoodDropOut:F2} m — so the earth under HauntFigures' "
+                      + "window figure (z = 5.35, 0.30 m out) is untouched and its legs stay hidden. "
+                      + $"Under the trees the real floor runs {gy + footLo:F3}..{gy + footHi:F3} m, i.e. "
+                      + $"{-footHi:F2}..{-footLo:F2} m below the cill once the mounds are in it. EVERY "
+                      + $"trunk is BEDDED IN IT: the tightest foot on the whole wood still sits "
+                      + $"{bedWorst * 100f:F1} cm under the lowest corner of the ground cell it stands in, "
+                      + "measured against the built triangles and not against the height field.\n"
                       + $"    MASS: {massKept} loose boughs of {massTried} candidates "
                       + $"({100f * (massTried - massKept) / Mathf.Max(1, massTried):F0}% dropped).\n"
                       + $"    AND THE AUDIT, which is the claim that is a measurement: {seenV} of "
@@ -8416,7 +8565,7 @@ namespace GloomhavenVR
         /// <para>2. IT IS NOT SYMMETRIC. The two springings sit at different
         /// half-widths, the crown is skewed off the centre line, and a bounded fbm
         /// of the sweep angle moves the intrados — weighted by sin(theta) so it
-        /// dies at both springings and the arch still meets its imposts cleanly.
+        /// dies at both springings and the arch still meets its jambs cleanly.
         /// Bounded is the operative word: the wobble is a fraction of the rise and
         /// cannot invert the curve however the hash falls.</para>
         ///
@@ -8434,9 +8583,13 @@ namespace GloomhavenVR
         /// below proves it.</para>
         ///
         /// <para>5. STONE ON TOP OF STONE. Voussoirs stand proud of the arch ring,
-        /// two imposts mark the springings, a keystone is dropped and tilted, and
-        /// a worn threshold crosses the foot — the relief that makes the ring read
-        /// as masonry rather than as a shaped hole.</para>
+        /// a keystone is dropped and tilted, and a worn threshold crosses the foot
+        /// — the relief that makes the ring read as masonry rather than as a
+        /// shaped hole. (Two projecting IMPOST bands used to mark the springings as
+        /// well; the user had them removed after the 2026-09-02 hardware test —
+        /// "diese zwei herausragenden Steine ... auf der Seite links und rechts".
+        /// The springings are still carried by the top jamb course, which is flush
+        /// with the jamb rather than cantilevered off it.)</para>
         ///
         /// <para>WHAT IT IS NOT ALLOWED TO DO IS SHUT THE DOOR. The dressing eats
         /// into the opening, so the free passage is measured from the built
@@ -8687,16 +8840,28 @@ namespace GloomhavenVR
                       seed + 400 + v, key ? 0.92f : Mathf.Lerp(0.62f, 0.86f, Hash3(v, 6, 0, seed + 91)));
             }
 
-            // IMPOSTS. The two springings, and they are not the same block: the
-            // left one is a full projecting band, the right one is half gone.
-            for (int s = 0; s < 2; s++)
-            {
-                float u = s == 0 ? cut.xMin + (half - hL) : cut.xMax - (half - hR);
-                float wdt = s == 0 ? 0.30f : 0.20f;
-                Block(P(u + (s == 0 ? 0.05f : -0.03f), ySpring - 0.045f, -(Proud + 0.045f)),
-                      flat * Quaternion.Euler(0f, 0f, (s == 0 ? 1.6f : -2.4f)),
-                      new Vector3(wdt, 0.115f, 0.115f), seed + 500 + s, 0.90f);
-            }
+            // (THE TWO PROJECTING IMPOSTS ARE GONE, 2026-09-02 hardware test.
+            // USER, verbatim: "Ich mag den neuen Eingang, mir gefallen nur diese
+            // zwei herausragenden Steine nicht auf der Seite links und rechts -
+            // entferne die." They were the only pair of blocks in this whole
+            // dressing that was one-on-the-left-and-one-on-the-right AND stood
+            // proud of the wall: two bands at y = ySpring - 0.045 (1.46 m, i.e.
+            // right at eye level from the board), 0.30 m and 0.20 m wide, set at
+            // z = -(Proud + 0.045) so they cantilevered 5.1 cm into the room off
+            // an otherwise 6 mm ring. Nothing else in here is a left/right pair:
+            // the voussoirs run over the arch, the keystone is one block at the
+            // crown, the threshold is one block at the foot, and the five fallen
+            // blocks lie on the FLOOR.
+            //
+            // THE SPRINGING ITSELF IS NOT GONE, and that distinction is the whole
+            // of why this is a safe deletion. What carries the arch is the TOP
+            // JAMB COURSE, whose inset is forced to the arch's own springing inset
+            // in Courses() above - that is the impost as a piece of masonry, it is
+            // flush with the jamb, and it is untouched. What went is the ornamental
+            // band that stood in front of it. The arch, the unequal springings, the
+            // hashed courses, the missing stone per side, the voussoirs, the
+            // dropped keystone, the threshold and the return are all exactly as
+            // they shipped.)
 
             // THE THRESHOLD. Set back into the bore so it is stepped over rather
             // than tripped on, dished by the chisel jitter, and sitting on the
@@ -8773,7 +8938,8 @@ namespace GloomhavenVR
                  + $"{missL + 1}th and {missR + 1}th stone missing, so no course on one side lines up with "
                  + $"one on the other; a {bore * 100f:F0} cm RETURN so the opening has a thickness at all "
                  + $"(it had none — WallMesh is a single plane); {blocks} hewn blocks (11 voussoirs on a "
-                 + $"radial axis, a dropped keystone, 2 unequal imposts, a threshold, 5 fallen); "
+                 + $"radial axis, a dropped keystone, a threshold, 5 fallen — and NO projecting imposts, "
+                 + $"removed on the user's order after the 2026-09-02 test); "
                  + $"{faces} ring/return faces, 0 wound backwards. Free passage {freeW:F2} x {freeTop:F2} m, "
                  + $"which the alcove still fits through";
         }
