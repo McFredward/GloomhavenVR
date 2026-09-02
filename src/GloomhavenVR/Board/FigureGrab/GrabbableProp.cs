@@ -362,6 +362,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         Live.Add(this);
         ShowInfo();
         _probeFrame = Time.frameCount + 2; // arm the held-visibility probe (see TickProbe)
+        BeginWatch();                      // arm the PER-FRAME hold watch (see BeginWatch)
 
         if (_grabLogsLeft <= 0)
             return;
@@ -482,9 +483,14 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             GrabbableProp p = Live[i];
             if (p._visual == null)
             {
-                Live.RemoveAt(i); // prop destroyed mid-hold (looted, broken, teardown)
+                // Prop destroyed mid-hold (looted, broken, teardown — or the engine
+                // re-instantiating Apparance-placed content out from under the hand, which is
+                // the ModBuild 341 question). This used to be silent; the watch is the record.
+                p.EmitWatch("visual DESTROYED mid-hold");
+                Live.RemoveAt(i);
                 continue;
             }
+            p.TickWatch();
             p.ApplyHeldPose();
             p.TickInfo();
             p.TickProbe();
@@ -528,6 +534,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             return false;
 
         Live.Remove(this);
+        EmitWatch("released — glide home"); // the hold is over; the watch reports what it saw
         ClearInfo();
         ClearHighlight();
         Transform t = _visual.transform;
@@ -604,6 +611,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     internal void Restore()
     {
         Live.Remove(this);
+        EmitWatch("restored instantly"); // no-op when the glide path already reported this hold
         ClearInfo();
         if (_glideActive)
             FinishGlide();
@@ -844,6 +852,217 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
     }
 
+    // ---- the held-visibility WATCH (ModBuild 341) ------------------------------------------------
+
+    /// <summary>
+    /// A FLICKER CANNOT BE MEASURED BY A SNAPSHOT, and <see cref="TickProbe"/> is a snapshot.
+    ///
+    /// <para><b>WHY THIS EXISTS.</b> ModBuild 340 shipped a one-shot census two frames after the
+    /// grab. The user came back with "Das Item flackert in der Hand" — a value that ALTERNATES,
+    /// which a single sample answers with a coin toss. This watch runs EVERY FRAME for the whole
+    /// hold and reports run-lengths and TRANSITION COUNTS instead: how many frames each renderer
+    /// was actually drawing, how many times it changed its mind, and — the field that decides the
+    /// round — whether the object in the hand is still the SAME OBJECT it was at the grab.</para>
+    ///
+    /// <para><b>THE DECIDING FIELD IS <c>sameInstance</c>.</b> Two candidate causes survive the
+    /// 2026-09-02 log and they need opposite fixes:</para>
+    /// <list type="bullet">
+    ///   <item><b>RE-INSTANTIATION.</b> Grabbing an Apparance-placed prop makes its map tile
+    ///   re-synthesize (eight of the eleven ApparanceEntity-busy events in that session were
+    ///   exactly the four DarkPitObstacle grabs and the four releases), and a re-synthesis
+    ///   destroys and re-instantiates the tile's placed content. Every new instance is born
+    ///   <c>Renderer.enabled = false</c> by <c>MaterialLoaderData.LoadMaterials</c> and only the
+    ///   mod's healer ever turns it back on. If that is what is happening, the renderer instance
+    ///   ids CHANGE during the hold, or the visual root dies outright — and the fix is that a
+    ///   prop like this must be held as a COPY, never as the engine's own object.</item>
+    ///   <item><b>PURE WRITE WAR.</b> The same object, toggled. Then the instance ids are STABLE
+    ///   while <c>flips</c> climbs — and the fix is an ownership guard on whoever writes it, not
+    ///   a copy.</item>
+    /// </list>
+    ///
+    /// <para>COST: one pass over a cached renderer array (never more than two props are live, and
+    /// a prop has under two dozen renderers), no allocation per frame; the subtree is re-walked
+    /// once every <see cref="WatchRescanFrames"/> frames into a shared scratch list purely to
+    /// notice renderers appearing or disappearing.</para>
+    /// </summary>
+    private const int WatchRescanFrames = 30;
+
+    private static readonly List<Renderer> WatchScratch = new(32);
+
+    private Renderer[]? _watch;
+    private bool[]? _watchLast;
+    private int[]? _watchFlips;
+    private int[]? _watchDrawn;
+    private int[]? _watchIds;
+    private int _watchFrames;
+    private int _watchAllDrawnFrames;
+    private int _watchNoneDrawnFrames;
+    private int _watchLost;      // renderers that died under us
+    private int _watchAppeared;  // renderers that were not there at the grab
+    private int _watchRootId;
+    private string _watchParent = string.Empty;
+
+    /// <summary>How many hold-watch verdicts this session prints.</summary>
+    private const int WatchBudget = 3;
+
+    private static int _watchesLeft = WatchBudget;
+
+    /// <summary>Arm the watch at the grab: cache the renderer set and its identity.</summary>
+    private void BeginWatch()
+    {
+        if (_visual == null)
+            return;
+        WatchScratch.Clear();
+        _visual.GetComponentsInChildren(includeInactive: true, WatchScratch);
+        int n = WatchScratch.Count;
+        _watch = new Renderer[n];
+        _watchLast = new bool[n];
+        _watchFlips = new int[n];
+        _watchDrawn = new int[n];
+        _watchIds = new int[n];
+        for (int i = 0; i < n; i++)
+        {
+            Renderer r = WatchScratch[i];
+            _watch[i] = r;
+            _watchIds[i] = r != null ? r.GetInstanceID() : 0;
+            _watchLast[i] = r != null && r.enabled && r.gameObject.activeInHierarchy;
+        }
+        _watchFrames = 0;
+        _watchAllDrawnFrames = 0;
+        _watchNoneDrawnFrames = 0;
+        _watchLost = 0;
+        _watchAppeared = 0;
+        _watchRootId = _visual.GetInstanceID();
+        Transform? p = _visual.transform.parent;
+        _watchParent = p != null ? p.name : "<scene root>";
+    }
+
+    /// <summary>One frame of the watch. Counts a TRANSITION whenever a renderer's drawing state
+    /// differs from the previous frame — that count, not any single reading, is the flicker.</summary>
+    private void TickWatch()
+    {
+        Renderer[]? watch = _watch;
+        if (watch == null || _watchLast == null || _watchFlips == null || _watchDrawn == null)
+            return;
+
+        _watchFrames++;
+        int drawing = 0, alive = 0;
+        for (int i = 0; i < watch.Length; i++)
+        {
+            Renderer r = watch[i];
+            if (r == null)
+            {
+                if (_watchLast[i])
+                {
+                    _watchLast[i] = false;
+                    _watchFlips[i]++;
+                }
+                continue;
+            }
+            alive++;
+            bool now = r.enabled && r.gameObject.activeInHierarchy;
+            if (now)
+            {
+                drawing++;
+                _watchDrawn[i]++;
+            }
+            if (now != _watchLast[i])
+            {
+                _watchLast[i] = now;
+                _watchFlips[i]++;
+            }
+        }
+        if (alive > 0 && drawing == alive)
+            _watchAllDrawnFrames++;
+        if (drawing == 0)
+            _watchNoneDrawnFrames++;
+
+        if (_watchFrames % WatchRescanFrames != 0 || _visual == null)
+            return;
+        // Cheap structural re-check: has the subtree gained or lost renderers under us? A
+        // re-instantiated Apparance object shows up here as BOTH at once.
+        WatchScratch.Clear();
+        _visual.GetComponentsInChildren(includeInactive: true, WatchScratch);
+        int lost = 0;
+        for (int i = 0; i < watch.Length; i++)
+        {
+            if (watch[i] == null)
+                lost++;
+        }
+        _watchLost = lost;
+        int appeared = WatchScratch.Count - (watch.Length - lost);
+        if (appeared > _watchAppeared)
+            _watchAppeared = appeared;
+    }
+
+    /// <summary>
+    /// The verdict, printed once per hold. <paramref name="reason"/> names how the hold ended, and
+    /// "visual DESTROYED mid-hold" is itself an answer — see the class doc for what
+    /// <c>sameInstance</c> decides.
+    /// </summary>
+    private void EmitWatch(string reason)
+    {
+        Renderer[]? watch = _watch;
+        int[]? flips = _watchFlips;
+        int[]? drawn = _watchDrawn;
+        int[]? ids = _watchIds;
+        _watch = null;
+        _watchLast = null;
+        _watchFlips = null;
+        _watchDrawn = null;
+        _watchIds = null;
+        if (watch == null || flips == null || drawn == null || ids == null || _watchFrames <= 0)
+            return;
+        if (_watchesLeft <= 0)
+            return;
+        _watchesLeft--;
+
+        int totalFlips = 0, worst = -1, worstFlips = -1, sameInstance = 0, checkedIds = 0;
+        for (int i = 0; i < watch.Length; i++)
+        {
+            totalFlips += flips[i];
+            if (flips[i] > worstFlips)
+            {
+                worstFlips = flips[i];
+                worst = i;
+            }
+            Renderer r = watch[i];
+            if (r == null)
+                continue;
+            checkedIds++;
+            if (r.GetInstanceID() == ids[i])
+                sameInstance++;
+        }
+        string worstName = worst >= 0 && watch[worst] != null ? watch[worst]!.name : "<destroyed>";
+        int worstDrawn = worst >= 0 ? drawn[worst] : 0;
+        bool rootAlive = _visual != null && _visual.GetInstanceID() == _watchRootId;
+        string parentNow = _visual != null
+            ? (_visual.transform.parent != null ? _visual.transform.parent.name : "<scene root>")
+            : "<destroyed>";
+
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] HOLD WATCH for {Label} ({reason}) over {_watchFrames} frame(s): "
+            + $"{totalFlips} enable/disable TRANSITION(s) across {watch.Length} renderer(s); "
+            + $"worst '{worstName}' flipped {worstFlips}x and drew on {worstDrawn} of {_watchFrames} "
+            + $"frame(s); {_watchAllDrawnFrames} frame(s) with EVERYTHING drawing, "
+            + $"{_watchNoneDrawnFrames} frame(s) with NOTHING drawing. "
+            + $"sameInstance={sameInstance}/{checkedIds} renderer(s) kept their instance id, "
+            + $"rootAlive={rootAlive}, lost={_watchLost}, appeared={_watchAppeared}; "
+            + $"parent '{_watchParent}' -> '{parentNow}'. "
+            + "READ IT LIKE THIS, AND READ sameInstance FIRST. sameInstance below its total, or "
+            + "rootAlive=False, or lost/appeared above 0, means the ENGINE DESTROYED AND "
+            + "RE-INSTANTIATED the thing in the hand — every new instance is born with "
+            + "Renderer.enabled=false from MaterialLoaderData.LoadMaterials and only this mod's "
+            + "healer turns it back on, so the fix is to hold a COPY and never the engine's own "
+            + "object. sameInstance at full with transitions climbing is the opposite case, a plain "
+            + "write war on one stable renderer, and then the fix is an ownership guard on the "
+            + "writer. Zero transitions with everything drawing means the hold is clean and the "
+            + "complaint is about something other than Renderer.enabled. "
+            + $"({_watchesLeft} more hold watches this session.)");
+    }
+
     // ---- the held-visibility probe (defect (a)) --------------------------------------------------
 
     /// <summary>Frame at which the held-visibility probe fires, or 0 when it is not armed.</summary>
@@ -997,6 +1216,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _highlightLogsLeft = LogBudget;
         _grabLogsLeft = LogBudget;
         _probesLeft = ProbeBudget;
+        _watchesLeft = WatchBudget;
         _loggedInfoWriteWar = false;
     }
 }

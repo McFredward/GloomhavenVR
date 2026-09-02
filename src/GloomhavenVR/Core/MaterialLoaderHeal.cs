@@ -117,10 +117,78 @@ internal static class MaterialLoaderHeal
             return;
         if (RegisteredSet.Add(loader))
             RegisteredLoaders.Add(loader);
+        MarkHot(loader);
     }
 
     /// <summary>Census forensics: is this loader under the healer's supervision?</summary>
     private static bool IsRegistered(MaterialLoader loader) => RegisteredSet.Contains(loader);
+
+    // ---------------------------------------------------------------------------------
+    // MODBUILD 341 — THE FAST LANE, AND WHY THE 1 s CADENCE IS ITSELF A DEFECT.
+    //
+    // THE MEASUREMENT (hardware log 2026-09-02, ModBuild 340). User: "Das Item flackert in
+    // der Hand. Außerdem: Wenn ich ein darkPitObstacle in die Hand nehme hat der ganze Boden
+    // (also alle anderen Tiles) geflackert." The log names both writers of that flicker and
+    // one of them is THIS FILE:
+    //
+    //   DISABLE — MaterialLoaderData.LoadMaterials() runs `Renderer.enabled = false`
+    //     (decompiled/GH.Runtime/MaterialLoaderData.cs:35) on EVERY freshly instantiated
+    //     object, and its CheckAllMaterialLoaded can never re-enable an IsSaveExistedMaterials
+    //     entry (the sizing deadlock this whole file exists for). Instant.
+    //   ENABLE — this healer, at ScanInterval = 1 s.
+    //
+    // So every object the engine re-creates is DARK for up to a full second. That is not a
+    // one-frame blink, it is a ~1 Hz strobe, which is exactly the word the user changed to
+    // between ModBuild 339 ("nur ganz kurz für einen Frame sichtbar") and 340 ("flackert").
+    //
+    // WHY IT SUDDENLY MATTERS: grabbing an Apparance-placed prop makes its map tile
+    // re-synthesize, and a re-synthesis destroys and re-instantiates the tile's placed content
+    // (documented from the ModBuild 158/159 investigation in Core/Water/WaterTerrainVR.cs:100
+    // -115; the game's own "Renderer component is null in MaterialLoaderData" errors in
+    // Player.log are the destroyed halves). In the 2026-09-02 log EIGHT of the ELEVEN
+    // ApparanceEntity-busy events in the whole session are exactly the four DarkPitObstacle
+    // grabs and the four releases, and ALL FIVE of the giant heal batches (266/260/260/266/269
+    // renderers) fall inside those windows and nowhere else in 11,334 lines. 266 renderers is
+    // the whole floor. The user's "alle anderen Tiles" is that number.
+    //
+    // WHAT THIS LANE DOES, AND WHAT IT DELIBERATELY DOES NOT. It does not try to stop the
+    // engine from disabling anything — that is the game's own load protocol and this mod must
+    // not fight it ("concede the flag, own the number"). It shortens the DARK WINDOW: a loader
+    // that has just started is polled EVERY FRAME instead of every second, so a renderer whose
+    // handles are already complete is finished within a frame or two of becoming finishable
+    // instead of up to 90 frames later. It is strictly the existing done-stuck heal on a
+    // faster clock — no new state is healed, no new renderer set is touched.
+    //
+    // COST IN THE STEADY STATE: one List.Count compare per frame. Nothing is hot unless a
+    // loader started within FastLaneSeconds. During a rebuild burst the walk is capped at
+    // FastLaneEntriesPerFrame entries per frame and round-robins, so 266 entries are covered
+    // in six frames (~67 ms) rather than in up to 1000 ms, at a bounded per-frame cost.
+    //
+    // MULTIPLAYER: local presentation only. No wire field, no game state written, no peer
+    // -visible decision — the same renderer would have been enabled a second later anyway.
+    // ---------------------------------------------------------------------------------
+
+    /// <summary>How long after its loader started an entry stays on the fast lane. Long enough
+    /// to cover a tile rebuild streaming its instances in over several frames, short enough
+    /// that the lane is empty again well before the next grab.</summary>
+    private const float FastLaneSeconds = 8f;
+
+    private static readonly List<MaterialLoader> HotLoaders = new();
+    private static readonly Dictionary<MaterialLoader, float> HotUntil = new();
+
+    /// <summary>Put a loader on the fast lane (see the header). Called for every
+    /// <c>MaterialLoader.LoadMaterials()</c>, which is the one moment its renderers are known
+    /// to have just been switched off.</summary>
+    private static void MarkHot(MaterialLoader loader)
+    {
+        float until = Time.unscaledTime + FastLaneSeconds;
+        if (!HotUntil.ContainsKey(loader))
+            HotLoaders.Add(loader);
+        HotUntil[loader] = until;
+    }
+
+    /// <summary>Cheapest possible steady-state question: is anything on the fast lane at all?</summary>
+    private static int HotCount => HotLoaders.Count;
 
     /// <summary>Install the watchdog (idempotent). No-op when VR isn't running.</summary>
     public static void Install()
@@ -133,7 +201,9 @@ internal static class MaterialLoaderHeal
         VRLog.Info(Name,
             "MaterialLoaderHeal installed — 1 s watchdog re-triggers map-tile MaterialLoaders "
             + "whose renderers are stuck active-but-disabled with unloaded materials "
-            + "(reveal-time Addressables loads have no retry path in the game).");
+            + "(reveal-time Addressables loads have no retry path in the game), plus a "
+            + $"PER-FRAME fast lane over loaders that started within the last {FastLaneSeconds:0}s "
+            + "(ModBuild 341) so a re-instantiated object is not left black for a whole second.");
         // The door-light plates ride along here rather than on their own CompatModule line
         // because this file is where the question was answered: the round-9 ledger (see the
         // header) acquitted the healer of drawing them, and this install point is already
@@ -440,6 +510,11 @@ internal static class MaterialLoaderHeal
             if (!VRSession.IsRunning)
                 return;
             float now = Time.unscaledTime;
+
+            // MODBUILD 341 — the fast lane runs BEFORE the cadence gate, i.e. every frame.
+            // See the FastLaneSeconds header for why the 1 s clock was itself the defect.
+            FastLane(now);
+
             if (now < _nextScan)
                 return;
             _nextScan = now + ScanInterval;
@@ -459,6 +534,139 @@ internal static class MaterialLoaderHeal
                 _nextPrune = now + TrackExpirySeconds;
                 PruneTracks(now);
             }
+        }
+
+        /// <summary>Entries visited per frame by <see cref="FastLane"/>. The walk round-robins
+        /// across the whole hot set, so this is a per-frame COST cap, not a coverage limit: a
+        /// 266-renderer tile rebuild is fully covered in six frames.</summary>
+        private const int FastLaneEntriesPerFrame = 48;
+
+        /// <summary>Rolling position in the flattened (loader, entry) list, so consecutive
+        /// frames continue where the last one stopped instead of re-walking the same head.</summary>
+        private int _fastCursor;
+
+        /// <summary>Fast-lane heal lines left this session (Note tier — the hardware question
+        /// this build asks). The lane itself keeps working after the budget is spent.</summary>
+        private static int _fastLogsLeft = 4;
+
+        /// <summary>
+        /// EVERY FRAME, FINISH WHAT IS ALREADY FINISHABLE. The done-stuck heal — and ONLY the
+        /// done-stuck heal — on the loaders that started within <see cref="FastLaneSeconds"/>.
+        ///
+        /// <para><b>Why only done-stuck.</b> The other three states this file heals
+        /// (never-started, null-result, pending-forever) are all gated on
+        /// <see cref="MinStuckSeconds"/> or <see cref="PendingForeverSeconds"/> precisely
+        /// because re-running a loader too early races the game's own <c>LoadAssetAsync</c>
+        /// into the double-load error. A faster clock must not change that judgement, so the
+        /// lane never re-triggers anything: it only performs the terminal assignment for an
+        /// entry whose every handle ALREADY holds a material and whose
+        /// <c>CheckAllMaterialLoaded</c> provably can never pass. That is a state the game
+        /// cannot leave on its own, so finishing it one frame after it becomes true is exactly
+        /// as safe as finishing it one second after — only visible instead of a strobe.</para>
+        ///
+        /// <para>The exclusion ladder is the slow scan's, term for term (occlusion volumes,
+        /// door props, the fully-materialed pre-gate), and the shared <c>_tracks</c> table is
+        /// maintained the same way, so an entry healed here is not re-observed by the 1 s scan.</para>
+        /// </summary>
+        private void FastLane(float now)
+        {
+            if (HotCount == 0)
+                return;
+
+            // Retire expired / destroyed loaders first — the lane must go quiet on its own.
+            for (int i = HotLoaders.Count - 1; i >= 0; i--)
+            {
+                MaterialLoader hot = HotLoaders[i];
+                if (hot == null || !HotUntil.TryGetValue(hot, out float until) || now >= until)
+                {
+                    if (hot != null)
+                        HotUntil.Remove(hot);
+                    HotLoaders.RemoveAt(i);
+                }
+            }
+            if (HotLoaders.Count == 0)
+            {
+                // A loader destroyed with its scene leaves a key that compares equal to null and
+                // can no longer be removed by reference, so the dictionary is emptied wholesale
+                // whenever the lane goes quiet — which is the steady state.
+                HotUntil.Clear();
+                _fastCursor = 0;
+                return;
+            }
+
+            int visited = 0, index = 0, healed = 0;
+            string firstName = string.Empty;
+            for (int li = 0; li < HotLoaders.Count && visited < FastLaneEntriesPerFrame; li++)
+            {
+                MaterialLoader loader = HotLoaders[li];
+                if (loader == null || loader.LoadersData == null)
+                    continue;
+                foreach (MaterialLoaderData data in loader.LoadersData)
+                {
+                    if (visited >= FastLaneEntriesPerFrame)
+                        break;
+                    // Round-robin: skip everything before the cursor, then take the next slice.
+                    if (index++ < _fastCursor)
+                        continue;
+                    visited++;
+
+                    Renderer? r = data?.Renderer;
+                    if (data == null || r == null)
+                        continue;
+                    if (!r.gameObject.activeInHierarchy || r.enabled)
+                    {
+                        _tracks.Remove(data);
+                        continue;
+                    }
+                    if (r.GetComponent<ObjectOcclusionVolume>() != null
+                        || r.GetComponentInParent<TilesOcclusionVolume>() != null)
+                    {
+                        _tracks.Remove(data);
+                        continue;
+                    }
+                    if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
+                        continue;
+
+                    LoaderState state = Classify(data, rendererEnabled: false, out _, out _, out _);
+                    if (state != LoaderState.DoneStuck)
+                        continue; // still loading, or not ours — the 1 s scan owns every other state
+
+                    if (!HasNullMaterialSlot(r) && MaterialsAlreadyAssigned(data, r))
+                    {
+                        // Loaded AND assigned: the disable came from elsewhere, and outside a
+                        // door prop nothing in the game legitimately leaves tile content off.
+                        r.enabled = true;
+                    }
+                    else if (!TryFinishDirect(data, r))
+                    {
+                        continue; // handle state moved under us — the slow scan will report it
+                    }
+                    _tracks.Remove(data);
+                    healed++;
+                    if (firstName.Length == 0)
+                        firstName = r.name;
+                }
+            }
+            _fastCursor = visited >= FastLaneEntriesPerFrame ? index : 0;
+
+            if (healed <= 0)
+                return;
+            if (_fastLogsLeft <= 0)
+                return;
+            _fastLogsLeft--;
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note(Name,
+                $"MaterialLoaderHeal FAST LANE: finished {healed} renderer(s) THIS FRAME "
+                + $"(first '{firstName}'), {HotLoaders.Count} loader(s) still on the lane. "
+                + "READ IT LIKE THIS: before ModBuild 341 every one of these renderers stayed "
+                + "BLACK until the next 1 s watchdog scan, because MaterialLoaderData.LoadMaterials "
+                + "sets Renderer.enabled=false the instant an object is instantiated and the game's "
+                + "CheckAllMaterialLoaded can never turn an IsSaveExistedMaterials entry back on. "
+                + "A large count here on a prop grab means the engine re-instantiated that content, "
+                + "which is the whole-floor flicker; a count of 1-9 repeating means it is doing so "
+                + "over and over while the prop is held. "
+                + $"({_fastLogsLeft} more fast-lane lines this session.)");
         }
 
         private void HealAllLoaders(float now)
