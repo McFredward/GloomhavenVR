@@ -511,6 +511,33 @@ internal static class MaterialLoaderHeal
                         _tracks.Remove(data); // healthy/hidden — restart observation if it re-sticks
                         continue;
                     }
+                    // OCCLUSION VOLUMES ARE NOT SUPPOSED TO BE SEEN (ModBuild 335). The hardware
+                    // log of 2026-09-02 carried SEVEN Errors, all of them
+                    // "giving up on renderer 'OcclusionVolume' after 5 retries — it stays hidden",
+                    // and every one is a false alarm: an occlusion volume's MeshRenderer is never
+                    // drawn to the screen. ObjectOcclusionVolume.OnEnable hands it to
+                    // TilesOcclusionGenerator.AddObjectRenderer, and the generator's only use of
+                    // that list is
+                    //     m_OcclusionBuffer.DrawRenderer(objectRenderer, m_OcclusionObjectMaterial)
+                    // (decompiled TilesOcclusionGenerator.cs:179-181) — drawn into an occlusion
+                    // buffer with the GENERATOR'S material. Its own material is irrelevant, which
+                    // is also why its material reference is the built-in-resources GUID that
+                    // Addressables can never resolve. "It stays hidden" is the CORRECT outcome
+                    // here, so reporting it as an Error was the instrument crying wolf five times
+                    // per volume, in a log that has room for fifteen mod lines.
+                    //
+                    // The test is the COMPONENT, not the name: a renderer is an occlusion volume's
+                    // because it carries ObjectOcclusionVolume itself (the game resolves it with
+                    // GetComponent<MeshRenderer>() on that same object), or because it lives under
+                    // a TilesOcclusionVolume, which owns an ARRAY of renderers beneath it — the one
+                    // case where the parent question is the right question.
+                    if (r.GetComponent<ObjectOcclusionVolume>() != null
+                        || r.GetComponentInParent<TilesOcclusionVolume>() != null)
+                    {
+                        _tracks.Remove(data);
+                        continue;
+                    }
+
                     LoaderState state = Classify(data, rendererEnabled: false, out _, out _, out _);
                     if (state == LoaderState.EmptyRefs || state == LoaderState.Done)
                         continue;

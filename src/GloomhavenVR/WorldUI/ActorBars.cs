@@ -1048,7 +1048,38 @@ internal static class ActorBars
         bool headKnown = headBone != null;
         float headY = headKnown ? headBone!.position.y : 0f;
 
-        float top = FigureBody.LiveTopY(liveMaxY, headY, headKnown, out bool fromHead);
+        // ── THE HEAD WINS WHEN THERE IS ONE (ModBuild 335) ───────────────────────────────
+        // USER, 2026-09-02, with hb_problem.jpg: "sie sind jetzt ZU hoch [...] wenn du die Hoehe
+        // der Spielfigur und der der Draechen vergleichst, dass die Hoehen hier nicht passen."
+        //
+        // In that screenshot the hero's bar sits ~6 % of its own height above its helmet, and the
+        // boss dragon's sits above its outstretched WINGTIPS — which are roughly twice as high as
+        // its head. Both bars obey this file's rule exactly. The rule was the problem: `top` was
+        // max(live extent, head joint), and on a spread-winged flyer the live extent IS the wings.
+        //
+        // ModBuild 294 replaced the baked box with the live extent for a good reason (a
+        // SkinnedMeshRenderer's baked box is carried by the root bone and does not move), and that
+        // stands. What it also did, unnoticed, was hand the anchor to whichever bone happens to be
+        // highest — a wingtip, a raised weapon, a banner. "How tall is this creature" and "what is
+        // the topmost point of its silhouette this frame" are different questions, and only the
+        // first one is what a health bar is answering.
+        //
+        // THE EVIDENCE FOR THE HEAD WAS ALREADY IN THIS FILE, in the table below: on five figures
+        // out of five, the artists' own m_WorldspaceOffsetY lands within 0.15 wu of the LIVE HEAD
+        // JOINT — including ElderDrakeID (authored 3.50, head 3.28..3.43), the very boss whose bar
+        // is wrong. Two independent sources agree on the head; nothing agrees on the wingtip. That
+        // table was used to justify a FLOOR while the wings were still allowed to raise the bar
+        // above it. Now it decides the anchor.
+        //
+        // The live extent is NOT deleted — it is the answer for every figure with no head joint
+        // (props, obstacles, chests, and any character whose rig lacks m_HeadBonePoint), which is
+        // exactly the population the head rule cannot serve. And the authored floor below still
+        // rescues the quadruped whose head hangs BELOW its back (RendingDrakeElite, head 0.74
+        // against authored 1.00).
+        bool fromHead = headKnown;
+        float top = headKnown
+            ? headY
+            : FigureBody.LiveTopY(liveMaxY, headY, headKnown: false, out _);
 
         // The height the clearance is a percentage OF is the live figure, not a padded box.
         float height = Mathf.Max(top - track.y, 0.01f);
@@ -1108,9 +1139,12 @@ internal static class ActorBars
         // WHICH TERM PRODUCED THE TOP. A rule that silently stops applying is a rule nobody can
         // falsify, so the line names the winner rather than leaving it to arithmetic.
         string topWhy = fromHead
-            ? $"the LIVE HEAD JOINT, which stands {headY - liveMaxY:F2} wu ABOVE the live extent "
-              + "of every renderer measured"
-            : "the LIVE EXTENT (bones for skinned meshes, own transform for props)";
+            ? $"the LIVE HEAD JOINT (ModBuild 335: the head DECIDES when a figure has one). It "
+              + $"stands {headY - liveMaxY:F2} wu above the live extent of every renderer measured "
+              + "— a NEGATIVE number here is the normal case for a winged or weapon-carrying "
+              + "figure and is exactly what this rule exists to ignore"
+            : "the LIVE EXTENT (bones for skinned meshes, own transform for props) — this figure "
+              + "has NO head joint, which is the only case the extent still decides";
 
         string head = headKnown
             ? $"head joint at {headY - track.y:F2} wu above the track point"

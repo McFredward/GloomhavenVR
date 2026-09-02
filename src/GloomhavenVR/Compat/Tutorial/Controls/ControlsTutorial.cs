@@ -67,7 +67,9 @@ internal static class ControlsTutorial
             return;
         _pending = true;
         _startAt = Time.unscaledTime + StartDelaySeconds;
-        VRLog.Info("Tutorial", "Controls lesson queued for this tutorial scenario "
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", "Controls lesson queued for this tutorial scenario "
             + $"(starts in {StartDelaySeconds:0.0} s, once the hands and the bundle are up). "
             + "Switch it off permanently with [Tutorial] ControlsLesson = false.");
     }
@@ -148,7 +150,9 @@ internal static class ControlsTutorial
         _right.Show();
         _index = -1;
         Advance();
-        VRLog.Info("Tutorial", $"Controls lesson started: {ControlsLesson.Steps.Length} steps, "
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", $"Controls lesson started: {ControlsLesson.Steps.Length} steps, "
             + $"showing the '{ControllerVisual.DeviceId}' controller.");
     }
 
@@ -226,7 +230,9 @@ internal static class ControlsTutorial
 
     private static void OnSkip()
     {
-        VRLog.Info("Tutorial", $"Controls lesson skipped by the player at step {_index} "
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", $"Controls lesson skipped by the player at step {_index} "
             + $"('{(_index >= 0 && _index < ControlsLesson.Steps.Length ? ControlsLesson.Steps[_index].Id : "?")}').");
         Stop();
     }

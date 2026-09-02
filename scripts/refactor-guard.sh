@@ -40,6 +40,9 @@
 #                                      parts of a partial type, and MSBuild sorts the glob
 #   scripts/check-instrument-writes.py a diagnostic that writes state the MECHANISM reads can no
 #                                      longer be gated off or retired — baseline, fails on new
+#   scripts/check-hw-verify.py         a line a hardware round is WAITING ON must survive the
+#                                      default log level; 331's quiet log silenced every one of
+#                                      them and the next test round answered nothing.
 #   scripts/check-desync-surface.py    a patch on a type the game dispatches NETWORK ACTIONS
 #                                      into can turn its own exception into the GAME's
 #                                      "Desynchronization occurred" dialog; each must be judged.
@@ -223,6 +226,12 @@ case "${1:-check}" in
         # in docs/NET-ACTION-SURFACE.md; this fails on a NEW one nobody has read.
         python3 "$ROOT/scripts/check-desync-surface.py" \
             || { echo "error: a patch on a network-action receiver is unclassified (see above)" >&2; exit 1; }
+        # ModBuild 331 made the log quiet, correctly, by moving VRLog.Info to the DEBUG tier. The
+        # first hardware test after it (334) came back with FIFTEEN mod lines and answered NOTHING:
+        # every question in the backlog was written with VRLog.Info. A line a hardware round is
+        # waiting on must survive the DEFAULT level, and nothing noticed that it no longer did.
+        python3 "$ROOT/scripts/check-hw-verify.py" \
+            || { echo "error: a HW-VERIFY line cannot be read at the default log level (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \

@@ -45,6 +45,43 @@ internal static class FigureGhosts
     private static readonly List<ActorBehaviour> _scratch = new(4);
 
     /// <summary>
+    /// The subtree a ghost is cloned from, and the transform its home pose is read off. ONE
+    /// resolver for both call sites (local grab in <c>FigureGrabbable.OnGrab</c>, remote grab in
+    /// <c>NetFigures</c>) so the clone and the pose can never come from different objects.
+    ///
+    /// <para><b>THE ACTOR ROOT, NOT <c>m_AnimatedGameObject</c> (ModBuild 335).</b> User,
+    /// 2026-09-02: "wenn ich ihn in die Hand nehme hinterlaesst er auch keine Geistervariante an
+    /// der originalen Stelle. Das sollte bei ALLEN Figuren ausnahmslos der Fall sein [...] Bei den
+    /// kleinen Drachen funktioniert es ohne Probleme - es ist nur dieser Boss-Drache."</para>
+    ///
+    /// <para>The game sets <c>m_AnimatedGameObject = MF.GetGameObjectAnimator(root).gameObject</c>,
+    /// and that method (decompiled MF.cs:135-146) returns <b>the first Animator in the subtree that
+    /// owns a runtimeAnimatorController</b>, in <c>GetComponentsInChildren</c> order. It is not
+    /// defined to be the character's own Animator — it is whichever one the depth-first walk
+    /// reaches first. On most figures those are the same object, which is why the small drakes were
+    /// always fine. The boss is the one figure whose subtree provably carries FOREIGN animated
+    /// content: its own reach census names a <c>WP_Scoundrel_Dart</c> and two <c>WP_Dummy</c>
+    /// objects hanging off it. Clone the wrong Animator's subtree and you get a real ghost, of a
+    /// dart.</para>
+    ///
+    /// <para><see cref="FigureHighlight"/> reached this conclusion first and moved ITSELF to the
+    /// actor root in ModBuild 294; this class was left behind on the old field. The root is also
+    /// the subtree <c>ActorBars</c> and <c>FigureGrabDriver</c> already call "the figure", so all
+    /// four now agree on what a figure is.</para>
+    ///
+    /// <para>Cloning the root is safe because <c>FigureOverlay.BuildFrozenGhost</c> strips
+    /// colliders, rigidbodies, cloth, particle systems and EVERY MonoBehaviour from the clone, and
+    /// (since 335) any mod-owned <c>VR*</c> subtree — the highlight overlay hangs off this very
+    /// root, and cloning it would ghost our own glow.</para>
+    /// </summary>
+    internal static GameObject? GhostSource(ActorBehaviour actor)
+    {
+        if (actor == null)
+            return null;
+        return actor.m_RootGameObject != null ? actor.m_RootGameObject : actor.m_AnimatedGameObject;
+    }
+
+    /// <summary>
     /// Ensure a frozen ghost exists for <paramref name="actor"/> at its current (home) pose. Called
     /// the instant a hold begins — LOCALLY from <c>FigureGrabbable.OnGrab</c> (before the mini is
     /// reparented to the hand) and REMOTELY from <c>NetFigures</c> (the first frame a peer's hold
@@ -58,9 +95,7 @@ internal static class FigureGhosts
         if (actor == null || _ghosts.ContainsKey(actor))
             return;
 
-        GameObject? animated = actor.m_AnimatedGameObject != null
-            ? actor.m_AnimatedGameObject
-            : actor.m_RootGameObject;
+        GameObject? animated = GhostSource(actor);
         if (animated == null)
             return;
 
@@ -80,7 +115,9 @@ internal static class FigureGhosts
             return;
         }
         _ghosts[actor] = new Ghost(ghost, homePos, homeRot);
-        VRLog.Info("FigureGrab", $"ghost spawned at home for {Describe(actor)} ({_ghosts.Count} active).");
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab", $"ghost spawned at home for {Describe(actor)} ({_ghosts.Count} active).");
     }
 
     /// <summary>

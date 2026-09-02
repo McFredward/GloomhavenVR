@@ -279,7 +279,9 @@ internal static class SceneVfxHands
         if (!_loggedFirstAdopt)
         {
             _loggedFirstAdopt = true;
-            VRLog.Info("Hands", $"Hands disturb VFX: first system adopted ('{ps.name}', "
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Hands", $"Hands disturb VFX: first system adopted ('{ps.name}', "
                 + $"{ps.particleCount} live particles). Collision is switched on with "
                 + $"collidesWith = the mod layer ({VRLayers.ModLayer}) and messages OFF, so "
                 + "particles deflect off the hand and nothing can be spawned. Authored settings "
@@ -294,7 +296,9 @@ internal static class SceneVfxHands
     {
         if (!_tooDense.Add(ps.name))
             return;
-        VRLog.Info("Hands", $"Hands disturb VFX: '{ps.name}' was NOT adopted — "
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Hands", $"Hands disturb VFX: '{ps.name}' was NOT adopted — "
             + $"{ps.particleCount} live particles is over the {MaxParticlesToAdopt} cap that keeps "
             + "per-particle collision off the frame budget. Reported once per effect name; if this "
             + "names an effect you wanted to feel, the cap is the dial.");
@@ -346,7 +350,9 @@ internal static class SceneVfxHands
         {
             watch.Stop();
             _scansTimed++;
-            VRLog.Info("Hands", $"VFX scan #{_scansTimed}: {_scene.Count} adoptable particle "
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Hands", $"VFX scan #{_scansTimed}: {_scene.Count} adoptable particle "
                 + $"system(s) of {found.Length} found — {onFigures} of them ON FIGURES (auras, "
                 + "casts, monster effects), which are adopted exactly like the room's. "
                 + $"{gameManaged} skipped as game-managed collision ({gameManagedOnFigures} of "

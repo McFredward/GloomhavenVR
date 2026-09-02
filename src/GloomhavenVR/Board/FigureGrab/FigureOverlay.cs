@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using UnityEngine;
@@ -158,6 +159,15 @@ internal static class FigureOverlay
             a.fireEvents = false;
             a.cullingMode = AnimatorCullingMode.AlwaysAnimate;
         }
+        // MOD-OWNED SUBTREES GO FIRST (ModBuild 335). Since the ghost is cloned from the ACTOR
+        // ROOT rather than m_AnimatedGameObject (see FigureGhosts.GhostSource), the walk can now
+        // reach our OWN objects: the additive highlight overlay ("VRFigureHighlight") is parented
+        // under that very root, as is the reach volume ("VR_FigureReach"). Ghosting our own glow
+        // would leave a second, brighter copy standing at the home cell. Nothing the game ships
+        // under an actor starts with these two letters (they are HE_, MO_, WP_, C_*_JNT, Base,
+        // Actor(Clone)) — the same prefix rule FigureHighlight uses to avoid overlaying itself.
+        StripModOwned(ghost.transform);
+
         foreach (Cloth c in ghost.GetComponentsInChildren<Cloth>(true))
             if (c != null) Object.Destroy(c);
         foreach (Collider col in ghost.GetComponentsInChildren<Collider>(true))
@@ -222,6 +232,28 @@ internal static class FigureOverlay
         // so without this the tint material would leak every time a ghost is torn down.
         ghost.AddComponent<OverlayMaterialOwner>().Init(ghostMat);
         return ghost;
+    }
+
+    /// <summary>
+    /// Destroy every mod-owned child under <paramref name="root"/> (name starts with "VR"), depth
+    /// first so a nested one cannot be orphaned. Called on a FRESH clone only — it must never run
+    /// against a live figure.
+    /// </summary>
+    private static void StripModOwned(Transform root)
+    {
+        for (int i = root.childCount - 1; i >= 0; i--)
+        {
+            Transform child = root.GetChild(i);
+            if (child == null)
+                continue;
+            if (child.name.StartsWith("VR", StringComparison.Ordinal))
+            {
+                child.gameObject.SetActive(false); // instant off; the Destroy itself is deferred
+                Object.Destroy(child.gameObject);
+                continue;
+            }
+            StripModOwned(child);
+        }
     }
 
     /// <summary>Task #3: true when any of the renderer's ORIGINAL materials uses a VFX-family

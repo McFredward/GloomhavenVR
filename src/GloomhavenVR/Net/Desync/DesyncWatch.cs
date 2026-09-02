@@ -136,7 +136,9 @@ internal static class DesyncWatch
             _handler ??= OnDesyncDetected;
             FFSNetwork.OnDesyncDetected += _handler;
             _subscribed = true;
-            VRLog.Info(Name, $"{Tag} watch armed (recorder + stall warning; no patch installed).");
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note(Name, $"{Tag} watch armed (recorder + stall warning; no patch installed).");
         }
         catch (Exception e)
         {
@@ -231,7 +233,9 @@ internal static class DesyncWatch
             if (_appliedMaxRetries != want)
             {
                 _appliedMaxRetries = want;
-                VRLog.Info(Name, $"{Tag} patience: phase-mismatch retries {had} -> {want} " +
+                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+                VRLog.Note(Name, $"{Tag} patience: phase-mismatch retries {had} -> {want} " +
                                  $"({had * interval:0.0}s -> {want * interval:0.0}s at " +
                                  $"{interval:0.00}s/retry). LOCAL ONLY — this client waits longer " +
                                  "before declaring a desync; peers are unaffected and no action is " +

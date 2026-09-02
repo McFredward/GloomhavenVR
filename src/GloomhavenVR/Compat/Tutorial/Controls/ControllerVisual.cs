@@ -188,7 +188,9 @@ internal sealed class ControllerVisual
         if (!_loggedDevice)
         {
             _loggedDevice = true;
-            VRLog.Info("Tutorial", $"Controls lesson: controller reported as '{name}' → "
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Tutorial", $"Controls lesson: controller reported as '{name}' → "
                 + $"'{device.Id}' ({device.Label}), showing the '{device.Model}' model"
                 + (device.Model == Generic
                     ? " — no vendor model of this device is publicly licensed, so the neutral one "

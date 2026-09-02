@@ -394,9 +394,9 @@ internal static class NetFigures
         // release drops the actor from NetHeldFigures (RebuildSet, ReleaseRemote, or the Tick prune).
         if (!NetHeldFigures.Owns(actor) && !HeldFigures.Owns(actor))
         {
-            GameObject? animated = actor.m_AnimatedGameObject != null
-                ? actor.m_AnimatedGameObject
-                : actor.m_RootGameObject;
+            // ONE resolver with the local path (ModBuild 335) — the clone and the pose must never
+            // come from different objects, and m_AnimatedGameObject is not reliably the figure.
+            GameObject? animated = FigureGhosts.GhostSource(actor);
             if (animated != null)
                 FigureGhosts.NotifyHeld(actor, animated.transform.position, animated.transform.rotation);
         }

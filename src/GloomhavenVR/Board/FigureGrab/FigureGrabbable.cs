@@ -451,7 +451,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             bool glow = _highlight.Apply(root, _actor.m_AnimatedGameObject,
                                          _actor.m_Hilight != null ? _actor.m_Hilight.transform : null,
                                          out string overlay);
-            VRLog.Info("FigureGrab",
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("FigureGrab",
                 $"pre-grab highlight ENGAGED ({hand.Side} near {Describe()}, {DescribeReach(hand)}) — "
                 + "animated additive glow "
                 + (glow ? $"overlaid on the figure's own meshes (wall-occluded, no scale change): {overlay}."
@@ -570,7 +572,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             if (g._highlight.Apply(root, g._actor.m_AnimatedGameObject,
                                    g._actor.m_Hilight != null ? g._actor.m_Hilight.transform : null,
                                    out string overlay))
-                VRLog.Info("FigureGrab",
+                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+                VRLog.Note("FigureGrab",
                     $"pre-grab highlight ENGAGED ({g.Describe()}) — walk-in mode released under a "
                     + $"standing hover, so the glow returns without needing a re-hover: {overlay}.");
         }
@@ -607,7 +611,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // build the frozen snapshot from its current (board) pose. FigureGhosts reconciles teardown
         // off HeldFigures/NetHeldFigures, so any release path removes it. (Multiplayer: a REMOTE
         // player's grab spawns the same ghost via NetFigures.)
-        GameObject ghostSrc = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
+        GameObject ghostSrc = FigureGhosts.GhostSource(_actor) ?? root;
         FigureGhosts.NotifyHeld(_actor, ghostSrc.transform.position, ghostSrc.transform.rotation);
 
         // Suppress the game's per-frame transform writes for THIS actor only. The HAND is recorded
