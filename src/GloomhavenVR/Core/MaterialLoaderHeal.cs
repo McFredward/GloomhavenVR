@@ -166,6 +166,25 @@ internal static class MaterialLoaderHeal
     //
     // MULTIPLAYER: local presentation only. No wire field, no game state written, no peer
     // -visible decision — the same renderer would have been enabled a second later anyway.
+    //
+    // MODBUILD 349 VERDICT ON THIS LANE — KEPT, and here is what it is actually for.
+    //
+    // 341 shipped this lane on the theory that a shorter dark window would fix the held-prop
+    // flicker. It did not, and 348's log says why: the prop was being REBUILT every frame
+    // (Board/FigureGrab/GrabbableProp.FreezeApparance has the chain), so the lane was healing
+    // renderers that were destroyed again before they could be seen. Racing a loop is not a fix,
+    // and 349 removes the loop instead.
+    //
+    // The lane still earns its keep, on the case it was always right about — the one this file
+    // exists for. From the same 2026-09-02 log, at scenario load and nothing to do with a grab:
+    //
+    //   MaterialLoaderHeal FAST LANE: finished 48 renderer(s) THIS FRAME
+    //   (first 'CV_Floor_Basic_02'), 417 loader(s) still on the lane.
+    //
+    // Forty-eight floor renderers finished in ONE frame that would each have waited up to a
+    // second, with four hundred more queued behind them: that is the reveal/load path, it is the
+    // whole-floor case, and it has no other remedy here. Steady-state cost is one List.Count
+    // compare per frame (HotCount), so the lane costs nothing when nothing is loading.
     // ---------------------------------------------------------------------------------
 
     /// <summary>How long after its loader started an entry stays on the fast lane. Long enough

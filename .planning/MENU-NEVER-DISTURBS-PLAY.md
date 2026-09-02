@@ -258,7 +258,7 @@ of the three couplings 337 removed:
 
 | coupling 337 removed | still removed? |
 |---|---|
-| the ESC menu's `ToggleGroup` (our cloned row's `ExtendedToggle` taken out of the group, in `VRMenuEntry`) | **untouched** — `VRMenuEntry.cs` is not modified by this build at all |
+| the ESC menu's `ToggleGroup` (our cloned row's `ExtendedToggle` taken out of the group, in `VRMenuEntry`) | **still removed.** Correction, ModBuild 349 — this row said `VRMenuEntry.cs` is not modified by that build, and from 349 on it is ([[audit-is-a-snapshot]]: a review's claims go stale in two builds). `Detach` is byte-identical and there is still no write to `toggle.group` or to `UIWindow.ID` anywhere in the mod. What 349 added is `WorldUI/Modal/MenuExclusivity.cs` — a per-PLACE arbitration rule — plus `VRMenuEntry.TickMainMenuExclusivity`/`ClearRivals`, which perform the MAIN MENU's own one-at-a-time behaviour explicitly, over rows they only read and close through the game's public `Deselect()`. In a scenario and in the map room the rule returns `Parallel` and none of it runs. |
 | the escapable listener list (`LeaveSharedStacks`) | **untouched** — `VROptionsTab.LeaveSharedStacks` is unmodified |
 | the `ControllerInputAreaManager` stack (`LeaveInputAreaStack`) | **untouched** |
 

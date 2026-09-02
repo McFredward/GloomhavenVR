@@ -55,6 +55,21 @@ namespace GloomhavenVR.WorldUI;
 /// <c>toggleGroup.SetAllTogglesOff()</c> (<c>ESCMenu.cs</c>:353) no longer reaches us, so closing
 /// the pause menu leaves the VR settings standing — which is what an independent window does.</para>
 ///
+/// <para><b>THAT PARAGRAPH IS ABOUT THE PAUSE MENU, AND ModBuild 349 IS THE BUILD THAT SAYS SO.</b>
+/// The detach was applied to BOTH cloned rows, because at the time there was one cloning path and
+/// no notion of WHERE the row was. In the main menu the group was not a coupling to be broken: it
+/// was the only thing that closed the VR pane when the player picked another entry, and taking our
+/// row out of it left the pane standing on top of whatever he opened next, swallowing every click
+/// aimed at it (user, 2026-09-02: <i>"Im Hauptmenu … verschwinden die VR-Optionen nicht mehr was
+/// sie dann darüber legen lässt - dann kann man nichts mehr steuern. Hier soll es sich anders
+/// Verhalten als im Szenario oder in der map-umgebung"</i>). The detach STAYS — in both menus, and
+/// for all three reasons above. What was added instead is
+/// <see cref="TickMainMenuExclusivity"/>/<see cref="ClearRivals"/>: in the MAIN MENU ONLY, and
+/// keyed on <see cref="MenuExclusivity"/> rather than on a local <c>if</c>, the mod performs the
+/// one-at-a-time arbitration itself, over rows it only reads and closes through the game's own
+/// <c>Deselect()</c>. Neither window is ever the other's close button again, and in a scenario and
+/// in the map room nothing whatever changed.</para>
+///
 /// <para>THE ROW'S LIT STATE IS THEREFORE OURS TO KEEP HONEST, and <see cref="TickRowLatch"/> is
 /// the belt: a row lit over a settings window that is not open is forced back off. That is the
 /// falsifiable guard behind the standing rule that it must ALWAYS be possible to open the settings
@@ -62,7 +77,9 @@ namespace GloomhavenVR.WorldUI;
 /// (<c>UIMenuOption.cs</c>:121-126), so a stale lit row is exactly a door that stops
 /// answering.</para>
 ///
-/// <para>TWO MENUS, BECAUSE THERE ARE TWO PLACES A PLAYER CAN BE. <c>UIMapEscMenu</c> and
+/// <para>TWO MENUS, BECAUSE THERE ARE TWO PLACES A PLAYER CAN BE — AND SINCE ModBuild 349 THEY DO
+/// NOT ARBITRATE ALIKE (<see cref="MenuExclusivity"/>: the pause menu is <c>Parallel</c>, the main
+/// menu is <c>OneAtATime</c>). <c>UIMapEscMenu</c> and
 /// <c>UIScenarioEscMenu</c> are subclasses of <c>ESCMenu</c> and the <c>optionsButton</c> field is
 /// on the base, so the map room and a scenario are one code path. The MAIN menu is not an
 /// <c>ESCMenu</c> at all — it is <c>UIMainOptionsMenu</c> — and before this build the VR tab was
@@ -93,6 +110,25 @@ internal static class VRMenuEntry
     /// <summary>The main menu we are injected into, and our row in it.</summary>
     private static UIMainOptionsMenu? _mainHost;
     private static UIMainMenuOption? _mainEntry;
+
+    /// <summary>
+    /// THE MAIN MENU'S OWN ARBITRATION SET — every row the menu itself switches between, ours
+    /// excluded. Resolved lazily from <c>UIMainOptionsMenu.menuOptions</c>, the list the game fills
+    /// in <c>Start()</c> through <c>InitializeButton</c> (decompiled :91-99, :162-176), because
+    /// that IS the set the single-select <c>ToggleGroup</c> arbitrates over. A component sweep
+    /// would also pick up the sub-option flyout's slots (<c>UIMainMenuSuboption : UIMainMenuOption</c>)
+    /// and the hidden sandbox row, neither of which the menu arbitrates.
+    /// </summary>
+    private static UIMainMenuOption[]? _mainRivals;
+
+    /// <summary>
+    /// THE YIELD RULE IS ARMED ONLY ONCE THE FIELD HAS BEEN SEEN CLEAR — see
+    /// <see cref="TickMainMenuExclusivity"/> for why, and <see cref="MenuExclusivity"/> for the
+    /// rule itself. Never a standing suppression: nothing else in the mod reads it, its only effect
+    /// is to permit one action, and it is cleared on every path that is not "the pane is open in
+    /// the main menu with no rival lit".
+    /// </summary>
+    private static bool _yieldArmed;
 
     private static bool _loggedInject;
     private static bool _loggedIcon;
@@ -162,7 +198,12 @@ internal static class VRMenuEntry
         {
             TickPauseMenu();
             TickMainMenu();
-            TickRowLatch();
+            // ONE read of the window's state for both rules, so they cannot disagree within a
+            // frame: the exclusivity rule acts while it is open, the latch reconcile while it is
+            // not, and asking twice would let a close that happens between them be seen by neither.
+            bool open = VROptionsTab.IsOpen;
+            TickMainMenuExclusivity(open);
+            TickRowLatch(open);
         }
         catch (Exception ex)
         {
@@ -289,6 +330,11 @@ internal static class VRMenuEntry
             _nextMainScan = 0f;
             _mainHost = null;
             _mainEntry = null;
+            // The rival set and the arming belong to the menu instance that has just gone with its
+            // scene; carrying either into the next one would arbitrate over destroyed rows
+            // ([[gate-outliving-its-edge]]).
+            _mainRivals = null;
+            _yieldArmed = false;
         }
 
         if (_mainScansLeft <= 0)
@@ -340,6 +386,11 @@ internal static class VRMenuEntry
         clone.Init(
             delegate
             {
+                // THE MAIN MENU IS ONE-AT-A-TIME (MenuExclusivity), and this is the half of it the
+                // player performs himself: he picked US, so whatever the previous entry had opened
+                // goes. Running it BEFORE SetMainFocused mirrors the game's own order — a
+                // ToggleGroup turns the old member off, and only then does the new one select.
+                ClearRivals();
                 SetMainFocused(menu, false);
                 if (!VROptionsTab.Open(() => ClearRow(clone), clone.transform as RectTransform))
                 {
@@ -355,6 +406,11 @@ internal static class VRMenuEntry
 
         _mainHost = menu;
         _mainEntry = clone;
+        // Resolved here so the very first open already has the set; ResolveRivals() retries on its
+        // own if the menu's Start() has not filled menuOptions yet.
+        _mainRivals = null;
+        _yieldArmed = false;
+        ResolveRivals();
 
         if (!_loggedMain)
         {
@@ -382,6 +438,178 @@ internal static class VRMenuEntry
             VRLog.Warn("WorldUI", $"Main-menu focus handoff failed ({ex.GetType().Name}); the VR "
                 + "entry still opens and closes the settings.");
         }
+    }
+
+    // ==========================================================================================
+    //  The main menu's one-at-a-time arbitration — the ModBuild 349 fix
+    // ==========================================================================================
+
+    /// <summary>
+    /// THE MAIN MENU'S OWN RULE, PERFORMED BY US: while the VR settings pane stands in the main
+    /// menu, another main-menu entry going lit closes it.
+    ///
+    /// <para><b>User, 2026-09-02, hardware round on ModBuild 348:</b> <i>"Im Hauptmenu wenn ich die
+    /// VR-Optionen offen hatte, und dann etwas andere aufmache, verschwinden die VR-Optionen nicht
+    /// mehr was sie dann darüber legen lässt - dann kann man nichts mehr steuern. Hier soll es sich
+    /// anders Verhalten als im Szenario oder in der map-umgebung wenn es als Fenster spawnt."</i>
+    /// <see cref="MenuExclusivity"/> holds the reasoning, the measurement and the rule; this method
+    /// is only its hands, and it asks for the verdict rather than testing the place itself.</para>
+    ///
+    /// <para><b>A LIT ROW IS THE RIGHT DEFINITION OF "SOMETHING ELSE IS OPEN" HERE, and it is the
+    /// menu's own.</b> Every screen the main menu can reach is opened by one of its rows —
+    /// campaign, guildmaster, multiplayer, extras (credits / compendium / level editor), tutorial,
+    /// the game's Optionen, exit — and each row's <c>Deselect</c> is what closes what it opened
+    /// (<c>UIMainOptionsMenu.InitializeButton</c>, decompiled :162-176). So watching the ROWS
+    /// catches every route, including the ones that then hide the menu itself: the extras row is
+    /// already lit when it opens the credits window. Watching WINDOWS instead would need a taxonomy
+    /// of which of the two dozen distinct <c>UIWindow</c>s in that scene count, and would fire on
+    /// notification popups the player never opened.</para>
+    ///
+    /// <para><b>WHY IT ARMS ONLY AFTER SEEING THE FIELD CLEAR.</b> The test is a LEVEL — "a rival
+    /// is lit" — not an edge, because an edge can be missed and would leave the pane standing over
+    /// the very window it must yield to. But a bare level test has one failure mode that would
+    /// break a standing ruling: if the player opens the VR settings while a rival is ALREADY lit
+    /// and <see cref="ClearRivals"/> cannot clear it, the level is true the instant we open and the
+    /// pane would close itself again immediately — a door that appears not to work, against
+    /// <i>"Es MUSS immer möglich sein das Optionsmenu zu öffnen."</i> So the rule arms only on a
+    /// tick where the pane is open and NO rival is lit, and it disarms on every other. The worst
+    /// case is therefore exactly the behaviour that shipped in 348, plus a line saying so
+    /// (<see cref="MenuExclusivity.NoteRefusedToArm"/>).</para>
+    ///
+    /// <para>THE FLAG CANNOT OUTLIVE ITS EDGE. It permits an action, it suppresses nothing, and
+    /// nothing outside this method reads it. It is cleared when the pane is not open, when either
+    /// menu reference is gone (teardown, scene change, degraded), when the place stops being the
+    /// main menu, and in the same statement that acts on it.</para>
+    /// </summary>
+    private static void TickMainMenuExclusivity(bool paneOpen)
+    {
+        if (_mainHost == null || _mainEntry == null || !paneOpen
+            || MenuExclusivity.RuleHere != MenuArbitration.OneAtATime)
+        {
+            _yieldArmed = false;
+            return;
+        }
+
+        UIMainMenuOption? rival = FirstLitRival();
+        if (rival == null)
+        {
+            // The menu is quiet and the pane is the only thing standing: from here on, anything the
+            // player opens takes it down.
+            _yieldArmed = true;
+            return;
+        }
+
+        if (!_yieldArmed)
+        {
+            MenuExclusivity.NoteRefusedToArm(rival.name);
+            return;
+        }
+
+        _yieldArmed = false;
+
+        // SetSelected(false) rather than Deselect(): it clears the option's flag and the toggle's
+        // value WITHOUT running our deselect delegate, which would hand the main menu's focus back
+        // to the row list a frame after the rival took it. The pane is then closed explicitly. Our
+        // toggle carries no group (Detach), so there is no member to bounce back on.
+        UIMainMenuOption ours = _mainEntry;
+        Canvas? paneCanvas = VROptionsTab.PaneCanvas;
+        try
+        {
+            ours.SetSelected(false);
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"VR menu row: clearing '{ours.name}' as it yielded to "
+                + $"'{rival.name}' threw ({ex.GetType().Name}: {ex.Message}); the pane is closed "
+                + "either way and the per-frame latch reconcile will correct the row.");
+        }
+
+        VROptionsTab.Close();
+        MenuExclusivity.NoteYielded(rival.name, ours.name, paneCanvas,
+                                    rival.GetComponentInParent<Canvas>());
+    }
+
+    /// <summary>
+    /// The other half of the same rule: the player picked OUR row, so whatever the previous entry
+    /// had opened goes. <c>Deselect()</c> is the game's own call and runs the game's own close —
+    /// <c>MainOptionOptions.Deselect</c> hides the options window, a suboptions row hides the
+    /// flyout — so nothing here needs to know what any row opens.
+    ///
+    /// <para>Guarded per row, because a <c>UnityEvent</c> chain has no per-listener catch and one
+    /// row that throws must not stop the rest from clearing. A no-op outside the main menu: this is
+    /// only ever called from the main-menu row's own select delegate.</para>
+    /// </summary>
+    private static void ClearRivals()
+    {
+        UIMainMenuOption[]? rivals = ResolveRivals();
+        if (rivals == null)
+            return;
+
+        for (int i = 0; i < rivals.Length; i++)
+        {
+            UIMainMenuOption? row = rivals[i];
+            if (row == null || !row.IsSelected)
+                continue;
+            try
+            {
+                row.Deselect();
+            }
+            catch (Exception ex)
+            {
+                VRLog.Warn("WorldUI", $"VR menu row: could not close the main-menu entry "
+                    + $"'{row.name}' as the VR settings opened ({ex.GetType().Name}: {ex.Message}). "
+                    + "The VR settings still open; that entry's window may be drawn beside them.");
+            }
+        }
+    }
+
+    /// <summary>The first main-menu entry other than ours that is currently lit, or null.</summary>
+    private static UIMainMenuOption? FirstLitRival()
+    {
+        UIMainMenuOption[]? rivals = ResolveRivals();
+        if (rivals == null)
+            return null;
+
+        for (int i = 0; i < rivals.Length; i++)
+        {
+            UIMainMenuOption? row = rivals[i];
+            if (row == null || ReferenceEquals(row, _mainEntry))
+                continue;
+            if (row.IsSelected)
+                return row;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The menu's own arbitration set, cached on first success. <c>menuOptions</c> is filled in
+    /// <c>UIMainOptionsMenu.Start()</c>, so an empty list means "not ready yet" and is retried
+    /// rather than cached — caching an empty set would silently disable the rule for the session.
+    /// Our clone is not in the list (it is wired with <c>Init</c> directly rather than through the
+    /// menu's <c>InitializeButton</c>), and is filtered anyway.
+    /// </summary>
+    private static UIMainMenuOption[]? ResolveRivals()
+    {
+        if (_mainRivals != null && _mainRivals.Length > 0)
+            return _mainRivals;
+        if (_mainHost == null)
+            return null;
+
+        List<UIMainMenuOption>? rows = _mainHost.menuOptions;
+        if (rows == null || rows.Count == 0)
+            return null;
+
+        var kept = new List<UIMainMenuOption>(rows.Count);
+        for (int i = 0; i < rows.Count; i++)
+        {
+            UIMainMenuOption row = rows[i];
+            if (row == null || ReferenceEquals(row, _mainEntry))
+                continue;
+            kept.Add(row);
+        }
+
+        _mainRivals = kept.ToArray();
+        return _mainRivals.Length > 0 ? _mainRivals : null;
     }
 
     // ==========================================================================================
@@ -462,6 +690,13 @@ internal static class VRMenuEntry
     /// <para>The DONOR is untouched, as always — its group membership is the game's and stays the
     /// game's, so the pause menu's own rows keep deselecting each other exactly as they shipped.
     /// Only the mod's own row steps out of the line.</para>
+    ///
+    /// <para><b>THIS RUNS FOR BOTH ROWS AND STILL SHOULD — but "both windows can stand open at
+    /// once" is a per-PLACE consequence, not a global one.</b> See the class doc's ModBuild 349
+    /// paragraph: in the main menu the group was the only thing closing our pane when the player
+    /// opened another entry, so that arbitration is now performed explicitly by
+    /// <see cref="TickMainMenuExclusivity"/> instead of by re-joining a group whose deselect
+    /// callbacks would make each row the other window's close button again.</para>
     /// </summary>
     private static void Detach(UIMainMenuOption clone)
     {
@@ -492,7 +727,13 @@ internal static class VRMenuEntry
                 + "the pause menu no longer takes the VR settings with it. PROOF IN THE NEXT LOG: with "
                 + "both windows opened one after the other there must be NO 'UIWindow hidden' on one of "
                 + "them in the same breath as a 'UIWindow SHOWN' on the other. The game's own rows are "
-                + "untouched and still deselect each other.");
+                + "untouched and still deselect each other."
+                + " WHERE THAT PARALLELISM APPLIES (ModBuild 349): in a SCENARIO and in the MAP ROOM, "
+                + "where the VR settings spawn as a free-floating window of their own. In the MAIN "
+                + "MENU the same detach left the pane standing over whatever the player opened next, "
+                + "swallowing his clicks, so there the mod now performs the menu's own one-at-a-time "
+                + "rule itself — grep 'MENU ARBITRATION'. The row is still out of the group in both "
+                + "places; only the arbitration differs.");
         }
         catch (Exception ex)
         {
@@ -519,9 +760,8 @@ internal static class VRMenuEntry
     /// invoking the deselect callback — there is nothing to close, the window is already shut, and
     /// running the callback would fire a redundant close through ModalFallback.</para>
     /// </summary>
-    private static void TickRowLatch()
+    private static void TickRowLatch(bool open)
     {
-        bool open = VROptionsTab.IsOpen;
         UIMainMenuOption? stale = null;
 
         if (!open)
@@ -653,6 +893,9 @@ internal static class VRMenuEntry
         _host = null;
         _mainEntry = null;
         _mainHost = null;
+        _mainRivals = null;
+        _yieldArmed = false;
+        MenuExclusivity.ResetLogLatches();
         _mainScanScene = 0;
         _mainScansLeft = 0;
         _nextMainScan = 0f;

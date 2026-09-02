@@ -24,6 +24,16 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// PlaceRandomProps:15459). So this class needs no patch, no pin, no ring suppressor and no
 /// busy predicate — it is a membership record and a hand record, nothing more.</para>
 ///
+/// <para><b>CORRECTION (ModBuild 349), because the paragraph above is true and was still
+/// misleading.</b> Nothing writes a held prop's transform — but something READS it every frame and
+/// acts on it. A prop spawns from <c>GetApparancePropPrefab</c>, so its root carries an
+/// <c>ApparanceEntity</c>, and that component rebuilds the prop's whole generated content whenever
+/// its transform changes. Moving a prop into a hand therefore had a per-frame consequence after
+/// all, just not a transform write: three rounds of "das Item flackert in der Hand" were the prop
+/// destroying and re-instantiating its own meshes. The suppression that case needs is in
+/// <see cref="GrabbableProp.FreezeApparance"/>, not here — but "the game leaves a prop alone" must
+/// not be read as "a hold has no side effects" ever again.</para>
+///
 /// <para><b>GRAB ORDER IS LOAD-BEARING, for the same reason it is in
 /// <see cref="HeldFigures"/>:</b> it is the only ordering that does not move while a hold lasts,
 /// so a future wire slot stays pinned to the same prop for the whole hold instead of trading

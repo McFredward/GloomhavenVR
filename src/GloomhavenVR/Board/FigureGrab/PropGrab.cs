@@ -108,6 +108,12 @@ internal static class PropGrab
         // that keeps FigureGrab.Glide above the config gate in FigureGrabDriver.Update.
         GrabbableProp.TickGlides();
 
+        // The Apparance thaw sits above the gate for the same reason: a prop whose rebuild-on-move
+        // was frozen for a hold must get MonitorMovement back whatever the dial does next, or it
+        // could never re-synthesize again for the rest of the session. One List.Count compare when
+        // nothing is pending. See GrabbableProp.FreezeApparance.
+        GrabbableProp.TickThaws();
+
         // The held re-assert sits above the gate for the same reason: a prop still in a hand when
         // GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame, and must not
         // be rendered at a drifted pose for the frame in between. Iterates at most two props and
@@ -325,6 +331,8 @@ internal static class PropGrab
             VRInteractables.UnregisterGrabbable(kv.Value);
         }
         Registry.Clear();
+        // Every Restore above scheduled a thaw a few frames out; there may be no more frames.
+        GrabbableProp.FlushThaws();
         HeldProps.Clear();
         PropGhosts.Clear();
         _lastPropCount = -1;

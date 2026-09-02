@@ -159,6 +159,20 @@ internal static partial class VROptionsTab
     /// </summary>
     internal static bool CanOpen => !_degraded && _window != null && ContentRoot != null;
 
+    /// <summary>
+    /// The canvas the pane is actually drawn by — DIAGNOSTIC ONLY, read once per session by
+    /// <see cref="MenuExclusivity.NoteYielded"/>.
+    ///
+    /// <para>It exists because the main-menu overlap defect is a SORTING-ORDER fact and nothing
+    /// else: in <c>VRMode.Menu2D</c> every window is composited onto the one flat screen, so the
+    /// number this returns against the number the opened window returns is the whole explanation
+    /// for "the VR options lie on top and nothing can be controlled". Measuring it at the moment of
+    /// the verdict is the difference between a log line that proves the cause and one that repeats
+    /// an earlier build's census.</para>
+    /// </summary>
+    internal static Canvas? PaneCanvas
+        => _window != null ? _window.GetComponentInParent<Canvas>() : null;
+
     /// <summary>Is the standalone menu on screen right now?</summary>
     internal static bool IsOpen
     {

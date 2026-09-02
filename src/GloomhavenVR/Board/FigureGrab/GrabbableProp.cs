@@ -78,6 +78,19 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   show and why <c>StatPanelSurface</c> is the wrong window for it.</item>
 /// </list>
 ///
+/// <para><b>THE ModBuild 349 ROUND — one defect, three builds, and it was ours.</b> The user
+/// tested 341 and then 348 with the same sentence: <i>"Das Problem mit den flackerten assets die
+/// ich in die Hand nehme ist weiterhin unverändert."</i> The hold watch 341 shipped for exactly
+/// this question answered it in 348: every renderer captured at the grab was DESTROYED during the
+/// hold and new ones took its place, while the root on the hand stayed alive. The cause is not a
+/// write war and not a wall pass — a prop's root carries an <c>ApparanceEntity</c>, and an
+/// Apparance entity destroys and re-instantiates its own generated content whenever it is
+/// TRANSFORMED. A prop in a moving hand is transformed every frame, so it was rebuilding itself
+/// every frame, and every new renderer is born <c>Renderer.enabled = false</c>. The fix is
+/// <see cref="FreezeApparance"/> — one documented plugin field, off for the length of the hold —
+/// and it leaves the hand holding the real prop and the home cell showing the ghost, exactly as
+/// before. Read that method for the full chain and for why a copy in the hand loses.</para>
+///
 /// <para><b>WHAT IT MUST NOT DO.</b> Nothing here writes game state. Lifting a chest does not
 /// move it on the board, does not loot it, does not touch pathing and does not touch whose turn
 /// it is: the only things this class writes are the prop VISUAL's transform, its colliders'
@@ -317,6 +330,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // set in the same call, so PropGhosts never sees a released frame.
         if (_glideActive)
             FinishGlide();
+
+        // THE APPARANCE FREEZE, and it runs BEFORE anything that moves the prop, because moving an
+        // Apparance entity is what makes it destroy and re-instantiate its own content — the whole
+        // defect. See FreezeApparance for the chain, quoted from the plugin's own source.
+        FreezeApparance();
 
         Transform t = _visual.transform;
         _holder = hand;
@@ -600,6 +618,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         }
         RestoreLayers();
         HeldProps.Remove(_prop);
+        ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
     /// <summary>
@@ -642,6 +661,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         RestoreLayers();
         _holder = null;
         HeldProps.Remove(_prop);
+        ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
     // ---- the pickup info panel (defect (d)) -----------------------------------------------------
@@ -902,6 +922,28 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private int _watchRootId;
     private string _watchParent = string.Empty;
 
+    // --- THE LIVE SUBTREE COUNTERS (ModBuild 349). Everything above measures the renderer set
+    //     captured AT THE GRAB, which is exactly the set the engine destroys; these measure what
+    //     is under the visual root RIGHT NOW, which is what the player is actually looking at.
+    private int _liveFrames;         // frames the live pass actually counted (see LiveSettleFrames)
+    private int _liveDarkFrames;     // frames on which NOTHING under the root was drawing
+    private int _liveRebuiltFrames;  // frames on which the renderer SET was replaced — the churn
+    private int _liveMin;
+    private int _liveMax;
+    private int _liveKey;
+
+    /// <summary>
+    /// Frames at the start of a hold whose live census is DISCARDED, and it is not padding.
+    ///
+    /// <para><c>FigureHighlight</c> parents its glow clones under the prop's own visual root, and
+    /// <c>OnGrab</c> tears them down with <c>Object.Destroy</c> — which Unity defers to the end of
+    /// the frame. So the first frames of a hold see ~9 clone renderers under the root that are
+    /// about to vanish by design, and counting them would report a renderer-set replacement that
+    /// nothing is wrong with. This is also the arithmetic behind the ModBuild 348 line reading
+    /// "18 renderer(s)" for a prop whose own subtree holds 9: half of that census was the glow.</para>
+    /// </summary>
+    private const int LiveSettleFrames = 3;
+
     /// <summary>How many hold-watch verdicts this session prints.</summary>
     private const int WatchBudget = 3;
 
@@ -910,7 +952,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// <summary>Arm the watch at the grab: cache the renderer set and its identity.</summary>
     private void BeginWatch()
     {
-        if (_visual == null)
+        // A PROBE THAT HAS ANSWERED IS SPENT. The verdict budget used to gate only the EMIT, so the
+        // per-frame walk below went on running for every hold of the session after the last line it
+        // could ever print. It gates the ARMING too now: once the budget is out no watch exists at
+        // all and TickWatch returns on its first null check.
+        if (_visual == null || _watchesLeft <= 0)
             return;
         WatchScratch.Clear();
         _visual.GetComponentsInChildren(includeInactive: true, WatchScratch);
@@ -935,6 +981,12 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _watchRootId = _visual.GetInstanceID();
         Transform? p = _visual.transform.parent;
         _watchParent = p != null ? p.name : "<scene root>";
+        _liveFrames = 0;
+        _liveDarkFrames = 0;
+        _liveRebuiltFrames = 0;
+        _liveMin = int.MaxValue;
+        _liveMax = 0;
+        _liveKey = 0;
     }
 
     /// <summary>One frame of the watch. Counts a TRANSITION whenever a renderer's drawing state
@@ -977,12 +1029,54 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         if (drawing == 0)
             _watchNoneDrawnFrames++;
 
-        if (_watchFrames % WatchRescanFrames != 0 || _visual == null)
+        if (_visual == null)
             return;
-        // Cheap structural re-check: has the subtree gained or lost renderers under us? A
-        // re-instantiated Apparance object shows up here as BOTH at once.
+
+        // ---- THE LIVE SUBTREE, the half the ModBuild 341 instrument could not see -------------
+        //
+        // Everything above measures the renderer set captured AT THE GRAB — which is precisely the
+        // set the engine destroys. Once it is gone every entry reads null, and the counters above
+        // report "nothing drawing" for the rest of the hold: correct, and useless, because the
+        // player is looking at the NEW renderers the watch never armed on. "348 of 351 frames with
+        // NOTHING drawing" was that blind spot, not a measurement of the hand.
+        //
+        // So the subtree is re-read every frame and asked the two questions that decide the round:
+        // was ANYTHING drawing, and was the renderer SET replaced since last frame. The second one
+        // is the churn itself, finally expressed as a number instead of as an absence.
+        //
+        // COST: one allocation-free GetComponentsInChildren over a sub-two-dozen-node subtree, for
+        // at most two held props, and ONLY while a verdict budget remains (see BeginWatch).
         WatchScratch.Clear();
         _visual.GetComponentsInChildren(includeInactive: true, WatchScratch);
+        int liveTotal = 0, liveDrawn = 0, key = 17;
+        for (int i = 0; i < WatchScratch.Count; i++)
+        {
+            Renderer live = WatchScratch[i];
+            if (live == null)
+                continue;
+            liveTotal++;
+            if (live.enabled && live.gameObject.activeInHierarchy)
+                liveDrawn++;
+            unchecked { key = (key * 31) + live.GetInstanceID(); }
+        }
+        if (_watchFrames > LiveSettleFrames)
+        {
+            _liveFrames++;
+            if (liveDrawn == 0)
+                _liveDarkFrames++;
+            if (liveTotal < _liveMin)
+                _liveMin = liveTotal;
+            if (liveTotal > _liveMax)
+                _liveMax = liveTotal;
+            if (_liveFrames > 1 && key != _liveKey)
+                _liveRebuiltFrames++;
+        }
+        _liveKey = key;
+
+        if (_watchFrames % WatchRescanFrames != 0)
+            return;
+        // Cheap structural re-check on the list the live pass just filled: has the subtree gained
+        // or lost renderers under us? A re-instantiated Apparance object shows up as BOTH at once.
         int lost = 0;
         for (int i = 0; i < watch.Length; i++)
         {
@@ -1039,6 +1133,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         string parentNow = _visual != null
             ? (_visual.transform.parent != null ? _visual.transform.parent.name : "<scene root>")
             : "<destroyed>";
+        int liveMin = _liveMin == int.MaxValue ? 0 : _liveMin;
 
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
@@ -1051,15 +1146,26 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + $"sameInstance={sameInstance}/{checkedIds} renderer(s) kept their instance id, "
             + $"rootAlive={rootAlive}, lost={_watchLost}, appeared={_watchAppeared}; "
             + $"parent '{_watchParent}' -> '{parentNow}'. "
-            + "READ IT LIKE THIS, AND READ sameInstance FIRST. sameInstance below its total, or "
-            + "rootAlive=False, or lost/appeared above 0, means the ENGINE DESTROYED AND "
-            + "RE-INSTANTIATED the thing in the hand — every new instance is born with "
-            + "Renderer.enabled=false from MaterialLoaderData.LoadMaterials and only this mod's "
-            + "healer turns it back on, so the fix is to hold a COPY and never the engine's own "
-            + "object. sameInstance at full with transitions climbing is the opposite case, a plain "
-            + "write war on one stable renderer, and then the fix is an ownership guard on the "
-            + "writer. Zero transitions with everything drawing means the hold is clean and the "
-            + "complaint is about something other than Renderer.enabled. "
+            + $"LIVE SUBTREE (what the player could actually see): rebuilt={_liveRebuiltFrames}, "
+            + $"dark={_liveDarkFrames} of {_liveFrames}, present={liveMin}..{_liveMax} renderer(s), "
+            + $"apparanceFrozen={_frozenCount}. "
+            + "READ IT LIKE THIS, AND READ rebuilt FIRST. rebuilt is the number of frames on which "
+            + "the prop's renderer SET was REPLACED — frames on which the ENGINE DESTROYED AND "
+            + "RE-INSTANTIATED the content in the hand, each new renderer born Renderer.enabled=false "
+            + "from MaterialLoaderData.LoadMaterials. That, not a write war, is what made a held prop "
+            + "flicker: an Apparance prop rebuilds itself whenever it is TRANSFORMED (the plugin's "
+            + "own tooltip on ApparanceEntity.MonitorMovement says so in those words), and a prop in "
+            + "a moving hand is transformed every frame. ModBuild 349 turns that flag off for the "
+            + "hold, so a FIXED hold reads rebuilt=0 with apparanceFrozen>=1 and dark far below the "
+            + "frame count. rebuilt still climbing WITH apparanceFrozen>=1 means the rebuild has a "
+            + "second trigger and the next place to look is ApparanceEngine.RequestRebuild, which "
+            + "rebuilds every entity in the scene at once. apparanceFrozen=0 means this prop is not "
+            + "an Apparance prefab at all and its flicker has another cause — then read sameInstance: "
+            + "below its total (or rootAlive=False, or lost/appeared above 0) something ELSE is "
+            + "re-instantiating it; at full with transitions climbing it is a plain write war on "
+            + "stable renderers and the fix is an ownership guard on the writer. rebuilt=0 with "
+            + "dark=0 means the hold is clean and the complaint is about something other than "
+            + "whether the prop was drawn. "
             + $"({_watchesLeft} more hold watches this session.)");
     }
 
@@ -1149,6 +1255,216 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + $"({_probesLeft} more held-prop probes this session.)");
     }
 
+    // ---- THE APPARANCE FREEZE (ModBuild 349) ----------------------------------------------------
+
+    /// <summary>
+    /// WHY A HELD PROP FLICKERED FOR THREE ROUNDS, AND THE ONE FIELD THAT ENDS IT.
+    ///
+    /// <para><b>THE READING (ModBuild 348 hardware log, three holds, three identical verdicts).</b>
+    /// <c>sameInstance=0/0 … rootAlive=True, lost=18, appeared=9; parent 'Socket_Grab' -&gt;
+    /// 'Socket_Grab'</c>, and beside it <c>MaterialLoaderHeal FAST LANE: finished 9 renderer(s)
+    /// THIS FRAME (first 'CV_Generic_Rock_03')</c> printed on three CONSECUTIVE frames. Every
+    /// renderer the watch armed on had been destroyed by the end of the hold and new ones stood in
+    /// their place, while the root this class reparented stayed alive on the hand. The content in
+    /// the palm was being destroyed and re-instantiated, over and over, for the whole hold.</para>
+    ///
+    /// <para><b>THE CAUSE, read out of the engine's own source rather than inferred from
+    /// correlation.</b> A prop is spawned from
+    /// <c>GlobalSettings.GetApparancePropPrefab(PrefabName)</c> (Choreographer.cs:13140) — the
+    /// APPARANCE prefab first, a plain prefab only as the fallback — and that prefab's root carries
+    /// <c>ProceduralProp</c>, which is <c>[RequireComponent(typeof(ApparanceEntity))]</c>. So the
+    /// GameObject <c>ObjectCacheService.GetPropObject</c> hands us, the one this class puts in the
+    /// hand, IS an Apparance entity, and its visible meshes are that entity's generated content.
+    /// Then, in Apparance.Unity, verbatim:</para>
+    /// <code>
+    /// [Tooltip("EXPERIMENTAL USE ONLY: By default, transforming an Entity causes a re-build
+    ///          if it's procedural content.")]
+    /// public bool MonitorMovement = true;
+    /// </code>
+    /// <para>and the machinery that sentence describes, running every frame:
+    /// <c>ApparanceEngine.Update</c> → <c>EntitiesGameTick</c> → <c>ApparanceEntity.GameTick</c> →
+    /// <c>CheckEntity</c> → <c>MonitorBounds(force_apply: false)</c>, which fires on
+    /// <c>m_BoundsComponent.transform.hasChanged</c> — the ENTITY'S OWN transform — and calls
+    /// <c>SetProcedureBoundsFromEntityBounds(force_apply: false, allow_refresh: MonitorMovement)</c>,
+    /// whose only job when <c>allow_refresh</c> is true is to set <c>m_RequestRefresh</c>. The next
+    /// <c>CheckEntity</c> runs <c>m_Entity.Refresh()</c>, and a refresh destroys the placed objects
+    /// and instantiates them again — there is no pooling anywhere in Apparance.Unity, the finding
+    /// <c>Core/Water/WaterTerrainVR.cs</c> already recorded in ModBuild 159. Every new instance is
+    /// born <c>Renderer.enabled = false</c> from <c>MaterialLoaderData.LoadMaterials</c>, and only
+    /// this mod's healer ever turns it back on.</para>
+    ///
+    /// <para><b>SO WE WERE THE CHURN.</b> Holding a prop moves it on every single frame — the hand
+    /// moves, and <see cref="ApplyHeldPose"/> re-asserts the anchor-local TRS on top of that — so
+    /// <c>Transform.hasChanged</c> is true every frame, a refresh is requested every frame, and the
+    /// thing in the palm is rebuilt from scratch faster than anything can finish making it visible.
+    /// "348 of 351 frames with nothing drawing" was never a strobe; it was a rebuild loop, and the
+    /// mod's own per-frame pose write was one half of it.</para>
+    ///
+    /// <para><b>THE FIX IS THE FIELD THE PLUGIN AUTHOR WROTE FOR EXACTLY THIS.</b> For the length
+    /// of the hold, <c>MonitorMovement</c> is false on every Apparance entity in the prop's
+    /// subtree, and the value each one had is handed back on landing. Nothing else is touched:
+    /// <c>GameTick</c> / <c>CheckEntity</c> / <c>MonitorBounds</c> all still run, so the entity's
+    /// <c>m_EntityBounds</c> stays in step with wherever the prop actually is, and a refresh
+    /// requested for a REAL reason (a style rebuild, an <c>IsPopulated</c> flip) still happens. The
+    /// only thing suppressed is "this moved, therefore rebuild it".</para>
+    ///
+    /// <para><b>WHY NOT <c>Frozen</c>, the other candidate flag.</b> <c>ApparanceEngine
+    /// .EntitiesGameTick</c> skips a frozen entity's <c>GameTick</c> outright, so its bounds would
+    /// go stale against the hand and every legitimate refresh would be lost with it — and the flag
+    /// is CLEARED out from under its owner by <c>RequestEntityRefresh</c>, so it is not even a
+    /// latch we could rely on. A blunt instrument where a precise one exists.</para>
+    ///
+    /// <para><b>WHY NOT A COPY IN THE HAND</b>, which is the fix the ModBuild 341 note predicted
+    /// this reading would call for. A copy removes nothing: the engine's own object would still be
+    /// standing on its hex in full view, so the player would see the prop, its ghost AND the copy —
+    /// three things where there should be two. Hiding the original is not available either, because
+    /// hiding means <c>Renderer.enabled = false</c> on renderers the engine destroys and replaces
+    /// several times a second, against a healer whose whole job is to re-enable what it finds
+    /// disabled. And it would cost an <c>Instantiate</c> of the entire subtree inside one 11.11 ms
+    /// frame. Freezing the rebuild removes the CAUSE, and the hand goes on holding the real prop —
+    /// so the home cell keeps exactly what it has today: the ghost, and nothing else.</para>
+    ///
+    /// <para><b>NO GAME STATE IS WRITTEN.</b> <c>MonitorMovement</c> is a local presentation switch
+    /// on a procedural-content component: it decides when THIS client re-synthesizes a mesh. It is
+    /// not on the wire, not in <c>ScenarioState</c>, and no rule reads it. Peers run their own
+    /// engines against their own viewpoints — the same ground <c>Core/Environment
+    /// /ApparanceDetailFocus</c> already stands on. The prop hold stays LOCAL-ONLY in this build.</para>
+    ///
+    /// <para><b>COST.</b> One <c>GetComponentsInChildren</c> at the grab and one array walk at the
+    /// thaw, on at most two props. Nothing per frame, and no scene query ever.</para>
+    /// </summary>
+    private ApparanceEntity[]? _frozenEntities;
+    private bool[]? _frozenMonitor;
+
+    /// <summary>How many Apparance entities this hold froze. Reported by the hold watch, because
+    /// "the fix ran and did not work" and "the fix found nothing to freeze" look identical in every
+    /// other field of that line.</summary>
+    private int _frozenCount;
+
+    /// <summary>
+    /// Frames to wait after the prop is home before <c>MonitorMovement</c> goes back on.
+    ///
+    /// <para>NOT COSMETIC PADDING. While the flag is off, <c>MonitorBounds</c> still runs and keeps
+    /// <c>m_EntityBounds</c> tracking the prop — which during a hold means it tracks the HAND.
+    /// Restoring the flag on the same frame the prop lands would let the landing write's own
+    /// <c>hasChanged</c> request one final refresh, i.e. a visible rebuild of the prop on its cell
+    /// on every single release. Waiting instead lets Apparance's next tick consume that
+    /// <c>hasChanged</c> while <c>allow_refresh</c> is still false: the bounds are re-synced to the
+    /// HOME pose, the flag is cleared, and nothing is left pending when monitoring resumes. Two
+    /// frames is the minimum that can do it; three is the margin.</para>
+    /// </summary>
+    private const int ThawDelayFrames = 3;
+
+    /// <summary>Props whose <c>MonitorMovement</c> restore is pending. Never more than two.</summary>
+    private static readonly List<GrabbableProp> Thawing = new(2);
+
+    private static readonly List<ApparanceEntity> EntityScratch = new(4);
+
+    private int _thawFrame;
+
+    private static bool _loggedFreeze;
+
+    /// <summary>Turn rebuild-on-move off for the whole hold. Idempotent, and a re-grab during a
+    /// pending thaw simply cancels the thaw and keeps the freeze it already has.</summary>
+    private void FreezeApparance()
+    {
+        Thawing.Remove(this);
+        _thawFrame = 0;
+        if (_frozenEntities != null || _visual == null)
+            return;
+
+        EntityScratch.Clear();
+        _visual.GetComponentsInChildren(includeInactive: true, EntityScratch);
+        _frozenEntities = EntityScratch.Count > 0
+            ? EntityScratch.ToArray()
+            : System.Array.Empty<ApparanceEntity>();
+        _frozenMonitor = new bool[_frozenEntities.Length];
+        _frozenCount = 0;
+        for (int i = 0; i < _frozenEntities.Length; i++)
+        {
+            ApparanceEntity e = _frozenEntities[i];
+            if (e == null)
+                continue;
+            _frozenMonitor[i] = e.MonitorMovement;
+            e.MonitorMovement = false;
+            _frozenCount++;
+        }
+
+        if (_loggedFreeze)
+            return;
+        _loggedFreeze = true;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] Apparance rebuild-on-move FROZEN for the hold of {Label}: {_frozenCount} "
+            + "ApparanceEntity(s) in this prop's subtree had MonitorMovement turned off (restored "
+            + $"{ThawDelayFrames} frame(s) after it lands). THIS IS THE ModBuild 349 FIX, and this "
+            + "is the line that says whether it applied. A prop spawns from GetApparancePropPrefab, "
+            + "so its root carries ProceduralProp and therefore an ApparanceEntity, and the plugin's "
+            + "own tooltip on that field reads 'By default, transforming an Entity causes a re-build "
+            + "if it's procedural content' — which is why a prop in a moving hand destroyed and "
+            + "re-instantiated its own meshes every frame, each new one born Renderer.enabled=false. "
+            + "A COUNT OF 0 HERE MEANS THE FIX DID NOT APPLY to this prop (it fell back to a plain "
+            + "prefab) and its flicker, if any, has a different cause — read the HOLD WATCH line's "
+            + "rebuilt/sameInstance fields next. Logged once per scenario.");
+    }
+
+    /// <summary>Schedule the <c>MonitorMovement</c> restore for <see cref="ThawDelayFrames"/> frames
+    /// from now — see that constant for why it is not immediate. A no-op for a prop that never
+    /// froze anything.</summary>
+    private void ScheduleThaw()
+    {
+        if (_frozenEntities == null)
+            return;
+        _thawFrame = Time.frameCount + ThawDelayFrames;
+        if (!Thawing.Contains(this))
+            Thawing.Add(this);
+    }
+
+    /// <summary>Hand every captured <c>MonitorMovement</c> back, now. Idempotent.</summary>
+    private void ThawApparance()
+    {
+        Thawing.Remove(this);
+        _thawFrame = 0;
+        ApparanceEntity[]? entities = _frozenEntities;
+        bool[]? monitor = _frozenMonitor;
+        _frozenEntities = null;
+        _frozenMonitor = null;
+        if (entities == null || monitor == null)
+            return;
+        for (int i = 0; i < entities.Length && i < monitor.Length; i++)
+        {
+            ApparanceEntity e = entities[i];
+            if (e != null)
+                e.MonitorMovement = monitor[i];
+        }
+    }
+
+    /// <summary>One call per frame from <see cref="PropGrab.Tick"/>: give back the
+    /// <c>MonitorMovement</c> of any prop whose settle delay has elapsed. One <c>List.Count</c>
+    /// compare in the steady state, and it is deliberately ABOVE the feature gate for the same
+    /// reason the glide is — a dial turned off mid-flight must not strand a frozen entity.</summary>
+    internal static void TickThaws()
+    {
+        for (int i = Thawing.Count - 1; i >= 0; i--)
+        {
+            GrabbableProp p = Thawing[i];
+            if (Time.frameCount >= p._thawFrame)
+                p.ThawApparance();
+        }
+    }
+
+    /// <summary>Give every pending <c>MonitorMovement</c> back IMMEDIATELY — scenario teardown, the
+    /// feature dial going off, module shutdown. A pending restore must never outlive the registry
+    /// that would have completed it, or a prop would be left unable to rebuild for the rest of the
+    /// session. One rebuild on the cell is the price, and it is the right one.</summary>
+    internal static void FlushThaws()
+    {
+        for (int i = Thawing.Count - 1; i >= 0; i--)
+            Thawing[i].ThawApparance();
+        Thawing.Clear();
+    }
+
     // ---- layer parking ------------------------------------------------------------------------
 
     /// <summary>
@@ -1218,5 +1534,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _probesLeft = ProbeBudget;
         _watchesLeft = WatchBudget;
         _loggedInfoWriteWar = false;
+        _loggedFreeze = false;
     }
 }
