@@ -416,7 +416,76 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 336;
+    public const ushort ModBuild = 337;
+    // Build 337: EACH MENU ROW WAS LITERALLY THE OTHER WINDOW'S CLOSE BUTTON.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
+    //
+    //   User, after the 336 round: "Die VR Optionen und normale Optionen sind irgendwie immer noch
+    //   abhaengig. [...] Aktuell schliesst sich das eine Fenster, wenn das andere oeffnet. [...]
+    //   Entferne hier jegliche Abhaengigkeit von beiden Fenstern."
+    //
+    //   THE LOG SHOWED PERFECT ALTERNATION -- hidden on one, then SHOWN on the other three to four
+    //   lines later, over and over. I read that as the game's escapable stack plus the controller
+    //   input-area stack, and BOTH of those are real shared registries our clone had joined. NEITHER
+    //   IS WHAT CLOSED THE WINDOWS.
+    //
+    //   THE CAUSE IS THE PAUSE MENU'S ToggleGroup. VRMenuEntry clones the game's own Optionen row,
+    //   and the clone's ExtendedToggle carries the donor's `group` -- ESCMenu's single toggleGroup
+    //   (ESCMenu.cs:25). A ToggleGroup is single-select, and UIMenuOptionToggle routes the group's
+    //   forced-off straight into the option's DESELECT callback. The game's row is wired
+    //     optionsButton.Init(onSelected: UIOptionsWindow.Show, onDeselected: UIOptionsWindow.Hide)
+    //   (ESCMenu.cs:134-146) and ours is Init(open the VR window, VROptionsTab.Close). So selecting
+    //   either row deselected the other, and the other's deselect callback CLOSED ITS WINDOW. Each
+    //   row was the other window's close button. That is exactly the three-to-four-line gap.
+    //
+    //   ALL THREE COUPLINGS ARE GONE, because two of them would have bitten later even though they
+    //   were inert this session:
+    //     * ToggleGroup: the cloned row's toggles have `group` cleared. The game's own rows still
+    //       deselect each other; only ours is out.
+    //     * Escapable list: escapeKeyAction -> None PLUS an explicit UnregisterEscapable, because
+    //       the setter only acts on a CHANGE. Membership mattered three ways, not one:
+    //       UIWindowManager.Escape walks the shared list, and HideOrShowWindows / ForceHideWindows
+    //       sweep every open member.
+    //     * Controller input-area stack: the area is unregistered right after every Show, using the
+    //       game's own ControllerInputAreaLocal.Destroy() -- the identical call UISubmenuGOWindow
+    //       already makes on every hide. In the 335 log this stack was inert (m_IsEnabled false, so
+    //       every register logged "Disable area"); it becomes exclusive the moment a gamepad appears.
+    //
+    //   THE UIWindow COMPONENT STAYS, and so does ControllerInputAreaLocal. Neither was the
+    //   coupling -- their REGISTRATIONS were. UISubmenuGOWindow is [RequireComponent(UIWindow)] and
+    //   dereferences the input area unconditionally in Awake/Show/OnDisable, so destroying either
+    //   turns every open and close into a MissingReferenceException.
+    //
+    //   AND THE WINDOW ID STAYS `None`, DELIBERATELY. Build 335's notes claimed it carried
+    //   UIWindowID.OptionsSubmenu; the log says None every time, and 335's reasoning rested on that
+    //   wrong premise. Assigning the real id would be a NEW coupling wearing a tidy-up's clothes:
+    //   ModalFallback.ResetEscMenuToggleGroup fires for exactly Options/OptionsSubmenu/
+    //   ViceOptionsSubmenu/CompendiumPanel, so our X button would then run
+    //   ESCMenu.toggleGroup.SetAllTogglesOff() and take the game's options window down with it.
+    //
+    //   "IRGENDWANN GARNICHT MEHR OEFFNEN" IS NOT CLAIMED AS FIXED -- the log ends without a retry,
+    //   so it never showed the failure. Instead the state is made hard to reach and impossible to
+    //   hide: the open path VERIFIES UIWindow.IsOpen after Show() (Show can silently no-op on a
+    //   deactivated object), re-activates by hand and retries once, and logs at Error naming
+    //   activeSelf/activeInHierarchy/enabled/alpha/parent if it still refused. A row left lit over a
+    //   closed window for >1 s is forced back off, because UIMenuOption.Select() returns early when
+    //   it already believes itself selected -- a stale lit row IS a door that stops answering.
+    //
+    //   TWO INTENDED BEHAVIOUR CHANGES, both a direct price of independence, both one-line reversals:
+    //   the ESC KEY no longer closes the VR window (X, the row, and the long-hold chord still do),
+    //   and CLOSING THE PAUSE MENU no longer closes the VR settings.
+    //
+    //   TEST:
+    //     1. Open Optionen, then WITHOUT closing it open VR Optionen. Both must stand. Close either
+    //        with its X; the other must not move. Repeat ten times in both orders.
+    //     2. In the log there must be NO "UIWindow hidden" on one within a few lines of a
+    //        "UIWindow SHOWN" on the other, and ZERO "Added escapable GloomhavenVR.OptionsTabWindow".
+    //     3. Hammer the VR row ~20 times, mixing X / row / chord, interleaved with the game's
+    //        Optionen. If it ever refuses, the log now says why -- send the "DID NOT OPEN" or
+    //        "was lit for ... over a CLOSED VR settings window" line EVEN IF it felt fine.
+    //     4. Say whether the two intended changes above are what you want.
+    //
+    // Build 336: THE CLOUDS YOU CAN SEE
     // Build 336: THE CLOUDS YOU CAN SEE, A WOOD WITH A FLOOR, AND A DOORWAY THAT IS NOT A RECTANGLE.
     // *** FULL INSTALL (bundle changed: 74,494,103 -> 74,543,759 bytes).
     //

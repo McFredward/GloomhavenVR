@@ -4,6 +4,7 @@ using GLOOM.MainMenu;
 using GloomhavenVR.Core;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -24,11 +25,42 @@ namespace GloomhavenVR.WorldUI;
 /// the mod's own detached window and nothing else.</para>
 ///
 /// <para>A CLONE OF A REAL MENU ROW, for the same reason the settings pane is a clone of a real
-/// tab: a row here must join the same <c>ToggleGroup</c> (so picking it deselects the others),
-/// animate like its neighbours, carry the same hover and focus wiring, and be reachable by the
-/// menu's gamepad navigation. All of that lives in serialized references inside the shipped prefab,
-/// so each row is INSTANTIATED FROM A LIVE DONOR and re-labelled. Nothing about a donor is
+/// tab: a row here must animate like its neighbours, carry the same hover and focus wiring, and be
+/// reachable by the menu's navigation. All of that lives in serialized references inside the shipped
+/// prefab, so each row is INSTANTIATED FROM A LIVE DONOR and re-labelled. Nothing about a donor is
 /// modified, and each clone is inserted directly after it so the two read as a pair.</para>
+///
+/// <para><b>WITH ONE DELIBERATE EXCEPTION, AND IT IS THE WHOLE OF ModBuild 336: THE ROW DOES NOT
+/// JOIN THE MENU'S <c>ToggleGroup</c>.</b> User, after the 335 hardware round: <i>"Die VR Optionen
+/// und normale Optionen sind irgendwie immer noch abhängig … Aktuell schließt sich das eine
+/// Fenster, wenn das andere öffnet … Entferne hier jegliche Abhängigkeit von beiden
+/// Fenstern."</i></para>
+///
+/// <para>THE MECHANISM, read off the decompiled game rather than guessed. A cloned row keeps its
+/// donor's <c>ExtendedToggle.group</c>, which is <c>ESCMenu</c>'s single <c>toggleGroup</c>
+/// (<c>ESCMenu.cs</c>:25). A <c>ToggleGroup</c> is single-select: turning one member on turns every
+/// other member off, and <c>UIMenuOptionToggle</c> routes that straight into the option's own
+/// callbacks (<c>UIMenuOptionToggle.cs</c>:52-89, :113-121). The game wires its Optionen row's
+/// DEselect to <c>Singleton&lt;UIOptionsWindow&gt;.Instance.Hide()</c> (<c>ESCMenu.cs</c>:138-146)
+/// and ours is wired to <see cref="VROptionsTab.Close"/> — so each row was literally the other
+/// window's close button. That is the alternation in the ModBuild 335 log, where a
+/// <c>UIWindow hidden</c> on one window is followed three or four lines later by a
+/// <c>UIWindow SHOWN</c> on the other, over and over.</para>
+///
+/// <para>SO THE CLONE'S TOGGLE IS TAKEN OUT OF THE GROUP (<see cref="Detach"/>) and becomes a free
+/// on/off. Three things follow and all three are wanted. The two windows can stand open at the same
+/// time. Clicking an already-lit VR row now actually turns it off — inside a single-select group a
+/// lone lit toggle refuses to switch off and bounces straight back on, which is a standing way for
+/// a row to latch lit over a closed window and never open it again. And <c>ESCMenu.OnHide</c>'s
+/// <c>toggleGroup.SetAllTogglesOff()</c> (<c>ESCMenu.cs</c>:353) no longer reaches us, so closing
+/// the pause menu leaves the VR settings standing — which is what an independent window does.</para>
+///
+/// <para>THE ROW'S LIT STATE IS THEREFORE OURS TO KEEP HONEST, and <see cref="TickRowLatch"/> is
+/// the belt: a row lit over a settings window that is not open is forced back off. That is the
+/// falsifiable guard behind the standing rule that it must ALWAYS be possible to open the settings
+/// — <c>UIMenuOption.Select()</c> returns early when it already believes itself selected
+/// (<c>UIMenuOption.cs</c>:121-126), so a stale lit row is exactly a door that stops
+/// answering.</para>
 ///
 /// <para>TWO MENUS, BECAUSE THERE ARE TWO PLACES A PLAYER CAN BE. <c>UIMapEscMenu</c> and
 /// <c>UIScenarioEscMenu</c> are subclasses of <c>ESCMenu</c> and the <c>optionsButton</c> field is
@@ -66,6 +98,22 @@ internal static class VRMenuEntry
     private static bool _loggedIcon;
     private static bool _loggedMain;
     private static bool _degraded;
+    private static bool _loggedDetach;
+    private static bool _loggedLatch;
+
+    /// <summary>
+    /// LATCH RECONCILE (see <see cref="TickRowLatch"/>). The unscaled time at which a row was first
+    /// seen lit over a CLOSED settings window, or 0 when the two agree. A mismatch has to hold for
+    /// <see cref="LatchGraceSeconds"/> before it is acted on, because there is a legitimate one —
+    /// the settings window reports <c>IsOpen == false</c> the instant <c>Hide()</c> is called, while
+    /// the row's own deselect only arrives at the END of the hide fade
+    /// (<c>UISubmenuGOWindow.OnCompleteHidden</c>).
+    /// </summary>
+    private static float _latchSince;
+
+    /// <summary>How long a lit-row-over-closed-window mismatch must hold before it is corrected.
+    /// Comfortably longer than the pane's 0.1 s hide fade and shorter than any human retry.</summary>
+    private const float LatchGraceSeconds = 1f;
 
     /// <summary>
     /// The pause menu whose injection already FAILED, so it is not retried every frame.
@@ -114,6 +162,7 @@ internal static class VRMenuEntry
         {
             TickPauseMenu();
             TickMainMenu();
+            TickRowLatch();
         }
         catch (Exception ex)
         {
@@ -184,12 +233,16 @@ internal static class VRMenuEntry
             delegate
             {
                 SetFocused(host, false);
-                if (!VROptionsTab.Open(clone.Deselect, clone.transform as RectTransform))
+                // OUT OF THE GROUP, THE ROW'S STATE IS OURS: the close callback must survive the row
+                // outliving the window (a scene change destroys the menu, and a UnityEvent has no
+                // per-listener catch — a MissingReferenceException here would amputate the rest of
+                // the chain the game put on the same event).
+                if (!VROptionsTab.Open(() => ClearRow(clone), clone.transform as RectTransform))
                 {
                     // Nothing to show: hand the menu straight back rather than leaving a lit row
                     // over an empty screen.
                     SetFocused(host, true);
-                    clone.Deselect();
+                    ClearRow(clone);
                 }
             },
             delegate
@@ -288,10 +341,10 @@ internal static class VRMenuEntry
             delegate
             {
                 SetMainFocused(menu, false);
-                if (!VROptionsTab.Open(clone.Deselect, clone.transform as RectTransform))
+                if (!VROptionsTab.Open(() => ClearRow(clone), clone.transform as RectTransform))
                 {
                     SetMainFocused(menu, true);
-                    clone.Deselect();
+                    ClearRow(clone);
                 }
             },
             delegate
@@ -365,7 +418,150 @@ internal static class VRMenuEntry
         VROptionsTab.SetCaption(clone, Loc.Mod("vr_options"));
         ApplyIcon(clone);
         clone.IsInteractable = true;
+        Detach(clone);
         return clone;
+    }
+
+    /// <summary>
+    /// Turn a row's light off, safely, from the "the settings window closed" callback.
+    ///
+    /// <para>Guarded on THREE counts. The row may be Unity-null (its menu died with a scene while
+    /// the window was still up). <c>Deselect()</c> runs the row's own deselect delegate, which calls
+    /// <see cref="VROptionsTab.Close"/> — harmless when the window is already closed, and it is what
+    /// keeps the ESC-menu focus handoff running, so it is the right call rather than a bare state
+    /// write. And it is wrapped, because this is invoked from a <c>UnityEvent</c> chain that has no
+    /// per-listener catch: a throw here would amputate every listener the game put on the same
+    /// event.</para>
+    /// </summary>
+    private static void ClearRow(UIMainMenuOption? row)
+    {
+        if (row == null)
+            return;
+        try
+        {
+            row.Deselect();
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"VR menu row: clearing '{row.name}' after the settings closed threw "
+                + $"({ex.GetType().Name}: {ex.Message}); the per-frame latch reconcile will correct it.");
+        }
+    }
+
+    /// <summary>
+    /// Take the cloned row's toggle OUT of the menu's single-select <c>ToggleGroup</c> — the one
+    /// change that makes the two settings windows independent. The class doc above has the full
+    /// mechanism and the decompiled citations; this is the act.
+    ///
+    /// <para>Every <c>Toggle</c> under the clone is cleared, not just the one
+    /// <c>UIMenuOptionToggle</c> happens to hold in its serialized <c>toggle</c> field: the field
+    /// tells us which toggle the OPTION listens to, and the group membership that matters is
+    /// whichever toggles the prefab actually put in the group. Clearing a toggle that was not in a
+    /// group is a no-op, so the sweep cannot do harm and cannot miss.</para>
+    ///
+    /// <para>The DONOR is untouched, as always — its group membership is the game's and stays the
+    /// game's, so the pause menu's own rows keep deselecting each other exactly as they shipped.
+    /// Only the mod's own row steps out of the line.</para>
+    /// </summary>
+    private static void Detach(UIMainMenuOption clone)
+    {
+        try
+        {
+            int cleared = 0;
+            foreach (Toggle toggle in clone.GetComponentsInChildren<Toggle>(true))
+            {
+                if (toggle == null || toggle.group == null)
+                    continue;
+                toggle.group = null;
+                cleared++;
+            }
+
+            if (_loggedDetach)
+                return;
+            _loggedDetach = true;
+            // HW-VERIFY: this is the ModBuild 336 verdict for the coupling the user actually
+            // reported, so it must print at the default log level or the round cannot say whether
+            // the row was ever taken out of the group.
+            VRLog.Note("WorldUI",
+                $"VR menu row: taken OUT of the menu's single-select ToggleGroup ({cleared} toggle(s) "
+                + "cleared). That group was the reason the two settings windows closed each other: the "
+                + "game wires its own Optionen row's DEselect to UIOptionsWindow.Hide() (ESCMenu.cs"
+                + ":138-146) and ours to VROptionsTab.Close(), so a single-select group made each row "
+                + "the other window's close button. The VR row is now a free on/off: both windows can "
+                + "stand open at once, an already-lit VR row can actually be switched off, and closing "
+                + "the pause menu no longer takes the VR settings with it. PROOF IN THE NEXT LOG: with "
+                + "both windows opened one after the other there must be NO 'UIWindow hidden' on one of "
+                + "them in the same breath as a 'UIWindow SHOWN' on the other. The game's own rows are "
+                + "untouched and still deselect each other.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn("WorldUI", $"VR menu row: could not leave the ToggleGroup ({ex.GetType().Name}: "
+                + $"{ex.Message}). The row still opens the VR settings, but it and the game's Optionen "
+                + "row will keep closing each other.");
+        }
+    }
+
+    /// <summary>
+    /// THE BELT BEHIND THE STANDING RULE, run once a frame and costing two bool reads.
+    ///
+    /// <para>Out of the ToggleGroup the row's lit state is the mod's to keep honest, and the state
+    /// that must never persist is LIT OVER A CLOSED WINDOW: <c>UIMenuOption.Select()</c> returns
+    /// early when it already believes itself selected (<c>UIMenuOption.cs</c>:121-126), so a row
+    /// stuck in that state is a door that has stopped answering — precisely the shape of the user's
+    /// <i>"im Test konnte ich die VR Optionen dann irgendwann garnicht mehr öffnen"</i>. The ModBuild
+    /// 335 log cannot prove that this is what happened (he did not retry in that session), so this is
+    /// written as a guard that makes the state impossible AND says so when it fires, rather than as a
+    /// claimed fix for something the evidence does not show.</para>
+    ///
+    /// <para>The correction is <c>SetSelected(false)</c>, not <c>Deselect()</c>: it clears the
+    /// option's own flag and the toggle's value (<c>UIMenuOptionToggle.cs</c>:123-127) WITHOUT
+    /// invoking the deselect callback — there is nothing to close, the window is already shut, and
+    /// running the callback would fire a redundant close through ModalFallback.</para>
+    /// </summary>
+    private static void TickRowLatch()
+    {
+        bool open = VROptionsTab.IsOpen;
+        UIMainMenuOption? stale = null;
+
+        if (!open)
+        {
+            if (_entry != null && _entry.IsSelected)
+                stale = _entry;
+            else if (_mainEntry != null && _mainEntry.IsSelected)
+                stale = _mainEntry;
+        }
+
+        if (stale == null)
+        {
+            _latchSince = 0f;
+            return;
+        }
+
+        if (_latchSince <= 0f)
+        {
+            _latchSince = Time.unscaledTime;
+            return;
+        }
+        if (Time.unscaledTime - _latchSince < LatchGraceSeconds)
+            return;
+
+        float held = Time.unscaledTime - _latchSince;
+        _latchSince = 0f;
+        stale.SetSelected(false);
+
+        if (_loggedLatch)
+            return;
+        _loggedLatch = true;
+        // HW-VERIFY: if this line ever appears it names a real defect that would otherwise present
+        // as "the VR options row stopped working", so it has to survive the default log level.
+        VRLog.Note("WorldUI",
+            $"VR menu row: '{stale.name}' was lit for {held:F1}s over a CLOSED VR settings window and "
+            + "has been forced back off. A lit row is a door that has stopped answering — "
+            + "UIMenuOption.Select() returns early when the option already believes itself selected — "
+            + "so this is the guard behind the standing rule that the options menu must ALWAYS be "
+            + "openable. THE MENU IS FINE; this line is the LEAD for how the row and the window got "
+            + "out of step, and it prints once per session.");
     }
 
     /// <summary>
@@ -465,5 +661,8 @@ internal static class VRMenuEntry
         _loggedIcon = false;
         _loggedMain = false;
         _degraded = false;
+        _loggedDetach = false;
+        _loggedLatch = false;
+        _latchSince = 0f;
     }
 }

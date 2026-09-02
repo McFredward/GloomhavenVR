@@ -36,11 +36,65 @@ namespace GloomhavenVR.WorldUI;
 /// <c>ModalFallback</c>'s "the ancestor wins" rule, which is why the mod's pane used to be drawn
 /// INSIDE the options window's world panel instead of getting one of its own.</para>
 ///
-/// <para>WHY THE VR MODAL PATH STILL NEEDS NO WORK. <c>UIWindowID.OptionsSubmenu</c> is already in
-/// <see cref="ModalFallback"/>'s family (ModalFallback.1.Core.cs), and the clone carries the
-/// donor's window id. Detached, it is a top-level window with no floatable ancestor, so it is
-/// floated as its OWN panel — with the grab bar and the close button every floated modal gets.
-/// This class still adds no rendering, no placement and no input path.</para>
+/// <para>THE MODAL PATH, AND THE ID THAT IS NOT WHAT ModBuild 335 CLAIMED. That build's notes said
+/// the pane "carries <c>UIWindowID.OptionsSubmenu</c>, which is already in ModalFallback's family".
+/// THE HARDWARE LOG SAYS OTHERWISE, on every single line: <c>UIWindow SHOWN:
+/// 'GloomhavenVR.OptionsTabWindow' (ID None, …)</c>. The donor tab pane's id is <c>None</c>, so the
+/// clone's is too, and every consequence that was assumed from membership of
+/// <c>NonBlockingMenus</c> simply does not hold. What actually follows, read off the shipped code
+/// rather than assumed: the float is NOT sticky (<c>ModalFallback.8.Convert.cs</c>:657 —
+/// <c>Sticky = NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window)</c>), and the window
+/// IS treated as blocking (<c>ModalFallback.7.Close.cs</c>:578 <c>IsBlockingWindow</c>), which is
+/// why the hardware log reads <c>MODAL FALLBACK ASSERTED … blocking=True</c> for this window while
+/// the game's own options window reads <c>blocking=False</c>. Neither of those is a dependency
+/// BETWEEN the two windows, so neither is fixed here; the blocking difference is a ModalFallback
+/// question and is written up in the ModBuild 336 report.</para>
+///
+/// <para><b>THE ID IS DELIBERATELY LEFT AT <c>None</c>, and that is now load-bearing.</b> Giving the
+/// clone <c>UIWindowID.OptionsSubmenu</c> would look like a tidy-up and would CREATE couplings:
+/// <c>UIWindow.GetWindow(id)</c>/<c>GetWindowsByID</c> would start returning the mod's window for
+/// the game's id, <c>UIWindowManager</c>'s <c>extraSkipHideWindows</c> / <c>extraSkipShowWindows</c>
+/// sets are keyed by id, and — worst — <c>ModalFallback.ResetEscMenuToggleGroup</c> fires for
+/// exactly Options/OptionsSubmenu/ViceOptionsSubmenu/CompendiumPanel, so our X button would run
+/// <c>ESCMenu.toggleGroup.SetAllTogglesOff()</c> and take the game's options window down with it.
+/// An id shared with the game is a shared key, and shared keys are what this build removes.</para>
+///
+/// <para>Detached, it is a top-level window with no floatable ancestor, so it is floated as its OWN
+/// panel — with the grab bar and the close button every floated modal gets. This class still adds
+/// no rendering, no placement and no input path.</para>
+///
+/// <para><b>THE THREE SHARED STACKS THE CLONE WAS STILL STANDING IN (ModBuild 336).</b> User, after
+/// the 335 hardware round: <i>"Die VR Optionen und normale Optionen sind irgendwie immer noch
+/// abhängig … Aktuell schließt sich das eine Fenster, wenn das andere öffnet … Entferne hier
+/// jegliche Abhängigkeit von beiden Fenstern."</i> Detaching the pane from the options window was
+/// necessary and not sufficient — the two windows were still peers in three registries the game
+/// keeps ONE of:</para>
+/// <list type="number">
+/// <item><description>THE PAUSE MENU'S <c>ToggleGroup</c> — and this is the one that produced the
+/// symptom. <see cref="VRMenuEntry"/> clones the game's own Optionen row next to itself, so the
+/// clone's <c>ExtendedToggle</c> came with the donor's <c>group</c> reference. <c>ESCMenu.cs</c>
+/// :134-146 wires that row's DEselect to <c>Singleton&lt;UIOptionsWindow&gt;.Instance.Hide()</c>,
+/// so picking VR Optionen turned the Optionen row off and hid the game's window, and picking
+/// Optionen turned OUR row off and ran <see cref="Close"/>. That is the log's perfect alternation
+/// — hide one, show the other three lines later — and it is fixed in <see cref="VRMenuEntry"/> by
+/// taking the cloned row's toggle OUT of the group.</description></item>
+/// <item><description>THE ESCAPABLE LIST. <c>UIWindow.Start</c> :371 and <c>UIWindow.Show</c> :484
+/// enrol any window whose <c>escapeKeyAction</c> is not <c>None</c> in
+/// <c>UIWindowManager</c>'s single <c>escapableListeners</c> list, where one ESC press walks the
+/// whole list and stops at the first window that answers it (<c>UIWindowManager.cs</c> :83-115) and
+/// <c>HideOrShowWindows</c> / <c>ForceHideWindows</c> hide every open member at once (:36-80,
+/// :118-131 — <c>Choreographer.cs</c>:14651 calls the first of those). See
+/// <see cref="LeaveSharedStacks"/>.</description></item>
+/// <item><description>THE CONTROLLER INPUT AREA STACK. The donor tab brought a
+/// <c>ControllerInputAreaLocal</c> called "Options Display", and <c>UISubmenuGOWindow.Show()</c>
+/// registers it with <c>ControllerInputAreaManager</c> — which holds exactly ONE
+/// <c>m_FocusArea</c> and one <c>m_StackedAreas</c> for the whole game
+/// (<c>ControllerInputAreaManager.cs</c> :120-171). The game's options window drives its own
+/// navigation off the same manager (<c>UIOptionsWindow.Awake</c> :85-86 binds "Options"'s
+/// focus/unfocus to <c>EnableNavigation</c>/<c>DisableNavigation</c>), so with a gamepad in use one
+/// window focusing switches the other one's navigation off. See
+/// <see cref="LeaveInputAreaStack"/>.</description></item>
+/// </list>
 ///
 /// <para>THE FIRE EXIT. Detaching is the one step that can fail on a game update (no usable
 /// re-parent anchor, or a throw). If it does, the class falls back to EXACTLY the shipped
@@ -79,6 +133,18 @@ internal static partial class VROptionsTab
 
     private static bool _probed;
     private static bool _degraded;
+
+    /// <summary>
+    /// The clone's own <c>ControllerInputAreaLocal</c> — the component <c>UISubmenuGOWindow</c>
+    /// registers with <c>ControllerInputAreaManager</c> on every <c>Show()</c>. Cached at injection
+    /// so <see cref="LeaveInputAreaStack"/> does not have to search for it on the open edge.
+    /// Null in fire-exit mode, where the game's own machinery still owns the pane.
+    /// </summary>
+    private static ControllerInputAreaLocal? _inputArea;
+
+    /// <summary>One-shot log flags for the two decouplings — they are verdicts, not chatter.</summary>
+    private static bool _loggedEscapableLeave;
+    private static bool _loggedAreaLeave;
 
     /// <summary>
     /// True once the pane has been detached from the options window and lives on the canvas as a
@@ -253,6 +319,9 @@ internal static partial class VROptionsTab
             HookHidden(window);
 
             IsStandalone = TryDetach(window, host, paneSize);
+
+            if (IsStandalone)
+                LeaveSharedStacks(window);
 
             if (!IsStandalone)
             {
@@ -442,6 +511,152 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
+    /// STANDALONE ONLY: take the detached pane out of the registries the game keeps ONE of, so
+    /// nothing that happens to the game's options window can reach ours and nothing that happens to
+    /// ours can reach the game's. Run once, immediately after a successful detach.
+    ///
+    /// <para><b>THE ESCAPABLE LIST.</b> <c>UIWindowManager</c> holds a single
+    /// <c>escapableListeners</c> list. A window joins it from <c>UIWindow.Start</c> (:371) and again
+    /// from every <c>UIWindow.Show</c> (:484), gated on <c>escapeKeyAction != None</c> in both
+    /// places, and the <c>escapeKeyAction</c> SETTER itself unregisters when the new value is
+    /// <c>None</c> (:196-207). So one assignment takes us out and keeps us out — there is no other
+    /// re-entry path. Membership mattered three ways: <c>UIWindowManager.Escape()</c> walks the
+    /// shared list and stops at the first window that answers, so a single ESC press was a race
+    /// between the two settings windows; the same method then ALSO escapes the first
+    /// <c>EscapeKeyAction.Toggle</c> window it can find (:100-110), which is the pause menu; and
+    /// <c>HideOrShowWindows</c>/<c>ForceHideWindows</c> hide every open member in one sweep, both
+    /// of them skipping <c>escapeKeyAction == None</c> outright (:57, :121).</para>
+    ///
+    /// <para><b>THIS DOES NOT COST US THE CLOSE, AND THAT WAS CHECKED RATHER THAN HOPED.</b>
+    /// <c>ModalFallback.CloseFloatedWindow</c> (ModalFallback.7.Close.cs:130-145) runs
+    /// <c>Escape()</c> for whatever the window's own policy is and then FORCES <c>Hide()</c> if the
+    /// window is still open — precisely because <c>Escape()</c> returning false proves nothing. With
+    /// <c>None</c>, <c>UIWindow.Escape()</c> returns false without hiding (UIWindow.cs:713-716) and
+    /// the forced <c>Hide()</c> closes the window, so the corner X, the pause-menu row and the modal
+    /// escape chord all still work. The one thing that changes is that the keyboard ESC key no
+    /// longer reaches this window — which is the whole point, because the ESC key reaching it was
+    /// one of the shared stacks.</para>
+    ///
+    /// <para><b>WHY THE <c>UIWindow</c> COMPONENT STAYS.</b> Stripping it would look like the
+    /// thorough answer and would cost the entire VR presentation: <c>ModalFallback</c> keys its
+    /// float, its grab bar and its close X on <c>UIWindow</c>, <c>WindowMaterialise</c> subscribes
+    /// to <c>VREvents.WindowVisibility</c> which is raised from a Harmony postfix on
+    /// <c>UIWindow.EvaluateAndTransitionToVisualState</c>, and <c>UISubmenuGOWindow</c> itself is
+    /// <c>[RequireComponent(typeof(UIWindow))]</c> and dereferences it in <c>Awake</c>, <c>Show</c>
+    /// and <c>Hide</c>. The component is not the coupling — its REGISTRATIONS were, and those are
+    /// what this removes.</para>
+    /// </summary>
+    private static void LeaveSharedStacks(UISubmenuGOWindow window)
+    {
+        try
+        {
+            _inputArea = window.GetComponent<ControllerInputAreaLocal>();
+
+            var win = window.GetComponent<UIWindow>();
+            if (win == null)
+            {
+                VRLog.Warn("WorldUI", "VR options: the detached pane has no UIWindow, so there was "
+                    + "no escapable registration to leave. Nothing else about the menu depends on "
+                    + "this step.");
+                return;
+            }
+
+            UIWindow.EscapeKeyAction before = win.escapeKeyAction;
+            win.escapeKeyAction = UIWindow.EscapeKeyAction.None;
+            // The setter only acts on a CHANGE (UIWindow.cs:196), so a window that was already
+            // None never got the unregister call. Ask for it explicitly rather than assume.
+            UIWindowManager.UnregisterEscapable(win);
+
+            if (_loggedEscapableLeave)
+                return;
+            _loggedEscapableLeave = true;
+            // HW-VERIFY: this is the verdict the ModBuild 336 round is waiting on — it must stay at
+            // a tier the default log level prints, or the round comes back unable to say whether the
+            // two windows were separated at all.
+            VRLog.Note("WorldUI",
+                $"VR options: the standalone pane has LEFT the game's escapable stack (escapeKeyAction "
+                + $"{before} -> None, then an explicit UIWindowManager.UnregisterEscapable). It is no "
+                + "longer a peer of 'UI Options Window_unified' in UIWindowManager.escapableListeners, "
+                + "so one ESC press can no longer pick between them, and HideOrShowWindows / "
+                + "ForceHideWindows (which both skip escapeKeyAction None) can no longer sweep it away "
+                + "with the rest. PROOF IN THE NEXT LOG: there must be NO further "
+                + "'[GUI] Added escapable GloomhavenVR.OptionsTabWindow' line, and the X button's own "
+                + "line must now read 'closed via UIWindow.Hide()' instead of "
+                + "'closed via UIWindow.Escape()'. WHAT IT COSTS: the keyboard ESC key no longer closes "
+                + "the VR settings; the corner X, the pause-menu row and the long-hold escape chord all "
+                + "still do, and opening the settings is untouched.");
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", "VR options: could not leave the escapable stack "
+                + $"({e.GetType().Name}: {e.Message}). The menu still opens and closes; the two "
+                + "settings windows may still fight over a single ESC press.");
+        }
+    }
+
+    /// <summary>
+    /// Leave the CONTROLLER INPUT AREA stack, on every open. This cannot be done once at injection
+    /// because <c>UISubmenuGOWindow.Show()</c> re-enrols the area every single time
+    /// (<c>UISubmenuGOWindow.cs</c>:72 <c>controllerArea.Enable()</c> →
+    /// <c>ControllerInputAreaLocal.Enable()</c> → <c>RegisterArea(this)</c> + <c>Focus()</c>).
+    ///
+    /// <para><b>WHY NOT SIMPLY DESTROY THE COMPONENT.</b> Because <c>UISubmenuGOWindow</c> holds it
+    /// in a serialized field and dereferences it UNCONDITIONALLY in <c>Awake</c> (:38-40), in
+    /// <c>Show</c> (:72) and in <c>OnDisable</c> (:121). Destroying it turns every open and every
+    /// close of the VR settings into a <c>MissingReferenceException</c> — the component would be
+    /// gone and so would the menu.</para>
+    ///
+    /// <para><b>WHAT IS CALLED INSTEAD.</b> <c>ControllerInputAreaLocal.Destroy()</c> — the game's
+    /// own public "leave the manager" method, and the exact call <c>UISubmenuGOWindow.OnDisable</c>
+    /// already makes on this same object on every hide. It runs <c>Unfocus()</c> →
+    /// <c>UnfocusArea(Id)</c> → <c>ReturnPrevious()</c>, which puts the focus back on the area that
+    /// held it before <c>Show()</c> took it and pops that area back off the shared stack
+    /// (<c>ControllerInputAreaManager.cs</c>:252-262, :269-280), then <c>DisableGroup()</c>, then
+    /// <c>UnregisterArea(this)</c>. The manager's focus and stack therefore end the open edge
+    /// exactly as they began it, and "Options Display" is not in <c>m_AvailableAreas</c> at all —
+    /// so the game's "Options" area can never be unfocused by ours, nor ours by the game's.</para>
+    ///
+    /// <para><b>WHAT IT COSTS.</b> Gamepad navigation INSIDE the VR settings window. That is the
+    /// deliberate trade: in VR the panel is driven with the laser, and the alternative is the
+    /// game's own options window losing ITS navigation every time the VR one opens. The name in the
+    /// log is the falsifier either way.</para>
+    /// </summary>
+    private static void LeaveInputAreaStack()
+    {
+        if (!IsStandalone || _inputArea == null)
+            return;
+        try
+        {
+            _inputArea.Destroy();
+
+            if (_loggedAreaLeave)
+                return;
+            _loggedAreaLeave = true;
+            // HW-VERIFY: the second half of the ModBuild 336 verdict, and the one Finding 3 says an
+            // escapable-only fix would have missed. Default-level tier for the same reason.
+            VRLog.Note("WorldUI",
+                $"VR options: the standalone pane has LEFT the controller input-area stack (area "
+                + $"'{_inputArea.Id}' unregistered from ControllerInputAreaManager immediately after "
+                + "every Show, via the game's own ControllerInputAreaLocal.Destroy — the same call "
+                + "UISubmenuGOWindow.OnDisable already makes on this object). Its Unfocus returns the "
+                + "focus to whatever held it before the window opened and pops that area back off the "
+                + "shared stack, so the manager ends the open edge in the state it started it. PROOF "
+                + "IN THE NEXT LOG: every '[AREA MANAGER] Register area Options Display' is followed "
+                + "within a few lines by 'Unregister area Options Display' and a 'Return to previous "
+                + "area', and the game's own '[AREA MANAGER] Set Focused Area Options' is never "
+                + "preceded by an unfocus caused by ours. WHAT IT COSTS: no GAMEPAD navigation inside "
+                + "the VR settings panel (the laser drives it); the game's own options window keeps "
+                + "its navigation, which it did not while the two shared this stack.");
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", "VR options: could not leave the controller input-area stack "
+                + $"({e.GetType().Name}: {e.Message}). The menu is open and usable; with a gamepad "
+                + "in use it may still steal navigation focus from the game's options window.");
+        }
+    }
+
+    /// <summary>
     /// One listener, added once, that fires whoever asked to be told when the menu closes — the
     /// pause-menu row's <c>Deselect</c>, so the row cannot stay lit over a menu that is gone.
     ///
@@ -519,8 +734,10 @@ internal static partial class VROptionsTab
 
         if (IsStandalone)
         {
-            _window.Show();
-            return true;
+            bool opened = ShowStandalone();
+            if (!opened)
+                _onHidden = null;
+            return opened;
         }
 
         // FIRE EXIT: the menu is a tab, so the game's window has to carry it.
@@ -541,17 +758,88 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
+    /// Show the standalone window and VERIFY THE OUTCOME, then leave the shared input-area stack.
+    ///
+    /// <para>THE OUTCOME, NOT THE PATH. <c>UIWindow.Show()</c> returns silently without opening
+    /// anything when the window is not <c>IsActive()</c> — <c>enabled &amp;&amp;
+    /// activeInHierarchy</c>, UIWindow.cs:476/:417-423 — and this pane is a
+    /// <c>m_DisableOnZeroAlpha</c> window, so its own alpha tween DEACTIVATES its GameObject on
+    /// every close (UIWindow.cs:742-748, confirmed by the ModBuild 335 <c>WINDOW MATERIALISE</c>
+    /// line). <c>UISubmenuGOWindow.Show()</c> re-activates it first (:70-73), which is why the
+    /// normal path works — but "the normal path works" is a claim about code, and the user's report
+    /// was that the menu eventually would not open AT ALL. So this asks the window afterwards, and
+    /// when the answer is no it re-activates the object by hand and tries once more.</para>
+    ///
+    /// <para>The standing rule is that it MUST always be possible to open the options menu, so a
+    /// failure here is an <c>Error</c> naming the state that produced it — the line the next round
+    /// reads instead of guessing. ModBuild 335's log cannot prove the reported permanent failure
+    /// (the player did not retry in that session), and this is what would prove or refute it.</para>
+    /// </summary>
+    private static bool ShowStandalone()
+    {
+        if (_window == null)
+            return false;
+
+        UIWindow? win = _window.GetComponent<UIWindow>();
+        _window.Show();
+
+        // No UIWindow means there is nothing to ask, and nothing this method can repair — the
+        // `[RequireComponent]` on UISubmenuGOWindow makes it unreachable in practice, and taking
+        // the Show() as the answer is the only honest reading if a game update ever removes it.
+        if (win == null)
+        {
+            LeaveInputAreaStack();
+            return true;
+        }
+
+        bool open = win.IsOpen;
+        if (!open)
+        {
+            bool wasActive = _window.gameObject.activeInHierarchy;
+            _window.gameObject.SetActive(true);
+            _window.Show();
+            open = win.IsOpen;
+
+            if (open)
+                VRLog.Alert("WorldUI", "VR options: the standalone window did not open on the first "
+                    + $"Show (activeInHierarchy was {wasActive}, enabled {win.enabled}) and DID open "
+                    + "after the object was re-activated by hand. The menu is on screen; this line is "
+                    + "the lead for why the first attempt was refused.");
+            else
+                VRLog.Error("WorldUI", "VR options: the standalone window DID NOT OPEN — Show() "
+                    + $"returned twice and UIWindow.IsOpen is still false (activeSelf "
+                    + $"{_window.gameObject.activeSelf}, activeInHierarchy "
+                    + $"{_window.gameObject.activeInHierarchy}, UIWindow.enabled {win.enabled}, "
+                    + $"CanvasGroup alpha {(win.GetComponent<CanvasGroup>() is { } cg ? cg.alpha.ToString("F2") : "n/a")}, "
+                    + $"parent '{(_window.transform.parent != null ? _window.transform.parent.name : "<none>")}'). "
+                    + "This violates the standing ruling that the options menu must ALWAYS be openable. "
+                    + "Treat this line as the lead, not the click that produced it — every VR setting "
+                    + "is still editable in BepInEx/config/dev.gloomhavenvr*.cfg meanwhile.");
+        }
+
+        // Whether or not it opened: if Show() got as far as enrolling the input area, take it back
+        // out. Doing this only on success would leave the area registered on exactly the failure
+        // path where it matters most.
+        LeaveInputAreaStack();
+        return open;
+    }
+
+    /// <summary>
     /// Close the menu, whichever mode it is in. A no-op when it is not open.
     ///
     /// <para>IT GOES THROUGH <see cref="ModalFallback.CloseFloatedWindow"/>, NOT
-    /// <c>UISubmenuGOWindow.Hide()</c>, AND THAT IS NOT A DETAIL. The pane's window id is
-    /// <c>OptionsSubmenu</c>, which is in <c>ModalFallback</c>'s parallel-menu family — so its
-    /// float is STICKY: the mod deliberately keeps such a window on screen after the GAME hides it,
-    /// because that is what lets Options and Multiplayer stand side by side instead of the ESC
-    /// menu's single-select ToggleGroup taking one away. Only <c>UserClosing</c> ever drops a
-    /// sticky float, and that flag is what <c>CloseFloatedWindow</c> sets. A plain <c>Hide()</c>
-    /// here would hide the window in the game's own bookkeeping and leave the panel standing in
-    /// front of the player — a menu that had been asked to close and did not.</para>
+    /// <c>UISubmenuGOWindow.Hide()</c>, AND THAT IS NOT A DETAIL — BUT THE REASON PRINTED HERE
+    /// UNTIL ModBuild 336 WAS WRONG. It said the pane's id is <c>OptionsSubmenu</c> and its float
+    /// therefore STICKY, so only <c>UserClosing</c> could drop it. The hardware log says the id is
+    /// <c>None</c> on every line, so the pane is not in <c>NonBlockingMenus</c> and
+    /// <c>ModalFallback.8.Convert.cs</c>:657 gives it <c>Sticky = false</c> outside the map room.
+    /// The right reason is the plainer one: <c>CloseFloatedWindow</c> is the SINGLE close path the
+    /// corner X, the escape chord and this method share, it sets <c>UserClosing</c> so the float is
+    /// released in the same act rather than a tick later, it force-<c>Hide()</c>s a window whose
+    /// <c>Escape()</c> declines (which ours now always does — see
+    /// <see cref="LeaveSharedStacks"/>), and it writes the one log line that says which of the two
+    /// actually closed it. In the map room, where <c>MapRoomParallel</c> DOES make the float sticky,
+    /// the old paragraph's argument holds as written.</para>
     /// </summary>
     internal static void Close()
     {
@@ -1045,6 +1333,9 @@ internal static partial class VROptionsTab
         _hiddenHooked = false;
         _selectOnShow = false;
         _showHooked = false;
+        // The area component belongs to the pane that has just gone; a stale reference here would
+        // make the next open's LeaveInputAreaStack act on a dead object.
+        _inputArea = null;
     }
 
     /// <summary>FIRE EXIT ONLY: select the VR tab, if there is one. A no-op in the normal
