@@ -89,3 +89,18 @@ render/clouds/
 cloud-preview.log
 .planning/refactor/census-2026-08/*.json
 .planning/refactor/census-2026-08/__pycache__/
+
+# ---------------------------------------------------------------------------------------------
+# RENDERS AND SCREENSHOTS DO NOT BELONG IN THE TRACKED PLANNING TREE (user ruling, 2026-09-02:
+# "es sieht so aus, dass du mittlerweile in planning auch render Bilder reingepusht hast — dafür
+# gibt es den debug folder in planning, der steht in gitignore"). Eight megabytes of preview PNGs
+# had accumulated across .planning/{cellar-2026-09,forest-clouds,cloth-cook-harness,voice}/ and
+# were untracked in ModBuild 338; every markdown reference was rewritten to the new location so
+# no link rotted. .planning/debug/ is already ignored below — put renders under
+# .planning/debug/renders/ and LINK to them from the doc.
+# The docs themselves stay tracked: it is the pixels that are disposable, not the reasoning.
+.planning/**/*.png
+.planning/**/*.jpg
+.planning/**/*.jpeg
+.planning/**/*.gif
+.planning/**/*.mp4

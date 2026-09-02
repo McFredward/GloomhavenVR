@@ -108,16 +108,29 @@ internal static class FigureGhosts
         // the game's ORIGINAL ring materials — the ring at the home cell looks exactly vanilla
         // (the live ring under the in-hand figure is suppressed by FigureRingSuppressor).
         GameObject? ghost = FigureOverlay.BuildFrozenGhost(animated, homePos, homeRot, scale, mat,
+            out string report,
             actor.m_Hilight != null ? actor.m_Hilight.transform : null);
+        string who = Describe(actor);
         if (ghost == null)
         {
             Object.Destroy(mat);
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a
+            // tier the DEFAULT log level prints. scripts/check-hw-verify.py enforces it.
+            VRLog.Note("FigureGrab", $"NO ghost for {who} — {report}");
             return;
         }
         _ghosts[actor] = new Ghost(ghost, homePos, homeRot);
+
+        // THE LINE MEASURES THE GHOST, NOT THE DECISION TO BUILD ONE (ModBuild 336). The user's
+        // report is "hinterlaesst er keinen Geist" and the ModBuild 335 log answered "ghost spawned
+        // at home for ElderDrakeID (1 active)" — a true sentence that cannot tell a ghost of a
+        // dragon from a ghost of a dart hanging off it, nor either of those from a ghost drawn on a
+        // layer the head camera does not render. See FigureOverlay.MeasureClones.
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
-        VRLog.Note("FigureGrab", $"ghost spawned at home for {Describe(actor)} ({_ghosts.Count} active).");
+        VRLog.Note("FigureGrab",
+            $"ghost spawned at home for {who} ({_ghosts.Count} active) — {report}");
+        OverlayVisibilityProbe.Attach(ghost, $"{who}/ghost", $"GHOST of {who}");
     }
 
     /// <summary>
@@ -157,6 +170,7 @@ internal static class FigureGhosts
                 Object.Destroy(ghost.Go);
         }
         _ghosts.Clear();
+        OverlayVisibilityProbe.Reset(); // a new scenario re-reports its first hover of every figure
     }
 
     private static void Destroy(ActorBehaviour actor)

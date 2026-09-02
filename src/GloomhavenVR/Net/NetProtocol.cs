@@ -416,7 +416,97 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 337;
+    public const ushort ModBuild = 338;
+    // Build 338: THE PROPS GO IN THE HAND, THE GLOW STOPS BLINKING, AND THE MENU STOPS BREATHING.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD (one is SPECIFIED).
+    //
+    //   PROPS (his item 3, third round on it). The ModBuild 335 census settled the cause on live
+    //   hardware: "m_ClientObjects held 0 entries ... ScenarioState.Props held 15 prop(s), 14
+    //   liftable", every one reading `actorBehaviour=NO`. A prop only gets a CObjectActor when it
+    //   has HEALTH (CMap.cs:501-518), so chests, gold piles and ordinary obstacles are in no actor
+    //   list at all, and the few that are appear as an invisible PropDummyObject rather than the
+    //   mesh -- which is exactly "no highlight": no renderers to overlay.
+    //     Discovery now walks ScenarioManager.CurrentScenarioState.Props and resolves the visual
+    //     through ObjectCacheService.GetPropObject. The old m_ClientObjects pass is RETIRED rather
+    //     than kept beside it: a destructible obstacle has BOTH, and two grabbables over one hex is
+    //     a bug waiting for a hardware round. GrabbableProp reuses the figure machinery whole --
+    //     the same VRInteractables registration, the same FigureHighlight.Apply, the same
+    //     FigureOverlay.BuildFrozenGhost, the same pick radius and release glide -- so a chest
+    //     highlights, lifts and leaves a ghost by the same code a miniature does.
+    //     Change-gated discovery: 2 s cadence, walk only on a prop-count change or while liftable
+    //     props are still unresolved, within a 12-scan settle budget. Steady state is one int
+    //     compare per 2 s and NO FindObjectsOfType anywhere.
+    //     MULTIPLAYER: local-only this build, and the wire field is SPECIFIED not guessed --
+    //     extension record 35, 25 bytes, propId = FNV-1a-32 of CObjectProp.PropGuid (the exact
+    //     analogue of NetFigures.StableActorId over ActorGuid; PropGuid survives the copy
+    //     constructor and serialization, and the game itself names props across clients with it).
+    //     Deliberately NOT an index into ScenarioState.Props -- that is a list order, not identity.
+    //
+    //   THE HOVER GLOW BLINKED, AND NOT ONLY ON THE BOSS (his item 2a). The debug log has this
+    //   triple three times in a row with nothing between the lines: pinch candidate -> highlight
+    //   ENGAGED -> highlight CLEARED, on SpittingDrake, ElderDrake, RendingDrakeElite and
+    //   Mindthief alike. A glow that lives one frame is invisible; only a hover that ended in a
+    //   grab ever stayed lit.
+    //     I read the "40 mm" in those lines as the reach and called it a boundary flicker. THAT WAS
+    //     WRONG: 40 mm is the DRIVER's pinch radius compared against the PINCH distance (0..25 mm,
+    //     comfortably inside), and the driver already has a Schmitt trigger on it. The palm figures
+    //     are measured against this class's 130 mm reach and are nowhere near it. What actually
+    //     dropped the hover is IGrabbableHandFilter.AllowsHand going false when the election names
+    //     nobody that frame -- and ProximityGrabber had no hysteresis against that at all. The
+    //     structural finding held; the term at the boundary did not.
+    //     Fix: exit reach 130 -> 176 mm (x1.35) plus a 0.20 s tail. The tail is the load-bearing
+    //     half -- it has to absorb the drop AND the driver's own 6-frame re-entry dwell, which is
+    //     why a radius alone could never have fixed it. THE GRAB IS NOT STICKIER: the grab edges
+    //     consult the pre-338 condition unchanged.
+    //
+    //   AND THE INSTRUMENT THAT COST THREE ROUNDS IS FIXED. FigureHighlight's report was built from
+    //   `Bounds b = r.bounds` on the ORIGINAL renderer, so "3 renderer(s) cloned, spanning world
+    //   y -1.18..5.66" described what was copied FROM and said nothing about where the copies
+    //   landed. The complaint was "I cannot see it" and the instrument answered "I chose three
+    //   renderers". Both reports now measure the CLONES -- count, enabled, layer against the head
+    //   camera's culling mask, shader, world bounds, and an AGREE/DISAGREE verdict against the
+    //   originals -- plus a SEEN? line two frames later saying whether any camera drew them.
+    //   The ghost report additionally NAMES every renderer destroyed as VFX with its shader,
+    //   because HasVfxShader kills anything whose shader name contains Distort/Particle/Fog/FX and
+    //   the boss's body may be one of them. That is a CANDIDATE, not a finding: the log has
+    //   Amp_CharDistort only in an Addressables dependency list, never on the drake. One round
+    //   settles it, and nothing about that rule was changed on a guess.
+    //
+    //   THE VR SETTINGS WINDOW BREATHED WHILE SCROLLING (his item 1). Since 335 the pane is a
+    //   standalone window with CENTRE anchors, so IsFullScreenMenu is false for it, so it fell
+    //   through to the DEFAULT PER-FRAME content fit -- which measures the union of VISIBLE
+    //   graphics every frame, and scrolling changes which rows are visible. The Options family has
+    //   been exempt from that fit since Issue 3; ours is the same rail-plus-panel layout and now
+    //   takes the same exemption plus the same height cap, matched BY NAME because its UIWindowID
+    //   is deliberately None (337 explains why giving it the real id would be worse).
+    //
+    //   REPO HYGIENE (his item 5): "es sieht so aus, dass du mittlerweile in planning auch render
+    //   Bilder reingepusht hast - dafuer gibt es den debug folder in planning". Correct, and it had
+    //   reached 8 MB across four folders. All 29 are untracked and moved to .planning/debug/renders/
+    //   (already gitignored), every markdown reference rewritten so no link rotted, and .gitignore
+    //   now refuses image types under .planning. The docs stay tracked: it is the pixels that are
+    //   disposable, not the reasoning.
+    //
+    //   THE HW-VERIFY CHECKER HAD THE SAME BUG IT EXISTS TO CATCH. It looked at most FOUR lines
+    //   past a marker for the call, so a marker whose explanation ran longer reported as logging at
+    //   no tier at all. The rule is now "the first line that is not a comment or blank" -- no magic
+    //   number. Re-falsified both ways.
+    //
+    //   TEST:
+    //     1. Hover a mini and hold still: the amber glow must now STAY LIT. If it still flickers,
+    //        the new `hover ENDED` line carries a "further hover end(s)" count and names the
+    //        blocker verbatim -- send that line.
+    //     2. Hover a chest / gold pile / obstacle: same glow, same haptic. Grab it: it lifts, and a
+    //        translucent ghost must stay on its cell. Release: it glides home in 0.28 s.
+    //     3. Grabbing a MINI must feel exactly as before. If a trigger near a glowing mini ever
+    //        does nothing, the `grab refused` line explains it and one more press works.
+    //     4. Boss dragon: grab it and read the `ghost spawned` line. Does KEPT name the drake's
+    //        body, or does the VFX list name it with an Amp_CharDistort* shader? And what does the
+    //        SEEN? line say -- "NOT ONE ... drawn by ANY camera" or "ALL of them were drawn"?
+    //        That one word splits the remaining search in half.
+    //     5. Scroll the VR settings list: the panel must NOT change size. Switching topics may.
+    //
+    // Build 337: EACH MENU ROW WAS LITERALLY THE OTHER WINDOW'S CLOSE BUTTON
     // Build 337: EACH MENU ROW WAS LITERALLY THE OTHER WINDOW'S CLOSE BUTTON.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //
@@ -590,8 +680,8 @@ internal static class NetProtocol
     //   to overlay. Shipped: the liftable test moved to CObjectProp.ObjectType (which the lossy
     //   copy cannot destroy), invisible actors are no longer adopted, an ordering bug that skipped
     //   AdoptProps whenever no FIGURE was adopted is fixed, and a [Props] census names refusals.
-    //   Actually lifting them needs FigureGrabbable + the held-sets + a wire field: SCOPED, NOT
-    //   STARTED, because it touches the MP contract.
+    //   [CLOSED IN 338: lifting them is implemented. See Board/FigureGrab/PropGrab; the wire
+    //   field it will need is specified in HeldProps.]
     //
     //   ITEM 2 -- THE WINDOW VANISH. My handed-down diagnosis was also half wrong and the lane
     //   said so: the release-tick latency is ~14 ms, at which point a 0.1 s InOutQuint alpha is

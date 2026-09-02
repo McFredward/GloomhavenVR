@@ -51,6 +51,16 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// hardware line then settles the hypothesis instead of the next round guessing again — if the two
 /// boxes differ on the boss and agree everywhere else, the paragraph above was right; if they agree
 /// on the boss too, it was wrong and the cause is elsewhere, and the line says so either way.</para>
+///
+/// <para><b>AND IN ModBuild 336 THE REPORT MOVED ONTO THE COPIES.</b> ModBuild 335's hardware log
+/// answered the boss with "3 renderer(s) cloned from the ACTOR ROOT, spanning world y -1.18..5.66"
+/// — every number in it read off the ORIGINAL renderers. It could not say where the clones landed,
+/// whether they were enabled, what layer they were on, whether the head camera renders that layer,
+/// what shader they carry, or whether a camera drew them; the complaint it exists to answer is "I
+/// cannot see it". The report is now <see cref="FigureOverlay.MeasureClones"/> over the container
+/// this class just built, compared against the originals' combined box, and
+/// <see cref="OverlayVisibilityProbe"/> adds the outcome — <see cref="Renderer.isVisible"/> two
+/// frames later, once a camera has had a chance to cull them.</para>
 /// </summary>
 internal sealed class FigureHighlight
 {
@@ -89,7 +99,7 @@ internal sealed class FigureHighlight
     /// written and is what the caller logs.</para>
     /// </summary>
     public bool Apply(GameObject figureRoot, GameObject? animatedRoot, Transform? excludeSubtree,
-                      out string report)
+                      string label, out string report)
     {
         report = string.Empty;
         if (Active)
@@ -120,8 +130,8 @@ internal sealed class FigureHighlight
         int skippedRing = 0;
         int skippedDisabled = 0;
         int skippedKind = 0;
-        float minY = float.MaxValue, maxY = float.MinValue;
         float animMinY = float.MaxValue, animMaxY = float.MinValue;
+        Bounds originals = default;
         Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
 
         for (int i = 0; i < Scratch.Count; i++)
@@ -159,11 +169,13 @@ internal sealed class FigureHighlight
 
             if (!CloneOne(r, root.transform, mat))
                 continue;
+
+            // The ORIGINAL's box, accumulated only so the report has something to compare the
+            // CLONES against. It is never the answer on its own — see the report below.
+            Bounds b = r.bounds;
+            if (cloned == 0) originals = b; else originals.Encapsulate(b);
             cloned++;
 
-            Bounds b = r.bounds;
-            if (b.min.y < minY) minY = b.min.y;
-            if (b.max.y > maxY) maxY = b.max.y;
             if (animatedT != null && IsUnder(r.transform, animatedT))
             {
                 underAnimated++;
@@ -192,6 +204,15 @@ internal sealed class FigureHighlight
         // logged a boolean, and a boolean cannot tell "the glow covers the dragon" from "the glow
         // covers a dart hanging off the dragon" — which is exactly the pair the ModBuild 293 log
         // could not separate for ElderDrakeID.
+        //
+        // ...AND FROM ModBuild 336 IT MEASURES THE CLONES. The 294 report was still built from
+        // `r.bounds` on the ORIGINAL renderers, so "3 renderer(s) cloned from the ACTOR ROOT,
+        // spanning world y -1.18..5.66" described the renderers it had copied FROM. It said nothing
+        // about where the copies landed, whether they were enabled, what layer they were on,
+        // whether the head camera renders that layer, or what shader they carry — and the complaint
+        // it was written to answer is "I cannot see it". FigureOverlay.MeasureClones now walks the
+        // container that was just built, and OverlayVisibilityProbe reports two frames later
+        // whether anything actually drew it.
         string animatedSays = animatedT == null
             ? "the actor has NO m_AnimatedGameObject"
             : underAnimated == 0
@@ -205,11 +226,12 @@ internal sealed class FigureHighlight
                       + $"'{animatedRoot!.name}' spanning world y {animMinY:F2}..{animMaxY:F2} — the "
                       + $"pre-ModBuild-294 search would have glowed only that part";
 
-        report = $"{cloned} renderer(s) cloned from the ACTOR ROOT, spanning world y "
-                 + $"{minY:F2}..{maxY:F2} ({maxY - minY:F2} wu tall); {animatedSays}. Skipped: "
+        report = FigureOverlay.MeasureClones(root.transform, "GLOW", cloned > 0, originals, cloned)
+                 + $" Cloned from the ACTOR ROOT; {animatedSays}. Skipped: "
                  + $"{skippedKind} non-mesh, {skippedDisabled} with Renderer.enabled=false, "
                  + $"{skippedRing} on the selection ring, {skippedModOwned} mod-owned, of "
-                 + $"{onActiveObjects} renderer(s) on active objects";
+                 + $"{onActiveObjects} renderer(s) on active objects.";
+        OverlayVisibilityProbe.Attach(root, $"{label}/glow", $"GLOW on {label}");
         return true;
     }
 
@@ -267,13 +289,10 @@ internal sealed class FigureHighlight
             go.transform.SetPositionAndRotation(r.transform.position, r.transform.rotation);
             // MATCH THE PART'S WORLD SCALE, which the pre-ModBuild-294 code left at the container's.
             // The container hangs off the actor root, so a prop with any local scale of its own drew
-            // its glow at the wrong size — invisible on a mini, and on the 198x diorama not.
-            Vector3 parentLossy = container.lossyScale;
-            Vector3 want = r.transform.lossyScale;
-            go.transform.localScale = new Vector3(
-                Mathf.Abs(parentLossy.x) > 1e-6f ? want.x / parentLossy.x : 1f,
-                Mathf.Abs(parentLossy.y) > 1e-6f ? want.y / parentLossy.y : 1f,
-                Mathf.Abs(parentLossy.z) > 1e-6f ? want.z / parentLossy.z : 1f);
+            // its glow at the wrong size — invisible on a mini, and on the 198x diorama not. The
+            // arithmetic moved into FigureOverlay in ModBuild 336, when the ghost path was found to
+            // be missing this same term; one copy now, so the next fix cannot land on one of two.
+            FigureOverlay.MatchCloneWorldScale(go.transform, container, r.transform);
             var cf = go.AddComponent<MeshFilter>();
             cf.sharedMesh = mf.sharedMesh;
             var cr = go.AddComponent<MeshRenderer>();

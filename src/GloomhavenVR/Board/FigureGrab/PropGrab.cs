@@ -1,0 +1,339 @@
+using System.Collections.Generic;
+using GloomhavenVR.Core;
+using GloomhavenVR.Hands.Interact;
+using ScenarioRuleLibrary;
+using Script.Controller;
+using UnityEngine;
+
+namespace GloomhavenVR.Board.FigureGrab;
+
+/// <summary>
+/// PROP DISCOVERY — the registry that finds chests, gold piles, traps, obstacles, quest items and
+/// resources and hands each one to the hands as a <see cref="GrabbableProp"/>.
+///
+/// <para><b>WHY A SECOND REGISTRY EXISTS AT ALL, stated once so nobody re-derives it.</b> The
+/// figure registry (<c>FigureGrabDriver.RefreshRegistry</c>) walks
+/// <c>WorldspaceUITools._panelUIControllers</c> and demands a <c>CInteractableActor</c>, which
+/// resolves its actor from <c>GetComponentInParent&lt;CharacterManager&gt;()</c> — characters and
+/// monsters only. Its prop annex walked <c>Choreographer.m_ClientObjects</c> instead. The
+/// ModBuild 335 hardware census settled what that annex could ever reach, verbatim:</para>
+/// <code>
+/// [Props] census: Choreographer.m_ClientObjects held 0 entr(y/ies), 0 with an ActorBehaviour,
+/// 0 liftable by import type, 0 of those drawing anything, 0 adopted.
+/// ScenarioState.Props held 15 prop(s), 14 liftable (4 of the 4 sampled resolved to a GameObject).
+/// </code>
+/// <para>Zero, against fourteen. A prop reaches <c>m_ClientObjects</c> only by having a
+/// <c>CObjectActor</c>, and a prop is given one only when it is configured for HEALTH
+/// (CMap.cs:502-518; <c>CObjectActor.SetAttachedToProp</c> refuses independently at
+/// CObjectActor.cs:99-104). Chests, gold piles, quest items, resources and non-destructible
+/// obstacles have none — and the entry a prop WITH health does get is an invisible
+/// <c>PropDummyObject</c> standing on the hex, not the mesh. So that annex is gone and this is
+/// what replaced it: <c>ScenarioManager.CurrentScenarioState.Props</c> is the population, and
+/// <c>ObjectCacheService.GetPropObject(prop)</c> is the visual
+/// (<c>_propsCache</c>, a <c>Dictionary&lt;CObjectProp, GameObject&gt;</c> written by every
+/// prop-instantiating site: Choreographer.SpawnProp:13159, PlaceRandomProps:15459,
+/// DelayedDropSMB.cs:181, UnityGameEditorRuntime.cs:784/:832, ClientScenarioManager.cs:220).</para>
+///
+/// <para><b>THE VISUALS ARRIVE LATE, and the same log proved it.</b> At the first census
+/// <c>0 of the 4 sampled resolved to a GameObject</c> and <c>collider=no</c>; seconds later
+/// <c>4 of 4</c> and <c>collider=yes</c>. Discovery therefore may not decide once. It keeps
+/// looking — but on a CHANGE GATE and a bounded settle budget, never as a per-frame scene sweep:
+/// <c>FindObjectsOfType</c> is a recorded trap in this project ("near-free" has shipped as a
+/// per-frame cost twice) and nothing here does one. Once every liftable prop has resolved, a
+/// scan costs one <c>List.Count</c> comparison and returns.</para>
+///
+/// <para><b>NO ELECTION LOOP.</b> A prop's pick-radius gate lives in
+/// <see cref="GrabbableProp.AllowsHand"/>, evaluated by the <c>ProximityGrabber</c> inside the
+/// loop it already runs. There is no per-hand pass here, and props and figures therefore compete
+/// in ONE election rather than two that would have to be arbitrated against each other.</para>
+///
+/// <para><b>MULTIPLAYER.</b> Local-only and additive: nothing is sent, nothing is expected, an
+/// unmodded peer sees a chest that never moves. The seam is documented in
+/// <see cref="HeldProps"/>.</para>
+/// </summary>
+internal static class PropGrab
+{
+    /// <summary>Seconds between discovery scans while the population is still settling. Two
+    /// seconds is the cadence the prop census already uses, and the census is what measured the
+    /// late arrival this scan exists to survive.</summary>
+    private const float ScanIntervalSeconds = 2f;
+
+    /// <summary>Scans allowed after the prop list last CHANGED SIZE, while liftable props are
+    /// still unresolved. Twelve at the interval above covers ~24 s — the whole of the load and
+    /// reveal — and then costs nothing. A hard budget rather than a cadence that runs forever,
+    /// because <c>ObjectCacheService.GetPropObject</c> logs a warning of the game's own on every
+    /// miss and a discovery pass must not be the loudest thing in the log.</summary>
+    private const int SettleScanBudget = 12;
+
+    /// <summary>Cadence ticks between the slow floor sweeps — one full (but resolution-free) walk
+    /// every <c>IdleSweepScans * ScanIntervalSeconds</c> seconds, ~10 s. See the change gate in
+    /// <see cref="Scan"/> for the case the size comparison alone cannot see.</summary>
+    private const int IdleSweepScans = 5;
+
+    private static readonly Dictionary<CObjectProp, GrabbableProp> Registry = new();
+    private static readonly HashSet<CObjectProp> Seen = new();
+    private static readonly List<CObjectProp> Scratch = new(8);
+
+    private static float _nextScan;
+    private static int _lastPropCount = -1;
+    private static int _pendingResolve;
+    private static int _settleScansLeft = SettleScanBudget;
+    private static int _idleScansLeft = IdleSweepScans;
+    private static object? _lastState;
+    private static bool _loggedRegistration;
+
+    /// <summary>How many props are currently registered as grabbable — read by the
+    /// <c>[Props]</c> census so one line says whether discovery actually landed.</summary>
+    internal static int Registered => Registry.Count;
+
+    /// <summary>How many liftable props the last scan could NOT resolve to a GameObject (or to a
+    /// collider). Also read by the census: a positive number with a spent settle budget is the
+    /// signature of a prop whose visual never arrived.</summary>
+    internal static int Pending => _pendingResolve;
+
+    /// <summary>Is this exact prop instance registered as grabbable? The per-sample column of the
+    /// <c>[Props]</c> census, so the line names WHICH prop discovery missed instead of only how
+    /// many.</summary>
+    internal static bool IsRegistered(CObjectProp? prop) => prop != null && Registry.ContainsKey(prop);
+
+    /// <summary>
+    /// One call per frame, from <c>FigureGrabDriver.RefreshRegistry</c> — the step that already
+    /// owns "keep the adoption set current". Ordered: glides first (they must land whatever the
+    /// dial says), then the prune, then the ghost reconcile, then the gate, then the scan.
+    /// </summary>
+    internal static void Tick()
+    {
+        // A release glide already in the air lands regardless of the feature dial — the same rule
+        // that keeps FigureGrab.Glide above the config gate in FigureGrabDriver.Update.
+        GrabbableProp.TickGlides();
+
+        Prune();
+        PropGhosts.Tick();
+
+        if (!FigureGrabConfig.GrabPropsEnabled)
+        {
+            if (Registry.Count > 0)
+                ReleaseAll();
+            return;
+        }
+
+        Scan();
+    }
+
+    /// <summary>Drop any prop whose visual died under us (looted, broken, scenario teardown). Cheap
+    /// — a walk over at most a scenario's worth of liftable props, no scene query.</summary>
+    private static void Prune()
+    {
+        if (Registry.Count == 0)
+            return;
+        Scratch.Clear();
+        foreach (KeyValuePair<CObjectProp, GrabbableProp> kv in Registry)
+        {
+            if (kv.Value.Visual == null || kv.Value.PickCollider == null)
+                Scratch.Add(kv.Key);
+        }
+        for (int i = 0; i < Scratch.Count; i++)
+            Drop(Scratch[i]);
+    }
+
+    private static void Scan()
+    {
+        ScenarioRuleLibrary.ScenarioState? state = ScenarioManager.CurrentScenarioState;
+        List<CObjectProp>? props = state != null ? state.Props : null;
+
+        // A NEW scenario state object is a new board: everything registered against the old one is
+        // stale by identity, whatever its GameObjects still look like.
+        if (!ReferenceEquals(state, _lastState))
+        {
+            _lastState = state;
+            if (Registry.Count > 0)
+                ReleaseAll();
+            _lastPropCount = -1;
+            _settleScansLeft = SettleScanBudget;
+            _pendingResolve = 0;
+        }
+
+        if (props == null)
+            return;
+
+        float now = Time.unscaledTime;
+        if (now < _nextScan)
+            return;
+        _nextScan = now + ScanIntervalSeconds;
+
+        // ---- THE CHANGE GATE, three conditions and a floor ------------------------------------
+        //
+        //   CHANGED   the prop list is a different size than last time: a prop spawned or was
+        //             removed, so walk it and re-arm the settle budget.
+        //   SETTLING  liftable props are still unresolved and the budget holds: the visuals are
+        //             arriving, which the ModBuild 335 census watched happen over seconds.
+        //   SWEEP     a slow floor, one walk per IdleSweepScans cadence ticks (~10 s). It exists
+        //             for the one case the size comparison cannot see: a prop removed and another
+        //             added inside the same tick leaves the count identical. The sweep is nearly
+        //             free — every prop already in the registry is a dictionary hit and nothing
+        //             else — and it deliberately does NOT re-resolve once the settle budget is
+        //             spent (see `resolve` below), so it can never turn into a warning generator.
+        //
+        // Steady state is therefore one int comparison per tick, and one dictionary walk per ten
+        // seconds. Nothing here queries the scene.
+        bool countChanged = props.Count != _lastPropCount;
+        bool settling = !countChanged && _pendingResolve > 0 && _settleScansLeft > 0;
+        bool sweep = --_idleScansLeft <= 0;
+        if (sweep)
+            _idleScansLeft = IdleSweepScans;
+        if (!countChanged && !settling && !sweep)
+            return;
+        if (countChanged)
+        {
+            _lastPropCount = props.Count;
+            _settleScansLeft = SettleScanBudget;
+        }
+        else if (settling)
+        {
+            _settleScansLeft--;
+        }
+
+        // MAY THIS WALK ASK ObjectCacheService? Only while the population is genuinely still
+        // settling. GetPropObject logs a warning of the GAME's own on every miss (ObjectCacheService
+        // .cs:104), so a prop whose visual never arrives would otherwise print one line every sweep
+        // for the rest of the session — a discovery pass must not be the loudest thing in the log
+        // it is meant to make readable. A bare sweep still does its other half: dropping props the
+        // scenario state no longer lists.
+        bool resolve = countChanged || _settleScansLeft > 0;
+
+        // PHASE 1 — membership. Who does the scenario state say is liftable, right now.
+        Seen.Clear();
+        for (int i = 0; i < props.Count; i++)
+        {
+            CObjectProp prop = props[i];
+            if (prop != null && FigureGrabDriver.IsLiftableProp(prop))
+                Seen.Add(prop);
+        }
+
+        // PHASE 2 — DROP THE STALE, and it runs BEFORE the add on purpose. A state sync can hand
+        // back a Props list of the same length whose entries are fresh CObjectProp instances
+        // describing the same board. Reference identity then makes every one of them "new" and
+        // every registered one "gone" — a full re-key over UNCHANGED GameObjects. Adding first
+        // would have the incoming entry and the outgoing entry share a visual for the length of
+        // this method, which is exactly the window in which one of them tears down state the other
+        // is about to rely on. Dropping first makes the re-key a clean hand-over.
+        if (Registry.Count > 0)
+        {
+            Scratch.Clear();
+            foreach (KeyValuePair<CObjectProp, GrabbableProp> kv in Registry)
+            {
+                if (!Seen.Contains(kv.Key))
+                    Scratch.Add(kv.Key);
+            }
+            for (int i = 0; i < Scratch.Count; i++)
+                Drop(Scratch[i]);
+        }
+
+        // PHASE 3 — register what is not registered yet.
+        _pendingResolve = 0;
+        ObjectCacheService? cache = Singleton<ObjectCacheService>.IsInitialized
+            ? Singleton<ObjectCacheService>.Instance
+            : null;
+
+        foreach (CObjectProp prop in Seen)
+        {
+            if (Registry.ContainsKey(prop))
+                continue;
+            if (cache == null || !resolve)
+            {
+                _pendingResolve++;
+                continue;
+            }
+
+            GameObject? visual = cache.GetPropObject(prop);
+            // NOT YET DRAWING is the same answer as NOT YET SPAWNED and takes the same retry: the
+            // census watched both flip from "no" to "yes" within the first seconds of a scenario.
+            if (visual == null || !FigureGrabDriver.DrawsSomething(visual))
+            {
+                _pendingResolve++;
+                continue;
+            }
+
+            // A prop may have no collider at all — it was never interactable through its own mesh
+            // (the game reaches a chest through its HEX). BuildPropCollider makes a TRIGGER box
+            // from the renderer bounds on Ignore Raycast, so it can never enter the game's physics
+            // or its picking; it exists only for the proximity election to measure against.
+            //
+            // THE BOX, ONCE BUILT, BELONGS TO THE PROP AND NOT TO THIS ENTRY. It is a child of the
+            // prop visual, so Unity destroys it with the prop and it cannot leak past the scenario.
+            // Tearing it down when a registry ENTRY is dropped would be worse in the one case that
+            // matters: a state sync re-keys every prop (see phase 2) and the rebuilt entry would
+            // then have to re-create the box in the same frame the old one was destroyed —
+            // Object.Destroy is deferred to end of frame, so the lookup below would hand the new
+            // entry the doomed one. Reused instead: this lookup finds it exactly like an authored
+            // collider, and `built` is false the second time round.
+            Collider? own = visual.GetComponentInChildren<Collider>();
+            bool built = own == null;
+            Collider? collider = built ? FigureGrabDriver.BuildPropCollider(visual) : own;
+            if (collider == null)
+            {
+                _pendingResolve++;
+                continue;
+            }
+
+            var grabbable = new GrabbableProp(prop, visual, collider);
+            VRInteractables.RegisterGrabbable(grabbable, collider);
+            Registry[prop] = grabbable;
+
+            if (_loggedRegistration)
+                continue;
+            _loggedRegistration = true;
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("FigureGrab",
+                $"[Props] registry OPEN: first grabbable prop is {grabbable.Label}, visual "
+                + $"'{visual.name}' resolved through ObjectCacheService (NOT through an actor — it "
+                + "has none, which is exactly what the ModBuild 335 census measured). Collider: "
+                + (built ? "built from its renderer bounds (the prop had none)." : "the prop's own.")
+                + " It now carries the figure hover glow, the figure pick radius, the trigger-only "
+                + "grab and a home ghost. Logged once per scenario; the [Props] census line counts "
+                + "the rest.");
+        }
+
+    }
+
+    private static void Drop(CObjectProp prop)
+    {
+        if (Registry.TryGetValue(prop, out GrabbableProp grabbable))
+        {
+            grabbable.Restore();
+            VRInteractables.UnregisterGrabbable(grabbable);
+        }
+        Registry.Remove(prop);
+    }
+
+    /// <summary>Put every prop back and empty the registry — the config gate going off, a scenario
+    /// teardown, or the driver being destroyed. Restores home poses and layers first, so no prop is
+    /// ever left riding a hand that no longer exists.</summary>
+    internal static void ReleaseAll()
+    {
+        foreach (KeyValuePair<CObjectProp, GrabbableProp> kv in Registry)
+        {
+            kv.Value.Restore();
+            VRInteractables.UnregisterGrabbable(kv.Value);
+        }
+        Registry.Clear();
+        HeldProps.Clear();
+        PropGhosts.Clear();
+        _lastPropCount = -1;
+        _pendingResolve = 0;
+        _settleScansLeft = SettleScanBudget;
+        _idleScansLeft = IdleSweepScans;
+        _nextScan = 0f;
+        _loggedRegistration = false;
+        GrabbableProp.ResetLogBudgets();
+    }
+
+    /// <summary>Module shutdown / scene change: <see cref="ReleaseAll"/> plus the scenario-state
+    /// identity, so the next board re-discovers from scratch.</summary>
+    internal static void Clear()
+    {
+        ReleaseAll();
+        _lastState = null;
+    }
+}

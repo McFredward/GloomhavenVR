@@ -450,7 +450,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             // See FigureHighlight for what the report says and why it is the term that settles it.
             bool glow = _highlight.Apply(root, _actor.m_AnimatedGameObject,
                                          _actor.m_Hilight != null ? _actor.m_Hilight.transform : null,
-                                         out string overlay);
+                                         Describe(), out string overlay);
             // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
             // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
             VRLog.Note("FigureGrab",
@@ -571,7 +571,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
                 continue;
             if (g._highlight.Apply(root, g._actor.m_AnimatedGameObject,
                                    g._actor.m_Hilight != null ? g._actor.m_Hilight.transform : null,
-                                   out string overlay))
+                                   g.Describe(), out string overlay))
                 // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
                 // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
                 VRLog.Note("FigureGrab",

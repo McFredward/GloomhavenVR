@@ -87,16 +87,23 @@ def sites() -> list[tuple[Path, int, str, str]]:
         for i, line in enumerate(lines):
             if not MARK_RE.match(line):
                 continue
-            # The call is the next line that carries one, skipping the marker's own
-            # continuation comment lines. Look at most 4 lines ahead.
-            for j in range(i + 1, min(i + 5, len(lines))):
+            # THE RULE IS "THE FIRST LINE THAT IS NOT A COMMENT", not "within N lines". The
+            # window used to be four lines, which silently mis-reported a marker whose
+            # explanation ran longer than its own two-line preamble — the checker then claimed
+            # the site logged at no tier at all. A magic number here is the same class of
+            # defect this script exists to catch, one directory over: an instrument answering a
+            # question adjacent to the one asked. Blank lines and comments are skipped; the
+            # first line with real code must carry the call.
+            for j in range(i + 1, len(lines)):
+                stripped = lines[j].strip()
+                if not stripped or stripped.startswith("//"):
+                    continue
                 m = CALL.search(lines[j])
                 if m:
-                    found.append((path, j + 1, m.group(1), lines[j].strip()))
-                    break
-                if lines[j].strip().startswith("//"):
-                    continue
-                break  # a non-comment, non-call line: this marker has no call
+                    found.append((path, j + 1, m.group(1), stripped))
+                else:
+                    found.append((path, i + 1, "<none>", lines[i].strip()))
+                break
             else:
                 found.append((path, i + 1, "<none>", lines[i].strip()))
     return found

@@ -10,6 +10,14 @@ namespace GloomhavenVR.WorldUI;
 
 internal static partial class ModalFallback
 {
+
+    /// <summary>
+    /// The mod's own standalone VR settings window, matched by NAME. Its <c>UIWindowID</c> is
+    /// <c>None</c> on purpose (see ModBuild 337), so every id-keyed rule in this file misses it —
+    /// including the Options family's exemption from the per-frame content fit, which is what made
+    /// it resize while the player merely scrolled. Set in <c>VROptionsTab.1.Inject.cs</c>.
+    /// </summary>
+    private const string VROptionsWindowName = "GloomhavenVR.OptionsTabWindow";
     // ---- conversion ---------------------------------------------------------------------
 
     /// <summary>
@@ -288,7 +296,30 @@ internal static partial class ModalFallback
             // trimming the tall empty bottom. Every other window keeps the default (fit pokeable
             // hosts): non-menu modals fit as before, the ESC menu + confirmations one-shot-fit
             // (fitContent:null).
-            bool? fitContent = fullScreenMenu && !escMenuWidthHug ? false : (bool?)null;
+            // THE MOD'S OWN VR SETTINGS WINDOW BELONGS TO THE OPTIONS FAMILY, and it must be
+            // recognised BY NAME because its UIWindowID is deliberately None (ModBuild 337: giving
+            // it the real OptionsSubmenu id would make ResetEscMenuToggleGroup fire for its X
+            // button and take the game's own options window down with it).
+            //
+            // USER, 2026-09-02 after the 336 round: "Das VR-Optionsmenu aendert staendig sein
+            // Groesse - das ist ok wenn man den Tab wechselt - aber es passiert auch, wenn man
+            // einfach nur scrollt und das darf nicht sein."
+            //
+            // He is right, and the reason is mechanical. Since ModBuild 335 the pane is a
+            // standalone window with CENTRE anchors, so IsFullScreenMenu is false for it, so it
+            // fell through to fitContent = null -- the DEFAULT PER-FRAME content fit. That fit
+            // measures the union of VISIBLE graphics every frame, and scrolling a list changes
+            // which rows are visible, so the host breathed with the scroll position. The Options
+            // family has been exempt from this fit since Issue 3 for a closely related reason (it
+            // width-collapsed a rail-plus-panel layout); ours is the same layout and wants the same
+            // exemption, plus the same height cap.
+            // No null test: `window` is dereferenced unguarded either side of this line
+            // (window.ID, above and below), so adding one here only teaches the compiler the
+            // reference is nullable and moves the warning to those.
+            bool vrOptionsWindow = window.name == VROptionsWindowName;
+            bool? fitContent = (fullScreenMenu && !escMenuWidthHug) || vrOptionsWindow
+                ? false
+                : (bool?)null;
             // One-shot content fit (fit once → lock, no per-frame re-fit flicker): the ESC menu
             // (compact width-hug column) AND every pause/options confirmation dialog (hugs the
             // centered dialog box once its dark overlay is hidden). The Options family stays OUT
@@ -350,7 +381,7 @@ internal static partial class ModalFallback
                 // one-shot-fit too. The full-screen-menu family gets the HEIGHT cap (confirmations do
                 // not — the one-shot fit already hugs their compact box). Issue 5: keep the backing
                 // disabled on release for the full-screen-menu family only.
-                fitOneShot: oneShotFit, capHeightToCanvas: fullScreenMenu,
+                fitOneShot: oneShotFit, capHeightToCanvas: fullScreenMenu || vrOptionsWindow,
                 keepBackgroundHidden: fullScreenMenu,
                 // THE WINDOW FLATNESS GUARANTEE (ModBuild 193) — see the block above TryConvertWindow.
                 // Unconditional: EVERY window this path floats, with no per-ID whitelist, because

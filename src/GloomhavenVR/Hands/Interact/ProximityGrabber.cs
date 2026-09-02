@@ -59,6 +59,45 @@ internal sealed class ProximityGrabber
     /// </summary>
     private const float SwitchMarginMeters = 0.025f;
 
+    /// <summary>
+    /// HOVER SCHMITT TRIGGER, the release ring: a target that ALREADY holds the highlight keeps it
+    /// out to <c>ReachMeters * ExitReachFactor</c>, while a new one still has to come inside
+    /// <see cref="ReachMeters"/> to take it. A factor rather than a second dial for the same reason
+    /// <c>FigureGrabDriver.PickExitFactor</c> is one: a player tunes "how close must I get", never
+    /// "how much slack does letting go get", and two independent radii that can be set to cross
+    /// each other would need a third rule to sort them out.
+    ///
+    /// <para>1.35 x 130 mm = 176 mm, a 46 mm dead band. That is far wider than the hand tremor the
+    /// ModBuild 335 hardware log shows around the boundary and far narrower than the gap between
+    /// two board figures on neighbouring hexes, so it cannot make a NEIGHBOUR sticky. Matches the
+    /// on/off-fraction idiom of <c>PeerBoardFade</c> / <c>WallSegmentFade</c>.</para>
+    /// </summary>
+    private const float ExitReachFactor = 1.35f;
+
+    /// <summary>
+    /// HOVER SCHMITT TRIGGER, the exit dwell: how long the glow is held after the election stops
+    /// naming the current target, while that target is still inside the exit ring.
+    ///
+    /// <para>WHY A DWELL AND NOT JUST A RADIUS (ModBuild 335 hardware log). The highlight did fire
+    /// on every figure the user hovered — SpittingDrake, ElderDrake, RendingDrakeElite, Mindthief —
+    /// and was torn down again within one to three log lines, in a log printing ~20 lines a frame.
+    /// A glow that lives a frame or two is invisible, which is the whole of "kein highlighting wenn
+    /// ich mit der Hand ueber die Figur fahre". The distance was NOT the term that dropped it: the
+    /// palm readings at engagement were 25-77 mm against this class's 130 mm reach. What dropped it
+    /// is the per-hand veto (<see cref="IGrabbableHandFilter"/>) going false for a frame or more,
+    /// because <c>FigureGrabDriver</c>'s election found no winner that frame — and its own
+    /// re-entry costs a further six frames of dwell before the figure is elected again. A radius
+    /// alone cannot see any of that; only time can.</para>
+    ///
+    /// <para>0.20 s at 90 Hz is 18 frames — it absorbs a full drop plus the driver's six-frame
+    /// re-entry dwell with margin to spare, and is well under the ~250 ms at which a standing
+    /// affordance starts to read as stuck. It is the same 0.20 s <c>PeerBoardFade</c> uses for its
+    /// enter dwell. Nothing about GRABBING is made stickier: see <see cref="Tick"/>'s hover-tail
+    /// branch, which refuses a grab during the tail with exactly the gates that governed before
+    /// this hysteresis existed.</para>
+    /// </summary>
+    private const float ExitDwellSeconds = 0.20f;
+
     private readonly VRHand _hand;
     private bool _enabled = true;
     private bool _releaseOnTriggerUp;
@@ -70,6 +109,20 @@ internal sealed class ProximityGrabber
     // Refusal diagnostic throttle (user bug A: "won't grab" gave a silent log — every
     // refused grab attempt now NAMES its gate, at most one line per second per hand).
     private float _nextRefusalLogAt;
+
+    // HOVER HYSTERESIS state (see ExitReachFactor / ExitDwellSeconds).
+    //   _highlightDropAt   unscaled time the current highlight FIRST stopped passing the election
+    //                      this frame; negative while it is passing.
+    //   _highlightGrabbable  whether the current highlight satisfies the pre-hysteresis grab
+    //                      condition RIGHT NOW (elected nearest, in reach, CanGrab, hand allowed).
+    //                      False during the tail, and the only thing the grab edges consult.
+    //   _highlightBlocker  which gate ended it, in words — the field that turns "CLEARED" from a
+    //                      bare event into an answer (see LogHighlightDrop).
+    private float _highlightDropAt = -1f;
+    private bool _highlightGrabbable;
+    private string _highlightBlocker = "";
+    private float _nextDropLogAt;
+    private int _dropsSinceLastLog;
 
     internal ProximityGrabber(VRHand hand) => _hand = hand;
 
@@ -142,6 +195,40 @@ internal sealed class ProximityGrabber
             // otherwise the refusal reads as "no grabbable in reach" in the log.
             if (_hand.GripDown || _hand.TriggerDown)
                 LogNoCandidateRefusal();
+            return;
+        }
+
+        // ---- HOVER TAIL: A GLOW THAT IS NOT AN OFFER -------------------------------------------
+        //
+        // The highlight is being held past the election by the Schmitt trigger in
+        // UpdateHighlight (see ExitReachFactor / ExitDwellSeconds), so a boundary flicker or a
+        // one-frame veto cannot make the hover invisible. THE GRAB IS NOT MADE STICKIER BY IT:
+        // grabbing still requires exactly what it required before the hysteresis existed — being
+        // the elected nearest candidate, in reach, CanGrab, hand allowed — which is precisely what
+        // _highlightGrabbable carries. A GRIP press still falls through to a grip-grabbable
+        // (that path never takes Highlighted, so the tray bar is unaffected); a grab aimed AT the
+        // tail is refused BY NAME and drops the glow on the spot, so no promise is ever left
+        // standing where a grab was just refused.
+        if (!_highlightGrabbable)
+        {
+            if (_hand.GripDown)
+            {
+                IGrabbable? gripTarget = FindNearestGripGrabbable();
+                if (gripTarget != null)
+                {
+                    BeginGrab(gripTarget, releaseOnTriggerUp: false, "grip", "proximity fall-through",
+                        clearHighlight: false);
+                    return;
+                }
+            }
+            if (_hand.TriggerDown || _hand.GripDown)
+            {
+                LogRefusal($"'{DescribeGrabbable(Highlighted)}' is no longer the elected candidate "
+                           + $"({(_highlightBlocker.Length > 0 ? _highlightBlocker : "election lost")}) "
+                           + $"— its glow is inside the {ExitDwellSeconds:0.00} s hover tail, which "
+                           + "shows where the hand is and offers nothing; the glow is dropped now");
+                SetHighlighted(null);
+            }
             return;
         }
 
@@ -498,38 +585,107 @@ internal sealed class ProximityGrabber
         SetHighlighted(null);
     }
 
+    /// <summary>
+    /// Elect this hand's hover candidate: the nearest registered grabbable inside the palm reach
+    /// that still passes every gate. Two kinds of stickiness sit on top of that raw election, and
+    /// they answer two different reports:
+    ///
+    /// <para>RIVAL SWITCH (<see cref="SwitchMarginMeters"/>, hardware test #8) — a second target
+    /// has to be decisively closer to steal a live highlight, so two overlapping fan cards cannot
+    /// trade it every frame and buzz the controller. Untouched by this round.</para>
+    ///
+    /// <para>HOVER SCHMITT TRIGGER (<see cref="ExitReachFactor"/> + <see cref="ExitDwellSeconds"/>,
+    /// user 2026-09-02: "Kein highlighting wenn ich mit der hand ueber die Figur fahre") — until
+    /// ModBuild 336 there was hysteresis for SWITCHING and none at all for LOSING: the sticky
+    /// branch required a non-null rival, so the very frame the election named nobody the highlight
+    /// was torn down. The ModBuild 335 hardware log shows exactly that, and shows it for every
+    /// figure rather than only the boss the user reported: ENGAGED and CLEARED one to three lines
+    /// apart in a log printing ~20 lines a frame, over and over, on SpittingDrake, ElderDrake,
+    /// RendingDrakeElite and Mindthief alike. A glow that lives one or two frames is invisible.
+    /// The current highlight now keeps the hover out to the wider EXIT ring, and survives a gap in
+    /// the election for the exit dwell — long enough to cover FigureGrabDriver's own six-frame
+    /// re-entry dwell — while <see cref="_highlightGrabbable"/> stays false throughout so the GRAB
+    /// keeps exactly the gates it had before.</para>
+    ///
+    /// <para>Every exit also records WHICH gate ended it (<see cref="_highlightBlocker"/>). Three
+    /// rounds were spent on this defect against a log that said only "CLEARED"; a bare event cannot
+    /// tell "the hand left" from "the driver elected nobody this frame", and those want opposite
+    /// fixes.</para>
+    /// </summary>
     private void UpdateHighlight()
     {
         var entries = VRInteractables.Grabbables;
         Vector3 palm = _hand.Rig.PalmCenter.position;
         float reach = ReachMeters * _hand.WorldScale;
+        float exitReach = reach * ExitReachFactor;
+        float scale = Mathf.Max(_hand.WorldScale, 1e-4f);
 
         IGrabbable? nearest = null;
         float nearestDist = float.MaxValue;
-        float currentDist = float.MaxValue; // distance to the CURRENT highlight, if still valid
+        float currentDist = float.MaxValue; // distance to the CURRENT highlight while it is measurable
+        bool currentMeasured = false;       // its collider is alive, so currentDist means something
+        bool currentEligible = false;       // it passed every gate this frame (the pre-336 condition)
+        string currentBlocker = "it is no longer a registered grabbable";
         bool sawDead = false;
 
         for (int i = 0; i < entries.Count; i++)
         {
+            IGrabbable target = entries[i].Target;
+            bool isCurrent = Highlighted != null && ReferenceEquals(target, Highlighted);
+
             Collider collider = entries[i].Collider;
             if (collider == null)
             {
                 sawDead = true;
+                if (isCurrent)
+                    currentBlocker = "its collider was destroyed";
                 continue;
             }
             if (!collider.enabled || !collider.gameObject.activeInHierarchy)
+            {
+                if (isCurrent)
+                    currentBlocker = collider.enabled
+                        ? "its object was deactivated (re-parked to a pool, or hidden)"
+                        : "its collider was switched off";
                 continue;
+            }
 
-            IGrabbable target = entries[i].Target;
+            // Measured BEFORE the policy gates so a vetoed current highlight still reports where
+            // the hand actually is — the exit ring is a distance test and has to run on the frames
+            // the gates fail, which are the only frames it matters on.
+            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
+            if (isCurrent)
+            {
+                currentDist = dist;
+                currentMeasured = true;
+            }
+
             if (!target.CanGrab)
+            {
+                if (isCurrent)
+                    currentBlocker = "CanGrab went false (a busy figure the turn machine is waiting "
+                                     + "on, a figure a remote player took, a dead actor, or the "
+                                     + "[FigureGrab] GrabFigures dial)";
                 continue;
+            }
             // Per-hand gate (P7): e.g. fan cards reject the fan-owning hand entirely.
             if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
+            {
+                if (isCurrent)
+                    currentBlocker = "the per-hand veto turned it off for this hand "
+                                     + "(IGrabbableHandFilter.AllowsHand=false — for a board figure "
+                                     + "that is FigureGrabDriver's election naming another figure, "
+                                     + "or none at all, this frame)";
                 continue;
+            }
 
-            float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
-            if (ReferenceEquals(target, Highlighted))
-                currentDist = dist;
+            if (isCurrent)
+            {
+                currentEligible = true;
+                if (dist > reach)
+                    currentBlocker = $"the hand moved out to {dist / scale * 1000f:F0} mm real, past "
+                                     + $"the {ReachMeters * 1000f:F0} mm palm reach";
+            }
             if (dist <= reach && dist < nearestDist)
             {
                 nearestDist = dist;
@@ -543,23 +699,98 @@ internal sealed class ProximityGrabber
         // Sticky candidate: keep the current highlight while it is still in reach and
         // the rival is not decisively closer (haptic-buzz fix, see SwitchMarginMeters).
         if (nearest != null && Highlighted != null && !ReferenceEquals(nearest, Highlighted)
-            && currentDist <= reach && nearestDist > currentDist - SwitchMarginMeters * _hand.WorldScale)
+            && currentEligible && currentDist <= reach
+            && nearestDist > currentDist - SwitchMarginMeters * _hand.WorldScale)
         {
+            _highlightDropAt = -1f;
+            _highlightGrabbable = true;
             return;
         }
 
-        if (!ReferenceEquals(nearest, Highlighted))
+        if (ReferenceEquals(nearest, Highlighted))
         {
-            SetHighlighted(nearest);
-            if (nearest != null)
-                _hand.SendHaptic(HapticPreset.HoverTick);
+            // The election still names what is already lit (or both are null) — the normal case.
+            _highlightDropAt = -1f;
+            _highlightGrabbable = Highlighted != null;
+            return;
         }
+
+        if (Highlighted != null && nearest == null)
+        {
+            // THE EXIT. Nothing is elected; hold the glow while the target is still inside the exit
+            // ring and the dwell has not run out, but never offer the grab while doing so.
+            _highlightGrabbable = false;
+            _highlightBlocker = currentBlocker;
+            if (currentMeasured && currentDist <= exitReach)
+            {
+                if (_highlightDropAt < 0f)
+                    _highlightDropAt = Time.unscaledTime;
+                if (Time.unscaledTime - _highlightDropAt < ExitDwellSeconds)
+                    return;
+                LogHighlightDrop(DescribeGrabbable(Highlighted),
+                    $"{currentBlocker}, and it stayed that way for the whole "
+                    + $"{ExitDwellSeconds:0.00} s hover tail (it is {currentDist / scale * 1000f:F0} mm "
+                    + $"real from the palm, inside the {ReachMeters * ExitReachFactor * 1000f:F0} mm "
+                    + "exit ring, so DISTANCE is not what ended this hover)");
+            }
+            else
+            {
+                LogHighlightDrop(DescribeGrabbable(Highlighted),
+                    currentMeasured
+                        ? $"{currentBlocker}; at {currentDist / scale * 1000f:F0} mm real it is also "
+                          + $"outside the {ReachMeters * ExitReachFactor * 1000f:F0} mm exit ring, so "
+                          + "the hover ends immediately"
+                        : $"{currentBlocker} — nothing left to measure, so the hover ends immediately");
+            }
+            SetHighlighted(null);
+            return;
+        }
+
+        // A different target takes the highlight outright (or the first one arrives).
+        SetHighlighted(nearest);
+        if (nearest != null)
+            _hand.SendHaptic(HapticPreset.HoverTick);
+    }
+
+    /// <summary>
+    /// NAME THE BLOCKER, not the number: one line per hover that actually ENDED, saying which gate
+    /// ended it. Throttled to one per second per hand and carrying the count it swallowed, so a
+    /// hover that is still flapping reads as a flap instead of as a single tidy event.
+    ///
+    /// <para>Three hardware rounds were spent on an invisible pre-grab glow against a log whose
+    /// only exit evidence was the words "pre-grab highlight CLEARED (SpittingDrakeID)". That line
+    /// cannot separate "the hand left the figure" from "the election named nobody for two frames",
+    /// and the two want opposite fixes. This one names it.</para>
+    /// </summary>
+    private void LogHighlightDrop(string label, string reason)
+    {
+        _dropsSinceLastLog++;
+        if (Time.unscaledTime < _nextDropLogAt)
+            return;
+        _nextDropLogAt = Time.unscaledTime + 1f;
+        int swallowed = _dropsSinceLastLog - 1;
+        _dropsSinceLastLog = 0;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        Core.VRLog.Note("Interact",
+            $"{_hand.Side} hover ENDED on '{label}' — {reason}. "
+            + $"Hover hysteresis: enter {ReachMeters * 1000f:F0} mm, exit "
+            + $"{ReachMeters * ExitReachFactor * 1000f:F0} mm, tail {ExitDwellSeconds:0.00} s"
+            + (swallowed > 0
+                ? $". {swallowed} further hover end(s) in the last second are not printed — a count "
+                  + "above zero here means the hover is still flapping and the tail is too short."
+                : "."));
     }
 
     private void SetHighlighted(IGrabbable? target)
     {
         if (ReferenceEquals(target, Highlighted))
             return;
+
+        // Any real change of candidate restarts the hysteresis: a fresh highlight is grabbable by
+        // definition (it was just elected), and a cleared one has no tail to serve.
+        _highlightDropAt = -1f;
+        _highlightGrabbable = target != null;
 
         if (Highlighted is IGrabHighlight oldHighlight)
             oldHighlight.OnGrabHighlight(_hand, false);

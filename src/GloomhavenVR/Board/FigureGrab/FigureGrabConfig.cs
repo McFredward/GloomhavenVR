@@ -212,7 +212,7 @@ internal static class FigureGrabConfig
     public static ConfigEntry<bool> HeldFigureInfo = null!;
 
     /// <summary>May chests, gold piles, traps and obstacles be picked up like a figure?
-    /// See <c>FigureGrabDriver.AdoptProps</c>.</summary>
+    /// See <c>Board.FigureGrab.PropGrab</c> (the m_ClientObjects pass it replaced was retired in ModBuild 338).</summary>
     public static ConfigEntry<bool> GrabProps = null!;
 
     /// <summary>True unless the player switched prop pickup off; true before the config is

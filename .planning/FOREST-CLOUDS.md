@@ -149,7 +149,7 @@ program was read through the real rasteriser, over the **whole** drift cycle:
 | worst single pixel on the disc | α **0.0534** (t = 42 s) → **94.66 %** transmitted | ≤ 0.147 → ≥ 85.3 % |
 | worst disc **mean** | α **0.0196** → **98.04 %** of its clear brightness | — |
 
-![moon transmittance across one full drift cycle](forest-clouds/cloud_moon_occlusion.png)
+![moon transmittance across one full drift cycle](debug/renders/forest-clouds/cloud_moon_occlusion.png)
 
 Table: `render/clouds/cloud_moon_occlusion.tsv`, 240 rows.
 
@@ -567,8 +567,8 @@ And through the real rasteriser (`CloudsPreview.RenderAll`, the same instrument 
 
 The **veil the player actually looks at is six times more opaque and covers two thirds more sky.**
 
-![the clearing's canopy tear, clouds off](forest-clouds/cloud_before_canopy.png)
-![the clearing's canopy tear, clouds on](forest-clouds/cloud_after_canopy.png)
+![the clearing's canopy tear, clouds off](debug/renders/forest-clouds/cloud_before_canopy.png)
+![the clearing's canopy tear, clouds on](debug/renders/forest-clouds/cloud_after_canopy.png)
 
 That pair is the answer to the complaint: same camera, same clock, one node toggled, at the pose he
 plays from. Before, the tear shows a moon and nothing else; after, there are lit streaks across it.
@@ -597,7 +597,7 @@ still leaves the moon 75 % transmitted").
 | measured worst single pixel on the disc | 94.66 % | **83.39 %** |
 | measured worst disc **mean** | 98.04 % | **90.24 %** |
 
-![moon transmittance across one full drift cycle](forest-clouds/cloud_moon_occlusion.png)
+![moon transmittance across one full drift cycle](debug/renders/forest-clouds/cloud_moon_occlusion.png)
 
 §3's own honest note said "a dimming of 5 % is about at the edge of visible. If the user comes back
 wanting to actually *see* a wisp cross the moon…". He came back. A wisp now takes the moon down by
