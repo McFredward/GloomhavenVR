@@ -82,6 +82,21 @@ internal static class PropGrab
     private static object? _lastState;
     private static bool _loggedRegistration;
 
+    /// <summary>How many props the last scan accepted by IMPORT TYPE and then refused as
+    /// unliftable (<see cref="PropLift"/>). Read by the <c>[Props]</c> census, so one line says
+    /// whether the new gate is doing anything at all on this board.</summary>
+    private static int _refusedThisScan;
+
+    /// <summary>Refusal lines this scenario. Two: the hardware question is "does the pit stop
+    /// offering itself", which the first line answers completely, and a board can hold several
+    /// pits — a line per pit per ten-second sweep would drown the log.</summary>
+    private const int RefusalLogBudget = 2;
+
+    private static int _refusalLogsLeft = RefusalLogBudget;
+
+    /// <summary>How many liftable-by-import-type props the last scan refused as unliftable.</summary>
+    internal static int Refused => _refusedThisScan;
+
     /// <summary>How many props are currently registered as grabbable — read by the
     /// <c>[Props]</c> census so one line says whether discovery actually landed.</summary>
     internal static int Registered => Registry.Count;
@@ -214,13 +229,44 @@ internal static class PropGrab
         // scenario state no longer lists.
         bool resolve = countChanged || _settleScansLeft > 0;
 
-        // PHASE 1 — membership. Who does the scenario state say is liftable, right now.
+        // PHASE 1 — membership. Who does the scenario state say a hand may lift, right now.
+        //
+        // ONE GATE, and it is PropLift.MayBeLifted. Membership is where "erst gar nicht
+        // aufnehmbar" has to be decided, because a prop that never enters this registry never
+        // gets a GrabbableProp, and the hover glow, the pick collider, the home ghost, the info
+        // panel and the grab itself all hang off that object and off nothing else. Refusing
+        // later — in CanGrab, say — would leave the glow promising a pickup that cannot happen,
+        // which is the half of the report that is not about the grab.
         Seen.Clear();
+        _refusedThisScan = 0;
         for (int i = 0; i < props.Count; i++)
         {
             CObjectProp prop = props[i];
-            if (prop != null && FigureGrabDriver.IsLiftableProp(prop))
+            if (prop == null)
+                continue;
+            if (PropLift.MayBeLifted(prop, out string why))
+            {
                 Seen.Add(prop);
+                continue;
+            }
+            // Only count the ones the IMPORT-TYPE whitelist already accepted: everything else
+            // (doors, pressure plates, terrain) was never a candidate and is not news.
+            if (!FigureGrabDriver.IsLiftableProp(prop))
+                continue;
+            _refusedThisScan++;
+            if (_refusalLogsLeft <= 0)
+                continue;
+            _refusalLogsLeft--;
+            // HW-VERIFY: this line is the ONLY place the shipped log says WHICH term refused a prop —
+            // the game's authored OverrideDisallowDestroyAndMove flag, or the solid-obstacle family
+            // test. It must stay at a tier the DEFAULT log level prints (Note/Alert/Error).
+            VRLog.Note("FigureGrab",
+                $"[Props] NOT LIFTABLE: '{prop.PrefabName}' {prop.ObjectType} — {why}. It is not "
+                + "registered as grabbable at all, so it gets no hover glow, no pick collider, no "
+                + "ghost and no info panel; the hand passes straight over it. (User, ModBuild 350: "
+                + "\"Bitte exkludiere solche Obstacles die man nicht zerstören kann bei dem Greifen "
+                + "wie zB die 'DarkPitObstacles' diese soll erst garnicht aufnehmbar sein.\") "
+                + $"({_refusalLogsLeft} more refusal lines this scenario.)");
         }
 
         // PHASE 2 — DROP THE STALE, and it runs BEFORE the add on purpose. A state sync can hand
@@ -341,6 +387,8 @@ internal static class PropGrab
         _idleScansLeft = IdleSweepScans;
         _nextScan = 0f;
         _loggedRegistration = false;
+        _refusedThisScan = 0;
+        _refusalLogsLeft = RefusalLogBudget;
         GrabbableProp.ResetLogBudgets();
     }
 
@@ -349,6 +397,7 @@ internal static class PropGrab
     internal static void Clear()
     {
         ReleaseAll();
+        PropLift.ClearCache();
         _lastState = null;
     }
 }

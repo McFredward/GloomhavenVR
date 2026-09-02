@@ -39,11 +39,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   <see cref="PropGhosts"/>, again a plain <c>GameObject</c> in;</item>
 ///   <item>the PICK VOLUME dial — <c>FigureGrabConfig.PickRadiusRealMeters</c> and its exit
 ///   hysteresis, so a prop lights up at exactly the reach a mini does;</item>
-///   <item>the HELD POSE — the FIGURE's whole pose pipeline, not just its numbers:
+///   <item>the HELD POSE — the FIGURE's whole pose PIPELINE, driven by the MAP ITEM's OWN dials:
 ///   <c>CaptureUprightBase</c> at the grab, then
 ///   <c>_uprightBase * (HeldUpright ? HeldUprightRotation(side) : HeldPalmRotation())</c> as a
 ///   FIXED CONSTANT anchor-local rotation, the grab-time anchor-local SIZE LATCH, and a per-frame
-///   idempotent re-assert. See <see cref="ApplyHeldPose"/>;</item>
+///   idempotent re-assert. The MACHINERY is the figure's, line for line; the NUMBERS come from
+///   <see cref="PropHeldPose"/> since ModBuild 350 ("ich will genau das selbe nun auch für
+///   Map-Items … separat einstellen können"). See <see cref="ApplyHeldPose"/>;</item>
 ///   <item>the RELEASE GLIDE — the same 0.28 s cubic ease-out, so putting a chest down looks like
 ///   putting a mini down;</item>
 ///   <item>the PICKUP INFO PANEL — the figure docks the game's own stat window on grab and
@@ -69,7 +71,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   step. The fix is <see cref="HeldProps.OwnsRendererOf"/> — the question the wall systems have
 ///   to ask — plus one term in that guard. See that method for the full account.</item>
 ///   <item>(b) ORIENTATION. 338 wrote <c>HeldUprightRotation(side)</c> alone and skipped the
-///   figure's <c>_uprightBase</c>, so with [FigureGrab] HeldUprightAtGrab on a prop was the one
+///   figure's <c>_uprightBase</c>, so with the upright-at-grab option on a prop was the one
 ///   thing in the hand that did NOT start upright. Now the figure's exact composition.</item>
 ///   <item>(c) RETURN ANIMATION. The glide was already here in 338 and was correct; it was
 ///   invisible because (a) hid the thing gliding. Unchanged mechanism, now with the release log
@@ -266,7 +268,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         float admit = FigureGrabConfig.PickRadiusRealMeters * scale
                       * (_inReach[side] ? FigureGrabDriver.PickExitFactor : 1f);
-        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(FigureGrabConfig.HeldOffsetFor(hand.Side));
+        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(PropHeldPose.HeldOffsetFor(hand.Side));
         bool inside = Vector3.Distance(pinch, _collider.ClosestPoint(pinch)) <= admit;
         _inReach[side] = inside;
         return inside;
@@ -394,10 +396,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + "ObjectCacheService, not through an actor: it has none). Home pose captured and a ghost "
             + "left at the cell; colliders parked on Ignore Raycast for the hold. "
             + $"localRot={Fmt(lr)} (fixed constant relative to the hand anchor; grab-angle-independent, "
-            + $"rides the hand) from pitch={FigureGrabConfig.ActiveHeldTilt:0.#}° "
-            + $"yaw={FigureGrabConfig.HeldFaceYawFor(hand.Side):0.#}° "
-            + $"roll={FigureGrabConfig.HeldRollFor(hand.Side):0.#}° "
-            + $"upright={FigureGrabConfig.HeldUpright.Value} atGrab={FigureGrabConfig.HeldUprightAtGrab.Value}; "
+            + $"rides the hand) from [FigureGrab] PropHeldRotPitch={PropHeldPose.Pitch:0.#}° "
+            + $"PropHeldRotYaw={PropHeldPose.YawFor(hand.Side):0.#}° "
+            + $"PropHeldRotRoll={PropHeldPose.RollFor(hand.Side):0.#}° "
+            + $"PropHeldUpright={PropHeldPose.HeldUpright} PropHeldUprightAtGrab={PropHeldPose.HeldUprightAtGrab} "
+            + "(the MAP-ITEM dials, separate from the figures'); "
             + $"prop axes in anchor space: up=({up.x:0.00},{up.y:0.00},{up.z:0.00}) "
             + $"fwd=({fwd.x:0.00},{fwd.y:0.00},{fwd.z:0.00}) — anchor +Y is the palm normal, so up.y=+1 is "
             + "'standing straight out of the palm', which for a prop means its own model +Y (the axis it "
@@ -436,7 +439,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// </summary>
     private static Quaternion CaptureUprightBase(Transform anchor)
     {
-        if (!FigureGrabConfig.HeldUprightAtGrab.Value)
+        if (!PropHeldPose.HeldUprightAtGrab)
             return Quaternion.identity;
 
         Vector3 flat = Vector3.ProjectOnPlane(anchor.forward, Vector3.up);
@@ -450,14 +453,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     }
 
     /// <summary>
-    /// (Re-)apply the held pose from <see cref="FigureGrabConfig"/> — offset, rotation and the
+    /// (Re-)apply the held pose from <see cref="PropHeldPose"/> — offset, rotation and the
     /// latched scale — off the bases captured at the grab. IDEMPOTENT, which is what lets it be
-    /// both the grab-time write and the per-frame re-assert.
+    /// both the grab-time write and the per-frame re-assert (and that per-frame re-assert is also
+    /// what makes the eight [FigureGrab] PropHeld* dials live-tunable without a hook of their own).
     ///
     /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c>, line for line</b> (user, defect (b):
     /// "Es soll sich so verhalten wie die Figuren auch - nutze den selben Code hier"). ModBuild 338
     /// wrote the pinch offset and <c>HeldUprightRotation(side)</c> but dropped
-    /// <see cref="_uprightBase"/>, so with [FigureGrab] HeldUprightAtGrab ON — which is what the
+    /// <see cref="_uprightBase"/>, so with [FigureGrab] PropHeldUprightAtGrab ON — which is what the
     /// figure path ships with — a prop was the only thing in the hand that did not start upright:
     /// it inherited the palm's tilt at the instant of the grab and kept it for the whole hold.
     /// Composed the same way for the same reason: the tuned angles stay OFFSETS either way, from
@@ -477,13 +481,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
 
         // Pinch position: the grab-anchor-local offset toward the thumb-index fingertips, mirrored
         // across the hand frame's left-right axis for the left hand.
-        t.localPosition = FigureGrabConfig.HeldOffsetFor(side);
+        t.localPosition = PropHeldPose.HeldOffsetFor(side);
 
         // A FIXED CONSTANT anchor-LOCAL rotation (grab-angle-independent) that rides the hand —
         // never a world rotation. See CaptureUprightBase for what "upright" means on a prop.
-        t.localRotation = _uprightBase * (FigureGrabConfig.HeldUpright.Value
-            ? FigureGrabConfig.HeldUprightRotation(side)
-            : FigureGrabConfig.HeldPalmRotation());
+        t.localRotation = _uprightBase * (PropHeldPose.HeldUpright
+            ? PropHeldPose.HeldUprightRotation(side)
+            : PropHeldPose.HeldPalmRotation());
 
         // SIZE — the value latched at the grab, re-asserted and never re-derived.
         t.localScale = _heldLocalScale;

@@ -687,6 +687,16 @@ internal static class FigureGrabConfig
                 $"hands like the yaw. {per}");
         }
 
+        // THE MAP-ITEM HELD POSE — the same eight effective dials again, on their own keys, so a
+        // chest can be placed in the hand independently of a miniature (user, ModBuild 350: "ich
+        // will genau das selbe nun auch für Map-Items … separat einstellen können"). Bound into
+        // THIS file and THIS section on purpose: one cfg drop, and the Prop* rows sort directly
+        // beside the figure rows they were copied from. It needs no SettingChanged hook — a held
+        // prop's pose is re-asserted every frame by GrabbableProp.TickHeld, which is what makes it
+        // live-tunable. See PropHeldPose for the one-for-one mapping and for why the mirror is of
+        // the EFFECTIVE dials rather than of the per-hand-style keys behind them.
+        PropHeldPose.Bind(config);
+
         // Live-tune hook: any held-pose tunable change re-poses the currently-held mini in-hand
         // (the in-headset debug-menu steppers), so tuning is interactive. BepInEx still persists
         // every write to dev.gloomhavenvr.figuregrab.cfg. The legacy globals keep their hooks

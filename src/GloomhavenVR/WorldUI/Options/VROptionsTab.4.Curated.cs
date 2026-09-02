@@ -903,6 +903,64 @@ internal static partial class VROptionsTab
                 new()
                 {
                     // ==================================================================
+                    //  MAP-ITEMS IN DER HAND  (ModBuild 350 user request)
+                    // ==================================================================
+                    // USER REPORT, verbatim: "Füge eigene offsets hinzu an welche Position die
+                    // Items zu sehen sein sollen in der Hand wenn man sie greift. Das selbe gibt
+                    // es schon für Figuren, ich will genau das selbe nun auch für Map-Items
+                    // (zerstörbare obstacles, Truhen, Goldhaufen,...) separat einstellen können."
+                    //
+                    // WHY ALL EIGHT ROWS ARE HERE AND NOT ONE OF THEM ONE LEVEL DEEPER. ModBuild
+                    // 348 exists because he asked for a dial, it was built, and he could not find
+                    // it — and scripts/check-options-coverage.py now fails a key that joins a
+                    // curated family without joining its heading. These eight ARE the family:
+                    // every [FigureGrab] key whose leading word is "Prop" is on this heading, so
+                    // there is no half of it left in the Erweitert index for him to hunt through.
+                    //
+                    // WHY THIS TAB AND THIS POSITION. It is the play surface these objects sit on,
+                    // and the heading directly above is "Figuren" — the dials he is copying the
+                    // behaviour of. Someone asking "how does a chest sit in my hand" opens the tab
+                    // about the board and reads down one heading.
+                    //
+                    // THE CAPTIONS ARE WRITTEN HERE, not as Loc keys, for the reason the health-bar
+                    // section below already gives: Core/Loc/Loc.cs is outside this lane's paths, and
+                    // an empty caption key would fall through to the catalog's camel-hump spacing
+                    // ("Prop Held Rot Pitch", in German too) on the eight rows this section exists
+                    // to make findable. Moving them to Loc keys later is a pure move.
+                    //
+                    // NO HINT KEYS, deliberately (same as BarHeightOffset below): an empty caption
+                    // key makes HintKey "h_", which misses, and the tooltip falls through to each
+                    // entry's own bound description — which already says the axis, the units, that
+                    // it is mirrored between the hands, and that the figures keep their own key.
+                    //
+                    // NO VALUE IS TUNED HERE. Every default is the figure value the mod already
+                    // ships (Defaults.Board.cs), so this section changes what is FINDABLE and
+                    // nothing about what is on screen.
+                    En = "Map items in your hand",
+                    De = "Map-Items in der Hand",
+                    Entries = new CuratedEntry[]
+                    {
+                        new("FigureGrab", "PropHeldOffsetSide", "",
+                            "Map item: sideways (m)", "Map-Item: seitlich (m)"),
+                        new("FigureGrab", "PropHeldOffsetUp", "",
+                            "Map item: height (m)", "Map-Item: Höhe (m)"),
+                        new("FigureGrab", "PropHeldOffsetForward", "",
+                            "Map item: forward (m)", "Map-Item: vor/zurück (m)"),
+                        new("FigureGrab", "PropHeldRotPitch", "",
+                            "Map item: pitch (°)", "Map-Item: Neigung (°)"),
+                        new("FigureGrab", "PropHeldRotYaw", "",
+                            "Map item: yaw (°)", "Map-Item: Drehung (°)"),
+                        new("FigureGrab", "PropHeldRotRoll", "",
+                            "Map item: roll (°)", "Map-Item: Rollen (°)"),
+                        new("FigureGrab", "PropHeldUpright", "",
+                            "Map item: hold upright", "Map-Item: aufrecht halten"),
+                        new("FigureGrab", "PropHeldUprightAtGrab", "",
+                            "Map item: upright on grab", "Map-Item: aufrecht greifen"),
+                    },
+                },
+                new()
+                {
+                    // ==================================================================
                     //  LEBENSBALKEN — MOVED HERE FROM "Tafeln", AND COMPLETED (2026-09-02)
                     // ==================================================================
                     // USER REPORT, verbatim: "Weiterhin finde ich den offset für die healthbar

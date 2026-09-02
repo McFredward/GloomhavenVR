@@ -3167,6 +3167,34 @@ internal static partial class Loc
             ["FigureGrab/*HeldRotRoll"] =
                 "ROLLUNG (Grad): dreht die Figur um IHRE EIGENE Vorwärtsachse. Zwischen den Händen "
                 + "GESPIEGELT wie die Gierung. PRO HANDSTIL.",
+            ["FigureGrab/PropHeldOffsetSide"] =
+                "Seitliche Position (Greifanker-X) eines gehaltenen MAP-ITEMS, Richtung Daumen-Zeigefinger-"
+                + "Griff. Zwischen den Händen GESPIEGELT. Gilt NUR für Map-Items (Truhen, Goldhaufen, "
+                + "Questgegenstände, Ressourcen, Fallen, zerstörbare Hindernisse), nie für Figuren.",
+            ["FigureGrab/PropHeldOffsetUp"] =
+                "Position aus der Handfläche heraus (Greifanker-Y) eines gehaltenen MAP-ITEMS. Gilt NUR für "
+                + "Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldOffsetForward"] =
+                "Position Richtung Fingerspitzen (Greifanker-Z) eines gehaltenen MAP-ITEMS. Gilt NUR für "
+                + "Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldRotPitch"] =
+                "NEIGUNG (Grad): kippt ein gehaltenes MAP-ITEM vor und zurück, um die Achse quer durch "
+                + "deine Handfläche. Gilt NUR für Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldRotYaw"] =
+                "GIERUNG (Grad): dreht ein gehaltenes MAP-ITEM um SEINE EIGENE Hochachse — eine Drehung, "
+                + "nie ein Kippen. Wird vor Neigung und Rollung angewandt. Zwischen den Händen GESPIEGELT. "
+                + "Gilt NUR für Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldRotRoll"] =
+                "ROLLUNG (Grad): dreht ein gehaltenes MAP-ITEM um SEINE EIGENE Vorwärtsachse. Zwischen den "
+                + "Händen GESPIEGELT wie die Gierung. Gilt NUR für Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldUpright"] =
+                "Hält ein MAP-ITEM AUFRECHT (so wie es auf seinem Hex steht), im Pinch-Griff und dir "
+                + "zugewandt. False = flach auf der Handfläche; diese Haltung nimmt nur die Neigung und "
+                + "ignoriert Gierung und Rollung. Gilt NUR für Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldUprightAtGrab"] =
+                "Stellt ein MAP-ITEM im Moment des Greifens richtig herum IN DIE WELT, egal aus welchem "
+                + "Winkel du gegriffen hast. Wird EINMAL erfasst; danach reitet es normal auf der Hand. "
+                + "Gilt NUR für Map-Items, nie für Figuren.",
             ["FigureGrab/*HeldRollDegrees"] =
                 "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
                 + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "

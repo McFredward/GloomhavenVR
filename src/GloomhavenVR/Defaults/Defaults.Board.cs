@@ -47,6 +47,22 @@ internal static partial class Defaults
     internal const float ArcaneHeldRollDegrees = 0f;        // => [FigureGrab] ArcaneHeldRollDegrees  (legacy: read once as the seed for its successor)
     internal static readonly float[] HeldRollDegrees_ByStyle = { GloveHeldRollDegrees, PlateHeldRollDegrees, ArcaneHeldRollDegrees };
 
+    // ---- Board/FigureGrab/PropHeldPose.cs — the MAP-ITEM held pose ------------------
+    // Eight keys mirroring the figures' eight EFFECTIVE held-pose dials one for one, so a chest
+    // can be placed in the hand independently of a miniature (user, ModBuild 350: "ich will genau
+    // das selbe nun auch für Map-Items ... separat einstellen können"). Every value here IS the
+    // figure value this mod ships, taken from the entries above and from the shipped seed chain
+    // they feed ({Style}HeldRotPitch <- {Style}HeldTiltDegrees <- HeldTiltDegrees = 17, etc.), so
+    // the first build with these keys holds a prop exactly where ModBuild 349 held it.
+    internal const float PropHeldOffsetSide = 0.03f;        // => [FigureGrab] PropHeldOffsetSide
+    internal const float PropHeldOffsetUp = 0.01f;          // => [FigureGrab] PropHeldOffsetUp
+    internal const float PropHeldOffsetForward = 0.05f;     // => [FigureGrab] PropHeldOffsetForward
+    internal const float PropHeldRotPitch = 17f;            // => [FigureGrab] PropHeldRotPitch
+    internal const float PropHeldRotYaw = -133f;            // => [FigureGrab] PropHeldRotYaw
+    internal const float PropHeldRotRoll = 0f;              // => [FigureGrab] PropHeldRotRoll
+    internal const bool PropHeldUpright = true;             // => [FigureGrab] PropHeldUpright
+    internal const bool PropHeldUprightAtGrab = true;       // => [FigureGrab] PropHeldUprightAtGrab
+
     // ---- Board/HexHighlightFix.cs --------------------------------------------------
     // [HexHighlight] SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame /
     // KillCrosshair had their lines here. All five were UNBOUND by the 2026-08-22 settings audit

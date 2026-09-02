@@ -663,6 +663,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private readonly List<string> _censusProps = new(PropCensusNamedSamples);
 
+    /// <summary>The props the destructibility gate REFUSED, named separately from the sample list
+    /// above so a capped list of accepted props can never hide them.</summary>
+    private readonly List<string> _censusUnliftable = new(PropCensusNamedSamples);
+
     /// <summary>
     /// One INFO-tier line naming what prop discovery found and what it threw away. Deliberately
     /// <c>VRLog.Note</c> and not <c>VRLog.Info</c>: in this project Info is the DEBUG tier and is
@@ -725,8 +729,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // --- registry 2: the props the scenario state actually holds, actor or not. This is the
         // control: it is the population registry 1 is supposed to be a view of, and the diagnosis
         // says it is not.
-        int propTotal = 0, propLiftable = 0, propVisualFound = 0;
+        int propTotal = 0, propLiftable = 0, propVisualFound = 0, propRefused = 0;
         _censusProps.Clear();
+        _censusUnliftable.Clear();
         List<CObjectProp>? props = ScenarioManager.CurrentScenarioState?.Props;
         if (props != null)
         {
@@ -737,6 +742,27 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 if (!IsLiftableProp(prop))
                     continue;
                 propLiftable++;
+
+                // THE UNLIFTABLE GET THEIR OWN NAMED LIST, and that is deliberate. The sample list
+                // below is capped, takes the first entries it meets and is therefore blind to a
+                // prop that sorts fifth -- "a truncated list is not absence" is a lesson this
+                // project has already paid for. A dark pit on a board of fourteen rocks would fall
+                // straight out of a single capped list, so the refusals are collected separately
+                // and counted in full.
+                bool mayLift = PropLift.MayBeLifted(prop, out string liftVerdict);
+                if (!mayLift)
+                {
+                    propRefused++;
+                    if (_censusUnliftable.Count < PropCensusNamedSamples)
+                    {
+                        _censusUnliftable.Add($"'{prop.PrefabName}' {prop.ObjectType} "
+                            + $"hasHealth={(prop.PropHealthDetails != null && prop.PropHealthDetails.HasHealth ? "yes" : "NO")} "
+                            + $"disallowMoveOrDestroy={(prop.OverrideDisallowDestroyAndMove ? "YES" : "no")} "
+                            + $"-> {liftVerdict}");
+                    }
+                    continue;
+                }
+
                 if (_censusProps.Count >= PropCensusNamedSamples)
                     continue;
                 // The visual lookup is done for the NAMED SAMPLES ONLY: GetPropObject logs a
@@ -751,6 +777,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                     + $" visual={(visual != null ? "'" + visual.name + "'" : "NOT IN ObjectCacheService")}"
                     + $" collider={(visual != null && visual.GetComponentInChildren<Collider>() != null ? "yes" : "no")}"
                     + $" actorBehaviour={(visual != null && ActorBehaviour.GetActorBehaviour(visual) != null ? "yes" : "NO")}"
+                    + $" hasHealth={(prop.PropHealthDetails != null && prop.PropHealthDetails.HasHealth ? "yes" : "NO")}"
+                    + $" disallowMoveOrDestroy={(prop.OverrideDisallowDestroyAndMove ? "YES" : "no")}"
+                    + $" MAYLIFT={liftVerdict}"
                     + $" GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}");
             }
         }
@@ -758,13 +787,16 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         string line = $"[Props] census: Choreographer.m_ClientObjects held {entries} entr(y/ies), "
             + $"{withBehaviour} with an ActorBehaviour, {liftable} liftable by import type, "
             + $"{drawing} of those drawing anything, {adopted} adopted. "
-            + $"ScenarioState.Props held {propTotal} prop(s), {propLiftable} liftable "
+            + $"ScenarioState.Props held {propTotal} prop(s), {propLiftable} liftable by import "
+            + $"type, {propRefused} of those REFUSED as unliftable "
             + $"({propVisualFound} of the {_censusProps.Count} sampled resolved to a GameObject). "
             + $"GrabProps={(FigureGrabConfig.GrabPropsEnabled ? "on" : "OFF")}. "
             + $"PropGrab registry: {PropGrab.Registered} prop(s) grabbable, {PropGrab.Pending} still "
             + $"unresolved; {HeldProps.Count} in hand, {PropGhosts.Count} home ghost(s). "
             + $"Refused from m_ClientObjects: {(_censusRejects.Count == 0 ? "none" : string.Join(" | ", _censusRejects))}. "
             + $"Liftable props in the scenario state: {(_censusProps.Count == 0 ? "none" : string.Join(" | ", _censusProps))}. "
+            + $"REFUSED as unliftable ({propRefused} in all, first {_censusUnliftable.Count} named): "
+            + $"{(_censusUnliftable.Count == 0 ? "none" : string.Join(" | ", _censusUnliftable))}. "
             + "READ IT LIKE THIS. The FIRST sentence is the retired path and its numbers are "
             + "EXPECTED TO BE ZERO: only a prop that HAS AN ACTOR ever appears in that list, a "
             + "prop only gets a CObjectActor when it has HEALTH (CMap.cs:502), and that actor is "
@@ -774,7 +806,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + "well below liftable with unresolved > 0 means ObjectCacheService has not produced "
             + "those visuals (watch it settle over the first seconds); registered == 0 with "
             + "unresolved == 0 and liftable > 0 means discovery ran and rejected everything, which "
-            + "is a whitelist or collider question, not a registry one.";
+            + "is a whitelist or collider question, not a registry one. The REFUSED sentence is the "
+            + "ModBuild 350 destructibility gate (PropLift): every prop it names is one the hand "
+            + "passes straight over, with no glow, no ghost and no panel, and the arrow gives the "
+            + "TERM that refused it - the game's own OverrideDisallowDestroyAndMove flag, or the "
+            + "solid-obstacle family test. hasHealth is printed on every line because it is the "
+            + "discriminator this gate deliberately does NOT use: the ModBuild 350 board had zero "
+            + "props with health, rocks included.";
         if (line == _lastPropCensus)
             return;
         _lastPropCensus = line;

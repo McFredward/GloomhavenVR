@@ -331,6 +331,17 @@ internal static partial class Loc
             ["FigureGrab/*HeldRotPitch"] = Pair("Figure: pitch (°)", "Figur: Neigung (°)"),
             ["FigureGrab/*HeldRotYaw"] = Pair("Figure: yaw (°)", "Figur: Drehung (°)"),
             ["FigureGrab/*HeldRotRoll"] = Pair("Figure: roll (°)", "Figur: Rollen (°)"),
+            // ---- [FigureGrab] Prop* — the MAP-ITEM held pose (ModBuild 355). Separate from the
+            // figures' dials by the user's own request: "Das selbe gibt es schon fuer Figuren, ich
+            // will genau das selbe nun auch fuer Map-Items ... seperat einstellen koennen."
+            ["FigureGrab/PropHeldOffsetSide"] = Pair("Map item: sideways (m)", "Map-Item: seitlich (m)"),
+            ["FigureGrab/PropHeldOffsetUp"] = Pair("Map item: height (m)", "Map-Item: Höhe (m)"),
+            ["FigureGrab/PropHeldOffsetForward"] = Pair("Map item: forward (m)", "Map-Item: vor/zurück (m)"),
+            ["FigureGrab/PropHeldRotPitch"] = Pair("Map item: pitch (°)", "Map-Item: Neigung (°)"),
+            ["FigureGrab/PropHeldRotYaw"] = Pair("Map item: yaw (°)", "Map-Item: Drehung (°)"),
+            ["FigureGrab/PropHeldRotRoll"] = Pair("Map item: roll (°)", "Map-Item: Rollen (°)"),
+            ["FigureGrab/PropHeldUpright"] = Pair("Map item: hold upright", "Map-Item: aufrecht halten"),
+            ["FigureGrab/PropHeldUprightAtGrab"] = Pair("Map item: upright on grab", "Map-Item: aufrecht greifen"),
 
             // ---- [Cards] — fan, held cards, control board -----------------------------------
             ["Cards/DevFakeHand"] = Pair("Debug: test cards (n)", "Debug: Testkarten (n)"),
