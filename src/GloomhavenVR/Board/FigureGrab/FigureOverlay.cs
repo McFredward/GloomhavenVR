@@ -52,6 +52,32 @@ internal static class FigureOverlay
         }
         if (m.HasProperty("_ZTest")) m.SetInt("_ZTest", (int)CompareFunction.LessEqual); // 4 — wall-occluded
         if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 0);
+
+        // ModBuild 339 — TWO TERMS AN OVERLAY MUST NOT INHERIT FROM THE MESH IT COPIES.
+        //
+        // 1. THE SOURCE MESH'S VERTEX COLOURS. The Overlay fragment is `_MainTex * _Color *
+        //    vertexColor`, which is correct for a widget whose mesh was authored FOR this shader
+        //    and wrong for an overlay, which re-draws somebody else's mesh. A character mesh that
+        //    bakes a mask into its COLOR stream (black rgb, or alpha 0) multiplies an additive glow
+        //    to zero and an alpha ghost to nothing — a clone that exists, is enabled, is on a drawn
+        //    layer, sits exactly on the figure and is reported visible by every camera, and paints
+        //    no pixels. That is the ModBuild 338 boss report word for word, whose own verdict was
+        //    "the defect is in what they look like (blend, tint, depth, or being inside the
+        //    figure)". This is the "tint" term, and it is the only one of the four that can also
+        //    explain the GHOST — which stands ALONE at the home cell with no figure in front of it,
+        //    so depth cannot be why that one is invisible.
+        // 2. THE DEPTH EQUALITY. The glow re-draws the same triangles the figure already drew, so
+        //    its ZTest LEqual is an equality between two DIFFERENT vertex programs' arithmetic. A
+        //    small negative polygon offset settles it toward the camera. It CANNOT pierce a wall
+        //    (a wall in front is many depth units nearer; this moves the fragment by about one),
+        //    which is the standing constraint on this material.
+        //
+        // BOTH ARE HasProperty-GUARDED, so a player still running the ModBuild 338 bundle silently
+        // gets the old behaviour instead of a pink material. Both shader properties default to the
+        // OLD behaviour, so no other user of GloomhavenVR/Overlay changes.
+        if (m.HasProperty("_VertexColor")) m.SetFloat("_VertexColor", 0f);
+        if (m.HasProperty("_OffsetFactor")) m.SetFloat("_OffsetFactor", -1f);
+        if (m.HasProperty("_OffsetUnits")) m.SetFloat("_OffsetUnits", -1f);
         m.renderQueue = (int)RenderQueue.Transparent;
         return m;
     }
@@ -88,6 +114,7 @@ internal static class FigureOverlay
                 clone.localBounds = smr.localBounds;
                 clone.quality = smr.quality;
                 clone.updateWhenOffscreen = smr.updateWhenOffscreen;
+                CopyBlendShapeWeights(smr, clone);
                 clone.sharedMaterials = FillMaterials(smr.sharedMesh.subMeshCount, overlayMat);
                 clone.shadowCastingMode = ShadowCastingMode.Off;
                 clone.receiveShadows = false;
@@ -222,8 +249,14 @@ internal static class FigureOverlay
                 // RECORD WHAT WAS KILLED AND WHY. HasVfxShader is a NAME match on the shader
                 // ("Distort"/"Particle"/"Fog"/"FX"), so a character whose BODY is drawn with such a
                 // shader loses its body to this branch and still returns a non-null ghost built out
-                // of whatever props remain — a ghost that "spawned" and cannot be seen. That is a
-                // hypothesis this list is here to confirm or kill, not an established cause.
+                // of whatever props remain — a ghost that "spawned" and cannot be seen.
+                //
+                // THAT HYPOTHESIS IS NOW DEAD, AND THIS LIST IS WHAT KILLED IT (ModBuild 338 log,
+                // ElderDrakeID): all 8 entries are ParticleSystemRenderers — BitsEffect, Fog,
+                // Initial (1), Cloud (2), twice over — and the body, 'MO_ElderDrake_MESH'
+                // (SkinnedMeshRenderer on 'Amp_Char_Shader'), is in the KEPT list, tinted, enabled,
+                // and is the ONE drawable clone in that ghost. The rule is not eating the boss.
+                // The list stays because it is the only thing that can say so.
                 if (vfxKilled.Count < 8)
                     vfxKilled.Add($"'{r.name}' ({r.GetType().Name}, shader "
                                   + $"'{FirstShaderName(r)}')");
@@ -234,8 +267,13 @@ internal static class FigureOverlay
             // NAME WHAT SURVIVED, with the shader it arrived on. "The ghost has 4 renderers" cannot
             // tell a ghost of a dragon from a ghost of the dart in its claw; "MO_Elder_Drake_body on
             // Amp_CharShader_Low, WP_Dummy on ..." can.
-            if (kept.Count < 8)
-                kept.Add($"'{r.name}' ({r.GetType().Name} on '{FirstShaderName(r)}')");
+            //
+            // ModBuild 339 adds the mesh's own properties (DescribeSource), because 338 proved the
+            // body survives and is still invisible — so the remaining term is what the copy LOOKS
+            // like, and the first thing to ask a mesh that renders nothing under an unlit
+            // `_MainTex * _Color * vertexColor` shader is whether it carries a COLOR stream at all.
+            if (kept.Count < 6)
+                kept.Add(DescribeSource(r) + $" on '{FirstShaderName(r)}'");
             if (ringTwin != null && (r.transform == ringTwin || r.transform.IsChildOf(ringTwin)))
             {
                 tint.Add(r);          // counts as visual content, but keeps the game's ring look
@@ -286,6 +324,93 @@ internal static class FigureOverlay
                  + (tint.Count > kept.Count ? $" (+{tint.Count - kept.Count} more not named)" : "")
                  + ".";
         return ghost;
+    }
+
+    /// <summary>
+    /// Copy every blend-shape weight from <paramref name="source"/> onto <paramref name="clone"/>
+    /// and return how many were non-zero.
+    ///
+    /// <para>WHY (ModBuild 339). A skinned clone shares the ORIGINAL's bones, so skinning puts its
+    /// vertices exactly where the figure's are — but blend-shape weights live on the RENDERER, not
+    /// on the bones, and a fresh <c>SkinnedMeshRenderer</c> starts every one of them at zero. A
+    /// figure whose idle drives a shape would therefore be overlaid by a copy of itself in a
+    /// DIFFERENT pose: sunk inside the body, where <c>ZTest LEqual</c> rejects it and the glow
+    /// vanishes without any of the other measurements noticing (the reported bounds come from
+    /// <c>localBounds</c>, which is copied, so the two boxes still "AGREE").</para>
+    ///
+    /// <para>This is a ONE-SHOT copy taken when the overlay is built. If a clip animates a shape
+    /// DURING the hover the clone will drift; the count returned is reported so the log says
+    /// whether this figure has any animated shape at all before anybody writes a per-frame sync.
+    /// </para>
+    /// </summary>
+    internal static int CopyBlendShapeWeights(SkinnedMeshRenderer source, SkinnedMeshRenderer clone)
+    {
+        Mesh? mesh = source.sharedMesh;
+        if (mesh == null)
+            return 0;
+        int shapes = mesh.blendShapeCount;
+        int nonZero = 0;
+        for (int i = 0; i < shapes; i++)
+        {
+            float w = source.GetBlendShapeWeight(i);
+            if (Mathf.Abs(w) > 1e-4f)
+                nonZero++;
+            clone.SetBlendShapeWeight(i, w);
+        }
+        return nonZero;
+    }
+
+    /// <summary>
+    /// NAME THE RENDERER AND THE THREE PROPERTIES OF ITS MESH THAT CAN MAKE AN OVERLAY OF IT
+    /// INVISIBLE OR WRONG (ModBuild 339).
+    ///
+    /// <para>The ModBuild 338 census could say "3 clone renderer(s) … shader GloomhavenVR/Overlay …
+    /// they AGREE" and still not say WHICH three, so the two amber strokes the player photographed
+    /// at the boss's snout could not be named from the log at all — the combined box is dominated
+    /// by the body and hides a 5 cm band entirely. It names, per source renderer: the object, the
+    /// renderer kind, sub-mesh count, vertex count, whether the mesh carries a COLOR stream (a
+    /// black or zero-alpha one multiplies this shader's output to nothing — see
+    /// <see cref="MakeOverlayMaterial"/>), the blend shapes and how many are non-zero, and its own
+    /// world box, which is what separates a dragon from a band hanging off it.</para>
+    /// </summary>
+    internal static string DescribeSource(Renderer r)
+    {
+        Mesh? mesh = r is SkinnedMeshRenderer s ? s.sharedMesh
+                   : r.TryGetComponent(out MeshFilter mf) ? mf.sharedMesh
+                   : null;
+        Bounds b = r.bounds;
+        var sb = new System.Text.StringBuilder(160);
+        sb.Append('\'').Append(r.name).Append("' (").Append(r.GetType().Name);
+        if (mesh == null)
+        {
+            sb.Append(", NO MESH");
+        }
+        else
+        {
+            sb.Append(", ").Append(mesh.subMeshCount).Append(" sub-mesh(es), ")
+              .Append(mesh.vertexCount).Append(" vert(s), ")
+              .Append(mesh.HasVertexAttribute(VertexAttribute.Color)
+                  ? "HAS a vertex-colour stream"
+                  : "no vertex-colour stream");
+            if (mesh.blendShapeCount > 0 && r is SkinnedMeshRenderer smr)
+            {
+                int nonZero = 0;
+                for (int i = 0; i < mesh.blendShapeCount; i++)
+                    if (Mathf.Abs(smr.GetBlendShapeWeight(i)) > 1e-4f)
+                        nonZero++;
+                sb.Append(", ").Append(mesh.blendShapeCount).Append(" blend shape(s), ")
+                  .Append(nonZero).Append(" non-zero");
+            }
+            else
+            {
+                sb.Append(", no blend shapes");
+            }
+        }
+        sb.Append(", box size (").Append(b.size.x.ToString("F2")).Append(", ")
+          .Append(b.size.y.ToString("F2")).Append(", ").Append(b.size.z.ToString("F2"))
+          .Append("), y ").Append(b.min.y.ToString("F2")).Append("..")
+          .Append(b.max.y.ToString("F2")).Append(')');
+        return sb.ToString();
     }
 
     /// <summary>Match <paramref name="clone"/>'s WORLD scale to <paramref name="source"/>'s while it

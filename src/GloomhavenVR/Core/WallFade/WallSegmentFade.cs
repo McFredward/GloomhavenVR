@@ -6551,6 +6551,9 @@ internal static partial class WallSegmentFade
         ///   a BONE, and whatever the actor component layout, the animation rig root is
         ///   always above it. Also excludes animated props (chests…), which no wall system
         ///   should ever hide anyway.</item>
+        /// <item>anything that is part of a prop THE PLAYER IS HOLDING RIGHT NOW
+        ///   (ModBuild 340) — see the block in the body for why the four tests above
+        ///   cannot cover it and why this one is not memoised.</item>
         /// </list>
         /// Checked by EVERY adoption sweep (stack candidates + adoption + fast reclaim, wall
         /// body, mounted dressing, corner pieces) and enforced retroactively by
@@ -6561,6 +6564,28 @@ internal static partial class WallSegmentFade
         {
             if (r is SkinnedMeshRenderer)
                 return true;
+
+            // A PROP IN THE PLAYER'S HAND IS NOT SCENERY (ModBuild 340). User, 2026-09-02:
+            // "ich sehe zwar einen Geist aber in der Hand ist es garnicht oder nur immer ganz
+            // kurz für einen Frame sichtbar". THIS SYSTEM WAS THE WRITER. Lifting a prop makes
+            // it airborne — which is this system's whole admission rule for stacked shell and
+            // mounted dressing — and a prop passes NONE of the four tests around this one: it
+            // has no ActorBehaviour at all (that is the very reason a prop is a GrabbableProp
+            // and not a FigureGrabbable, CMap.cs:501-518), its body is a plain MeshRenderer,
+            // and the ancestor walks are GetComponentInParent — so whatever a board ancestor
+            // contributed is discarded the instant the prop is reparented under the hand's
+            // grab anchor. Airborne, un-exempt and re-parented in ONE step, adopted on the very
+            // next pass, hidden. That is "sichtbar für einen Frame", exactly.
+            //
+            // BEFORE THE MEMO, DELIBERATELY. Every other term here is a property of the
+            // ancestor CHAIN, which is what makes FigureAncestry's cache exact. Held-ness is
+            // not: the same renderer under the same parents answers differently a frame later.
+            // Caching it would latch a prop hidden for the rest of the pass it was grabbed in.
+            // Cost while nothing is held — the steady state, and the state this runs ~3000
+            // times per rescan in — is one List.Count compare.
+            if (GloomhavenVR.Board.FigureGrab.HeldProps.OwnsRendererOf(r.transform))
+                return true;
+
             // FAST PATH (PERF S1) — only inside an open memo scope, and only for a renderer
             // whose whole ancestor chain is active. See FigureAncestryMemo.
             if (_figureMemoActive && r.gameObject.activeInHierarchy)

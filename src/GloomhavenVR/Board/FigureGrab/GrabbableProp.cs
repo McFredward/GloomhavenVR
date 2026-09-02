@@ -4,6 +4,7 @@ using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -38,11 +39,43 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   <see cref="PropGhosts"/>, again a plain <c>GameObject</c> in;</item>
 ///   <item>the PICK VOLUME dial — <c>FigureGrabConfig.PickRadiusRealMeters</c> and its exit
 ///   hysteresis, so a prop lights up at exactly the reach a mini does;</item>
-///   <item>the HELD POSE — <c>FigureGrabConfig.HeldOffsetFor</c> /
-///   <c>HeldUprightRotation</c> / <c>HeldPalmRotation</c>, so a chest sits in the palm where a
-///   mini sits and follows the same tuning;</item>
+///   <item>the HELD POSE — the FIGURE's whole pose pipeline, not just its numbers:
+///   <c>CaptureUprightBase</c> at the grab, then
+///   <c>_uprightBase * (HeldUpright ? HeldUprightRotation(side) : HeldPalmRotation())</c> as a
+///   FIXED CONSTANT anchor-local rotation, the grab-time anchor-local SIZE LATCH, and a per-frame
+///   idempotent re-assert. See <see cref="ApplyHeldPose"/>;</item>
 ///   <item>the RELEASE GLIDE — the same 0.28 s cubic ease-out, so putting a chest down looks like
-///   putting a mini down.</item>
+///   putting a mini down;</item>
+///   <item>the PICKUP INFO PANEL — the figure docks the game's own stat window on grab and
+///   re-asserts it while held; a prop docks the game's own prop/text info window the same way.
+///   See <see cref="ShowInfo"/>.</item>
+/// </list>
+///
+/// <para><b>THE ModBuild 339 ROUND — four defects, one of them structural.</b> The user tested
+/// 338 and reported, verbatim: <i>"a) ich sehe zwar einen Geist aber in der Hand ist es garnicht
+/// oder nur immer ganz kurz für einen Frame sichtbar, b) … es ist nicht in der richtigen
+/// Ausrichtung … nutze den selben Code hier, c) Es soll wie die Figuren auch in einer Animation
+/// zurück gehen wenn man loslässt, d) Die Info die da sein sollte … ist nicht sichtbar."</i></para>
+/// <list type="bullet">
+///   <item>(a) INVISIBLE IN HAND. Not a layer, not a culling mask, not stale bounds — the mod's
+///   OWN <c>WallSegmentFade</c> hid it. Its wall-mounted-dressing pass adopts scenery that is
+///   AIRBORNE over the room floor and its stacked-shell pass adopts anything whose live bounds
+///   clear the ground band; both end in <c>renderer.enabled = false</c>. Their single exemption is
+///   <c>IsFigureOrActorRenderer</c> (skinned, or <c>ActorBehaviour</c>/<c>CInteractableActor</c>/
+///   <c>Animator</c> on an ancestor), which a held MINI passes and a held PROP cannot: a prop has
+///   no actor, its body is usually a plain <c>MeshRenderer</c>, and the walk is
+///   <c>GetComponentInParent</c>, so reparenting into the hand also discards whatever a board
+///   ancestor contributed. Lifting a prop makes it airborne, un-exempt and re-parented in one
+///   step. The fix is <see cref="HeldProps.OwnsRendererOf"/> — the question the wall systems have
+///   to ask — plus one term in that guard. See that method for the full account.</item>
+///   <item>(b) ORIENTATION. 338 wrote <c>HeldUprightRotation(side)</c> alone and skipped the
+///   figure's <c>_uprightBase</c>, so with [FigureGrab] HeldUprightAtGrab on a prop was the one
+///   thing in the hand that did NOT start upright. Now the figure's exact composition.</item>
+///   <item>(c) RETURN ANIMATION. The glide was already here in 338 and was correct; it was
+///   invisible because (a) hid the thing gliding. Unchanged mechanism, now with the release log
+///   line the figure path has.</item>
+///   <item>(d) INFO. 338 showed nothing at all. See <see cref="ShowInfo"/> for what a prop can
+///   show and why <c>StatPanelSurface</c> is the wrong window for it.</item>
 /// </list>
 ///
 /// <para><b>WHAT IT MUST NOT DO.</b> Nothing here writes game state. Lifting a chest does not
@@ -79,6 +112,24 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// <summary>Props currently mid-release-glide. Advanced by <see cref="TickGlides"/>.</summary>
     private static readonly List<GrabbableProp> Gliding = new(2);
 
+    /// <summary>Props currently IN A HAND — the figure path's <c>Live</c> set, on props. Walked
+    /// once per frame by <see cref="TickHeld"/> to re-assert the held pose (which makes the pose
+    /// live-tunable exactly like a figure's, and makes any foreign write to the transform last one
+    /// frame instead of forever) and to keep the info panel docked. Never more than two.</summary>
+    private static readonly List<GrabbableProp> Live = new(2);
+
+    /// <summary>Seconds between held-info re-assert checks. Not per-frame: the check exists to
+    /// survive the game's own hover logic hiding the panel, and that happens at hover rate, not at
+    /// frame rate. Cheap either way — one float compare when the cadence has not elapsed.</summary>
+    private const float InfoReassertSeconds = 0.25f;
+
+    /// <summary>How many consecutive re-assert attempts may find the panel hidden again before
+    /// this hold STOPS re-asserting and prints one line naming the fight. Standing project rule:
+    /// do not win a write war — concede and name the writer, because a panel we re-show four times
+    /// a second against something that hides it four times a second is a strobe, which is worse
+    /// than no panel. See <see cref="TickInfo"/>.</summary>
+    private const int InfoLossBudget = 6;
+
     /// <summary>How many hover lines and how many grab lines this session prints before going
     /// quiet. The hardware question is "does a prop highlight and lift AT ALL", which the first
     /// few answer completely; a per-hover line over a board of fourteen props would drown the log
@@ -113,6 +164,20 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     // --- the parked layers, restored object-for-object on landing.
     private GameObject[]? _layerHosts;
     private int[]? _layerValues;
+
+    // --- the held-pose bases, captured at the grab. All three are the FIGURE's, field for field
+    //     (FigureGrabbable._anchor / _uprightBase / _heldLocalScale); see ApplyHeldPose.
+    private Transform? _anchor;
+    private Quaternion _uprightBase = Quaternion.identity;
+    private Vector3 _heldLocalScale = Vector3.one;
+
+    // --- the pickup info panel (defect (d)).
+    private bool _infoShown;
+    private string _infoTitle = string.Empty;
+    private string? _infoDescription;
+    private float _nextInfoCheck;
+    private int _infoLosses;
+    private static bool _loggedInfoWriteWar;
 
     // --- release glide.
     private bool _glideActive;
@@ -267,32 +332,163 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // in der Hand hat einen Geist hinterlassen").
         PropGhosts.NotifyHeld(_prop, _visual, _homeWorldPos, _homeWorldRot, _homeWorldScale);
 
-        HeldProps.Add(_prop, hand.Side);
+        // The visual goes in with the prop: HeldProps.OwnsRendererOf is what tells the mod's
+        // scenery systems that these renderers are in a hand and may not be touched — defect (a).
+        // It is registered BEFORE the reparent so no pass can see a frame in which the prop is
+        // already airborne and not yet known to be held.
+        HeldProps.Add(_prop, _visual, hand.Side);
         ClearHighlight();     // belt: the grabber clears the hover before OnGrab, but a laser pluck
                               // and a re-grab mid-glide are both paths that need not have done so
         ParkLayers();
 
         // Ride the hand's grab anchor. worldPositionStays keeps the prop at its board world size as
-        // it enters the hand (no scale pop) and leaves the resulting anchor-LOCAL scale in place —
-        // which is the same size latch a figure gets: constant relative to the hand, so a zoom
-        // mid-hold no longer resizes what is in the palm.
-        t.SetParent(hand.Rig.GrabAnchor, worldPositionStays: true);
-        t.localPosition = FigureGrabConfig.HeldOffsetFor(hand.Side);
-        t.localRotation = FigureGrabConfig.HeldUpright.Value
-            ? FigureGrabConfig.HeldUprightRotation(hand.Side)
-            : FigureGrabConfig.HeldPalmRotation();
+        // it enters the hand (no scale pop) and leaves the resulting anchor-LOCAL scale in place.
+        Transform anchor = hand.Rig.GrabAnchor;
+        t.SetParent(anchor, worldPositionStays: true);
+        _anchor = anchor;
+
+        // THE SIZE LATCH, and it is the FIGURE's, arrived at by the shorter road. FigureGrabbable
+        // computes homeWorldScale / anchor.lossyScale; the worldPositionStays reparent one line up
+        // has already SOLVED that same quotient into localScale, so reading it back is the same
+        // number with no second opinion about which transform in the chain carries the zoom. What
+        // matters is that it is LATCHED: from here it is re-asserted, never re-derived, so a
+        // diorama zoom mid-hold cannot resize what is in the palm ("die Größe soll nur abhängig
+        // sein wann sie greift und dann fix in der Hand sein - auch wenn man dabei zoomed").
+        _heldLocalScale = t.localScale;
+        _uprightBase = CaptureUprightBase(anchor);
         _attached = true;
+
+        ApplyHeldPose();
+        Live.Add(this);
+        ShowInfo();
+        _probeFrame = Time.frameCount + 2; // arm the held-visibility probe (see TickProbe)
 
         if (_grabLogsLeft <= 0)
             return;
         _grabLogsLeft--;
+        Quaternion lr = t.localRotation;
+        Vector3 up = lr * Vector3.up, fwd = lr * Vector3.forward;
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("FigureGrab",
             $"[Props] {hand.Side} grabbed {Label} — the prop VISUAL rides the hand (resolved through "
             + "ObjectCacheService, not through an actor: it has none). Home pose captured and a ghost "
-            + $"left at the cell; colliders parked on Ignore Raycast for the hold. "
+            + "left at the cell; colliders parked on Ignore Raycast for the hold. "
+            + $"localRot={Fmt(lr)} (fixed constant relative to the hand anchor; grab-angle-independent, "
+            + $"rides the hand) from pitch={FigureGrabConfig.ActiveHeldTilt:0.#}° "
+            + $"yaw={FigureGrabConfig.HeldFaceYawFor(hand.Side):0.#}° "
+            + $"roll={FigureGrabConfig.HeldRollFor(hand.Side):0.#}° "
+            + $"upright={FigureGrabConfig.HeldUpright.Value} atGrab={FigureGrabConfig.HeldUprightAtGrab.Value}; "
+            + $"prop axes in anchor space: up=({up.x:0.00},{up.y:0.00},{up.z:0.00}) "
+            + $"fwd=({fwd.x:0.00},{fwd.y:0.00},{fwd.z:0.00}) — anchor +Y is the palm normal, so up.y=+1 is "
+            + "'standing straight out of the palm', which for a prop means its own model +Y (the axis it "
+            + $"stands on its hex by) points out of the palm. heldLocalScale={_heldLocalScale.x:0.######} "
+            + $"latched against anchorScale={anchor.lossyScale.x:0.###}. "
             + $"({_grabLogsLeft} more prop grab lines this session.)");
+    }
+
+    private static string Fmt(Quaternion q)
+    {
+        Vector3 e = q.eulerAngles;
+        return $"({e.x:0.0},{e.y:0.0},{e.z:0.0})";
+    }
+
+    /// <summary>
+    /// THE UPRIGHT BASE — <c>FigureGrabbable.CaptureUprightBase</c>, verbatim in behaviour, on a
+    /// prop. Captured ONCE at the grab and then left alone: the prop starts standing however you
+    /// reached for it (palm down, from the side, upside down) and from then on it is an ordinary
+    /// fixed rotation relative to the hand, so turning your wrist still turns it through every
+    /// angle. It is not a constraint that keeps re-righting the prop, which would fight you the
+    /// moment you tried to look at its underside.
+    ///
+    /// <para><b>WHAT "UPRIGHT" MEANS FOR A PROP, stated because it is a fair question (the user
+    /// asked for the figure's behaviour, and a gold pile is not a humanoid).</b> It means the same
+    /// thing it means for a mini and for exactly the same reason: the mod's GrabAnchor is authored
+    /// with +Y out of the palm, and EVERY board object — mini, chest, gold pile, ice obstacle — is
+    /// authored standing on its hex with its own model +Y up. So an identity base already puts the
+    /// prop's standing axis out of the palm, which is "the right way up" for a chest in the same
+    /// sense it is for a mini: the lid is up, the coins face up, the crystal points up. Nothing
+    /// here needs a humanoid, only a model whose +Y is the axis it stands on, and the game's own
+    /// placement guarantees that for props (they are dropped onto hexes with a yaw-only rotation —
+    /// <c>CObjectProp.Rotation</c>, snapped by <c>UnityGameEditorObject.m_ShouldSnapRotation</c>).
+    /// The prop's BOARD yaw is deliberately discarded, exactly as a mini's is: the held rotation is
+    /// an ABSOLUTE anchor-local rotation, so which way the chest happened to face on its hex does
+    /// not change how it sits in your hand.</para>
+    /// </summary>
+    private static Quaternion CaptureUprightBase(Transform anchor)
+    {
+        if (!FigureGrabConfig.HeldUprightAtGrab.Value)
+            return Quaternion.identity;
+
+        Vector3 flat = Vector3.ProjectOnPlane(anchor.forward, Vector3.up);
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = Vector3.ProjectOnPlane(anchor.up, Vector3.up);
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = Vector3.forward;
+
+        Quaternion world = Quaternion.LookRotation(flat.normalized, Vector3.up);
+        return Quaternion.Inverse(anchor.rotation) * world;
+    }
+
+    /// <summary>
+    /// (Re-)apply the held pose from <see cref="FigureGrabConfig"/> — offset, rotation and the
+    /// latched scale — off the bases captured at the grab. IDEMPOTENT, which is what lets it be
+    /// both the grab-time write and the per-frame re-assert.
+    ///
+    /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c>, line for line</b> (user, defect (b):
+    /// "Es soll sich so verhalten wie die Figuren auch - nutze den selben Code hier"). ModBuild 338
+    /// wrote the pinch offset and <c>HeldUprightRotation(side)</c> but dropped
+    /// <see cref="_uprightBase"/>, so with [FigureGrab] HeldUprightAtGrab ON — which is what the
+    /// figure path ships with — a prop was the only thing in the hand that did not start upright:
+    /// it inherited the palm's tilt at the instant of the grab and kept it for the whole hold.
+    /// Composed the same way for the same reason: the tuned angles stay OFFSETS either way, from
+    /// "standing up" with the option on and from the hand with it off.</para>
+    ///
+    /// <para>Being idempotent and re-asserted also buys the thing a prop has no
+    /// <c>ActorBehaviour_HeldTransform_Patch</c> for: if anything ever does write a held prop's
+    /// transform, the write lasts one frame instead of the whole hold.</para>
+    /// </summary>
+    private void ApplyHeldPose()
+    {
+        if (!_attached || _visual == null || _anchor == null || _holder == null)
+            return;
+
+        HandSide side = _holder.Side;
+        Transform t = _visual.transform;
+
+        // Pinch position: the grab-anchor-local offset toward the thumb-index fingertips, mirrored
+        // across the hand frame's left-right axis for the left hand.
+        t.localPosition = FigureGrabConfig.HeldOffsetFor(side);
+
+        // A FIXED CONSTANT anchor-LOCAL rotation (grab-angle-independent) that rides the hand —
+        // never a world rotation. See CaptureUprightBase for what "upright" means on a prop.
+        t.localRotation = _uprightBase * (FigureGrabConfig.HeldUpright.Value
+            ? FigureGrabConfig.HeldUprightRotation(side)
+            : FigureGrabConfig.HeldPalmRotation());
+
+        // SIZE — the value latched at the grab, re-asserted and never re-derived.
+        t.localScale = _heldLocalScale;
+    }
+
+    /// <summary>
+    /// One call per frame for every prop currently in a hand — the pose re-assert, the info
+    /// re-assert and the one-shot held-visibility probe. Called from <see cref="PropGrab.Tick"/>.
+    /// Bounded by the number of hands: this list never holds more than two.
+    /// </summary>
+    internal static void TickHeld()
+    {
+        for (int i = Live.Count - 1; i >= 0; i--)
+        {
+            GrabbableProp p = Live[i];
+            if (p._visual == null)
+            {
+                Live.RemoveAt(i); // prop destroyed mid-hold (looted, broken, teardown)
+                continue;
+            }
+            p.ApplyHeldPose();
+            p.TickInfo();
+            p.TickProbe();
+        }
     }
 
     public void OnRelease(VRHand hand, Vector3 velocity)
@@ -307,8 +503,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             return;
 
         if (TryBeginGlide())
+        {
+            VRLog.Info("FigureGrab",
+                $"[Props] {hand.Side} released {Label} — gliding home ({GlideDurationSeconds:0.00}s), "
+                + "the same cubic ease-out a released mini takes.");
             return;
+        }
         Restore();
+        VRLog.Info("FigureGrab", $"[Props] {hand.Side} released {Label} — home INSTANTLY "
+            + "(glide impossible: dead visual or dead original parent).");
     }
 
     /// <summary>
@@ -324,10 +527,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         if (!_attached || _glideActive || _visual == null || _origParent == null)
             return false;
 
+        Live.Remove(this);
+        ClearInfo();
         ClearHighlight();
         Transform t = _visual.transform;
         t.SetParent(_origParent, worldPositionStays: true); // keep the in-hand world pose
         _attached = false;
+        _anchor = null;
 
         _glideFromPos = t.localPosition;
         _glideFromRot = t.localRotation;
@@ -397,6 +603,8 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// </summary>
     internal void Restore()
     {
+        Live.Remove(this);
+        ClearInfo();
         if (_glideActive)
             FinishGlide();
         ClearHighlight();
@@ -422,9 +630,304 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             }
         }
         _attached = false;
+        _anchor = null;
         RestoreLayers();
         _holder = null;
         HeldProps.Remove(_prop);
+    }
+
+    // ---- the pickup info panel (defect (d)) -----------------------------------------------------
+
+    /// <summary>
+    /// Dock the game's own info card for this prop, the way a figure docks its stat card on pickup
+    /// (user, defect (d): "Die Info die da sein sollte (wie bei den Figuren auch) ist nicht
+    /// sichtbar").
+    ///
+    /// <para><b>WHY NOT <c>StatPanelSurface.ShowHeldFigure</c>, THE FIGURE'S CALL.</b> Because it
+    /// cannot take a prop, and not for a fixable reason: its whole job is to bind the game's real
+    /// <c>ActorStatPanel</c> singleton to a <c>CActor</c> (its registration record, its
+    /// promote/snapshot arbitration and its <c>ClearHeldFigure</c> identity check are all
+    /// <c>CActor</c>-keyed), and it is that PANEL — hit points, initiative, conditions, portrait —
+    /// that has nothing to show for a chest. A prop is not an under-featured actor; it has a
+    /// different card in the game, and the game already shows it.</para>
+    ///
+    /// <para><b>THE RIGHT WINDOW, AND THE MOD ALREADY DOCKS IT.</b> Hovering a hex with a prop on
+    /// it makes <c>WorldspaceStarHexDisplay.ShowTooltipForTile</c> call
+    /// <c>UITextInfoPanel.Show(title, description)</c> (WSHD.cs:3607) — "2 Gold", "Chest",
+    /// "Obstacle", plus who may loot it. The mod converts and docks exactly that window in world
+    /// space already, in <c>WorldUI/Surfaces/PropInfoSurface.cs</c>, at its own layout slot. So the
+    /// pickup card needs no new surface and no new panel: it needs the same window populated for
+    /// the prop in the hand instead of the prop under the pointer. The text is built here to the
+    /// game's own recipe — see <see cref="BuildInfoText"/>.</para>
+    ///
+    /// <para>Gated on <c>[FigureGrab] HeldFigureInfo</c>, the SAME dial the figure's pickup panel
+    /// obeys ("mach diese aber auch optional in dem VR Einstellungen deaktivierbar") — one switch
+    /// for "show me what I picked up", not one per kind of thing picked up.</para>
+    ///
+    /// <para>NO GAME STATE IS WRITTEN. <c>UITextInfoPanel.Show</c> sets label text and shows a
+    /// UIWindow; it does not touch the prop, the tile, looting or the turn.</para>
+    /// </summary>
+    private void ShowInfo()
+    {
+        if (!FigureGrabConfig.HeldFigureInfoEnabled || _prop == null)
+            return;
+        BuildInfoText(out _infoTitle, out _infoDescription);
+        if (_infoTitle.Length == 0)
+            return;
+        _infoShown = PushInfo();
+        _infoLosses = 0;
+        _nextInfoCheck = Time.unscaledTime + InfoReassertSeconds;
+    }
+
+    /// <summary>Populate and show the game's text info window. False when the singleton is not up
+    /// yet (early scenario load), which simply means no panel for this hold.</summary>
+    private bool PushInfo()
+    {
+        if (!Singleton<UITextInfoPanel>.IsInitialized)
+            return false;
+        UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
+        if (panel == null)
+            return false;
+        panel.Show(_infoTitle, _infoDescription);
+        return true;
+    }
+
+    /// <summary>
+    /// Keep the card up for the length of the hold — the prop-side twin of
+    /// <c>StatPanelSurface.ReassertHeld</c>, which exists for the same reason: the panel is SHARED
+    /// with the game's board hover, and the hover keeps taking it back.
+    ///
+    /// <para><b>AND THE POINT AT WHICH IT CONCEDES.</b> Two writers hide this window while a prop
+    /// is held — the game's own <c>ShowTooltipForTile</c> (which hides both info panels on every
+    /// hover change, WSHD.cs:3574-3575) and the mod's <c>Board/Patches/HexHoverClear</c>, whose
+    /// <c>HideStaleTooltips</c> hides it on every frame the VR pick is not on a hex. Holding a prop
+    /// turns the ray OFF, so that second one fires continuously. Re-showing four times a second
+    /// against a writer that hides four times a second is a strobe, and this project's standing
+    /// rule is not to win a write war but to name the writer: after
+    /// <see cref="InfoLossBudget"/> consecutive losses this hold stops re-asserting and prints one
+    /// line saying so. The one-line fix on the other side is named in that line.</para>
+    /// </summary>
+    private void TickInfo()
+    {
+        if (!_infoShown || _infoLosses > InfoLossBudget)
+            return;
+        float now = Time.unscaledTime;
+        if (now < _nextInfoCheck)
+            return;
+        _nextInfoCheck = now + InfoReassertSeconds;
+
+        if (!Singleton<UITextInfoPanel>.IsInitialized)
+            return;
+        UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
+        if (panel == null)
+            return;
+        UIWindow? window = panel.GetComponent<UIWindow>();
+        if (window == null || window.IsVisible)
+        {
+            _infoLosses = 0; // still up (IsVisible is alpha>0, so a fade-IN counts as up)
+            return;
+        }
+
+        _infoLosses++;
+        if (_infoLosses <= InfoLossBudget)
+        {
+            PushInfo();
+            return;
+        }
+        if (_loggedInfoWriteWar)
+            return;
+        _loggedInfoWriteWar = true;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] held-prop INFO CONCEDED for {Label}: the card was re-shown {InfoLossBudget} times in a "
+            + $"row and something hid it again inside {InfoReassertSeconds:0.00}s each time, so this hold "
+            + "stopped re-asserting rather than strobe the panel. THE WRITER IS ALMOST CERTAINLY "
+            + "Board/Patches/HexHoverClear.HideStaleTooltips, which hides UITextInfoPanel on every frame "
+            + "the VR pick is not on a hex — and holding a prop turns the hand's ray OFF, so it fires "
+            + "every frame for the whole hold. The fix is one line there: return early while "
+            + "HeldProps.Count > 0 (a held prop's card is not a stale hover). Logged once per session.");
+    }
+
+    /// <summary>Take the card down (idempotent). Called from both release paths, so a prop that
+    /// leaves the hand never leaves its card behind.</summary>
+    private void ClearInfo()
+    {
+        if (!_infoShown)
+            return;
+        _infoShown = false;
+        _infoLosses = 0;
+        if (!Singleton<UITextInfoPanel>.IsInitialized)
+            return;
+        UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
+        if (panel != null)
+            panel.Hide();
+    }
+
+    /// <summary>
+    /// The card's text, built to the GAME's own recipe so a picked-up prop reads exactly like a
+    /// hovered one (<c>WorldspaceStarHexDisplay.PropInfo.Get</c>, WSHD.cs:83-107, and the
+    /// collection loop at :3396-3420 — that type is private, so the recipe is reproduced, not
+    /// called).
+    ///
+    /// <para>WHAT IS WORTH SHOWING, and why exactly these three. A prop's identity is its NAME
+    /// (localized from <c>PrefabName</c>, which is what the hover card titles itself with);
+    /// money is worth its AMOUNT rather than its name, because "GoldPile" tells the player nothing
+    /// they cannot see and "2 Gold" is the entire content of the game's own gold card; and a prop
+    /// that can only be looted by someone in particular says so, because that is a rule the player
+    /// cannot read off the model. <c>PropHealthDetails</c> is included when the prop actually has
+    /// health — a destructible obstacle — since that is the one prop stat that behaves like a
+    /// figure's. Nothing else on <c>CObjectProp</c> is player-facing: the GUID, the tile index and
+    /// the owner GUID are bookkeeping.</para>
+    /// </summary>
+    private void BuildInfoText(out string title, out string? description)
+    {
+        title = string.Empty;
+        description = null;
+        if (_prop == null)
+            return;
+
+        string name = Translate(_prop.PrefabName);
+        if (_prop.ObjectType == ScenarioManager.ObjectImportType.MoneyToken)
+        {
+            // The game prices a money token by the scenario's gold conversion, defaulting to 1
+            // when the scenario carries no level-table entry (CAbilityLoot.cs:302, CActor.cs:1930).
+            int gold = 1;
+            try
+            {
+                CScenario? scenario = ScenarioManager.Scenario;
+                if (scenario != null && scenario.SLTE != null)
+                    gold = scenario.SLTE.GoldConversion;
+            }
+            catch
+            {
+                gold = 1; // a half-built scenario state must never cost the player their card
+            }
+            title = $"{gold} {Translate("Gold")}";
+        }
+        else
+        {
+            title = name;
+        }
+
+        var lines = new List<string>(2);
+        PropHealthDetails? health = _prop.PropHealthDetails;
+        if (health != null && health.HasHealth && health.CurrentHealth > 0)
+            lines.Add($"{Translate("HP")}: {health.CurrentHealth}");
+        if (!string.IsNullOrEmpty(_prop.CanLootLocKey))
+        {
+            string fmt = Translate("GUI_PROP_CAN_BE_LOOTED_BY");
+            string who = Translate(_prop.CanLootLocKey);
+            lines.Add(fmt.Contains("{0}") ? string.Format(fmt, who) : $"{fmt} {who}");
+        }
+        if (lines.Count > 0)
+            description = string.Join("\n", lines);
+    }
+
+    /// <summary>Localize, falling back to the raw term. <c>TryGetTranslation</c> rather than
+    /// <c>GetTranslation</c> so a missing key returns quietly instead of writing a game-side
+    /// error line for every pickup.</summary>
+    private static string Translate(string? term)
+    {
+        if (string.IsNullOrEmpty(term))
+            return string.Empty;
+        try
+        {
+            return GLOOM.LocalizationManager.TryGetTranslation(term, out string t)
+                   && !string.IsNullOrEmpty(t)
+                ? t
+                : term!;
+        }
+        catch
+        {
+            return term!;
+        }
+    }
+
+    // ---- the held-visibility probe (defect (a)) --------------------------------------------------
+
+    /// <summary>Frame at which the held-visibility probe fires, or 0 when it is not armed.</summary>
+    private int _probeFrame;
+
+    /// <summary>How many held-visibility probes this session prints. The question it answers is
+    /// "is the prop in the hand actually being DRAWN", which the first few grabs settle
+    /// completely.</summary>
+    private const int ProbeBudget = 3;
+
+    private static int _probesLeft = ProbeBudget;
+
+    /// <summary>
+    /// TWO FRAMES AFTER THE GRAB, READ BACK THE PICTURE — not the state we just wrote.
+    ///
+    /// <para>ModBuild 338 shipped a grab line that proved the mod had DONE the grab and proved
+    /// nothing at all about whether the player could see the result; the user's answer was "in der
+    /// Hand ist es garnicht oder nur immer ganz kurz für einen Frame sichtbar". Two frames is
+    /// deliberately after the first wall-fade apply pass, which is the writer this round found.
+    /// The three fields below discriminate the three candidate causes in one line, so a follow-up
+    /// round never has to guess:</para>
+    /// <list type="bullet">
+    ///   <item><c>enabled=false</c> on renderers we never touched ⇒ something DISABLED them; the
+    ///   only thing in this mod that does that to airborne scenery is <c>WallSegmentFade</c>.</item>
+    ///   <item>a MATERIAL PROPERTY BLOCK present with <c>_Toggle_Dissolve</c> at 1 ⇒ the same
+    ///   system, through its dissolve channel rather than the enabled flag — and that latch
+    ///   survives the reparent, so it can hide a prop that was adopted BEFORE the grab.</item>
+    ///   <item>everything enabled, no block, and the player still sees nothing ⇒ neither; look at
+    ///   the shader's own screen-space occlusion term (<c>_TilesOcclusionMap</c> /
+    ///   <c>_ObjectOcclusion</c>, generated from the PARKED flat camera and therefore wrong for the
+    ///   head camera) — see <c>Compat/WallFadeDisable</c>.</item>
+    /// </list>
+    /// </summary>
+    private void TickProbe()
+    {
+        if (_probeFrame == 0 || Time.frameCount < _probeFrame)
+            return;
+        _probeFrame = 0;
+        if (_probesLeft <= 0 || _visual == null)
+            return;
+        _probesLeft--;
+
+        Renderer[] renderers = _visual.GetComponentsInChildren<Renderer>(includeInactive: true);
+        int total = renderers.Length, drawn = 0, active = 0, blocked = 0, dissolved = 0;
+        int minLayer = int.MaxValue, maxLayer = int.MinValue;
+        var block = new MaterialPropertyBlock();
+        int dissolveId = Shader.PropertyToID("_Toggle_Dissolve");
+        for (int i = 0; i < renderers.Length; i++)
+        {
+            Renderer r = renderers[i];
+            if (r == null)
+                continue;
+            if (r.gameObject.activeInHierarchy)
+                active++;
+            if (r.enabled && r.gameObject.activeInHierarchy)
+                drawn++;
+            int layer = r.gameObject.layer;
+            if (layer < minLayer) minLayer = layer;
+            if (layer > maxLayer) maxLayer = layer;
+            if (!r.HasPropertyBlock())
+                continue;
+            blocked++;
+            r.GetPropertyBlock(block);
+            if (block.GetFloat(dissolveId) > 0.5f)
+                dissolved++;
+        }
+
+        Camera? head = Camera.main;
+        Vector3 pos = _visual.transform.position;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] HELD? two frames after the grab of {Label}: {drawn} of {total} renderer(s) are "
+            + $"actually drawing ({active} on active objects); layer(s) {minLayer}..{maxLayer}; "
+            + $"{blocked} carry a MaterialPropertyBlock, {dissolved} of those with _Toggle_Dissolve ON. "
+            + $"World position {pos.x:0.00},{pos.y:0.00},{pos.z:0.00}"
+            + (head != null ? $", {Vector3.Distance(pos, head.transform.position):0.00} wu from the head camera" : string.Empty)
+            + ". READ IT LIKE THIS: drawn < total on renderers this class never touched means something "
+            + "DISABLED them, and the only thing in this mod that disables airborne scenery is "
+            + "WallSegmentFade; a property block with _Toggle_Dissolve ON is the same system going "
+            + "through its dissolve channel instead, and that latch survives the reparent so it can "
+            + "predate the grab; all drawn, no block, and still nothing visible means neither, and the "
+            + "next suspect is the prop shader's own screen-space occlusion term. "
+            + $"({_probesLeft} more held-prop probes this session.)");
     }
 
     // ---- layer parking ------------------------------------------------------------------------
@@ -432,7 +935,19 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// <summary>
     /// Move every collider host in the prop's subtree (plus the root, which is the object
     /// <c>UnityGameEditorObject.Start</c> puts on <c>"Hovering"</c>) to Ignore Raycast, recording
-    /// what each one was. Renderers are deliberately NOT touched — see the class doc.
+    /// what each one was.
+    ///
+    /// <para><b>CORRECTION TO THE ModBuild 338 CLAIM (this doc used to say "renderers are
+    /// deliberately NOT touched", and that was not true).</b> The walk moves GAMEOBJECTS, and a
+    /// prop's collider very often sits on the same GameObject as one of its renderers — the root
+    /// always does, and it is in this list unconditionally. So renderer-bearing objects DO move to
+    /// layer 2. That is safe, and it is safe for a reason this session's own log measured rather
+    /// than assumed: the VR head camera's culling mask is <c>0xFFFFFFFF</c> (the ghost and glow
+    /// census lines print it on every build), so layer 2 is rendered exactly like layer 0 or 8.
+    /// It was never the cause of the invisible-in-hand defect either — that was
+    /// <c>WallSegmentFade</c> (see the class doc), and a wall pass does not care what layer a
+    /// renderer is on. The parking stays because it is what keeps the game's own <c>"Hovering"</c>
+    /// pick ray off a prop held centimetres from the eye.</para>
     /// </summary>
     private void ParkLayers()
     {
@@ -481,5 +996,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     {
         _highlightLogsLeft = LogBudget;
         _grabLogsLeft = LogBudget;
+        _probesLeft = ProbeBudget;
+        _loggedInfoWriteWar = false;
     }
 }

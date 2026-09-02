@@ -98,14 +98,21 @@ internal static class PropGrab
 
     /// <summary>
     /// One call per frame, from <c>FigureGrabDriver.RefreshRegistry</c> — the step that already
-    /// owns "keep the adoption set current". Ordered: glides first (they must land whatever the
-    /// dial says), then the prune, then the ghost reconcile, then the gate, then the scan.
+    /// owns "keep the adoption set current". Ordered: glides and the held re-assert first (both
+    /// must run whatever the dial says), then the prune, then the ghost reconcile, then the gate,
+    /// then the scan.
     /// </summary>
     internal static void Tick()
     {
         // A release glide already in the air lands regardless of the feature dial — the same rule
         // that keeps FigureGrab.Glide above the config gate in FigureGrabDriver.Update.
         GrabbableProp.TickGlides();
+
+        // The held re-assert sits above the gate for the same reason: a prop still in a hand when
+        // GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame, and must not
+        // be rendered at a drifted pose for the frame in between. Iterates at most two props and
+        // is a single Count compare when nothing is held.
+        GrabbableProp.TickHeld();
 
         Prune();
         PropGhosts.Tick();

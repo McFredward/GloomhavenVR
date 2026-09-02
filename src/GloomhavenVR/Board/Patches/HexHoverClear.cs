@@ -273,6 +273,16 @@ internal static class HexHoverClear
     /// </summary>
     private static void HideStaleTooltips()
     {
+        // A HELD PROP'S INFO CARD IS NOT A STALE HOVER (ModBuild 340). User, 2026-09-02, on the
+        // props: "Die Info die da sein sollte (wie bei den Figuren auch) ist nicht sichtbar."
+        // UITextInfoPanel is the window the GAME itself uses for a prop (WSHD.cs:3607), so it is
+        // the window GrabbableProp raises while a prop is in the hand — and holding a grabbable
+        // turns that hand's ray OFF, which puts the pick permanently not-on-a-hex and made this
+        // method fire every frame of the hold. Both writers were correct about their own premise;
+        // only one of them knows a prop is being held, so the test belongs here.
+        if (Board.FigureGrab.HeldProps.Count > 0)
+            return;
+
         if (Singleton<UITextInfoPanel>.IsInitialized)
         {
             UITextInfoPanel? text = Singleton<UITextInfoPanel>.Instance;

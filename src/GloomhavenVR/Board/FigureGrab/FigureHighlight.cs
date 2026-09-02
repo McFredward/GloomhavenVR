@@ -61,6 +61,30 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// this class just built, compared against the originals' combined box, and
 /// <see cref="OverlayVisibilityProbe"/> adds the outcome — <see cref="Renderer.isVisible"/> two
 /// frames later, once a camera has had a chance to cull them.</para>
+///
+/// <para><b>ModBuild 339 — ACTOR FURNITURE IS NOT THE MINIATURE, AND THE LOG ALREADY SAID SO.</b>
+/// The 338 hardware round produced a photograph: on the boss the glow is not missing, it lands on
+/// TWO SMALL HORIZONTAL BARS at the dragon's snout and on nothing else. The census in the same log
+/// names the three clones only as a count, but its <c>m_AnimatedGameObject</c> clause separates
+/// them: <c>"1 of them lie under m_AnimatedGameObject 'MO_Elder_Drake' spanning world y
+/// -1.15..5.54"</c> — and the union of ALL THREE spans exactly y -1.15..5.54, so the ONE under the
+/// animator object is the body and the other two are contained within it. Those two are
+/// <c>geo_bendyband</c> and <c>geo_bendyband (1)</c>: the wall-fade census tracks both as
+/// <c>[mesh]</c> objects FLOATING at foot 2.97..3.07 wu, about 5-10 cm tall, drifting frame to
+/// frame — thin horizontal bands riding the boss's head, at the height its own reach census puts
+/// <c>WP_Dummy</c> (3.35) and <c>WP_Scoundrel_Dart</c> (3.24..3.38); and the WorldUI bar-anchor
+/// census for <c>ElderDrakeID</c> names <c>geo_bendyband (1)</c> among that actor's own five mesh
+/// renderers. They are actor furniture drawn by the game with a material that shapes the band; an
+/// unlit copy of the raw mesh is a straight amber stroke standing where nothing is.</para>
+///
+/// <para>So the search restricts itself again — but on a MEASUREMENT, not on the 294 hypothesis.
+/// The 338 log carries the same clause for every figure that works: <c>ALL of them lie under
+/// m_AnimatedGameObject</c> for <c>HE_Brute</c>, <c>MO_RendingDrake_Elite</c> and
+/// <c>MO_SpittingDrake</c>. Restricting to that subtree is therefore a proven NO-OP on all three
+/// and removes exactly the two bands on the boss. The fallback keeps 294's safety: if the animator
+/// object holds no clonable renderer at all, the whole actor root is used and the report says so,
+/// so the "wrong Animator" case 294 was written against is visible in one line instead of being
+/// silently glowed.</para>
 /// </summary>
 internal sealed class FigureHighlight
 {
@@ -77,6 +101,10 @@ internal sealed class FigureHighlight
     private const string ModOwnedPrefix = "VR";
 
     private static readonly List<Renderer> Scratch = new(32);
+
+    /// <summary>Pass-1 survivors: the renderers that passed the kind/ours/ring/enabled filters and
+    /// are still eligible when pass 2 decides which of them are the MINIATURE.</summary>
+    private static readonly List<Renderer> Candidates = new(16);
 
     private GameObject? _overlayRoot;
 
@@ -125,15 +153,15 @@ internal sealed class FigureHighlight
         int onActiveObjects = Scratch.Count;
 
         int cloned = 0;
-        int underAnimated = 0;
         int skippedModOwned = 0;
         int skippedRing = 0;
         int skippedDisabled = 0;
         int skippedKind = 0;
-        float animMinY = float.MaxValue, animMaxY = float.MinValue;
         Bounds originals = default;
         Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
 
+        // PASS 1 — WHICH RENDERERS ARE CANDIDATES AT ALL (kind, ours, the ring, switched off).
+        Candidates.Clear();
         for (int i = 0; i < Scratch.Count; i++)
         {
             Renderer r = Scratch[i];
@@ -166,24 +194,55 @@ internal sealed class FigureHighlight
                 skippedDisabled++;
                 continue;
             }
+            Candidates.Add(r);
+        }
+        Scratch.Clear();
+
+        // PASS 2 — WHICH OF THE CANDIDATES ARE THE MINIATURE. See the ACTOR FURNITURE note on the
+        // class. Restrict to m_AnimatedGameObject whenever that subtree holds a candidate of its
+        // own; fall back to the whole actor root when it holds none, so a figure whose meshes are
+        // NOT under the game's animator object still gets a glow rather than nothing.
+        int candidates = Candidates.Count;
+        int underAnimatedCandidates = 0;
+        if (animatedT != null)
+        {
+            for (int i = 0; i < Candidates.Count; i++)
+                if (IsUnder(Candidates[i].transform, animatedT))
+                    underAnimatedCandidates++;
+        }
+        bool restrict = animatedT != null && underAnimatedCandidates > 0;
+
+        var clonedDesc = new List<string>(6);
+        var foreignDesc = new List<string>(4);
+        int foreign = 0;
+        for (int i = 0; i < Candidates.Count; i++)
+        {
+            Renderer r = Candidates[i];
+            if (restrict && !IsUnder(r.transform, animatedT!))
+            {
+                foreign++;
+                if (foreignDesc.Count < 4)
+                    foreignDesc.Add(FigureOverlay.DescribeSource(r));
+                continue;
+            }
 
             if (!CloneOne(r, root.transform, mat))
                 continue;
+
+            // NAME WHAT WAS COPIED. A combined box cannot separate a dragon from a 5 cm band
+            // hanging off its head — the boss's ModBuild 338 census reported three clones whose
+            // union AGREED with the originals to 0 mm while two of the three were the bands the
+            // player photographed. See FigureOverlay.DescribeSource.
+            if (clonedDesc.Count < 6)
+                clonedDesc.Add(FigureOverlay.DescribeSource(r));
 
             // The ORIGINAL's box, accumulated only so the report has something to compare the
             // CLONES against. It is never the answer on its own — see the report below.
             Bounds b = r.bounds;
             if (cloned == 0) originals = b; else originals.Encapsulate(b);
             cloned++;
-
-            if (animatedT != null && IsUnder(r.transform, animatedT))
-            {
-                underAnimated++;
-                if (b.min.y < animMinY) animMinY = b.min.y;
-                if (b.max.y > animMaxY) animMaxY = b.max.y;
-            }
         }
-        Scratch.Clear();
+        Candidates.Clear();
 
         if (cloned == 0)
         {
@@ -192,7 +251,8 @@ internal sealed class FigureHighlight
             report = $"NOTHING TO GLOW — {onActiveObjects} renderer(s) on active objects under the "
                      + $"actor root, {skippedKind} non-mesh, {skippedDisabled} with "
                      + $"Renderer.enabled=false, {skippedRing} on the selection ring, "
-                     + $"{skippedModOwned} mod-owned";
+                     + $"{skippedModOwned} mod-owned, {foreign} actor furniture outside "
+                     + "m_AnimatedGameObject";
             return false;
         }
 
@@ -213,21 +273,31 @@ internal sealed class FigureHighlight
         // it was written to answer is "I cannot see it". FigureOverlay.MeasureClones now walks the
         // container that was just built, and OverlayVisibilityProbe reports two frames later
         // whether anything actually drew it.
-        string animatedSays = animatedT == null
-            ? "the actor has NO m_AnimatedGameObject"
-            : underAnimated == 0
-                ? $"NONE of them lie under m_AnimatedGameObject '{animatedRoot!.name}' — the game's "
-                  + "own animator object is not where this figure's meshes are, which is precisely "
-                  + "the shape of a highlight that fires and cannot be seen"
-                : underAnimated == cloned
-                    ? $"ALL of them lie under m_AnimatedGameObject '{animatedRoot!.name}', so the "
-                      + "pre-ModBuild-294 search would have produced the same overlay"
-                    : $"{underAnimated} of them lie under m_AnimatedGameObject "
-                      + $"'{animatedRoot!.name}' spanning world y {animMinY:F2}..{animMaxY:F2} — the "
-                      + $"pre-ModBuild-294 search would have glowed only that part";
+        string sourceSays = restrict
+            ? $"Cloned from m_AnimatedGameObject '{animatedRoot!.name}', not the whole actor root: "
+              + $"{underAnimatedCandidates} of {candidates} candidate renderer(s) lie under it."
+            : animatedT == null
+                ? "Cloned from the ACTOR ROOT; the actor has NO m_AnimatedGameObject."
+                : $"Cloned from the ACTOR ROOT; m_AnimatedGameObject '{animatedRoot!.name}' holds "
+                  + "NOT ONE clonable renderer of its own, so restricting to it would have glowed "
+                  + "nothing — which is itself the shape of a highlight that fires and cannot be "
+                  + "seen.";
+
+        string foreignSays = foreign == 0
+            ? " Nothing was excluded as actor furniture."
+            : $" EXCLUDED {foreign} renderer(s) hanging off the actor OUTSIDE its animated object — "
+              + "actor furniture, not the miniature; on the boss these are the thin bands that were "
+              + $"being gilded at its head: {string.Join("; ", foreignDesc)}"
+              + (foreign > foreignDesc.Count ? $" (+{foreign - foreignDesc.Count} more not named)" : "")
+              + ".";
 
         report = FigureOverlay.MeasureClones(root.transform, "GLOW", cloned > 0, originals, cloned)
-                 + $" Cloned from the ACTOR ROOT; {animatedSays}. Skipped: "
+                 + " " + sourceSays
+                 + $" CLONED: {string.Join("; ", clonedDesc)}"
+                 + (cloned > clonedDesc.Count ? $" (+{cloned - clonedDesc.Count} more not named)" : "")
+                 + "."
+                 + foreignSays
+                 + " Skipped: "
                  + $"{skippedKind} non-mesh, {skippedDisabled} with Renderer.enabled=false, "
                  + $"{skippedRing} on the selection ring, {skippedModOwned} mod-owned, of "
                  + $"{onActiveObjects} renderer(s) on active objects.";
@@ -272,6 +342,10 @@ internal sealed class FigureHighlight
             clone.localBounds = smr.localBounds;
             clone.quality = smr.quality;
             clone.updateWhenOffscreen = smr.updateWhenOffscreen;
+            // Blend-shape weights live on the RENDERER, not the bones a clone shares, and a fresh
+            // SkinnedMeshRenderer starts them all at zero — an overlay of the figure in a pose the
+            // figure is not in. See FigureOverlay.CopyBlendShapeWeights.
+            FigureOverlay.CopyBlendShapeWeights(smr, clone);
             clone.sharedMaterials = Fill(smr.sharedMesh.subMeshCount, overlayMat);
             clone.shadowCastingMode = ShadowCastingMode.Off;
             clone.receiveShadows = false;

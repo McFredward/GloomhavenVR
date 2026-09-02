@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using GloomhavenVR.Hands;
 using ScenarioRuleLibrary;
+using UnityEngine;
 
 namespace GloomhavenVR.Board.FigureGrab;
 
@@ -66,10 +67,54 @@ internal static class HeldProps
     private static readonly List<CObjectProp> Held = new();
     private static readonly List<HandSide> Sides = new();
 
+    /// <summary>The VISUAL ROOT each held prop rides the hand with, in the same GRAB ORDER as
+    /// <see cref="Held"/>. Recorded so <see cref="OwnsRendererOf"/> can answer "is this renderer
+    /// part of something the player is holding right now?" — see that method for the defect it
+    /// exists to end.</summary>
+    private static readonly List<GameObject> Visuals = new();
+
     /// <summary>True while the local player physically holds this prop (grab through landing).</summary>
     internal static bool Owns(CObjectProp? prop) => prop != null && IndexOf(prop) >= 0;
 
     internal static int Count => Held.Count;
+
+    /// <summary>
+    /// IS THIS RENDERER PART OF A PROP THE PLAYER IS HOLDING RIGHT NOW? The one question the
+    /// mod's scenery systems have to be able to ask before they may touch a renderer.
+    ///
+    /// <para><b>WHY IT EXISTS (ModBuild 339, defect (a): "in der Hand ist es garnicht oder nur
+    /// immer ganz kurz für einen Frame sichtbar").</b> <c>WallSegmentFade</c> adopts airborne
+    /// scenery as wall dressing and as stacked shell, and both passes end in
+    /// <c>renderer.enabled = false</c>. Its one exemption is
+    /// <c>WallSegmentFade.IsFigureOrActorRenderer</c> — <c>SkinnedMeshRenderer</c>, or an
+    /// <c>ActorBehaviour</c> / <c>CInteractableActor</c> / <c>Animator</c> on an ANCESTOR. A held
+    /// MINIATURE passes that test twice over. A held PROP fails it by construction: a prop has no
+    /// <c>ActorBehaviour</c> at all (the whole reason <see cref="GrabbableProp"/> is not a
+    /// <c>FigureGrabbable</c>), most prop bodies are plain <c>MeshRenderer</c>s, and the walk is
+    /// <c>GetComponentInParent</c> — so whatever an ancestor on the BOARD may have contributed is
+    /// gone the moment the prop is reparented under the hand's grab anchor. Lifting a prop
+    /// therefore makes it airborne, un-exempt and re-parented in one step: it is adopted on the
+    /// very next wall pass and hidden, which is exactly "visible for one frame".</para>
+    ///
+    /// <para><b>COST.</b> One <c>List.Count</c> compare when nothing is held — the steady state,
+    /// and the state this is called in ~3000 times per wall rescan. While a prop IS held it is an
+    /// ancestor walk against at most two roots, and it terminates at the scene root.</para>
+    /// </summary>
+    internal static bool OwnsRendererOf(Transform? t)
+    {
+        if (Visuals.Count == 0 || t == null)
+            return false;
+        for (Transform? cur = t; cur != null; cur = cur.parent)
+        {
+            for (int i = 0; i < Visuals.Count; i++)
+            {
+                GameObject v = Visuals[i];
+                if (v != null && ReferenceEquals(v.transform, cur))
+                    return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// The <paramref name="slot"/>-th still-held prop in GRAB ORDER (0 = oldest), with the hand
@@ -90,7 +135,7 @@ internal static class HeldProps
 
     /// <summary>Record a grab. Re-adding a prop already held keeps its ORIGINAL grab position in
     /// the order (a re-grab during the release glide must not demote it) and refreshes its hand.</summary>
-    internal static void Add(CObjectProp? prop, HandSide side)
+    internal static void Add(CObjectProp? prop, GameObject? visual, HandSide side)
     {
         if (prop == null)
             return;
@@ -98,10 +143,13 @@ internal static class HeldProps
         if (at >= 0)
         {
             Sides[at] = side;
+            if (visual != null)
+                Visuals[at] = visual; // a re-grab may re-resolve the visual; keep the slot in step
             return;
         }
         Held.Add(prop);
         Sides.Add(side);
+        Visuals.Add(visual!);
     }
 
     internal static void Remove(CObjectProp? prop)
@@ -113,12 +161,14 @@ internal static class HeldProps
             return;
         Held.RemoveAt(at);
         Sides.RemoveAt(at);
+        Visuals.RemoveAt(at);
     }
 
     internal static void Clear()
     {
         Held.Clear();
         Sides.Clear();
+        Visuals.Clear();
     }
 
     /// <summary>Reference identity, never <c>Equals</c>: <c>CObjectProp</c> is a plain rule-library
