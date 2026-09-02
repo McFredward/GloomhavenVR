@@ -44,6 +44,21 @@ namespace GloomhavenVR.Compat;
 /// (<see cref="MaxLessonSeconds"/>), the scenario boundary (<see cref="Reset"/>), and the error
 /// latch. Every one of them releases the hold.</para>
 ///
+/// <para>A SECOND COST, WRITTEN DOWN BECAUSE IT WAS ALMOST BLAMED FOR SOMETHING ELSE. The game
+/// swaps its <c>InteractabilityManager</c> profile ONLY from
+/// <c>LevelEventsController.MessageWasDisplayed</c> and <c>MessageWasDismissed</c>
+/// (LevelEventsController.cs:949-958 / 983-990). A withheld message reaches neither, so whatever
+/// profile the last DISPLAYED message loaded stays loaded for as long as the hold lasts — in the
+/// tutorial that is the messageless profile the opening dialogue's dismissal installed, and
+/// <c>InteractabilityManager.ShouldTryPreventControl()</c> stays armed on it. The hold does not
+/// CREATE that veto (vanilla is under it between any two messages) but it does extend the window,
+/// up to <see cref="MaxLessonSeconds"/>. When the 2026-09-02 main-menu deadlock was investigated
+/// this was the leading suspect and the log ruled it out: the lesson had ended and released the
+/// chain 700 log lines and three scripted boxes earlier. Anyone reaching for it again should check
+/// the same thing first — the release line names itself
+/// ("VR step HOLD RELEASED"), and the cause that round was
+/// <c>UIMenuOption.Select()</c>'s <c>if (isSelected) return;</c> latch, not this.</para>
+///
 /// <para>WHAT IT TOUCHES OTHERWISE is entirely the mod's own: two controller models in place of the
 /// hand meshes — and, since the 2026-09-02 ruling, ONLY while a step actually asks for or shows a
 /// key press — and a read of the mod's own input. Ending it puts every renderer back by
@@ -76,8 +91,9 @@ internal static class ControlsTutorial
     /// costs the player nothing.</summary>
     private const float ArmSettleSeconds = 0.75f;
 
-    /// <summary>How long a completed step stays on screen showing its filled bar before the next
-    /// one replaces it. Long enough to register that it was the motion that did it.</summary>
+    /// <summary>How long a completed step stays on screen, showing its "done" line, before the
+    /// next one replaces it. Long enough to register that it was the motion that did it. (It used
+    /// to show a filled progress bar as well; the bar was removed on 2026-09-02.)</summary>
     private const float CompletedDwellSeconds = 1.1f;
 
     /// <summary>How long the lesson may wait for the tutorial's dialogue to be dismissed before it
@@ -272,8 +288,8 @@ internal static class ControlsTutorial
         {
             VRLog.Warn("Tutorial", $"Controls lesson: still running after {MaxLessonSeconds:0} s. "
                 + "That should be impossible for a player who is simply taking their time, so "
-                + "treat it as a symptom — check whether the NEXT/SKIP buttons were built into "
-                + "the box at all (a Warn above says so if they were not). Handing the scripted "
+                + "treat it as a symptom — check whether the box's button was built into "
+                + "the box at all (a Warn above says so if it was not). Handing the scripted "
                 + "chain back now so the run can continue.");
             Stop("the absolute ceiling was reached (anti-brick backstop)");
             return;
@@ -362,7 +378,7 @@ internal static class ControlsTutorial
         _completedAt = 0f;
         ControlsProgress.BeginWaiting(ControlsLesson.Steps[0].Action);
         RefreshBox(done: false);
-        if (!ControlsBox.Show(OnNext, OnSkip))
+        if (!ControlsBox.Show(OnAction))
             return;   // window not free yet — the Opening ceiling bounds the retry
 
         AuditStepTable();
@@ -379,24 +395,36 @@ internal static class ControlsTutorial
     }
 
     /// <summary>
-    /// The two facts <see cref="ControlsStep.ShowsController"/> and <see cref="ControlsStep.Key"/>
-    /// are declared separately on purpose (see that field). They agree for every row today; if a
-    /// future edit makes them disagree, that is either a deliberate case or a typo, and the log is
-    /// where the difference has to show up rather than in a player's headset.
+    /// PRINT THE RESOLVED STEP TABLE, once, at the top of a run.
+    ///
+    /// <para>It used to WARN whenever <see cref="ControlsStep.ShowsController"/> disagreed with
+    /// <see cref="ControlsStep.Key"/> being non-null, on the argument that the two agreed for every
+    /// row and a disagreement was therefore a typo. Since the 2026-09-02 per-step ruling three rows
+    /// disagree ON PURPOSE — take a card, hold a card and the fingertip pick all name a key and
+    /// still show the player's own hand — so that warning would now fire three times a run and
+    /// mean nothing. What is worth having instead is the table itself: one line saying what the
+    /// headset was told to show for each step, so a hardware log answers "did my decision arrive"
+    /// without a screenshot per card.</para>
     /// </summary>
     private static void AuditStepTable()
     {
+        var table = new System.Text.StringBuilder(512);
         for (int i = 0; i < ControlsLesson.Steps.Length; i++)
         {
             ref readonly ControlsStep s = ref ControlsLesson.Steps[i];
-            if (s.ShowsController == (s.Key != null))
-                continue;
-            VRLog.Warn("Tutorial", $"Controls lesson step '{s.Id}' declares "
-                + $"ShowsController={s.ShowsController} but "
-                + $"{(s.Key == null ? "lights no key" : $"lights '{s.Key}'")}. The controller "
-                + "models follow the DECLARATION, not the key — if that is not what was meant, "
-                + "fix the step table.");
+            if (i > 0)
+                table.Append(", ");
+            table.Append(s.Id).Append('=')
+                 .Append(s.ShowsController ? "controller" : "hand");
+            if (s.Key != null)
+                table.Append('(').Append(s.Key).Append(')');
         }
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", "Controls lesson step table, as the headset will show it — "
+            + "'controller' means the device model replaces the hand for that card, 'hand' means "
+            + "the player keeps their own hand and the key is named in words only: "
+            + table);
     }
 
     private static void Advance()
@@ -425,8 +453,12 @@ internal static class ControlsTutorial
     {
         ref readonly ControlsStep step = ref ControlsLesson.Steps[index];
         SetControllersVisible(step.ShowsController, step.Id);
-        _left?.Highlight(step.Key);
-        _right?.Highlight(step.Key);
+        // A hand step lights NOTHING even when it names a key — there is no model to light it on,
+        // and leaving `_lit` pointing at a key would make Highlight early-return on the next
+        // controller step that happens to want the same one.
+        string? key = step.ShowsController ? step.Key : null;
+        _left?.Highlight(key);
+        _right?.Highlight(key);
     }
 
     private static void SetControllersVisible(bool visible, string stepId)
@@ -448,14 +480,19 @@ internal static class ControlsTutorial
         }
         else
         {
-            _left?.Hide();
-            _right?.Hide();
+            // ANIMATED, not torn down: BeginHide shrinks the model and destroys it when it reaches
+            // nothing. The teardown paths (Stop, Reset, Shutdown) call Hide() straight afterwards,
+            // which forces it gone in the same frame — a lesson that is ending must not leave a
+            // controller mid-shrink in the player's hand.
+            _left?.BeginHide();
+            _right?.BeginHide();
         }
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
-        VRLog.Note("Tutorial", $"Controls lesson: controller meshes "
-            + $"{(visible ? "SHOWN" : "HIDDEN (the player's own hands are back)")} for step "
-            + $"'{stepId}' — they are up only while a step asks for or demonstrates a key press.");
+        VRLog.Note("Tutorial", $"Controls lesson: controller meshes swapping "
+            + $"{(visible ? "IN over the hands" : "OUT, giving the player's own hands back")} for "
+            + $"step '{stepId}' — they are up only while a step asks for or demonstrates a key "
+            + "press, and the swap itself is animated (see the swap measurement line).");
     }
 
     private static void RefreshBox(bool done)
@@ -474,14 +511,15 @@ internal static class ControlsTutorial
             body = SafeFormat(body, ControllerVisual.DeviceLabel);
         if (done)
             body += "\n\n" + Loc.Mod("ctl_good");
+        // THE BOX'S ONE BUTTON, and what it says (user ruling 2026-09-02). A teaching card offers
+        // ÜBERSPRINGEN, which now leaves THAT CARD and nothing else; a prose card — the welcome and
+        // the closing card, which have no task to skip — offers WEITER. Same button, same handler,
+        // same effect: go to the next card. There is no "GEHT GERADE NICHT" any more; on a step the
+        // room cannot currently offer, skipping the step IS "not now".
         ControlsBox.SetStep(
             Loc.Mod(step.Id + "_t"),
             body,
-            teaches ? $"{_index}/{TeachingStepCount}" : string.Empty,
-            teaches ? Loc.Mod(step.Situational ? "ctl_cant" : "ctl_next") : Loc.Mod("ctl_next"),
-            done ? 1f : ControlsLesson.Progress(in step),
-            teaches,
-            offerSkip: true);
+            Loc.Mod(teaches ? "ctl_skip" : "ctl_next"));
     }
 
     /// <summary>A body whose {0} could not be filled is still a usable instruction; a lesson
@@ -498,30 +536,28 @@ internal static class ControlsTutorial
         }
     }
 
-    /// <summary>Steps that actually teach a control — the welcome and closing cards are not
-    /// counted, because "1 of 15" when two of them are prose is a promise the lesson does not
-    /// keep.</summary>
-    private static int TeachingStepCount
-    {
-        get
-        {
-            int n = 0;
-            for (int i = 0; i < ControlsLesson.Steps.Length; i++)
-                if (ControlsLesson.Steps[i].Action != ControlAction.None)
-                    n++;
-            return n;
-        }
-    }
-
-    private static void OnNext() => Advance();
-
-    private static void OnSkip()
+    /// <summary>
+    /// THE BOX'S ONE BUTTON, pressed. It advances by exactly one card and nothing more (user
+    /// ruling 2026-09-02: <i>"'Überspringen' soll nur für die jeweilige Aufgabe gelten"</i>).
+    ///
+    /// <para>WHAT THAT CHANGED, stated plainly, because it is a weakening. Until now this button
+    /// ended the whole lesson in one press, and <see cref="ControlsBox"/>'s doc argued that a
+    /// tutorial able to strand somebody is worse than one they leave early. It still cannot strand
+    /// anybody: the button is on EVERY card including the last, so the way out of the lesson as a
+    /// whole is to keep pressing it — at most <c>Steps.Length</c> presses from anywhere, and the
+    /// press on the closing card runs <see cref="Advance"/> past the end of the table, which is
+    /// <see cref="Stop"/>. What is gone is the ONE-PRESS exit; nothing else. The
+    /// <see cref="MaxLessonSeconds"/> ceiling, the scenario boundary and the error latch are all
+    /// still there and all still release the chain.</para>
+    /// </summary>
+    private static void OnAction()
     {
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", $"Controls lesson skipped by the player at step {_index} "
-            + $"('{(_index >= 0 && _index < ControlsLesson.Steps.Length ? ControlsLesson.Steps[_index].Id : "?")}').");
-        Stop("the player pressed SKIP");
+            + $"('{(_index >= 0 && _index < ControlsLesson.Steps.Length ? ControlsLesson.Steps[_index].Id : "?")}')"
+            + " — the box's one button advances to the NEXT card; it no longer ends the lesson.");
+        Advance();
     }
 
     private static void EngageHold(string why)

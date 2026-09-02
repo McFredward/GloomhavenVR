@@ -126,8 +126,27 @@ internal sealed class ControllerVisual
     /// length in the mod.</summary>
     private const float MarkerRadiusRealMeters = 0.010f;
 
+    /// <summary>How long a hand-to-controller swap takes, in seconds (user ruling 2026-09-02:
+    /// <i>"Wenn es zwischen Controller und Hand wechselt, sollte das mit einer kleinen Animation
+    /// passieren statt einfach 'umzuploppen'."</i>). Short enough not to delay a step, long enough
+    /// to read as a motion at 90 Hz — about twenty frames.</summary>
+    private const float SwapSeconds = 0.22f;
+
+    /// <summary>The point in the swap at which the hand mesh changes state, as a fraction of
+    /// <see cref="_swap"/>. Not 0 and not 1: the two meshes overlap around the middle, so the
+    /// controller is already half-grown when the hand goes and half-shrunk when it comes back, and
+    /// neither disappearance happens against an empty hand.</summary>
+    private const float HandCutFraction = 0.5f;
+
     private static Device? _resolved;
     private static bool _loggedDevice;
+
+    /// <summary>One-shot: the FIRST completed swap of the session reports what the driver actually
+    /// did — how many frames it took and the smallest and largest step it advanced by. A "small
+    /// animation" that turns out to be a one-frame switch is a defect this project has shipped
+    /// three times, and the only thing that catches it is measuring the DRIVER rather than
+    /// asserting the intent.</summary>
+    private static bool _swapProven;
 
     private readonly VRHand _hand;
     private GameObject? _model;
@@ -137,6 +156,18 @@ internal sealed class ControllerVisual
     private readonly List<Renderer> _hidden = new(32);
     private MaterialPropertyBlock? _block;
     private string? _lit;
+
+    // ---- the swap ----------------------------------------------------------------------------
+    // _swap is 0 when the hand is fully out and 1 when the controller is fully in; _swapTarget is
+    // where it is heading. Reversing mid-swap is just a change of target, which is why a player who
+    // presses through two steps faster than the animation cannot desynchronise it.
+    private float _swap;
+    private float _swapTarget;
+    private bool _handHidden;
+    private int _swapFrames;
+    private float _swapMinStep = float.MaxValue;
+    private float _swapMaxStep;
+    private float _swapStartedAt = -1f;
 
     internal ControllerVisual(VRHand hand) => _hand = hand;
 
@@ -215,11 +246,22 @@ internal sealed class ControllerVisual
         return device;
     }
 
-    /// <summary>Put the controller in this hand and take the hand mesh away. Idempotent.</summary>
+    /// <summary>True while a swap is part-way through, so the driver knows the model is still
+    /// on its way in or out.</summary>
+    internal bool IsSwapping => _model != null && !Mathf.Approximately(_swap, _swapTarget);
+
+    /// <summary>
+    /// Put the controller in this hand and take the hand mesh away — as a SWAP that takes
+    /// <see cref="SwapSeconds"/>, not as a frame. Idempotent, and calling it while the reverse swap
+    /// is running simply turns that swap round rather than rebuilding anything.
+    /// </summary>
     internal void Show()
     {
         if (_model != null)
+        {
+            BeginSwap(1f);
             return;
+        }
         Device device = ResolveDevice(_hand);
         string id = device.Model;
         string hand = _hand.Side == HandSide.Left ? "left" : "right";
@@ -244,7 +286,7 @@ internal sealed class ControllerVisual
         _model.name = $"GloomhavenVR.Controller_{id}_{hand}";
         _model.transform.localPosition = Vector3.zero;
         _model.transform.localRotation = Quaternion.identity;
-        _model.transform.localScale = Vector3.one;
+        _model.transform.localScale = Vector3.zero;   // grown by the swap, never popped in
 
         foreach (Transform part in _model.transform)
         {
@@ -256,10 +298,50 @@ internal sealed class ControllerVisual
                 _anchors[part.name] = anchor;
         }
 
-        HideHand();
+        // A key may already have been asked for before the model existed: since the per-step
+        // hand/controller ruling, a step can name a key and still show the HAND, which leaves
+        // `_lit` set with nothing to light. Re-apply it against the renderers that have just
+        // appeared — Highlight early-returns when `_lit` already equals the key, so without this
+        // the key would silently never light on the next controller step.
+        string? want = _lit;
+        _lit = null;
+        Highlight(want);
+
+        _swap = 0f;
+        _swapTarget = 0f;
+        BeginSwap(1f);
     }
 
-    /// <summary>Hand back, controller gone, every renderer restored. Safe to call twice.</summary>
+    /// <summary>
+    /// Begin, or turn round, the swap. <paramref name="target"/> is 1 for controller-in and 0 for
+    /// hand-back. The measurement fields are armed HERE rather than in <see cref="Tick"/>, so what
+    /// gets reported is the run that actually happened.
+    /// </summary>
+    private void BeginSwap(float target)
+    {
+        if (Mathf.Approximately(_swapTarget, target))
+            return;
+        _swapTarget = target;
+        _swapFrames = 0;
+        _swapMinStep = float.MaxValue;
+        _swapMaxStep = 0f;
+        _swapStartedAt = Time.unscaledTime;
+    }
+
+    /// <summary>
+    /// Start giving the hand back, over <see cref="SwapSeconds"/>. The model stays alive until the
+    /// swap reaches zero, which is what makes this an animation rather than a delayed pop; use
+    /// <see cref="Hide"/> when it has to be gone NOW (lesson end, scenario boundary, shutdown).
+    /// </summary>
+    internal void BeginHide()
+    {
+        if (_model == null)
+            return;
+        BeginSwap(0f);
+    }
+
+    /// <summary>Hand back, controller gone, every renderer restored, THIS FRAME. Safe to call
+    /// twice. This is the teardown path; the animated one is <see cref="BeginHide"/>.</summary>
     internal void Hide()
     {
         Highlight(null);
@@ -275,13 +357,87 @@ internal sealed class ControllerVisual
         }
         _keys.Clear();
         _anchors.Clear();
-        // Restore only what WE switched off, by identity: another subsystem may have hidden a
-        // renderer for its own reasons while the lesson ran, and blanket-enabling everything
-        // under the hand would silently overrule it.
-        for (int i = 0; i < _hidden.Count; i++)
-            if (_hidden[i] != null)
-                _hidden[i].enabled = true;
-        _hidden.Clear();
+        _swap = 0f;
+        _swapTarget = 0f;
+        _swapStartedAt = -1f;
+        ShowHand();
+    }
+
+    /// <summary>
+    /// Advance the swap and paint it. The model scales between nothing and full size and the hand
+    /// changes state at the crossover, so the two meshes overlap in the middle instead of one
+    /// replacing the other in a frame.
+    ///
+    /// <para>IT IS THE CONTROLLER THAT IS SCALED, NEVER THE HAND, and that is not a detail:
+    /// <c>handRoot.localScale</c> is the per-style hand SCALE that
+    /// <c>HandVisuals.ApplyStyleScale</c> writes live from [Hands] GloveScale/PlateScale/
+    /// ArcaneScale and compensates the attachment sockets against. Animating it would be a second
+    /// writer of a hand-tuned config value, and would make the card fan and everything else
+    /// socketed into the hand breathe with it. So the hand keeps its renderer switch and the
+    /// motion belongs entirely to the object this class owns.</para>
+    /// </summary>
+    private void TickSwap()
+    {
+        if (_model == null)
+            return;
+        if (!Mathf.Approximately(_swap, _swapTarget))
+        {
+            float step = Mathf.Max(Time.unscaledDeltaTime, 0f) / Mathf.Max(SwapSeconds, 0.0001f);
+            float before = _swap;
+            _swap = Mathf.MoveTowards(_swap, _swapTarget, step);
+            float moved = Mathf.Abs(_swap - before);
+            _swapFrames++;
+            if (moved < _swapMinStep)
+                _swapMinStep = moved;
+            if (moved > _swapMaxStep)
+                _swapMaxStep = moved;
+            if (Mathf.Approximately(_swap, _swapTarget))
+                ReportSwapIfFirst();
+        }
+
+        // Smoothstep, so the two ends ease instead of starting and stopping at full speed.
+        float eased = _swap * _swap * (3f - 2f * _swap);
+        _model.transform.localScale = Vector3.one * eased;
+
+        // The hand changes state at the crossover, and the test is on the CURRENT value rather
+        // than on which way we are travelling — so turning a swap round mid-flight puts the hand
+        // back in exactly the frame the crossover is re-crossed, with no extra bookkeeping.
+        SetHandHidden(_swap >= HandCutFraction);
+
+        if (_swap <= 0f && Mathf.Approximately(_swapTarget, 0f))
+            Hide();   // the animated hide has finished; now the model can go
+    }
+
+    /// <summary>
+    /// The one-shot that says what the DRIVER did, not what it was asked to do. This project has
+    /// shipped a "continuous sweep" that was a one-frame switch three separate times, and the only
+    /// thing that ever caught it was a line like this one.
+    /// </summary>
+    private void ReportSwapIfFirst()
+    {
+        if (_swapProven || _swapStartedAt < 0f)
+            return;
+        _swapProven = true;
+        float seconds = Time.unscaledTime - _swapStartedAt;
+        float min = _swapMinStep == float.MaxValue ? 0f : _swapMinStep;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", "Controls lesson hand/controller swap, measured on its FIRST run: "
+            + $"{_swapFrames} frame(s) over {seconds:0.000} s travelling to {_swapTarget:0}, "
+            + $"per-frame progress {min:0.000}..{_swapMaxStep:0.000} of 1. ONE frame here means it "
+            + "is still a pop wearing an animation's clothes, whatever the intent was; the nominal "
+            + $"length is {SwapSeconds:0.00} s.");
+    }
+
+    private void SetHandHidden(bool hidden)
+    {
+        if (hidden == _handHidden)
+            return;
+        _handHidden = hidden;
+        if (hidden)
+            HideHand();
+        else
+            ShowHand();
     }
 
     private void HideHand()
@@ -298,6 +454,19 @@ internal sealed class ControllerVisual
             r.enabled = false;
             _hidden.Add(r);
         }
+        _handHidden = true;
+    }
+
+    /// <summary>Restore only what WE switched off, by identity: another subsystem may have hidden
+    /// a renderer for its own reasons while the lesson ran, and blanket-enabling everything under
+    /// the hand would silently overrule it.</summary>
+    private void ShowHand()
+    {
+        for (int i = 0; i < _hidden.Count; i++)
+            if (_hidden[i] != null)
+                _hidden[i].enabled = true;
+        _hidden.Clear();
+        _handHidden = false;
     }
 
     /// <summary>Light one key (a <see cref="ControllerKey"/> name), or clear with null.</summary>
@@ -318,9 +487,11 @@ internal sealed class ControllerVisual
             ShowMarkerAt(anchor);
     }
 
-    /// <summary>Per-frame pulse of whatever is currently lit. Cheap and allocation-free.</summary>
+    /// <summary>Per-frame swap animation, then the pulse of whatever is currently lit. Cheap and
+    /// allocation-free.</summary>
     internal void Tick()
     {
+        TickSwap();
         if (_model == null || _lit == null)
             return;
         float t = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * PulseHz * 2f * Mathf.PI);

@@ -1766,29 +1766,49 @@ internal static class CardsConfig
     }
 
     /// <summary>
-    /// The band <c>[Cards] TrayScale</c> may hold — the declared config range, the read clamp below
-    /// and the round trip in <c>PlayTray.PersistPoseToConfig</c> are all THIS pair, named once
-    /// (2026-08-25). It is not a taste value: it is the exact set of sizes the config can reproduce
-    /// bit-exactly as <c>TrayScale × BoardScale_{board}</c>, so it is also what the two-hand gesture
-    /// window is intersected with — a release outside it would have to be absorbed into the
-    /// hand-tuned <c>BoardScale_{board}</c>, which is the 2026-08-15 "Minimum und Maximum wieder
-    /// verschoben" ratchet. Changing these two numbers moves the settings window's own range; the
-    /// SIZE LIMITS the player actually bumps into are <c>[Cards] BoardMin/BoardMaxWidthMeters</c>,
-    /// which are apparent metres and ride the rig scale (PlayTray.TryGetApparentWidthPerScaleUnit).
+    /// THE BAND <c>[Cards] TrayScale</c> MAY HOLD — A STORAGE RANGE, AND SINCE ModBuild 351 THAT IS
+    /// ALL IT IS. The declared config range, the read clamp below and the round trip in
+    /// <c>PlayTray.PersistPoseToConfig</c> are this one pair, named once. It is not a taste value:
+    /// it is the set of sizes the config can reproduce bit-exactly as
+    /// <c>TrayScale × BoardScale_{board}</c>. The SIZE LIMITS the player actually bumps into are
+    /// <c>[Cards] BoardMin/BoardMaxWidthMeters</c>, which are apparent metres and ride the rig scale
+    /// (<c>PlayTray.TryGetApparentWidthPerScaleUnit</c>).
+    ///
+    /// <para><b>THE TWO-HAND GESTURE WINDOW IS NO LONGER INTERSECTED WITH THIS BAND, and the
+    /// ModBuild 269 paragraph below is CORRECTED, not deleted, because its claim is the thing that
+    /// went wrong.</b> That paragraph says 0.25–4.0 "makes the storable band a SUPERSET of the whole
+    /// 18-140 cm apparent window on all three boards, so the intersection never bites". THAT IS
+    /// TRUE IN FOLGEN AND FALSE IN FIXIERT. In FOLGEN the tray hangs under the rig anchor, so the
+    /// parent chain IS the rig scale, the division in <c>TryGetApparentWidthPerScaleUnit</c>
+    /// cancels, and the apparent window is the fixed localScale <c>[0.281, 2.188]</c> the claim was
+    /// checked against. In FIXIERT the parent chain is the pin holder, frozen at pin time, so
+    /// nothing cancels and the window is PROPORTIONAL TO THE LIVE RIG SCALE. The ModBuild 350
+    /// hardware log walked it clean off this band: rig ×8.90 window <c>[0.622, 4.841]</c>, rig
+    /// ×29.93 window <c>[2.091, 16.260]</c> (a 3.8 % overlap left), rig ×73.93 window
+    /// <c>[5.172, 40.230]</c> against a band of <c>[0.136, 2.171]</c> — no overlap at all, the
+    /// window collapsed onto a point and the pinch went silently inert. That is the user's
+    /// "Das konnte ich im Test nicht".</para>
+    ///
+    /// <para><b>SO DO NOT TRY TO FIX THAT BY WIDENING THESE TWO NUMBERS.</b> In FIXIERT the
+    /// required localScale is the FOLGEN window times the ZOOM RATIO SINCE PINNING, and the rig's
+    /// own span is <c>base × [0.1, 12]</c> — a factor of up to 120. The ModBuild 350 session alone
+    /// covered ×19.8 (rig ×4.02 → ×79.68) and would have needed <c>TrayScale</c> to reach 80. A
+    /// fixed band cannot contain a sliding window at any width, so the intersection was removed
+    /// instead (<c>PlayTray.IPanelGrabOwner.GrabScaleLimits</c>) and the ratchet it was guarding
+    /// against was closed at its own end: <c>PersistPoseToConfig</c> no longer re-seats
+    /// <c>BoardScale_{board}</c> under any circumstances.</para>
+    ///
+    /// <para>THE ORIGINAL ModBuild 269 NOTE, kept because the reach argument in it is still right
+    /// and still the reason these are 0.25/4 and not 0.5/2: "the narrower pair would have COST the
+    /// player reach he has today … at 0.5-2 the intersection BITES: on Oak/Bronze
+    /// (<c>BoardScale 0.54265</c>) the two-hand grow would have stopped at <c>localScale 1.085</c>
+    /// ~ 69 cm apparent instead of ~128 cm." With the intersection gone that argument now applies
+    /// to what the CONFIG can hold rather than to what the gesture can reach, which is a smaller
+    /// claim — but it is the same direction, and narrowing the pair would only make the lossy case
+    /// in <c>PersistPoseToConfig</c> more common. Changing these two numbers moves the settings
+    /// window's own slider range; that is a deliberate, stable change, not the drifting range of
+    /// the 2026-08-15 report.</para>
     /// </summary>
-    /// <para>WIDENED TO 0.25-4.0 AT INTEGRATION (ModBuild 269), and the reason is that the
-    /// narrower pair would have COST the player reach he has today. Intersecting the two-hand
-    /// gesture window with this band is correct — a release outside it can only be stored by
-    /// re-seating the hand-tuned <c>BoardScale_{board}</c>, which is the 2026-08-15 ratchet — but
-    /// at 0.5-2 the intersection BITES: on Oak/Bronze (<c>BoardScale 0.54265</c>) the two-hand
-    /// grow would have stopped at <c>localScale 1.085</c> ~ 69 cm apparent instead of ~128 cm.
-    /// The player would have read that as "the board cannot get big any more" — a regression
-    /// traded for a fix he never asked for. 0.25-4.0 makes the storable band a SUPERSET of the
-    /// whole 18-140 cm apparent window on all three boards, so the intersection never bites, the
-    /// full reach survives, and the ratchet still cannot fire. The cost is that the settings
-    /// window's own slider range widens; that is a deliberate, stable change, not the drifting
-    /// range of the 2026-08-15 report. Revert to 0.5f/2f to undo it — nothing else needs to
-    /// change, which is the point of naming the pair once.</para>
     internal const float TrayScaleMin = 0.25f;
 
     /// <inheritdoc cref="TrayScaleMin"/>

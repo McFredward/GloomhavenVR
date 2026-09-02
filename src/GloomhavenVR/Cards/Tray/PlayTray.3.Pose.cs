@@ -1094,17 +1094,21 @@ internal sealed partial class PlayTray
         // had pinched to 1.94 persisted as TrayScale 2 (clamped) and snapped to 0.80 the next time
         // anything re-derived the pose. That was the "es hat seine Größe geändert" half of the
         // 2026-08-03 report; the recall was only what triggered the re-derivation.
-        // So: keep TrayScale's documented 0.5–2 grab semantics, and absorb whatever does not fit
-        // into the per-board multiplier (a free float, hand-edit/debug-menu territory) so the
-        // PRODUCT is bit-exact what the player is looking at.
+        // The answer THEN was to absorb whatever did not fit into the per-board multiplier so the
+        // PRODUCT stayed bit-exact. That absorption is deleted (see the ModBuild 351 block below):
+        // it wrote a hand-tuned number, which the user reported in turn. The round trip is now
+        // exact for every size the band can hold and lossy — audibly, in one Note line — for the
+        // sizes only a deep FIXIERT zoom can reach, where the quantity that would have to be
+        // stored is a WORLD size that rides the rig and no fixed band can hold it.
         //
         // A CARRY IS NOT A RESIZE, and since 2026-08-25 that distinction is load-bearing rather
         // than merely tidy. The apparent-size PUSH (PlayTray.ClampApparentSize) can legitimately
         // leave the live localScale different from the configured one — that is the whole feature —
         // and this method runs on EVERY grab release, including a one-hand carry that touched no
         // size at all. Persisting the pushed size from a carry would write a value the player never
-        // authored into his config and, being outside TrayScale's band, would ratchet it straight
-        // into the hand-tuned BoardScale_{board}. So the size is written only when the grab actually
+        // authored into his config, and — until ModBuild 351 deleted that path — would have
+        // ratcheted it into the hand-tuned BoardScale_{board}. It would still overwrite a size he
+        // DID author with one he did not. So the size is written only when the grab actually
         // changed it. _scaleAtGrabStart is captured on the rising edge of the grip in
         // TickLostWatchdog and consumed here; when it is unset (a release whose grab began while the
         // watchdog was standing down) the old unconditional behaviour is the fallback, because
@@ -1126,34 +1130,52 @@ internal sealed partial class PlayTray
             return;
         }
 
+        // THE BoardScale_{board} RE-SEAT IS GONE (ModBuild 351), AND WITH IT THE LAST WRITER OF A
+        // HAND-TUNED NUMBER. It used to run whenever TrayScale alone could not reproduce the live
+        // size: `BoardScale(board).Value = live / trayScale`. That is the 2026-08-15 ratchet the
+        // user reported ("weiterhin hat sich damit auch das maximum und minimum wieder verschoben",
+        // Steel 0.54 → 1.00 → 1.13 in one session) — BoardScale_{board} is what the settings
+        // window measures its own range against, so absorbing an overflow into it MOVES the range
+        // the player can dial.
+        //
+        // ModBuild 268 made the re-seat unreachable by intersecting the two-hand gesture window
+        // with exactly this band. ModBuild 351 removes that intersection, because in FIXIERT the
+        // band is fixed and the window is proportional to the rig scale, so the intersection was
+        // empty at every deep zoom and the pinch was silently inert — the whole of the ModBuild 350
+        // report (IPanelGrabOwner.GrabScaleLimits carries the arithmetic and his numbers). So the
+        // guard has to move to THIS end: the gesture may author any size inside the player's own
+        // 18–140 cm window, and the config stores as much of it as TrayScale reaches.
+        //
+        // WHAT THAT COSTS, STATED PLAINLY RATHER THAN HIDDEN. When the live size is outside
+        // [TrayScaleMin, TrayScaleMax] × BoardScale_{board}, the stored product is not the live
+        // size, so the next EXPLICIT re-place (PlaceAtHead on a recall/recovery, or
+        // ReapplyOrientation from the settings/debug menu — both user actions, and both already
+        // re-derive the size from the config today) puts the board at the configured size instead
+        // of the pushed one. That is a bounded, visible, user-triggered snap. The alternative was
+        // silently rewriting a number he tuned by hand, which is worse and which he has already
+        // rejected once. The line below names it so the next log can tell the two apart without
+        // the eye.
         float trayScale = Mathf.Clamp(live / boardScale, CardsConfig.TrayScaleMin, CardsConfig.TrayScaleMax);
         CardsConfig.TrayScale.Value = trayScale;
         float reproduced = trayScale * boardScale;
         if (Mathf.Abs(reproduced - live) > 1e-4f * Mathf.Max(1f, live))
         {
-            float adjusted = live / trayScale;
-            CardsConfig.BoardScale(board).Value = adjusted;
-            // WARN, not Info: this re-seat is a RATCHET and it is the second half of the user's
-            // 2026-08-15 size report ("weiterhin hat sich damit auch das maximum und minimum wieder
-            // verschoben"). BoardScale_{board} is what the settings window measures its OWN range
-            // against (0.5–2 × BoardScale), so every absorption MOVES the range the player can dial
-            // — his ModBuild 158 log fired it twice in one session, Steel 0.54 → 1.00 → 1.13.
-            //
-            // ModBuild 268 makes this line REACHABLE ONLY BY A BUG. The two-hand gesture window is
-            // now intersected with exactly the band this code can express
-            // (IPanelGrabOwner.GrabScaleLimits), so a released size outside it means the gesture and
-            // the persistence disagree about the same arithmetic — which is the one thing this
-            // absorption cannot silently fix. If it appears in a 268+ log, do NOT widen the band:
-            // compare the window GrabScaleLimits returned against TrayScaleMin/Max × BoardScale at
-            // that timestamp and fix whichever of the two is wrong.
-            VRLog.Warn("Cards", $"Board size {live:F2}× is outside what TrayScale alone can express " +
-                                $"({CardsConfig.TrayScaleMin}–{CardsConfig.TrayScaleMax} × BoardScale " +
-                                $"{boardScale:F2} = {CardsConfig.TrayScaleMin * boardScale:F2}–" +
-                                $"{CardsConfig.TrayScaleMax * boardScale:F2}): BoardScale_{board} " +
-                                $"re-seated to {adjusted:F2} so the size the player set survives every " +
-                                "future re-place. THIS MOVES THE SETTINGS WINDOW'S OWN MIN/MAX and " +
-                                "since ModBuild 268 the gesture window is supposed to make it " +
-                                "unreachable — report this line.");
+            // HW-VERIFY
+            VRLog.Note("Cards", $"Board size {live:F3}× is outside what the config can store " +
+                                $"({CardsConfig.TrayScaleMin}–{CardsConfig.TrayScaleMax} × " +
+                                $"BoardScale_{board} {boardScale:F5} = " +
+                                $"{CardsConfig.TrayScaleMin * boardScale:F3}–" +
+                                $"{CardsConfig.TrayScaleMax * boardScale:F3}), so TrayScale is " +
+                                $"stored at its {(live > reproduced ? "upper" : "lower")} end " +
+                                $"{trayScale:F3}× and the product {reproduced:F3} is what a future " +
+                                $"re-place would use. BoardScale_{board} is NOT touched: " +
+                                "absorbing the remainder there was the 2026-08-15 ratchet and " +
+                                "THIS MOVES THE SETTINGS WINDOW'S OWN MIN/MAX, so ModBuild 351 " +
+                                "deleted that path. The board KEEPS the size you just set for as long as this " +
+                                "session runs; a recall or a settings live-apply will re-derive it " +
+                                "from the config. Expected in FIXIERT after a deep zoom, because " +
+                                "the size that holds your 18–140 cm window there is a WORLD size " +
+                                "and rides the rig, while this band does not.");
         }
         VRLog.Info("Cards", $"Tray layout persisted: fwd {CardsConfig.TrayForward.Value:F2} m, " +
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +

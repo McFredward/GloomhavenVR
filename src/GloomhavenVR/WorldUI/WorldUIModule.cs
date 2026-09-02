@@ -108,6 +108,17 @@ internal sealed class WorldUIModule : IVRModule
         // EmbeddedResource in this DLL (the asset bundle stays byte-identical on purpose).
         // See MainMenuLogoSwap.
         VRSession.Harmony?.PatchAll(typeof(Patches.MainMenuLogoSwap));
+        // NO EXIT CONTROL MAY BE LEFT LATCHED (user, 2026-09-02, his SECOND deadlock in two
+        // days: "Ich konnte aus dem Tutorial heraus nicht mehr ins Hauptmenu zurückkehren, da
+        // das Fenster das mich normalerweise fragt nicht mehr angezeigt wurde"). UIMenuOption
+        // .Select() opens with `if (isSelected) return;` and only THEN invokes the action, and
+        // isSelected is cleared only by Deselect() — which the game wires as the confirmation
+        // dialog's CANCEL. Any route that closes that confirmation without running the game's
+        // own "Nein" leaves the row latched, and every later click on it is a silent no-op with
+        // no log and no exception. The mod adds two such routes to that window (the modal X
+        // plate and the escape chord), and they are the rescue for a floated window, so they
+        // stay. The latch is what goes. See MenuExitLatchGuard.
+        VRSession.Harmony?.PatchAll(typeof(Patches.ESCMenu_OnShow_LatchGuard_Patch));
         // User report 2026-08-22 #9: "Wenn das Fenster mit der Liste der in-Ruhestand-Charaktere
         // geöffnet wird, verschwindet das Fenster der Character-UI, das nicht geschlossen werden
         // darf." The retired-characters list is the guildmaster bar's Mercenary Log destination, and

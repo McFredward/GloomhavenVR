@@ -142,9 +142,11 @@ internal static class LevelPose
 ///   Level rebuilds heading+pitch in the owner's level frame each frame (the root can
 ///   never end up rolled/upside down), LevelPitch adds a clamped wrist pitch, Free
 ///   rides the wrist 1:1, Slide leaves the rotation to the owner.
-/// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped to
-///   [<see cref="PanelGrabHandle.MinScale"/> = 0.15×, <see cref="PanelGrabHandle.MaxScale"/> = 2×)
-///   while also moving (and, with yaw carry, heading-yawing) with the pair midpoint.
+/// - TWO hands gripping resize it (spread = grow, pinch = shrink; clamped to the OWNER's
+///   <see cref="IPanelGrabOwner.GrabScaleLimits"/>, which for every owner but the control board
+///   is exactly [<see cref="PanelGrabHandle.MinScale"/> = 0.15×,
+///   <see cref="PanelGrabHandle.MaxScale"/> = 2×) while also moving (and, with yaw carry,
+///   heading-yawing) with the pair midpoint.
 /// - On final release the owner persists the pose
 ///   (<see cref="IPanelGrabOwner.OnGrabFinished"/>) so the layout survives sessions.
 ///
@@ -161,9 +163,11 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private const float Smoothing = 18f;          // 1/s exponential
     // Item 4: two-hand resize floor. Lowered from 0.5 so grabbable panels (the VR options
     // panel + floated menu windows especially) can be pinched MUCH smaller — the user could
-    // not shrink them enough. internal so the panel owners (GrabbableModal, Cards.PlayTray)
-    // reuse the SAME range for their own per-frame factor clamps (single source of truth);
-    // clamping to a higher per-panel min would silently re-cap what this handle just shrank.
+    // not shrink them enough. internal so the panel owners (GrabbableModal, CombatLogSurface,
+    // Cards.PlayTray) can RETURN this pair from GrabScaleLimits when they have no opinion of
+    // their own — which since ModBuild 351 is the only way these two numbers reach the resize
+    // (the handle no longer pre-clamps to them, see the two-hand branch of Update for why a
+    // pre-clamp is not the "applied AFTER and overriding" the interface promises).
     // Applies to every PanelGrabHandle user (tray, combat log, modals, settings) — the user
     // wants to shrink windows freely.
     internal const float MinScale = 0.15f;
@@ -868,14 +872,30 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
                 dYaw = Mathf.DeltaAngle(_anchorHeading, HeadingDegrees(Quaternion.Inverse(frame) * (pB - pA)));
             Quaternion spin = Quaternion.AngleAxis(dYaw, up);
 
-            float targetScale = Mathf.Clamp(_rootScale0 * (d / _anchorDistance), MinScale, MaxScale);
-            // Owner's ABSOLUTE window on top of the generic factor range (and overriding it —
-            // the tray's apparent-size limits are a user ruling, the factor range is only
-            // gesture semantics). See IPanelGrabOwner.GrabScaleLimits for the full root cause;
-            // the lerp below then converges monotonically toward the clamped target, so the
-            // write can never overshoot a limit the target respects.
+            // THE OWNER'S WINDOW IS THE ONLY CLAMP, AND SINCE ModBuild 351 IT REALLY IS "APPLIED
+            // AFTER AND OVERRIDING" THE GENERIC RANGE — which is what IPanelGrabOwner.
+            // GrabScaleLimits has said in its own doc comment since it was written.
+            //
+            // IT USED TO BE TWO CLAMPS, THE GENERIC ONE FIRST, AND THAT IS NOT AN OVERRIDE. The
+            // line read `Clamp(_rootScale0 * ratio, MinScale, MaxScale)` and only THEN clamped the
+            // result into the owner window. [MinScale, MaxScale] is named a "factor range" but it
+            // bounds an ABSOLUTE localScale (`_rootScale0 × d / _anchorDistance` is the target
+            // size, not a factor), so whenever the owner's window lies entirely above MaxScale = 2
+            // the pre-clamp threw the gesture away and the second clamp pinned the root to the
+            // owner's LOWER bound — every frame, in both pinch directions. In the ModBuild 350
+            // hardware log the tray sat at localScale 5.567 in FIXIERT at a deep zoom, so this
+            // would have parked it on its minimum and refused to move: a second, independent cause
+            // of the user's "Das konnte ich im Test nicht", hiding behind the first.
+            //
+            // ONE CLAMP INSTEAD OF TWO IS BIT-IDENTICAL FOR EVERY OTHER OWNER. CombatLogSurface
+            // and GrabbableModal both return exactly (MinScale, MaxScale) from GrabScaleLimits, so
+            // clamping once into their window is the same arithmetic as clamping twice into the
+            // same numbers. Only PlayTray, which is the one owner with a real opinion, changes.
+            // The lerp below then converges monotonically toward the clamped target, so the write
+            // can never overshoot a limit the target respects.
             Vector2 scaleLimits = _owner.GrabScaleLimits;
-            targetScale = Mathf.Clamp(targetScale, scaleLimits.x, scaleLimits.y);
+            float targetScale = Mathf.Clamp(_rootScale0 * (d / _anchorDistance),
+                                            scaleLimits.x, scaleLimits.y);
             float newScale = Mathf.Lerp(root.localScale.x, targetScale, k);
             float ratio = newScale / _rootScale0;
 

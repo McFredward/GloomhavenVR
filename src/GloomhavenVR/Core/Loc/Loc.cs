@@ -199,9 +199,20 @@ internal static partial class Loc
         // in words as well as lighting it, because two of the shipped controller models cannot
         // light every key: the Valve Index's grip is a force sensor that moves nothing, and the
         // generic fallback device has no face buttons at all.
+        // The box's ONE button. A card that teaches a control says ÜBERSPRINGEN and skips THAT
+        // CARD; the welcome and closing cards, which have no task to skip, say WEITER. Both do the
+        // same thing — go to the next card.
         ["ctl_next"] = Pair("NEXT", "WEITER"),
-        ["ctl_cant"] = Pair("NOT NOW", "GEHT GERADE NICHT"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
+        // RETIRED 2026-09-02, and kept only because a checker cannot tell a UI string from a log
+        // marker. This labelled the box's second button; the user removed that button ("Weiterhin
+        // möchte ich keinen button 'geht gerade Nicht'") and nothing calls Loc.Mod("ctl_cant") any
+        // more. scripts/check-surface.py censuses runs of SHOUTED words inside string literals as
+        // log grep tokens and fails the build on a REMOVAL — "NOT NOW" and "GEHT GERADE NICHT" are
+        // two of them, and it has no way to know they were button captions rather than markers the
+        // next hardware round greps for. Delete this line together with a fresh
+        // `scripts/refactor-guard.sh baseline`; deleting it on its own turns the gate red.
+        ["ctl_cant"] = Pair("NOT NOW", "GEHT GERADE NICHT"),
         ["ctl_good"] = Pair("Done.", "Erledigt."),
 
         // KEY NAMES, substituted into {0} of the bodies below. The _dpad variants exist for the
@@ -226,15 +237,25 @@ internal static partial class Loc
             // Tutorials gerade etwas verlangt"), and this card is not such a step, so the player
             // is reading it with their own hands in front of them. "Your hands HAVE BECOME" would
             // describe something they cannot see.
-            "Whenever a step asks you to press something, your hands become your {0} controllers "
-            + "for as long as it does, in the place they really are, with the key lit up on them "
-            + "— do that, and the step moves on by itself.\n\n"
-            + "NEXT passes a step you cannot do right now. SKIP ends the lesson.",
-            "Sobald ein Schritt einen Tastendruck von dir verlangt, werden deine Hände für so "
+            //
+            // 2026-09-02, second round: the last two lines described TWO buttons and their old
+            // meanings ("NEXT passes a step you cannot do right now. SKIP ends the lesson."). The
+            // user removed the second button and redefined the first, so that text was left
+            // describing a window the player is looking at and cannot find. It now says what the
+            // one button does — and, because SKIP no longer ends the lesson in a press, it is
+            // also the only place the player is TOLD how to leave the lesson at all.
+            "Whenever a step asks you to press a KEY, your hands become your {0} controllers for "
+            + "as long as it does, in the place they really are, with the key lit up on them. A "
+            + "step about your HANDS keeps your hands — do what it says, and it moves on by "
+            + "itself.\n\n"
+            + "SKIP passes the step in front of you. Nothing here has to be done, so pressing it "
+            + "through to the end is how you leave the lesson altogether.",
+            "Sobald ein Schritt einen TASTENDRUCK von dir verlangt, werden deine Hände für so "
             + "lange zu deinen {0}-Controllern, genau dort, wo sie wirklich sind, mit der "
-            + "passenden Taste beleuchtet — mach das, und der Schritt geht von selbst weiter."
-            + "\n\nWEITER überspringt einen Schritt, der gerade nicht geht. ÜBERSPRINGEN "
-            + "beendet die Erklärung."),
+            + "passenden Taste beleuchtet. Bei einem Schritt, in dem es um deine HÄNDE geht, "
+            + "behältst du deine Hände — mach, was dasteht, und es geht von selbst weiter."
+            + "\n\nÜBERSPRINGEN geht zum nächsten Schritt weiter. Nichts davon musst du tun: "
+            + "Wer sich einfach durchdrückt, ist damit auch aus der Erklärung heraus."),
 
         ["ctl_laser_t"] = Pair("Point and click", "Zeigen und auswählen"),
         ["ctl_laser_b"] = Pair(

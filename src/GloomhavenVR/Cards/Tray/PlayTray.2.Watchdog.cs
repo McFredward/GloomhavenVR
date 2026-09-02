@@ -132,7 +132,10 @@ internal sealed partial class PlayTray
         // make every carry write the push into the config and re-seat BoardScale_{board}.
         bool heldNow = _handle != null && _handle.IsGrabbed;
         if (heldNow && !_wasHeld)
+        {
             _scaleAtGrabStart = _root.localScale.x;
+            LogResizeWindow();
+        }
         _wasHeld = heldNow;
 
         // A gripped board is being deliberately placed — never touch it mid-carry. The pinned
@@ -452,6 +455,131 @@ internal sealed partial class PlayTray
     /// lost, so the dead band cannot let the board drift out of the window by more than itself.
     /// </summary>
     private const float ScaleNoiseEpsilon = 5e-4f;
+
+    /// <summary>
+    /// THE SMALLEST RESIZE WINDOW THAT IS STILL A CONTROL RATHER THAN A DECORATION, as a ratio of
+    /// its own two ends. It is an ASSERTION, not a tuning dial — nothing clamps to it; the window
+    /// is measured against it and the verdict is printed by <see cref="LogResizeWindow"/>, so a
+    /// build that ships a useless window says so in one line instead of looking like a broken
+    /// gesture. That is exactly how the ModBuild 350 defect presented: "Das konnte ich im Test
+    /// nicht" — nothing threw, nothing logged, the pinch simply did nothing.
+    ///
+    /// <para>1.5, i.e. the board must be able to reach half again its size or two thirds of it,
+    /// and the number is read off the GESTURE rather than off taste. The two-hand pinch scales by
+    /// the ratio of the hand separation to its separation at grab time (<c>PanelGrabHandle</c>:
+    /// <c>_rootScale0 × d / _anchorDistance</c>), so traversing a span of S needs the hands to
+    /// travel a factor S apart. A comfortable two-hand grip sits at roughly 40 cm of separation
+    /// and opens to about 60 cm / closes to about 25 cm without the player moving their feet — a
+    /// reachable factor of ~1.5 in each direction from rest. A window narrower than that cannot be
+    /// traversed by the gesture that is supposed to traverse it, and a window of a few per cent is
+    /// arithmetically non-zero and useless in a headset.</para>
+    ///
+    /// <para>For scale: the shipped 18–140 cm apparent window is a span of ×7.78, five times this
+    /// floor, and it is ×7.78 AT EVERY ZOOM because both of its ends carry the same divisor. The
+    /// floor can therefore only fire if someone dials <c>[Cards] BoardMinWidthMeters</c> up against
+    /// <c>BoardMaxWidthMeters</c>, which is the one remaining way to make this window small.</para>
+    /// </summary>
+    private const float MinUsableSpan = 1.5f;
+
+    /// <summary>
+    /// THE BOARD'S RESIZE WINDOW AT THE CURRENT ZOOM, in units of the tray's own localScale, and
+    /// the ONE place it is computed — <see cref="WorldUI.IPanelGrabOwner.GrabScaleLimits"/> (what
+    /// the pinch may write) and <see cref="LogResizeWindow"/> (what the log reports) read it from
+    /// here, or the log would be describing a window the gesture does not have.
+    ///
+    /// <para>It is the user's apparent-metre window and nothing else:
+    /// <c>[Cards] BoardMinWidthMeters</c> / <c>BoardMaxWidthMeters</c> divided by the apparent
+    /// width one localScale unit buys at this instant
+    /// (<see cref="TryGetApparentWidthPerScaleUnit"/>, the same measure the push uses). Both ends
+    /// carry that same divisor, so the SPAN is the constant <c>Max/Min</c> — ×7.78 at the shipped
+    /// 18/140 cm — at every rig scale and in both anchor modes. That constancy IS the user's rule:
+    /// "Gewährleiste dass man in jeder Zoomgröße innerhalb des jeweiligen dortigen Minimums und
+    /// Maximums auch das board selber noch skalieren kann."</para>
+    ///
+    /// <para><b>IT IS NO LONGER INTERSECTED WITH WHAT THE CONFIG CAN STORE (ModBuild 351).</b> The
+    /// full reasoning lives at the call site in <c>PlayTray.1.Core.cs</c>; in one line, the
+    /// storable band <c>TrayScale × BoardScale_{board}</c> is a fixed pair of numbers while this
+    /// window is PROPORTIONAL TO THE RIG SCALE in FIXIERT, and a fixed band cannot contain a
+    /// window that slides across it. In the ModBuild 350 hardware log, at rig ×73.93 this window
+    /// was localScale 5.17–40.23 against a storable band of 0.14–2.17: no overlap at all.</para>
+    /// </summary>
+    private bool TryGetResizeWindow(out float lo, out float hi, out float live,
+                                    out float perUnit, out float rigScale)
+    {
+        lo = hi = live = perUnit = 0f;
+        rigScale = 1f;
+        if (_root == null || !TryGetApparentWidthPerScaleUnit(out perUnit, out _, out rigScale))
+            return false;
+        if (!(perUnit > 1e-6f) || float.IsInfinity(perUnit))
+            return false;
+        live = _root.localScale.x;
+        if (!(live > 1e-4f) || float.IsInfinity(live))
+            return false;
+        lo = MinWidthMeters / perUnit;
+        hi = MaxWidthMeters / perUnit;   // MaxWidthMeters is floored at MinWidthMeters + 2 cm
+        return hi > lo;
+    }
+
+    /// <summary>
+    /// THE FOUR NUMBERS, ONCE PER GRAB: the min, the max, the current size, and the room left in
+    /// each direction. Printed on the rising edge of the handle grip, because that is the instant
+    /// the player is about to try to resize and the instant "did the clamp eat it" is decided.
+    ///
+    /// <para>IT EXISTS BECAUSE THE ModBuild 350 LOG COULD NOT ANSWER THAT QUESTION. That log has
+    /// 124 <c>BOARD SIZE PUSHED</c> lines and 2487 <c>BOARD ANCHOR</c> lines, and between them they
+    /// print the apparent width, both bounds in both units, the rig scale, the parent chain and the
+    /// push count — everything except the window the GESTURE was actually handed. So "ich konnte
+    /// nicht skalieren" and "the clamp ate every frame of it" were indistinguishable, and the only
+    /// evidence that separated them was indirect: seven consecutive "Tray layout persisted … SIZE
+    /// NOT WRITTEN — the grab was a carry, localScale 5.567 → 5.567" lines, i.e. releases from
+    /// grabs during which the size had not moved by even float noise.</para>
+    ///
+    /// <para>Note tier, and HW-VERIFY: the next hardware round has to be judgeable from this line
+    /// at the SHIPPED log level, without a DEBUG build.</para>
+    /// </summary>
+    private void LogResizeWindow()
+    {
+        if (_root == null)
+            return;
+        string mode = CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT";
+        if (!TryGetResizeWindow(out float lo, out float hi, out float live,
+                                out float perUnit, out float rigScale))
+        {
+            // HW-VERIFY
+            VRLog.Note("Cards", $"BOARD RESIZE WINDOW ({mode}): measure unavailable (no rig, or a " +
+                                "degenerate transform), so the pinch falls back to " +
+                                $"PanelGrabHandle's generic {WorldUI.PanelGrabHandle.MinScale}–" +
+                                $"{WorldUI.PanelGrabHandle.MaxScale} factor range. If the board " +
+                                "resizes wrongly at this timestamp, THIS line is why.");
+            return;
+        }
+
+        ControlBoard board = CardsConfig.CurrentBoard;
+        float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(board).Value);
+        float roomDown = live / Mathf.Max(lo, 1e-6f);   // how many times SMALLER it may still go
+        float roomUp = hi / Mathf.Max(live, 1e-6f);     // how many times BIGGER it may still go
+        float span = hi / Mathf.Max(lo, 1e-6f);
+        // HW-VERIFY
+        VRLog.Note("Cards", $"BOARD RESIZE WINDOW ({mode}, rig ×{rigScale:F2}): current localScale " +
+                            $"{live:F3} = {live * perUnit * 100f:F1} cm apparent. The min and max " +
+                            $"that apply AT THIS ZOOM are {MinWidthMeters * 100f:F0}–" +
+                            $"{MaxWidthMeters * 100f:F0} cm apparent = localScale {lo:F3}–{hi:F3} " +
+                            $"({perUnit * 100f:F2} cm apparent per unit), so the pinch has ×" +
+                            $"{roomDown:F2} of room DOWN and ×{roomUp:F2} of room UP. Span ×" +
+                            $"{span:F2} against the usable floor ×{MinUsableSpan:F2} — " +
+                            (span >= MinUsableSpan
+                                ? "USABLE, and it is this same span at every zoom because both ends "
+                                  + "carry the same divisor."
+                                : "TOO NARROW TO USE: raise [Cards] BoardMaxWidthMeters or lower "
+                                  + "BoardMinWidthMeters. The gesture is not broken, the window is.") +
+                            " For reference and NOT intersected any more (ModBuild 351): the " +
+                            $"storable band TrayScale {CardsConfig.TrayScaleMin}–" +
+                            $"{CardsConfig.TrayScaleMax} × BoardScale_{board} {boardScale:F5} = " +
+                            $"{CardsConfig.TrayScaleMin * boardScale:F3}–" +
+                            $"{CardsConfig.TrayScaleMax * boardScale:F3}. That band does NOT ride " +
+                            "the rig and this window does, so intersecting the two is what " +
+                            "collapsed this window onto a single point at every deep zoom.");
+    }
 
     /// <summary>
     /// Hold the board's APPARENT width inside [<see cref="MinWidthMeters"/>,

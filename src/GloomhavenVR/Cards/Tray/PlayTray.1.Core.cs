@@ -1040,59 +1040,71 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// <see cref="TryGetApparentWidthPerScaleUnit"/>), read live each resize frame — the pinch
     /// simply stops at the limit, in EVERY anchor mode, and nothing resizes on its own.
     ///
-    /// <para><b>AND IT IS INTERSECTED WITH WHAT THE CONFIG CAN STORE, which is new on 2026-08-25
-    /// and is the guard that keeps this feature away from the user's hand-tuned numbers.</b> Since
-    /// the limits are divided by the LIVE rig again, this window is proportional to the rig scale:
-    /// at four times the zoom the board was pinned at, the perceived window [18, 140] cm becomes a
-    /// localScale window of [1.125, 8.75] — while <c>TrayScale × BoardScale_Oak</c> can only express
-    /// [0.271, 1.085]. Every single release would then land outside what the config can hold, and
-    /// <see cref="PersistPoseToConfig"/> would absorb the overflow into <c>BoardScale_{board}</c> —
-    /// the 2026-08-15 ratchet, which is the very thing whose repeat he reported ("weiterhin hat sich
-    /// damit auch das maximum und minimum wieder verschoben", measured as Steel 0.54 → 1.00 → 1.13
-    /// in one session). So the gesture may only author sizes the config can reproduce bit-exactly.
-    /// When the two ranges do not meet — or when the push has already parked the board outside their
-    /// intersection — the window collapses onto the size the board ALREADY has, so the pinch is
-    /// INERT at that zoom instead of authoring something the config cannot hold. Inert and not
-    /// widened: a window that reaches past what can be stored would let a release land there, and a
-    /// window that excludes the live size would make the board snap on the grab's first frame.
-    /// The honest trade is that his configured 18/140 cm window is enforced by the push at every
-    /// zoom, and the two-hand gesture gets whatever part of it TrayScale's own 0.5–2 band can also
-    /// persist. If the collapsed case turns out to be common on hardware, the fix is to widen
-    /// <see cref="CardsConfig.TrayScaleMin"/>/<see cref="CardsConfig.TrayScaleMax"/> — a settings
-    /// range, which is a user decision — and NOT to let the ratchet back in.</para>
+    /// <para><b>IT IS THE APPARENT WINDOW AND NOTHING ELSE (ModBuild 351), AND THE INTERSECTION
+    /// WITH THE STORABLE BAND IS GONE.</b> User, single-player test on ModBuild 350, verbatim:
+    /// <i>"In meinem Test ist das board größer geworden im Fixiert-Modus weil ich rausgezoomed habe
+    /// und somit das minimum angeglichen wurde. Aber da das MINIMUM angeglichen wird erwarte ich
+    /// trotzdem noch das ich das board dann selber nochmal größer und kleiner skalieren kann. Das
+    /// konnte ich im Test nicht. Gewährleiste dass man in jeder Zoomgröße innerhalb des jeweiligen
+    /// dortigen Minimums und Maximums auch das board selber noch skalieren kann."</i></para>
+    ///
+    /// <para>WHAT THE INTERSECTION DID, WITH HIS OWN NUMBERS. The band this property used to be
+    /// intersected with is <c>TrayScaleMin..TrayScaleMax × BoardScale_{board}</c> — a fixed pair of
+    /// numbers; with his tuned <c>BoardScale_Steel = 0.54265</c> it is localScale
+    /// <c>[0.136, 2.171]</c>. This window is <c>[MinWidthMeters, MaxWidthMeters] / perUnit</c>, and
+    /// in FIXIERT <c>perUnit = BoardW × parent / rigScale</c> with <c>parent</c> the pin holder's
+    /// chain, frozen at pin time. So in FIXIERT THE WINDOW IS PROPORTIONAL TO THE RIG SCALE while
+    /// the band is not, and the two slide apart the moment the player zooms. His log:</para>
+    /// <code>
+    /// rig ×8.90   perUnit 28.92 cm   window localScale [0.622,  4.841]  band [0.136, 2.171]  overlap
+    /// rig ×29.93  perUnit  8.61 cm   window localScale [2.091, 16.260]  band [0.136, 2.171]  a sliver
+    /// rig ×73.93  perUnit  3.48 cm   window localScale [5.172, 40.230]  band [0.136, 2.171]  NONE
+    /// </code>
+    /// <para>Past that point <c>lo &gt; hi</c>, the old code returned <c>(live, live)</c>, and the
+    /// pinch was INERT — silently, because an empty clamp does not throw and does not log. That is
+    /// "Das konnte ich im Test nicht". And it did not heal when he zoomed back in: the push is
+    /// permanent by ruling, so his board sat at localScale 5.567 for the rest of the session, above
+    /// the band's 2.171 ceiling at EVERY zoom, so <c>live &gt; hi</c> kept the window collapsed.
+    /// Seven consecutive "Tray layout persisted … SIZE NOT WRITTEN — the grab was a carry,
+    /// localScale 5.567 → 5.567" lines are those dead two-hand grabs.</para>
+    ///
+    /// <para>THE ModBuild 269 CLAIM THAT SAID THIS COULD NOT HAPPEN WAS MEASURED IN THE OTHER MODE.
+    /// <c>CardsConfig.TrayScaleMin</c>'s doc says widening to 0.25–4 "makes the storable band a
+    /// SUPERSET of the whole 18-140 cm apparent window on all three boards, so the intersection
+    /// never bites". That is arithmetic for FOLGEN ONLY: there the tray hangs under the rig anchor,
+    /// <c>parent == rigScale</c>, the division cancels, <c>perUnit</c> is the constant 64.00 cm and
+    /// the window is the fixed <c>[0.281, 2.188]</c>. In FIXIERT nothing cancels. The claim was true
+    /// of the mode it was checked in and false of the one the user was in.</para>
+    ///
+    /// <para>SO THE FIX IS IN THE CLAMP, NOT IN THE FREEZE, AND NOT IN THE BAND. The freeze is
+    /// correct: FIXIERT means world-frozen, the window rides the rig by the 2026-08-25 ruling, and
+    /// the push that re-bases the board when a bound walks into it is exactly what he described and
+    /// accepted ("da das MINIMUM angeglichen wird" is stated as the PREMISE, not as the
+    /// complaint). Widening the band cannot fix it either, and that is not an opinion: in FIXIERT
+    /// the required localScale is the FOLGEN window times the zoom ratio since pinning, which the
+    /// rig's own <c>base × [0.1, 12]</c> span makes a factor of up to 120 — his session alone
+    /// covered ×19.8 (rig ×4.02 → ×79.68) and would have needed <c>TrayScale</c> to reach 80. A
+    /// fixed band cannot contain a sliding window, so it must not be asked to.</para>
+    ///
+    /// <para>WHAT REPLACES IT. This property returns the apparent window, full stop
+    /// (<see cref="TryGetResizeWindow"/>, shared with the log line so the two cannot drift). Its
+    /// span is the constant <c>MaxWidthMeters/MinWidthMeters</c> — ×7.78 at the shipped 18/140 cm —
+    /// at every rig scale and in both modes, which is the user's rule made structural rather than
+    /// tuned. The ratchet the intersection was guarding against is closed off at ITS OWN end
+    /// instead: <see cref="PersistPoseToConfig"/> no longer re-seats <c>BoardScale_{board}</c> under
+    /// any circumstances (see the block there). A release the config cannot express is now stored
+    /// as far as <c>TrayScale</c> reaches and reported in one line, which costs a re-derived size on
+    /// the next EXPLICIT re-place — and never touches a hand-tuned number.</para>
     /// </summary>
     Vector2 WorldUI.IPanelGrabOwner.GrabScaleLimits
     {
         get
         {
-            if (_root == null
-                || !TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out _))
+            // No measure ⇒ the handle's generic factor range, which is the documented fallback and
+            // is unchanged. TryGetResizeWindow already rejects a null root, a missing rig, a
+            // degenerate parent chain and a hi ≤ lo window.
+            if (!TryGetResizeWindow(out float lo, out float hi, out _, out _, out _))
                 return new Vector2(WorldUI.PanelGrabHandle.MinScale, WorldUI.PanelGrabHandle.MaxScale);
-            float live = _root.localScale.x;
-            if (!(live > 1e-4f) || float.IsInfinity(live))
-                return new Vector2(WorldUI.PanelGrabHandle.MinScale, WorldUI.PanelGrabHandle.MaxScale);
-
-            // The user's window, in units of the tray's own localScale.
-            float lo = MinWidthMeters / perUnit;
-            float hi = MaxWidthMeters / perUnit;
-
-            // Intersected with what TrayScale × BoardScale_{board} can express — the SAME arithmetic
-            // PersistPoseToConfig round-trips through, so the two must be read from one pair of
-            // constants or they will drift apart.
-            float boardScale = Mathf.Max(0.01f, CardsConfig.BoardScale(CardsConfig.CurrentBoard).Value);
-            lo = Mathf.Max(lo, CardsConfig.TrayScaleMin * boardScale);
-            hi = Mathf.Min(hi, CardsConfig.TrayScaleMax * boardScale);
-
-            // THE PINCH IS INERT RATHER THAN UNSTORABLE. If the two windows do not meet, or the size
-            // the board already has lies outside their intersection (which is where the push parks
-            // it once a bound has walked past the expressible band), the only value this gesture may
-            // write is the one already there: widening the window to reach the live size would let
-            // the player release at a size the config cannot reproduce, and that release is the
-            // BoardScale_{board} ratchet. Returning the live size on both ends also means the grab
-            // cannot SNAP the board on its first frame, which widening was there to prevent —
-            // PanelGrabHandle clamps its target into this window before it lerps.
-            if (lo > hi || live < lo || live > hi)
-                return new Vector2(live, live);
             return new Vector2(lo, hi);
         }
     }

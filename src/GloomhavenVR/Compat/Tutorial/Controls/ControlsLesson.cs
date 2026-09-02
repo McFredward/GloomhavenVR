@@ -27,11 +27,12 @@ internal readonly struct ControlsStep
     /// </summary>
     internal readonly string? KeyNameId;
 
-    /// <summary>The step depends on something the room may not be offering right now (an open
-    /// window to reel, a card in hand). It is still shown and still checked — it simply must not
-    /// be the thing that strands a player, so the box offers "skip" from the first frame
-    /// instead of after a delay.</summary>
-    internal readonly bool Situational;
+    // `Situational` lived here — "the step depends on something the room may not be offering right
+    // now (an open window to reel, a card in hand)". Its ONE reader picked the box's second button
+    // label, "GEHT GERADE NICHT", for such a step. The user removed that button on 2026-09-02 and
+    // every card now offers the same ÜBERSPRINGEN, so the flag decided nothing and is gone rather
+    // than left sitting in the table unread. Which steps need the room in a particular state is
+    // still readable from the section comments in ControlsLesson.Steps.
 
     /// <summary>
     /// THIS STEP ASKS FOR, OR DEMONSTRATES, A KEY (user ruling 2026-09-02: <i>"Die 3D-meshes der
@@ -39,25 +40,33 @@ internal readonly struct ControlsStep
     /// verlangt oder zeigt das man etwas drücken muss mit den entsprechenden Highlights."</i>).
     ///
     /// <para>It is DECLARED per step rather than derived from <see cref="Key"/> being non-null,
-    /// and that is the point of it: the two happen to agree for every row of the table today, but
-    /// they are different facts. "Which key do I light" is about the model; "does this step show
-    /// the player a press at all" is about the lesson. A future step could name a key only in
-    /// words (a chord the model cannot show), or show the device for a step that lights nothing —
-    /// and inferring one from the other would silently get such a step wrong.
-    /// <see cref="ControlsTutorial"/> asserts the two agree and says so in the log if they do
-    /// not.</para>
+    /// and 2026-09-02's second ruling is what that declaration was for: <i>"Im Tutorial entscheide
+    /// für jede Aufgabe ob man controller oder Hände sehen sollte. zB 'drehe die Handfläche zu
+    /// dir' sollte man auch die Hand sehen und nicht die Controller."</i> 343 set it true for all
+    /// fourteen teaching steps, which was too coarse — several of them teach a POSE, and a
+    /// controller model cannot show a palm turning over or a fingertip touching a hex.</para>
+    ///
+    /// <para>THE RULE THE TABLE IS DECIDED BY, written down so the next row can be judged the same
+    /// way: show the CONTROLLER when the step turns on FINDING A KEY the player might not find;
+    /// show the HAND when it turns on the SHAPE OR ORIENTATION OF THE HAND ITSELF. Three rows come
+    /// out as hand — take a card (a palm turns towards you), hold a card (it sits between thumb and
+    /// finger), pick with a fingertip (a controller has no fingertip) — and those three name their
+    /// key in words instead. Each row carries its own reason as a comment.</para>
+    ///
+    /// <para>So <see cref="Key"/> and this flag now DISAGREE on purpose for three rows, and
+    /// <see cref="ControlsTutorial"/> no longer warns about the disagreement — it prints the whole
+    /// resolved table once instead, so a hardware log says what the headset was told to show.</para>
     /// </summary>
     internal readonly bool ShowsController;
 
     internal ControlsStep(ControlAction action, string id, string? key, bool showsController,
-                          float target = 1f, bool situational = false, string? keyNameId = null)
+                          float target = 1f, string? keyNameId = null)
     {
         Action = action;
         Id = id;
         Key = key;
         ShowsController = showsController;
         Target = target;
-        Situational = situational;
         KeyNameId = keyNameId;
     }
 }
@@ -73,7 +82,9 @@ internal readonly struct ControlsStep
 /// stick, BoardPing's A/X, the B+Y recentre chord, and HeldCardGrip's grip-plus-trigger). Written
 /// out that way it comes to thirteen, which is more than a tutorial should ask anyone to sit
 /// through in one go — so the order matters: the first seven are what you cannot play without, and
-/// everything after that is a convenience the player can walk away from at any point via SKIP.</para>
+/// everything after that is a convenience the player can step straight past — since 2026-09-02 the
+/// box's button skips THE CARD IN FRONT OF THEM rather than the whole lesson, so walking away from
+/// the tail of the list is a run of presses instead of one.</para>
 ///
 /// <para>ORDER. Point and click first, because that is how the player answers the panel in front
 /// of them. Then reach and grab, which is the one thing a flat-screen player has no instinct for.
@@ -96,13 +107,17 @@ internal static class ControlsLesson
 {
     internal static readonly ControlsStep[] Steps =
     {
-        // THE CONTROLLER MESHES ARE OFF HERE, and on for every step that lights a key. The
-        // welcome and the closing card ask for nothing and show no press, so the player sees
-        // their own hands (user ruling 2026-09-02).
+        // HAND: a prose card that asks for nothing. It names the device in words, which is why
+        // ControllerVisual.EnsureResolved runs before any model is ever shown.
         new(ControlAction.None, "ctl_welcome", null, showsController: false),
 
         // --- what you cannot play without -------------------------------------------------
+        // CONTROLLER: the trigger is the first key the lesson names, and a player who cannot find
+        // it cannot do anything else in the game.
         new(ControlAction.LaserClick, "ctl_laser", ControllerKey.Trigger, showsController: true),
+        // CONTROLLER: the new fact here is PROXIMITY, and reaching moves the whole device, not the
+        // fingers — a controller in the same place reaches identically. The trigger is named again
+        // for a second purpose, so it stays lit while that second purpose is learnt.
         new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger, showsController: true),
 
         // GETTING ABOUT, ALL FOUR TOGETHER AND ONE-HANDED FIRST (user, 2026-08-29: fly and turn
@@ -123,37 +138,44 @@ internal static class ControlsLesson
             target: 25f),
 
         // --- the game ---------------------------------------------------------------------
-        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger, showsController: true,
-            situational: true),
-        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, showsController: true,
-            situational: true),
+        // These two, and the three conveniences below, need the room to be in a particular state —
+        // a card in the fan, a window open to reel. That used to set a `Situational` flag that
+        // relabelled the box's second button; the button is gone and so is the flag, and the
+        // player steps past any of them with the same ÜBERSPRINGEN as every other card.
+        // HAND, and this is the row the user pointed at: "Dreh eine Handfläche zu dir" is an
+        // ORIENTATION OF THE HAND, and a controller model cannot show a palm turning over.
+        new(ControlAction.CardTake, "ctl_card_take", ControllerKey.Trigger, showsController: false),
+        // HAND: the taught thing is a card sitting BETWEEN THUMB AND FINGER and being turned round.
+        // The grip is named in words instead — and on two of the three shipped models it could not
+        // have been lit anyway (the Index's grip is a force sensor with no mesh, the generic model
+        // has no separate grip part).
+        new(ControlAction.CardInHand, "ctl_card_hold", ControllerKey.Squeeze, showsController: false),
 
         // --- conveniences -----------------------------------------------------------------
+        // HAND, necessarily: the instruction is "touch the board with a FINGERTIP", and a
+        // controller has no fingertip to touch it with. Showing one here would contradict the card.
         new(ControlAction.FingertipPick, "ctl_fingertip", ControllerKey.Squeeze,
-            showsController: true, situational: true),
-        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, showsController: true,
-            situational: true),
+            showsController: false),
+        new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, showsController: true),
         new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, showsController: true,
-            situational: true, keyNameId: "ctl_key_primary"),
+            keyNameId: "ctl_key_primary"),
         new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary, showsController: true,
             keyNameId: "ctl_key_secondary"),
         // LAST, and on purpose: it is the card that hands the player everything else. The closing
-        // card then points at the settings they have just seen how to reach.
+        // card then points at the settings they have just seen how to reach. CONTROLLER: it is a
+        // face button on a named hand, and getting the wrong hand is the whole failure mode.
         new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary, showsController: true,
             keyNameId: "ctl_key_primary"),
 
+        // HAND: prose again, and the lesson hands the player back their own hands as it ends.
         new(ControlAction.None, "ctl_done", null, showsController: false),
     };
 
-    /// <summary>Progress of the running step, 0..1, for the panel's bar. A discrete step is
-    /// either not done or done; an analog one fills as the player moves.</summary>
-    internal static float Progress(in ControlsStep step)
-    {
-        if (step.Action == ControlAction.None)
-            return 1f;
-        return step.Target <= 0f ? 1f
-            : UnityEngine.Mathf.Clamp01(ControlsProgress.Accumulated / step.Target);
-    }
+    // Progress(in ControlsStep) lived here and fed the box's ASCII progress bar. The bar is gone
+    // (user ruling 2026-09-02) and it had exactly one caller, so it went with it. Its body was a
+    // pure read — step.Action, step.Target and ControlsProgress.Accumulated, clamped — and wrote
+    // nothing, which is why deleting it is safe: the completion test below reads the same
+    // Accumulated for itself and is untouched.
 
     /// <summary>Has the running step been satisfied?</summary>
     internal static bool IsComplete(in ControlsStep step)
