@@ -12,6 +12,24 @@ namespace GloomhavenVR.Compat;
 /// before it teaches Gloomhaven, one key at a time, and each step ends when the player DOES the
 /// thing rather than when they read about it.
 ///
+/// <para>AND THE CARD SAYS WHETHER IT HAS (user, 2026-09-03: <i>"Beim Tutorial sollte schon
+/// angezeigt werden irgendwie ob es erfüllt wurde oder nicht"</i>). Until now a step that had not
+/// been done said NOTHING about itself, and a step that had been done added a small "Erledigt."
+/// for 1.1 s — so the answer to "have I done this yet?" was absent in the state the player is
+/// actually in most of the time. Every teaching card now carries a <see cref="ControlsStepState"/>
+/// word under its instruction from the moment it appears. The state is decided in exactly three
+/// places — <see cref="PrepareStep"/> when the card opens, the completion branch of
+/// <see cref="TickCore"/>, and <see cref="OnAction"/> for a skip — and <see cref="RefreshBox"/>
+/// only ever renders what those three set; it never re-derives it, because a second read of the
+/// completion predicate cannot tell "you just did it" from "it was already true when you got
+/// here", and the player is owed the difference.</para>
+///
+/// <para>IT IS NOT THE PROGRESS DOTS COMING BACK. Those were removed on 2026-09-02 (<i>"Diese
+/// komischen Punkte die den Fortschitt anzeigen soll auch weg"</i>) and they measured the LESSON:
+/// an ASCII bar that filled as the step's accumulator rose, plus an "8/14" counter. This is a
+/// BINARY state of ONE CARD, it holds one of four words, and nothing in the box knows or shows how
+/// many steps there are or which one this is. See <see cref="ControlsBox.SetStep"/>.</para>
+///
 /// <para>IT IS PART OF THE TUTORIAL NOW, NOT BESIDE IT (user ruling 2026-09-02, verbatim: <i>"ich
 /// will dass die neuen Aufgaben und der neue Text IN das standart Tutorial integriert wird … es
 /// soll das standart Fenster sein das nach dem Dialog kommt und durch das Tutorial führt"</i>).
@@ -91,10 +109,41 @@ internal static class ControlsTutorial
     /// costs the player nothing.</summary>
     private const float ArmSettleSeconds = 0.75f;
 
-    /// <summary>How long a completed step stays on screen, showing its "done" line, before the
-    /// next one replaces it. Long enough to register that it was the motion that did it. (It used
-    /// to show a filled progress bar as well; the bar was removed on 2026-09-02.)</summary>
-    private const float CompletedDwellSeconds = 1.1f;
+    /// <summary>
+    /// How long a step that the player JUST SATISFIED stays on screen showing ERFÜLLT before the
+    /// next card replaces it.
+    ///
+    /// <para>WHY THERE IS A HOLD AT ALL, AND WHY IT GOT LONGER THAN 343's 1.1 s. The completing
+    /// motion is performed with the eyes on the WORLD, not on the box — a snap turn, a drag, a
+    /// card coming out of the fan — so the gaze has to travel back to a window in the lower right
+    /// before the state word can be read at all. 1.1 s was set when the card answered with a
+    /// progress bar the player was already watching fill; with the bar gone the answer exists only
+    /// in the box, and a tick that is replaced before the eye arrives is not feedback. This is a
+    /// saccade plus one short word, and it is still short enough that a run of quick steps does
+    /// not feel gated.</para>
+    /// </summary>
+    private const float CompletedDwellSeconds = 1.6f;
+
+    /// <summary>
+    /// The dwell for a card that was ALREADY satisfied the moment it appeared — the player reached
+    /// "hold a card" still holding one. It is longer than <see cref="CompletedDwellSeconds"/> for
+    /// the obvious reason: nothing was done to earn it, so the player has not looked up, has not
+    /// read the card, and would otherwise see one frame of a control being taught and then the
+    /// next card. This is a read of one short instruction from a standing start.
+    /// </summary>
+    private const float PreSatisfiedDwellSeconds = 2.6f;
+
+    /// <summary>
+    /// The dwell for a card the player SKIPPED without satisfying it.
+    ///
+    /// <para>SHORT ON PURPOSE, AND INTERRUPTIBLE. The welcome card tells the player that pressing
+    /// the button through to the end is how they leave the lesson, so this dwell sits on the exit
+    /// path: sixteen cards at a full dwell each would turn "let me out" into a quarter of a minute
+    /// of enforced waiting. So it is brief, and <see cref="OnAction"/> treats a second press during
+    /// it as "yes, I meant it" and advances at once — somebody deliberately leaving is never
+    /// slowed, and somebody who pressed once still sees that the card was NOT ticked off.</para>
+    /// </summary>
+    private const float SkippedDwellSeconds = 0.7f;
 
     /// <summary>How long the lesson may wait for the tutorial's dialogue to be dismissed before it
     /// gives up on running at all. Generous: a player may read the opening text slowly or take the
@@ -133,7 +182,17 @@ internal static class ControlsTutorial
     private static float _armedAt;       // when the lesson was queued for this scenario
     private static float _heldAt;        // when the chain hold was engaged
     private static float _runningAt;     // when the box actually opened
-    private static float _completedAt;
+    /// <summary>True while the card is HOLDING on a settled state. A separate flag rather than
+    /// a positive-time sentinel: <c>Time.unscaledTime</c> is a real clock and a "> 0" test on it
+    /// is a hidden assumption about when the lesson can start.</summary>
+    private static bool _dwelling;
+    private static float _dwellSince;    // when the hold began
+    private static float _dwellSeconds;  // how long that hold lasts
+    private static ControlsStepState _state;
+    /// <summary>Was the running step ALREADY satisfied on the frame it was applied? Decided once,
+    /// at <see cref="ApplyStep"/>, because it is a claim about the moment the card appeared and a
+    /// later read of the same predicate cannot tell the two apart.</summary>
+    private static bool _preSatisfied;
     private static float _windowClosedSince = -1f;
     private static string? _openingDialog;   // the story dialogue whose dismissal is our slot
     private static bool _controllersUp;
@@ -303,27 +362,62 @@ internal static class ControlsTutorial
             return;
         ref readonly ControlsStep step = ref ControlsLesson.Steps[_index];
 
+        // THE CARD IS SETTLED AND HOLDING. Nothing is polled and nothing can change the state
+        // under it — ControlsProgress has already been stopped — so the word the player is reading
+        // cannot flip while they read it.
+        if (_dwelling)
+        {
+            if (now - _dwellSince >= _dwellSeconds)
+                Advance();
+            return;
+        }
+
         // A state-shaped step can already be satisfied when it opens (the player may reach the
         // card step holding a card); an event-shaped one cannot, and polling it would be noise.
         ControlsLesson.PollStates(in step);
 
-        if (_completedAt > 0f)
-        {
-            if (now - _completedAt >= CompletedDwellSeconds)
-                Advance();
-            return;
-        }
         if (ControlsLesson.IsComplete(in step))
         {
-            _completedAt = now;
-            ControlsProgress.StopWaiting();
-            RefreshBox(done: true);
+            // A card the player walked into already satisfied says so, and does NOT buzz: a haptic
+            // pulse is the reward for having done something, and they have not.
+            if (_preSatisfied)
+            {
+                EnterDwell(ControlsStepState.AlreadyDone, PreSatisfiedDwellSeconds, step.Id);
+                return;
+            }
+            EnterDwell(ControlsStepState.Done, CompletedDwellSeconds, step.Id);
             VRHands.Left?.SendHaptic(HapticPreset.ClickPulse);
             VRHands.Right?.SendHaptic(HapticPreset.ClickPulse);
-            VRLog.Info("Tutorial", $"Controls lesson: '{step.Id}' done.");
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Tutorial", $"Controls lesson: '{step.Id}' done.");
             return;
         }
-        RefreshBox(done: false);
+        RefreshBox();
+    }
+
+    /// <summary>
+    /// Settle the running card on a state, show it, and hold there for <paramref name="seconds"/>.
+    ///
+    /// <para>THE PROGRESS CHANNEL IS STOPPED FIRST, in every case including the skip. While a card
+    /// is holding on ÜBERSPRUNGEN the player is still moving their hands, and a stray notification
+    /// arriving mid-dwell would turn the word they are looking at into ERFÜLLT — which would be
+    /// the card contradicting itself about the one thing it exists to say.</para>
+    /// </summary>
+    private static void EnterDwell(ControlsStepState state, float seconds, string stepId)
+    {
+        ControlsProgress.StopWaiting();
+        _state = state;
+        _dwelling = true;
+        _dwellSince = Time.unscaledTime;
+        _dwellSeconds = seconds;
+        RefreshBox();
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", $"Controls lesson STATE LINE: step '{stepId}' settled on "
+            + $"{state} and the card holds there for {seconds:0.0} s before the next one. This is "
+            + "a state of THIS CARD only — there is no lesson-wide counter or bar anywhere in the "
+            + "box.");
     }
 
     /// <summary>How long the box GROUP's window may be shut while the handler still says our
@@ -375,13 +469,15 @@ internal static class ControlsTutorial
         ControllerVisual.EnsureResolved(VRHands.Left ?? VRHands.Right);
 
         _index = 0;
-        _completedAt = 0f;
-        ControlsProgress.BeginWaiting(ControlsLesson.Steps[0].Action);
-        RefreshBox(done: false);
+        _dwelling = false;
+        _dwellSince = 0f;
+        PrepareStep(0);
+        RefreshBox();
         if (!ControlsBox.Show(OnAction))
             return;   // window not free yet — the Opening ceiling bounds the retry
 
         AuditStepTable();
+        AuditStateLine();
         _phase = Phase.Running;
         _runningAt = Time.unscaledTime;
         _windowClosedSince = -1f;
@@ -427,18 +523,67 @@ internal static class ControlsTutorial
             + table);
     }
 
+    /// <summary>
+    /// SAY, ONCE, THAT THE COMPLETION INDICATOR IS ARMED AND IN WHICH WORDS.
+    ///
+    /// <para>This is the line a hardware round reads to separate "the indicator was not in the
+    /// build" from "the indicator was in the build and the player did not see it". It resolves all
+    /// four words through <see cref="Loc"/> in the language actually selected, so a missing
+    /// translation shows up here rather than as a blank line in the headset — and it is printed at
+    /// the top of the run, before any card can settle, because the per-card
+    /// <c>Controls lesson STATE LINE</c> lines only appear once something HAPPENS.</para>
+    /// </summary>
+    private static void AuditStateLine()
+    {
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", "Controls lesson STATE LINE armed — every teaching card now carries "
+            + "one coloured word under its instruction saying whether THAT CARD has been "
+            + $"satisfied: open='{Loc.Mod("ctl_state_open")}', done='{Loc.Mod("ctl_state_done")}', "
+            + $"already='{Loc.Mod("ctl_state_already")}', skipped='{Loc.Mod("ctl_state_skipped")}'. "
+            + "The welcome and closing cards carry none, and nothing in the box counts steps.");
+    }
+
     private static void Advance()
     {
-        _completedAt = 0f;
+        _dwelling = false;
+        _dwellSince = 0f;
         _index++;
         if (_index >= ControlsLesson.Steps.Length)
         {
             Stop("the lesson reached its last card");
             return;
         }
-        ControlsProgress.BeginWaiting(ControlsLesson.Steps[_index].Action);
+        PrepareStep(_index);
         ApplyStep(_index);
-        RefreshBox(done: false);
+        RefreshBox();
+    }
+
+    /// <summary>
+    /// ARM THE CARD'S CHECK, and decide once whether it was ALREADY SATISFIED before the player
+    /// had a chance to read it.
+    ///
+    /// <para>WHY THAT VERDICT IS TAKEN HERE AND NOWHERE ELSE. Two of the steps are STATES rather
+    /// than events — a card is in the hand or it is not — and a player can reach either of them
+    /// already in that state (they take a card on <c>ctl_card_take</c> and are still gripping it
+    /// when <c>ctl_card_hold</c> comes up, which is exactly what the 357 hardware log shows: the
+    /// two <c>done.</c> lines are 57 log lines apart). One frame later the completion predicate
+    /// reads TRUE in both cases and cannot tell "you just did it" from "it was already true", so
+    /// the distinction only exists on the frame the card is applied. Every other step's action is
+    /// an EVENT that can only be counted while <see cref="ControlsProgress.Waiting"/> names it, and
+    /// <see cref="ControlsProgress.BeginWaiting"/> has just zeroed the accumulator, so this reads
+    /// false for all of them — which is the correct answer, not a coincidence.</para>
+    /// </summary>
+    private static void PrepareStep(int index)
+    {
+        ref readonly ControlsStep step = ref ControlsLesson.Steps[index];
+        ControlsProgress.BeginWaiting(step.Action);
+        ControlsLesson.PollStates(in step);
+        _preSatisfied = ControlsLesson.IsComplete(in step);
+        // A card with no task carries no state line at all — see ControlsStepState.None.
+        _state = step.Action == ControlAction.None
+            ? ControlsStepState.None
+            : ControlsStepState.Open;
     }
 
     /// <summary>
@@ -495,7 +640,11 @@ internal static class ControlsTutorial
             + "press, and the swap itself is animated (see the swap measurement line).");
     }
 
-    private static void RefreshBox(bool done)
+    /// <summary>Write the running card, in the state <see cref="_state"/> currently says it is in.
+    /// The state is set by <see cref="PrepareStep"/> and <see cref="EnterDwell"/> and never derived
+    /// here — a second reading of the completion predicate could not tell Done from AlreadyDone,
+    /// and would flip the word under a player who is mid-read.</summary>
+    private static void RefreshBox()
     {
         if (_index < 0 || _index >= ControlsLesson.Steps.Length)
             return;
@@ -509,8 +658,6 @@ internal static class ControlsTutorial
                 + (ControllerVisual.HasDpad ? "_dpad" : string.Empty)));
         else if (step.Id == "ctl_welcome")
             body = SafeFormat(body, ControllerVisual.DeviceLabel);
-        if (done)
-            body += "\n\n" + Loc.Mod("ctl_good");
         // THE BOX'S ONE BUTTON, and what it says (user ruling 2026-09-02). A teaching card offers
         // ÜBERSPRINGEN, which now leaves THAT CARD and nothing else; a prose card — the welcome and
         // the closing card, which have no task to skip — offers WEITER. Same button, same handler,
@@ -519,7 +666,8 @@ internal static class ControlsTutorial
         ControlsBox.SetStep(
             Loc.Mod(step.Id + "_t"),
             body,
-            Loc.Mod(teaches ? "ctl_skip" : "ctl_next"));
+            Loc.Mod(teaches ? "ctl_skip" : "ctl_next"),
+            _state);
     }
 
     /// <summary>A body whose {0} could not be filled is still a usable instruction; a lesson
@@ -549,6 +697,13 @@ internal static class ControlsTutorial
     /// <see cref="Stop"/>. What is gone is the ONE-PRESS exit; nothing else. The
     /// <see cref="MaxLessonSeconds"/> ceiling, the scenario boundary and the error latch are all
     /// still there and all still release the chain.</para>
+    ///
+    /// <para>SKIPPING IS NOT FULFILLING, and since 2026-09-03 the card says which of the two just
+    /// happened rather than going quiet. A press on a TEACHING card that has not been satisfied
+    /// settles it on ÜBERSPRUNGEN for <see cref="SkippedDwellSeconds"/> first; a press on a prose
+    /// card, or a SECOND press while a settled card is holding, advances at once. That second rule
+    /// is what keeps the exit path free: the welcome card tells the player that pressing through
+    /// is how they leave, and somebody doing that must never be made to wait.</para>
     /// </summary>
     private static void OnAction()
     {
@@ -557,7 +712,32 @@ internal static class ControlsTutorial
         VRLog.Note("Tutorial", $"Controls lesson skipped by the player at step {_index} "
             + $"('{(_index >= 0 && _index < ControlsLesson.Steps.Length ? ControlsLesson.Steps[_index].Id : "?")}')"
             + " — the box's one button advances to the NEXT card; it no longer ends the lesson.");
-        Advance();
+        bool onCard = _index >= 0 && _index < ControlsLesson.Steps.Length;
+        // Already holding on a settled word — they have seen it and pressed anyway. Go.
+        if (_dwelling || !onCard)
+        {
+            Advance();
+            return;
+        }
+        ref readonly ControlsStep step = ref ControlsLesson.Steps[_index];
+        if (step.Action == ControlAction.None)
+        {
+            Advance();   // a prose card has nothing to be skipped past
+            return;
+        }
+        EnterDwell(ControlsStepState.Skipped, SkippedDwellSeconds, step.Id);
+    }
+
+    /// <summary>Forget everything the CURRENT CARD was saying about itself. Called from both
+    /// teardown paths, so a lesson that starts again can never inherit the last one's word.
+    /// </summary>
+    private static void ResetCardState()
+    {
+        _dwelling = false;
+        _dwellSince = 0f;
+        _dwellSeconds = 0f;
+        _state = ControlsStepState.None;
+        _preSatisfied = false;
     }
 
     private static void EngageHold(string why)
@@ -580,7 +760,7 @@ internal static class ControlsTutorial
         _controllersUp = false;
         ControlsBox.Close(reason);
         _index = -1;
-        _completedAt = 0f;
+        ResetCardState();
         _openingDialog = null;
         _phase = Phase.Idle;
         TutorialChainHold.Release(HoldOwner, reason);
@@ -601,7 +781,7 @@ internal static class ControlsTutorial
         _controllersUp = false;
         ControlsBox.Reset();
         _index = -1;
-        _completedAt = 0f;
+        ResetCardState();
         _openingDialog = null;
         _phase = Phase.Idle;
     }

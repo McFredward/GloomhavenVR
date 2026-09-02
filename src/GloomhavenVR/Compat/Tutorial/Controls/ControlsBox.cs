@@ -8,6 +8,33 @@ using UnityEngine.UI;
 namespace GloomhavenVR.Compat;
 
 /// <summary>
+/// WHAT THE CARD IN FRONT OF THE PLAYER SAYS ABOUT ITSELF (user, 2026-09-03: <i>"Beim Tutorial
+/// sollte schon angezeigt werden irgendwie ob es erfüllt wurde oder nicht"</i>).
+///
+/// <para>FOUR STATES, NOT TWO, and the two extra ones are both about honesty. <see cref="Skipped"/>
+/// exists because skipping is not fulfilling and the card must not go quiet about the difference;
+/// <see cref="AlreadyDone"/> exists because a step can be satisfied before it is read — the player
+/// reaches "hold a card" still holding one — and telling them they had just done it would be a
+/// claim about them that is false.</para>
+///
+/// <para>It is a state of ONE CARD. There is deliberately no value here for "how far through the
+/// lesson", because that is what the 2026-09-02 ruling removed.</para>
+/// </summary>
+internal enum ControlsStepState
+{
+    /// <summary>A card with nothing to fulfil — the welcome and the closing card. No line.</summary>
+    None = 0,
+    /// <summary>A task the player has not done yet.</summary>
+    Open,
+    /// <summary>The player just did it.</summary>
+    Done,
+    /// <summary>It was already true when the card appeared.</summary>
+    AlreadyDone,
+    /// <summary>The player pressed the button past it without doing it.</summary>
+    Skipped,
+}
+
+/// <summary>
 /// THE LESSON, INSIDE THE GAME'S OWN TUTORIAL BOX (user ruling 2026-09-02, verbatim: <i>"ich will
 /// dass die neuen Aufgaben und der neue Text IN das standart Tutorial integriert wird … es soll
 /// das standart Fenster sein das nach dem Dialog kommt und durch das Tutorial führt"</i>).
@@ -169,15 +196,56 @@ internal static class ControlsBox
     /// die den Fortschritt anzeigen soll auch weg."</i>). Until now the body carried an extra line
     /// holding an ASCII bar and an "8/14" counter; both are gone, and with them the reason the bar
     /// was ASCII in the first place (the box uses the GAME's font, which has no block-drawing
-    /// glyph and would have rendered a fallback box). The card is now title and instruction only.
-    /// </para>
+    /// glyph and would have rendered a fallback box).</para>
+    ///
+    /// <para>WHAT THE CARD CARRIES INSTEAD, AND WHY IT IS NOT THE DOTS COMING BACK (user,
+    /// 2026-09-03: <i>"Beim Tutorial sollte schon angezeigt werden irgendwie ob es erfüllt wurde
+    /// oder nicht."</i>). <see cref="StateLine"/> puts ONE shouted, coloured word under the
+    /// instruction, and it answers exactly one question about exactly one card: has the task in
+    /// front of you been satisfied. It carries no fraction, no cell count and no "8/14" — this
+    /// class is not told, and cannot work out, how many steps there are or which one this is. The
+    /// thing that was removed measured the LESSON and filled up as you went; this one is a binary
+    /// state of the CARD and only ever holds one of four words. A prose card with no task to
+    /// satisfy (<see cref="ControlsStepState.None"/>) gets no line at all, because a state
+    /// indicator on a card that cannot be fulfilled is the noise the dots were.</para>
     /// </summary>
-    internal static void SetStep(string title, string body, string actionLabel)
+    internal static void SetStep(string title, string body, string actionLabel,
+                                 ControlsStepState state)
     {
         _title = title ?? string.Empty;
         _actionLabel = actionLabel ?? string.Empty;
-        _body = body ?? string.Empty;
+        string text = body ?? string.Empty;
+        string line = StateLine(state);
+        _body = line.Length == 0 ? text : text + "\n\n" + line;
         PushText();
+    }
+
+    /// <summary>
+    /// The state word, shouted, bold and coloured, or an empty string for a card with no task.
+    ///
+    /// <para>RICH TEXT RATHER THAN A GLYPH, for the same reason the retired bar was ASCII: the box
+    /// draws in the GAME's font, and a tick or a circle the font does not carry renders as a
+    /// fallback box. A <c>&lt;color&gt;</c> tag is the font-independent half of TMP, and the game
+    /// itself emits them into these very strings (its own "UNDEFINED &lt;color=red&gt;…" for a
+    /// missing term), so rich text is provably on for this label.</para>
+    ///
+    /// <para>The three colours are the mod's existing palette — the same gold, green and red
+    /// family <c>WristHud</c> has used since it shipped — so the lesson does not invent a fourth
+    /// vocabulary of its own.</para>
+    /// </summary>
+    private static string StateLine(ControlsStepState state)
+    {
+        (string key, string colour) = state switch
+        {
+            ControlsStepState.Open        => ("ctl_state_open", "#ffd45e"),
+            ControlsStepState.Done        => ("ctl_state_done", "#9fe08a"),
+            ControlsStepState.AlreadyDone => ("ctl_state_already", "#9fe08a"),
+            ControlsStepState.Skipped     => ("ctl_state_skipped", "#a89f92"),
+            _ => (string.Empty, string.Empty),
+        };
+        if (key.Length == 0)
+            return string.Empty;
+        return "<b><color=" + colour + ">" + Loc.Mod(key) + "</color></b>";
     }
 
     /// <summary>

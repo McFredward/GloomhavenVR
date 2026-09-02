@@ -416,7 +416,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 357;
+    public const ushort ModBuild = 358;
     // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //

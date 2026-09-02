@@ -213,7 +213,21 @@ internal static partial class Loc
         // next hardware round greps for. Delete this line together with a fresh
         // `scripts/refactor-guard.sh baseline`; deleting it on its own turns the gate red.
         ["ctl_cant"] = Pair("NOT NOW", "GEHT GERADE NICHT"),
-        ["ctl_good"] = Pair("Done.", "Erledigt."),
+        // THE PER-CARD STATE LINE (user, 2026-09-03: "Beim Tutorial sollte schon angezeigt werden
+        // irgendwie ob es erfüllt wurde oder nicht"). One shouted word under the instruction,
+        // coloured by ControlsBox.StateLine, saying whether THE CARD IN FRONT OF THE PLAYER has
+        // been satisfied. It is deliberately his own vocabulary — erfüllt / nicht erfüllt — and
+        // deliberately NOT a count, a fraction or a bar: the progress dots were removed on
+        // 2026-09-02 ("Diese komischen Punkte die den Fortschitt anzeigen soll auch weg") and
+        // nothing here knows or shows how far through the lesson anybody is.
+        ["ctl_state_open"] = Pair("NOT DONE", "NICHT ERFÜLLT"),
+        ["ctl_state_done"] = Pair("DONE", "ERFÜLLT"),
+        // A card the player walked into ALREADY satisfied (they reached "hold a card" still
+        // holding one). Saying ERFÜLLT there would claim they had just done something they had
+        // not, so it says so instead — and the card dwells longer, because they have not read it.
+        ["ctl_state_already"] = Pair("ALREADY DONE", "SCHON ERFÜLLT"),
+        // Skipping is not fulfilling, and the card says which of the two happened.
+        ["ctl_state_skipped"] = Pair("SKIPPED", "ÜBERSPRUNGEN"),
 
         // KEY NAMES, substituted into {0} of the bodies below. The _dpad variants exist for the
         // Steam Frame: its four top inputs are a D-PAD, and Valve's own Touch-compatibility
@@ -229,112 +243,93 @@ internal static partial class Loc
             "the top of BOTH D-pads — left, up or right all count",
             "oben auf BEIDEN Steuerkreuzen — links, oben und rechts zählen alle"),
 
+        // THE BODIES, CUT TO ONE INSTRUCTION EACH (user, 2026-09-03, verbatim: "es ist viel zu
+        // viel text - kürzer den Text von dir auf das nötigste. Die Aufmerksamkeitspanne ist nicht
+        // so hoch der Spieler."). The evidence he is right is in his own log: the run in
+        // .planning/debug/second_logs/Player.log skips ctl_welcome, ctl_laser AND ctl_grab — the
+        // three longest cards, and two of them the controls nothing else works without.
+        //
+        // THE RULE THESE ARE NOW WRITTEN TO, so the next card is judged the same way:
+        //   * one instruction, and no justification, reassurance or design rationale. The worst
+        //     offender was ctl_fingertip's "Die Greiftaste ist Absicht: Eine Hand, die nur über
+        //     das Feld streicht, soll nie versehentlich etwas auswählen" — a rationale for a rule,
+        //     on a card whose whole job is to get a fingertip onto a hex;
+        //   * no listing everything a rule applies to (ctl_grab's "Figuren, Truhen, Geldhaufen,
+        //     Fallen und Karten gehen alle so" taught nothing the first four words had not);
+        //   * the SHOUTED key names stay. They are the payload, and two of the three shipped
+        //     controller models cannot light every key, so the words are the only channel;
+        //   * a second sentence survives only where the step needs a SECOND DISTINCT ACTION —
+        //     ctl_zoom really is "press both sticks" AND "pull apart", ctl_reel really is "hold it
+        //     with the laser" AND "push the stick".
+        // ctl_ping_b and ctl_recenter_b are untouched: both are already a single clause and there
+        // is nothing in either that is not the instruction.
         ["ctl_welcome_t"] = Pair("Your controllers", "Deine Controller"),
         ["ctl_welcome_b"] = Pair(
-            // ModBuild 343: the tense moved. The controller models are no longer up for the whole
-            // lesson — they appear only on a step that asks for a press (user, 2026-09-02: "Die
-            // 3D-meshes der Controller sollen NUR dann angezeigt werden wenn eine Aufgabe des
-            // Tutorials gerade etwas verlangt"), and this card is not such a step, so the player
-            // is reading it with their own hands in front of them. "Your hands HAVE BECOME" would
-            // describe something they cannot see.
-            //
-            // 2026-09-02, second round: the last two lines described TWO buttons and their old
-            // meanings ("NEXT passes a step you cannot do right now. SKIP ends the lesson."). The
-            // user removed the second button and redefined the first, so that text was left
-            // describing a window the player is looking at and cannot find. It now says what the
-            // one button does — and, because SKIP no longer ends the lesson in a press, it is
-            // also the only place the player is TOLD how to leave the lesson at all.
-            "Whenever a step asks you to press a KEY, your hands become your {0} controllers for "
-            + "as long as it does, in the place they really are, with the key lit up on them. A "
-            + "step about your HANDS keeps your hands — do what it says, and it moves on by "
-            + "itself.\n\n"
-            + "SKIP passes the step in front of you. Nothing here has to be done, so pressing it "
-            + "through to the end is how you leave the lesson altogether.",
-            "Sobald ein Schritt einen TASTENDRUCK von dir verlangt, werden deine Hände für so "
-            + "lange zu deinen {0}-Controllern, genau dort, wo sie wirklich sind, mit der "
-            + "passenden Taste beleuchtet. Bei einem Schritt, in dem es um deine HÄNDE geht, "
-            + "behältst du deine Hände — mach, was dasteht, und es geht von selbst weiter."
-            + "\n\nÜBERSPRINGEN geht zum nächsten Schritt weiter. Nichts davon musst du tun: "
-            + "Wer sich einfach durchdrückt, ist damit auch aus der Erklärung heraus."),
+            // Two facts survive the cut, and only two: what the controller models mean when they
+            // appear, and how to get out of the lesson. The rest of 343's card described the
+            // window the player is looking at, which the window can do for itself.
+            "When a step asks for a KEY, your hands briefly become {0} controllers with that key "
+            + "lit up.\n\nSKIP moves on. Nothing here has to be done.",
+            "Verlangt ein Schritt einen TASTENDRUCK, werden deine Hände kurz zu "
+            + "{0}-Controllern mit beleuchteter Taste.\n\nÜBERSPRINGEN geht weiter. Du musst "
+            + "nichts davon tun."),
 
         ["ctl_laser_t"] = Pair("Point and click", "Zeigen und auswählen"),
         ["ctl_laser_b"] = Pair(
-            "A laser comes out of each hand. Point it at something — a hex, a figure, a button — "
-            + "and pull the TRIGGER.",
-            "Aus jeder Hand kommt ein Laserstrahl. Ziel damit auf etwas — ein Feld, eine Figur, "
-            + "eine Taste — und drück den ABZUG."),
+            "Point the laser from your hand at something and pull the TRIGGER.",
+            "Ziel mit dem Laser aus deiner Hand auf etwas und drück den ABZUG."),
 
         ["ctl_grab_t"] = Pair("Reach out and grab", "Zugreifen"),
         ["ctl_grab_b"] = Pair(
-            "You do not have to point at everything. Move your hand to the thing itself and "
-            + "squeeze the TRIGGER. Figures, chests, gold piles, traps and cards all work this way.",
-            "Du musst nicht auf alles zeigen. Fahr mit der Hand direkt hin und drück den ABZUG. "
-            + "Figuren, Truhen, Geldhaufen, Fallen und Karten gehen alle so."),
+            "Move your hand to the thing itself and squeeze the TRIGGER.",
+            "Fahr mit der Hand direkt hin und drück den ABZUG."),
 
         ["ctl_drag_t"] = Pair("Move the table", "Den Tisch verschieben"),
         ["ctl_drag_b"] = Pair(
-            "Press ONE thumbstick straight down, hold it, and move your hand: the whole table "
-            + "comes with you.",
-            "Drück EINEN Stick gerade nach unten, halte ihn und bewege die Hand: Der ganze Tisch "
-            + "kommt mit."),
+            "Press ONE thumbstick down, hold it and move your hand — the table comes with you.",
+            "Drück EINEN Stick nach unten, halt ihn und bewege die Hand — der Tisch kommt mit."),
 
         ["ctl_zoom_t"] = Pair("Zoom in and out", "Heran- und wegzoomen"),
         ["ctl_zoom_b"] = Pair(
-            "Press BOTH thumbsticks down. Pull your hands apart to zoom in, bring them together "
-            + "to zoom out.",
-            "Drück BEIDE Sticks nach unten. Zieh die Hände auseinander, um heranzuzoomen, und "
-            + "führ sie zusammen, um wegzuzoomen."),
+            "Press BOTH thumbsticks down, then pull your hands apart or together.",
+            "Drück BEIDE Sticks nach unten und zieh die Hände auseinander oder zusammen."),
 
         ["ctl_rotate_t"] = Pair("Turn the table", "Den Tisch drehen"),
         ["ctl_rotate_b"] = Pair(
-            "With both thumbsticks still held down, turn your hands around each other — the "
-            + "table turns with them.",
-            "Mit beiden Sticks weiterhin gedrückt: Dreh die Hände umeinander — der Tisch dreht "
-            + "sich mit."),
+            "Keep BOTH thumbsticks down and turn your hands around each other.",
+            "Halte BEIDE Sticks gedrückt und dreh die Hände umeinander."),
 
         ["ctl_card_take_t"] = Pair("Take a card", "Eine Karte nehmen"),
         ["ctl_card_take_b"] = Pair(
-            "Turn a palm up towards you and your hand of cards fans out in front of it. Take one "
-            + "with the TRIGGER.",
-            "Dreh eine Handfläche zu dir, dann fächert sich deine Kartenhand davor auf. Nimm eine "
-            + "mit dem ABZUG."),
+            "Turn a palm towards you and take a card from the fan with the TRIGGER.",
+            "Dreh eine Handfläche zu dir und nimm eine Karte aus dem Fächer mit dem ABZUG."),
 
         ["ctl_card_hold_t"] = Pair("Hold a card properly", "Eine Karte richtig halten"),
         ["ctl_card_hold_b"] = Pair(
-            "A card you take floats so that you can read it. Hold the GRIP button as well and it "
-            + "sits in your hand instead, between thumb and finger — turn it round, show it to "
-            + "the others. Let the grip go and it floats again.",
-            "Eine genommene Karte schwebt so, dass du sie lesen kannst. Hältst du zusätzlich die "
-            + "GREIFTASTE, liegt sie stattdessen wirklich in deiner Hand, zwischen Daumen und "
-            + "Zeigefinger — dreh sie um, zeig sie den anderen. Lässt du die Greiftaste los, "
-            + "schwebt sie wieder."),
+            "Hold the GRIP as well and the card sits in your hand instead of floating.",
+            "Halte zusätzlich die GREIFTASTE, dann liegt die Karte in der Hand statt zu schweben."),
 
         ["ctl_fly_t"] = Pair("Move yourself", "Dich selbst bewegen"),
         ["ctl_fly_b"] = Pair(
-            "Push a thumbstick to move through the room. This moves YOU, not the table.",
-            "Drück einen Stick in eine Richtung, um dich durch den Raum zu bewegen. Das bewegt "
-            + "DICH, nicht den Tisch."),
+            // "not the table" stays: the same stick moved the table two cards ago, and without
+            // the contrast this card reads as a repeat of that one.
+            "Push a thumbstick in a direction — that moves YOU, not the table.",
+            "Drück einen Stick in eine Richtung — das bewegt DICH, nicht den Tisch."),
 
         ["ctl_turn_t"] = Pair("Turn round", "Dich umdrehen"),
         ["ctl_turn_b"] = Pair(
             "Flick a thumbstick left or right to turn on the spot.",
-            "Tipp einen Stick nach links oder rechts, um dich auf der Stelle zu drehen."),
+            "Tipp einen Stick nach links oder rechts, um dich zu drehen."),
 
         ["ctl_fingertip_t"] = Pair("Pick with a fingertip", "Mit der Fingerspitze auswählen"),
         ["ctl_fingertip_b"] = Pair(
-            "Hold the GRIP button and touch the board with a fingertip. The grip is required on "
-            + "purpose: a hand that merely sweeps across the board must never select anything.",
-            "Halte die GREIFTASTE und tipp das Spielfeld mit einer Fingerspitze an. Die "
-            + "Greiftaste ist Absicht: Eine Hand, die nur über das Feld streicht, soll nie "
-            + "versehentlich etwas auswählen."),
+            "Hold the GRIP and touch the board with a fingertip.",
+            "Halte die GREIFTASTE und tipp das Spielfeld mit einer Fingerspitze an."),
 
         ["ctl_reel_t"] = Pair("Pull a window closer", "Ein Fenster heranziehen"),
         ["ctl_reel_b"] = Pair(
-            "Point the laser at a window's bar and hold the trigger to carry it. While you do, "
-            + "push the thumbstick forward to send it away and pull back to reel it in.",
-            "Ziel mit dem Laser auf die Leiste eines Fensters und halte den Abzug, um es zu "
-            + "tragen. Dabei schiebst du es mit dem Stick nach vorn weg und ziehst es nach "
-            + "hinten heran."),
+            "Hold a window by its bar with the laser, then push the thumbstick forward or back.",
+            "Halte ein Fenster mit dem Laser am Balken fest und schieb den Stick vor oder zurück."),
 
         ["ctl_ping_t"] = Pair("Mark a hex", "Ein Feld markieren"),
         ["ctl_ping_b"] = Pair(
@@ -348,20 +343,17 @@ internal static partial class Loc
 
         ["ctl_menu_t"] = Pair("Open the menu", "Das Menü öffnen"),
         ["ctl_menu_b"] = Pair(
-            "Tap {0} on the hand you do NOT point with. A short tap opens the pause menu in front "
-            + "of you; another closes it. Everything this mod can do sits behind its VR entry "
-            + "there — including switching off anything you have just learnt.",
-            "Tipp {0} auf der Hand, mit der du NICHT zeigst. Ein kurzer Tipp öffnet das Pausenmenü "
-            + "vor dir, ein zweiter schließt es wieder. Alles, was dieser Mod kann, steckt dort "
-            + "hinter dem VR-Eintrag — auch das Abschalten von allem, was du gerade gelernt hast."),
+            // Where the mod's own settings live moved to the closing card, which is the card that
+            // exists to say it. Saying it twice is what made this one four lines long.
+            "Briefly tap {0} on the hand you do NOT point with.",
+            "Tipp kurz {0} auf der Hand, mit der du NICHT zeigst."),
 
         ["ctl_done_t"] = Pair("That is the lot", "Das war alles"),
         ["ctl_done_b"] = Pair(
-            "Everything else the game explains as you go. Every control you have just learnt "
-            + "can be adjusted or switched off under VR — behind the menu you just opened.",
-            "Alles Weitere erklärt dir das Spiel unterwegs. Jede Steuerung, die du gerade gelernt "
-            + "hast, lässt sich unter VR anpassen oder abschalten — hinter dem Menü, das du "
-            + "gerade geöffnet hast."),
+            "The game explains the rest as you go. Every VR control can be changed under VR in "
+            + "that menu.",
+            "Alles Weitere erklärt dir das Spiel. Jede VR-Steuerung lässt sich im Menü unter VR "
+            + "ändern."),
 
         // ---- generic (frame pins / gear / rest / active) ----
         ["follow"] = Pair("FOLLOW", "FOLGEN"),
