@@ -286,6 +286,7 @@ internal static class ActorBars
     // applies on every rig. Not in WorldUIConfig because that file predates the trap lesson.
     private static ConfigFile? s_barsConfigFile;
     private static ConfigEntry<bool>? s_barsOccluded;
+    private static ConfigEntry<float>? s_barHeightOffset;
 
     /// <summary>
     /// Bind-once for the [WorldUI] BarsOccluded entry. Extracted from the property getter so the
@@ -295,9 +296,19 @@ internal static class ActorBars
     /// </summary>
     internal static void BindConfig()
     {
-        if (s_barsOccluded != null)
+        if (s_barsOccluded != null && s_barHeightOffset != null)
             return;
         s_barsConfigFile = ModuleConfig.Create("bars");
+        s_barHeightOffset = s_barsConfigFile.Bind("WorldUI", "BarHeightOffset",
+            Defaults.BarHeightOffset,
+            new ConfigDescription(
+                "Hoehe der Lebensbalken ueber ALLEN Figuren, in Weltmasseinheiten (eine Kachel ist "
+                + "rund 1.7). Positiv hebt sie an, negativ senkt sie ab, 0 ist die gemessene Hoehe. "
+                + "Der Mod setzt den Balken automatisch dicht ueber das Kopfgelenk der jeweiligen "
+                + "Figur; dieser Wert verschiebt ALLE Balken gemeinsam, ohne diese Messung zu "
+                + "ersetzen — grosse und kleine Figuren behalten also ihr Verhaeltnis zueinander. "
+                + "Wirkt sofort, ohne Neustart.",
+                new AcceptableValueRange<float>(-2f, 2f)));
         s_barsOccluded = s_barsConfigFile.Bind("WorldUI", "BarsOccluded", Defaults.BarsOccluded,
             "Actor HP/effect bars depth-test against the world: walls occlude them like "
             + "any world object instead of the bar shining through. Look-preserving — "
@@ -310,6 +321,31 @@ internal static class ActorBars
         // `BarsDepthStamp = false` saved, so flipping the shipped default would have changed
         // nothing where it mattered. Dropping the binding leaves the stale line in the cfg as an
         // inert orphan and puts every rig on the fixed behaviour.
+    }
+
+    /// <summary>
+    /// USER OFFSET on every bar's anchor height, in board world units, read live.
+    ///
+    /// <para>User, 2026-09-02: <i>"Geb mir eine offset Einstellung in Erweitert, in dem ich die
+    /// Hoehe der Healtbars fuer alle Figuren selber noch etwas anpassen kann."</i></para>
+    ///
+    /// <para>It is added AFTER every rule in <see cref="MeasureAnchorOffsetWU"/> has run — after the
+    /// head-joint measurement, after the artists' authored floor, after both ceilings. That is the
+    /// point: those rules answer "where is this creature's head", which differs per figure and which
+    /// he is not being asked to re-tune; this answers "and how far above that do I want the bar",
+    /// which is one number for the whole board. Applying it before the clamps would let the ceiling
+    /// silently eat his adjustment on exactly the tall figures where he is most likely to want it.</para>
+    ///
+    /// <para>Bounded only by the same hard ceiling, so a mistyped value cannot launch a bar out of
+    /// the room, and floored at zero so a bar can never sink below the track point.</para>
+    /// </summary>
+    private static float BarHeightOffsetWU
+    {
+        get
+        {
+            BindConfig();
+            return s_barHeightOffset!.Value;
+        }
     }
 
     /// <summary>Config gate for the bar depth-test (lazily bound, read live every scan).</summary>
@@ -1117,6 +1153,18 @@ internal static class ActorBars
         if (fallback > clamped)
             clamped = Mathf.Min(fallback, AnchorHardCeilingWU);
 
+        // ── AND FINALLY THE PLAYER'S OWN OFFSET ──────────────────────────────────────────
+        // LAST, after every rule above, and that ordering is the whole design. Everything before
+        // this line answers "where is THIS creature's head"; this answers "how far above that do I
+        // want the bar", which is one number for the whole board. Applied before the clamps it
+        // would be silently eaten by the ceiling on exactly the tall figures where he is most
+        // likely to reach for it. Bounded by the same hard ceiling so a mistyped value cannot
+        // launch a bar out of the room, and floored so a bar can never sink below the track point.
+        float userOffset = BarHeightOffsetWU;
+        float beforeUserOffset = clamped;
+        if (userOffset != 0f)
+            clamped = Mathf.Clamp(clamped + userOffset, 0f, AnchorHardCeilingWU);
+
         measured = true;
         if (!wantReport)
             return clamped;
@@ -1162,12 +1210,19 @@ internal static class ActorBars
                        + $"; the old ModBuild 293 rule would have given "
                        + $"{(boxMaxY - boxUnderBase - track.y) + 0.12f * Mathf.Max(boxMaxY - boxUnderBase - track.y, 0.01f):F2} wu";
 
+        string userSays = userOffset == 0f
+            ? "; [WorldUI] BarHeightOffset is 0, so the measurement stands unmodified"
+            : $"; then the PLAYER'S OWN [WorldUI] BarHeightOffset of {userOffset:+0.00;-0.00} wu "
+              + $"moved it {beforeUserOffset:F2} -> {clamped:F2} wu"
+              + (Mathf.Approximately(clamped, AnchorHardCeilingWU)
+                  ? " (AT the hard ceiling — a larger value will do nothing)"
+                  : Mathf.Approximately(clamped, 0f) ? " (AT the floor — it cannot go lower)" : "");
         report = $"track {trackMode} y={track.y:F2}; {census}; {head}; LIVE extent y "
                  + $"{liveMinY:F2}..{liveMaxY:F2} => live height {liveHeight:F2} wu{Hex(liveHeight)}; "
                  + $"TALLEST '{tallest}' ({tallestKind}); "
                  + $"TOP {top:F2} wu from {topWhy}; raw offset = (top-track) "
                  + $"{top - track.y:F2} + 12% clearance {clearance:F2} = {raw:F2} wu; BOUND BY "
-                 + $"{arm} => {clamped:F2} wu{Hex(clamped)}; {baked}; the game's own authored "
+                 + $"{arm} => {beforeUserOffset:F2} wu{Hex(beforeUserOffset)}{userSays}; {baked}; the game's own authored "
                  + $"m_WorldspaceOffsetY is {fallback:F2} wu, which is "
                  + (headKnown
                      ? $"{Mathf.Abs(fallback - (headY - track.y)):F2} wu from this character's live "

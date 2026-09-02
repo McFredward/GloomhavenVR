@@ -15,6 +15,10 @@ internal static partial class Defaults
 {
     // ---- WorldUI/ActorBars.cs ------------------------------------------------------
     internal const bool BarsOccluded = false;  // => [WorldUI] BarsOccluded
+    // 0 = the measured height stands. This is a USER TRIM on top of the per-figure head
+    // measurement, not a replacement for it, so the shipped value must be neutral: anything
+    // else would be the mod pre-judging a number he asked to own.
+    internal const float BarHeightOffset = 0f;  // => [WorldUI] BarHeightOffset
 
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
     // THE WHOLE [RoundButtons] FAMILY IS GONE (2026-08-25), and so is the group it sized. Nine

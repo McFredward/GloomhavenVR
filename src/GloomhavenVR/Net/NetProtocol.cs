@@ -416,7 +416,36 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 338;
+    public const ushort ModBuild = 339;
+    // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
+    //
+    //   User: "Geb mir eine offset Einstellung in Erweitert, in dem ich die Hoehe der Healtbars
+    //   fuer alle Figuren selber noch etwas anpassen kann."
+    //
+    //   [WorldUI] BarHeightOffset in dev.gloomhavenvr.bars.cfg, -2..+2 world units (a hex is about
+    //   1.7), default 0, live. Uncurated, so it appears under "Erweitert" exactly as asked.
+    //
+    //   IT IS ADDED LAST, AFTER EVERY RULE IN MeasureAnchorOffsetWU -- after the head-joint
+    //   measurement, after the artists' authored floor, after both ceilings. That ordering is the
+    //   design, not an implementation detail. Everything before it answers "where is THIS
+    //   creature's head", which differs per figure and which he is not being asked to re-tune;
+    //   this answers "and how far above that do I want the bar", which is one number for the whole
+    //   board. Applied BEFORE the clamps it would be silently eaten by the ceiling on exactly the
+    //   tall figures where he is most likely to reach for it -- the dial would then work on a
+    //   Brute and do nothing on the boss, which is the worst possible behaviour for a trim.
+    //   Re-bounded by the same hard ceiling so a mistyped value cannot launch a bar out of the
+    //   room, and floored at the track point so a bar can never sink under the board.
+    //
+    //   The anchor report now NAMES the dial: it prints the measured value, then the offset, then
+    //   the result, and says when the value is AT the ceiling or floor so "turning it further does
+    //   nothing" is never something he has to discover by feel.
+    //
+    //   TEST: set it to +0.5 and -0.5 in the in-VR panel under Erweitert. Every bar must move
+    //   together, and the RELATIVE spacing between a Brute's bar and the boss dragon's must not
+    //   change -- that relation is the measurement, and the dial is not allowed to touch it.
+    //
+    // Build 338: THE PROPS GO IN THE HAND
     // Build 338: THE PROPS GO IN THE HAND, THE GLOW STOPS BLINKING, AND THE MENU STOPS BREATHING.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD (one is SPECIFIED).
     //
