@@ -33,6 +33,21 @@ namespace GloomhavenVR.WorldUI;
 /// head. When the hint hides we do nothing: the panel keeps PropInfoSurface's pose and
 /// then releases, so the next hover starts fresh.
 ///
+/// <para><b>WHAT IT MUST NOT DO, since ModBuild 360.</b> User, 2026-09-03, verbatim: "Die Info bei
+/// den props in der Hand folgt aktuell dem Kopf - das soll nicht sein ... Die Info die dem Kopf
+/// folgt ist nur beim Laser-hover." The head-follow above is CORRECT and is left exactly as it is
+/// for the laser hover, which is the case it was built for. But <c>UITextInfoPanel</c> is a
+/// SHARED window: <c>GrabbableProp.PushInfo</c> raises the same singleton for a prop carried in the
+/// hand, and this step gates only on <see cref="UIWindow.IsVisible"/>, so it could not tell "the
+/// laser is hovering a hex" from "a prop is in the hand" and drove the held card to the centre of
+/// view. The distinguishing term does not exist here and cannot be invented here - it lives in
+/// <see cref="GloomhavenVR.WorldUI.Surfaces.PropInfoSurface.TryGetHeldDockPose"/>, which owns the
+/// held-prop concept. While that returns true this step STANDS DOWN for the text panel and instead
+/// re-asserts the held dock pose, so the LAST writer of the frame is still the prop-anchored one
+/// (LateUpdate, after the hands have moved - the card cannot lag the hand by a frame). Every other
+/// case, and the <c>UIPropInfoPanel</c> quest-item hint in every case, keeps the head-follow
+/// untouched.</para>
+///
 /// Non-invasive: it reads the shared <see cref="CanvasConversion.ActivePanels"/> registry
 /// to find each singleton panel's converted host by <see cref="ConvertedPanel.Target"/>
 /// identity — it never touches <see cref="GloomhavenVR.WorldUI.Surfaces.PropInfoSurface"/>. If <c>PropInfoCards</c> is
@@ -70,9 +85,16 @@ internal sealed class HexHintFacing
         public Vector3 Pos;
         public Vector3 PosVel;
         public Quaternion Rot;
+
+        /// <summary>True for the <c>UITextInfoPanel</c> state - the only window a held prop can
+        /// raise, and therefore the only one this step ever stands down for.</summary>
+        public bool IsTextInfo;
+
+        /// <summary>Edge state for the one-shot stand-down line (see <see cref="LateTick"/>).</summary>
+        public bool StoodDown;
     }
 
-    private readonly HintState _text = new();
+    private readonly HintState _text = new() { IsTextInfo = true };
     private readonly HintState _prop = new();
 
     public void LateTick()
@@ -128,6 +150,33 @@ internal sealed class HexHintFacing
             s.Engaged = false;
             return;
         }
+
+        // HELD-PROP CARVE-OUT (ModBuild 360) - see the class doc. Ask the surface that owns the
+        // held-prop concept; do not try to reconstruct it from anything visible here. Note the
+        // pose is RE-ASSERTED rather than merely skipped: PropInfoSurface placed it in Update, the
+        // hands move in LateUpdate, and this step is registered last in the WorldUI chain, so
+        // writing it again here is what keeps the card glued to the prop instead of trailing it by
+        // a frame.
+        if (s.IsTextInfo
+            && Surfaces.PropInfoSurface.TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
+                                                           out string how, out _))
+        {
+            host.SetPositionAndRotation(heldPos, heldRot);
+            s.Engaged = false;   // a later hover restarts the lazy drift from the dock, not from here
+            if (!s.StoodDown)
+            {
+                s.StoodDown = true;
+                // HW-VERIFY: a standing hardware question is waiting on this line - it must stay at
+                // a tier the DEFAULT log level prints. scripts/check-hw-verify.py enforces it.
+                VRLog.Note("WorldUI",
+                    $"hex-hint head-follow STANDS DOWN for {name}: a prop is in the hand, so the card "
+                    + $"rides the prop ({how}). The head-follow is unchanged for laser hover and for "
+                    + "the quest-item hint. If this line is missing while a prop is held, this step "
+                    + "is still dragging the card to the centre of view.");
+            }
+            return;
+        }
+        s.StoodDown = false;
 
         if (WorldUIConfig.HexHintFollowView.Value)
         {
@@ -206,6 +255,7 @@ internal sealed class HexHintFacing
         s.Attached = null;
         s.Window = null;
         s.Engaged = false;
+        s.StoodDown = false;
     }
 
     public void Shutdown()

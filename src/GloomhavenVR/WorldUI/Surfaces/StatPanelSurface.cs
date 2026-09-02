@@ -188,8 +188,16 @@ internal sealed class StatPanelSurface
     private static ActorStatPanel? _realPanel;
 
     /// <summary>Viewer-relative dock side for a hand: RIGHT hand → viewer-LEFT (-1), LEFT hand →
-    /// viewer-RIGHT (+1), so the holding hand never occludes its own panel (item 5).</summary>
-    private static float SignFor(GloomhavenVR.Hands.HandSide side)
+    /// viewer-RIGHT (+1), so the holding hand never occludes its own panel (item 5).
+    ///
+    /// <para>INTERNAL SINCE ModBuild 360, not private, because the HELD-PROP card now docks by the
+    /// SAME rule (user, 2026-09-03: "es soll sich wenn man es in der Hand hält genau so verhalten
+    /// wie die Figur-Info neben der Figur wenn man die Figur in der Hand hat"). "Genau so" is a
+    /// requirement about the ARITHMETIC, so <see cref="PropInfoSurface"/> calls this and
+    /// <see cref="TryComputeHeldPose"/> rather than copying either — a second copy is a second
+    /// place for the two to drift apart, and the user would see the drift as two cards that dock
+    /// differently for the two things a hand can hold.</para></summary>
+    internal static float SignFor(GloomhavenVR.Hands.HandSide side)
         => side == GloomhavenVR.Hands.HandSide.Right ? -1f : 1f;
 
     /// <summary>Held-figure offset (side / up, real meters × world scale) — snug so it clears the hand.</summary>
@@ -922,8 +930,12 @@ internal sealed class StatPanelSurface
     }
 
     /// <summary>Held-dock pose beside an anchor: docked on the viewer side <paramref name="sideSign"/>
-    /// of the hand, billboarded to the player. Shared by the real panel and the snapshot copy.</summary>
-    private static bool TryComputeHeldPose(Vector3 anchorPos, float sideSign, out Vector3 pos, out Quaternion rot)
+    /// of the hand, billboarded to the player. Shared by the real panel and the snapshot copy —
+    /// and, since ModBuild 360, by the held-PROP info card in
+    /// <see cref="PropInfoSurface"/>, which is the only way "genau so wie die Figur-Info"
+    /// can stay true through a later tuning pass: the offsets, the side rule and the billboard all
+    /// live here, once. See <see cref="SignFor"/> for the rest of that argument.</summary>
+    internal static bool TryComputeHeldPose(Vector3 anchorPos, float sideSign, out Vector3 pos, out Quaternion rot)
     {
         pos = default;
         rot = Quaternion.identity;

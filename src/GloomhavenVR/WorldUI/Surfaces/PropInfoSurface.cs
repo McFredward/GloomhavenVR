@@ -1,4 +1,6 @@
+using GloomhavenVR.Board.FigureGrab;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -67,6 +69,12 @@ internal sealed class PropInfoSurface
         public ConvertedPanel? Panel;
         public bool PendingShow;
 
+        /// <summary>True for the <c>UITextInfoPanel</c> watch — the ONE window a held prop raises
+        /// (<c>GrabbableProp.PushInfo</c>), and therefore the only one that may ever be docked at a
+        /// hand instead of at the fixed slot. <c>UIPropInfoPanel</c> is hover-only and keeps the
+        /// head-follow unconditionally.</summary>
+        public bool IsTextInfo;
+
         /// <summary>Unscaled time at which a scheduled release fires; 0 = none pending.</summary>
         public float ReleaseAt;
 
@@ -99,6 +107,7 @@ internal sealed class PropInfoSurface
 
     public PropInfoSurface()
     {
+        _textInfo.IsTextInfo = true;
         _textInfo.OnShown = () => _textInfo.PendingShow = true;
         _textInfo.OnHidden = () => ScheduleRelease(_textInfo);
         _propInfo.OnShown = () => _propInfo.PendingShow = true;
@@ -107,6 +116,12 @@ internal sealed class PropInfoSurface
 
     public void Tick()
     {
+        // Re-arm the one-shot dock line per HOLD, not per session: PlaceWatch only runs while a
+        // panel is converted, so it cannot clear the edge on the frame the prop is dropped, and
+        // without this the second pickup of the same prop in the same hand would print nothing.
+        if (HeldProps.Count == 0)
+            _dockedRoute = null;
+
         TickWatch(_textInfo,
             Singleton<UITextInfoPanel>.IsInitialized ? Singleton<UITextInfoPanel>.Instance : null,
             "TextInfoPanel");
@@ -284,9 +299,209 @@ internal sealed class PropInfoSurface
     {
         if (watch.Panel == null)
             return;
+
+        // HELD-PROP DOCK FIRST (ModBuild 360). User, 2026-09-03, verbatim: "Die Info bei den props
+        // in der Hand folgt aktuell dem Kopf - das soll nicht sein - es soll sich wenn man es in
+        // der Hand haelt genau so verhalten wie die Figur-Info neben der Figur wenn man die Figur
+        // in der Hand hat, also der Figur daneben folgen! Die Info die dem Kopf folgt ist nur beim
+        // Laser-hover."
+        //
+        // Same three-way shape StatPanelSurface.PlaceWatch has had since P8: held branch first,
+        // then the anchored branch, then the fixed slot. This surface has no board-cell branch (a
+        // hover card names whatever the pointer is on, and the pointer is the head's business), so
+        // it is a two-way selector: held, else the slot.
+        if (watch.IsTextInfo
+            && TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
+                                  out string route, out HandSide dockSide))
+        {
+            // The user's live "Infotafel-Groesse" dial still owns the size, exactly as in the
+            // docked case - the hold changes WHERE the card is, never how big it is.
+            CanvasConversion.PlaceHost(watch.Panel, heldPos, heldRot,
+                PanelLayout.WorldScale * WorldUIConfig.HoverInfoScaleLive());
+            ReportDock(route, dockSide);
+            return;
+        }
+
         if (PanelLayout.TryGetPose(PanelSlot.PropInfo, out Vector3 pos, out Quaternion rot))
             CanvasConversion.PlaceHost(watch.Panel, pos, rot,
                 PanelLayout.WorldScale * WorldUIConfig.HoverInfoScaleLive());
+    }
+
+    // ---- held-prop dock (ModBuild 360) ------------------------------------------------
+    //
+    // THE ASYMMETRY THIS ENDS. The FIGURE card has a held mode (StatPanelSurface.ShowHeldFigure to
+    // TryComputeHeldPose) and no head-follower. The PROP card had a head-follower
+    // (WorldUI/Tooltips/HexHintFacing) and no held mode - and both the laser hover and a prop in
+    // the hand drive the SAME window, the UITextInfoPanel singleton (GrabbableProp.PushInfo).
+    // HexHintFacing gates only on UIWindow.IsVisible, so it could not tell the two apart and drove
+    // the held card to the centre of view. The missing term is not in the follower, it is here:
+    // this surface never had a concept of a held prop at all.
+
+    /// <summary>
+    /// Explicit held-prop registration - the ONE-LINE HOOK for the grab side, mirroring
+    /// <c>StatPanelSurface.ShowHeldFigure</c>. <paramref name="anchor"/> must be the prop's LIVE
+    /// visual transform (never a captured position: riding the object is the whole point), and
+    /// <paramref name="holdingHand"/> picks the viewer side so the holding hand never occludes its
+    /// own card.
+    ///
+    /// <para><b>THE DOCK DOES NOT DEPEND ON THIS CALL.</b> <c>Board/FigureGrab/GrabbableProp.cs</c>
+    /// is owned by another lane, so a fix that only worked once that file called us would be a
+    /// remedy gated behind a change we cannot land - this project has already paid for one of
+    /// those. <see cref="TryGetHeldDockPose"/> therefore resolves the anchor from the shared
+    /// <see cref="HeldProps"/> registry on its own and works today; this method exists so the grab
+    /// side can hand us the exact visual instead of us finding it, and it is strictly a fidelity
+    /// upgrade. The patch text is in <c>.planning/LANE-PROPINFO-357-NEEDED-OUTSIDE.md</c>.</para>
+    /// </summary>
+    internal static void ShowHeldProp(Transform? anchor, HandSide holdingHand)
+    {
+        if (anchor == null)
+            return;
+        _regAnchor = anchor;
+        _regSide = holdingHand;
+    }
+
+    /// <summary>Drop an explicit registration (release / teardown). Idempotent, and a no-op for a
+    /// hand that never registered. The registry-driven resolution below keeps working either
+    /// way.</summary>
+    internal static void ClearHeldProp(HandSide holdingHand)
+    {
+        if (_regAnchor != null && _regSide == holdingHand)
+            _regAnchor = null;
+    }
+
+    private static Transform? _regAnchor;
+    private static HandSide _regSide;
+
+    /// <summary>Edge state for the one-shot dock line - the route and hand we last reported
+    /// docking by, or null while no held card is up. Kept as two fields rather than one composed
+    /// key because <see cref="ReportDock"/> is on a per-frame path and composing a key there would
+    /// allocate a string every frame of every hold.</summary>
+    private static string? _dockedRoute;
+    private static HandSide _dockedSide;
+
+    /// <summary>
+    /// TRUE while a prop in the hand owns the text-info card, with the pose it must take.
+    ///
+    /// <para>The gate is <see cref="HeldProps.Count"/> AND the same
+    /// <c>[FigureGrab] HeldFigureInfo</c> dial <c>GrabbableProp.ShowInfo</c> obeys: with that dial
+    /// off nothing pushes a held card at all, so the window is a pure hover panel and must keep the
+    /// head-follow. (Known residual: with a prop in one hand, the OTHER hand's laser can still
+    /// hover a hex and repopulate this same singleton. WHICH TEXT wins that race is decided by
+    /// GrabbableProp's 0.25 s re-assert, not here; this method follows the content by docking
+    /// wherever the held prop is, which is what the re-assert makes true most of the time.)</para>
+    ///
+    /// <para>The pose itself is <c>StatPanelSurface.TryComputeHeldPose</c> - CALLED, not copied, so
+    /// "genau so wie die Figur-Info" survives the next time those offsets are tuned.</para>
+    /// </summary>
+    /// <remarks><paramref name="route"/> is one of a handful of CONSTANT literals naming how the
+    /// anchor was found, never a composed sentence: this runs every frame of every hold from both
+    /// <see cref="PlaceWatch"/> and <c>HexHintFacing.LateTick</c>, and a formatted string here
+    /// would be a per-frame allocation on a VR hot path. The sentence is composed once, on the
+    /// edge, in <see cref="ReportDock"/>.</remarks>
+    internal static bool TryGetHeldDockPose(out Vector3 pos, out Quaternion rot,
+                                            out string route, out HandSide side)
+    {
+        pos = default;
+        rot = Quaternion.identity;
+        route = "no held prop";
+        side = HandSide.Right;
+        if (HeldProps.Count == 0 || !FigureGrabConfig.HeldFigureInfoEnabled)
+            return false;
+        if (!TryResolveHeldAnchor(out Transform? anchor, out side, out route) || anchor == null)
+            return false;
+        if (!StatPanelSurface.TryComputeHeldPose(anchor.position, StatPanelSurface.SignFor(side),
+                                                 out pos, out rot))
+        {
+            route = "no head camera";
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// The live transform the held card must ride, in preference order.
+    ///
+    /// <para>1. An explicit <see cref="ShowHeldProp"/> registration, when the grab side has landed
+    /// the hook.</para>
+    ///
+    /// <para>2. Otherwise, resolved from the shared registry with no outside help: the MOST RECENT
+    /// held prop (<see cref="HeldProps.TryGetSlot"/> at the last slot - grab order, and the last
+    /// grab is the one whose text this singleton is showing) names the hand, the hand names its
+    /// <c>Rig.GrabAnchor</c>, and the prop's visual is the child of that anchor which
+    /// <see cref="HeldProps.OwnsRendererOf"/> claims. That predicate is exact - it answers "is this
+    /// transform, or an ancestor of it, a registered held-prop visual" - so the child it selects IS
+    /// the prop, not a guess by name or by layer. A grab anchor carries at most a couple of
+    /// children, so the scan is trivial.</para>
+    ///
+    /// <para>3. If the anchor has no such child (a frame between the reparent and the registry
+    /// write, or a prop whose visual sits deeper), the GrabAnchor itself. That is the hand, i.e.
+    /// within a few centimetres of the prop - degraded, never wrong, and named as such in the dock
+    /// line so a hardware log can tell the two routes apart.</para>
+    /// </summary>
+    private static bool TryResolveHeldAnchor(out Transform? anchor, out HandSide side, out string how)
+    {
+        anchor = null;
+        side = HandSide.Right;
+        how = "unresolved";
+
+        if (_regAnchor != null)
+        {
+            anchor = _regAnchor;
+            side = _regSide;
+            how = "registered prop visual";
+            return true;
+        }
+
+        for (int slot = HeldProps.Count - 1; slot >= 0; slot--)
+        {
+            if (!HeldProps.TryGetSlot(slot, out _, out HandSide s))
+                continue;
+            VRHand? hand = VRHands.Get(s);
+            Transform? grab = hand != null && hand.Rig != null ? hand.Rig.GrabAnchor : null;
+            if (grab == null)
+                continue;
+            side = s;
+            for (int i = 0; i < grab.childCount; i++)
+            {
+                Transform child = grab.GetChild(i);
+                if (child == null || !HeldProps.OwnsRendererOf(child))
+                    continue;
+                anchor = child;
+                how = "prop visual under the grab anchor";
+                return true;
+            }
+            anchor = grab;
+            how = "grab anchor (prop visual not found under it)";
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// One line per hold saying WHERE the card docked and by which route - the single fact a
+    /// hardware log has to carry for "die Info folgt jetzt dem Prop". Edge-triggered on the route,
+    /// so it prints once per pickup and never per frame; its ABSENCE during a hold means the held
+    /// branch never ran and the card is still on the fixed slot with the head-follower on it.
+    /// </summary>
+    private static void ReportDock(string route, HandSide side)
+    {
+        // Ordinal compare, not ReferenceEquals: the routes ARE interned literals today, but a
+        // reference test would silently start logging every frame the day one of them is composed.
+        if (_dockedSide == side && string.Equals(_dockedRoute, route, System.StringComparison.Ordinal))
+            return;   // steady state: no allocation, no string built
+        _dockedRoute = route;
+        _dockedSide = side;
+        string how = $"{route}; hand {side}, dock side "
+                     + (StatPanelSurface.SignFor(side) < 0f ? "viewer-LEFT" : "viewer-RIGHT");
+        // HW-VERIFY: a standing hardware question is waiting on this line - it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("WorldUI",
+            "held-prop INFO card docks BESIDE THE PROP IN THE HAND, not at the head - anchor via "
+            + $"{how}; pose from StatPanelSurface.TryComputeHeldPose, the same arithmetic the held "
+            + "FIGURE's stat card uses. HexHintFacing stands down for this window while the hold "
+            + "lasts and keeps the head-follow for laser hover, which the user asked to leave "
+            + "alone. If this line is absent while a prop is held, the card is still on the fixed "
+            + "PropInfo slot and the head-follower still owns it.");
     }
 
     private static void Release(Watch watch)

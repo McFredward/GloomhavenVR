@@ -23,6 +23,21 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// walls/terrain exactly like the mini (verified shader fact — the game's Amp character shaders do
 /// NOT expose <c>_EmissionColor</c>, so an emissive glow is a silent no-op; the bundled Overlay
 /// shader is the tool that works).
+///
+/// <para><b>AND THAT SENTENCE IS ONLY HALF TRUE — the half that broke (ModBuild 360).</b> "The
+/// figure already wrote depth in its opaque pass" holds for the PRE-GRAB HIGHLIGHT, which re-draws
+/// a live, opaque, still-present figure. It is FALSE for the FROZEN HOME GHOST, whose whole premise
+/// is that the figure has been carried into the hand: the ghost stands alone at the home cell with
+/// nothing opaque behind it, so between them the two passes contribute NOTHING to the depth buffer.
+/// User, 2026-09-03, verbatim: "Die Infotafeln und die Geister der Figuren die aktuell in der Hand
+/// gehalten werden, respektieren die richtige Perspektive nicht. Wie alles soll auch hier die
+/// Perspektive eingehalten werden, ist die Geisterfigur im Vordergrund, soll sie auch im
+/// Vordergrund angezeigt werden." The arithmetic behind it: a converted panel rides the distance
+/// ladder at <c>sortingOrder</c> 100+ while a ghost renderer sits at 0, and Unity resolves
+/// transparents by sortingLayer → sortingOrder → renderQueue → distance — so the panel draws after
+/// the ghost at EVERY distance and every angle, and with no depth to fail against it simply paints
+/// over it. See <see cref="GhostDepthQueue"/> for the fix, which is the one ModBuild 352 already
+/// shipped for the ghost HAND.</para>
 /// </summary>
 internal static class FigureOverlay
 {
@@ -178,6 +193,10 @@ internal static class FigureOverlay
                                          out int sourceRenderers);
         var vfxKilled = new List<string>(4);
         var kept = new List<string>(8);
+        // ModBuild 360 — the renderers that may carry a DEPTH PREPASS, and the ones that may not
+        // with the reason. See ArmGhostDepthPrepass.
+        var solid = new List<Renderer>(8);
+        var depthExcluded = new List<string>(4);
 
         GameObject ghost = Object.Instantiate(animatedRoot);
         ghost.name = "VRFigureGhost";
@@ -277,7 +296,23 @@ internal static class FigureOverlay
             if (ringTwin != null && (r.transform == ringTwin || r.transform.IsChildOf(ringTwin)))
             {
                 tint.Add(r);          // counts as visual content, but keeps the game's ring look
+                if (depthExcluded.Count < 4)
+                    depthExcluded.Add($"'{r.name}' (the preserved selection RING — hollow "
+                                      + "soft-falloff art, a depth stamp would be a solid disc)");
                 continue;
+            }
+            // Asked BEFORE the tint replaces the materials: it is the SOURCE art that decides
+            // whether this mesh's geometry is its silhouette.
+            string renderType = SourceRenderType(r);
+            if (IsAlphaCutSilhouette(renderType))
+            {
+                if (depthExcluded.Count < 4)
+                    depthExcluded.Add($"'{r.name}' (RenderType '{renderType}' — the alpha carries "
+                                      + "the silhouette, not the geometry)");
+            }
+            else
+            {
+                solid.Add(r);
             }
             int subs = 1;
             if (r is SkinnedMeshRenderer smr && smr.sharedMesh != null)
@@ -322,7 +357,11 @@ internal static class FigureOverlay
                  + $"alpha {(ghostMat != null ? ghostMat.color.a : 0f):F2}. KEPT: "
                  + (kept.Count == 0 ? "nothing" : string.Join(", ", kept))
                  + (tint.Count > kept.Count ? $" (+{tint.Count - kept.Count} more not named)" : "")
-                 + ".";
+                 + ". "
+                 // Armed AFTER the census above, so the twins can never be counted as ghost
+                 // content: MeasureRenderers and OverlayVisibilityProbe both work off `tint`, and a
+                 // colour-free depth stamp is not a thing anyone can see.
+                 + ArmGhostDepthPrepass(ghost, solid, depthExcluded);
         return ghost;
     }
 
@@ -686,6 +725,217 @@ internal static class FigureOverlay
         return twin;
     }
 
+    /// <summary>
+    /// Render queue of the frozen ghost's colour-free DEPTH PREPASS.
+    ///
+    /// <para><b>WHY A GHOST NEEDS ONE AT ALL.</b> See the class doc: a frozen ghost is an
+    /// alpha-blended clone with <c>ZWrite 0</c> standing where an opaque figure USED to be, so it
+    /// writes no depth, and a converted world-space panel — <c>sortingOrder</c> 148…276 against the
+    /// ghost's 0 — always draws after it and paints over it. This is the identical defect ModBuild
+    /// 352 fixed for the ghost HAND ("Die Geisterhand respektiert die Perspektive nicht"), and the
+    /// remedy is copied from <c>Hands/HandGhost</c> deliberately: give the GHOST depth so the
+    /// panel's own <c>ZTest LEqual</c> resolves the two PER PIXEL.</para>
+    ///
+    /// <para><b>WHY BACK FACES ONLY</b> (<c>_Cull Front</c>, from HandGhost's argument, which is the
+    /// part that matters more than the code): an alpha-blended surface with <c>ZWrite</c> simply
+    /// turned back on self-occludes in triangle order, so a limb randomly blocks the torso behind
+    /// it. The prepass instead stamps the ghost's FAR shell, which is farther than every visible
+    /// ghost fragment — so the ghost's own front+back double layer draws exactly as it ships — and
+    /// still nearer than anything genuinely behind the ghost.</para>
+    ///
+    /// <para><b>WHY 3999 AND NOT HANDGHOST'S 3099.</b> A hand ghost is held in front of the face; a
+    /// figure ghost stands ON THE BOARD, in the middle of everything the game draws transparently
+    /// there — the hex star under its feet, hover outlines, AoE tints, and its own preserved
+    /// selection ring, all at ~3000 with <c>sortingOrder</c> 0. A prepass at 2999 would draw before
+    /// all of those and start depth-rejecting them, which is a look change nobody asked for. At
+    /// 3999 the stamp lands AFTER every one of them (they are already rasterised and untouched) and
+    /// after the ghost's own visible pass at <c>RenderQueue.Transparent</c>, so the shipped ghost is
+    /// byte-for-byte what it was — and it still lands BEFORE every converted panel, because a panel
+    /// wins on <c>sortingOrder</c> (100+) whatever queue it is on. That last clause is not a
+    /// theory: it is exactly what made HandGhost's 3099 work on hardware.</para>
+    /// </summary>
+    private const int GhostDepthQueue = 3999;
+
+    /// <summary>Name of a depth-prepass twin object. Shared with
+    /// <see cref="OverlayVisibilityProbe"/>, which must EXCLUDE them: that probe answers "could
+    /// this have been seen?", and a colour-free depth stamp is a renderer that is always frustum-
+    /// visible and never draws a pixel — counting it would inflate the one number the probe
+    /// exists to report. It also starts with "VR" so <see cref="StripModOwned"/> would remove it
+    /// from any ghost ever cloned from a ghost.</summary>
+    internal const string DepthTwinName = "VRGhostDepth";
+
+    /// <summary>
+    /// A material that draws NOTHING and writes DEPTH — <c>Blend Zero One</c> (the destination is
+    /// returned unchanged, so the colour buffer cannot tell this pass ran), <c>ZWrite 1</c>,
+    /// <c>ZTest LEqual</c>, <c>_Cull Front</c>, at <see cref="GhostDepthQueue"/>. The SAME bundled
+    /// <c>GloomhavenVR/Overlay</c> shader the ghost already wears, which exposes all four as
+    /// properties (that is the reason the shader exists); resolved through
+    /// <c>Core.BundleShaders</c> like every other bundled shader, never <c>Shader.Find</c>.
+    /// </summary>
+    private static Material? MakeGhostDepthMaterial()
+    {
+        Shader? s = PlayTray.OverlayShader();
+        if (s == null)
+            return null;
+        var m = new Material(s) { name = "GloomhavenVR figure ghost (depth prepass)" };
+        if (m.HasProperty("_SrcBlend")) m.SetInt("_SrcBlend", (int)BlendMode.Zero);
+        if (m.HasProperty("_DstBlend")) m.SetInt("_DstBlend", (int)BlendMode.One);
+        if (m.HasProperty("_ZWrite")) m.SetInt("_ZWrite", 1);
+        if (m.HasProperty("_ZTest")) m.SetInt("_ZTest", (int)CompareFunction.LessEqual);
+        if (m.HasProperty("_Cull")) m.SetInt("_Cull", (int)CullMode.Front);
+        // No polygon offset here: the prepass is not re-drawing somebody else's triangles against
+        // an existing depth value, it IS the depth value. A bias would only mis-place it.
+        if (m.HasProperty("_OffsetFactor")) m.SetFloat("_OffsetFactor", 0f);
+        if (m.HasProperty("_OffsetUnits")) m.SetFloat("_OffsetUnits", 0f);
+        m.renderQueue = GhostDepthQueue;
+        return m;
+    }
+
+    /// <summary>
+    /// Give every SOLID ghost renderer a depth twin.
+    ///
+    /// <para><b>THE CONSTRAINT THAT MADE THIS MORE THAN A COPY.</b> HandGhost attaches its prepass
+    /// as a SURPLUS MATERIAL on the same renderer, and can only do so for a single-material
+    /// renderer: with more than one submesh Unity applies a surplus material to the LAST submesh
+    /// only, which stamps a PARTIAL silhouette — worse than none, because a half-covered figure
+    /// reads as a glitch. Figure ghosts routinely have multi-submesh <c>SkinnedMeshRenderer</c>s
+    /// (<see cref="BuildFrozenGhost"/> counts submeshes and fills the array), so a literal copy of
+    /// HandGhost would arm on few of them or none. The fix is not to append a material but to add a
+    /// SEPARATE renderer that draws the WHOLE mesh — every submesh — with the depth material: a
+    /// child of the source renderer's own transform at identity local TRS, sharing the source mesh
+    /// and, for a skinned source, the same bones/rootBone/blend-shape weights, so it deforms in
+    /// lock-step with the ghost's idle. Full silhouette, every submesh, no reliance on Unity's
+    /// surplus-material rule at all.</para>
+    ///
+    /// <para><b>WHAT IS NOT ARMED.</b> Anything already excluded as VFX (destroyed upstream); the
+    /// preserved selection RING, which keeps the game's own materials and is exactly the hollow,
+    /// soft-falloff art <c>Cards/Art/CardGlow</c> refused a depth fix for — its ZWrite would stamp
+    /// a solid disc where the art is a thin glowing outline; and any renderer whose SOURCE material
+    /// declares a cutout <c>RenderType</c>, where the alpha channel carries the silhouette and the
+    /// geometry does not (hair cards, foliage planes). A solid character or prop mesh has none of
+    /// those problems, which is why <c>CardGlow</c>'s objection does not transfer to it.</para>
+    ///
+    /// <para>Returns the census sentence for the caller's report — armed vs candidates, named, so
+    /// "the prepass is on" is a number in the hardware log and not an assumption.</para>
+    /// </summary>
+    private static string ArmGhostDepthPrepass(GameObject ghost, List<Renderer> solid,
+                                               List<string> excluded)
+    {
+        string skipped = excluded.Count == 0
+            ? string.Empty
+            : $" Not armed: {string.Join(", ", excluded)}.";
+
+        if (solid.Count == 0)
+            return "DEPTH PREPASS: 0 armed — no solid renderer survived to carry one, so a panel "
+                   + "drawn after this ghost still has nothing to fail its ZTest against."
+                   + skipped;
+
+        Material? depth = MakeGhostDepthMaterial();
+        if (depth == null)
+            return $"DEPTH PREPASS: 0/{solid.Count} armed — the bundle has no GloomhavenVR/Overlay "
+                   + "shader, so the ghost cannot write depth and a converted panel keeps painting "
+                   + "over it." + skipped;
+
+        int armed = 0;
+        var names = new List<string>(4);
+        for (int i = 0; i < solid.Count; i++)
+        {
+            Renderer r = solid[i];
+            if (r == null)
+                continue;
+            Mesh? mesh = SourceMesh(r);
+            if (mesh == null)
+                continue;
+            int subs = Mathf.Max(1, mesh.subMeshCount);
+
+            var go = new GameObject(DepthTwinName);
+            // Child of the SOURCE renderer's transform at identity local TRS: the twin inherits the
+            // exact world matrix in every case (bone-driven part, static part, the ghost root
+            // itself) with no special-casing, and it is destroyed with the ghost.
+            go.transform.SetParent(r.transform, worldPositionStays: false);
+            go.transform.localPosition = Vector3.zero;
+            go.transform.localRotation = Quaternion.identity;
+            go.transform.localScale = Vector3.one;
+
+            Renderer twin;
+            if (r is SkinnedMeshRenderer smr)
+            {
+                var c = go.AddComponent<SkinnedMeshRenderer>();
+                c.sharedMesh = mesh;
+                c.bones = smr.bones;              // the ghost's OWN cloned bones — same deformation
+                c.rootBone = smr.rootBone;
+                c.localBounds = smr.localBounds;
+                c.quality = smr.quality;
+                c.updateWhenOffscreen = smr.updateWhenOffscreen;
+                CopyBlendShapeWeights(smr, c);
+                twin = c;
+            }
+            else
+            {
+                go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                twin = go.AddComponent<MeshRenderer>();
+            }
+
+            twin.sharedMaterials = FillMaterials(subs, depth);
+            twin.shadowCastingMode = ShadowCastingMode.Off;
+            twin.receiveShadows = false;
+            // Sort with the renderer it stands in for: the prepass has to precede the PANEL, and
+            // that is decided by sortingOrder long before renderQueue is consulted.
+            twin.sortingLayerID = r.sortingLayerID;
+            twin.sortingOrder = r.sortingOrder;
+            armed++;
+            if (names.Count < 4)
+                names.Add($"'{r.name}' ({subs} submesh(es), sortingOrder {r.sortingOrder})");
+        }
+
+        if (armed == 0)
+        {
+            Object.Destroy(depth);
+            return $"DEPTH PREPASS: 0/{solid.Count} armed — every candidate turned out to have no "
+                   + "readable mesh." + skipped;
+        }
+
+        // Own the depth material's lifetime the same way the tint material's is owned: Unity does
+        // not destroy materials with their GameObject.
+        ghost.AddComponent<OverlayMaterialOwner>().Init(depth);
+        return $"DEPTH PREPASS: {armed}/{solid.Count} renderer(s) armed at queue {GhostDepthQueue} "
+               + $"(colour-free, ZWrite 1, Cull Front — the ghost's FAR shell), on a separate "
+               + $"full-mesh twin per renderer so EVERY submesh is covered: "
+               + $"{string.Join(", ", names)}"
+               + (armed > names.Count ? $" (+{armed - names.Count} more)" : string.Empty)
+               + ". Without this a world-space panel drawn after the ghost (sortingOrder 100+ vs 0) "
+               + "has no depth to fail against and paints over it."
+               + skipped;
+    }
+
+    /// <summary>The first non-empty <c>RenderType</c> tag on a renderer's CURRENT materials —
+    /// asked BEFORE the ghost tint replaces them, because it is the SOURCE art's answer we need.
+    /// Empty when nothing declares one (the game's Amp character shaders are the common case).</summary>
+    private static string SourceRenderType(Renderer r)
+    {
+        Material[] mats = r.sharedMaterials;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            Material m = mats[i];
+            if (m == null)
+                continue;
+            string tag = m.GetTag("RenderType", searchFallbacks: true, defaultValue: string.Empty);
+            if (!string.IsNullOrEmpty(tag))
+                return tag;
+        }
+        return string.Empty;
+    }
+
+    /// <summary>True when a renderer's silhouette lives in its ALPHA rather than in its geometry
+    /// (hair cards, foliage planes) — stamping depth for one would occlude with the bounding
+    /// quads, not with the shape the player sees. This is <c>CardGlow</c>'s objection, applied to
+    /// the only ghost renderers it actually transfers to.</summary>
+    private static bool IsAlphaCutSilhouette(string renderType) =>
+        renderType.IndexOf("Cutout", StringComparison.OrdinalIgnoreCase) >= 0
+        || renderType.IndexOf("Foliage", StringComparison.OrdinalIgnoreCase) >= 0
+        || renderType.IndexOf("Grass", StringComparison.OrdinalIgnoreCase) >= 0
+        || renderType.IndexOf("TreeLeaf", StringComparison.OrdinalIgnoreCase) >= 0;
+
     private static Material[] FillMaterials(int count, Material mat)
     {
         count = Mathf.Max(1, count);
@@ -821,9 +1071,23 @@ internal sealed class OverlayVisibilityProbe : MonoBehaviour
     private void Report()
     {
         var made = new List<Renderer>(16);
+        int depthTwins = 0;
         foreach (Renderer r in GetComponentsInChildren<Renderer>(includeInactive: true))
-            if (r != null)
-                made.Add(r);
+        {
+            if (r == null)
+                continue;
+            // EXCLUDE the depth-prepass twins (ModBuild 360). They are colour-free by
+            // construction (Blend Zero One), so they are always frustum-visible and can never
+            // contribute a pixel — counting them here would raise the "N of M visible" figure this
+            // probe exists to report without a single extra pixel being drawn. See
+            // FigureOverlay.DepthTwinName.
+            if (string.Equals(r.gameObject.name, FigureOverlay.DepthTwinName, StringComparison.Ordinal))
+            {
+                depthTwins++;
+                continue;
+            }
+            made.Add(r);
+        }
 
         int visible = 0, enabled = 0;
         Bounds box = default;
@@ -867,7 +1131,13 @@ internal sealed class OverlayVisibilityProbe : MonoBehaviour
                   + $"({box.size.x:F2}, {box.size.y:F2}, {box.size.z:F2})"
                 : "<none>")
             + $"; {headSays}. Renderer.isVisible counts EVERY camera, not just the head one, so a "
-            + "true here is a floor and not a promise. Reported at most "
+            + "true here is a floor and not a promise. "
+            + (depthTwins > 0
+                ? $"{depthTwins} colour-free DEPTH-PREPASS twin(s) are present and deliberately "
+                  + "excluded from every count above — they draw no pixel, so counting them would "
+                  + "inflate the verdict. "
+                : string.Empty)
+            + "Reported at most "
             + $"{ReportsPerKey} time(s) per figure per session.");
     }
 }
