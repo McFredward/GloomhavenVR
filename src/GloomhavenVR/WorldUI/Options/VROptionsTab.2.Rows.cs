@@ -495,6 +495,28 @@ internal static partial class VROptionsTab
             return;
         try
         {
+            // SEED A LanguageOption BEFORE DESTROYING IT (ModBuild 351). A cloned row was never
+            // Initialize'd, so DropdownLanguageOption._selector -- runtime-only, NOT [SerializeField]
+            // -- is null, and its OnDestroy NREs on _selector.OnValuedChanged.RemoveAllListeners().
+            // THE catch BELOW NEVER SEES IT: Unity swallows a throw out of OnDestroy and logs it, so
+            // the fallback path never ran and the Warn line never appeared -- the NRE simply landed
+            // in Player.log on every startup, and was found in the co-player's drop from the
+            // 2026-09-02 multiplayer test (remote/Player.log:427), not by any check of ours.
+            // TextSelectorLanguageOption._selector IS serialized and survives the clone, which is
+            // why only one of the two ever threw. SelectorWrapper.SetOptions is null-safe and the
+            // game's own ctor passes null, so an empty list is a legal seed.
+            if (component is Gloomhaven.LanguageOption languageOption)
+            {
+                try
+                {
+                    languageOption.Initialize(new List<string>());
+                }
+                catch (Exception seed)
+                {
+                    VRLog.Debug("WorldUI", $"VR options tab: could not seed {component.GetType().Name} "
+                                           + $"before strip ({seed.GetType().Name}); its OnDestroy may log an NRE.");
+                }
+            }
             UnityEngine.Object.DestroyImmediate(component);
         }
         catch (Exception e)

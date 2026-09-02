@@ -67,12 +67,17 @@ internal sealed partial class CardsDriver : MonoBehaviour
     private readonly List<AbilityCardUI> _widgetBuffer = new(24);
     private readonly List<AbilityCardUI> _pileWidgetBuffer = new(16);
     private readonly List<AbilityCardUI> _activeWidgetBuffer = new(8);
+    /// <summary>Signature scratch for <c>PollHandCards</c> — the hand-fan membership watchdog. Its
+    /// own buffer rather than <see cref="_widgetBuffer"/>: that one is owned by Rebuild and is live
+    /// across the whole rebuild, while this is read from the per-frame poll.</summary>
+    private readonly List<AbilityCardUI> _handSigBuffer = new(24);
     private readonly List<VRCard> _fanBuffer = new(24);
     private readonly List<VRCard> _halfBuffer = new(4);
     private readonly List<VRCard> _browseBuffer = new(16);
     private readonly List<VRCard> _activeBuffer = new(8);
     private readonly List<VRCard> _fakeCards = new(12);
     private int _activeSignature = int.MinValue; // change-gate for the active-card set (feature 6)
+    private int _handSignature = int.MinValue;   // change-gate for the HAND-pile card set (item 10, burn)
 
     // Issue 5 (fly-to-pile): the round cards docked in the PREVIOUS rebuild (a snapshot of
     // _halfBuffer), so the park sweep can tell a just-cleared PLAYED card from any other parked

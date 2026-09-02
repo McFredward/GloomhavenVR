@@ -72,11 +72,11 @@ runtime, which is why a runtime audit could never do this job (see
 | `CardsHandUI_OnDestroy_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:22</sub> | `CardsHandUI.OnDestroy()` *(private)* | prefix | `CardsModule`:44 |
 | `CardsHandUI_DestroyCardUI_Patch`<br/><sub>src/GloomhavenVR/Cards/Patches/CardLifecyclePatches.cs:35</sub> | `CardsHandUI.DestroyCardUI()` | prefix | `CardsModule`:45 |
 | `CardsHandUI_OnLoseCardClick_Gate`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:42</sub> | `CardsHandUI.OnLoseCardClick()` *(private)* | prefix | `CardsModule`:47 |
-| `TakeDamagePanel_BurnHover_Skip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:100</sub> | `TakeDamagePanel.OnMouseEnterBurnOne()` | prefix | `CardsModule`:48 |
+| `TakeDamagePanel_BurnHover_Skip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:313</sub> | `TakeDamagePanel.OnMouseEnterBurnOne()` | prefix | `CardsModule`:48 |
 | &nbsp; | `TakeDamagePanel.OnMouseEnterBurnTwo()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.OnMouseExitBurnOne()` | prefix | &nbsp; |
 | &nbsp; | `TakeDamagePanel.OnMouseExitBurnTwo()` | prefix | &nbsp; |
-| `DialogPopup_Show_HoverStrip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:134</sub> | `DialogPopup.Show(List<GameObject>, DialogOption[], bool, int, UnityAction)` | postfix | `CardsModule`:49 |
+| `DialogPopup_Show_HoverStrip`<br/><sub>src/GloomhavenVR/Cards/Patches/DamageFlowPatches.cs:347</sub> | `DialogPopup.Show(List<GameObject>, DialogOption[], bool, int, UnityAction)` | postfix | `CardsModule`:49 |
 | `MapPartyEnhancementShopService_AddEnhancement_FanRefresh`<br/><sub>src/GloomhavenVR/Cards/Patches/EnhancementCommitPatch.cs:36</sub> | `MapPartyEnhancementShopService.AddEnhancement()` | postfix | `CardsModule`:76 |
 | `FullCardEventPusher_Enter_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:37</sub> | `FullCardEventPusher.OnPointerEnter()` | prefix | `CardsModule`:54 |
 | `FullCardEventPusher_Exit_LaserGeometric`<br/><sub>src/GloomhavenVR/Cards/Patches/HalfHoverPatches.cs:48</sub> | `FullCardEventPusher.OnPointerExit()` | prefix | `CardsModule`:55 |

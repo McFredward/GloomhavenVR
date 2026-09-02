@@ -1441,11 +1441,91 @@ internal sealed partial class CardsDriver
                 continue;
             if (widget.CardType != CardPileType.Hand)
                 continue;
+            // ITEM 10 BELT (user 2026-09-02: a just-burned card was still on the hand fan —
+            // "das darf unter keinen Umständen der Fall sein"). See CardLeftTheHand.
+            if (CardLeftTheHand(widget))
+                continue;
             VRCard? already = _factory.Find(widget);
             if (already != null && _halfBuffer.Contains(already))
                 continue;
             _fanBuffer.Add(AdoptedCard(widget));
         }
+    }
+
+    /// <summary>Change-dedup for the model-belt diagnostic: one line per (card, destination), not
+    /// one per rebuild while the widget stays behind.</summary>
+    private readonly Dictionary<int, RoundCardExit> _loggedStaleHandCard = new(8);
+
+    /// <summary>
+    /// ITEM 10, THE BELT: does the RULES MODEL already say this card has left the hand, whatever
+    /// the widget's <c>CardType</c> still claims?
+    ///
+    /// <para>WHY A SECOND TEST IS NEEDED AT ALL. <see cref="FillHandFan"/>'s
+    /// <c>widget.CardType != CardPileType.Hand</c> is the game's own answer and it is correct — but
+    /// it is a UI field, written when the game re-runs <c>CardsHandUI.UpdateCards</c>, and the
+    /// authoritative move (<c>CCharacterClass.MoveAbilityCardToPile</c>) happens first. That is a
+    /// window in which the model says LOST and the widget still says HAND, and a rebuild landing
+    /// inside it puts a burned card on the fan. The user's wording admits no such window.</para>
+    ///
+    /// <para>THE MODEL IS ASKED THROUGH <see cref="RoundCardExitOf"/> — the SAME classifier the
+    /// fly-to-pile trigger uses, so "the card left the hand" and "the card flew to a pile" can
+    /// never be two different opinions. Only a POSITIVE destination hides the card:
+    /// <c>Discarded</c>, <c>Lost</c>, <c>PermanentlyLost</c> (a burn), <c>Activated</c> (the active
+    /// column owns it) and <c>StillRound</c> (a board slot owns it). <c>Hand</c> obviously keeps
+    /// it. <c>NoModel</c> and <c>OffModel</c> KEEP it too, deliberately: the first means the model
+    /// could not be read at all and the second covers a consumed supply card AND a half-torn
+    /// actor/widget, so hiding on either would let a teardown blank a live hand. Failing towards
+    /// SHOWING is the direction the whole fan is required to fail in (item 3, same report).</para>
+    ///
+    /// <para>NOTE THIS IS A BELT, NOT THE FIX. The reason the burned card SAT there is that nothing
+    /// made the mod look — see <c>PollHandCards</c>, which is the actual defect. This closes the
+    /// remaining sub-frame window, and it costs a handful of list <c>Contains</c> calls per hand
+    /// card per rebuild (rebuilds are edge-driven, not per-frame).</para>
+    /// </summary>
+    private bool CardLeftTheHand(AbilityCardUI widget)
+    {
+        CAbilityCard? ac = widget.AbilityCard;
+        CPlayerActor? owner = widget.PlayerActor ?? (_boundHand != null ? _boundHand.PlayerActor : null);
+        if (ac == null || owner == null)
+            return false; // the model cannot be asked — show it (fail towards visible)
+
+        RoundCardExit exit;
+        try
+        {
+            CCharacterClass klass = owner.CharacterClass;
+            if (klass.HandAbilityCards.Contains(ac))
+                return false; // the model agrees with the widget: it is a hand card
+            if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
+                exit = RoundCardExit.StillRound;
+            else if (klass.DiscardedAbilityCards.Contains(ac))
+                exit = RoundCardExit.Discarded;
+            else if (klass.LostAbilityCards.Contains(ac))
+                exit = RoundCardExit.Lost;
+            else if (klass.PermanentlyLostAbilityCards.Contains(ac))
+                exit = RoundCardExit.PermanentlyLost;
+            else if (klass.ActivatedCards.Contains(ac))
+                exit = RoundCardExit.Activated;
+            else
+                return false; // OffModel — a consumed supply card, or a torn actor. Show it.
+        }
+        catch (System.Exception)
+        {
+            return false; // a half-torn class answers "show it", never "hide the hand"
+        }
+
+        int id = widget.CardID;
+        if (!_loggedStaleHandCard.TryGetValue(id, out RoundCardExit was) || was != exit)
+        {
+            _loggedStaleHandCard[id] = exit;
+            // HW-VERIFY: item 10. If this line appears, the widget's CardType still said Hand while
+            // the model had already moved the card — the exact window a burned card used to be
+            // visible in. Note tier because "unter keinen Umständen" needs proof at the shipped tier.
+            VRLog.Note("Cards", $"Hand fan: card {id} ('{widget.name}') KEPT OFF the fan by the model " +
+                                $"belt — CCharacterClass.{ModelListName(exit)} holds it while the " +
+                                "widget's CardType still reads Hand. This is the sub-frame window a " +
+                                "just-burned card used to stay visible in (item 10, 2026-09-02).");
+        }
+        return true;
     }
 
     private VRCard AdoptedCard(AbilityCardUI widget)

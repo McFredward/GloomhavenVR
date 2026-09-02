@@ -225,6 +225,13 @@ internal static class HandSuppression
     /// </summary>
     internal static void Tick()
     {
+        // ModBuild 351: the burn-commit hang watch rides this per-frame call because it is the
+        // only Cards tick that is guaranteed to run while a damage prompt is open. It is armed
+        // only by an actual lose/burn commit and disarms itself, so it costs one bool test here.
+        // DELIBERATELY ABOVE the bail-out below: a hang must still be named when the hand
+        // suppression is not armed.
+        BurnCommitWatch.Tick();
+
         if (!Active || !_armed)
             return;
 

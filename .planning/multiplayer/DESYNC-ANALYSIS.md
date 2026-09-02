@@ -315,3 +315,127 @@ the network layer and can stall silently if the receiver never appears. Ship onl
 R1's recorder has produced an artefact showing §2 actually occurring in his sessions —
 otherwise it is a fix for a mechanism we have only read, and a fix gated behind the
 instrument that was meant to test it never runs.
+
+---
+
+## 8. Mechanism E — the SILENT deadlock: no exception, no timer, no report
+
+> Added ModBuild 351 from the ModBuild 348 two-player drop (2026-09-02). This is the
+> mechanism that ended that session, and it is **not** any of §2–§5. Nothing threw,
+> `HandleDesync` never fired on either machine, `DesyncWatch` printed one line on the
+> host and nothing at all on the client, and the players sat there until they quit.
+
+### 8.1 What the two logs say, aligned
+
+`ARMA` (PlayerID 2, client, Barbar/Brute) took damage three times and each time chose to
+burn a card to negate it. Actions #38, #39, #40, all `BurnAvailableCard @
+TakeDamageConfirmation`.
+
+| | remote (`remote/Player.log`) | local host (`Player.log`) |
+|---|---|---|
+| damage #1 | `260453 STATE: Halted @ TakeDamageConfirmation`<br>`262913 Switch hand Brute from Brute`<br>`272807 OnLoseCardClick` → #38 sent<br>`273021 STATE: Halted @ NONE` **advanced** | `328260 ProcessFreely @ TakeDamageConfirmation`<br>`343519 Processing #38` → `343523 Halted @ NONE` |
+| damage #2 | `273363 STATE: Halted @ TakeDamageConfirmation`<br>**no `Switch hand` line at all**<br>`286699 OnLoseCardClick`<br>`286702 Coroutine couldn't be started because the the game object 'Player handBrute' is inactive!`<br>→ #39 sent, **and no further `STATE:` line for the rest of the session** | `344117 ProcessFreely @ TakeDamageConfirmation`<br>`359338 Processing #39` → `359342 Halted @ NONE` |
+| retry | `295889 OnLoseCardClick`, same coroutine line, #40 sent | `369961 Received #40` … `370124 [Net] DESYNC STALL … never cleared` |
+
+The whole difference between the burn that worked and the burn that killed the session is
+the single Unity line at `286702` — and the missing `Switch hand` line above it.
+
+### 8.2 The mechanism
+
+`CardsHandUI.OnLoseCardClick` (CardsHandUI.cs:2340-2362) applies the rule change first and
+then hands the rest of the flow to a coroutine **on itself**:
+
+```csharp
+GameState.Lose1HandCardToAvoidAttack(playerActor, selectedCardsUI[0].AbilityCard);  // card is gone
+StartCoroutine(AnimateCardsLost(selectedCardsUI, delegate {
+    GameState.PlayerAvoidingDamage(avoidDamageOption2);   // <- the ONLY thing that advances
+    Hide();                                               // <- gameObject.SetActive(false)
+}));
+Synchronizer.SendGameAction(BurnAvailableCard, TakeDamageConfirmation, …);           // wire
+…
+Singleton<TakeDamagePanel>.Instance.ResetAndHide(stopActiveBonus: true);             // panel closes
+```
+
+`Hide()` → `ShowOrHideInternal(false)` → `base.gameObject.SetActive(false)`
+(CardsHandUI.cs:460/514). **A successful burn therefore ends with the hand object
+inactive**, and `MonoBehaviour.StartCoroutine` on an inactive GameObject is *refused* by
+Unity — it logs, it does not throw. So on the next burn:
+
+* the card is already moved to `LostAbilityCards`,
+* `BurnAvailableCard` is already on the wire and every peer applies it correctly,
+* the take-damage panel closes (`ResetAndHide` runs regardless),
+* **`GameState.PlayerAvoidingDamage` never runs**, so the local rule engine stays in
+  `TakeDamageConfirmation` for ever.
+
+Every other client then queues its copy of the burn behind a phase that never opens.
+
+### 8.3 Why nothing reported it — the §3 deadline does NOT apply
+
+`ActionProcessor.TryProcessNextAction` (ActionProcessor.cs:279) opens with
+
+```csharp
+if (!lockProcessingAction && readyToProcessNextAction && actionQueue.Count > 0 && !processingAction)
+```
+
+The phase-mismatch branch that increments `incorrectActionsDetectedCounter` and eventually
+throws lives **inside** that `if` (:370-394). A processor in state `Halted` has
+`readyToProcessNextAction == false`, so it returns before the counter is ever touched:
+
+> **A stall in the `Halted` state carries no deadline. The 5 s (or the mod's raised)
+> budget never starts, `HandleDesync` never fires, and the action waits for ever.**
+
+That is why the host log has exactly one `[Net] DESYNC STALL` line and no
+`STALL CLEARED` and no desync: the host sat at `Halted @ NONE` with `BurnAvailableCard #40`
+at the head of its queue. The session was already dead 90 seconds before the players
+realised it. The host eventually quit; the client's only artefact is the disconnect box
+(`Player 1 has left the room`).
+
+### 8.4 Why the FIRST burn worked
+
+In 2D the hand is put back on screen by `TakeDamagePanel.PreviewAvailableCards()` →
+`CardsHandManager.Show(actor, LoseCard, …)` → `SwitchHand` → `hand.Show()`
+(TakeDamagePanel.cs:530-537, CardsHandManager.cs:645/725). It is reached from the burn
+toggle's **click** *or its mere mouse **hover*** (TakeDamagePanel.cs:466-512). Damage #1
+went through it — `Switch hand Brute from Brute` is the proof. Damage #2 did not: the
+player picked the card straight out of the VR fan.
+
+**The mod is implicated.** `Cards/Patches/DamageFlowPatches.cs`
+(`TakeDamagePanel_BurnHover_Skip`, ModBuild ~200) deliberately suppresses the hover half of
+that path, because in VR the laser sweeps the docked row constantly and the whole hand
+burst open and shut. That leaves exactly one route into `PreviewAvailableCards` in VR — a
+deliberate press of the docked burn toggle — and the VR fan does not require it: the
+`CardsHandUI`'s `currentMode`/`maxCardsSelected` persist from the previous prompt, so a
+pick made without it still "works" right up to the coroutine.
+
+The same missing `CardsHandManager.Show` also explains report item 10: with no
+`UpdateView`, the previous prompt's selection was never cleared, which is why the log reads
+`Toggle Select, deselecting a card ABILITY_CARD_OverwhelmingAssault` — a card that had
+already been burned in damage #1 and was still sitting in `selectedCardsUI`.
+
+### 8.5 What ModBuild 351 does
+
+1. **`BurnCommitRescue`** (`Cards/Patches/DamageFlowPatches.cs`) — the existing
+   `CardsHandUI.OnLoseCardClick` prefix now re-activates the hand's GameObject (and any
+   inactive ancestor) when it is inactive, so the game's own `StartCoroutine` succeeds.
+   Nothing about the pick, the mode, the selection or the card is touched; the game's own
+   `Hide()` at the end of `AnimateCardsLost` puts the object back. One `VRLog.Note`
+   (`BURN COMMIT RESCUE`, `// HW-VERIFY`) when it fires — which in a healthy flow is never.
+2. **`BurnCommitWatch`** — the falsifier. Armed by every legal lose/burn commit, ticked
+   from `HandSuppression.Tick`; if the client is still in `TakeDamageConfirmation` 8 s
+   later it says so once at `Alert` (`BURN COMMIT HANG`). This is the line that will name
+   the cause if the deadlock returns in a shape the rescue does not cover.
+3. **`DesyncWatch`** — the `DESYNC STALL` line now prints the processor's own state word
+   and distinguishes the two stalls. Through ModBuild 350 it always claimed a deadline;
+   in the `Halted` case there is none, and it now says so and repeats (bounded) because a
+   terminal stall that prints once is indistinguishable in a log from one that cleared.
+
+### 8.6 Not fixed here — the recommended follow-up
+
+The rescue makes the burn work; it does not restore the vanilla invariant. The clean fix
+belongs in the VR pick flow (`Cards/Driver/**`, another lane): when a take-damage burn pick
+begins and `CardsHandManager` never opened the burn step, drive the game's own
+`Singleton<TakeDamagePanel>.Instance.BurnAvailableCard(true)` first. That runs
+`OnSelectedToggle` + `PreviewAvailableCards` exactly as a toggle press does — which also
+re-seeds the hand and clears the stale selection (report item 10). It must NOT be done at
+commit time: `PreviewAvailableCards` → `UpdateView` would clear the selection the commit is
+about to index.

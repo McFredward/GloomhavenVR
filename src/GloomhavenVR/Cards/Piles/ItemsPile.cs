@@ -2308,6 +2308,44 @@ internal sealed class ItemsPile
     /// </summary>
     internal int UsableCount(CardsHandUI? hand)
     {
+        UsableMask(hand, out int usable);
+        return usable;
+    }
+
+    /// <summary>Highest <c>Inventory.AllItems</c> index <see cref="UsableMask"/> can describe. The
+    /// mask is one <c>ushort</c> because that is what fits a two-byte wire record, and because
+    /// <c>CInventory.AllItems</c> concatenates a bounded set of equipment slots — the four worn
+    /// slots, at most two hands, the small-item row (level/2) and the quest items. An inventory
+    /// that somehow runs past this simply leaves the extra chips unframed, i.e. exactly the
+    /// pre-mask look, and never mis-frames a different card.</summary>
+    internal const int UsableMaskBits = 16;
+
+    /// <summary>
+    /// WHICH of <paramref name="hand"/>'s equipped items are playable right now, as a bitmask over
+    /// <c>Inventory.AllItems</c> INDEX (bit i ⇔ items[i] is usable), plus the popcount in
+    /// <paramref name="count"/> — <see cref="UsableCount"/>'s answer, from the same single pass, so
+    /// the stack cue ("is anything usable") and the per-card frames ("which one") can never
+    /// disagree. See <see cref="UsableCount"/>'s doc for the two arms and for the user rulings that
+    /// shaped them; this method IS that method, widened from a tally to a per-index answer.
+    ///
+    /// <para>WHY IT IS A MASK AND NOT A RE-DERIVATION ON THE RECEIVER (ModBuild 348 item 5: "Die
+    /// Gegenstände, die benutzbar sind, haben eine highlighting Animation, diese ist aber nicht beim
+    /// remote board beim Mitspieler sichtbar bei deren Gegenstandsfächer (verletzt 1:1 Regel)").
+    /// A peer CANNOT compute this answer, and not merely inconveniently:
+    /// arm 1 runs through <c>CardsGameApi.IsActionTurn</c>, which ends in
+    /// <c>cur.IsUnderMyControl</c> — the VIEWER's dial, false for every character the viewer does
+    /// not control, so a re-derivation is 0 by construction on exactly the board that needs it; and
+    /// arm 2 reads <c>Singleton&lt;UIActiveBonusBar&gt;.Instance</c>, a LOCAL UI singleton holding
+    /// the local decider's rows, which on another client is not the owner's offer at all. Re-deriving
+    /// would be the mirrored-card-dust defect again (a mirror ANDing the owner's state with the
+    /// viewer's copy of the same key). The owner's own rendered answer is the only 1:1 answer, so it
+    /// has to travel. <c>Inventory.AllItems</c> is host-replicated and the remote item fan is built
+    /// from it in the same order, so an INDEX is a stable name for a card without a card identity
+    /// ever reaching the wire.</para>
+    /// </summary>
+    internal ushort UsableMask(CardsHandUI? hand, out int count)
+    {
+        count = 0;
         if (hand == null)
             return 0;
         bool turn = CardsGameApi.IsActionTurn(hand);
@@ -2315,12 +2353,17 @@ internal sealed class ItemsPile
         List<CItem>? items = ItemsOf(hand);
         if (items == null)
             return 0;
-        int n = 0;
+        ushort mask = 0;
         for (int i = 0; i < items.Count; i++)
-            if ((turn && IsItemActivatable(items[i]))
-                || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null)
-                n++;
-        return n;
+        {
+            if (!((turn && IsItemActivatable(items[i]))
+                  || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null))
+                continue;
+            count++;
+            if (i < UsableMaskBits)
+                mask |= (ushort)(1 << i);
+        }
+        return mask;
     }
 
     /// <summary>

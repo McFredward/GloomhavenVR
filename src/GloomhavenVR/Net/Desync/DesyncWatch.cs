@@ -40,10 +40,18 @@ namespace GloomhavenVR.Net.Desync;
 /// with each action's target phase, the players, and — the honest part —
 /// <b>whether GloomhavenVR appears in the stack</b>. Half the <c>HandleDesync</c> call sites
 /// construct <c>new Exception("…")</c> with no stack at all, so today the artefact is one line.</item>
-/// <item><b>Warns.</b> The five seconds above are silent. From <see cref="Tick"/> we compare the
-/// head action's target phase with the current one and, once the mismatch has stood for
-/// <see cref="StallWarnSeconds"/>, say so once — with the action's name and the budget left.
-/// Change-gated with a VARYING reason, so it cannot read as a stopped tick.</item>
+/// <item><b>Warns, and names the blocker.</b> The five seconds above are silent. From
+/// <see cref="Tick"/> we compare the head action's target phase with the current one and, once the
+/// mismatch has stood for <see cref="StallWarnSeconds"/>, say so — with the action's name, the
+/// processor's own state word, and <b>which of the two stalls this is</b>. ModBuild 351: those two
+/// are not the same event and the difference is the whole story. While the processor is READY the
+/// game's incorrect-action counter really is running and the budget really does expire. While it
+/// is <c>Halted</c> the head action is never even looked at (ActionProcessor.cs:279 returns before
+/// the counter), so no deadline exists, no desynchronisation will ever be declared, and the action
+/// waits for ever with nothing anywhere reporting it — the shape that killed the ModBuild 348
+/// two-player session. Through ModBuild 350 this line claimed the deadline in both cases and
+/// printed exactly once, which is indistinguishable in a log from a stall that cleared; the
+/// terminal one now repeats (bounded by <see cref="MaxStallRepeats"/>).</item>
 /// <item><b>Buys patience.</b> <c>ActionProcessor.MaxConsecutiveIncorrectActionsAllowed</c> is a
 /// public static setter. Raising it is <b>strictly local</b>: each client counts its own retries,
 /// the action is still executed only when the phase matches, nothing is applied early or twice,
@@ -70,6 +78,18 @@ internal static class DesyncWatch
     /// </summary>
     private const float StallWarnSeconds = 1.5f;
 
+    /// <summary>
+    /// How often a TERMINAL stall (the processor is Halted, so no deadline is running and the
+    /// action can never be played) repeats itself. A stall that will never clear must not look
+    /// like one that did: through ModBuild 350 this watch printed exactly one line and then went
+    /// quiet, which is what a cleared stall also looks like from the log
+    /// (memory: "a held instrument reads as dead").
+    /// </summary>
+    private const float StallRepeatSeconds = 20f;
+
+    /// <summary>Hard cap on those repeats — the instrument must never become the flood.</summary>
+    private const int MaxStallRepeats = 8;
+
     /// <summary>Most queued actions listed in a report. A desync with 200 pending actions is a
     /// story the first dozen already tell.</summary>
     private const int MaxQueueLines = 12;
@@ -85,6 +105,12 @@ internal static class DesyncWatch
     private static float _stallSince;
     private static bool _stallAnnounced;
     private static int _stallActionType = -1;
+
+    /// <summary>Wall clock at which a terminal (halted) stall re-announces; 0 = no repeat armed.</summary>
+    private static float _stallRepeatAt;
+
+    /// <summary>Repeats already spent on the current stall (capped by <see cref="MaxStallRepeats"/>).</summary>
+    private static int _stallRepeats;
     private static float _nextReArm;
 
     /// <summary>The value we last wrote, so <see cref="Tick"/> can tell "the game reset it"
@@ -284,27 +310,83 @@ internal static class DesyncWatch
                 _stallActionType = head.ActionTypeID;
                 _stallSince = now;
                 _stallAnnounced = false;
+                _stallRepeats = 0;
+                _stallRepeatAt = 0f;
                 return;
             }
 
             float held = now - _stallSince;
-            if (_stallAnnounced || held < StallWarnSeconds)
+            if (held < StallWarnSeconds)
                 return;
+            if (_stallAnnounced)
+            {
+                // Only a HALTED stall re-announces (it can never clear itself), and only a bounded
+                // number of times: an instrument that repeats for ever is the flood, not the answer.
+                if (_stallRepeatAt <= 0f || now < _stallRepeatAt || _stallRepeats >= MaxStallRepeats)
+                    return;
+                _stallRepeats++;
+            }
 
             _stallAnnounced = true;
 
+            // ModBuild 351 — NAME THE BLOCKER, do not assert a countdown that may not be running.
+            // Through 350 this line always said "the game declares a desynchronisation at {budget}s".
+            // That is only true while the processor is READY: the phase-mismatch branch that counts
+            // toward the throw (ActionProcessor.cs:370-394) is reached ONLY after
+            // `readyToProcessNextAction` passes (:279). A HALTED processor returns before it, so the
+            // counter is never touched, the deadline never arrives, HandleDesync never fires and the
+            // action waits FOR EVER with nothing anywhere reporting it. That is precisely what killed
+            // the ModBuild 348 session: the host sat at `Halted @ NONE` with BurnAvailableCard #40 at
+            // the head of the queue, and the single line this watch printed claimed a 15 s deadline
+            // that was never going to come. Distinguish the two, and keep saying it for the terminal
+            // one, because that stall does not clear itself.
+            bool ready = ActionProcessor.ReadyToProcessNextAction;
             float budget = BudgetSeconds();
+            string verdict = ready
+                ? $"The processor is READY, so the game's incorrect-action counter IS running and it " +
+                  $"declares a desynchronisation at {budget:0.0}s. This is a LOCAL wait, not a state " +
+                  "disagreement — the client has not caught up yet."
+                : "THE PROCESSOR IS HALTED, so the queue is not being drained at all: the game's " +
+                  "incorrect-action counter is never reached (ActionProcessor.cs:279 returns before " +
+                  "it), NO deadline is running and NO desynchronisation will ever be declared. This " +
+                  "action will wait for ever and the session is already dead — it just has not been " +
+                  "told. Something the local rule engine was waiting on never arrived; the known case " +
+                  "is a lose/burn commit whose AnimateCardsLost coroutine was refused on an inactive " +
+                  "hand, which leaves the BURNER stuck in TakeDamageConfirmation (see the Cards " +
+                  "'BURN COMMIT HANG' line on that player's machine).";
+
             VRLog.Alert(Name, $"{Tag} STALL: action {ActionName(head.ActionTypeID)} has been waiting " +
                               $"{held:0.0}s for phase {PhaseName(target)} while this client is in " +
-                              $"{PhaseName(current)} ({queue.Count} queued). The game declares a " +
-                              $"desynchronisation at {budget:0.0}s. This is a LOCAL wait, not a " +
-                              "state disagreement — the client has not caught up yet.");
+                              $"{PhaseName(current)} ({queue.Count} queued), processor state " +
+                              $"{StateName()}. {verdict}");
+
+            // A halted stall never clears on its own, so a single line would look exactly like a
+            // stall that did clear. Keep the repeat alive for that case only.
+            _stallRepeatAt = ready ? 0f : now + StallRepeatSeconds;
         }
         catch (Exception e)
         {
             // One line, then stop trying for this stall: the watcher must never become the noise.
             _stallAnnounced = true;
+            _stallRepeatAt = 0f;
             VRLog.Warn(Name, $"{Tag}: queue watch threw: {e.GetType().Name}: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The processor's own state word — the term that decides whether the queue is being drained
+    /// at all. `Halted` means the head action is not even LOOKED at, which is why a stall in that
+    /// state carries no deadline (ActionProcessor.cs:279).
+    /// </summary>
+    private static string StateName()
+    {
+        try
+        {
+            return ActionProcessor.CurrentState.StateType.ToString();
+        }
+        catch (Exception)
+        {
+            return "<unreadable>";
         }
     }
 
@@ -327,6 +409,8 @@ internal static class DesyncWatch
         _stallActionType = -1;
         _stallAnnounced = false;
         _stallSince = 0f;
+        _stallRepeatAt = 0f;
+        _stallRepeats = 0;
     }
 
     /// <summary>Seconds the game will actually wait, from the values in force right now.</summary>

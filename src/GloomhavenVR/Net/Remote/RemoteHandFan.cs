@@ -1252,6 +1252,25 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
         }
 
+        // A LENGTH DISAGREEMENT MEANS THIS CLIENT'S MODEL IS BEHIND — SHOW BACKS (ModBuild 351,
+        // hardware MP report item 10: "Die gerade verbrannte Karte ist beim Test auf dem Handfächer
+        // zu sehen direkt nachdem der Mitspieler sie verbrannt hat").
+        //
+        // The slab COUNT below is the owner's, off the wire and timely. The FACES are this client's
+        // OWN model, and on an observer that model lags a whole choreographer turn — the very defect
+        // the pile counts were moved onto the wire for (see RemoteControlBoard's note on the model
+        // read). The loop then zips the two POSITIONALLY with nothing but a bounds check, so once
+        // the owner burns a card mid-hand every face after it is drawn one place out AND the burned
+        // card keeps being drawn.
+        //
+        // The two lengths disagreeing is the observable proof of exactly that lag, so it is the
+        // right term to gate on. A back is wrong in a way the player can read as "not loaded yet";
+        // a SHIFTED FRONT is wrong in a way he cannot read at all, and he would act on it. This is
+        // a stopgap, not the fix: the fix is for the hand fan's MEMBERSHIP to travel the way the
+        // pile counts already do, after which the zip can be by identity and this can go.
+        if (showFronts && !mapFronts && _handBuffer.Count != count)
+            showFronts = false;
+
         // Which buffer this frame's faces come from, latched for the borrow — a borrow must read the
         // card out of the SAME buffer the slab's face was drawn from, which is the ModBuild 84 rule
         // one surface over.

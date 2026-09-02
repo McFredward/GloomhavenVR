@@ -29,7 +29,11 @@ internal sealed class PileViewer
     private PileStack? _burnt;
     private PileStack? _items;
     private bool _locHooked;
-    private (int discard, int burnt, int actorId) _loggedCounts = (int.MinValue, int.MinValue, 0);
+    // `offTurn` is part of the key because it is the whole ModBuild-348 item-11 question: the
+    // labels used to stop being repainted for exactly this state, so the edge INTO it and out of
+    // it is the edge a hardware log has to be able to read.
+    private (int discard, int burnt, int actorId, bool offTurn) _loggedCounts
+        = (int.MinValue, int.MinValue, 0, false);
     private (int items, int actorId) _loggedItems = (int.MinValue, 0);
 
     // Usable-item highlight diagnostic (throttled + change-gated) — see TickItemsUsableHighlight.
@@ -372,6 +376,7 @@ internal sealed class PileViewer
     {
         CurrentCounts = null; // a torn-down viewer displays nothing — the wire must not claim it does
         ItemsUsableCueOn = false; // …and neither must the item-cue bit (board-UI byte 2 bit 7)
+        ItemsUsableMask = 0;      // …nor the per-item frames the peer's fan draws off it
         if (_locHooked)
         {
             Core.Loc.OnChanged -= RefreshLabels;
@@ -388,7 +393,7 @@ internal sealed class PileViewer
         _burnt = null;
         _items = null;
         _hand = null;
-        _loggedCounts = (int.MinValue, int.MinValue, 0);
+        _loggedCounts = (int.MinValue, int.MinValue, 0, false);
         _loggedItems = (int.MinValue, 0);
         _loggedUsable = int.MinValue;
         _loggedUsableActor = 0;
@@ -453,10 +458,34 @@ internal sealed class PileViewer
         // The items browse renders — and acts on — the character the BOARD shows. DispatchPoke opens
         // the fan with this hand, so poking the stack while watching somebody fans out THEIR items.
         _hand = counted;
-        if (_discard == null || _burnt == null || hand == null || counted == null)
+        // ─── `hand == null` USED TO STAND IN THIS GUARD, AND IT WAS THE ONE TERM IN THIS METHOD
+        // THAT READ THE VIEWER'S OWN TURN (user report, hardware MP test ModBuild 348 item 11:
+        // "Der Spieler hat eine Karte verbrannt und dort wurde im pile direkt hochgezählt aber alle
+        // anderen Boards die den jeweiligen Character offen haben, ist noch nicht hochgezählt
+        // worden"). `hand` is CardsDriver.CurrentHand(), whose LAST line is
+        //     return hand != null && CardsGameApi.IsLocalHand(hand) ? hand : null;
+        // (CardsDriver.2.Update.cs) — so it is null for the whole of ANY other player's turn. The
+        // burn happens during the burner's turn, which is by construction off-turn for every
+        // observer, so on every other client this method returned here and:
+        //   * the three stack labels FROZE at whatever they last painted (SetCount is change-gated
+        //     and nothing repaints them, and the stacks are NOT hidden — _piles.SetVisible(false) is
+        //     only reached off-scenario, CardsDriver.6.Flows.cs), and
+        //   * CurrentCounts went null, so NetAvatarDriver omitted extension record 15 and every
+        //     PEER of that observer fell back to the model-read counts, which RemoteControlBoard's
+        //     own doc records as lagging a whole choreographer turn.
+        // Both halves of the 1:1 rule broke on the same `null`, and both healed by themselves once
+        // the observer's own turn came round — "noch nicht", exactly as reported.
+        //
+        // NOTHING BELOW THIS GUARD NEEDS `hand`: every read is against `counted` (the character the
+        // BOARD presents), which is non-null off-turn because CharacterFocus.PresentedHand falls
+        // back to the focused character or to LocalFloorHand(). `hand` survives ONLY as the
+        // ITEM-MACHINERY switch below, which keeps the off-turn behaviour it always had — the
+        // numbers are a DISPLAY question and the item recess is an ACTION one.
+        if (_discard == null || _burnt == null || counted == null)
         {
             CurrentCounts = null; // nothing displayed ⇒ nothing for the wire to claim
             ItemsUsableCueOn = false; // TickItemsUsableHighlight is skipped below — never latch the cue
+            ItemsUsableMask = 0;      // …and the per-item mask goes with it, for the same reason
             // A card lying in the item-use recess is serviced from _itemsBrowse.Tick below, which
             // this return skips — so it must not be left there unserviced (it would be frozen on a
             // board nobody is ticking, with a decision nobody can resolve).
@@ -467,6 +496,7 @@ internal sealed class PileViewer
         {
             CurrentCounts = null;
             ItemsUsableCueOn = false; // the stack itself is hidden — its cue cannot be on anywhere
+            ItemsUsableMask = 0;      // …and neither can any frame inside the fan it belongs to
             _itemsBrowse.RetirePlacedCardIfAny("the pile stacks are hidden");
             return; // hidden (no hand) — no counts, no logs
         }
@@ -499,16 +529,30 @@ internal sealed class PileViewer
         // hold the SAME two numbers is still a state change worth one line, and without the id the
         // log would go silent across exactly the switch a "die Zahlen stimmen nicht" report needs.
         int countedId = Net.NetFigures.StableActorId(counted.PlayerActor);
-        if (_loggedCounts != (discard, burnt, countedId))
+        bool offTurn = hand == null;
+        if (_loggedCounts != (discard, burnt, countedId, offTurn))
         {
-            _loggedCounts = (discard, burnt, countedId);
+            _loggedCounts = (discard, burnt, countedId, offTurn);
             int modelDiscard = CardsGameApi.DiscardedCount(counted);
             int modelBurnt = CardsGameApi.BurntCount(counted);
-            VRLog.Info("Cards", $"Piles: discard={discard}, burnt={burnt} for " +
+            // HW-VERIFY: ModBuild 348 item 11 — the co-player runs at the shipped default level, so
+            // the ONE line that decides whether a burn reached his board has to survive it. Note
+            // tier, not Info; still strictly change-gated (counts + character + the off-turn state),
+            // so a scenario costs a handful of lines, not a stream.
+            VRLog.Note("Cards", $"Piles: discard={discard}, burnt={burnt} for " +
                                 $"'{Board.CharacterFocus.Describe(counted.PlayerActor)}' " +
                                 "(authoritative CCharacterClass piles, read against the character " +
                                 "the BOARD presents — CharacterFocus.PresentedHand, so the numbers " +
                                 "follow a focus switch on the same edge the rest of the board does)" +
+                                (offTurn
+                                    ? ". OFF-TURN: no locally-controlled hand is active right now " +
+                                      "(CardsDriver.CurrentHand is null for the whole of another " +
+                                      "player's turn). Until ModBuild 348 this state returned before " +
+                                      "the labels were painted and before CurrentCounts was set, so " +
+                                      "the three numbers froze here AND extension record 15 dropped " +
+                                      "off the wire — which is why a card burned on somebody else's " +
+                                      "turn never counted up on this board or on any mirror of it."
+                                    : "") +
                                 (modelDiscard != discard || modelBurnt != burnt
                                     ? $". DEFERRED: the model already lists discard={modelDiscard}, " +
                                       $"burnt={modelBurnt}, but {modelDiscard - discard} discard / " +
@@ -542,15 +586,44 @@ internal sealed class PileViewer
                                 "the fan and the number follow a focus switch on the same edge the " +
                                 "discard/burnt numbers do.");
         }
-        _itemsBrowse.Tick(counted);
-        TickItemsUsableHighlight(counted, items);
+        // ─── THE ITEM MACHINERY IS THE ONE THING `hand` STILL DECIDES, AND IT KEEPS THE EXACT
+        // OFF-TURN BEHAVIOUR IT HAD BEFORE THE GUARD ABOVE WAS NARROWED. The three numbers are a
+        // DISPLAY question and now answer off-turn; the item recess and the usable cue are ACTION
+        // questions and must not change one bit on the strength of a counting fix:
+        //   * a card lying in the item-use recess is retired exactly as the old early return did,
+        //     so an off-turn board can still never hold a decision nobody can resolve;
+        //   * TickItemsUsableHighlight is fed NULL off-turn, which is precisely what it was fed
+        //     before (it was not reached at all) — UsableCount(null) is 0, so the cue goes off and
+        //     ItemsUsableCueOn, and therefore board-UI byte 2 bit 7, reads exactly as it always did.
+        // The remote item fan's MISSING per-card pulse (ModBuild 348 item 5) is a separate defect
+        // with a separate cause — see ItemsUsableMask below — and is deliberately NOT smuggled in
+        // here by letting an off-turn board light its own frames.
+        if (hand != null)
+        {
+            _itemsBrowse.Tick(counted);
+            TickItemsUsableHighlight(counted, items);
+        }
+        else
+        {
+            _itemsBrowse.RetirePlacedCardIfAny(
+                "no locally-controlled hand is active (another player's turn) — the pile NUMBERS "
+                + "keep tracking the presented character, the item-use recess does not");
+            TickItemsUsableHighlight(null, items);
+        }
 
         // MULTIPLAYER seam (extras extension record 15): the numbers this board is DISPLAYING
         // right now, published for NetAvatarDriver's extras sender. Deliberately the RENDERED
         // values and not a second model read — "was der User auch sieht" is the standing MP rule,
         // and these three ints are, by construction, exactly what the owner's three stack labels
-        // show this frame. Null while the stacks are hidden / no hand is presented, which the
+        // show this frame. Null while the stacks are hidden / no character is presented, which the
         // sender turns into "record absent" ⇒ receivers fall back to their own model read.
+        //
+        // IT IS NO LONGER NULL OFF-TURN (ModBuild 348 item 11). It used to be, because the guard at
+        // the top of this method also refused `hand == null` — so for the whole of every other
+        // player's turn this board published nothing and every mirror of it fell back to the model
+        // read RemoteControlBoard's own doc calls "a whole choreographer turn" behind. The stacks
+        // were on screen the entire time, so "the record is absent because there is nothing to
+        // claim" was simply false.
         CurrentCounts = (discard, burnt, items);
     }
 
@@ -581,6 +654,26 @@ internal sealed class PileViewer
     /// leave a peer's mirrored stack beating for a board that is not being ticked at all.</para>
     /// </summary>
     internal static bool ItemsUsableCueOn { get; private set; }
+
+    /// <summary>
+    /// WHICH of the presented character's equipped items are wearing the soft gold "usable" frame
+    /// on the LOCAL board right now — a bitmask over <c>Inventory.AllItems</c> index (bit i ⇔
+    /// items[i] is usable), 0 while nothing is. <see cref="ItemsUsableCueOn"/> is exactly
+    /// <c>ItemsUsableMask != 0</c> by construction: both come out of the one
+    /// <see cref="ItemsPile.UsableMask"/> pass in <see cref="TickItemsUsableHighlight"/>, so the
+    /// closed stack's cue and the fanned-out cards' frames cannot drift apart.
+    ///
+    /// <para>THE SENDER-SIDE SOURCE OF THE PER-ITEM USABLE RECORD (ModBuild 348 item 5 — the peer's
+    /// mirrored item fan draws no pulse at all today; <c>Net/Remote/RemoteItemFan.Rebuild</c> builds
+    /// bare slabs and the whole <c>SoftFramePulse</c> carrier exists only in
+    /// <c>Cards/Piles/ItemsPile.BuildUsableFrame</c>). The receiver cannot re-derive this — see
+    /// <see cref="ItemsPile.UsableMask"/> for the two reasons, both of which are the viewer's own
+    /// state standing in for the owner's — so the owner's rendered answer travels, like the counts
+    /// beside it. Reset with <see cref="ItemsUsableCueOn"/> at every point that nulls
+    /// <see cref="CurrentCounts"/>, for the same reason: a latched mask would leave a peer's
+    /// mirrored fan pulsing for a board nobody is ticking.</para>
+    /// </summary>
+    internal static ushort ItemsUsableMask { get; private set; }
 
     /// <summary>
     /// USABLE-HIGHLIGHT on the CLOSED items stack: drift soft gold embers off the "Gegenstände" stack
@@ -620,7 +713,11 @@ internal sealed class PileViewer
     /// </summary>
     private void TickItemsUsableHighlight(CardsHandUI? hand, int itemCount)
     {
-        int usable = _itemsBrowse.UsableCount(hand);
+        // ONE pass answers both questions — "is anything usable" (the closed stack's cue) and
+        // "which ones" (the fanned-out cards' frames, and the peer record below). They used to be
+        // two calls into the same predicate; the mask makes it structurally impossible for the
+        // stack to beat while no card is framed, or the reverse.
+        ushort mask = _itemsBrowse.UsableMask(hand, out int usable);
         bool on = usable > 0;
         _items?.SetUsableHighlight(on);
         // …and the SAME answer goes on the wire in the same statement group (board-UI byte 2 bit 7,
@@ -629,6 +726,9 @@ internal sealed class PileViewer
         // the PRESENTED character, the mirrored cue follows the owner's focus for free, which is what
         // the standing MP rule ("the remote board shows what THAT PLAYER sees") requires.
         ItemsUsableCueOn = on;
+        // The per-INDEX half of the same answer, for the peer's item FAN (ModBuild 348 item 5): the
+        // stack cue was mirrored, the frames inside the fan never were. See ItemsUsableMask.
+        ItemsUsableMask = mask;
 
         // Throttled + change-gated diagnostic so the next hardware log can verify the cue end-to-end:
         // how many items are usable this instant, and whether the stack's ember drift is actually
@@ -644,14 +744,22 @@ internal sealed class PileViewer
         _loggedUsable = usable;
         _loggedStackCue = on;
         _loggedUsableActor = actorId;
-        VRLog.Info("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now for " +
+        // HW-VERIFY: ModBuild 348 item 5 — the OWNER's published per-item answer. It is the sender
+        // half of the mirrored-fan fix, and either tester can be the owner, so it has to survive the
+        // shipped default level on both machines. Throttled to 0.5 Hz AND change-gated, so it is a
+        // handful of lines per scenario rather than a stream.
+        VRLog.Note("Cards", $"ITEM highlight: {usable}/{itemCount} item(s) usable now for " +
                             $"'{(hand != null ? Board.CharacterFocus.Describe(hand.PlayerActor) : "?")}' " +
                             "(the character the BOARD presents — turn-gated ordinary use OR an active " +
                             "bonus offered to THAT actor) — " +
                             $"stack cue {(on ? "ON" : "off")} (ember puffs + outward rings on a " +
                             $"{CardsConfig.ItemCueBeatSeconds.Value:0.00}s heartbeat), " +
                             $"fan {(_itemsBrowse.IsOpen ? "open" : "closed")} " +
-                            "(usable cards wear the soft gold frame on the same beat; nothing is dimmed).");
+                            "(usable cards wear the soft gold frame on the same beat; nothing is dimmed). " +
+                            $"Per-item mask 0x{mask:X4} over Inventory.AllItems index — the value " +
+                            "PileViewer.ItemsUsableMask publishes for a peer's mirrored item fan; " +
+                            "0x0000 here and a pulsing fan on the owner's own board would mean the " +
+                            "mask, not the mirror, is wrong.");
     }
 
     // ------------------------------------------------------------------ dispatch --

@@ -2074,6 +2074,99 @@ internal sealed partial class CardsDriver
         return sig;
     }
 
+    // -------------------------------------------------------- hand-fan membership watchdog --
+    //
+    // ITEM 10 (user 2026-09-02, verbatim): "Die gerade verbrannte Karte ist beim Test auf dem
+    // Handfächer zu sehen direkt nach dem der Mitspieler sie verbrannt hat. Das darf unter keinen
+    // Umständen der Fall sein!"
+    //
+    // ROOT CAUSE, AND IT IS A MISSING WATCHDOG, NOT A WRONG FILTER. FillHandFan already drops a
+    // burned card — its `widget.CardType != CardPileType.Hand` test is correct the moment the game
+    // has moved the widget. What was missing is anything that makes the mod LOOK. Rebuild runs on
+    // `_dirty` alone, and before this poll NOT ONE of the ~12 things that raise `_dirty` watched the
+    // hand-pile card SET:
+    //   * HandShownEvent            — CardsHandManager.Show; a burn does not show a hand;
+    //   * CardSelectionEvent        — select/deselect, not a pile move;
+    //   * PollModeChange            — (mode, selecting, actor, actionSig): no card-set term;
+    //   * PollActive                — hashes the ACTIVE pile only;
+    //   * everything else           — input, focus, mode, session, teardown.
+    // So a burn left the card on the fan until some UNRELATED event happened to dirty the driver —
+    // a hover, a grab, a mode change, a focus switch. "Directly after the co-player burned it" is
+    // exactly that window, and it has no upper bound.
+    //
+    // WHY THE PRESENTED HAND, NOT THE GAME'S: this is the watchdog for a DISPLAY surface, and its
+    // executor (FillHandFan, from Rebuild) builds from CharacterFocus.ResolveHand(CurrentHand()).
+    // PollActive's doc states the general rule and the defect shape it was written for — "a watchdog
+    // that watches the wrong character simply stops firing". A teammate's hand changing while we are
+    // FOCUSED on them is precisely the multiplayer case item 10 was reported from.
+    //
+    // WHY A SET SIGNATURE AND NOT A COUNT: a burn that lands in the same frame as a draw leaves the
+    // count unchanged.
+    //
+    // WHY THE SIGNATURE IS ORDER-INDEPENDENT (sum + xor + count, not a positional 31-fold like
+    // ActiveSignature's): the game re-sorts cardsUI on its own (CardsHandUI.SortCards), and the fan
+    // deliberately does NOT follow that order — CardsDriver.4.Rebuild's stage-A reorder re-applies
+    // the player's persisted _fanOrder over the game's, precisely so a game sort cannot shuffle the
+    // fan under his hand. A positional hash would therefore fire a full Rebuild on an event the fan
+    // is designed to ignore, once per sort, for no visible change. Membership is the question this
+    // watchdog asks, so membership is what it hashes.
+    //
+    // COST: one O(cardsUI) walk per frame over a list of ~10-30, no allocation, no game state
+    // touched. It is the same shape and the same price as PollActive, which has run per frame since
+    // feature 6.
+
+    /// <summary>
+    /// Hand-fan membership watchdog (item 10): flip <c>_dirty</c> the moment the presented
+    /// character's HAND-pile card set changes — a burn, a loss, a discard, a draw, a card given
+    /// away — none of which raises any of the mod's rebuild events. <see cref="FillHandFan"/> is
+    /// the sole executor, unchanged. Allocation-free, no-op when steady.
+    /// </summary>
+    private void PollHandCards(CardsHandUI? hand)
+    {
+        int sig = HandCardSignature(hand);
+        if (sig != _handSignature)
+        {
+            _handSignature = sig;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>Cheap ORDER-INDEPENDENT change-gate hash of the HAND-pile widget SET (see the region
+    /// header for why order must not enter it). 0 = none. Never throws: a half-torn hand answers 0,
+    /// which re-fires once when it comes back — the safe direction, because a missed edge is the
+    /// defect this exists for.</summary>
+    private int HandCardSignature(CardsHandUI? hand)
+    {
+        if (hand == null)
+            return 0;
+        try
+        {
+            CardsGameApi.GetCards(hand, _handSigBuffer);
+            int sum = 0;
+            int xor = 0;
+            int count = 0;
+            for (int i = 0; i < _handSigBuffer.Count; i++)
+            {
+                AbilityCardUI w = _handSigBuffer[i];
+                if (w == null || w.AbilityCard == null || w.IsLongRest)
+                    continue;
+                if (w.CardType != CardPileType.Hand)
+                    continue;
+                int id = w.CardID;
+                unchecked { sum += id; }
+                xor ^= id;
+                count++;
+            }
+            // 0 is reserved for "no hand" — an empty hand must not collide with it, or a character
+            // whose hand really is empty would re-fire a rebuild on every hand teardown/return.
+            unchecked { return (((sum * 31) ^ xor) * 31) + count + 1; }
+        }
+        catch (System.Exception)
+        {
+            return 0;
+        }
+    }
+
     // ------------------------------------------------------------------ dev fake hand --
 
     private void RebuildFakeOrClear(Transform anchor)

@@ -280,6 +280,7 @@ internal sealed partial class CardsDriver
         _knownBurntWidgets.Clear();
         _burnHoldSince.Clear(); // artwork holds die with the driver — no orphaned release later
         _burnHoldLogged.Clear();
+        _loggedStaleHandCard.Clear(); // item 10 model-belt dedupe dies with the driver
         _fanOriginCards.Clear();
         _fanOrder.Clear();
         _insertGap = -1;
@@ -416,6 +417,7 @@ internal sealed partial class CardsDriver
         _knownBurntWidgets.Clear();
         _burnHoldSince.Clear(); // the held widgets died with the hand — never release into a slab
         _burnHoldLogged.Clear();
+        _loggedStaleHandCard.Clear(); // ditto the item 10 model-belt dedupe (widgets are recycled)
         _shortRestCard = null; // ditto the sacrifice display (item 1d, reversibility)
         _shortRestPresented = null;
         if (_browseHand == hand)
@@ -773,6 +775,12 @@ internal sealed partial class CardsDriver
         // and only handed to surfaces that DISPLAY — never to a path that can reach a game seam.
         CardsHandUI? presented = Board.CharacterFocus.PresentedHand(hand);
         PollModeChange(_fakeActive ? null : hand); // deadlock safety: rebuild on any game card-mode change
+        // ITEM 10 (burned card still on the fan): rebuild the moment the PRESENTED character's
+        // hand-pile card set changes. DELIBERATELY OUTSIDE the _tray.IsVisible gate below — the fan
+        // hangs off the palm, not off the board, and a hand whose tray is not up yet must still
+        // never show a card the character no longer holds. See PollHandCards for why nothing else
+        // in the ~12 rebuild triggers watched this set.
+        PollHandCards(_fakeActive ? null : presented);
         if (_tray.IsVisible)
         {
             _tray.TickStatus(_fakeActive ? null : hand);
@@ -850,10 +858,117 @@ internal sealed partial class CardsDriver
         }
     }
 
-    // ------------------------------------------------------------------ fan diagnostics --
+    // ------------------------------------------------------- THE FAN'S ONE DECISION POINT --
+    //
+    // ITEM 3 (user 2026-09-02, verbatim): "Der Fächer muss IMMER angezeigt werden, egal in welchem
+    // Status das Spiel gerade ist. Die einzige valide Ausnahme ist, wenn dem Spieler kein Character
+    // zugewiesen wurde im Multiplayer."
+    //
+    // THIS IS THE THIRD ROUND IN WHICH A FAN-GATING RULE SURPRISED HIM, and all three had the same
+    // shape: a VR MODE that silently dropped the fan's ENABLING CAPABILITY.
+    //   * round 1 — VRMode.BoardTargeting carried Ray|Poke only, so a move/attack confirmation
+    //     killed the fan for every character (fixed by the one-shot policy grant in
+    //     CardsDriver.OnEnable, which enumerated that ONE mode);
+    //   * round 2 — VRMode.ModalUI has no PalmGate either, and an options window was raising the
+    //     ModalUI lock (ModBuild 341/344 reclassified the mod's own menu family out of "blocking");
+    //   * round 3 — this report.
+    // Each fix named the mode that had been hit. That is whack-a-mole: the fan's visibility was
+    // OWNED BY A TABLE IT DOES NOT CONTROL (Core.Events.VRModeStateMachine.InteractorPolicy), and
+    // any mode added there without a PalmGate bit silently deletes the hand fan.
+    //
+    // SO THE OWNERSHIP MOVES HERE. The driver ASSERTS the palm-gate capability whenever it has a
+    // fan to show (EnsureFanCapability below) instead of hoping the mode row grants it. The mask is
+    // applied on the mode-change EDGE only (Hands.HandsDriver.ApplyMode ← VRModeStateMachine.
+    // ModeChanged), and PalmGate.Enabled's setter early-returns on no change, so this is an
+    // idempotent per-frame re-assert, not a write war. Nothing else consults PalmGate.Changed, and
+    // the map room drives THIS SAME fan (WorldUI.MapRoom.MapRoomHand hands its loadout to this
+    // driver), so there is no second consumer to surprise.
+    //
+    // THE FULL LIST OF THINGS THAT CAN STILL WITHHOLD THE FAN — and every one of them is now named
+    // in the log by FanBlocker, so the next report does not need a fourth round to find out which:
+    //   1. HandsDown      — no hands/rig anchor at all (UpdateBody's anchor bail-out). Not a game
+    //                       state: nothing can be drawn.
+    //   2. NoGateHand     — the non-dominant VRHand does not exist yet.
+    //   3. NoCards        — the mod built no fan cards. THIS is where "no character assigned" lands,
+    //                       and it is the user's one sanctioned exception. It is also where every
+    //                       UPSTREAM refusal ends up, which is why FanBlocker is not the whole
+    //                       story for it — CharacterFocus.ResolveHand's SELECTION FLOOR is what
+    //                       keeps a hand bound when the GAME presents a foreign one, and Rebuild
+    //                       fills the fan in EVERY CardHandMode (FillHandFan's `default:` arm).
+    //   4. GateDisabled   — the mode's interactor mask has no PalmGate. AS OF THIS BUILD THIS CAN
+    //                       NO LONGER HAPPEN while a fan exists: EnsureFanCapability re-arms it and
+    //                       says so once. The term is kept so the log can still report a re-arm.
+    //   5. GateHandHolds  — the fan hand is holding a card (user ruling 2026-08-04). A gesture, not
+    //                       a game state.
+    //   6. PalmDown       — [Cards] RevealMode=tilt and the wrist is not rolled up. A gesture.
+    // Nothing else. There is no phase gate, no mode gate and no MP gate on the fan any more.
 
     private (CardHandMode? mode, int widgets, int fanBuffer, bool gateEnabled, bool revealed,
-        bool open, bool boundHand, VRMode vrMode)? _lastFanState;
+        bool open, bool boundHand, VRMode vrMode, FanBlocker blocker)? _lastFanState;
+
+    /// <summary>Why the hand fan is not on screen this frame — the SINGLE classifier, shared by the
+    /// gate that acts (<see cref="UpdatePalmGate"/>) and the line that reports
+    /// (<see cref="LogFanState"/>), so the two can never tell different stories.</summary>
+    private enum FanBlocker
+    {
+        /// <summary>The fan is open. Nothing is withholding it.</summary>
+        None,
+        /// <summary>No hands/rig anchor — see UpdateBody's anchor bail-out.</summary>
+        HandsDown,
+        /// <summary>The non-dominant hand does not exist yet.</summary>
+        NoGateHand,
+        /// <summary>The mod built no fan cards. The user's one sanctioned exception (no character
+        /// assigned) lands here — and so would any upstream refusal, which is why it is loud.</summary>
+        NoCards,
+        /// <summary>The VR mode's interactor mask carries no PalmGate. Cannot survive a frame any
+        /// more — <see cref="EnsureFanCapability"/> re-arms it.</summary>
+        GateDisabled,
+        /// <summary>The fan hand is holding a card (user ruling 2026-08-04).</summary>
+        GateHandHolds,
+        /// <summary>RevealMode=tilt and the palm is not rolled up. A gesture, not a state.</summary>
+        PalmDown,
+    }
+
+    /// <summary>
+    /// THE reveal predicate — <c>RevealMode=always</c> needs no gesture at all, tilt mode
+    /// additionally holds the fan open while the dominant laser is on it (plucking must never
+    /// collapse the fan mid-reach). Extracted because it used to be written out TWICE, once in
+    /// <see cref="UpdatePalmGate"/> and once in <see cref="LogFanState"/> — a mirrored predicate
+    /// whose two copies would eventually disagree, at which point the diagnostic would be reporting
+    /// a state the gate never had.
+    /// </summary>
+    private bool FanRevealed(PalmGate? gate) =>
+        gate != null && (CardsConfig.RevealAlways
+            ? gate.Enabled
+            : gate.Enabled && (gate.IsOpen || _laserHover != null));
+
+    /// <summary>Classify the frame: which term (if any) is keeping the fan off screen. Order is
+    /// most-structural first, so the answer names the ROOT refusal rather than a consequence.</summary>
+    private FanBlocker FanBlockerOf(PalmGate? gate, bool allowFan, bool gateHandHolds)
+    {
+        if (_fan.IsOpen)
+            return FanBlocker.None;
+        if (AnchorParent() == null)
+            return FanBlocker.HandsDown;
+        if (_gateHand == null || gate == null)
+            return FanBlocker.NoGateHand;
+        if (!allowFan)
+            return FanBlocker.NoCards;
+        if (!gate.Enabled)
+            return FanBlocker.GateDisabled;
+        if (gateHandHolds)
+            return FanBlocker.GateHandHolds;
+        return FanBlocker.PalmDown;
+    }
+
+    /// <summary>Change-dedup for the Note-tier WITHHELD verdict, so a steady state prints once and a
+    /// real transition always prints. <c>inScenario</c> is a KEY MEMBER and not merely a filter: it
+    /// is one of the terms that decides whether the line is worth saying at all, so leaving it out
+    /// would let a menu state latch the key and then swallow the identical in-scenario state — the
+    /// exact frame the report is about.</summary>
+    private (FanBlocker blocker, bool hadCards, VRMode mode, bool inScenario)? _loggedFanBlocker;
+
+    // ------------------------------------------------------------------ fan diagnostics --
 
     /// <summary>
     /// Test #16 diagnostic (change-deduped Info, [Cards] style): everything the fan's
@@ -862,19 +977,31 @@ internal sealed partial class CardsDriver
     /// the reveal gating (palm gate disabled by a stuck ModalUI) was only visible in
     /// Debug lines the LogOutput capture drops. With this line, any future "fan never
     /// showed" is attributable from LogOutput.log alone.
+    ///
+    /// <para>…AS LONG AS THE CAPTURE IS AT DEBUG, WHICH THE 2026-09-02 MULTIPLAYER DROP WAS NOT.
+    /// The co-player's LogOutput.log ran at the shipped default (<c>LogLevel = Info</c>), and this
+    /// whole census is <c>VRLog.Info</c> = Debug tier, so his 91 MB-equivalent of evidence contained
+    /// ZERO <c>fan state:</c> lines and ZERO <c>PalmGate</c> lines — the one question his test was
+    /// run to answer was unanswerable from his drop by construction. The census stays where it is
+    /// (per-change, it is far too chatty for the shipped tier); what was promoted is the VERDICT:
+    /// <see cref="LogFanWithheld"/> writes one <c>VRLog.Note</c> line naming the blocking TERM,
+    /// change-deduped, which is exactly the field a report needs and nothing more.</para>
     /// </summary>
     private void LogFanState(CardsHandUI? hand)
     {
         CardHandMode? mode = hand != null ? CardsGameApi.Mode(hand) : null;
         PalmGate? gate = _gateHand != null ? _gateHand.PalmGate : null;
         bool gateEnabled = gate != null && gate.Enabled;
-        bool revealed = gate != null && (CardsConfig.RevealAlways
-            ? gate.Enabled
-            : gate.Enabled && (gate.IsOpen || _laserHover != null));
+        bool revealed = FanRevealed(gate);
+        bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0 || _fan.HasLeavingCards;
+        bool gateHandHolds = _gateHand != null && _gateHand.Grabber.Held != null;
+        FanBlocker blocker = FanBlockerOf(gate, allowFan, gateHandHolds);
+
+        LogFanWithheld(blocker, allowFan);
 
         var state = (mode, widgets: _widgetBuffer.Count, fanBuffer: _fanBuffer.Count, gateEnabled,
             revealed, open: _fan.IsOpen, boundHand: _boundHand != null,
-            vrMode: VRModeStateMachine.CurrentMode);
+            vrMode: VRModeStateMachine.CurrentMode, blocker);
         if (_lastFanState.HasValue && _lastFanState.Value == state)
             return;
         _lastFanState = state;
@@ -882,7 +1009,90 @@ internal sealed partial class CardsDriver
         VRLog.Info("Cards", $"fan state: mode={(mode.HasValue ? mode.Value.ToString() : "none")}, " +
                             $"widgets={state.widgets}, fanBuffer={state.fanBuffer}, " +
                             $"gateEnabled={gateEnabled}, revealed={revealed}, open={_fan.IsOpen}, " +
-                            $"boundHand={_boundHand != null} (vrMode={state.vrMode}).");
+                            $"boundHand={_boundHand != null}, withheldBy={blocker} " +
+                            $"(vrMode={state.vrMode}).");
+    }
+
+    /// <summary>
+    /// THE ONE LINE A "the fan is gone" REPORT IS DECIDED BY, at the shipped log tier. Names the
+    /// blocking TERM, not a fraction and not a pile of booleans a reader has to re-derive the rule
+    /// from — the 2026-09-02 co-player drop had 296 mod lines and could not answer which of six
+    /// independent terms was false, because every one of them lived in a Debug-tier line.
+    /// <para>ONLY THE STRUCTURAL BLOCKERS ARE REPORTED HERE, and that restriction is what keeps the
+    /// line worth reading. <c>PalmDown</c> and <c>GateHandHolds</c> are GESTURES — the player
+    /// lowering their wrist or picking a card up — and they flip several dozen times a session (36
+    /// palm-gate cycles in the 2026-09-02 host log alone). Reporting them at the shipped tier would
+    /// bury the one transition a report is about under seventy lines of the player using the
+    /// feature correctly. They stay in the Debug-tier census, which carries every term.</para>
+    ///
+    /// <para>Change-deduped on (structural blocker, had cards, mode, in scenario), so a steady state
+    /// costs one line and every structural transition — including the RETURN to a shown fan — is
+    /// always printed. The pair is the whole diagnostic: a WITHHELD with no SHOWN after it is a fan
+    /// that never came back.</para>
+    /// </summary>
+    private void LogFanWithheld(FanBlocker blocker, bool allowFan)
+    {
+        // A gesture is not a withholding. Collapse both onto None so the pair below brackets only
+        // the states the player cannot fix by moving their hand.
+        FanBlocker structural = blocker switch
+        {
+            FanBlocker.PalmDown or FanBlocker.GateHandHolds => FanBlocker.None,
+            _ => blocker,
+        };
+        bool inScenario = CardsGameApi.InScenario;
+        var key = (blocker: structural, hadCards: allowFan,
+                   mode: VRModeStateMachine.CurrentMode, inScenario);
+        if (_loggedFanBlocker.HasValue && _loggedFanBlocker.Value.Equals(key))
+            return;
+        bool hadStructural = _loggedFanBlocker.HasValue
+                             && _loggedFanBlocker.Value.blocker != FanBlocker.None;
+        _loggedFanBlocker = key;
+        // Do not narrate the pre-scenario menu: with no hands and no cards there is no fan to
+        // withhold, and one line per main-menu mode change is noise at the shipped tier.
+        if (structural != FanBlocker.None && !allowFan && !inScenario)
+            return;
+
+        if (structural == FanBlocker.None)
+        {
+            if (!hadStructural)
+                return; // never withheld in the first place — nothing to release
+            // HW-VERIFY: the RELEASE half. A WITHHELD line with no RELEASED line after it is a fan
+            // that never came back — which is exactly the 2026-09-02 report ("nachdem er 'Auswahl
+            // beenden' angeklickt hat den Fächer nicht mehr sehen").
+            VRLog.Note("Cards", "Hand fan WITHHOLD RELEASED — nothing structural is keeping the fan " +
+                                "off any more; from here it is the player's own wrist roll ([Cards] " +
+                                $"RevealMode) that decides. (cards built={allowFan}, " +
+                                $"vrMode={VRModeStateMachine.CurrentMode}).");
+            return;
+        }
+
+        string why = blocker switch
+        {
+            FanBlocker.HandsDown => "the hands/rig anchor is gone (nothing can be drawn at all)",
+            FanBlocker.NoGateHand => "the non-dominant VRHand does not exist yet",
+            FanBlocker.NoCards => "the mod built NO fan cards this frame. This is the ONLY sanctioned "
+                                  + "reason (user 2026-09-02: a multiplayer player with no character "
+                                  + "assigned). If this client DOES control a character, the refusal is "
+                                  + "upstream of the gate — Rebuild fills the fan in every CardHandMode, "
+                                  + "so look at CharacterFocus.ResolveHand / the SELECTION GUARD line. "
+                                  + $"boundHand={(_boundHand != null ? "yes" : "NO")}, "
+                                  + $"boundMode={(_boundHand != null ? CardsGameApi.Mode(_boundHand).ToString() : "none")}"
+                                  + " — in a PICK mode the fan is the CANDIDATE set, not the hand, so a "
+                                  + "fully-satisfied pick empties it by design",
+            FanBlocker.GateDisabled => "the VR mode's interactor mask carries no PalmGate — this must "
+                                       + "not be reachable while a fan exists; EnsureFanCapability "
+                                       + "re-arms it and logs a RE-ARMED line",
+            FanBlocker.GateHandHolds => "the fan hand is holding a card (user ruling 2026-08-04: the "
+                                        + "fan stays blocked while the non-dominant hand holds one)",
+            _ => "[Cards] RevealMode=tilt and the palm is not rolled up — a gesture, not a game state "
+                 + "(set RevealMode=always to remove the gesture entirely)",
+        };
+        // HW-VERIFY: THE line that decides a "the fan is not shown" report. It names WHICH of the six
+        // independent terms is false; every earlier round had to guess because the census that
+        // carries them all is Debug-tier and the tester's capture is not.
+        VRLog.Note("Cards", $"Hand fan WITHHELD by {blocker} — {why}. " +
+                            $"(cards built={allowFan}, vrMode={VRModeStateMachine.CurrentMode}, " +
+                            $"inScenario={inScenario}).");
     }
 
     // Change-dedup for the ActionSelection click-gate diagnostic (second-character deadlock);
@@ -1049,6 +1259,10 @@ internal sealed partial class CardsDriver
         // where the cards went. The fan closes by itself the moment the wave has drained, and by then
         // it holds nothing, so the close is silent.
         bool allowFan = _fanBuffer.Count > 0 || _fan.Cards.Count > 0 || _fan.HasLeavingCards;
+        // ITEM 3 (2026-09-02): the fan's ENABLING CAPABILITY is asserted here, by the driver that
+        // owns the fan, and no longer merely hoped for from the mode table. Read the block above
+        // LogFanState for the three rounds this closes and why a per-mode grant is the wrong shape.
+        EnsureFanCapability(gate, allowFan);
         // FAN BLOCK while the gate hand HOLDS something (user ruling 2026-08-04: "Wird eine Karte
         // in die nicht-dominante Hand genommen, wird - solange sie in der Hand ist - der Faecher
         // blockiert"). The gate hand can now take cards (general both-hands rule), and a fan
@@ -1062,12 +1276,12 @@ internal sealed partial class CardsDriver
         // keeps measuring while suppressed, so the verdict is instant), via _fan.Open()'s
         // fan-out reveal. No new timer, no snap-hide.
         bool gateHandHolds = _gateHand.Grabber.Held != null;
-        // RevealMode=always: no gesture at all while a card phase is live (gate.Enabled
-        // is the mode policy). Tilt mode additionally HOLDS the fan open while the
-        // dominant laser is on it — plucking must never collapse the fan mid-reach.
-        bool revealed = CardsConfig.RevealAlways
-            ? gate.Enabled
-            : gate.Enabled && (gate.IsOpen || _laserHover != null);
+        // RevealMode=always: no gesture at all while a card phase is live. Tilt mode additionally
+        // HOLDS the fan open while the dominant laser is on it — plucking must never collapse the
+        // fan mid-reach. ONE definition, shared with the diagnostic (see FanRevealed): this used to
+        // be written out here AND in LogFanState, so the two could drift and the log would then be
+        // reporting a reveal state the gate never had.
+        bool revealed = FanRevealed(gate);
         bool shouldOpen = allowFan && revealed && !gateHandHolds;
         if (shouldOpen && !_fan.IsOpen)
         {
@@ -1093,6 +1307,65 @@ internal sealed partial class CardsDriver
         if (revealed && !_gateWasRevealed)
             MaybeShowEmptyFanHint(allowFan, gateHandHolds);
         _gateWasRevealed = revealed;
+    }
+
+    /// <summary>Change-dedup for the capability RE-ARM line: one line per mode that had dropped the
+    /// palm gate, not one per frame while that mode is up.</summary>
+    private VRMode? _loggedGateRearmMode;
+
+    /// <summary>
+    /// ITEM 3, THE STRUCTURAL HALF: the hand fan owns its own enabling capability.
+    ///
+    /// <para>Read the block above <see cref="LogFanState"/> for the three rounds this closes. The
+    /// short version: <c>PalmGate.Enabled</c> is written from a table this driver does not control
+    /// (<c>Core.Events.VRModeStateMachine.InteractorPolicy</c> / <c>HandPolicy</c>, applied by
+    /// <c>Hands.HandsDriver.ApplyMode</c>), and any VR mode whose row omits the PalmGate bit
+    /// silently deletes the fan for as long as that mode is up — with no error, no warning and
+    /// nothing in a shipped-tier log. Two modes still omit it today (<c>Menu2D</c>,
+    /// <c>ModalUI</c>), a third had to be patched by hand (<c>BoardTargeting</c>, the one-shot grant
+    /// in <c>OnEnable</c>), and there is nothing stopping the fourth.</para>
+    ///
+    /// <para>WHY THIS AND NOT ANOTHER PER-MODE GRANT. A grant enumerates the modes that exist
+    /// TODAY; the defect is that the fan's visibility is decided somewhere else at all. Asserting
+    /// the capability at the point of use makes the rule "the fan is shown in every game state"
+    /// true by construction rather than by an up-to-date table — which is precisely what the user
+    /// asked for ("egal in welchem Status das Spiel gerade ist").</para>
+    ///
+    /// <para>WHY IT IS SAFE. <b>It is gated on the fan actually having cards</b>, so the palm gate
+    /// is never armed for a hand the mod has nothing to show for — the user's one sanctioned
+    /// exception (a multiplayer player with no character assigned) builds no cards and is therefore
+    /// untouched, and the main menu is untouched for the same reason. It grants no INTERACTION:
+    /// what a card may DO is decided per card by the rebuild's grabbable/inspect funnel and by
+    /// <c>VRCard.CanGrab</c>, both unchanged — the palm gate only decides whether the fan is SEEN.
+    /// It cannot fight the mode machine: <c>ApplyMode</c> writes the mask on the mode-change EDGE
+    /// only, and <c>PalmGate.Enabled</c>'s setter early-returns when the value is unchanged, so the
+    /// steady state costs one bool compare per frame. And nothing else in the mod consumes this
+    /// gate — <c>PalmGate.Changed</c> has no subscribers, and the map room drives this very fan
+    /// through this very driver, so there is no second surface to surprise.</para>
+    /// </summary>
+    private void EnsureFanCapability(PalmGate gate, bool allowFan)
+    {
+        if (!allowFan || gate.Enabled)
+        {
+            if (!allowFan)
+                _loggedGateRearmMode = null; // next drop announces itself
+            return;
+        }
+
+        VRMode mode = VRModeStateMachine.CurrentMode;
+        gate.Enabled = true;
+        if (_loggedGateRearmMode == mode)
+            return;
+        _loggedGateRearmMode = mode;
+        // HW-VERIFY: proof that the class of bug reported three times is now self-healing. If this
+        // line names a mode, that mode's interactor row is missing its PalmGate bit and WOULD have
+        // eaten the hand fan; the fan is shown anyway. It is not an error — it is the assertion
+        // doing its job — but the named mode is worth adding to the table for the other interactors.
+        VRLog.Note("Cards", $"Hand fan capability RE-ARMED in vrMode={mode}: that mode's interactor " +
+                            "policy carries no PalmGate, which used to delete the hand fan for as " +
+                            "long as that mode was up (the BoardTargeting and ModalUI reports). " +
+                            "The fan owns its own gate now — it is SHOWN in every game " +
+                            "state, and nothing about what a card may DO changed.");
     }
 
     /// <summary>Change-dedup for the "the model has cards but the mod has no widgets yet" line,
