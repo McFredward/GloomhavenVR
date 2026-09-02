@@ -289,6 +289,15 @@ internal static class CardFaceMipBake
         // and must not be switched off by a texture-quality dial.
         CardFace.Offer(faceRoot);
 
+        // ITEM CARD BURN FOOTPRINT (2026-08 report: "Den glühenden Effekt auf den verbrannten
+        // Gegenstandskarten ist nur ganz leicht am Rand sichtbar"). Same seam, same reason as the
+        // silhouette offer above: this is the one pump the hosted ITEM card already runs, so the
+        // fix needs no edit in a file it does not own. A no-op for every root that is not a hosted
+        // item card, and a float compare once the card is seated — see CardFxBounds' class doc.
+        // Also ahead of the FaceMipBake gate: it is a separate feature and must not be switched off
+        // by a texture-quality dial.
+        CardFxBounds.Reseat(faceRoot);
+
         if (CardsConfig.FaceMipBake == null || !CardsConfig.FaceMipBake.Value)
             return;
         try

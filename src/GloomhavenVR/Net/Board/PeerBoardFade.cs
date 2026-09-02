@@ -543,8 +543,20 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
     private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
     private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+    private static readonly int ZTestId = Shader.PropertyToID("_ZTest");
+    private static readonly int CullId = Shader.PropertyToID("_Cull");
+    private static readonly int VertexColorId = Shader.PropertyToID("_VertexColor");
     private static readonly int MainTexId = Shader.PropertyToID("_MainTex");
     private static readonly int BaseMapId = Shader.PropertyToID("_BaseMap");
+
+    /// <summary>
+    /// <c>GloomhavenVR/BoardLit</c>'s opt-in transparency scalar (ModBuild 351). Its presence on a
+    /// material is what tells this class the running bundle carries a BoardLit that can blend —
+    /// i.e. whether the slab family keeps its LIT shader across the fade or has to be swapped onto
+    /// an unlit one. Absent on every bundle up to and including the one shipped at ModBuild 350,
+    /// which is why the swap path below is not dead code.
+    /// </summary>
+    private static readonly int FadeAlphaId = Shader.PropertyToID("_FadeAlpha");
 
     /// <summary>Name marker on every material clone this class installs. Read by
     /// <c>BoardVisual.AdoptBoardOrder</c>, which must NOT adopt a surface that is only
@@ -563,6 +575,10 @@ internal sealed class PeerBoardFade : MonoBehaviour
         /// <summary>True when every material on this renderer can blend as authored (no swap
         /// needed) — the MPB family.</summary>
         public bool Blendable;
+        /// <summary>The heaviest <see cref="Delivery"/> any of this renderer's materials needs —
+        /// the census line's evidence for WHICH of the two clone recipes the board slab family got,
+        /// which is the one thing that decides whether the fade-in still steps.</summary>
+        public Delivery Kind;
         /// <summary>The renderer's materials as we found them; non-null only while swapped.</summary>
         public Material[]? Original;
         /// <summary>Our private clones, parallel to <see cref="Original"/>; entries that needed
@@ -575,7 +591,13 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private readonly Dictionary<Renderer, Surface> _known = new(64);
     private readonly List<Renderer> _rendererScratch = new(64);
     private MaterialPropertyBlock? _mpb;
+    /// <summary>Every uGUI alpha carrier this driver owns: the board root's group first, then one
+    /// per live follower root. Written as one number in <see cref="Apply"/> — see
+    /// <see cref="Follow"/> for why a follower must not get a carrier of its own.</summary>
+    private readonly List<CanvasGroup> _groups = new(4);
     private CanvasGroup? _group;
+    /// <summary>Follower roots seen by the last census, in registration order.</summary>
+    private readonly List<Transform> _followers = new(4);
 
     private Bounds _localBox;
     private bool _hasBox;
@@ -623,6 +645,78 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <summary>The owning peer, for the diagnostic line only. Handed in from the board's own
     /// refresh (the constructor does not know it yet).</summary>
     internal void Note(int playerId) => _playerId = playerId;
+
+    // ------------------------------------------------------------------------- FOLLOWERS -------
+
+    /// <summary>
+    /// Extra roots, per owning peer, whose renderers this driver fades WITH the board even though
+    /// they are not under it in the hierarchy. See <see cref="Follow"/>.
+    /// </summary>
+    private static readonly Dictionary<int, List<Transform>> FollowerRoots = new(8);
+
+    /// <summary>
+    /// USER ITEM 7 (2026-09): "Die offenen Faecher, die ueber dem board schweben und zu dem board
+    /// gehoeren (Gegenstaende, verbrannt, abgeworfen) sollen auch in dem selben Masse transparent
+    /// sein, wenn das board transparent ist (durch ausfaden)."
+    ///
+    /// <para><b>WHY A REGISTRY AND NOT A HIERARCHY WALK.</b> Those fans BELONG to the board and are
+    /// posed from it every frame, but they are not CHILDREN of it: <c>RemoteItemFan</c>,
+    /// <c>RemoteBrowserFan</c> and <c>RemoteCardFx</c> each mint a scene-root
+    /// <c>DontDestroyOnLoad</c> / <c>HideAndDontSave</c> GameObject and push the peer's board pose
+    /// onto it (this is stated on purpose in <c>RemoteBoardVisibility</c>: "THREE transient reading
+    /// fans that are rendered by their OWN classes and are NOT children of the board root"). This
+    /// driver's census is <c>GetComponentsInChildren</c> on the board root, so it has never been
+    /// able to see them — which is why a faded board left its item arc and its discard browse
+    /// hanging fully opaque in mid-air. Re-parenting them onto the board is not an option: the two
+    /// fans deliberately ease to a DIFFERENT smoothing than the board root does, and one of them
+    /// re-parents a single slab into the board's item-use recess and back.</para>
+    ///
+    /// <para><b>WHAT MAKES IT "IN DEM SELBEN MASSE" AND NOT A SECOND FADE THAT LOOKS SIMILAR.</b>
+    /// A registered root's renderers are appended to the SAME <c>_surfaces</c> list the board's own
+    /// are in, and are written by the SAME <see cref="Apply"/> loop from the SAME local
+    /// <c>alpha</c>, on the same frame. There is no second ramp, no second gate, no second config
+    /// read and no second number anywhere in this class — a follower cannot drift from the board
+    /// because there is nothing for it to drift from.</para>
+    ///
+    /// <para><b>WHAT A FOLLOWER DELIBERATELY DOES NOT DO: it never enters the occluder box.</b> The
+    /// DECISION is measured on the board's own oriented box against the tuned
+    /// <c>[PeerBoardFade] OnFraction</c> / <c>OffFraction</c> bars; a fan hovering a hand's width
+    /// above the board would inflate that box and re-tune both bars by the back door. Delivery
+    /// covers board + fans, the metric stays the board's.</para>
+    ///
+    /// <para>Idempotent, and safe before the board exists — the list is keyed by player id and read
+    /// on the driver's own 2 Hz census. Costs nothing at all while <c>[PeerBoardFade] Mode</c> is
+    /// Off, because the driver never ticks. Unity-null roots are swept on the next census, so a fan
+    /// that is destroyed with its peer needs no teardown call; <see cref="Unfollow"/> exists for a
+    /// caller that gives a root up while the peer lives on.</para>
+    /// </summary>
+    internal static void Follow(int playerId, Transform? followerRoot)
+    {
+        if (followerRoot == null || playerId < 0)
+            return;
+        if (!FollowerRoots.TryGetValue(playerId, out List<Transform> list))
+            FollowerRoots[playerId] = list = new List<Transform>(4);
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (ReferenceEquals(list[i], followerRoot))
+                return;
+        }
+        list.Add(followerRoot);
+    }
+
+    /// <summary>Stop fading <paramref name="followerRoot"/> with <paramref name="playerId"/>'s
+    /// board. Never needed for a root that is simply destroyed (the census sweeps Unity-null
+    /// entries); needed only when a live root stops belonging to the board.</summary>
+    internal static void Unfollow(int playerId, Transform? followerRoot)
+    {
+        if (followerRoot == null || !FollowerRoots.TryGetValue(playerId, out List<Transform> list))
+            return;
+        for (int i = list.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(list[i], followerRoot))
+                list.RemoveAt(i);
+        }
+    }
 
     private void LateUpdate()
     {
@@ -874,14 +968,66 @@ internal sealed class PeerBoardFade : MonoBehaviour
         _hasBox = false;
         _rendererScratch.Clear();
         GetComponentsInChildren(true, _rendererScratch);
-        for (int i = 0; i < _rendererScratch.Count; i++)
+        AdoptRenderers(_rendererScratch, toLocal, contributeBox: true);
+
+        // The board's floating fans (user item 7). Their renderers join the SAME list and are
+        // driven by the SAME alpha; their extents deliberately do NOT join the occluder box, or the
+        // decision this board is judged by would silently change with what its owner happens to
+        // have open. See Follow().
+        _followers.Clear();
+        if (FollowerRoots.TryGetValue(_playerId, out List<Transform> registered))
         {
-            Renderer r = _rendererScratch[i];
+            for (int i = registered.Count - 1; i >= 0; i--)
+            {
+                if (registered[i] == null)
+                {
+                    registered.RemoveAt(i); // a fan destroyed with its peer
+                    continue;
+                }
+                _followers.Add(registered[i]);
+                _rendererScratch.Clear();
+                registered[i].GetComponentsInChildren(true, _rendererScratch);
+                AdoptRenderers(_rendererScratch, toLocal, contributeBox: false);
+            }
+        }
+        if (_engaged)
+            EnsureGroups();
+
+        for (int i = _surfaces.Count - 1; i >= 0; i--)
+        {
+            Surface s = _surfaces[i];
+            if (s.Seen)
+                continue;
+            Restore(s);
+            if (s.Renderer != null)
+                _known.Remove(s.Renderer);
+            else
+                PruneDeadKeys();
+            _surfaces.RemoveAt(i);
+        }
+        LogCensusIfChanged();
+    }
+
+    /// <summary>
+    /// Register one root's renderers as driven surfaces, and — for the BOARD's own root only —
+    /// grow the occluder box by their board-local extents.
+    ///
+    /// <para><paramref name="contributeBox"/> is the whole difference between the board and a
+    /// follower, and it is what keeps user item 7 from re-tuning user request 15 behind its back:
+    /// a fan is faded WITH the board and is never part of what decides that the board should
+    /// fade.</para>
+    /// </summary>
+    private void AdoptRenderers(List<Renderer> found, in Matrix4x4 toLocal, bool contributeBox)
+    {
+        for (int i = 0; i < found.Count; i++)
+        {
+            Renderer r = found[i];
             if (r == null)
                 continue;
             if (!_known.TryGetValue(r, out Surface s))
             {
-                s = new Surface { Renderer = r, Blendable = CanBlendAll(r.sharedMaterials) };
+                Delivery kind = HeaviestDelivery(r.sharedMaterials);
+                s = new Surface { Renderer = r, Kind = kind, Blendable = kind == Delivery.Blends };
                 _known[r] = s;
                 _surfaces.Add(s);
                 if (_engaged && !s.Blendable)
@@ -889,7 +1035,7 @@ internal sealed class PeerBoardFade : MonoBehaviour
             }
             s.Seen = true;
 
-            if (!r.enabled || !r.gameObject.activeInHierarchy)
+            if (!contributeBox || !r.enabled || !r.gameObject.activeInHierarchy)
                 continue;
             Bounds lb = r.localBounds;
             Matrix4x4 m = toLocal * r.localToWorldMatrix;
@@ -913,20 +1059,41 @@ internal sealed class PeerBoardFade : MonoBehaviour
                 }
             }
         }
+    }
 
-        for (int i = _surfaces.Count - 1; i >= 0; i--)
+    /// <summary>
+    /// Refresh the list of uGUI alpha carriers: one <see cref="CanvasGroup"/> on the board root and
+    /// one on each live follower root. A group's alpha multiplies DOWN through every nested canvas,
+    /// so the mirrors' and the card faces' own groups are never written to and cannot be fought.
+    ///
+    /// <para>Called from <see cref="Engage"/> and from the census while engaged, never while the
+    /// mode is Off — adding a component to somebody else's object is a write, and "Off is bit for
+    /// bit today's behaviour" has to keep meaning that.</para>
+    /// </summary>
+    private void EnsureGroups()
+    {
+        _groups.Clear();
+        if (_group == null)
+            _group = gameObject.GetComponent<CanvasGroup>();
+        if (_group == null)
+            _group = gameObject.AddComponent<CanvasGroup>();
+        _groups.Add(_group);
+        for (int i = 0; i < _followers.Count; i++)
         {
-            Surface s = _surfaces[i];
-            if (s.Seen)
+            Transform f = _followers[i];
+            if (f == null)
                 continue;
-            Restore(s);
-            if (s.Renderer != null)
-                _known.Remove(s.Renderer);
-            else
-                PruneDeadKeys();
-            _surfaces.RemoveAt(i);
+            CanvasGroup g = f.GetComponent<CanvasGroup>();
+            if (g == null)
+            {
+                g = f.gameObject.AddComponent<CanvasGroup>();
+                // A fan is a read-only mirror of somebody else's cards. Its group exists to carry
+                // opacity and must not start blocking or accepting input on the way in.
+                g.interactable = false;
+                g.blocksRaycasts = false;
+            }
+            _groups.Add(g);
         }
-        LogCensusIfChanged();
     }
 
     /// <summary>A destroyed renderer is a Unity-null KEY that <c>Remove</c> can no longer find;
@@ -972,8 +1139,15 @@ internal sealed class PeerBoardFade : MonoBehaviour
             WriteAlpha(r, alpha);
         }
 
-        if (_group != null)
-            _group.alpha = alpha;
+        // ONE number, every carrier, this frame. The board root's group and the fans' are written
+        // from the same local — see Follow() for why "in dem selben Masse" is a property of the
+        // code's shape here rather than of two formulas agreeing.
+        for (int i = 0; i < _groups.Count; i++)
+        {
+            CanvasGroup g = _groups[i];
+            if (g != null)
+                g.alpha = alpha;
+        }
     }
 
     /// <summary>
@@ -997,6 +1171,17 @@ internal sealed class PeerBoardFade : MonoBehaviour
             _mpb.SetColor(ColorIds[i], c);
             any = true;
         }
+        // GloomhavenVR/BoardLit carries its opacity in a scalar of its own rather than in the tint's
+        // alpha channel, deliberately: the alpha CHANNEL of every existing BoardLit material is data
+        // nobody has ever read (the shader threw it away), so driving the fade from it would have
+        // changed the framebuffer alpha of the hands and the local board as a side effect. NOT a
+        // double multiply with the loop above — BoardLit's colour term is alb.rgb, which never sees
+        // _Color.a, so the two writes reach different halves of one fragment.
+        if (m.HasProperty(FadeAlphaId))
+        {
+            _mpb.SetFloat(FadeAlphaId, m.GetFloat(FadeAlphaId) * alpha);
+            any = true;
+        }
         if (any)
             r.SetPropertyBlock(_mpb);
     }
@@ -1006,14 +1191,10 @@ internal sealed class PeerBoardFade : MonoBehaviour
         if (_engaged)
             return;
         _engaged = true;
-        if (_group == null)
-        {
-            // One group on the ROOT: its alpha multiplies down through every nested canvas, so the
-            // mirrors' own CanvasGroups (driven from their source widgets) are never written to.
-            _group = gameObject.GetComponent<CanvasGroup>();
-            if (_group == null)
-                _group = gameObject.AddComponent<CanvasGroup>();
-        }
+        // One group on the ROOT (and one per follower root): its alpha multiplies down through
+        // every nested canvas, so the mirrors' own CanvasGroups (driven from their source widgets)
+        // are never written to.
+        EnsureGroups();
         for (int i = 0; i < _surfaces.Count; i++)
         {
             Surface s = _surfaces[i];
@@ -1041,8 +1222,15 @@ internal sealed class PeerBoardFade : MonoBehaviour
                     r.forceRenderingOff = false;
             }
         }
-        if (_group != null)
-            _group.alpha = 1f;
+        // Every carrier, not just the board's: a follower left at 0.25 while the board went solid
+        // would be the same defect this feature is fixing, in the other direction. _group is
+        // _groups[0] whenever either is set, so there is nothing else to release.
+        for (int i = 0; i < _groups.Count; i++)
+        {
+            CanvasGroup g = _groups[i];
+            if (g != null)
+                g.alpha = 1f;
+        }
     }
 
     /// <summary>Install private, alpha-capable clones of the materials on an unblendable
@@ -1102,19 +1290,71 @@ internal sealed class PeerBoardFade : MonoBehaviour
     }
 
     /// <summary>
-    /// A private clone of <paramref name="m"/> that can actually blend. The knob recipe first
-    /// (a Standard/URP-shaped material only needs its surface mode flipped), and a SHADER SWAP
-    /// when the shader has no blend state at all — which is the case that matters, because
-    /// <c>GloomhavenVR/BoardLit</c> (the board slab, every keycap, the handle bars, the status
-    /// plates) exposes none of the knobs and would silently ignore every alpha we ever wrote.
-    /// Returns the input unchanged when no alpha-capable shader exists in the process.
+    /// A private clone of <paramref name="m"/> that actually blends. Two recipes, and which one
+    /// runs is now the difference between a fade the user calls an animation and one he calls a
+    /// plop — see <see cref="Deliver"/> for the classification and the note below for why.
+    /// Returns the input unchanged when no alpha-capable shader exists in the process at all.
+    ///
+    /// <para><b>THE STATE FLIP IS ALWAYS PREFERRED, BECAUSE IT KEEPS THE SHADER.</b> A clone that
+    /// keeps <c>GloomhavenVR/BoardLit</c> keeps its baked studio lighting, its opt-in specular and
+    /// its <c>Cull [_Cull]</c>, so nothing about how the surface READS changes when the clone goes
+    /// on or comes off — only its opacity moves, which is the entire point. A clone on a different
+    /// shader cannot: every alpha-capable shader in reach is UNLIT, so installing one steps the
+    /// slab from <c>alb * (_Ambient + key + fill)</c> to flat <c>alb</c> in a single frame. With
+    /// the shipped board material (<c>_Ambient</c> 0.5, <c>_LightBoost</c> 0.85, <c>_SpecStrength</c>
+    /// 0.85) that factor is about x1.27 on the board's readable FRONT and x0.5 on its BACK plate,
+    /// plus the whole specular lobe appearing or vanishing. On the way OUT that step lands at alpha
+    /// ~1 and is instantly buried under 0.36 s of fading; on the way IN it is the LAST event of the
+    /// transition with nothing after it. That asymmetry is the reported defect — "beim Transparent
+    /// machen faded es in ner Animation aus, anders rum aber nicht, da ploppt das board ploetzlich
+    /// auf" — and the state flip is the only thing that removes it rather than moving it.</para>
+    ///
+    /// <para><b>WHICH RECIPE BOARDLIT TAKES IS DECIDED BY THE BUNDLE THAT IS LOADED, NOT BY A
+    /// CONFIG KEY.</b> A bundle baked at ModBuild 351 or later ships a BoardLit with
+    /// <c>_SrcBlend</c>/<c>_DstBlend</c>/<c>_ZWrite</c>/<c>_FadeAlpha</c> (all defaulted so an
+    /// un-flipped material is bit-identical), and the slab family takes the state flip. Against the
+    /// bundle shipped at ModBuild 350 those properties do not exist, the family takes the swap, and
+    /// the fade is exactly as good as it was except for the two repairs below — which is what makes
+    /// this a DLL-only drop that is a strict improvement, with the lighting step as the one thing a
+    /// re-bake buys.</para>
+    ///
+    /// <para><b>THE SWAP TARGET CHANGED, AND BOTH HALVES OF THAT MATTER.</b> It was a bare
+    /// <c>Shader.Find("Sprites/Default")</c>; it is now <c>GloomhavenVR/Overlay</c> through
+    /// <see cref="BundleShaders"/>, with <c>Sprites/Default</c> kept only as the last resort.
+    /// <list type="bullet">
+    /// <item>RESOLUTION. <c>Shader.Find</c> only sees shaders something has already LOADED
+    ///   (Core/BundleShaders.cs, a trap that has cost this project two builds). When it returned
+    ///   null the clone was never installed, the renderer stayed classified unblendable, and
+    ///   <see cref="Apply"/> put it on the <c>alpha &lt; 0.5</c> CULL fail-safe instead — which on a
+    ///   fade-IN means that family stays hidden for 83 ms after the rest of the board is already
+    ///   back, i.e. one board arriving in two instalments. <c>BundleShaders</c> loads the asset out
+    ///   of the open bundle by path, so it does not depend on anything else having asked first.</item>
+    /// <item>CULLING. <c>Sprites/Default</c> is <c>Cull Off</c> and <c>ZWrite Off</c>, hard-coded.
+    ///   Every board material also ships <c>_Cull = 0</c> (<c>BuildBoard.cs:218</c>, a leftover from
+    ///   the pre-rebuild AI shells — the current mesh is watertight, 0 inward-wound faces, and
+    ///   <c>PreviewBoard.CullBackCheck</c> measured Cull Back vs Cull Off at 84 / 5 / 6 differing
+    ///   pixels out of 840,000). On an OPAQUE board that is invisible, because the near face wins
+    ///   the depth test. On a FADING one it is the whole of user item 4b: with no back-face culling
+    ///   and no depth write, the board's own interior and its back plate composite through the front
+    ///   for the entire ramp — "wenn man reinschaut muss man nicht das innere sehen koennen" — and
+    ///   they stop doing so on the single frame the clone comes off, which is the second, later
+    ///   event the user saw ("und die Rueckseite des boards etwas verzoegert"). Both recipes now
+    ///   force <see cref="ForceSingleSided"/>, so the interior is never drawn in any state and there
+    ///   is no back-face event left to lag.</item>
+    /// </list></para>
     /// </summary>
     private static Material MakeTransparentClone(Material m)
     {
-        if (!CanBlend(m))
+        if (Deliver(m) == Delivery.SwapShader)
         {
-            Shader? target = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default")
-                             ?? Shader.Find("Unlit/Transparent");
+            Shader? target = BundleShaders.Resolve(
+                "GloomhavenVR/Overlay", "Net",
+                "the peer-board see-through can fade an opaque board surface on a SINGLE-SIDED, "
+                + "depth-tested, alpha-blended clone",
+                "the peer-board see-through falls back to the built-in Sprites/Default, which is "
+                + "Cull Off — so a fading board shows its own interior — and resolves only if "
+                + "something else in the process has already loaded it");
+            target ??= Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
             if (target == null)
                 return m;
             // Read the look BEFORE the swap — property ids resolve against the current shader.
@@ -1131,6 +1371,24 @@ internal sealed class PeerBoardFade : MonoBehaviour
             var swapped = new Material(target) { name = m.name + CloneMarker, color = tint };
             if (tex != null)
                 swapped.mainTexture = tex;
+            // GloomhavenVR/Overlay ships two-sided, depth-less and additive-capable because its
+            // other callers are HUD plates and figure glows. A faded board slab is none of those:
+            // it is ordinary geometry that has to keep looking like geometry.
+            if (swapped.HasProperty(ZTestId))
+                swapped.SetInt(ZTestId, (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+            if (swapped.HasProperty(SrcBlendId))
+                swapped.SetInt(SrcBlendId, (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (swapped.HasProperty(DstBlendId))
+                swapped.SetInt(DstBlendId, (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (swapped.HasProperty(ZWriteId))
+                swapped.SetInt(ZWriteId, 0);
+            // The board mesh is not authored FOR this shader, so its colour stream — whatever the
+            // FBX happens to carry — must not multiply into the tint. Overlay's own doc states the
+            // failure mode: a mesh that bakes a mask into its vertex colours multiplies the clone
+            // to nothing and paints no pixels at all.
+            if (swapped.HasProperty(VertexColorId))
+                swapped.SetFloat(VertexColorId, 0f);
+            ForceSingleSided(swapped);
             swapped.renderQueue = SwapRenderQueue;
             return swapped;
         }
@@ -1150,32 +1408,104 @@ internal sealed class PeerBoardFade : MonoBehaviour
         clone.DisableKeyword("_ALPHAPREMULTIPLY_ON");
         clone.EnableKeyword("_ALPHABLEND_ON");
         clone.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        ForceSingleSided(clone);
         if (clone.renderQueue < SwapRenderQueue)
             clone.renderQueue = SwapRenderQueue;
         return clone;
     }
 
-    /// <summary>Can this material's shader blend at all? A shader that exposes neither the
-    /// Standard/URP surface-mode switch nor the raw blend factors has its blending HARD-CODED
-    /// (opaque, in every case this mod ships), so no property write will ever fade it —
-    /// the measured root cause behind <c>HandGhost.MakeTransparent</c>. A material already in
-    /// the transparent queue is taken at its word.</summary>
-    private static bool CanBlend(Material m) =>
-        m.renderQueue > 2500
-        || m.HasProperty(ModeId) || m.HasProperty(SurfaceId)
-        || (m.HasProperty(SrcBlendId) && m.HasProperty(DstBlendId));
-
-    private static bool CanBlendAll(Material[] materials)
+    /// <summary>
+    /// USER ITEM 4b, and it is one line because the board's geometry was never the problem.
+    /// "Die boards benoetigen keine backfaces (wenn man reinschaut muss man nicht das innere sehen
+    /// koennen)."
+    ///
+    /// <para>The board mesh is a watertight, outward-wound solid with a real exterior back plate —
+    /// measured, not assumed: <c>gen_winding.py</c> reports 0 inward-wound faces and positive signed
+    /// volume on all three styles, and <c>BOARD-CONTRACT.md</c> requires 0 hole loops and 0
+    /// non-manifold edges. So no mesh change and no culling change is needed for the board as it is
+    /// DRAWN. What reveals the interior is that the material says <c>_Cull = 0</c> — vestigial,
+    /// inherited from the pre-rebuild photogrammetry shells that really did have holes — and that a
+    /// transparent surface has no depth test to hide the far side behind the near one. Forcing Back
+    /// on the CLONE fixes exactly the state in which it is visible and touches no shared asset, no
+    /// bundle input and nothing the local board draws.</para>
+    ///
+    /// <para>Only <c>Off</c> is corrected. A clone whose original already culls Front is a
+    /// deliberate inside-out surface and stays one.</para>
+    /// </summary>
+    private static void ForceSingleSided(Material clone)
     {
-        if (materials.Length == 0)
-            return true;
+        if (!clone.HasProperty(CullId))
+            return;
+        if (Mathf.Approximately(clone.GetFloat(CullId), (float)UnityEngine.Rendering.CullMode.Off))
+            clone.SetFloat(CullId, (float)UnityEngine.Rendering.CullMode.Back);
+    }
+
+    /// <summary>How one material's alpha has to be delivered.</summary>
+    private enum Delivery
+    {
+        /// <summary>It ALREADY blends as authored — a property-block alpha reaches the screen and
+        /// nothing has to be cloned.</summary>
+        Blends,
+        /// <summary>Its shader CAN blend but this material is configured opaque: clone it and flip
+        /// the blend state, keeping the shader and therefore the lighting and the cull mode.</summary>
+        FlipState,
+        /// <summary>Its shader cannot blend at all (no blend state in the pass): the material has
+        /// to be cloned onto a different, alpha-capable shader.</summary>
+        SwapShader,
+    }
+
+    /// <summary>
+    /// How <paramref name="m"/>'s alpha must be delivered.
+    ///
+    /// <para>THE FIRST TERM IS THE CONFIGURED STATE, NOT THE EXPOSED KNOBS, AND THAT IS THE
+    /// CORRECTION (ModBuild 351). This used to be one boolean, <c>CanBlend</c>, that answered
+    /// "does the shader expose a blend switch?" and treated YES as "this material blends". Those
+    /// are different questions — the project's own "a capability test is not a policy" — and the
+    /// gap between them is not academic: a Standard material sitting in <c>_Mode = Opaque</c>
+    /// exposes <c>_Mode</c>, <c>_SrcBlend</c>, <c>_DstBlend</c> and <c>_ZWrite</c>, was therefore
+    /// classified as blendable, was never cloned, and had a property-block alpha written into it
+    /// every frame that its opaque blend state discarded. Such a surface did not fade at all, in
+    /// either direction, and nothing in the log said so.</para>
+    ///
+    /// <para>IT ALSO HAD TO CHANGE BEFORE THE SHADER DID. <c>GloomhavenVR/BoardLit</c> now exposes
+    /// <c>_SrcBlend</c>/<c>_DstBlend</c> (defaulted to <c>One</c>/<c>Zero</c>, i.e. opaque). Under
+    /// the old test that alone would have re-classified every board slab, keycap and handle bar as
+    /// "blendable", stopped the clone from being installed, and left the whole see-through
+    /// delivering nothing but a discarded alpha write — a shader improvement that silently
+    /// switches the feature off. The transparent QUEUE is the one signal that says what a material
+    /// actually does rather than what its shader could be made to do.</para>
+    /// </summary>
+    private static Delivery Deliver(Material m)
+    {
+        if (m.renderQueue > 2500)
+            return Delivery.Blends;
+        if (m.HasProperty(ModeId) || m.HasProperty(SurfaceId)
+            || (m.HasProperty(SrcBlendId) && m.HasProperty(DstBlendId)))
+            return Delivery.FlipState;
+        return Delivery.SwapShader;
+    }
+
+    /// <summary>Does a property-block alpha reach the screen on this material as it stands?</summary>
+    private static bool CanBlend(Material m) => Deliver(m) == Delivery.Blends;
+
+    private static bool CanBlendAll(Material[] materials) =>
+        HeaviestDelivery(materials) == Delivery.Blends;
+
+    /// <summary>The most work any one material on this renderer needs. A renderer is treated as a
+    /// unit because <c>sharedMaterials</c> is swapped as a unit.</summary>
+    private static Delivery HeaviestDelivery(Material[] materials)
+    {
+        Delivery worst = Delivery.Blends;
         for (int i = 0; i < materials.Length; i++)
         {
             Material m = materials[i];
-            if (m != null && !CanBlend(m))
-                return false;
+            if (m == null)
+                continue;
+            Delivery d = Deliver(m);
+            if (d > worst)
+                worst = d;
         }
-        return true;
+        return worst;
     }
 
     // ------------------------------------------------------------------------ diagnostics ------
@@ -1220,25 +1550,51 @@ internal sealed class PeerBoardFade : MonoBehaviour
             $"{_surfaces.Count} surface(s) driven.");
     }
 
-    /// <summary>One line per real change of the surface census: how many renderers this board
-    /// offers and how many of them needed a material swap because their shader cannot blend. A
-    /// swap count of 0 on a board that is visibly still solid is the reading that says the swap
-    /// path failed, not the decision.</summary>
+    /// <summary>
+    /// One line per real change of the surface census: how many renderers this board offers, how
+    /// they split across the three delivery recipes, and how many FOLLOWER roots (the floating
+    /// item / burned / discard fans) are being faded with it.
+    ///
+    /// <para>THIS IS THE LINE THE NEXT HARDWARE ROUND HAS TO ANSWER TWO QUESTIONS FROM, which is
+    /// why it is <c>Note</c> and not <c>Info</c> — a co-player runs at the shipped default level,
+    /// and an Info line there is not printed at all:</para>
+    /// <list type="bullet">
+    /// <item>"lit-clone" vs "unlit-swap" says whether the running BUNDLE carries the ModBuild 351
+    ///   BoardLit. lit-clone means the slab keeps its shader across the whole ramp and the fade-in
+    ///   cannot step in brightness. unlit-swap means the bundle is the ModBuild 350 one and the
+    ///   x1.27-on-the-front / x0.5-on-the-back lighting step at the end of the fade-in is still
+    ///   there — i.e. "the board still plops" is EXPECTED and is a re-bake, not a code round.</item>
+    /// <item>A follower count of 0 on a peer whose item fan is visibly still solid says the
+    ///   registration never happened, not that the fade failed.</item>
+    /// </list>
+    /// </summary>
     private void LogCensusIfChanged()
     {
-        int swapped = 0;
+        int blends = 0, flip = 0, swap = 0;
         for (int i = 0; i < _surfaces.Count; i++)
         {
-            if (!_surfaces[i].Blendable)
-                swapped++;
+            switch (_surfaces[i].Kind)
+            {
+                case Delivery.Blends: blends++; break;
+                case Delivery.FlipState: flip++; break;
+                default: swap++; break;
+            }
         }
-        int signature = _surfaces.Count * 397 + swapped;
+        int signature = ((_surfaces.Count * 397 + flip) * 397 + swap) * 397 + _followers.Count;
         if (signature == _loggedSurfaces)
             return;
         _loggedSurfaces = signature;
-        VRLog.Info("Net", $"Peer board [{_playerId}] see-through census: {_surfaces.Count} renderer(s), " +
-            $"{swapped} of them on a shader that cannot blend (GloomhavenVR/BoardLit and friends) " +
-            "and therefore delivered through a private material clone while faded; the rest take a " +
-            "property-block alpha and every UI graphic rides one CanvasGroup on the board root.");
+        // HW-VERIFY
+        VRLog.Note("Net", $"Peer board [{_playerId}] see-through census: {_surfaces.Count} renderer(s) " +
+            $"— {blends} already blend (property-block alpha, nothing cloned), {flip} take a " +
+            "LIT-CLONE (their own shader kept, blend state flipped, so the surface reads the same " +
+            $"at every point of the ramp), {swap} take an UNLIT-SWAP onto GloomhavenVR/Overlay " +
+            "(their shader has no blend state at all, so the clone loses the baked lighting and " +
+            "the fade-in still ends on a one-frame brightness step — that is a BUNDLE age, not a " +
+            "decision: a bundle baked at ModBuild 351+ moves the board slab family from unlit-swap " +
+            $"to lit-clone). Every clone is forced single-sided, so a fading board never shows its " +
+            $"interior. {_followers.Count} follower root(s) (the floating item/burned/discard fans) " +
+            "fade with this board off the same alpha; every UI graphic rides one CanvasGroup per " +
+            "root.");
     }
 }

@@ -44,6 +44,14 @@ namespace GloomhavenVR.Hands;
 /// does not — a shader with hard-coded opaque blending cannot be faded by writing properties (root
 /// cause recorded there). The engage log names the shaders actually found, so an unexpected one is
 /// diagnosable from a hardware log instead of guesswork.
+///
+/// DEPTH: a ghosted hand is alpha-blended, and every recipe <see cref="MakeTransparent"/> can put on
+/// it has <c>ZWrite</c> off — so unlike the opaque hand it stamps NO silhouette into the depth
+/// buffer, and a world-space uGUI panel drawn after it (which every converted panel is, by
+/// sortingOrder) paints straight over the fingers. A second, colour-free BACK-FACE pass restores
+/// that silhouette without touching a single pixel the ghost draws; the full root cause, the
+/// screenshot measurement behind it and why it is back faces are on
+/// <see cref="GhostDepthQueue"/>.
 /// </summary>
 internal sealed class HandGhost
 {
@@ -53,6 +61,8 @@ internal sealed class HandGhost
     private static readonly int SrcBlendId = Shader.PropertyToID("_SrcBlend");
     private static readonly int DstBlendId = Shader.PropertyToID("_DstBlend");
     private static readonly int ZWriteId = Shader.PropertyToID("_ZWrite");
+    private static readonly int ZTestId = Shader.PropertyToID("_ZTest");
+    private static readonly int CullId = Shader.PropertyToID("_Cull");
 
     /// <summary>
     /// Render queue of every ghost material — deliberately ABOVE the transparent default (3000),
@@ -72,6 +82,53 @@ internal sealed class HandGhost
     /// at every angle. 3100 keeps the ghost well under the board-widget tiers (4003+).</para>
     /// </summary>
     private const int GhostRenderQueue = 3100;
+
+    /// <summary>
+    /// Render queue of the ghost's DEPTH PREPASS — one step BEFORE the visible ghost pass, so a
+    /// renderer wearing both draws the depth stamp first.
+    ///
+    /// <para>ROOT CAUSE IT FIXES (user hardware report, ModBuild 348: "Die Geisterhand respektiert
+    /// die Perspektive nicht zusammen mit dem Entscheidungstext. Dieser ist dann im Vordergrund.
+    /// Das ist nur der Fall mit der Geisterhand, nicht mit der normalen."). The whole lead is in
+    /// that last sentence, and the answer is the one thing the ghost takes away from the hand:
+    /// ITS DEPTH. <see cref="MakeTransparent"/> flips the clone into an alpha-blended recipe with
+    /// <c>ZWrite 0</c>, and the fallback shaders it re-shaders to (<c>Sprites/Default</c>,
+    /// <c>UI/Default</c>, <c>Unlit/Transparent</c>) all bake <c>ZWrite Off</c> anyway. A ghosted
+    /// hand therefore contributes NOTHING to the depth buffer.</para>
+    ///
+    /// <para>The take-damage decision panel is a converted world-space uGUI canvas. Unity's UI
+    /// shader family declares <c>ZTest [unity_GUIZTestMode]</c>, which on a world-space canvas
+    /// resolves to LEqual (see <c>WorldUI.OnTopUiGraphics</c>, which exists to override exactly
+    /// that for the ONE popup that needs it — the decision panel is NOT in its list, and the
+    /// hardware log's ON-TOP UI lines name only the initiative hover popup). And every converted
+    /// panel rides the ladder at <c>CanvasConversion.PanelOrderBase</c> (100) or above, while a
+    /// hand renderer sits at <c>sortingOrder</c> 0 — and Unity resolves transparents by
+    /// sortingLayer → sortingOrder → renderQueue → distance, so the panel ALWAYS draws after the
+    /// ghost whatever queue the ghost is on. With no depth to reject it, the panel paints over the
+    /// hand. The NORMAL hand is opaque, draws in the geometry queue and writes depth, so the same
+    /// panel is z-rejected over the hand's silhouette — the exact difference the user reports.</para>
+    ///
+    /// <para>IT IS ALPHA COMPOSITING, NOT A LOST SURFACE, and the screenshot proves it: sampled
+    /// across geisterhand-perspektive.jpg the ghost hand adds ~52 luma counts where it is
+    /// unoccluded and still ~10 counts THROUGH the button bar, i.e. ~19 % of it survives under a
+    /// translucent panel. The hand is painted over, not culled — which is why the fix is to give
+    /// the panel something to fail its ZTest against rather than to re-order anything.</para>
+    ///
+    /// <para>WHY A SEPARATE PASS INSTEAD OF JUST TURNING ZWrite BACK ON. An alpha-blended surface
+    /// with ZWrite on self-occludes in triangle order, which for a hand mesh means fingers can
+    /// randomly block the palm behind them. The prepass writes depth with NO colour
+    /// (<c>Blend Zero One</c>) and renders BACK FACES ONLY (<c>_Cull Front</c>): the visible ghost
+    /// pass is left byte-for-byte as it ships — same shader, same premultiplied blend, same
+    /// front+back double layer — so the hand-tuned <c>[Hands] GhostHandStrength</c> still means
+    /// exactly what it meant before. The depth that lands in the buffer is the hand's FAR shell,
+    /// which is nearer than any board-docked panel and farther than anything the player is holding,
+    /// so it rejects the panel without touching the layering the ghost exists to preserve.</para>
+    ///
+    /// <para>3099 keeps the stamp after the card faces (~3000, sortingOrder 0) — those have already
+    /// rasterised, so the cards the ghost exists to reveal are unaffected — and one step under the
+    /// visible ghost pass.</para>
+    /// </summary>
+    private const int GhostDepthQueue = 3099;
 
     /// <summary>Colour properties probed in order — first one the shader has carries the alpha.</summary>
     private static readonly int[] ColorIds =
@@ -203,6 +260,7 @@ internal sealed class HandGhost
 
         var shaders = new HashSet<string>();
         int tinted = 0;
+        int depthArmed = 0;
         for (int i = 0; i < _renderers.Length; i++)
         {
             Renderer r = _renderers[i];
@@ -231,15 +289,36 @@ internal sealed class HandGhost
                 clones[m] = clone;
             }
 
-            _ghosts[i] = clones;
-            r.sharedMaterials = clones;
+            // DEPTH PREPASS (see GhostDepthQueue): one extra, colour-free material on the SAME
+            // renderer that stamps the hand's far shell into the depth buffer, so a later-drawn
+            // ZTest-LEqual world-space panel is rejected over the hand exactly as it is over the
+            // opaque hand. Only for a single-material renderer: with more than one submesh Unity
+            // applies a surplus material to the LAST submesh only, which would stamp a partial
+            // silhouette — worse than none, because a half-covered hand reads as a glitch.
+            Material[] assigned = clones;
+            if (clones.Length == 1 && clones[0] != null)
+            {
+                Material? depth = MakeDepthPrepass();
+                if (depth != null)
+                {
+                    assigned = new[] { clones[0], depth };
+                    depthArmed++;
+                }
+            }
+
+            _ghosts[i] = assigned;
+            r.sharedMaterials = assigned;
             r.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
         }
 
         _appliedAlpha = alpha;
+        ReportDepthPrepassOnce(depthArmed, _renderers.Length);
         VRLog.Info("Hands", $"Ghost hand ON ({_label}) — alpha {alpha:0.00} " +
                             $"(strength {(1f - alpha) * 100f:0}%), {_renderers.Length} renderer(s) " +
-                            $"cloned onto private materials, {tinted} material(s) tinted; " +
+                            $"cloned onto private materials, {tinted} material(s) tinted, " +
+                            $"{depthArmed}/{_renderers.Length} carrying the back-face DEPTH PREPASS " +
+                            "(without it a world-space panel drawn after the ghost has no depth to " +
+                            "fail against and paints over the hand); " +
                             $"shaders: {(shaders.Count > 0 ? string.Join(", ", shaders) : "none")}" +
                             (s_swappedShader
                                 ? " — at least one had NO blend state (hard-coded opaque) and its CLONE was " +
@@ -263,6 +342,111 @@ internal sealed class HandGhost
             }
         }
         _appliedAlpha = alpha;
+    }
+
+    // ---- depth prepass ------------------------------------------------------------------------
+
+    /// <summary>One-shot session report per OUTCOME (see <see cref="ReportDepthPrepassOnce"/>).
+    /// Two flags, not one: the bundle loads asynchronously, so the very first ghost of a session can
+    /// legitimately find no shader, and a single latch would freeze the log on that "not armed"
+    /// verdict for the whole run — a held instrument reading as dead.</summary>
+    private static bool s_depthArmedReported;
+    private static bool s_depthMissingReported;
+
+    /// <summary>
+    /// The one shader in reach that lets a material be told to WRITE DEPTH: the bundled
+    /// <c>GloomhavenVR/Overlay</c> exposes <c>_ZWrite</c>, <c>_ZTest</c>, <c>_Cull</c> and the two
+    /// blend factors as real properties, which is precisely why it was written (its own header
+    /// records the three rounds lost to <c>Sprites/Default</c>/<c>Standard</c> baking those states
+    /// in). Resolved through <see cref="Core.BundleShaders"/>, never a bare <c>Shader.Find</c> — a
+    /// bundled shader is not discoverable by name until something loads it, a trap this project has
+    /// paid for twice.
+    ///
+    /// <para>Asked EVERY time rather than latched: the bundle loads asynchronously, so a miss on the
+    /// first ghost of a session is a normal timing answer and not a verdict.
+    /// <see cref="Core.BundleShaders"/> caches SUCCESSES only and logs its miss once, so re-asking
+    /// is a dictionary hit once the bundle is up and silent before that.</para>
+    /// </summary>
+    private static Shader? DepthPrepassShader()
+    {
+        return Core.BundleShaders.Resolve(
+            "GloomhavenVR/Overlay", "Hands",
+            "the ghost hand gets a colour-free back-face depth prepass, so a world-space panel "
+            + "drawn after it (the take-damage decision text) is z-rejected over the hand instead "
+            + "of painting over it.",
+            "The ghost hand cannot write depth at all and a world-space panel keeps painting over "
+            + "it — the ModBuild 348 'Geisterhand respektiert die Perspektive nicht' report.");
+    }
+
+    /// <summary>
+    /// A material that draws NOTHING and writes DEPTH: <c>Blend Zero One</c> (the destination is
+    /// returned unchanged, so the colour buffer cannot tell this pass ran), <c>ZWrite 1</c>,
+    /// <c>ZTest LEqual</c> and <c>_Cull Front</c> — back faces only, so the depth that lands is the
+    /// hand's FAR shell and the visible ghost pass, which still has <c>ZWrite</c> off and tests
+    /// LEqual, is completely unaffected by it. See <see cref="GhostDepthQueue"/> for why that
+    /// choice is what keeps the shipped look identical.
+    ///
+    /// <para>Owned exactly like every other clone here: <c>HideAndDontSave</c>, stored in
+    /// <c>_ghosts</c> and destroyed by <see cref="Release"/> with the rest.</para>
+    /// </summary>
+    private static Material? MakeDepthPrepass()
+    {
+        Shader? s = DepthPrepassShader();
+        if (s == null)
+            return null;
+        var m = new Material(s)
+        {
+            name = "GloomhavenVR ghost hand (depth prepass)",
+            hideFlags = HideFlags.HideAndDontSave,
+        };
+        if (m.HasProperty(SrcBlendId))
+            m.SetInt(SrcBlendId, (int)UnityEngine.Rendering.BlendMode.Zero);
+        if (m.HasProperty(DstBlendId))
+            m.SetInt(DstBlendId, (int)UnityEngine.Rendering.BlendMode.One);
+        if (m.HasProperty(ZWriteId))
+            m.SetInt(ZWriteId, 1);
+        if (m.HasProperty(ZTestId))
+            m.SetInt(ZTestId, (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+        if (m.HasProperty(CullId))
+            m.SetInt(CullId, (int)UnityEngine.Rendering.CullMode.Front);
+        m.renderQueue = GhostDepthQueue;
+        return m;
+    }
+
+    /// <summary>
+    /// Say ONCE per session whether the prepass is actually on the hand — the single fact the next
+    /// hardware test has to answer for the "Entscheidungstext im Vordergrund" report. Printed at the
+    /// shipped default level deliberately: the engage line beside it is DEBUG, and a co-player
+    /// running at INFO would otherwise send back a log that answers nothing.
+    /// </summary>
+    private static void ReportDepthPrepassOnce(int armed, int renderers)
+    {
+        if (armed > 0 ? s_depthArmedReported : s_depthMissingReported)
+            return;
+        if (armed > 0)
+            s_depthArmedReported = true;
+        else
+            s_depthMissingReported = true;
+        // HW-VERIFY
+        VRLog.Note("Hands", armed > 0
+            ? $"GHOST HAND DEPTH: prepass armed on {armed} of {renderers} ghosted renderer(s) — a "
+              + "colour-free back-face pass at renderQueue " + GhostDepthQueue + " on the bundled "
+              + "'GloomhavenVR/Overlay' shader (Blend Zero One, ZWrite 1, ZTest LEqual, Cull Front). "
+              + "The ghost hand now stamps a depth silhouette again, so the take-damage decision "
+              + "panel — a world-space uGUI canvas at ZTest LEqual and sortingOrder >= 100, i.e. "
+              + "always drawn AFTER the hand — is rejected over the hand instead of painting over "
+              + "it. THE TEST: open the fan, trigger the damage prompt, and hold the ghosted hand "
+              + "between the eye and the decision buttons; the hand must cover them exactly as the "
+              + "normal hand does. The ghost's own look must be UNCHANGED (same strength, fingers "
+              + "still layering over each other) — the prepass writes no colour."
+            : $"GHOST HAND DEPTH: prepass NOT armed ({armed} of {renderers} ghosted renderer(s)) — "
+              + (renderers == 0
+                  ? "no renderer was ghosted at all, so this line says nothing about the shader."
+                  : "either 'GloomhavenVR/Overlay' did not resolve (see the BUNDLED SHADER line "
+                    + "above) or every ghosted renderer carries more than one material, which "
+                    + "cannot take a surplus pass without stamping a partial silhouette. ")
+              + "The ghost hand writes no depth, so a world-space panel drawn after it will keep "
+              + "painting over it — the ModBuild 348 report is expected to REPRODUCE.");
     }
 
     // ---- helpers ----------------------------------------------------------------------------

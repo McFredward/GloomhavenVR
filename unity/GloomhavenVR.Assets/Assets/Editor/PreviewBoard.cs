@@ -370,6 +370,7 @@ namespace GloomhavenVR
 
             StereoSpecular(cam, inst, style);
             CullBackCheck(cam, inst, style, outDir);
+            FadeRecipeCheck(cam, inst, style, outDir);
 
             Object.DestroyImmediate(inst);
             Object.DestroyImmediate(camGo);
@@ -609,6 +610,130 @@ namespace GloomhavenVR
                       + $"840000 differ ({worstInterior} not against the background), max channel delta "
                       + $"{worstMax:F3}. See {style}_*_culldiff.png for WHERE — closure itself is "
                       + "gen_stats.py's and gen_winding.py's question, not this one's.");
+        }
+
+        /// <summary>
+        /// WHAT DOES THE BOARD LOOK LIKE ON THE FRAME THE FADE HANDS IT BACK? — the measurement
+        /// behind user item 4a ("beim Transparent machen der boards faded es in ner Animation aus,
+        /// anders rum aber nicht, da ploppt das board ploetzlich auf").
+        ///
+        /// <para>THE CLAIM UNDER TEST. Net/Board/PeerBoardFade.cs cannot fade an opaque board by
+        /// writing alpha at it, so it installs a private CLONE for the duration of the ramp and puts
+        /// the original back at the end. That swap-back happens at alpha ~1, i.e. on a fully opaque
+        /// board — so whatever the clone does NOT reproduce about the shipped material arrives as a
+        /// single-frame step, and on a fade-IN it is the last event of the transition with nothing
+        /// after it to hide it. The claim is that the step is the BAKED LIGHTING, and that a clone
+        /// which keeps the shader has no step at all.</para>
+        ///
+        /// <para>THREE RENDERS AT FULL OPACITY, because alpha 1 is exactly where the swap lands:
+        /// (A) the board as shipped; (B) the UNLIT-SWAP clone, i.e. what the fade installs against a
+        /// bundle without BoardLit's blend state — GloomhavenVR/Overlay carrying _MainTex and the
+        /// tint, which is unlit by construction; (C) the LIT-CLONE, i.e. BoardLit itself with its
+        /// ModBuild 351 blend state flipped on and _FadeAlpha at 1. B and C are each diffed against
+        /// A over board pixels. C ≈ A is the whole point — a clone that is pixel-identical to the
+        /// shipped material at alpha 1 cannot produce a visible event when it is installed or
+        /// removed. B's number is the size of the step the user is reporting.</para>
+        ///
+        /// <para>THIS MEASURES ONE TERM AND SAYS SO: it is a MONO, still, alpha-1 comparison of two
+        /// materials on the same mesh under the same camera. It cannot say how a moving ramp reads
+        /// in a headset, and it is not evidence that the fade-in is now smooth — only that the one
+        /// discontinuity this file can see is gone from recipe C and present in recipe B.</para>
+        /// </summary>
+        private static void FadeRecipeCheck(Camera cam, GameObject inst, string style, string outDir)
+        {
+            var rends = inst.GetComponentsInChildren<MeshRenderer>(true);
+            if (rends.Length == 0 || rends[0].sharedMaterial == null) return;
+            Material live = rends[0].sharedMaterial;
+
+            // (C) THE LIT CLONE — PeerBoardFade.MakeTransparentClone's FlipState recipe, term for
+            // term. At _FadeAlpha 1 with SrcAlpha/OneMinusSrcAlpha this must composite to exactly
+            // what Blend One Zero produced, which is what makes the render a real check on the
+            // shader change rather than on my description of it.
+            var lit = new Material(live) { name = live.name + "_litclone" };
+            if (lit.HasProperty("_SrcBlend")) lit.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (lit.HasProperty("_DstBlend")) lit.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (lit.HasProperty("_ZWrite")) lit.SetInt("_ZWrite", 0);
+            if (lit.HasProperty("_Cull")) lit.SetFloat("_Cull", 2f);
+            lit.renderQueue = 3000;
+            bool litIsReal = live.HasProperty("_FadeAlpha");
+
+            // (B) THE UNLIT SWAP — the SwapShader recipe: a different shader carrying _MainTex and
+            // the tint across, and nothing else.
+            Shader overlay = Shader.Find("GloomhavenVR/Overlay") ?? Shader.Find("Sprites/Default");
+            Material unlit = null;
+            if (overlay != null)
+            {
+                unlit = new Material(overlay) { name = live.name + "_unlitswap" };
+                unlit.color = live.HasProperty("_Color") ? live.GetColor("_Color") : Color.white;
+                if (live.HasProperty("_MainTex")) unlit.mainTexture = live.GetTexture("_MainTex");
+                if (unlit.HasProperty("_ZTest")) unlit.SetInt("_ZTest", (int)UnityEngine.Rendering.CompareFunction.LessEqual);
+                if (unlit.HasProperty("_SrcBlend")) unlit.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+                if (unlit.HasProperty("_DstBlend")) unlit.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+                if (unlit.HasProperty("_ZWrite")) unlit.SetInt("_ZWrite", 0);
+                if (unlit.HasProperty("_VertexColor")) unlit.SetFloat("_VertexColor", 0f);
+                if (unlit.HasProperty("_Cull")) unlit.SetFloat("_Cull", 2f);
+                unlit.renderQueue = 3000;
+            }
+
+            var eye = new Vector3(0.10f, 0.16f, -0.62f);
+            var look = new Vector3(0f, 0f, 0f);
+            const int W = 1000, H = 600;
+
+            Texture2D With(Material m)
+            {
+                foreach (var r in rends) r.sharedMaterial = m;
+                Texture2D t = Capture(cam, eye, look, W, H);
+                foreach (var r in rends) r.sharedMaterial = live;
+                return t;
+            }
+
+            Texture2D a = With(live);
+            Texture2D c = With(lit);
+            Texture2D b = unlit != null ? With(unlit) : null;
+
+            Color[] pa = a.GetPixels();
+            bool Bg(Color p) => Mathf.Max(p.r, Mathf.Max(p.g, p.b)) <= 0.16f;   // clear is 0.08
+
+            // MEAN SIGNED RATIO, not a mean absolute difference. "How far apart are these two
+            // pictures" is the wrong question — the reported symptom is a BRIGHTNESS step, which
+            // has a direction, and a mean absolute difference would report the front getting
+            // brighter and the back getting darker as the same thing.
+            void Report(string tag, Texture2D other, string outFile)
+            {
+                if (other == null) return;
+                Color[] po = other.GetPixels();
+                double sumRatio = 0; int n = 0; float worst = 0f; int moved = 0;
+                for (int i = 0; i < pa.Length; i++)
+                {
+                    if (Bg(pa[i]) && Bg(po[i])) continue;         // both background: not the board
+                    float la = pa[i].grayscale, lo = po[i].grayscale;
+                    float d = Mathf.Max(Mathf.Abs(pa[i].r - po[i].r),
+                              Mathf.Max(Mathf.Abs(pa[i].g - po[i].g), Mathf.Abs(pa[i].b - po[i].b)));
+                    if (d > 0.004f) moved++;
+                    worst = Mathf.Max(worst, d);
+                    if (la > 0.002f) { sumRatio += lo / la; n++; }
+                }
+                double mean = n > 0 ? sumRatio / n : 1.0;
+                Debug.Log($"[BoardPreview]   {style} FADE RECIPE {tag}: {moved} of {pa.Length} board "
+                          + $"pixel(s) differ from the shipped material by >1/255, worst channel delta "
+                          + $"{worst:F3}, mean luminance ratio {mean:F3} (1.000 = the swap is invisible "
+                          + "at alpha 1, i.e. installing or removing this clone cannot produce a "
+                          + "one-frame event).");
+                if (outFile != null && moved > 0)
+                    File.WriteAllBytes(Path.Combine(outDir, outFile), other.EncodeToPNG());
+            }
+
+            Report(litIsReal ? "C lit-clone (BoardLit kept, blend flipped)"
+                             : "C lit-clone — NO _FadeAlpha ON THIS MATERIAL, so this is the OLD "
+                               + "BoardLit and the flip did nothing; treat C as a control, not a result",
+                   c, $"{style}_fade_litclone.png");
+            Report("B unlit-swap (GloomhavenVR/Overlay)", b, $"{style}_fade_unlitswap.png");
+            File.WriteAllBytes(Path.Combine(outDir, $"{style}_fade_shipped.png"), a.EncodeToPNG());
+
+            Object.DestroyImmediate(a); Object.DestroyImmediate(c);
+            if (b != null) Object.DestroyImmediate(b);
+            Object.DestroyImmediate(lit);
+            if (unlit != null) Object.DestroyImmediate(unlit);
         }
 
         private static Texture2D Capture(Camera cam, Vector3 eye, Vector3 look, int w, int h)

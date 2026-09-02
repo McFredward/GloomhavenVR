@@ -907,6 +907,10 @@ internal sealed class RemoteBrowserFan
         _root.hideFlags = HideFlags.HideAndDontSave;
         _root.transform.localScale = Vector3.one;
         _root.SetActive(false);
+        // USER ITEM 7 (2026-09-02) — see RemoteItemFan.EnsureRoot for the reasoning. This root
+        // carries the DISCARD, the BURNT and the item-browse arc, i.e. two of the three fans he
+        // named by name.
+        PeerBoardFade.Follow(_owner.PlayerId, _root.transform);
         VRLayers.Apply(_root);
     }
 

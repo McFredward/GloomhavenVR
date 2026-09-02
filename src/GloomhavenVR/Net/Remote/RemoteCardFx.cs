@@ -348,6 +348,12 @@ internal sealed class RemoteCardFx
         Object.DontDestroyOnLoad(_root);
         _root.hideFlags = HideFlags.HideAndDontSave;
         _root.transform.localScale = Vector3.one;
+        // USER ITEM 7 (2026-09-02), EXTENDED TO THE FLIGHTS — see RemoteItemFan.EnsureRoot. He
+        // named the three open fans, not the cards flying between them; taken anyway because a
+        // card arriving at full opacity on a board that is faded out is the same wrongness he
+        // described, and it is the same one line. If it ever reads as too much, this is the
+        // line to remove and the board and its fans keep working.
+        PeerBoardFade.Follow(_owner.PlayerId, _root.transform);
         VRLayers.Apply(_root);
     }
 

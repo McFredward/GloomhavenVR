@@ -35,6 +35,32 @@ Shader "GloomhavenVR/BoardLit"
         // sided culling turns missing/flipped faces into black voids. Rendering both
         // sides fills those gaps with the shell behind (see HandsBuilder DEFECT 2).
         [Enum(UnityEngine.Rendering.CullMode)] _Cull ("Cull", Float) = 2
+
+        // ---- OPT-IN TRANSPARENCY (ModBuild 351) --------------------------------------
+        // WHY. Net/Board/PeerBoardFade.cs fades a PEER's control board out of the way when
+        // it covers the play field. This shader had no blend state and no alpha output at
+        // all, so "transparent" could not be delivered on it — the fade had to install a
+        // private clone on an UNLIT, two-sided, depth-less shader (Sprites/Default) for the
+        // duration and put the original back at the end. That swap is a one-frame step in
+        // shading (alb * shade -> flat alb, i.e. x0.5..x1.5 depending on facing, plus the
+        // whole specular lobe appearing/vanishing), in culling and in depth. On the way OUT
+        // it lands at alpha ~1 and is immediately buried under 0.36 s of fading; on the way
+        // IN it is the LAST event of the transition with nothing after it — which is the
+        // "das Board ploppt ploetzlich auf" the user reported for the fade-in and did not
+        // report for the fade-out. These three properties let the fade keep THIS shader,
+        // with its lighting, its specular and its _Cull, for the whole ramp.
+        //
+        // ZERO STATE IS BIT-IDENTICAL, not "looks the same" — the same rule _SpecStrength
+        // is held to above. At the defaults the pass is `Blend One Zero` (which is the
+        // no-Blend-statement default), `ZWrite On` (the no-ZWrite-statement default) and
+        // the fragment returns alpha exactly 1.0, so every material in the bundle that does
+        // not opt in — the three boards, both hands, the keycaps, the cards — emits the
+        // same bits it did before this existed. Only a material somebody deliberately
+        // flips (i.e. PeerBoardFade's private clone) ever blends.
+        _FadeAlpha ("Fade alpha", Range(0,1)) = 1
+        [Enum(UnityEngine.Rendering.BlendMode)] _SrcBlend ("Src Blend", Float) = 1  // One
+        [Enum(UnityEngine.Rendering.BlendMode)] _DstBlend ("Dst Blend", Float) = 0  // Zero
+        _ZWrite ("ZWrite", Float) = 1
     }
     SubShader
     {
@@ -42,6 +68,8 @@ Shader "GloomhavenVR/BoardLit"
         Cull [_Cull]
         Pass
         {
+            Blend [_SrcBlend] [_DstBlend]
+            ZWrite [_ZWrite]
             CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
@@ -69,6 +97,7 @@ Shader "GloomhavenVR/BoardLit"
             sampler2D _MRSMap;
             fixed4 _Color;
             float _Ambient, _LightBoost, _NormalStrength, _SpecStrength;
+            float _FadeAlpha;
 
             v2f vert (appdata v)
             {
@@ -148,7 +177,14 @@ Shader "GloomhavenVR/BoardLit"
                                       + pow(saturate(dot(N, Hf)), power) * saturate(dot(N, fill)) * 0.35);
                     col += spec * _SpecStrength;
                 }
-                return fixed4(col, 1.0);
+                // _FadeAlpha, NOT alb.a and NOT _Color.a: the alpha CHANNEL of an existing
+                // material is data nobody has ever looked at on this shader (it was thrown
+                // away here), and reading it now would silently change the framebuffer alpha
+                // of every board and hand in the bundle — under `Blend One Zero` that value
+                // is still WRITTEN, and this project composites against the passthrough
+                // layer. A property that defaults to 1 and is driven by exactly one caller
+                // cannot do that.
+                return fixed4(col, _FadeAlpha);
             }
             ENDCG
         }

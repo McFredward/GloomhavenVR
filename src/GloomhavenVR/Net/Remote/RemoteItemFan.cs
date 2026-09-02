@@ -1495,6 +1495,15 @@ internal sealed class RemoteItemFan
         // Sized by the sender's rig scale so the fan reads the same physical size as their hands.
         _root.transform.localScale = Vector3.one * _owner.AppliedScale;
         _root.SetActive(false);
+        // USER ITEM 7 (2026-09-02: "Die offenen Faecher, die ueber dem board schweben und zu dem
+        // board gehoeren (Gegenstaende, verbrannt, abgeworfen) sollen auch in dem selben Masse
+        // transparent sein, wenn das board transparent ist"). This fan belongs to the owner's
+        // board, but it is a SCENE-ROOT object posed from the board each frame, not a child of
+        // it — so PeerBoardFade's hierarchy census could never reach it. It registers instead,
+        // and its renderers are then driven by the SAME alpha, in the same loop, on the same
+        // frame as the board's own; there is no second ramp for it to drift from. Inert while
+        // [PeerBoardFade] Mode is Off.
+        PeerBoardFade.Follow(_owner.PlayerId, _root.transform);
         VRLayers.Apply(_root);
     }
 
