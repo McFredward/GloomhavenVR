@@ -147,6 +147,14 @@ internal static partial class VROptionsTab
     private static bool _loggedAreaLeave;
 
     /// <summary>
+    /// One-shot log flag for <see cref="ShowStandalone"/>'s open-edge remedy. Cleared in
+    /// <see cref="Forget"/> with the other per-pane state: the remedy is a property of THIS clone's
+    /// lifetime (it has never been through <c>UIWindow.Start()</c>), so a new pane must be able to
+    /// report it again rather than inherit the old one's silence.
+    /// </summary>
+    private static bool _loggedShowRemedy;
+
+    /// <summary>
     /// True once the pane has been detached from the options window and lives on the canvas as a
     /// window of its own. False means the fire exit is live and the pane is still a tab.
     /// </summary>
@@ -782,20 +790,55 @@ internal static partial class VROptionsTab
     /// <summary>
     /// Show the standalone window and VERIFY THE OUTCOME, then leave the shared input-area stack.
     ///
-    /// <para>THE OUTCOME, NOT THE PATH. <c>UIWindow.Show()</c> returns silently without opening
-    /// anything when the window is not <c>IsActive()</c> — <c>enabled &amp;&amp;
-    /// activeInHierarchy</c>, UIWindow.cs:476/:417-423 — and this pane is a
+    /// <para><b>THE FIRST OPEN OF A SESSION FAILED, AND THE ERROR LINE THAT REPORTED IT NAMED EVERY
+    /// TERM EXCEPT THE BLOCKER (fixed here).</b> ModBuild 348's hardware log: the first click on the
+    /// menu row printed <c>the standalone window DID NOT OPEN — Show() returned twice and
+    /// UIWindow.IsOpen is still false (activeSelf True, activeInHierarchy True, UIWindow.enabled
+    /// True, CanvasGroup alpha 0.00)</c>, and the next click on the same row opened it cleanly.
+    /// Every value that line printed was true, and none of them was the reason.</para>
+    ///
+    /// <para><b>THE REASON IS <c>UIWindow.HasGoneToStartingState</c>.</b>
+    /// <c>UISubmenuGOWindow.Show()</c> never calls <c>UIWindow.Show()</c> — it calls
+    /// <c>ShowOrUpdateStartingState()</c> (UISubmenuGOWindow.cs:71), and that method OPENS NOTHING
+    /// while the flag is false: it only records <c>m_StartingState = Shown</c> for a <c>Start()</c>
+    /// that has not run (UIWindow.cs:512-521). The flag is set in <c>UIWindow.Start()</c> (:370),
+    /// and Unity had never run <c>Start()</c> on this object, because <see cref="CloneWindow"/>
+    /// deactivates the clone inside the same synchronous block that instantiates it. Unity
+    /// dispatches <c>Start()</c> before the first <c>Update</c> AFTER an object becomes active, so
+    /// an object created and deactivated within one call never reaches it — the pane sat un-started
+    /// from injection until the player's first click, and that click was what finally started it.
+    /// The retry that shipped in ModBuild 335 could not rescue it: it re-activated an object that
+    /// was already active and then called the SAME declining method a second time. That is also why
+    /// the failing click cost 63.68 ms of an 86.40 ms frame and logged <c>built Curated</c>
+    /// TWICE — <c>UISubmenuGOWindow.Show()</c> fires <c>OnShow</c> (:73) whether or not it opened,
+    /// and <c>OnShow</c> is what rebuilds the whole row list.</para>
+    ///
+    /// <para><b>THE REMEDY IS THE ONE METHOD THAT DOES NOT CONSULT THE FLAG.</b>
+    /// <c>UIWindow.Show()</c> asks only <c>IsActive()</c> — <c>enabled &amp;&amp;
+    /// activeInHierarchy</c>, UIWindow.cs:476/:417-423 — and then transitions to <c>Shown</c>
+    /// outright (:481-492). It runs only AFTER <c>UISubmenuGOWindow.Show()</c> has done the parts
+    /// only it can do (re-activate the GameObject, enrol the controller area, fire <c>OnShow</c> so
+    /// the content exists), so nothing is skipped and, because it is not the submenu wrapper,
+    /// nothing is built twice. It is also the remedy that cannot mis-fire: it NAMES the state it
+    /// wants, where the obvious alternative — <c>UIWindow.OtherInit()</c>, which runs <c>Start()</c>
+    /// by hand — would transition to whatever <c>m_StartingState</c> happens to hold, a value
+    /// written by the very call that just declined. Unity's own <c>Start()</c> still arrives on the
+    /// next frame and re-affirms <c>Shown</c> instantly; that costs one extra visibility edge and
+    /// nothing else (<c>WindowMaterialise.OnWindowVisibility</c> returns on <c>e.Shown</c>, and
+    /// <c>ModalFallback</c>'s tick is level-triggered).</para>
+    ///
+    /// <para>THE OUTCOME, NOT THE PATH — AND THE OTHER REFUSAL IS KEPT. This pane is a
     /// <c>m_DisableOnZeroAlpha</c> window, so its own alpha tween DEACTIVATES its GameObject on
     /// every close (UIWindow.cs:742-748, confirmed by the ModBuild 335 <c>WINDOW MATERIALISE</c>
-    /// line). <c>UISubmenuGOWindow.Show()</c> re-activates it first (:70-73), which is why the
-    /// normal path works — but "the normal path works" is a claim about code, and the user's report
-    /// was that the menu eventually would not open AT ALL. So this asks the window afterwards, and
-    /// when the answer is no it re-activates the object by hand and tries once more.</para>
+    /// line), and an inactive object is the refusal <c>UIWindow.Show()</c> states outright.
+    /// <c>UISubmenuGOWindow.Show()</c> re-activates its OWN GameObject first (:70-73) but cannot
+    /// reach an inactive ANCESTOR, so that remedy stays — and the log now says WHICH of the two was
+    /// needed instead of assuming.</para>
     ///
     /// <para>The standing rule is that it MUST always be possible to open the options menu, so a
-    /// failure here is an <c>Error</c> naming the state that produced it — the line the next round
-    /// reads instead of guessing. ModBuild 335's log cannot prove the reported permanent failure
-    /// (the player did not retry in that session), and this is what would prove or refute it.</para>
+    /// failure here is still an <c>Error</c> naming the state that produced it — and the state it
+    /// names now includes the flag, without which no reader of that line could have reached the
+    /// cause.</para>
     /// </summary>
     private static bool ShowStandalone()
     {
@@ -803,6 +846,13 @@ internal static partial class VROptionsTab
             return false;
 
         UIWindow? win = _window.GetComponent<UIWindow>();
+
+        // READ BEFORE THE SHOW. The Show below re-activates the GameObject, and an activation is
+        // exactly what makes Unity queue Start() — the method that sets this flag. Taking the
+        // reading first means the line that reports the blocker cannot be reporting the remedy's
+        // own after-effect.
+        bool startedBefore = win != null && win.HasGoneToStartingState;
+
         _window.Show();
 
         // No UIWindow means there is nothing to ask, and nothing this method can repair — the
@@ -815,28 +865,65 @@ internal static partial class VROptionsTab
         }
 
         bool open = win.IsOpen;
-        if (!open)
+        string remedy = string.Empty;
+
+        if (!open && !_window.gameObject.activeInHierarchy)
         {
-            bool wasActive = _window.gameObject.activeInHierarchy;
+            // An inactive object is the refusal UIWindow.Show() states outright (IsActive(),
+            // :417-423). UISubmenuGOWindow.Show() re-activates its own GameObject but cannot reach
+            // an inactive ANCESTOR, so re-activate and go back through the submenu's Show — the
+            // input area and OnShow must run for the attempt that counts.
             _window.gameObject.SetActive(true);
             _window.Show();
             open = win.IsOpen;
+            remedy = "the pane's GameObject was re-activated by hand and shown again";
+        }
 
-            if (open)
-                VRLog.Alert("WorldUI", "VR options: the standalone window did not open on the first "
-                    + $"Show (activeInHierarchy was {wasActive}, enabled {win.enabled}) and DID open "
-                    + "after the object was re-activated by hand. The menu is on screen; this line is "
-                    + "the lead for why the first attempt was refused.");
-            else
-                VRLog.Error("WorldUI", "VR options: the standalone window DID NOT OPEN — Show() "
-                    + $"returned twice and UIWindow.IsOpen is still false (activeSelf "
-                    + $"{_window.gameObject.activeSelf}, activeInHierarchy "
-                    + $"{_window.gameObject.activeInHierarchy}, UIWindow.enabled {win.enabled}, "
-                    + $"CanvasGroup alpha {(win.GetComponent<CanvasGroup>() is { } cg ? cg.alpha.ToString("F2") : "n/a")}, "
-                    + $"parent '{(_window.transform.parent != null ? _window.transform.parent.name : "<none>")}'). "
-                    + "This violates the standing ruling that the options menu must ALWAYS be openable. "
-                    + "Treat this line as the lead, not the click that produced it — every VR setting "
-                    + "is still editable in BepInEx/config/dev.gloomhavenvr*.cfg meanwhile.");
+        if (!open && !startedBefore)
+        {
+            // THE FIRST OPEN OF THE SESSION, and the whole of the ModBuild 348 defect. See this
+            // method's summary: ShowOrUpdateStartingState() declined because Start() has never run
+            // on the clone. UIWindow.Show() is the path that does not ask.
+            win.Show();
+            open = win.IsOpen;
+            remedy = "UIWindow.Show() was called directly, because UIWindow.HasGoneToStartingState "
+                     + "was false and UISubmenuGOWindow.Show()'s ShowOrUpdateStartingState() "
+                     + "therefore only recorded a starting state instead of opening anything";
+        }
+
+        if (!open)
+            VRLog.Error("WorldUI", "VR options: the standalone window DID NOT OPEN — every remedy "
+                + "this method has was tried and UIWindow.IsOpen is still false (activeSelf "
+                + $"{_window.gameObject.activeSelf}, activeInHierarchy "
+                + $"{_window.gameObject.activeInHierarchy}, UIWindow.enabled {win.enabled}, "
+                + $"UIWindow.HasGoneToStartingState {win.HasGoneToStartingState}, "
+                + $"CanvasGroup alpha {(win.GetComponent<CanvasGroup>() is { } cg ? cg.alpha.ToString("F2") : "n/a")}, "
+                + $"parent '{(_window.transform.parent != null ? _window.transform.parent.name : "<none>")}'). "
+                + "THE FLAG IS THE FIELD TO READ FIRST: false means UISubmenuGOWindow.Show() only "
+                + "recorded a starting state for a Start() Unity has not run — the cause of the "
+                + "ModBuild 348 first-click failure, which is remedied above, so a false here is a "
+                + "NEW way of reaching it; true means the refusal is one this method has never seen. "
+                + "This violates the standing ruling that the options menu must ALWAYS be openable. "
+                + "Treat this line as the lead, not the click that produced it — every VR setting is "
+                + "still editable in BepInEx/config/dev.gloomhavenvr*.cfg meanwhile.");
+        else if (remedy.Length > 0 && !_loggedShowRemedy)
+        {
+            _loggedShowRemedy = true;
+            // HW-VERIFY: the ModBuild 350 fix's own falsifier, and the only line that proves the
+            // first click opened the menu. Exactly one of these per pane, on its first open, with
+            // the HasGoneToStartingState reason, is the fix working as designed. The same reason on
+            // a LATER open means Start() still never reaches this clone. This line ABSENT while the
+            // first click works means the pane now starts on its own and the rescue is dead code.
+            VRLog.Note("WorldUI", "VR options: the standalone window did not open on the plain "
+                + $"UISubmenuGOWindow.Show() and DID open after a remedy — {remedy}. This is "
+                + "EXPECTED EXACTLY ONCE per pane, on its very first open: the clone is deactivated "
+                + "in the same block that instantiates it, so Unity has never dispatched "
+                + "UIWindow.Start() on it and ShowOrUpdateStartingState() declines until it has "
+                + "(UIWindow.cs:512-521/:370). Before ModBuild 350 that first click failed outright "
+                + "and the player needed a second one, which is what this line replaces. Nothing "
+                + "about the two settings windows is coupled by it: the pane's UIWindow.ID stays "
+                + "None, it is still registered as a mod-owned player menu with MenuWindowFamily, "
+                + "and no game window is opened, hidden or read on our behalf.");
         }
 
         // Whether or not it opened: if Show() got as far as enrolling the input area, take it back
@@ -873,9 +960,28 @@ internal static partial class VROptionsTab
                     return;
                 var win = _window.GetComponent<UIWindow>();
                 if (win != null)
+                {
                     ModalFallback.CloseFloatedWindow(win);
+
+                    // A PENDING STARTING STATE IS A WINDOW THAT CAN STILL OPEN ITSELF. While
+                    // UIWindow.Start() has not run on this clone, its m_StartingState holds whatever
+                    // the last ShowOrUpdateStartingState() wrote — Shown — and Unity's deferred
+                    // Start() would act on that and put a pane on screen that nobody asked for and
+                    // no menu row is lit over. That is precisely what the ModBuild 348 log left
+                    // behind: the row's own failure path ran Close(), CloseFloatedWindow took its
+                    // "the game had already hidden it" branch (correctly — the window had never
+                    // opened) and hid NOTHING, so the recorded Shown survived the close.
+                    // HideOrUpdateStartingState() rewrites exactly that pending value, and once
+                    // Start() HAS run it is a plain Hide(), which is a no-op on an already-hidden
+                    // window (UIWindow.cs:500-509/:524-527). The term it is gated on is the game's
+                    // own flag, never a value the mod writes.
+                    if (!win.HasGoneToStartingState)
+                        win.HideOrUpdateStartingState();
+                }
                 else
+                {
                     _window.Hide();
+                }
                 return;
             }
 
@@ -1358,6 +1464,7 @@ internal static partial class VROptionsTab
         _hiddenHooked = false;
         _selectOnShow = false;
         _showHooked = false;
+        _loggedShowRemedy = false;
         // The area component belongs to the pane that has just gone; a stale reference here would
         // make the next open's LeaveInputAreaStack act on a dead object.
         _inputArea = null;
