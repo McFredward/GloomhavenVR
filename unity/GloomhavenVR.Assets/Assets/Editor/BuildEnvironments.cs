@@ -161,16 +161,61 @@ namespace GloomhavenVR
         private const float CloudScale = 0.30f;     // ground-plane units -> layer A uv
         private const float CloudRatio = 3.1f;      // layer B frequency / layer A
         private const float CloudMix = 0.68f;       // weight of the coarse field
-        private const float CloudCut = 0.54f;       // coverage threshold (AMPLITUDE)
-        private const float CloudSharp = 3.0f;      // coverage hardness  (AMPLITUDE)
+        // ============================ THE INTENSITY, AND WHO ASKED FOR IT ======
+        // USER, hardware test 2026-09-02, verbatim: "Die Wolken im Waldgebiet sehe
+        // ich so gut wie garnicht. Nur ganz leicht. Das kann ruhig intensiver
+        // sein."
+        //
+        // The three numbers below are what moved, and the ORDER is the one this
+        // effect's own doc named before the test ever happened
+        // (.planning/FOREST-CLOUDS.md §7: "the honest levers are CloudCut (how
+        // much of the sky is cloud at all) and CloudAlpha (the ceiling), in that
+        // order"). Coverage first, ceiling second, and the reason is that the
+        // complaint was "I hardly see them" and not "the ones I see are too thin":
+        // at cut 0.54 TWO THIRDS OF THE SKY CARRIED NO CLOUD AT ALL, and of the
+        // third that did, the 90th percentile pixel reached alpha 0.041 — one
+        // 8-bit step over the sky it lies on. He was not describing a preference,
+        // he was reading a histogram correctly.
+        //
+        // WHAT DID NOT MOVE, and it is the important half: he relaxed the
+        // INTENSITY. He did not withdraw "den Mond nie voll verdecken", so the
+        // moon guarantee is still enforced — and it is now enforced as a NUMBER
+        // (CloudMoonFloor) rather than only as the plateau geometry, because a
+        // rising ceiling is exactly the edit that can erode it silently.
+        // "Niemals dicht" also survives untouched as a structural property: alpha
+        // is still CloudAlpha times three factors in [0,1], so the thickest wisp
+        // this layer can make still passes 1 - CloudAlpha of what is behind it.
+        //
+        // AND NOTHING HERE COSTS A CYCLE. These are three float uniforms in a
+        // fragment that has no branch on any of them: same 71 instructions, same
+        // 2 fetches, same one draw call, same mesh, same bundle bytes.
+        // Requirement 5 ("die Umgebungen sind nur Beiwerk") is untouched by
+        // construction — the only measurable cost delta is that more fragments
+        // survive the shader's own half-an-8-bit-step clip() and reach the blend,
+        // which PreviewClouds measures per view.
+        //
+        // THE ARITHMETIC, read off the noise's own printed percentiles
+        // (p10=0.393 p50=0.506 p90=0.604 p99=0.676 max=0.723 — the bake logs them
+        // at every run, and these numbers are that log's, not a memory of it):
+        //
+        //   cut/sharp   sky carrying cloud   alpha at p90   alpha at p99   peak
+        //   0.54 / 3.0        34.3 %            0.041          0.165       0.241
+        //   0.485/ 3.6        ~57 %             0.244          0.477       0.585
+        //
+        // i.e. the veil the player actually looks at (p90) is SIX TIMES more
+        // opaque and covers two thirds more sky, while the clear gaps that make it
+        // read as cirrus rather than as overcast are still 43 % of the field.
+        private const float CloudCut = 0.485f;      // coverage threshold (AMPLITUDE)
+        private const float CloudSharp = 3.6f;      // coverage hardness  (AMPLITUDE)
 
         /// <summary>THE CEILING on this layer's opacity, anywhere in the sky, at
         /// any instant, for any parameter of the noise — because the shader's
         /// alpha is this times three factors that are each in [0,1] by
         /// construction. "Niemals dicht" is therefore not a tuning claim: the
-        /// thickest wisp this layer can produce still passes 58 % of the stars
-        /// behind it.</summary>
-        private const float CloudAlpha = 0.42f;
+        /// thickest wisp this layer can produce still passes 38 % of the stars
+        /// behind it. (0.42 until the 2026-09-02 hardware test — see THE
+        /// INTENSITY above.)</summary>
+        private const float CloudAlpha = 0.62f;
 
         private const float CloudElevLoDeg = 11f;   // layer starts
         private const float CloudElevHiDeg = 22f;   // layer at full strength
@@ -189,8 +234,31 @@ namespace GloomhavenVR
         /// stopped dead at a circle around the moon is a hole, and a hole is the
         /// artificial thing. At 0.35 the veil does drift across the moon and does
         /// visibly dim it — it simply cannot ever do more than
-        /// CloudAlpha*CloudMoonMin of it.</summary>
+        /// CloudAlpha*CloudMoonMin of it.
+        ///
+        /// <para>HELD AT 0.35 THROUGH THE INTENSITY LIFT, deliberately. The
+        /// ceiling went 0.42 -> 0.62 because the user asked for it; this did not
+        /// move, because he asked for nothing here. The moon's worst case
+        /// therefore rides the ceiling up (0.147 -> 0.217, i.e. 85.3 % -> 78.3 %
+        /// transmitted) and that is the whole of the change over the moon — a
+        /// wisp crossing it now dims it by up to a fifth instead of by a seventh,
+        /// which is visible and is still nowhere near "voll verdeckt".</para></summary>
         private const float CloudMoonMin = 0.35f;
+
+        /// <summary>THE FLOOR ON THE MOON'S TRANSMITTED FRACTION, as a number the
+        /// bake refuses to ship under. This is new with the intensity lift and it
+        /// exists because of what that lift is: CloudAlpha multiplies BOTH the sky
+        /// and the moon, so "make the clouds stronger" is precisely the edit that
+        /// can erode "den Mond nie voll verdecken" without touching anything whose
+        /// name mentions the moon. The plateau check below proves the moon sits on
+        /// the flat part of the taper; this proves the flat part is high enough to
+        /// still be called a moon. 0.75 is the number the effect's own doc named as
+        /// the far end of the acceptable range (FOREST-CLOUDS.md §3, "raising
+        /// CloudMoonMin to 0.6 gives a 25 % dimming and still leaves the moon 75 %
+        /// transmitted"), so it is a bound this project already argued for rather
+        /// than one invented to fit today's values — which currently clear it by
+        /// 3.3 points.</summary>
+        private const float CloudMoonFloor = 0.75f;
 
         /// <summary>The structural bound the preview station measures against: the
         /// most of the moon this layer can ever swallow. Exposed rather than
@@ -231,6 +299,22 @@ namespace GloomhavenVR
                     + $"shrink CloudEdge, or accept that the moon can be covered by more than "
                     + $"{CloudAlpha * CloudMoonMin:P1} — which the user has ruled out.");
             float maxOverMoon = CloudAlpha * CloudMoonMin;
+            // ...AND THE SECOND HALF OF THE GUARANTEE, which the plateau check
+            // alone does not give. Above proves the moon sits on the taper's flat
+            // floor; this proves the floor is high enough that what sits on it is
+            // still a moon. It is a separate throw on purpose: an intensity round
+            // moves CloudAlpha and nothing else, and CloudAlpha does not appear in
+            // the plateau condition at all, so that check would pass unchanged at
+            // any ceiling up to 1.0 — including one that blacks the moon out.
+            if (1f - maxOverMoon < CloudMoonFloor)
+                throw new Exception(
+                    $"CLOUD/MOON GUARANTEE BROKEN: at CloudAlpha {CloudAlpha:F2} x CloudMoonMin "
+                    + $"{CloudMoonMin:F2} the moon can be dimmed to {(1f - maxOverMoon) * 100f:F1}% of "
+                    + $"its clear brightness, past the {CloudMoonFloor * 100f:F0}% floor. The user asked "
+                    + "for MORE VISIBLE CLOUDS (2026-09-02) and did NOT withdraw \"den Mond nie voll "
+                    + "verdecken\" — so buy the intensity with CloudCut and CloudSharp, which move "
+                    + "coverage without touching what sits over the moon, not by raising the ceiling "
+                    + "further.");
             // Slack expressed as an ANGLE, because a cosine margin is unreadable:
             // how many more degrees of moon the plateau would still swallow.
             float slackDeg = (Mathf.Acos(Mathf.Clamp(cosIn, -1f, 1f))
@@ -241,8 +325,11 @@ namespace GloomhavenVR
                       + $"{(Mathf.Acos(Mathf.Clamp(Mathf.Cos(MoonSpriteRad) - 0.5f * CloudEdge, -1f, 1f)) * Mathf.Rad2Deg):F2} deg "
                       + $"=> {slackDeg:F2} deg of slack. MAX cloud opacity over the moon = "
                       + $"{CloudAlpha:F2} x {CloudMoonMin:F2} = {maxOverMoon:F3}, so the moon is NEVER less "
-                      + $"than {(1f - maxOverMoon) * 100f:F1}% transmitted, at any instant, from any viewpoint. "
-                      + $"Ceiling anywhere in the sky: {CloudAlpha:F2}.");
+                      + $"than {(1f - maxOverMoon) * 100f:F1}% transmitted, at any instant, from any viewpoint "
+                      + $"— clearing the {CloudMoonFloor * 100f:F0}% floor by "
+                      + $"{((1f - maxOverMoon) - CloudMoonFloor) * 100f:F1} points. "
+                      + $"Ceiling anywhere in the sky: {CloudAlpha:F2} (so the thickest wisp possible still "
+                      + $"passes {(1f - CloudAlpha) * 100f:F0}% of the stars behind it).");
         }
 
         // ---------------------------------------------------------- MOON PHASE
@@ -1816,14 +1903,31 @@ namespace GloomhavenVR
             }
             vals.Sort();
             float P(float q) => vals[Mathf.Clamp(Mathf.RoundToInt(q * (vals.Count - 1)), 0, vals.Count - 1)];
+            // ...AND THE SAME FIELD IN THE UNIT THE USER SEES IT IN. "34.3% carries
+            // any cloud" was true of the shipped build and told nobody that the
+            // veil at the 90th percentile was one 8-bit step deep — which is what
+            // "ich sehe sie so gut wie garnicht" turned out to mean. So the log
+            // now also states OPACITY at three percentiles, through the shader's
+            // own smoothstep, at ev = taper = 1 (i.e. high in the sky, away from
+            // the moon: the pixels the complaint was about).
+            float Alpha(float d)
+            {
+                float cov = Mathf.Clamp01((d - CloudCut) * CloudSharp);
+                cov = cov * cov * (3f - 2f * cov);
+                return CloudAlpha * cov;
+            }
             Debug.Log($"[GloomhavenVR][Env] CLOUD NOISE {n}x{n}, {CloudNoiseOct} octaves, lattice "
                       + $"{CloudCoarseFx}x{CloudCoarseFy} (R) and {CloudFineFx}x{CloudFineFy} (G), exactly tiling. "
                       + $"Mixed field percentiles: p01={P(0.01f):F3} p10={P(0.10f):F3} p50={P(0.50f):F3} "
                       + $"p90={P(0.90f):F3} p99={P(0.99f):F3} max={vals[vals.Count - 1]:F3}. "
                       + $"At cut={CloudCut:F2} sharp={CloudSharp:F1}: {100f * any / px.Length:F1}% of the field "
                       + $"carries any cloud and {100f * full / px.Length:F1}% reaches the ceiling opacity "
-                      + $"{CloudAlpha:F2}. (Sky coverage is lower still: this is before the elevation envelope "
-                      + "and the moon taper, both of which only ever reduce it.)");
+                      + $"{CloudAlpha:F2}. OPACITY, which is the unit the complaint was in: alpha "
+                      + $"{Alpha(P(0.50f)):F3} at p50, {Alpha(P(0.90f)):F3} at p90, {Alpha(P(0.99f)):F3} at "
+                      + $"p99, {Alpha(vals[vals.Count - 1]):F3} at the field's own maximum — all at "
+                      + "ev=taper=1, i.e. high in the sky and away from the moon. (Sky coverage is lower "
+                      + "still: this is before the elevation envelope and the moon taper, both of which "
+                      + "only ever reduce it.)");
             return px;
         }
 
@@ -2988,7 +3092,16 @@ namespace GloomhavenVR
             // horizon-band complaint (ModBuild 134) all over again, in the middle
             // of the sky instead of at the bottom of it.
             clouds.SetColor("_CloudTint", new Color(0.72f, 0.78f, 0.92f));
-            clouds.SetFloat("_CloudScatBase", 0.020f);
+            // AMBIENT IN-SCATTER, 0.020 -> 0.028 with the intensity lift. A wisp
+            // far from the moon is legible in two ways and only two: it SWALLOWS
+            // the stars behind it (extinction, which the ceiling now does much
+            // more of) and it THROWS BACK a little skyglow of its own. The second
+            // is what makes it read as a cloud rather than as a hole in the star
+            // field, and at 0.020 there was almost none of it. This is the small
+            // half of the change deliberately — the forward lobe around the moon
+            // is untouched at 0.55, so the corona keeps its shape and the layer
+            // stays dark-with-a-lit-edge rather than becoming a uniform grey.
+            clouds.SetFloat("_CloudScatBase", 0.028f);
             clouds.SetFloat("_CloudScatFwd", 0.55f);
             clouds.SetFloat("_CloudScatPow", 90f);
             LogClouds();

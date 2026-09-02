@@ -176,6 +176,20 @@ namespace GloomhavenVR
         // moves re-aims these cameras.
         private static readonly Vector3 WinAt = EnvRoomBuilder.CellarWindowCentre();
         private static readonly Vector4 WinRect = EnvRoomBuilder.CellarWindowInner();
+        /// <summary>The OUTSIDE ground level and the wall's OUTER face — the two
+        /// numbers the three "fly up to the window" stations are built on. Read
+        /// from the builder, never typed: a station that carried its own copy of
+        /// where the earth outside is could photograph a wood standing on a
+        /// different plane from the one the bake built. WinOutZ is the inner face
+        /// plus the reveal's depth, which is the same sum AddWoodOutsideWindow
+        /// makes to find the wood's own origin.</summary>
+        private static readonly float WinGY = EnvRoomBuilder.CellarOutsideGroundY();
+        private static readonly float WinOutZ =
+            EnvRoomBuilder.CellarWindowWall().x + EnvRoomBuilder.CellarWindowWall().y;
+        /// <summary>The stair doorway's own centre, for the three stations that
+        /// watch it. Same discipline: the last two props this file aimed at by
+        /// hand were photographed in the wrong corner for four rounds each.</summary>
+        private static readonly Vector3 DoorAt = EnvRoomBuilder.CellarStairDoorCentre();
 
         /// <summary>The Euler a camera at <paramref name="from"/> needs to have the
         /// window's opening in the middle of its frame.</summary>
@@ -763,6 +777,72 @@ namespace GloomhavenVR
             ("WinWalk", VWinWalk.pos, VWinWalk.euler, false, 55f),
             ("WinCheat", VCheatAt, VCheatEuler, false, 60f),
             ("WinPlan", new Vector3(WinAt.x, 34.0f, 12.0f), new Vector3(90f, 0f, 0f), false, 68f),
+
+            // ============ THE ACCEPTANCE TEST HE ACTUALLY STATED ================
+            // USER, hardware test 2026-09-02, verbatim: "Mach die Bäume im Keller
+            // am Fenster etwas tiefer. Ich will das du dir vorstellst das ein
+            // Spieler bis zu dem Fenster direkt fliegen kann, das was er sieht
+            // soll dann sinn machen und keine kleinen schwebenden Bäume."
+            //
+            // NOT ONE OF THE SIX STATIONS ABOVE IS THAT POSE. Every one of them
+            // shoots from inside the room, where the opening is a slot 1.2 m wide
+            // seen from 2-5 m away, and the wood inside it is a few hundred
+            // pixels. That framing is the right one for "is the window worth
+            // turning your head for" and it is the exact framing in which
+            // "kleine schwebende Bäume" is invisible: at 90 px of slot a floating
+            // tree and a standing tree are the same four grey pixels. This
+            // project's own lesson — a preview station agrees with you — is that a
+            // camera aimed at the wrong thing renders happily.
+            //
+            // So these three are aimed where HE said to aim: at the glass and
+            // through it.
+            //   WinNose  the closest pose a head can really take INSIDE the room,
+            //            30 cm off the inner face, dead centre, wide — the whole
+            //            fan at once instead of the middle tenth of it.
+            //   WinFly   THROUGH the opening and 1.2 m out, at a standing eye over
+            //            the OUTSIDE ground (which is 2.34 m up the room's wall,
+            //            above every eye the room has). This is the frame in which
+            //            scale is judgeable: a 9 m tree 9 m away either reads as a
+            //            tree or it does not.
+            //   WinFoot  half a metre over the outside ground, level. The ONLY
+            //            frame in which a foot that does not meet the earth is
+            //            visible at all — from inside the room every sightline
+            //            RISES and the trunk feet are behind the cill, which is
+            //            why a wood could float for five ModBuilds unremarked.
+            // All three are derived from EnvRoomBuilder's own opening and its own
+            // outside ground level, so a window that moves re-aims them.
+            ("WinNose", new Vector3(WinAt.x, WinAt.y, WinAt.z - 0.30f),
+                        LookFrom(new Vector3(WinAt.x, WinAt.y, WinAt.z - 0.30f),
+                                 new Vector3(WinAt.x, WinAt.y + 0.9f, WinAt.z + 12f)), false, 72f),
+            ("WinFly", new Vector3(WinAt.x, WinGY + 1.60f, WinOutZ + 1.20f),
+                       LookFrom(new Vector3(WinAt.x, WinGY + 1.60f, WinOutZ + 1.20f),
+                                new Vector3(WinAt.x + 0.6f, WinGY + 3.2f, WinOutZ + 13f)), false, 70f),
+            ("WinFoot", new Vector3(WinAt.x - 0.8f, WinGY + 0.50f, WinOutZ + 0.60f),
+                        LookFrom(new Vector3(WinAt.x - 0.8f, WinGY + 0.50f, WinOutZ + 0.60f),
+                                 new Vector3(WinAt.x + 1.2f, WinGY + 1.10f, WinOutZ + 12f)), false, 66f),
+
+            // ================= THE STAIR DOORWAY — 2026-09-02 ===================
+            // USER: "Am Keller gefällt mir der rechteckige Eingang nicht - das ist
+            // zu künstlich. Runde es ab, mach Unregelmäßigkeiten rein."
+            //
+            // The doorway had NO station of its own. It appeared, incidentally and
+            // 5 m away, in the corner of DarkCornerNW — which is a frame about a
+            // dark corner, not about an opening, and is exactly the kind of
+            // by-accident coverage that lets a defect ship. Three, because the
+            // three cues this dressing is made of fail in three different frames:
+            //   DoorHead   a standing head at the board, the pose the complaint
+            //              was made from. Is it still readable as a rectangle?
+            //   DoorClose  2.4 m out and off the axis — the arch, the jamb
+            //              courses and the return's own depth.
+            //   DoorGraze  along the wall at a raking angle, which is the only
+            //              frame in which the voussoirs' RELIEF shows: face-on,
+            //              stone standing 5 cm proud of stone is invisible.
+            ("DoorHead", new Vector3(-2.30f, 1.72f, 1.55f),
+                         LookFrom(new Vector3(-2.30f, 1.72f, 1.55f), DoorAt), false, 55f),
+            ("DoorClose", new Vector3(-3.45f, 1.42f, 1.25f),
+                          LookFrom(new Vector3(-3.45f, 1.42f, 1.25f), DoorAt), false, 46f),
+            ("DoorGraze", new Vector3(-4.60f, 1.28f, -0.35f),
+                          LookFrom(new Vector3(-4.60f, 1.28f, -0.35f), DoorAt), false, 52f),
         };
 
         // ================================================================ HAUNT
@@ -1476,7 +1556,14 @@ namespace GloomhavenVR
             // 8x, which is the only way a fan of black conifers against a black sky
             // is legible at all. They are shot here rather than through Shoot()
             // purely so they can have the lift.
-            foreach (var vn in new[] { "WinCheat", "WinPlan" })
+            // (WinNose/WinFly/WinFoot and the three door stations join them for
+            // the same reason and no other: all six look at unlit stone or at
+            // black conifers against a black sky, and at the true exposure the
+            // reviewer is judging a dark rectangle. The true-exposure frame is
+            // still written by Shoot() — the 8x is an EXTRA, never a substitute,
+            // because a lifted frame is not what the player sees.)
+            foreach (var vn in new[] { "WinCheat", "WinPlan", "WinNose", "WinFly", "WinFoot",
+                                       "DoorHead", "DoorClose", "DoorGraze" })
                 foreach (var v in Views)
                     if (v.name == vn)
                     {

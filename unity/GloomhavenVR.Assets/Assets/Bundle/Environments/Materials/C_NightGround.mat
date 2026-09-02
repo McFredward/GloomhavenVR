@@ -21,16 +21,16 @@ Material:
     serializedVersion: 3
     m_TexEnvs:
     - _BumpMap:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 343a800a67dafdaab9a8eb57e782491d, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     - _MainTex:
-        m_Texture: {fileID: 0}
+        m_Texture: {fileID: 2800000, guid: 4d4fefe33ff52281abc5b5500f2a9996, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _BumpScale: 1
+    - _BumpScale: 0.7
     - _Cutoff: 0.5
     - _Cutout: 0
     - _ElemFrost: 1
@@ -44,10 +44,10 @@ Material:
     - _RimPow: 3
     - _VCol: 0
     m_Colors:
-    - _AmbDown: {r: 0.015, g: 0.015, b: 0.015, a: 1}
-    - _AmbUp: {r: 0.049999982, g: 0.059999965, b: 0.079999976, a: 1}
-    - _DirCol: {r: 0, g: 0, b: 0, a: 1}
-    - _DirDir: {r: 0, g: 1, b: 0, a: 0}
+    - _AmbDown: {r: 0.002, g: 0.0021, b: 0.0024, a: 1}
+    - _AmbUp: {r: 0.0085, g: 0.009, b: 0.0105, a: 1}
+    - _DirCol: {r: 0.02, g: 0.022, b: 0.028, a: 1}
+    - _DirDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
     - _ElemCentre: {r: 0, g: 0, b: 0, a: 0}
     - _FireCol: {r: 0, g: 0, b: 0, a: 0}
     - _FirePos0: {r: 0, g: 0, b: 0, a: 1}
@@ -62,9 +62,9 @@ Material:
     - _L2Pos: {r: 0, g: 0, b: 0, a: 1}
     - _MoonWin: {r: -2.068, g: 2.2, b: -0.636, a: 2.986}
     - _MoonWinZ: {r: 4.5, g: 0.22, b: 0, a: 0}
-    - _RimCol: {r: 0, g: 0, b: 0, a: 1}
-    - _RimDir: {r: 0, g: 1, b: 0, a: 0}
-    - _Tint: {r: 0, g: 0, b: 0, a: 1}
+    - _RimCol: {r: 0.009, g: 0.0105, b: 0.015, a: 1}
+    - _RimDir: {r: 0.49255642, g: 0.6427071, b: 0.5867843, a: 0}
+    - _Tint: {r: 1, g: 0.95, b: 0.86, a: 1}
     - _TipAxis: {r: 0, g: 0, b: 0, a: 0}
     - _TipEnv: {r: 0, g: 0, b: 0, a: 0}
     - _TipPivot: {r: 0, g: 0, b: 0, a: 0}

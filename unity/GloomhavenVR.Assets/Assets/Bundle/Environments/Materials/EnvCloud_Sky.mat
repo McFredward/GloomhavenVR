@@ -26,8 +26,8 @@ Material:
         m_Offset: {x: 0, y: 0}
     m_Ints: []
     m_Floats:
-    - _CloudAlpha: 0.42
-    - _CloudCut: 0.54
+    - _CloudAlpha: 0.62
+    - _CloudCut: 0.485
     - _CloudEdge: 0.01
     - _CloudElevHi: 0.37460658
     - _CloudElevLo: 0.190809
@@ -37,10 +37,10 @@ Material:
     - _CloudMoonOut: 0.89879405
     - _CloudRatio: 3.1
     - _CloudScale: 0.3
-    - _CloudScatBase: 0.02
+    - _CloudScatBase: 0.028
     - _CloudScatFwd: 0.55
     - _CloudScatPow: 90
-    - _CloudSharp: 3
+    - _CloudSharp: 3.6
     m_Colors:
     - _CloudMoonDir: {r: 0.4925564, g: 0.64270705, b: 0.58678424, a: 0}
     - _CloudTint: {r: 0.72, g: 0.78, b: 0.92, a: 1}

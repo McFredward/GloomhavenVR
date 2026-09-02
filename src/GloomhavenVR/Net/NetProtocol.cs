@@ -416,7 +416,59 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 335;
+    public const ushort ModBuild = 336;
+    // Build 336: THE CLOUDS YOU CAN SEE, A WOOD WITH A FLOOR, AND A DOORWAY THAT IS NOT A RECTANGLE.
+    // *** FULL INSTALL (bundle changed: 74,494,103 -> 74,543,759 bytes).
+    //
+    //   Three environment items from the 2026-09-02 round, all baked geometry/material -- no runtime
+    //   code, no wire field, identical on every client. Details in .planning/FOREST-CLOUDS.md and
+    //   .planning/CELLAR-WINDOW-AND-ENTRANCE.md.
+    //
+    //   CLOUDS (item 1: "sehe ich so gut wie garnicht ... kann ruhig intensiver sein"). Cut
+    //   0.54 -> 0.485, sharpness 3.0 -> 3.6, alpha ceiling 0.42 -> 0.62, scatter 0.020 -> 0.028.
+    //   Coverage of the noise field 34.3 % -> 59.4 %; alpha at the field p90 0.041 -> 0.242;
+    //   measured peak 0.402 -> 0.620; the seated frame 1.48 % -> 2.90 % changed.
+    //     THE MOON GUARANTEE HE SET IN THE FIRST ROUND WAS NEVER WITHDRAWN, and it is now a BAKE
+    //     GATE rather than a plateau argument: CloudMoonFloor = 0.75, and the bake prints and
+    //     asserts "MAX cloud opacity over the moon = 0.62 x 0.35 = 0.217, so the moon is NEVER less
+    //     than 78.3% transmitted, clearing the 75% floor by 3.3 points". The old plateau check
+    //     could not have caught this change at all -- CloudAlpha does not appear in it.
+    //     One number got WORSE and belongs on the test list: the stereo probe reads 1.65x the bare
+    //     sky |L-R|, up from 1.12x. Expected for a more opaque layer at 45 m; it must still fuse.
+    //
+    //   CELLAR WINDOW (item 7: "etwas tiefer ... ein Spieler kann bis zum Fenster fliegen ... keine
+    //   kleinen schwebenden Baeume"). 4 bands 8.5-17 m -> 6 bands 6.5-20 m; the near band is now
+    //   11-15.5 m tall with a 0.42-0.62 m butt radius, three times the far band girth; 42 -> 60
+    //   trees for +4 % triangles (9,862 -> 10,266) because tessellation follows the band. The trunks
+    //   are BEDDED 0.28 m under the ground with a x1.55 root flare, and the black quad they stood on
+    //   is now a lit 26x20 heightfield on an existing texture (zero new bytes), its mounds gated to
+    //   zero for the first 5 m so the window creature is untouched. His acceptance test was "fly to
+    //   the window and it must make sense" -- the render at the glass is the evidence.
+    //
+    //   CELLAR ENTRANCE (item 8: "zu kuenstlich ... runde es ab, mach Unregelmaessigkeiten rein").
+    //   A skewed segmental arch: springs 1.50 m, crowns 2.28 m, UNEQUAL springings (63 vs 66 cm),
+    //   7+6 jamb courses with hashed heights and one missing stone per side so no course lines up
+    //   across the opening, 11 radial voussoirs with a dropped keystone, two unequal imposts, a
+    //   threshold and five fallen blocks. And a 16 cm RETURN: the opening had no thickness at all
+    //   (WallMesh is a single plane), which is most of why it read as a cut-out. Free passage
+    //   measures 1.29 x 2.28 m -- the monster that crosses it still fits.
+    //
+    //   NOTE ON THE BAKE: the environment bake and the bundle PACK are two different steps
+    //   (EnvironmentsBuilder.BuildAll then AssetsBuilder.BuildAll). Running only the first leaves
+    //   the bundle byte-identical and the change invisible.
+    //
+    //   TEST:
+    //     1. Forest, look up: streaked cirrus with lit edges, and the moon still obviously the moon.
+    //     2. Forest, seated and level: the sky must still be Beiwerk. If it reads as an overcast
+    //        lid while playing, CloudCut back toward 0.52 is the first dial.
+    //     3. Forest, BOTH EYES: any shimmer or rivalry in the cloud layer that was not there before.
+    //     4. Cellar: fly to the window and put your face in it. Girth, layered depth, feet on a real
+    //        floor, nothing floating.
+    //     5. Cellar: the stair doorway from the table and from close up. An arched opening cut
+    //        through masonry WITH THICKNESS -- not a rectangle, and not so busy it pulls the eye off
+    //        the board.
+    //
+    // Build 335: THE FIRST HARDWARE ROUND IN EIGHTEEN BUILDS
     // Build 335: THE FIRST HARDWARE ROUND IN EIGHTEEN BUILDS — AND THE LOG COULD NOT ANSWER IT.
     // *** FULL INSTALL (bundle changed: new plate PBR set + new Grimhorn mask).
     //
@@ -2641,7 +2693,9 @@ internal static class NetProtocol
     //   the doc says so rather than converting.
     //   HONEST LIMIT, FROM THE LANE ITSELF: from the seat with the canopy overhead the clouds are
     //   nearly invisible, 1.48 % of the frame. Correct for "nur Beiwerk", but the feature exists for
-    //   the moment he looks up. Levers are CloudCut then CloudAlpha.
+    //   the moment he looks up. INTENSITY LIFTED 2026-09-02 on his report that they
+    //   were nearly invisible: cut 0.485, alpha 0.62, 2.90 % of the seated frame. The moon
+    //   floor is now a BAKE GATE (CloudMoonFloor 75 %); at 0.62 x 0.35 it is 78.3 %.
     //   CLOUDS ARE FOREST-ONLY. The first cut gave the cellar the band too, on a "same sky through
     //   the bars" argument; the cellar frames reported 0.000 % change AND WERE NOT LOOKING AT THE
     //   WINDOW, so they settled nothing. Unverified full-screen fragment work in a room he did not

@@ -12,10 +12,15 @@ Five requirements, and the fifth outranks the other four. What shipped:
 | # | Requirement | Where it is enforced | Number |
 |---|---|---|---|
 | 1 | realistisch | the ground-plane projection + moon-lit in-scatter | the renders, §7 |
-| 2 | **niemals dicht** | `a = _CloudAlpha · ev · taper · cov`, three factors in [0,1] | ceiling **0.42**, measured peak **0.402** |
-| 3 | **Mond nie voll verdecken** | a time-independent upper bound on the taper, §3 | floor **85.3 %**, measured **94.66 %** |
+| 2 | **niemals dicht** | `a = _CloudAlpha · ev · taper · cov`, three factors in [0,1] | ceiling **0.62**, measured peak **0.620** |
+| 3 | **Mond nie voll verdecken** | a time-independent upper bound on the taper, §3 | floor **78.3 %**, measured **83.39 %** |
 | 4 | leicht bewegen | additive uv wind, never a frequency | **0.055 °/s** at the moon's elevation |
 | 5 | **performant** | a shell, not a dome; 71 fragment instructions; 2 fetches | **17 %** of what the sky it draws over already costs |
+
+> **§10 supersedes the numbers in rows 2 and 3.** The 2026-09-02 hardware test asked for more
+> visible clouds and the ceiling went 0.42 → 0.62. **Everything else in this document still holds
+> as written** — the arguments in §2–§6 are about the arithmetic, and not one of them has a value
+> in it. Where a section quotes an old number the current one is in §10's table beside it.
 
 Everything here is reproducible from a clean tree; the commands are in §8.
 
@@ -512,3 +517,139 @@ Named plainly, because each of these is a place this could still be wrong.
 8. **The cellar.** The clouds ship forest-only precisely *because* I could not verify it — the
    frames I shot of the cellar were not looking at the window. The cellar's sky is bit-identical to
    the previous build, which is the safe state, not a verified one.
+
+---
+
+## 10. The intensity round — 2026-09-02
+
+> **User, hardware test, verbatim.** "Die Wolken im Waldgebiet sehe ich so gut wie garnicht. Nur
+> ganz leicht. Das kann ruhig intensiver sein."
+
+He is not describing a preference; he is reading the histogram in §2 correctly. At `CloudCut 0.54`
+**two thirds of the sky carried no cloud at all**, and of the third that did, the 90th-percentile
+pixel reached **α = 0.041** — one 8-bit step over the sky it lies on. "So gut wie garnicht" is what
+that looks like.
+
+### What moved, and in the order this document itself named
+
+§7 said, before the test ever happened: *"the honest levers are `CloudCut` (how much of the sky is
+cloud at all) and `CloudAlpha` (the ceiling), in that order."* That is exactly what was pulled.
+
+| | was | now | why |
+|---|---|---|---|
+| `CloudCut` | 0.54 | **0.485** | coverage: 34.3 % → **59.4 %** of the noise field carries cloud |
+| `CloudSharp` | 3.0 | **3.6** | keeps the wisps' edges from washing out as the threshold drops |
+| `CloudAlpha` | 0.42 | **0.62** | the ceiling — the second lever, not the first |
+| `_CloudScatBase` | 0.020 | **0.028** | ambient in-scatter, so a wisp far from the moon reads as a *cloud* and not as a hole in the star field |
+| `CloudMoonMin` | 0.35 | **0.35** | **unchanged.** He relaxed the intensity; he did not withdraw the moon |
+
+### What that did, measured on the shipped material
+
+Bake log (`CLOUD NOISE`), which now prints **opacity** and not only coverage — the old line said
+"34.3 % of the field carries any cloud" and told nobody that the veil was one 8-bit step deep,
+which is precisely the thing that had to be re-measured after the complaint:
+
+| percentile of the noise field | α before | α now |
+|---|---|---|
+| p50 | 0.000 | 0.010 |
+| p90 | **0.041** | **0.242** |
+| p99 | 0.165 | 0.477 |
+| field max | 0.241 | 0.586 |
+
+And through the real rasteriser (`CloudsPreview.RenderAll`, the same instrument as §3 and §5):
+
+| | before | now |
+|---|---|---|
+| most opaque pixel anywhere, 60 instants over the full cycle | α 0.402 | **α 0.620** |
+| share of sky over 2 % opacity at any instant | 19.9 % | **44.4 %** |
+| **frame the clouds change, from the seat, room standing** | 1.48 % | **2.90 %** |
+| frame the clouds change, unobstructed 75° sky | ~28 % | **49.6 %** |
+
+The **veil the player actually looks at is six times more opaque and covers two thirds more sky.**
+
+![the clearing's canopy tear, clouds off](forest-clouds/cloud_before_canopy.png)
+![the clearing's canopy tear, clouds on](forest-clouds/cloud_after_canopy.png)
+
+That pair is the answer to the complaint: same camera, same clock, one node toggled, at the pose he
+plays from. Before, the tear shows a moon and nothing else; after, there are lit streaks across it.
+
+### "Den Mond nie voll verdecken" — still enforced, now as a number
+
+`CloudAlpha` multiplies **both** the sky and the moon, so "make the clouds stronger" is precisely
+the edit that can erode this requirement without touching anything whose name mentions the moon.
+The plateau check in §3 cannot catch it: `CloudAlpha` does not appear in the plateau condition at
+all, so that check passes unchanged at *any* ceiling up to 1.0 — including one that blacks the moon
+out. So the bake now carries a **second, separate throw**:
+
+```
+CloudMoonFloor = 0.75           // the moon's transmitted fraction may never go under this
+if (1 - CloudAlpha * CloudMoonMin < CloudMoonFloor) throw ...
+```
+
+0.75 is not a number invented to fit today's values: it is the far end of the range **this document
+already argued for** in §3's honest note ("raising `CloudMoonMin` to 0.6 gives a 25 % dimming and
+still leaves the moon 75 % transmitted").
+
+| | before | now |
+|---|---|---|
+| structural bound `CloudAlpha × CloudMoonMin` | 0.147 | **0.217** |
+| ⇒ transmitted floor, all t, all viewpoints | 85.3 % | **78.3 %** (clears the 75 % gate by 3.3 points) |
+| measured worst single pixel on the disc | 94.66 % | **83.39 %** |
+| measured worst disc **mean** | 98.04 % | **90.24 %** |
+
+![moon transmittance across one full drift cycle](forest-clouds/cloud_moon_occlusion.png)
+
+§3's own honest note said "a dimming of 5 % is about at the edge of visible. If the user comes back
+wanting to actually *see* a wisp cross the moon…". He came back. A wisp now takes the moon down by
+up to **17 %** at its worst pixel and the moon is still plainly the moon.
+
+### Cost — what changed and what did not
+
+**The shader did not change.** Same 71 fragment instructions, same 2 texture fetches, same 0
+branches, same mesh, same draw call, same bundle bytes. Three float uniforms moved and the fragment
+has no branch on any of them, so requirement 5 is untouched *by construction* on the shader side.
+
+**One thing does cost more, and it is the blend.** More of the shell survives the shader's own
+half-an-8-bit-step `clip()`, so more fragments reach the frame-buffer read-modify-write:
+
+| view | shell rasterises (unchanged) | survives `clip()` → blend, before → now |
+|---|---|---|
+| level at the horizon, 90° (looking at the board) | 40.1 % | 28.3 % → **38.0 %** |
+| seated, 74°, toward the moon | 54.5 % | 30.3 % → **47.2 %** |
+| open sky, 75° | 79.1 % | 28.1 % → **52.7 %** |
+| straight up, 90° (worst case) | 100 % | 27.7 % → **49.4 %** |
+
+The **first** column is what the fragment program is billed for and it is a property of the frustum
+alone — it did not move by a pixel. The second is blend bandwidth: at worst 49.4 % of 20.05 Mpx per
+frame at 90 Hz, i.e. 9.9 Mpx/frame of RMW against 5.6 before. That is the honest price of the
+change and it is the only one; I still cannot convert it to milliseconds without a GPU timer.
+
+### One number got worse and it is not obviously nothing
+
+The stereo probe (§6) reads mean `|L − R|` at **1.818 × 10⁻³** with clouds against **1.100 × 10⁻³**
+on the shipped sky alone — a ratio of **1.65×**, up from 1.12×. That is expected and probably
+benign: a dome at 45 m has real parallax at 63 mm, the layer is now much more opaque, and a more
+opaque layer necessarily makes more of the frame differ between the eyes. It is *smooth* parallax on
+a *smooth* gradient, which fuses; it is not a screen-keyed pattern, and the constant-buffer proof in
+§6 is unchanged — the fragment still binds no eye state and still does not read `SV_POSITION`. But
+1.65× is a real rise on a number this project watches, and it belongs on the hardware-test list
+rather than in a footnote.
+
+### Reproducing §10
+
+```sh
+# bake, then grep the two lines this section's numbers come from
+xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity -batchmode -nographics \
+  -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+  -executeMethod GloomhavenVR.EnvironmentsBuilder.BuildAll -logFile env-build.log -quit
+grep -aE 'CLOUD NOISE|CLOUD/MOON GUARANTEE' env-build.log
+
+# the renders and the measurements (WITHOUT -nographics, no -quit)
+CLOUDS_PREVIEW_OUT=$PWD/render/clouds xvfb-run -a /home/claw/unity-2021.3.5/Editor/Unity \
+  -batchmode -projectPath unity/GloomhavenVR.Assets -buildTarget Win64 \
+  -executeMethod GloomhavenVR.CloudsPreview.RenderAll -logFile cloud-preview.log
+grep -aE 'CloudPreview\] (LOOP|STEREO|MOON|NEVER|SHELL|FILL|CELLAR|moon disc)' cloud-preview.log
+```
+
+The plot is regenerated from the new TSV with §8's script, with the floor argument changed from
+`0.853` to `0.783`.

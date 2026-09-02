@@ -4153,6 +4153,21 @@ namespace GloomhavenVR
         public static Vector3 CellarWindowCentre() => WindowCentre();
         /// <summary>The wall's inner face (z) and its thickness (w) at the window.</summary>
         public static Vector2 CellarWindowWall() => new Vector2(CD / 2f, RevealDepth);
+        /// <summary>The centre of the STAIR DOORWAY on the west wall, in room
+        /// coordinates, on the wall's own inner face. Public since the 2026-09-02
+        /// round, for the preview harness's three door stations — the same
+        /// discipline <see cref="CellarWindowCentre"/> and
+        /// <see cref="CellarShelfAt"/> were made public for: a camera that carries
+        /// its own copy of where a thing is photographs the wrong corner for four
+        /// rounds. y is 48 % of the cut's height, i.e. inside the jamb courses and
+        /// under the arch's springing, so the frame is centred on the opening and
+        /// not on the wall above it.</summary>
+        public static Vector3 CellarStairDoorCentre()
+        {
+            var d = SnappedHole(StairHole, CD, CH, WallCell);
+            return new Vector3(-CW / 2f, d.height * 0.48f, -CD / 2f + (d.xMin + d.xMax) * 0.5f);
+        }
+
         /// <summary>The outside ground level: the OUTER cill. Every tree in the
         /// wood beyond the window stands on it, and it is 2.343 m — ABOVE every
         /// eye height this room has, which is why the ground itself is never in
@@ -4386,20 +4401,141 @@ namespace GloomhavenVR
             // through a slot, at a grazing angle from below. Anything else on it
             // would be detail invented for a surface nobody can resolve — and a
             // black horizon is what actually cuts the sky off.
+            // ...AND IT IS NO LONGER ONE FLAT BLACK QUAD, 2026-09-02.
+            // USER: "das was er sieht soll dann sinn machen und keine kleinen
+            // schwebenden Bäume."
+            //
+            // FROM INSIDE THE ROOM NOTHING BELOW CHANGES, and that is provable
+            // rather than hoped: this plane is at 2.343 m, the tallest head in the
+            // room is 2.02 m, every face of it has a +Y normal and the shader culls
+            // back faces — so no eye in this room can see any of it, at any
+            // undulation, at any brightness. That is what makes it safe to build
+            // for a pose the room does not have.
+            //
+            // AND THE POSE THE ROOM DOES NOT HAVE IS THE ONE HE ASKED ABOUT. "Fly
+            // right up to the window" puts the eye AT the opening, 25 cm over this
+            // plane, and what it got there was: absolute black below a razor-
+            // straight horizon, with trunks whose lit edges all stopped dead on
+            // that same line. A tree standing on a void is a floating tree, and
+            // pitch black at eye level is a void. Three things fix it:
+            //
+            //  1. IT UNDULATES, so the horizon is a broken line and the trunks
+            //     meet it at different heights. The amplitude is GATED TO ZERO for
+            //     the first 5 m: the creature HauntFigures stands in the window
+            //     well is at z = 5.35, i.e. 0.30 m off the outer face, and its
+            //     whole staging is "the black ground hides the legs" — a mound
+            //     under it would move a figure another lane owns.
+            //  2. IT IS NOT BLACK. Very dark earth, well under the sky patch's own
+            //     0.0024 haze floor, lit only by the moon and the sky exactly as
+            //     the wood is (no LightRig — this is outside).
+            //  3. IT KEEPS ITS FOOTPRINT. 44 x 34 m, vertex for vertex the same
+            //     extent, because SkyAlternative turns the prefab's total mesh AABB
+            //     into the camera's FAR PLANE and this plane is already the widest
+            //     thing the room contains. A ground that grew would widen the depth
+            //     range of every frame in the scene for a surface nobody can see.
             float gy = oy0;
             var gnd = new Acc();
             {
+                const int NX = 26, NZ = 20;                 // 1040 tris, no fill from inside
                 var c = new Vector3(0f, gy, oz + 17f);
-                int b = gnd.Count;
-                gnd.Vert(c + new Vector3(-22f, 0f, -17f), Vector3.up, new Vector2(0, 0), Color.white);
-                gnd.Vert(c + new Vector3(22f, 0f, -17f), Vector3.up, new Vector2(1, 0), Color.white);
-                gnd.Vert(c + new Vector3(22f, 0f, 17f), Vector3.up, new Vector2(1, 1), Color.white);
-                gnd.Vert(c + new Vector3(-22f, 0f, 17f), Vector3.up, new Vector2(0, 1), Color.white);
-                gnd.Quad(b);
+                float Hgt(float x, float z)
+                {
+                    // distance from the WINDOW, not from the patch centre: the flat
+                    // zone has to be around the opening, which is where the figure
+                    // stands and where the outer cill has to meet the earth flush.
+                    float d = new Vector2(x - winMid.x, z - oz).magnitude;
+                    float gate = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(5.0f, 11.0f, d));
+                    // two octaves at long wavelengths: mounds a wood really has,
+                    // not noise. +-0.42 m at full gate.
+                    float n = Fbm2(x * 0.085f + 11.3f, z * 0.085f, 2, 4703) - 0.5f;
+                    // The DRIFT term is deliberately small (about 1 deg). A ground
+                    // that rises steeply away is the prettier picture from outside
+                    // and the wrong one from inside: every sightline out of this
+                    // window already rises (+1.7 deg minimum over the whole floor),
+                    // so a steeply climbing earth would start filling the bottom of
+                    // the aperture with ground the room was never meant to show —
+                    // and the wood's own visibility gate is measured against what
+                    // the aperture used to show. 1 deg keeps the far ground from
+                    // collapsing to a mathematical line without doing that.
+                    return gy + gate * (0.84f * n + 0.018f * d);
+                }
+                for (int j = 0; j <= NZ; j++)
+                    for (int i = 0; i <= NX; i++)
+                    {
+                        float x = c.x - 22f + 44f * i / NX, z = c.z - 17f + 34f * j / NZ;
+                        // the surface's own normal, by central difference, so the
+                        // mounds are shaded as mounds instead of as a flat plane
+                        const float e = 0.6f;
+                        var nrm = new Vector3(Hgt(x - e, z) - Hgt(x + e, z), 2f * e,
+                                              Hgt(x, z - e) - Hgt(x, z + e)).normalized;
+                        gnd.Vert(new Vector3(x, Hgt(x, z), z), nrm,
+                                 new Vector2(x / 5.5f, z / 5.5f), Color.white);
+                    }
+                for (int j = 0; j < NZ; j++)
+                    for (int i = 0; i < NX; i++)
+                    {
+                        // (v0, v2, v1) and (v0, v3, v2) on the loop
+                        // (i,j) (i+1,j) (i+1,j+1) (i,j+1) — the SAME cyclic order,
+                        // and therefore the same +Y sense, as the single quad this
+                        // grid replaced. The winding gate below checks it on the
+                        // triangles that were really built.
+                        int v0 = j * (NX + 1) + i, v1 = v0 + 1;
+                        int v3 = v0 + NX + 1, v2 = v3 + 1;
+                        gnd.T.AddRange(new[] { v0, v2, v1, v0, v3, v2 });
+                    }
             }
             var gndMesh = SaveMesh("Env_C_NightGround.asset", gnd.Build("Env_C_NightGround"));
             var gndMat = NewRoomMat("C_NightGround.mat", "GloomhavenVR/EnvRoom");
-            gndMat.SetColor("_Tint", Color.black);
+            // Dark earth rather than Color.black, and the levels are the WOOD's own
+            // divided by three — the floor of a wood is darker than the trunks
+            // standing on it, and it must stay well under the sky patch's 0.0024 or
+            // it would lift the bottom of the aperture (which it cannot reach, but
+            // the number should be right for the reason as well as by geometry).
+            // THE LEVELS, and they are set against the ONE measured number this
+            // side of the wall has: the sky patch through the opening reads a mean
+            // linear luminance of 0.0024 (PreviewEnvironments.AssertWindowWood
+            // prints it every run). A flat patch of this ground under a moon 40 deg
+            // up comes out at 0.30 x (0.0012 + 0.0032 x sin 40) = 0.0010 — a little
+            // over a third of the sky, which is what earth under a night sky
+            // actually is, and far enough under it that the horizon still reads as
+            // a horizon. The first pass of this was 0.0003 and was indistinguish-
+            // able from the black plane it replaced.
+            //
+            // TEXTURE: forest_ground_04, which is the FOREST room's own floor and
+            // therefore already in the bundle. ZERO new bytes, exactly the argument
+            // the wood makes for pine_bark_alb.
+            gndMat.SetTexture("_MainTex", Imp("forest_ground_04_alb"));
+            gndMat.SetTexture("_BumpMap", Imp("forest_ground_04_nrm"));
+            gndMat.SetFloat("_BumpScale", 0.7f);
+            gndMat.SetColor("_Tint", new Color(1.00f, 0.95f, 0.86f));
+            gndMat.SetColor("_AmbUp", new Color(0.0085f, 0.0090f, 0.0105f));
+            gndMat.SetColor("_AmbDown", new Color(0.0020f, 0.0021f, 0.0024f));
+            gndMat.SetVector("_DirDir", new Vector4(MoonDir.normalized.x, MoonDir.normalized.y,
+                                                    MoonDir.normalized.z, 0f));
+            gndMat.SetColor("_DirCol", new Color(0.0200f, 0.0220f, 0.0280f));
+            // A FAINT RIM, and it is what makes a mound read as a mound: the
+            // crests catch the moon at a grazing angle exactly as the trunks do.
+            // Two orders of magnitude under the wood's own _RimCol on purpose —
+            // the trunks are supposed to be the thing with the lit edge.
+            gndMat.SetVector("_RimDir", new Vector4(MoonDir.normalized.x, MoonDir.normalized.y,
+                                                    MoonDir.normalized.z, 0f));
+            gndMat.SetColor("_RimCol", new Color(0.0090f, 0.0105f, 0.0150f));
+            gndMat.SetFloat("_RimPow", 3.0f);
+            // THE ARITHMETIC THESE COME FROM, because the first two passes of this
+            // were invisible and "make it brighter" is not a method. EnvRoom is
+            //     col = alb * light,  alb = _MainTex * _Tint,  light = amb + dir*NdotL
+            // forest_ground_04's albedo sits near 0.031 LINEAR, so at _Tint 1.0 and
+            // a moon 40 deg up a flat patch comes out at
+            //     0.031 x (0.0090 + 0.0220 x sin 40) = 7.2e-4,
+            // i.e. 30 % of the sky patch's measured 0.0024 — dark earth under a
+            // night sky, and legible against both the black void it replaced and
+            // the trunks standing on it. The two passes before this were 3.3e-5
+            // (a quarter of one 8-bit step even at the harness's 8x lift) because
+            // they were written by analogy with the WOOD's numbers — and the
+            // wood's body is not what makes the wood visible: its RIM is, and a
+            // rim is added AFTER the albedo multiply, so it is three orders of
+            // magnitude over the body it sits on. Copying a body level from
+            // something that is read by its edge is how both passes went dark.
             var gndGo = Place(root, "NightGround", gndMesh, Vector3.zero, Vector3.zero, Vector3.one, gndMat);
             // WINDING GATE. This one DOES cull, and it is only ever seen from
             // above and from inside — so its single quad's normal must be +Y.
@@ -4570,9 +4706,46 @@ namespace GloomhavenVR
         /// <summary>How far out the wood stands, in metres from the wall's OUTER
         /// face. The far bound is the sky patch's radius less a 3 m margin — see
         /// point 2 above; the gate at the bottom of AddWoodOutsideWindow enforces
-        /// it against the patch's own R rather than against this number.</summary>
-        private const float WoodNear = 8.5f;
-        private const float WoodFar = 17.0f;
+        /// it against the patch's own R rather than against this number.
+        ///
+        /// <para>WIDENED 8.5-17.0 -> 6.5-20.0 ON THE 2026-09-02 HARDWARE TEST.
+        /// USER, verbatim: "Mach die Bäume im Keller am Fenster etwas tiefer. Ich
+        /// will das du dir vorstellst das ein Spieler bis zu dem Fenster direkt
+        /// fliegen kann, das was er sieht soll dann sinn machen und keine kleinen
+        /// schwebenden Bäume."</para>
+        ///
+        /// <para><b>THE OLD BAND WAS 8.5 m THICK AND HELD FOUR ROWS OF NEARLY
+        /// IDENTICAL TREES.</b> Rendered from the pose he named (PreviewEnvironments'
+        /// new WinFly/WinFoot/WinNose stations, which did not exist before this
+        /// round because nothing had ever been asked from that pose) it reads as a
+        /// picket fence: every trunk within a factor of two of every other trunk's
+        /// diameter, every one carrying the same moon rim at the same brightness,
+        /// and no foreground object to set the scale by. That is what "kleine
+        /// schwebende Bäume" describes, and no amount of dimming fixes it — a
+        /// uniform field has no depth to dim.</para>
+        ///
+        /// <para>WHAT THE NUMBERS BUY, and both bounds moved for different reasons:
+        /// the NEAR bound came in 2 m so the first band can hold a few genuinely
+        /// big trees (11-15.5 m tall, 0.84-1.24 m at the butt) close enough to
+        /// subtend a real angle through a 1.2 m slot — a scale anchor, which is the
+        /// only thing that makes everything behind it read as far away. It is still
+        /// nowhere near the creature HauntFigures stands in the window well with
+        /// (z = 5.35, i.e. 0.30 m off the outer face — HauntFigures.Events.cs card
+        /// 0): 6.5 m is twenty times that. The FAR bound went out 3 m so there are
+        /// SIX depth layers instead of four and the last of them is genuinely
+        /// distant. The far bound is still what it always was — the night sky patch
+        /// is drawn after the wood and ZTESTS, so nothing may sit deeper than it —
+        /// and the gate at the bottom of AddWoodOutsideWindow measures the built
+        /// vertices against the patch's own radius rather than against this
+        /// number.</para></summary>
+        private const float WoodNear = 6.5f;
+        private const float WoodFar = 20.0f;
+        /// <summary>What the trunks' and boughs' value falls TO at WoodFar. Named
+        /// rather than typed at the two call sites AND at the log line, because
+        /// the log line had a frozen 0.42 in it and went on printing 0.42 after
+        /// the ramp moved — a hardcoded number is a consumer no grep for the
+        /// identifier will ever find.</summary>
+        private const float WoodValueFloor = 0.26f;
 
         /// <summary>One sightline out of the window: where a head is, and the
         /// direction from it that clears BOTH rectangles of the embrasure.
@@ -4694,11 +4867,33 @@ namespace GloomhavenVR
                                          Vector2 lean, float sd, int segs, int rings, Color tint)
         {
             int b0 = a.Count;
+            // THE FOOT, 2026-09-02. Two changes and they are one idea: a tree does
+            // not end at a plane, it SWELLS into the ground and disappears under
+            // it. What shipped was a cylinder whose bottom ring sat exactly on the
+            // ground plane, and from the pose the user named — flown up to the
+            // window, level with the earth — that is a stick standing on a line.
+            //
+            //  * BEDDING. The lowest ring goes 0.28 m UNDER the ground when the
+            //    trunk is built whole (y0 == 0). Nothing of it is visible; what it
+            //    buys is that no camera angle and no undulation of the ground can
+            //    open a gap under a trunk, which is the "floating" read in its
+            //    literal form. When the visibility bisection has already cut the
+            //    foot away (y0 > 0) there is nothing to bed and it is skipped.
+            //  * THE ROOT FLARE. Radius x1.55 at the ground, decaying over the
+            //    first metre or so. It is scaled by height rather than fixed,
+            //    because the flare of a 15 m tree and of a 7 m one are not the
+            //    same size — and it is what actually reads as "planted".
+            float bed = y0 <= 1e-4f ? 0.28f : 0f;
+            float yLo = y0 - bed;
             for (int j = 0; j <= rings; j++)
             {
-                float y = Mathf.Lerp(y0, h, j / (float)rings);
+                // RINGS BIASED TO THE BASE (^1.55). Evenly spaced rings put the
+                // same resolution on the 8 m of straight taper as on the 1 m where
+                // the flare actually happens, so the flare came out as one facet.
+                float y = Mathf.Lerp(yLo, h, Mathf.Pow(j / (float)rings, 1.55f));
                 float f = Mathf.Clamp01(y / h);
                 float rad = Mathf.Lerp(rb, rb * 0.30f, Mathf.Pow(f, 1.9f));
+                rad *= 1f + 0.55f * Mathf.Pow(Mathf.Clamp01(1f - y / (0.85f + 0.055f * h)), 2.2f);
                 rad *= 1f + 0.13f * (Fbm2(f * 8f, sd * 3f, 3, 991) - 0.5f);
                 var c = baseAt + new Vector3(lean.x * f * f, y, lean.y * f * f)
                         + new Vector3(Mathf.Sin(f * 3.1f + sd), 0f, Mathf.Cos(f * 2.4f + sd * 1.7f))
@@ -4778,10 +4973,30 @@ namespace GloomhavenVR
             // back twice over: the trees subtend MORE through a 1.2 m slot, and
             // they parallax harder as the head moves, which is the one cue that
             // says "that is really out there" rather than "that is a poster".
-            var bands = new[] { ( 8.6f, 2.5f, 8.5f, 12.5f, 0.24f, 0.38f),
-                                (11.0f, 2.7f, 8.0f, 12.0f, 0.21f, 0.34f),
-                                (13.6f, 2.9f, 7.5f, 11.5f, 0.19f, 0.30f),
-                                (16.2f, 3.1f, 7.0f, 11.0f, 0.17f, 0.27f) };
+            //
+            // SIX BANDS SINCE 2026-09-02, AND THEY ARE NOT SIX COPIES OF ONE BAND.
+            // What the old four had in common was the defect: r0 8.6->16.2 with
+            // butt radii 0.17-0.38 is one population of trees at one apparent size,
+            // and a population at one apparent size has no depth in it whatever the
+            // shading does. The two ends now differ by a factor of THREE in girth
+            // and by a factor of TWO in apparent height:
+            //
+            //   band 0 at  6.9 m  11.0-15.5 m tall, butt 0.42-0.62 m radius
+            //   band 5 at 19.4 m   7.0-10.0 m tall, butt 0.14-0.21 m radius
+            //
+            // Band 0 is deliberately SPARSE (4.6 m spacing against band 5's 3.3):
+            // it holds three or four trees, not a row. Its job is to be the thing
+            // the eye measures the rest against — one trunk 1.2 m across at 7 m
+            // says "these are trees" in a way that thirty poles at 12 m cannot.
+            // The wide spacing is also what stops it becoming a wall in front of
+            // the window: at 6.9 m, four trees over a 146 deg fan leave far more
+            // gap than trunk.
+            var bands = new[] { ( 6.9f, 4.6f, 11.0f, 15.5f, 0.42f, 0.62f),
+                                ( 9.2f, 3.0f,  9.5f, 13.5f, 0.28f, 0.44f),
+                                (11.8f, 2.8f,  8.5f, 12.5f, 0.22f, 0.34f),
+                                (14.4f, 2.9f,  8.0f, 11.5f, 0.19f, 0.29f),
+                                (16.9f, 3.1f,  7.5f, 11.0f, 0.16f, 0.25f),
+                                (19.4f, 3.3f,  7.0f, 10.0f, 0.14f, 0.21f) };
             for (int b = 0; b < bands.Length; b++)
             {
                 var (r0, spacing, h0, h1, rb0, rb1) = bands[b];
@@ -4849,7 +5064,14 @@ namespace GloomhavenVR
                                                    wx0, wy0, wx1, wy1, hd);
                     float y0 = float.IsInfinity(seenLo) ? 0f
                              : Mathf.Clamp(seenLo - gy - 0.35f, 0f, h * 0.55f);
-                    const int Segs = 7, Rings = 5;
+                    // TESSELLATION FOLLOWS THE BAND, which is the whole of how six
+                    // bands cost less than four did. A band-0 trunk is 1.2 m
+                    // across at 7 m and its silhouette is a real curve; a band-5
+                    // trunk is 0.3 m across at 19 m and is four pixels wide, where
+                    // seven sides and five rings are five of them wasted. The two
+                    // near bands keep the old section and gain a ring for the root
+                    // flare; the four far ones drop to five sides and four rings.
+                    int Segs = b <= 1 ? 7 : 5, Rings = b <= 1 ? 6 : 4;
                     int rings = Mathf.Max(2, Mathf.RoundToInt(Rings * (1f - y0 / h)));
                     trunkRingsSaved += Rings - rings;
 
@@ -4857,7 +5079,20 @@ namespace GloomhavenVR
                     // distance so the far bands recede rather than standing as a
                     // flat cut-out; the floor is not zero because a shape at
                     // exactly the sky's value has no silhouette at all.
-                    float depth = Mathf.SmoothStep(1f, 0.42f, Mathf.InverseLerp(WoodNear, WoodFar, dist));
+                    //
+                    // THE FLOOR CAME DOWN 0.42 -> 0.26 ON 2026-09-02 with the band
+                    // itself. It has to: the ramp is over InverseLerp(WoodNear,
+                    // WoodFar, dist) and that interval is now 13.5 m instead of
+                    // 8.5, so holding the floor would have SPREAD the same total
+                    // fall over half again the distance and made the recession
+                    // shallower per metre — the opposite of "tiefer". This is also
+                    // the term that scales the moon RIM, not only the body:
+                    // EnvRoom multiplies the whole shaded colour by the vertex
+                    // colour AFTER adding the rim (EnvRoom.shader:627 then :633),
+                    // so a far trunk's bright edge dims with its mass and the
+                    // "every trunk wears the same blue stripe" read — the single
+                    // loudest thing in the WinFly frame — goes with it.
+                    float depth = Mathf.SmoothStep(1f, WoodValueFloor, Mathf.InverseLerp(WoodNear, WoodFar, dist));
                     var barkTint = new Color(depth, depth, depth, 1f);
                     var folTint = new Color(depth * 0.88f, depth * 0.88f, depth * 0.88f, 1f);
 
@@ -4879,7 +5114,13 @@ namespace GloomhavenVR
                 float u = Hash3(i, 7, 0, 6203), w = Hash3(i, 8, 0, 6203);
                 float rad = Mathf.Lerp(WoodNear + 1.5f, WoodFar, Mathf.Sqrt(u));
                 float az = Mathf.Lerp(fanLo, fanHi, w) * Mathf.Deg2Rad;
-                float y = Mathf.Lerp(2.5f, 12.0f, Hash3(i, 9, 0, 6203));
+                // The ceiling is 10.5 m and not 12.0, and it is a BOUND rather
+                // than a look: the band now reaches 20 m, and a bough 12 m up at
+                // 20 m out is sqrt(20^2 + 11.75^2) + its own length = 25.5 m from
+                // the opening, which is exactly the night sky patch's radius. The
+                // gate at the bottom of this method would catch it; this is the
+                // number that stops it needing to.
+                float y = Mathf.Lerp(2.5f, 10.5f, Hash3(i, 9, 0, 6203));
                 var c = wc + new Vector3(Mathf.Sin(az) * rad, y, Mathf.Cos(az) * rad);
                 float len = 0.9f + 1.3f * Hash3(i, 10, 0, 6203);
                 if (!WindowSeesPoint(eyes, c, len * 0.8f, wx0, wy0, wx1, wy1, hd)) continue;
@@ -4891,7 +5132,11 @@ namespace GloomhavenVR
                 if (right.sqrMagnitude < 0.5f) right = Vector3.right;
                 float halfW = len * 0.6f * (rect.width / Mathf.Max(rect.height, 1e-3f));
                 float d2 = new Vector2(c.x - wc.x, c.z - wc.z).magnitude;
-                float lit = Mathf.SmoothStep(0.86f, 0.34f, Mathf.InverseLerp(WoodNear, WoodFar, d2));
+                // Same widening as the trunks' own `depth`, and for the same
+                // reason: the ramp's interval grew from 8.5 m to 13.5 m, so the
+                // floor has to fall with it or the recession per metre gets
+                // shallower instead of deeper.
+                float lit = Mathf.SmoothStep(0.92f, 0.20f, Mathf.InverseLerp(WoodNear, WoodFar, d2));
                 AddCard(foliage, c, right * halfW, up * (len * 0.55f),
                         (Vector3.down * 0.7f + up * 0.3f).normalized, rect,
                         new Color(lit, lit, lit, 1f));
@@ -5118,7 +5363,7 @@ namespace GloomhavenVR
                       + "which their column first becomes visible — and at this range that is "
                       + "correctly nearly none: the outside ground is 2.343 m up the room's wall and "
                       + "every eye in the room is under it, so a sightline out of this window RISES "
-                      + "and clears the cill only 0.3-0.6 m above the ground at 8.5-17 m. The feet "
+                      + $"and clears the cill only 0.3-0.7 m above the ground at {WoodNear:F1}-{WoodFar:F0} m. The feet "
                       + "ARE in view here. (At 40 m they would not be, which is what the rule is "
                       + "for.)\n"
                       + $"    MASS: {massKept} loose boughs of {massTried} candidates "
@@ -5138,7 +5383,7 @@ namespace GloomhavenVR
                       + "aperture's screen area and nothing else — the same argument the sky patch "
                       + "makes.\n"
                       + $"    LIT BY THE MOON AND NOTHING IN THE ROOM: _DirDir/_RimDir = "
-                      + $"{moon:F4}, no LightRig, no candle slots. The value falls 1.00 -> 0.42 from "
+                      + $"{moon:F4}, no LightRig, no candle slots. The value falls 1.00 -> {WoodValueFloor:F2} from "
                       + $"{WoodNear:F0} to {WoodFar:F0} m so the far bands recede instead of standing "
                       + "as one flat cut-out.\n"
                       + $"    THE ROOM DID NOT GET BIGGER: the wood's farthest vertex is "
@@ -5488,6 +5733,17 @@ namespace GloomhavenVR
                     hewn.Add(AddRatHole(stone, walls[i], i,
                                         SnappedHole(RatHoleAuthored(i), CW, CH, WallCell),
                                         RatBore(i), 6203 + i * 197));
+
+                // ...and the STAIR DOORWAY, which is the same defect as a rat hole
+                // at human scale and got the same answer (user, 2026-09-02: "der
+                // rechteckige Eingang ... zu künstlich. Runde es ab, mach
+                // Unregelmäßigkeiten rein"). AFTER the skirt for the same reason
+                // the rat holes are: the loose blocks at its feet lie ON the run
+                // rather than under it. It is handed `door`, i.e. SnappedHole's
+                // answer — the same rect the skirt's own gate above was opened by,
+                // so the dressing and the gap in the skirting cannot disagree
+                // about where the opening is.
+                hewn.Add(AddStairArch(stone, walls[3], door, 6607));
 
                 // Four corners, four different lies:
                 //   NE  a full quoin stack with the deepest step — the only corner
@@ -8118,6 +8374,408 @@ namespace GloomhavenVR
                  + $"{blocks} loose blocks, {faces} faces all facing the room (0 backwards), centre "
                  + $"{Mathf.Abs(cu - (w.name == "N" ? RatW0.x + CW / 2f : CW / 2f - RatW3.x)) * 100f:F1} cm "
                  + "off the route's own endpoint";
+        }
+
+        /// <summary>THE STAIR DOORWAY, DRESSED — an arched, irregular opening cut
+        /// through old masonry, welded into the room's one stonework mesh.
+        ///
+        /// <para>USER, hardware test 2026-09-02, verbatim: "Am Keller gefällt mir
+        /// der rechteckige Eingang nicht - das ist zu künstlich. Runde es ab, mach
+        /// Unregelmäßigkeiten rein, das es nicht so aussieht wie ein perfekt
+        /// rechteckiger Eingang."</para>
+        ///
+        /// <para>HE IS DESCRIBING A HOLE WITH NO STONEWORK IN IT. What shipped was
+        /// <see cref="WallMesh"/>'s bare cut: whole 0.158 m cells dropped out of the
+        /// west wall, which leaves two dead-straight jambs, one dead-straight
+        /// lintel, four right angles and — because WallMesh is a single plane —
+        /// <b>no thickness at all</b>. Every one of those is fixed here, and the
+        /// last one matters as much as the arch: an opening with zero reveal depth
+        /// is a shape painted on a wall, and stereo gives that away at 4 m the way
+        /// it gave away the rat hole's flat black rectangle in ModBuild 140.</para>
+        ///
+        /// <para>THIS IS THE RAT HOLE'S CONSTRUCTION AT HUMAN SCALE, deliberately
+        /// and not by coincidence: the same user made the same complaint about the
+        /// same defect two rooms ago ("Das 'Loch' aus dem die Ratte kommt ... ist
+        /// ein Viereckiges schwarzes Rechteck"), and <see cref="AddRatHole"/> is
+        /// the answer that was accepted. A profile that is not a rectangle, a ring
+        /// of stone out to the real cut edge, a return into the wall so the
+        /// opening has depth, loose blocks, and a winding gate on every face
+        /// because a recess wound backwards draws as a plug and still looks like
+        /// geometry.</para>
+        ///
+        /// <para>FIVE THINGS BREAK THE RECTANGLE, and each is a separate cue —
+        /// "runde es ab" and "mach Unregelmäßigkeiten rein" are two requests:</para>
+        ///
+        /// <para>1. A SEGMENTAL ARCH, not a semicircle. It springs at 1.50 m and
+        /// crowns at 1.50 + rise, which leaves a haunch of stone between the crown
+        /// and the top of the cut — so the arch is read against the wall above it
+        /// rather than being the top of the hole. The exponent on sin flattens it:
+        /// a true half-round over a 1.3 m span would crown 0.65 m up and read as a
+        /// tunnel mouth, which this is not.</para>
+        ///
+        /// <para>2. IT IS NOT SYMMETRIC. The two springings sit at different
+        /// half-widths, the crown is skewed off the centre line, and a bounded fbm
+        /// of the sweep angle moves the intrados — weighted by sin(theta) so it
+        /// dies at both springings and the arch still meets its imposts cleanly.
+        /// Bounded is the operative word: the wobble is a fraction of the rise and
+        /// cannot invert the curve however the hash falls.</para>
+        ///
+        /// <para>3. THE JAMBS ARE COURSES, NOT LINES. Each side is a stack of
+        /// stones of hashed height and hashed inset, and the two stacks use
+        /// different seeds and different counts, so no course on the left lines up
+        /// with a course on the right. That is what actually kills the "perfect
+        /// rectangle": a straight edge is legible from across the room, a stepped
+        /// one is not. One stone per side is MISSING — stepped back nearly to the
+        /// cut edge, with its rubble on the floor below.</para>
+        ///
+        /// <para>4. THE OPENING HAS A THICKNESS. A dark return runs from the ring
+        /// back into the wall around the whole profile, so what the eye gets is a
+        /// bore and not a silhouette. It is wound to face its own axis and the gate
+        /// below proves it.</para>
+        ///
+        /// <para>5. STONE ON TOP OF STONE. Voussoirs stand proud of the arch ring,
+        /// two imposts mark the springings, a keystone is dropped and tilted, and
+        /// a worn threshold crosses the foot — the relief that makes the ring read
+        /// as masonry rather than as a shaped hole.</para>
+        ///
+        /// <para>WHAT IT IS NOT ALLOWED TO DO IS SHUT THE DOOR. The dressing eats
+        /// into the opening, so the free passage is measured from the built
+        /// profile and asserted against the alcove it serves — the stair shaft
+        /// (<see cref="BuildShaft"/>, 2.6 m) and the figure HauntFigures walks
+        /// across it. "Do not make it noisy for its own sake" is the other half of
+        /// the brief and it is why every irregularity above is bounded by a
+        /// fraction rather than by a free hash.</para>
+        ///
+        /// <para>COST: no new material, no new draw call, no new texture, no
+        /// vertex motion. It is welded into <c>stone</c> with the rest of the
+        /// hewn work and lit by the same baked rig in the same object space.</para>
+        ///
+        /// <para><paramref name="cut"/> is the SNAPPED opening (what WallMesh
+        /// really removed) in wall-local (u, y) — never the authored rect, which is
+        /// up to half a cell away and is what floated the window bars in
+        /// ModBuild 134.</para></summary>
+        private static string AddStairArch(Acc a, WallRun w, Rect cut, int seed)
+        {
+            // wall-local (u, y, z) -> room. NEGATIVE z is toward the room, the
+            // same convention AddRatHole uses (WallMesh's own local +Z runs away
+            // from the room, and `into` points the other way).
+            Vector3 P(float u, float y, float z) => w.p0 + w.along * u + Vector3.up * y - w.into * z;
+
+            float cu = (cut.xMin + cut.xMax) * 0.5f;
+            float half = cut.width * 0.5f;
+
+            // ---- the numbers, and every one of them is a FRACTION of the cut ---
+            // so a doorway that is ever re-sized re-proportions instead of
+            // shipping an arch that no longer fits its own hole.
+            const float Proud = 0.006f;             // the ring stands 6 mm into the room
+            const float Lip = 0.012f;               // ...and reaches 12 mm PAST the cut edge
+            float hL = half * 0.796f;               // left  springing half-width
+            float hR = half * 0.842f;               // right springing half-width — NOT hL
+            float ySpring = cut.height * 0.636f;    // 1.50 m at the shipped 2.357 m cut
+            float rise = cut.height * 0.331f;       // crown 0.78 m over the springing
+            float skew = half * 0.070f;             // the crown is not over the middle
+            float bore = 0.155f;                    // the return, i.e. the wall's thickness here
+            const int NA = 30;                      // arch samples
+
+            // ---- THE JAMB COURSES ------------------------------------------
+            // inset is measured INWARD FROM THE CUT EDGE, so a big inset is a
+            // stone that eats the opening and a small one is a stone flush with
+            // the wall's own edge. The top course of each side is forced to the
+            // arch's own springing inset — that is the IMPOST, and an arch whose
+            // springing does not land on its jamb is the one error in this
+            // construction that would be obvious from anywhere in the room.
+            (float y0, float y1, float inset)[] Courses(int n, int cseed, float springInset,
+                                                        out int missing)
+            {
+                var list = new (float, float, float)[n];
+                // hashed course heights, normalised so the stack is exactly
+                // ySpring tall however the hash falls
+                var hgt = new float[n];
+                float tot = 0f;
+                for (int i = 0; i < n; i++) { hgt[i] = 0.62f + 0.76f * Hash3(i, 0, 0, cseed); tot += hgt[i]; }
+                // ONE stone per side is gone. Never the top one (that is the
+                // impost and it carries the arch) and never the bottom one (that
+                // is the threshold's own bed).
+                missing = 1 + (int)(Hash3(0, 9, 0, cseed) * (n - 2));
+                float y = 0f;
+                for (int i = 0; i < n; i++)
+                {
+                    float yTop = y + ySpring * hgt[i] / tot;
+                    float ins = i == n - 1 ? springInset
+                              : i == missing ? 0.018f
+                              : Mathf.Lerp(0.030f, springInset * 1.06f, Hash3(i, 1, 0, cseed));
+                    list[i] = (y, yTop, ins);
+                    y = yTop;
+                }
+                return list;
+            }
+            var cL = Courses(7, seed + 11, half - hL, out int missL);
+            var cR = Courses(6, seed + 29, half - hR, out int missR);
+
+            // ---- THE ARCH PROFILE ------------------------------------------
+            // theta 0 = the LEFT springing, PI = the right.
+            void ArchAt(float th, out float u, out float y)
+            {
+                // sin(PI) comes back as -8.7e-8, and Mathf.Pow(negative, 0.72) is
+                // NaN — which does not throw, does not draw wrong, and does not
+                // even survive the next Mathf.Max (Max(NaN, x) returns x), so it
+                // shows up as a free-height measurement that is quietly the
+                // springing instead of the crown. Clamped at the source.
+                float c = Mathf.Cos(th), s = Mathf.Max(0f, Mathf.Sin(th));
+                float hw2 = c > 0f ? hL : hR;
+                // bounded, and it dies at both springings: |wob| <= 0.09*rise*s
+                float wob = (Fbm2(th * 2.3f + 4.1f, 0.5f, 3, seed + 71) - 0.5f) * 0.18f * s;
+                u = cu - hw2 * c + skew * s;
+                y = ySpring + rise * Mathf.Pow(s, 0.72f) * (1f + wob);
+            }
+            // ...and where the ray from the arch's own centre leaves the CUT.
+            void RimAt(float th, out float u, out float y)
+            {
+                float c = Mathf.Cos(th), s = Mathf.Sin(th);
+                float dx = -c, dy = s;
+                float t = float.MaxValue;
+                if (dx > 1e-4f) t = Mathf.Min(t, (cut.xMax + Lip - cu) / dx);
+                if (dx < -1e-4f) t = Mathf.Min(t, (cut.xMin - Lip - cu) / dx);
+                if (dy > 1e-4f) t = Mathf.Min(t, (cut.yMax + Lip - ySpring) / dy);
+                u = cu + t * dx; y = ySpring + t * dy;
+            }
+
+            // ---- every face states the point it must be visible FROM ----------
+            // The winding gate, copied from AddRatHole for the reason given there:
+            // a recess wound backwards draws as a stone plug sitting in the
+            // opening and still looks like geometry in a diff and in a screenshot.
+            int bad = 0, faces = 0;
+            void Face(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, Color col, Vector3 seenFrom)
+            {
+                int before = a.Count;
+                AddFaceUV(a, p0, p1, p2, p3, 3.4f, col);
+                if (a.Count == before) return;                 // pinched to a line, dropped
+                faces++;
+                if (Vector3.Dot(a.N[a.Count - 1], seenFrom - (p0 + p1 + p2 + p3) * 0.25f) <= 0f) bad++;
+            }
+            // a standing player 2.2 m out, level with the springing: the only side
+            // of this wall anybody is ever on
+            Vector3 eye = P(cu, 1.60f, -2.20f);
+
+            // ---- THE RING, in three radial rows so the darkness INTO the
+            // opening is a gradient and not one flat value on one quad. The rows
+            // are what makes the arch legible at all in a room this dark: the
+            // silhouette is a value step, so give it three.
+            float[] rowT = { 0f, 0.34f, 0.68f, 1f };            // inner -> outer
+            // THE OUTER ROW HAS TO MATCH THE WALL, and the first pass of this got
+            // it wrong: at 0.30/0.52/0.74 the whole ring came out DARKER than the
+            // masonry it is set into (the stonework material already carries 0.86
+            // of the wall's own level), so the dressing read as a black frame
+            // painted round the opening rather than as courses of stone. The outer
+            // row is now at the wall's value and only the innermost keeps the
+            // contact darkening, which is what an arch's soffit really does.
+            float[] rowG = { 0.38f, 0.72f, 0.98f };
+            // A quad in the (u,y) plane, wound so its normal is +into (the room).
+            void Ring(float ua, float ya, float ub, float yb, float uc, float yc, float ud, float yd,
+                      Color col)
+                => Face(P(ua, ya, -Proud), P(ub, yb, -Proud), P(uc, yc, -Proud), P(ud, yd, -Proud),
+                        col, eye);
+
+            // the arch
+            var inU = new float[NA + 1]; var inY = new float[NA + 1];
+            var rmU = new float[NA + 1]; var rmY = new float[NA + 1];
+            for (int i = 0; i <= NA; i++)
+            {
+                float th = Mathf.PI * i / NA;
+                ArchAt(th, out inU[i], out inY[i]);
+                RimAt(th, out rmU[i], out rmY[i]);
+            }
+            for (int r = 0; r < 3; r++)
+                for (int i = 0; i < NA; i++)
+                {
+                    float t0 = rowT[r], t1 = rowT[r + 1];
+                    float a0u = Mathf.Lerp(inU[i], rmU[i], t0), a0y = Mathf.Lerp(inY[i], rmY[i], t0);
+                    float a1u = Mathf.Lerp(inU[i + 1], rmU[i + 1], t0), a1y = Mathf.Lerp(inY[i + 1], rmY[i + 1], t0);
+                    float b0u = Mathf.Lerp(inU[i], rmU[i], t1), b0y = Mathf.Lerp(inY[i], rmY[i], t1);
+                    float b1u = Mathf.Lerp(inU[i + 1], rmU[i + 1], t1), b1y = Mathf.Lerp(inY[i + 1], rmY[i + 1], t1);
+                    Ring(a0u, a0y, b0u, b0y, b1u, b1y, a1u, a1y, Grey(rowG[r]));
+                }
+
+            // the two jambs
+            void Jamb((float y0, float y1, float inset)[] cs, float edge, float sign)
+            {
+                foreach (var (y0, y1, ins) in cs)
+                    for (int r = 0; r < 3; r++)
+                    {
+                        float ui = edge + sign * Mathf.Lerp(ins, -Lip, rowT[r]);
+                        float uo = edge + sign * Mathf.Lerp(ins, -Lip, rowT[r + 1]);
+                        // SIGN FLIPS THE WINDING, and it has to: `uo` is on the
+                        // LEFT of `ui` on the west jamb and on its RIGHT on the
+                        // east one, so one loop order cannot serve both. (The
+                        // first version of this used one order for both and the
+                        // gate below caught all 39 of them — which is the whole
+                        // reason the gate is there.)
+                        if (sign > 0f) Ring(ui, y0, uo, y0, uo, y1, ui, y1, Grey(rowG[r]));
+                        else Ring(ui, y0, ui, y1, uo, y1, uo, y0, Grey(rowG[r]));
+                    }
+            }
+            Jamb(cL, cut.xMin, +1f);
+            Jamb(cR, cut.xMax, -1f);
+
+            // ---- THE RETURN: the opening's own thickness ----------------------
+            // Around the whole profile, from the ring back into the wall. Wound to
+            // face the bore's axis, which is the only side of it anybody can see.
+            var prof = new List<Vector2>();
+            for (int i = 0; i < cL.Length; i++) prof.Add(new Vector2(cut.xMin + cL[i].inset, cL[i].y0));
+            prof.Add(new Vector2(cut.xMin + cL[cL.Length - 1].inset, ySpring));
+            for (int i = 0; i <= NA; i++) prof.Add(new Vector2(inU[i], inY[i]));
+            prof.Add(new Vector2(cut.xMax - cR[cR.Length - 1].inset, ySpring));
+            for (int i = cR.Length - 1; i >= 0; i--) prof.Add(new Vector2(cut.xMax - cR[i].inset, cR[i].y0));
+            float[] bz = { -Proud, bore * 0.42f, bore };
+            float[] bg = { 0.22f, 0.12f, 0.05f };
+            for (int k = 0; k < 2; k++)
+                for (int i = 0; i + 1 < prof.Count; i++)
+                {
+                    Vector2 p = prof[i], q = prof[i + 1];
+                    // the axis this segment of the bore has to face: the opening's
+                    // own centre line, at this depth
+                    Vector3 axis = P(cu, ySpring * 0.72f, (bz[k] + bz[k + 1]) * 0.5f);
+                    // (p@front, q@front, q@back, p@back) makes the normal the
+                    // profile's tangent turned INTO the bore. The other loop order
+                    // turns it outward, i.e. into solid wall, and draws the recess
+                    // as a plug — the ModBuild 137 defect, caught here by the gate
+                    // below on the first run of this code.
+                    Face(P(p.x, p.y, bz[k]), P(q.x, q.y, bz[k]),
+                         P(q.x, q.y, bz[k + 1]), P(p.x, p.y, bz[k + 1]), Grey(bg[k]), axis);
+                }
+
+            if (bad > 0)
+                throw new Exception($"{w.name} stair doorway: {bad} of {faces} faces are wound away from "
+                                    + "the only side they can be seen from. A backwards return draws as a "
+                                    + "stone plug standing in the opening — see the winding note over "
+                                    + "AddTube, and AddRatHole's copy of this same gate.");
+
+            // ---- STONE ON TOP OF STONE ----------------------------------------
+            // Everything below is relief: it is what stops the ring reading as a
+            // shaped hole rather than as masonry. All of it is AddHewnBlock, i.e.
+            // chisel-cut boxes, 12 triangles each, welded into the same mesh.
+            int blocks = 0;
+            void Block(Vector3 at, Quaternion rot, Vector3 size, int bseed, float grey)
+            {
+                AddHewnBlock(a, at, rot, size, 0.88f, 0.06f, 0.008f, 1.9f, bseed, Grey(grey));
+                blocks++;
+            }
+            var flat = Quaternion.LookRotation(w.into, Vector3.up);
+
+            // VOUSSOIRS. Laid along the arch on the ring's own mid-radius, each
+            // one turned so its long axis is RADIAL — which is what a voussoir is
+            // and what a box laid flat is not.
+            const int NV = 11;
+            for (int v = 0; v < NV; v++)
+            {
+                float th = Mathf.PI * (v + 0.5f) / NV;
+                ArchAt(th, out float iu, out float iy);
+                RimAt(th, out float ru, out float ry);
+                float t = 0.42f + 0.10f * Hash3(v, 0, 0, seed + 91);
+                float mu = Mathf.Lerp(iu, ru, t), my = Mathf.Lerp(iy, ry, t);
+                var radial = (w.along * (ru - iu) + Vector3.up * (ry - iy)).normalized;
+                bool key = v == NV / 2;
+                // the keystone is dropped and tilted; the rest are only tilted
+                float drop = key ? 0.026f : 0.004f * (Hash3(v, 1, 0, seed + 91) - 0.5f);
+                var rot = Quaternion.LookRotation(w.into, radial)
+                        * Quaternion.Euler(0f, 0f, (Hash3(v, 2, 0, seed + 91) - 0.5f) * (key ? 7f : 11f));
+                float depth = 0.085f + 0.045f * Hash3(v, 3, 0, seed + 91);
+                Block(P(mu, my - drop, -(Proud + depth * 0.30f)), rot,
+                      new Vector3((key ? 0.20f : 0.155f) + 0.045f * Hash3(v, 4, 0, seed + 91),
+                                  Mathf.Abs(ry - iy) * (0.62f + 0.22f * Hash3(v, 5, 0, seed + 91)),
+                                  depth),
+                      seed + 400 + v, key ? 0.92f : Mathf.Lerp(0.62f, 0.86f, Hash3(v, 6, 0, seed + 91)));
+            }
+
+            // IMPOSTS. The two springings, and they are not the same block: the
+            // left one is a full projecting band, the right one is half gone.
+            for (int s = 0; s < 2; s++)
+            {
+                float u = s == 0 ? cut.xMin + (half - hL) : cut.xMax - (half - hR);
+                float wdt = s == 0 ? 0.30f : 0.20f;
+                Block(P(u + (s == 0 ? 0.05f : -0.03f), ySpring - 0.045f, -(Proud + 0.045f)),
+                      flat * Quaternion.Euler(0f, 0f, (s == 0 ? 1.6f : -2.4f)),
+                      new Vector3(wdt, 0.115f, 0.115f), seed + 500 + s, 0.90f);
+            }
+
+            // THE THRESHOLD. Set back into the bore so it is stepped over rather
+            // than tripped on, dished by the chisel jitter, and sitting on the
+            // flagstones' own height rather than on y = 0 (they undulate +-6 mm
+            // and a sill laid on a flat zero floats on the high spots — the exact
+            // defect the props had before ModBuild 132).
+            {
+                Vector3 at = P(cu + 0.03f, 0f, bore * 0.46f);
+                Block(new Vector3(at.x, CellarFloorY(at.x, at.z) + 0.030f, at.z),
+                      flat * Quaternion.Euler(0.9f, 0f, 0.7f),
+                      new Vector3(cut.width * 0.86f, 0.062f, bore * 0.86f), seed + 600, 0.80f);
+            }
+
+            // THE RUBBLE OF THE MISSING STONES, on the floor under each gap and
+            // OFF TO THE SIDES of the opening's middle — the same rule the rat
+            // hole's spill follows, because the middle is where the thing that
+            // uses this door walks.
+            for (int b = 0; b < 5; b++)
+            {
+                float side = b % 2 == 0 ? -1f : 1f;
+                float u = cu + side * (half * (0.62f + 0.34f * Hash3(b, 0, 0, seed + 700)));
+                float z = -(0.06f + 0.20f * Hash3(b, 1, 0, seed + 700));
+                Vector3 at = P(u, 0f, z);
+                float sw = 0.085f + 0.115f * Hash3(b, 2, 0, seed + 700);
+                float sh = 0.055f + 0.085f * Hash3(b, 3, 0, seed + 700);
+                float sd = 0.075f + 0.105f * Hash3(b, 4, 0, seed + 700);
+                Block(new Vector3(at.x, CellarFloorY(at.x, at.z) + sh * 0.36f, at.z),
+                      flat * Quaternion.Euler((Hash3(b, 5, 0, seed + 700) - 0.5f) * 44f,
+                                              (Hash3(b, 6, 0, seed + 700) - 0.5f) * 90f,
+                                              (Hash3(b, 7, 0, seed + 700) - 0.5f) * 38f),
+                      new Vector3(sw, sh, sd), seed + 800 + b, 0.78f);
+            }
+
+            // ---- AND THE DOOR MUST STILL BE A DOOR -----------------------------
+            // Measured off the profile that was really built, never off the
+            // numbers above: the dressing eats into the opening and an arch that
+            // quietly shut the stair would look completely fine in a still.
+            float freeW = float.MaxValue, freeTop = 0f;
+            foreach (var p in prof)
+            {
+                // NaN-safe on purpose: Mathf.Max(NaN, x) returns x, so a single
+                // poisoned vertex would RESET this walk instead of failing it.
+                if (float.IsNaN(p.x) || float.IsNaN(p.y))
+                    throw new Exception($"{w.name} stair doorway: a profile vertex is NaN. Something in "
+                                        + "the arch's own arithmetic went undefined — a fractional Pow of "
+                                        + "a negative sine is how this happened the first time.");
+                if (p.y > freeTop) freeTop = p.y;
+            }
+            for (int i = 0; i < cL.Length; i++)
+                for (int j = 0; j < cR.Length; j++)
+                {
+                    // widths are only comparable where the two courses overlap in y
+                    float lo = Mathf.Max(cL[i].y0, cR[j].y0), hi = Mathf.Min(cL[i].y1, cR[j].y1);
+                    if (hi <= lo) continue;
+                    freeW = Mathf.Min(freeW, cut.width - cL[i].inset - cR[j].inset);
+                }
+            const float NeedW = 1.05f, NeedH = 2.00f;
+            if (freeW < NeedW || freeTop < NeedH)
+                throw new Exception($"{w.name} stair doorway: the dressing leaves a free opening of "
+                                    + $"{freeW:F2} x {freeTop:F2} m, under the {NeedW:F2} x {NeedH:F2} m "
+                                    + "the alcove behind it needs. The 1.5 m steps, the 2.6 m shaft and the "
+                                    + "figure HauntFigures walks across the doorway are all authored to the "
+                                    + "cut, not to this profile — shrink the jamb insets or the rise, do not "
+                                    + "let the door close.");
+
+            float crown = 0f;
+            for (int i = 0; i <= NA; i++) crown = Mathf.Max(crown, inY[i]);
+            return $"{w.name} stair doorway DRESSED (user: \"der rechteckige Eingang ... zu künstlich. Runde "
+                 + $"es ab, mach Unregelmäßigkeiten rein\"): the bare {cut.width:F2} x {cut.height:F2} m cell "
+                 + $"cut is now a segmental arch springing at {ySpring:F2} m and crowning at {crown:F2} m "
+                 + $"({cut.yMax - crown:F2} m of haunch left over it), skewed {skew * 100f:F0} cm off centre "
+                 + $"and with springings that are NOT equal ({hL * 100f:F0} vs {hR * 100f:F0} cm half-width); "
+                 + $"{cL.Length} + {cR.Length} jamb courses of hashed height and inset with the "
+                 + $"{missL + 1}th and {missR + 1}th stone missing, so no course on one side lines up with "
+                 + $"one on the other; a {bore * 100f:F0} cm RETURN so the opening has a thickness at all "
+                 + $"(it had none — WallMesh is a single plane); {blocks} hewn blocks (11 voussoirs on a "
+                 + $"radial axis, a dropped keystone, 2 unequal imposts, a threshold, 5 fallen); "
+                 + $"{faces} ring/return faces, 0 wound backwards. Free passage {freeW:F2} x {freeTop:F2} m, "
+                 + $"which the alcove still fits through";
         }
 
         /// <summary>The heap where two skirtings meet. Both runs fade out over

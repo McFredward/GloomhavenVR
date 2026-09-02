@@ -56,6 +56,12 @@ Shader "GloomhavenVR/EnvCloud"
 {
     Properties
     {
+        // THE DEFAULTS BELOW ARE NOT THE CONTRACT. Every one of them is
+        // overwritten by BuildEnvironments.BuildMaterials from the constants in
+        // its THIN NIGHT CLOUD block, which is where the arguments live and where
+        // AssertCloudsClearTheMoon can see them. They are kept in step with the
+        // shipped values anyway — a Range() default that disagrees with the
+        // material is a number a future reader will quote at somebody.
         _CloudTex ("Cloud noise (R coarse, G fine)", 2D) = "black" {}
 
         _CloudScale ("Ground-plane units -> uv", Range(0.02,3)) = 0.30
@@ -65,21 +71,21 @@ Shader "GloomhavenVR/EnvCloud"
         // GHVR_CLOUD_PERIOD, so the whole field returns to its t=0 state exactly.
         _CloudWind ("Wind (A.xy, B.xy) uv/s", Vector) = (0.000694,0,0.001389,0.000694)
 
-        _CloudCut ("Coverage threshold", Range(0,1)) = 0.54
-        _CloudSharp ("Coverage hardness", Range(0.5,12)) = 3.0
-        _CloudAlpha ("MAX opacity, anywhere, ever", Range(0,1)) = 0.42
+        _CloudCut ("Coverage threshold", Range(0,1)) = 0.485
+        _CloudSharp ("Coverage hardness", Range(0.5,12)) = 3.6
+        _CloudAlpha ("MAX opacity, anywhere, ever", Range(0,1)) = 0.62
 
         _CloudElevLo ("sin(elev) layer starts", Range(0,0.6)) = 0.191
         _CloudElevHi ("sin(elev) layer full", Range(0,0.9)) = 0.375
 
         _CloudMoonDir ("Moon direction (object space)", Vector) = (0.6,0.37,0.71,0)
-        _CloudMoonMin ("Taper floor over the moon", Range(0,1)) = 0.30
+        _CloudMoonMin ("Taper floor over the moon", Range(0,1)) = 0.35
         _CloudMoonIn ("cos(inner clear angle)", Range(0.9,1)) = 0.99255
         _CloudMoonOut ("cos(outer clear angle)", Range(0.5,1)) = 0.91355
         _CloudEdge ("Clear-patch rim wobble (cos units)", Range(0,0.05)) = 0.010
 
         _CloudTint ("Cloud colour", Color) = (0.72,0.78,0.92,1)
-        _CloudScatBase ("Ambient in-scatter", Range(0,1)) = 0.020
+        _CloudScatBase ("Ambient in-scatter", Range(0,1)) = 0.028
         _CloudScatFwd ("Forward-scatter peak", Range(0,4)) = 0.55
         _CloudScatPow ("Forward lobe hardness", Range(4,400)) = 90
     }
