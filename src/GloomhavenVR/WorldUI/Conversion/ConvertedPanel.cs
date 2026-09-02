@@ -23,6 +23,21 @@ internal sealed class ConvertedPanel
     public Vector3 OriginalLocalPosition;
     public Quaternion OriginalLocalRotation;
 
+    /// <summary>
+    /// THE SCENE THE TARGET LIVED IN BEFORE THE CONVERSION MOVED IT — recorded because a
+    /// reparent SILENTLY CHANGES SCENE MEMBERSHIP, and that is what destroyed the game's
+    /// persistent confirmation box on 2026-09-03 (see <c>CanvasConversion.KeepHostInTargetScene</c>).
+    /// A GameObject belongs to the scene of its ROOT: the instant a <c>DontDestroyOnLoad</c>
+    /// window becomes a child of a host created in the active scene, it stops being persistent
+    /// and the next scene unload deletes it — while the game's persistent Singleton keeps its
+    /// managed reference and calls into the dead native object.
+    /// </summary>
+    public UnityEngine.SceneManagement.Scene TargetHomeScene;
+
+    /// <summary>True when <see cref="TargetHomeScene"/> was the <c>DontDestroyOnLoad</c> scene, i.e.
+    /// the target is a PERSISTENT game object that must not be allowed to join a normal scene.</summary>
+    public bool TargetWasPersistent;
+
     // WorldUI-owned host.
     public GameObject HostGo = null!;
     public Canvas HostCanvas = null!;

@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -164,6 +165,8 @@ internal static partial class CanvasConversion
             OriginalLocalScale = target.localScale,
             OriginalLocalPosition = target.localPosition,
             OriginalLocalRotation = target.localRotation,
+            TargetHomeScene = target.gameObject.scene,
+            TargetWasPersistent = IsPersistentScene(target.gameObject.scene),
         };
 
         // Rect size while still under the original (possibly stretch) anchors.
@@ -235,6 +238,35 @@ internal static partial class CanvasConversion
         // into the host transform's localScale via PlaceHost.
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         hostRect.localScale = Vector3.one * metersPerPixel;
+
+        // ==================================================================================
+        // 2026-09-03 DEADLOCK, ROOT CAUSE. User, verbatim: "WICHTIG: Erneutes DEADLOCK: ich habe
+        // auf 'Quest verwerfen' in einem Szenario geklickt und es nichts weiter erschienen. Das
+        // DARF NICHT PASSIEREN. Somit komm ich jetzt nicht aus dem Szenario raus."
+        //
+        // A GameObject belongs to the scene of its ROOT. `hostGo` was just created with
+        // `new GameObject(...)`, so it lives in the ACTIVE scene. The SetParent below therefore
+        // does not only move the target in the hierarchy — it MIGRATES IT OUT OF ITS OWN SCENE
+        // and into the active one. For a target that lived in DontDestroyOnLoad (the game's
+        // `Persistent UI_unified` root, which owns every ConfirmationBox) that silently strips
+        // its persistence: the next scene unload DELETES the box, while the persistent
+        // `UIConfirmationBoxManager` Singleton keeps its managed reference to it. Every later
+        // `ShowGenericConfirmation` then runs `ConfirmationBox.ResetConfirmationBox()` on a
+        // destroyed object and dies at `primaryContent.SetActive(true)` — a
+        // `NullReferenceException` in `(wrapper managed-to-native) GameObject.SetActive`,
+        // thrown out of an `async void` (UIMenuOptionToggle.OnToggleValueChanged) where nothing
+        // catches it. `UIScenarioEscMenu.QuitDungeon()` has ALREADY hidden the pause menu and
+        // taken its navigation blocker by then, so the player is left in the scenario with no
+        // dialog, no menu and no way out. Proven in .planning/debug/second_logs/Player.log:
+        // :10601 "Cannot set the parent of the GameObject 'Confirmation Box_MainMenu_pc' ..."
+        // then :14171/:14444 the two identical throws.
+        //
+        // THE FIX IS TO KEEP THE HOST IN THE TARGET'S OWN SCENE, so the reparent changes nothing
+        // about scene membership and the game's own lifetime rules keep applying unchanged. This
+        // runs BEFORE the reparent because DontDestroyOnLoad/MoveGameObjectToScene only accept a
+        // ROOT GameObject, and the host is only a root until something is parked under it.
+        // ==================================================================================
+        KeepHostInTargetScene(panel, hostGo, name);
 
         // Re-parent and center: anchors collapse to the middle so the captured
         // size becomes absolute.
@@ -438,6 +470,67 @@ internal static partial class CanvasConversion
         t.SetPositionAndRotation(position, rotation);
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         t.localScale = Vector3.one * (metersPerPixel * worldScale);
+    }
+
+    // =====================================================================================
+    // SCENE MEMBERSHIP IS PART OF THE 2D HOME, AND THE CONVERSION USED TO THROW IT AWAY.
+    //
+    // Unity gives a GameObject the scene of its ROOT. Every float host is created here with
+    // `new GameObject(...)`, which puts it in the ACTIVE scene, so parenting a game window
+    // under it silently MOVES THAT WINDOW INTO THE ACTIVE SCENE — a change no field of
+    // ConvertedPanel recorded and no line of Release ever undid. For a window that lived in
+    // DontDestroyOnLoad this is fatal and invisible: it keeps working perfectly until the
+    // next scene load, which deletes it while the persistent Singleton that owns it keeps
+    // its managed reference. That is the 2026-09-03 "Quest verwerfen" deadlock, and it is
+    // also why the damage was done in the TUTORIAL and only surfaced in the SCENARIO.
+    //
+    // These two helpers make the host join the target's scene instead, so the reparent is
+    // a pure hierarchy move and the game's own lifetime rules keep applying unchanged.
+    // =====================================================================================
+
+    /// <summary>The DontDestroyOnLoad scene — Unity names it exactly that and gives it buildIndex -1.</summary>
+    internal static bool IsPersistentScene(Scene scene) =>
+        scene.IsValid() && scene.buildIndex == -1 && scene.name == "DontDestroyOnLoad";
+
+    /// <summary>
+    /// Move a freshly created float host into the scene its target came from, BEFORE the target
+    /// is parented under it. Both Unity entry points require a ROOT GameObject, which the host
+    /// only is until something is parked under it — hence the strict call-order requirement.
+    /// Failure is never fatal: the worst case is the pre-fix behaviour, and it is logged.
+    /// </summary>
+    private static void KeepHostInTargetScene(ConvertedPanel panel, GameObject hostGo, string name)
+    {
+        try
+        {
+            Scene home = panel.TargetHomeScene;
+            if (!home.IsValid() || home == hostGo.scene)
+                return;
+            if (panel.TargetWasPersistent)
+            {
+                Object.DontDestroyOnLoad(hostGo);
+                // HW-VERIFY: this line is the proof that a PERSISTENT game window kept its
+                // persistence while floated. Its absence on a window the log shows floating out of
+                // 'Persistent UI_unified' means the 2026-09-03 deadlock class is back.
+                VRLog.Note("WorldUI", $"HOST SCENE PINNED: '{name}' is a PERSISTENT game window "
+                    + "(DontDestroyOnLoad), so its float host was made persistent too BEFORE the "
+                    + "reparent. Without this the window would have joined the active scene the "
+                    + "instant it became a child of the host, lost DontDestroyOnLoad, and been "
+                    + "DELETED by the next scene load while the game's Singleton kept pointing at "
+                    + "it — which is exactly how 'Quest verwerfen' stopped opening its dialog on "
+                    + "2026-09-03 (ConfirmationBox.ResetConfirmationBox → primaryContent.SetActive "
+                    + "→ NullReferenceException in the managed-to-native wrapper).");
+                return;
+            }
+            if (!home.isLoaded)
+                return;
+            SceneManager.MoveGameObjectToScene(hostGo, home);
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("WorldUI", $"HOST SCENE PIN FAILED for '{name}': {e.GetType().Name}: "
+                + $"{e.Message}. The host stays in the active scene; a persistent target floated "
+                + "under it is at risk from the next scene load.");
+        }
     }
 
 }

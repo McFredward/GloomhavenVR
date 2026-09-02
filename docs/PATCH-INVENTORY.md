@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**81 patch classes, 133 patched methods.**
+**84 patch classes, 139 patched methods.**
 
 ## Board
 
@@ -143,6 +143,12 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `Character3DDisplayManager.HideAll()` | prefix | &nbsp; |
 | `CharacterClickSelectsOnly` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/CharacterClickSelectsOnly.cs:158</sub> | `NewPartyCharacterUI.OnClick()` | prefix | `WorldUIModule`:103 |
 | &nbsp; | `NewPartyCharacterUI.OnClick()` | postfix | &nbsp; |
+| `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:362</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:141 |
+| &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
+| `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:386</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:142 |
+| &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
+| `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/ConfirmationBoxRescue.cs:407</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `WorldUIModule`:143 |
+| &nbsp; | *(resolved at runtime by `TargetMethod`)* | finalizer | &nbsp; |
 | `ShowUIWindowSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:158</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:79 |
 | `EscMenuEscapeSuppressor` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuInputBlock.cs:199</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `EscMenuInputBlock`:80 |
 | `EscMenuTransitionFinalizer` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/EscMenuShowSafety.cs:176</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `EscMenuInputBlock`:114 |
@@ -155,7 +161,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `MapLocationSelectorGate`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MapLocationSelectorGate.cs:42</sub> | `MapLocationSelector.Update()` *(private)* | prefix | `WorldUIModule`:70 |
 | `ESCMenu_OnShow_LatchGuard_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MenuExitLatchGuard.cs:54</sub> | `ESCMenu.OnShow()` *(private)* | postfix | `WorldUIModule`:121 |
 | `MouseWorldSurfaceCut`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MouseWorldSurfaceCut.cs:75</sub> | `EventSystem.RaycastAll()` | postfix | `WorldUIModule`:65 |
-| `PartyPanelStackingHide` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPanelStackingHide.cs:170</sub> | `NewPartyDisplayUI.Hide(object, bool, Action, bool)` | prefix | `WorldUIModule`:131 |
+| `PartyPanelStackingHide` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPanelStackingHide.cs:170</sub> | `NewPartyDisplayUI.Hide(object, bool, Action, bool)` | prefix | `WorldUIModule`:162 |
 | `PartyPreviewStorm`<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPreviewStorm.cs:113</sub> | `UIAdventurePartyAssemblyWindow.PreviewCharacterInfo(CMapCharacter)` *(private)* | prefix | `WorldUIModule`:94 |
 | `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:102</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `SettingsClickExemption`:146 |
 | `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:56 |
@@ -195,7 +201,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | postfix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | prefix | &nbsp; |
-| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:342</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
+| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:557</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
 
 ## Registration sites
 
@@ -214,6 +220,6 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/WorldUI/Patches/InputFieldFocusWatch.cs` | `InputFieldActivateWatch`, `InputFieldDeactivateWatch` |
 | `src/GloomhavenVR/WorldUI/Patches/KeyboardAutoHideBlock.cs` | `KeyboardHideSuppressor` |
 | `src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs` | `SettingsClickExemption` |
-| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `Character3DDisplayRefcount`, `CharacterClickSelectsOnly`, `ESCMenu_OnShow_LatchGuard_Patch`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MainMenuLogoSwap`, `MapLocationSelectorGate`, `MouseWorldSurfaceCut`, `PartyPanelStackingHide`, `PartyPreviewStorm`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `TooltipWindowPatches`, `UITextInfoPanel_Show_Patch`, `WorldspaceDisplayPanelBase_Patches` |
+| `src/GloomhavenVR/WorldUI/WorldUIModule.cs` | `Character3DDisplayRefcount`, `CharacterClickSelectsOnly`, `ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch`, `ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch`, `ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch`, `ESCMenu_OnShow_LatchGuard_Patch`, `InitiativeHoverCardBlock`, `InputManager_AssignGamepadBindings_Patch`, `InputManager_SetGamepadInputDevice_Patch`, `MainMenuLogoSwap`, `MapLocationSelectorGate`, `MouseWorldSurfaceCut`, `PartyPanelStackingHide`, `PartyPreviewStorm`, `TakeDamagePanelSafety`, `TooltipRaiseGuard`, `TooltipWindowPatches`, `UITextInfoPanel_Show_Patch`, `WorldspaceDisplayPanelBase_Patches` |
 
 The preloader (`GloomhavenVR.Preload.dll`) patches **no** assemblies (`TargetDLLs` is empty); it only installs the OpenXR natives + UnitySubsystems manifest.

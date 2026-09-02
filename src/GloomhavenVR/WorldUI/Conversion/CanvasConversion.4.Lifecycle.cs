@@ -1,6 +1,8 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands.Interact;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -152,6 +154,48 @@ internal static partial class CanvasConversion
             // mod re-converts/re-floats it on the next open anyway.
             Transform? restoreParent = panel.OriginalParent != null ? panel.OriginalParent : null;
             target.SetParent(restoreParent, worldPositionStays: false);
+
+            // ==============================================================================
+            // SetParent RETURNS void AND UNITY IS ALLOWED TO REFUSE IT. If the current parent
+            // is mid-activation Unity logs
+            //   "Cannot set the parent of the GameObject 'X' while activating or deactivating
+            //    the parent GameObject 'Y'."
+            // and DOES NOTHING. Release is reachable from exactly such a stack: the materialise
+            // carrier's OnDisable (WindowMaterialiseRunner.cs:590 / Visibility.cs:548) finishes
+            // the vanish and invokes this as its completion callback, which is what happened on
+            // 2026-09-03 (.planning/debug/second_logs/Player.log:10601). The unconditional
+            // detach three lines up was therefore unconditional in CODE and not in EFFECT, and
+            // the Destroy(HostGo) at the end of this method took the game's persistent
+            // confirmation box with it. VERIFY the move; never trust it.
+            // ==============================================================================
+            Transform? hostTransform = panel.HostGo != null ? panel.HostGo.transform : null;
+            bool detached = hostTransform == null || !target.IsChildOf(hostTransform);
+            if (!detached)
+            {
+                target.SetParent(null, worldPositionStays: false); // second try: bare scene root
+                detached = !target.IsChildOf(hostTransform!);
+                restoreParent = detached ? null : restoreParent;
+                // HW-VERIFY: this names the BLOCKER of a refused detach. If it appears, the
+                // window below was one Destroy away from being deleted out of the game.
+                VRLog.Alert("WorldUI", "RELEASE DETACH REFUSED: Unity would not reparent the game "
+                    + $"window '{target.name}' out of the float host "
+                    + $"'{(panel.HostGo != null ? panel.HostGo.name : "<gone>")}' — the host is "
+                    + "mid-activation, which means this release is running inside a SetActive/"
+                    + "destroy callback (the materialise carrier's OnDisable is the known route). "
+                    + $"The retry to the bare scene root {(detached ? "SUCCEEDED" : "ALSO FAILED")}. "
+                    + "The host will NOT be destroyed while it still holds this window — the "
+                    + "destroy is deferred to a normal frame instead. This exact refusal deleted "
+                    + "the game's persistent 'Confirmation Box_MainMenu_pc' on 2026-09-03 and left "
+                    + "the player unable to leave a scenario.");
+            }
+
+            // SCENE MEMBERSHIP goes home too. A reparent to the bare scene root (OriginalParent
+            // died with its own scene) would otherwise leave a PERSISTENT game object sitting in
+            // the active scene, where the NEXT scene load deletes it — the same defect one load
+            // later. See CanvasConversion.KeepHostInTargetScene for the full reasoning.
+            if (detached && restoreParent == null)
+                RestoreTargetScene(panel, target);
+
             if (restoreParent != null)
             {
                 target.SetSiblingIndex(panel.OriginalSiblingIndex);
@@ -207,8 +251,7 @@ internal static partial class CanvasConversion
             }
         }
 
-        if (panel.HostGo != null)
-            Object.Destroy(panel.HostGo);
+        DestroyHostSafely(panel, "release");
 
         if (Active.Count == 0)
             RestoreCameraMask();
@@ -232,6 +275,178 @@ internal static partial class CanvasConversion
         PanelSupersample.Shutdown();
     }
 
+    // =====================================================================================
+    // A HOST MAY NEVER BE DESTROYED WHILE IT STILL HOLDS GAME CONTENT (2026-09-03).
+    //
+    // Object.Destroy CASCADES into every child. The float host is ours; what is parked under
+    // it usually is not — it is a live game UIWindow that only rents the host for the length
+    // of a float. Release detaches the target first, but Unity is allowed to REFUSE that
+    // detach (see the block in Release), and the prune path never detached at all. Either way
+    // the Destroy below used to delete a game object the game will never rebuild:
+    //   * ModBuild 199-era: UIScenarioEscMenu — the pause menu could not be reopened at all.
+    //   * 2026-09-03: 'Confirmation Box_MainMenu_pc' under DontDestroyOnLoad — every later
+    //     confirmation threw and the player could not leave the scenario.
+    //
+    // So the destroy is now CONDITIONAL on the host being empty of game content, and when it
+    // is not, the host is parked and retried from the per-frame service, where Unity is not
+    // in the middle of an activation and the detach succeeds. A host that can never be
+    // emptied is LEAKED on purpose: one orphaned empty GameObject costs nothing, a deleted
+    // game window costs the player his session.
+    // =====================================================================================
+
+    /// <summary>Hosts whose destroy is waiting for their game content to come loose.</summary>
+    private static readonly List<GameObject> DeferredHosts = new(2);
+
+    /// <summary>How many service passes a deferred host is retried before it is abandoned alive.</summary>
+    private const int DeferredHostMaxTries = 120;
+    private static readonly List<int> DeferredHostTries = new(2);
+
+    /// <summary>Everything the mod parks under a float host carries this prefix — the materialise
+    /// carrier and its debris (<c>GloomhavenVR.WindowMaterialiseDebris*</c>), the close-X plate
+    /// (<c>GloomhavenVR.ModalCloseX</c>), the supersample display (<c>GloomhavenVR.PanelSS_*</c>),
+    /// the transient-dismiss catcher and the story dock (<c>GloomhavenVR.StoryDock</c>). A game
+    /// object never carries it, so the prefix IS the ownership test.</summary>
+    private const string ModOwnedPrefix = "GloomhavenVR.";
+
+    /// <summary>
+    /// The first game-owned transform anywhere under <paramref name="node"/>, or null.
+    ///
+    /// <para>The walk descends ONLY through mod-owned nodes, and that is the point: the game's own
+    /// content hangs below mod-owned intermediates in at least one shipped case — StoryComposite
+    /// parks a <c>GloomhavenVR.StoryDock</c> under the host and then moves the GAME's story-window
+    /// children into it — so a direct-children-only test would have called that host empty and
+    /// destroyed the story window with it. Stopping at the first non-mod node keeps the walk
+    /// bounded by the mod's own (tiny) subtrees; it never enters game hierarchy.</para>
+    /// </summary>
+    private static Transform? FindGameContent(Transform node, int depth)
+    {
+        if (depth <= 0)
+            return null;
+        for (int i = 0; i < node.childCount; i++)
+        {
+            Transform child = node.GetChild(i);
+            if (!child.name.StartsWith(ModOwnedPrefix, System.StringComparison.Ordinal))
+                return child;
+            Transform? deeper = FindGameContent(child, depth - 1);
+            if (deeper != null)
+                return deeper;
+        }
+        return null;
+    }
+
+    /// <summary>True when something under <paramref name="host"/> belongs to the game.</summary>
+    private static bool HostHoldsGameContent(GameObject host, out string first)
+    {
+        Transform? found = FindGameContent(host.transform, depth: 4);
+        first = found != null ? found.name : string.Empty;
+        return found != null;
+    }
+
+    /// <summary>
+    /// Destroy a float host, but ONLY once it holds nothing of the game's. Otherwise park it
+    /// for <see cref="ServiceDeferredHosts"/>.
+    /// </summary>
+    private static void DestroyHostSafely(ConvertedPanel panel, string why)
+    {
+        GameObject? host = panel.HostGo;
+        if (host == null)
+            return;
+        if (!HostHoldsGameContent(host, out string blocker))
+        {
+            Object.Destroy(host);
+            return;
+        }
+        if (DeferredHosts.Contains(host))
+            return;
+        DeferredHosts.Add(host);
+        DeferredHostTries.Add(0);
+        // HW-VERIFY: the guard that stops a mod host from deleting a game window. Every
+        // appearance is a cascade that WOULD have happened before ModBuild 361.
+        VRLog.Alert("WorldUI", $"HOST DESTROY DEFERRED ({why}): the float host '{host.name}' still "
+            + $"holds the GAME object '{blocker}', so destroying it now would DELETE THAT OBJECT "
+            + "with it. Unity refuses a reparent while the parent is mid-activation, which is how "
+            + "a release running inside an OnDisable leaves the window attached. The host is kept "
+            + "alive and retried once per frame from CanvasConversion.Tick instead; if it can "
+            + "never be emptied it is leaked on purpose. THIS IS THE 2026-09-03 DEADLOCK GUARD: "
+            + "the same cascade deleted 'Confirmation Box_MainMenu_pc' and left the player unable "
+            + "to leave a scenario.");
+    }
+
+    /// <summary>Retry the parked detaches from a normal frame, then destroy what came loose.</summary>
+    private static void ServiceDeferredHosts()
+    {
+        for (int i = DeferredHosts.Count - 1; i >= 0; i--)
+        {
+            GameObject host = DeferredHosts[i];
+            if (host == null)
+            {
+                DeferredHosts.RemoveAt(i);
+                DeferredHostTries.RemoveAt(i);
+                continue;
+            }
+            // Retry the detach — this frame is a normal Update, not a Unity activation callback,
+            // so SetParent is allowed now. Bounded: at most one game node comes loose per pass and
+            // the loop below re-tests, so a pathological tree costs one frame per node.
+            for (int guard = 0; guard < 8; guard++)
+            {
+                Transform? stuck = FindGameContent(host.transform, depth: 4);
+                if (stuck == null)
+                    break;
+                stuck.SetParent(null, worldPositionStays: false);
+                if (stuck.IsChildOf(host.transform))
+                    break; // still refused — try again next frame rather than spinning
+            }
+            if (!HostHoldsGameContent(host, out string blocker))
+            {
+                VRLog.Note("WorldUI", $"HOST DESTROY DEFERRED — RESOLVED: '{host.name}' came loose "
+                    + "on a normal frame and is destroyed now. The game object it was holding is "
+                    + "alive and back at the scene root.");
+                Object.Destroy(host);
+                DeferredHosts.RemoveAt(i);
+                DeferredHostTries.RemoveAt(i);
+                continue;
+            }
+            DeferredHostTries[i]++;
+            if (DeferredHostTries[i] < DeferredHostMaxTries)
+                continue;
+            VRLog.Alert("WorldUI", $"HOST DESTROY ABANDONED: '{host.name}' still holds the game "
+                + $"object '{blocker}' after {DeferredHostMaxTries} frame(s) of retries. The host "
+                + "is LEAKED ALIVE rather than destroyed — an orphan empty canvas costs a few "
+                + "bytes, deleting a game window costs the session.");
+            DeferredHosts.RemoveAt(i);
+            DeferredHostTries.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// Put a released target back in the SCENE it came from when its original parent no longer
+    /// exists. Without this a persistent (DontDestroyOnLoad) window detached to the bare scene
+    /// root joins the active scene and dies on the next load — the same defect, one load later.
+    /// </summary>
+    private static void RestoreTargetScene(ConvertedPanel panel, RectTransform target)
+    {
+        try
+        {
+            if (panel.TargetWasPersistent)
+            {
+                Object.DontDestroyOnLoad(target.gameObject);
+                VRLog.Note("WorldUI", $"RELEASE SCENE RESTORE: '{target.name}' is a PERSISTENT game "
+                    + "window whose original parent is gone, so it was made DontDestroyOnLoad again "
+                    + "instead of being left in the active scene, where the next scene load would "
+                    + "have deleted it.");
+                return;
+            }
+            Scene home = panel.TargetHomeScene;
+            if (home.IsValid() && home.isLoaded && home != target.gameObject.scene)
+                SceneManager.MoveGameObjectToScene(target.gameObject, home);
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("WorldUI", $"RELEASE SCENE RESTORE FAILED for '{target.name}': "
+                + $"{e.GetType().Name}: {e.Message}.");
+        }
+    }
+
     // ---- per-frame service (called by the WorldUI driver) --------------------------------
 
     /// <summary>
@@ -240,6 +455,10 @@ internal static partial class CanvasConversion
     /// </summary>
     internal static void Tick()
     {
+        // Parked hosts first: a host that is only waiting for Unity to allow the detach must be
+        // retried on a frame that is NOT inside a SetActive callback, and this is that frame.
+        ServiceDeferredHosts();
+
         Camera? cam = WorldCamera;
         for (int i = Active.Count - 1; i >= 0; i--)
         {
@@ -262,8 +481,11 @@ internal static partial class CanvasConversion
                 panel.OrderSwapPeer = null;
                 panel.OrderSwapStreak = 0;
                 panel.OrderFollowers.Clear();
-                if (panel.HostGo != null)
-                    Object.Destroy(panel.HostGo);
+                // The prune path never had the detach Release has, so anything else parked under
+                // the host (StoryComposite's dock still holding the game's story children, a
+                // second adopted widget) used to be destroyed with it. DestroyHostSafely refuses
+                // to destroy a host that still holds game content and defers instead.
+                DestroyHostSafely(panel, "prune (target already destroyed)");
                 continue;
             }
             if (panel.HostCanvas.worldCamera != cam)

@@ -52,10 +52,13 @@ namespace GloomhavenVR.WorldUI.Patches;
 [HarmonyPatch(typeof(ESCMenu), "OnShow")]
 internal static class ESCMenu_OnShow_LatchGuard_Patch
 {
+    private static bool _armedLogged;
+
     private static void Postfix(ESCMenu __instance)
     {
         try
         {
+            ArmOnce(__instance);
             int cleared = 0;
             cleared += Clear(__instance.mainMenuButton);
             cleared += Clear(__instance.exitButton);
@@ -79,6 +82,35 @@ internal static class ESCMenu_OnShow_LatchGuard_Patch
             VRLog.Warn("WorldUI", "PAUSE MENU EXIT LATCH guard threw: "
                 + $"{ex.GetType().Name}: {ex.Message}. The rows are left as the game had them.");
         }
+    }
+
+    /// <summary>
+    /// ONE-SHOT PROOF OF LIFE, added 2026-09-03. The 2026-09-02 hardware log contained ZERO
+    /// <c>PAUSE MENU EXIT LATCH</c> lines, and that was read as "the guard never ran" when in
+    /// fact it ran on every open and found nothing to clear — the guard's only line is
+    /// change-gated, so a healthy session and a dead patch look identical
+    /// ([[held-instrument-reads-as-dead]]). This line separates them once per session.
+    ///
+    /// <para>THE EDGE IS CORRECT AND IS DELIBERATELY LEFT ALONE. <c>UIScenarioEscMenu.OnShow</c>
+    /// calls <c>base.OnShow()</c> (UIScenarioEscMenu.cs:290-293), so this postfix runs for the
+    /// scenario menu too, and the 2026-09-03 log proves the latch was NOT the blocker that time:
+    /// both clicks on 'Quest verwerfen' (:14170 and :14443) reached
+    /// <c>UIScenarioEscMenu.QuitDungeon</c> and threw there, which is only possible with
+    /// <c>isSelected</c> false on entry. The row is a <c>UIMenuOptionToggle</c>, whose
+    /// <c>OnToggleValueChanged(false)</c> calls <c>base.Deselect()</c>, so closing the menu
+    /// already clears it on that path. The guard stays for the paths where it does not.</para>
+    /// </summary>
+    private static void ArmOnce(ESCMenu menu)
+    {
+        if (_armedLogged)
+            return;
+        _armedLogged = true;
+        // HW-VERIFY: proof the latch guard is LIVE. Without it, zero PAUSE MENU EXIT LATCH lines
+        // is ambiguous between "nothing was latched" and "the patch never ran".
+        VRLog.Note("WorldUI", "PAUSE MENU EXIT LATCH GUARD ARMED: the pause menu opened and the "
+            + $"guard ran on it ({menu.GetType().Name}). Every later open is checked too. If no "
+            + "PAUSE MENU EXIT LATCH line follows in this log, that means NO exit row was ever "
+            + "found still marked selected — not that the guard is missing.");
     }
 
     private static int Clear(UIMainMenuOption? row)

@@ -119,6 +119,37 @@ internal sealed class WorldUIModule : IVRModule
         // plate and the escape chord), and they are the rescue for a floated window, so they
         // stay. The latch is what goes. See MenuExitLatchGuard.
         VRSession.Harmony?.PatchAll(typeof(Patches.ESCMenu_OnShow_LatchGuard_Patch));
+        // A CLICK ON A CONFIRM CONTROL MUST NEVER PRODUCE NOTHING (user, 2026-09-03, his THIRD
+        // deadlock in three days: "ich habe auf 'Quest verwerfen' in einem Szenario geklickt und
+        // es nichts weiter erschienen. Das DARF NICHT PASSIEREN. Somit komm ich jetzt nicht aus
+        // dem Szenario raus." — and, rejecting a per-route workaround: "SO etwas darf niemals
+        // auftreten, auch nicht bei 'Hauptmenu'"). ConfirmationBox.ShowGenericConfirmation ran on
+        // a box whose GameObject the mod's own float host had deleted two scene loads earlier,
+        // threw out of an async void, and swallowed the exit whole. The CAUSE is fixed in
+        // CanvasConversion (scene-pinned hosts, verified detach, no destroy over game content);
+        // these three patches are the invariant that must hold anyway: a prefix diverts when the
+        // box is provably dead, a finalizer diverts when it throws for any other reason, and both
+        // put a mod-owned stand-in up carrying the CALLER'S OWN title, question and
+        // confirm/cancel UnityActions. Every exit row of the pause menu funnels through them.
+        // See ConfirmationBoxRescue.
+        // Each of the three resolves its own target by SHAPE at registration time, and Harmony
+        // throws when a TargetMethod() comes back null. That must never take the whole WorldUI
+        // module down with it — a deadlock guard that cannot find its hook is a degraded guard,
+        // not a dead mod — so the three registrations are guarded and the failure is REPORTED.
+        try
+        {
+            VRSession.Harmony?.PatchAll(typeof(Patches.ConfirmationBox_ShowGenericConfirmation_Pair_Rescue_Patch));
+            VRSession.Harmony?.PatchAll(typeof(Patches.ConfirmationBox_ShowGenericConfirmation_Single_Rescue_Patch));
+            VRSession.Harmony?.PatchAll(typeof(Patches.ConfirmationBox_ShowGenericSpendConfirmation_Rescue_Patch));
+        }
+        catch (Exception e)
+        {
+            VRLog.Error(Name, "CONFIRMATION RESCUE NOT REGISTERED: a ConfirmationBox show-path hook "
+                + $"could not be resolved — {e.GetType().Name}: {e.Message}. The 2026-09-03 deadlock "
+                + "guard is INERT or PARTIAL for this build of the game: a confirmation raised "
+                + "through the unhooked path can still fail to appear and leave a click producing "
+                + "nothing. The CanvasConversion-side cause fix is unaffected and still applies.");
+        }
         // User report 2026-08-22 #9: "Wenn das Fenster mit der Liste der in-Ruhestand-Charaktere
         // geöffnet wird, verschwindet das Fenster der Character-UI, das nicht geschlossen werden
         // darf." The retired-characters list is the guildmaster bar's Mercenary Log destination, and
@@ -170,6 +201,7 @@ internal sealed class WorldUIModule : IVRModule
         // See RenderTargetProbe.Shutdown and PanelSamplingProbe.
         RenderTargetProbe.Shutdown();
 
+        Patches.ConfirmationRescue.Reset(); // the stand-in must never outlive the mod
         CanvasConversion.ReleaseAll();
         WorldUIAssets.Reset();
         NativeButtonSkin.Reset();
@@ -317,6 +349,10 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("FlatScreen", _flatScreen.Tick));
             update.Add(("AvatarMirror", _avatarMirror.Tick));
             update.Add(("DevPanels", _devPanels.Tick));
+            // The confirmation stand-in only ever exists while the game's own box has failed, and
+            // it must stay in front of the player until he answers it — a dialog he can turn away
+            // from is the same deadlock in a different shape. Cheap: one null test per frame.
+            update.Add(("ConfirmationRescue", Patches.ConfirmationRescue.Tick));
             update.Add(("CanvasConversion", CanvasConversion.Tick));
             update.Add(("MrBacking", MrBacking.Tick)); // after CanvasConversion: host plates read post-fit rects
             _updateSteps = update.ToArray();
