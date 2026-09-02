@@ -94,7 +94,8 @@ internal static partial class ModalFallback
         public int PoseRePlacedAtFit;
 
         /// <summary>
-        /// Item 6 (parallel windows): a player-reachable menu (<see cref="NonBlockingMenus"/>) is
+        /// Item 6 (parallel windows): a player-reachable menu
+        /// (<see cref="MenuWindowFamily.IsGameOwnedMenu"/>) is
         /// STICKY — once floated it stays floated + visible in VR even when the GAME hides it. The
         /// ESC menu drives a single-toggle <c>ToggleGroup</c>: selecting Multiplayer turns the
         /// Options toggle off, whose deselect handler calls <c>UIOptionsWindow.Hide()</c> (a

@@ -311,6 +311,14 @@ internal static partial class VROptionsTab
             _toggle = null;
             IsStandalone = false;
 
+            // MODAL REGISTRATION (ModBuild 341). The pane's UIWindowID is None and stays None (see
+            // this class's "THE ID IS DELIBERATELY LEFT AT None" paragraph), so ModalFallback's
+            // family tests — which are all id-keyed — classified it as a blocking GAME modal and
+            // gated the card fan off. It is told about the window instead. Registered HERE, before
+            // the detach can fail, so the classification is right in the fire-exit mode too;
+            // released in Forget(), which every teardown path runs through.
+            MenuWindowFamily.RegisterModMenu(window.GetComponent<UIWindow>());
+
             // The template comes from a LIVE row, so it has to be stamped while the donor tabs are
             // still intact — and the content is built on first show, not now, because the config
             // registry is not necessarily complete at injection time.
@@ -1323,6 +1331,9 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void Forget()
     {
+        // The modal classifier must not outlive the window it names ([[gate-outliving-its-edge]]):
+        // Forget() is on every teardown path, including Shutdown()'s finally.
+        MenuWindowFamily.ForgetModMenu(_window != null ? _window.GetComponent<UIWindow>() : null);
         _host = null;
         _toggle = null;
         _window = null;

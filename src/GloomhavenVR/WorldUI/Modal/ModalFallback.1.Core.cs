@@ -56,7 +56,7 @@ namespace GloomhavenVR.WorldUI;
 /// floating a menu and asserting <see cref="VRModeStateMachine.SetAuxModal"/> are two
 /// SEPARATE wants (item 3b). `SetAuxModal` follows `wantLock`, which counts only genuine
 /// BLOCKERS — a converted window that is not one of the player-reachable
-/// <see cref="NonBlockingMenus"/>; see <see cref="BlockingWindowModalActive"/> for the
+/// <see cref="MenuWindowFamily.IsPlayerMenu"/>; see <see cref="BlockingWindowModalActive"/> for the
 /// full rule. Coupling the two made the pause/Options menu invisible and blocked card
 /// grabbing behind it, and was reverted the same round it was introduced. Do not
 /// "simplify" this back to a blanket assert:

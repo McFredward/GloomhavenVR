@@ -31,7 +31,7 @@ namespace GloomhavenVR.WorldUI;
 // every one of those opens prints room=False." ModBuild 226 deleted that map-room gate — the rule
 // now holds wherever a floatable ancestor is open. The CONCLUSION is unchanged and now rests on a
 // different, stronger clause of the same method: the ESC/Options family is EXEMPT from the ancestor
-// rule outright — `NonBlockingMenus.Contains(window.ID)` returns before the hierarchy is walked at
+// rule outright — `MenuWindowFamily.IsGameOwnedMenu(window)` returns before the hierarchy is walked at
 // all — and ESCMenu and Options are both in that set. So the refusal still cannot fire here, in the
 // map room or out of it.)
 //

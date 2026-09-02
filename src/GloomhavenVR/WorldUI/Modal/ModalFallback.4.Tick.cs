@@ -171,7 +171,8 @@ internal static partial class ModalFallback
 
     /// <summary>
     /// Item 4: true while a BLOCKING modal floats — a converted window that is NOT one of the
-    /// player-reachable <see cref="NonBlockingMenus"/> (pause/ESC, Options, Multiplayer,
+    /// player-reachable menus (<see cref="MenuWindowFamily.IsPlayerMenu"/>: pause/ESC, Options,
+    /// the mod's own VR settings window, Multiplayer,
     /// Compendium…). Those reachable menus float, stay grabbable and carry the X, but must NOT
     /// freeze world interaction: the user keeps grabbing cards / picking board hexes while the
     /// pause menu is open. The COMMIT-suppression layer (RayInteractor.UpdateCommitSuppression +
@@ -2092,7 +2093,7 @@ internal static partial class ModalFallback
         if (IsAdoptedByConversion(window))
             return "its subtree is ADOPTED by another live conversion — some surface already "
                    + "physicalizes it this instant";
-        if (!NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID)
+        if (!MenuWindowFamily.IsGameOwnedMenu(window) && !MultiplayerRosterMenus.Contains(window.ID)
             && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window))
             return "THE PARENT WINS (ModBuild 181/184/188): an ancestor UIWindow will be floated and "
                    + "renders this subtree inside its own host. Look for the 'MAP ROOM: window … is "
@@ -3156,7 +3157,12 @@ internal static partial class ModalFallback
         if (wantLock != _lastWant)
         {
             _lastWant = wantLock;
-            VRLog.Info("WorldUI", $"MODAL FALLBACK {(wantLock ? "ASSERTED" : "RELEASED")}: " +
+            // HW-VERIFY: the ModalUI lock is the term that costs the player his card fan
+            // (VRMode.ModalUI has no PalmGate in its interactor row), so a hardware round asking
+            // "does an options menu disturb play?" is decided by this line. Change-gated on
+            // wantLock, so it fires on edges only, never per frame. Promoted Info -> Note in
+            // ModBuild 341; the TEXT is byte-identical, only the tier moved.
+            VRLog.Note("WorldUI", $"MODAL FALLBACK {(wantLock ? "ASSERTED" : "RELEASED")}: " +
                                   $"windows={OpenWindows.Count}, story={story}, levelMsg={levelMsg}, " +
                                   $"dialogPopup={dialog}, scenario={inScenario}, blocking={anyBlocking}, " +
                                   $"style={(WorldUIConfig.ModalWindowStyle ? "window" : "screen")}, " +

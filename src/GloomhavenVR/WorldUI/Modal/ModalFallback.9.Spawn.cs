@@ -2904,7 +2904,7 @@ internal static partial class ModalFallback
             // THE GONE SHAPE ABOVE IS NOT EXEMPT and must not be: a DESTROYED options window has no
             // content to come back to and leaving its chrome standing would strand the very menu
             // this ruling protects.
-            if (IsMenuFamilyWindow(wp.Window.ID))
+            if (MenuWindowFamily.IsEscOptionsFamily(wp.Window))
             {
                 if (wp.Dormant)
                     WakeDormant(wp, now, "the ESC/options exemption — this family is never judged "
@@ -3151,19 +3151,13 @@ internal static partial class ModalFallback
         }
     }
 
-    /// <summary>
-    /// ModBuild 291 — the ESC / OPTIONS family, which this rule never judges. User ruling,
-    /// absolute: "es MUSS immer möglich sein das Optionsmenu zu öffnen."
-    ///
-    /// <para>The four IDs are the same set <c>IsFullScreenMenu</c> and
-    /// <c>WantsTransparentBackground</c> already treat as one family (ModalFallback.8.Convert.cs);
-    /// the menu-spawned CONFIRMATION boxes are deliberately NOT in it — a confirmation that has
-    /// genuinely finished should hide like anything else, and it is not the recovery path the ruling
-    /// protects.</para>
-    /// </summary>
-    private static bool IsMenuFamilyWindow(UIWindowID id) =>
-        id == UIWindowID.ESCMenu || id == UIWindowID.Options
-        || id == UIWindowID.OptionsSubmenu || id == UIWindowID.ViceOptionsSubmenu;
+    // ModBuild 291's IsMenuFamilyWindow(UIWindowID) HAS MOVED to
+    // MenuWindowFamily.IsEscOptionsFamily(UIWindow), with the same four game ids and one addition
+    // it could not express: the mod's OWN settings window, whose UIWindowID is None. ModBuild 340's
+    // hardware log shows the liveness rule arming for it ("MODAL LIVENESS ARMED:
+    // 'GloomhavenVR.OptionsTabWindow' (ID None) after 178 ms"), i.e. the exemption the ruling "es
+    // MUSS immer möglich sein das Optionsmenu zu öffnen" is made of was not covering the one
+    // options window the mod itself draws.
 
     /// <summary>
     /// Is this panel currently held dormant by the liveness rule? Read by

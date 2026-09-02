@@ -187,6 +187,14 @@ internal static partial class ModalFallback
     /// </summary>
     private static void ResetEscMenuToggleGroup(UIWindow window)
     {
+        // ModBuild 341 - THIS ONE STAYS ID-KEYED, DELIBERATELY, and it is the reason the mod's
+        // settings window must never be handed a game UIWindowID. This method runs
+        // ESCMenu.toggleGroup.SetAllTogglesOff() for exactly the four ids below, so a mod window
+        // wearing OptionsSubmenu would take the GAME's options window down every time the player
+        // pressed OUR X - the precise coupling ModBuild 336/337 removed on the user ruling that
+        // the Optionen and the VR Optionen must be openable in parallel without problems. The
+        // mod's row is not in that ToggleGroup (VRMenuEntry takes the cloned ExtendedToggle out of
+        // it), so there is nothing here to reset for it.
         UIWindowID id = window.ID;
         if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu
             && id != UIWindowID.ViceOptionsSubmenu && id != UIWindowID.CompendiumPanel)
@@ -512,7 +520,7 @@ internal static partial class ModalFallback
     /// treatment (ModalUI + ray pick gate + card input block) forbids, so classifying it
     /// blocking is a guaranteed total deadlock: the hint said "select Trample" while the mod
     /// had just gated off every card. These messages float VISIBLE but must impose ZERO input
-    /// restrictions, exactly like the <see cref="NonBlockingMenus"/> family.
+    /// restrictions, exactly like the <see cref="MenuWindowFamily.IsPlayerMenu"/> family.
     ///
     /// The ruling is DATA-DRIVEN from the message's own dismiss trigger
     /// (<c>CLevelMessage.DismissTrigger.IsTriggeredByDismiss</c> — the exact flag
@@ -569,14 +577,24 @@ internal static partial class ModalFallback
     /// <summary>
     /// THE blocking rule, shared by <see cref="BlockingWindowModalActive"/> and the Tick()
     /// ModalUI lock so the ray pick gate and the mode machine can never disagree: a window
-    /// blocks unless it is a player-reachable menu (<see cref="NonBlockingMenus"/>), a
+    /// blocks unless it is a player-reachable menu (<see cref="MenuWindowFamily.IsPlayerMenu"/>), a
     /// multiplayer roster/assignment surface (<see cref="MultiplayerRosterMenus"/> — an
     /// administrative window about OTHER players' seats, which must never freeze the local
     /// player's own board/piles/item fan) or an action-dismissed scripted level message
     /// (<see cref="ActionDismissedLevelMessage"/>).
+    ///
+    /// <para>ModBuild 341 — <b>THE MENU TEST IS <see cref="MenuWindowFamily.IsPlayerMenu"/>, NOT AN
+    /// ID SET, AND THAT IS THE FIX.</b> It used to be <c>!NonBlockingMenus.Contains(window.ID)</c>,
+    /// and the mod's own standalone VR settings window carries <c>UIWindowID.None</c> on purpose
+    /// (ModBuild 337), so it was classified a blocking GAME modal. Two things followed and the
+    /// second is the reported one: the Cards driver gated its card/tray COMMITS off, and — one step
+    /// further on — <c>Tick</c>'s <c>wantLock</c> asserted <c>VRMode.ModalUI</c>, whose interactor
+    /// row (VRModeStateMachine.cs:246) carries no <c>PalmGate</c>, so the card fan could not open at
+    /// all. User, 2026-09-02: <i>"Wenn man die VR Optionen offen hat kommt die Kartenhand nicht."</i>
+    /// </para>
     /// </summary>
     private static bool IsBlockingWindow(UIWindow window) =>
-        !NonBlockingMenus.Contains(window.ID)
+        !MenuWindowFamily.IsPlayerMenu(window)
         && !MultiplayerRosterMenus.Contains(window.ID)
         && !MapRoomParallel(window)
         // ModBuild 185: a HOVER CARD is not a decision waiting for an answer, so it may not raise
@@ -1068,7 +1086,13 @@ internal static partial class ModalFallback
         // window at RUNTIME in the main menu (MainOptionOptions.cs:20-25), i.e. its parent is not a
         // stable thing to make a placement decision from. This rule exists for sub-views of ONE
         // screen; it does not get to reinterpret the parallel-windows family.
-        if (NonBlockingMenus.Contains(window.ID) || MultiplayerRosterMenus.Contains(window.ID))
+        // ModBuild 341: IsGameOwnedMenu, NOT IsPlayerMenu. This exemption is about the GAME's
+        // hierarchy being an unstable placement fact (MainOptionOptions re-parents the options
+        // window at runtime), not about play flow — and for the mod's own settings window the
+        // hierarchy is the right answer in BOTH its modes: standalone it has no ancestor UIWindow,
+        // and in the fire-exit mode it genuinely is a sub-view of the options window and must be
+        // drawn inside it rather than floated on top of it.
+        if (MenuWindowFamily.IsGameOwnedMenu(window) || MultiplayerRosterMenus.Contains(window.ID))
             return false;
         for (Transform? t = window.transform.parent; t != null; t = t.parent)
         {
@@ -1440,8 +1464,11 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
                 continue;
-            UIWindowID id = wp.Window.ID;
-            if ((id == UIWindowID.Options || id == UIWindowID.OptionsSubmenu)
+            // ModBuild 341: MenuWindowFamily.IsSettingsWindow, so the mod's OWN settings window
+            // (UIWindowID.None) gets the same fall-through the game's Options window has had since
+            // the 2026-08-02 ruling. Without it a beam that lands on the mod's panel where there is
+            // no widget is simply eaten, with nothing behind it to fall through to.
+            if (MenuWindowFamily.IsSettingsWindow(wp.Window)
                 && ReferenceEquals(wp.Panel.HostCanvas, canvas))
                 return true;
         }
@@ -1493,9 +1520,15 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (wp.Window == null || wp.UserClosing || !wp.Panel.IsAlive)
                 continue;
-            UIWindowID id = wp.Window.ID;
-            if (id != UIWindowID.Options && id != UIWindowID.OptionsSubmenu
-                && id != UIWindowID.ESCMenu)
+            // ModBuild 341: the settings surfaces come from MenuWindowFamily, so the mod's own
+            // settings window is covered too — every row in the VR settings panel was silently
+            // eating its click whenever a scripted tutorial held an interaction profile loaded,
+            // which is the 2026-08-02 defect one window over. The ESC menu is added HERE rather
+            // than in the family, because it is the OPENER, not a settings surface: it must keep
+            // the exemption for the same ruling's second half (a veto on its Options row made the
+            // options window un-openable).
+            if (!MenuWindowFamily.IsSettingsWindow(wp.Window)
+                && wp.Window.ID != UIWindowID.ESCMenu)
                 continue;
             RectTransform? host = wp.Panel.HostRect;
             if (host != null && widget.IsChildOf(host))

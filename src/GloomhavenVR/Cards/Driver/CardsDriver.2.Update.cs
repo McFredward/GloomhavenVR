@@ -710,13 +710,21 @@ internal sealed partial class CardsDriver
                 // tell a hardware log which window latched the gate — the MP player picker took a
                 // whole session to pin. DescribeBlockingWindows allocates, so it runs only here,
                 // on the state EDGE.
-                VRLog.Info("Cards", "Modal commit-block ENGAGED — BLOCKING modal open (not the pause/options " +
+                // HW-VERIFY: THE line the 2026-09-02 report is decided by. If it names
+                // 'GloomhavenVR.OptionsTabWindow' the ModBuild 341 classification did not take and
+                // the VR settings window is still being read as a blocking game modal. Edge-gated
+                // (fires only when _modalInputBlocked changes), never per frame. Promoted
+                // Info -> Note in ModBuild 341; the TEXT is byte-identical, only the tier moved.
+                VRLog.Note("Cards", "Modal commit-block ENGAGED — BLOCKING modal open (not the pause/options " +
                                     "family): card/tray COMMITS gated off; laser beam, collision and hover stay live. " +
                                     $"Blocking window(s): {WorldUI.ModalFallback.DescribeBlockingWindows()}.");
             }
             else
             {
-                VRLog.Info("Cards", "Modal commit-block RELEASED — blocking modal closed: restoring card poke/grab commits.");
+                // HW-VERIFY: the release half of the pair above — an ENGAGED with no RELEASED is
+                // the gate outliving its edge, which is exactly what the ModBuild 340 log shows
+                // (line 9530 engages and nothing releases it for the rest of the session).
+                VRLog.Note("Cards", "Modal commit-block RELEASED — blocking modal closed: restoring card poke/grab commits.");
                 _dirty = true; // Rebuild re-applies each card's zone Grabbable/PokeSelectEnabled next frame
             }
         }

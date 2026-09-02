@@ -159,7 +159,7 @@ internal static partial class ModalFallback
     /// unknown windows, then append every eligible one to <see cref="OpenWindows"/> so
     /// the ENTIRE existing machinery treats it like any tracked modal — float via
     /// TryConvertWindow (grab bar + X), Failed → flat screen, ModalUI (unknown IDs are
-    /// never in <see cref="NonBlockingMenus"/>, so they count as blocking), escape
+    /// never a <see cref="MenuWindowFamily.IsPlayerMenu"/>, so they count as blocking), escape
     /// chord, release-on-close. Also runs the two explicit enrollment polls (reward
     /// showcase, GlobalErrorMessage) so their comments live next to the mechanism.
     /// </summary>
@@ -489,7 +489,9 @@ internal static partial class ModalFallback
         // options window at RUNTIME in the main menu (MainOptionOptions.cs:20-25). This costs nothing
         // inside the map room, where the ModBuild 225 log shows both the ESC menu and the options
         // window floating standalone, i.e. neither had an ancestor for the rule to find.
-        if (!NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID)
+        // ModBuild 341: IsGameOwnedMenu, NOT IsPlayerMenu — this exemption is about the GAME's
+        // runtime re-parenting, not about play flow. See MenuWindowFamily.IsGameOwnedMenu.
+        if (!MenuWindowFamily.IsGameOwnedMenu(window) && !MultiplayerRosterMenus.Contains(window.ID)
             && MapRoom.MapRoomDriver.Active && HasOpenAncestorWindow(window, allowRevival: true))
             return false;
         // ModBuild 226 — the live-floated ancestor AND the declared sibling groups, in one call, so
@@ -1253,7 +1255,7 @@ internal static partial class ModalFallback
     /// the suppression rule itself exempts would be a NEW suppression wearing the revival's clothes.
     ///
     /// <para>So it mirrors <see cref="CatchAllEligible"/>'s own exemptions, term for term: the
-    /// PARALLEL-WINDOW FAMILIES (<see cref="NonBlockingMenus"/>,
+    /// PARALLEL-WINDOW FAMILIES (<see cref="MenuWindowFamily.IsGameOwnedMenu"/>,
     /// <see cref="MultiplayerRosterMenus"/>) are exempt there under the ModBuild 180 ruling — "Anders
     /// als in Flat soll es hier möglich sein mehrere Fenster parallel offen zu haben" — and their
     /// parents are not stable placement facts anyway (<c>MainOptionOptions</c> re-parents the options
@@ -1263,7 +1265,7 @@ internal static partial class ModalFallback
     /// Mouseovers mehr") re-created from a new direction.</para>
     /// </summary>
     private static bool IsRetractableSubView(UIWindow window)
-        => !NonBlockingMenus.Contains(window.ID) && !MultiplayerRosterMenus.Contains(window.ID);
+        => !MenuWindowFamily.IsGameOwnedMenu(window) && !MultiplayerRosterMenus.Contains(window.ID);
 
     /// <summary>The retraction's one line per sub-view type. <paramref name="hadPanel"/> separates
     /// the two populations honestly: a window with a live float has had a PANEL taken down, a window

@@ -11,13 +11,12 @@ namespace GloomhavenVR.WorldUI;
 internal static partial class ModalFallback
 {
 
-    /// <summary>
-    /// The mod's own standalone VR settings window, matched by NAME. Its <c>UIWindowID</c> is
-    /// <c>None</c> on purpose (see ModBuild 337), so every id-keyed rule in this file misses it —
-    /// including the Options family's exemption from the per-frame content fit, which is what made
-    /// it resize while the player merely scrolled. Set in <c>VROptionsTab.1.Inject.cs</c>.
-    /// </summary>
-    private const string VROptionsWindowName = "GloomhavenVR.OptionsTabWindow";
+    // THE MOD'S OWN MENU WINDOWS ARE RECOGNISED IN ONE PLACE NOW: MenuWindowFamily. ModBuild 339
+    // added a private `VROptionsWindowName` here to give the VR settings pane the Options family's
+    // content-fit exemption, and that name test stayed private to this file — so every OTHER
+    // id-keyed rule in ModalFallback still missed the window, which is the whole of the ModBuild
+    // 340 defect ("Wenn man die VR Optionen offen hat kommt die Kartenhand nicht"). The constant,
+    // the registration and the family predicates now live together in MenuWindowFamily.cs.
     // ---- conversion ---------------------------------------------------------------------
 
     /// <summary>
@@ -316,7 +315,7 @@ internal static partial class ModalFallback
             // No null test: `window` is dereferenced unguarded either side of this line
             // (window.ID, above and below), so adding one here only teaches the compiler the
             // reference is nullable and moves the warning to those.
-            bool vrOptionsWindow = window.name == VROptionsWindowName;
+            bool vrOptionsWindow = MenuWindowFamily.IsModOwned(window);
             bool? fitContent = (fullScreenMenu && !escMenuWidthHug) || vrOptionsWindow
                 ? false
                 : (bool?)null;
@@ -685,7 +684,16 @@ internal static partial class ModalFallback
                 // is the opposite case: keeping it is keeping a frame around content that has left.
                 // The window stays NON-BLOCKING (MapRoomParallel is untouched, so IsBlockingWindow
                 // still reads false and no ModalUI lock is raised) — only the stickiness goes.
-                Sticky = (NonBlockingMenus.Contains(window.ID) || MapRoomParallel(window))
+                // ModBuild 341 — THE STICKY QUESTION IS NOT THE BLOCKING QUESTION, and asking both
+                // with one membership test is how a per-site verdict silently becomes a policy.
+                // MenuWindowFamily.IsGameOwnedMenu is deliberately the GAME-ids-only half:
+                // stickiness defends a window against the ESC menu's single-window ToggleGroup, and
+                // ModBuild 337 took the mod's own settings window OUT of that group precisely so the
+                // two windows stop closing each other. Making it sticky would buy it nothing and
+                // cost the empty-window ruling: only UserClosing ever drops a sticky float, so any
+                // path that hides the window without CloseFloatedWindow would leave the frame
+                // standing with nothing in it. The reasoning is written out on that method.
+                Sticky = (MenuWindowFamily.IsGameOwnedMenu(window) || MapRoomParallel(window))
                          && !isTransient,
                 Transient = isTransient,
                 // ModBuild 230 (liveness): the clock every grace and dwell in TickWindowLiveness is
@@ -714,6 +722,9 @@ internal static partial class ModalFallback
             // rule-1-spawning at its own gaze position (the two-places bug).
             if (isLevelMsg)
                 StoreChainPose(wp);
+            // ModBuild 341: one line per mod-owned menu window, the first time it actually floats —
+            // so a hardware log proves the classification RAN, not merely that the code exists.
+            MenuWindowFamily.AnnounceFloat(window);
             VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floated in front of the HMD " +
                                   $"({WindowDistanceMeters:F1} m, poke + laser clickable) — " +
                                   "restored to 2D when it closes.");
@@ -838,32 +849,17 @@ internal static partial class ModalFallback
     private static bool IsResultsPanel(UIWindowID id) =>
         id == UIWindowID.ResultsPanel || id == UIWindowID.AdventureCompletionPanel;
 
-    /// <summary>
-    /// Item 3b: player-reachable menus that must NOT assert ModalUI, so the user keeps FULL
-    /// world interaction (board / cards / fan) while the pause menu — or a submenu opened from
-    /// it (options / multiplayer / compendium) — is open. Every other window that reaches the
-    /// modal path (story, level messages, dialog-confirms, results, durability) still blocks.
-    /// These menus still float, stay grabbable, and carry the X button — only the mode lock is
-    /// lifted for them.
-    ///
-    /// Membership here ALSO makes a window <see cref="WindowPanel.Sticky"/> (it survives the
-    /// ESC menu's single-window ToggleGroup) — that is a property of THIS family specifically,
-    /// which is why the multiplayer roster family lives in its own set
-    /// (<see cref="MultiplayerRosterMenus"/>) instead of being appended here.
-    /// </summary>
-    private static readonly HashSet<UIWindowID> NonBlockingMenus = new()
-    {
-        UIWindowID.ESCMenu,
-        UIWindowID.Options,
-        UIWindowID.OptionsSubmenu,
-        UIWindowID.ViceOptionsSubmenu,
-        UIWindowID.CompendiumPanel,
-        UIWindowID.MultiplayerFriendList,
-        UIWindowID.HelpBox,
-    };
+    // THE PLAYER-REACHABLE MENU FAMILY (item 3b) HAS MOVED to MenuWindowFamily.cs, unchanged in
+    // membership. It lived here as a private HashSet<UIWindowID> and was asked, in six expressions
+    // across five files, two DIFFERENT questions: "is this a menu the player opened, so it must not
+    // disturb play?" and "does the game's single-window discipline hide this behind a sibling, so
+    // our float must be sticky?". Those are MenuWindowFamily.IsPlayerMenu and
+    // .IsGameOwnedMenu now, and only the first of them answers for the mod's own settings
+    // window (whose UIWindowID is None by ModBuild 337's deliberate choice). Keeping the set here
+    // is what made that window unrepresentable: an id-keyed set cannot hold a window with no id.
 
     /// <summary>
-    /// MULTIPLAYER ROSTER FAMILY — non-blocking like <see cref="NonBlockingMenus"/>, but NOT
+    /// MULTIPLAYER ROSTER FAMILY — non-blocking like <see cref="MenuWindowFamily.IsPlayerMenu"/>, but NOT
     /// sticky (they must close exactly when the game closes them; they are not part of the ESC
     /// menu's ToggleGroup fight).
     ///
