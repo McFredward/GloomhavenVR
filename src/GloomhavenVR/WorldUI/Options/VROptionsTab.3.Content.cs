@@ -368,6 +368,29 @@ internal static partial class VROptionsTab
         // the tuning constants are one deliberate step further in. (Key kept as "cat_debug" —
         // the 2026-08 overhaul renamed only the TEXT to "Erweitert"/"Advanced", audit 05 S1.)
         BuildCategoryButton(bar, AdvancedTabIndex, Loc.Mod("cat_debug"));
+
+        // WHAT THE COLUMN ACTUALLY SAYS, once, at a printed tier — the state after the tab
+        // captions have been through NoOrphanCaption. It answers two of the 2026-09-02 items from
+        // a log file instead of from a squint at a screenshot: whether "Umgebung" arrived as one
+        // word, and whether any remaining caption still carries a fusible symbol (those show as
+        // <NBSP>, and a bare "&" between two spaces would mean the rule did not run). It CANNOT
+        // say how the column renders — a caption that fits the string test can still be shrunk to
+        // 9pt by the fitter — so it narrows the question rather than answering it.
+        var captions = new System.Text.StringBuilder(160);
+        for (int i = 0; i < bar.childCount; i++)
+        {
+            TMP_Text? text = bar.GetChild(i).GetComponentInChildren<TMP_Text>(true);
+            if (text == null)
+                continue;
+            if (captions.Length > 0)
+                captions.Append(" | ");
+            // ESCAPES, not the characters: a literal U+00A0 in this source line would be
+            // invisible to every reviewer and one careless reformat away from an ordinary
+            // space, at which point the line would silently stop telling the two apart.
+            captions.Append(text.text.Replace("\u00A0", "<NBSP>").Replace("\n", "<NL>"));
+        }
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"VR options tab: sub-tab column built, {bar.childCount} tab(s) — {captions}");
     }
 
     /// <summary>
@@ -413,25 +436,89 @@ internal static partial class VROptionsTab
         toggle.onValueChanged.RemoveAllListeners();
         toggle.group = CategoryGroup(parent);
         toggle.SetIsOnWithoutNotify(index == SelectedTabIndex);
+        // THE `index == SelectedTabIndex` GUARD THAT STOOD HERE IS GONE, and that one deletion is
+        // the whole of user request (b) — see SelectTabRoot. uGUI already delivers the press on
+        // the tab you are already inside; this listener was throwing it away.
         toggle.onValueChanged.AddListener(on =>
         {
-            if (!on || index == SelectedTabIndex)
-                return;
-
-            if (index == AdvancedTabIndex)
-            {
-                _view = View.AdvancedIndex;
-            }
-            else
-            {
-                _view = View.Curated;
-                _curated = index;
-            }
-
-            TickGuard.Run("VROptionsTab.Switch", Rebuild, "WorldUI");
+            if (on)
+                SelectTabRoot(index);
         });
 
         CategoryToggles.Add((toggle, index));
+    }
+
+    /// <summary>
+    /// THE LEFT COLUMN IS "UP ONE LEVEL": pressing a tab shows that tab's ROOT page, whether or
+    /// not it is the tab you are already in.
+    ///
+    /// <para>USER REQUEST, 2026-09-02, verbatim: <i>"Wenn ich in einem Sub-Menu in 'Erweitert' bin
+    /// und dann links wieder auf den 'Erweitert' Knopf drücke erwarte ich, dass ich wieder zu der
+    /// Übersicht des Erweitert-Menus komme. Aktuell komm ich nur zurück wenn ich ganz oben auf
+    /// '&lt; Erweitert' drücke - ich will es links aber aber auch zusätzlich."</i></para>
+    ///
+    /// <para>STATED AS A RULE FOR EVERY TAB, not as a special case for Erweitert. "Click the
+    /// section you are in to go to the top of that section" is how every sidebar the player has
+    /// ever used behaves, and writing it per-tab would mean the next tab that grows a sub-page
+    /// silently does not have it. Concretely: from a topic page, the trigger page or the cheats
+    /// page, pressing "Erweitert" lands on the Erweitert index; pressing a curated tab you are
+    /// already on is a no-op because a curated tab has no deeper page to come back from — and if
+    /// one ever gets a sub-page, it inherits the behaviour from this method rather than from a
+    /// new branch.</para>
+    ///
+    /// <para>THE BREADCRUMB STAYS ("ich will es links aber aber auch zusätzlich" — the word is
+    /// ZUSÄTZLICH, additionally). <c>BuildTopic</c> still draws "‹ Erweitert" at the top of every
+    /// topic page and it is untouched.</para>
+    ///
+    /// <para>WHY THE FIX IS A DELETION AND NOT A NEW CLICK PATH — verified against the game's own
+    /// <c>UnityEngine.UI.dll</c> rather than reasoned about, because the obvious reading is wrong.
+    /// It looks as though pressing the lit toggle in a group with <c>allowSwitchOff = false</c>
+    /// cannot raise an event at all. It does. <c>Toggle.OnPointerClick</c> flips the field, so
+    /// <c>Set(false)</c> is entered with <c>m_IsOn == true</c>; the group clause then finds no
+    /// other toggle on, forces <c>m_IsOn</c> back to <c>true</c> — and <c>onValueChanged.Invoke(
+    /// m_IsOn)</c> runs unconditionally at the end of that same branch. So the press was arriving
+    /// here all along, and the listener's own <c>index == SelectedTabIndex</c> early-return was
+    /// what swallowed it. Removing that guard is the entire mechanism; nothing new listens for a
+    /// click, and no extra <c>IPointerClickHandler</c> is attached (one was written and then
+    /// deleted — it would have been a second handler firing on every real tab switch, justified by
+    /// a claim about uGUI that the decompiled Set() disproves).</para>
+    ///
+    /// <para>IDEMPOTENT ANYWAY. Each branch returns before rebuilding when the view is already the
+    /// one asked for, which is what makes pressing the lit CURATED tab free — a curated tab has no
+    /// deeper page, so its root is the page already on screen.</para>
+    /// </summary>
+    private static void SelectTabRoot(int index)
+    {
+        // Captured BEFORE the state changes: "was the tab I pressed already the lit one" is what
+        // separates an ordinary switch from the up-one-level press this round adds, and after the
+        // assignment below the two are indistinguishable.
+        bool wasAlreadyInside = index == SelectedTabIndex;
+        View from = _view;
+
+        if (index == AdvancedTabIndex)
+        {
+            if (_view == View.AdvancedIndex)
+                return;
+            _view = View.AdvancedIndex;
+        }
+        else
+        {
+            if (index < 0 || index >= Curated.Length)
+                return;
+            if (_view == View.Curated && _curated == index)
+                return;
+            _view = View.Curated;
+            _curated = index;
+        }
+
+        if (wasAlreadyInside)
+        {
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"VR options tab: left column pressed on the tab already open "
+                                  + $"(#{index}) — went up one level, {from} -> {_view}.");
+        }
+
+        TickGuard.Run("VROptionsTab.TabRoot", Rebuild, "WorldUI");
     }
 
     /// <summary>

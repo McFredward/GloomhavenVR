@@ -305,6 +305,11 @@ internal static class ConfigCatalog
         Bind("figuregrab", Board.FigureGrab.FigureGrabConfig.Bind);
         Bind("hands", Hands.HandsConfig.Bind);
         Bind("net", Net.NetModule.BindConfig);
+        // CHEATS (temporary) — removal step 5. Force-bound so dev.gloomhavenvr.cheats.cfg EXISTS
+        // the first time the options window is opened: the switch is off by default and hidden
+        // from the menu (NotOffered), so the file is the only place the player can turn it on,
+        // and a file that is never written is a gate with no handle.
+        Bind("cheats", VROptionsTab.BindCheatsConfig);
     }
 
     private static void Bind(string what, Action binder)
@@ -430,6 +435,12 @@ internal static class ConfigCatalog
         // missing (HandVisuals.CreateHandMaterial). Any install that loads the bundle wears one of
         // the three hand models and never sees it. It is also an RRGGBB string, so the row offered
         // a left/right stepper with nothing to step.
+        // CHEATS (temporary) — removal step 5. A gate that can be opened from inside the room it
+        // locks is not a gate: the request was that the cheats page be enabled "über die cfg",
+        // and a toggle on the Erweitert page would let one mis-click undo that. Hand-editing
+        // dev.gloomhavenvr.cheats.cfg still works, which is the whole point.
+        ["Cheats/Enabled"] = "the gate for the temporary cheats page — a .cfg decision by request, "
+            + "so it must not be flippable from inside the menu it unlocks",
         ["Hands/HandColor"] = "only tints the procedural fallback hand, which a normal install never shows",
         // Half of what Mixed Reality IS. Keying the camera clear without also removing the opaque
         // backdrop leaves the backdrop drawn over the key colour, so offering it as a separate

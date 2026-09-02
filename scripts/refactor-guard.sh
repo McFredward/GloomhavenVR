@@ -232,6 +232,15 @@ case "${1:-check}" in
         # waiting on must survive the DEFAULT level, and nothing noticed that it no longer did.
         python3 "$ROOT/scripts/check-hw-verify.py" \
             || { echo "error: a HW-VERIFY line cannot be read at the default log level (see above)" >&2; exit 1; }
+        # ModBuild 339 built the bar-height dial the user asked for; his report after ModBuild
+        # 347 was that he COULD NOT FIND IT. It had gone in uncurated, so it fell through to the
+        # raw Erweitert list among five hundred others. A setting that exists and cannot be
+        # reached is not a shipped setting. This fails on a curated key nothing binds, a caption
+        # Loc.cs lacks, an unargued duplicate, and -- the actual 339 defect -- a key joining a
+        # curated family WITHOUT joining its heading. That last one is a frozen backlog gated on
+        # the DELTA, the same idiom check-instrument-writes.py uses.
+        python3 "$ROOT/scripts/check-options-coverage.py" \
+            || { echo "error: an option is unreachable or mis-filed in the menu (see above)" >&2; exit 1; }
         "$ROOT/scripts/wire-tests.sh" \
             || { echo "error: the wire format changed (see above)" >&2; exit 1; }
         "$ROOT/scripts/check-bundle-format.sh" \

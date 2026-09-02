@@ -777,6 +777,145 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
+    /// The character that may not start or end a line on its own: <c>U+00A0</c>, a space TMP will
+    /// not break at. It is a SPACE, so it measures and reads like one; it simply cannot be a line
+    /// boundary.
+    ///
+    /// <para>Written as an ESCAPE, never as the character itself: a literal U+00A0 in a
+    /// source file is invisible in every diff and every editor, and the one thing this
+    /// constant must not be is silently replaced by an ordinary space.</para>
+    /// </summary>
+    private const char NoBreakSpace = '\u00A0';
+
+    /// <summary>
+    /// Glue one-character and symbol-only words to a neighbour so a line break can never leave one
+    /// of them stranded on a line of its own.
+    ///
+    /// <para>USER REPORT, 2026-09-02, verbatim: <i>"Wenn du Zeilenumrüche machst achte darauf, dass
+    /// nicht ein einziges Symbol eine Zeile bekommt, dass sieht doof aus aktuell gibt es ein Tab
+    /// der heißt ('Umgebung // &amp; // Ton) // repräsentieren hier Zeilenumbrüche."</i> — one tab
+    /// was rendering as three lines with a lone ampersand as the middle one.</para>
+    ///
+    /// <para>WHY IT HAPPENED, AND WHY THE FIX IS NOT A RENAME. The Loc string already carried an
+    /// authored break — <c>"Umgebung &amp;\nTon"</c>, two lines, the ampersand deliberately kept
+    /// with the word before it. The 210 px column could not hold "Umgebung &amp;" at the fitted
+    /// size, so TMP broke the AUTHORED line again at its own space and produced a third line
+    /// holding one character. An authored break is therefore not protection: TMP will always break
+    /// a line further if the line does not fit, and the only thing it will not break is a
+    /// non-breaking space. So the rule belongs in the layout — the next long label would repeat it,
+    /// and no reviewer can see a wrap fault by reading a Loc string.</para>
+    ///
+    /// <para>THE RULE. Per authored line, a word is WEAK when it is one character long, or when it
+    /// is at most two characters and holds no letter or digit — "&amp;", "+", "/", "‹", "-", "·",
+    /// "I", "3". Every weak word is fused to the word BEFORE it (to the word after it, if it opens
+    /// the line) with <see cref="NoBreakSpace"/>. Backwards by default because that is the
+    /// convention the hand-authored captions already use and the one German and English typography
+    /// share: "Brett &amp;" then "Karten", never "Brett" then "&amp; Karten".</para>
+    ///
+    /// <para>WHAT IT COSTS WHEN THE FUSED CHUNK STILL DOES NOT FIT: nothing breaks. The fitter's
+    /// auto-size shrinks the line instead, down to its 9 pt floor, and <c>TextOverflowModes
+    /// .Overflow</c> means a caption past even that spills rather than vanishing. A slightly
+    /// smaller two-line caption is the trade being made against a three-line one with a lone
+    /// symbol, and it is the trade the report asks for.</para>
+    ///
+    /// <para>PURE AND IDEMPOTENT — it only ever replaces an ordinary space with a non-breaking one,
+    /// so running it twice over the same caption is the same as running it once (a fused chunk no
+    /// longer splits into a weak word). That matters because the tab strip is built once but the
+    /// Erweitert link rows are rebuilt on every page switch.</para>
+    /// </summary>
+    internal static string NoOrphanCaption(string? caption)
+    {
+        if (string.IsNullOrEmpty(caption) || caption!.IndexOf(' ') < 0)
+            return caption ?? string.Empty;
+
+        var built = new System.Text.StringBuilder(caption.Length + 4);
+        int cursor = 0;
+        while (true)
+        {
+            int newline = caption.IndexOf('\n', cursor);
+            int stop = newline < 0 ? caption.Length : newline;
+            AppendWithoutOrphans(built, caption, cursor, stop);
+            if (newline < 0)
+                break;
+            built.Append('\n');
+            cursor = newline + 1;
+        }
+        return built.ToString();
+    }
+
+    /// <summary>Words of one authored line, re-joined with the weak ones fused to a neighbour.</summary>
+    private static void AppendWithoutOrphans(System.Text.StringBuilder built, string text,
+                                             int start, int stop)
+    {
+        // Split on the ordinary space only. A non-breaking space already present in the source is
+        // deliberately NOT a split point: it is somebody's decision that those two words stay
+        // together, and re-joining across it could only undo that.
+        var words = new List<string>(6);
+        int at = start;
+        while (at < stop)
+        {
+            int space = text.IndexOf(' ', at, stop - at);
+            if (space < 0)
+            {
+                words.Add(text.Substring(at, stop - at));
+                break;
+            }
+            if (space > at)
+                words.Add(text.Substring(at, space - at));
+            at = space + 1;
+        }
+        if (words.Count == 0)
+            return;
+
+        // Fuse, then emit. Two passes rather than one so a weak word at the FRONT can still find a
+        // partner: it has no predecessor to fuse to, and must take the word after it instead.
+        var glued = new List<string>(words.Count);
+        for (int i = 0; i < words.Count; i++)
+        {
+            if (!IsWeakWord(words[i]))
+            {
+                glued.Add(words[i]);
+                continue;
+            }
+            if (glued.Count > 0)
+                glued[glued.Count - 1] = glued[glued.Count - 1] + NoBreakSpace + words[i];
+            else if (i + 1 < words.Count)
+            {
+                glued.Add(words[i] + NoBreakSpace + words[i + 1]);
+                i++;
+            }
+            else
+                glued.Add(words[i]);   // a line of one weak word: nothing to fuse it to
+        }
+
+        for (int i = 0; i < glued.Count; i++)
+        {
+            if (i > 0)
+                built.Append(' ');
+            built.Append(glued[i]);
+        }
+    }
+
+    /// <summary>
+    /// A word that must never stand alone on a line: one character, or two characters with no
+    /// letter and no digit in them. "3D" and "2D" are NOT weak (they carry a digit and a letter and
+    /// are the whole name of a thing); "&amp;", "/", "‹", "+" and any bare initial are.
+    /// </summary>
+    private static bool IsWeakWord(string word)
+    {
+        if (word.Length == 0 || word.Length > 2)
+            return false;
+        if (word.Length == 1)
+            return true;
+        for (int i = 0; i < word.Length; i++)
+        {
+            if (char.IsLetterOrDigit(word[i]))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Fit a tab-clone's caption by WRAPPING it rather than only shrinking it.
     ///
     /// <para>SHRINK-ONLY WAS NOT ENOUGH (user report 2026-08: "die Tab Namen sind unter Umständen
@@ -796,6 +935,10 @@ internal static partial class VROptionsTab
     /// </summary>
     private static void FitTabCaption(TMP_Text label)
     {
+        // THE BREAK IS FIXED BEFORE THE FIT, not after: once TMP has chosen its line boxes there
+        // is nothing left to correct. See NoOrphanCaption.
+        label.text = NoOrphanCaption(label.text);
+
         var rect = (RectTransform)label.transform;
         rect.anchorMin = new Vector2(rect.anchorMin.x, 0f);
         rect.anchorMax = new Vector2(rect.anchorMax.x, 1f);

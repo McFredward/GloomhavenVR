@@ -20,6 +20,15 @@ internal static partial class Defaults
     // else would be the mod pre-judging a number he asked to own.
     internal const float BarHeightOffset = 0f;  // => [WorldUI] BarHeightOffset
 
+    // ---- WorldUI/Options/VROptionsTab.Cheats.cs ------------------------------------
+    // CHEATS (temporary) — removal step 5: delete this line with the feature. It is the gate the
+    // user asked for on 2026-09-02 ("Das Cheats-Menu sollten über die cfg aktiviert werden können
+    // (per default AUS)"), and FALSE is the request, not a guess: with it off the cheats page has
+    // no link on the Erweitert index and cannot be reached at all. The key lives on its own file,
+    // dev.gloomhavenvr.cheats.cfg, so removing the feature removes a file rather than leaving a
+    // dead line in a player's tuned config.
+    internal const bool CheatsEnabled = false;  // => [Cheats] Enabled
+
     // ---- WorldUI/ButtonTuning.cs ---------------------------------------------------
     // THE WHOLE [RoundButtons] FAMILY IS GONE (2026-08-25), and so is the group it sized. Nine
     // constants stood here — OffsetX/Y/Z, Shape, CapSize, Width, Height, Depth, Travel — and every

@@ -39,18 +39,51 @@ internal static partial class VROptionsTab
         internal readonly string Key;
         internal readonly string CaptionKey;
 
+        /// <summary>English/German caption written HERE instead of in a Loc key — see <see cref="Say"/>.</summary>
+        internal readonly string En;
+        internal readonly string De;
+
         internal CuratedEntry(string section, string key, string captionKey)
+            : this(section, key, captionKey, string.Empty, string.Empty)
+        {
+        }
+
+        internal CuratedEntry(string section, string key, string captionKey, string en, string de)
         {
             Section = section;
             Key = key;
             CaptionKey = captionKey;
+            En = en;
+            De = de;
         }
 
-        internal string Caption => Loc.Mod(CaptionKey);
+        /// <summary>
+        /// The row's label. A local <see cref="En"/>/<see cref="De"/> pair wins over the Loc key,
+        /// and an empty result is the documented fall-through to the catalog's display name.
+        /// </summary>
+        internal string Caption => En.Length > 0 ? Say(En, De) : Loc.Mod(CaptionKey);
 
         /// <summary>Hint key, derived from the caption key so the two can never drift apart.</summary>
         internal string HintKey => "h_" + CaptionKey;
     }
+
+    /// <summary>
+    /// A user-facing string written in THIS file rather than in <c>Core/Loc/Loc.cs</c>.
+    ///
+    /// <para>WHY THE EXCEPTION EXISTS. Loc.cs is the mod's translation table and remains the right
+    /// home for a caption that outlives a restructure. What it is NOT good at is a label whose ONLY
+    /// reason to exist is the shape of the tree in this file: renaming a tab then means editing two
+    /// files that no checker ties together, and the failure mode is silent — <see cref="Loc.Mod"/>
+    /// returns the ID itself when the table misses, so the tab is captioned "cat_environment" and
+    /// nothing says so until somebody looks at it in a headset.</para>
+    ///
+    /// <para>NOT the identically-shaped <c>Text()</c> at the bottom of VROptionsTab.Cheats.cs, and
+    /// the duplication is deliberate: that file is built to be DELETED in one step, and a
+    /// dependency from the permanent curated tree onto a temporary file would break the build the
+    /// day the cheats page is removed.</para>
+    /// </summary>
+    private static string Say(string english, string german) =>
+        string.Equals(Loc.CurrentLanguage, "German", StringComparison.Ordinal) ? german : english;
 
     /// <summary>A titled block of settings inside a category — the second level of order.</summary>
     internal sealed class CuratedSection
@@ -58,7 +91,11 @@ internal static partial class VROptionsTab
         internal string LocKey = string.Empty;
         internal CuratedEntry[] Entries = System.Array.Empty<CuratedEntry>();
 
-        internal string Label => Loc.Mod(LocKey);
+        /// <summary>Optional local label, used in place of <see cref="LocKey"/> — see <see cref="Say"/>.</summary>
+        internal string En = string.Empty;
+        internal string De = string.Empty;
+
+        internal string Label => En.Length > 0 ? Say(En, De) : Loc.Mod(LocKey);
     }
 
     /// <summary>One sub-tab: a caption and the sections beneath it.</summary>
@@ -67,7 +104,11 @@ internal static partial class VROptionsTab
         internal string LocKey = string.Empty;
         internal CuratedSection[] Sections = System.Array.Empty<CuratedSection>();
 
-        internal string Label => Loc.Mod(LocKey);
+        /// <summary>Optional local label, used in place of <see cref="LocKey"/> — see <see cref="Say"/>.</summary>
+        internal string En = string.Empty;
+        internal string De = string.Empty;
+
+        internal string Label => En.Length > 0 ? Say(En, De) : Loc.Mod(LocKey);
     }
 
     /// <summary>
@@ -599,6 +640,26 @@ internal static partial class VROptionsTab
         new()
         {
             LocKey = "cat_environment",
+            // THE TAB IS CALLED "Umgebung" / "World" NOW — ONE WORD (user report 2026-09-02,
+            // verbatim: "aktuell gibt es ein Tab der heißt ('Umgebung // & // Ton) // repräsentieren
+            // hier Zeilenumbrüche", i.e. it was rendering as THREE lines with a lone ampersand in
+            // the middle).
+            //
+            // The mechanical half of that report is fixed in the layout and not here — see
+            // VROptionsTab.2.Rows.NoOrphanCaption, which fuses a one-character or symbol-only word
+            // to its neighbour with U+00A0 so NO caption, present or future, can strand one on a
+            // line. This rename is the other half, and it is worth stating why both were needed:
+            // the Loc string ALREADY carried the authored break "Umgebung &\nTon", and the 210 px
+            // column still could not hold the line "Umgebung &" at the fitted size, so TMP broke
+            // the authored line a second time. The rule stops the ampersand being alone; only a
+            // shorter name stops the column having to shrink the caption at all.
+            //
+            // "Umgebung" and not "Umgebung & Ton" shortened: the tab holds Schauplatz / Grusel /
+            // Ton / Sichtbarkeit / Karte 3D, and every one of those is a property of the world you
+            // are standing in. Sound has its own heading INSIDE, one level cheaper than a tab and
+            // exactly where the 2026-08-22 audit put it; the tab name does not have to repeat it.
+            En = "World",
+            De = "Umgebung",
             Sections = new CuratedSection[]
             {
                 new()
@@ -609,6 +670,13 @@ internal static partial class VROptionsTab
                     // OF the environment the row above chooses") and then left the whole block on
                     // a render page anyway.
                     LocKey = "sec_environment",
+                    // "Schauplatz" / "Scenery", not "Umgebung": the TAB is called Umgebung now (see
+                    // the note above), and a section that repeats its own tab's name tells the
+                    // reader nothing about which of the five headings to read. Schauplatz is what
+                    // these three rows actually pick — WHERE the scenario is staged and what mood
+                    // it is in. The LocKey is kept so nothing that references the section moves.
+                    En = "Scenery",
+                    De = "Schauplatz",
                     Entries = new CuratedEntry[]
                     {
                         // The environment choice (user ruling 2026-08-12: real 3D environments
@@ -834,6 +902,87 @@ internal static partial class VROptionsTab
                 },
                 new()
                 {
+                    // ==================================================================
+                    //  LEBENSBALKEN — MOVED HERE FROM "Tafeln", AND COMPLETED (2026-09-02)
+                    // ==================================================================
+                    // USER REPORT, verbatim: "Weiterhin finde ich den offset für die healthbar
+                    // nicht - daraus resultiert ein weiterer Task: Die Optionen sollten immer
+                    // sonnvoll in Kategorien geclustert sein, so dass man sie schnell finden kann!"
+                    //
+                    // TWO FAULTS, ONE SYMPTOM, and both are fixed here.
+                    //
+                    // 1. THE ROW DID NOT EXIST. [WorldUI] BarHeightOffset was bound at ModBuild
+                    //    339 — for him, on his ask — and never curated. Uncurated means it fell to
+                    //    the catalog's own index, and there it is not even on the hand-arranged
+                    //    "Lebensbalken" heading of Erweitert ▸ Menüs & Tafeln (VROptionsTab.7
+                    //    .TopicTrees, vr_pt_bars): a key that tree does not name lands in the
+                    //    "Allgemein" grab-bag at the BOTTOM of the page, which is the exact thing
+                    //    that tree was written to empty. It is listed in both places now.
+                    //
+                    // 2. THE FAMILY WAS UNDER THE WRONG TAB. The bars floated above the FIGURES on
+                    //    the BOARD and their heading sat on "Tafeln" — the tab for the panels and
+                    //    windows the mod draws. That is filing by implementation (ActorBars is
+                    //    WorldUI code, its keys are in the [WorldUI] section) instead of by the
+                    //    object the player is looking at, which is the whole disease this round is
+                    //    about. Here the heading sits directly under "Figuren", one line below the
+                    //    switch for picking those same figures up: somebody who thinks "die Balken
+                    //    über den Figuren sitzen zu hoch" reads the tab that names the board, then
+                    //    the heading that names the bars. Nothing was lost by the move — every one
+                    //    of these four keys is still on Erweitert ▸ Menüs & Tafeln ▸ Lebensbalken.
+                    //
+                    // The rule this section is the poster child for is now MACHINE-CHECKED:
+                    // scripts/check-options-coverage.py fails the build when a key joins a curated
+                    // family without joining its heading. This exact defect is what it was written
+                    // against; its four checks are falsified in both directions in the round notes.
+                    LocKey = "vr_sec_bars",
+                    Entries = new CuratedEntry[]
+                    {
+                        // The bars themselves are no longer switchable ([WorldUI] ActorBars,
+                        // removed 2026-08-13) — only how big they are, how high they sit, and
+                        // whether walls hide them. HP is not optional content.
+                        // ONE size dial. The clamp's two ends were rows here too until
+                        // 2026-08-13 ("Mindest und Maximalgröße der Lebensbalken haben keinen
+                        // sehbaren einfluss … ziemlich unintuitiv"): they bounded the table-zoom
+                        // FOLLOW factor, which is 1.0 at the shipped zoom, so neither row could
+                        // move a pixel where the player stands. The clamp itself is kept — as the
+                        // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
+                        // every zoom, which is what the original request actually asked for.
+                        new("WorldUI", "BarSizeScale", "vr_o_barsize"),
+                        // THE ROW HE COULD NOT FIND. Directly under the size, because "zu groß"
+                        // and "zu hoch" are the same complaint arriving in two words.
+                        //
+                        // THE CAPTION IS WRITTEN HERE, not as a Loc key, and not left empty. Empty
+                        // would fall through to the catalog display name — and [WorldUI]
+                        // BarHeightOffset has no Loc.ConfigNames entry either, so the fall-through
+                        // is the camel humps spaced out: "Bar Height Offset", in German too. That
+                        // is a programmer's name on the one row this whole round exists to make
+                        // findable. Core/Loc/Loc.cs is owned by another lane this round, so the
+                        // pair lives on the entry (see Say) — migrating it to a Loc key later is a
+                        // pure move and changes nothing on screen.
+                        //
+                        // NO HINT KEY, deliberately: the CaptionKey is empty, so HintKey is "h_",
+                        // which misses, and the tooltip falls through to the entry's own bound
+                        // description — five sentences of German that already explain world units,
+                        // the sign convention and that it rides ON TOP of the per-figure head
+                        // measurement rather than replacing it. That is a better tooltip than any
+                        // one-liner written here would be.
+                        //
+                        // THE VALUE IS UNTOUCHED. Defaults.BarHeightOffset stays 0 (the measured
+                        // height stands); this round moves rows, it does not tune.
+                        new("WorldUI", "BarHeightOffset", "",
+                            "Health bars: height", "Lebensbalken: Höhe"),
+                        // PROMOTED from Erweitert ▸ Menüs & Tafeln (2026-08-22 settings audit,
+                        // question (b)): "Balken: Abstand ignorieren" is the THIRD member of a
+                        // three-row family whose other two are already here, and the heading above
+                        // it says so. A family that shares a name should share a page — that is
+                        // the argument this section was created with. Directly visible (bars stop
+                        // shrinking with distance), harmless when wrong, one toggle back.
+                        new("WorldUI", "BarFixedSize", ""),
+                        new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
+                    },
+                },
+                new()
+                {
                     LocKey = "vr_sec_cardhand",
                     Entries = new CuratedEntry[]
                     {
@@ -883,6 +1032,14 @@ internal static partial class VROptionsTab
         // The ONE home of every display the mod draws (audit 05 §2.1): the half of the panel
         // family that only lived under Debug — Initiative, Elemente, Aufgaben, Statustafeln,
         // Info-Karten, Tooltips, Handgelenk-Anzeige, Ladeanzeige — joins the curated switches.
+        //
+        // "Lebensbalken" IS NO LONGER ONE OF THEM (2026-09-02). The heading moved to Brett &
+        // Karten, under Figuren — see the long note there for the report it answers. The claim
+        // this tab makes above is still true and is exactly what the move corrects: the bars are
+        // not a display the mod DRAWS AS A PANEL, they are a readout stuck to a miniature on the
+        // board, and "every display the mod draws" was a net wide enough to catch them by
+        // implementation rather than by what the player is looking at. Do not pull them back
+        // without re-reading that note: this tab is where the offset went missing.
         new()
         {
             LocKey = "cat_panels",
@@ -911,36 +1068,6 @@ internal static partial class VROptionsTab
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),
                         new("WorldUI", "DecisionDock", "vr_o_decisiondock"),
                         new("WorldUI", "LoadingIndicator", "vr_o_loading"),
-                    },
-                },
-                new()
-                {
-                    // The bar family has its own heading now: with occlusion joining the
-                    // curated size trio (audit 04 straggler) it is five rows of one object,
-                    // and the naming pass unified them on "Lebensbalken: …" — a family that
-                    // shares a name should share a heading.
-                    LocKey = "vr_sec_bars",
-                    Entries = new CuratedEntry[]
-                    {
-                        // The bars themselves are no longer switchable ([WorldUI] ActorBars,
-                        // removed 2026-08-13) — only how big they are and whether walls hide
-                        // them. HP is not optional content.
-                        // ONE size dial. The clamp's two ends were rows here too until
-                        // 2026-08-13 ("Mindest und Maximalgröße der Lebensbalken haben keinen
-                        // sehbaren einfluss … ziemlich unintuitiv"): they bounded the table-zoom
-                        // FOLLOW factor, which is 1.0 at the shipped zoom, so neither row could
-                        // move a pixel where the player stands. The clamp itself is kept — as the
-                        // constants ActorBars.ZoomFollowMin/Max — so the size below still holds at
-                        // every zoom, which is what the original request actually asked for.
-                        new("WorldUI", "BarSizeScale", "vr_o_barsize"),
-                        // PROMOTED from Erweitert ▸ Menüs & Tafeln (2026-08-22 settings audit,
-                        // question (b)): "Balken: Abstand ignorieren" is the THIRD member of a
-                        // three-row family whose other two are already here, and the heading above
-                        // it says so. A family that shares a name should share a page — that is
-                        // the argument this section was created with. Directly visible (bars stop
-                        // shrinking with distance), harmless when wrong, one toggle back.
-                        new("WorldUI", "BarFixedSize", ""),
-                        new("WorldUI", "BarsOccluded", "vr_o_barsoccluded"),
                     },
                 },
                 new()

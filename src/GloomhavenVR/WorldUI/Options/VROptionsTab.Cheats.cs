@@ -33,14 +33,25 @@
 //
 //           rows += BuildCheatsIndexLink();
 //
+//    5. Delete the THREE lines marked `// CHEATS (temporary)` that carry the gate added on
+//       2026-09-02 (user: "Das Cheats-Menu sollten über die cfg aktiviert werden können (per
+//       default AUS)"):
+//         * `Bind("cheats", BindCheatsConfig);`      in ConfigCatalog.EnsureBound
+//         * the `["Cheats/Enabled"]` line            in ConfigCatalog.NotOffered
+//         * `internal const bool CheatsEnabled …`    in Defaults/Defaults.WorldUI.cs
+//       Nothing else refers to the key. The player's `dev.gloomhavenvr.cheats.cfg` then stops
+//       being written and can be deleted by hand; it holds one line and nothing else reads it.
+//
 //  THAT IS THE WHOLE FOOTPRINT. Deliberately:
 //    * NO Loc entries. Every user-facing string on this page lives in `Text()` at the bottom of
 //      this file, so removing the feature cannot leave orphaned translation keys behind in
 //      Core/Loc.cs (which is where they would normally go, and where nobody would think to look
 //      for them a month from now).
-//    * NO config entries. Nothing here persists a setting, so there is no `[Section] Key` to
-//      retire, no Defaults line, no dependency rule, no curated row, and no player .cfg that
-//      quietly loses a value when the feature goes.
+//    * ONE config entry, ON ITS OWN FILE. `[Cheats] Enabled` in `dev.gloomhavenvr.cheats.cfg` is
+//      the gate the user asked for, and it is a whole file rather than a line on a shared one for
+//      exactly the reason this block exists: removing the feature must not leave a dead key in a
+//      player's tuned .cfg. Nothing else here persists a setting — no dependency rule, no curated
+//      row, no wire field.
 //    * NO Harmony patches. Nothing is hooked; both buttons CALL the game, on a press, and then
 //      stop existing again.
 //    * NO wire fields, no NetProtocol change, no ModBuild implication.
@@ -131,13 +142,85 @@ internal static partial class VROptionsTab
     /// </summary>
     private static readonly List<(TMP_Text label, Func<string> read)> CheatLabels = new(4);
 
+    // ==========================================================================================
+    //  THE GATE — [Cheats] Enabled, and it ships OFF
+    // ==========================================================================================
+
+    /// <summary>Own file so the whole feature is one <c>dev.gloomhavenvr.cheats.cfg</c> to delete.</summary>
+    private static BepInEx.Configuration.ConfigFile? _cheatsFile;
+
+    private static BepInEx.Configuration.ConfigEntry<bool>? _cheatsEnabled;
+
+    /// <summary>
+    /// Bind the one key that decides whether this page exists at all. Idempotent, and separate
+    /// from the property below so <c>ConfigCatalog.EnsureBound</c> can force the file into
+    /// existence when the options window opens — a gate the player cannot SEE in his config
+    /// folder is not a gate he can use.
+    /// </summary>
+    internal static void BindCheatsConfig()
+    {
+        if (_cheatsEnabled != null)
+            return;
+        _cheatsFile = ModuleConfig.Create("cheats");
+        _cheatsEnabled = _cheatsFile.Bind("Cheats", "Enabled", Defaults.CheatsEnabled,
+            "OFF BY DEFAULT. Turns on the temporary 'Cheats' page under Erweitert in the VR "
+            + "options menu — two test buttons that unlock every scenario in the savegame and "
+            + "open every door in the current one. With this false the page does not exist: its "
+            + "link is not drawn on the Erweitert index and the page itself cannot be reached. "
+            + "Single-player only either way; both buttons refuse while a multiplayer session is "
+            + "live. Read at the moment the menu is drawn, so a change applies the next time the "
+            + "options window is opened - no restart.");
+
+        // Once per session, at a printed tier. Without it "the Cheats page is gone" and "the
+        // Cheats page failed to build" read identically in a log — and the whole point of this
+        // gate is that the page's ABSENCE is the correct outcome, which is the one outcome a
+        // silent log cannot distinguish from a broken build.
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"Cheats page gate: [Cheats] Enabled = {_cheatsEnabled.Value} "
+                              + "(dev.gloomhavenvr.cheats.cfg) — "
+                              + (_cheatsEnabled.Value
+                                  ? "the page and its link on the Erweitert index are drawn."
+                                  : "no link on the Erweitert index; the page cannot be opened."));
+    }
+
+    /// <summary>
+    /// Whether the cheats page exists this session.
+    ///
+    /// <para>USER REQUEST, 2026-09-02, verbatim: <i>"Das Cheats-Menu sollten über die cfg
+    /// aktiviert werden können (per default AUS)"</i>.</para>
+    ///
+    /// <para>ITS OWN CONFIG FILE, <c>dev.gloomhavenvr.cheats.cfg</c>, <c>[Cheats] Enabled</c>.
+    /// Three reasons, in order of weight. (1) It is where somebody LOOKS: a player who wants the
+    /// cheats on scans the config folder for the word "cheats", and finds a file with one key in
+    /// it. (2) This feature is built to be DELETED (see the block at the top of this file), and a
+    /// key on a shared file leaves a dead line in a player's .cfg forever; a whole file is one
+    /// deletion. (3) The alternative homes are worse: the [General] section lives on the main
+    /// plugin config owned by Plugin.cs, and [WorldUI] would file a cheat switch under the menu
+    /// system that happens to draw it.</para>
+    ///
+    /// <para>THE KEY ITSELF IS NOT SHOWN IN THE MENU (ConfigCatalog.NotOffered). A gate that can
+    /// be opened from inside the room it locks is not a gate — and the request is explicitly that
+    /// this be a .cfg decision. Hand-editing the file still works, which is the whole point.</para>
+    /// </summary>
+    private static bool CheatsAvailable
+    {
+        get
+        {
+            BindCheatsConfig();
+            return _cheatsEnabled != null && _cheatsEnabled.Value;
+        }
+    }
+
     /// <summary>
     /// The door into this page, drawn at the bottom of the Erweitert index. Returns the number of
     /// rows it added, so the caller's row tally (and therefore the built-page log line) stays true.
     /// </summary>
     private static int BuildCheatsIndexLink()
     {
-        if (ContentRoot == null)
+        // NO LINK, NO PAGE. Returning 0 here is what makes "es darf niemals leere Fenster geben"
+        // hold with the gate off: the Erweitert index simply has one row fewer, never a row that
+        // opens onto nothing.
+        if (ContentRoot == null || !CheatsAvailable)
             return 0;
 
         BuildLinkRow(ContentRoot, Text("Cheats (test aid)", "Cheats (Testhilfe)"), () =>
@@ -157,6 +240,18 @@ internal static partial class VROptionsTab
     {
         if (ContentRoot == null)
             return 0;
+
+        // SECOND LOCK, and it is not redundant with the missing link. _view is process state: a
+        // player can be standing ON this page when the gate is turned off under him (the value is
+        // live, and BepInEx writes the file on every edit), and the window's next show would then
+        // rebuild a page the gate forbids. Falling back to the index rather than returning 0 is
+        // the "niemals leere Fenster" rule — 0 rows would print the empty-list placeholder on a
+        // page whose own heading says Cheats.
+        if (!CheatsAvailable)
+        {
+            _view = View.AdvancedIndex;
+            return BuildAdvancedIndex();
+        }
 
         // The labels of the previous visit are about to be destroyed with the page. Repainting a
         // destroyed TMP_Text is a null-reference on Unity's fake-null, and the repaint runs from a

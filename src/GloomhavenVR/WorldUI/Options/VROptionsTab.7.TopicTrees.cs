@@ -135,6 +135,16 @@ internal static partial class VROptionsTab
                     Entries = new[]
                     {
                         new BoardRef("WorldUI", "BarSizeScale", perBoard: false),
+                        // [WorldUI] BarHeightOffset, ADDED 2026-09-02. It was bound at ModBuild 339
+                        // and named nowhere in this tree, and a key this tree does not name does
+                        // not simply appear one heading over — it falls into the "Allgemein"
+                        // collector at the BOTTOM of the page, below every named heading, which is
+                        // the grab-bag this whole tree exists to empty. The user's report was
+                        // "Weiterhin finde ich den offset für die healthbar nicht", and this was
+                        // the second of the two places it was missing from (the first, the everyday
+                        // door, is Brett & Karten ▸ Lebensbalken). It belongs directly under the
+                        // SIZE: size and height are the two questions anyone asks about a bar.
+                        new BoardRef("WorldUI", "BarHeightOffset", perBoard: false),
                         // BarZoomMinScale / BarZoomMaxScale stood here. Removed 2026-08-13 with
                         // their bindings — the band is a constant now (ActorBars.ZoomFollowMin).
                         new BoardRef("WorldUI", "BarFixedSize", perBoard: false),
