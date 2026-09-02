@@ -5274,6 +5274,276 @@ internal static class GoldenVectors
                "a truncated grip record still parses the packet");
         t.True(!cutHg.HasHeldCardGrip, "and the incomplete record is simply not delivered");
 
+        // -- 7y. PER-ITEM USABLE MASK (extension record 35) ---------------------------------
+        // ModBuild 352, hardware report item 5: "Die Gegenstaende, die benutzbar sind, haben eine
+        // highlighting Animation, diese ist aber nicht beim remote board beim Mitspieler sichtbar
+        // bei deren Gegenstandsfaecher (verletzt 1:1 Regel)." The CLOSED stack's cue was already
+        // mirrored as ONE BOOLEAN (board-UI byte 2 bit 7); WHICH card is playable never travelled,
+        // and a receiver cannot re-derive it because BOTH arms of the owner's predicate end in the
+        // VIEWER's own state. So the owner's rendered mask travels, over Inventory.AllItems RAW
+        // index.
+        t.Case("7y. extras, per-item usable mask record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemUsable = true,
+            ItemUsableMask = 0x0005,   // AllItems raw index 0 and 2 are playable
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags: FlagPileBrowse ('a BLOCK follows') only
+            00               // handCardCount
+            80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
+            01               // tail: 1 record
+            23 02            // record: id 35 (per-item usable), len 2
+            05 00            // u16 LE mask 0x0005 — raw index 0 and 2
+            "), ext, m, "the usable record is [id 35][len 2][u16 LE] — a POSITION mask, no item id");
+        t.Equal(15, m, "header 7 + handCardCount 1 + block 2 + tail 1 + 2 + 2 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState iu), "and it parses");
+        t.True(iu.HasItemUsable, "the usable mask is delivered");
+        t.Equal(0x0005, iu.ItemUsableMask, "with exactly the bits that were sent");
+
+        // THE TOP BIT ROUND-TRIPS — the u16 is not silently narrowed to a byte anywhere, which is
+        // the one arithmetic mistake a 16-bit mask on an 8-bit-oriented wire invites. Bit 15 is the
+        // highest index ItemsPile.UsableMaskBits can describe.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemUsable = true, ItemUsableMask = 0x8000,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 23 02 00 80"), ext, m,
+               "bit 15 rides the HIGH byte — the mask is little-endian, like every other u16 here");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState iuTop), "and it parses");
+        t.Equal(0x8000, iuTop.ItemUsableMask, "with the top bit intact");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasItemUsable = true, ItemUsableMask = 0xFFFF,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState iuAll), "a full mask parses");
+        t.Equal(0xFFFF, iuAll.ItemUsableMask, "and every one of the 16 bits survives the round trip");
+
+        // ABSENT WHILE NOTHING IS PLAYABLE, which is every packet of every off-turn player by
+        // construction (PileViewer feeds TickItemsUsableHighlight a null hand off-turn and
+        // UsableMask(null) is 0). An all-ZERO mask counts as absent too — the writer gates on the
+        // VALUE, not on the Has flag, so a sender cannot spend four bytes saying "nothing".
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 5 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "nothing playable -> no record, no tail, no block: byte-identical to build 351");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noIu), "and it parses");
+        t.True(!noIu.HasItemUsable && noIu.ItemUsableMask == 0,
+               "with the mask 0 (peers draw bare slabs, exactly as before)");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HandCardCount = 5, HasItemUsable = true, ItemUsableMask = 0,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 05"), ext, m,
+               "…and an EMPTY mask is the same packet: the record cannot open the tail on its own");
+
+        // A ZERO mask ARRIVING on the wire decodes to "record absent" as well, so the two states
+        // stay one state on the read side too — a receiver can never latch an empty mask as a claim.
+        ext[0] = 0x31; ext[1] = 0x52; ext[2] = 0x56; ext[3] = 0x47;
+        ext[4] = 0x03; ext[5] = 0x01; ext[6] = 0x80; ext[7] = 0x00;
+        ext[8] = 0x80; ext[9] = 0x00; ext[10] = 0x01;
+        ext[11] = 0x23; ext[12] = 0x02; ext[13] = 0x00; ext[14] = 0x00;
+        t.True(PresenceSerializer.TryRead(ext, 15, out PresenceState zeroIu),
+               "a zero-mask record still parses the packet");
+        t.True(!zeroIu.HasItemUsable, "and decodes to 'record absent'");
+
+        // A TRUNCATED record is simply not delivered — the rule every record here follows.
+        ext[11] = 0x23; ext[12] = 0x01; ext[13] = 0x05;
+        t.True(PresenceSerializer.TryRead(ext, 14, out PresenceState cutIu),
+               "a 1-byte usable record still parses the packet");
+        t.True(!cutIu.HasItemUsable, "and the incomplete record is simply not delivered");
+
+        // -- 7z. HELD-CARD FACE (extension record 36) ---------------------------------------
+        // ModBuild 352, hardware report item 6: "Die Vorderseite SOLL man sehen auch von Karten die
+        // ein Spieler gerade in der Hand hat." Every other remote card surface has shown fronts
+        // since the 2026-08-08 ruling; the held slab could not, on an argument that said naming the
+        // card would need a card ID on the wire. It does not: it needs an INDEX into a list both
+        // clients already hold, plus the LENGTH of that list so a lagging client draws a BACK
+        // instead of a shifted front.
+        t.Case("7z. extras, held-card face record");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardFace = true,
+            HeldFaceCode = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand, 3),
+            HeldFaceCount = 9,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            01               // tail: 1 record
+            24 02            // record: id 36 (held-card face), len 2 — the ONE-SLOT form
+            23               // code: list 1 (hand fan) in bits 5..7, seat 3 in bits 0..4
+            09               // the sender's hand list was 9 long
+            "), ext, m, "one held card is [id 36][len 2][code][list length] — an index, never a card");
+        t.Equal(15, m, "header 7 + handCardCount 1 + block 2 + tail 1 + 2 + 2 = 15 bytes");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hf), "and it parses");
+        t.True(hf.HasHeldCardFace, "the face record is delivered");
+        t.Equal(NetProtocol.HeldFaceListHand, NetProtocol.HeldFaceList(hf.HeldFaceCode),
+                "naming the HAND fan");
+        t.Equal(3, NetProtocol.HeldFaceIndex(hf.HeldFaceCode), "at seat 3");
+        t.Equal(9, hf.HeldFaceCount, "of a list the sender says is 9 long");
+        t.True(hf.SecondHeldFaceCode == 0 && hf.SecondHeldFaceCount == 0,
+               "and the 2-byte form leaves slot 2 naming nothing — never the next record's bytes");
+
+        // BOTH SLOTS: the 4-byte form, read by LENGTH exactly like record 20's two forms.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardFace = true,
+            HeldFaceCode = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListDiscard, 0),
+            HeldFaceCount = 4,
+            SecondHeldFaceCode = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, 6),
+            SecondHeldFaceCount = 8,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80 00 80 00      // flags, handCardCount, byte A, byte B
+            01               // tail: 1 record
+            24 04            // record 36, len 4 — the TWO-SLOT form
+            40 04            // slot 1: list 2 (discard) seat 0, of a 4-long pile
+            86 08            // slot 2: list 4 (items) seat 6, of an 8-long inventory
+            "), ext, m, "both hands holding is the 4-byte form, slot 1 first");
+        t.Equal(17, m, "…and 17 bytes on the wire");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hf2), "it parses");
+        t.Equal(NetProtocol.HeldFaceListDiscard, NetProtocol.HeldFaceList(hf2.HeldFaceCode),
+                "slot 1 names the discard pile");
+        t.Equal(NetProtocol.HeldFaceListItems, NetProtocol.HeldFaceList(hf2.SecondHeldFaceCode),
+                "slot 2 names the inventory");
+        t.Equal(6, NetProtocol.HeldFaceIndex(hf2.SecondHeldFaceCode), "at raw index 6");
+        t.Equal(8, hf2.SecondHeldFaceCount, "of 8");
+
+        // SLOT 2 ALONE IS STILL THE 4-BYTE FORM. Slot 2 exists only while BOTH hands hold, so
+        // slot 1 is always occupied — but it may be UNNAMEABLE (a chip whose item has left the
+        // inventory). Dropping the record would then silently re-seat slot 2's entry onto slot 1's
+        // card on the receiver, which is the wrong-card failure this record must not have.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardFace = true,
+            HeldFaceCode = 0, HeldFaceCount = 0,
+            SecondHeldFaceCode = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListBurnt, 1),
+            SecondHeldFaceCount = 2,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 24 04 00 00 61 02"), ext, m,
+               "an unnameable slot 1 keeps the 4-byte form — slot 2 can never slide into slot 1");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hfSecondOnly), "it parses");
+        t.Equal(NetProtocol.HeldFaceListNone, NetProtocol.HeldFaceList(hfSecondOnly.HeldFaceCode),
+                "slot 1 names nothing");
+        t.Equal(NetProtocol.HeldFaceListBurnt,
+                NetProtocol.HeldFaceList(hfSecondOnly.SecondHeldFaceCode),
+                "and slot 2 still names the burnt pile");
+
+        // THE RESERVED INDEX. 31 is "I know the list but not the seat" — a distinct value from
+        // 'no list', so a log can tell the two apart, and both render as a BACK.
+        byte unknownSeat = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand, 99);
+        t.Equal(NetProtocol.HeldFaceIndexUnknown, NetProtocol.HeldFaceIndex(unknownSeat),
+                "an index past the 5-bit field encodes as UNKNOWN, never as a WRAPPED index");
+        t.Equal(NetProtocol.HeldFaceListHand, NetProtocol.HeldFaceList(unknownSeat),
+                "…while still naming the list it came from");
+        t.True(!NetProtocol.HeldFaceNamesCard(unknownSeat),
+               "and it does not name a card, so the receiver draws the back");
+        t.Equal(NetProtocol.HeldFaceIndexUnknown,
+                NetProtocol.HeldFaceIndex(
+                    NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, -1)),
+                "a negative index is UNKNOWN too, never index 31 by two's complement");
+        t.Equal(NetProtocol.HeldFaceIndexMax,
+                NetProtocol.HeldFaceIndex(
+                    NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand,
+                                               NetProtocol.HeldFaceIndexMax)),
+                "…and the largest nameable seat, 30, still encodes as itself");
+        t.True(NetProtocol.HeldFaceNamesCard(
+                   NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand,
+                                              NetProtocol.HeldFaceIndexMax)),
+               "which DOES name a card");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardFace = true, HeldFaceCode = unknownSeat, HeldFaceCount = 40,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 80 00 80 00 01 24 02 3F 28"), ext, m,
+               "the UNKNOWN seat still rides — it says 'holding, list known, seat not'");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState hfUnk), "it parses");
+        t.True(!NetProtocol.HeldFaceNamesCard(hfUnk.HeldFaceCode),
+               "…and still does not name a card on the far side");
+
+        // A RESERVED LIST ID (5..7) IS A FUTURE SENDER'S LIST. The reader must not guess: it zeroes
+        // the code, so the slab is the back a peer predating the record draws — the whole point of
+        // routing every undefined value to ONE safe picture.
+        t.Equal(0, NetProtocol.EncodeHeldFace(7, 3),
+                "the WRITER refuses to encode a list this build does not define");
+        t.Equal(0, NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListNone, 3),
+                "…and 'no list' with a seat is still 'no list'");
+        ext[0] = 0x31; ext[1] = 0x52; ext[2] = 0x56; ext[3] = 0x47;
+        ext[4] = 0x03; ext[5] = 0x01; ext[6] = 0x80; ext[7] = 0x00;
+        ext[8] = 0x80; ext[9] = 0x00; ext[10] = 0x01;
+        ext[11] = 0x24; ext[12] = 0x04;
+        ext[13] = 0xE3; ext[14] = 0x05;   // slot 1: list 7 — reserved, this build has no such list
+        ext[15] = 0x23; ext[16] = 0x09;   // slot 2: list 1 (hand) seat 3 — perfectly readable
+        t.True(PresenceSerializer.TryRead(ext, 17, out PresenceState hfFut),
+               "a future sender's reserved list id still parses");
+        t.Equal(0, hfFut.HeldFaceCode, "the unknown list is zeroed rather than guessed at");
+        t.Equal(NetProtocol.HeldFaceListHand, NetProtocol.HeldFaceList(hfFut.SecondHeldFaceCode),
+                "…and the slot beside it, which this build DOES understand, is unaffected");
+
+        // ABSENT WHILE NOTHING IS HELD — nearly every packet ever sent, and the whole
+        // backward-compatibility argument. An all-zero PAIR of codes counts as absent too.
+        m = PresenceSerializer.Write(new PresenceState { HandCardCount = 7 }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 07"), ext, m,
+               "no card held -> no record, no tail, no block: byte-identical to build 351");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState noHf), "and it parses");
+        t.True(!noHf.HasHeldCardFace && noHf.HeldFaceCode == 0,
+               "with both codes 0 (peers draw the back-on-both-faces slab, exactly as before)");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HandCardCount = 7, HasHeldCardFace = true, HeldFaceCode = 0, SecondHeldFaceCode = 0,
+        }, ext);
+        t.Wire(Hex.Bytes("31 52 56 47 03 01 00 07"), ext, m,
+               "…and two EMPTY codes are the same packet: the record cannot open the tail alone");
+        ext[0] = 0x31; ext[1] = 0x52; ext[2] = 0x56; ext[3] = 0x47;
+        ext[4] = 0x03; ext[5] = 0x01; ext[6] = 0x80; ext[7] = 0x00;
+        ext[8] = 0x80; ext[9] = 0x00; ext[10] = 0x01;
+        ext[11] = 0x24; ext[12] = 0x04;
+        ext[13] = 0x00; ext[14] = 0x00; ext[15] = 0x00; ext[16] = 0x00;
+        t.True(PresenceSerializer.TryRead(ext, 17, out PresenceState zeroHf),
+               "an all-zero face record still parses the packet");
+        t.True(!zeroHf.HasHeldCardFace, "and decodes to 'record absent' on the read side too");
+
+        // A TRUNCATED record is simply not delivered.
+        ext[11] = 0x24; ext[12] = 0x01; ext[13] = 0x23;
+        t.True(PresenceSerializer.TryRead(ext, 14, out PresenceState cutHf),
+               "a 1-byte face record still parses the packet");
+        t.True(!cutHf.HasHeldCardFace, "and the incomplete record is simply not delivered");
+
+        // ORDERED LAST, IN ID ORDER: … 10, … 34, 35, 36. A reorder in Write shows up right here,
+        // which is what these vectors exist for — the tail's id-order contract is what lets records
+        // developed in parallel share one packet.
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasHeldCardGrip = true,
+            HeldCardGripMask = NetProtocol.HeldCardGripFirstBit,
+            HasItemUsable = true, ItemUsableMask = 0x0002,
+            HasHeldCardFace = true,
+            HeldFaceCode = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, 1),
+            HeldFaceCount = 3,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80 00 80 00      // flags, handCardCount, byte A, byte B
+            03               // tail: 3 records
+            22 01 01         // record 34: held-card grip, len 1, slot 1 rigid
+            23 02 02 00      // record 35: per-item usable, len 2, mask 0x0002
+            24 02 81 03      // record 36: held-card face, len 2, items seat 1 of 3
+            "), ext, m, "34 then 35 then 36 — the tail stays in id order");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState tailOrder),
+               "the three-record packet parses");
+        t.True(tailOrder.HasHeldCardGrip && tailOrder.HasItemUsable && tailOrder.HasHeldCardFace,
+               "and all three records are delivered");
+        t.Equal(0x0002, tailOrder.ItemUsableMask, "with the usable mask intact");
+        t.Equal(1, NetProtocol.HeldFaceIndex(tailOrder.HeldFaceCode), "and the held seat intact");
+
         // -- 8. Non-default-only transmission --------------------------------------------
         // §4d: default board style + default mask size must emit bytes IDENTICAL to a packet
         // built without either feature. This is the whole backward-compatibility argument:
@@ -5320,6 +5590,24 @@ internal static class GoldenVectors
                                   {
                                       HasHeldCardGrip = true,
                                       HeldCardGripMask = NetProtocol.HeldCardGripFirstBit,
+                                  },
+                                  new PresenceState { HasItemUsable = true, ItemUsableMask = 0x8001 },
+                                  new PresenceState
+                                  {
+                                      HasHeldCardFace = true,
+                                      HeldFaceCode = NetProtocol.EncodeHeldFace(
+                                          NetProtocol.HeldFaceListHand, 2),
+                                      HeldFaceCount = 5,
+                                  },
+                                  new PresenceState
+                                  {
+                                      HasHeldCardFace = true,
+                                      HeldFaceCode = NetProtocol.EncodeHeldFace(
+                                          NetProtocol.HeldFaceListDiscard, 0),
+                                      HeldFaceCount = 1,
+                                      SecondHeldFaceCode = NetProtocol.EncodeHeldFace(
+                                          NetProtocol.HeldFaceListItems, 4),
+                                      SecondHeldFaceCount = 7,
                                   },
                                   new PresenceState { HasBoardTooltip = true, BoardTooltipText = "Tip" },
                                   new PresenceState { HasDecisionLines = true, DecisionLinesText = "Ja\nNein" },
@@ -5444,6 +5732,13 @@ internal static class GoldenVectors
         && x.SecondHeldCardPose.Position == y.SecondHeldCardPose.Position
         && x.HasHeldCardGrip == y.HasHeldCardGrip
         && x.HeldCardGripMask == y.HeldCardGripMask
+        && x.HasItemUsable == y.HasItemUsable
+        && x.ItemUsableMask == y.ItemUsableMask
+        && x.HasHeldCardFace == y.HasHeldCardFace
+        && x.HeldFaceCode == y.HeldFaceCode
+        && x.HeldFaceCount == y.HeldFaceCount
+        && x.SecondHeldFaceCode == y.SecondHeldFaceCode
+        && x.SecondHeldFaceCount == y.SecondHeldFaceCount
         && x.HasSlotCardSize == y.HasSlotCardSize
         && x.SlotFrameWidthCode == y.SlotFrameWidthCode
         && x.SlotCardWidthCode == y.SlotCardWidthCode

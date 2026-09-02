@@ -423,6 +423,57 @@ internal struct PresenceState
     /// </summary>
     public byte HeldCardGripMask;
 
+    /// <summary>
+    /// True when this packet carries the sender's PER-ITEM USABLE MASK (extension record
+    /// <see cref="NetProtocol.ExtIdItemUsable"/>) — which of their equipped items are wearing the
+    /// gold "you can play this NOW" frame on their own board this instant. False — which is every
+    /// packet of every player with nothing playable, and every packet of every off-turn player by
+    /// construction — keeps the record off the wire entirely and the packet byte-identical to
+    /// ModBuild 351's.
+    /// </summary>
+    public bool HasItemUsable;
+
+    /// <summary>
+    /// WHICH equipped items are usable, as a bitmask over <c>CInventory.AllItems</c> RAW index
+    /// (bit i ⇔ items[i] is usable), meaningful only when <see cref="HasItemUsable"/>. The value
+    /// the owner's own board rendered from — <c>Cards.Piles.PileViewer.ItemsUsableMask</c> — never
+    /// a second read of the same predicate, so the mirrored frames cannot drift from the frames
+    /// their owner is looking at. 0 is identical in meaning to the record being absent, which is
+    /// what lets the writer gate on the value instead of on the flag.
+    /// </summary>
+    public ushort ItemUsableMask;
+
+    /// <summary>
+    /// True when at least one held-card POSE SLOT names a card and this packet carries the
+    /// held-card FACE record (<see cref="NetProtocol.ExtIdHeldCardFace"/>). False — every packet of
+    /// every player who is not physically holding a card — keeps the record off the wire and the
+    /// packet byte-identical to ModBuild 351's.
+    /// </summary>
+    public bool HasHeldCardFace;
+
+    /// <summary>Slot 1's code byte: the SOURCE LIST in bits 5..7 and the INDEX in bits 0..4, packed
+    /// by <see cref="NetProtocol.EncodeHeldFace"/>. Slot 1 is the card in the rig packet's
+    /// <see cref="NetProtocol.FlagHeldCard"/> block — the same slot
+    /// <see cref="NetProtocol.HeldCardGripFirstBit"/> describes. 0 means "this slot names
+    /// nothing".</summary>
+    public byte HeldFaceCode;
+
+    /// <summary>The LENGTH of the list slot 1's index points into, clamped to 255. The receiver
+    /// refuses the front unless its own copy of that list is exactly this long — a positional index
+    /// is only a name while both copies agree, and a SHIFTED front is the one failure this record
+    /// must not have.</summary>
+    public byte HeldFaceCount;
+
+    /// <summary>Slot 2's code byte — the card in record
+    /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>'s slot, the one
+    /// <see cref="NetProtocol.HeldCardGripSecondBit"/> describes. 0 means "this slot names
+    /// nothing", and the record then shrinks to its 2-byte one-slot form.</summary>
+    public byte SecondHeldFaceCode;
+
+    /// <summary>The LENGTH of the list slot 2's index points into, clamped to 255 (same contract as
+    /// <see cref="HeldFaceCount"/>).</summary>
+    public byte SecondHeldFaceCount;
+
     /// <summary>World-frame pose of the second held card (meaningful only when
     /// <see cref="HasSecondHeldCard"/>). The shared 20-byte pose encoding — and the ENTIRE
     /// payload: no hand byte, because the receiver renders the slab at this absolute pose and
@@ -1259,6 +1310,27 @@ internal struct SharedWindowEntry
 ///                        per-client focus point; an unknown frame drops the pose and keeps the
 ///                        page. Written only while MapRoomDriver.Active, see
 ///                        NetProtocol.ExtIdSharedWindow)
+///                        35 PER-ITEM USABLE MASK ([u16 LE] — WHICH of the sender's equipped items
+///                        are wearing the gold "you can play this NOW" frame on their own board, as
+///                        a mask over Inventory.AllItems RAW index. The receiver CANNOT re-derive
+///                        it: both arms of the owner's predicate end in the VIEWER's own state
+///                        (CardsGameApi.IsActionTurn ends in cur.IsUnderMyControl, and the bonus arm
+///                        reads a LOCAL UI singleton), so a re-derivation is 0 on exactly the board
+///                        that needs it. A position in an inventory is not an item identity.
+///                        Written only while the mask is non-zero, so an off-turn or idle packet is
+///                        unchanged, see NetProtocol.ExtIdItemUsable)
+///                        36 HELD-CARD FACE ([code][list len] per held-card POSE SLOT, 2 bytes for
+///                        slot 1 alone and 4 while both hands hold — WHICH card a peer is physically
+///                        holding, as a SOURCE-LIST id (bits 5..7) plus an INDEX (bits 0..4, 31 =
+///                        unknown) into a host-replicated list the receiver already draws the whole
+///                        fan from. No card identity: the index is meaningless without the list. The
+///                        LENGTH byte is the safety — the receiver refuses the front unless its own
+///                        copy of that list is exactly as long, so the record can never draw the
+///                        WRONG card's face. The front is drawn only while
+///                        RevealGate.ShowRoundCardFronts is open for the displayed character, the
+///                        identical call every other remote card surface makes, so the secret
+///                        selection phase is unchanged. Written only while a slot really names a
+///                        card, see NetProtocol.ExtIdHeldCardFace)
 ///                        34 HELD-CARD GRIP ([flags] - one bit per held-card POSE SLOT: bit 0 for
 ///                        the rig packet's FlagHeldCard card, bit 1 for record 10's. Set means that
 ///                        card is held RIGIDLY in the sender's fist, so the receiver keeps the
@@ -1321,7 +1393,16 @@ internal static class PresenceSerializer
     /// + 17 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytesWithFan</c> 15)
     /// + 65 (SHARED MAP WINDOWS: 2 + <c>NetProtocol.SharedWindowMaxRecordBytes</c> 63)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
-    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248) = 1439.
+    /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248)
+    /// + 4 (PER-ITEM USABLE MASK: 2 + <c>NetProtocol.ItemUsableRecordBytes</c> 2)
+    /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
+    /// = 1449.
+    ///
+    /// <para>1439 → 1449 on the 2026-09-02 report round: the PER-ITEM USABLE MASK record (35) added
+    /// its worst case of 4 bytes and the HELD-CARD FACE record (36) its worst case of 6, in their
+    /// own commit, per the rule below. <see cref="MaxSize"/> is UNCHANGED at 1800 — the margin is
+    /// 351 bytes, still more than the largest single record (257, board tuning), so the rule is
+    /// satisfied without a raise.</para>
     ///
     /// <para>1435 → 1439 on the MAP-FAN OWNER round: record 20 grew a four-byte character key so a
     /// peer's card fan prints the right member's loadout instead of one deduced from its hand size.
@@ -1544,6 +1625,16 @@ internal static class PresenceSerializer
                           // packet of every player who is not holding a debug latch byte-identical
                           // to the previous build's.
                           || state.HasTestForce
+                          // A ZERO mask writes no usable record, so it must not open the tail
+                          // either — and the mask is 0 for every off-turn player by construction
+                          // (PileViewer feeds TickItemsUsableHighlight a null hand then), which is
+                          // what keeps nearly every packet byte-identical to the previous build's.
+                          || (state.HasItemUsable && state.ItemUsableMask != 0)
+                          // A held-card FACE record whose two slots name nothing says nothing, so
+                          // it must not open the tail either — the same rule the grip mask beside
+                          // it follows, and it is what keeps every packet of every player who is
+                          // not holding a card byte-identical to the previous build's.
+                          || (state.HasHeldCardFace && HeldFacePayload(in state) > 0)
                           // STORY WINDOW SYNC (19): same rule as the test-force record — the
                           // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
                           // sets this flag only while a story box is really up here or the single
@@ -2477,10 +2568,76 @@ internal static class PresenceSerializer
                     buffer[i++] = state.HeldCardGripMask;
                     records++;
                 }
+                if (state.HasItemUsable && state.ItemUsableMask != 0
+                    && i + 2 + NetProtocol.ItemUsableRecordBytes <= buffer.Length)
+                {
+                    // PER-ITEM USABLE MASK (35): one u16 LE over Inventory.AllItems RAW index —
+                    // the value the owner's own board framed its chips from this frame, not a
+                    // second read of the predicate. A ZERO mask is never written (the tail gate
+                    // above uses the same test), so "absent" and "nothing is usable" are one
+                    // state and a player with nothing to play emits the exact bytes the previous
+                    // build emitted. Appended in id order, behind record 34.
+                    ushort mask = state.ItemUsableMask;
+                    buffer[i++] = NetProtocol.ExtIdItemUsable;
+                    buffer[i++] = (byte)NetProtocol.ItemUsableRecordBytes;
+                    buffer[i++] = (byte)(mask & 0xFF);
+                    buffer[i++] = (byte)(mask >> 8);
+                    records++;
+                }
+                int heldFaceBytes = HeldFacePayload(in state);
+                if (state.HasHeldCardFace && heldFaceBytes > 0
+                    && i + 2 + heldFaceBytes <= buffer.Length)
+                {
+                    // HELD-CARD FACE (36): [code][list length] per POSE SLOT, 2 bytes for slot 1
+                    // alone and 4 while both hands hold one — read by LENGTH, exactly like record
+                    // 20's two forms. NO CARD IDENTITY: a code byte carries a list id and a
+                    // POSITION in a list the receiver already draws the whole fan from.
+                    //
+                    // The second slot is written only when it really names a card, so the common
+                    // one-handed case costs 4 bytes and not 6; and when NEITHER slot names one the
+                    // record is omitted entirely (HeldFacePayload returns 0, and the tail gate uses
+                    // the same test), which is what keeps every packet of every player who is not
+                    // holding a card byte-identical to the previous build's.
+                    buffer[i++] = NetProtocol.ExtIdHeldCardFace;
+                    buffer[i++] = (byte)heldFaceBytes;
+                    buffer[i++] = state.HeldFaceCode;
+                    buffer[i++] = state.HeldFaceCount;
+                    if (heldFaceBytes >= 2 * NetProtocol.HeldCardFaceSlotBytes)
+                    {
+                        buffer[i++] = state.SecondHeldFaceCode;
+                        buffer[i++] = state.SecondHeldFaceCount;
+                    }
+                    records++;
+                }
                 buffer[countAt] = records;
             }
         }
         return i;
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdHeldCardFace"/> would occupy for
+    /// <paramref name="state"/> — 0 when NEITHER pose slot names a card (the record is then omitted
+    /// entirely and cannot open the extension tail, so a player who is not holding one emits the
+    /// previous build's bytes), <c>HeldCardFaceSlotBytes</c> when only slot 1 does, and twice that
+    /// while both hands hold a card the sender could seat.
+    ///
+    /// <para>SLOT 2 CANNOT RIDE ALONE, and that is a property of the slots rather than a
+    /// simplification here: slot 2 exists only while BOTH hands hold a card
+    /// (<c>LocalRigSampler.TrySampleSecondHeldCard</c>), so slot 1 is always occupied when slot 2
+    /// is. It may still be UNNAMEABLE — a chip whose item has left the inventory, a card whose list
+    /// the sender cannot identify — and then slot 1's code is 0 and the record is written in its
+    /// 4-byte form anyway, because dropping it would silently re-seat slot 2's entry onto slot 1's
+    /// card on the receiver.</para>
+    /// </summary>
+    private static int HeldFacePayload(in PresenceState state)
+    {
+        bool second = NetProtocol.HeldFaceList(state.SecondHeldFaceCode) != NetProtocol.HeldFaceListNone;
+        if (second)
+            return 2 * NetProtocol.HeldCardFaceSlotBytes;
+        return NetProtocol.HeldFaceList(state.HeldFaceCode) != NetProtocol.HeldFaceListNone
+            ? NetProtocol.HeldCardFaceSlotBytes
+            : 0;
     }
 
     /// <summary>
@@ -3451,6 +3608,59 @@ internal static class PresenceSerializer
                         {
                             state.HasHeldCardGrip = true;
                             state.HeldCardGripMask = grip;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdItemUsable
+                             && len >= NetProtocol.ItemUsableRecordBytes)
+                    {
+                        // PER-ITEM USABLE MASK: one u16 LE over Inventory.AllItems RAW index. A
+                        // ZERO mask decodes to "record absent" — the bare slabs a peer predating
+                        // this build draws — so the two states stay one state on the read side as
+                        // well as on the write side, and a latched mask can never outlive a sender
+                        // whose board stopped framing anything. There is nothing else to validate:
+                        // every bit is defined (the record IS the mask), a bit past the receiver's
+                        // own inventory simply frames nothing, and no identity is expressible here.
+                        ushort usable = (ushort)(buffer[i] | (buffer[i + 1] << 8));
+                        if (usable != 0)
+                        {
+                            state.HasItemUsable = true;
+                            state.ItemUsableMask = usable;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdHeldCardFace
+                             && len >= NetProtocol.HeldCardFaceSlotBytes)
+                    {
+                        // HELD-CARD FACE: [code][list length] per POSE SLOT. Slot 2 is read ONLY
+                        // from a record long enough to carry it, so a sender holding one card
+                        // degrades to "slot 2 names nothing" rather than to whatever the next
+                        // record's bytes happen to say — the same length-gated shape record 20 uses
+                        // for its selection edge.
+                        //
+                        // A code naming no list (or a list id 5..7 this build does not define)
+                        // decodes to "record absent" for that slot, which is the BACK a peer
+                        // predating the record draws. UNDEFINED IS ALWAYS A BACK here and never a
+                        // guess: the one failure this record must not have is a front drawn on the
+                        // wrong card, and every unknown value is routed to the same safe picture.
+                        byte code0 = buffer[i];
+                        byte count0 = buffer[i + 1];
+                        byte code1 = 0;
+                        byte count1 = 0;
+                        if (len >= 2 * NetProtocol.HeldCardFaceSlotBytes)
+                        {
+                            code1 = buffer[i + 2];
+                            count1 = buffer[i + 3];
+                        }
+                        if (NetProtocol.HeldFaceList(code0) > NetProtocol.HeldFaceListMax)
+                            code0 = 0;
+                        if (NetProtocol.HeldFaceList(code1) > NetProtocol.HeldFaceListMax)
+                            code1 = 0;
+                        if (code0 != 0 || code1 != 0)
+                        {
+                            state.HasHeldCardFace = true;
+                            state.HeldFaceCode = code0;
+                            state.HeldFaceCount = count0;
+                            state.SecondHeldFaceCode = code1;
+                            state.SecondHeldFaceCount = count1;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

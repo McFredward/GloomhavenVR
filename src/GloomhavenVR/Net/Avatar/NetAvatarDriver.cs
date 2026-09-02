@@ -462,6 +462,53 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     // cards billboard, which is also the pre-session value, so the first packet of a session that
     // never uses the gesture is unchanged.
     private byte _lastSentCardGripMask;
+
+    /// <summary>Last per-item usable mask put on the wire (record 35), so the edge log fires on a
+    /// CHANGE rather than on every extras packet. 0 is both the initial value and "nothing is
+    /// playable", which is the state the record is omitted in.</summary>
+    private ushort _lastSentUsableMask;
+
+    /// <summary>Last held-card FACE codes put on the wire (record 36), one per POSE SLOT, for the
+    /// same change-gating reason. The COUNT bytes deliberately take no part in the edge: the list a
+    /// held card sits in can grow or shrink under it while the same card stays held, and an edge on
+    /// that would turn a physical grab into a stream of log lines.</summary>
+    private byte _lastSentFaceCode0;
+    private byte _lastSentFaceCode1;
+
+    /// <summary>Popcount of a 16-bit mask — how many items record 35 is framing. Used by the edge
+    /// log only; the wire carries the mask itself.</summary>
+    private static int CountBits(ushort mask)
+    {
+        int n = 0;
+        while (mask != 0)
+        {
+            mask &= (ushort)(mask - 1);
+            n++;
+        }
+        return n;
+    }
+
+    /// <summary>One held-card FACE slot as a log phrase — the list it names, the seat in it and the
+    /// length of that list. Names a POSITION, never a card, exactly like the wire byte it
+    /// describes.</summary>
+    private static string DescribeHeldFace(byte code, byte count)
+    {
+        byte list = NetProtocol.HeldFaceList(code);
+        if (list == NetProtocol.HeldFaceListNone)
+            return "nothing";
+        string where = list switch
+        {
+            NetProtocol.HeldFaceListHand => "hand fan",
+            NetProtocol.HeldFaceListDiscard => "discard pile",
+            NetProtocol.HeldFaceListBurnt => "burnt pile",
+            NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
+            _ => "list " + list,
+        };
+        byte at = NetProtocol.HeldFaceIndex(code);
+        return at == NetProtocol.HeldFaceIndexUnknown
+            ? $"{where}, seat UNKNOWN of {count}"
+            : $"{where}, seat {at} of {count}";
+    }
     private bool _loggedCardGrip;
 
     // _sentSecondCardValid false = nothing sent yet this session.
@@ -1824,6 +1871,41 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HasItemUseClip = true;
             extras.ItemUseClipIndex = (byte)itemClip;
         }
+
+        // PER-ITEM USABLE MASK (record 35 — the 2026-09-02 report's item 5, "die highlighting
+        // Animation … ist aber nicht beim remote board … sichtbar"): WHICH equipped items are
+        // wearing the gold "you can play this NOW" frame on THIS board right now.
+        //
+        // THE VALUE IS READ, NOT RE-DERIVED. Cards.PileViewer publishes the very ushort its own
+        // TickItemsUsableHighlight framed its chips from this frame, in the same statement group as
+        // the closed stack's cue — so the mirrored frames and the owner's frames come out of one
+        // pass and cannot drift apart. A second read of the predicate here would be a second
+        // answer, which is exactly the shape of defect the pile counts were moved onto the wire to
+        // end. Outside the fan branch on purpose: the mask describes the INVENTORY, and the stack
+        // beats with it whether or not the arc is up.
+        //
+        // Written only while non-zero (PresenceSerializer's own gate uses the same test), and it is
+        // zero for every off-turn player by construction, so nearly every packet is unchanged.
+        ushort usableMask = Cards.PileViewer.ItemsUsableMask;
+        if (usableMask != 0)
+        {
+            extras.HasItemUsable = true;
+            extras.ItemUsableMask = usableMask;
+        }
+        if (usableMask != _lastSentUsableMask)
+        {
+            _lastSentUsableMask = usableMask;
+            // HW-VERIFY: ModBuild 352 item 5 — the SENDER edge of the mirrored per-item pulse. The
+            // co-player runs at the shipped default level and either tester can be the owner, so
+            // this edge has to be readable on both machines; it is a change edge on a human-paced
+            // value, so it is a handful of lines per scenario. Pair it with the receiver's
+            // "Remote ITEM usable" line to decide sender-vs-mirror in one log.
+            VRLog.Note("Net", $"Item usable mask SENT: 0x{usableMask:X4} (record 35, "
+                + $"{CountBits(usableMask)} item(s) framed) over Inventory.AllItems RAW index — the "
+                + "value THIS board framed its own chips from this frame (Cards.PileViewer."
+                + "ItemsUsableMask). 0x0000 means nothing is playable here and the record is "
+                + "omitted, which is what an off-turn board always sends.");
+        }
         if (itemClipChanged)
         {
             _lastSentItemClip = itemClip;
@@ -2837,6 +2919,45 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             }
         }
         _lastSentCardGripMask = cardGripMask;
+
+        // HELD-CARD FACE (extension record 36 — the 2026-09-02 report's item 6, "Die Vorderseite
+        // SOLL man sehen auch von Karten die ein Spieler gerade in der Hand hat"): WHICH card each
+        // held-card POSE SLOT is showing, as a source-list id plus a POSITION in a host-replicated
+        // list the receiver already draws the whole fan from. No card identity, ever — the index is
+        // meaningless to anybody who does not hold the list, and the receiver still refuses to draw
+        // a front while RevealGate.ShowRoundCardFronts is closed.
+        //
+        // Sampled here rather than in the rig path because it belongs with the second card's slot
+        // and the grip mask: all three describe the same two POSE SLOTS, filled by the same
+        // left-first rule, and a sampler that disagreed with them would name the other hand's card.
+        LocalRigSampler.SampleHeldCardFaces(out byte faceCode0, out byte faceCount0,
+                                            out byte faceCode1, out byte faceCount1);
+        if (faceCode0 != 0 || faceCode1 != 0)
+        {
+            extras.HasHeldCardFace = true;
+            extras.HeldFaceCode = faceCode0;
+            extras.HeldFaceCount = faceCount0;
+            extras.SecondHeldFaceCode = faceCode1;
+            extras.SecondHeldFaceCount = faceCount1;
+        }
+        if (faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1)
+        {
+            _lastSentFaceCode0 = faceCode0;
+            _lastSentFaceCode1 = faceCode1;
+            // HW-VERIFY: ModBuild 352 item 6 — the SENDER edge of the held-card front. Either tester
+            // can be the one holding the card and the co-player runs at the shipped default level,
+            // so this has to print on both machines. It is a change edge on a physical grab, so it
+            // is one line per pluck. Pair it with the receiver's "Remote held card FRONT" line: this
+            // line naming a list and a seat while that one says nothing means the mirror, not the
+            // sampler, is the half that failed.
+            VRLog.Note("Net", "Held-card face SENT: "
+                + $"slot1 {DescribeHeldFace(faceCode0, faceCount0)}, "
+                + $"slot2 {DescribeHeldFace(faceCode1, faceCount1)} (record 36) — a source-list id "
+                + "plus a POSITION in a list every client already holds, never a card id. Peers draw "
+                + "the front only while RevealGate.ShowRoundCardFronts is open for the character "
+                + "this board presents, and only while their own copy of that list is exactly as "
+                + "long as the count above.");
+        }
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately
         // breaking the "only when non-default" rule the other records follow — its ABSENCE is

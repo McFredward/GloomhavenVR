@@ -1,4 +1,5 @@
 using GloomhavenVR.Hands;
+using ScenarioRuleLibrary;
 using GloomhavenVR.Rig;
 using GloomhavenVR.WorldUI;
 using UnityEngine;
@@ -249,6 +250,161 @@ internal static class LocalRigSampler
             mask |= NetProtocol.HeldCardGripSecondBit;
         return mask;
     }
+
+    /// <summary>
+    /// WHICH CARD EACH HELD-CARD POSE SLOT IS SHOWING — extension record
+    /// <see cref="NetProtocol.ExtIdHeldCardFace"/>'s whole payload, as a <c>[code][list length]</c>
+    /// pair per slot. A code of 0 means "this slot names nothing", and when BOTH are 0 the writer
+    /// omits the record entirely, so every packet of every player who is not holding a card is
+    /// byte-identical to ModBuild 351's.
+    ///
+    /// <para>THE SLOTS ARE FILLED BY THE SAME LEFT-FIRST RULE THE POSES ARE, re-derived from the
+    /// same <see cref="HoldsCardShape"/> predicate for the same reason
+    /// <see cref="SampleHeldCardGripMask"/> re-derives it: an entry that describes the other hand's
+    /// card is a FRONT drawn on the wrong card, which is the one failure this record must not have.
+    /// Slot 1 is the LEFT hand's card whenever the left hand holds one, otherwise the right's;
+    /// slot 2 exists only while BOTH hold, and is then the right's by definition.</para>
+    ///
+    /// <para>WHAT IS NAMED IS A POSITION, NEVER A CARD. Each code carries a SOURCE-LIST id and an
+    /// index into that list, and every one of the four lists is host-replicated onto the receiver
+    /// already — it is the same list the peer's mirrored fan resolves its own fronts from. The
+    /// LENGTH byte beside it is what makes the position safe: the receiver refuses the front unless
+    /// its own copy of the list is exactly this long, so a client whose model lags behind the owner
+    /// (the ModBuild 351 burnt-card defect) draws a back rather than a shifted face.</para>
+    ///
+    /// <para>THE ACTOR IS THE ONE THE BOARD IS PRESENTING (<c>ItemsPile.Current.OwnerActor</c>) and
+    /// that is not a convenience: it is the SAME character the receiver resolves through
+    /// <c>RemoteBoardFocus.DisplayedActor</c>, and the card in this player's hand came out of that
+    /// character's own fan. With no item pile there is no control board and nothing to pluck from,
+    /// so the honest answer is "names nothing" rather than a guess at whose list to index.</para>
+    /// </summary>
+    public static void SampleHeldCardFaces(out byte code0, out byte count0,
+                                           out byte code1, out byte count1)
+    {
+        code0 = 0;
+        count0 = 0;
+        code1 = 0;
+        count1 = 0;
+        bool left = HoldsCardShape(VRHands.Left);
+        bool right = HoldsCardShape(VRHands.Right);
+        if (!left && !right)
+            return;
+        CPlayerActor? actor = Cards.ItemsPile.Current?.OwnerActor;
+        if (actor == null)
+            return;
+        // Slot 1 = the LEFT hand's card when the left hand holds one, otherwise the right's —
+        // TrySampleHeldCard's unchanged preference, restated here rather than shared, because the
+        // two answers must agree about the SLOT and nothing else about them is common.
+        NameHeldCard(actor, left ? VRHands.Left : VRHands.Right, out code0, out count0);
+        // Slot 2 exists only while BOTH hands hold one, and is then the RIGHT hand's.
+        if (left && right)
+            NameHeldCard(actor, VRHands.Right, out code1, out count1);
+    }
+
+    /// <summary>
+    /// Seat the card <paramref name="hand"/> is holding in one of the four host-replicated lists
+    /// the receiver can index, or leave the code 0 ("names nothing") when it cannot be seated.
+    ///
+    /// <para>EVERY LIST IS BUILT BY THE EXACT EXPRESSION THE RECEIVER USES, and that is the whole
+    /// correctness argument: the ability HAND list is <c>cardsUI</c> filtered to
+    /// <c>CardPileType.Hand</c> with a non-null <c>fullAbilityCard</c> —
+    /// <c>RemoteHandFan.ResolveHandFronts</c>'s filter, character for character; the two pile lists
+    /// are <c>Cards.CardsGameApi.GetPileWidgets</c>, the call <c>RemotePileFronts.Resolve</c> makes; the
+    /// item list is <c>Inventory.AllItems</c> walked RAW. A filter that differs by one term names a
+    /// different seat on each machine, which is why they are not re-expressed anywhere.</para>
+    ///
+    /// <para>Read-only throughout — every game object here is inspected, never written — and the
+    /// whole body is inside the caller's per-send path rather than a per-frame one.</para>
+    /// </summary>
+    private static void NameHeldCard(CPlayerActor actor, VRHand? hand,
+                                     out byte code, out byte count)
+    {
+        code = 0;
+        count = 0;
+        object? held = hand != null && hand.Grabber != null ? hand.Grabber.Held : null;
+        if (held == null)
+            return;
+
+        if (held is Cards.ItemsPile.ItemChip chip && chip != null)
+        {
+            CItem? item = chip.Item;
+            CInventory? inv = actor.Inventory;
+            System.Collections.Generic.List<CItem>? all = inv != null ? inv.AllItems : null;
+            if (item == null || all == null)
+                return;
+            // RAW index, nulls included — the same index space the usable mask (record 35) uses,
+            // and the one the receiver re-walks. The fan builders skip nulls; this must not, or the
+            // two disagree about which chip position bit i / index i means.
+            int at = all.IndexOf(item);
+            if (at < 0)
+                return;
+            count = (byte)Mathf.Clamp(all.Count, 0, 255);
+            code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListItems, at);
+            return;
+        }
+
+        if (held is not Cards.VRCard card || card == null)
+            return;
+        AbilityCardUI? widget = card.GameCard;
+        if (widget == null)
+            return;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI? gameHand = manager != null ? manager.GetHand(actor) : null;
+        if (gameHand == null)
+            return;
+
+        // A card on loan from a pile browse names THAT pile; anything else is a card out of the
+        // owner's own hand fan. PileOrigin is the loan marker CardsDriver.OnCardReleased already
+        // routes the card home by, so it is the same fact, read rather than re-derived.
+        Cards.PileKind? origin = card.PileOrigin;
+        if (origin == Cards.PileKind.Discard || origin == Cards.PileKind.Burnt)
+        {
+            Cards.CardsGameApi.GetPileWidgets(gameHand, origin == Cards.PileKind.Burnt,
+                                        s_heldFaceBuf);
+            int at = s_heldFaceBuf.IndexOf(widget);
+            count = (byte)Mathf.Clamp(s_heldFaceBuf.Count, 0, 255);
+            s_heldFaceBuf.Clear();
+            if (at < 0)
+            {
+                count = 0;
+                return;
+            }
+            code = NetProtocol.EncodeHeldFace(
+                origin == Cards.PileKind.Burnt
+                    ? NetProtocol.HeldFaceListBurnt
+                    : NetProtocol.HeldFaceListDiscard, at);
+            return;
+        }
+        // PileKind.Items on a VRCard is not expressible — an item card is an ItemChip, handled
+        // above — so it deliberately falls through to "names nothing" rather than being seated in
+        // a list it is not in.
+        if (origin != null)
+            return;
+
+        System.Collections.Generic.List<AbilityCardUI>? all2 = gameHand.cardsUI;
+        if (all2 == null)
+            return;
+        // RemoteHandFan.ResolveHandFronts' filter, term for term.
+        int seat = -1;
+        int n = 0;
+        for (int i = 0; i < all2.Count; i++)
+        {
+            AbilityCardUI c = all2[i];
+            if (c == null || c.CardType != CardPileType.Hand || c.fullAbilityCard == null)
+                continue;
+            if (ReferenceEquals(c, widget))
+                seat = n;
+            n++;
+        }
+        if (seat < 0)
+            return;
+        count = (byte)Mathf.Clamp(n, 0, 255);
+        code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand, seat);
+    }
+
+    /// <summary>Reused widget buffer for <see cref="NameHeldCard"/>'s pile lookups — the send path
+    /// runs at the extras rate and must stay allocation-free.</summary>
+    private static readonly System.Collections.Generic.List<AbilityCardUI> s_heldFaceBuf = new();
 
     private static bool TryHeldCard(VRHand? hand, out Vector3 pos, out Quaternion rot)
     {

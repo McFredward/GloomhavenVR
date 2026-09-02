@@ -263,6 +263,44 @@ internal sealed class RemoteAvatar
     public int ItemUseClipIndex { get; private set; } = -1;
 
     /// <summary>
+    /// WHICH positions of that item fan are wearing the owner's gold "you can play this NOW" frame,
+    /// as a bitmask over the peer's <c>Inventory.AllItems</c> RAW index (extension record 35), or 0
+    /// while nothing is.
+    ///
+    /// <para>0 for a sender that predates the record AND for one with nothing playable, which is
+    /// correct in both cases: the mirrored arc then wears no frames at all, exactly as every build
+    /// before this one drew it. THE RECEIVER MUST NOT RE-DERIVE THIS — both arms of the owner's
+    /// predicate end in the VIEWER's own state (see <c>NetProtocol.ExtIdItemUsable</c>), so a
+    /// re-derivation is 0 on exactly the board that needs it.</para>
+    ///
+    /// <para>The RAW index is not the arc index: both fan builders skip null inventory entries
+    /// while the mask numbers them, so <see cref="RemoteItemFan"/> re-walks
+    /// <c>Inventory.AllItems</c> to map bit → arc slot rather than assuming the two coincide.</para>
+    /// </summary>
+    public ushort ItemUsableMask { get; private set; }
+
+    /// <summary>Record 36's code byte for held-card POSE SLOT 1 (the rig packet's
+    /// <see cref="NetProtocol.FlagHeldCard"/> card): a SOURCE-LIST id and a seat in it, 0 for
+    /// "names nothing". Never a card identity.</summary>
+    private byte _heldFaceCode;
+
+    /// <summary>How long the sender said that list was. <see cref="RemoteHeldCardFace"/> refuses to
+    /// draw a front unless this client's own copy is exactly this long — the term that makes a
+    /// positional index safe against a model that lags a choreographer turn behind.</summary>
+    private byte _heldFaceCount;
+
+    /// <summary>Record 36's code byte for held-card POSE SLOT 2 (record 10's card).</summary>
+    private byte _secondHeldFaceCode;
+
+    /// <summary>Record 36's list length for slot 2.</summary>
+    private byte _secondHeldFaceCount;
+
+    /// <summary>The two front overlays, one per held-card POSE SLOT — built lazily on the first
+    /// front, exactly like the slabs they sit on.</summary>
+    private RemoteHeldCardFace? _heldFace1;
+    private RemoteHeldCardFace? _heldFace2;
+
+    /// <summary>
     /// The mirrored item-USE RECESS of this peer's board (null while their board is not built) —
     /// the frame <see cref="RemoteItemFan"/> lays <see cref="ItemUseClipIndex"/>'s slab into, so it
     /// LIES IN the recess and rides the board rather than billboarding to a head.
@@ -1026,6 +1064,22 @@ internal sealed class RemoteAvatar
         // renderer is still the only place the value is range-checked.
         ItemUseClipIndex = p.HasItemUseClip ? p.ItemUseClipIndex : -1;
 
+        // PER-ITEM USABLE MASK (extension record 35): which of this peer's equipped items their own
+        // board is framing this instant. Written unconditionally from the parsed state — a packet
+        // WITHOUT the record says "nothing is playable here", and latching the last non-zero mask
+        // would leave a mirrored arc pulsing for a board whose turn has ended.
+        ItemUsableMask = p.HasItemUsable ? p.ItemUsableMask : (ushort)0;
+
+        // HELD-CARD FACE (extension record 36): which card each held-card POSE SLOT is showing, as
+        // a source-list id plus a POSITION in a list this client already holds. Written
+        // unconditionally for the same reason as the grip mask beside it: the ABSENCE of the record
+        // is the statement "these slabs name nothing", and a latched code would keep a front on a
+        // card its owner has already put down.
+        _heldFaceCode = p.HasHeldCardFace ? p.HeldFaceCode : (byte)0;
+        _heldFaceCount = p.HasHeldCardFace ? p.HeldFaceCount : (byte)0;
+        _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
+        _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
+
         // Board UI (extension record 4): authoritative when present — the furniture then shows
         // EXACTLY the controls the owner sees. Absent = the sender predates the field; the
         // furniture falls back to the legacy always-drawn look (never to "all hidden").
@@ -1517,6 +1571,9 @@ internal sealed class RemoteAvatar
                        _hasSecondHeldCard, in _secondHeldCardPose, k,
                        HeldCardSizing.OwnerHeldCard,
                        (_heldCardGripMask & NetProtocol.HeldCardGripSecondBit) != 0);
+        _heldFace2 ??= new RemoteHeldCardFace(this, 2);
+        _heldFace2.Tick(_secondCardHolder, _hasSecondHeldCard,
+                        _secondHeldFaceCode, _secondHeldFaceCount);
 
         // Ghost hands: fade exactly the hands the sender says are faded. The extension mask is
         // authoritative when present (a held card can ghost EITHER hand, or both); a sender too
@@ -1618,29 +1675,54 @@ internal sealed class RemoteAvatar
     /// exactly like the other parts, hidden while the sender holds nothing. Shows a BACK only:
     /// no card identity rides the wire.
     ///
-    /// THE ONE CARD SURFACE THE 2026-08-08 RULING COULD NOT REACH, and why that is a data fact rather
-    /// than a decision. The ruling ("Die Oberseiten der Karten des remote Spielers soll auch überall
-    /// sichtbar sein … NUR in der Auswahlphase … nur die Rückseiten") turned every other remote card
-    /// surface face-up outside the secret window, and every one of them could be turned face-up for
-    /// FREE because the identities were already on this client in the host-replicated model: the hand
-    /// fan reads <c>CCharacterClass.HandAbilityCards</c>, the browse arcs read the discard/lost lists,
-    /// the item fan reads <c>Inventory.AllItems</c>, the board slots read <c>RoundAbilityCards</c>. A
-    /// HELD card has no such list. "Which of my cards is currently pinched between my fingers" is a VR
-    /// fact that exists nowhere in the game model — the model still has the card in whatever pile it
-    /// came from — so the only way to name it on a receiver would be to put a card id in a packet,
-    /// which is the one thing the wire rule forbids outright. The slab therefore stays a back, and the
-    /// card becomes readable again the instant its owner puts it down. <see cref="RemoteCardFx"/>'s
-    /// in-flight card slab is backs-only for exactly the same reason and would be fixed by exactly the
-    /// same (forbidden) field.
+    /// THIS SURFACE SHOWS THE FRONT SINCE ModBuild 352, and the paragraph that used to stand here
+    /// saying it could not is REPLACED rather than amended, because it was wrong in a way that would
+    /// be re-derived by the next reader. It argued: the 2026-08-08 ruling ("Die Oberseiten der Karten
+    /// des remote Spielers soll auch überall sichtbar sein … NUR in der Auswahlphase … nur die
+    /// Rückseiten") turned every other remote card surface face-up for FREE, because their identities
+    /// were already on this client in the host-replicated model — the hand fan reads
+    /// <c>CCharacterClass.HandAbilityCards</c>, the browse arcs the discard/lost lists, the item fan
+    /// <c>Inventory.AllItems</c>, the board slots <c>RoundAbilityCards</c> — whereas a HELD card has
+    /// no such list, since "which of my cards is pinched between my fingers" is a VR fact the game
+    /// model does not carry; therefore naming it on a receiver would mean putting a CARD ID in a
+    /// packet, which the wire rule forbids.
+    ///
+    /// EVERY CLAUSE OF THAT IS TRUE EXCEPT THE CONCLUSION. The receiver never needed an identity. The
+    /// model still holds the card in whatever pile it came from — which the old paragraph says itself,
+    /// one sentence before drawing the opposite conclusion from it — so what identifies it is a
+    /// POSITION in one of those very lists: the hand fan the card was plucked out of, the browse arc
+    /// it was lifted from, or the inventory. Every one of those lists is on this client already and is
+    /// already being drawn in full by the mirror beside this slab. An INDEX into one of them discloses
+    /// nothing that mirror does not already show, and it is meaningless to anybody who does not hold
+    /// the list. That index is extension record <see cref="NetProtocol.ExtIdHeldCardFace"/> (36), it
+    /// carries the LENGTH of the list beside it so a lagging client draws a back instead of a shifted
+    /// face, and the front is gated on the identical <see cref="RevealGate.ShowRoundCardFronts"/> call
+    /// every other surface makes — so the secret selection window is exactly as secret as it was. The
+    /// drawing lives in <see cref="RemoteHeldCardFace"/>.
+    ///
+    /// <see cref="RemoteCardFx"/>'s IN-FLIGHT card slab is still backs-only, and the old paragraph's
+    /// claim that it "would be fixed by exactly the same field" does not survive either: a flight is
+    /// an EVENT (the extras packet's card-FX block is a wrapping seq plus two anchor ids),
+    /// not a state, and the card it carries is in transit BETWEEN two lists — the model has usually
+    /// already moved it by the time the receiver replays the arc, so there is no list position that
+    /// names it for the duration of the flight. It needs a different record, not this one.
     ///
     /// ORIENTATION is re-derived receiver-side rather than slerped toward the transmitted rotation
     /// — see <see cref="UpdateCardSlab"/>, which does it for both held slabs.
     /// </summary>
     private void UpdateHeldCard(float k)
-        => UpdateCardSlab(ref _heldCardHolder, "HeldCard",
-                          _target.HasHeldCard, in _target.HeldCardPose, k,
-                          HeldCardSizing.OwnerHeldCard,
-                          (_heldCardGripMask & NetProtocol.HeldCardGripFirstBit) != 0);
+    {
+        UpdateCardSlab(ref _heldCardHolder, "HeldCard",
+                       _target.HasHeldCard, in _target.HeldCardPose, k,
+                       HeldCardSizing.OwnerHeldCard,
+                       (_heldCardGripMask & NetProtocol.HeldCardGripFirstBit) != 0);
+        // …and the FRONT of that card (extension record 36), which is the whole of the 2026-09-02
+        // report's item 6. Built lazily on the first front so a peer who never holds a card costs
+        // nothing, and gated inside RemoteHeldCardFace on the identical RevealGate call every other
+        // remote card surface makes.
+        _heldFace1 ??= new RemoteHeldCardFace(this, 1);
+        _heldFace1.Tick(_heldCardHolder, _target.HasHeldCard, _heldFaceCode, _heldFaceCount);
+    }
 
     /// <summary>
     /// One card-slab's whole per-frame life: lazy build on first use, ease toward the transmitted
@@ -1857,6 +1939,12 @@ internal sealed class RemoteAvatar
         _cardFx.Destroy();
         _browserFan.Destroy();
         _nameTag.Destroy();
+        // Record 36's front overlays own their own clones and materials, so they are destroyed in
+        // their own right — the slabs they hang off die with _root, but the clone does not.
+        _heldFace1?.Destroy();
+        _heldFace2?.Destroy();
+        _heldFace1 = null;
+        _heldFace2 = null;
         // Round 17: the held-card body meshes are CardMesh's SHARED cache (AttachBody) — never
         // ours to destroy; the holders die with _root below.
         _heldCardHolder = null;

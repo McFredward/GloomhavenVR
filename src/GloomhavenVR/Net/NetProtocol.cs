@@ -416,7 +416,7 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 355;
+    public const ushort ModBuild = 356;
     // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //
@@ -17054,7 +17054,15 @@ internal static class NetProtocol
     /// could play some item now" — one boolean about a state vanilla already publishes far more of,
     /// since any player may open ANY other player's full card overview straight off the initiative
     /// track (<c>InitiativeTrackPlayerAvatar.OnClick</c> → <c>CardsHandManager.ToggleViewAllCards</c>),
-    /// which lists the equipped items themselves. WHICH item is usable never travels.</para>
+    /// which lists the equipped items themselves.</para>
+    ///
+    /// <para>THIS BIT USED TO END "WHICH item is usable never travels", AND THAT IS NO LONGER
+    /// TRUE: <see cref="ExtIdItemUsable"/> (record 35) carries the per-index mask, because a
+    /// peer's mirrored item FAN drew no pulse at all while this stack cue was mirrored, and the
+    /// user read that as a 1:1 violation. The anti-cheat reasoning above is UNCHANGED and covers
+    /// the mask too — a position in an inventory every player may already open off the initiative
+    /// track is not an identity. This bit stays exactly what it is: one boolean about the CLOSED
+    /// stack, which is the only thing on screen while the fan is folded away.</para>
     /// </summary>
     public const byte BoardUiCapItemPileUsableBit = 1 << 7;
 
@@ -17629,13 +17637,23 @@ internal static class NetProtocol
     /// tooltip anchor): sent ONLY when that card is physically parked in a round-card SLOT — the
     /// one place peers render our cards face-up — AND the reveal phase shows fronts to peers
     /// (the inverse of the <see cref="RevealGate"/> secret-selection rule). A hand-fan, item-fan,
-    /// pile-browser or held card is BACKS-ONLY on every peer forever, so its tooltip is never
+    /// pile-browser or held card is not a round-card slot, so its tooltip is never
     /// sent.</description></item>
     /// <item><description>AMBIGUOUS ownership — a card face whose VRCard cannot be resolved, or
     /// any anchor the classifier does not positively recognise as furniture: NOT sent. The
     /// failure direction is suppression, always: a missing remote tooltip is cosmetic, a leaked
     /// card identity is a broken game rule.</description></item>
     /// </list>
+    ///
+    /// <para>THE SECOND BULLET'S REASON WAS RESTATED ON 2026-09-02, AND THE RULE ITSELF IS
+    /// UNCHANGED. It used to say those four surfaces are "BACKS-ONLY on every peer forever",
+    /// which had already stopped being true when the 2026-08-08 ruling turned the hand fan, the
+    /// item fan and the pile-browse arcs face-up outside the secret window, and stopped being
+    /// true for the held card with <see cref="ExtIdHeldCardFace"/> (record 36). A premise that
+    /// has gone stale is exactly how a suppression gets "relaxed" by the next reader, so it is
+    /// stated as the decision it actually is: a tooltip carries KEYWORDS AND EFFECT TEXT, which
+    /// names a card whether or not its face is drawn, and only the round-card SLOT is a place a
+    /// peer sees a card because the GAME put it there. Nothing here is widened by record 36.</para>
     ///
     /// <para>ADDITIVE TLV exactly like every record before it: an older peer steps over it by its
     /// length and simply shows no remote tooltip.</para>
@@ -19014,6 +19032,227 @@ internal static class NetProtocol
     /// <see cref="ExtIdSecondHeldCard"/>'s slot.</summary>
     public const byte HeldCardGripSecondBit = 1 << 1;
 
+    /// <summary>
+    /// Extension record id: WHICH EQUIPPED ITEMS ARE WEARING THE OWNER'S "you can play this NOW"
+    /// FRAME — a 16-bit mask over <c>CInventory.AllItems</c> INDEX (bit i ⇔ items[i] is usable),
+    /// exactly the value <c>Cards.Piles.PileViewer.ItemsUsableMask</c> publishes.
+    ///
+    /// <para>WHAT IT FIXES (2026-09-02 multiplayer report, item 5, verbatim): "Die Gegenstände, die
+    /// benutzbar sind, haben eine highlighting Animation, diese ist aber nicht beim remote board
+    /// beim Mitspieler sichtbar bei deren Gegenstandsfächer (verletzt 1:1 Regel)." The CLOSED items
+    /// stack already mirrors its cue — <see cref="BoardUiCapItemPileUsableBit"/> carries "something
+    /// in here is playable" — but that is one boolean about the whole stack. Inside the fan the
+    /// pulse is per CARD, its carrier (<c>WorldUI.SoftFramePulse</c> on a hollow
+    /// <c>SoftCueArt.FrameSprite</c>) is 100 % mod-owned and lives only on the owner's own chips,
+    /// and <c>Net/Remote/RemoteItemFan.Rebuild</c> builds bare slabs. So the answer this record
+    /// carries had no way to reach a peer at all, and the note in <see cref="ExtIdBoardUi"/> that
+    /// "WHICH item is usable never travels" is what this record retires.</para>
+    ///
+    /// <para>WHY THE RECEIVER CANNOT RE-DERIVE IT — the load-bearing point, and it is a data fact
+    /// rather than a cost argument. The owner's predicate (<c>Cards.Piles.ItemsPile.UsableMask</c>)
+    /// has two arms and BOTH end in state that exists only on the owner's machine. Arm 1 runs
+    /// through <c>CardsGameApi.IsActionTurn</c>, whose last term is
+    /// <c>!FFSNetwork.IsOnline || cur.IsUnderMyControl</c> — the VIEWER's dial, false for every
+    /// character the viewer does not control, which is EVERY character this record is about; a
+    /// re-derivation is therefore identically 0 on exactly the board that needs it. Arm 2 reads
+    /// <c>Singleton&lt;UIActiveBonusBar&gt;.Instance</c>, a LOCAL UI singleton holding the local
+    /// decider's rows, which on another client is not the owner's offer at all. Re-deriving would
+    /// AND the owner's state with the viewer's copy of the same key — the mirrored card-dust defect
+    /// that was inert for seven builds. The owner's own RENDERED answer is the only 1:1 answer, so
+    /// it travels, exactly like the pile counts beside it (<see cref="ExtIdPileCounts"/>).</para>
+    ///
+    /// <para>WHY AN INDEX MASK IS NOT AN ITEM IDENTITY. Nothing here names an item: bit i addresses
+    /// position i of a list the receiver already holds and already draws the whole arc from
+    /// (<c>CPlayerActor.Inventory.AllItems</c>, host-replicated, walked in the same order by
+    /// <c>RemotePileFronts.Resolve</c> and by the owner's own <c>ItemsPile.Populate</c>). It is the
+    /// same shape as <see cref="ExtIdItemUseClip"/>, one bit per position instead of one index.</para>
+    ///
+    /// <para>THE INDEX SPACE IS THE RAW <c>AllItems</c> INDEX, NULLS INCLUDED, and that distinction
+    /// is load-bearing rather than pedantic. Both fan builders SKIP null entries
+    /// (<c>ItemsPile.Populate</c>, <c>RemotePileFronts.Resolve</c>) while
+    /// <c>ItemsPile.UsableMask</c> sets bit i from the RAW index, so a null anywhere in the list
+    /// puts every later chip one arc position below its mask bit. The receiver therefore re-walks
+    /// <c>AllItems</c> and counts non-nulls to map bit → arc slot, instead of assuming the two
+    /// indices coincide. See <c>RemoteItemFan.ResolveUsableSlots</c>.</para>
+    ///
+    /// <para>NOT GATED BY <c>RevealGate</c>, for the reason
+    /// <c>RemotePileFronts.TryResolveItemSpentFlags</c> states word for word: the gate governs card
+    /// FRONTS in the secret <c>SelectAbilityCardsOrLongRest</c> window, and a frame around a
+    /// position in an inventory the flat game shows in full is neither a front nor a secret. Gating
+    /// it would make the mirrored arc disagree with its owner in the one phase the 1:1 ruling
+    /// grants no exception to.</para>
+    ///
+    /// <para>Written ONLY while the mask is non-zero — which is 0 off-turn by construction, since
+    /// <c>PileViewer.TickItemsUsableHighlight</c> is fed a null hand then — so an idle packet, and
+    /// every packet of every player with nothing playable, is byte-identical to ModBuild 351's.
+    /// ADDITIVE TLV: a peer predating the record steps over it by its length and draws the bare
+    /// slabs it drew before.</para>
+    /// </summary>
+    public const byte ExtIdItemUsable = 35;
+
+    /// <summary>Payload length of <see cref="ExtIdItemUsable"/>: one <c>ushort</c> LE mask. A reader
+    /// requires at least this much before it trusts the record.</summary>
+    public const int ItemUsableRecordBytes = 2;
+
+    /// <summary>Highest <c>AllItems</c> index <see cref="ExtIdItemUsable"/> can describe — the same
+    /// 16 the sender's own <c>ItemsPile.UsableMaskBits</c> caps at, so the wire never narrows the
+    /// answer the owner rendered. An inventory longer than this simply leaves the extra chips
+    /// unframed on the peer, i.e. exactly the pre-record look, and never frames a different card.
+    /// </summary>
+    public const int ItemUsableMaskBits = 16;
+
+    /// <summary>
+    /// Extension record id: WHICH CARD A PEER IS PHYSICALLY HOLDING, as an INDEX into a list both
+    /// clients already hold — one entry per held-card POSE SLOT.
+    ///
+    /// <para>WHAT IT FIXES (2026-09-02 multiplayer report, item 6, verbatim): "Die Vorderseite SOLL
+    /// man sehen auch von Karten die ein Spieler gerade in der Hand hat. Nur die Rückseite
+    /// angezeigt werden soll nur in der Auswahlphase, in allen anderen Phasen sollen die Karten
+    /// immer sichtbar sein, egal ob auf dem Fächer oder in der Hand eines Mitspielers." The rule he
+    /// is restating is already implemented — <c>RevealGate.ShowRoundCardFronts</c>, routed
+    /// through by every remote card surface — and the ONE surface it could not reach was the card a
+    /// peer is holding, which <c>RemoteAvatar.BuildCardSlab</c> draws as a back on both faces.</para>
+    ///
+    /// <para>THE ARGUMENT THAT SAID THIS WAS IMPOSSIBLE WAS WRONG, and it stood in
+    /// <c>RemoteAvatar.UpdateHeldCard</c>'s doc for eight builds; it has been rewritten rather than
+    /// left to be re-derived. It ran: every other surface could be turned face-up for free because
+    /// the identities were already on this client in the host-replicated model, but "which of my
+    /// cards is currently pinched between my fingers" exists nowhere in that model, so naming it
+    /// would mean putting a CARD ID in a packet, which the wire rule forbids. The first half is
+    /// true and the conclusion does not follow. The receiver does not need a card id, it needs a
+    /// POSITION in a list it is already reading in full for the very fan the card was plucked out
+    /// of — <c>cardsUI</c> filtered to <c>CardPileType.Hand</c>, the discard/lost widget lists
+    /// <c>CardsGameApi.GetPileWidgets</c> returns, or <c>Inventory.AllItems</c>. An index into one
+    /// of those discloses nothing the fan beside it does not already draw in full outside the
+    /// secret window, and it stays meaningless to anybody who does not hold the list.</para>
+    ///
+    /// <para>LAYOUT — TWO BYTES PER SLOT, and the record is 2 bytes (slot 1 only) or 4 (both
+    /// slots), read by LENGTH exactly like <see cref="ExtIdMapRoom"/>'s two forms:
+    /// <list type="bullet">
+    ///   <item>byte 0 — bits 0..4 the INDEX (<see cref="HeldFaceIndexUnknown"/> = 31 means "I know
+    ///         the list but not the position"), bits 5..7 the SOURCE LIST
+    ///         (<see cref="HeldFaceListNone"/>/<see cref="HeldFaceListHand"/>/
+    ///         <see cref="HeldFaceListDiscard"/>/<see cref="HeldFaceListBurnt"/>/
+    ///         <see cref="HeldFaceListItems"/>; 5..7 reserved);</item>
+    ///   <item>byte 1 — the LENGTH of the list the sender indexed into, clamped to 255.</item>
+    /// </list>
+    /// Slot 1 is the rig packet's <see cref="FlagHeldCard"/> card, slot 2 is record
+    /// <see cref="ExtIdSecondHeldCard"/>'s — the same two POSE SLOTS
+    /// <see cref="ExtIdHeldCardGrip"/>'s bits name, filled by the same left-first rule in
+    /// <c>LocalRigSampler</c>, so an entry can never describe the other hand's card.</para>
+    ///
+    /// <para>WHY THE LENGTH BYTE IS NOT PADDING. It is the whole robustness of the record. A
+    /// positional index is only a name while both clients' copies of the list agree, and ModBuild
+    /// 351 shipped a stopgap in <c>RemoteHandFan</c> for the case where they do not: this client's
+    /// <c>cardsUI</c> lags a whole choreographer turn behind an owner who has just burnt a card, and
+    /// a SHIFTED front is wrong in a way the player cannot read and would act on. The receiver
+    /// compares this byte with its own list's length and falls back to a BACK on any disagreement,
+    /// so the record can never draw the wrong card's face — it can only fail to draw one.</para>
+    ///
+    /// <para>THE SECRET WINDOW IS UNCHANGED AND THERE IS NO SECOND COPY OF THE RULE. The receiver
+    /// draws the front only while <c>RevealGate.ShowRoundCardFronts</c> is open for the
+    /// character the peer's board is displaying — the IDENTICAL call every other remote card
+    /// surface makes — so during <c>SelectAbilityCardsOrLongRest</c> the held slab is a back and the
+    /// card-borrow path stays refused there. The gate is on the RECEIVER rather than the sender on
+    /// purpose: an index leaks nothing a determined local reader does not already have (the hand
+    /// list is host-replicated onto every client), so gating the WRITE would buy no secrecy and
+    /// would instead make the record's absence ambiguous between "not holding" and "holding, but in
+    /// the secret phase".</para>
+    ///
+    /// <para>Written ONLY while a slot really names a card, so every packet of every player who is
+    /// not holding one — which is nearly all of them, and all idle ones — is byte-identical to
+    /// ModBuild 351's. ADDITIVE TLV: a peer predating the record steps over it by its length and
+    /// draws the back-on-both-faces slab it drew before.</para>
+    /// </summary>
+    public const byte ExtIdHeldCardFace = 36;
+
+    /// <summary>Payload length of ONE <see cref="ExtIdHeldCardFace"/> slot: [code][list length].
+    /// A reader requires at least this much before it trusts slot 1, and twice this much before it
+    /// trusts slot 2.</summary>
+    public const int HeldCardFaceSlotBytes = 2;
+
+    /// <summary>Mask of the INDEX field in an <see cref="ExtIdHeldCardFace"/> code byte (bits 0..4).
+    /// </summary>
+    public const byte HeldFaceIndexMask = 0x1F;
+
+    /// <summary>Bit position of the SOURCE-LIST field in an <see cref="ExtIdHeldCardFace"/> code
+    /// byte (bits 5..7).</summary>
+    public const int HeldFaceListShift = 5;
+
+    /// <summary>Reserved INDEX value: the sender knows WHICH list the card came from but not its
+    /// position in it — or the position is past what five bits can carry. The receiver draws a back,
+    /// which is what it drew before the record existed. It is a distinct value rather than
+    /// <see cref="HeldFaceListNone"/> so a log can tell "no list" from "no seat in the list".
+    /// </summary>
+    public const byte HeldFaceIndexUnknown = 31;
+
+    /// <summary>Largest INDEX <see cref="ExtIdHeldCardFace"/>'s five bits can name (30). A sender
+    /// with a longer list writes <see cref="HeldFaceIndexUnknown"/> rather than a wrapped index — a
+    /// wrapped index is the one failure mode this record must not have. A Gloomhaven class deck is
+    /// far inside this and <c>ItemsPile.UsableMaskBits</c> caps the inventory at 16.</summary>
+    public const byte HeldFaceIndexMax = 30;
+
+    /// <summary>SOURCE LIST 0: this slot names nothing — no card held, or one whose list the sender
+    /// could not identify. An ALL-ZERO code byte is therefore identical in meaning to the record
+    /// being absent, which is what lets the writer gate on the payload instead of on a flag.
+    /// </summary>
+    public const byte HeldFaceListNone = 0;
+
+    /// <summary>SOURCE LIST 1: the owner's open ability HAND FAN —
+    /// <c>CardsHandManager.Instance.GetHand(actor).cardsUI</c> filtered to
+    /// <c>CardPileType.Hand</c> with a non-null <c>fullAbilityCard</c>, which is EXACTLY the filter
+    /// <c>RemoteHandFan.ResolveHandFronts</c> already applies on the receiver. The two must stay one
+    /// expression or the index names a different seat on each machine.</summary>
+    public const byte HeldFaceListHand = 1;
+
+    /// <summary>SOURCE LIST 2: the owner's DISCARD pile —
+    /// <c>CardsGameApi.GetPileWidgets(hand, burnt: false, buf)</c>, the same call
+    /// <c>RemotePileFronts.Resolve</c> makes for <c>Content.Discard</c>.</summary>
+    public const byte HeldFaceListDiscard = 2;
+
+    /// <summary>SOURCE LIST 3: the owner's LOST/burnt pile —
+    /// <c>CardsGameApi.GetPileWidgets(hand, burnt: true, buf)</c>, the same call
+    /// <c>RemotePileFronts.Resolve</c> makes for <c>Content.Burnt</c>.</summary>
+    public const byte HeldFaceListBurnt = 3;
+
+    /// <summary>SOURCE LIST 4: the owner's equipped ITEMS — <c>CPlayerActor.Inventory.AllItems</c>,
+    /// RAW index including null entries, the same index space
+    /// <see cref="ExtIdItemUsable"/> uses.</summary>
+    public const byte HeldFaceListItems = 4;
+
+    /// <summary>Largest SOURCE LIST id this build defines. A code byte naming 5..7 is a future
+    /// sender's list; the receiver draws a back for it rather than guessing, which is the same
+    /// picture a peer predating the record draws.</summary>
+    public const byte HeldFaceListMax = 4;
+
+    /// <summary>Pack an <see cref="ExtIdHeldCardFace"/> code byte. An out-of-range index or an
+    /// unknown list degrades to a value the receiver renders as a BACK — never to a wrapped index
+    /// pointing at somebody else's card.</summary>
+    public static byte EncodeHeldFace(byte list, int index)
+    {
+        if (list == HeldFaceListNone || list > HeldFaceListMax)
+            return 0;
+        byte slot = index >= 0 && index <= HeldFaceIndexMax ? (byte)index : HeldFaceIndexUnknown;
+        return (byte)((list << HeldFaceListShift) | slot);
+    }
+
+    /// <summary>The SOURCE LIST named by an <see cref="ExtIdHeldCardFace"/> code byte.</summary>
+    public static byte HeldFaceList(byte code) => (byte)(code >> HeldFaceListShift);
+
+    /// <summary>The INDEX named by an <see cref="ExtIdHeldCardFace"/> code byte
+    /// (<see cref="HeldFaceIndexUnknown"/> when the sender could not seat it).</summary>
+    public static byte HeldFaceIndex(byte code) => (byte)(code & HeldFaceIndexMask);
+
+    /// <summary>True when an <see cref="ExtIdHeldCardFace"/> code byte names a list AND a seat this
+    /// build can resolve. Everything else — no list, a reserved list id, the unknown index — is a
+    /// BACK, which is exactly what a peer predating the record draws.</summary>
+    public static bool HeldFaceNamesCard(byte code)
+    {
+        byte list = HeldFaceList(code);
+        return list != HeldFaceListNone && list <= HeldFaceListMax
+               && HeldFaceIndex(code) != HeldFaceIndexUnknown;
+    }
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------
@@ -19027,8 +19266,9 @@ internal static class NetProtocol
     // because the obvious cheap fix — "spill into record 29" — was considered and REJECTED: a
     // continuation record only doubles the ceiling, it is the same wall a bit further away, and it
     // spends a scarce id every time the wall is reached again. Paging keeps one id and has no wall
-    // at all. Ids in use today: 1..34 CONTIGUOUSLY (18..21 were reserved and have since been
-    // claimed; 34 is ExtIdHeldCardGrip, ModBuild 317). FREE: 35..255.
+    // at all. Ids in use today: 1..36 CONTIGUOUSLY (18..21 were reserved and have since been
+    // claimed; 35 is ExtIdItemUsable and 36 ExtIdHeldCardFace, the 2026-09-02 report's items
+    // 5 and 6). FREE: 37..255.
     //
     // THAT LINE USED TO READ "1..17 and 22..29. FREE: 30..255" and it was WRONG BY FOUR when the
     // ModBuild-307 record went looking for a number: 30, 31 and 32 had been taken in the meantime

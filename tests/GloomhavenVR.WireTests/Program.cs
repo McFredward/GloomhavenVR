@@ -104,6 +104,12 @@ internal static class Program
             // captions are live game text with runtime insertions, so this asserts a PROPERTY —
             // nothing is ever dropped — rather than a list of strings that cannot be complete.
             CapLabelFitVectors.Run(t, repoRoot);
+            // SOURCE LINT for record 35: the mirrored item-usable frame must be cut to the
+            // OWNER's numbers. Both frames use the shared SoftCueArt machinery, which is the part
+            // that matters; the pixel geometry is declared twice because the owner's constants are
+            // private to a nested class, and "share the machinery, not the look" is a failure this
+            // project has already paid for. The drift is invisible from inside either headset.
+            ItemUsableVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

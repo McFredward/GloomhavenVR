@@ -590,6 +590,7 @@ internal sealed class RemoteItemFan
         // on a slab that already sits where it belongs. The gate inside is evaluated every frame; the
         // model resolve behind it rides the board-content cadence — see RemotePileFronts.
         _fronts.Tick(RemotePileFronts.Content.Items);
+        TickUsableFrames(count);
 
         if (count != _loggedCount || _owner.ItemFanHeld != _loggedHeld)
         {
@@ -1219,6 +1220,7 @@ internal sealed class RemoteItemFan
     private void DestroyAllSlabs()
     {
         _fronts.Destroy();
+        ClearUsableFrames();
         for (int i = _cards.Count - 1; i >= 0; i--)
         {
             if (_cards[i] != null)
@@ -1632,6 +1634,7 @@ internal sealed class RemoteItemFan
         _cards.Clear();
         ClearCollapseCapture(); // parallel to _cards — never let it outlive the slabs it indexed
         ClearPops();            // index-aligned with _cards too — a rebuilt arc starts flat
+        ClearUsableFrames();    // index-aligned with _cards as well (record 35's frames)
 
         Material back = CardMesh.CreateBackMaterial(CardBodyKind.Item); // SHARED cache — never ours to destroy
         for (int i = 0; i < count; i++)
@@ -1688,6 +1691,138 @@ internal sealed class RemoteItemFan
         LogCut(previousH);
     }
 
+    /// <summary>
+    /// WHICH mirrored chips wear the owner's gold "you can play this NOW" frame — the receiver of
+    /// extension record <see cref="NetProtocol.ExtIdItemUsable"/>, and the fix for the 2026-09-02
+    /// report's item 5 ("diese ist aber nicht beim remote board … sichtbar").
+    ///
+    /// <para>CHANGE-GATED DOWN TO ONE USHORT COMPARE in the steady state, which is what makes it
+    /// affordable at 90 Hz on every peer: the mask only moves when the owner's turn, their bonus
+    /// offer or their inventory does, all of them human-paced. The mapping walk behind the gate is
+    /// over a bounded equipment list (at most a handful of entries).</para>
+    ///
+    /// <para>NOT GATED BY <see cref="RevealGate"/>, for the reason
+    /// <c>RemotePileFronts.TryResolveItemSpentFlags</c> gives in full beside it: the gate governs
+    /// card FRONTS in the secret selection window, and a frame around a POSITION in an inventory the
+    /// flat game shows to everyone is neither a front nor a secret. Gating it would make the
+    /// mirrored arc disagree with its owner in the one phase the 1:1 ruling grants no exception
+    /// to.</para>
+    ///
+    /// <para>THE BEAT PERIOD IS THE VIEWER'S OWN <c>[Cards] ItemCueBeatSeconds</c> AND THAT IS
+    /// DELIBERATE. It is not a per-sub-feature sync carve-out: the dial is not a property of the
+    /// owner's board at all, it is the rhythm THIS client already beats every one of its own item
+    /// cues on, and the whole point of <see cref="WorldUI.SoftFramePulse"/> reading
+    /// <c>Time.unscaledTime</c> is that every framed card in the room breathes in phase. Following
+    /// the owner's period here would put a peer's frames out of phase with the viewer's own — one
+    /// cue rendered as two — which is the opposite of what the 1:1 rule is protecting. WHICH cards
+    /// are framed is the owner's answer and rides the wire; how fast the room breathes is the room's.
+    /// </para>
+    /// </summary>
+    private void TickUsableFrames(int count)
+    {
+        ushort mask = _owner.ItemUsableMask;
+        bool dirty = mask != _usableMask || count != _usableBuiltCount;
+        _usableMask = mask;
+        _usableBuiltCount = count;
+        if (!dirty)
+            return;
+
+        if (mask == 0)
+        {
+            // Nothing is playable on that board — or the sender predates record 35. Both mean the
+            // arc this build drew before: bare slabs.
+            for (int i = 0; i < _usableFrames.Count; i++)
+            {
+                GameObject? off = _usableFrames[i];
+                if (off != null && off.activeSelf)
+                    off.SetActive(false);
+            }
+            if (_loggedUsableMask != 0)
+            {
+                _loggedUsableMask = 0;
+                VRLog.Info("Net", $"Remote ITEM usable [player {_owner.PlayerId}]: no frames — "
+                    + "record 35 absent or 0x0000 (nothing is playable on that board right now).");
+            }
+            return;
+        }
+
+        if (!RemoteUsableFrame.ResolveSlots(_owner, mask, _usableSlots))
+        {
+            // The peer's inventory is unreadable this frame: leave the arc bare rather than framing
+            // a guess. Same failure direction the front layer takes.
+            for (int i = 0; i < _usableFrames.Count; i++)
+            {
+                GameObject? off = _usableFrames[i];
+                if (off != null && off.activeSelf)
+                    off.SetActive(false);
+            }
+            return;
+        }
+
+        int shown = 0;
+        for (int i = 0; i < count && i < _cards.Count; i++)
+        {
+            bool on = i < _usableSlots.Count && _usableSlots[i];
+            GameObject? slab = _cards[i];
+            if (slab == null)
+                continue;
+            while (_usableFrames.Count <= i)
+                _usableFrames.Add(null);
+            if (on && _usableFrames[i] == null)
+                _usableFrames[i] = RemoteUsableFrame.Build(slab.transform, ChipBoxW, _cardH);
+            GameObject? frame = _usableFrames[i];
+            if (frame == null)
+                continue;
+            if (frame.activeSelf != on)
+                frame.SetActive(on);
+            if (on)
+                shown++;
+        }
+        if (mask != _loggedUsableMask)
+        {
+            _loggedUsableMask = mask;
+            // HW-VERIFY: ModBuild 352 item 5 — the RECEIVER edge of the mirrored per-item pulse.
+            // Either tester can be the one watching and the co-player runs at the shipped default
+            // level, so it has to print on both machines; change-gated on the wire mask, which is
+            // human-paced. Read it against the owner's "Item usable mask SENT" line: the same hex on
+            // both machines with no frames here means the MIRROR failed, not the mask.
+            VRLog.Note("Net", $"Remote ITEM usable [player {_owner.PlayerId}]: mask 0x{mask:X4} "
+                + $"(record 35) -> {shown} of {count} mirrored chip(s) framed. The mask is over "
+                + "Inventory.AllItems RAW index and the arc skips null entries, so the bits are "
+                + "re-seated by counting non-nulls; a frame on the neighbouring card would mean "
+                + "that mapping, not the wire, is wrong.");
+        }
+    }
+
+    /// <summary>Drop every usable frame with the slabs they hang off. Index-parallel with
+    /// <see cref="_cards"/>: a frame that outlived its slab would be an orphan canvas on a peer's
+    /// board, and one that outlived the LIST would be re-seated onto another card.</summary>
+    private void ClearUsableFrames()
+    {
+        for (int i = 0; i < _usableFrames.Count; i++)
+        {
+            if (_usableFrames[i] != null)
+                Object.Destroy(_usableFrames[i]);
+        }
+        _usableFrames.Clear();
+        _usableSlots.Clear();
+        _usableMask = 0;
+        _usableBuiltCount = -1;
+        _loggedUsableMask = 0;
+    }
+
+    /// <summary>One usable FRAME per arc slot, index-parallel with <see cref="_cards"/>; null until
+    /// that position has been framed once (a fan nobody can play out of costs nothing).</summary>
+    private readonly System.Collections.Generic.List<GameObject?> _usableFrames = new();
+
+    /// <summary>Reused mapping buffer: one flag per ARC slot, produced from the RAW-index mask.
+    /// </summary>
+    private readonly System.Collections.Generic.List<bool> _usableSlots = new();
+
+    private ushort _usableMask;
+    private int _usableBuiltCount = -1;
+    private ushort _loggedUsableMask;
+
     private void Hide()
     {
         // FIRST, always: a slab parented to the mirrored recess is NOT under _root, so deactivating
@@ -1727,6 +1862,7 @@ internal sealed class RemoteItemFan
     public void Destroy()
     {
         _fronts.Destroy();
+        ClearUsableFrames();
         // The clipped slab hangs off the mirrored recess, so destroying _root would not take it
         // with it — it has to be destroyed in its own right or it outlives the whole fan on that
         // peer's board.

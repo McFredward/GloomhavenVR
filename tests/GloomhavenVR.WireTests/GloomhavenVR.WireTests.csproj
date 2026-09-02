@@ -248,6 +248,10 @@
          known-positive control. See the header of CapLabelFitVectors.cs. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\Caps\CapFaceLayout.cs" Link="cards\CapFaceLayout.cs" />
     <Compile Include="CapLabelFitVectors.cs" />
+
+    <!-- SOURCE LINT for extension record 35: the mirrored item-usable frame must be cut to the
+         OWNER's numbers. Reads both shipped files; needs no game types. -->
+    <Compile Include="ItemUsableVectors.cs" />
     <Compile Include="BoardSlotVectors.cs" />
     <!-- A SOURCE LINT rather than a vector, and it earns its place on this list for the reason the
          header of BundledShaderVectors.cs sets out: `Shader.Find` on a bundled shader returns null

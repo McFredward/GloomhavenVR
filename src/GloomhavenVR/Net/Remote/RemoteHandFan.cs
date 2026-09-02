@@ -1268,6 +1268,21 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // a SHIFTED FRONT is wrong in a way he cannot read at all, and he would act on it. This is
         // a stopgap, not the fix: the fix is for the hand fan's MEMBERSHIP to travel the way the
         // pile counts already do, after which the zip can be by identity and this can go.
+        //
+        // RECORD 36 DOES NOT RETIRE IT, AND THAT WAS CHECKED RATHER THAN ASSUMED (ModBuild 352).
+        // The held-card FACE record (NetProtocol.ExtIdHeldCardFace) makes an index into this very
+        // list safe — it carries the sender's list LENGTH beside the index and the receiver refuses
+        // the front unless its own copy matches — so it is tempting to read it as "the identity zip
+        // is now possible". It is not, and the difference is a quantifier: record 36 names ONE
+        // POSITION, the card in a hand. This zip needs the whole MEMBERSHIP, N entries, to know
+        // that slab i is card i. A record that answers "which one is in the fist" cannot answer
+        // "which N are in the fan", and its length byte is a CONSISTENCY TEST, not a membership
+        // list — the very test this line already performs, from the other side.
+        //
+        // What WOULD retire this is a per-card membership record (N seats, one per slab), which is
+        // a different record with a different cost profile: it rides on every packet of every
+        // player with an open fan, where record 36 rides only while somebody is physically holding
+        // a card. That is a decision about the wire's steady-state size and it is not this round's.
         if (showFronts && !mapFronts && _handBuffer.Count != count)
             showFronts = false;
 
