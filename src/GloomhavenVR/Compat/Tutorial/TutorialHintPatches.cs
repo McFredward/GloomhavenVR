@@ -86,14 +86,33 @@ namespace GloomhavenVR.Compat;
 /// </summary>
 internal static class TutorialHints
 {
-    /// <summary>Pinned PAGE (body) keys → mod loc id. TEXT_003 is the tutorial-2 camera
-    /// box (user-verified flat "W A S D" content); the other TB pages are story/rules
-    /// prose with no required input action (their dismiss is the box's own Continue
-    /// button, which exists in VR) and stay vanilla.</summary>
+    /// <summary>
+    /// Pinned PAGE (body) keys → mod loc id. The other TB pages are story/rules prose with no
+    /// required input action (their dismiss is the box's own Continue button, which exists in VR)
+    /// and stay vanilla.
+    ///
+    /// <para>THE TWO CAMERA PAGES BOTH POINT AT THE SAME LINE SINCE 2026-09-03 (user ruling: the
+    /// controls lesson now runs BEFORE them and <i>"die Kameraeinführung komplett ersetzt"</i>).
+    /// <c>TEXT_003</c> is the tutorial-2 camera box (user-verified flat "W A S D" content) and
+    /// <c>TEXT_002_2</c> is the page immediately before it — the 394 hardware log caught that one
+    /// on the tier-3 <c>"w a s d"</c> marker and asked in as many words for it to be promoted here
+    /// (LogOutput.log:7828), which this does. Together they ARE the camera introduction.</para>
+    ///
+    /// <para>WHY THEY ARE RE-TEXTED AND NOT REMOVED. <c>TB_4</c>'s display trigger is
+    /// <c>LevelMessageDismissed ctxId='TB_3'</c>, so the scripted chain needs both boxes shown and
+    /// dismissed; dropping them would strand the tutorial at the camera step forever. Replacing
+    /// what they SAY is the whole of "completely replaces" that presentation code may do — the
+    /// dismissal stays the player's, and no game state is written to fake it.</para>
+    ///
+    /// <para><c>tut_vr_move_body</c> is no longer reached from this table and is deliberately kept:
+    /// it is still the tier-2/tier-3 fallback text for any OTHER tutorial's camera hint, which is
+    /// a hint no lesson has run in front of.</para>
+    /// </summary>
     private static readonly Dictionary<string, string> BodyOverrides =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["TUTORIAL_2_TEXT_003"] = "tut_vr_move_body",
+            ["TUTORIAL_2_TEXT_002_2"] = "tut_vr_covered_body",
+            ["TUTORIAL_2_TEXT_003"] = "tut_vr_covered_body",
         };
 
     /// <summary>Pinned TITLE keys → mod loc id. For the HelpText strip the title IS the

@@ -47,14 +47,14 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             var sb = new StringBuilder(2048);
             List<CLevelMessage>? msgs = __instance.m_MessagesToShow;
             int n = msgs?.Count ?? 0;
-            // Does this level open with a story dialogue, and which one? The controls lesson takes
-            // the game's tutorial box over at exactly the moment that dialogue is dismissed —
-            // which is the display trigger of the first box the tutorial itself would open (flow
-            // dump: TB_2_1 waits on LevelMessageDismissed ctxId='TB_1'). Read from the
-            // controller's own queue, in queue order and by NAME: the tutorial carries a SECOND
-            // StoryDialog at the very end (TB_25), so "any story dialogue" would also match the
-            // closing one, and waiting for a dialogue this level never queues is how a lesson
-            // silently never runs.
+            // Does this level open with a story dialogue, and which one? Its dismissal is the
+            // display trigger of the first box the tutorial itself would open (flow dump: TB_2_1
+            // waits on LevelMessageDismissed ctxId='TB_1'), which is how the intro box below is
+            // found. Since 2026-09-03 the lesson's own slot is that INTRO BOX's dismissal, not
+            // this dialogue's. Read from the controller's own queue, in queue order and by NAME:
+            // the tutorial carries a SECOND StoryDialog at the very end (TB_25), so "any story
+            // dialogue" would also match the closing one, and waiting for a dialogue this level
+            // never queues is how a lesson silently never runs.
             string? openingDialog = null;
             for (int i = 0; i < n; i++)
                 if (msgs![i] != null
@@ -63,9 +63,31 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
                     openingDialog = msgs[i].MessageName;
                     break;
                 }
+            // AND THE BOX THAT DIALOGUE LEADS INTO — the tutorial's own INTRODUCTION, whose
+            // dismissal is now the lesson's slot (user ruling 2026-09-03: the introduction comes
+            // first, then the lesson, which replaces the camera introduction). It is identified
+            // STRUCTURALLY, never by name: the first queued message whose DISPLAY trigger is the
+            // UIEvent LevelMessageDismissed(20) naming the opening dialogue. In tutorial 2 that
+            // resolves to TB_2_1; in any other tutorial it resolves to whatever that tutorial's
+            // first box is, and to null if it has none — in which case the lesson falls back to
+            // the dialogue itself, i.e. to exactly its previous behaviour.
+            string? introBox = null;
+            if (!string.IsNullOrEmpty(openingDialog))
+                for (int i = 0; i < n; i++)
+                {
+                    CLevelTrigger? d = msgs![i]?.DisplayTrigger;
+                    if (d != null && d.IsUIEventTypeTrigger
+                        && d.EventTriggerTypeInt == (int)UIEvent.EUIEventType.LevelMessageDismissed
+                        && string.Equals(d.EventTriggerContextId, openingDialog,
+                            StringComparison.Ordinal))
+                    {
+                        introBox = msgs[i].MessageName;
+                        break;
+                    }
+                }
             // Queued rather than started: the hands, the asset bundle and the message handler all
             // come up over the first second of a scenario.
-            ControlsTutorial.RequestForTutorial(openingDialog);
+            ControlsTutorial.RequestForTutorial(openingDialog, introBox);
             sb.Append($"Tutorial flow dump — {n} scripted message(s) queued "
                 + "(display trigger ⇒ shows the hint; dismiss trigger ⇒ closes it):");
             for (int i = 0; i < n; i++)

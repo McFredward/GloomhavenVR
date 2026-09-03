@@ -87,9 +87,10 @@ internal readonly struct ControlsStep
 /// box's button skips THE CARD IN FRONT OF THEM rather than the whole lesson, so walking away from
 /// the tail of the list is a run of presses instead of one.</para>
 ///
-/// <para>ORDER. Reach and grab first, which is the one thing a flat-screen player has no instinct
-/// for. (Point-and-click used to come before it and was removed on 2026-09-03 — see the gap in the
-/// table.) Then ALL FOUR WAYS OF GETTING ABOUT, TOGETHER: pull yourself along, fly, turn, then zoom
+/// <para>ORDER. Getting about comes first, because both of the cards that used to precede it were
+/// removed on 2026-09-03 — point-and-click and then reach-and-grab, each for the same reason he
+/// gave twice: the player has already done it, or cannot do it here (see the two gaps in the
+/// table). ALL FOUR WAYS OF GETTING ABOUT, TOGETHER: pull yourself along, fly, turn, then zoom
 /// and rotate. The one-handed three come first and the two-handed pair after (user, 2026-08-29) —
 /// moving yourself is what a newcomer reaches for in the first minute, and it needs the same single
 /// stick the drag just taught. Postponing it behind the two-handed gestures, as the first version
@@ -127,10 +128,26 @@ internal static class ControlsLesson
         // ControlAction.LaserClick stays in the enum and BoardClickDriver still reports it; with no
         // step waiting on it ControlsProgress.Notify returns on its first line and it costs nothing.
         //
-        // CONTROLLER: the new fact here is PROXIMITY, and reaching moves the whole device, not the
-        // fingers — a controller in the same place reaches identically. The trigger is named again
-        // for a second purpose, so it stays lit while that second purpose is learnt.
-        new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger, showsController: true),
+        // ctl_grab (ControlAction.ProximityGrab, "Zugreifen" / "Reach out and grab") STOOD HERE
+        // and is gone — user ruling 2026-09-03, verbatim: "Entferne die erste Aufgabe 'Zugreifen'
+        // - hier ist nicht klar was du damit meinst und die Aufgabe hat keinen Mehrwert." It had
+        // become the first TASK earlier the same day, when ctl_laser was removed for the same
+        // reason; the welcome card above it asks for nothing and is not an Aufgabe.
+        //
+        // WHY IT WAS ALSO UNSATISFIABLE, which is the part worth writing down. The card said "move
+        // your hand to the thing itself and squeeze the TRIGGER" with no object — the list naming
+        // WHAT to reach for was cut as noise on 2026-09-03 — and the room cannot supply one: the
+        // lesson runs inside the tutorial's own box before a single card has been played, with no
+        // chest, no coin pile and no loose prop within reach. The only thing that could have
+        // completed it was the card fan, which ctl_card_take teaches four rows down with a target
+        // the player can actually see. A step that can never complete is the failure mode this
+        // lesson keeps having to be rescued from, and this one had it.
+        //
+        // THE ENUM VALUE AND ITS CALL SITE STAY, exactly as ControlAction.LaserClick's did.
+        // ControlsProgress.Waiting is only ever set to an action some step declares, so with no
+        // such step Notify returns on its first line and ProximityGrabber.cs:647 costs two static
+        // reads on the grab path. Deleting the value would mean editing Hands/, which this lane
+        // does not own, to remove a call that already does nothing.
 
         // GETTING ABOUT, ALL FOUR TOGETHER AND ONE-HANDED FIRST (user, 2026-08-29: fly and turn
         // belong straight after the drag). All four move YOU — the one-stick drag included, which
@@ -171,14 +188,14 @@ internal static class ControlsLesson
             showsController: false),
         new(ControlAction.PanelReel, "ctl_reel", ControllerKey.Thumbstick, showsController: true),
         new(ControlAction.Ping, "ctl_ping", ControllerKey.Primary, showsController: true,
-            keyNameId: "ctl_key_primary"),
+            keyNameId: PrimaryKeyNameId),
         new(ControlAction.Recenter, "ctl_recenter", ControllerKey.Secondary, showsController: true,
             keyNameId: "ctl_key_secondary"),
         // LAST, and on purpose: it is the card that hands the player everything else. The closing
         // card then points at the settings they have just seen how to reach. CONTROLLER: it is a
         // face button on a named hand, and getting the wrong hand is the whole failure mode.
         new(ControlAction.OpenMenu, "ctl_menu", ControllerKey.Primary, showsController: true,
-            keyNameId: "ctl_key_primary"),
+            keyNameId: PrimaryKeyNameId),
 
         // HAND: prose again, and the lesson hands the player back their own hands as it ends.
         new(ControlAction.None, "ctl_done", null, showsController: false),
@@ -355,9 +372,10 @@ internal static class ControlsLesson
                     + "([Hands] PrimaryHand -> " + DominantSide() + ")");
 
             default:
-                // ProximityGrab, CardTake, LaserClick — no config entry gates any of them and all
-                // three work on either hand. LaserClick no longer has a step (2026-09-03) but the
-                // action still exists, so it is answered here rather than left to an accident.
+                // CardTake — no config entry gates it and it works on either hand. LaserClick and
+                // ProximityGrab no longer have a step at all (both removed 2026-09-03) but both
+                // actions still exist and are still reported by their call sites, so they are
+                // answered here rather than left to an accident.
                 return new StepAvailability(true, LessonHands.Both, "no setting gates this step");
         }
     }
@@ -372,6 +390,109 @@ internal static class ControlsLesson
         return new StepAvailability(true,
             side == HandSide.Left ? LessonHands.Left : LessonHands.Right, why);
     }
+
+    /// <summary>The loc id to substitute into a card's <c>{0}</c>, and why that one.</summary>
+    internal readonly struct StepPhrasing
+    {
+        /// <summary>Loc id of the CONTROL NAME the body should say, or null when the body takes
+        /// no argument at all.</summary>
+        internal readonly string? ArgumentId;
+
+        /// <summary>One clause naming what decided it, for the hardware log. Never null.</summary>
+        internal readonly string Why;
+
+        internal StepPhrasing(string? argumentId, string why)
+        {
+            ArgumentId = argumentId;
+            Why = why;
+        }
+    }
+
+    /// <summary>
+    /// WHAT THE CARD CALLS THE CONTROL, RESOLVED AGAINST THE SETTINGS AS THEY ARE RIGHT NOW
+    /// (user ruling 2026-09-03: the text must name the RIGHT stick instead of just "the stick",
+    /// and must state the one case that is true now instead of writing out both eventualities
+    /// like <c>(auf der linken Hand "x")</c> — his own example being <i>"Tipp kurz X"</i> for the
+    /// menu when right-handed mode is on).
+    ///
+    /// <para>IT TAKES THE VERDICT RATHER THAN RE-READING THE DIALS, and that is the whole point.
+    /// <see cref="Availability"/> already resolves which hand performs each step, from the one
+    /// place that knows which dial gates which step; a second read here would be a second chance
+    /// to disagree about which stick is which, which is the class of bug <c>LocalTurnControl</c>
+    /// and <see cref="Availability"/> both exist to have ended. So the caller passes the verdict
+    /// it is already holding and this only turns <see cref="LessonHands"/> into words. The prose
+    /// and the lit key therefore cannot come apart: they are the same answer rendered twice.</para>
+    ///
+    /// <para>WHICH CARDS TAKE AN ARGUMENT, and what happens to the rest. Three name a STICK
+    /// (fly, snap turn, panel reel — the three whose acting hand a dial can move) and three name
+    /// a FACE BUTTON (ping, menu, recentre). Every other card either names its key in words that
+    /// are the same on both hands (TRIGGER, GRIP) or genuinely uses both sticks at once — the
+    /// two-handed zoom and rotate, and the one-stick drag, where EITHER stick drags and no
+    /// setting can make it one-sided. Those bodies carry no <c>{0}</c> and get null, which is the
+    /// resolved answer for them and not a hedge.</para>
+    ///
+    /// <para>WHAT CANNOT BE RESOLVED, AND WHAT IT FALLS BACK TO. Exactly one thing: while
+    /// <c>[Comfort]</c> is unbound (before the config binds, and again after teardown)
+    /// <see cref="Availability"/> fails open with <see cref="LessonHands.Both"/> for every step,
+    /// because no dial can be read at all. A stick card then says <c>ctl_stick_either</c> and a
+    /// face-button card falls back to <c>ctl_key_primary</c> — the old both-eventualities string,
+    /// kept alive for precisely this case and reachable through no other path. Both are true
+    /// statements about a lesson that has no settings to consult, and neither occurs in normal
+    /// play, where the config binds long before a scenario starts. The recentre chord is the
+    /// other permanent <see cref="LessonHands.Both"/>, and there B AND Y really are both pressed:
+    /// naming both is the instruction, not a hedge, so it keeps its own fixed name.</para>
+    /// </summary>
+    internal static StepPhrasing Phrasing(in ControlsStep step, in StepAvailability verdict)
+    {
+        switch (step.Action)
+        {
+            // The three sticks a dial can move. The card says which one, and the same verdict
+            // lights that same controller in ControlsTutorial.ApplyStep.
+            case ControlAction.Fly:
+            case ControlAction.SnapTurn:
+            case ControlAction.PanelReel:
+                if (verdict.Hands == LessonHands.Left)
+                    return new StepPhrasing("ctl_stick_left", "resolved LEFT — " + verdict.Why);
+                if (verdict.Hands == LessonHands.Right)
+                    return new StepPhrasing("ctl_stick_right", "resolved RIGHT — " + verdict.Why);
+                return new StepPhrasing("ctl_stick_either",
+                    "resolved EITHER (both hands perform it, or the dials are unreadable) — "
+                    + verdict.Why);
+            default:
+                break;
+        }
+
+        if (step.KeyNameId == null)
+            return new StepPhrasing(null, "this card's body takes no control name");
+
+        // The B+Y recentre chord: a two-hand chord names both keys because both are pressed.
+        // Only the DEVICE variant is resolved for it.
+        if (!string.Equals(step.KeyNameId, PrimaryKeyNameId, System.StringComparison.Ordinal))
+            return new StepPhrasing(step.KeyNameId + DpadSuffix(),
+                "a fixed key name for this card" + DpadWhy());
+
+        // A/X on ONE named hand — the ping and the pause-menu tap.
+        if (verdict.Hands == LessonHands.Left)
+            return new StepPhrasing("ctl_key_a_left" + DpadSuffix(),
+                "resolved to the LEFT controller's face button" + DpadWhy() + " — " + verdict.Why);
+        if (verdict.Hands == LessonHands.Right)
+            return new StepPhrasing("ctl_key_a_right" + DpadSuffix(),
+                "resolved to the RIGHT controller's face button" + DpadWhy() + " — " + verdict.Why);
+        // UNRESOLVABLE — see the doc: an unbound [Comfort] is the only way here. Fall back to the
+        // both-eventualities name rather than guessing a hand, and say so in the log.
+        return new StepPhrasing(PrimaryKeyNameId + DpadSuffix(),
+            "COULD NOT be resolved to one hand, so the both-hands name is used" + DpadWhy()
+            + " — " + verdict.Why);
+    }
+
+    /// <summary>The table's own both-eventualities name for the A/X face button. Named once so the
+    /// table row, the fallback and the test for "is this the resolvable one?" cannot drift.</summary>
+    internal const string PrimaryKeyNameId = "ctl_key_primary";
+
+    private static string DpadSuffix() => ControllerVisual.HasDpad ? "_dpad" : string.Empty;
+
+    private static string DpadWhy() =>
+        ControllerVisual.HasDpad ? " (D-pad device)" : " (lettered face buttons)";
 
     /// <summary>The dominant controller. <c>VRHands.Primary</c> is null before the hands come up;
     /// Right is both the shipped <c>[Hands] PrimaryHand</c> and what <c>LocalTurnControl.Resolve</c>

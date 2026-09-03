@@ -237,11 +237,60 @@ internal static partial class Loc
                                    "A (auf der linken Hand X)"),
         ["ctl_key_primary_dpad"] = Pair("the BOTTOM of the D-pad",
                                         "UNTEN auf dem D-Pad"),
-        ["ctl_key_secondary"] = Pair("B and Y — the upper button on BOTH controllers",
-                                     "B und Y — die obere Taste auf BEIDEN Controllern"),
+        // PARENTHESISED, NOT DASHED (2026-09-03). These drop into the MIDDLE of ctl_recenter_b —
+        // "Halte {0} eine Sekunde lang, dann …" — and an em-dash appositive there swallowed the
+        // rest of the sentence ("Halte B und Y — die obere Taste auf BEIDEN Controllern eine
+        // Sekunde lang"). Brackets close, so the sentence resumes. This is NOT the parenthetical
+        // he ruled out on the same day: that one named both eventualities when only one was true,
+        // and the recentre chord really does press B AND Y, one on each hand.
+        ["ctl_key_secondary"] = Pair("B and Y (the upper button on BOTH controllers)",
+                                     "B und Y (die obere Taste auf BEIDEN Controllern)"),
         ["ctl_key_secondary_dpad"] = Pair(
-            "the top of BOTH D-pads — left, up or right all count",
-            "oben auf BEIDEN D-Pads — links, oben und rechts zählen alle"),
+            "the top of BOTH D-pads (left, up and right all count)",
+            "oben auf BEIDEN D-Pads (links, oben und rechts zählen alle)"),
+
+        // THE HAND-RESOLVED NAMES (user ruling 2026-09-03, verbatim: "Auch statt für beide
+        // Eventualitäten sowas wie '(auf der Linken Hand \"x\")' in den text zu schreiben sollte
+        // abhängig der aktuellen Einstellung einfach im Text so erwähnt werden wie es aktuell ist,
+        // also 'Tipp kurz X' wenn Rechtshänder-Modus an ist für die Einstellungen/Menu.").
+        //
+        // ctl_key_primary above names BOTH eventualities in one breath — "A (auf der linken Hand
+        // X)" — and that is exactly the hedge he is pointing at. Which of the two is true is not
+        // unknowable: ControlsLesson.Availability already resolves the acting HAND for every step
+        // from the same dials that decide whether the step is shown at all, so the card can simply
+        // say the one word the player's thumb is looking for. These are the words, one per hand,
+        // and ControlsLesson.Phrasing is the ONLY thing that picks between them.
+        //
+        // A/X ARE NOT TRANSLATED and neither is any other key name (standing ruling 2026-09-03:
+        // "solche Begriffe wie die Namen der Tasten sind allgemeingültig und gehören nicht
+        // übersetzt"). The pair still exists per language because the D-pad variants around them
+        // are prose and because Loc has no one-language entry shape.
+        //
+        // WHY THE D-PAD VARIANTS NAME THE HAND AND THE TOUCH ONES DO NOT: on a Touch-style device
+        // the letter IS the hand — there is no A on the left controller — so adding "on the left
+        // hand" restates what "X" already said, which is the sentence he asked to have removed.
+        // The Steam Frame's four top inputs are a D-PAD and its bottom exists on BOTH controllers,
+        // so there the hand is the only thing that distinguishes them and it has to be said.
+        ["ctl_key_a_left"] = Pair("X", "X"),
+        ["ctl_key_a_right"] = Pair("A", "A"),
+        ["ctl_key_a_left_dpad"] = Pair("the BOTTOM of the LEFT D-pad",
+                                       "UNTEN auf dem LINKEN D-Pad"),
+        ["ctl_key_a_right_dpad"] = Pair("the BOTTOM of the RIGHT D-pad",
+                                        "UNTEN auf dem RECHTEN D-Pad"),
+
+        // THE STICK, NAMED (same ruling, his first example: "Statt bewege den >linken< Stick steht
+        // im text nur, 'bewege den Stick'"). Flight rides [Comfort] FlightHand, the snap turn
+        // [Comfort] TurnHand and the panel reel the dominant hand — three dials the lesson ALREADY
+        // reads to decide which controller lights up, and which the prose used to ignore. The
+        // phrases are accusative noun phrases in German so they drop into the bodies below without
+        // re-inflecting anything ("Kipp den LINKEN Stick", "Tipp den RECHTEN Stick").
+        //
+        // _either IS A RESOLVED ANSWER, NOT A HEDGE: it is used only where BOTH sticks genuinely
+        // perform the motion (and as the fail-open answer while [Comfort] is unbound, which is the
+        // one case where the dials cannot be read at all — see Availability's IsBound clause).
+        ["ctl_stick_left"] = Pair("the LEFT thumbstick", "den LINKEN Stick"),
+        ["ctl_stick_right"] = Pair("the RIGHT thumbstick", "den RECHTEN Stick"),
+        ["ctl_stick_either"] = Pair("EITHER thumbstick", "EINEN der beiden Sticks"),
 
         // THE BODIES, CUT TO ONE INSTRUCTION EACH (user, 2026-09-03, verbatim: "es ist viel zu
         // viel text - kürzer den Text von dir auf das nötigste. Die Aufmerksamkeitspanne ist nicht
@@ -285,10 +334,25 @@ internal static partial class Loc
         // skipped. ControlAction.LaserClick survives in the enum and BoardClickDriver still reports
         // it; with no step waiting on it ControlsProgress.Notify returns on its first line.
 
-        ["ctl_grab_t"] = Pair("Reach out and grab", "Zugreifen"),
-        ["ctl_grab_b"] = Pair(
-            "Move your hand to the thing itself and squeeze the TRIGGER.",
-            "Fahr mit der Hand direkt hin und drück den TRIGGER."),
+        // ctl_grab_t / ctl_grab_b are GONE (user ruling 2026-09-03, verbatim: "Entferne die erste
+        // Aufgabe 'Zugreifen' - hier ist nicht klar was du damit meinst und die Aufgabe hat keinen
+        // Mehrwert."). "Zugreifen" WAS the German title of this pair, so the card he names is this
+        // one and not the welcome prose above it, which asks for nothing and is not an Aufgabe.
+        // It had become the first TASK when ctl_laser was removed earlier the same day.
+        //
+        // He is right about the unclarity as well as the value: after the 2026-09-03 text cut the
+        // card read "Fahr mit der Hand direkt hin und drück den TRIGGER" with no object — the list
+        // that said WHAT ("Figuren, Truhen, Geldhaufen…") had been removed as noise — so the one
+        // instruction left named a gesture with nothing to perform it on. And the room cannot
+        // supply one: the lesson runs inside the tutorial's own box before the first card is
+        // played, with no chest, no coin pile and no loose prop in reach. Every later card that
+        // needs the trigger (ctl_card_take) names it again where there IS something to take.
+        //
+        // ControlAction.ProximityGrab stays in the enum and ProximityGrabber.cs:647 still reports
+        // it — the same precedent as ControlAction.LaserClick above. With no step waiting on it,
+        // ControlsProgress.Notify returns on its first line (`Waiting != action`) and the call site
+        // costs two static reads on the grab path. Deleting it would mean editing Hands/, a file
+        // this lane does not own, to remove a call that already does nothing.
 
         // WHAT THIS CARD ACTUALLY TEACHES, corrected 2026-09-03 (user: "'Den Tisch verschieben'
         // stimmt ja nicht so. Man verschiebt sich ja auch selber mit dem Trigger der Joysticks und
@@ -336,13 +400,17 @@ internal static partial class Loc
             // was false (see ctl_drag above), so the contrast was between a truth and a mistake.
             // Both cards move the player. The real difference is the THUMB: this one is PUSHED,
             // the drag is CLICKED IN, and that is what the card now says.
-            "This time PUSH the thumbstick in a direction instead of clicking it in.",
-            "Kipp den Stick diesmal in eine Richtung, statt ihn HINEINZUDRÜCKEN."),
+            // {0} IS THE STICK THAT ACTUALLY FLIES (2026-09-03) — [Comfort] FlightHand, read by
+            // ControlsLesson.Phrasing out of the same Availability verdict that already decides
+            // which controller lights up. "den Stick" was the exact phrase he quoted.
+            "This time PUSH {0} in a direction instead of clicking it in.",
+            "Kipp diesmal {0} in eine Richtung, statt ihn HINEINZUDRÜCKEN."),
 
         ["ctl_turn_t"] = Pair("Turn round", "Dich umdrehen"),
         ["ctl_turn_b"] = Pair(
-            "Flick a thumbstick left or right to turn on the spot.",
-            "Tipp einen Stick nach links oder rechts, um dich zu drehen."),
+            // {0} = [Comfort] TurnHand, resolved (2026-09-03). SnapTurn reads one stick only.
+            "Flick {0} left or right to turn on the spot.",
+            "Tipp {0} nach links oder rechts, um dich zu drehen."),
 
         ["ctl_fingertip_t"] = Pair("Pick with a fingertip", "Mit der Fingerspitze auswählen"),
         ["ctl_fingertip_b"] = Pair(
@@ -355,8 +423,10 @@ internal static partial class Loc
 
         ["ctl_reel_t"] = Pair("Pull a window closer", "Ein Fenster heranziehen"),
         ["ctl_reel_b"] = Pair(
-            "Hold a window by its bar with the laser, then push the thumbstick forward or back.",
-            "Halte ein Fenster mit dem Laser am Balken fest und schieb den Stick vor oder zurück."),
+            // {0} = the DOMINANT stick, resolved (2026-09-03): the reel only runs inside a laser
+            // carry and the laser carry is dominant-hand-only, which Availability already knew.
+            "Hold a window by its bar with the laser, then push {0} forward or back.",
+            "Halte ein Fenster mit dem Laser am Balken fest und schieb {0} vor oder zurück."),
 
         ["ctl_ping_t"] = Pair("Mark a hex", "Ein Feld markieren"),
         ["ctl_ping_b"] = Pair(
@@ -372,8 +442,13 @@ internal static partial class Loc
         ["ctl_menu_b"] = Pair(
             // Where the mod's own settings live moved to the closing card, which is the card that
             // exists to say it. Saying it twice is what made this one four lines long.
-            "Briefly tap {0} on the hand you do NOT point with.",
-            "Tipp kurz {0} auf der Hand, mit der du NICHT zeigst."),
+            // THE HAND CLAUSE IS GONE and {0} now resolves to ONE key (user 2026-09-03: "also
+            // 'Tipp kurz X' wenn Rechtshänder-Modus an ist"). On a Touch-style device the letter
+            // already IS the hand — X exists only on the left controller — so "auf der Hand, mit
+            // der du NICHT zeigst" restated it in a longer, vaguer way. The D-pad variants of {0}
+            // name the hand themselves, because there the bottom of the pad exists on both.
+            "Briefly tap {0}.",
+            "Tipp kurz {0}."),
 
         ["ctl_done_t"] = Pair("That is the lot", "Das war alles"),
         ["ctl_done_b"] = Pair(
@@ -468,6 +543,27 @@ internal static partial class Loc
             "ziehe sie auseinander oder zusammen, um zu zoomen.\n" +
             "• Stick kurz nach links/rechts = Schnelldrehung.\n\n" +
             "Bewege den Tisch einmal, dann geht das Tutorial weiter."),
+
+        // THE CAMERA INTRODUCTION, REPLACED RATHER THAN RE-EXPLAINED (user ruling 2026-09-03,
+        // verbatim: "dann unser neues Tutorial das die Kameraeinführung komplett ersetzt und so
+        // sollte es dann weitergehen"). Since the lesson now runs BETWEEN TB_2_1 and the camera
+        // segment, the two boxes that segment is made of — TB_2_2 (the flat keyboard/WASD text,
+        // matched on the "w a s d" marker in the 394 log) and TB_3 (the camera box) — would
+        // otherwise teach a second time, worse, what the player has just performed with their own
+        // hands. They cannot simply be dropped: TB_4's display trigger is LevelMessageDismissed
+        // ctxId='TB_3', so the chain needs both of them shown and dismissed. So their TEXT is
+        // replaced and their dismissal is left to the player, which is the only version of
+        // "completely replaces" that does not write game state from presentation code.
+        //
+        // IT NAMES NO MECHANISM ON PURPOSE. tut_vr_move_body ends on a promise — "move the table
+        // once and the tutorial continues" — which is only true while something is actually
+        // waiting on CameraRoomButtonPressed; in the 394 flow dump TB_3's dismiss is the box's own
+        // button. A line that names neither the button nor the motion is true under both, and the
+        // box's own Continue button (or, in the trigger case, TutorialVR's locomotion bridge) is
+        // what moves the chain on either way.
+        ["tut_vr_covered_body"] = Pair(
+            "You have just done all of this by hand in the VR lesson — nothing to do here.",
+            "Das hast du im VR-Tutorial gerade alles selbst gemacht — hier ist nichts zu tun."),
 
         // ---- tutorial VR step instructions (TutorialHints exact-key table) --------------------
         // One id per ACTION the tutorial demands — each pinned HelpText strip instructs, in VR

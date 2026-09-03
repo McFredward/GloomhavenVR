@@ -195,7 +195,14 @@ internal static class ControlsTutorial
     private static bool _preSatisfied;
     private static float _windowClosedSince = -1f;
     private static string? _openingDialog;   // the story dialogue whose dismissal is our slot
+    /// <summary>The message whose dismissal is the lesson's slot — since 2026-09-03 the tutorial's
+    /// own INTRO box where it used to be the story dialogue before it. See
+    /// <see cref="RequestForTutorial"/>.</summary>
+    private static string? _gateMessage;
     private static bool _controllersUp;
+    /// <summary>The step whose resolved control name has already been logged. Change-gated on the
+    /// STEP so the line prints once per card rather than once per repaint.</summary>
+    private static string? _controlNamedFor;
     private static bool _disabledByError;
 
     internal static bool IsRunning => _phase == Phase.Running && ControlsBox.IsShowing;
@@ -207,8 +214,27 @@ internal static class ControlsTutorial
     /// <summary>
     /// Ask for the lesson at the start of a tutorial scenario. Deliberately only a REQUEST: the
     /// hands, the asset bundle and the message handler all come up over the first second or so,
-    /// and the lesson's slot is after the tutorial's opening dialogue, which the player closes
-    /// when they are ready.
+    /// and the lesson's slot is after a scripted message the player closes when they are ready.
+    ///
+    /// <para>WHERE THE SLOT MOVED TO, AND WHY (user ruling 2026-09-03, verbatim: <i>"Nach unserem
+    /// ersten Part kommt dann 'Bevor wir in die Vollen gehen [...] und Kamerasteuerung' - das
+    /// sollte als allererstes kommen, dann unser neues Tutorial das die Kameraeinführung komplett
+    /// ersetzt und so sollte es dann weitergehen."</i>) The lesson used to take the box the moment
+    /// the opening STORY DIALOGUE was dismissed, which put it in front of the tutorial's own
+    /// introduction — the box that tells the player what is about to be covered. He wants that
+    /// introduction first. So the slot is now the dismissal of the message that INTRODUCTION is:
+    /// the first scripted message whose display trigger is <c>LevelMessageDismissed</c> naming the
+    /// opening dialogue. In the tutorial-2 flow dump that is <c>TB_2_1</c>
+    /// (.planning/debug/LogOutput.log:790-791), and the resulting order is
+    /// <c>TB_1 → TB_2_1 → the lesson → TB_2_2 → TB_3 → TB_4 …</c>.</para>
+    ///
+    /// <para>IT IS DERIVED, NOT NAMED. Hard-coding <c>TB_2_1</c> would make the lesson silently
+    /// never run in any other tutorial — and this class is armed for every tutorial scenario, not
+    /// just that one. The derivation uses the same structural fact the old comment already relied
+    /// on ("that dismissal is the display trigger of the first box the tutorial itself would
+    /// open"), it just waits for that box to be dismissed instead of shown. If no such message
+    /// exists the gate falls back to the opening dialogue, which is exactly the previous
+    /// behaviour.</para>
     /// </summary>
     /// <param name="openingDialogName">The MessageName of the FIRST <c>StoryDialog</c> in the
     /// level's own message queue, or null when the level queues none. Read from the controller's
@@ -216,15 +242,24 @@ internal static class ControlsTutorial
     /// than one story dialogue — the tutorial has two, the opening <c>TB_1</c> and the closing
     /// <c>TB_25</c> (flow dump entries [0] and [59]) — and the lesson's slot is after the first
     /// one only. Waiting for a dialogue this level never queues is how a lesson silently never
-    /// runs, so a null starts it on the plain delay instead.</param>
-    internal static void RequestForTutorial(string? openingDialogName)
+    /// runs, so a null starts it on the plain delay instead. It is still passed because it is what
+    /// names the intro box, and because the log line has to be able to say what was waited for.
+    /// </param>
+    /// <param name="introMessageName">The MessageName of the tutorial's own INTRODUCTION box — the
+    /// first scripted message whose display trigger is that dialogue's dismissal — or null when the
+    /// level has none. Its dismissal is the lesson's slot. Derived by the caller, which is the one
+    /// place that already walks the queue.</param>
+    internal static void RequestForTutorial(string? openingDialogName, string? introMessageName)
     {
         if (!Enabled || _phase != Phase.Idle)
             return;
         _armedAt = Time.unscaledTime;
         _openAt = _armedAt + StartDelaySeconds;
         _openingDialog = openingDialogName;
-        _phase = string.IsNullOrEmpty(openingDialogName) ? Phase.Opening : Phase.WaitingForDialog;
+        // The intro box is the slot; the dialogue before it is the fallback for a tutorial that
+        // has no such box, and the plain delay is the fallback for one that has neither.
+        _gateMessage = string.IsNullOrEmpty(introMessageName) ? openingDialogName : introMessageName;
+        _phase = string.IsNullOrEmpty(_gateMessage) ? Phase.Opening : Phase.WaitingForDialog;
         if (_phase == Phase.Opening)
             EngageHold("this tutorial queues no story dialogue, so the lesson takes the tutorial "
                 + "box straight away");
@@ -232,30 +267,39 @@ internal static class ControlsTutorial
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", "Controls lesson queued for this tutorial scenario — it will run "
             + (_phase == Phase.WaitingForDialog
-                ? $"IN THE GAME'S OWN TUTORIAL BOX, starting when the opening story dialogue "
-                  + $"'{openingDialogName}' is dismissed (that dismissal is the display trigger "
-                  + "of the first box the tutorial itself would open). "
+                ? $"IN THE GAME'S OWN TUTORIAL BOX, starting when '{_gateMessage}' is dismissed. "
+                  + "LESSON ORDER (user ruling 2026-09-03): the tutorial's opening story dialogue "
+                  + $"('{openingDialogName}') and then its own introduction box "
+                  + $"('{introMessageName}') come FIRST, then this lesson, and the camera "
+                  + "introduction that would have followed is replaced by it (its boxes still "
+                  + "appear, carrying mod text, because the scripted chain waits on their "
+                  + "dismissal). "
                 : $"IN THE GAME'S OWN TUTORIAL BOX in {StartDelaySeconds:0.0} s (this level "
                   + "queues no story dialogue to wait for). ")
             + "Switch it off permanently with [Compat] ControlsLesson = false.");
     }
 
     /// <summary>
-    /// A scripted message was dismissed. The only one this class cares about is the tutorial's
-    /// opening <c>StoryDialog</c>: that dismissal is the display trigger of the first box that
-    /// leads through the tutorial, so it is exactly the moment the lesson takes that box over.
-    /// The hold is engaged HERE, inside <c>MessageWasDismissed</c>, so the follow-up message the
-    /// same dismissal triggers is caught rather than raced.
+    /// A scripted message was dismissed. The only one this class cares about is
+    /// <see cref="_gateMessage"/> — since 2026-09-03 the tutorial's own INTRODUCTION box, so that
+    /// the introduction is read before the lesson replaces what it introduces. The hold is engaged
+    /// HERE, inside <c>MessageWasDismissed</c>, so the follow-up message the same dismissal
+    /// triggers is caught rather than raced; that adjacency is the same one the previous slot
+    /// relied on and the 394 log shows it holding for a box message as well as for the dialogue
+    /// (LogOutput.log:7825-7827, 'hint DISMISSED TB_2_1' immediately followed by 'hint SHOWN
+    /// TB_2_2'). If it ever did race, the box would simply be occupied when the lesson tried to
+    /// open it and the Opening ceiling would hand the chain back — a lost lesson, never a stuck
+    /// tutorial.
     /// </summary>
     internal static void NoteMessageDismissed(CLevelMessage? messageDismissed)
     {
         if (_disabledByError || _phase != Phase.WaitingForDialog || messageDismissed == null)
             return;
-        if (!string.Equals(messageDismissed.MessageName, _openingDialog, StringComparison.Ordinal))
+        if (!string.Equals(messageDismissed.MessageName, _gateMessage, StringComparison.Ordinal))
             return;
         _phase = Phase.Opening;
         _openAt = Time.unscaledTime + ArmSettleSeconds;
-        EngageHold($"the tutorial's opening dialogue ('{messageDismissed.MessageName}') was "
+        EngageHold($"the tutorial's own introduction box ('{messageDismissed.MessageName}') was "
             + "dismissed, so the controls lesson now owns the tutorial box");
     }
 
@@ -288,9 +332,10 @@ internal static class ControlsTutorial
                 return;
             // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
             // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
-            VRLog.Note("Tutorial", "Controls lesson ABANDONED: the tutorial's opening story "
-                + $"dialogue was still not dismissed after {DialogWaitCeilingSeconds:0} s. The "
-                + "tutorial is left exactly as the game wrote it; nothing was held back.");
+            VRLog.Note("Tutorial", $"Controls lesson ABANDONED: '{_gateMessage}' (the tutorial's "
+                + "own introduction box, whose dismissal is the lesson's slot) was still not "
+                + $"dismissed after {DialogWaitCeilingSeconds:0} s. The tutorial is left exactly "
+                + "as the game wrote it; nothing was held back.");
             Stop("the dialogue was never dismissed");
             return;
         }
@@ -736,13 +781,22 @@ internal static class ControlsTutorial
         ref readonly ControlsStep step = ref ControlsLesson.Steps[_index];
         bool teaches = step.Action != ControlAction.None;
         string body = Loc.Mod(step.Id + "_b");
-        // The key's NAME, and the controller's, are filled in per device: "press A" names nothing
-        // on a Steam Frame, whose top inputs are a D-pad.
-        if (step.KeyNameId != null)
-            body = SafeFormat(body, Loc.Mod(step.KeyNameId
-                + (ControllerVisual.HasDpad ? "_dpad" : string.Empty)));
+        // THE CONTROL THE CARD NAMES, resolved per device AND per setting (user ruling
+        // 2026-09-03). ControlsLesson.Phrasing takes the availability verdict this card was
+        // already judged with, so the words in the body and the key lit on the model in
+        // ApplyStep are the SAME answer — "press A" names nothing on a Steam Frame, and "the
+        // thumbstick" names nothing on a rig where only one of the two flies.
+        ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in step);
+        ControlsLesson.StepPhrasing phrasing = ControlsLesson.Phrasing(in step, in verdict);
+        if (phrasing.ArgumentId != null)
+        {
+            body = SafeFormat(body, Loc.Mod(phrasing.ArgumentId));
+            NoteResolvedControl(step.Id, phrasing);
+        }
         else if (step.Id == "ctl_welcome")
+        {
             body = SafeFormat(body, ControllerVisual.DeviceLabel);
+        }
         // THE BOX'S ONE BUTTON, and what it says (user ruling 2026-09-02). A teaching card offers
         // ÜBERSPRINGEN, which now leaves THAT CARD and nothing else; a prose card — the welcome and
         // the closing card, which have no task to skip — offers WEITER. Same button, same handler,
@@ -753,6 +807,36 @@ internal static class ControlsTutorial
             body,
             Loc.Mod(teaches ? "ctl_skip" : "ctl_next"),
             _state);
+    }
+
+    /// <summary>
+    /// SAY WHICH CONTROL THE CARD ACTUALLY NAMED, ONCE PER STEP.
+    ///
+    /// <para>CHANGE-GATED ON THE STEP, not on the resolved id: <see cref="RefreshBox"/> runs on
+    /// every state flip of the running card and several times per second while a step is being
+    /// performed, and a line per repaint would bury the fifteen that matter. Gating on the id
+    /// instead would be the other failure — the same control resolving the same way on two
+    /// different cards would print once and the second card would look unresolved.</para>
+    ///
+    /// <para>WHAT IT IS FOR. The three things his 2026-09-03 report asks about are all in it:
+    /// the step, the WORDS the card put in front of him (resolved through <see cref="Loc"/> in
+    /// the language actually selected, so a missing translation shows here rather than as a hole
+    /// in the headset), and the SETTING that decided them — carried straight out of
+    /// <c>StepAvailability.Why</c>. Grep <c>NAMED CONTROL</c>. The step ORDER the run actually
+    /// used is the step-table line (<see cref="AuditStepTable"/>), which prints the same verdicts
+    /// for every row before the first card opens.</para>
+    /// </summary>
+    private static void NoteResolvedControl(string stepId, in ControlsLesson.StepPhrasing phrasing)
+    {
+        if (string.Equals(_controlNamedFor, stepId, StringComparison.Ordinal))
+            return;
+        _controlNamedFor = stepId;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Tutorial", $"Controls lesson NAMED CONTROL for step '{stepId}': the card says "
+            + $"'{Loc.Mod(phrasing.ArgumentId ?? string.Empty)}' (loc id '{phrasing.ArgumentId}') "
+            + $"because {phrasing.Why}. The card's words and the key lit on the controller model "
+            + "come from ONE availability verdict, so they cannot name different hands.");
     }
 
     /// <summary>A body whose {0} could not be filled is still a usable instruction; a lesson
@@ -823,6 +907,10 @@ internal static class ControlsTutorial
         _dwellSeconds = 0f;
         _state = ControlsStepState.None;
         _preSatisfied = false;
+        // The NAMED CONTROL line is per card, so a new card (or a new run) must be able to print
+        // its own. Left standing, a second run of the lesson in the same session would be silent
+        // about every control it named.
+        _controlNamedFor = null;
     }
 
     private static void EngageHold(string why)
@@ -847,6 +935,7 @@ internal static class ControlsTutorial
         _index = -1;
         ResetCardState();
         _openingDialog = null;
+        _gateMessage = null;
         _phase = Phase.Idle;
         TutorialChainHold.Release(HoldOwner, reason);
     }
@@ -868,6 +957,7 @@ internal static class ControlsTutorial
         _index = -1;
         ResetCardState();
         _openingDialog = null;
+        _gateMessage = null;
         _phase = Phase.Idle;
     }
 
