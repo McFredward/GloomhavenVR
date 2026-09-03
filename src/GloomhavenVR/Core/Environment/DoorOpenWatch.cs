@@ -138,6 +138,8 @@ internal static class DoorOpenWatch
         public bool NoOpenState;
         public bool CapAlerted;
         public int Unlatched;
+        /// <summary>REMEDY C fired on the current animator instance (once per instance).</summary>
+        public bool DissolveReasserted;
         public int SampleStage;
         public float NextSample;
         public readonly List<int> LeafIds = new(16);
@@ -270,6 +272,7 @@ internal static class DoorOpenWatch
                 {
                     e.ObservedOpen = true;
                     Unlatch(e, a, st, now);
+                    ReassertDissolve(e, a, st, now);
                 }
                 else
                 {
@@ -361,6 +364,274 @@ internal static class DoorOpenWatch
             catch { return false; }
         }
 
+        /// <summary>
+        /// REMEDY C — the ModBuild 414 reading (LogOutput.log 23:43, lines 5275/5296/5325/5447). The
+        /// 'Open' state of 'CV_Door_Destructable_Controller' plays and keeps playing (normalizedTime
+        /// 0.29 → 16.84 over 8 s, speed 1, clock running), the mod holds no rule on the one leaf
+        /// renderer 'CV_Door_01', nothing disables it and it never moves. So the clip is not the
+        /// hide. The hide the game ships for a DESTRUCTIBLE door is the dissolve:
+        /// <c>DeathDissolveSMB.OnStateUpdate</c> counts <c>m_InstanceDeathDelay</c> down on the
+        /// Chronos clock and calls <c>Die</c> → <c>DeathDissolve.ExternalPlay()</c>
+        /// (DeathDissolveSMB.cs:35-46), whose coroutine sets <c>_Toggle_Dissolve = 1</c> and ramps
+        /// <c>_Cutout</c> on <c>renderer.materials</c> (DeathDissolve.cs:135-165) — the same
+        /// machinery that dissolves a dead figure. That coroutine logs every renderer it takes
+        /// (<c>Debug.Log(obj.name)</c>, DeathDissolve.cs:138) and Player.log carries NO 'CV_Door_01'
+        /// line after the open at 12943: the dissolve never STARTED. Which term stopped it is what
+        /// <see cref="AppendLeafForensics"/> prints; this remedy runs the game's own next step once
+        /// the SMB's window has provably passed — the state has looped at least twice or three
+        /// seconds went by — and only if a DeathDissolve exists under the animator, has not been
+        /// played, and is not in progress. It is the exact call <c>DeathDissolveSMB.Die</c> makes.
+        /// Once per animator instance.
+        /// </summary>
+        private void ReassertDissolve(Entry e, Animator a, AnimatorStateInfo st, float now)
+        {
+            if (e.DissolveReasserted)
+                return;
+            if (st.normalizedTime < 2f && now - Mathf.Max(e.OpenedAt, e.InstanceSeenAt) < 3f)
+                return;
+            if (e.OpenAtFirstSight && now - e.InstanceSeenAt < FirstSightGraceSeconds)
+                return;
+            DeathDissolve? dd = null;
+            try { dd = a.gameObject.GetComponentInChildren<DeathDissolve>(true); }
+            catch { /* subtree mid-rebuild */ }
+            if (dd == null)
+            {
+                e.DissolveReasserted = true; // nothing to replay on this door kit — say so once
+                LogNoDissolve(e, a, st);
+                return;
+            }
+            bool inProgress = false;
+            try { inProgress = DeathDissolve.s_DeathDissolvesInProgress.Contains(dd); }
+            catch { /* static list unreadable */ }
+            if (dd.PlayedExternally() || inProgress)
+            {
+                e.DissolveReasserted = true; // the game's own dissolve is running — leave it
+                return;
+            }
+            if (CoroutineHelper.instance == null)
+                return; // DeathDissolve.Play needs it on its first line; wait for it
+            e.DissolveReasserted = true;
+            bool ok = false;
+            try { dd.ExternalPlay(); ok = true; }
+            catch (System.Exception ex)
+            {
+                VRLog.Warn(Name, $"DoorOpenWatch: DeathDissolve.ExternalPlay on '{e.RootName}' threw {ex.GetType().Name}: {ex.Message}");
+            }
+            LogDissolveReasserted(e, a, st, dd, ok, now);
+        }
+
+        private void LogDissolveReasserted(Entry e, Animator a, AnimatorStateInfo st, DeathDissolve dd, bool ok, float now)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR DISSOLVE RE-ASSERTED '").Append(e.RootName).Append("': the 'Open' state has run ")
+               .Append(st.normalizedTime.ToString("0.00")).Append(" loops (")
+               .Append((now - e.OpenedAt).ToString("0.0")).Append(" s since the open) and the door's own "
+                     + "DeathDissolve '").Append(dd.gameObject.name)
+               .Append("' had never been played (PlayedExternally false, not in s_DeathDissolvesInProgress) — "
+                     + "DeathDissolveSMB.Die never reached it. The mod called dd.ExternalPlay() itself, the "
+                     + "exact call Die makes; it ")
+               .Append(ok ? "returned" : "THREW")
+               .Append(". Player.log must now carry a bare '").Append(LeafNameOf(a)).Append("' line "
+                     + "(DeathDissolve.Play's Debug.Log of every renderer it takes) and the next sample must "
+                     + "show _Toggle_Dissolve 1 and _Cutout ramping. ");
+            AppendLeafForensics(e, a, st);
+            // HW-VERIFY: fires only when the remedy runs; the next sample's material dump is the reading.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void LogNoDissolve(Entry e, Animator a, AnimatorStateInfo st)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR DISSOLVE ABSENT '").Append(e.RootName).Append("': the 'Open' state has run ")
+               .Append(st.normalizedTime.ToString("0.00")).Append(" loops and there is NO DeathDissolve "
+                     + "component anywhere under the animator '").Append(a.gameObject.name)
+               .Append("' — this door kit cannot be hidden by the dissolve path; whatever hides it in the "
+                     + "flat game is in the forensics that follow. ");
+            AppendLeafForensics(e, a, st);
+            // HW-VERIFY: names the door kit that has no dissolve to replay.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private static string LeafNameOf(Animator a)
+        {
+            try
+            {
+                Renderer? r = a.GetComponentInChildren<Renderer>(true);
+                return r != null ? r.name : "?";
+            }
+            catch { return "?"; }
+        }
+
+        /// <summary>
+        /// EVERY TERM THAT CAN STOP THE HIDE, read at each sample — the ModBuild 414 round showed the
+        /// state runs and the leaf stays, so the next log has to name WHICH of these is off:
+        /// the clip (name/length/loop/events), the SMBs on the current state and the DeathDissolveSMB's
+        /// own countdown fields, the DeathDissolve component and its inputs, the coroutine host, the
+        /// leaf's path, visibility, property block and every Float/Range material property (a
+        /// <c>_Cutout</c> that never leaves 0 with <c>_Toggle_Dissolve</c> 0 is a dissolve that never
+        /// started; one that ramps under a property block carrying the same key is an override).
+        /// </summary>
+        private void AppendLeafForensics(Entry e, Animator a, AnimatorStateInfo st)
+        {
+            _sb.Append("FORENSICS: ");
+            try
+            {
+                AnimatorClipInfo[] clips = a.GetCurrentAnimatorClipInfo(0);
+                _sb.Append("clips ").Append(clips.Length);
+                for (int i = 0; i < clips.Length && i < 2; i++)
+                {
+                    AnimationClip c = clips[i].clip;
+                    if (c == null) { _sb.Append(" [null]"); continue; }
+                    _sb.Append(" ['").Append(c.name).Append("' len ").Append(c.length.ToString("0.00"))
+                       .Append(" s loop ").Append(c.isLooping).Append(" wrap ").Append(c.wrapMode)
+                       .Append(" events ").Append(c.events.Length);
+                    for (int k = 0; k < c.events.Length && k < 4; k++)
+                        _sb.Append(k == 0 ? ": " : ", ").Append(c.events[k].functionName).Append('@')
+                           .Append(c.events[k].time.ToString("0.00"));
+                    _sb.Append(']');
+                }
+            }
+            catch (System.Exception ex) { _sb.Append("clips unreadable (").Append(ex.GetType().Name).Append(')'); }
+            try
+            {
+                StateMachineBehaviour[] smbs = a.GetBehaviours(st.fullPathHash, 0);
+                _sb.Append("; SMBs on this state ").Append(smbs.Length);
+                for (int i = 0; i < smbs.Length && i < 4; i++)
+                {
+                    StateMachineBehaviour b = smbs[i];
+                    if (b == null) { _sb.Append(" [null]"); continue; }
+                    _sb.Append(" [").Append(b.GetType().Name);
+                    if (b is DeathDissolveSMB dds)
+                    {
+                        _sb.Append(": onAnimationEnd ").Append(dds.m_OnAnimationEnd)
+                           .Append(" deathDelay ").Append(dds.m_DeathDelay.ToString("0.00"))
+                           .Append(" instanceDelay ").Append(dds.m_InstanceDeathDelay.ToString("0.00"))
+                           .Append(" notDead ").Append(dds.m_NotDead);
+                    }
+                    _sb.Append(']');
+                }
+                StateMachineBehaviour[] all = a.GetBehaviours<StateMachineBehaviour>();
+                _sb.Append("; SMBs on the whole controller ").Append(all.Length);
+                for (int i = 0; i < all.Length && i < 6; i++)
+                    _sb.Append(i == 0 ? ": " : ", ").Append(all[i] != null ? all[i].GetType().Name : "null");
+            }
+            catch (System.Exception ex) { _sb.Append("; SMBs unreadable (").Append(ex.GetType().Name).Append(')'); }
+            try
+            {
+                DeathDissolve? dd = a.gameObject.GetComponentInChildren<DeathDissolve>(true);
+                if (dd == null)
+                    _sb.Append("; DeathDissolve NONE under the animator");
+                else
+                {
+                    bool inProgress = DeathDissolve.s_DeathDissolvesInProgress.Contains(dd);
+                    _sb.Append("; DeathDissolve on '").Append(dd.gameObject.name).Append("' (enabled ")
+                       .Append(dd.isActiveAndEnabled).Append(", playedExternally ").Append(dd.PlayedExternally())
+                       .Append(", inProgress ").Append(inProgress)
+                       .Append(", animTimeTaken ").Append(dd.m_animTimeTaken.ToString("0.00"))
+                       .Append(", showParticles ").Append(dd.ShowParticleEffect)
+                       .Append(", particles ").Append(dd.Particles != null ? dd.Particles.name : "null")
+                       .Append(", characterMesh ").Append(dd.CharacterMesh != null ? dd.CharacterMesh.name : "null")
+                       .Append(", curve ").Append(dd.Curve != null ? dd.Curve.length + " key(s)" : "null")
+                       .Append(", lifeTime ").Append(dd.LifeTime.ToString("0.0"))
+                       .Append(", animTime ").Append(dd.AnimTime.ToString("0.00"))
+                       .Append(", initialDelay ").Append(dd.initialDelay.ToString("0.00")).Append(')');
+                }
+                _sb.Append("; CoroutineHelper.instance ").Append(CoroutineHelper.instance != null ? "present" : "NULL");
+            }
+            catch (System.Exception ex) { _sb.Append("; DeathDissolve unreadable (").Append(ex.GetType().Name).Append(')'); }
+            try
+            {
+                Chronos.Timekeeper keeper = Chronos.Timekeeper.instance;
+                Chronos.GlobalClock? clock = keeper != null ? keeper.m_GlobalClock : null;
+                _sb.Append("; Unity Time.timeScale ").Append(Time.timeScale.ToString("0.00"))
+                   .Append(", Chronos clock ").Append(clock != null
+                       ? $"time {clock.time:0.00} deltaTime {clock.deltaTime:0.0000} paused {clock.paused}"
+                       : "NULL")
+                   .Append("; animator updateMode ").Append(a.updateMode)
+                   .Append(" rootMotion ").Append(a.applyRootMotion);
+            }
+            catch (System.Exception ex) { _sb.Append("; clocks unreadable (").Append(ex.GetType().Name).Append(')'); }
+            try
+            {
+                _rendererScratch.Clear();
+                a.GetComponentsInChildren(includeInactive: true, _rendererScratch);
+                int shown = 0;
+                foreach (Renderer r in _rendererScratch)
+                {
+                    if (r == null || shown >= 2)
+                        continue;
+                    shown++;
+                    _sb.Append("; LEAF '").Append(PathUnder(r.transform, e.Prop.transform))
+                       .Append("' isVisible ").Append(r.isVisible)
+                       .Append(" enabled ").Append(r.enabled)
+                       .Append(" active ").Append(r.gameObject.activeInHierarchy)
+                       .Append(" layer ").Append(r.gameObject.layer)
+                       .Append(" queue ").Append(r.sharedMaterial != null ? r.sharedMaterial.renderQueue : -1);
+                    bool hasBlock = r.HasPropertyBlock();
+                    _sb.Append(" propertyBlock ").Append(hasBlock);
+                    if (hasBlock)
+                    {
+                        var mpb = new MaterialPropertyBlock();
+                        r.GetPropertyBlock(mpb);
+                        _sb.Append(" (carries:");
+                        AppendBlockKey(mpb, "_Cutout");
+                        AppendBlockKey(mpb, "_Toggle_Dissolve");
+                        AppendBlockKey(mpb, "_Cutoff");
+                        AppendBlockKey(mpb, "_WallFade");
+                        AppendBlockKey(mpb, "_InvisibilityControl");
+                        AppendBlockKey(mpb, "_Alpha");
+                        _sb.Append(')');
+                    }
+                    Material[] mats = r.sharedMaterials;
+                    _sb.Append(" materials ").Append(mats.Length);
+                    for (int m = 0; m < mats.Length && m < 2; m++)
+                    {
+                        Material mat = mats[m];
+                        if (mat == null) { _sb.Append(" [null]"); continue; }
+                        Shader sh = mat.shader;
+                        _sb.Append(" ['").Append(mat.name).Append("' shader '").Append(sh != null ? sh.name : "null").Append('\'');
+                        if (sh != null)
+                        {
+                            int n = sh.GetPropertyCount();
+                            int printed = 0;
+                            for (int pi = 0; pi < n && printed < 28; pi++)
+                            {
+                                UnityEngine.Rendering.ShaderPropertyType t = sh.GetPropertyType(pi);
+                                if (t != UnityEngine.Rendering.ShaderPropertyType.Float
+                                    && t != UnityEngine.Rendering.ShaderPropertyType.Range)
+                                    continue;
+                                string pn = sh.GetPropertyName(pi);
+                                printed++;
+                                _sb.Append(printed == 1 ? " " : ",").Append(pn).Append('=')
+                                   .Append(mat.GetFloat(pn).ToString("0.###"));
+                            }
+                            if (mat.HasProperty("_Color"))
+                                _sb.Append(" _Color.a=").Append(mat.GetColor("_Color").a.ToString("0.##"));
+                        }
+                        _sb.Append(']');
+                    }
+                }
+                _rendererScratch.Clear();
+            }
+            catch (System.Exception ex) { _sb.Append("; leaf unreadable (").Append(ex.GetType().Name).Append(')'); }
+        }
+
+        private void AppendBlockKey(MaterialPropertyBlock mpb, string key)
+        {
+            int id = Shader.PropertyToID(key);
+            if (mpb.HasProperty(id))
+                _sb.Append(' ').Append(key).Append('=').Append(mpb.GetFloat(id).ToString("0.###"));
+        }
+
+        private static string PathUnder(Transform t, Transform root)
+        {
+            var parts = new List<string>(8);
+            for (Transform? n = t; n != null && n != root && parts.Count < 8; n = n.parent)
+                parts.Add(n.name);
+            parts.Reverse();
+            return string.Join("/", parts);
+        }
+
         // ---------------------------------------------------------------- resolution
 
         private static CObjectDoor? ResolveDoor(UnityGameEditorDoorProp prop, ScenarioState state)
@@ -408,6 +679,7 @@ internal static class DoorOpenWatch
                 e.AnimatorId = id;
                 e.InstanceSeenAt = now;
                 e.ObservedOpen = false;
+                e.DissolveReasserted = false;
             }
             e.Animator = a;
         }
@@ -451,7 +723,8 @@ internal static class DoorOpenWatch
                      + "read 0 once the game's 'Open' has hidden the leaf. If it reads the full count "
                      + "with the animator in 'Open' at normalizedTime >= 1 and the leaf unmoved, the clip "
                      + "hides nothing and the hide lives elsewhere (an SMB destroy, or a rebuild that "
-                     + "re-placed a closed leaf — the sample says REPLACED when that happened).");
+                     + "re-placed a closed leaf — the sample says REPLACED when that happened). ");
+            AppendForensicsIfAnimator(e);
             // HW-VERIFY: the door-leaf regression (2026-09-03, runde_tür_problem.jpg) is decided by this
             // line and its samples — the tier must survive the default log level.
             VRLog.Note(Name, _sb.ToString());
@@ -470,6 +743,8 @@ internal static class DoorOpenWatch
                      + "it — before ModBuild 414 the restore would have switched it back on).");
             if (stage == SampleAt.Length - 1)
                 _sb.Append(" LAST SAMPLE — 'still enabled' must read 0 here.");
+            _sb.Append(' ');
+            AppendForensicsIfAnimator(e);
             // HW-VERIFY: the +8 s sample is the reading the next hardware round is waiting on.
             VRLog.Note(Name, _sb.ToString());
         }
@@ -636,6 +911,17 @@ internal static class DoorOpenWatch
                .Append(", still enabled ").Append(stillEnabled)
                .Append(stillEnabled > 0 ? " — " + names : "")
                .Append("; leaf centre moved ").Append(moved.ToString("0.00")).Append(" wu since the flip.");
+        }
+
+        private void AppendForensicsIfAnimator(Entry e)
+        {
+            Animator? a = e.Animator;
+            if (a == null || !a.isActiveAndEnabled)
+                return;
+            AnimatorStateInfo st;
+            try { st = a.GetCurrentAnimatorStateInfo(0); }
+            catch { return; }
+            AppendLeafForensics(e, a, st);
         }
 
         private static string ControllerName(Animator a)
