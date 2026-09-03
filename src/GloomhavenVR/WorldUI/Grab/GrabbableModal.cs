@@ -463,6 +463,27 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <c>!_inkValid</c>, because a window that has NEVER measured ink keeps the frame-based handle —
     /// that is the shipped answer and this round does not touch it.</summary>
     private bool _barHiddenForEmpty;
+
+    /// <summary>
+    /// ModBuild 378 — the rod is WITHHELD because this float still owes its materialise appear, i.e.
+    /// it has never once been measured drawing anything. Distinct from
+    /// <see cref="_barHiddenForEmpty"/> on purpose: that flag is the ModBuild 243/251 rule taking a
+    /// handle OFF a window that has gone dark, this one is the ModBuild 378 rule never putting one
+    /// ON a window that has not arrived. Two different edges, both live, and neither may be folded
+    /// into the other — a window that draws, goes empty and draws again has to run all of them.
+    /// </summary>
+    private bool _barWithheldForOwedAppear;
+
+    /// <summary>Times the rod was WITHHELD (rising edge of <see cref="_barWithheldForOwedAppear"/>)
+    /// over this window's life. Paired with <see cref="_barWithholdReleases"/> on the log line: a
+    /// change-gated line whose reason never varies prints once and then reads like a dead
+    /// instrument, and these two counts are what keep it alive.</summary>
+    private int _barWithholds;
+
+    /// <summary>Times a withheld rod was RELEASED because the window started drawing, over its
+    /// life. <c>withholds - releases</c> is 1 exactly while a rod is being withheld right now.</summary>
+    private int _barWithholdReleases;
+
     private int _inkCommitFrame = -1;
     private string _inkCause = "the window was built";
     private bool _inkReportDue;
@@ -1862,6 +1883,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     ///
     /// <para>NEVER MID-GRAB. Pulling a collider out from under a live grab strands the hand's claim on
     /// an object it can no longer let go of, so a held handle stays until it is released.</para>
+    ///
+    /// <para>ModBuild 378 — <b>AND THE SECOND TERM, WHICH IS A DIFFERENT EDGE.</b> The rule above
+    /// takes a handle OFF a window that has gone dark. It cannot answer the window that was NEVER
+    /// on the screen: the rod is built at the reveal edge and drawn the instant the reveal gate
+    /// unhides the panel, and the ink walk needs a sample plus a confirming sample to catch up.
+    /// User report 2026-09-03, in the map room's give-away-an-item flow: <i>"für unter eine Sekunde
+    /// ein lange greifbalken erschienen und sofort wieder verschwunden. Keine Animation wie früher
+    /// aber der greifbalken. Wenn kein Fenster inhalt hat soll neben der Animation auch kein
+    /// Greifbalken erscheinen."</i> The dust was already withheld by ModBuild 374; the rod now rides
+    /// the SAME stored verdict (<c>ModalFallback.AppearStillOwed</c>), so the two can never
+    /// disagree. It is a separate flag from <see cref="_barHiddenForEmpty"/> and both stay live: a
+    /// window that never draws is withheld, a window that draws and then stops is taken off, and a
+    /// window that does both in turn runs both.</para>
     /// </summary>
     private void SyncBarVisibility()
     {
@@ -1870,10 +1904,23 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (_inkValid)
             _barHiddenForEmpty = false; // the window is drawing again — the handle comes straight back
 
+        // ModBuild 378 — THE ROD IS WITHHELD ON THE SAME TERM THAT WITHHOLDS THE DUST. The whole
+        // argument, and why the flag rather than a test of this class's own, is on
+        // ModalFallback.AppearStillOwed. It is read every tick and it measures nothing: it is a
+        // stored verdict the liveness rule owns, so the two pieces of chrome cannot disagree about
+        // whether this window has content.
+        bool owed = ModalFallback.AppearStillOwed(_panel, out string owedWhy);
+        NoteWithholdChange(owed, owedWhy);
+
         // The GRAB SUPPRESSES THE HIDE, it does not CANCEL it: clearing the intent here would leave a
         // handle standing on an empty window for the rest of its life, because the empty run that set
         // it only counts while a committed rectangle still exists.
-        bool visible = !_barHiddenForEmpty || (_handle != null && _handle.IsGrabbed);
+        //
+        // THE WITHHOLD IS UNDER THE SAME GRAB EXEMPTION, and that costs nothing: a rod that has never
+        // been on the screen cannot be in a hand, so this clause can only ever be reached by the
+        // going-dark rule it was written for. It is ANDed rather than given a branch of its own so
+        // there is exactly one expression in this class that decides whether the handle is drawn.
+        bool visible = (!_barHiddenForEmpty && !owed) || (_handle != null && _handle.IsGrabbed);
         if (_bar.Root.gameObject.activeSelf != visible)
             _bar.Root.gameObject.SetActive(visible);
         if (_grabZone.enabled != visible)
@@ -1885,6 +1932,68 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             if (_badge.gameObject.activeSelf != badgeVisible)
                 _badge.gameObject.SetActive(badgeVisible);
         }
+    }
+
+    /// <summary>
+    /// ModBuild 378 — RE-DECIDE WHETHER THE ROD IS DRAWN, RIGHT NOW, from outside the follow tick.
+    ///
+    /// <para>There is exactly one caller and it exists to close a one-frame seam.
+    /// <c>CanvasConversion.CompleteReveal</c> runs in LATE UPDATE: it re-enables every renderer it
+    /// recorded — the rod's three among them, because the grab holder is registered as an extra
+    /// render root — and only then asks <c>ModalFallback.PlayAppearOrDefer</c> whether this float
+    /// has anything drawable. The follow tick that would notice the answer is the NEXT frame's
+    /// Update, and the frame in between is rendered. Without this call the rod is drawn for that one
+    /// frame on a window that has nothing in it, which is a smaller version of the very artefact
+    /// this round removes.</para>
+    ///
+    /// <para>It re-runs the ONE expression that decides the rod's visibility rather than writing the
+    /// GameObject itself, so there is still a single owner of that flag and no second rule to keep in
+    /// step. Safe before the frame is built (the method returns on its own null guard) and safe to
+    /// call twice in a frame (it is idempotent — it writes only on a change).</para>
+    /// </summary>
+    internal void RefreshBarVisibility() => SyncBarVisibility();
+
+    /// <summary>
+    /// ModBuild 378 — the falsifier for the withhold, on the EDGE and never per frame.
+    ///
+    /// <para>It reports the two counts as well as the verdict, deliberately. A change-gated line
+    /// whose reason is a constant string prints once for a window and then looks exactly like an
+    /// instrument that stopped running; the running totals are what let a reader tell "withheld once
+    /// and released" from "withheld once and never released" without correlating two log lines by
+    /// eye. <c>withholds - releases == 1</c> is a rod that is off the screen right now.</para>
+    ///
+    /// <para>It asserts only what it can see: the flag it was handed, the reason string the owner of
+    /// that flag wrote, and its own counters. It does not claim the window is empty — that is the
+    /// liveness rule's verdict and the liveness rule's line.</para>
+    /// </summary>
+    private void NoteWithholdChange(bool owed, string owedWhy)
+    {
+        if (owed == _barWithheldForOwedAppear)
+            return;
+        _barWithheldForOwedAppear = owed;
+        if (owed) _barWithholds++;
+        else _barWithholdReleases++;
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"MODAL GRAB BAR WITHHELD: '{_logName}' — the grab bar is "
+            + (owed
+                ? "NOT BEING DRAWN, and neither is its laser capsule, its palm grab zone or its "
+                  + "shared-window badge. THE TERM THAT WITHHELD IT: "
+                : "BACK ON THE SCREEN with its laser capsule, its palm grab zone and its "
+                  + "shared-window badge. THE TERM THAT WITHHELD IT HAS CLEARED: it was ")
+            + owedWhy
+            + (owed
+                ? ". It comes back on the same edge that releases the owed materialise APPEAR — the "
+                  + "first paint, or the wake from dormancy — so the rod and the dust arrive "
+                  + "together. USER REPORT (2026-09-03): 'Wenn kein Fenster inhalt hat soll neben "
+                  + "der Animation auch kein Greifbalken erscheinen.'"
+                : ". The window is drawing, so it is movable again.")
+            + $" COUNTS OVER THIS WINDOW'S LIFE: {_barWithholds} withhold(s), "
+            + $"{_barWithholdReleases} release(s) — a difference of 1 is a rod withheld right now, "
+            + "and a difference that never returns to 0 is a float that never drew at all, which "
+            + "the liveness rule's own verdict then owns. THE GOING-DARK RULE IS A SEPARATE EDGE "
+            + "and is unchanged. NOTHING WAS WRITTEN TO THE GAME: the only objects switched are the "
+            + "mod's own chrome.");
     }
 
     /// <summary>
@@ -2287,7 +2396,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 + $"sample that measures ink again. This is hide {_inkEmpties} over this window's "
                 + "life. NOTHING WAS WRITTEN TO THE GAME: no Hide, no Escape, no SetActive on any "
                 + "game object and no CanvasGroup — the only objects switched are the mod's own "
-                + "chrome.");
+                + "chrome. ModBuild 378: the rod may already have been off the screen when this "
+                + "line was written — a float that still owes its materialise appear is WITHHELD "
+                + $"before it is ever drawn (withheld right now: {_barWithheldForOwedAppear}), so "
+                + "on the never-drew shape this line is a second, later statement of the same fact "
+                + "and NOT evidence that anything flashed.");
             // KEEP SAMPLING FAST. Content that comes back must push the handle out again immediately,
             // which is the same reason a committed release re-arms the burst.
             _inkSettleUntilFrame = now + InkSettleFrames;
@@ -2859,6 +2972,13 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkConfirmRun = 0;
         _inkConfirmBudgetSpent = 0;
         _barHiddenForEmpty = false;
+        // ModBuild 378: same argument for the withhold, and the counts go with it so "over this
+        // window's life" means the same thing on the withhold line as _inkEmpties does on the
+        // take-off line — the life of the holder that carried the rod. A rebuilt rod that is still
+        // owed an appear is withheld again on its first tick, from a clean edge, and says so.
+        _barWithheldForOwedAppear = false;
+        _barWithholds = 0;
+        _barWithholdReleases = 0;
         _inkSigNodes = 0;
         _inkSigTruncated = false;
         // The plate belongs to the game-owned host, which the caller releases separately; dropping

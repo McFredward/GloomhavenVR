@@ -3067,6 +3067,12 @@ internal static partial class ModalFallback
         }
         wp.AppearOwed = true;
         wp.AppearOwedSince = Time.unscaledTime;
+        // ModBuild 378 — AND THE GRAB BAR GOES WITH THE DUST, ON THIS FRAME. The reveal above
+        // re-enabled every renderer it had recorded, and the rod's three are among them (the grab
+        // holder is registered as an extra render root). This is a LateUpdate and the rod's own
+        // follow tick is the next frame's Update, so without this call the handle is DRAWN for the
+        // one frame in between. GrabbableModal owns the decision; this only asks it to make it now.
+        wp.Grab?.RefreshBarVisibility();
         // HW-VERIFY
         VRLog.Note("WorldUI", $"MODAL APPEAR HELD: '{wp.Window.name}' (ID {wp.Window.ID}) reached its "
                               + "reveal edge with NOTHING DRAWABLE under it (no active, enabled "
@@ -3104,6 +3110,11 @@ internal static partial class ModalFallback
                               + "content had not arrived yet — in the 2026-09-03 log that was true "
                               + "of the character screen on EVERY open, and once of a window that "
                               + "never drew at all.");
+        // ModBuild 378 — THE ROD ARRIVES WITH THE DUST. Both release edges run inside
+        // TickWindowLiveness, which is ahead of PhaseGrabFollow in the same Update, so the follow
+        // tick would put the handle back on this frame anyway. The call is made explicitly so the
+        // guarantee is a property of this method rather than of the phase order two files away.
+        wp.Grab?.RefreshBarVisibility();
         WindowMaterialise.PlayIn(wp.Panel);
     }
 
@@ -3153,6 +3164,62 @@ internal static partial class ModalFallback
                 return true;
             }
             return false;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// DOES THIS FLOAT STILL OWE ITS APPEAR? — i.e. has it reached its reveal edge and NOT ONCE
+    /// been measured drawing anything since. Read by <c>GrabbableModal.SyncBarVisibility</c>, which
+    /// withholds the grab bar on exactly this term.
+    ///
+    /// <para><b>WHY THE BAR RIDES THIS FLAG AND NOT A TEST OF ITS OWN (user report 2026-09-03).</b>
+    /// Verbatim: <i>"Wenn kein Fenster inhalt hat soll neben der Animation auch kein Greifbalken
+    /// erscheinen."</i> ModBuild 374 withheld the dust on <see cref="WindowPanel.AppearOwed"/>, and
+    /// in the ModBuild 377 log that half works — <c>MODAL APPEAR HELD</c> fires and no dust plays.
+    /// The rod did not ride it: it was BUILT at the reveal edge, drawn from the moment the reveal
+    /// gate unhid the panel, and only taken off a sample or two later once the ink walk had twice
+    /// agreed the window was empty (<c>EMPTY GRAB BAR TAKEN OFF</c>). That gap is the sub-second
+    /// flash he reported. Answering the two questions from ONE stored verdict is what makes it
+    /// impossible for the dust and the rod to disagree about whether a window has content; a second
+    /// test could, and a second test measured at a different instant certainly would.</para>
+    ///
+    /// <para><b>THIS METHOD MEASURES NOTHING.</b> It reads a flag the liveness rule owns —
+    /// <see cref="PlayAppearOrDefer"/> sets it, <c>ReleaseOwedAppear</c> spends it on first paint or
+    /// on the wake from dormancy. No walk, no allocation, safe to call every frame.</para>
+    ///
+    /// <para><b>NO FLOAT ENTRY MEANS NO.</b> A panel this list does not carry gets the answer
+    /// "nothing is owed", so the bar is present. The asymmetry is the safety property: a window
+    /// left unmovable is a worse defect than a bar that flashes, so every unknown resolves to a
+    /// bar on the screen.</para>
+    ///
+    /// <para><b>AND THE ESC / OPTIONS FAMILY IS NEVER WITHHELD.</b> Standing ruling: <i>"es MUSS
+    /// immer möglich sein das Optionsmenu zu öffnen."</i> <c>TickWindowLiveness</c> skips that
+    /// family with a <c>continue</c> placed AHEAD of the measurement that spends the owed appear,
+    /// so an options window that ever had one set could never clear it and its rod would be
+    /// withheld for the rest of its life. Nothing has been observed setting it for that family (it
+    /// floats with fitContent:false and a whole screen of content, and armed by FIRST PAINT in the
+    /// report's own log), which is exactly why this is cheap insurance rather than a behaviour
+    /// change — it removes a route nobody has walked.</para>
+    /// </summary>
+    internal static bool AppearStillOwed(ConvertedPanel? panel, out string why)
+    {
+        why = string.Empty;
+        if (panel == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!ReferenceEquals(wp.Panel, panel))
+                continue;
+            if (!wp.AppearOwed)
+                return false;
+            if (MenuWindowFamily.IsEscOptionsFamily(wp.Window))
+                return false;
+            why = "its materialise APPEAR is still OWED — the float reached its reveal edge with "
+                  + "nothing drawable under it and the liveness rule has not once measured it "
+                  + "drawing since, so the window has never been on the screen";
+            return true;
         }
         return false;
     }
