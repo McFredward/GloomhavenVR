@@ -1794,6 +1794,43 @@ internal static partial class ModalFallback
     /// left alone. A window seated elsewhere first drops its reservation so the claim runs the
     /// corner path instead of re-using the old seat.</para>
     /// </summary>
+    /// <summary>True while <paramref name="panel"/> holds a CORNER claim in the registry — i.e. it
+    /// is standing on its corner by the corner path and must not be placed again.</summary>
+    private static bool HoldsCornerClaim(ConvertedPanel? panel)
+    {
+        if (panel == null)
+            return false;
+        for (int s = 0; s < _arcClaims.Length; s++)
+        {
+            if (ReferenceEquals(_arcClaims[s].Panel, panel) && _arcClaims[s].Corner)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Drop whatever reservation <paramref name="wp"/> holds and place it again through the
+    /// ordinary placement, which for a corner window is the corner claim. Same recipe as the
+    /// presence-regain refloat (the grab FRAME is re-seated; the host would be snapped back by
+    /// the next follow tick). Returns true when a pose was written. The caller has already
+    /// refused a window the player or a peer moved.
+    /// </summary>
+    private static bool PlaceCornerWindowAgain(WindowPanel wp, string why)
+    {
+        ReleaseArcClaimOf(wp.Panel, why);
+        bool levelMessage = IsLevelMessageWindow(wp.Window);
+        if (wp.Grab != null)
+        {
+            Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
+            if (!ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel,
+                    levelMessage))
+                return false;
+            wp.Grab.PlaceFrameAt(pos, rot);
+            return true;
+        }
+        return PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
+    }
+
     internal static void ReseatCornerWindowsOnce(string why)
     {
         int seen = 0, moved = 0;
@@ -1817,31 +1854,9 @@ internal static partial class ModalFallback
                                       + "windows stay put).");
                 continue;
             }
-            bool onCorner = false;
-            for (int s = 0; s < _arcClaims.Length; s++)
-            {
-                if (ReferenceEquals(_arcClaims[s].Panel, wp.Panel) && _arcClaims[s].Corner)
-                    onCorner = true;
-            }
-            if (onCorner)
+            if (HoldsCornerClaim(wp.Panel))
                 continue; // already where it belongs — a second placement would be a visible jump
-            ReleaseArcClaimOf(wp.Panel, why);
-            bool levelMessage = IsLevelMessageWindow(wp.Window);
-            bool placed = false;
-            if (wp.Grab != null)
-            {
-                Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
-                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel,
-                        levelMessage))
-                {
-                    wp.Grab.PlaceFrameAt(pos, rot);
-                    placed = true;
-                }
-            }
-            else
-            {
-                placed = PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
-            }
+            bool placed = PlaceCornerWindowAgain(wp, why);
             if (placed)
                 moved++;
             // HW-VERIFY
@@ -3989,6 +4004,10 @@ internal static partial class ModalFallback
     internal static bool BeginWindowHandover(UIWindow? leaving, UIWindow? arriving, string trigger)
     {
         string refusal;
+        // 2026-09-03 (ModBuild 412 log :5925/:5934): appended to the handover line for a CORNER
+        // window only — see the branch below. Empty for every other refusal, so the line is
+        // byte-identical to what it was.
+        string cornerClause = "";
         try
         {
             if (leaving == null || arriving == null || ReferenceEquals(leaving, arriving))
@@ -4036,6 +4055,42 @@ internal static partial class ModalFallback
                               + "presence-regain refloat honours. NOT A FAILURE: he asked for the "
                               + "Character-UI to take the story window's place, not for it to be "
                               + "taken away from wherever he parked it";
+                }
+                else if (TryCornerWindowSide(pArrive, out bool cornerRight))
+                {
+                    // A CORNER WINDOW TAKES NO PART IN THE HANDOVER (user ruling 2026-09-03, after
+                    // the ModBuild 412 log: :5925 moved the character screen 1656 mm / 50° off its
+                    // LEFT corner onto the loadout's centre seat, on top of the quest info popup).
+                    // It stays on its corner — or returns to it if something else had seated it —
+                    // and the leaving window's seat is simply released. The handover stays exactly
+                    // as it was for every other arriving window.
+                    string side = cornerRight ? "RIGHT" : "LEFT";
+                    for (int i = 0; i < _arcClaims.Length; i++)
+                    {
+                        if (!ReferenceEquals(_arcClaims[i].Panel, pLeave))
+                            continue;
+                        _arcClaims[i] = default;
+                        _arcSeatWorldYaw[i] = 0f;
+                        _arcSeatGeneration++;
+                    }
+                    _handoverPanel = null;
+                    string returned = "";
+                    if (!HoldsCornerClaim(pArrive))
+                    {
+                        bool placed = wpArrive != null
+                                      && PlaceCornerWindowAgain(wpArrive,
+                                          "it is a corner window and the handover was refused for it");
+                        returned = placed
+                            ? " (it was NOT standing on its corner and has been re-seated onto it — "
+                              + "see its MAP ROOM WINDOW SLOT line above)"
+                            : " (it was NOT standing on its corner and could not be re-seated — no "
+                              + "pose could be computed)";
+                    }
+                    refusal = $"'{arriving.name}' is the map room's {side} CORNER WINDOW and takes no "
+                              + "part in a handover — its place is the corner, by identity, not the "
+                              + "seat another window vacates";
+                    cornerClause = $" CORNER WINDOW — stays on its {side} corner, handover seat released"
+                                   + returned + ".";
                 }
                 else
                 {
@@ -4089,7 +4144,7 @@ internal static partial class ModalFallback
                               + "arriving window keeps the seat the arc allocator gave it, which is "
                               + "the ModBuild 241 presentation the user reported as \"im Halbkreis "
                               + "daneben\". Nothing is broken by this — it is the previous "
-                              + "behaviour, said out loud.");
+                              + "behaviour, said out loud." + cornerClause);
         return false;
     }
 
