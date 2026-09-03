@@ -1577,7 +1577,25 @@ internal static partial class ModalFallback
                                         + "corner was re-asserted). It faces the spawn point "
                                         + $"({corner.SpawnPoint.x:F2},{corner.SpawnPoint.y:F2},"
                                         + $"{corner.SpawnPoint.z:F2}) wu, yaw {rot.eulerAngles.y:F1}°."
-                                      : ""));
+                                      : "")
+                                  // 2026-09-03 — THE BESIDE CLAUSE (user report: the quest info
+                                  // window spawned inside the battle-goal picker). Appended, never
+                                  // reworded: which standing chooser this window was seated
+                                  // beside, the gap in degrees and mm, and the OVERLAP, which must
+                                  // read 0°. Empty when nothing stands. See ArcSeats.BesideClause.
+                                  + (_arcLastBesideClause ?? string.Empty));
+            // The SLOT line above is debug-tier (VRLog.Info). The one number the 2026-09-03 report
+            // is decided by has to survive the default log level, so the BESIDE clause is repeated
+            // on its own line at the printed tier — once per placement, never per frame.
+            if (!string.IsNullOrEmpty(_arcLastBesideClause))
+            {
+                // HW-VERIFY
+                VRLog.Note("WorldUI", "MAP ROOM WINDOW BESIDE: "
+                                      + $"'{(self != null ? PanelLogName(self) : "<panel>")}' seated "
+                                      + $"at {arcYawDeg:F0}° from the spawn gaze, drawn "
+                                      + $"{logHalfAngle * 2f:F0}° at offset {logDrawnOffset:F0}° —"
+                                      + _arcLastBesideClause);
+            }
             // BOOKED DISTANCE vs DELIVERED DISTANCE, RECONCILED — and the registry corrected to the
             // one that is true. This is the only point in the whole path where both numbers exist:
             // TryClaimArcSeat computed every angle at WindowDistanceMeters × scale, and every clamp

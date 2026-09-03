@@ -226,11 +226,47 @@ internal static partial class ModalFallback
     private const float PhantomFrameThresholdDeg = 4f;
 
     /// <summary>
+    /// THE CHOOSER GAP (user report 2026-09-03): extra clearance, degrees, a window keeps from a
+    /// standing claim whose interval includes a RESERVED SUB-VIEW SLOT (the character screen with
+    /// the battle-goal picker forecast beside its column — see
+    /// <c>CanvasConversion.TryForecastSubViewSlot</c>). Added to <see cref="NeighbourGapDegrees"/>,
+    /// so the info window stands 6° off the chooser's picker instead of the 2° every other pair
+    /// keeps: at the 1.40 m reading distance that is ~15 cm of visible air between the quest info
+    /// and the goal cards, which is what "Vergroessere den Abstand zwischen den beiden Fenstern"
+    /// asks for. It is a demand, never a reservation: when the field of view holds no free seat at
+    /// this clearance the search retries at the plain neighbour gap, and the line says so.
+    /// </summary>
+    private const float ChooserSlotExtraGapDegrees = 4f;
+
+    /// <summary>True while the seat search is re-run with every <see cref="ArcClaim.ExtraGapDeg"/>
+    /// waived — the one retry <see cref="ArcSeatFreeInterval"/> makes before declaring the field
+    /// full. Never set outside that method.</summary>
+    private static bool _relaxChooserGap;
+
+    /// <summary>Set by the last <see cref="ArcSeatFreeInterval"/> that found a seat: whether it had
+    /// to waive the chooser gap to find one. Read by the callers for their line.</summary>
+    private static bool _lastSeatWaivedChooserGap;
+
+    /// <summary>
+    /// THE BESIDE CLAUSE of the last arc placement — appended verbatim to the MAP ROOM WINDOW SLOT
+    /// line by <c>ModalFallback.9.Spawn</c>: which standing chooser this window was seated beside,
+    /// the measured gap in degrees and millimetres, and the overlap (0° is the claim being proved).
+    /// Empty when no chooser with a reserved slot stands. Written by every claim/re-seat path,
+    /// cleared at the start of each.
+    /// </summary>
+    private static string? _arcLastBesideClause;
+
+    /// <summary>
     /// The DRAWN geometry of one window, in the angular terms the arc reasons in. Every field is
     /// measured at a stated distance; nothing here is assumed.
     /// </summary>
     private struct ArcDrawnGeometry
     {
+        /// <summary>True when the drawn extent was widened to cover the sub-view slot a fixed-fit
+        /// host is about to fill (part 9f). The claim written from this geometry carries
+        /// <see cref="ArcClaim.SlotReserved"/> and the chooser gap.</summary>
+        public bool SlotReserved;
+
         /// <summary>Half the VISIBLE content's angular width, degrees. Equals
         /// <see cref="FrameHalfDeg"/> when nothing could be measured.</summary>
         public float DrawnHalfDeg;
@@ -336,6 +372,43 @@ internal static partial class ModalFallback
         if (host.width < 1f || halfWidthWorld <= 1e-4f)
             return g;
 
+        // ---- 2026-09-03: THE SUB-VIEW SLOT A CHOOSER IS ABOUT TO FILL IS BOOKED WITH ITS INK.
+        //      The character screen draws a 328 px column and hands the rest of its frame back as
+        //      phantom; the quest popup then took the free interval nearest the gaze — exactly the
+        //      566 px the battle-goal picker is seated into a moment later (LogOutput.log:2345 vs
+        //      :2412, the user's "Quest-Info-Fenster ... innerhalb des Fensters"). The forecast
+        //      (CanvasConversion part 9f) names the slot in host px; it is unioned into the drawn
+        //      rect HERE, in the one measurement every claim, refresh, re-seat and audit share, so
+        //      the registry and the room cannot disagree about it. Answers false — and changes
+        //      nothing — for every window that is not a fixed-fit host with a slot to forecast.
+        string slotNote = string.Empty;
+        if (CanvasConversion.TryForecastSubViewSlot(panel, out float slotLeft, out float slotRight,
+                out string slotHow))
+        {
+            float wasMin = content.xMin, wasMax = content.xMax;
+            float newMin = Mathf.Min(wasMin, slotLeft);
+            float newMax = Mathf.Max(wasMax, slotRight);
+            if (newMax - newMin > content.width + 0.5f)
+            {
+                content = Rect.MinMaxRect(newMin, content.yMin, newMax, content.yMax);
+                slotNote = $" — SUB-VIEW SLOT RESERVED WITH THE INK: the drawn union "
+                           + $"[{wasMin:F0}..{wasMax:F0}] px was widened to "
+                           + $"[{newMin:F0}..{newMax:F0}] px to cover the slot "
+                           + $"[{slotLeft:F0}..{slotRight:F0}] px its fixed fit seats a sub-view "
+                           + $"into ({slotHow}); a window seated beside this one keeps "
+                           + $"{NeighbourGapDegrees + ChooserSlotExtraGapDegrees:F0}° of clearance "
+                           + "from that edge instead of the usual "
+                           + $"{NeighbourGapDegrees:F0}°";
+                g.SlotReserved = true;
+            }
+            else
+            {
+                slotNote = $" — the sub-view slot [{slotLeft:F0}..{slotRight:F0}] px "
+                           + $"({slotHow}) already lies inside the drawn union, nothing added";
+                g.SlotReserved = true;
+            }
+        }
+
         // px -> world from the SAME rect whose world half-width we were handed: a pure ratio.
         float pxToWorld = halfWidthWorld / (host.width * 0.5f);
         float drawnHalfWorld = content.width * 0.5f * pxToWorld;
@@ -369,8 +442,97 @@ internal static partial class ModalFallback
                              ? $" — the window draws {widthDelta:F0}° WIDER than its own frame, so "
                                + "the reservation GROWS; booking only the frame would have let a "
                                + "neighbour sit on content that is really there"
-                             : " — a small difference, booked as measured");
+                             : " — a small difference, booked as measured")
+                 + slotNote;
         return g;
+    }
+
+    /// <summary>The chooser gap this claim asks of its neighbours: the extra clearance while its
+    /// slot is reserved, else nothing.</summary>
+    private static float ChooserGapFor(in ArcDrawnGeometry g) =>
+        g.SlotReserved ? ChooserSlotExtraGapDegrees : 0f;
+
+    /// <summary>The extra clearance standing claim <paramref name="slot"/> asks for right now — 0
+    /// while the search is in its waived retry (see <see cref="_relaxChooserGap"/>).</summary>
+    private static float ExtraGapOf(int slot) =>
+        _relaxChooserGap ? 0f : _arcClaims[slot].ExtraGapDeg;
+
+    /// <summary>True when any standing claim asks for a chooser gap, i.e. when a waived retry
+    /// could change the search's answer at all.</summary>
+    private static bool AnyChooserGapStanding()
+    {
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel != null && _arcClaims[i].ExtraGapDeg > 0.01f)
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// THE BESIDE CLAUSE — the proof the user report of 2026-09-03 is answered, measured on the
+    /// registry the moment a seat is written. Names the standing chooser (a claim with a reserved
+    /// sub-view slot; failing that, the nearest standing window) this window was seated beside,
+    /// the gap between the two drawn intervals in degrees and in millimetres at this window's
+    /// reading distance, and the overlap — which must read 0° for the fix to have held. Empty when
+    /// nothing stands. Written to <see cref="_arcLastBesideClause"/> for the SLOT line and returned
+    /// for the caller's own text.
+    /// </summary>
+    private static string BesideClause(float worldYaw, float halfAngle, int skipSlot,
+        float distWorld, float scale)
+    {
+        int pick = -1;
+        float pickGap = float.MaxValue;
+        bool pickIsChooser = false;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (_arcClaims[i].Panel == null || i == skipSlot)
+                continue;
+            float gap = Mathf.Abs(Mathf.DeltaAngle(worldYaw, _arcSeatWorldYaw[i]))
+                        - (halfAngle + _arcClaims[i].HalfWidthDeg);
+            bool chooser = _arcClaims[i].SlotReserved;
+            // A chooser outranks a nearer non-chooser: the clause exists to prove THAT pair.
+            if (pick < 0 || (chooser && !pickIsChooser)
+                || (chooser == pickIsChooser && gap < pickGap))
+            {
+                pick = i;
+                pickGap = gap;
+                pickIsChooser = chooser;
+            }
+        }
+        if (pick < 0)
+        {
+            _arcLastBesideClause = string.Empty;
+            return string.Empty;
+        }
+        float distMeters = distWorld / Mathf.Max(scale, 1e-4f);
+        float gapDeg = Mathf.Max(0f, pickGap);
+        float overlapDeg = Mathf.Max(0f, -pickGap);
+        float gapMm = 2f * distMeters * Mathf.Tan(gapDeg * 0.5f * Mathf.Deg2Rad) * 1000f;
+        float wanted = NeighbourGapDegrees + (pickIsChooser && !_lastSeatWaivedChooserGap
+            ? ChooserSlotExtraGapDegrees : 0f);
+        string clause = $" BESIDE: '{_arcClaims[pick].Name ?? "?"}' — gap {gapDeg:F0}° "
+                        + $"({gapMm:F0} mm at {distMeters:F2} m), OVERLAP {overlapDeg:F0}°"
+                        + (pickIsChooser
+                            ? " — that window is a CHOOSER whose reservation covers the sub-view "
+                              + "slot its fixed fit is about to fill (the battle-goal picker beside "
+                              + "the character column), so the gap is measured from the picker's "
+                              + "edge, not from the column's"
+                            : " (no chooser with a reserved sub-view slot stands; this is the "
+                              + "nearest window)")
+                        + (overlapDeg > 0.5f
+                            ? ". THE GAP WAS NOT KEPT: no seat inside the field of view kept it at "
+                              + "any clearance, so the two drawn intervals overlap — read the line "
+                              + "above for which rule seated this window and whether it stands in "
+                              + "front on the depth ladder"
+                            : _lastSeatWaivedChooserGap && pickIsChooser
+                                ? $". The {NeighbourGapDegrees + ChooserSlotExtraGapDegrees:F0}° "
+                                  + "chooser clearance could not be kept inside the field of view "
+                                  + $"and was WAIVED to the plain {NeighbourGapDegrees:F0}° gap"
+                                : $" (asked for at least {wanted:F0}°)")
+                        + ".";
+        _arcLastBesideClause = clause;
+        return clause;
     }
 
     /// <summary>
@@ -592,6 +754,8 @@ internal static partial class ModalFallback
             _arcClaims[i].HalfWidthDeg = g.DrawnHalfDeg;
             _arcClaims[i].DrawnOffsetDeg = g.OffsetDeg;
             _arcClaims[i].FrameHalfWidthDeg = g.FrameHalfDeg;
+            _arcClaims[i].SlotReserved = g.SlotReserved;
+            _arcClaims[i].ExtraGapDeg = ChooserGapFor(g);
             VRLog.Info("WorldUI", "MAP ROOM ARC RE-MEASURED: "
                                   + $"'{_arcClaims[i].Name ?? "?"}' now books "
                                   + $"{g.DrawnHalfDeg * 2f:F0}° at world yaw "
@@ -626,7 +790,8 @@ internal static partial class ModalFallback
         {
             if (_arcClaims[i].Panel == null)
                 continue;
-            float needed = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
+            float needed = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees
+                           + ExtraGapOf(i);
             if (Mathf.Abs(Mathf.DeltaAngle(worldYaw, _arcSeatWorldYaw[i])) < needed - 1e-3f)
                 return false;
         }
@@ -1214,6 +1379,8 @@ internal static partial class ModalFallback
             out float footYaw, out float footHalf);
         int wouldBeLevel = ArcSeatDepthLevel(footYaw, footHalf, -1, out string blockers);
         float overlapDeg = ArcSeatWorstOverlapDeg(drawnWorldYaw, halfAngle, out string overlapWith);
+        _lastSeatWaivedChooserGap = false;
+        BesideClause(drawnWorldYaw, halfAngle, -1, distWorld, scale);
 
         corner = new ArcCornerSeat
         {
@@ -1270,6 +1437,8 @@ internal static partial class ModalFallback
             HalfWidthDeg = halfAngle,
             DrawnOffsetDeg = geo.OffsetDeg,
             FrameHalfWidthDeg = geo.FrameHalfDeg,
+            SlotReserved = geo.SlotReserved,
+            ExtraGapDeg = ChooserGapFor(geo),
             DistanceWorld = distWorld,
             OverlapRank = 0,
             // Negative = further than nominal; ApplyArcDepth expresses it as an outward push, and
@@ -1326,6 +1495,8 @@ internal static partial class ModalFallback
         _arcClaims[slot].HalfWidthDeg = geo.DrawnHalfDeg;
         _arcClaims[slot].DrawnOffsetDeg = geo.OffsetDeg;
         _arcClaims[slot].FrameHalfWidthDeg = geo.FrameHalfDeg;
+        _arcClaims[slot].SlotReserved = geo.SlotReserved;
+        _arcClaims[slot].ExtraGapDeg = ChooserGapFor(geo);
         _arcClaims[slot].DistanceWorld = distWorld;
         _arcClaims[slot].DepthPullMeters = (WindowDistanceMeters * scale - distWorld)
                                            / Mathf.Max(scale, 1e-4f);
@@ -1480,6 +1651,8 @@ internal static partial class ModalFallback
     {
         best = 0f;
         source = ArcSeatSource.None;
+        if (!_relaxChooserGap)
+            _lastSeatWaivedChooserGap = false;
 
         // ---- PASS −1: HIS TWO TABLE CORNERS, AND THEY ARE TRIED BEFORE ANYTHING ELSE.
         //      The window's DRAWN CENTRE goes ON the corner — not its inner edge beside the map,
@@ -1528,7 +1701,8 @@ internal static partial class ModalFallback
             if (_arcClaims[i].Panel == null)
                 continue;
             float standOffset = Mathf.DeltaAngle(gazeYawDeg, _arcSeatWorldYaw[i]);
-            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees;
+            float edge = _arcClaims[i].HalfWidthDeg + halfAngle + NeighbourGapDegrees
+                         + ExtraGapOf(i);
             _arcCandidates[n++] = standOffset + edge;
             _arcCandidates[n++] = standOffset - edge;
         }
@@ -1560,6 +1734,29 @@ internal static partial class ModalFallback
             best = pick;
             source = pass == 0 ? ArcSeatSource.BesideTheMap : ArcSeatSource.NearestFreeInterval;
             return true;
+        }
+
+        // ---- THE ONE RETRY (2026-09-03): the chooser gap is a demand, never a reservation. When
+        //      no seat inside the field of view keeps the extra clearance off a chooser's slot,
+        //      the same search runs once more at the plain neighbour gap — the pre-existing rule —
+        //      before the field is declared full, so his first rule (in view, always) is never
+        //      traded for the gap, and the placement line says which of the two answered.
+        if (!_relaxChooserGap && AnyChooserGapStanding())
+        {
+            _relaxChooserGap = true;
+            try
+            {
+                bool relaxed = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle,
+                    haveCorners, cornerLeftDeg, cornerRightDeg, haveChannel, channelLo, channelHi,
+                    out best, out source);
+                if (relaxed)
+                    _lastSeatWaivedChooserGap = true;
+                return relaxed;
+            }
+            finally
+            {
+                _relaxChooserGap = false;
+            }
         }
         return false;
     }
@@ -2039,6 +2236,8 @@ internal static partial class ModalFallback
             return false; // TickHoverCards owns its pose (and it churns on every mouseover)
 
         LogArcSeatGeometryOnce();
+        _arcLastBesideClause = string.Empty;
+        _lastSeatWaivedChooserGap = false;
 
         // Already holds one? A presence-regain refloat re-places an EXISTING float and must land
         // back on ITS OWN WORLD DIRECTION — not on the same gaze-relative angle, which after a
@@ -2054,6 +2253,8 @@ internal static partial class ModalFallback
             yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostYawWorld);
             overlapRank = _arcClaims[i].OverlapRank;
             foregroundPullWorld = _arcClaims[i].DepthPullMeters * scale;
+            BesideClause(_arcSeatWorldYaw[i], _arcClaims[i].HalfWidthDeg, i,
+                _arcClaims[i].DistanceWorld, scale);
             why = $"re-uses the seat it already holds (drawn content at world yaw "
                   + $"{_arcSeatWorldYaw[i]:F0}°±{_arcClaims[i].HalfWidthDeg:F0}°, frame centred "
                   + $"{_arcClaims[i].DrawnOffsetDeg:F0}° off that, so the host goes to "
@@ -2217,6 +2418,12 @@ internal static partial class ModalFallback
                   + "decided below. The windows already standing "
                   + $"[{standing}] were not touched";
             why += outwardNote;
+            if (_lastSeatWaivedChooserGap)
+                why += $". CHOOSER GAP WAIVED: no seat inside ±{arcHalf:F1}° kept the "
+                       + $"{NeighbourGapDegrees + ChooserSlotExtraGapDegrees:F0}° clearance off the "
+                       + "standing chooser's reserved sub-view slot, so the search ran once more at "
+                       + $"the plain {NeighbourGapDegrees:F0}° neighbour gap and this is that "
+                       + "answer — in the field of view outranks the gap (his first rule)";
         }
         else
         {
@@ -2420,6 +2627,9 @@ internal static partial class ModalFallback
             why += ". " + cornerRefusal;
 
         float overlapDeg = ArcSeatWorstOverlapDeg(worldYaw, halfAngle, out string overlapWith);
+        // The BESIDE clause, measured on the final seat and distance (the outward ladder stores its
+        // push as a negative pull, so this one expression is the delivered distance either way).
+        BesideClause(worldYaw, halfAngle, -1, nominalDist - foregroundPullWorld, scale);
         if (overlapDeg > 0.5f)
             why += $". MEASURED: it overlaps '{overlapWith}' by {overlapDeg:F0}° of the "
                    + $"{halfAngle * 2f:F0}° it spans";
@@ -2489,6 +2699,8 @@ internal static partial class ModalFallback
             HalfWidthDeg = halfAngle,
             DrawnOffsetDeg = geo.OffsetDeg,
             FrameHalfWidthDeg = geo.FrameHalfDeg,
+            SlotReserved = geo.SlotReserved,
+            ExtraGapDeg = ChooserGapFor(geo),
             DistanceWorld = nominalDist - foregroundPullWorld,
             OverlapRank = overlapRank,
             DepthPullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f),
@@ -2630,6 +2842,11 @@ internal static partial class ModalFallback
                       ? ", BESIDE THE MAP rather than over it — the fallback rule, not his corner one"
                       : "");
             how += outwardNote;
+            if (_lastSeatWaivedChooserGap)
+                how += $". CHOOSER GAP WAIVED: no seat inside ±{arcHalf:F1}° kept the "
+                       + $"{NeighbourGapDegrees + ChooserSlotExtraGapDegrees:F0}° clearance off the "
+                       + "standing chooser's reserved sub-view slot, so the search ran once more at "
+                       + $"the plain {NeighbourGapDegrees:F0}° neighbour gap and this is that answer";
         }
         else
         {
@@ -2694,12 +2911,15 @@ internal static partial class ModalFallback
         hostYawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
 
         float overlapDeg = ArcSeatWorstOverlapDeg(worldYaw, halfAngle, out string overlapWith);
+        BesideClause(worldYaw, halfAngle, slot, nominalDist - foregroundPullWorld, scale);
         _arcSeatWorldYaw[slot] = worldYaw;
         held.CentreDeg = seatOffset;
         held.SpawnGazeWorldYaw = gazeYawDeg;
         held.HalfWidthDeg = halfAngle;
         held.DrawnOffsetDeg = geo.OffsetDeg;
         held.FrameHalfWidthDeg = geo.FrameHalfDeg;
+        held.SlotReserved = geo.SlotReserved;
+        held.ExtraGapDeg = ChooserGapFor(geo);
         held.DistanceWorld = nominalDist - foregroundPullWorld;
         held.OverlapRank = overlapRank;
         held.DepthPullMeters = foregroundPullWorld / Mathf.Max(scale, 1e-4f);
@@ -3827,6 +4047,8 @@ internal static partial class ModalFallback
         held.HalfWidthDeg = geo.DrawnHalfDeg;
         held.DrawnOffsetDeg = geo.OffsetDeg;
         held.FrameHalfWidthDeg = geo.FrameHalfDeg;
+        held.SlotReserved = geo.SlotReserved;
+        held.ExtraGapDeg = ChooserGapFor(geo);
         held.DistanceWorld = seatDist;
         held.OverlapRank = rank;
         // The depth term a presence-regain refloat replays. Derived from the distance this window

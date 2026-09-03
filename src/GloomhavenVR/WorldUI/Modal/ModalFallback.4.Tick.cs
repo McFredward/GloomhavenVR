@@ -859,6 +859,25 @@ internal static partial class ModalFallback
 
         /// <summary>"LEFT" or "RIGHT" — which far corner, as seen from the spawn point.</summary>
         public string? CornerWhich;
+
+        /// <summary>
+        /// THIS CLAIM IS A CHOOSER WITH A RESERVED SUB-VIEW SLOT (user report 2026-09-03, the quest
+        /// info window inside the battle-goal picker): the booked interval is the window's drawn
+        /// content UNIONED with the host-local slot its fixed fit is about to seat a sub-view into
+        /// (<c>CanvasConversion.TryForecastSubViewSlot</c>, part 9f). Set by
+        /// <c>MeasureArcDrawnGeometry</c> on every claim, refresh and re-seat, so the flag is never
+        /// stale against the interval it describes.
+        /// </summary>
+        public bool SlotReserved;
+
+        /// <summary>
+        /// EXTRA clearance, degrees, every OTHER window's search keeps from this claim's edges on top
+        /// of <see cref="NeighbourGapDegrees"/> — non-zero only while <see cref="SlotReserved"/>, so
+        /// an info window beside a chooser stands a visible gap off it rather than touching the
+        /// picker's edge. Waived, and the placement line says so, when keeping it would leave no
+        /// free seat inside the field of view (his first rule outranks the gap).
+        /// </summary>
+        public float ExtraGapDeg;
     }
 
     /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>
