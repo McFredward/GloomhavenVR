@@ -2558,6 +2558,11 @@ internal static partial class WallSegmentFade
             // formation's rock base is exactly that. HERE, after the election and BEFORE the
             // leavers loop, so a rider re-adopted this rescan is not restored one loop later.
             CollectFreeStandingRiders(minFloorY);
+            // HANGING PLANTS (ModBuild 410, nonfading_plants.jpg — WallSegmentFade.Hanging.cs):
+            // the ivy on a wall face is under the airborne bar and under no wall's subtree, so
+            // neither the election above nor the foliage lane could take it. Same slot, same
+            // reason: before the leavers loop.
+            CollectHangingPlants(minFloorY);
 
             // Leavers: restore anything this segment held that it no longer owns.
             foreach (Segment seg in _live.Segments.Values)
@@ -2678,8 +2683,13 @@ internal static partial class WallSegmentFade
                 || _censusMountedWallBuiltCarried != _lastLoggedMountedWallBuiltCarried
                 // ModBuild 271: and the AIRBORNE-BAR lift gets its own trigger for the same
                 // reason — a held instrument reads as a dead one.
-                || _censusMountedWallBuiltBelowBar != _lastLoggedMountedWallBuiltBelowBar)
+                || _censusMountedWallBuiltBelowBar != _lastLoggedMountedWallBuiltBelowBar
+                // ModBuild 410: the hanging-plant clause rides this line; a changed count prints.
+                || _censusHangingPlants != _lastLoggedHangingPlants)
+            {
                 LogMountedCensus();
+                _lastLoggedHangingPlants = _censusHangingPlants; // stamped here, not in the logger
+            }
             // ModBuild 259: the SECOND leftover class — a whole split-run PIECE left standing
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
             // the one line below and one grep still finds every leftover.
@@ -3600,6 +3610,9 @@ internal static partial class WallSegmentFade
             _lastLoggedMountedWallBuilt = _censusMountedWallBuilt;
             _lastLoggedMountedWallBuiltCarried = _censusMountedWallBuiltCarried;
             _lastLoggedMountedWallBuiltBelowBar = _censusMountedWallBuiltBelowBar;
+            // ModBuild 410: _lastLoggedHangingPlants is stamped by the CALLER, beside the trigger
+            // that reads it — a write inside a Log* method is load-bearing state a retired
+            // diagnostic would take with it (check-instrument-writes.py).
             if (_censusMounted == 0 && _censusMountedRejected == 0)
                 return;
             string riding = _mountedCensus.Count > 0 ? string.Join("; ", _mountedCensus) : "none new";
@@ -3677,7 +3690,9 @@ internal static partial class WallSegmentFade
                 + $"{_censusMountedWallBuiltBelowBar} adopted BELOW the airborne bar "
                 + $"{MountedClearanceWU:0.0} wu because the wall generator built them AND the "
                 + "four-level walk resolved a prop unit for them — ModBuild 271, tagged "
-                + $"[WALL-BUILT BELOW THE BAR] above){full}.");
+                + $"[WALL-BUILT BELOW THE BAR] above){full}."
+                // ModBuild 410 — appended, never reworded: the hanging-plant clause.
+                + HangingPlantsClause());
         }
 
         /// <summary>
