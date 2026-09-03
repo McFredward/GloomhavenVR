@@ -65,6 +65,43 @@ internal sealed class HandGhost
     private static readonly int CullId = Shader.PropertyToID("_Cull");
 
     /// <summary>
+    /// <c>GloomhavenVR/BoardLit</c>'s OPACITY SCALAR — and the whole of the ModBuild 392 ghost
+    /// regression.
+    ///
+    /// <para>ROOT CAUSE (user 2026-09-03: "Obwohl die Geisterhand an ist, funktioniert sie nicht
+    /// mehr … jetzt sind beide Hände aber keine Geisterhand mehr, weder beim Fächer noch wenn ich
+    /// eine Karte grabbe", and his own guess at WHEN — "seit dem letzten Problem das ich damit
+    /// gemeldet habe" — is exactly right: it is the SAME COMMIT, c1cadde0.) That commit gave
+    /// BoardLit an opt-in transparency block for <c>Net.Board.PeerBoardFade</c>: <c>_SrcBlend</c>,
+    /// <c>_DstBlend</c>, <c>_ZWrite</c> and this scalar, with the pass rewritten to
+    /// <c>Blend [_SrcBlend] [_DstBlend]</c>. Correct for the board. Fatal here, for two reasons
+    /// that only bite together:</para>
+    ///
+    /// <para>(1) <see cref="CanBlend"/> is a PROPERTY-EXISTENCE test, and BoardLit now has
+    /// <c>_SrcBlend</c> AND <c>_DstBlend</c>. So it flipped from false to true, and
+    /// <see cref="SwapToBlendableShader"/> — the re-shader onto <c>Sprites/Default</c> that was
+    /// the ONLY thing making this hand fade at all — stopped being called. The engage log went
+    /// from naming the swap to saying "all blendable as shipped", which is true about the shader's
+    /// property list and says nothing whatsoever about the picture.</para>
+    ///
+    /// <para>(2) BoardLit's fragment ends <c>return fixed4(col, _FadeAlpha)</c>. It never reads
+    /// <c>_Color.a</c> — deliberately, and its own comment says so, because the alpha channel of
+    /// every existing BoardLit material is data nobody had read. <see cref="SetAlpha"/> writes
+    /// <c>_Color</c>. So the clone was correctly flipped to <c>Blend SrcAlpha OneMinusSrcAlpha</c>
+    /// and then handed a source alpha of exactly 1.0 — i.e. <c>dst*(1-1) + src*1</c>, which is
+    /// pixel-for-pixel the opaque hand. "1 material(s) tinted" reported a write that reached a
+    /// channel the shader throws away. Both hands present, neither ghosted, at the fan and on a
+    /// held card alike — precisely the report.</para>
+    ///
+    /// <para>THE FIX IS TO DRIVE THE CHANNEL THE SHADER ACTUALLY CONSUMES, not to swap the shader
+    /// back: keeping BoardLit keeps the glove's baked studio lighting and its specular across the
+    /// fade, which is the same conclusion <c>PeerBoardFade</c> reached for the slab, and it avoids
+    /// re-introducing a material swap (a shipped defect class here — the fade-in plop). No bundle
+    /// change is involved: this property has been in the shipped bundle since c1cadde0.</para>
+    /// </summary>
+    private static readonly int FadeAlphaId = Shader.PropertyToID("_FadeAlpha");
+
+    /// <summary>
     /// Render queue of every ghost material — deliberately ABOVE the transparent default (3000),
     /// where the card face canvases live.
     ///
@@ -138,6 +175,13 @@ internal sealed class HandGhost
         Shader.PropertyToID("_TintColor"),
         Shader.PropertyToID("_MainColor"),
         Shader.PropertyToID("_UnlitColor"),
+    };
+
+    /// <summary>Names of <see cref="ColorIds"/>, index for index — the readback instrument has to
+    /// be able to say WHICH property it read the alpha out of, and a PropertyToID is one-way.</summary>
+    private static readonly string[] ColorNames =
+    {
+        "_Color", "_BaseColor", "_TintColor", "_MainColor", "_UnlitColor",
     };
 
     private readonly string _label;
@@ -261,6 +305,9 @@ internal sealed class HandGhost
         var shaders = new HashSet<string>();
         int tinted = 0;
         int depthArmed = 0;
+        // The clone the OUTCOME instrument reads back from (see ReportGhostBlendOnChange). A
+        // reference to a material we have finished configuring, never a copy of our intent.
+        Material? probe = null;
         for (int i = 0; i < _renderers.Length; i++)
         {
             Renderer r = _renderers[i];
@@ -287,6 +334,7 @@ internal sealed class HandGhost
                 if (SetAlpha(clone, alpha))
                     tinted++;
                 clones[m] = clone;
+                probe ??= clone;
             }
 
             // DEPTH PREPASS (see GhostDepthQueue): one extra, colour-free material on the SAME
@@ -313,6 +361,7 @@ internal sealed class HandGhost
 
         _appliedAlpha = alpha;
         ReportDepthPrepassOnce(depthArmed, _renderers.Length);
+        ReportGhostBlendOnChange(probe, depthArmed);
         VRLog.Info("Hands", $"Ghost hand ON ({_label}) — alpha {alpha:0.00} " +
                             $"(strength {(1f - alpha) * 100f:0}%), {_renderers.Length} renderer(s) " +
                             $"cloned onto private materials, {tinted} material(s) tinted, " +
@@ -324,7 +373,13 @@ internal sealed class HandGhost
                                 ? " — at least one had NO blend state (hard-coded opaque) and its CLONE was " +
                                   "re-shadered to an unlit alpha-blended one, texture + tint carried over; " +
                                   "that is what makes the fade visible at all."
-                                : " — all blendable as shipped.") + ".");
+                                : " — all blendable as shipped. That verdict is a PROPERTY-LIST "
+                                  + "test and nothing more: it says the shader exposes blend "
+                                  + "factors, never that it consumes the alpha written here. "
+                                  + "BoardLit passed it while emitting a hard 1.0, which is how "
+                                  + "this feature stayed invisible; the readback line printed "
+                                  + "beside this one carries the alpha actually emitted.")
+                            + ".");
         s_swappedShader = false; // per-engage report, not a sticky flag
     }
 
@@ -447,6 +502,116 @@ internal sealed class HandGhost
                     + "cannot take a surplus pass without stamping a partial silhouette. ")
               + "The ghost hand writes no depth, so a world-space panel drawn after it will keep "
               + "painting over it — the ModBuild 348 report is expected to REPRODUCE.");
+    }
+
+    // ---- outcome instrument -------------------------------------------------------------------
+
+    /// <summary>Signature of the last blend state reported, so the line below is CHANGE-GATED
+    /// rather than once-per-session: a hand style switch, a bundle that loaded late, a strength
+    /// edit that lands on a different shader — each of those is a new signature and must print.
+    /// A constant reason printing once and then falling silent is an instrument that reads as
+    /// dead, which this file has already paid for on the depth line.</summary>
+    private static string s_lastBlendSignature = string.Empty;
+
+    /// <summary>
+    /// Blend state READ BACK OFF THE LIVE CLONE, formatted for a human. Never a restatement of
+    /// what <see cref="MakeTransparent"/> intended to write — every property here is guarded by
+    /// <c>HasProperty</c> at write time, so "we set SrcAlpha" and "the material is on SrcAlpha"
+    /// are different claims and it was the gap between them that hid this defect.
+    /// </summary>
+    private static string BlendReadback(Material m)
+    {
+        string src = m.HasProperty(SrcBlendId)
+            ? ((UnityEngine.Rendering.BlendMode)(int)m.GetFloat(SrcBlendId)).ToString()
+            : "baked-in";
+        string dst = m.HasProperty(DstBlendId)
+            ? ((UnityEngine.Rendering.BlendMode)(int)m.GetFloat(DstBlendId)).ToString()
+            : "baked-in";
+        string zw = m.HasProperty(ZWriteId)
+            ? ((int)m.GetFloat(ZWriteId) != 0 ? "on" : "off")
+            : "baked-in";
+        return $"Blend {src} {dst}, ZWrite {zw}, renderQueue {m.renderQueue}";
+    }
+
+    /// <summary>
+    /// The alpha the fragment will actually EMIT, and the property it comes out of — the single
+    /// number an eye can disagree with. 1.00 under <c>Blend SrcAlpha OneMinusSrcAlpha</c> is
+    /// <c>dst*(1-1) + src*1</c>, i.e. the opaque hand, whatever the tint says.
+    ///
+    /// <para><c>_FadeAlpha</c> is probed FIRST because a shader that has it emits it and ignores
+    /// the tint alpha (<see cref="FadeAlphaId"/>). "none" means this shader exposes no fadeable
+    /// term at all and the hand cannot be ghosted by writing properties — the
+    /// <see cref="SwapToBlendableShader"/> path is what has to carry it.</para>
+    /// </summary>
+    private static float EmittedAlpha(Material m, out string via)
+    {
+        if (m.HasProperty(FadeAlphaId))
+        {
+            via = "_FadeAlpha";
+            return m.GetFloat(FadeAlphaId);
+        }
+        for (int i = 0; i < ColorIds.Length && i < ColorNames.Length; i++)
+        {
+            if (!m.HasProperty(ColorIds[i]))
+                continue;
+            via = ColorNames[i];
+            return m.GetColor(ColorIds[i]).a;
+        }
+        via = "none";
+        return 1f;
+    }
+
+    /// <summary>
+    /// Say what the ghost material IS, not what we asked it to be.
+    ///
+    /// <para>WHY THIS LINE EXISTS. The engage line beside it reported cloned / tinted / armed, and
+    /// every one of those numbers was TRUE through forty builds in which the feature was completely
+    /// invisible — it stated the mod's own intent, which no picture can contradict. This one reads
+    /// the live clone back and prints the one quantity the eye is looking at: the alpha the shader
+    /// will emit. It is also at the shipped level, unlike the engage line, so a hardware log
+    /// answers the question without a debug build.</para>
+    /// </summary>
+    private static void ReportGhostBlendOnChange(Material? probe, int depthArmed)
+    {
+        if (probe == null)
+            return;
+        string shader = probe.shader != null ? probe.shader.name : "(null shader)";
+        string blend = BlendReadback(probe);
+        float emitted = EmittedAlpha(probe, out string via);
+        string signature = $"{shader}|{blend}|{via}|{emitted:0.000}|{depthArmed}";
+        if (signature == s_lastBlendSignature)
+            return;
+        s_lastBlendSignature = signature;
+
+        bool opaque = emitted >= 0.999f;
+        // HW-VERIFY
+        VRLog.Note("Hands", $"GHOST HAND BLEND: clone reads back as {shader}, {blend}; the alpha "
+                            + $"its fragment will EMIT is {emitted:0.00}, taken from {via}. "
+                            + (opaque
+                                ? "THAT IS OPAQUE — under SrcAlpha/OneMinusSrcAlpha a source alpha "
+                                  + "of 1 leaves the destination out entirely, so the hand will "
+                                  + "look exactly like the un-ghosted hand no matter what the "
+                                  + "engage line beside this reports about tinting. If you can see "
+                                  + "this line and the hand still covers the cards, the shader is "
+                                  + "carrying its opacity in a property nothing here writes; name "
+                                  + "it and add it to SetAlpha."
+                                : "THE TEST: open the card fan and look at a card THROUGH the "
+                                  + "fingers and the cuff. Card art must be readable through the "
+                                  + "hand; the hand must still be visible enough to aim with. Same "
+                                  + "on a card taken into the hand before the grasp closes. If the "
+                                  + "hand reads solid while this line says otherwise, the fade is "
+                                  + "being lost after the material — a later opaque pass over the "
+                                  + "same pixels, not a material problem.")
+                            + $" DEPTH ORDER: the colour-free prepass sits at renderQueue "
+                            + GhostDepthQueue + " and this pass at " + GhostRenderQueue
+                            + ", both ABOVE the card faces (opaque backing slab in the geometry "
+                            + "tier, face-art canvas at the 3000 transparent tier), so the cards "
+                            + "have already rasterised and the prepass cannot reject them; it can "
+                            + "only reject the world-space panels that draw after the hand, which "
+                            + "is the whole reason it exists."
+                            + (depthArmed > 0 ? string.Empty
+                                : " The prepass is NOT armed on this hand — see the GHOST HAND "
+                                  + "DEPTH line for why."));
     }
 
     // ---- helpers ----------------------------------------------------------------------------
@@ -620,20 +785,51 @@ internal sealed class HandGhost
     /// log states plainly WHY the hand can fade at all.</summary>
     private static bool s_swappedShader;
 
-    /// <summary>Write <paramref name="alpha"/> into the material's colour. True when a colour
-    /// property existed (false = this shader has no tint we can fade — reported in the log).</summary>
+    /// <summary>
+    /// Write <paramref name="alpha"/> into EVERY channel this material's shader could be reading
+    /// its opacity from. True when at least one existed (false = this shader has no fadeable term
+    /// at all — reported in the log).
+    ///
+    /// <para>BOTH, not the first one found. Writing only the tint is the whole ghost-hand
+    /// regression: <c>GloomhavenVR/BoardLit</c> has a <c>_Color</c> — so this method returned true
+    /// and the log counted a tint — while its fragment emits <c>_FadeAlpha</c> and discards the
+    /// tint's alpha entirely (full root cause on <see cref="FadeAlphaId"/>). The two writes are NOT
+    /// a double multiply anywhere: a shader that consumes <c>_Color.a</c> has no <c>_FadeAlpha</c>,
+    /// and BoardLit's colour term is <c>alb.rgb</c>, which never sees <c>_Color.a</c>. They reach
+    /// different halves of one fragment, which is the same reason
+    /// <c>PeerBoardFade.FadeSurface</c> writes both.</para>
+    ///
+    /// <para>ABSOLUTE, not multiplied into whatever the material shipped with: this runs on a fresh
+    /// clone AND again on every strength edit (<see cref="RefreshAlpha"/>), so a multiply would
+    /// compound itself down to black. The one writer of <c>_FadeAlpha</c> in the mod is
+    /// <c>PeerBoardFade</c>, and it drives it through a MaterialPropertyBlock on a peer board
+    /// renderer — it never touches a material asset, so every hand material reaching us carries the
+    /// shader's own default of 1.</para>
+    /// </summary>
     private static bool SetAlpha(Material m, float alpha)
     {
+        float a = Mathf.Clamp01(alpha);
+        bool any = false;
+
+        // The scalar BoardLit's fragment actually returns. Written FIRST so a shader carrying both
+        // terms can never be left half-faded by an early return.
+        if (m.HasProperty(FadeAlphaId))
+        {
+            m.SetFloat(FadeAlphaId, a);
+            any = true;
+        }
+
         for (int i = 0; i < ColorIds.Length; i++)
         {
             if (!m.HasProperty(ColorIds[i]))
                 continue;
             Color c = m.GetColor(ColorIds[i]);
-            c.a = Mathf.Clamp01(alpha);
+            c.a = a;
             m.SetColor(ColorIds[i], c);
-            return true;
+            any = true;
+            break; // one tint per material; the rest are aliases this shader does not have
         }
-        return false;
+        return any;
     }
 }
 
