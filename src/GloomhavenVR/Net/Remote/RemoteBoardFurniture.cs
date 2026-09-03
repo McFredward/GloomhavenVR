@@ -1493,14 +1493,17 @@ internal sealed class RemoteBoardFurniture
     private InertCap GenericCap(Transform parent, string name, Vector3 localPos,
                                 Color rest, Color accent, in CapLabelStyle labels,
                                 Cards.CapRole role) =>
+        // NO WELL PLATE, EITHER SHAPE — the mirror of the owner's `wellPlate: false` on every board
+        // key (user 2026-09-04, PlayTray.6.Build BuildButtons): a plate deleted on the owner's board
+        // and left on every peer's copy is the 1:1 ruling broken where the owner cannot see it.
         _genericShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, Mathf.Min(_boardCapW, _boardCapH), _boardCapD, rest,
                              BoardCapTint, labels, travel: _boardCapTravel, accent: accent,
-                             role: role, style: _style, anim: _capAnim)
+                             role: role, style: _style, anim: _capAnim, wellPlate: false)
             : InertCap.Square(parent, name, localPos, new Vector2(_boardCapW, _boardCapH),
                               _boardCapD, rest, BoardCapTint, labels,
                               travel: _boardCapTravel, accent: accent,
-                              role: role, style: _style, anim: _capAnim);
+                              role: role, style: _style, anim: _capAnim, wellPlate: false);
 
     /// <summary>
     /// One of the short/long rest keycaps, in the OWNER's [Cards] RestButtonShape_{board}.
@@ -1511,14 +1514,16 @@ internal sealed class RemoteBoardFurniture
     /// </summary>
     private InertCap RestCap(Transform parent, string name, Vector3 localPos, float diameter,
                              Color accent, in CapLabelStyle labels, Cards.CapRole role) =>
+        // No well plate on either shape — the mirror of RestControls.EnsureBuilt's `wellPlate: false`
+        // (user 2026-09-04), same reason GenericCap gives.
         _restShape == Cards.ButtonShape.Round
             ? InertCap.Round(parent, name, localPos, diameter, _restCapD, CapIdleColor(_style),
                              RestCapTint, labels, travel: _restCapTravel, accent: accent,
-                             role: role, style: _style, anim: _capAnim)
+                             role: role, style: _style, anim: _capAnim, wellPlate: false)
             : InertCap.Square(parent, name, localPos, new Vector2(_restCapW, _restCapH),
                               _restCapD, CapIdleColor(_style), RestCapTint, labels,
                               travel: _restCapTravel, accent: accent,
-                              role: role, style: _style, anim: _capAnim);
+                              role: role, style: _style, anim: _capAnim, wellPlate: false);
 
     // ---------------------------------------------------------------- refresh --
 
@@ -3964,6 +3969,9 @@ internal sealed class RemoteBoardFurniture
             // the one cap that hangs below the board's edge rather than in one of its recesses gets
             // no plate on the owner's board and none here (user request 6b). Not built rather than
             // built-and-hidden, for the same reason the owner's side gives.
+            // 2026-09-04: EVERY board key opts out now (GenericCap / RestCap), after the user asked
+            // for the plate behind the control board's keys to go entirely; the parameter is kept
+            // because the owner's Create keeps it for the combat-log keys.
             if (wellPlate)
             {
                 var basePlate = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -4040,7 +4048,8 @@ internal sealed class RemoteBoardFurniture
             float thickness, Color color, Color capTint, in CapLabelStyle labels,
             in CapAnim anim,
             float travel = 0f, Color? accent = null,
-            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null)
+            Cards.CapRole role = Cards.CapRole.Plain, Cards.ControlBoard? style = null,
+            bool wellPlate = true)
         {
             GameObject go = NewRoot(parent, name, localPos);
             bool hasSymbol = style != null && role != Cards.CapRole.Plain
@@ -4057,12 +4066,19 @@ internal sealed class RemoteBoardFurniture
             // materials, so it must clear the WELL behind it before SetTint ever runs.
             Color face = WorldUI.ButtonTuning.SeatedCapColor(color * capTint);
 
-            var basePlate = new GameObject("Base");
-            basePlate.transform.SetParent(go.transform, worldPositionStays: false);
-            basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
-            basePlate.AddComponent<MeshFilter>().sharedMesh =
-                Cards.CardMesh.GetRoundCap(diameter + 0.006f, 0.006f);
-            var baseMr = basePlate.AddComponent<MeshRenderer>();
+            // The recessed well ring behind the disc — BoardButton.Create's own round branch —
+            // UNLESS the caller opted out, exactly as Square above (user 2026-09-04: no plate behind
+            // any board key; the owner's rest discs and generic round caps pass wellPlate: false).
+            MeshRenderer? baseMr = null;
+            if (wellPlate)
+            {
+                var basePlate = new GameObject("Base");
+                basePlate.transform.SetParent(go.transform, worldPositionStays: false);
+                basePlate.transform.localPosition = new Vector3(0f, 0f, 0.004f);
+                basePlate.AddComponent<MeshFilter>().sharedMesh =
+                    Cards.CardMesh.GetRoundCap(diameter + 0.006f, 0.006f);
+                baseMr = basePlate.AddComponent<MeshRenderer>();
+            }
 
             float capThick = Mathf.Max(0.002f, thickness);
             var capDisc = new GameObject("CapMesh");
@@ -4079,7 +4095,8 @@ internal sealed class RemoteBoardFurniture
             Material? disc = null, discBevel = null, discWall = null;
             if (shader != null)
             {
-                baseMr.sharedMaterial = new Material(shader) { color = WorldUI.ButtonTuning.CapWellColor };
+                if (baseMr != null)
+                    baseMr.sharedMaterial = new Material(shader) { color = WorldUI.ButtonTuning.CapWellColor };
                 disc = Cards.PlayTray.NewKeycapMaterial(shader, face, role, style);                            // [0] field
                 discBevel = Cards.PlayTray.NewKeycapMaterial(shader, BevelTint(face), plainCell, style);          // [1] bezel — ROUND-registered band
                 discWall = Cards.PlayTray.NewKeycapMaterial(shader, WallTint(face), plainCell, style);            // [2] wall — ROUND-registered band

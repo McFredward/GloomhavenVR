@@ -434,7 +434,17 @@ internal sealed partial class PlayTray
             // generischen Buttons haben immer unterschiedlichen Text darauf, d.h. auf denen sollte
             // der Text auch erhalten bleiben") — CapSymbols moves the caption into the band below
             // the symbol rather than replacing it.
-            capRole: CapRole.Confirm, capStyle: active);
+            capRole: CapRole.Confirm, capStyle: active,
+            // NO WELL PLATE BEHIND ANY BOARD KEY. User, 2026-09-04: the keys on the control board
+            // had "another thin plate floating BEHIND the button, sticking out at the back — I do
+            // not want it at all; the button asset alone, without these small plates behind it, is
+            // enough." That plate is BoardButton.Create's 'Base' well — a 6 mm slab 8 mm wider than
+            // the cap, seated 1..7 mm behind the seat plane — and the FIXIERT toggle already lost
+            // its copy on request 6b (PlayTray.1.Core). The same ruling now covers all six board
+            // keys: Confirm, Undo, Skip, the item-use confirm and both rest discs. The cap, its
+            // label and its trigger collider are untouched; the peer mirror
+            // (Net.RemoteBoardFurniture.GenericCap / RestCap) drops the same plate.
+            wellPlate: false);
         _confirm.WireCap = Net.NetProtocol.CapPressConfirm; // mirror this cap's press dip to peers
         _confirm.DisabledReason = CardsGameApi.DescribeConfirmGate; // built only on rejection
         _confirm.ActivationGuard = ConfirmGuardRemaining; // accident window (test #19)
@@ -446,7 +456,8 @@ internal sealed partial class PlayTray
             () => UndoRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board,
-            capRole: CapRole.Undo, capStyle: active);
+            capRole: CapRole.Undo, capStyle: active,
+            wellPlate: false); // no well plate — same ruling as Confirm above (user 2026-09-04)
         _undo.WireCap = Net.NetProtocol.CapPressUndo;
         _undo.DisabledReason = CardsGameApi.DescribeUndoGate;
         RegisterLaserTarget(_undo.Collider!, _undo);
@@ -465,7 +476,8 @@ internal sealed partial class PlayTray
             () => SkipRequested?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board,
-            capRole: CapRole.Skip, capStyle: active);
+            capRole: CapRole.Skip, capStyle: active,
+            wellPlate: false); // no well plate — same ruling as Confirm above (user 2026-09-04)
         _skip.WireCap = Net.NetProtocol.CapPressSkip;
         _skip.DisabledReason = CardsGameApi.DescribeSkipGate;
         RegisterLaserTarget(_skip.Collider!, _skip);
@@ -500,7 +512,8 @@ internal sealed partial class PlayTray
             () => _itemUseConfirmAction?.Invoke(),
             round: round, diameter: side, thickness: capDepth, boxy: !round, travel: capTravel,
             capCategory: WorldUI.ButtonTuning.CapCategory.Board,
-            capRole: CapRole.ItemUse, capStyle: active);
+            capRole: CapRole.ItemUse, capStyle: active,
+            wellPlate: false); // no well plate — same ruling as Confirm above (user 2026-09-04)
         _itemUseConfirm.WireCap = Net.NetProtocol.CapPressItemUse;
         _itemUseConfirm.SetState(enabled: true, accent: true); // always pressable while shown (no game gate)
         RegisterLaserTarget(_itemUseConfirm.Collider!, _itemUseConfirm);

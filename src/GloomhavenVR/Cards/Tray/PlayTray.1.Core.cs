@@ -1345,6 +1345,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             // mirror of this cap does the same (Net.RemoteBoardFurniture.InertCap.Square), because
             // a plate deleted on the owner's board and left on every peer's copy of it is the 1:1
             // ruling broken in the one direction the owner can never see.
+            // 2026-09-04: NOT THIS CALL ONLY ANY MORE. The user then asked for the plate behind ALL
+            // of the control board's keys to go ("der button asset selbst ohne diese kleinen Platten
+            // dahinter reicht"), so Confirm/Undo/Skip/item-use (PlayTray.6.Build) and both rest discs
+            // (RestControls) pass wellPlate: false too. This note stays as the record of why the
+            // toggle was first.
             wellPlate: false);
         _followToggle.WireCap = Net.NetProtocol.CapPressFollowPin;
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);

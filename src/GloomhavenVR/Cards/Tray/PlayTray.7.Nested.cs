@@ -270,9 +270,13 @@ internal sealed partial class PlayTray
         /// </summary>
         internal void LogCapSurface(string when)
         {
+            // BEFORE the shared throttle: the plate census is change-gated per cap and must not be
+            // hidden behind a limiter that lets one cap in eight speak at build time.
+            LogPlateCensus(when);
             if (Time.unscaledTime < _nextCapSurfaceLogAt)
                 return;
             _nextCapSurfaceLogAt = Time.unscaledTime + 0.5f;
+            DescribePieces(out string pieces, out _, out _, out string backing);
             Mesh? sm = _capMeshRenderer is MeshRenderer meshR && meshR.GetComponent<MeshFilter>() is { sharedMesh: { } fm }
                 ? fm : null;
             int subMeshes = sm != null ? sm.subMeshCount : (_capFace != null ? 1 : -1);
@@ -317,7 +321,83 @@ internal sealed partial class PlayTray
                 $"Seat floor {(seated ? "ENGAGED — the untinted-well comparison says this cap WOULD have rendered darker than its own recess (the 'invisible button, visible text' shape) and was lifted" : "not needed (face already clears its well)")}. " +
                 $"Body draws: {(bodyDraws ? "YES" : "NO")}. " +
                 $"Label tags: {_labelTags} rich-text tag(s) found in the game string this cap was last given" +
-                $"{(_labelTags > 0 ? " (stripped before display — see KEYCAP LABEL)" : "")}.");
+                $"{(_labelTags > 0 ? " (stripped before display — see KEYCAP LABEL)" : "")}. " +
+                // 2026-09-04: WHAT THE KEY IS BUILT FROM, read off the hierarchy rather than off the
+                // build path — so a plate that came back by any route shows up here as a named piece.
+                $"Built from {pieces}; backing plate: {backing}.");
+        }
+
+        /// <summary>The last plate census <see cref="LogPlateCensus"/> printed for this cap — the
+        /// change gate. Written and read by that diagnostic only.</summary>
+        private string? _lastPlateCensus;
+
+        /// <summary>
+        /// EVERY RENDERER UNDER THIS KEY, sorted into the cap mesh, the label (the TMP object and any
+        /// TMP_SubMesh child it spawns for fallback glyphs) and everything else — the "everything
+        /// else" being what the user saw as a thin plate floating behind his keys (2026-09-04). The
+        /// 'Base' well, when built, is a direct child named "Base"; <paramref name="backing"/> names
+        /// it with its size, or says none.
+        /// </summary>
+        private void DescribePieces(out string pieces, out int foreign, out string foreignNames, out string backing)
+        {
+            Renderer[] rs = GetComponentsInChildren<Renderer>(true);
+            var all = new System.Text.StringBuilder();
+            var others = new System.Text.StringBuilder();
+            foreign = 0;
+            Transform? labelT = _label != null ? _label.transform : null;
+            foreach (Renderer r in rs)
+            {
+                if (r == null)
+                    continue;
+                bool isCap = r == _capMeshRenderer;
+                bool isLabel = !isCap && labelT != null && r.transform.IsChildOf(labelT); // IsChildOf is true of itself too
+                if (all.Length > 0)
+                    all.Append(", ");
+                all.Append('\'').Append(r.name).Append('\'').Append(isCap ? " (cap)" : isLabel ? " (label)" : " (FOREIGN)");
+                if (isCap || isLabel)
+                    continue;
+                foreign++;
+                if (others.Length > 0)
+                    others.Append(", ");
+                Vector3 sz = r.bounds.size * 1000f;
+                others.Append('\'').Append(r.name).Append("' under '").Append(r.transform.parent != null ? r.transform.parent.name : "<none>")
+                      .Append("' ").Append(sz.x.ToString("F1")).Append(" x ").Append(sz.y.ToString("F1")).Append(" x ").Append(sz.z.ToString("F1"))
+                      .Append(" mm world, enabled=").Append(r.enabled && r.gameObject.activeInHierarchy);
+            }
+            pieces = $"{rs.Length} renderer(s): {all}";
+            foreignNames = others.ToString();
+            Transform? plate = transform.Find("Base");
+            if (plate == null)
+                backing = "none";
+            else
+            {
+                MeshFilter? mf = plate.GetComponent<MeshFilter>();
+                Vector3 local = mf != null && mf.sharedMesh != null
+                    ? Vector3.Scale(mf.sharedMesh.bounds.size, plate.localScale) : plate.localScale;
+                backing = $"'Base' {local.x * 1000f:F1} x {local.y * 1000f:F1} x {local.z * 1000f:F1} mm, " +
+                          $"centre {plate.localPosition.z * 1000f:F1} mm behind the seat plane";
+            }
+        }
+
+        /// <summary>
+        /// THE PLATE COUNT, change-gated per cap: prints once at build (a readable zero) and again
+        /// only when the set of renderers that are neither the cap mesh nor its label changes. A
+        /// zero says the key is the cap asset and its label and nothing else; a non-zero count
+        /// names what else was drawn under it, with its parent and world size, so the next report
+        /// of "a plate behind the button" is answered by this line rather than by a rebuild.
+        /// </summary>
+        private void LogPlateCensus(string when)
+        {
+            DescribePieces(out _, out int foreign, out string foreignNames, out string backing);
+            string census = $"{foreign}|{foreignNames}|{backing}";
+            if (census == _lastPlateCensus)
+                return;
+            _lastPlateCensus = census;
+            // HW-VERIFY
+            VRLog.Note("Cards", $"KEYCAP PLATE [{when}] '{name}': {foreign} renderer(s) under this key other than " +
+                $"the cap mesh and its label{(foreign > 0 ? " — " + foreignNames : "")}; backing plate: {backing}. " +
+                "Zero means the key is the cap asset and its label and nothing else (user 2026-09-04: no plate " +
+                "behind the board's keys); a non-zero count names what was drawn behind or beside it.");
         }
 
         private TextMeshPro? _label;
@@ -725,6 +805,23 @@ internal sealed partial class PlayTray
         /// re-creates this cap on every <c>ButtonTuning.Version</c> bump — a cleanup pass would have
         /// to be remembered and re-run by every future caller, which is the same shape as the
         /// engraving that got re-created on every edit until somebody noticed the stack.</para>
+        ///
+        /// <para><b>2026-09-04: EVERY BOARD KEY IS BUILT WITHOUT IT NOW.</b> The user, about the
+        /// control board's keys generally: they have "another thin plate floating BEHIND the button,
+        /// sticking out at the back — I do not want it at all; the button asset alone, without these
+        /// small plates behind it, is enough." That plate IS this well: a 6 mm slab 8 mm wider than
+        /// the cap on both axes (round: 6 mm wider), seated 1..7 mm behind the seat plane while the
+        /// cap holder sits 4 mm in front of it — so its rim shows around the cap as a brown border
+        /// and its body sinks into the recess floor behind the key. Confirm, Undo, Skip, the
+        /// item-use confirm (PlayTray.6.Build) and both rest discs (RestControls) pass
+        /// <c>wellPlate: false</c> now, like the FIXIERT toggle already did. The parameter stays a
+        /// parameter (default true) because <c>CombatLogSurface</c>'s pin and close keys are not on
+        /// the control board and were not part of the complaint. The cap, its label and the trigger
+        /// collider are exactly what they were — the collider's seat plane never depended on the
+        /// plate being drawn. The KEYCAP SURFACE line now ends by naming the pieces a key is built
+        /// from and the plate it has (none), and KEYCAP PLATE counts every renderer under a key that
+        /// is neither its cap mesh nor its label, so "the plate is back" is a non-zero number in the
+        /// log rather than a hardware round.</para>
         /// </summary>
         internal static BoardButton Create(Transform anchor, Vector2 size, Color accent,
             string fallbackLabel, System.Action onClick,

@@ -148,7 +148,10 @@ internal sealed class RestControls
                 // shape, and it costs no generated image. With a symbol on the face the disc drops
                 // its word entirely and the word is ENGRAVED INTO THE BOARD above the pad instead
                 // (BoardEngraving) — the user's "nativ und immersiv in dem board verarbeitet".
-                capRole: CapRole.ShortRest, capStyle: active);
+                capRole: CapRole.ShortRest, capStyle: active,
+                // No well plate behind the disc — user 2026-09-04, the same ruling as the board's
+                // generic keys (PlayTray.6.Build BuildButtons): the key asset alone.
+                wellPlate: false);
             _shortButton.WireCap = Net.NetProtocol.CapPressShortRest; // mirror the press dip to peers
             tray.RegisterLaserTarget(_shortButton.Collider!, _shortButton);
             built++;
@@ -160,7 +163,10 @@ internal sealed class RestControls
                 Core.Loc.Game("GUI_LONG_REST", "Long rest"),
                 () => LongRestRequested?.Invoke(),
                 round: round, diameter: diameter, thickness: thickness, boxy: !round, travel: travel,
-                capRole: CapRole.LongRest, capStyle: active);
+                capRole: CapRole.LongRest, capStyle: active,
+                // No well plate behind the disc — user 2026-09-04, the same ruling as the board's
+                // generic keys (PlayTray.6.Build BuildButtons): the key asset alone.
+                wellPlate: false);
             _longButton.WireCap = Net.NetProtocol.CapPressLongRest;
             tray.RegisterLaserTarget(_longButton.Collider!, _longButton);
             built++;
