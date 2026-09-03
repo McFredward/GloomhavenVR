@@ -171,6 +171,16 @@ internal static class ActorBars
         // ---- depth-test state ([WorldUI] BarsOccluded gate) ----------------------------------
         // Health bars are world-space UI: Unity's UI shaders declare `ZTest [unity_GUIZTestMode]`,
         // which effectively resolves to Always, so bar pixels bleed through walls. The old fix
+        // CORRECTED ModBuild 396 — "effectively resolves to Always" IS WRONG, and the hardware
+        // settled it. Three other files in this mod (OnTopUiGraphics, HandGhost,
+        // WindowMaterialiseDebris) all state the global is LEqual, and the user's 2026-09-03
+        // ghost-hand report is the falsifier: BarsOccluded ships FALSE, so these bars run on the
+        // GLOBAL value — and they were being ERASED by a back-face depth stamp the ghost hand wrote
+        // at renderQueue 3099. A fragment can only be rejected by depth if it is depth-TESTED, so
+        // the global is LEqual, not Always. The per-instance LEqual copy described below is still
+        // correct and still the mechanism for the [WorldUI] BarsOccluded gate; what is wrong is only
+        // this sentence's claim about the DEFAULT. Left in place rather than reworded because the
+        // paragraph is quoted from elsewhere; read this clause as superseding it.
         // (line-of-sight probe + SetActive hide) TOGGLED the bar and is retired per user mandate.
         // Instead every Graphic under the adopted host gets a PER-INSTANCE copy of its material
         // with unity_GUIZTestMode forced to LEqual — the per-material value beats the global, so
