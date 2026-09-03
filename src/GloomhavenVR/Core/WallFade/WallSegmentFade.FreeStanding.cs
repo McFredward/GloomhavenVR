@@ -98,7 +98,11 @@ internal static partial class WallSegmentFade
         /// entrance's rocks overlap or touch (gap 0.00 on every election row of the 405 log);
         /// half a world unit joins pieces that interlock and keeps two formations a hex apart
         /// separate.</summary>
-        private const float FreeStandingLinkXZ = 0.5f;
+        // ModBuild 413: 0.5 wu split the collapsed area into two units (z ranges [-0.4..0.8] and
+        // [-4.05..-0.95], gap 0.55) that were then judged apart — the partial fade of
+        // teilweises_faden.jpg. A formation is one piece within a hex; formations a hex apart
+        // stay separate.
+        private const float FreeStandingLinkXZ = 1.2f;
 
         /// <summary>Union-find bound. The entrance is 37 meshes; a scene with more airborne
         /// architecture than this in NO wall run is reported (cap hit) rather than clustered
@@ -155,6 +159,7 @@ internal static partial class WallSegmentFade
             _censusFreeRefusedNonOccluding = 0;
             _censusFreeDroppedEmpty = 0;
             _doorwayRefusalNames.Clear(); // one list per rescan: unit members, riders, hanging plants
+            BeginDoorwayScan();           // ModBuild 413 — doorway kinds and blockade member lists
             _freeTouched.Clear();
             _freeUnits.Clear();
 
@@ -246,6 +251,13 @@ internal static partial class WallSegmentFade
                 }
             }
 
+            // THE DOORWAY PASS FIRST (ModBuild 413, WallSegmentFade.Blockade.cs): every mesh under
+            // a ProceduralDoorway is sorted by the game's own line — a scenario door's content is
+            // never a candidate, a decoration doorway's content is ONE unit by subtree, formed
+            // here before the XZ sweep so that sweep never sees it.
+            CollectBlockadeMembers();
+            FormBlockadeUnits();
+
             // Candidates. The cached fact bounds may only REJECT (they can be a cycle stale);
             // every accept below is re-read from the live renderer.
             float airborneBar = minFloorY + GroundExclusionHeightWU;
@@ -279,11 +291,26 @@ internal static partial class WallSegmentFade
                 Bounds b = r.bounds;
                 if ((b.min.y < airborneBar && b.max.y < topBar) || !IsArchitectureScale(b.size, 0f))
                     continue;
+                // ModBuild 413: anything under a ProceduralDoorway belongs to the doorway pass —
+                // a scenario door's content is refused and counted, a decoration doorway's
+                // content is already in its ONE unit (or excluded there by its own terms) and
+                // must not be re-clustered by XZ here.
+                ProceduralDoorway? dwOf = DoorwayOf(r.transform);
+                if (dwOf != null)
+                {
+                    if (ClassifyDoorway(dwOf, out string dwEvidence) == DoorwayKind.ScenarioDoor)
+                    {
+                        _censusFreeRefusedDoorway++;
+                        NoteDoorwayRefusal("unit member", f.Name ?? r.name, b,
+                            $"SCENARIO DOOR '{DoorwayLabel(dwOf)}' — {dwEvidence}");
+                    }
+                    continue;
+                }
                 if (IsDoorwayAssembly(r, b, f.Name ?? r.name, out string doorWhy))
                 {
                     _censusFreeRefusedDoorway++;
                     NoteDoorwayRefusal("unit member", f.Name ?? r.name, b, doorWhy);
-                    continue; // doorways never fade (user rulings 2026-08-02 / 2026-09-04)
+                    continue; // an arch piece a wall or tile placed (user ruling 2026-08-02)
                 }
                 if (IsWaterProtected(b))
                     continue; // fountain/pond (user ruling 2026-08-09)
@@ -349,6 +376,17 @@ internal static partial class WallSegmentFade
 
             for (int cluster = 0; cluster < _freeClusterRoots.Count; cluster++)
                 FormFreeStandingUnit(cluster);
+        }
+
+        /// <summary>The fat-axes half of the architecture guard alone (ModBuild 413): what a
+        /// Foliage-family mesh is judged on, because the volume half reads a draped vine sheet as
+        /// architecture.</summary>
+        private static bool IsFatOnTwoAxes(Vector3 size)
+        {
+            int fatAxes = (size.x > MountedMaxSpanWU ? 1 : 0)
+                + (size.y > MountedMaxSpanWU ? 1 : 0)
+                + (size.z > MountedMaxSpanWU ? 1 : 0);
+            return fatAxes >= 2;
         }
 
         /// <summary>The mounted lane's two architecture guards, as one predicate: bulky on two
@@ -453,50 +491,93 @@ internal static partial class WallSegmentFade
                 return;
             }
 
-            // Identity across rescans: a unit whose anchor is still a member keeps its segment —
-            // its EMA, dwell and fade. Two old units merged by this cluster keep the more faded
-            // one; the other is dropped through the ordinary restore path.
+            FillFreeStandingUnit(_freeMembers, union, floorFooted, null, null);
+        }
+
+        /// <summary>
+        /// THE SHARED FILL (ModBuild 413): the XZ-clustered path and the decoration-doorway path
+        /// both end here. Identity across rescans, the adopted-group refresh member by member
+        /// (toggle-native → Renderers on the wall MPB; no channel → Body on the dissolve swap),
+        /// the tile-group pull, room association. Returns the segment, or null when a foreign
+        /// segment already holds the requested anchor.
+        /// </summary>
+        private Segment? FillFreeStandingUnit(List<MeshRenderer> members, Bounds union, int floorFooted,
+            Transform? anchorOverride, string? blockadeLabel)
+        {
             Segment? seg = null;
-            _freeReuseScratch.Clear();
-            foreach (MeshRenderer m in _freeMembers)
+            if (anchorOverride != null)
             {
-                if (_live.Segments.TryGetValue(m.transform, out Segment? old)
-                    && old.IsFreeStanding && !_freeTouched.Contains(old))
+                // A decoration doorway is keyed on its own transform — stable for the life of the
+                // doorway, whatever its members do. An older XZ-clustered unit anchored on one of
+                // these members is superseded and dropped through the ordinary restore path.
+                if (_live.Segments.TryGetValue(anchorOverride, out Segment? existing))
                 {
-                    _freeReuseScratch.Add(old);
-                }
-            }
-            foreach (Segment old in _freeReuseScratch)
-            {
-                if (seg == null || old.Fade > seg.Fade
-                    || (old.Fade == seg.Fade && old.Renderers.Count > seg.Renderers.Count))
-                {
-                    seg = old;
-                }
-            }
-            foreach (Segment old in _freeReuseScratch)
-            {
-                if (ReferenceEquals(old, seg))
-                    continue;
-                DropFreeStandingUnit(old);
-                _live.Segments.Remove(old.Anchor!);
-                _censusFreeDropped++;
-            }
-            if (seg == null)
-            {
-                Transform anchor = ChooseFreeStandingAnchor(_freeMembers);
-                if (_live.Segments.TryGetValue(anchor, out Segment? clash))
-                {
-                    // A foreign segment already keyed on this transform (a split piece is keyed
-                    // on its RENDERER, never a transform, so this is theoretical) — leave it.
-                    if (!clash.IsFreeStanding)
-                        return;
-                    seg = clash;
+                    if (!existing.IsFreeStanding)
+                        return null;
+                    seg = existing;
                 }
                 else
                 {
-                    seg = new Segment { Anchor = anchor, FromWallCache = false, IsFreeStanding = true };
-                    _live.Segments.Add(anchor, seg);
+                    seg = new Segment { Anchor = anchorOverride, FromWallCache = false, IsFreeStanding = true };
+                    _live.Segments.Add(anchorOverride, seg);
+                }
+                foreach (MeshRenderer m in members)
+                {
+                    if (_live.Segments.TryGetValue(m.transform, out Segment? old)
+                        && old.IsFreeStanding && !ReferenceEquals(old, seg) && !_freeTouched.Contains(old))
+                    {
+                        DropFreeStandingUnit(old);
+                        _live.Segments.Remove(m.transform);
+                        _censusFreeDropped++;
+                    }
+                }
+            }
+            else
+            {
+                // Identity across rescans: a unit whose anchor is still a member keeps its segment —
+                // its EMA, dwell and fade. Two old units merged by this cluster keep the more faded
+                // one; the other is dropped through the ordinary restore path.
+                _freeReuseScratch.Clear();
+                foreach (MeshRenderer m in members)
+                {
+                    if (_live.Segments.TryGetValue(m.transform, out Segment? old)
+                        && old.IsFreeStanding && !_freeTouched.Contains(old))
+                    {
+                        _freeReuseScratch.Add(old);
+                    }
+                }
+                foreach (Segment old in _freeReuseScratch)
+                {
+                    if (seg == null || old.Fade > seg.Fade
+                        || (old.Fade == seg.Fade && old.Renderers.Count > seg.Renderers.Count))
+                    {
+                        seg = old;
+                    }
+                }
+                foreach (Segment old in _freeReuseScratch)
+                {
+                    if (ReferenceEquals(old, seg))
+                        continue;
+                    DropFreeStandingUnit(old);
+                    _live.Segments.Remove(old.Anchor!);
+                    _censusFreeDropped++;
+                }
+                if (seg == null)
+                {
+                    Transform anchor = ChooseFreeStandingAnchor(members);
+                    if (_live.Segments.TryGetValue(anchor, out Segment? clash))
+                    {
+                        // A foreign segment already keyed on this transform (a split piece is keyed
+                        // on its RENDERER, never a transform, so this is theoretical) — leave it.
+                        if (!clash.IsFreeStanding)
+                            return null;
+                        seg = clash;
+                    }
+                    else
+                    {
+                        seg = new Segment { Anchor = anchor, FromWallCache = false, IsFreeStanding = true };
+                        _live.Segments.Add(anchor, seg);
+                    }
                 }
             }
             _freeTouched.Add(seg);
@@ -509,7 +590,7 @@ internal static partial class WallSegmentFade
             seg.PrevBody.Clear();
             seg.PrevBody.AddRange(seg.Body);
             seg.Body.Clear();
-            foreach (MeshRenderer m in _freeMembers)
+            foreach (MeshRenderer m in members)
             {
                 if (CollectWallFadeInfo(m, seg))
                 {
@@ -529,6 +610,11 @@ internal static partial class WallSegmentFade
             seg.Bounds = union;
             seg.HasBounds = true;
             seg.FreeStandingFloorFooted = floorFooted;
+            seg.BlockadeLabel = blockadeLabel;
+            // THE CRYSTALS (ModBuild 413, "inklusive der Kristalle"): the map tile's
+            // shader-adopted group members standing inside this unit's footprint leave that
+            // group and join the unit, so ONE reading, one trigger and one ramp carry them.
+            seg.FreeStandingPulled = PullTileGroupMembers(seg);
             if (seg.Body.Count > 0 && seg.ShaderNames == "?")
                 seg.ShaderNames = "plain (no fade shader — dissolve-swap delivery)";
             FinishRefresh(seg);
@@ -545,6 +631,91 @@ internal static partial class WallSegmentFade
             seg.PrevBody.Clear();
             seg.DoorRoot = null;
             AssociateRoom(seg);
+            return seg;
+        }
+
+        private readonly List<MeshRenderer> _pullScratch = new();
+
+        /// <summary>
+        /// Pull the shader-adopted groups' renderers (the tile's crystals, a DOORWAY or gate
+        /// segment's adopted pieces under a DECORATION doorway) that stand inside this unit's XZ
+        /// footprint (+ the mounted link) and clear the ground band, out of their group and into
+        /// the unit's own Renderers. Cache walls and split pieces are never touched; a renderer
+        /// under a SCENARIO door's assembly is never touched. Runs inside the fill, after
+        /// BeginRefresh and before FinishRefresh, every rescan — the adoption sweep re-forms the
+        /// group first each rescan, so the pull is idempotent and the MPB is continuous: a pulled
+        /// renderer keeps its block while the unit is fading and is cleared only when the unit is
+        /// solid.
+        /// </summary>
+        private int PullTileGroupMembers(Segment unit)
+        {
+            int pulled = 0;
+            Bounds box = unit.Bounds;
+            float floorY = unit.RoomIndex >= 0 && unit.RoomIndex < _live.RoomFloorY.Count
+                ? _live.RoomFloorY[unit.RoomIndex]
+                : float.NegativeInfinity;
+            int room = NearestRoomFor(box);
+            if (room >= 0 && room < _live.RoomFloorY.Count)
+                floorY = _live.RoomFloorY[room];
+            float minX = box.min.x - MountedLinkMaxXZ, maxX = box.max.x + MountedLinkMaxXZ;
+            float minZ = box.min.z - MountedLinkMaxXZ, maxZ = box.max.z + MountedLinkMaxXZ;
+            float band = floorY + GroundExclusionHeightWU;
+            foreach (Segment g in _live.Segments.Values)
+            {
+                if (ReferenceEquals(g, unit) || g.FromWallCache || g.IsFreeStanding || g.FromSplitRun
+                    || g.Renderers.Count == 0)
+                {
+                    continue;
+                }
+                bool doorish = g.DoorRoot != null || g.IsGateColumn;
+                _pullScratch.Clear();
+                foreach (MeshRenderer r in g.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    Bounds b = r.bounds;
+                    if (b.center.x < minX || b.center.x > maxX || b.center.z < minZ || b.center.z > maxZ)
+                        continue;
+                    if (b.max.y <= band)
+                        continue; // the ground band stays solid
+                    ProceduralDoorway? dw = DoorwayOf(r.transform);
+                    if (dw != null && ClassifyDoorway(dw, out _) == DoorwayKind.ScenarioDoor)
+                        continue; // a scenario door's own content never moves
+                    if (doorish && dw == null)
+                        continue; // a DOORWAY/gate segment's piece outside any decoration doorway stays
+                    _pullScratch.Add(r);
+                }
+                if (_pullScratch.Count == 0)
+                    continue;
+                foreach (MeshRenderer r in _pullScratch)
+                {
+                    if (!CollectWallFadeInfo(r, unit))
+                        continue; // a standing prop keeps its protection; nothing else refuses here
+                    g.Renderers.Remove(r);
+                    if (g.HasBlock && unit.Fade <= 0f)
+                        r.SetPropertyBlock(null); // the group had it faded, the unit is solid: restore
+                    unit.Renderers.Add(r);
+                    unit.Bounds.Encapsulate(r.bounds);
+                    pulled++;
+                }
+                // The group's decision box shrinks to what it still owns.
+                g.HasBounds = false;
+                foreach (MeshRenderer r in g.Renderers)
+                {
+                    if (r == null)
+                        continue;
+                    if (!g.HasBounds) { g.Bounds = r.bounds; g.HasBounds = true; }
+                    else g.Bounds.Encapsulate(r.bounds);
+                }
+                foreach (MountedProp p in g.Body)
+                {
+                    if (p.Renderer == null)
+                        continue;
+                    if (!g.HasBounds) { g.Bounds = p.Renderer.bounds; g.HasBounds = true; }
+                    else g.Bounds.Encapsulate(p.Renderer.bounds);
+                }
+            }
+            return pulled;
         }
 
         private int _censusFreeRefusedDoorway;
@@ -660,113 +831,36 @@ internal static partial class WallSegmentFade
         /// within <see cref="DoorwayLinkMaxXZ"/> of a door root (the very radius that makes a
         /// frame a DOORWAY segment), and anything in an arch rect is refused and counted.</para>
         /// </summary>
-        private enum DoorwayPartition : byte
-        {
-            /// <summary>No ProceduralDoorway and no door prop above it.</summary>
-            NotDoorway,
-            /// <summary>Under the door prop with no PCG_ placement root below it: the leaf, the
-            /// plate, the hinge, the sign — the door's own visual. Never fades.</summary>
-            DoorVisual,
-            /// <summary>A PCG_ placement of the doorway whose name says arch/frame. Never fades.</summary>
-            ArchByName,
-            /// <summary>A PCG_ placement of the doorway: pillar, rock, rubble, scatter. A
-            /// candidate — the collapsed gate the user wants faded.</summary>
-            Placement,
-        }
-
-        /// <summary>The structural walk behind <see cref="IsDoorwayAssembly"/>: up from the
-        /// renderer to the door prop (or the top), noting a PCG_-prefixed node and a
-        /// ProceduralDoorway on the way. The prop may sit above the doorway
-        /// (<c>ThickDoor : (guid)</c> → <c>HexDoor(Clone)</c>) or be its immediate child — both
-        /// shapes ProceduralDoorway.ApplyVisibility handles — so the climb does not stop at the
-        /// doorway.</summary>
-        private static DoorwayPartition ClassifyDoorwayContent(Renderer r, string name)
-        {
-            bool pcg = false, doorway = false, doorProp = false;
-            for (Transform? node = r.transform; node != null; node = node.parent)
-            {
-                if (!pcg && node.name.StartsWith("PCG_", System.StringComparison.Ordinal))
-                    pcg = true;
-                if (!doorway && node.GetComponent<ProceduralDoorway>() != null)
-                    doorway = true;
-                if (node.GetComponent<UnityGameEditorDoorProp>() != null)
-                {
-                    doorProp = true;
-                    break;
-                }
-            }
-            if (!doorway && !doorProp)
-                return DoorwayPartition.NotDoorway;
-            if (!pcg)
-                return DoorwayPartition.DoorVisual;
-            return IsArchOrFrameName(name) ? DoorwayPartition.ArchByName : DoorwayPartition.Placement;
-        }
-
-        private static bool IsArchOrFrameName(string name)
-        {
-            const System.StringComparison ic = System.StringComparison.OrdinalIgnoreCase;
-            return name.IndexOf("Door", ic) >= 0
-                || name.IndexOf("Arch", ic) >= 0
-                || name.IndexOf("Gate", ic) >= 0
-                || name.IndexOf("Portal", ic) >= 0
-                || name.IndexOf("Frame", ic) >= 0;
-        }
-
         private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name)
             => IsDoorwayAssembly(r, probe, name, out _);
 
         /// <summary>
-        /// STRUCTURE, NOT DISTANCE (ModBuild 411; user: <i>"diesmal faden nur die Kristalle, aber
-        /// das Element ist wieder stabil"</i>). The ModBuild 410 version also refused anything
-        /// within <see cref="DoorwayLinkMaxXZ"/> of a door root, and the 410 log answered with
-        /// <c>refused before clustering: 40 doorway</c> on the entrance scenario: the collapsed
-        /// entrance has a ThickDoor in it, and a distance test cannot tell an entrance from a
-        /// doorway. The entrance's rocks live under <c>Generated Content/SB_CC_Bridge_Wall_…/
-        /// CV_Generic_Rock_01/LOD*</c> — the map tile, no door prop above them — so the two
-        /// ancestry terms and the arch rect are what separates doorway content from a formation
-        /// standing beside a door. <paramref name="why"/> names the term that fired and the nearest
-        /// door root with its XZ distance, so the next log shows which one it was.
+        /// THE GAME'S LINE (ModBuild 413 — see WallSegmentFade.Blockade.cs). A renderer under a
+        /// ProceduralDoorway is doorway content the lanes must refuse ONLY when that doorway's
+        /// door prop is a SCENARIO DOOR — one the scenario state names in its DoorProps, the very
+        /// lookup <c>UnityGameEditorDoorProp.OnCursorEnter</c> performs. A doorway the scenario does
+        /// not name, or one with no door prop at all, is DECORATION: its content is its own ONE
+        /// unit and is never refused here (riders and hanging plants inside it follow that unit).
+        /// A renderer under NO doorway is refused only by the arch rect — an arch piece a wall
+        /// or a tile placed. No name test, no distance test: the ModBuild 411 distance term
+        /// refused the whole entrance for standing near its own door, the ModBuild 412 name
+        /// term let a real gate's rubble fade; both are gone. <paramref name="why"/> carries the
+        /// term and the evidence for the clause.
         /// </summary>
         private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name, out string why)
         {
             why = string.Empty;
-            string term;
-            // THE LINE BETWEEN THE TWO RULINGS (ModBuild 412). (a) 2026-09-03, kristalle_faden.jpg:
-            // "das Stück mit dem eingestürzten Tor fadet" — the collapsed gate's pillars, rocks
-            // and rubble FADE, and the user was happy with the round rune plate staying. (b)
-            // torbogen_faded.jpg: "Torbögen bzw. die Elemente mit den Toren/Türen dürfen nicht
-            // faden" — the arch, the frame, the leaf, the plate NEVER fade. Both are the same
-            // ProceduralDoorway assembly, so ancestry alone cannot separate them; the ModBuild
-            // 411 version refused the whole subtree and the entrance went solid again
-            // ("refused before clustering: 6 doorway … 'CV_Pillar_Generic_02' — ProceduralDoorway
-            // ancestor"). The partition is the one ActorPropBody proved on the door itself:
-            // under the door's generated content the game places PROCEDURAL PLACEMENTS, whose
-            // roots carry the PCG_ prefix (pillars, rocks, scatter, the arch), and the door
-            // leaf assembly, which does not. Door VISUAL = no PCG_ root below the door prop →
-            // refused. PCG_ placement → a candidate, unless its NAME says it is the arch/frame
-            // (Door/Arch/Gate/Portal/Frame — 'CV_StoneDoorFrame_Split'; the same name term the
-            // arch seed itself is built from). The arch RECT only decides for renderers that are
-            // NOT under a doorway at all (an arch mesh a wall or a tile placed): inside the
-            // assembly it would refuse the collapsed gate's rubble, which lies in the footprint
-            // by definition — 'CV_Floor_Scatter_09 (2)' y[1.7..3.2] 0.35 wu from the door root in
-            // the 411 log was exactly that.
-            DoorwayPartition part = ClassifyDoorwayContent(r, name);
-            if (part == DoorwayPartition.NotDoorway)
+            ProceduralDoorway? dw = DoorwayOf(r.transform);
+            if (dw == null)
             {
                 if (!IsArchProtected(probe, name))
                     return false;
-                term = "ARCH RECT (not under a doorway — an arch piece a wall or tile placed)";
+                why = "ARCH RECT (not under a doorway — an arch piece a wall or tile placed)";
+                return true;
             }
-            else if (part == DoorwayPartition.DoorVisual)
-                term = "DOOR VISUAL (under the door prop with no PCG_ placement root — leaf/plate/hinge)";
-            else if (part == DoorwayPartition.ArchByName)
-                term = "ARCH/FRAME BY NAME (a PCG_ placement named Door/Arch/Gate/Portal/Frame)";
-            else
-                return false; // a PCG_ placement of the doorway: pillar, rock, rubble — a candidate
-            Transform? nearest = FindDoorwayRootFor(probe);
-            why = nearest != null
-                ? $"{term} (nearest door root '{nearest.name}' {HorizontalGap(probe, nearest.position):F2} wu away)"
-                : $"{term} (no door root within {DoorwayLinkMaxXZ:0.0} wu — the distance term is NOT a refusal since ModBuild 411)";
+            if (ClassifyDoorway(dw, out string evidence) == DoorwayKind.Decoration)
+                return false;
+            why = $"SCENARIO DOOR '{DoorwayLabel(dw)}' — {evidence}";
             return true;
         }
 
@@ -939,7 +1033,10 @@ internal static partial class WallSegmentFade
                     continue; // a light-shaft or glow MESH never fades; particle systems are
                               // effects and keep riding as the mounted lane's own class
                 }
-                if (!particles && IsArchitectureScale(b.size, 0f))
+                // ModBuild 413: a Foliage-family mesh (the game's own "this is a plant") is judged
+                // on the two-fat-axes term only — a 1.1 x 1.5 x 1.0 wu vine sheet is 1.65 wu³ and
+                // the volume term read it as architecture.
+                if (!particles && (f.FoliageShader ? IsFatOnTwoAxes(b.size) : IsArchitectureScale(b.size, 0f)))
                 {
                     _censusFreeRidersRefusedArchitecture++;
                     continue; // architecture is judged by the unit's own bars, never as dressing
@@ -1091,9 +1188,14 @@ internal static partial class WallSegmentFade
                     Bounds b = seg.Bounds;
                     float floorY = seg.RoomIndex >= 0 && seg.RoomIndex < _live.RoomFloorY.Count
                         ? _live.RoomFloorY[seg.RoomIndex] : 0f;
+                    // ModBuild 413: a decoration-doorway unit says so, with the evidence term, and
+                    // every unit says how many crystals it pulled out of the tile group.
+                    if (seg.BlockadeLabel != null)
+                        sb.Append("BLOCKADE UNIT ").Append(seg.BlockadeLabel).Append(" ONE reading — ");
                     sb.Append('\'').Append(name).Append("' ")
                       .Append(seg.Renderers.Count).Append(" renderer(s) +")
-                      .Append(seg.Body.Count).Append(" plain, ")
+                      .Append(seg.Body.Count).Append(" plain (")
+                      .Append(seg.FreeStandingPulled).Append(" pulled from the tile group), ")
                       .Append(seg.ToggleNative).Append(" toggle-native, ")
                       .Append(seg.FreeStandingFloorFooted).Append(" of ")
                       .Append(seg.Renderers.Count + seg.Body.Count)
@@ -1141,6 +1243,8 @@ internal static partial class WallSegmentFade
                   .Append(" non-occluding mesh(es) — the sticky carries are in the per-unit ")
                   .Append("counts, not here)");
             }
+            if (!_censusFreeNoFloor)
+                sb.Append(DoorwayCensusClause()); // ModBuild 413 — every doorway, its kind, the evidence
             if (_doorwayRefusalNames.Count > 0)
             {
                 // ModBuild 411: WHICH term refused, and where the nearest door root stands, so a
