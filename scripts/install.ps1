@@ -278,6 +278,18 @@ if (-not $bundle) {
 }
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
+    # A STALE README FROM AN EARLIER INSTALL MUST GO (2026-09-03). The zip is built from this
+    # plugin directory (Copy-Item -Recurse below), and an install that once ran without the
+    # bundle left gloomhavenvr.bundle.README.txt beside it — the old one, written by the old
+    # heredoc without BOM or CRLF and calling the bundle optional. With the bundle present the
+    # file is wrong twice over (it says the bundle is missing), and the zip text check rightly
+    # refused it: "no UTF-8 byte-order mark / line endings are not all CRLF". Remove it here so
+    # the README exists exactly when the bundle does not.
+    $staleReadme = Join-Path $pluginDir "gloomhavenvr.bundle.README.txt"
+    if (Test-Path $staleReadme) {
+        Remove-Item $staleReadme -Force
+        Write-Host "Removed stale gloomhavenvr.bundle.README.txt (the bundle is present; that file says it is not)."
+    }
     # THE LICENCE NOTICE TRAVELS WITH THE BUNDLE (2026-09-03). The bundle carries third-party art
     # -- the WebXR Input Profiles controller models (MIT) among others -- whose licences require
     # the notice to accompany the copies, and the bundle builder deliberately keeps .txt files out
@@ -492,7 +504,9 @@ if (-not $NoPackage) {
         Write-Error "Packaged zip is missing:`n  $($missing -join "`n  ")"
     }
     if ($textProblems) {
-        Write-Error "Packaged zip has text files that would not open cleanly on Windows:`n  $($textProblems -join "`n  ")"
+        Write-Error ("Packaged zip has text files that would not open cleanly on Windows:`n  $($textProblems -join "`n  ")`n" +
+                     "The zip is built from $pluginDir - a .txt named here that this script did not write this run is a " +
+                     "stale file from an earlier install; delete it from the game directory and run again.")
     }
 
     $sizeMb = [math]::Round((Get-Item $zip).Length / 1MB, 1)
