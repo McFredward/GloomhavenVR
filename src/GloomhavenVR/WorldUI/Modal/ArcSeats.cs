@@ -530,7 +530,8 @@ internal static partial class ModalFallback
                                   + "chooser clearance could not be kept inside the field of view "
                                   + $"and was WAIVED to the plain {NeighbourGapDegrees:F0}° gap"
                                 : $" (asked for at least {wanted:F0}°)")
-                        + ".";
+                        + "."
+                        + TakeQuestSelectionNote(_arcArrivingPanel);
         _arcLastBesideClause = clause;
         return clause;
     }
@@ -1210,6 +1211,13 @@ internal static partial class ModalFallback
             window = WindowForPanel(panel);
         if (window == null)
             return false;
+        // 2026-09-03 (second round): the QUEST INFO POPUP is the RIGHT corner window while the
+        // quest log holds no reservation — see ModalFallback.13.QuestSelectionSeat.cs.
+        if (QuestPopupTakesRightCorner(panel))
+        {
+            right = true;
+            return true;
+        }
         if (IsQuestLogWindow(window))
         {
             right = true;
@@ -1687,6 +1695,15 @@ internal static partial class ModalFallback
                 source = ArcSeatSource.TableCorner;
                 return true;
             }
+        }
+
+        // ---- 2026-09-03 (second round): the quest info popup beside a STANDING quest log is
+        //      offered the seat immediately inside it first — ModalFallback.13.QuestSelectionSeat.
+        if (TryQuestSelectionPreferredSeat(gazeYawDeg, centreLimit, halfAngle, out float preferred))
+        {
+            best = preferred;
+            source = ArcSeatSource.NearestFreeInterval;
+            return true;
         }
 
         int n = 0;
@@ -2238,6 +2255,7 @@ internal static partial class ModalFallback
         LogArcSeatGeometryOnce();
         _arcLastBesideClause = string.Empty;
         _lastSeatWaivedChooserGap = false;
+        _arcArrivingPanel = panel;
 
         // Already holds one? A presence-regain refloat re-places an EXISTING float and must land
         // back on ITS OWN WORLD DIRECTION — not on the same gaze-relative angle, which after a
@@ -2762,6 +2780,7 @@ internal static partial class ModalFallback
 
         float heldHalf = _arcClaims[slot].HalfWidthDeg;
         float heldOffset = _arcClaims[slot].DrawnOffsetDeg;
+        _arcArrivingPanel = panel;
         // Nothing material changed? Then do not write a pose at all — a re-place that lands on the
         // same numbers is a write nobody needs (the "found IDENTICAL, nothing written" rule).
         if (Mathf.Abs(geo.DrawnHalfDeg - heldHalf) < 0.5f
