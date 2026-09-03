@@ -264,6 +264,12 @@ internal sealed class WorldUIModule : IVRModule
         // gets its own polling surface (a silent rule-engine deadlock otherwise).
         private readonly DoomPickerSurface _doomPicker = new();
         private readonly DistributePointsSurface _distributePoints = new();
+        // Flow 5: the MAP-side UIDistributeRewardManager popups (road/city event rewards, scenario
+        // completion rewards, personal-quest rewards, town records). Same shape as flows 2-4 — a
+        // plain GameObject window, invisible to every UIWindow-typed mechanism — but it opens
+        // OUTSIDE a scenario, which is why the Choreographer term in WorldSurface.WantConverted
+        // kept the existing surfaces off it. ModBuild 367's travel-event deadlock.
+        private readonly DistributeRewardSurface _distributeRewards = new();
         private readonly DamageTooltipSurface _damageTooltip = new();
         private readonly DamagePreviewSurface _damagePreview = new();
         private readonly TrayControlDockSurface _trayControls = new();
@@ -345,6 +351,7 @@ internal sealed class WorldUIModule : IVRModule
             update.Add(("UseBarsSurface", _useBars.Tick)); // after the dock: reads RowDocked for the same tick
             update.Add(("DoomPickerSurface", _doomPicker.Tick));           // flow 2: doom slot/transfer picker
             update.Add(("DistributePointsSurface", _distributePoints.Tick)); // flows 3+4: select/assign popups
+            update.Add(("DistributeRewardSurface", _distributeRewards.Tick)); // flow 5: map-side reward distribution
             // After the dock in the UPDATE pass, and it must stay there: this surface can only
             // convert while the dock reports DockingTakeDamage, and the cross-surface focus roll-up
             // (PromptFocus.Flush, at the top of the dock's own Tick) is only one settled frame if
@@ -509,6 +516,7 @@ internal sealed class WorldUIModule : IVRModule
             TickGuard.Run("WorldUI.Shutdown.UseBars", _useBars.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DoomPicker", _doomPicker.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DistributePoints", _distributePoints.Shutdown, "WorldUI");
+            TickGuard.Run("WorldUI.Shutdown.DistributeRewards", _distributeRewards.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DamageTooltip", _damageTooltip.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.DamagePreview", _damagePreview.Shutdown, "WorldUI");
             TickGuard.Run("WorldUI.Shutdown.TrayControls", _trayControls.Shutdown, "WorldUI");
