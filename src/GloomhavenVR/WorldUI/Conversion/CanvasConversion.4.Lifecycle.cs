@@ -626,7 +626,19 @@ internal static partial class CanvasConversion
 
             // Task #4: pooled/late children can bring ScrollRects after Convert — re-sweep on
             // the periodic schedule so their viewports get a clipper too (change-gated inside).
-            if (sweepDue)
+            //
+            // AND ON A SETTLE BURST, for the same reason the mod-layer sweep above does. A
+            // repopulating sub-view brings its OWN ScrollRects, and until this runs their
+            // viewports have no clipper at all — the content is drawn at full length instead of
+            // clipping at the viewport, which on a world-space host has no screen edge to save it.
+            // The ModBuild 385 log measures exactly that on the character screen the frame a
+            // battle goal is picked: DRAWN CONTENT 1976x1453 px against a 1080 px frame, with
+            // 'Information/Rewards' — a battle-goal slot part — named as the graphic reaching
+            // 373 px outside it. A clipper that arrives up to 30 frames after the list it must
+            // clip is a clipper that is absent for exactly the frames anybody looks at.
+            // Change-gated inside (add-once), so a burst on a window whose viewports are already
+            // clipped is a component walk and no writes.
+            if (sweepDue || SubViewBurstRunning(panel))
                 EnsureScrollClipping(panel);
 
             // User #8 part 2: re-assert the background hide (menu fade-ins can enable the
