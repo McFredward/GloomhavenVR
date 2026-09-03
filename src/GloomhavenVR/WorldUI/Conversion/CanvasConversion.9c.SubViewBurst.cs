@@ -211,6 +211,26 @@ internal static partial class CanvasConversion
         && Time.frameCount >= fx.BurstNextCheckFrame;
 
     /// <summary>
+    /// IS THIS WINDOW'S CONTENT MID-TRANSITION? True from the frame the set of open sub-views
+    /// changed until the fixed fit reports it settled (or the burst spends its cap) — i.e. exactly
+    /// the frames on which this window's painted union is a TRANSIENT and not its steady state.
+    ///
+    /// <para>OFFERED FOR THE CONSUMERS THAT SOLVE SOMETHING FROM THAT UNION, and there is at least
+    /// one: <c>LoadoutConfirmPark</c> seats the pre-scenario continue control against the window's
+    /// painted union, and in the ModBuild 385 log that seat swings by 733-1285 px and lands
+    /// <c>SEAT LANE: OVER</c> four times — each time on a union of 595-696 graphics, i.e. each time
+    /// on a frame of the transient the user photographed. The seat is not wrong; the union it was
+    /// handed was. A consumer that asks this first can hold its last good answer instead.</para>
+    ///
+    /// <para>Distinct from <see cref="SubViewBurstRunning"/> ON PURPOSE — that one names the frames
+    /// a CHECK is forced (so a sweep runs once per check and not once per frame), this one names
+    /// the whole transition. Two questions, two names; conflating them is [[two-fans-one-name]].
+    /// </para>
+    /// </summary>
+    internal static bool SubViewSetInFlight(ConvertedPanel? panel) =>
+        TryGetLiveFixedFit(panel, out FixedFitState fx) && fx.BurstActive;
+
+    /// <summary>
     /// THE OPEN-SET SIGNATURE, and it is DELIBERATELY NOT
     /// <see cref="FixedFitState.OpenSignature"/>.
     ///
@@ -348,6 +368,43 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
+    /// COUNT WHAT IS PAINTING, ON THE FRAMES IT PAINTS. Called from <c>ApplyFixedFitCore</c> right
+    /// after <c>MeasureFixedFitParts</c>, and only while a burst is in flight — which is exactly
+    /// the handful of frames after the open set changed, i.e. the frames the user's report (b)
+    /// happens on.
+    ///
+    /// <para>WHY THIS IS WORTH A FIELD. The 385 log caught the flash state four times in a whole
+    /// session, and only because the 30-frame hit-rect cadence happened to sample it; the four
+    /// catches are the four <c>LOADOUT CONFIRM SEAT LANE: OVER</c> verdicts in the same log. A
+    /// census taken on the burst's own frames does not depend on that luck. It reads the counts the
+    /// measurement walk has already filled in and writes nothing anywhere else, so it costs an add
+    /// and a compare.</para>
+    /// </summary>
+    private static void NoticeBurstCensus(FixedFitState fx, Vector2 size)
+    {
+        if (!fx.BurstActive)
+            return;
+        int graphics = fx.BaseGraphics;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            SubViewFit v = fx.Views[i];
+            if (v.Visible)
+                graphics += v.Graphics;
+        }
+        if (fx.BurstChecksRun <= 1)
+        {
+            fx.BurstFirstGraphics = graphics;
+            fx.BurstPeakGraphics = 0;
+            fx.BurstPeakUnion = Vector2.zero;
+        }
+        if (graphics > fx.BurstPeakGraphics)
+        {
+            fx.BurstPeakGraphics = graphics;
+            fx.BurstPeakUnion = size;
+        }
+    }
+
+    /// <summary>
     /// The fixed fit found nothing left to write. Ends any burst in flight — there is no reason to
     /// spend the remaining checks measuring a window that has stopped moving, and stopping here is
     /// what keeps the ordinary case at one or two extra checks rather than the
@@ -397,6 +454,19 @@ internal static partial class CanvasConversion
                   + "settling, and is handed back to the ordinary cadence — a seat that never "
                   + "repeats is a sub-view still animating, and the settle gate refusing to write "
                   + "it is the ModBuild 201 protection working, not a failure of this burst")
+            + $". PAINTED DURING THE BURST: {fx.BurstFirstGraphics} visible graphic(s) on the "
+            + $"first check, PEAK {fx.BurstPeakGraphics} over a union of "
+            + $"{fx.BurstPeakUnion.x:F0}x{fx.BurstPeakUnion.y:F0} px. THAT PAIR IS REPORT (b). The "
+            + "user photographed one frame of the character screen with its DELETE-CHARACTER "
+            + "confirmation, the mercenary-create screen and dozens of un-populated TextMeshPro "
+            + "labels all painting at once; the settled state of this window is 85-128 graphic(s) "
+            + "and the 385 log measured 597 and 696 in that state. A PEAK near the settled count "
+            + "means the tree no longer lights up. A PEAK in the hundreds means it still does, and "
+            + "the next probe is the INHERITED ALPHA of one known-hidden sub-panel across those "
+            + "frames — not its activeInHierarchy, which never changes: this window hides its "
+            + "sub-panels with a CanvasGroup at alpha 0 on ACTIVE objects with ENABLED canvases "
+            + "(PanelInkBounds documents that), so a frame in which they all paint is a frame in "
+            + "which an inherited alpha went to 1, never a frame in which something was activated"
             + $". LAST SEAT SOLVED: sub-view '{fx.ViewName}' at scale {fx.ViewScale:F3}, group "
             + $"shift {fx.ViewShift.x:F0},{fx.ViewShift.y:F0} px; the base column has been "
             + $"re-aligned {fx.BaseWrites} time(s) and sub-views re-seated {fx.Shifts} time(s) "

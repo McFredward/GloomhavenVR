@@ -2413,6 +2413,16 @@ internal static partial class CanvasConversion
 
         /// <summary>The last outcome printed, so an identical one stays quiet.</summary>
         internal int BurstLastReported;
+
+        /// <summary>The PEAK visible-graphic count and drawn union this burst has measured, and
+        /// the count on its FIRST pass. The flash the user reported (2026-09-03 (b)) IS this
+        /// number: 85-128 graphics settled against 597-696 while the whole character-management
+        /// tree paints. Before the burst the fit sampled every 30 frames and caught that state
+        /// four times in a session BY LUCK; the burst measures every open-set change, so the peak
+        /// is now a census rather than an anecdote.</summary>
+        internal int BurstPeakGraphics;
+        internal int BurstFirstGraphics;
+        internal Vector2 BurstPeakUnion;
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -2590,6 +2600,10 @@ internal static partial class CanvasConversion
         // and scaled their union; that is why the column shrank to 59.5 % whenever perks opened.
         CollectActiveSubViews(panel, fx);
         MeasureFixedFitParts(panel, root, fx);
+        // Part 9c: while a burst is running this pass lands ON the frames the whole sub-view tree
+        // is painting, so it is the one place that can count it. Reads what the walk above already
+        // produced and writes nothing.
+        NoticeBurstCensus(fx, size);
 
         // ---- 1. THE HOST SIZE, once -----------------------------------------------------------
         bool hostWrong = Mathf.Abs(host.width - fx.Size.x) > FitNoWriteEpsilonPx
