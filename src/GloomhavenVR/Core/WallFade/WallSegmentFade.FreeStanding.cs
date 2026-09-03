@@ -534,6 +534,202 @@ internal static partial class WallSegmentFade
             AssociateRoom(seg);
         }
 
+        private int _censusFreeRiders;
+        private int _censusFreeRidersMesh;
+        private int _censusFreeRidersParticles;
+        private int _censusFreeRidersFloorFooted;
+        private int _censusFreeRidersRefusedStanding;
+        private int _censusFreeRidersRefusedArchitecture;
+
+        /// <summary>A floor-footed rider may not sit lower than this under its unit's room floor —
+        /// deeper is a renderer buried under the floor plane (a fog volume, a floor decal's
+        /// oversized box), not something growing on the formation's base.</summary>
+        private const float FreeStandingRiderMaxUnderFloorWU = 0.5f;
+
+        /// <summary>
+        /// RIDERS OF A FREE-STANDING UNIT (third commit of ModBuild 406; kristalle_faden.jpg —
+        /// the formation fades, the purple crystal clusters growing on its base stay solid and
+        /// stick out of the faded rock).
+        ///
+        /// <para>WHY THE MOUNTED LANE LEFT THEM. It DOES elect a free-standing unit as an owner
+        /// (the election walks every segment with bounds), but its first term is the airborne
+        /// bar — a candidate whose anchor is under floor + 1.0 wu is <c>belowBar</c> and is never
+        /// bound to anything. A crystal growing on the arch's ROCK BASE has its foot at 0.2-0.8 wu:
+        /// it stands on the formation, not on the room floor, and no rule could tell the two
+        /// apart because a wall has no footprint a prop could stand INSIDE. A formation has one.</para>
+        ///
+        /// <para>THE RULE. Runs inside the mounted pass, after its election and before its leavers
+        /// loop (so a rider re-adopted here is not restored one loop later, and a rider the sticky
+        /// rule already carried is skipped). A drawing mesh or particle system that no segment
+        /// owns rides the nearest unit when it is either AIRBORNE and hugs the unit exactly as
+        /// wall-mounted dressing hugs a wall (XZ gap ≤ <see cref="MountedLinkMaxXZ"/>, inside the
+        /// unit's Y span plus the cap overhang), or FLOOR-FOOTED with its anchor INSIDE the unit's
+        /// XZ footprint — bounded by the footprint so a floor prop beside the formation is
+        /// untouched. Every mounted-lane refusal stands: figures, the doorway arch, water,
+        /// standing props by the two-arm rule (an obstacle crystal is a game element and keeps
+        /// its protection), and the dressing-size guard (architecture is the unit's own business,
+        /// never a rider). Lights are never written: only Renderers are ever listed, and the
+        /// MountedProp delivery mutates the renderer's MPB, a particle system's start colour /
+        /// size / emission rate and <c>Renderer.enabled</c>, snapshotted and restored bit-for-bit.
+        /// Sticky-while-faded, the dissolve ramp and the restore discipline are the mounted
+        /// lane's own, unchanged: a rider is a <see cref="MountedProp"/> on <c>seg.Mounted</c>.</para>
+        /// </summary>
+        private void CollectFreeStandingRiders(float minFloorY)
+        {
+            _censusFreeRiders = 0;
+            _censusFreeRidersMesh = 0;
+            _censusFreeRidersParticles = 0;
+            _censusFreeRidersFloorFooted = 0;
+            _censusFreeRidersRefusedStanding = 0;
+            _censusFreeRidersRefusedArchitecture = 0;
+            if (_freeUnits.Count == 0 || float.IsInfinity(minFloorY) || _factCount == 0)
+                return;
+            // Reach: the union of every unit's footprint plus the link, so the fact sweep
+            // rejects almost everything on cached bounds before a live read.
+            float reachMinX = float.PositiveInfinity, reachMaxX = float.NegativeInfinity;
+            float reachMinZ = float.PositiveInfinity, reachMaxZ = float.NegativeInfinity;
+            foreach (Segment unit in _freeUnits)
+            {
+                if (!unit.HasBounds)
+                    continue;
+                if (unit.Bounds.min.x < reachMinX) reachMinX = unit.Bounds.min.x;
+                if (unit.Bounds.max.x > reachMaxX) reachMaxX = unit.Bounds.max.x;
+                if (unit.Bounds.min.z < reachMinZ) reachMinZ = unit.Bounds.min.z;
+                if (unit.Bounds.max.z > reachMaxZ) reachMaxZ = unit.Bounds.max.z;
+            }
+            if (float.IsInfinity(reachMinX))
+                return;
+            float reach = MountedLinkMaxXZ + CensusBoundsSlackWU;
+            reachMinX -= reach; reachMaxX += reach;
+            reachMinZ -= reach; reachMaxZ += reach;
+            float floorGate = minFloorY - FreeStandingRiderMaxUnderFloorWU - CensusBoundsSlackWU;
+
+            for (int fi = 0; fi < _factCount; fi++)
+            {
+                ref RendererFact f = ref _facts[fi];
+                if (f.R == null || f.Mod || f.Figure || !f.Mountable)
+                    continue;
+                if (f.Anchor.y < floorGate)
+                    continue;
+                bool inReach = f.Bounds.max.x >= reachMinX && f.Bounds.min.x <= reachMaxX
+                    && f.Bounds.max.z >= reachMinZ && f.Bounds.min.z <= reachMaxZ;
+                if (!inReach && f.Particles)
+                    inReach = f.Anchor.x >= reachMinX && f.Anchor.x <= reachMaxX
+                        && f.Anchor.z >= reachMinZ && f.Anchor.z <= reachMaxZ;
+                if (!inReach)
+                    continue;
+                Renderer c = f.R!;
+                if (c == null || _mountedOwned.Contains(c) || _attachmentOwned.ContainsKey(c))
+                    continue;
+                if (!c.enabled && !_mountedTouched.ContainsKey(c))
+                    continue; // the GAME disabled it — not ours to manage
+                bool particles = f.Particles;
+                Bounds b = c.bounds;
+                Vector3 anchorPt = particles
+                    ? c.transform.position
+                    : new Vector3(b.center.x, b.min.y, b.center.z);
+                float anchorY = anchorPt.y;
+                float topY = particles ? anchorY : b.max.y;
+
+                Segment? best = null;
+                float bestGap = float.PositiveInfinity;
+                bool bestFloorFooted = false;
+                foreach (Segment unit in _freeUnits)
+                {
+                    if (!unit.HasBounds || !RoomDecisionValid(unit.RoomIndex))
+                        continue;
+                    float gap = particles
+                        ? HorizontalGap(unit.Bounds, anchorPt)
+                        : HorizontalGap(unit.Bounds, b);
+                    if (gap > MountedLinkMaxXZ || gap >= bestGap)
+                        continue;
+                    float floorY = _live.RoomFloorY[unit.RoomIndex];
+                    bool airborne = anchorY >= floorY + MountedClearanceWU;
+                    if (airborne)
+                    {
+                        if (anchorY > unit.Bounds.max.y + MountedLinkMaxAboveTopWU)
+                            continue; // floats above the formation, not in it
+                        if (topY < unit.Bounds.min.y)
+                            continue; // below its span
+                    }
+                    else
+                    {
+                        // Floor-footed: INSIDE the footprint only — it stands on the
+                        // formation's own rock. A prop beside the formation has its anchor
+                        // outside the box and is untouched.
+                        if (anchorPt.x < unit.Bounds.min.x || anchorPt.x > unit.Bounds.max.x
+                            || anchorPt.z < unit.Bounds.min.z || anchorPt.z > unit.Bounds.max.z)
+                        {
+                            continue;
+                        }
+                        if (anchorY < floorY - FreeStandingRiderMaxUnderFloorWU)
+                            continue; // buried under the floor plane
+                    }
+                    best = unit;
+                    bestGap = gap;
+                    bestFloorFooted = !airborne;
+                }
+                if (best == null)
+                    continue;
+
+                Bounds archProbe = particles ? new Bounds(anchorPt, Vector3.zero) : b;
+                if (IsArchProtected(archProbe, f.Name ?? c.name))
+                    continue; // the doorway's arch stays solid (user ruling 2026-08-07)
+                if (IsWaterProtected(archProbe))
+                    continue; // fountain/pond (user ruling 2026-08-09)
+                if (IsFigureOrActorRenderer(c))
+                    continue; // FIGURES are never touched (round-7 ruling, Lights severity)
+                if (!particles && IsArchitectureScale(b.size, 0f))
+                {
+                    _censusFreeRidersRefusedArchitecture++;
+                    continue; // architecture is judged by the unit's own bars, never as dressing
+                }
+                if (IsStandingFigureProp(c))
+                {
+                    _censusFreeRidersRefusedStanding++;
+                    continue; // a floor-standing prop unit (an obstacle crystal) is a game element
+                }
+                if (best.Mounted.Count >= MountedMaxPerSegment)
+                    continue;
+                if (!_mountedTouched.TryGetValue(c, out MountedProp? prop))
+                    prop = ClassifyProp(c);
+                best.Mounted.Add(prop);
+                _mountedOwned.Add(c);
+                _attachmentOwned[c] = new OwnerRef(best, "free-standing rider");
+                NoteOwnershipChange(c,
+                    $"mounted:'{(best.Anchor != null ? best.Anchor.name : "<dead>")}'(free-standing rider)");
+                _censusFreeRiders++;
+                if (particles)
+                    _censusFreeRidersParticles++;
+                else
+                    _censusFreeRidersMesh++;
+                if (bestFloorFooted)
+                    _censusFreeRidersFloorFooted++;
+            }
+        }
+
+        /// <summary>The rider figures for one unit's clause entry, read off its live Mounted list
+        /// (sticky carries included), so the count is what rides, not what this rescan adopted.</summary>
+        private void CountFreeStandingRiders(Segment unit, out int total, out int meshes,
+            out int particles, out int floorFooted)
+        {
+            total = 0; meshes = 0; particles = 0; floorFooted = 0;
+            float floorY = unit.RoomIndex >= 0 && unit.RoomIndex < _live.RoomFloorY.Count
+                ? _live.RoomFloorY[unit.RoomIndex] : float.NegativeInfinity;
+            foreach (MountedProp p in unit.Mounted)
+            {
+                Renderer r = p.Renderer;
+                if (r == null)
+                    continue;
+                total++;
+                bool ps = r is ParticleSystemRenderer;
+                if (ps) particles++; else meshes++;
+                float anchorY = ps ? r.transform.position.y : r.bounds.min.y;
+                if (anchorY < floorY + MountedClearanceWU)
+                    floorFooted++;
+            }
+        }
+
         /// <summary>The member that names the unit: the lowest instance id among members whose
         /// name is not a LOD level (so the diag reads 'CV_Generic_Rock_04', not 'LOD0'), else the
         /// lowest id of all. Instance ids are stable for the life of the object, so the anchor
@@ -644,6 +840,11 @@ internal static partial class WallSegmentFade
                       .Append((b.min.y - floorY).ToString("F2")).Append(" / top ")
                       .Append((b.max.y - floorY).ToString("F2")).Append(" wu over room ")
                       .Append(seg.RoomIndex).Append("'s floor, ");
+                    CountFreeStandingRiders(seg, out int riders, out int riderMeshes,
+                                            out int riderParticles, out int riderFloor);
+                    sb.Append("riders ").Append(riders).Append(" (").Append(riderMeshes)
+                      .Append(" mesh, ").Append(riderParticles).Append(" particle, floor-footed ")
+                      .Append(riderFloor).Append("), ");
                     if (seg.LastRoomTotal <= 0)
                     {
                         sb.Append("NOT YET JUDGED (formed this rescan — the first coverage ")
@@ -661,6 +862,14 @@ internal static partial class WallSegmentFade
                 }
                 if (_freeUnits.Count > named)
                     sb.Append("; +").Append(_freeUnits.Count - named).Append(" more");
+                sb.Append(". Riders adopted this rescan: ").Append(_censusFreeRiders)
+                  .Append(" (").Append(_censusFreeRidersMesh).Append(" mesh, ")
+                  .Append(_censusFreeRidersParticles).Append(" particle, floor-footed ")
+                  .Append(_censusFreeRidersFloorFooted).Append("; refused ")
+                  .Append(_censusFreeRidersRefusedStanding).Append(" standing prop(s) and ")
+                  .Append(_censusFreeRidersRefusedArchitecture)
+                  .Append(" architecture-scale mesh(es) — the sticky carries are in the per-unit ")
+                  .Append("counts, not here)");
             }
             if (_censusFreeCapHit)
             {

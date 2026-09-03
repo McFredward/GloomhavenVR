@@ -2553,6 +2553,12 @@ internal static partial class WallSegmentFade
                 }
             }
 
+            // FREE-STANDING RIDERS (ModBuild 406, third commit — kristalle_faden.jpg): the
+            // election above never binds a candidate under the airborne bar, and a crystal on the
+            // formation's rock base is exactly that. HERE, after the election and BEFORE the
+            // leavers loop, so a rider re-adopted this rescan is not restored one loop later.
+            CollectFreeStandingRiders(minFloorY);
+
             // Leavers: restore anything this segment held that it no longer owns.
             foreach (Segment seg in _live.Segments.Values)
             {
