@@ -1256,12 +1256,10 @@ internal static partial class ModalFallback
             // the same two points the facing below uses and not from a rotation that does not
             // exist yet. `right` is the player's right when facing the window (= the window's own
             // +X, the axis the drawn offset is measured along; + = the player's right).
-            Vector3 facing = corner.Point - corner.SpawnPoint;
-            facing.y = 0f;
-            Vector3 right = facing.sqrMagnitude >= 1e-6f
-                ? Vector3.Cross(Vector3.up, facing.normalized)
-                : Vector3.right;
-            cornerHostXZ = corner.Point - right * corner.DrawnOffsetWorld;
+            // ModBuild 412: the ANCHORED point (the quest log's drawn centre, the character
+            // screen's drawn LEFT EDGE) goes on the corner — see ArcCornerSeat.AnchorOffsetWorld.
+            Vector3 right = CornerRightAxis(corner.Point, corner.SpawnPoint);
+            cornerHostXZ = corner.Point - right * corner.AnchorOffsetWorld;
             float offWorld = new Vector3(pos.x - cornerHostXZ.x, 0f, pos.z - cornerHostXZ.z).magnitude;
             corner.ClampedOffMm = offWorld / Mathf.Max(scale, 1e-4f) * 1000f;
             pos = new Vector3(cornerHostXZ.x, pos.y, cornerHostXZ.z);
@@ -1565,18 +1563,24 @@ internal static partial class ModalFallback
                                       ? $" CORNER SEAT: the {corner.Which} far corner of the map "
                                         + $"table, corner point ({corner.Point.x:F2},"
                                         + $"{corner.Point.y:F2},{corner.Point.z:F2}) wu; the window's "
-                                        + "DRAWN centre is written at "
-                                        + $"({pos.x + (rot * Vector3.right).x * corner.DrawnOffsetWorld:F2},{pos.y:F2},{pos.z + (rot * Vector3.right).z * corner.DrawnOffsetWorld:F2}) wu "
-                                        + $"(host centre ({pos.x:F2},{pos.y:F2},{pos.z:F2}) wu, "
-                                        + $"content offset {corner.DrawnOffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m "
-                                        + "along the window's own right); horizontal error of the "
-                                        + "drawn centre "
-                                        + $"{new Vector3(pos.x + (rot * Vector3.right).x * corner.DrawnOffsetWorld - corner.Point.x, 0f, pos.z + (rot * Vector3.right).z * corner.DrawnOffsetWorld - corner.Point.z).magnitude / Mathf.Max(scale, 1e-4f) * 1000f:F0} mm "
+                                        + $"{(corner.Which == "RIGHT" ? "DRAWN CENTRE" : "DRAWN LEFT EDGE")} "
+                                        + "is written at "
+                                        + $"({CornerAnchorWorldPoint(pos, corner).x:F2},{pos.y:F2},{CornerAnchorWorldPoint(pos, corner).z:F2}) wu "
+                                        + $"(host centre ({pos.x:F2},{pos.y:F2},{pos.z:F2}) wu, anchor "
+                                        + $"offset {corner.AnchorOffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m, "
+                                        + $"content offset {corner.DrawnOffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m, "
+                                        + $"drawn half-width {corner.DrawnHalfWorld / Mathf.Max(scale, 1e-4f):F3} m "
+                                        + "along the window's own right; drawn LEFT edge at "
+                                        + $"({pos.x + (rot * Vector3.right).x * (corner.DrawnOffsetWorld - corner.DrawnHalfWorld):F2},{pos.y:F2},{pos.z + (rot * Vector3.right).z * (corner.DrawnOffsetWorld - corner.DrawnHalfWorld):F2}) wu); "
+                                        + "horizontal error of the anchored point "
+                                        + $"{new Vector3(CornerAnchorWorldPoint(pos, corner).x - corner.Point.x, 0f, CornerAnchorWorldPoint(pos, corner).z - corner.Point.z).magnitude / Mathf.Max(scale, 1e-4f) * 1000f:F0} mm "
                                         + $"at room scale (the clamp chain had left the host "
                                         + $"{corner.ClampedOffMm:F0} mm off its target before the "
                                         + "corner was re-asserted). It faces the spawn point "
                                         + $"({corner.SpawnPoint.x:F2},{corner.SpawnPoint.y:F2},"
-                                        + $"{corner.SpawnPoint.z:F2}) wu, yaw {rot.eulerAngles.y:F1}°."
+                                        + $"{corner.SpawnPoint.z:F2}) wu, yaw {rot.eulerAngles.y:F1}°. "
+                                        + "If the FIXED FIT later changes what it draws, a MAP ROOM "
+                                        + "CORNER RE-SEATED line follows."
                                       : "")
                                   // 2026-09-03 — THE BESIDE CLAUSE (user report: the quest info
                                   // window spawned inside the battle-goal picker). Appended, never

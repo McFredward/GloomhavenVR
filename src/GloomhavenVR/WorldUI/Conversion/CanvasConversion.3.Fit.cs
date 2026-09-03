@@ -2855,6 +2855,12 @@ internal static partial class CanvasConversion
             panel.FitAppliedGeneration++;
         }
         LogFixedFit(panel, fx, wantScale, "APPLIED", wrote.ToString(), throttled: false);
+        // THE MAP ROOM'S CORNER SEATS ARE DEFINED ON WHAT THE WINDOW DRAWS, and this is the moment
+        // that changes (ModBuild 412: the character screen narrowed to its column 0.3 s after its
+        // corner claim, after the reveal, after the one pre-reveal re-place had been refused). The
+        // hook re-measures the drawn rect and re-seats the window's anchored edge onto its corner
+        // when — and only when — the anchor moved; see ModalFallback.OnFixedFitApplied.
+        ModalFallback.OnFixedFitApplied(panel);
         return true;
     }
 

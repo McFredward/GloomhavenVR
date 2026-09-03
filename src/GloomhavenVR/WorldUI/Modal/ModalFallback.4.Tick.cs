@@ -878,6 +878,17 @@ internal static partial class ModalFallback
         /// free seat inside the field of view (his first rule outranks the gap).
         /// </summary>
         public float ExtraGapDeg;
+
+        /// <summary>The corner seat's lateral offsets (host centre → anchored point, host centre →
+        /// drawn centre, and the drawn half-width), WORLD units, + = right — kept so a refloat and
+        /// the post-fit re-seat rebuild the pose from the registry alone. See <c>ArcCornerSeat</c>.</summary>
+        public float CornerAnchorWorld;
+
+        /// <inheritdoc cref="CornerAnchorWorld"/>
+        public float CornerDrawnOffsetWorld;
+
+        /// <inheritdoc cref="CornerAnchorWorld"/>
+        public float CornerDrawnHalfWorld;
     }
 
     /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>

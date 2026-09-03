@@ -1186,7 +1186,50 @@ internal static partial class ModalFallback
         /// re-place refreshes this from the fitted geometry and moves the host accordingly.
         /// </summary>
         public float DrawnOffsetWorld;
+
+        /// <summary>Half the DRAWN content's width, WORLD units — with <see cref="DrawnOffsetWorld"/>
+        /// it locates the content's left edge at <c>DrawnOffsetWorld − DrawnHalfWorld</c>.</summary>
+        public float DrawnHalfWorld;
+
+        /// <summary>
+        /// THE POINT THAT SITS ON THE CORNER, as a lateral offset from the HOST centre, WORLD units,
+        /// + = the player's right. Which point depends on the window (ModBuild 412 ruling, user:
+        /// "Du könntest es also damit fixen, dass du die linke Ecke und den linken Beginn des
+        /// Fensters übereinander legst"): the QUEST LOG (right corner) anchors its DRAWN CENTRE —
+        /// "passt"; the CHARACTER SCREEN (left corner) anchors its DRAWN LEFT EDGE, because its
+        /// visible column is 328 px at the left end of a 1988 px frame and only narrows to that
+        /// column after the fit (LogOutput.log :3595). <c>ComputeHmdPose</c> writes the host at
+        /// <c>corner − AnchorOffsetWorld × right</c>.
+        /// </summary>
+        public float AnchorOffsetWorld;
     }
+
+    /// <summary>The player's right when facing the corner from the spawn point (= the window's own
+    /// +X, the axis every lateral offset here is measured along). Derived from the same two points
+    /// the facing uses, so the pose, the registry and the log agree by construction.</summary>
+    private static Vector3 CornerRightAxis(Vector3 corner, Vector3 spawnPoint)
+    {
+        Vector3 facing = corner - spawnPoint;
+        facing.y = 0f;
+        return facing.sqrMagnitude >= 1e-6f
+            ? Vector3.Cross(Vector3.up, facing.normalized)
+            : Vector3.right;
+    }
+
+    /// <summary>The lateral offset (host centre → the anchored point, world units, + = right) for
+    /// the given corner window and drawn geometry: the drawn centre for the RIGHT (quest log), the
+    /// drawn LEFT EDGE for the LEFT (character screen).</summary>
+    private static float CornerAnchorOffsetWorld(bool right, in ArcDrawnGeometry geo) =>
+        right ? geo.OffsetWorld : geo.OffsetWorld - geo.DrawnHalfWorld;
+
+    /// <summary>What the anchored point is called on the log lines.</summary>
+    private static string CornerAnchorName(bool right) =>
+        right ? "DRAWN CENTRE" : "DRAWN LEFT EDGE";
+
+    /// <summary>The world point of the anchored content feature for a host standing at
+    /// <paramref name="hostPos"/> — the thing the CORNER SEAT clause measures against the corner.</summary>
+    private static Vector3 CornerAnchorWorldPoint(Vector3 hostPos, in ArcCornerSeat corner) =>
+        hostPos + CornerRightAxis(corner.Point, corner.SpawnPoint) * corner.AnchorOffsetWorld;
 
     /// <summary>
     /// Which corner window <paramref name="panel"/> is, if either. IS-A on the converted root's own
@@ -1351,30 +1394,43 @@ internal static partial class ModalFallback
             return false;
         }
 
-        Vector3 flat = new Vector3(point.x - headPos.x, 0f, point.z - headPos.z);
-        if (flat.sqrMagnitude < 1e-6f)
+        Vector3 flatCorner = new Vector3(point.x - headPos.x, 0f, point.z - headPos.z);
+        if (flatCorner.sqrMagnitude < 1e-6f)
         {
             why = "NO CORNER SEAT this placement — the head is standing exactly over the corner, "
                   + "so there is no honest direction to it. The angular search seats this corner "
                   + "window instead";
             return false;
         }
-        // THE CORNER IS WHERE THE DRAWN CENTRE GOES; the host rect is recovered from it by the
-        // content's own offset inside its frame (see ArcCornerSeat.DrawnOffsetWorld).
-        float drawnWorldYaw = WorldYawDeg(flat);
 
         // The distance the registry books is the TRUE head→centre distance at the height the
         // bar-height rule will deliver, so the drawn interval is measured where the window hangs.
+        // Measured at the corner's distance first (the drawn centre is within a window-width of
+        // it), then the registry's own numbers are taken from the drawn centre itself.
         float centreY = TryPredictMapRoomCentreY(halfSizeWorld, out float predictedY)
             ? predictedY
             : headPos.y;
-        Vector3 centreWorld = new Vector3(point.x, centreY, point.z);
-        float distWorld = Mathf.Max((centreWorld - headPos).magnitude, 1e-3f);
+        Vector3 cornerAtHeight = new Vector3(point.x, centreY, point.z);
+        float cornerDist = Mathf.Max((cornerAtHeight - headPos).magnitude, 1e-3f);
         float nominalDist = WindowDistanceMeters * scale;
         float halfWidthWorld = halfSizeWorld.x > 1e-4f
             ? halfSizeWorld.x
             : FallbackHalfWidthWorld(scale);
-        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, distWorld);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, cornerDist);
+
+        // WHICH POINT OF THE WINDOW SITS ON THE CORNER (ModBuild 412 ruling): the quest log its
+        // DRAWN CENTRE, the character screen its DRAWN LEFT EDGE. The host stands at
+        // corner − anchor × right; the drawn centre is then corner + (offset − anchor) × right, and
+        // THAT is what the registry books — the interval the other windows must keep clear of.
+        Vector3 rightAxis = CornerRightAxis(point, spawnPoint);
+        float anchorWorld = CornerAnchorOffsetWorld(right, geo);
+        Vector3 drawnCentreWorld = cornerAtHeight + rightAxis * (geo.OffsetWorld - anchorWorld);
+        Vector3 flat = new Vector3(drawnCentreWorld.x - headPos.x, 0f, drawnCentreWorld.z - headPos.z);
+        if (flat.sqrMagnitude < 1e-6f)
+            flat = flatCorner;
+        float drawnWorldYaw = WorldYawDeg(flat);
+        float distWorld = Mathf.Max((drawnCentreWorld - headPos).magnitude, 1e-3f);
+        geo.ReDeriveAt(distWorld);
 
         // Everything standing describes itself truthfully first (registry only, no pose), so the
         // occupancy and overlap this line prints are measured against the room as it is.
@@ -1397,20 +1453,27 @@ internal static partial class ModalFallback
             Point = point,
             SpawnPoint = spawnPoint,
             DrawnOffsetWorld = geo.OffsetWorld,
+            DrawnHalfWorld = geo.DrawnHalfWorld,
+            AnchorOffsetWorld = anchorWorld,
         };
 
         why = $"IT IS A CORNER WINDOW — the {corner.Which} far corner of the map table is ITS BY "
               + "IDENTITY (character screen LEFT, quest log RIGHT — user ruling 2026-09-03), a "
               + "PLACE IN THE ROOM and not an angle off his gaze. " + cornerNote
-              + $". From the head that corner is {distWorld / Mathf.Max(scale, 1e-4f):F2} m away at "
-              + $"{Mathf.DeltaAngle(gazeYawDeg, drawnWorldYaw):F0}° off the spawn gaze (nominal "
-              + $"reading distance {WindowDistanceMeters:F2} m — the difference is the corner's, "
-              + "not a ladder step); the window's DRAWN CENTRE goes exactly over the corner point "
-              + $"(its host rect {geo.OffsetDeg:F0}° / "
-              + $"{geo.OffsetWorld / Mathf.Max(scale, 1e-4f):F3} m to the other side of that, "
-              + "which is the content's own offset inside its frame) and it faces the spawn "
-              + "point. NO SEAT SEARCH RAN and no clamp may move it sideways: ComputeHmdPose "
-              + "re-asserts the corner after the clamp chain and prints the residual in mm. "
+              + $". From the head that corner is {cornerDist / Mathf.Max(scale, 1e-4f):F2} m away "
+              + $"(nominal reading distance {WindowDistanceMeters:F2} m — the difference is the "
+              + $"corner's, not a ladder step); the window's {CornerAnchorName(right)} goes exactly "
+              + "over the corner point (ModBuild 412 ruling: the quest log its centre, the "
+              + "character screen its left edge, because its column narrows after the spawn), so "
+              + $"the host rect stands {anchorWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m from "
+              + "it along the window's own right (content offset "
+              + $"{geo.OffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m, drawn half-width "
+              + $"{geo.DrawnHalfWorld / Mathf.Max(scale, 1e-4f):F3} m) and its drawn centre at "
+              + $"{Mathf.DeltaAngle(gazeYawDeg, drawnWorldYaw):F0}° off the spawn gaze; it faces "
+              + "the spawn point. NO SEAT SEARCH RAN and no clamp may move it sideways: "
+              + "ComputeHmdPose re-asserts the corner after the clamp chain and prints the "
+              + "residual in mm, and the FIXED FIT re-seats it once more if the fit changes what "
+              + "it draws (MAP ROOM CORNER RE-SEATED). "
               + $"It books {halfAngle * 2f:F0}° of drawn content at world yaw {drawnWorldYaw:F0}° so "
               + $"the other windows' search sees it as taken. Standing set [{standing}]"
               + (wouldBeLevel > 0
@@ -1457,6 +1520,9 @@ internal static partial class ModalFallback
             Corner = true,
             CornerPoint = point,
             CornerWhich = corner.Which,
+            CornerAnchorWorld = anchorWorld,
+            CornerDrawnOffsetWorld = geo.OffsetWorld,
+            CornerDrawnHalfWorld = geo.DrawnHalfWorld,
         };
         _arcSeatGeneration++;
         return true;
@@ -1477,29 +1543,37 @@ internal static partial class ModalFallback
         if (!ReferenceEquals(_arcClaims[slot].Panel, panel) || !_arcClaims[slot].Corner)
             return false;
         Vector3 point = _arcClaims[slot].CornerPoint;
+        bool right = _arcClaims[slot].CornerWhich == "RIGHT";
         float centreY = TryPredictMapRoomCentreY(halfSizeWorld, out float predictedY)
             ? predictedY
             : headPos.y;
-        Vector3 centreWorld = new Vector3(point.x, centreY, point.z);
-        float distWorld = Mathf.Max((centreWorld - headPos).magnitude, 1e-3f);
+        Vector3 cornerAtHeight = new Vector3(point.x, centreY, point.z);
+        float cornerDist = Mathf.Max((cornerAtHeight - headPos).magnitude, 1e-3f);
         float halfWidthWorld = halfSizeWorld.x > 1e-4f
             ? halfSizeWorld.x
             : FallbackHalfWidthWorld(scale);
-        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, distWorld);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, cornerDist);
         if (!geo.Measured)
             return false;
         float heldHalf = _arcClaims[slot].HalfWidthDeg;
         float heldOffset = _arcClaims[slot].DrawnOffsetDeg;
+        float heldAnchorWorld = corner.AnchorOffsetWorld;
         float heldOffsetWorld = corner.DrawnOffsetWorld;
         if (Mathf.Abs(geo.DrawnHalfDeg - heldHalf) < 0.5f
             && Mathf.Abs(geo.OffsetDeg - heldOffset) < 0.5f)
             return false;
-        // THE DRAWN CENTRE STAYS ON THE CORNER; it is the HOST that moves by the newly measured
-        // content offset (ComputeHmdPose writes host = corner − offset × right). So the registry's
-        // drawn yaw is re-read from the corner and the head, never derived from the old host.
-        Vector3 flat = new Vector3(point.x - headPos.x, 0f, point.z - headPos.z);
+        // THE ANCHORED POINT STAYS ON THE CORNER; it is the HOST that moves by the newly measured
+        // anchor offset (ComputeHmdPose writes host = corner − anchor × right). The registry's
+        // drawn centre is re-read from the corner, the offsets and the head — never from the old
+        // host.
+        Vector3 rightAxis = CornerRightAxis(point, corner.SpawnPoint);
+        float anchorWorld = CornerAnchorOffsetWorld(right, geo);
+        Vector3 drawnCentreWorld = cornerAtHeight + rightAxis * (geo.OffsetWorld - anchorWorld);
+        Vector3 flat = new Vector3(drawnCentreWorld.x - headPos.x, 0f, drawnCentreWorld.z - headPos.z);
         if (flat.sqrMagnitude >= 1e-6f)
             _arcSeatWorldYaw[slot] = WorldYawDeg(flat);
+        float distWorld = Mathf.Max((drawnCentreWorld - headPos).magnitude, 1e-3f);
+        geo.ReDeriveAt(distWorld);
         _arcClaims[slot].HalfWidthDeg = geo.DrawnHalfDeg;
         _arcClaims[slot].DrawnOffsetDeg = geo.OffsetDeg;
         _arcClaims[slot].FrameHalfWidthDeg = geo.FrameHalfDeg;
@@ -1508,7 +1582,12 @@ internal static partial class ModalFallback
         _arcClaims[slot].DistanceWorld = distWorld;
         _arcClaims[slot].DepthPullMeters = (WindowDistanceMeters * scale - distWorld)
                                            / Mathf.Max(scale, 1e-4f);
+        _arcClaims[slot].CornerAnchorWorld = anchorWorld;
+        _arcClaims[slot].CornerDrawnOffsetWorld = geo.OffsetWorld;
+        _arcClaims[slot].CornerDrawnHalfWorld = geo.DrawnHalfWorld;
         corner.DrawnOffsetWorld = geo.OffsetWorld;
+        corner.DrawnHalfWorld = geo.DrawnHalfWorld;
+        corner.AnchorOffsetWorld = anchorWorld;
         note = $"RE-MEASURED ON ITS DRAWN CONTENT while still render-hidden — the CORNER is "
                + $"unchanged. It had booked ±{heldHalf:F0}° at offset {heldOffset:F0}° (the pre-fit "
                + $"frame); it draws ±{geo.DrawnHalfDeg:F0}° at offset {geo.OffsetDeg:F0}°, so the "
@@ -1516,8 +1595,167 @@ internal static partial class ModalFallback
                + $"BY THE CONTENT OFFSET ({heldOffsetWorld / Mathf.Max(scale, 1e-4f):F3} m → "
                + $"{geo.OffsetWorld / Mathf.Max(scale, 1e-4f):F3} m) so that the DRAWN centre stays "
                + $"over the {_arcClaims[slot].CornerWhich} far corner — invisible at this moment. "
-               + geo.Note;
+               + $"SINCE ModBuild 413 THE ANCHORED POINT IS ITS {CornerAnchorName(right)}, so the "
+               + $"host really moves by the ANCHOR offset ({heldAnchorWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m → "
+               + $"{anchorWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m) and it is that point "
+               + "that stays on the corner. " + geo.Note;
         return true;
+    }
+
+    /// <summary>Millimetres at room scale below which a post-fit anchor change is not worth a
+    /// pose write: 5 mm is under the width of the window's own frame art.</summary>
+    private const float CornerReseatMinMm = 5f;
+
+    /// <summary>
+    /// THE FIXED FIT HAS JUST BEEN APPLIED TO <paramref name="panel"/> — if it is a corner window
+    /// standing on a corner claim, re-measure what it now draws and, when the anchored point moved
+    /// (the character screen narrowing from its 1988 px frame to its 328 px column, ModBuild 412
+    /// log :3595, 0.3 s after its corner claim at :3402), re-seat the host so that point is on the
+    /// corner again. ONCE PER CHANGE: an anchor within <see cref="CornerReseatMinMm"/> of the one
+    /// standing writes nothing.
+    ///
+    /// <para>WHY THIS IS ALLOWED ON A REVEALED WINDOW. "einmal gespawned sind sie fix" is about
+    /// the mod moving windows because OTHER windows opened or closed, and "grab-rotation
+    /// authoritative afterwards" is about the PLAYER's moves — both are honoured: nothing here
+    /// runs for any other window's sake, and a window the player or a peer has moved is refused
+    /// (<c>UserMoved</c> / <c>PeerPlaced</c> / <c>IsGrabbed</c>). What moves it is the mod's OWN
+    /// fit changing what the window draws, and the user's ruling is that the narrowed window
+    /// belongs on the corner. It goes through the pose lock's sanctioned funnel
+    /// (<see cref="PanelPoseWatch.Writer.Placement"/>, the same the presence-regain refloat
+    /// uses), so the write is announced, never anonymous.</para>
+    /// </summary>
+    internal static void OnFixedFitApplied(ConvertedPanel? panel)
+    {
+        if (panel == null || !panel.IsAlive || panel.HostGo == null || !MapRoom.MapRoomDriver.Active)
+            return;
+        if (!TryCornerWindowSide(panel, out bool right))
+            return;
+        int slot = -1;
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (ReferenceEquals(_arcClaims[i].Panel, panel) && _arcClaims[i].Corner)
+                slot = i;
+        }
+        string name = PanelLogName(panel);
+        string side = right ? "RIGHT" : "LEFT";
+        if (slot < 0)
+        {
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) — the fixed fit "
+                                  + "was applied but this window holds NO corner claim, so nothing is "
+                                  + "re-seated; its own MAP ROOM CORNER line above says which path "
+                                  + "placed it and why.");
+            return;
+        }
+        WindowPanel? wp = null;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+                wp = Converted[i];
+        }
+        GrabbableModal? grab = wp?.Grab;
+        if (grab != null && (grab.UserMoved || grab.PeerPlaced || grab.IsGrabbed))
+        {
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) NOT re-seated "
+                                  + "after the fit — "
+                                  + (grab.IsGrabbed ? "the player is holding it"
+                                      : grab.UserMoved ? "the player moved it"
+                                      : "a peer placed it")
+                                  + ", so its pose is not the mod's to write.");
+            return;
+        }
+        float extraScale = wp != null ? wp.ExtraScale : 1f;
+        float scale = PanelLayout.WorldScale * extraScale;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return;
+        Vector3 headPos = head.transform.position;
+        Transform host = panel.HostGo.transform;
+        Vector3 point = _arcClaims[slot].CornerPoint;
+        Vector3 spawnPoint = MapRoom.MapRoomDriver.SeatFloor;
+        Vector3 rightAxis = CornerRightAxis(point, spawnPoint);
+        Vector2 half = PanelWorldHalfSize(panel, scale);
+        float halfWidthWorld = half.x > 1e-4f ? half.x : FallbackHalfWidthWorld(scale);
+        // Measured at the distance the window really hangs at — the host's own height, no
+        // prediction needed any more.
+        Vector3 cornerAtHeight = new Vector3(point.x, host.position.y, point.z);
+        float cornerDist = Mathf.Max((cornerAtHeight - headPos).magnitude, 1e-3f);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, cornerDist);
+        if (!geo.Measured)
+        {
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) — the fixed fit "
+                                  + "was applied but its drawn content is still NOT measurable, so "
+                                  + $"the corner seat is left as it stands. {geo.Note}");
+            return;
+        }
+        float heldAnchor = _arcClaims[slot].CornerAnchorWorld;
+        float anchorWorld = CornerAnchorOffsetWorld(right, geo);
+        float deltaMm = Mathf.Abs(anchorWorld - heldAnchor) / Mathf.Max(scale, 1e-4f) * 1000f;
+        Vector3 hostNow = host.position;
+        Vector3 anchorNow = hostNow + rightAxis * anchorWorld;   // where the anchored point IS
+        float errNowMm = new Vector3(anchorNow.x - point.x, 0f, anchorNow.z - point.z).magnitude
+                         / Mathf.Max(scale, 1e-4f) * 1000f;
+        if (deltaMm < CornerReseatMinMm && errNowMm < CornerReseatMinMm)
+        {
+            VRLog.Info("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) — the fixed fit "
+                                  + $"was applied and its {CornerAnchorName(right)} is still on the "
+                                  + $"corner ({errNowMm:F0} mm off, anchor moved {deltaMm:F0} mm); "
+                                  + "nothing written.");
+            return;
+        }
+
+        Vector3 target = new Vector3(point.x - rightAxis.x * anchorWorld, hostNow.y,
+                                     point.z - rightAxis.z * anchorWorld);
+        Vector3 facing = point - spawnPoint;
+        facing.y = 0f;
+        Quaternion rot = facing.sqrMagnitude >= 1e-4f
+            ? Quaternion.LookRotation(facing.normalized, Vector3.up)
+            : host.rotation;
+        PanelPoseWatch.Announce(panel, PanelPoseWatch.Writer.Placement,
+            "the map room's corner re-seat after the fixed fit changed what the window draws");
+        if (grab != null)
+            grab.PlaceFrameAt(target, rot);
+        else
+            CanvasConversion.PlaceHost(panel, target, rot, scale);
+
+        // The registry follows the drawn centre, which moved with the host.
+        Vector3 drawnCentreWorld = cornerAtHeight + rightAxis * (geo.OffsetWorld - anchorWorld);
+        Vector3 flat = new Vector3(drawnCentreWorld.x - headPos.x, 0f, drawnCentreWorld.z - headPos.z);
+        if (flat.sqrMagnitude >= 1e-6f)
+            _arcSeatWorldYaw[slot] = WorldYawDeg(flat);
+        float distWorld = Mathf.Max((drawnCentreWorld - headPos).magnitude, 1e-3f);
+        geo.ReDeriveAt(distWorld);
+        _arcClaims[slot].HalfWidthDeg = geo.DrawnHalfDeg;
+        _arcClaims[slot].DrawnOffsetDeg = geo.OffsetDeg;
+        _arcClaims[slot].FrameHalfWidthDeg = geo.FrameHalfDeg;
+        _arcClaims[slot].DistanceWorld = distWorld;
+        _arcClaims[slot].CornerAnchorWorld = anchorWorld;
+        _arcClaims[slot].CornerDrawnOffsetWorld = geo.OffsetWorld;
+        _arcClaims[slot].CornerDrawnHalfWorld = geo.DrawnHalfWorld;
+        _arcSeatGeneration++;
+
+        Vector3 anchorAfter = target + rightAxis * anchorWorld;
+        float errAfterMm = new Vector3(anchorAfter.x - point.x, 0f, anchorAfter.z - point.z).magnitude
+                           / Mathf.Max(scale, 1e-4f) * 1000f;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"MAP ROOM CORNER RE-SEATED after the fit: '{name}' ({side} corner "
+                              + $"window) — its {CornerAnchorName(right)} goes on the corner "
+                              + $"({point.x:F2},{point.y:F2},{point.z:F2}) wu. BEFORE: host "
+                              + $"({hostNow.x:F2},{hostNow.y:F2},{hostNow.z:F2}) wu, "
+                              + $"{CornerAnchorName(right)} at ({anchorNow.x:F2},{anchorNow.y:F2},"
+                              + $"{anchorNow.z:F2}) wu = {errNowMm:F0} mm off the corner. AFTER: host "
+                              + $"({target.x:F2},{target.y:F2},{target.z:F2}) wu, "
+                              + $"{CornerAnchorName(right)} at ({anchorAfter.x:F2},{anchorAfter.y:F2},"
+                              + $"{anchorAfter.z:F2}) wu = {errAfterMm:F0} mm off the corner; the host "
+                              + $"moved {(target - hostNow).magnitude / Mathf.Max(scale, 1e-4f):F3} m. "
+                              + $"Anchor offset {heldAnchor / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m → "
+                              + $"{anchorWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m along the "
+                              + $"window's right (content offset {geo.OffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m, "
+                              + $"drawn half-width {geo.DrawnHalfWorld / Mathf.Max(scale, 1e-4f):F3} m). "
+                              + "Written through the pose lock's placement funnel; the player's own "
+                              + $"grab stays authoritative from here. {geo.Note}");
     }
 
     /// <summary>
@@ -2291,8 +2529,9 @@ internal static partial class ModalFallback
                     SpawnPoint = MapRoom.MapRoomDriver.SeatFloor,
                     // The content offset the registry holds, back in world units at the booked
                     // distance (the same inversion ArcSeatDeliveredNote uses).
-                    DrawnOffsetWorld = Mathf.Tan(Mathf.Clamp(_arcClaims[i].DrawnOffsetDeg, -89f, 89f)
-                                                 * Mathf.Deg2Rad) * _arcClaims[i].DistanceWorld,
+                    DrawnOffsetWorld = _arcClaims[i].CornerDrawnOffsetWorld,
+                    DrawnHalfWorld = _arcClaims[i].CornerDrawnHalfWorld,
+                    AnchorOffsetWorld = _arcClaims[i].CornerAnchorWorld,
                 };
                 why += $" — and it is a CORNER SEAT: its centre goes back over the {corner.Which} "
                        + "far corner";
