@@ -532,6 +532,14 @@ internal static partial class CanvasConversion
         // retried on a frame that is NOT inside a SetActive callback, and this is that frame.
         ServiceDeferredHosts();
 
+        // Part 9d, the LIFT half of the pre-Start flash veil, and it belongs at the TOP of the
+        // Update phase for a reason the part's header states in full: Unity has already run
+        // Start() for everything activated last frame by the time any Update runs, so this is the
+        // earliest moment a veil can be released — which is what keeps the veil costing exactly
+        // the frame it prevented and no second frame. Costs one pass over a list that is empty on
+        // essentially every frame; there is no window scan and no component walk on this path.
+        TickFlashVeilLift();
+
         Camera? cam = WorldCamera;
         for (int i = Active.Count - 1; i >= 0; i--)
         {
@@ -1068,6 +1076,17 @@ internal static partial class CanvasConversion
             // panel costs one component walk and no writes, and only for the ≤0.6 s gate window.
             SetPanelRenderVisible(panel, visible: false);
         }
+
+        // Part 9d, the SCAN half of the pre-Start flash veil (user ruling 2026-09-03: "Ich will
+        // das dieser Blitz erst gar nicht vorkommt"). It has to be in LateUpdate and it has to be
+        // HERE: the EventSystem dispatches the Button.onClick that repopulates a pooled UIWindow
+        // subtree from its own Update, Unity runs every Update before any LateUpdate, and every
+        // LateUpdate before the render loop — so this is the last phase in which the frame that
+        // would flash can still be withheld. Above PanelSupersample.LateTick on purpose, so a
+        // veiled subtree is already culled when the capture sizes itself around the panel's
+        // drawn content. Idle cost is a bounded loop of field reads over the game's own
+        // enabled-window registry; see CanvasConversion.9d.FlashVeil.cs for the full argument.
+        TickFlashVeilScan();
 
         // ROUND 10 (supersample): keep each capture frustum, display quad and allocation on its
         // panel's live geometry. The CAPTURE itself is not driven from here — the per-panel capture
