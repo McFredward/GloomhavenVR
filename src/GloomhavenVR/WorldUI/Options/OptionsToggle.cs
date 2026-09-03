@@ -106,6 +106,22 @@ internal sealed class OptionsToggle
     private bool _intendedOpen;
     private int _intendPressId = -1;
 
+    /// <summary>
+    /// OPTIONS KEY instrument state (user ruling 2026-09-03: the options key opens and closes
+    /// the pause/options menu and NEVER any other window). Every tap takes a census of the game's
+    /// OPEN windows outside the key's domain before and after the action and prints the verdict —
+    /// change-gated on the picture (menu edge + before-list + verdict) and capped per session, so
+    /// a hammered button cannot flood the log. The press and withheld counters ride on the line so
+    /// a single printed line is never mistaken for a single press ([[held-instrument-reads-as-dead]]).
+    /// </summary>
+    private const int OptionsKeyLineCap = 10;
+    private int _optionsKeyPresses;
+    private int _optionsKeyLines;
+    private int _optionsKeyWithheld;
+    private string _optionsKeyLastSig = string.Empty;
+    private readonly List<UIWindow> _censusBefore = new(16);
+    private readonly List<UIWindow> _censusAfter = new(16);
+
     public void Tick()
     {
         if (!VRSession.IsRunning && !Plugin.DevMode.Value)
@@ -208,6 +224,10 @@ internal sealed class OptionsToggle
         OpenState st = Probe(menu);
         long tProbe1 = Stopwatch.GetTimestamp();
         bool actuallyOpen = st.Any;
+        // OPTIONS KEY census, BEFORE the action: every game window open right now that is not the
+        // pause menu, one of its sub-windows or the mod's settings window. Same registry walk as
+        // the compendium probe (no scene sweep), tap-frequency only.
+        CensusOthers(_censusBefore);
 
         string menuName = menu.GetType().Name;
         VRLog.Info("WorldUI", $"[OptionsToggle] X tap on {menuName} (source: {_menuSource}): " +
@@ -264,7 +284,95 @@ internal sealed class OptionsToggle
                                        "treat this line as the lead, not the tap that produced it.");
         }
 
+        // OPTIONS KEY census, AFTER the action. UIWindow.Hide/Show flip IsOpen synchronously, so
+        // anything the mod's CloseAll or the game's own Show/Hide cascade did to another window on
+        // this call stack is visible right here, on the tap frame.
+        CensusOthers(_censusAfter);
+        LogOptionsKey(menuName, actuallyOpen);
         LogTapCost(tProbe0, tProbe1, Stopwatch.GetTimestamp(), st, actuallyOpen);
+    }
+
+    /// <summary>
+    /// Every registered, OPEN game window outside the options key's domain
+    /// (<see cref="MenuWindowFamily.IsOptionsKeyDomain"/>). Registry walk, not a scene sweep.
+    /// </summary>
+    private static void CensusOthers(List<UIWindow> into)
+    {
+        into.Clear();
+        foreach (UIWindow w in UIWindow.GetWindows())
+        {
+            if (w != null && w.IsOpen && !MenuWindowFamily.IsOptionsKeyDomain(w))
+                into.Add(w);
+        }
+    }
+
+    /// <summary>
+    /// The verdict line for the 2026-09-03 ruling. HID = open before the tap, closed after it;
+    /// OPENED = the reverse. Either one is a window the options key touched that it must not.
+    /// Change-gated on the picture and capped at <see cref="OptionsKeyLineCap"/> per session; the
+    /// counters on the line say how many presses the printed lines stand for.
+    /// </summary>
+    private void LogOptionsKey(string menuName, bool closed)
+    {
+        _optionsKeyPresses++;
+        var sb = new StringBuilder(96);
+        int hid = 0;
+        for (int i = 0; i < _censusBefore.Count; i++)
+        {
+            UIWindow w = _censusBefore[i];
+            if (w == null || w.IsOpen)
+                continue;
+            hid++;
+            if (hid <= 4)
+                sb.Append(hid == 1 ? "'" : ", '").Append(w.name).Append("' (ID ").Append(w.ID).Append(')');
+        }
+        string hidNames = sb.ToString();
+        sb.Clear();
+        int opened = 0;
+        for (int i = 0; i < _censusAfter.Count; i++)
+        {
+            UIWindow w = _censusAfter[i];
+            if (w == null || _censusBefore.Contains(w))
+                continue;
+            opened++;
+            if (opened <= 4)
+                sb.Append(opened == 1 ? "'" : ", '").Append(w.name).Append("' (ID ").Append(w.ID).Append(')');
+        }
+        string openedNames = sb.ToString();
+        sb.Clear();
+        int before = _censusBefore.Count;
+        for (int i = 0; i < before && i < 4; i++)
+            sb.Append(i == 0 ? "'" : ", '").Append(_censusBefore[i].name).Append('\'');
+        string beforeNames = sb.ToString();
+
+        string verdict = hid == 0 && opened == 0
+            ? "TOUCHED NOTHING ELSE"
+            : (hid > 0 ? $"HID: {hidNames}{(hid > 4 ? $" (+{hid - 4} more)" : string.Empty)}" : string.Empty)
+              + (hid > 0 && opened > 0 ? "; " : string.Empty)
+              + (opened > 0 ? $"OPENED: {openedNames}{(opened > 4 ? $" (+{opened - 4} more)" : string.Empty)}" : string.Empty);
+        string sig = $"{menuName}|{closed}|{before}|{beforeNames}|{verdict}";
+        if (sig == _optionsKeyLastSig || _optionsKeyLines >= OptionsKeyLineCap)
+        {
+            _optionsKeyWithheld++;
+            return;
+        }
+        _optionsKeyLastSig = sig;
+        _optionsKeyLines++;
+        int sinceLast = _optionsKeyWithheld;
+        _optionsKeyWithheld = 0;
+        // HW-VERIFY: the falsifier for the 2026-09-03 ruling ("only the pause/options menu opens and
+        // closes on the options key — NEVER other windows"). A HID verdict naming a window the player
+        // had to act on is the ModBuild 407 story deadlock again; TOUCHED NOTHING ELSE on every press
+        // is the ruling holding.
+        VRLog.Note("WorldUI",
+            $"OPTIONS KEY press #{_optionsKeyPresses}: {menuName} {(closed ? "CLOSED" : "OPENED")}. " +
+            $"OTHER open windows BEFORE: {before}{(before > 0 ? $" [{beforeNames}{(before > 4 ? $" +{before - 4} more" : string.Empty)}]" : string.Empty)}, " +
+            $"AFTER: {_censusAfter.Count}. VERDICT: {verdict}. " +
+            "Counted on the game's own UIWindow registry (IsOpen, measured on the tap's call stack, after " +
+            "the mod's close/open and the game's cascade both ran); the pause menu, its sub-windows and " +
+            "the mod's settings window are the key's domain and are not counted. " +
+            $"Line {_optionsKeyLines} of {OptionsKeyLineCap} this session; {sinceLast} press(es) since " +
+            "the last line showed the same picture and were not printed.");
     }
 
     /// <summary>Record the intent the mod just asserted so the next tick can belt-reconcile it once.</summary>
@@ -560,6 +668,16 @@ internal sealed class OptionsToggle
     /// game window the single-window toggle already hid reports IsOpen==false, so the live
     /// probes cannot see it), and the parent ESC menu LAST — its OnHide →
     /// toggleGroup.SetAllTogglesOff cascade stays the belt-and-suspenders final word.
+    ///
+    /// <para>REACH (2026-09-03). The "remaining sticky family float" sweep is
+    /// <see cref="ModalFallback.CloseStickyFloatsExceptEscMenu"/>, and until the ModBuild 407
+    /// defect it took every sticky float rather than the family: in the map room that is every
+    /// floated window, and it closed the quest-start story window on a press meant for the pause
+    /// menu (log lines 5478-5490). The sweep is now scoped to
+    /// <see cref="MenuWindowFamily.IsEscMenuSubWindow"/>; the three explicit closes above are the
+    /// same sub-windows by singleton. Nothing on this path may touch a window outside
+    /// <see cref="MenuWindowFamily.IsOptionsKeyDomain"/>, and <see cref="LogOptionsKey"/> measures
+    /// that on every press.</para>
     /// </summary>
     private static void CloseAll(ESCMenu menu, OpenState st)
     {

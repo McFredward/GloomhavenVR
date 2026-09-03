@@ -244,6 +244,31 @@ internal static partial class ModalFallback
     /// <see cref="CloseFloatedWindow"/> — exactly the corner-X path. The ESC menu itself is
     /// EXCLUDED (the caller closes it LAST so its OnHide → SetAllTogglesOff cascade stays the
     /// final word); windows already flagged UserClosing are skipped (already on their way out).
+    ///
+    /// <para>SCOPED TO THE PAUSE MENU'S OWN SUB-WINDOWS (2026-09-03, the options-key lane). Until now the sweep took
+    /// EVERY sticky float that was not the ESC menu, and "sticky" is two different things:
+    /// <c>MenuWindowFamily.IsGameOwnedMenu</c> (the family this sweep was written for) OR
+    /// <c>MapRoomParallel</c> — which is EVERY floated window in the map room. So in the map room
+    /// the options key closed everything on the table. The ModBuild 407 log, lines 5478-5490:
+    /// <c>[OptionsToggle] X tap on UIMapEscMenu … actuallyOpen=True -> CLOSE</c>, then
+    /// <c>OPTIONS TAP: close routed through CloseFloatedWindow</c>, then — BEFORE the pause menu's
+    /// own close — <c>MODAL CLOSE (X button): 'Map Story Window' (ID None) closed via
+    /// UIWindow.Hide()</c>. That window is the quest-start story message, the one window the game
+    /// itself refuses to close on ESC because its continue button is the only way forward
+    /// (<c>MapStoryController.ShowNext</c> runs from the dialog box's own finish, never from a
+    /// hide; <c>WindowOnOnHide</c> is empty), so the chain was dead: <i>"verschwindet das
+    /// Story-Fenster und damit kann es nicht weitergehen"</i>. The line after it,
+    /// <c>MANDATORY DECISION ANSWERED … closed BY THE GAME</c>, was wrong about the actor.</para>
+    ///
+    /// <para>THE RULING (user 2026-09-03): the options key opens and closes the pause/options
+    /// menu and NEVER any other window. So the membership is now
+    /// <see cref="MenuWindowFamily.IsEscMenuSubWindow"/> — Options and its tab sub-windows, the
+    /// compendium, the friend list; the windows the pause menu's own rows open and its
+    /// ToggleGroup hides, which is the exact population the paragraph above describes. A sticky
+    /// float outside that set is LEFT ALONE and named on an Info line so a log can show what the
+    /// sweep declined. The story window, quest and event windows, the character screen, the
+    /// travel confirm and every scenario level message are all outside it; in a scenario nothing
+    /// outside the family was ever sticky, so there the sweep's reach is unchanged.</para>
     /// </summary>
     internal static void CloseStickyFloatsExceptEscMenu()
     {
@@ -253,6 +278,15 @@ internal static partial class ModalFallback
             UIWindow? window = wp.Window;
             if (window == null || wp.UserClosing || !wp.Sticky || window.ID == UIWindowID.ESCMenu)
                 continue;
+            if (!MenuWindowFamily.IsEscMenuSubWindow(window))
+            {
+                VRLog.Info("WorldUI", $"OPTIONS TAP: sticky float '{window.name}' (ID {window.ID}) LEFT ALONE — " +
+                                      "it is not a sub-window of the pause menu, so the options key has no " +
+                                      "business closing it (user ruling 2026-09-03: only the pause/options " +
+                                      "menu opens and closes on that key). Before the 2026-09-03 fix this sweep " +
+                                      "closed it.");
+                continue;
+            }
             CloseFloatedWindow(window);
         }
     }

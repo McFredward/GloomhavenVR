@@ -2878,7 +2878,12 @@ internal static partial class ModalFallback
                                       + $"derived net is visible rather than inferred: {mandatoryWhy}. "
                                       + "NOTHING WAS WRITTEN TO THE GAME: the window was already "
                                       + "hidden by the game itself, UserClosing is not set, no Hide, "
-                                      + "no Escape, nothing on the wire.");
+                                      + "no Escape, nothing on the wire. CAVEAT ON 'BY THE GAME': this "
+                                      + "line measures only that the game REPORTS the window closed, "
+                                      + "never who closed it — the ModBuild 407 log (line 5488) printed "
+                                      + "it two lines after the mod's own options-key sweep had called "
+                                      + "UIWindow.Hide() on this very window. Read the MODAL CLOSE and "
+                                      + "OPTIONS KEY lines above it for the actor.");
             if (refused && alive)
                 VRLog.Info("WorldUI", $"FLOAT RELEASED ON REFUSAL: '{wp.Window!.name}' (ID " +
                                       $"{wp.Window.ID}) — " +

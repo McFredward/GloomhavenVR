@@ -125,6 +125,28 @@ internal static class MenuWindowFamily
     };
 
     /// <summary>
+    /// THE ESC MENU'S OWN SUB-WINDOWS — the windows the pause menu itself opens from its rows
+    /// (Options and its tab sub-windows, the compendium, the multiplayer friend list) and hides
+    /// again through its single-window <c>ToggleGroup</c>. This is the ONLY set the controller
+    /// options key may sweep when it closes the pause menu
+    /// (<c>ModalFallback.CloseStickyFloatsExceptEscMenu</c>). It is deliberately NOT
+    /// <see cref="PlayerMenuIds"/>: the help box is a player menu for the play-flow question but
+    /// the pause menu never opened it, and it is deliberately not "every sticky float" — inside the
+    /// map room EVERY floated window is sticky (<c>ModalFallback.MapRoomParallel</c>), and the
+    /// ModBuild 407 log shows the options key closing the quest-start STORY window through exactly
+    /// that over-wide sweep (user 2026-09-03: <i>"Wenn jemand die Optionstaste drückt, darf nur
+    /// das Options/Pausen-Menü aufgehen und schließen — NIEMALS andere Fenster"</i>).
+    /// </summary>
+    private static readonly HashSet<UIWindowID> EscMenuSubWindowIds = new()
+    {
+        UIWindowID.Options,
+        UIWindowID.OptionsSubmenu,
+        UIWindowID.ViceOptionsSubmenu,
+        UIWindowID.CompendiumPanel,
+        UIWindowID.MultiplayerFriendList,
+    };
+
+    /// <summary>
     /// THE SETTINGS SURFACES — the windows whose widgets must never have a click swallowed
     /// (user ruling 2026-08-02: <i>"das Optionsmenue soll NIEMALS blockiert sein"</i>). The game's
     /// Options window and its tab sub-windows; the ESC menu is added by the one call site that
@@ -270,6 +292,24 @@ internal static class MenuWindowFamily
     /// </summary>
     internal static bool IsEscOptionsFamily(UIWindow? window)
         => window != null && (EscOptionsIds.Contains(window.ID) || IsModOwned(window));
+
+    /// <summary>
+    /// A SUB-WINDOW THE PAUSE MENU ITSELF OPENS (<see cref="EscMenuSubWindowIds"/>) — the only
+    /// windows the controller options key may close besides the pause menu. Game ids only: the
+    /// mod's own settings window is not sticky, so it needs no sweep and gets none.
+    /// </summary>
+    internal static bool IsEscMenuSubWindow(UIWindow? window)
+        => window != null && EscMenuSubWindowIds.Contains(window.ID);
+
+    /// <summary>
+    /// THE OPTIONS KEY'S WHOLE DOMAIN: the pause menu, its sub-windows, and the mod's own settings
+    /// window. Everything the key may legitimately open or close is in here; a window OUTSIDE it
+    /// that changes open-state on a press is a ruling violation, and the <c>OPTIONS KEY</c> line
+    /// in <c>OptionsToggle</c> counts exactly those.
+    /// </summary>
+    internal static bool IsOptionsKeyDomain(UIWindow? window)
+        => window != null
+           && (window.ID == UIWindowID.ESCMenu || EscMenuSubWindowIds.Contains(window.ID) || IsModOwned(window));
 
     /// <summary>
     /// A SETTINGS SURFACE — the game's Options window / its tab sub-windows, or the mod's own
