@@ -468,10 +468,19 @@ internal static class ControlsTutorial
         // since 2026-09-02 the models only appear on steps that ask for a key.
         ControllerVisual.EnsureResolved(VRHands.Left ?? VRHands.Right);
 
-        _index = 0;
+        // THE FIRST CARD GOES THROUGH THE SAME SKIP LOOP as every later one. In practice it
+        // always lands on 0 — ctl_welcome is a ControlAction.None card and those are unconditional
+        // — but "index 0 is always available" is an assumption about the TABLE, and the table is
+        // edited more often than this method is read.
+        _index = FirstAvailableFrom(0);
         _dwelling = false;
         _dwellSince = 0f;
-        PrepareStep(0);
+        if (_index >= ControlsLesson.Steps.Length)
+        {
+            Stop("every step in the table was unavailable");
+            return;
+        }
+        PrepareStep(_index);
         RefreshBox();
         if (!ControlsBox.Show(OnAction))
             return;   // window not free yet — the Opening ceiling bounds the retry
@@ -481,7 +490,7 @@ internal static class ControlsTutorial
         _phase = Phase.Running;
         _runningAt = Time.unscaledTime;
         _windowClosedSince = -1f;
-        ApplyStep(0);
+        ApplyStep(_index);
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", $"Controls lesson started INSIDE the game's own tutorial box "
@@ -501,10 +510,17 @@ internal static class ControlsTutorial
     /// mean nothing. What is worth having instead is the table itself: one line saying what the
     /// headset was told to show for each step, so a hardware log answers "did my decision arrive"
     /// without a screenshot per card.</para>
+    ///
+    /// <para>SINCE 2026-09-03 EACH ROW ALSO CARRIES ITS AVAILABILITY VERDICT, and it is deliberately
+    /// this line rather than a second table. The lesson now adapts to the player's settings, so the
+    /// question a hardware round asks about a missing card — "was it skipped, and by which dial?" —
+    /// is a property of the same row, resolved from the same
+    /// <see cref="ControlsLesson.Availability"/> read that the skip loop uses. Two tables would be
+    /// two chances to print a verdict the run did not act on.</para>
     /// </summary>
     private static void AuditStepTable()
     {
-        var table = new System.Text.StringBuilder(512);
+        var table = new System.Text.StringBuilder(1024);
         for (int i = 0; i < ControlsLesson.Steps.Length; i++)
         {
             ref readonly ControlsStep s = ref ControlsLesson.Steps[i];
@@ -514,12 +530,19 @@ internal static class ControlsTutorial
                  .Append(s.ShowsController ? "controller" : "hand");
             if (s.Key != null)
                 table.Append('(').Append(s.Key).Append(')');
+            ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in s);
+            table.Append(verdict.Available
+                    ? "[on:" + verdict.Hands + "]"
+                    : "[SKIPPED]")
+                 .Append('{').Append(verdict.Why).Append('}');
         }
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Tutorial", "Controls lesson step table, as the headset will show it — "
             + "'controller' means the device model replaces the hand for that card, 'hand' means "
-            + "the player keeps their own hand and the key is named in words only: "
+            + "the player keeps their own hand and the key is named in words only; [on:...] names "
+            + "the hand(s) whose key lights and [SKIPPED] a card the current settings remove, each "
+            + "followed by the setting that decided it: "
             + table);
     }
 
@@ -548,7 +571,7 @@ internal static class ControlsTutorial
     {
         _dwelling = false;
         _dwellSince = 0f;
-        _index++;
+        _index = FirstAvailableFrom(_index + 1);
         if (_index >= ControlsLesson.Steps.Length)
         {
             Stop("the lesson reached its last card");
@@ -557,6 +580,48 @@ internal static class ControlsTutorial
         PrepareStep(_index);
         ApplyStep(_index);
         RefreshBox();
+    }
+
+    /// <summary>
+    /// THE FIRST CARD AT OR AFTER <paramref name="from"/> THAT THIS PLAYER'S SETTINGS STILL ALLOW,
+    /// or <c>Steps.Length</c> when there is none (user ruling 2026-09-03: <i>"Ist die Option
+    /// deaktiviert sollte dieser Test übersprungen werden, das gilt für alle Tests"</i>).
+    ///
+    /// <para>SKIPPED MEANS NEVER SHOWN, not shown-and-then-dismissed. A card the player cannot
+    /// possibly satisfy is a card they have to press past, and the whole complaint behind this
+    /// change is that the lesson made him work through steps his own settings had switched off.</para>
+    ///
+    /// <para>A LOOP WITH A HARD BOUND, NOT RECURSION. Several steps can be unavailable in a row —
+    /// switching WorldGrabEnabled off removes drag, zoom and rotate together, three consecutive
+    /// rows — so this must be able to walk any distance. It is bounded by <c>Steps.Length</c>
+    /// iterations and each iteration advances the index by exactly one, so a table where everything
+    /// is off exits at the end rather than spinning; the caller reads "past the end" as the end of
+    /// the lesson. The bound is belt-and-braces, not the termination argument.</para>
+    ///
+    /// <para>THE LESSON CANNOT COME OUT EMPTY: <see cref="ControlAction.None"/> steps are
+    /// unconditionally available (<see cref="ControlsLesson.Availability"/>'s first line), and the
+    /// closing card ctl_done is one of them. Worst case the player gets the welcome and the closing
+    /// card, which is a lesson saying "nothing here applies to your setup" — which is true.</para>
+    /// </summary>
+    private static int FirstAvailableFrom(int from)
+    {
+        int index = from < 0 ? 0 : from;
+        for (int guard = 0; guard < ControlsLesson.Steps.Length; guard++)
+        {
+            if (index >= ControlsLesson.Steps.Length)
+                return ControlsLesson.Steps.Length;
+            ControlsLesson.StepAvailability verdict =
+                ControlsLesson.Availability(in ControlsLesson.Steps[index]);
+            if (verdict.Available)
+                return index;
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Tutorial", $"Controls lesson SKIPPED STEP '{ControlsLesson.Steps[index].Id}' "
+                + $"— it is never shown because {verdict.Why}. The lesson adapts to the settings as "
+                + "they are at the moment each card would open; nothing about the table changed.");
+            index++;
+        }
+        return ControlsLesson.Steps.Length;
     }
 
     /// <summary>
@@ -593,6 +658,25 @@ internal static class ControlsTutorial
     /// welcome card, the closing card, and any future step that asks for no press — gets the
     /// player's hands back. Show/Hide are idempotent, and Hide restores only the renderers this
     /// class switched off, by identity.
+    ///
+    /// <para>WHICH MODEL LIGHTS UP IS A SECOND, SEPARATE QUESTION, and since 2026-09-03 it is
+    /// answered per hand (user: <i>"sollte nur derjenige joystick (links/rechts) leuchten, der auch
+    /// tatsächlich bewegt, abhängig von den aktuellen Einstellungen"</i>). Snap-turn lives on
+    /// <c>[Comfort] TurnHand</c>, flight on <c>FlightHand</c>, the reel and the ping on the dominant
+    /// hand, the menu tap on the other one; lighting both told half the players to use a stick that
+    /// does nothing.</para>
+    ///
+    /// <para>BOTH CONTROLLER MODELS STAY VISIBLE — only the highlight is one-sided. The player is
+    /// holding two controllers, and making one of them vanish for one card would read as a bug in
+    /// the tracking, not as an instruction; the swap in and out of the hands is already the most
+    /// startling thing the lesson does. So the acting hand lights and the other stays present and
+    /// dark, which is exactly the picture the player is being asked to reproduce.</para>
+    ///
+    /// <para>THE HAND THAT IS NOT ACTING IS EXPLICITLY CLEARED rather than left alone.
+    /// <c>ControllerVisual.Highlight</c> is a latch — it early-returns when <c>_lit</c> already
+    /// equals the requested key and only un-tints the PREVIOUS key when it changes — so a hand
+    /// skipped over on this card would still be wearing the last card's highlight, and two lit keys
+    /// on two hands is precisely the confusion this change exists to remove.</para>
     /// </summary>
     private static void ApplyStep(int index)
     {
@@ -602,8 +686,9 @@ internal static class ControlsTutorial
         // and leaving `_lit` pointing at a key would make Highlight early-return on the next
         // controller step that happens to want the same one.
         string? key = step.ShowsController ? step.Key : null;
-        _left?.Highlight(key);
-        _right?.Highlight(key);
+        ControlsLesson.StepAvailability verdict = ControlsLesson.Availability(in step);
+        _left?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Left) != 0 ? key : null);
+        _right?.Highlight((verdict.Hands & ControlsLesson.LessonHands.Right) != 0 ? key : null);
     }
 
     private static void SetControllersVisible(bool visible, string stepId)

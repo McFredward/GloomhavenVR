@@ -1,4 +1,5 @@
 using GloomhavenVR.Hands;
+using GloomhavenVR.Rig;
 
 namespace GloomhavenVR.Compat;
 
@@ -86,14 +87,18 @@ internal readonly struct ControlsStep
 /// box's button skips THE CARD IN FRONT OF THEM rather than the whole lesson, so walking away from
 /// the tail of the list is a run of presses instead of one.</para>
 ///
-/// <para>ORDER. Point and click first, because that is how the player answers the panel in front
-/// of them. Then reach and grab, which is the one thing a flat-screen player has no instinct for.
-/// Then ALL FOUR WAYS OF GETTING ABOUT, TOGETHER: drag the table, fly, turn, then zoom and rotate.
-/// The one-handed three come first and the two-handed pair after (user, 2026-08-29) — moving
-/// yourself is what a newcomer reaches for in the first minute, and it needs the same single stick
-/// the drag just taught. Postponing it behind the two-handed gestures, as the first version did,
-/// split the stick's lesson in half and put the harder grip in the middle of it. Then the cards,
-/// which are the game. Everything after is a convenience.</para>
+/// <para>ORDER. Reach and grab first, which is the one thing a flat-screen player has no instinct
+/// for. (Point-and-click used to come before it and was removed on 2026-09-03 — see the gap in the
+/// table.) Then ALL FOUR WAYS OF GETTING ABOUT, TOGETHER: pull yourself along, fly, turn, then zoom
+/// and rotate. The one-handed three come first and the two-handed pair after (user, 2026-08-29) —
+/// moving yourself is what a newcomer reaches for in the first minute, and it needs the same single
+/// stick the drag just taught. Postponing it behind the two-handed gestures, as the first version
+/// did, split the stick's lesson in half and put the harder grip in the middle of it. Then the
+/// cards, which are the game. Everything after is a convenience.</para>
+///
+/// <para>AND EVERY ROW IS NOW CONDITIONAL ON THE PLAYER'S OWN SETTINGS — see
+/// <see cref="Availability"/>, which is the single place that knows which dial gates which step and
+/// which hand actually performs it.</para>
 ///
 /// <para>WHY THE THUMBSTICK APPEARS FIVE TIMES, and why that is the honest way round. Drag,
 /// fly, snap-turn, zoom and rotate all live on the thumbstick, distinguished by CLICKING it in
@@ -112,18 +117,26 @@ internal static class ControlsLesson
         new(ControlAction.None, "ctl_welcome", null, showsController: false),
 
         // --- what you cannot play without -------------------------------------------------
-        // CONTROLLER: the trigger is the first key the lesson names, and a player who cannot find
-        // it cannot do anything else in the game.
-        new(ControlAction.LaserClick, "ctl_laser", ControllerKey.Trigger, showsController: true),
+        // ctl_laser (ControlAction.LaserClick, "Point and click") STOOD HERE and is gone — user
+        // ruling 2026-09-03, verbatim: "Entferne den ersten Test 'Zeigen und Auswählen' - wenn man
+        // es bis hier hin geschaft hat kennt man das schon - hat keinen Mehrwert." The lesson runs
+        // INSIDE the game's own tutorial box and only opens once the tutorial's opening story
+        // dialogue has been DISMISSED, and dismissing it is a laser click on a button — so every
+        // player who can see this card has already performed the control it taught. His own log
+        // agreed before he said it: the run in .planning/debug/second_logs/Player.log skipped it.
+        // ControlAction.LaserClick stays in the enum and BoardClickDriver still reports it; with no
+        // step waiting on it ControlsProgress.Notify returns on its first line and it costs nothing.
+        //
         // CONTROLLER: the new fact here is PROXIMITY, and reaching moves the whole device, not the
         // fingers — a controller in the same place reaches identically. The trigger is named again
         // for a second purpose, so it stays lit while that second purpose is learnt.
         new(ControlAction.ProximityGrab, "ctl_grab", ControllerKey.Trigger, showsController: true),
 
         // GETTING ABOUT, ALL FOUR TOGETHER AND ONE-HANDED FIRST (user, 2026-08-29: fly and turn
-        // belong straight after the drag). Drag moves the TABLE, fly and turn move YOU, and those
-        // three are what a player reaches for in the first minute — each needs one hand and one
-        // stick. The two-handed zoom and rotate come after, because they are a different gesture
+        // belong straight after the drag). All four move YOU — the one-stick drag included, which
+        // is the 2026-09-03 correction: WorldGrab applies its motion inversely to the RIG ROOT, so
+        // the table only appears to slide. They are what a player reaches for in the first minute —
+        // each needs one hand and one stick. The two-handed zoom and rotate come after, because they are a different gesture
         // (both sticks clicked in at once) and asking for it before the one-handed stick is
         // understood is what makes the stick feel like five unrelated controls.
         new(ControlAction.WorldDrag, "ctl_drag", ControllerKey.Thumbstick, showsController: true,
@@ -170,6 +183,226 @@ internal static class ControlsLesson
         // HAND: prose again, and the lesson hands the player back their own hands as it ends.
         new(ControlAction.None, "ctl_done", null, showsController: false),
     };
+
+    /// <summary>Which controller(s) a step is performed with. A flag set rather than a
+    /// <c>HandSide?</c> because "both" is a real answer for most rows and has to be expressible
+    /// alongside "the left one only" — see <see cref="Availability"/>.</summary>
+    [System.Flags]
+    internal enum LessonHands
+    {
+        None = 0,
+        Left = 1,
+        Right = 2,
+        Both = Left | Right,
+    }
+
+    /// <summary>The verdict on one step, against the settings AS THEY ARE RIGHT NOW.</summary>
+    internal readonly struct StepAvailability
+    {
+        /// <summary>False ⇒ the lesson must never display this card at all.</summary>
+        internal readonly bool Available;
+
+        /// <summary>The hand(s) that actually perform it, and therefore the only hand(s) whose key
+        /// may light. <see cref="LessonHands.None"/> whenever <see cref="Available"/> is false.
+        /// </summary>
+        internal readonly LessonHands Hands;
+
+        /// <summary>One clause naming the SETTING that decided it, for the hardware log. Never
+        /// null: a verdict with no reason is a verdict nobody can check.</summary>
+        internal readonly string Why;
+
+        internal StepAvailability(bool available, LessonHands hands, string why)
+        {
+            Available = available;
+            Hands = hands;
+            Why = why;
+        }
+    }
+
+    /// <summary>
+    /// DOES THIS STEP APPLY TO THIS PLAYER, AND ON WHICH HAND? (user ruling 2026-09-03, verbatim:
+    /// <i>"Beim 'Dich selbst Bewegen' Test sollte nur derjenige joystick (links/rechts) leuchten,
+    /// der auch tatsächlich bewegt, abhängig von den aktuellen Einstellungen. Ist die Option
+    /// deaktiviert sollte dieser Test übersprungen werden, das gilt für alle Tests - sie sollen
+    /// sich je nach aktuellen Einstellungen anpassen!"</i>)
+    ///
+    /// <para>ONE SWITCH, AND ALL OF THE SETTINGS KNOWLEDGE LIVES IN IT. The alternative — a
+    /// per-step predicate in the table, or a gate read at the point each card is applied — was
+    /// rejected for the reason this project has been bitten by repeatedly: a rule written down in
+    /// several places is a rule that will disagree with itself, and the two questions "may this card
+    /// be shown?" and "which key lights?" have to come out of the SAME read of the SAME dial, or a
+    /// step ends up displayed with nothing lit on either controller.</para>
+    ///
+    /// <para>UNBOUND CONFIG FAILS OPEN, deliberately. <c>ComfortSettings.IsBound</c> is false before
+    /// the config binds and again after teardown, and every dial below would then read a
+    /// <c>null!</c> entry. Answering "available, both hands" there means the worst case is a card
+    /// teaching a control the player has switched off — visible, skippable and obvious. The other
+    /// way round the lesson silently deletes itself, which is the failure nobody ever reports.</para>
+    ///
+    /// <para>WHAT WAS FOUND RATHER THAN ASSUMED. The last five actions were expected to be ungated;
+    /// three of them are not:
+    /// <list type="bullet">
+    /// <item><c>FingertipPick</c> HAS a switch — <c>[Board] TouchTilesWithFingertip</c>, which
+    /// <c>BoardPick</c> calls "the SINGLE switch" for the near pick. With it off no fingertip touch
+    /// is ever produced, so the card could not be satisfied by any amount of trying.</item>
+    /// <item><c>CardInHand</c> HAS a switch — <c>[Cards] InHandHold</c>, read through
+    /// <c>HeldCardGrip.Enabled</c> (itself defensive about the config's lifetime). With it off the
+    /// grip does nothing while a card is held, which is exactly what that card teaches.</item>
+    /// <item><c>Ping</c> has no on/off switch but IS one-handed: <c>BoardPing.Tick</c> reads
+    /// <c>VRHands.Primary</c> and nothing else, so the A/X press only pings on the DOMINANT hand.
+    /// Lighting both would send the left-handed half of the players to the wrong thumb.</item>
+    /// <item><c>ProximityGrab</c> and <c>CardTake</c> really are ungated — neither
+    /// <c>ProximityGrabber</c> nor the palm fan binds an enable entry — and really are two-handed.
+    /// </item>
+    /// </list></para>
+    ///
+    /// <para>THE HANDS ARE RESOLVED THE WAY THE REST OF THE MOD RESOLVES THEM: the dominant hand
+    /// through <c>VRHands.Primary</c> (<c>[Hands] PrimaryHand</c>), and the turn/flight dials through
+    /// <c>LocalTurnControl.Resolve</c> — the one resolver <c>Flight</c> and <c>AoeControl</c> already
+    /// share. A second copy of either switch would be a second place to disagree about which stick
+    /// is which, which is the bug <c>LocalTurnControl</c> exists to have ended.</para>
+    /// </summary>
+    internal static StepAvailability Availability(in ControlsStep step)
+    {
+        // A prose card asks for nothing, so no setting can take it away — and that is what keeps
+        // the lesson from ever being empty: whatever the resolver does to the teaching rows,
+        // ctl_welcome and ctl_done are always shown.
+        if (step.Action == ControlAction.None)
+            return new StepAvailability(true, LessonHands.Both, "a prose card, gated by nothing");
+
+        if (!ComfortSettings.IsBound)
+            return new StepAvailability(true, LessonHands.Both,
+                "[Comfort] is not bound yet — every step fails OPEN rather than vanishing");
+
+        switch (step.Action)
+        {
+            case ControlAction.WorldDrag:
+                return ComfortSettings.WorldGrabEnabled.Value
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Comfort] WorldGrabEnabled — either stick clicked in drags")
+                    : Off("[Comfort] WorldGrabEnabled = false");
+
+            case ControlAction.WorldZoom:
+                if (!ComfortSettings.WorldGrabEnabled.Value)
+                    return Off("[Comfort] WorldGrabEnabled = false (the two-hand grab IS the zoom)");
+                return ComfortSettings.ScaleEnabled.Value
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Comfort] WorldGrabEnabled + ScaleEnabled — the gesture needs both sticks")
+                    : Off("[Comfort] ScaleEnabled = false");
+
+            case ControlAction.WorldRotate:
+                if (!ComfortSettings.WorldGrabEnabled.Value)
+                    return Off("[Comfort] WorldGrabEnabled = false (the two-hand grab IS the rotate)");
+                return ComfortSettings.RotateEnabled.Value
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Comfort] WorldGrabEnabled + RotateEnabled — the gesture needs both sticks")
+                    : Off("[Comfort] RotateEnabled = false");
+
+            case ControlAction.Fly:
+                if (!ComfortSettings.FlightEnabled.Value)
+                    return Off("[Comfort] FlightEnabled = false");
+                // Forward/strafe flight reads the stick on [Comfort] FlightHand and only that one
+                // (Flight.ResolveFlightHand). The VERTICAL lift rides [Comfort] TurnHand instead,
+                // but it is off by default and is not the motion this card asks for.
+                return One(LocalTurnControl.Resolve(ComfortSettings.FlightHand.Value),
+                    "[Comfort] FlightEnabled, FlightHand = " + ComfortSettings.FlightHand.Value);
+
+            case ControlAction.SnapTurn:
+                if (ComfortSettings.Turn.Value == TurnMode.Off)
+                    return Off("[Comfort] TurnMode = Off");
+                return One(LocalTurnControl.Resolve(ComfortSettings.TurnHand.Value),
+                    "[Comfort] TurnMode = " + ComfortSettings.Turn.Value
+                    + ", TurnHand = " + ComfortSettings.TurnHand.Value);
+
+            case ControlAction.PanelReel:
+                if (!ComfortSettings.LaserCarryReel.Value)
+                    return Off("[Comfort] LaserCarryReel = false");
+                // The reel only runs INSIDE a laser carry, and the laser carry is dominant-hand-only
+                // (RayGrabDriver.Tick's opening comment; Flight.cs restates it where it arbitrates
+                // the reel against forward flight). So it is the dominant stick or no stick.
+                return One(DominantSide(),
+                    "[Comfort] LaserCarryReel — and a laser carry only ever runs on the dominant "
+                    + "hand ([Hands] PrimaryHand -> " + DominantSide() + ")");
+
+            case ControlAction.Recenter:
+                return ComfortSettings.RecenterHoldSeconds.Value > 0f
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Comfort] RecenterHoldSeconds > 0 — a two-hand chord, so both light")
+                    : Off("[Comfort] RecenterHoldSeconds = 0 (the chord cannot fire)");
+
+            case ControlAction.FingertipPick:
+                return FingertipTouchOn()
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Board] TouchTilesWithFingertip — either fingertip commits")
+                    : Off("[Board] TouchTilesWithFingertip = false");
+
+            case ControlAction.CardInHand:
+                return Cards.HeldCardGrip.Enabled
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "[Cards] InHandHold — either hand may take its card into the fist")
+                    : Off("[Cards] InHandHold = false");
+
+            case ControlAction.Ping:
+                return One(DominantSide(),
+                    "no on/off switch, but BoardPing reads VRHands.Primary only "
+                    + "([Hands] PrimaryHand -> " + DominantSide() + ")");
+
+            case ControlAction.OpenMenu:
+                // The card already says "the hand you do NOT point with"; this is that sentence
+                // made true on the model, by the same derivation NonDominantHold performs.
+                return One(Opposite(DominantSide()),
+                    "always available; the pause-menu tap is on the NON-dominant hand "
+                    + "([Hands] PrimaryHand -> " + DominantSide() + ")");
+
+            default:
+                // ProximityGrab, CardTake, LaserClick — no config entry gates any of them and all
+                // three work on either hand. LaserClick no longer has a step (2026-09-03) but the
+                // action still exists, so it is answered here rather than left to an accident.
+                return new StepAvailability(true, LessonHands.Both, "no setting gates this step");
+        }
+    }
+
+    private static StepAvailability Off(string why)
+    {
+        return new StepAvailability(false, LessonHands.None, why);
+    }
+
+    private static StepAvailability One(HandSide side, string why)
+    {
+        return new StepAvailability(true,
+            side == HandSide.Left ? LessonHands.Left : LessonHands.Right, why);
+    }
+
+    /// <summary>The dominant controller. <c>VRHands.Primary</c> is null before the hands come up;
+    /// Right is both the shipped <c>[Hands] PrimaryHand</c> and what <c>LocalTurnControl.Resolve</c>
+    /// answers in the same situation, so the two agree instead of quietly naming different sticks
+    /// for the frame before the hands arrive.</summary>
+    private static HandSide DominantSide()
+    {
+        VRHand? primary = VRHands.Primary;
+        return primary != null ? primary.Side : HandSide.Right;
+    }
+
+    private static HandSide Opposite(HandSide side)
+    {
+        return side == HandSide.Left ? HandSide.Right : HandSide.Left;
+    }
+
+    /// <summary>[Board] TouchTilesWithFingertip, read the way <c>HeldCardGrip.Enabled</c> reads its
+    /// own switch: the entry is a <c>null!</c> field until BoardConfig binds, and the lesson can be
+    /// armed on either side of that lifetime.</summary>
+    private static bool FingertipTouchOn()
+    {
+        try
+        {
+            return Board.BoardConfig.TouchTilesWithFingertip != null
+                   && Board.BoardConfig.TouchTilesWithFingertip.Value;
+        }
+        catch (System.Exception)
+        {
+            return true;   // fail OPEN, as above: a visible card beats a silently deleted one
+        }
+    }
 
     // Progress(in ControlsStep) lived here and fed the box's ASCII progress bar. The bar is gone
     // (user ruling 2026-09-02) and it had exactly one caller, so it went with it. Its body was a

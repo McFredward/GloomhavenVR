@@ -1485,15 +1485,15 @@ internal static partial class Loc
                 "Karte wirklich IN DIE HAND nehmen (2026-08-29). Normalerweise schwebt eine gegriffene "
                 + "Karte immer so, dass ihre Vorderseite zu dir zeigt, egal wie du das Handgelenk drehst "
                 + "— das bleibt genau so. Mit dieser Option bekommst du eine ZWEITE Art zu halten: "
-                + "Während du eine Karte hältst, drückst du die GREIFTASTE und hältst sie gedrückt. Dann "
+                + "Während du eine Karte hältst, drückst du den GRIP und hältst ihn gedrückt. Dann "
                 + "sitzt die Karte fest in deiner Faust — deine Finger schließen sich am unteren Rand, "
                 + "und wenn du das Handgelenk drehst, dreht sich die Karte mit. So kannst du sie "
-                + "hochhalten und einem Mitspieler ihre Vorderseite zeigen. Lässt du die Greiftaste los, "
+                + "hochhalten und einem Mitspieler ihre Vorderseite zeigen. Lässt du den GRIP los, "
                 + "schwebt sie wieder lesbar; drückst du sie erneut, zeigst du sie wieder. Das geht mit "
                 + "BEIDER Hand, zu jedem Zeitpunkt des Haltens, und überall dort, wo man Karten "
                 + "überhaupt nehmen kann — auch im Kampagnenkarten-Raum und auch, wenn du nicht dran "
                 + "bist. Die Geisterhand gehört nur zum Lese-Modus: Eine Hand, die wirklich eine Karte "
-                + "hält, bleibt sichtbar. Aus: Die Greiftaste tut nichts, während du eine Karte hältst, "
+                + "hält, bleibt sichtbar. Aus: Der GRIP tut nichts, während du eine Karte hältst, "
                 + "genau wie vorher.",
             ["Cards/InHandPitch"] =
                 "In der Hand: wie weit die Karte zurückgeneigt ist, in Grad. Die Karte wird so gehalten, "
@@ -1506,7 +1506,7 @@ internal static partial class Loc
                 + "Lesepose stellt HeldFaceBias ein.",
             ["Cards/InHandGraspSeconds"] =
                 "In der Hand: wie lange deine Hand braucht, um sich um die Karte zu SCHLIESSEN — und "
-                + "wieder zu öffnen, wenn du die Greiftaste loslässt. Deine Finger wandern in den Griff "
+                + "wieder zu öffnen, wenn du den GRIP loslässt. Deine Finger wandern in den Griff "
                 + "und die Karte wandert mit ihnen, auf einer einzigen weichen Bewegung: Sie beginnt aus "
                 + "der Ruhe, wird schneller und kommt in Ruhe an, statt zu springen oder nachzufedern. "
                 + "Bewusst kurz. 0 ist nicht erlaubt — genau das ist das Umspringen, das diese Bewegung "
@@ -3021,9 +3021,9 @@ internal static partial class Loc
             ["Board/TouchTilesWithFingertip"] =
                 "Tippe ein hervorgehobenes Feld direkt mit der Zeigefingerspitze an — das löst genau die "
                 + "Aktion aus, die auch ein Klick mit dem Laser auf dieses Feld auslöst. Es passiert nur, "
-                + "solange der GRIFF gedrückt ist (Faust mit ausgestrecktem Zeigefinger), damit ein "
+                + "solange der GRIP gedrückt ist (Faust mit ausgestrecktem Zeigefinger), damit ein "
                 + "versehentliches Streifen über das Brett niemals etwas auslöst. Ein Auslöser pro Feld: "
-                + "verlasse das Feld, hebe den Finger ab oder lass den Griff los, um den nächsten scharf "
+                + "verlasse das Feld, hebe den Finger ab oder lass den GRIP los, um den nächsten scharf "
                 + "zu machen.",
             ["Board/TouchRange"] =
                 "Wie nah (in echten Metern, mit dem Diorama skaliert) die Zeigefingerspitze über dem "

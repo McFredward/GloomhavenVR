@@ -34,6 +34,24 @@ internal sealed class Comfort : MonoBehaviour
     private float _chordHeldSeconds;
     private bool _chordFired;
 
+    /// <summary>
+    /// ONE-SHOT LOG LATCHES for the recentre chord, both STATIC so they mean "once per session"
+    /// even across a rig rebuild that replaces this component.
+    ///
+    /// <para>WHY THEY EXIST (user, 2026-09-03: <i>"Der Test mit B und Y gedrückt halten wird auch
+    /// nie erfolgreich"</i>). The chord's only line was <c>VRLog.Info</c>, which is the DEBUG tier
+    /// in this mod and is NOT printed at the shipped default level — so a hardware log with no such
+    /// line cannot distinguish "he never held both buttons" from "he held them and the hold never
+    /// completed" from "it fired and the lesson step still did not tick". These two Notes split
+    /// those three cases apart, and they are one-shot because a per-frame line on a held button
+    /// would bury the rest of the round\'s log.</para>
+    ///
+    /// <para>They are pure instrumentation: nothing in <see cref="UpdateRecenterChord"/> reads
+    /// either of them for anything except deciding whether its line has already been printed.</para>
+    /// </summary>
+    private static bool _notedChordDown;
+    private static bool _notedChordFired;
+
     internal static Comfort? Instance { get; private set; }
 
     /// <summary>Chord progress 0..1 for gizmos/panel feedback.</summary>
@@ -124,10 +142,29 @@ internal sealed class Comfort : MonoBehaviour
         VRHand? left = VRHands.Left;
         VRHand? right = VRHands.Right;
 
+        // THE BUTTONS ALONE, measured before the other terms are ANDed in. This is the term that
+        // separates "he never held both buttons" from "he held them and something else refused",
+        // and it is deliberately NOT the same expression as `chordDown` below: a line printed
+        // inside chordDown could only ever report HasPose == true, which answers nothing.
+        bool bothSecondary = left != null && right != null
+                             && left.SecondaryButton && right.SecondaryButton;
+
+        if (bothSecondary && !_notedChordDown)
+        {
+            _notedChordDown = true;
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Comfort", "Recenter chord: BOTH secondary buttons (B+Y) are down for the "
+                + "first time this session. The terms it still has to satisfy: hold "
+                + $"{hold:0.00} s ([Comfort] RecenterHoldSeconds — 0 disables the chord entirely), "
+                + $"left pose {left!.HasPose}, right pose {right!.HasPose}. A tracked pose is "
+                + "required on BOTH hands, so a controller that has gone to sleep in the other hand "
+                + "stops the hold from ever accumulating. Printed once per session.");
+        }
+
         bool chordDown = hold > 0f
-                         && left != null && right != null
-                         && left.HasPose && right.HasPose
-                         && left.SecondaryButton && right.SecondaryButton;
+                         && bothSecondary
+                         && left!.HasPose && right!.HasPose;
 
         if (!chordDown)
         {
@@ -136,12 +173,29 @@ internal sealed class Comfort : MonoBehaviour
             return;
         }
 
-        _chordHeldSeconds += Time.deltaTime;
+        // UNSCALED, corrected 2026-09-03. This is a HOLD DURATION on a comfort control that has to
+        // work while the game is paused or running a slow-motion sequence — Time.timeScale is not
+        // ours and the game does move it — and a scaled clock makes the required hold silently
+        // longer, or infinite at timeScale 0. Every other timer in this feature's neighbourhood
+        // (ControlsTutorial's dwells and ceilings, the fingertip cooldown) is already on
+        // Time.unscaledTime for exactly this reason; this accumulator was the odd one out.
+        _chordHeldSeconds += Time.unscaledDeltaTime;
         if (_chordFired || _chordHeldSeconds < hold)
             return;
 
         _chordFired = true;
         VRLog.Info("Comfort", "Recenter chord (B+Y held) — recentering.");
+        if (!_notedChordFired)
+        {
+            _notedChordFired = true;
+            // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+            // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+            VRLog.Note("Comfort", "Recenter chord FIRED for the first time this session after "
+                + $"{_chordHeldSeconds:0.00} s of hold (required {hold:0.00} s) — the rig is being "
+                + "recentred. If the controls lesson's 'ctl_recenter' card did NOT tick after this "
+                + "line, the defect is downstream of the chord, in VRRigDriver.Recenter or the "
+                + "lesson's own waiting state, not in the button read. Printed once per session.");
+        }
         RequestRecenter();
         left!.SendHaptic(HapticPreset.GrabPulse);
         right!.SendHaptic(HapticPreset.GrabPulse);

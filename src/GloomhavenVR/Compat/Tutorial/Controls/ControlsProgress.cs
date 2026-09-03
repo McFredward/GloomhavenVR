@@ -16,6 +16,18 @@ internal enum ControlAction
     WorldZoom,      // both sticks clicked in, hands apart/together
     Fly,            // push the movement stick
     SnapTurn,       // flick a stick sideways
+    // NO STEP TEACHES THIS ANY MORE (user ruling 2026-09-03, verbatim: "Entferne den ersten Test
+    // 'Zeigen und Auswählen' - wenn man es bis hier hin geschaft hat kennt man das schon - hat
+    // keinen Mehrwert"). The reason it is safe as well as right: the lesson takes over the game's
+    // own tutorial box, and that box only opens once the tutorial's opening story dialogue has been
+    // DISMISSED — which the player does by pointing the laser at a button and pulling the trigger.
+    // The card taught the control the player had just used to make the card appear.
+    //
+    // THE VALUE STAYS, and so does BoardClickDriver's Notify call site. Waiting is only ever set to
+    // an action a step declares, so with no such step Notify's first line — `Waiting != action` —
+    // returns immediately and the call site costs two static reads on the board's click path,
+    // exactly as it did for every other never-running action. Deleting the value instead would mean
+    // editing a file this lane does not own to remove a call that already does nothing.
     LaserClick,     // point the laser, pull the trigger
     FingertipPick,  // hold grip, touch the board with a fingertip
     ProximityGrab,  // reach out, squeeze the trigger

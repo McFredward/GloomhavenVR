@@ -258,6 +258,22 @@ internal static class BoardClickDriver
                 // PING or SELECT, decided per TAPPED HEX (class remarks + DecideTapCore).
                 // All commit gates above (grip, contact depth, poke/UI occluders, entry edge,
                 // per-hand cooldown) have already passed — only the meaning branches here.
+                // Controls lesson: the "hold the grip and touch a hex" step. Reported HERE rather
+                // than at the contact test, so only a commit that actually passed every gate
+                // (grip held, depth reached, no UI in the way, entry edge, cooldown clear) counts —
+                // that was always the intent and the comment is unchanged in that respect.
+                //
+                // WHAT MOVED, AND WHY (user, 2026-09-03: "Der 'Mit der Fingerspitze auswählen' Test
+                // ist nicht erfolgreich obwohl ich mit der Fingerspitze einen Ping ausgelöst habe").
+                // This call used to sit BELOW the ping branch's `return`, so a fingertip touch that
+                // the game decided meant PING never reported the step at all — which is exactly what
+                // he did and exactly what he saw. The taught thing is "hold the grip and touch a hex
+                // with a fingertip"; whether that hex then means ping or select is DecideTap's
+                // reading of the board state, not a choice the player made or could have made
+                // differently. So it is reported once, above the branch, at the point where every
+                // gate has passed and the only thing left to decide is what the touch means.
+                Compat.ControlsProgress.Notify(Compat.ControlAction.FingertipPick);
+
                 CClientTile? touchedTile = ResolveTouchedTile(target);
                 if (touchedTile != null)
                 {
@@ -272,10 +288,6 @@ internal static class BoardClickDriver
 
                 LogTouchCommit(hand);
                 RequestClick(hand, "fingertip touch");
-                // Controls lesson: the "hold the grip and touch it" step. Reported HERE rather
-                // than at the contact test, so only a commit that actually passed every gate
-                // (grip held, depth reached, no UI in the way, cooldown clear) counts.
-                Compat.ControlsProgress.Notify(Compat.ControlAction.FingertipPick);
 
                 // P5 (MISSION A.8): poking an actor miniature additionally announces
                 // the actor on the bus — WorldUI opens its world-space stat panel.

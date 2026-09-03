@@ -236,18 +236,20 @@ internal static partial class Loc
         ["ctl_key_primary"] = Pair("A (X on the left controller)",
                                    "A (auf der linken Hand X)"),
         ["ctl_key_primary_dpad"] = Pair("the BOTTOM of the D-pad",
-                                        "UNTEN auf dem Steuerkreuz"),
+                                        "UNTEN auf dem D-Pad"),
         ["ctl_key_secondary"] = Pair("B and Y — the upper button on BOTH controllers",
                                      "B und Y — die obere Taste auf BEIDEN Controllern"),
         ["ctl_key_secondary_dpad"] = Pair(
             "the top of BOTH D-pads — left, up or right all count",
-            "oben auf BEIDEN Steuerkreuzen — links, oben und rechts zählen alle"),
+            "oben auf BEIDEN D-Pads — links, oben und rechts zählen alle"),
 
         // THE BODIES, CUT TO ONE INSTRUCTION EACH (user, 2026-09-03, verbatim: "es ist viel zu
         // viel text - kürzer den Text von dir auf das nötigste. Die Aufmerksamkeitspanne ist nicht
         // so hoch der Spieler."). The evidence he is right is in his own log: the run in
         // .planning/debug/second_logs/Player.log skips ctl_welcome, ctl_laser AND ctl_grab — the
-        // three longest cards, and two of them the controls nothing else works without.
+        // three longest cards, and two of them the controls nothing else works without. (ctl_laser
+        // has since been removed outright, 2026-09-03 — see the note where it used to be. The log
+        // reading stands: it is evidence about what a long card costs, not about that one step.)
         //
         // THE RULE THESE ARE NOW WRITTEN TO, so the next card is judged the same way:
         //   * one instruction, and no justification, reassurance or design rationale. The worst
@@ -274,20 +276,38 @@ internal static partial class Loc
             + "{0}-Controllern mit beleuchteter Taste.\n\nÜBERSPRINGEN geht weiter. Du musst "
             + "nichts davon tun."),
 
-        ["ctl_laser_t"] = Pair("Point and click", "Zeigen und auswählen"),
-        ["ctl_laser_b"] = Pair(
-            "Point the laser from your hand at something and pull the TRIGGER.",
-            "Ziel mit dem Laser aus deiner Hand auf etwas und drück den ABZUG."),
+        // ctl_laser_t / ctl_laser_b are GONE (user ruling 2026-09-03, verbatim: "Entferne den
+        // ersten Test 'Zeigen und Auswählen' - wenn man es bis hier hin geschaft hat kennt man das
+        // schon - hat keinen Mehrwert"). He is right on the mechanism as well as the feel: the
+        // lesson opens in the game's own tutorial box, and the ONLY way to reach that box is to
+        // have dismissed the opening story dialogue — which is a laser click on a button. A card
+        // teaching the control the player just used to summon the card is a card that can only be
+        // skipped. ControlAction.LaserClick survives in the enum and BoardClickDriver still reports
+        // it; with no step waiting on it ControlsProgress.Notify returns on its first line.
 
         ["ctl_grab_t"] = Pair("Reach out and grab", "Zugreifen"),
         ["ctl_grab_b"] = Pair(
             "Move your hand to the thing itself and squeeze the TRIGGER.",
-            "Fahr mit der Hand direkt hin und drück den ABZUG."),
+            "Fahr mit der Hand direkt hin und drück den TRIGGER."),
 
-        ["ctl_drag_t"] = Pair("Move the table", "Den Tisch verschieben"),
+        // WHAT THIS CARD ACTUALLY TEACHES, corrected 2026-09-03 (user: "'Den Tisch verschieben'
+        // stimmt ja nicht so. Man verschiebt sich ja auch selber mit dem Trigger der Joysticks und
+        // verschieben und nicht den Tisch."). He is describing the code: WorldGrab's own class doc
+        // says "all motion is applied INVERSELY to the rig root — game objects are never moved", so
+        // the one-stick drag hauls the PLAYER through a world that never moves. The table only
+        // APPEARS to slide, and a card that names the appearance teaches the wrong mental model —
+        // which is why the next card, ctl_fly, then had to insist "that moves YOU, not the table"
+        // about a control that differs from this one only in CLICKING the stick versus PUSHING it.
+        // The two cards now distinguish exactly that, and nothing else.
+        //
+        // ctl_zoom and ctl_rotate are deliberately NOT renamed with it. He named only the drag, and
+        // the two-handed gestures genuinely read as the board changing: zoom changes the rig SCALE
+        // and rotate its YAW about the point between the hands, so "the table gets bigger" and "the
+        // table turns" are what the eye is given and what the player is steering.
+        ["ctl_drag_t"] = Pair("Pull yourself along", "Dich selbst ziehen"),
         ["ctl_drag_b"] = Pair(
-            "Press ONE thumbstick down, hold it and move your hand — the table comes with you.",
-            "Drück EINEN Stick nach unten, halt ihn und bewege die Hand — der Tisch kommt mit."),
+            "CLICK ONE thumbstick in, hold it and move your hand — you pull yourself along.",
+            "Drück EINEN Stick HINEIN, halt ihn und bewege die Hand — du ziehst dich selbst mit."),
 
         ["ctl_zoom_t"] = Pair("Zoom in and out", "Heran- und wegzoomen"),
         ["ctl_zoom_b"] = Pair(
@@ -302,19 +322,22 @@ internal static partial class Loc
         ["ctl_card_take_t"] = Pair("Take a card", "Eine Karte nehmen"),
         ["ctl_card_take_b"] = Pair(
             "Turn a palm towards you and take a card from the fan with the TRIGGER.",
-            "Dreh eine Handfläche zu dir und nimm eine Karte aus dem Fächer mit dem ABZUG."),
+            "Dreh eine Handfläche zu dir und nimm eine Karte aus dem Fächer mit dem TRIGGER."),
 
         ["ctl_card_hold_t"] = Pair("Hold a card properly", "Eine Karte richtig halten"),
         ["ctl_card_hold_b"] = Pair(
             "Hold the GRIP as well and the card sits in your hand instead of floating.",
-            "Halte zusätzlich die GREIFTASTE, dann liegt die Karte in der Hand statt zu schweben."),
+            "Halte zusätzlich den GRIP, dann liegt die Karte in der Hand statt zu schweben."),
 
         ["ctl_fly_t"] = Pair("Move yourself", "Dich selbst bewegen"),
         ["ctl_fly_b"] = Pair(
-            // "not the table" stays: the same stick moved the table two cards ago, and without
-            // the contrast this card reads as a repeat of that one.
-            "Push a thumbstick in a direction — that moves YOU, not the table.",
-            "Drück einen Stick in eine Richtung — das bewegt DICH, nicht den Tisch."),
+            // THE CONTRAST CHANGED SIDES (2026-09-03). It used to be "that moves YOU, not the
+            // table", which was written when ctl_drag claimed to move the table — and that claim
+            // was false (see ctl_drag above), so the contrast was between a truth and a mistake.
+            // Both cards move the player. The real difference is the THUMB: this one is PUSHED,
+            // the drag is CLICKED IN, and that is what the card now says.
+            "This time PUSH the thumbstick in a direction instead of clicking it in.",
+            "Kipp den Stick diesmal in eine Richtung, statt ihn HINEINZUDRÜCKEN."),
 
         ["ctl_turn_t"] = Pair("Turn round", "Dich umdrehen"),
         ["ctl_turn_b"] = Pair(
@@ -323,8 +346,12 @@ internal static partial class Loc
 
         ["ctl_fingertip_t"] = Pair("Pick with a fingertip", "Mit der Fingerspitze auswählen"),
         ["ctl_fingertip_b"] = Pair(
-            "Hold the GRIP and touch the board with a fingertip.",
-            "Halte die GREIFTASTE und tipp das Spielfeld mit einer Fingerspitze an."),
+            // "das Spielfeld" was read as the whole table (user, 2026-09-03: "Auch die Beschreibung
+            // ist etwas irreführend was mit 'dem Spielfeld' gemeint ist"). What the fingertip has to
+            // land on is ONE HEX — BoardClickDriver resolves the touched target to a CClientTile and
+            // commits nothing when that resolve fails — so the card names a hex.
+            "Hold the GRIP and touch a HEX on the board with a fingertip.",
+            "Halte den GRIP und tipp ein FELD auf dem Spielbrett mit der Fingerspitze an."),
 
         ["ctl_reel_t"] = Pair("Pull a window closer", "Ein Fenster heranziehen"),
         ["ctl_reel_b"] = Pair(
@@ -436,7 +463,7 @@ internal static partial class Loc
             "• Flick a thumbstick left/right for a snap turn.\n\n" +
             "Move the table once and the tutorial continues.",
             "Dieser Schritt erklärt normalerweise die Desktop-Kamera — in VR bewegst du die Welt direkt:\n\n" +
-            "• Halte einen Daumenstick GEDRÜCKT (hineindrücken) und ziehe die Hand — der Tisch folgt.\n" +
+            "• Halte einen Thumbstick GEDRÜCKT (hineindrücken) und ziehe die Hand — der Tisch folgt.\n" +
             "• Halte BEIDE Stick-Klicks — drehe die Hände umeinander, um den Tisch zu drehen; " +
             "ziehe sie auseinander oder zusammen, um zu zoomen.\n" +
             "• Stick kurz nach links/rechts = Schnelldrehung.\n\n" +
@@ -491,13 +518,13 @@ internal static partial class Loc
         // grip condition, so the strip stays self-explanatory without a preceding box.
         ["tut_vr_hex"] = Pair(
             "Choose a highlighted hex: laser + trigger — or hold the GRIP button and touch it with a fingertip.",
-            "Wähle ein markiertes Feld: Laser + Trigger — oder GRIFF-Taste halten und mit der Fingerspitze antippen."),
+            "Wähle ein markiertes Feld: Laser + Trigger — oder GRIP-Taste halten und mit der Fingerspitze antippen."),
         ["tut_vr_hex_target"] = Pair(
             "Choose the target: laser + trigger on the marked enemy hex — or hold GRIP and touch it with a fingertip.",
-            "Wähle das Ziel: Laser + Trigger auf das markierte Gegnerfeld — oder GRIFF-Taste halten und antippen."),
+            "Wähle das Ziel: Laser + Trigger auf das markierte Gegnerfeld — oder GRIP-Taste halten und antippen."),
         ["tut_vr_execute"] = Pair(
             "Execute: pick the chosen hex again (laser + trigger, or GRIP + fingertip) — or press CONFIRM on the board.",
-            "Ausführen: Feld erneut wählen (Laser + Trigger oder GRIFF-Taste + Fingerspitze) — oder BESTÄTIGEN am Brett."),
+            "Ausführen: Feld erneut wählen (Laser + Trigger oder GRIP-Taste + Fingerspitze) — oder BESTÄTIGEN am Brett."),
         ["tut_vr_confirm"] = Pair(
             "Continue with the board's CONFIRM keycap.",
             "Weiter mit der BESTÄTIGEN-Taste am Brett."),
@@ -572,7 +599,7 @@ internal static partial class Loc
             "• Confirm / undo / skip with the board keycaps.\n" +
             "• Point the laser at anything to inspect or select it.",
             "Dieser Hinweis beschreibt die Desktop-Steuerung — in VR:\n\n" +
-            "• Daumenstick GEDRÜCKT halten und ziehen bewegt den Tisch; BEIDE Stick-Klicks: " +
+            "• Thumbstick GEDRÜCKT halten und ziehen bewegt den Tisch; BEIDE Stick-Klicks: " +
             "drehen und zoomen.\n" +
             "• Karten mit dem Trigger aus dem Handfächer greifen und in die Brett-Slots legen.\n" +
             "• Bestätigen / Zurück / Überspringen über die Brett-Tasten.\n" +
@@ -757,7 +784,7 @@ internal static partial class Loc
         // Komfort ▸ Hände & Zielen — accessibility framing per ruling 15: the row is FOR a
         // player with a weak grip, and its everyday name says so.
         ["vr_o_curlassist"] = Pair("Full-grip assist (weak grip)", "Vollgriff-Hilfe (schwacher Griff)"),
-        ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die Grifftaste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
+        ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die GRIP-Taste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
         // Grafik ▸ Darstellung
         ["vr_o_eyeres"] = Pair("Resolution per eye", "Auflösung pro Auge"),
         ["h_vr_o_eyeres"] = Pair("The main sharpness-vs-frames dial: above 1 is sharper and dearer, below 1 cheaper and softer.", "Der Haupt-Regler Schärfe gegen Bildrate: über 1 schärfer und teurer, unter 1 günstiger und weicher."),
@@ -995,7 +1022,7 @@ internal static partial class Loc
         ["h_vr_o_primaryhand"] = Pair("Which hand holds the laser and plays cards.", "Welche Hand den Laser führt und Karten spielt."),
         ["h_vr_o_stickscroll"] = Pair("Stops a trigger press from panning the list under it, so options are easier to hit.", "Verhindert, dass ein Trigger-Druck die Liste darunter verschiebt — Optionen lassen sich leichter treffen."),
         ["h_vr_o_laserorigin"] = Pair("Whether the laser leaves from the fingertip or the controller.", "Ob der Laser an der Fingerspitze oder am Controller ansetzt."),
-        ["h_vr_o_fingertiptouch"] = Pair("Hold the grip and touch a hex to select it — like the laser click.", "Griff halten und ein Feld antippen — wie ein Klick mit dem Laser."),
+        ["h_vr_o_fingertiptouch"] = Pair("Hold the grip and touch a hex to select it — like the laser click.", "GRIP halten und ein Feld antippen — wie ein Klick mit dem Laser."),
         ["h_disable_post"] = Pair("Turns off the game's screen effects. Sharper, and cheaper.", "Schaltet die Bildschirmeffekte des Spiels ab. Schärfer und günstiger."),
         ["h_vr_o_fog"] = Pair("Removes the haze in rooms. Clearer view, less atmosphere.", "Entfernt den Dunst in Räumen. Klarere Sicht, weniger Stimmung."),
         ["h_wall_see_through"] = Pair("Fades walls that stand between you and the board.", "Blendet Wände aus, die zwischen dir und dem Brett stehen."),
@@ -1532,7 +1559,7 @@ internal static partial class Loc
         ["h_vr_ct_held"] = Pair(
             "The card in your hand: grab button, close-up size, how it sits in the grip, "
             + "and the slot glow it lands in.",
-            "Die Karte in deiner Hand: Greif-Taste, Nahansicht, wie sie im Griff sitzt, und "
+            "Die Karte in deiner Hand: GRIP-Taste, Nahansicht, wie sie im Griff sitzt, und "
             + "das Slot-Glühen, in dem sie landet."),
         ["vr_ct_piles"] = Pair("Piles", "Stapel"),
         ["h_vr_ct_piles"] = Pair(
