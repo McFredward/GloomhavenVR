@@ -305,6 +305,170 @@ internal static partial class WallSegmentFade
         /// a scratch list shared between two live iterations is how one gets cleared underneath
         /// the other.</summary>
         private readonly List<Renderer> _fadeSolidScratch = new(32);
+
+        /// <summary>
+        /// THE TERM THAT KEEPS ONE RENDERER SOLID — the field this census did not have.
+        ///
+        /// <para>THE REPORT (user, 2026-09-03, hardware, ModBuild 380, verbatim): <i>"In einem
+        /// Level (dem ersten Level was ich geladen habe) faden die Säulen nicht, obwohl sie die
+        /// Sicht versperren"</i>, <c>.planning/debug/säulen.jpg</c>. Free-standing square stone
+        /// pillars stand in a row where the masonry beside them has already dissolved, hiding the
+        /// floor hexes and the figures behind them.</para>
+        ///
+        /// <para>THE CENSUS ALREADY NAMED THEM AND STILL COULD NOT ANSWER IT. In the ModBuild-380
+        /// log the pillar is named in 99 of the 127 prints of its own unit:
+        /// <c>TORN 'CR_OS_Pillar_Large_02' 6/7 written … — LEFT SOLID under the same root, named
+        /// 1 of 1, dropped 0: CR_OS_Pillar_Large_02</c>. Its own skull dressing
+        /// (<c>EN_CR_LBSkull</c>) fades; the 1.5x3.5x1.5 wu pillar mesh does not. That is the
+        /// photograph. But the <c>LEFT SOLID</c> clause carried NAMES ONLY, and the
+        /// <c>TWO OWNERS</c> clause beside it names the owners of the WRITTEN half — so the log
+        /// could state which renderer stays and never which term keeps it.</para>
+        ///
+        /// <para>WHY THE ANSWER WAS STRUCTURALLY UNREACHABLE, and it is one line:
+        /// <see cref="LogFadeWriteCensus"/> walks the segment table under
+        /// <c>if (seg.Fade &lt;= 0f) continue;</c>. A renderer whose owning segment is at fade
+        /// ZERO is therefore skipped before the census ever looks at it, so the one owner that
+        /// could explain a still-solid piece is exactly the owner the loop refuses to visit. The
+        /// LEFTOVER OVER A FADED WALL line cannot cover for it either: that sweep reports
+        /// renderers NO segment claimed, and a claimed wall renderer under a solid segment is
+        /// outside its population by construction — which is why <c>CR_OS_Pillar_Large_02</c>
+        /// appears in no LEFTOVER class anywhere in the 380 log. The blind spot was the lead.</para>
+        ///
+        /// <para>WHAT THIS INDEX IS: renderer → its owning segment, that segment's list (the same
+        /// path string the WRITTEN rows print) and that segment's CURRENT fade, built over ALL
+        /// segments including the zero-fade ones. It exists so a still-solid renderer can be
+        /// classified into one of two arms, and the two arms send the next round to two different
+        /// lines: <c>[OWNER SOLID]</c> — a wall segment does own it and that segment decided
+        /// solid, so the question is a COVERAGE DECISION and the PER-WALL line for that segment
+        /// carries the numbers; <c>[UNOWNED]</c> — no segment owns it, so the question is ADOPTION
+        /// and the LEFTOVER line carries the reject reason.</para>
+        ///
+        /// <para>WHAT IT DOES NOT CLAIM. It reports an OWNER and that owner's FADE, both read
+        /// back off the live segment table. It does not say why that owner decided solid — the
+        /// PER-WALL line owns that question and already answers it per segment — and it must
+        /// never be edited into saying so, because it cannot observe it.</para>
+        ///
+        /// <para>COST: one pass over the segment table's lists, on a frame that is ALREADY
+        /// printing the census — i.e. behind both the 2 s cadence gate and the change-trigger
+        /// signature. In the ModBuild-380 session that is 68 passes over at most ~1 225 renderer
+        /// entries across a ~20-minute run, against a decision loop that walks the same lists
+        /// several times per 2 s rescan. It writes no renderer, no material and no segment.</para>
+        /// </summary>
+        private readonly struct SolidOwner
+        {
+            // FIELD NAMES ARE DELIBERATELY PREFIXED. check-instrument-writes.py resolves reads by
+            // BARE FIELD NAME across the whole tree, so a diagnostic struct with fields called
+            // Owner/Path/Fade collects a read from every unrelated `Owner`, `Path` and `Fade` in
+            // the mod and reports itself as load-bearing. That is exactly why FadeWrite's four
+            // fields sit in .planning/refactor/INSTRUMENT-WRITES.baseline. A unique prefix costs
+            // nothing and keeps this struct out of the baseline instead of adding to it.
+
+            /// <summary>The owning segment's anchor name.</summary>
+            internal readonly string SegOwner;
+            /// <summary>Which of the segment's lists holds it — the same vocabulary the WRITTEN
+            /// rows use, so the two halves of a torn unit are read in one currency.</summary>
+            internal readonly string SegPath;
+            /// <summary>That segment's fade RIGHT NOW. Zero is the interesting value: it is the
+            /// term, and it is the value the write loop skips on.</summary>
+            internal readonly float SegFade;
+
+            internal SolidOwner(string owner, string path, float fade)
+            {
+                SegOwner = owner;
+                SegPath = path;
+                SegFade = fade;
+            }
+        }
+
+        /// <summary>Renderer → owning segment, rebuilt per printed census and cleared at the end
+        /// of it. Held only for the duration of ONE census call for the same reason
+        /// <see cref="FadeUnit.Root"/> is: Apparance rebirths these subtrees constantly, and a
+        /// renderer kept across calls is a dangling reference within a couple of seconds.</summary>
+        private readonly Dictionary<Renderer, SolidOwner> _solidOwners = new(256);
+
+        /// <summary>Unit indices with at least one still-solid renderer, ordered LARGEST FIRST
+        /// for <see cref="EmitSolidBlockerLine"/>. A list rather than a re-sort of
+        /// <c>_fadeUnits</c>: that order is the debug census's and is load-bearing for it.</summary>
+        private readonly List<int> _solidBlockerOrder = new(32);
+
+        /// <summary>Tallies over the still-solid population of THIS census, by the term that keeps
+        /// each piece. Written and read only by the census.</summary>
+        private int _solidOwnerSolid;
+        private int _solidUnowned;
+        private int _solidOwnerFading;
+
+        /// <summary>
+        /// Index every renderer the segment table holds, INCLUDING the segments at fade zero that
+        /// <see cref="LogFadeWriteCensus"/>'s write loop skips. Same lists, same order, same path
+        /// vocabulary — the only difference is that this one does not filter on the fade, because
+        /// the fade is the answer.
+        /// </summary>
+        private void BuildSolidOwnerIndex()
+        {
+            _solidOwners.Clear();
+            foreach (Segment seg in _live.Segments.Values)
+            {
+                string owner = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                string wallPath = IsPerRendererSplit(seg) ? "wall renderer[split segment]"
+                                                          : "wall renderer";
+                foreach (MeshRenderer r in seg.Renderers)
+                    NoteSolidOwner(r, wallPath, owner, seg.Fade);
+                foreach (MeshRenderer r in seg.Foliage)
+                    NoteSolidOwner(r, "foliage", owner, seg.Fade);
+                foreach (MeshRenderer r in seg.Siblings)
+                    NoteSolidOwner(r, "asset sibling", owner, seg.Fade);
+                foreach (MountedProp p in seg.Body)
+                    NoteSolidOwner(p.Renderer, "wall body mesh", owner, seg.Fade);
+                foreach (MountedProp p in seg.Stacked)
+                    NoteSolidOwner(p.Renderer, "stacked shell", owner, seg.Fade);
+                foreach (MountedProp p in seg.Mounted)
+                    NoteSolidOwner(p.Renderer, "mounted dressing", owner, seg.Fade);
+                foreach (MountedProp p in seg.UnitDressing)
+                    NoteSolidOwner(p.Renderer, "prop-unit dressing", owner, seg.Fade);
+            }
+        }
+
+        /// <summary>Record one ownership. FIRST writer wins, and deliberately: these lists are
+        /// walked in the same order the write loop walks them, so a renderer reachable from two of
+        /// them is attributed to the same one in both halves of the line.</summary>
+        private void NoteSolidOwner(Renderer? r, string path, string owner, float fade)
+        {
+            if (r == null || IsModObject(r))
+                return;
+            if (!_solidOwners.ContainsKey(r))
+                _solidOwners[r] = new SolidOwner(owner, path, fade);
+        }
+
+        /// <summary>
+        /// One still-solid renderer, with the term that keeps it. Replaces the bare
+        /// <c>piece.name</c> the LEFT SOLID clause used to print — the marker text around it is
+        /// unchanged, this only fills the slot the marker introduces.
+        /// </summary>
+        private string DescribeSolidPiece(Renderer piece)
+        {
+            if (!_solidOwners.TryGetValue(piece, out SolidOwner o))
+                return piece.name + " ← NO WALL SEGMENT OWNS IT [UNOWNED]";
+            return piece.name + " ← " + o.SegPath + " of '" + o.SegOwner + "' fade "
+                   + o.SegFade.ToString("0.00")
+                   + (o.SegFade <= 0f ? " [OWNER SOLID]"
+                                      : " [OWNER FADING, THIS PIECE UNWRITTEN]");
+        }
+
+        /// <summary>Tally one still-solid renderer by its term. SEPARATE from
+        /// <see cref="DescribeSolidPiece"/> on purpose: the names are capped at
+        /// <see cref="FadeCensusSolidNamesPerUnit"/> per unit and the TALLIES ARE NOT, so a term
+        /// that only ever appears in a unit's seventh solid piece is still counted. A tally that
+        /// silently shared the name cap would be a summary stat over a truncated list, which is
+        /// the shape of two wrong diagnoses in this project already.</summary>
+        private void ClassifySolidPiece(Renderer piece)
+        {
+            if (!_solidOwners.TryGetValue(piece, out SolidOwner o))
+                _solidUnowned++;
+            else if (o.SegFade <= 0f)
+                _solidOwnerSolid++;
+            else
+                _solidOwnerFading++;
+        }
         /// <summary>Countable renderers under a node, memoised for the duration of ONE census
         /// call — see <see cref="CensusRendererCount"/>. Cleared at the end of every call:
         /// Apparance rebirths these subtrees constantly and a transform kept across calls is a
@@ -391,8 +555,17 @@ internal static partial class WallSegmentFade
             if (_fadeWrites.Count == 0)
                 return;
 
+            // The zero-fade half of the segment table, which the write loop above skipped
+            // on `seg.Fade <= 0f`. Built HERE — after the cadence gate AND after the change
+            // trigger — so it costs nothing at all on a frame that prints nothing.
+            _solidOwnerSolid = 0;
+            _solidUnowned = 0;
+            _solidOwnerFading = 0;
+            BuildSolidOwnerIndex();
             BuildFadeUnits();
             EmitFadeWriteCensus();
+            EmitSolidBlockerLine();
+            _solidOwners.Clear();
         }
 
         /// <summary>Record one write, skipping renderers that are gone or ours.</summary>
@@ -578,8 +751,11 @@ internal static partial class WallSegmentFade
                     if (written)
                         continue;
                     u.SolidTotal++;
+                    // Every solid piece is CLASSIFIED; only the first six are NAMED. See
+                    // ClassifySolidPiece for why those two populations are deliberately different.
+                    ClassifySolidPiece(piece);
                     if (u.Solid.Count < FadeCensusSolidNamesPerUnit)
-                        u.Solid.Add(piece.name);
+                        u.Solid.Add(DescribeSolidPiece(piece));
                 }
                 _fadeSolidScratch.Clear();
             }
@@ -947,6 +1123,128 @@ internal static partial class WallSegmentFade
                 + $"leaving it standing (the ModBuild-258 line's '106 left visible'). "
                 + $"Anchor = AABB min.y over the nearest anchored room floor, the same anchor the "
                 + $"mounted census prints. {rows}");
+        }
+
+        /// <summary>How many still-solid renderers the DEFAULT-tier line names. Four, not the
+        /// twelve the debug census names: this line is printed at <c>VRLog.Note</c> and a hardware
+        /// round has to be able to read it in a Player.log, not scroll past it. The full list, with
+        /// the same per-piece term, is on the FADE WRITE line one tier down.</summary>
+        private const int SolidBlockerNameCap = 4;
+
+        /// <summary>
+        /// SOLID BLOCKER — the pillar report's answer, at a tier the shipped default prints.
+        ///
+        /// <para>WHY IT IS A SEPARATE LINE AND NOT A PROMOTION. ModBuild 331 moved
+        /// <c>VRLog.Info</c> to the DEBUG tier, so the FADE WRITE census — the line that carries
+        /// this evidence — is invisible in a default Player.log. Promoting THAT line is not an
+        /// option: it is kilobytes wide by design. So the verdict gets its own line, short enough
+        /// to survive the default level, and it carries NAMES rather than a count, because a
+        /// summary stat is not the field.</para>
+        ///
+        /// <para>WHAT IT ANSWERS. For every prop unit this frame's fade paths wrote PART of, it
+        /// names the renderers that stayed solid and, for each, the term that keeps it:
+        /// <c>[OWNER SOLID]</c> (a wall segment owns it and that segment is at fade 0.00 — the
+        /// question is a coverage DECISION, and the PER-WALL line for that named segment has the
+        /// numbers), <c>[UNOWNED]</c> (no segment owns it — the question is ADOPTION, and the
+        /// LEFTOVER OVER A FADED WALL line has the reject reason), or
+        /// <c>[OWNER FADING, THIS PIECE UNWRITTEN]</c> (the owner is fading and the write did not
+        /// reach this renderer — a DELIVERY question, and the DISSOLVE CENSUS has the channel).
+        /// Three arms, three different next lines to read, and until now the log could name the
+        /// renderer and none of the three.</para>
+        ///
+        /// <para>IT ASSERTS NOTHING IT CANNOT SEE. Owner and fade are read back off the live
+        /// segment table after the frame's Apply pass. The line does not say why an owner decided
+        /// solid, and must not be edited into saying so.</para>
+        ///
+        /// <para>CADENCE. Behind the census's own 2 s gate AND its change-trigger signature, and
+        /// gated again on there being at least one torn unit — so a session with nothing to report
+        /// prints nothing at all. In the ModBuild-380 log the census printed 68 times in about
+        /// twenty minutes.</para>
+        ///
+        /// <para>MULTIPLAYER: a diagnostic. It writes no renderer, no material, no segment and no
+        /// wire record; suppressing it cannot change a pixel on any peer.</para>
+        /// </summary>
+        private void EmitSolidBlockerLine()
+        {
+            // ONE POPULATION, as everywhere else in this census: every unit in _fadeUnits was
+            // built FROM a write, so a unit with SolidTotal > 0 is by construction a unit some
+            // path wrote and some path did not. The three tallies below are counted over exactly
+            // these units' solid pieces — not a wider set and not a narrower one.
+            int tornUnits = 0, solidPieces = 0, namedAvailable = 0;
+            _solidBlockerOrder.Clear();
+            for (int i = 0; i < _fadeUnits.Count; i++)
+            {
+                FadeUnit u = _fadeUnits[i];
+                if (u.SolidTotal <= 0)
+                    continue;
+                tornUnits++;
+                solidPieces += u.SolidTotal;
+                namedAvailable += u.Solid.Count;
+                _solidBlockerOrder.Add(i);
+            }
+            if (tornUnits == 0)
+                return;
+
+            // LARGEST UNIT FIRST, and deliberately the OPPOSITE end from the debug census. That
+            // line sorts SMALLEST first because the defect it was built for is a skull; this one
+            // exists for a 3.5 wu pillar, and a four-name cap applied to a smallest-first list
+            // would drop exactly the renderer the report is about. A truncated list is not
+            // absence — so the two lines truncate from opposite ends and each says which.
+            // Insertion sort over tens of entries, on a frame that is already printing.
+            for (int i = 1; i < _solidBlockerOrder.Count; i++)
+            {
+                int key = _solidBlockerOrder[i];
+                int j = i - 1;
+                while (j >= 0 && _fadeUnits[_solidBlockerOrder[j]].SizeRank
+                                 < _fadeUnits[key].SizeRank)
+                {
+                    _solidBlockerOrder[j + 1] = _solidBlockerOrder[j];
+                    j--;
+                }
+                _solidBlockerOrder[j + 1] = key;
+            }
+
+            var named = new System.Text.StringBuilder();
+            int shown = 0;
+            foreach (int idx in _solidBlockerOrder)
+            {
+                FadeUnit u = _fadeUnits[idx];
+                for (int i = 0; i < u.Solid.Count && shown < SolidBlockerNameCap; i++, shown++)
+                {
+                    if (named.Length > 0)
+                        named.Append(" | ");
+                    named.Append('\'').Append(u.Label).Append("' ")
+                         .Append(u.DistinctWritten).Append('/').Append(u.TotalRenderers)
+                         .Append(" written, y[").Append(u.MinY.ToString("0.0")).Append("..")
+                         .Append(u.MaxY.ToString("0.0")).Append("] over floor ")
+                         .Append(u.FloorY.ToString("0.0")).Append(", widest ")
+                         .Append(u.SizeRank.ToString("0.0")).Append(" wu: ").Append(u.Solid[i]);
+                }
+                if (shown >= SolidBlockerNameCap)
+                    break;
+            }
+
+            // HW-VERIFY
+            VRLog.Note(Name,
+                $"SOLID BLOCKER: {solidPieces} renderer(s) stayed SOLID inside {tornUnits} prop "
+                + $"unit(s) whose OTHER renderers this mod faded this pass — the shape of the "
+                + $"pillar report (user 2026-09-03, säulen.jpg: 'faden die Säulen nicht, "
+                + $"obwohl sie die Sicht versperren'). BY THE TERM THAT KEEPS EACH ONE, counted "
+                + $"over ALL of them and not over the named subset: {_solidOwnerSolid} "
+                + $"[OWNER SOLID] — a wall segment DOES own it and that segment is at fade 0.00, "
+                + $"so this is a coverage DECISION and the PER-WALL line for the named segment "
+                + $"carries its numbers; {_solidUnowned} [UNOWNED] — no wall segment owns it at "
+                + $"all, so this is ADOPTION and the LEFTOVER OVER A FADED WALL line carries the "
+                + $"reject reason; {_solidOwnerFading} [OWNER FADING, THIS PIECE UNWRITTEN] — the "
+                + $"owner is mid-fade and the write did not reach this renderer, so this is "
+                + $"DELIVERY and the DISSOLVE CENSUS carries the channel. Three arms, three "
+                + $"different next lines. WIDEST UNIT FIRST — the debug census names smallest "
+                + $"first (a skull is small) and this line names widest first (a pillar is not), "
+                + $"so the two truncate from opposite ends. Named {shown} of {namedAvailable} "
+                + $"nameable "
+                + $"({solidPieces} solid in total; the FADE WRITE census one tier down names six "
+                + $"per unit and carries the same per-piece term for every one of them), "
+                + $"dropped {namedAvailable - shown}: {named}");
         }
 
         /// <summary>How this unit came to be one unit — printed on every row, because "1 of 2
