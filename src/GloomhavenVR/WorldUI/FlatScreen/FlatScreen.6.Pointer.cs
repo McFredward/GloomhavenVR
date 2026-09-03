@@ -528,7 +528,25 @@ internal sealed partial class FlatScreen
             UnityEngine.EventSystems.ExecuteEvents.Execute(
                 data.pointerPress, data, UnityEngine.EventSystems.ExecuteEvents.pointerUpHandler);
 
-        if (clickTarget != null)
+        // ModBuild 390 — THE SECOND CLICK SEAM, ADOPTED FROM UguiPointer.Release. This method is
+        // the OTHER generic hit-test-and-click path in the mod: it raycasts at a pixel and
+        // dispatches down/up/click to whatever came back, all inside ONE call and therefore ONE
+        // frame — which is exactly the exposure the hand paths' press/release split does not have.
+        // A phantom target under an un-started UIWindow is reachable here in a way it is not
+        // through the laser, so the guard has to stand at both seams or it stands at neither.
+        //
+        // The predicate is UguiPointer's, CALLED rather than restated: two copies of a safety term
+        // is how two seams drift. pointerDown and pointerUp above are deliberately left alone, as
+        // they are in Release — a real input module also releases a press it will not turn into a
+        // click, and only the CLICK is what arms the game's stale listener.
+        if (clickTarget != null
+            && UguiPointer.ShouldWithholdUnstartedWindowClick(clickTarget, "flat-screen"))
+        {
+            VRLog.Info("WorldUI", $"DirectClick at ({pixel.x:F0},{pixel.y:F0}): the click on "
+                                  + $"'{clickTarget.name}' was WITHHELD — see the CLICK WITHHELD "
+                                  + "line for the window and the two terms that decided it.");
+        }
+        else if (clickTarget != null)
         {
             UnityEngine.EventSystems.ExecuteEvents.Execute(
                 clickTarget, data, UnityEngine.EventSystems.ExecuteEvents.pointerClickHandler);
