@@ -73,11 +73,23 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<string, string> _hangingRefusalNamesByTerm = new();
         private const int HangingRefusalNamesPerTerm = 2;
 
-        private void NoteHangingRefusal(string name, float foot, float top, float gap, string term)
+        /// <summary>ModBuild 413: a Foliage-family refusal is ALSO named in its own list (up to
+        /// four), so a plant can never be hidden behind two LOD names under the same term — the
+        /// 412 clause's architecture term named 'LOD2'/'LOD1' and the vines were the 73 unnamed.</summary>
+        private readonly List<string> _hangingFoliageRefusalNames = new();
+
+        private void NoteHangingRefusal(string name, float foot, float top, float gap, string term,
+            bool foliage = false)
         {
             _censusHangingPlantsRefusedOther++;
             _hangingRefusalByTerm.TryGetValue(term, out int seen);
             _hangingRefusalByTerm[term] = seen + 1;
+            if (foliage && _hangingFoliageRefusalNames.Count < HangingRefusalNameCap)
+            {
+                _hangingFoliageRefusalNames.Add(
+                    $"'{name}' foot {foot:F2} / top {top:F2} wu, gap "
+                    + (float.IsInfinity(gap) ? "none" : gap.ToString("F2")) + $" — {term}");
+            }
             if (seen >= HangingRefusalNamesPerTerm)
                 return;
             string row = $"'{name}' foot {foot:F2} / top {top:F2} wu over the floor, nearest wall gap "
@@ -116,6 +128,7 @@ internal static partial class WallSegmentFade
             _hangingRefusalByTerm.Clear();
             _hangingRefusalNamesByTerm.Clear();
             _hangingBandNames.Clear();
+            _hangingFoliageRefusalNames.Clear();
             if (float.IsInfinity(minFloorY) || _factCount == 0)
                 return;
 
@@ -266,10 +279,19 @@ internal static partial class WallSegmentFade
                     NoteHangingRefusal(name, footOver, topOver, bestGap, "non-occluding shader/queue");
                     continue;
                 }
-                if (IsArchitectureScale(b.size, 0f))
+                // ModBuild 413 — THE TERM THAT REFUSED THE IVY. 'CR_RU_Vines (2)' is a draped
+                // sheet of 1.1 x 1.5 x 1.0 wu: 1.65 wu³, over the 1.5 wu³ volume half of the
+                // architecture guard, so it read as "a wall's or a unit's business" and was
+                // named nowhere (the 412 clause's architecture term was capped at two LOD names).
+                // A Foliage-family mesh — the game's own "this is a plant" — is judged on the
+                // two-fat-axes half only.
+                if (f.FoliageShader ? IsFatOnTwoAxes(b.size) : IsArchitectureScale(b.size, 0f))
                 {
                     NoteHangingRefusal(name, footOver, topOver, bestGap,
-                        "architecture-scale (2 fat axes or volume > 1.5 wu³) — a wall's or a unit's business");
+                        f.FoliageShader
+                            ? "architecture-scale (2 fat axes > 3.0 wu; Foliage-family, so the volume term is waived)"
+                            : "architecture-scale (2 fat axes or volume > 1.5 wu³) — a wall's or a unit's business",
+                        f.FoliageShader);
                     continue;
                 }
                 if (r.GetComponentInParent<ProceduralWall>() != null)
@@ -281,7 +303,8 @@ internal static partial class WallSegmentFade
                 if (IsStandingFigureProp(r))
                 {
                     _censusHangingPlantsRefusedStanding++;
-                    NoteHangingRefusal(name, footOver, topOver, bestGap, "STANDING PROP (two-arm rule)");
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "STANDING PROP (two-arm rule)",
+                        f.FoliageShader);
                     continue; // a floor-standing prop unit keeps its protection
                 }
                 if (best.Mounted.Count >= MountedMaxPerSegment)
@@ -363,6 +386,10 @@ internal static partial class WallSegmentFade
                     first = false;
                 }
             }
+            // ModBuild 413: the Foliage-family refusals by name, whatever term took them.
+            sb.Append(". Foliage-family refusals named (up to ").Append(HangingRefusalNameCap)
+              .Append(", the game's own plant shader family, whatever term refused them): ")
+              .Append(_hangingFoliageRefusalNames.Count == 0 ? "none" : string.Join("; ", _hangingFoliageRefusalNames));
             sb.Append(". Ground-band refusals named (up to ").Append(HangingRefusalNameCap)
               .Append(", floor cover = stands on the ROOM floor and tops out under floor + ")
               .Append((GroundExclusionHeightWU + HangingPlantMinAboveBandWU).ToString("0.0"))
