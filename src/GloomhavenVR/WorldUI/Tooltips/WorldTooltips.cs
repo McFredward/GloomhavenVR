@@ -88,7 +88,10 @@ internal sealed class WorldTooltips
     // bigger tooltip grows up and to the right, into open air — never down into the board).
     // The anchor is recomputed from the board's LIVE world pose + lossy scale EVERY tick (see
     // TryGetBoardAreaPose), so a tray grab-resize (which rewrites Root.localScale) and any
-    // tray move/tilt re-aligns the tooltip immediately.
+    // tray move/tilt re-aligns the tooltip immediately. ModBuild 405: that recompute now feeds
+    // a SEAT LATCH (see the _latch* fields) — the corner is MEASURED once per episode and read
+    // back through the board's live pose afterwards, so the board still carries the box but the
+    // cards on the board (which are inside the measured bounds) can no longer walk it.
     //
     // Bug history, in order: (1) an early revision derived the corner from the AUTHORED plate
     // constants; the VISIBLE board (bundled frame + decorations) is LARGER than the plate, so
@@ -217,6 +220,50 @@ internal sealed class WorldTooltips
     private int _driftReportsLeft = 3;
     private int _orderLogsLeft = 4;
     private int _lastLoggedOrder = int.MinValue;
+
+    // ---- ModBuild 405: the SEAT LATCH — the box's seat is derived ONCE per episode, in the -----
+    // ---- BOARD's frame, and never re-derived from anything that moves while it is shown -------
+    // WHY (hardware log 2026-09-03, ModBuild 404: 'largest one-frame move 13.24 mm … 31.54 mm … 3
+    // sideways reversals', measured AFTER the second-stage pin): the pin was faithful — its TARGET
+    // moved. TryGetBoardAreaPose re-derived the seat every tick from PlayTray.MeasureBoardLocalExtents,
+    // which is the LIVE combined bounds of every MeshRenderer under the tray — and that set holds the
+    // cards in the slots: a hovered card lifting, a card flying home after UNDO, a fan re-lay, all
+    // move the measured 'top-left corner' by up to the 0.35 board-local m sanity band, and the box
+    // followed every one of them (the 31.54 mm episode sits on a 'BoardButton_Rückgängig' press).
+    // The box's own size fed the same target through the starts-top-left contract (centre = seat +
+    // halfW·right + halfH·up), so a content re-show that doubled the box's height (1.164×0.194 →
+    // 1.164×0.398 m, i.e. 0.204 wu / 20.02 wu·m⁻¹ = 10.2 mm, and 0.167 wu of width = 8.3 mm: the
+    // logged 13.2 mm step is exactly that diagonal) walked the centre with it. Neither the hand nor
+    // the head is in the target at all — both were already cancelled by the frame pin.
+    //
+    // THE RULE: the seat (the box's bottom-left corner, the ONE point the area contract defines) is
+    // latched in BOARD-LOCAL coordinates on the first placed frame of an episode and re-derived only
+    // when (a) the CONTENT changes — a different UITooltipLines template, i.e. another widget's hint
+    // shown without a hide in between, which is a new episode by definition — or (b) the user's own
+    // [Cards] HoverHintOffset dial moves (the debug-menu nudge must still move an open hint). The
+    // board moving or resizing needs no re-latch: the seat is expressed in the board's frame, so the
+    // box rides the board rigidly, which is the only legitimate motion. The box's live size still
+    // grows it up/right FROM the held seat (a resize is counted and reported, never hidden).
+    private bool _latchValid;
+    private Vector3 _latchSeatLocal;        // the box's bottom-left seat, board-local (scale included)
+    private Vector3 _latchAreaOriginLocal;  // the measured corner the seat was derived from (log only)
+    private UITooltipLines? _latchTemplate; // the content identity the seat was latched for
+    private Vector3 _latchDial;             // BoardHintOffset() at latch time
+    private Vector2 _latchHalf;             // box half extents last seen (resize bookkeeping)
+    private Vector3 _latchBoardPos;         // board pose last seen (rigid-ride bookkeeping)
+    private Quaternion _latchBoardRot;
+    private Vector3 _latchBoardScale;
+    private int _latchFrame;                // Time.frameCount of the episode's first latch
+    private int _latchRelatchContent;       // re-latches because the content changed
+    private int _latchRelatchDial;          // re-latches because the user dial moved
+    private int _latchBoardMovedFrames;     // shown frames on which the board itself moved
+    private int _latchResizes;              // box size changes after the latch
+    private float _latchResizeMax;          // largest half-extent change, world units
+    private const float LatchResizeEpsilon = 1e-4f;   // wu; below this a size delta is float noise
+    private const float LatchBoardMoveEpsilon = 1e-4f; // wu / degrees; the board 'moved' past this
+                                                       // (the tray watchdog re-seats the root from
+                                                       // the rig, so exact equality would count
+                                                       // float re-derivation as motion)
 
     /// <summary>Descendant transforms flattened this session (original local z + rotation for Restore).</summary>
     private readonly List<FlattenEntry> _flattened = new(32);
@@ -1136,6 +1183,7 @@ internal sealed class WorldTooltips
         if (!(contentShown || withinGrace) || !placed)
         {
             FlushDriftReport(scale); // the shown episode is over — say what the box did
+            _latchValid = false;     // the next appearance derives its seat afresh (ModBuild 405)
             // Not showing: hand the authored order straight back instead of leaving a lift
             // latched on the game's shared canvas (same reversibility contract as Restore).
             if (!onMenuPanel && _canvas.sortingOrder != _originalSortingOrder)
@@ -1348,24 +1396,111 @@ internal sealed class WorldTooltips
     /// the area. Re-run every tick, so the game re-arranging the box mid-hover is corrected the
     /// same frame. Falls back to the pre-existing <see cref="PanelSlot.Tooltip"/> table slot
     /// when no board is present (menu / Cards module off).
+    ///
+    /// ModBuild 405 — SEAT LATCH: the area itself is measured once per episode (first placed
+    /// frame, content change, user-dial move) and held in the BOARD's frame; the per-tick work is
+    /// only the read-back through the board's live pose plus the frame-pinning above. See the
+    /// <c>_latch*</c> field block for the hardware evidence that forced this.
     /// </summary>
     private bool TryResolveTooltipPose(out Vector3 position, out Quaternion rotation)
     {
         // The tooltip's OWN rendered half-extents (world). Scales with the canvas world scale
         // we set this tick, so it tracks a board resize for free.
         GetTooltipHalfExtents(out float ttHalfW, out float ttHalfH);
-        if (TryGetBoardAreaPose(ttHalfW, ttHalfH, out Vector3 frameCenter, out rotation,
-                                out Vector3 areaOrigin))
+        if (TryGetBoardRoot(out Transform root))
         {
+            // ModBuild 405 — THE SEAT LATCH (see the field block). The seat is derived from the live
+            // board measurement exactly once per episode and re-derived only for a content change or
+            // a user-dial move; every other frame reads the latched board-local point back through
+            // the board's LIVE pose, so the box stands still on a still board and rides a moved one.
+            UITooltipLines? template = _tooltip != null ? _tooltip.m_LinesTemplate : null;
+            Vector3 dial = BoardHintOffset();
+            string? why = null;
+            bool contentChanged = false;
+            if (!_latchValid)
+                why = "first latch of the episode";
+            else if (template != null && !ReferenceEquals(template, _latchTemplate))
+            {
+                why = "content changed"; // another widget's hint without a hide in between
+                contentChanged = true;
+            }
+            else if (dial != _latchDial)
+                why = "user offset dial moved";
+
+            if (why != null)
+            {
+                // The seat is the area pose of a ZERO-sized panel: the box's bottom-left corner,
+                // margin above the measured corner, proud, plus the dial — the one size-independent
+                // point of the starts-top-left contract.
+                TryGetBoardAreaPose(0f, 0f, out Vector3 seat, out _, out Vector3 areaOrigin);
+                _latchSeatLocal = root.InverseTransformPoint(seat);
+                _latchAreaOriginLocal = root.InverseTransformPoint(areaOrigin);
+                if (_latchValid)
+                {
+                    if (contentChanged)
+                        _latchRelatchContent++;
+                    else
+                        _latchRelatchDial++;
+                    VRLog.Info("WorldUI",
+                        $"Tooltip seat RE-LATCHED ({why}) on frame {Time.frameCount}: board-local seat "
+                        + $"{_latchSeatLocal:F4} (was latched on frame {_latchFrame}).");
+                }
+                else
+                {
+                    _latchFrame = Time.frameCount;
+                }
+                _latchValid = true;
+                _latchTemplate = template;
+                _latchDial = dial;
+                _latchHalf = new Vector2(ttHalfW, ttHalfH);
+                _latchBoardPos = root.position;
+                _latchBoardRot = root.rotation;
+                _latchBoardScale = root.lossyScale;
+            }
+            else
+            {
+                // Bookkeeping for the STILLNESS line: name what moved, if anything did. A board
+                // move is the box riding rigidly (legitimate); a resize is growth from the held
+                // seat (reported, so a non-zero centre step can be read against it).
+                Vector3 bp = root.position;
+                Quaternion br = root.rotation;
+                Vector3 bs = root.lossyScale;
+                if ((bp - _latchBoardPos).sqrMagnitude > LatchBoardMoveEpsilon * LatchBoardMoveEpsilon
+                    || Quaternion.Angle(br, _latchBoardRot) > LatchBoardMoveEpsilon
+                    || (bs - _latchBoardScale).sqrMagnitude > LatchBoardMoveEpsilon * LatchBoardMoveEpsilon)
+                {
+                    _latchBoardMovedFrames++;
+                    _latchBoardPos = bp;
+                    _latchBoardRot = br;
+                    _latchBoardScale = bs;
+                }
+                float dw = Mathf.Abs(ttHalfW - _latchHalf.x);
+                float dh = Mathf.Abs(ttHalfH - _latchHalf.y);
+                if (dw > LatchResizeEpsilon || dh > LatchResizeEpsilon)
+                {
+                    _latchResizes++;
+                    float d = Mathf.Max(dw, dh);
+                    if (d > _latchResizeMax)
+                        _latchResizeMax = d;
+                    _latchHalf = new Vector2(ttHalfW, ttHalfH);
+                }
+            }
+
+            // Read the latched seat back through the board's LIVE pose (position, rotation AND
+            // scale — TransformPoint carries all three), then grow the box up/right from it.
+            rotation = root.rotation;
+            Vector3 seatWorld = root.TransformPoint(_latchSeatLocal);
+            Vector3 frameCenter = seatWorld + rotation * new Vector3(ttHalfW, ttHalfH, 0f);
             position = frameCenter - FrameCenterOffsetWorld(rotation);
             _frameCenterTarget = frameCenter;
             _frameCenterTargetValid = true;
-            _lastBoardTopEdgeWorldY = areaOrigin.y;
+            _lastBoardTopEdgeWorldY = root.TransformPoint(_latchAreaOriginLocal).y;
             _lastTooltipHalfWorld = new Vector2(ttHalfW, ttHalfH);
             return true;
         }
 
         // Safe fallback: the original curved-table slot (top-right, above initiative).
+        _latchValid = false;
         _frameCenterTargetValid = false;
         _lastBoardTopEdgeWorldY = 0f;
         _lastTooltipHalfWorld = Vector2.zero;
@@ -1626,20 +1761,48 @@ internal sealed class WorldTooltips
         _driftSum = 0f;
         _driftReversals = 0;
         _driftPrevSign = 0;
+        // ModBuild 405: the latch's episode bookkeeping, taken and reset with the drift numbers.
+        int latchFrame = _latchFrame;
+        int relatchContent = _latchRelatchContent;
+        int relatchDial = _latchRelatchDial;
+        int boardMoved = _latchBoardMovedFrames;
+        int resizes = _latchResizes;
+        float resizeMm = scale > 0f ? _latchResizeMax / scale * 1000f : 0f;
+        _latchRelatchContent = 0;
+        _latchRelatchDial = 0;
+        _latchBoardMovedFrames = 0;
+        _latchResizes = 0;
+        _latchResizeMax = 0f;
         if (_driftReportsLeft <= 0 || frames < 2)
             return;
         _driftReportsLeft--;
+        int relatches = relatchContent + relatchDial;
+        string relatchWhy = relatches == 0 ? "none"
+            : relatchContent > 0 && relatchDial > 0
+                ? $"{relatchContent} content change(s) + {relatchDial} user-dial move(s)"
+                : relatchContent > 0 ? $"{relatchContent} content change(s)"
+                : $"{relatchDial} user-dial move(s)";
         // HW-VERIFY: the proof of stillness. 'largest one-frame move 0.00 mm' over N frames is a
         // measured zero; a non-zero largest move with several reversals is the sawtooth the user
         // described (creep one way, snap back), and its size says whether the second-stage pin
-        // is being overwritten by a writer that runs after LateUpdate.
+        // is being overwritten by a writer that runs after LateUpdate. The LATCH clause (ModBuild
+        // 405) attributes any non-zero: a re-latch is a deliberate new seat (content change / user
+        // dial), a board-moved frame is the box riding the board, a resize is growth from the held
+        // seat. On a still board with one content and a settled size all four read zero.
         VRLog.Note("WorldUI",
             $"TOOLTIP STILLNESS (board-owned): over {frames} shown frame(s) the box centre's largest "
             + $"one-frame move was {maxMm:0.00} mm ({sumMm:0.00} mm of path in total) with "
             + $"{reversals} sideways reversal(s). Measured AFTER the second-stage pin, on the value "
             + "that renders. Zero movement is the requirement (user 2026-09-03: 'komplett ruhig "
             + "stehen bleiben ohne jegliche Bewegung'); a repeat of creep-and-snap here names a "
-            + $"writer this tick does not own. ({_driftReportsLeft} more of these lines this session.)");
+            + $"writer this tick does not own. ({_driftReportsLeft} more of these lines this session.) "
+            + $"LATCH (ModBuild 405): the box's seat was latched in the BOARD's frame on frame "
+            + $"{latchFrame} and re-latched {relatches} time(s) ({relatchWhy}); the board itself "
+            + $"moved on {boardMoved} of the shown frames (the box rides it rigidly — the only "
+            + $"legitimate motion); the box resized {resizes} time(s) after the latch (largest "
+            + $"half-extent change {resizeMm:0.00} mm — growth up/right from the held seat, not "
+            + "drift). The seat is no longer re-derived from the tray's live renderer bounds (the "
+            + "cards in the slots) nor from the box's own size while it is shown.");
     }
 
     private void Restore()
@@ -1648,6 +1811,8 @@ internal sealed class WorldTooltips
             return;
         FlushDriftReport(ResolveWorldScale());
         _frameCenterTargetValid = false;
+        _latchValid = false;
+        _latchTemplate = null;
         _converted = false;
         CanvasConversion.RemoveMaskRequest();
 
