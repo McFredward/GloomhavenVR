@@ -1175,6 +1175,17 @@ internal static class StoryComposite
         // ModalFallback and because the refusal it raises must be settled before the release loop.
         QuestJourneyCurtain.Tick();
 
+        // ModBuild 381 — THE TUTORIAL HINT GOES ON THE WINDOW IT IS TALKING ABOUT, and it is ticked
+        // from here for THIS METHOD'S OWN TWO REASONS rather than as a convenience. (1) Its unpark
+        // must run BEFORE the release loop, which destroys the host the hint was parked under.
+        // (2) Its park must run BEFORE the convert pass, so ModalFallback.RendersInsideFloatedAncestor
+        // has already made the hint a sub-view by the time anything would have floated it — which is
+        // what keeps the catch-all's float fuse from ever counting it. It is ABOVE every precondition
+        // of this class because it has nothing to do with the story composite: the hint family is
+        // UIIntroductionManager's own LevelMessageUILayoutGroup, which is neither of the two groups
+        // LevelMessagesUIHandler owns. See HintOnOwnerComposite.
+        HintOnOwnerComposite.Tick();
+
         UIWindow? story = StoryWindow();
         UIWindow? loadout = LoadoutWindow();
 
@@ -4612,6 +4623,12 @@ internal static class StoryComposite
         // ModBuild 238 — and the quest-journey curtain, for the same reason as everything else in
         // this block: a refusal that outlived this class would be a suppression with no owner.
         QuestJourneyCurtain.Reset();
+        // ModBuild 381 — and the tutorial hint goes back to 'Introduction Canvas' before the scene
+        // changes. A game window left parented under a mod host is exactly the class of leak this
+        // block exists for, and here it is sharper than usual: re-parenting moves the object into
+        // the host's scene ([[adopting-a-window-takes-its-lifetime]]), so a hint still parked at a
+        // scene load would take UIIntroductionManager's own layout group with it.
+        HintOnOwnerComposite.Reset();
         _backdropStanding = false;
         _backdropObject = null;
         _backdropLifted = false;
