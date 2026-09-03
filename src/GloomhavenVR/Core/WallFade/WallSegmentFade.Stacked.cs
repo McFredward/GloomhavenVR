@@ -299,6 +299,49 @@ internal static partial class WallSegmentFade
         /// <summary>Candidates rejected for cause mid-round (engulf / game logic) — never
         /// retried in later rounds and excluded from the generic near-miss classification.</summary>
         private readonly HashSet<Renderer> _stackDead = new();
+
+        /// <summary>
+        /// MODBUILD 400 — EVERY RENDERER THIS LANE ACTUALLY LOOKED AT THIS RESCAN.
+        ///
+        /// <para><b>WHY IT EXISTS.</b> The mounted sweep evicts an architecture-scale mesh with the
+        /// sentence <c>"architecture-scale (AABB volume 7.2 wu³ &gt; 1.5) — stacked-shell territory,
+        /// never sconce dressing"</c>. That sentence names a DESTINATION, and nothing has ever
+        /// checked that the destination took delivery. It cannot have: this lane runs earlier in
+        /// the same rescan (<c>CommitPhase.Stacked</c> before <c>CommitPhase.Mounted</c>) and every
+        /// piece it adopts is written into <c>_attachmentOwned</c> as <c>"stacked shell piece"</c>,
+        /// so the mounted sweep skips it long before the volume guard. By the time that guard
+        /// fires, "stacked-shell territory" is false for EVERY candidate that reaches it, by
+        /// construction. An eviction to a lane that has already said no is not a hand-off, it is a
+        /// hole — and a piece in it is refused by both lanes and stays solid forever.</para>
+        ///
+        /// <para><b>WHAT THE 396 LOG SHOWS IN THAT HOLE.</b> The cave entrance
+        /// <c>PCG_CV_Entrance_01_PR</c> the user photographed (eingang-faded-nicht.jpg): its rocks
+        /// read <c>'CV_Generic_Rock_01'[mesh] anchor 2.7 gap 0.00: architecture-scale (AABB volume
+        /// 7.2 wu³ &gt; 1.5) — stacked-shell territory</c> — gap 0.00 to a wall at fade 1.00 —
+        /// while its CRYSTALS, the same prefab, are small enough to pass the same guard and fade.
+        /// That is the user's report in both halves at once: the entrance stays, and it tears.</para>
+        ///
+        /// <para><b>WHY A SET AND NOT <c>!_stackedOwned.Contains</c>.</b> "Not owned" is true for a
+        /// renderer this lane never saw at all — one below the ground band, one already listed by a
+        /// segment, one whose bounds this pass never read. "Considered and declined" is the term
+        /// the mounted guard actually needs, and only this set states it. It is filled at the END
+        /// of the candidate prefilter, so membership means the piece passed every one of that
+        /// filter's tests and was offered to the adoption rounds.</para>
+        ///
+        /// <para>COST: one <c>HashSet.Add</c> per stack candidate per rescan, on a list the pass
+        /// already built; one lookup per architecture-scale mounted candidate. No scene query.
+        /// MULTIPLAYER: derived from local scene geometry every peer evaluates identically, exactly
+        /// like <c>_stackCandidates</c> itself; nothing is stored across frames and nothing is
+        /// wired.</para>
+        /// </summary>
+        private readonly HashSet<Renderer> _stackConsidered = new();
+
+        /// <summary>ModBuild 400: was this renderer offered to the stacked lane this rescan and
+        /// left unclaimed by it? The one question the mounted architecture-scale guard has to be
+        /// able to ask before it may evict a piece to that lane. See
+        /// <see cref="_stackConsidered"/>.</summary>
+        private bool StackedLaneDeclined(Renderer r) =>
+            _stackConsidered.Contains(r) && !_stackedOwned.Contains(r);
         private readonly List<MeshRenderer> _stackCandidates = new();
         private readonly List<string> _stackCensus = new();
         private readonly List<string> _stackRejects = new();
@@ -660,7 +703,8 @@ internal static partial class WallSegmentFade
                         }
                         continue;
                     }
-                    if (gap < bestGap)
+                    // ModBuild 400: ties broken on the anchor name, ordinally — see BeatsIncumbent.
+                    if (BeatsIncumbent(gap, bestGap, best, seg, r))
                     {
                         best = seg;
                         bestGap = gap;
@@ -802,6 +846,135 @@ internal static partial class WallSegmentFade
         /// </summary>
         /// <remarks>PERF S2: the input is the rescan cycle's RendererFact census (see
         /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
+        /// <summary>
+        /// MODBUILD 400 — THE TIE-BREAK THE PRIMARY ELECTIONS NEVER HAD, AND THE TERM THAT
+        /// DECIDES THE CAVE ENTRANCE.
+        ///
+        /// <para><b>THE HOUSE RULE, AND WHERE IT WAS ALREADY WRITTEN DOWN.</b> ModBuild 397 added
+        /// an ordinal anchor-name tie-break to the ON-WALL HOME tracker and stated the reason in
+        /// full on that line: <c>_live.Segments</c> is a <c>Dictionary</c> "whose bucket order is
+        /// unspecified and is reshuffled by every add and remove, so a strict <c>&lt;</c> alone
+        /// would let two peers pick different pieces", and "<c>HorizontalGap</c> returns 0.00 for
+        /// any footprint overlap, so exact ties are the normal case here rather than an edge one".
+        /// Every word of that applies verbatim to the PRIMARY elections beside it — the stacked
+        /// sticky/fast-reclaim election, the stacked adoption rounds and the mounted election — and
+        /// all three still resolved a tie by taking whichever segment the Dictionary happened to
+        /// yield first. The argument was made and then applied to one of four sites.</para>
+        ///
+        /// <para><b>WHAT THE 396 LOG SHOWS IT DOING.</b> The cave entrance the user photographed
+        /// (eingang-faded-nicht.jpg, <c>PCG_CV_Entrance_01_PR</c>) stands in XZ contact with
+        /// several walls at once, so its rocks tie at 0.00 against all of them:</para>
+        /// <list type="bullet">
+        /// <item>the stacked census elects <c>'CV_Generic_Rock_01'[→wallfade-native] base 2.7 top
+        ///   4.2 gap 0.00 → 'Wall 7'</c>, and the FADE WRITE rows for those same rocks read
+        ///   <c>stacked shell of 'Wall 7'</c> at fade <b>0.70</b> and <b>0.02</b>;</item>
+        /// <item>the mounted leftover rows for the SAME rocks read <c>DRAWING 0.00 wu from
+        ///   'Wall 4' whose fade is <b>1.00</b></c> — 313 rows on 'Wall 4' and 101 on 'Wall 8',
+        ///   every one of them at fade 1.00.</item>
+        /// </list>
+        /// <para>So the piece was bound to a wall it ties with and which barely fades, while the
+        /// walls it visibly stands in front of were fully open. And the churn tripwire fires on
+        /// exactly these renderers — <c>OWNERSHIP CHURN: 'CV_Generic_Rock_01' changed owner 3 times
+        /// in 60s (released(unattributed) → stacked:'Wall 7' → released(unattributed) →
+        /// stacked:'Wall 7')</c> — which is the Dictionary being reshuffled between rescans, i.e.
+        /// the mechanism the 397 comment names, observed.</para>
+        ///
+        /// <para><b>WHAT THIS IS AND IS NOT.</b> It is a determinism fix and a MULTIPLAYER
+        /// correctness fix: every peer walks the same scene and must reach the same owner, and
+        /// today they need not. It is NOT an argument that the ordinally-first anchor is the
+        /// RIGHT wall — no name ordering can carry that meaning. It removes an arbitrary choice
+        /// and replaces it with a stable one; whether the stable one is also correct for this
+        /// entrance is what the census clause added beside it exists to measure, and it is stated
+        /// as an open question in the report rather than claimed here.</para>
+        ///
+        /// <para>A tie against a null incumbent cannot occur: <c>bestGap</c> starts at
+        /// <c>PositiveInfinity</c>, so the first candidate always wins on the strict term. A
+        /// segment with a dead anchor cannot win a tie (it has no name to compare), which is the
+        /// same guard every other anchor-name read in this file carries.</para>
+        ///
+        /// <para>COST: one float compare, and on an exact tie one <c>string.CompareOrdinal</c>
+        /// over two short anchor names. MULTIPLAYER: this is the multiplayer term.</para>
+        /// </summary>
+        private bool BeatsIncumbent(float gap, float bestGap, Segment? incumbent,
+                                    Segment candidate, Renderer subject)
+        {
+            if (gap < bestGap)
+                return true;
+            if (gap != bestGap || incumbent == null || incumbent.Anchor == null
+                || candidate.Anchor == null)
+            {
+                return false;
+            }
+            // AN EXACT TIE. Counted whether or not it flips the incumbent, because "how often are
+            // these elections actually ties" is the question the entrance defect turns on and no
+            // log has ever carried it.
+            _censusElectionTies++;
+            // ModBuild 402 — THE TIE GOES TO THE WALL THE VIEWER IS LOOKING THROUGH. A free-standing
+            // mass at gap 0.00 to two walls (the cave entrance: 'Wall 7' at fade 0.70/0.02 AND
+            // 'Wall 4'/'Wall 8' at fade 1.00, 414 rows in the 396 log) is ride-only on whichever it
+            // binds to, so binding it to the wall that is NOT fading is exactly "der Eingang faded
+            // nicht, obwohl die Mauern daneben weg sind". The wall's current Fade is the coverage
+            // decision's own output — it is the one term that says which of two equidistant walls
+            // stands between the head and the room — so a tie is broken toward the higher fade
+            // first, and only an equal fade falls through to the ordinal name. The fade is a
+            // per-viewer presentation value and so is this choice; the ordinal term below is the
+            // multiplayer term for the state both peers share. Counted separately, and named.
+            float fadeEdge = candidate.Fade - incumbent.Fade;
+            if (fadeEdge > TieFadePreferenceMin)
+            {
+                _censusElectionTieFlips++;
+                _censusElectionTieFadeFlips++;
+                if (_electionTieNames.Count < ElectionTieNameCap)
+                {
+                    _electionTieNames.Add(
+                        $"'{subject.name}' gap {gap:F2}: '{incumbent.Anchor.name}'"
+                        + $"{WallIdTag(incumbent)} (fade {incumbent.Fade:F2}) -> "
+                        + $"'{candidate.Anchor.name}'{WallIdTag(candidate)} (fade "
+                        + $"{candidate.Fade:F2}) BY FADE — the viewer is looking through it");
+                }
+                return true;
+            }
+            if (fadeEdge < -TieFadePreferenceMin)
+                return false;
+            // Ties broken on the anchor name, ORDINALLY — the house rule. See the doc above.
+            if (string.CompareOrdinal(candidate.Anchor.name, incumbent.Anchor.name) >= 0)
+                return false;
+            _censusElectionTieFlips++;
+            // `.name` is an interop read that allocates, so it is paid only while the cap has room.
+            if (_electionTieNames.Count < ElectionTieNameCap)
+            {
+                _electionTieNames.Add(
+                    $"'{subject.name}' gap {gap:F2}: '{incumbent.Anchor.name}'"
+                    + $"{WallIdTag(incumbent)} -> '{candidate.Anchor.name}'{WallIdTag(candidate)}");
+            }
+            return true;
+        }
+
+        /// <summary>ModBuild 400: exact gap ties seen by <see cref="BeatsIncumbent"/> across all
+        /// three elections this rescan — the population the ordinal tie-break governs. A zero here
+        /// means these elections are never ties in this scene and the tie-break changed nothing;
+        /// a large number means Dictionary order was deciding owners before this build.</summary>
+        private int _censusElectionTies;
+
+        /// <summary>Of the tie flips, how many were decided by the FADE term (ModBuild 402) rather
+        /// than the ordinal name. The number the entrance round reads first.</summary>
+        private int _censusElectionTieFadeFlips;
+
+        /// <summary>How much more faded the candidate must be than the incumbent for the fade term
+        /// to decide a tie. Two walls both at 0.00 or both at 1.00 fall through to the name.</summary>
+        private const float TieFadePreferenceMin = 0.05f;
+
+        /// <summary>ModBuild 400: how many of <see cref="_censusElectionTies"/> the ordinal
+        /// tie-break actually resolved AGAINST the incumbent — i.e. how many owners differ from
+        /// what shipped in ModBuild 399.</summary>
+        private int _censusElectionTieFlips;
+
+        private const int ElectionTieNameCap = 12;
+
+        /// <summary>ModBuild 400: a capped sample of the flips, naming the piece and both walls.
+        /// A truncated list is not absence — the counts above are the population.</summary>
+        private readonly List<string> _electionTieNames = new();
+
         private void CollectStackedShellPieces()
         {
             // ModBuild 393: the wall-home map must exist BEFORE this pass elects anything — it is
@@ -826,6 +999,13 @@ internal static partial class WallSegmentFade
             _mountedWallHomeNames.Clear();
             _stackedOwned.Clear();
             _stackDead.Clear();
+            _stackConsidered.Clear();   // ModBuild 400 — same lifetime as _stackCandidates
+            // ModBuild 400: the election-tie window is one rescan, exactly like the decline window
+            // reset just above, so the counts and the names describe one population.
+            _censusElectionTies = 0;
+            _censusElectionTieFlips = 0;
+            _censusElectionTieFadeFlips = 0;
+            _electionTieNames.Clear();
             _stackCandidates.Clear();
             _stackCensus.Clear();
             _stackRejects.Clear();
@@ -1100,6 +1280,9 @@ internal static partial class WallSegmentFade
                 if (IsSegmentListedRenderer(r))
                     continue; // already some segment's renderer/foliage/sibling/mounted prop
                 _stackCandidates.Add(r);
+                // ModBuild 400: the piece was OFFERED to this lane. Recorded here and only here,
+                // so "considered" can never drift from "was in _stackCandidates".
+                _stackConsidered.Add(r);
             }
         }
 
@@ -1326,7 +1509,10 @@ internal static partial class WallSegmentFade
                         }
                         if (!bandOk)
                             continue; // not a course of THIS column
-                        if (gap < bestGap)
+                        // ModBuild 400: ties broken on the anchor name, ordinally — see
+                        // BeatsIncumbent. This is the election that bound the cave entrance's
+                        // rocks to 'Wall 7' out of a three-way tie at gap 0.00.
+                        if (BeatsIncumbent(gap, bestGap, best, seg, c))
                         {
                             bestGap = gap;
                             best = seg;

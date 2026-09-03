@@ -7330,7 +7330,7 @@ internal static partial class WallSegmentFade
                     // tally below is complete and untruncated.
                     string cls = ClassifyLeftover(r, seg.RoomIndex, out int blocked,
                                                   out float foot, out float top,
-                                                  out int visible);
+                                                  out int visible, out string obstructionNote);
                     _paUnclaimedByClass.TryGetValue(cls, out int seen);
                     _paUnclaimedByClass[cls] = seen + 1;
                     List<string> into =
@@ -7345,7 +7345,10 @@ internal static partial class WallSegmentFade
                         // No [EXEMPT] tag here on purpose: the water and arch rulings are asked
                         // in the chain ABOVE this branch, so nothing that reaches UNCLAIMED can
                         // be carrying one.
-                        + $"floor, hides {blocked} of {visible} in-view playable-tile sample(s)");
+                        // ModBuild 400 — see ObstructionNeverRanClause. Empty on every row whose
+                        // numbers ARE a measurement.
+                        + $"floor, hides {blocked} of {visible} in-view playable-tile sample(s)"
+                        + obstructionNote);
                 }
             }
         }

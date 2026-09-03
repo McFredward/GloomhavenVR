@@ -762,6 +762,21 @@ internal static partial class WallSegmentFade
         /// and the separate <c>[WALL-BUILT BELOW THE BAR]</c> tag. See
         /// <see cref="IsWallBuiltUnitDressing"/>.</summary>
         private int _censusMountedWallBuiltBelowBar;
+
+        /// <summary>ModBuild 400: architecture-scale meshes ADOPTED here because the stacked lane
+        /// had already declined them — the pieces that were previously refused by both lanes and
+        /// stayed solid. See the block at the volume guard for the whole argument. A ZERO IS A
+        /// READING: with the entrance in view it means the guard is no longer the term that holds
+        /// it, and the cause is upstream (most likely the stacked lane claiming it onto a wall that
+        /// does not fade — read the tie counts on the same line).</summary>
+        private int _censusMountedOrphanedArchitecture;
+
+        private const int MountedOrphanArchitectureNameCap = 12;
+
+        /// <summary>ModBuild 400: a capped sample of <see cref="_censusMountedOrphanedArchitecture"/>
+        /// naming the piece, its volume, its y-span, and the wall it now rides with that wall's
+        /// fade. A truncated list is not absence — the count above is the population.</summary>
+        private readonly List<string> _mountedOrphanedArchitectureNames = new();
         private int _lastLoggedMountedWallBuiltBelowBar = -1;
 
         /// <summary>Props that changed OWNER this rescan without ever being restored to visible —
@@ -1587,6 +1602,8 @@ internal static partial class WallSegmentFade
             _censusMountedWallBuilt = 0;
             _censusMountedWallBuiltCarried = 0;
             _censusMountedWallBuiltBelowBar = 0; // ModBuild 271 — the sixth site's own number
+            _censusMountedOrphanedArchitecture = 0; // ModBuild 400 — see the field
+            _mountedOrphanedArchitectureNames.Clear();
             _censusMountedHandover = 0;
             _releaseOverFadedWarns = 0;
             _leftoverFadedNear = null;
@@ -2183,7 +2200,10 @@ internal static partial class WallSegmentFade
                             NoteMountedSaturated(seg);
                             continue;
                         }
-                        if (gap < bestGap)
+                        // ModBuild 400: ties broken on the anchor name, ORDINALLY — the same
+                        // house rule, the same Dictionary and the same "gap 0.00 for any footprint
+                        // overlap" as the stacked election. See FadeDriver.BeatsIncumbent.
+                        if (BeatsIncumbent(gap, bestGap, best, seg, c))
                         {
                             bestGap = gap;
                             best = seg;
@@ -2338,13 +2358,61 @@ internal static partial class WallSegmentFade
                     float volume = b.size.x * b.size.y * b.size.z;
                     if (!particles && volume > MountedMaxMeshVolumeWU3)
                     {
-                        NoteMountedReject(c, anchorY, bestGap,
-                            MountedRejectReasonWanted(bestGap) // PERF E — see the helper
-                            ? $"architecture-scale (AABB volume {volume:F1} wu³ > "
-                              + $"{MountedMaxMeshVolumeWU3:F1}) — stacked-shell territory, "
-                              + "never sconce dressing"
-                            : MountedRejectReasonNotBuilt);
-                        continue;
+                        // MODBUILD 400 — AN EVICTION MUST NAME A DESTINATION THAT TOOK DELIVERY.
+                        //
+                        // The reason string below has said "stacked-shell territory" since the
+                        // stacked-shell round-2 MOUNTED STEAL fix, and nothing has ever checked
+                        // that the stacked lane accepted the piece. When it did not, the piece is
+                        // refused by BOTH lanes and stays solid forever — which is the second half
+                        // of the cave-entrance report (user 2026-09-03, eingang-faded-nicht.jpg):
+                        // 92 rows of 'CV_Generic_Rock_01/04' evicted here at gap 0.00 from a wall
+                        // at fade 1.00, interleaved with rescans in which the stacked lane held the
+                        // same rocks on a different wall entirely. See _stackConsidered.
+                        //
+                        // RIDE-ONLY BY CONSTRUCTION, so the round-2 lesson stands: the mounted lane
+                        // never touches seg.Bounds (adoption is `best.Mounted.Add(prop)` and
+                        // nothing else), so an adopted piece rides the wall's fade and contributes
+                        // exactly zero to the coverage metric that decides whether to fade. It
+                        // cannot inflate the trigger, which is the failure the volume guard was
+                        // built to prevent; it simply stops the piece being dropped on the floor
+                        // between two lanes.
+                        //
+                        // BOUNDED BY FIVE TERMS THAT ARE ALL ALREADY REQUIRED TO REACH THIS LINE,
+                        // and no new constant: the mesh is compact (< MountedMaxSpanWU on at least
+                        // two of three axes — anything bulkier left at the fatAxes guard above with
+                        // its own reason); it stands above the airborne bar over ITS room's floor;
+                        // it elected a SPECIFIC fadeable wall segment within MountedLinkMaxXZ =
+                        // 0.9 wu, inside that segment's span and band, in a room with a valid floor
+                        // decision; it is past both standing user rulings (the doorway arch and the
+                        // water feature are asked ~200 lines above this one); and it was OFFERED to
+                        // the stacked lane earlier in this same rescan and left unclaimed. A
+                        // boulder, a cliff or a forest floor outside the rooms fails the third term
+                        // outright — there is no wall within 0.9 wu to elect — and the terrain that
+                        // IS near a wall fails the first.
+                        if (StackedLaneDeclined(c))
+                        {
+                            _censusMountedOrphanedArchitecture++;
+                            if (_mountedOrphanedArchitectureNames.Count
+                                    < MountedOrphanArchitectureNameCap)
+                            {
+                                string ownWall = best.Anchor != null ? best.Anchor.name : "<dead>";
+                                _mountedOrphanedArchitectureNames.Add(
+                                    $"'{c.name}' vol {volume:F1} wu³ y[{b.min.y:F1}..{b.max.y:F1}] "
+                                    + $"gap {bestGap:F2} → '{ownWall}'{WallIdTag(best)} "
+                                    + $"(fade {best.Fade:F2})");
+                            }
+                            // fall through to adoption — do NOT `continue`
+                        }
+                        else
+                        {
+                            NoteMountedReject(c, anchorY, bestGap,
+                                MountedRejectReasonWanted(bestGap) // PERF E — see the helper
+                                ? $"architecture-scale (AABB volume {volume:F1} wu³ > "
+                                  + $"{MountedMaxMeshVolumeWU3:F1}) — stacked-shell territory, "
+                                  + "never sconce dressing"
+                                : MountedRejectReasonNotBuilt);
+                            continue;
+                        }
                     }
                     // MODBUILD 266 — "GetComponentInParent<Animator>() != null" ANSWERS "is
                     // there an Animator anywhere above me", NOT "am I a creature", and the
@@ -2612,6 +2680,10 @@ internal static partial class WallSegmentFade
             // its zero is a reading, and a change-gated line with a constant value prints once and
             // then reads as a stopped tick.
             EmitWrongWallLine();
+            // ModBuild 400: the cave-entrance round's own line, beside the wrong-wall line and for
+            // the same reason — it is the whole of this round and must not be a clause inside a
+            // line about something else. Unconditional: its zeros are readings.
+            EmitFreeStandingMassLine();
             // The two alarms stand alone: a leftover is the reported defect, and a mobile prop
             // is the round-7 ruling being enforced against a class the ancestry test cannot see.
             LogMountedLeftovers();
@@ -3458,7 +3530,8 @@ internal static partial class WallSegmentFade
             // wall goes. Falls back to "no anchored floor" when that segment has no valid room,
             // which is reported as its own class rather than silently read as ALLOWED.
             string cls = ClassifyLeftover(c, faded.RoomIndex, out int blockedSamples,
-                                          out float foot, out float top, out int visibleSamples);
+                                          out float foot, out float top, out int visibleSamples,
+                                          out string obstructionNote);
             _mountedLeftoverByClass.TryGetValue(cls, out int clsSeen);
             _mountedLeftoverByClass[cls] = clsSeen + 1;
             // ALLOWED gets its own list for the reason the 260 log needed and did not have: a
@@ -3476,7 +3549,10 @@ internal static partial class WallSegmentFade
                 (allowed ? string.Empty : $"[{cls}] ")
                 + $"'{c.name}'[{RendererKind(c)}] foot {foot:F2} wu / top {top:F2} wu over room "
                 + $"{faded.RoomIndex}'s floor, hides {blockedSamples} of {visibleSamples} in-view "
-                + $"playable-tile sample(s){LeftoverExemptionNote(c)}"
+                // ModBuild 400 — see ObstructionNeverRanClause. This is the line the entrance's
+                // rocks print, and until now its 'hides 0 of 0' was an unset counter that read
+                // exactly like a starved measurement.
+                + $"playable-tile sample(s){obstructionNote}{LeftoverExemptionNote(c)}"
                 // ModBuild 268: the DEFECT entries carry the wall-provenance DEPTH, because
                 // every other term on this line was measured against the six named subjects
                 // and all of them are interleaved. See WallProvenanceNote for the table.
@@ -3763,6 +3839,102 @@ internal static partial class WallSegmentFade
                 + "cross-wall binding froze. If that lane is missing from THIS log too, the carry "
                 + "never ran; if it reads 'already on a piece of its OWN wall's run' for "
                 + "everything, the carry is running and the bindings were already right.");
+        }
+
+        /// <summary>
+        /// THE MARKER FOR THE 2026-09-03 CAVE-ENTRANCE ROUND. Written down once, cited elsewhere
+        /// through <see cref="FreeStandingMassMarkerCitation"/>, for the reason
+        /// <see cref="LeftoverMarker"/> states at length: a line that tells a reader what to grep
+        /// for must not itself contain the phrase.
+        /// </summary>
+        private const string FreeStandingMassMarker = "FREE-STANDING MASS";
+
+        /// <summary>How other lines refer to <see cref="FreeStandingMassMarker"/> without printing
+        /// it. Hyphenated the other way on purpose: a human reads it as the same line, a grep for
+        /// the marker does not find it.</summary>
+        internal const string FreeStandingMassMarkerCitation = "FREE~STANDING~MASS";
+
+        /// <summary>
+        /// FREE-STANDING MASS — the line the 2026-09-03 hardware round is greppedfor.
+        ///
+        /// <para><b>THE REPORT.</b> User, 2026-09-03: <i>"Direkt am Start des Szenarios das ich
+        /// getestet habe ist ein eingestürter EIngang der nicht wegfaded wie er sollte — nur die
+        /// Kristalle inen drin faden weg."</i> (eingang-faded-nicht.jpg: a rock-built cave entrance
+        /// stands fully solid and hides two figures, while the masonry either side of it has
+        /// faded.) The subject is <c>PCG_CV_Entrance_01_PR</c> — a free-standing formation with NO
+        /// <c>ProceduralWall</c> anywhere above it, whose small children (the crystals,
+        /// <c>CV_Generic_Rock_05</c>) ride walls <c>'J'</c> and <c>'AA'</c> to fade 1.00 while its
+        /// large ones (<c>CV_Generic_Rock_01/04</c>) do not. Both halves of his sentence are the
+        /// same defect seen from two sides.</para>
+        ///
+        /// <para><b>THE THREE NUMBERS AND WHAT EACH READING MEANS.</b></para>
+        /// <list type="bullet">
+        /// <item><b>ties / flips.</b> The 396 log has the entrance's rocks at
+        ///   <c>gap 0.00</c> against 'Wall 7' (which it was bound to, at fade 0.70 and 0.02) AND
+        ///   at <c>gap 0.00</c> against 'Wall 4'/'Wall 8' (at fade 1.00, 414 rows). All three
+        ///   elections resolved such a tie by Dictionary order until this build. A LARGE tie count
+        ///   with a NON-ZERO flip count says Dictionary order was choosing owners and no longer is
+        ///   — and every peer now agrees, which is the multiplayer half. A ZERO tie count falsifies
+        ///   the whole reading: these elections are not ties in this scene, the entrance was bound
+        ///   to 'Wall 7' on a strictly smaller gap, and the term to look at next is the STACK BAND
+        ///   that excluded 'Wall 4'.</item>
+        /// <item><b>orphaned architecture.</b> Pieces the mounted volume guard used to evict to a
+        ///   lane that had already declined them. NON-ZERO with the entrance's rocks named is the
+        ///   acceptance for the second lane. ZERO means the stacked lane is holding them instead,
+        ///   so the guard was never the term keeping them solid — read the tie counts.</item>
+        /// <item><b>the obstruction clause.</b> Every <c>hides N of M</c> that is NOT a
+        ///   measurement now says so in words. If the entrance's rows still read
+        ///   <c>hides 0 of 0</c> WITHOUT a clause, this instrument did not ship.</item>
+        /// </list>
+        ///
+        /// <para><b>WHAT THIS LINE CANNOT SETTLE, STATED RATHER THAN IMPLIED.</b> Neither change
+        /// makes a free-standing formation CONTRIBUTE to the coverage decision. Both lanes are
+        /// ride-only for it, so if such a formation is ever the ONLY thing hiding a room, no wall
+        /// near it will be driven to fade and it will stay solid with every number on this line
+        /// reading zero. That case is not addressed here and must not be reported as fixed.</para>
+        ///
+        /// <para>Emitted UNCONDITIONALLY, never behind a change trigger: a held instrument reads as
+        /// a dead one, and all three of these numbers are expected to sit still once correct.</para>
+        /// </summary>
+        private void EmitFreeStandingMassLine()
+        {
+            string ties = _censusElectionTies == 0
+                ? "no election saw an exact gap tie this rescan — the tie-break governed nothing, "
+                  + "and if the entrance is still solid its owner was chosen on a strictly smaller "
+                  + "gap, not by Dictionary order"
+                : $"{_censusElectionTies} exact tie(s), of which {_censusElectionTieFlips} changed "
+                  + "the owner away from what Dictionary order would have picked"
+                  + $" ({_censusElectionTieFadeFlips} of those BY FADE, ModBuild 402: the tie went "
+                  + "to the wall the viewer is looking through; the rest by the ordinal name)"
+                  + (_electionTieNames.Count == 0
+                      ? " (none named — the flip count above is zero or the cap is 0)"
+                      : $" — named {_electionTieNames.Count} of {_censusElectionTieFlips} "
+                        + $"(cap {ElectionTieNameCap}, and a truncated list is not absence): "
+                        + string.Join("; ", _electionTieNames));
+            string orphans = _censusMountedOrphanedArchitecture == 0
+                ? "no architecture-scale mesh was adopted by the mounted lane this rescan — either "
+                  + "none reached the volume guard, or the stacked lane had already claimed every "
+                  + "one that did (which is a DIFFERENT state, and the tie counts above are where "
+                  + "it is read)"
+                : $"{_censusMountedOrphanedArchitecture} architecture-scale mesh(es) adopted "
+                  + "RIDE-ONLY that both lanes previously refused — named "
+                  + $"{_mountedOrphanedArchitectureNames.Count} of "
+                  + $"{_censusMountedOrphanedArchitecture} (cap "
+                  + $"{MountedOrphanArchitectureNameCap}, and a truncated list is not absence): "
+                  + string.Join("; ", _mountedOrphanedArchitectureNames);
+            // HW-VERIFY
+            VRLog.Note(Name,
+                $"{FreeStandingMassMarker} (ModBuild 400, user report 2026-09-03 "
+                + "'ein eingestürzter Eingang der nicht wegfaded' — eingang-faded-nicht.jpg): "
+                + "TIE-BREAK — " + ties + ". ORPHANED ARCHITECTURE — " + orphans
+                + ". NEITHER NUMBER IS A CLAIM THAT THE ENTRANCE FADED; both say which term moved. "
+                + "The entrance is a free-standing formation with no ProceduralWall above it, so "
+                + "it contributes NOTHING to any wall's coverage AABB on either lane (both are "
+                + "ride-only for it) — if it is the only occluder of a room, no wall near it is "
+                + "driven to fade and it stays solid with all of the above at zero. That case is "
+                + "open and is not addressed by this build. The obstruction clause on the leftover "
+                + "rows is the third instrument of this round: a 'hides 0 of 0' with no clause "
+                + "beside it means this build did not ship.");
         }
 
         /// <summary>

@@ -913,7 +913,8 @@ internal static partial class WallSegmentFade
                     int room = run.Room >= 0 ? run.Room : seg.RoomIndex;
                     string cls = ClassifyLeftover(shown, room, out int blockedSamples,
                                                   out float foot, out float top,
-                                                  out int visibleSamples);
+                                                  out int visibleSamples,
+                                                  out string obstructionNote);
                     _runLeftoverByClass.TryGetValue(cls, out int clsSeen);
                     _runLeftoverByClass[cls] = clsSeen + 1;
                     // THE RENDERER IS NAMED, NOT JUST ITS SEGMENT (ModBuild 262). 261 printed the
@@ -922,6 +923,9 @@ internal static partial class WallSegmentFade
                     string geom = $"'{shown.name}' foot {foot:F2} wu / top {top:F2} wu over room "
                                   + $"{room}'s floor, hides {blockedSamples} of "
                                   + $"{visibleSamples} in-view playable-tile sample(s)"
+                                  // ModBuild 400 — see ObstructionNeverRanClause. Empty on every
+                                  // row whose numbers ARE a measurement.
+                                  + obstructionNote
                                   + LeftoverExemptionNote(shown);
                     // ALLOWED pieces get their own list so a large ALLOWED population can never be
                     // read as a large defect — which is precisely the mistake the previous two
@@ -1088,12 +1092,83 @@ internal static partial class WallSegmentFade
 
         private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
             out float foot, out float top, out int visibleSamples)
+            => ClassifyLeftover(r, room, out blockedSamples, out foot, out top,
+                                out visibleSamples, out _);
+
+        /// <summary>
+        /// MODBUILD 400 — A ZERO DENOMINATOR IS NOT A MEASUREMENT, AND UNTIL NOW IT READ LIKE ONE.
+        ///
+        /// <para><b>THE DEFECT, IN THE ModBuild-396 LOG.</b> Every leftover row in this subsystem
+        /// prints <c>hides {blocked} of {visible} in-view playable-tile sample(s)</c>, and THREE
+        /// different states print the identical <c>hides 0 of 0</c>:</para>
+        /// <list type="number">
+        /// <item>the classifier RETURNED BEFORE the sample test ever ran — the
+        ///   <c>UNJUDGED (no anchored floor plane…)</c>, <c>FLOATING</c> and <c>WALL MEMBER</c>
+        ///   arms all return above it, leaving both out-parameters at the zeros they were
+        ///   initialised to. Nothing was measured and nothing was even attempted;</item>
+        /// <item>the room HAS a grid but no sample of it was frustum-visible this tick;</item>
+        /// <item>the room has no sample grid at all (which prints <c>of -1</c>, and appears zero
+        ///   times in the 396 log — so it has never yet been seen in the wild).</item>
+        /// </list>
+        ///
+        /// <para><b>WHAT IT COST.</b> The 396 log carries 1,742 <c>hides 0 of 0</c> readings
+        /// beside 1,460 <c>hides 0 of 16</c> readings, and a reader cannot tell the first group's
+        /// "the rule never ran" from the second group's "the rule ran and found nothing". Room 0
+        /// is the case in point: its rows read <c>of 8/10/12/13/14/15/16</c> 295 times, so that
+        /// room's grid is present and in view — every one of its 910 <c>of 0</c> rows is state (1),
+        /// an unset counter printed as a measurement. A reading of the entrance defect that this
+        /// round began with took those zeros for a starved obstruction test and named the
+        /// denominator as the cause; it is not the cause, it is an instrument that cannot say so.
+        /// This is the in-repo lesson "a summary stat is not the field", one layer down: the FIELD
+        /// itself had two meanings.</para>
+        ///
+        /// <para><b>THE FIX IS A CLAUSE, NOT A REWORDING.</b> The existing sentence is left
+        /// character-for-character intact — <c>check-surface.py</c> treats a vanished marker as a
+        /// removal, and every grep and every previous log in <c>.planning/debug/</c> keys on it.
+        /// A clause naming WHICH of the three states produced the numbers is APPENDED, and only
+        /// when the numbers are not a measurement. A genuine <c>hides 0 of 16</c> is already
+        /// unambiguous and stays exactly as it reads today, so the two zeros can never again reach
+        /// the same conclusion.</para>
+        ///
+        /// <para>NO CLASS CHANGES. The three non-measuring states already refuse to answer —
+        /// ModBuild 262 gave them their own <c>UNJUDGED (…)</c> classes precisely so a missing
+        /// input could never be read as <c>ALLOWED</c>, and <c>FLOATING</c> / <c>WALL MEMBER</c>
+        /// are verdicts reached on provenance and height without needing a sample at all. Nothing
+        /// here is newly excluded from <c>ALLOWED</c>; what changes is that the log now SAYS so on
+        /// the row instead of leaving it to be inferred from a zero.</para>
+        ///
+        /// <para>MULTIPLAYER: a log string on a diagnostic classification. Decides nothing, writes
+        /// no state, touches no wire field.</para>
+        /// </summary>
+        internal const string ObstructionNeverRanClause =
+            " [NOT MEASURED: the obstruction test never ran — this class was settled before it, so "
+            + "the sample counts above are unset counters and not a measurement]";
+
+        /// <summary>The room has a sample grid, but nothing of it was in view this tick. See
+        /// <see cref="ObstructionNeverRanClause"/> for the whole story.</summary>
+        internal const string ObstructionNoneInViewClause =
+            " [NOT MEASURED: the room HAS a playable-tile sample grid but NO sample of it was in "
+            + "view this tick — 'hides nothing' here is a statement about where the head is "
+            + "pointing, never about the piece]";
+
+        /// <summary>The room has no sample grid at all. See
+        /// <see cref="ObstructionNeverRanClause"/>.</summary>
+        internal const string ObstructionNoGridClause =
+            " [NOT MEASURED: this room has no playable-tile sample grid at all, so there was "
+            + "nothing to measure against]";
+
+        private string ClassifyLeftover(Renderer r, int room, out int blockedSamples,
+            out float foot, out float top, out int visibleSamples, out string obstructionNote)
         {
             Bounds b = r.bounds;
             blockedSamples = 0;
             visibleSamples = 0;
             foot = 0f;
             top = 0f;
+            // Set to the "never ran" clause UP FRONT, so every early return below is covered by
+            // construction rather than by remembering to set it. Only the two arms that actually
+            // consult the sample grid overwrite it.
+            obstructionNote = ObstructionNeverRanClause;
             if (room < 0 || room >= _live.RoomFloorY.Count || !RoomDecisionValid(room))
                 return "UNJUDGED (no anchored floor plane for this room)";
             float floorY = _live.RoomFloorY[room];
@@ -1112,9 +1187,19 @@ internal static partial class WallSegmentFade
                 return "WALL MEMBER";
             visibleSamples = PieceBlockedSamples(r, room, out blockedSamples);
             if (visibleSamples < 0)
+            {
+                obstructionNote = ObstructionNoGridClause;
                 return "UNJUDGED (this room has no playable-tile sample grid)";
+            }
             if (visibleSamples == 0)
+            {
+                obstructionNote = ObstructionNoneInViewClause;
                 return "UNJUDGED (no playable-tile sample of this room is in view this tick)";
+            }
+            // THE ONLY PATH ON WHICH THE PRINTED NUMBERS ARE A MEASUREMENT. Nothing is appended:
+            // 'hides 0 of 16' already says "the rule ran and found nothing" without help, and a
+            // clause on 1,460 healthy rows per session would be noise.
+            obstructionNote = string.Empty;
             return blockedSamples > 0 ? "OBSTRUCTING" : "ALLOWED";
         }
 
