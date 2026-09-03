@@ -60,11 +60,11 @@ game still fully mouse-playable in parallel.*
 | Per attempt | `[Core] Attempting OpenXR init on: ...` then `phase 2/4: InitXRSDK done — activeLoader: OpenXRLoader` and `phase 4/4: display subsystems: 1 [running=False]` (running=False here is normal) |
 | Init success | `[Core] OpenXR session up — runtime: <name> <version> (OpenXR plugin 1.10.0), render mode: MultiPass, activeLoader: OpenXRLoader.` |
 | HMD rendering | `[Core] XR display subsystem is RUNNING (HMD rendering) after N frame(s).` — this is the line that means the headset actually displays the game |
-| Plugin summary | `v0.1.0 loaded — 7 modules initialized, VR RUNNING on '<runtime>'.` |
-| Rig armed | `[Rig] Rig driver installed — waiting for a scenario camera.` |
+| Plugin summary | `v<version> build <hash> [<branch>] (built <utc>) loaded — N modules initialized, VR RUNNING on '<runtime>'.` — the line leads with the build identity (check it IS the commit you deployed); `N` is however many modules `Plugin.RegisterModules` holds, twelve today. The substring to grep for is `VR RUNNING on '` |
+| Rig armed | `[Rig] Rig driver + comfort stack installed — waiting for a scenario camera.` (without a headset: `Comfort stack installed in dev mode …`) |
 | Compat | `[Compat] Kill-switches armed for: PostProcessLayer, PostProcessVolume, VolumetricFog.` |
 | Intro (pre-menu) | `[WorldUI] Starting indicator shown (pre-menu scene, FlatScreen gated).` — intro plays vanilla on the desktop, HMD shows a grey void + "starting…" label |
-| Menu scene up | `[Rig] Menu rig built around camera '<name>' (… clear <orig> → SolidColor …)`, `[WorldUI] FlatScreen shown …`, `[WorldUI] FlatScreen quad placed: …`, `[WorldUI] Desktop mirror active — FlatScreen RT …`, `[WorldUI] UICamera '<name>' excluded from XR rendering …` |
+| Menu scene up | `[Rig] Menu rig built at vantage of camera '<name>' (…)`, `[WorldUI] FlatScreen shown …`, `[WorldUI] FlatScreen quad placed: …`, `[WorldUI] Desktop mirror active — FlatScreen RT …`, `[WorldUI] UICamera '<name>' excluded from XR rendering …` |
 | Per menu scene load | `[WorldUI] Camera inventory after scene '<name>' (N active):` + one line per camera (tag/depth/clear/mask/stereo/target) — **quote these in every menu-rendering report** |
 | In scenario | `[Rig] VR rig built at focus (...), world scale <s> ...` then `[Rig] Recentered — ...` |
 
@@ -74,7 +74,12 @@ With `[General] Enabled = false`: only two lines — preloader skip notice + plu
 ## 3. Validation checklist
 
 - [ ] Headset shows the game rendering stereo (both eyes, correct separation) once XR is up.
-- [ ] Load any scenario: board appears as a **diorama/table** (world scale sane; if not, set `[Rig] WorldScale` in `dev.gloomhavenvr.cfg`, e.g. 10–20).
+- [ ] Load any scenario: board appears as a **diorama/table** (world scale sane).
+      There is no `[Rig] WorldScale` bind any more — the base scale is derived at rig
+      build and the player owns the rest: two-grip pinch-zoom, persisted as
+      `[Comfort] SavedScaleMultiplier` and clamped by `[Comfort] ScaleMin`/`ScaleMax`
+      in `dev.gloomhavenvr.comfort.cfg`. Report the `world scale <s>` figure from the
+      `VR rig built at focus` line if the diorama is wrong at first spawn.
 - [ ] Head tracking: 6-DoF, no drift, no double-image judder (reprojection ok).
 - [ ] Desktop mirror still shows the game; **mouse play still works** (click hexes, cards, end turn).
 - [ ] 2D UI (screen-space canvases) still visible & functional on the desktop mirror (VR UI is P3c — do NOT expect UI in the headset).
@@ -117,7 +122,7 @@ The BepInEx log's `VR init environment:` line states Unity version, graphics API
 | **SteamVR boots although you play via Virtual Desktop/Link** | A runtime candidate attempt reached SteamVR before the right runtime | Should not happen anymore ("auto" tries the system default first and SteamVR last). If it does: set `[Core] RuntimePriority = vdxr` (or `oculus`), or `[Core] SkipRuntimeCandidates = true`, and report the candidate list line |
 | **Desktop black in the menus** (intro audible, nothing visible) | Pre-`fix/menu-blackscreen` builds: FlatScreen quad died with a Single scene load while the UICamera stayed redirected into its RenderTexture | Update the mod. On current builds the desktop is fed by the end-of-frame RT blit (`Desktop mirror active` line); if still black, grep the `Camera inventory` lines and check the UICamera's `target=` column (see `docs/TESTING-P3C.md` §10) |
 | **HMD black in the menus** (XR RUNNING logged) | Menu rig camera not rendering, or the flat-screen quad invisible (shader/layer/placement) | HMD grey = rig camera fine, content missing → check `FlatScreen quad placed:` (shader `NULL`? layer moved?). HMD pitch black = rig camera not reaching the HMD → quote `Menu rig built …` + `Camera inventory` lines |
-| Stereo up but **world not table-scaled** / camera inside geometry | WorldScale heuristic off (s_TileSize not initialized at rig build) | Set `[Rig] WorldScale` explicitly; re-enter scenario |
+| Stereo up but **world not table-scaled** / camera inside geometry | Base-scale heuristic off (s_TileSize not initialized at rig build) | Quote the `world scale <s>` figure from the `VR rig built at focus …` line; pinch-zoom to a sane size and check whether `[Comfort] SavedScaleMultiplier` in `dev.gloomhavenvr.comfort.cfg` holds it across a re-enter |
 | Stereo up but **camera fights/jumps** with game camera moves | A camera writer not covered by the LateUpdate skip (SmartFocus/timeline) | Expected P1 edge; note the trigger (cutscene? door reveal?) for the Phase-4 comfort pass |
 | Broken/one-eye post effects | A PPv2/fog effect slipped through | Ensure `[Compat] DisablePostProcessing`/`DisableVolumetricFog` are true; add offender type name to `DisableComponents` |
 | `DllNotFoundException: UnityOpenXR` in diagnostics | Natives missing from `GH_Data/Plugins/x86_64` | Same as first row — preloader install failed |

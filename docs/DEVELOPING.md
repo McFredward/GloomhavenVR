@@ -79,21 +79,32 @@ Builds Release and assembles `dist/GloomhavenVR-<version>.zip` (version read fro
 
 ```
 INSTALL.txt
+INSTALL-DEUTSCH.txt
 BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
 BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll
+BepInEx/plugins/GloomhavenVR/RuntimeDeps/versions.json
 BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle
+BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt
 BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
 BepInEx/patchers/GloomhavenVR/Natives/*.dll
 ```
+
+`THIRD-PARTY.txt` ships only when the bundle does — it is the licence notice the bundled art
+requires, and it has to travel with the copies.
 
 It refuses to package when `libs/Natives` or `libs/RuntimeDeps` are unpopulated, and verifies the
 load-bearing paths inside the finished zip. The bundle comes from a fresh Unity build if there is
 one, else from the committed `prebuilt/gloomhavenvr.bundle`.
 
-`INSTALL.txt` is rendered from **[`packaging/INSTALL.txt.in`](../packaging/INSTALL.txt.in)** — the
-single source for the text a drag-and-drop user reads. `install.ps1` renders the same template, so
-the two install paths cannot describe the install differently. **If you change install steps, change
-that template and the README's Install section together.**
+`INSTALL.txt` and `INSTALL-DEUTSCH.txt` are rendered from
+**[`packaging/INSTALL.txt.in`](../packaging/INSTALL.txt.in)** and
+**[`packaging/INSTALL.de.txt.in`](../packaging/INSTALL.de.txt.in)** — the single source for the text
+a drag-and-drop user reads, in the two languages the mod ships. `install.ps1` renders the same two
+templates, so the two install paths cannot describe the install differently. `@VERSION@` is the
+only substitution. **If you change install steps, change BOTH templates, both
+[`INSTALL.md`](../INSTALL.md) and [`INSTALL.de.md`](../INSTALL.de.md), and the README's Install
+section together** — then run `python3 scripts/check-docs-i18n.py`, which is what tells you a
+language fell behind.
 
 ## Asset bundle
 
@@ -104,15 +115,20 @@ scripts/build-bundles.sh      # needs Unity 2021.3.5f1
 The Unity project lives in `unity/GloomhavenVR.Assets/`. See
 [`unity/HANDS.md`](../unity/HANDS.md) and [`unity/CARD-ASSETS.md`](../unity/CARD-ASSETS.md).
 
-Contributor-facing asset docs:
-
-- [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) — editing the mod's 3D assets in
-  Blender (German). File names, paths and bone/anchor names are contracts.
-- [`ANLEITUNG-HAENDE.md`](ANLEITUNG-HAENDE.md) — the one-off Unity editor step for real hand models
-  (German).
+The brief handed to the external 3D artist who edits the meshes and textures is
+[`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) (German — he is its only reader). It
+states the contracts a change must not break: file names, paths, the 19 named hand anchors, the
+per-bone axis frame, the 100x armature scale and the shared UV atlas. Read it before touching an
+asset, whoever you are.
 
 Environment work is verifiable **without a headset**: `EnvironmentsPreview.RenderAll` under
-`xvfb-run` produces preview renders. The bundle step only packs; `BuildAll` does the bakes.
+`xvfb-run` produces preview renders.
+
+**The bundle step only PACKS.** `AssetsBuilder.BuildAll` — what `build-bundles.sh` invokes — calls
+`BuildAssetBundles` and nothing else. The bakes that produce the meshes and materials it packs are
+separate editor methods (`GloomhavenVR.HandsBuilder.Build`, `GloomhavenVR.BoardBuilder.Build`; see
+[`prebuilt/README.md`](../prebuilt/README.md)). Re-running `BuildAll` after editing a bake's INPUTS
+re-packs the OLD output, and looks exactly like the edit did nothing.
 
 ## Dev loop
 
@@ -132,11 +148,26 @@ Environment work is verifiable **without a headset**: `EnvironmentsPreview.Rende
 Run before proposing a change:
 
 ```sh
-scripts/refactor-guard.sh check    # includes the generated patch-inventory drift check
-scripts/wire-tests.sh              # multiplayer wire suite
-scripts/patch-inventory.sh check
-scripts/check-bundle-format.sh
+scripts/ci-build.sh Release        # 0 errors AND 0 warnings — TreatWarningsAsErrors is on
+scripts/refactor-guard.sh check    # the umbrella gate, see below
+python3 scripts/rebase-defaults.py check     # needs a tester's cfg drop, see below
+python3 scripts/check-docs-i18n.py # the four player-facing docs and their German twins
 ```
+
+`refactor-guard.sh check` is an umbrella: it already runs `patch-inventory.sh check`,
+`check-frame-order.sh`, `check-mirrors.sh`, `check-partial-order.py`, `check-instrument-writes.py`,
+`check-remote-defaults.py`, `check-wire-coverage.py`, `check-tune-fields.py`,
+`check-desync-surface.py`, `check-hw-verify.py`, `check-options-coverage.py`, `wire-tests.sh`,
+`check-bundle-format.sh` and the `check-surface.py` diff. Running one of those by hand as well is
+duplicated work, not extra coverage. The three lines beside it are the ones it does **not** cover.
+
+`rebase-defaults.py check` compares the shipped defaults against a tester's `.cfg` drop in
+`.planning/debug/default`. That directory is gitignored, so it is absent on a fresh clone and on a
+runner — CI prints a notice and skips. It is a **local** gate, and the one that catches a value the
+user tuned on hardware being silently overwritten by a later edit.
+
+`check-docs-i18n.py` currently has no automatic caller — no workflow runs it. Until one does, it is
+on you.
 
 ## Repo layout
 
@@ -147,8 +178,9 @@ GloomhavenVR.sln
 ├── src/GloomhavenVR/           the main BepInEx 5 plugin (net472)
 │   ├── Core/                   XR bootstrap, logging, layers, module registry, scene registry
 │   │   ├── Startup/            getting an OpenXR runtime up before anything touches Unity.XR
+│   │   ├── Events/             the game-event bridge and the VR mode state machine
 │   │   ├── Perf/               the frame budget: measuring it, and spending less of it
-│   │   ├── WallFade/           the 15-part wall-fade driver and its prop classifiers
+│   │   ├── WallFade/           the wall-fade driver (20 files) and its prop classifiers
 │   │   ├── Haunt/              the apparitions and their schedule
 │   │   ├── Sound/              ambience: what the room sounds like
 │   │   ├── Environment/        what the room looks like beyond the board (sky, mood, lights)
@@ -184,7 +216,8 @@ GloomhavenVR.sln
 │   ├── Net/                    wire protocol, packets, session, transport, version guard
 │   │   ├── Remote/             everything a PEER draws on our side — one prefix, one job
 │   │   ├── Avatar/             the peer's embodiment: head, hands, mask, badge
-│   │   └── Board/              the shared play surface as a NETWORK object
+│   │   ├── Board/              the shared play surface as a NETWORK object
+│   │   └── Desync/             the game's own desync verdict: watching it, and not tripping it
 │   ├── Voice/                  spatial voice chat and the speaker indicator
 │   ├── Compat/                 stereo/PPv2 fixes, scene variants · Tutorial/
 │   ├── Defaults/               every shipped default value, in one place
@@ -246,13 +279,23 @@ is otherwise unverified. Both fired during the restructure and both were right.
 | [`PATCH-INVENTORY.md`](PATCH-INVENTORY.md) | **generated** — every Harmony patch (method → module → type) |
 | [`PATCH-NOTES.md`](PATCH-NOTES.md) | hand-maintained companion: why each patch exists, contention rules |
 | [`TESTING-FULL-LOOP.md`](TESTING-FULL-LOOP.md) | the end-to-end hardware session script |
-| [`TESTING-P1.md`](TESTING-P1.md) … [`TESTING-P4.md`](TESTING-P4.md) | per-phase hardware checklists; P1 §4 is the stage-by-stage failure-triage table |
-| [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md), [`ANLEITUNG-HAENDE.md`](ANLEITUNG-HAENDE.md) | asset contributor guides (German) |
+| [`TESTING-P1.md`](TESTING-P1.md), [`-P2`](TESTING-P2.md), [`-P3A`](TESTING-P3A.md), [`-P3B`](TESTING-P3B.md), [`-P3C`](TESTING-P3C.md), [`-P4`](TESTING-P4.md) | per-phase hardware checklists; P1 §4 is the stage-by-stage failure-triage table. **Do not retire these:** shipping code cites P1, P2, P3B and P3C by path — P1 §4 from a user-visible error message (`Core/Startup/OpenXRBootstrap.cs`, `Preload/Patcher.cs`), the rest from source comments |
+| [`CI-CD.md`](CI-CD.md) | the two GitHub workflows, the release order of operations, and why each gate sits where it does |
+| [`NET-ACTION-SURFACE.md`](NET-ACTION-SURFACE.md) | **generated** — the game types that dispatch network actions, and which of them the mod patches |
+| [`ASSET-GUIDE-MITWIRKENDE.md`](ASSET-GUIDE-MITWIRKENDE.md) | the brief for the external 3D artist who edits the meshes and textures; file names, paths and bone/anchor names are contracts. German on purpose — it has exactly one reader and he works in German |
+| [`PLAYING.md`](PLAYING.md) / [`PLAYING.de.md`](PLAYING.de.md) | player-facing; listed here so you know to change both and to run `check-docs-i18n.py` after |
+| [`img/README.md`](img/README.md) | how every image and clip in the README was produced |
 | [`../.planning/`](../.planning/) | STATE.md, architecture, roadmap, game-API research |
 
 ## Licence
 
 GPL-3.0 — required and embraced, since the project adapts patterns and code from the GPL-3.0 mods
-credited in the README. The bundled SteamVR-derived hand assets remain BSD-3-Clause. The mod
-distributes only its own code and self-authored or licensed assets: never game files, game assets
-or decompiled sources.
+credited in the README. The mod distributes only its own code and self-authored or licensed assets:
+never game files, game assets or decompiled sources.
+
+The hand meshes are **this project's own work** — three authored pairs (`VRHand`, `VRHandPlate`,
+`VRHandArcane`), built by the Blender pipeline in `unity/hand-prep/`. The early plan to ship Valve's
+BSD-3-Clause SteamVR gloves was **not** taken, and no Valve asset is in the bundle. The third-party
+art the bundle does carry is listed in
+[`packaging/THIRD-PARTY.txt`](../packaging/THIRD-PARTY.txt), which the packager copies in beside the
+bundle.

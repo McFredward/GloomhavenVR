@@ -33,17 +33,18 @@ eine Pico 4 oder ein Valve Index als eigenes Modell, alles andere als allgemeine
 denselben Tasten an denselben Stellen. Die Taste, die du brauchst, leuchtet darauf auf, und jeder
 Schritt endet, wenn du die Sache *machst*, nicht wenn du darüber gelesen hast.
 
-Dreizehn Steuerungen, in der Reihenfolge, in der sie nützlich werden: zeigen und auswählen,
-hingreifen und zupacken, dann alle vier Arten der Fortbewegung am Stück — den Tisch ziehen,
+Vierzehn Steuerungen, in der Reihenfolge, in der sie nützlich werden: zeigen und auswählen,
+hingreifen und zupacken, dann alle Arten der Fortbewegung am Stück — den Tisch ziehen,
 fliegen, sich umdrehen, zoomen, drehen — dann eine Karte nehmen, eine richtig in der Hand halten,
 mit der Fingerspitze auswählen, ein Fenster heranholen, ein Feld anpingen, sich neu hinsetzen und
 das Menü öffnen. Die drei einhändigen Stick-Bewegungen kommen vor dem zweihändigen Paar, damit der
 Thumbstick als eine Lektion durchgeht und nicht als fünf zusammenhanglose Steuerungen.
 
-**WEITER** überspringt einen einzelnen Schritt — praktisch, wenn der Raum gerade nicht hergibt, was
-ein Schritt verlangt, etwa ein offenes Fenster zum Heranholen — und **ÜBERSPRINGEN** beendet die
-Lektion. Ganz abschalten kannst du sie unter **Komfort ▸ Hände & Zielen**
-(`[Compat] ControlsLesson`).
+Die Box hat genau einen Knopf, und der macht immer dasselbe: Er überspringt den Schritt, auf dem du
+gerade bist. Auf einem Schritt, der eine Steuerung beibringt, steht **ÜBERSPRINGEN**, auf der
+Begrüßungs- und der Schlusskarte **WEITER**. Praktisch, wenn der Raum gerade nicht hergibt, was ein
+Schritt verlangt, etwa ein offenes Fenster zum Heranholen. Die Lektion beendet er *nicht* — ganz
+abschalten kannst du sie unter **Komfort ▸ Hände & Zielen** (`[Compat] ControlsLesson`).
 
 *Valves Steam Frame wird am Namen erkannt und bekommt den neutralen Controller gezeigt. Valve
 verteilt bewusst kein Modell davon — ihre Empfehlung ist, sich eines von der Laufzeit zu holen —
@@ -60,7 +61,7 @@ das dazu.*
 |---|---|
 | Tisch / Welt ziehen | **Einen Thumbstick gedrückt halten** (eingeklickt) und die Hand bewegen |
 | Welt drehen und zoomen | **Beide Thumbstick-Klicks** halten — die Hände umeinander drehen zum Drehen, auseinander oder zusammen zum Zoomen |
-| Sprungdrehung | Einen Thumbstick nach links oder rechts antippen |
+| Drehen | Einen Thumbstick nach links oder rechts drücken. Standardmäßig fließend; auf 45°-Sprünge umstellen unter **Komfort ▸ Drehen**, falls dir das fließende Drehen nicht bekommt |
 | Durch den Raum fliegen | Den Thumbstick der Bewegungshand drücken |
 | Steigen und sinken | Den *Dreh*-Stick nach oben oder unten drücken — standardmäßig aus, einschalten unter **Komfort** |
 | Dich neu zentrieren | **B + Y** (die obere Taste an *beiden* Controllern) eine Sekunde lang halten |
@@ -131,14 +132,15 @@ oder **Aus (schwarz)** für schlichtes Schwarz.
 Deine Hände sind Teil des Raums, keine Besucher darin: Greif durch einen **Vorhang**, und er wird
 beiseitegeschoben; halt eine Hand in **Rauch oder Feuer**, und die Partikel gehen um sie herum.
 Beides ist rein lokal — Stoff und Effekte waren nie über das Netz synchronisiert — und beides hat
-seinen eigenen Schalter unter **Komfort ▸ Hände & Zielen**.
+seinen eigenen Schalter unter **Erweitert** (`[Hands] HandsDisturbScenery` und
+`[Hands] HandsDisturbVfx`).
 
 In beiden Räumen verstecken sich außerdem seltene, leise Erscheinungen: ein Gesicht am vergitterten
 Fenster, wenn das Mondlicht schwächer wird, jemand, der im Dunkeln des Treppenschachts steht,
 Augen, die einmal im Unterholz blinzeln. Sie werden vom Raum beleuchtet und von sonst nichts, sie
 sind **nie über dem Brett und nie zwei auf einmal**, und jeder Spieler in einer Sitzung sieht
 dieselbe an derselben Stelle im selben Moment. Sie haben ihren eigenen An/Aus-Schalter und einen
-Häufigkeitsregler unter **Umgebung & Ton ▸ Grusel** — und sie auszuschalten ist eine rein lokale
+Häufigkeitsregler unter **Umgebung ▸ Grusel** — und sie auszuschalten ist eine rein lokale
 Entscheidung: Wenn du sie ausschaltest, siehst du keine, egal was andere eingestellt haben.
 
 ---
@@ -158,8 +160,9 @@ Der Mehrspieler funktioniert, und er ist so gebaut, dass er niemandem das Spiel 
   deinen gewählten Handstil und deine Kopfmaske, eine Figur oder eine Karte, während du sie hältst
   (Karten immer als Rückseite — keine Karte, die du hältst, wird je aufgedeckt), deine Karten-
   und Gegenstandsfächer als Anzahl, und ein lebendes Spiegelbild deines Kontrollbretts.
-- **Was ihr gemeinsam erlebt:** geteilte Fenster im Kartenraum (erkennbar an einer blauen statt
-  einer messingfarbenen Greifstange), ein vollständig geteiltes Geschichtsfenster mit derselben
+- **Was ihr gemeinsam erlebt:** geteilte Fenster im Kartenraum (erkennbar an einem kleinen
+  Abzeichen in der Ecke statt an einem farbigen Balken), ein vollständig geteiltes
+  Geschichtsfenster mit derselben
   Seite für alle, und eine gemeinsame Uhr für die Umgebung, damit dieselben Umgebungsgeräusche und
   dieselben Erscheinungen im selben Moment an derselben Stelle auf jedem Client passieren.
 

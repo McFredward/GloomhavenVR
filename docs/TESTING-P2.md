@@ -39,34 +39,53 @@ Config: `[Dev] Enabled = true` recommended for the overlay on the desktop mirror
 
 ### Hands present & articulated
 
-- [ ] Both hands appear at controller positions once a scenario loads (they attach to
-      the Phase-1 rig; there are no hands in the main menu — expected in P2).
+- [ ] Both hands appear at controller positions **in the main menu already** and stay
+      through scenario load. They hang off `VRRigDriver.RigRoot`, and the menu rig is
+      built unconditionally, so menu hands are load-bearing now — they are what clicks
+      the floating 2D screen. Log: `Hands built under '<parent>'`. No hands in the
+      menu is a FAILURE, not an expected P2 gap.
 - [ ] Hand size reads correctly against the diorama (they inherit the world scale).
 - [ ] Orientation: fingers point along the controller "forward", palms face each
       other in a natural rest pose. If systematically twisted/offset, tune it live —
-      see "Tuning the hand pitch" below.
+      see "Tuning the hand seat" below.
 
-#### Tuning the hand pitch (`[Hands] GripPitchOffsetDegrees`)
+#### Tuning the hand seat (per hand STYLE, `dev.gloomhavenvr.hands.cfg`)
 
 The hand VISUAL is posed from the OpenXR **grip** pose, which points up along the
 controller handle — not where a relaxed hand points (hardware test #4: hands did not
-match the controller pitch). The correction is a config value, hot-reloadable while
-the game runs:
+match the controller pitch). The correction is a set of config values, live-tunable
+while the game runs (the hands re-seat on the next frame, no restart).
 
-1. Open `BepInEx/config/GloomhavenVR.cfg` → `[Hands] GripPitchOffsetDegrees`
-   (default **-60**; LCVR uses an 80° down-pitch for its controller-relative ray
-   origins, so -40…-80 is the expected band).
-2. **Negative tilts the fingertips DOWN** relative to the grip forward; positive
-   tilts them up. Save the file — the hands re-pose on the next frame (no restart).
-3. Hold the controller like a relaxed pointing hand; adjust in 10° steps until the
-   virtual fingers extend where your real index finger points, then refine in 2–5°
-   steps. Report the final value + runtime (VD/Link/Steam Link) per controller type.
-4. The LASER is independent of this: it uses the OpenXR **aim ("pointer") pose**
-   when the runtime delivers `PointerPosition`/`PointerRotation` (check the log for
-   `controller delivers the OpenXR aim pose`) and only falls back to the hand frame
-   without it. If the laser direction feels wrong but the hands look right, report
-   whether that log line appeared.
-   `VRHand.VisualOffsetPosition` stays a code constant (positional, rarely wrong).
+The old shared `[Hands] GripPitchOffsetDegrees` + trim are **retired**. The seat is
+now **per hand style** — one absolute set for each of `Glove`, `Plate`, `Arcane` —
+in `BepInEx/config/dev.gloomhavenvr.hands.cfg`, under `[Hands]`:
+
+| Key (`<Style>` = Glove / Plate / Arcane) | What it moves |
+|---|---|
+| `<Style>GripPitchDegrees` | pitch; **negative tilts the fingertips DOWN** |
+| `<Style>GripRollDegrees` | twist around the controller's forward axis (MIRRORED between the hands) |
+| `<Style>GripYawDegrees` | which way the fingers point (MIRRORED) |
+| `<Style>LateralOffset` | device-space X, metres — moves BOTH hands the same way |
+| `<Style>VerticalOffset` | device-space Y, metres, positive = up |
+| `<Style>ForwardOffset` | device-space Z, metres, positive = toward the fingertips |
+| `<Style>SpreadOffset` | how far APART the two hands sit (MIRRORED) |
+
+Shipped values are the hardware-measured `DefaultSeat*` tables in
+`src/GloomhavenVR/Hands/HandsConfig.cs` — read them there rather than from this doc.
+
+1. Wear the style you want to tune, hold the controller like a relaxed pointing hand.
+2. Adjust `<Style>GripPitchDegrees` in 10° steps until the virtual fingers extend
+   where your real index finger points, then refine in 2–5° steps; then roll/yaw,
+   then the three offsets, then spread. Report the final set + runtime
+   (VD/Link/Steam Link) per controller type and per style.
+3. Everything here is VISIBLE TO OTHER PLAYERS — the pose on the wire is the seated
+   hand root — and held figures/cards hang off it, so tune it as the real pose.
+4. The LASER is independent of all of it: it uses the OpenXR **aim ("pointer") pose**
+   when the runtime delivers `PointerPosition`/`PointerRotation` (log:
+   `<side> controller delivers the OpenXR aim pose (PointerPosition/PointerRotation)
+   — laser uses it.`), and falls back to the grip-pose hand frame otherwise
+   (`<side> controller lost the aim pose — laser falls back …`). If the laser
+   direction feels wrong but the hands look right, report which of the two appeared.
 - [ ] Trigger curls the index; grip curls middle/ring/pinky; resting the thumb on a
       button/stick curls the thumb.
 - [ ] Poses: grip only → index stays straight (Point); everything released → flat
@@ -92,7 +111,9 @@ P2 has no world-space game canvases yet, so validate the pipeline in two halves:
 - [ ] In BoardTargeting (start a move/attack) the laser appears from the controller
       along the OpenXR aim pose (fallback: index knuckle along the hand); reticle
       dot sits on the board where it hits.
-- [ ] `[Hands] RayAlwaysOn = true` keeps the laser in every mode.
+- [ ] The laser is present in EVERY mode, unconditionally (user ruling 2026-08:
+      "der Laser ist ausnahmslos da"). There is no switch — `[Hands] RayAlwaysOn` and
+      the ModalUI cone gate are both deleted. A mode in which the beam vanishes is a bug.
 - [ ] Laser width/reticle size look sane at diorama scale (constants are
       world-scaled; report if not).
 - [ ] NOTE: the ray does NOT yet drive game hover/picking — that is Phase-3a. Only
@@ -114,9 +135,10 @@ P2 has no world-space game canvases yet, so validate the pipeline in two halves:
 ### Mode machine (HMD)
 
 - [ ] Scenario load: `Menu2D -> TableIdle`. Card selection round: `-> CardSelection`.
-      Turn start: `-> HalfSelection`. Choosing a move/attack: `-> BoardTargeting`
-      (laser turns on). Modal dialog: `-> ModalUI` and back.
-- [ ] Laser only in BoardTargeting/Menu2D/ModalUI unless RayAlwaysOn.
+      Turn start: `-> HalfSelection`. Choosing a move/attack: `-> BoardTargeting`.
+      Modal dialog: `-> ModalUI` and back.
+- [ ] The laser survives every one of those transitions — it does not blink out on
+      mode changes (see the Ray section: visuals are unconditional).
 
 ### Stability / hygiene
 
@@ -129,17 +151,22 @@ P2 has no world-space game canvases yet, so validate the pipeline in two halves:
       allocation-free; PokeInteractor only touches uGUI raycasts near registered
       canvases).
 
-## 2. Open runtime questions for this pass (report back)
+## 2. Questions this pass has since ANSWERED
 
-1. Controller grip-pose vs hand-frame offset: is `VisualOffsetPosition = (0, -0.02, -0.06)`
-   plus `[Hands] GripPitchOffsetDegrees = -60` right on Quest 3 Touch Plus (tuning
-   guide in §1 above)? Note per-runtime deltas (Link vs VD vs Steam Link), and
-   whether the aim pose (`PointerPosition`/`PointerRotation`) is delivered.
-2. Does `CommonUsages.primaryTouch/secondaryTouch/primary2DAxisTouch` deliver on the
-   Quest 3 via the generic Touch profile, or does the thumb never curl?
-3. Haptic amplitudes: are the three presets distinguishable on Touch controllers?
-4. Virtual mouse: does `Click()` register in the main menu (button visibly presses)?
-   Does moving the physical mouse afterwards recover normal desktop control?
-5. `WaitingForCardSelection` is currently NOT mapped to a mode (card-mode messages
-   cover it) — watch for scenarios where BoardTargeting/CardSelection feel wrong and
-   note the message/state log around them (overlay shows both).
+Kept as a record so nobody re-opens them. All five were open runtime questions in the
+original P2 pass; each is settled in the shipped code now.
+
+1. **Grip-pose vs hand-frame offset** — settled and superseded. There is no shared
+   offset any more: the seat is the per-style `[Hands] <Style>Grip*Degrees` /
+   `<Style>*Offset` set above, shipped from hardware-measured tables. The aim pose IS
+   delivered on the Quest 3 profiles the mod has been tested on; the fallback path
+   still exists and names itself in the log.
+2. **Thumb touch** — delivered; resting the thumb on a button/stick curls it (the
+   pose checkbox in §1 is the live test).
+3. **Haptic amplitudes** — the three presets are distinguishable on Touch
+   controllers; hover tick / click pulse / grab pulse are the shipped set.
+4. **Virtual mouse** — `VirtualMouse.Click()` registers. It is a dev/diagnostic path,
+   not the shipped click path: real clicks go through uGUI `ExecuteEvents`.
+5. **Mode mapping** — the card phases are covered by the card-mode messages; the mode
+   machine has been through P3a/P3b/P5 since. Report a mode that feels wrong with the
+   `Mode` transitions from the overlay/log attached.

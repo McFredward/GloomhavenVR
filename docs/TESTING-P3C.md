@@ -2,9 +2,16 @@
 
 > Prereqs: Phases 1–2 pass (`docs/TESTING-P1.md`, `docs/TESTING-P2.md`). Quest 3 (Link,
 > Virtual Desktop or Steam Link) or any OpenXR HMD. Config lives in
-> `BepInEx/config/dev.gloomhavenvr.worldui.cfg` (created on first run; renamed from `worldui.gloomhavenvr.cfg` in P5); every surface has
-> its own toggle so a misbehaving one can be disabled without losing the rest.
-> Grep the log for `[WorldUI]` lines.
+> `BepInEx/config/dev.gloomhavenvr.worldui.cfg` (created on first run; renamed from
+> `worldui.gloomhavenvr.cfg` in P5). NOTE: the per-surface kill switches this doc was
+> written around are GONE — `Master`, `FlatScreen`, `ActorBars`, `Tooltips`,
+> `ClickMode`, `ClickLatch`, `ManualScreenChord` and friends were all deleted in the
+> 2026-08 rulings because each OFF state was a brick rather than a fallback. Some
+> per-surface switches DO survive (`CombatLog`, `Dialogs`, `WristHud`, `MapRoomHand`,
+> `DecisionDock`, `TrayNativeControls`, `ShowIntro`); the rest of the `[WorldUI]`
+> section is tuning dials. Read the current set out of
+> `src/GloomhavenVR/WorldUI/WorldUIConfig.cs` before believing any key named in this
+> doc. Grep the log for `[WorldUI]` lines.
 
 ## 0. Desktop smoke tests (no HMD)
 
@@ -78,8 +85,9 @@
       untouched).
 - [ ] Kill an enemy: its bar disappears cleanly (no orphaned host canvases — check
       the scene in UnityExplorer for stray `GloomhavenVR.Panel_ActorBar` objects).
-- [ ] `[WorldUI] ActorBars = false` → vanilla screen-projected bars return on the flat
-      mirror and the fake-worldspace panels re-attach undamaged.
+- [ ] There is no `[WorldUI] ActorBars` switch any more — the bars are always on
+      (user ruling 2026-08-13: its OFF released every adopted bar and left the flat
+      game's fake-worldspace panels behind). Missing bars are a bug, not a setting.
 
 ## 5. Wrist HUD
 
@@ -95,8 +103,9 @@
 Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
 
 1. **Intro/splash** (scene 0 + `Intro`): FlatScreen is gated OFF — the intro renders
-   vanilla on the desktop. The HMD shows the menu rig's **void** ([Rig] VoidColor, default black) plus a
-   small "GloomhavenVR starting…" label. Log: `Starting indicator shown (pre-menu
+   vanilla on the desktop. The HMD shows the menu rig's **void** (black, a code
+   constant since 2026-08-22 — the old `[Rig] VoidColor` key is gone) plus a small
+   "GloomhavenVR starting…" label. Log: `Starting indicator shown (pre-menu
    scene, FlatScreen gated).`
 2. **Main menu** (`Gloomhaven_unified` and later menu scenes): the screen engages.
    Log sequence: `FlatScreen shown (…)`, `FlatScreen: UICamera '<name>' →
@@ -110,29 +119,31 @@ Boot phases (menu-blackscreen fix, `fix/menu-blackscreen`):
 Checklist:
 
 - [ ] During the intro: desktop shows the intro video/logos normally; HMD shows the
-      void ([Rig] VoidColor, default black since test #6) + the "starting…" label.
-      The LABEL is the sign of life now — no label AND no menu later means the rig
-      camera is not rendering (grep the `Camera inventory` lines, or set VoidColor
-      to a grey like 1F2126FF to tell "renders but empty" from "camera dead").
+      black void + the "starting…" label. The LABEL is the whole sign of life: the
+      void colour is a constant now and cannot be dialled to a debug grey, so
+      "renders but empty" vs "camera dead" is decided by the label plus the
+      `Camera inventory after scene '<name>'` lines — no label AND no menu later
+      means the rig camera is not rendering; quote the inventory in the report.
 - [ ] In the main menu (no scenario): a large virtual screen floats in front of you
-      showing the full 2D menu, head-tracked via the menu rig ([Rig] MenuRig).
+      showing the full 2D menu, head-tracked via the menu rig (unconditional — the
+      `[Rig] MenuRig` switch is gone; its OFF built no rig at all).
 - [ ] **The desktop monitor shows the same menu at the same time** (RT mirror blit)
       and stays fully mouse-operable in parallel — this is the guaranteed fallback;
       the desktop must never be black.
 - [ ] **Trigger click (test #7 fix — ExecuteEvents delivery)**: point the DOMINANT
       hand's laser at a menu button (beam starts at the index KNUCKLE — curl-proof —
       and ENDS exactly at the reticle on the screen, never passing through) and pull
-      the trigger. The button must actually CLICK. Log sequence per click
-      ([WorldUI] ClickMode = execute, the default):
-      `Under pointer (x,y): 'ButtonName' (canvas '…')` →
-      `FlatScreen pointer: trigger PRESS at RT pixel (x,y), latch=True, mode=execute`
-      → on release `DirectClick at (x,y) → clicked 'ButtonName'` +
+      the trigger. The button must actually CLICK. Clicks are delivered through uGUI
+      `ExecuteEvents`, unconditionally — the `[WorldUI] ClickMode` selector and its
+      `virtualmouse` alternative are both gone (user ruling 2026-08-13). Log sequence
+      per click: `Under pointer (x,y): 'ButtonName' (canvas '…')` →
+      `FlatScreen pointer: trigger PRESS at RT pixel (x,y) …` → on release
+      `DirectClick at (x,y) → clicked 'ButtonName'` +
       `FlatScreen pointer: trigger RELEASE … — CLICK (latched)`.
       If `Under pointer` names the WRONG element (or `nothing`), the pixel mapping is
-      off — report that log line; if it names the right button but nothing happens,
-      try `ClickMode = virtualmouse` and report both.
-      The click latch freezes the pointer at the press pixel so hand tremor cannot
-      turn the click into a no-op drag ([WorldUI] ClickLatch).
+      off — report that log line verbatim. The click latch (always on now; the
+      `[WorldUI] ClickLatch` key is gone too) freezes the pointer at the press pixel
+      so hand tremor cannot turn the click into a no-op drag.
 - [ ] **Hands visible on the black void**: both hands render in a light tone
       ([Hands] HandColor, unlit — lit shaders go black in the lightless void).
 - [ ] **Drag still works**: press and deliberately sweep the ray (> ~2° for ~0.15 s):
@@ -149,8 +160,7 @@ Checklist:
       wrist HUD side follows in scenarios.
 - [ ] Screen size/distance feel OK (defaults: [WorldUI] ScreenWidth = 2.2 m at
       ScreenDistance = 1.6 m; both live-tunable).
-- [ ] The void around the screen is pure black ([Rig] VoidColor — set a dark grey
-      like 1F2126FF only when debugging camera issues).
+- [ ] The void around the screen is pure black (a constant; there is no colour key).
 - [ ] **Text input caveat**: clicking a text field focuses it, but typing requires the
       physical keyboard — expected limitation, document anything worse.
 - [ ] Guildmaster/merchant/level-up screens are usable end-to-end on the screen.
@@ -162,29 +172,24 @@ Checklist:
 - [ ] After a recenter (B+Y chord) or scene change the screen snaps back directly in
       front of you (`FlatScreen quad placed:` logged again).
 
-### 6b. Config behavior matrix (`[WorldUI] FlatScreen` × `[Rig] MenuRig`)
+### 6b. There is no menu-rendering bisection matrix any more
 
-The two switches are independent; all four combinations are defined:
-
-| FlatScreen | MenuRig | HMD in menus | Desktop in menus |
-|---|---|---|---|
-| true (default) | true (default) | VoidColor void + head-tracked floating screen | 2D UI via RT mirror blit (mouse works) |
-| true | false | floating screen anchored to the static menu camera (no head tracking; the game cameras render stereo but do not follow your head) | 2D UI via RT mirror blit (mouse works) |
-| false | true | head-tracked menu camera view (VoidColor void if the scene has no 3D content); screen-space UI renders wherever vanilla XR puts it | vanilla (XR mirror; UI untouched) |
-| false | false | **fully vanilla** under XR: no rig, no redirect, UICamera untouched | vanilla (XR mirror) |
-
-`[WorldUI] FlatScreen = false` is the **vanilla-menu fallback**: the mod never
-touches the UICamera (no RenderTexture redirect, no stereo exclusion, no desktop
-blit). Use it to bisect menu rendering problems. `[WorldUI] Master = false`
-disables the whole surface set including the FlatScreen and its UICamera handling.
+`[WorldUI] FlatScreen`, `[WorldUI] Master` and `[Rig] MenuRig` are all DELETED (user
+rulings 2026-08-11 / 2026-08-13). Each of their OFF states was a brick, not a
+fallback: no rig meant no head tracking and no anchor for the screen, and no
+FlatScreen meant nothing in the menus could be clicked at all. The menu rig and the
+flat screen are unconditional, so the only defined menu configuration is the shipped
+one. Do not look for a config to bisect a menu-rendering problem with — take it to
+the §10 triage table and attach the `Camera inventory` lines.
 
 ## 7. Tooltips
 
 - [ ] Hover a converted surface element (initiative avatar, element, objective) with
       the fingertip: the game tooltip appears as a small world panel above your
       fingertip, facing you.
-- [ ] It disappears on poke-out; `[WorldUI] Tooltips = false` restores the screen-space
-      tooltip untouched.
+- [ ] It disappears on poke-out. There is no `[WorldUI] Tooltips` switch any more —
+      tooltips are always on (user ruling 2026-08-13: OFF left the tooltip canvas at
+      its 2D screen position, i.e. nowhere the player can read it).
 
 ## 8. Gamepad-mode guard
 
@@ -217,7 +222,7 @@ For any "black desktop / black HMD in the menus" report, grep the BepInEx log fo
 | `UICamera '…' excluded from XR rendering …` / `… restored to vanilla XR behavior` | Hypothesis-B guard (screen-space UI kept out of the HMD / desktop backbuffer kept). |
 | `FlatScreen quad was destroyed externally — rebuilding.` | A scene swap killed the quad; it self-heals. Frequent repeats = report. |
 | `Starting indicator shown (pre-menu scene, FlatScreen gated).` | Intro gate active — FlatScreen deliberately idle during scene 0/`Intro`. |
-| `Menu rig built around camera '…' (… clear X → Y …)` | Menu rig camera + clear-color override. HMD **grey** = camera renders, content missing; HMD **black** = camera not reaching the HMD at all. |
+| `Menu rig built at vantage of camera '…' (…)` | Menu rig camera + clear-color override. HMD **grey** = camera renders, content missing; HMD **black** = camera not reaching the HMD at all. |
 
 **Player.log is still wanted**: the previous report did not include it. Attach
 `%USERPROFILE%\AppData\LocalLow\FlamingFowlStudios\Gloomhaven\Player.log` (and
@@ -230,32 +235,43 @@ For any "black desktop / black HMD in the menus" report, grep the BepInEx log fo
   fullscreen block image travels with the toast); VR-side input is soft-locked
   instead. Desktop-parallel play during a banner is mildly less protected.
 - The intro/splash is desktop-only by design (FlatScreen gate); the HMD shows the
-  void ([Rig] VoidColor) + "starting…" label until the main menu scene loads.
+  black void + "starting…" label until the main menu scene loads.
 - Keyboard text entry on the flat screen requires the physical keyboard.
 
 ---
 
 ## 11. P6 (test-#8 follow-up) — UI-shell fixes
 
-Config: `[Rig] Experimental3DMap` (placeholder, no effect), `[WorldUI] PanelsFollowView`,
-`[WorldUI] ManualScreenChord` / `ManualScreenChordSeconds`, `[SettingsPanel] ChordHoldSeconds`
-(chord now fires on RELEASE). Grep for `[Rig]`, `[WorldUI]`, `MODAL FALLBACK`,
-`MANUAL SCREEN CHORD`, `Mode`.
+Config: `[Rig] Vanilla2DMap`, `[WorldUI] PanelsFollowView`,
+`[WorldUI] ManualScreenChordSeconds` (default 2 s; the old `[WorldUI] ManualScreenChord`
+on/off and the whole `[SettingsPanel]` section, `ChordHoldSeconds` included, are gone —
+the chord is always available and fires on RELEASE). Grep for `[Rig]`, `[WorldUI]`,
+`MODAL FALLBACK`, `MANUAL SCREEN CHORD`, `Mode`.
 
-### 11.1 Campaign/world map stays flat (Menu2D)
+### 11.1 Campaign/world map: the 3D room ships, the flat map is the opt-out
 
-- [ ] Start guildmaster / campaign, land on the WORLD MAP: the HMD shows the floating
-      2D screen with the **complete map + UI composite** (no giant 3D map below you,
-      no black hole where the map should be). Log: `Menu rig built at vantage of
-      camera '…'` — and NO `VR rig built at focus …` line before an actual scenario.
-- [ ] The flat desktop window mirrors the same complete composite (map visible).
-- [ ] Map camera appears in the capture log: `FlatScreen stack capture: '…' → RenderTexture`.
-- [ ] Enter a combat scenario: `VR rig built at focus …` appears only now (diorama +
-      panels + bars come up as in §1–§7). Mode log: `Menu2D -> …`.
+`[Rig] Experimental3DMap` was RENAMED **and INVERTED** to `[Rig] Vanilla2DMap` at
+ModBuild 230, and it ships **false** — so the 3D map room, not the flat screen, is
+what a fresh install gets on the campaign map. An existing config's old choice is
+carried across once (`[Rig] MapPresentationMigrated230`). The room's own checklist is
+`TESTING-FULL-LOOP.md` §1b; what belongs HERE is the WorldUI side of both presentations.
+
+- [ ] **Default (`Vanilla2DMap = false`)**: on the world map the HMD puts you AT the
+      map (log: the `MAP ROOM ENGAGED.` block). The flat screen is NOT the map
+      presentation here — map windows and story pages arrive as floating windows
+      through the §11.2 fallback instead. No `VR rig built at focus …` before an
+      actual scenario.
+- [ ] **Opt-out (`Vanilla2DMap = true`)**: the HMD shows the floating 2D screen with
+      the **complete map + UI composite** (no giant 3D map below you, no black hole
+      where the map should be), and NO `MAP ROOM ENGAGED` line. Log: `Menu rig built
+      at vantage of camera '…'`.
+- [ ] (Opt-out) The flat desktop window mirrors the same complete composite (map
+      visible), and the map camera appears in the capture log:
+      `FlatScreen stack capture: '…' → RenderTexture`.
+- [ ] Either way, enter a combat scenario: `VR rig built at focus …` appears only now
+      (diorama + panels + bars come up as in §1–§7). Mode log: `Menu2D -> …`.
 - [ ] Leave the scenario back to the map: rig tears down (`rig kind change Scenario →
-      Menu`), the flat screen returns with the map visible.
-- [ ] `[Rig] Experimental3DMap = true` changes NOTHING (placeholder; documented in the
-      config description).
+      Menu`), and the presentation you configured comes back — room or flat screen.
 
 ### 11.2 Catch-all modal fallback (in-scenario dialogs) — P8: floating windows
 
@@ -301,9 +317,11 @@ summons the whole flat screen — only THAT window floats in front of the HMD.
       screen is up, any floating modal windows are RELEASED back into the 2D
       composite (they must be visible ON the screen), and re-float when the chord
       toggles the screen off with the window still open.
-- [ ] A SHORT hold (~0.6–1.5 s, release before 2 s) still toggles the **settings
-      panel** on release — the two chords never fire together (a long hold consumes
-      the press; no settings panel after a screen toggle).
+- [ ] A SHORT **tap** of the same button (press and release quickly) opens/closes the
+      game's own pause menu instead — log `OPTIONS TAP: <menu> OPENED (X tap)` /
+      `… CLOSED (X tap)`. The mod's separate settings panel is gone; its settings live
+      in that window's Options page. The two never fire together: a long hold consumes
+      the press, so there is no pause menu after a screen toggle.
 - [ ] The manual latch resets when the scenario ends (screen policy returns to
       Menu2D auto-show).
 

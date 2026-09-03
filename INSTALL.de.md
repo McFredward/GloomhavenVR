@@ -87,7 +87,8 @@ Es gibt genau eine Sache zu prüfen, und zwar nur, dass zwei Ordner existieren:
 ```
 Gloomhaven/                      ← der Ordner mit GH.exe darin
 ├── GH.exe
-├── INSTALL.txt                  ← das kam aus dem Zip der Mod
+├── INSTALL-DEUTSCH.txt          ← die beiden kamen aus dem Zip der Mod
+├── INSTALL.txt                  ←   (dieselbe Kurzanleitung auf Englisch)
 └── BepInEx/
     ├── plugins/GloomhavenVR/    ← beide müssen da sein
     └── patchers/GloomhavenVR/

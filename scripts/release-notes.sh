@@ -112,9 +112,10 @@ fi
     echo
     echo "Download \`GloomhavenVR-$VERSION.zip\` below and unpack it into your Gloomhaven"
     echo "folder — the one with \`GH.exe\` in it. Everything the mod needs is in that archive;"
-    echo "there is nothing else to download. \`INSTALL.txt\` inside it walks you through the"
-    echo "one other thing you need (a free program called BepInEx, installed once) and the"
-    echo "headset setting to check first."
+    echo "there is nothing else to download. \`INSTALL.txt\` inside it — or"
+    echo "\`INSTALL-DEUTSCH.txt\`, the same guide in German — walks you through the one other"
+    echo "thing you need (a free program called BepInEx, installed once) and the headset"
+    echo "setting to check first."
     echo
     if [[ -n "$PREV" ]]; then
         echo "**Updating from an older version?** Unpack this zip over the top of the old one."

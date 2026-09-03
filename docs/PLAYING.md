@@ -32,15 +32,17 @@ its own model, anything else as a generic controller with the same keys in the s
 key you need lights up on it, and each step ends when you *do* the thing, not when you have read
 about it.
 
-Thirteen controls, in the order they become useful: point and click, reach and grab, then all
-four ways of getting about together — drag the table, fly, turn round, zoom, rotate — then take a
+Fourteen controls, in the order they become useful: point and click, reach and grab, then every
+way of getting about at once — drag the table, fly, turn round, zoom, rotate — then take a
 card, hold one properly in your hand, pick with a fingertip, reel a window in, ping a hex, re-seat
 yourself, and open the menu. The three one-handed stick moves come before the two-handed pair, so the thumbstick
 reads as one lesson rather than five unrelated controls.
 
-**NEXT** passes any single step — useful when the room is not offering what a step asks for, such
-as an open window to reel in — and **SKIP** ends the lesson. Switch it off for good under
-**Komfort ▸ Hände & Zielen** (`[Compat] ControlsLesson`).
+The box has one button and it always does the same thing: it passes the step you are on. It reads
+**SKIP** on a step that teaches a control and **NEXT** on the welcome and closing cards. Use it when
+the room is not offering what a step asks for, such as an open window to reel in. It does not end
+the lesson — to switch the lesson off for good, use **Comfort ▸ Hands & aiming**
+(`[Compat] ControlsLesson`).
 
 *Valve's Steam Frame is recognised by name and shown the neutral controller. Valve deliberately
 does not distribute a model of it — their guidance is to fetch one from the runtime — and putting a
@@ -56,9 +58,9 @@ so.*
 |---|---|
 | Drag the table / world | Hold **one thumbstick clicked in** and move your hand |
 | Rotate and zoom the world | Hold **both thumbstick clicks** — turn your hands around each other to rotate, spread or close them to zoom |
-| Snap turn | Flick a thumbstick left or right |
+| Turn | Push a thumbstick left or right. Smooth by default; switch to 45° snap steps under **Comfort ▸ Turning** if a continuous turn does not agree with you |
 | Fly through the room | Push the movement hand's thumbstick |
-| Rise and sink | Push the *turn* stick up or down — off by default, switch it on under **Komfort** |
+| Rise and sink | Push the *turn* stick up or down — off by default, switch it on under **Comfort** |
 | Recentre yourself | Hold **B + Y** (the upper face button on *both* controllers) for one second |
 
 ---
@@ -119,18 +121,18 @@ If you would rather have the original flat map, set `[Rig] Vanilla2DMap = true`.
 Scenarios can be played in one of two hand-built environments — a **candle-lit cellar** or a
 **moonlit night forest** — with a procedural night sky built from a real star catalogue,
 firelight, drips, cobwebs, moonbeams through the trees and quiet spatial ambience. Or pick
-**Standard** for the game's own look, or **Off** for plain black.
+**Default** for the game's own look, or **Off (black)** for plain black.
 
 Your hands are part of the room, not visitors to it: reach through a **curtain** and it is pushed
 aside, put a hand in **smoke or fire** and the particles go round it. Both are purely local — cloth
-and effects have never been networked — and both have their own switch under **Komfort ▸ Hände &
-Zielen**.
+and effects have never been networked — and both have their own switch under **Advanced**
+(`[Hands] HandsDisturbScenery` and `[Hands] HandsDisturbVfx`).
 
 Both rooms also hide rare, quiet apparitions: a face at the barred window as the moonlight dims,
 someone standing in the dark of the stair shaft, eyes that blink once in the undergrowth. They are
 lit by the room and by nothing else, they are **never over the board and never two at once**, and
 every player in a session sees the same one in the same place at the same moment. They have their
-own on/off switch and a frequency dial under **Umgebung & Ton ▸ Grusel** — and switching them off
+own on/off switch and a frequency dial under **World ▸ Creepy** — and switching them off
 is a purely local decision, so if you turn them off you see none, whatever anybody else has set.
 
 ---
@@ -149,8 +151,8 @@ Multiplayer works, and it is designed so that it cannot break anyone's game:
   chosen hand style and head mask, a figure or a card while you hold it (cards always as backs
   — no card you hold is ever revealed), your card and item fans as counts, and a live mirror of
   your control board.
-- **What you experience together:** shared map windows (marked by a blue grab bar instead of a
-  brass one), a fully shared story window with the same page for everyone, and a shared clock
+- **What you experience together:** shared map windows (marked by a small badge in the corner
+  rather than a coloured bar), a fully shared story window with the same page for everyone, and a shared clock
   for the environment so the same ambient sounds and the same apparitions happen at the same
   moment in the same place on every client.
 

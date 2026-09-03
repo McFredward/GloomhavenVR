@@ -41,8 +41,8 @@
 ## 2. Palm fan (P7: roll-axis reveal, fan-hand exclusion, 3D cards, in-hand hold)
 
 - [ ] Round start (card-selection phase): ROLL the non-dominant wrist so the palm
-      turns up / toward you (supination only — `[Cards] SupinationThreshold` = 0.2)
-      → the hand pile fans out above the palm.
+      turns up / toward you (opens above `[Cards] RevealEnterDegrees`, closes below
+      `RevealExitDegrees`; shipped 70°/5°) → the hand pile fans out above the palm.
 - [ ] **Roll axis only (test #10 fix)**: pitching the arm up/down or pointing it at
       your face with the palm still sideways must NOT open the fan; conversely,
       once the palm is rolled up the fan must stay open at ANY arm pitch (point the
@@ -94,8 +94,8 @@
       the holding hand within ~12 cm), the target slot shows a gold glow frame
       and a haptic tick fires once as the target slot changes; release → the
       card "zaps" into the glowing slot with a quick lerp + click haptic. Every
-      drop writes a `Slot check: …` log line with per-slot distances and
-      ACCEPT/REJECT.
+      release writes one `Drop (<hand>): …, rule=… → …` line, and an accepted
+      placement also writes `Board: card placed in slot N.`
 
 ## 3. Control board (P7 redesign — see .planning/research/CONTROLBOARD.md)
 
@@ -171,8 +171,6 @@
       come back (and restart the game): the tray reappears in your adjusted
       position/rotation/size (`[Cards] TrayForward/TrayDown/TrayRight/TrayYaw/
       TrayScale` in `dev.gloomhavenvr.cards.cfg`).
-- [ ] ~~**Initiative strip**~~ (test #14) — REPLACED in test #15 by the game's
-      real initiative track docked on the tray (see §3c).
 
 ## 3c. Tray dashboard (test #15: real UI on the tray, follow-toggle, modal grab)
 
@@ -282,6 +280,89 @@ handle. The element board stays a separate world panel.
       before reload; after reload the fan re-adopts them.
 - [ ] 30 min play: no per-frame GC spikes from the Cards module (Unity profiler,
       `CardsDriver.Update` / `VRCard.Update` alloc-free).
+
+## 7. Item cards (the third pile, the USE berth, the cue)
+
+Config: the `[Cards] ItemFan* / ItemCue* / ItemBerth*` family in
+`dev.gloomhavenvr.cards.cfg` (~20 keys — animation amplitudes and the cue's rhythm).
+Every one of them is 0-able, and 0 on all of them is the pre-animation build. Shipped
+values live in `src/GloomhavenVR/Defaults/Defaults.Cards.cs`. Grep the log for `ITEM `.
+
+- [ ] A character carrying items shows a THIRD pile on the control board (below the
+      burnt pile): the equipped items. Poke it, or laser-click it, → a fixed reading
+      wall of item cards opens ABOVE the board (log `ITEM FAN OPEN (…)`); poke/click
+      again to close (`ITEM FAN CLOSE — trigger: …`). There is no hand-held variant.
+- [ ] With 0 items the pile refuses to open and says so: `Items pile browse REFUSED —
+      the actor carries 0 items …`.
+- [ ] The card faces are the GAME'S OWN item cards (real background art, real text),
+      not grey slabs with a name. A slab means the card pool was unavailable — report it.
+- [ ] Item chips behave like ability cards: sweep a fingertip across the open fan →
+      one card pops (single winner, no oscillation); dominant laser hover pops and the
+      trigger plucks; pinch-grab works; a held item stands upright and enlarged to read.
+- [ ] **USE berth**: on YOUR action turn, holding a usable item raises a card-shaped
+      recess under the board next to CONFIRM/UNDO (log `ITEM USE SLOT: shown …`). It
+      grows in rather than blinking (`ItemBerthRevealSeconds`) and is hidden again on
+      any other turn or with a non-usable item (`ITEM USE SLOT: hidden …`).
+- [ ] Drop the card into the berth → it clips in (`ITEM clip-in: '<card>' held in the
+      use slot (<hand>)`) and the item activates through the game's own path
+      (`ITEM USED '<card>' (<why>)`). The card STAYS LYING in the recess afterwards.
+- [ ] Take a clipped-in card back OUT before it resolves → `ITEM clip-in CANCEL (<why>)
+      — card returns to the deck, NOT used.` Nothing was consumed.
+- [ ] **Element-choice items** (mana potions): placing the card raises the game's own
+      element picker in the decision area under the board (`ITEM choice: raised the
+      element picker …`); the cap reads CHOOSE ELEMENT until an element is picked, then
+      USE. The item's symbol on the 2D items bar must NOT be independently clickable.
+- [ ] **OnAttacked items** (shield/retaliate): placing one toggles it through the
+      take-damage panel's own slot; the panel's confirm commits.
+- [ ] **Worn/passive bonus items** (the "Brille" class): the item HIGHLIGHTS in the pile
+      while its bonus is offered; placing the card raises the USE cap and poking it
+      presses the game's own active-bonus row (`ITEM BONUS USED: …`); taking the card
+      back out un-toggles it (`ITEM BONUS untoggled: …`), unless the game has LOCKED the
+      toggle, in which case the card refuses to leave (`… cannot be taken back out …`).
+- [ ] **The cue reads from across the table**: with an item usable, the closed pile
+      throws expanding rings (`ItemCueRingReach/RingAlpha`) and ember puffs
+      (`ItemCueEmberRate/EmberSize`) on one shared heartbeat (`ItemCueBeatSeconds`),
+      and the berth pings INWARD (`ItemBerthPingSeconds/PingReach`). Check it is
+      catchable out of the corner of your eye, and in mixed reality against a bright
+      room. Set every `ItemCue*`/`ItemBerth*` amplitude to 0 → the old subtle cue.
+- [ ] Hand the held item from one hand to the other (`ITEM hand transfer: …`) — no drop,
+      no double-place.
+
+## 8. Multiplayer: the mirrored control boards (`[Net] RemoteBoards`)
+
+Needs a second player. `[Net] RemoteBoards` is a purely LOCAL display choice — `Off`,
+`ActionPhaseOnly`, `Always` — and never changes game state. Grep the log for
+`Remote board`.
+
+- [ ] Each peer's control board appears at THEIR synced world pose and scale, as the
+      real bundled board asset in the style THEY chose (log `Remote board [<id>] built …`,
+      and `Remote board [<id>] style switch …` when they change it). A flat grey "Frame"
+      quad instead means the asset bundle is not resident — report it with the
+      `asset bundle now resident` line if it appears later.
+- [ ] A peer's board shows up the moment they JOIN, before characters are assigned —
+      an empty board, not nothing.
+- [ ] **Anti-cheat**: during the secret card-selection phase a peer's two round cards
+      show BACKS only (or the whole board is hidden with `ActionPhaseOnly`). Real faces
+      appear only on the game's own reveal. Verify from the other seat too.
+- [ ] On reveal, the faces are the game's FULL card art — painted background, both
+      action halves with icons and numbers, initiative disc, level, enhancement
+      stickers — readable enough to advise on someone's next move. A bare
+      name+initiative panel is the last-resort fallback: report it.
+- [ ] **Parity**: a peer's board carries what yours does, at the same board-local
+      places for their board style — the real initiative track and objectives panel
+      (live clones of the game's widgets, animating), the element strip, the round
+      readout, discard/burnt/item pile counts, their active/persistent cards, and every
+      piece of furniture (CONFIRM/UNDO caps, gear, FOLLOW/PIN toggle, grab handle,
+      item-USE recess, decision drawer, slot overlays).
+- [ ] **…and all of it is INERT**: point the laser at a peer's board and poke it —
+      nothing highlights, nothing presses, no collider is hit. It is display only.
+- [ ] Their transient fans mirror too: the hand fan, the item fan, the pile browse and
+      the card flights animate on their board as they do on theirs.
+- [ ] They move / two-hand resize their board: yours follows their pose and scale
+      within a frame or two. They pin it: it stays put for you as well.
+- [ ] `RemoteBoards = Off` → their boards vanish entirely and nothing else changes.
+- [ ] Leaving/rejoining and character reassignment: no orphaned remote boards, no
+      duplicates, no errors.
 
 ## Known limits (by design in P3b/P7)
 

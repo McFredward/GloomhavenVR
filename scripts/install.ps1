@@ -244,7 +244,22 @@ if (Test-Path (Join-Path $runtimeDepsDir "versions.json")) {
 $bundleFresh    = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
 $bundlePrebuilt = Join-Path $root "prebuilt\gloomhavenvr.bundle"
 $bundle = if (Test-Path $bundleFresh) { $bundleFresh } elseif (Test-Path $bundlePrebuilt) { $bundlePrebuilt } else { $null }
-if ($bundle) { Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force }
+if ($bundle) {
+    Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
+    # THE LICENCE NOTICE TRAVELS WITH THE BUNDLE (2026-09-03). The bundle carries third-party art
+    # -- the WebXR Input Profiles controller models (MIT) among others -- whose licences require
+    # the notice to accompany the copies, and the bundle builder deliberately keeps .txt files out
+    # of the archive itself, so the notice has to ship beside it. package-release.sh:87 has done
+    # this from the start; this packager did not, so a zip built HERE shipped the art with no
+    # notice at all. Two packagers, one layout: they may not disagree about what a release
+    # contains, and this was the one thing they did.
+    $thirdParty = Join-Path $root "packaging\THIRD-PARTY.txt"
+    if (Test-Path $thirdParty) {
+        Copy-Item $thirdParty -Destination (Join-Path $pluginDir "THIRD-PARTY.txt") -Force
+    } else {
+        Write-Warning "packaging\THIRD-PARTY.txt is missing - the bundle's third-party art would ship with no licence notice."
+    }
+}
 
 # Clean up the Phase-0 flat-preloader location if a stale copy is present.
 $legacyPreloader = Join-Path $GamePath "BepInEx\patchers\GloomhavenVR.Preload.dll"

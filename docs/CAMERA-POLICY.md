@@ -23,8 +23,16 @@ GloomhavenVR.VRRig            (root: DontDestroyOnLoad+hidden; at orbit focus /
   frame), far plane. It is never reparented, retargeted or pose-driven — game
   camera writers, component toggles and VideoPlayer interactions can no longer
   break HMD pose application, whatever the exact trigger.
-- Applies to BOTH rig kinds (menu and scenario) — one owned stereo camera
+- Applies to ALL THREE rig kinds — `RigKind { None, Scenario, Map, Menu }`
+  (`Rig/VRRigDriver.cs`, selection in `UpdateBody`) — one owned stereo camera
   everywhere, game cameras always desktop-only.
+- **Map rig** (`Rig/VRRigDriver.MapRig.cs`): the 3D campaign map. Reached ONLY
+  through `MapRoomDriver.Wanted`, a POSITIVE map-open signal (a live
+  `MapChoreographer` with an active worldMap/cityMap), never through "not a
+  scenario" — and ordered AFTER the scenario test, so a live board always wins.
+  Seat and scale come from the parchment renderer's world bounds; the anchor
+  camera is read only for a horizontal direction and a culling mask, both with
+  pure fallbacks. Its head mask is the map camera's OWN mask (see §3).
 - Restoration on VR-off/hot reload: destroy our objects; nothing on the anchor to
   restore. (Two exceptions, both scenario-only and restored on teardown/unpatch:
   `m_IsCameraCodeControlDisabled` + the CameraController prefix-skips, kept solely
@@ -42,8 +50,9 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
 - **Pump:** `VRRigDriver` sweeps on every scene load, after every rig (re)build, and
   every 30 frames (catches cameras created mid-scene). Idempotent; no per-frame
   allocations (`Camera.GetAllCameras` into a reused buffer).
-- **No stand-down:** even with no rig head (e.g. `[Rig] MenuRig=false`), game
-  cameras stay stereo-None. Game cameras never render stereo, period.
+- **No stand-down:** even with no rig head at all, game cameras stay stereo-None
+  (`VRCameraPolicy.Sweep` forces None whenever the head is null). Game cameras
+  never render stereo, period.
 - **Reversibility:** originals are recorded per camera and restored by
   `VRCameraPolicy.RestoreAll()` on VR-off / hot reload (`VRRigDriver.OnDestroy`).
 - **Log lines:** `Stereo policy: '<cam>' forced to StereoTargetEyeMask.None (…)` per
@@ -55,10 +64,18 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
 - **One dedicated mod layer**, resolved at runtime: first *unnamed* layer scanning
   31→8 (`LayerMask.LayerToName`), fallback = built-in UI layer 5 (logged either way).
 - **All mod-owned visuals** go on it via `VRLayers.Apply(go)` (recursive): hands,
-  fingers, lasers, reticles, flat screen + its reticle, starting indicator, physical
-  buttons, wrist HUD, settings panel + gear, dev panels, play tray, card fan/shells,
-  half-selection zones, rest tokens, comfort vignette. `Apply` is a no-op without VR
-  (dev-sim keeps vanilla layers so desktop cameras render the sim).
+  fingers, lasers, reticles, the flat screen quad + its background quad + the
+  starting indicator, physical buttons, wrist HUD, dev panels, play tray, card
+  fan/piles/tray caps, half-selection zones, the map room's table button rail and
+  wrist, loading indicator, voice badge, the alternative sky/room, and every
+  remote-player visual (avatar, name tag, control board, hand/item fans). `Apply`
+  is a no-op without VR (dev-sim keeps vanilla layers so desktop cameras render
+  the sim). The class doc on `Core/VRLayers.cs` is the policy of record; the call
+  sites are the inventory — grep `VRLayers.Apply` rather than trusting this list
+  to stay complete. (The in-VR settings panel and the comfort vignette used to be
+  named here. Both TYPES are gone — `WorldUI.SettingsPanel` was replaced by the VR
+  options tab injected into the GAME's own options window, which is game-owned uGUI
+  and therefore deliberately NOT re-layered; no comfort vignette ships.)
 - **Game-owned objects are never re-layered** (reversibility): converted uGUI panels,
   tooltips and live card faces keep their authored layers; the UI-layer culling bit
   for those remains owned by `WorldUI.CanvasConversion` (mask request counting +
@@ -74,15 +91,29 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
   anchor game camera: depth = anchor + 1, far plane from the anchor, stereo = Both,
   implicit XR tracking off, pose via `TrackedPoseDriver` (center eye,
   UpdateAndBeforeRender). Mask + clear depend on the RIG KIND (see below).
-- **SCENARIO rig mask:** anchor mask | mod layer (never 0 — a zero source mask falls
+- **SCENARIO rig mask:** source mask | mod layer (never 0 — a zero source mask falls
   back to Default | mod); clear = solid `[Rig] VoidColor` (a Skybox anchor keeps
-  Skybox — that IS content).
+  Skybox — that IS content). The source is the live ANCHOR mask by default. **Opt-in
+  narrowing (2026-07 submission pass, `[Optimize] HeadMaskFromScenarioCamera`,
+  default off):** the scenario anchor is 'Main Camera' with mask 0xFFFFFFFF while the
+  camera the flat game really draws the dungeon with excludes thirteen layers, so
+  following the anchor makes the head camera cull and submit a surplus the game never
+  draws — twice per frame under MultiPass. With the key on, the source is the
+  ScenarioCamera's own mask (when non-zero) ORed with a `MaskNarrowingFloor` that adds
+  the mod layer and the UI layer back unconditionally. Narrowed or not, the composed
+  mask is logged on change.
 - **Menu2D (MENU rig) mask — test #10 rule:** the **MOD LAYER ONLY**, always. The
   HMD in Menu2D contains exactly: void + FlatScreen quad + hands + starting
-  indicator. The anchor mask is **never** copied — on the campaign map the anchor
-  ('MapCamera') culls the whole 3D world (0xF00FFE37); copying it rendered the giant
-  map 1:1 below the player while the flat screen floated inside it. Menu2D shows the
-  world exclusively through the FlatScreen RT composite (§6). Clear is always forced
+  indicator. The anchor mask is **never** copied — test #10 copied a 3D-world anchor
+  mask into the menu head camera and rendered a giant 1:1 world below the player
+  while the flat screen floated inside it. Menu2D shows the world exclusively through
+  the FlatScreen RT composite (§6). (The campaign map is no longer an example of that
+  failure: since the map rig it is `RigKind.Map`, whose head mask IS the map camera's
+  own mask **by design** — `MapRoomDriver.ResolveMapMask`, because there the player
+  looks at the real map geometry, not at a photograph of it. That branch is
+  unreachable outside a positively-detected open map, and `ResolveMapMask`'s own last
+  fallback is the mod layer alone, so even a total failure to read a camera degrades
+  to exactly the menu picture rather than to a broken menu.) Clear is always forced
   SolidColor `[Rig] VoidColor` (no Skybox exception). Everything that must be
   visible in Menu2D therefore MUST be on the mod layer (`VRLayers.Apply`).
 - **Mask upkeep:** re-asserted **every frame** — scenario: re-composed from the live
@@ -96,8 +127,8 @@ always the rig's own `GloomhavenVR.HeadCamera`, never a game camera. The old
   - the desired rig kind changed (scenario camera appeared/vanished, VR off),
   - OUR camera or rig root was destroyed externally (paranoia — nothing game-side
     should reach them),
-  - the ANCHOR camera was destroyed, or (menu) disabled/deactivated → re-anchor to
-    the next best camera,
+  - the ANCHOR camera was destroyed, or (menu **or map**) disabled/deactivated →
+    re-anchor to the next best camera,
   - a scene load revealed a **better menu camera** (priority: tag MainCamera →
     `Camera.main` → highest-depth enabled backbuffer camera that isn't the UICamera).
 - Every teardown and rebuild is logged **with its trigger reason**.
@@ -149,8 +180,11 @@ camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenR
   own clear flags (Depth etc.) so compositing matches the game's intent. Depth ties
   ('Main Camera' and 'UI Camera' both ship depth 1.0): the UICamera-tagged camera
   never wins the base pick — it composites last per game intent.
-- **Overlay SolidColor demotion (test #10, `[WorldUI] DemoteOverlaySolidClears`,
-  default on):** a NON-base captured camera with a FULLSCREEN viewport and a
+- **Overlay SolidColor demotion (test #10, UNCONDITIONAL — the
+  `[WorldUI] DemoteOverlaySolidClears` dial is gone, user ruling 2026-08-13,
+  because its OFF let that clear wipe the composited campaign map to black, i.e. it
+  could switch off the only route into a scenario from the options menu):** a
+  NON-base captured camera with a FULLSCREEN viewport and a
   SolidColor clear (the campaign map's depth-5 'Video Camera' — decompiled
   GH.Runtime/VideoCamera.cs: enabled only around `PlayFullscreenVideo`, renderMode
   CameraNearPlane, its clear is merely the black backdrop behind fullscreen videos)
@@ -175,46 +209,102 @@ camera that renders to the backbuffer is captured into `GloomhavenVR.FlatScreenR
   camera, `FlatScreen stack base: '<cam>' … clears the RT`, and the camera inventory
   marks captured cameras with `[RT stack]` plus a stack summary line.
 
-### §6.1 Stereo screen — owner: `WorldUI.FlatScreenStereo` (test #15 #7)
+### §6.1 Screen layer split — owner: `WorldUI.FlatScreen` (test #18)
+
+The captured stack is not composited onto ONE surface any more. Screen-Space-Camera
+canvases render **exclusively through their assigned camera**, so no other camera —
+in particular no §6.2 stereo mirror — can ever reproduce them: a right-eye RT
+composed by mirrors alone lost the entire menu UI (test #18, a left-eye-only menu).
+The stack is therefore split in two, and the split is **unconditional** —
+`WorldUIConfig.ScreenLayerSplit` is a `const bool` since the 2026-08-22 settings
+audit, not a bound key, because its off state is a one-eyed main menu.
+
+- **UI glass layer:** UI-classified cameras (UICamera-tagged / orthographic — the
+  canvases' `worldCamera` targets) are retargeted onto a mod-owned
+  `GloomhavenVR.FlatScreenRT.UI`, same dimensions as the background RT, cleared to
+  TRANSPARENT. Their canvases follow automatically. The screen quad shows that RT
+  through an alpha-blended material (`Sprites/Default` → `UI/Default`): whatever the
+  UI cameras did not draw stays see-through. Identical in both eyes, at the screen
+  plane.
+- **Background layer:** 3D perspective cameras keep compositing the left RT (§6
+  unchanged) and are the only cameras §6.2 mirrors. They are shown on a second,
+  opaque `GloomhavenVR.FlatScreen.Background` quad `BackplaneGapMeters` = **6 cm**
+  real behind the glass (3 → 6 cm after test #19: the physical separation is the
+  strongest depth cue of the whole split and costs nothing). The background quad is
+  grown by `1 + gap/distance` so it subtends the same angle from the head — no edge
+  inset.
+- **The pointer plane stays the glass.** One authoritative quad: `TickPointer` /
+  `TickPoke` and the RT pixel mapping are untouched, and both RTs share one
+  resolution by construction.
+- **Fallbacks, all to the proven single-RT path** (every camera composites the left
+  RT, the screen quad goes opaque, stereo stays OFF because mirrors cannot carry the
+  UI — degraded, but never one-eyed and never black):
+  - `_splitFailed` — glass-RT or shader creation failed. Latched for the rest of this
+    Show; cleared on the next `Show`.
+  - `_splitNoUi` — no UI camera was captured for `NoUiFallbackSeconds` = 3 s while
+    routing. **Scene-scoped** (test #20: the UI-less loading scene between intro and
+    menu latched it for the whole Show, which kept the split — and with it stereo and
+    the video depth layer — off for the entire main menu), so it re-arms on stack
+    release (scene change) or the moment a UI-classified camera IS captured.
+- **Pump/reversibility:** engaged/disengaged at the top of every capture sweep;
+  teardown destroys the glass RT, the glass material and the background quad and puts
+  the opaque material back on the screen quad. Engage, every fallback and every
+  teardown reason are logged.
+
+### §6.2 Stereo screen — owner: `WorldUI.FlatScreenStereo` (test #15 #7)
 
 While the FlatScreen is visible in VR (`[WorldUI] StereoScreen`, default on;
 `ScreenDepthStrength` scales it, 0 = mono), the screen renders **with stereo
-depth** — a 3D-movie/window effect. The captured game cameras stay exactly as §6
+depth** — a 3D-movie/window effect. The captured 3D cameras stay exactly as §6
 describes and keep composing the (left) RT; per-eye rendering is added entirely
-with mod-owned objects:
+with mod-owned objects. It requires §6.1's split to be engaged (mirrors cannot
+reproduce Screen-Space-Camera UI); without it the screen stays mono:
 
 - **Right-eye RT** `GloomhavenVR.FlatScreenRT.Right` (same dimensions as the left
   RT — the pointer pixel mapping and desktop mirror keep using the LEFT RT and are
   untouched; the monitor stays monoscopic).
-- **One mirror camera per captured camera** under the hidden DontDestroyOnLoad root
+- **One mirror camera per captured 3D camera** under the hidden DontDestroyOnLoad root
   `GloomhavenVR.StereoScreenMirrors`, bare cameras whose state is FIELD-COPIED from
   the live source every tick: transform, projection matrix, culling mask **minus
   the mod layer** (they must never see the quad/hands — feedback), the EFFECTIVE
   clear flags (i.e. after §6's base-clear force and overlay demotion), rect, depth,
   clip planes, enabled state. Same `depth` ⇒ the right RT replays the stack in the
-  same compositing order. UI cameras are mirrored too (per-RT re-render, zero
-  offset) because depth order interleaves UI and 3D surfaces — a post-hoc UI blit
-  over the right RT would reorder the composite.
-- **Eye geometry:** 3D mirrors (perspective, not tagged UICamera) sit at
-  `source + right × separation` with an off-axis projection (lens) shift that
-  converges at the screen's own distance; UI/orthographic mirrors sit at zero
-  offset (flat UI reads AT the screen plane, where the pointer says it is).
-  `separation = IPD × ScreenDepthStrength × WorldScale` and
-  `convergence = ScreenDistance × WorldScale` — the rig scale is the mod's one
+  same compositing order.
+- **ONLY 3D CAMERAS ARRIVE HERE (test #18).** The pre-#18 zero-offset "MONO mirror"
+  path for UI/orthographic cameras produced an EMPTY right-eye UI, because
+  Screen-Space-Camera canvases render only through their own camera. §6.1's split
+  now carries the UI on its glass RT — identical in both eyes at the screen plane —
+  and syncs only the 3D background cameras into this class. While the split is not
+  active, stereo stays off entirely (single mono RT — degraded, never one-eyed).
+- **Eye geometry:** mirrors sit at `source + right × separation` with an off-axis
+  projection (lens) shift that converges at the screen's own distance.
+  `separation = IPD × ScreenDepthStrength × WorldScale × ScreenParallaxScale` and
+  `convergence = ScreenDistance × WorldScale × ScreenParallaxScale` — the rig scale
+  is the mod's one
   canonical real↔game relation (1 in the menu rig), so scene content at the
   screen-equivalent distance shows zero disparity and scene-infinity stays a few cm
   under the divergence limit. IPD is sampled from the XR head device (63 mm
   fallback), plausibility-clamped.
-- **Per-eye quad texture (MultiPass):** a `Camera.onPreRender` hook swaps the quad
+- **Per-eye quad texture (MultiPass):** a `Camera.onPreRender` hook swaps the
   material's texture per head-camera eye pass via `camera.stereoActiveEye`
   (Left → RT-L, Right → RT-R), with an automatic per-frame pass-parity fallback if
-  a runtime reports Mono; the observed pattern is logged once per activation.
-- **Near-plane video suspension:** VideoPlayers in CameraNearPlane/FarPlane mode
-  blit only into their HOST camera's target — a mirror can never reproduce them, so
-  while any captured camera hosts an enabled such player ('MainMenuVideo' ambient
-  movies, the campaign 'Video Camera', the intro) stereo is suspended (both eye
-  passes show the left RT, mirrors disabled). Correct by nature: video frames are
-  2D. Logged on every flip.
+  a runtime reports Mono; the observed pattern is logged once per activation. The
+  material is the one on §6.1's **background** quad (`FlatScreen` passes
+  `_backRenderer` into `Tick`) — the glass quad in front is per-definition identical
+  in both eyes and is never swapped.
+- **Near-plane video — depth layer, suspension as the fallback:** VideoPlayers in
+  CameraNearPlane/FarPlane mode blit only into their HOST camera's target, so a
+  mirror can never reproduce them. While any captured camera hosts an enabled such
+  player ('MainMenuVideo' ambient movies, the campaign 'Video Camera', the intro),
+  the mirrors stop and both eyes instead show SHIFTED copies of the left RT —
+  `[WorldUI] VideoDepthLayer` places the 2D video frame at a chosen depth behind the
+  screen, disparity `p = IPD·V/(D+V)` split as a UV shift per eye. **Fallback
+  suspension** (no left RT, shifted-RT creation failure, `VideoDepth` 0, or
+  `VideoDepthLayer` off): both eye passes show the left RT unshifted. Either way the
+  vanilla player keeps drawing into the left RT, so the result is never one-eyed and
+  never black. Logged on every flip. A separate **intro guard** force-suspends with
+  zero shift on pre-menu scenes (test #17: the intro's render path is not
+  mirror-reproducible and not observable).
 - **No policy fights:** mirrors are stereo-None with a targetTexture ⇒ invisible to
   §1's sweep by construction, and §6's capture sweep skips them
   (`targetTexture != null`). `XRDevice.DisableAutoXRCameraTracking` is set anyway.

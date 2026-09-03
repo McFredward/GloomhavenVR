@@ -4,8 +4,9 @@
 > a hex — docs/TESTING-P2.md). Deploy as for P1/P2 (`scripts/install.ps1`).
 >
 > What Phase 3a adds: the game's entire pick/hover/click pipeline follows the VR
-> hands. **Far mode** = the primary hand's index ray (laser visible in BoardTargeting
-> mode, or always with `[Hands] RayAlwaysOn`). **Near mode** = an index fingertip
+> hands. **Far mode** = the primary hand's aim ray (the laser is visible in EVERY
+> mode now — `[Hands] RayAlwaysOn` and the ModalUI cone gate are both deleted; only
+> COMMITS are modal-gated). **Near mode** = an index fingertip
 > within `[Board] TouchRange` (default 10 cm real) above the board takes over from
 > the ray; touching a hex commits a click. AoE patterns rotate with the thumbstick.
 >
@@ -24,12 +25,14 @@ Set in `BepInEx/config/dev.gloomhavenvr.cfg`:
 [Dev]
 Enabled = true
 SimulateHands = true
-[Board]
-ForceFarMode = true
 ```
 
-(`ForceFarMode` matters here: the simulated hands hang in front of the camera and
-never reach the board, so only the far ray is exercisable flat.)
+`[Board] ForceFarMode` is **deleted** (2026-08 dead-settings sweep) — do not add it,
+it binds to nothing. Nothing replaces it and nothing needs to: the near pick is
+grip-gated by `[Board] TouchTilesWithFingertip`, and the simulated hands hang in
+front of the camera and never reach the board with a grip held, so **this smoke test
+exercises the far ray by construction**. The fingertip path is HMD-only; there is no
+desktop coverage for it.
 
 1. Load a scenario, wait for your turn. Overlay (F10) shows `Mode BoardTargeting`
    once an action wants targets.
@@ -72,7 +75,10 @@ restores the mouse. (In real VR the game camera is rig-driven, so this is moot.)
 
 - [ ] **Touch-click**: during move selection, touching a reachable hex with the
       fingertip selects it (click pulse haptic). Retract and touch again for the
-      second/confirm click if `EnableSecondClickHexToConfirm` is on.
+      second/confirm click when the GAME is set to require one (its own
+      second-click-confirmation option — the mod has no key of its own for it and
+      just rides the game's flow; `Choreographer` reads it as
+      `actingPlayerHasSecondClickConfirmationEnabled`).
 - [ ] **Trigger-click**: pointing the laser at a hex and pulling the trigger does the
       same from a distance.
 - [ ] Play a complete turn purely by touching/pointing: select move destination →
@@ -126,9 +132,9 @@ restores the mouse. (In real VR the game camera is rig-driven, so this is moot.)
 
 | Symptom | Check |
 |---|---|
-| Hover ignores the hands, follows the mouse | Overlay mode — ray only runs in BoardTargeting unless `RayAlwaysOn`; hands must be tracked (`VRHands.Ready`). |
+| Hover ignores the hands, follows the mouse | Hands must be tracked (`VRHands.Ready`) and the pick must not be modal-suppressed — check the overlay mode. The BEAM itself is always on, so "no laser" and "no pick" are different faults. |
 | Highlight follows ray but clicks do nothing | Turn control: is it your decision point? Log should show `[Board] click requested…`; if present but no selection, capture `Choreographer` wait state from the overlay. |
-| Near mode never engages | Is the GRIP held (near mode is grip-gated) and the hand empty? `[Board] TouchTilesWithFingertip` off, or `ForceFarMode` still true from desktop testing? `TouchRange` too small for your play scale? |
+| Near mode never engages | Is the GRIP held (near mode is grip-gated) and the hand empty? `[Board] TouchTilesWithFingertip` off? `TouchRange` too small for your play scale? |
 | Fingertip touch commits nothing | Log must show `[Board] FINGERTIP TOUCH commit: hex (x,y), <side> hand, grip HELD …`. Line present but no selection → same triage as "clicks do nothing" (turn control / wait state). Line absent → the grip gate or the pick, not the commit. |
 | AoE won't rotate | Only RANGED AoE rotates via stick (range > 1); melee follows hover. Stick deadzone: raise/lower `AoeFlickThreshold`. |
 | Clicks land on wrong hex | Try `SnapToHexCenter = true`; if still off, note whether near or far mode and the diorama scale — fingertip lift constant may need tuning. |

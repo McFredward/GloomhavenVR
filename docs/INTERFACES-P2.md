@@ -6,7 +6,7 @@
 > interactor matrix §4). Everything is `internal` — all modules compile into the same
 > `GloomhavenVR.dll`.
 >
-> **This file is cited by `CHARTER.md` §5 as a reason NOT to delete a member, so it is
+> **This file is cited by `.planning/refactor/CHARTER.md` §5 as a reason NOT to delete a member, so it is
 > only useful while it is true.** A stale authority is worse than no authority: the
 > `PalmGate` section below described the superseded P6/P7 gate for two hardware rounds,
 > including one switch whose description said the *opposite* of what the code did.
@@ -25,7 +25,7 @@
   thread** (sources: Choreographer pump postfixes, uGUI callbacks, hand Update loop).
 - **Never block in a handler.** The ScenarioRuleLibrary runs its own worker thread;
   `CardsHandUI.OnCardSelected` already spin-waits the main thread up to 1 s for SRL
-  acks (CARDS.md §8) — route card selection through a coroutine, and never add more
+  acks (`.planning/research/CARDS.md` §8) — route card selection through a coroutine, and never add more
   blocking on top.
 - Handlers should not throw. Throwing is caught and logged (the game survives), but
   the remaining subscribers of that single raise are skipped.
@@ -159,8 +159,9 @@ struct PickPose { Vector3 Origin, Direction; bool HasHit; Vector3 HitPoint; floa
 - `hand.Ray.Mask` — set the game's selection LayerMask here (Phase-3a:
   `Controller.m_ActiveSelectionRaycastLayer`).
 - `hand.Ray.Current` — latest pick, updated once per frame while enabled.
-- Visuals (subtle laser + reticle) show only while enabled (mode policy /
-  `[Hands] RayAlwaysOn`).
+- Visuals (subtle laser + reticle) show only while the interactor is enabled (mode
+  policy). Whenever it IS enabled the beam draws unconditionally — see the
+  SUPERSEDED cone-gate note below.
 - **Phase-3a contract**: your `MF.FindInteractableAtMousePosition` /
   `InputManager.CursorPosition` patches consume `VRHands.PrimaryPick` and may
   substitute their own `IPickProvider` (e.g. fingertip touch near the board).
@@ -172,11 +173,18 @@ struct PickPose { Vector3 Origin, Direction; bool HasHit; Vector3 HitPoint; floa
   break condition, and `RayInteractor.cs` / `BoardDriver.cs` carry
   do-not-resurrect comments at the sites. `[Board] SnapToHexCenter` still exists — it
   feeds the GAME cursor projection only (`BoardPick.TryGetCursorWorld`), never a visual.
-- **P5** ModalUI visual constraint: in `VRMode.ModalUI` the laser only shows while
-  pointing within `[Hands] ModalRayConeDegrees` (default 25°, 0 = always) of a UI
-  surface — any registered `UguiPokeSurfaces` canvas or an extra target registered
-  via static `RayInteractor.RegisterUiTarget(Transform)` / `UnregisterUiTarget`
-  (the WorldUI flat screen registers its quad). The pick itself stays active.
+- ~~**P5** ModalUI visual constraint (`[Hands] ModalRayConeDegrees`)~~ —
+  **SUPERSEDED, gate RETIRED and both keys DELETED** (2026-08 dead-settings sweep).
+  The MISSION A.5 cone gate hid the beam in `VRMode.ModalUI` unless it pointed within
+  a cone of a registered UI surface, so the laser would not sweep the room while a
+  dialog was up — and exactly that gate was the tutorial's "no laser at all on the
+  playfield while the instruction box is open". User ruling 2026-08: *"Ich möchte,
+  dass der Laser ausnahmslos da ist und collidet, egal in welcher Phase sich das Spiel
+  aktuell befindet."* `RayInteractor.VisualsAllowed` is now unconditionally `true` —
+  the beam renders wherever the hand points, in every phase. The signature is kept so
+  a future policy change slots back in at that one seam, and
+  `RayInteractor.RegisterUiTarget(Transform)` / `UnregisterUiTarget` stay registered
+  by the flat screen for reversibility; they are simply no longer consulted.
 - **P5/P6** `hand.Ray.UiHitOverride` (`Vector3?`) — world point where the ray hits a
   code-intersected UI surface (flat screen, world panels via `RayUguiDriver`, fan
   cards). While fresh, the visible beam is CLAMPED to it and the reticle sits exactly
@@ -285,7 +293,7 @@ who finds one of these names in an old log, commit or design note can see it was
 | `UseDevicePalmNormal` (documented as "evaluates the RAW grip-pose palm instead of the visual rig") | vestigial — **the description was the exact opposite of the code**; v4 always reads `HandRig.Root` and only falls back to the device transform when the rig is missing | nothing — the flag selects nothing |
 | `RollAxisOnly` | gone | roll-only is unconditional in v4 |
 | `[Cards] SupinationThreshold` | the config key no longer exists | `[Cards] RevealEnterDegrees` / `RevealExitDegrees` |
-| `[Hands] GripPitchOffsetDegrees (default -60°)` | the key exists but its default is **-30°** (hardware test #27), and it is itself superseded per hand style (`[Hands] <Style>GripPitchDegrees` in `dev.gloomhavenvr.hands.cfg`) | the per-style seat entries |
+| `[Hands] GripPitchOffsetDegrees (default -60°)` | **the key does not exist at all.** The shared seat pitch and its per-style trim were both retired; the only bound pitch entries are the per-style absolutes `[Hands] <Style>GripPitchDegrees` in `dev.gloomhavenvr.hands.cfg` (`HandsConfig.Bind`), defaults in `Defaults/Defaults.Hands.cs` | the per-style seat entries |
 
 Because the gate reads the **visual** frame, it deliberately *includes* the seat offsets
 and per-style trims the user tuned — it agrees with the hand they see, which is the whole
@@ -320,7 +328,7 @@ enum HandRole { Dominant, NonDominant }    // P5 — dominance = [Hands] Primary
 
 VRModeStateMachine.CurrentMode
 VRModeStateMachine.ModeChanged        // event Action<VRModeChange { From, To }>
-VRModeStateMachine.InteractorsFor(VRMode)            // both-hands union incl. RayAlwaysOn
+VRModeStateMachine.InteractorsFor(VRMode)            // the mode's base policy, no hand role applied
 VRModeStateMachine.InteractorsFor(VRMode, HandRole)  // P5: effective per-hand policy
 VRModeStateMachine.ScenarioBoardExists // P6: THE canonical "a scenario board exists" signal
 ```
@@ -357,25 +365,60 @@ VRModeStateMachine.SetAuxModal(bool);  // P6: OR-input into ModalUI — WorldUI'
 
 | Mode | Dominant hand | Non-dominant hand | Rationale |
 |---|---|---|---|
-| `Menu2D` | Ray + Poke | Poke | **Only the dominant hand has a laser** (test #6): it is the flat-screen pointer/click hand. The NON-dominant **trigger switches dominance** to that hand (persisted to `[Hands] PrimaryHand`, haptic confirm — `FlatScreen.TickHandednessSwitch`). Poke on both hands serves the settings panel and the flat-screen poke-click. No Grab/PalmGate — nothing physical exists in the menu. |
-| `TableIdle` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Spectate/manipulate; palm-up shows the fan on the non-dominant hand (Cards only reads that hand's gate). |
+| `Menu2D` | Ray + Poke | Poke | **Only the dominant hand has a laser** (test #6): it is the flat-screen pointer/click hand. The NON-dominant **trigger switches dominance** to that hand (persisted to `[Hands] PrimaryHand`, haptic confirm — `FlatScreen.TickHandednessSwitch`). Poke on both hands serves the flat-screen poke-click and the mod's own world panels. No Grab/PalmGate — nothing physical exists in the menu. |
+| `TableIdle` | Poke + Grab + PalmGate + **Ray** | Poke + Grab + PalmGate | Spectate/manipulate; palm-up shows the fan on the non-dominant hand (Cards only reads that hand's gate). Ray from the unconditional dominant rule below. |
 | `CardSelection` | Poke + Grab + **Ray** | Poke + Grab + PalmGate | Dominant ray = hero placement / board picks during selection (P3a wish); non-dominant owns the fan, and having **no laser on the fan hand** keeps the beam out of the cards (P3b wish). |
-| `HalfSelection` | Poke + Grab + PalmGate | Poke + Grab + PalmGate | Played-card halves are poked; targeting has its own mode. |
+| `HalfSelection` | Poke + Grab + PalmGate + **Ray** | Poke + Grab + PalmGate | Played-card halves are poked; targeting has its own mode. Ray from the unconditional dominant rule below — the defect that forced it: a single-target attack waits in Choreographer state `WaitingForCardSelection`, which is not a targeting state, so the mode stayed `HalfSelection` and the selection laser silently vanished mid-attack. |
 | `BoardTargeting` | Ray + Poke | Poke | The far pick consumes `VRHands.PrimaryPick` exclusively — a second laser was noise. Near-touch works with either hand. |
-| `ModalUI` | Poke + Ray† + Grab‡ | Poke + Ray† + Grab‡ | † Ray stays ACTIVE but its laser only shows within `[Hands] ModalRayConeDegrees` (default 25°) of a UI surface — see §2 Ray. P6: ModalUI is also entered by the WorldUI catch-all fallback (`SetAuxModal`) whenever an unconverted game window opens mid-scenario — the flat screen shows the full 2D composite so the window is always visible and clickable (window sets: `docs/TESTING-P3C.md` §11). The self-rescue chord (hold non-dominant A/X ~2 s, `[WorldUI] ManualScreenChord`) forces the screen in any scenario mode. ‡ Grab added in test #15 so the TRAY dashboard stays movable/scalable while a dialog floats (accepted by `WorldUI.PanelGrabHandle`, the shared grab core the tray, combat log, settings panel and modals all use — it replaced the tray-specific `TrayGrabHandle` this document used to name); CARD grabs are refused per-object there (`VRCard.CanGrab` gates on `CurrentMode != ModalUI` — the fan/slots are never manipulable mid-dialog). Pattern for new grabbables: the interactor mask provides the *primitive*, the grabbable's own `CanGrab` decides mode fitness. |
+| `ModalUI` | Poke + Ray + Grab‡ | Poke + Grab‡ | Ray is dominant-only like everywhere else, and its beam is no longer cone-gated (see §2 Ray). P6: ModalUI is also entered by the WorldUI catch-all fallback (`SetAuxModal`) whenever an unconverted game window opens mid-scenario — the flat screen shows the full 2D composite so the window is always visible and clickable (window sets: `docs/TESTING-P3C.md` §11). The self-rescue chord (hold non-dominant A/X for `[WorldUI] ManualScreenChordSeconds`, default 2 s — always on, no longer switchable off) forces the screen in any scenario mode. ‡ Grab added in test #15 so the TRAY dashboard stays movable/scalable while a dialog floats (accepted by `WorldUI.PanelGrabHandle`, the shared grab core the tray, combat log and modals all use — it replaced the tray-specific `TrayGrabHandle` this document used to name); CARD grabs are refused per-object there (`VRCard.CanGrab` gates on `CurrentMode != ModalUI` — the fan/slots are never manipulable mid-dialog). Pattern for new grabbables: the interactor mask provides the *primitive*, the grabbable's own `CanGrab` decides mode fitness. |
 
-`[Hands] RayAlwaysOn = true` ORs Ray into every cell. The `HandsDriver` applies the
+**Two rules override every cell above, applied last in `InteractorsFor(mode, role)`:**
+
+1. **The dominant hand always gets Ray, in every mode** (hardware test #19). Desktop
+   parity is the argument: the mouse can always point and click and the GAME gates by
+   state, so an always-on dominant ray is exactly the mouse contract. Transient
+   suppression (held object, pose loss) is level-derived inside `RayInteractor.Active`
+   and never via this mask.
+2. **The non-dominant hand never gets Ray, in any mode, under any config** (user
+   ruling 2026-08-03: *"Aktuell habe ich immer zwei Laser aus beiden Händen! Das will
+   ich nicht. Nur die aktive Hand … soll einen Laser haben."*). Three separate paths
+   used to hand the off hand a ray, so it is enforced once, here, after everything
+   else has had its say.
+
+~~`[Hands] RayAlwaysOn`~~ — **DELETED** as a provable no-op: it was applied
+regardless of role, i.e. rule 2 already stripped it from the off hand and rule 1
+already granted it to the dominant one.
+
+The `HandsDriver` applies the
 matrix to both hands on every mode change; you normally only *read* `CurrentMode`
 and react to `ModeChanged` — never toggle interactors yourself.
 
-**World grab + turn per mode (test #13 policy change):** grip world-grab
-(`Rig/WorldGrab.cs`) and stick turning (`Rig/SnapTurn.cs`) run in **every scenario
-mode INCLUDING `ModalUI`** — a floating dialog must not freeze the diorama
-(grab/rotate/zoom and snap turn stay usable while reading it; object grabs near a
-floating window still win via the P4 grip-contention rule). Exceptions: `Menu2D`
-(no table; dev proxy exempt) disables both, and `BoardTargeting` disables *turning
-only* (the stick rotates AoE patterns there). No Cards interaction is enabled by
-this — card play stays governed by the interactor matrix above.
+**World grab + turn per mode (test #13, then ModBuild 138):** the stick-click world
+grab (`Rig/WorldGrab.cs` — the grip has been figure-grab since P8) and stick turning
+(`Rig/SnapTurn.cs`) run in **every scenario mode INCLUDING `ModalUI`** — a floating
+dialog must not freeze the diorama.
+
+**Turning is NEVER suppressed by mode any more** (user ruling, ModBuild 138: *"Die
+drehung soll nie blockiert sein!"*). `BoardTargeting` used to hard-disable it because
+"targeting owns the thumbstick", and two hardware reports proved the MODE is the wrong
+question: it is derived from the SHARED Choreographer wait-state (so a peer's pending
+move froze everyone's turning) and it is also true where the AoE rotation it protected
+declines to run. `SnapTurn` now asks the CONSUMER —
+`LocalTurnControl.TargetingOwnsStick`, which is true only while an AoE pattern would
+really rotate on this very stick — and since AoE rotation moved to the hand
+`[Comfort] TurnHand` does NOT use (`AoeControl.ResolveRotationHand`), that answer is
+structurally "no".
+
+The suppressions that remain, and must not be "finished off" by a later cleanup:
+`Menu2D` (the flat 2D menu — there is no board in front of you to turn around; the dev
+proxy is exempt) for both turning and world grab, and the menu-scroll gate
+(`ScrollTurnGate`, user ruling 2026-08-11: scrolling a list must not yaw the world
+with the incidental sideways component). Since **ModBuild 178** the 3D map room
+resolves to `TableIdle`, not `Menu2D` — its whole content is a table — so `Menu2D`
+again means only the flat 2D menu, and the map table grabs and zooms like any diorama.
+
+No Cards interaction is enabled by this — card play stays governed by the interactor
+matrix above.
 
 ## 5. Virtual mouse — `GloomhavenVR.WorldUI.VirtualMouse`
 
@@ -429,25 +472,35 @@ GloomhavenVR.Core.ModuleConfig.Create("board")   // → BepInEx/config/dev.gloom
 
 with a `_file != null` bind-once guard (see `BoardConfig`/`CardsConfig`/
 `WorldUIConfig` for the template). The main plugin config
-(`dev.gloomhavenvr.cfg`, `Plugin.Config`) is reserved for the cross-cutting
-`[General]/[Rig]/[Hands]/[Compat]/[Dev]` sections owned by `Plugin.cs`.
+(`dev.gloomhavenvr.cfg`, `Plugin.Config`) is reserved for the cross-cutting sections
+owned by `Plugin.cs` — currently `[General]`, `[Core]`, `[Rig]`, `[MapRoom]`,
+`[Hands]`, `[Compat]`, `[Dev]`.
 `FindObjectOfType<Plugin>().Config` is retired — do not resurrect it.
 
-Current files:
+**Do not read a file list off this page.** One module file per `ModuleConfig.Create`
+call, named `dev.gloomhavenvr.<key>.cfg` from the key passed in — so **the
+`ModuleConfig.Create` call sites are the list of record** (`grep -rn
+"ModuleConfig.Create(" src/`). At the time of writing there are eighteen of them
+(board, cards, comfort, worldui, hands, net, voice, perf, rig, bars, buttons, cheats,
+boardfade, figuregrab, hexhighlight, mixedreality, selectionready, wallfade) plus the
+main `dev.gloomhavenvr.cfg`, and that count moves with every feature that binds.
 
-| File | Owner | Sections |
-|---|---|---|
-| `dev.gloomhavenvr.cfg` | Plugin.cs | General, Rig, Hands, Compat, Dev |
-| `dev.gloomhavenvr.board.cfg` | Board | Board |
-| `dev.gloomhavenvr.cards.cfg` | Cards | Cards |
-| `dev.gloomhavenvr.comfort.cfg` | Rig (P4) | Comfort |
-| `dev.gloomhavenvr.worldui.cfg` | WorldUI | WorldUI, SettingsPanel |
+Two consequences of the shape rather than of the list:
+
+- A section name is not a file name. `[Hands]` is split across TWO files — the
+  cross-cutting entries in `dev.gloomhavenvr.cfg` (`Plugin.cs`) and the hand seat /
+  style entries in `dev.gloomhavenvr.hands.cfg` (`HandsConfig.Bind`). Grep the KEY,
+  not the section, when you want to know who owns an entry.
+- `[SettingsPanel]` is gone with the panel — nothing calls `Bind("SettingsPanel", …)`
+  any more.
 
 BepInEx persists every `ConfigEntry` write automatically; entries read live apply
 immediately, others document their apply point in the entry description.
 
 **Every file created through `ModuleConfig.Create` is REGISTERED** (`ModuleConfig
-.Snapshot`), and the in-VR settings panel browses that registry — Debug ▸ *Alle
+.Snapshot`), and the in-VR **VR options tab** (`WorldUI/Options/VROptionsTab.*.cs` +
+`ConfigCatalog.cs`, injected into the game's own options window — the standalone
+`WorldUI.SettingsPanel` it replaced is deleted) browses that registry — Debug ▸ *Alle
 Einstellungen* lists and edits every bound entry, grouped by topic, so nothing is
 config-file-only. Two consequences for a module author: bind through
 `ModuleConfig.Create` (a hand-rolled `new ConfigFile(...)` is invisible to the
@@ -462,4 +515,6 @@ module binds LAZILY rather than at init, name its binder in
 machine, hands (simulated: `[Dev] SimulateHands` or F8; hold T = trigger, G = grip)
 and virtual mouse on a flat desktop. F9 clicks the Ready button through the same
 GraphicRaycaster+ExecuteEvents path the fingertip poke uses; F10 toggles the overlay
-(mode, hand state, recent events). `[Dev] InputDeviceDumpInterval = 5` logs XR devices.
+(mode, hand state, recent events). `[Dev] InputDeviceDumpInterval` logs XR devices
+every N seconds — **the shipped default is `0` (off)**; set it to e.g. 5 while
+debugging (`Defaults/Defaults.Plugin.cs` is the default of record).

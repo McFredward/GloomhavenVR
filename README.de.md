@@ -10,7 +10,7 @@
     <img src="https://img.shields.io/badge/ModLoader-BepInEx 5.4.23.5-orange.svg" alt="Mod loader: BepInEx 5.4.23.5">
   </a>
   <a href="https://steamdb.info/app/780290/patchnotes/">
-    <img src="https://img.shields.io/badge/Supported Game version-1.1.8323.0-yellow.svg" alt="Supported game version">
+    <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
   <a>
     <img src="https://img.shields.io/badge/version-1.0.0-7c3aed.svg" alt="Mod version">

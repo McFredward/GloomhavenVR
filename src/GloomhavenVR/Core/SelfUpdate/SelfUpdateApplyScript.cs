@@ -145,7 +145,15 @@ internal static class SelfUpdateApplyScript
         // the 70 MB asset bundle above all -- is left exactly where it is.
         sb.Append("robocopy \"%HERE%staged\\BepInEx\" \"%ROOT%\\BepInEx\" %RC% >>\"%LOG%\" 2>&1\r\n");
         sb.Append("if errorlevel 8 goto installfailed\r\n");
+        // BOTH INSTALL FILES, and the second one is not decoration: a player who updates in VR
+        // and later opens the folder must find the German text at the version he is RUNNING, not
+        // the one he installed from. Copying only the English half would leave a stale
+        // INSTALL-DEUTSCH.txt beside a fresh INSTALL.txt describing a different build — two files
+        // in one folder disagreeing about the install, which is exactly what having two packagers
+        // render from one pair of templates exists to prevent. Guarded with `if exist` like its
+        // sibling, so a zip built before the German file existed still applies cleanly.
         sb.Append("if exist \"%HERE%staged\\INSTALL.txt\" copy /Y \"%HERE%staged\\INSTALL.txt\" \"%ROOT%\\INSTALL.txt\" >>\"%LOG%\" 2>&1\r\n");
+        sb.Append("if exist \"%HERE%staged\\INSTALL-DEUTSCH.txt\" copy /Y \"%HERE%staged\\INSTALL-DEUTSCH.txt\" \"%ROOT%\\INSTALL-DEUTSCH.txt\" >>\"%LOG%\" 2>&1\r\n");
         sb.Append($"echo OK: installed {version} >>\"%LOG%\"\r\n");
         sb.Append("goto relaunch\r\n");
         sb.Append("\r\n");

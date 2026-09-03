@@ -28,8 +28,9 @@ The reader is somebody deciding whether to download an update. Write what **chan
 - Say what they will notice, not what was changed to make them notice it. "The cards in your hand
   now update the moment you enhance one" — not "peer hand-fan sticker refresh".
 - Lead with the fixes for things they complained about. Those are what the update is for.
-- Name a thing that is still broken if this release does not fix it. The **Known rough edges**
-  section of the README is the long form; a release note can point at it.
+- Name a thing that is still broken if this release does not fix it. The **Known limitations**
+  section of [`docs/PLAYING.md`](../../docs/PLAYING.md#known-limitations) is the long form
+  (German: [`docs/PLAYING.de.md`](../../docs/PLAYING.de.md)); a release note can point at it.
 - Markdown works. Headings above `###` do not — the section already sits under `## What's new`.
 - No version numbers, no build numbers, no file names, no `ModBuild`. If a player has to know a
   number, the game tells them.

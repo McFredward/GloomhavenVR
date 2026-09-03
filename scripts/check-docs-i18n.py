@@ -40,6 +40,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # docs/NET-ACTION-SURFACE.md, docs/PATCH-INVENTORY.md (generated), docs/PATCH-NOTES.md,
 # docs/TESTING-*.md, docs/img/README.md, packaging/release-highlights/README.md,
 # packaging/THIRD-PARTY.txt, LICENSE, .planning/**, unity/**.
+#
+# ONE DOCUMENT IS GERMAN-ONLY AND STAYS THAT WAY: docs/ASSET-GUIDE-MITWIRKENDE.md. It is not a
+# page anybody browses — it is the brief handed to the external 3D artist who edits the mod's
+# meshes and textures, and that reader works in German. The English-default rule is about
+# DEVELOPER docs; this one has exactly one reader and it is not a developer. It is deliberately
+# absent from MARKDOWN below: pairing it would mean writing an English twin nobody would read
+# and then keeping two copies of a contract in step, which is how a contract goes wrong.
 MARKDOWN = [
     # (english path, german path, path from the file's own directory to docs/img)
     ("README.md",       "README.de.md",       "docs/img"),

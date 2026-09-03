@@ -1,6 +1,28 @@
 # README images
 
-## The logo — MEASURED, three rounds in: the file is fine, the artwork is drawn for black
+## `promo.gif` — the page header
+
+Both READMEs open with `docs/img/promo.gif` (7.6 MB, 800x571, 154 frames) — the artist's promo
+animation, which replaced the wordmark as the header on 2026-08-24. It is the largest file in this
+directory by a wide margin: more than everything else here put together.
+
+**Rebuild it with `unity/asset-preview/round_promo_gif.sh`, never by hand.** The script's whole
+job is rounding the corners *without paying for them in bytes*, and its header records the six
+routes that were measured to get there — the naive ones cost between 12 MB and 65 MB for the same
+picture, because a GIF's transparency index is also the encoder's only inter-frame lever, and PIL
+re-encoding the source **without changing a pixel** already costs 32.8 MB. Read that comment before
+reaching for ffmpeg or PIL. Source: `.planning/debug/ressources/gloomhavenvr_promo.gif` (gitignored;
+the artist's delivery). Output: `docs/img/promo.gif`.
+
+## The logo — RETIRED as the page header, kept as the measurement record
+
+> **`logo.png` / `logo-onlight.png` are no longer in any README.** `promo.gif` took the header on
+> 2026-08-24 and the `<picture>` element went with it — `grep -n "<picture" README.md README.de.md`
+> returns nothing. Both files are still built and still committed on purpose: the measurement below
+> is the answer to a question that was asked three times, and it will be asked again the next time
+> anybody looks at that wordmark on a white page.
+
+### The measurement: the file is fine, the artwork is drawn for black
 
 The user reported white gaps in the wordmark **on GitHub only**, and asked a third time why he sees
 it nowhere else. So it was finally measured properly instead of argued about:
@@ -17,7 +39,7 @@ contrast and the letters look hollow. GitHub's **light theme** is simply the onl
 wordmark is ever shown on white — the game's main menu and every local image viewer put it on dark.
 That is the whole of "warum sehe ich das nur in GitHub".
 
-### What ships
+### What was served, while it was served
 
 Two copies, picked by `<picture>` + `prefers-color-scheme`:
 
@@ -29,9 +51,10 @@ Two copies, picked by `<picture>` + `prefers-color-scheme`:
 **Neither repaints a pixel of the artist's wordmark**, and nothing may. Brightening the letter fill
 so it survives a white canvas would mean redrawing his artwork to fit one theme of one website.
 
-**Do not "simplify" this back to one file.** One transparent file breaks on light; one plated file
-was rejected by the user ("ich will es transparent"). The two-file split is the only arrangement
-that satisfies both, and it costs one `<picture>` element.
+**If the wordmark ever returns to a page, do not "simplify" this back to one file.** One
+transparent file breaks on light; one plated file was rejected by the user ("ich will es
+transparent"). The two-file split is the only arrangement that satisfies both, and it costs one
+`<picture>` element.
 
 ## The demo clips are MP4, not GIF, and that was measured
 
@@ -203,14 +226,22 @@ the real size differences inside a family and let the picture claim something un
 **The order inside each family is the user's** and is not alphabetical, not file order and not
 obvious: hands as delivered, masks **Grimhorn · Ironwatch · Runeveil**, boards **Steel · Bronze ·
 Oak**. The file names do not help — `Mask_0` is Ironwatch, `Mask_1` Runeveil, `Mask_2` Grimhorn
-(`Loc.cs:1018-1020`), and `PlayTray_9capjqp6` is STEEL while `PlayTray_16vm268h` is BRONZE
-(`BoardFrame.cs:68-69`). Those two have been swapped once already; check the source, never the
-look of the render.
+(`Loc.cs`, the `mask_name_*` entries — grep the key, the line numbers drift), and
+`PlayTray_9capjqp6` is STEEL while `PlayTray_16vm268h` is BRONZE (`BoardFrame.cs:68-69`). Those two
+have been swapped once already; check the source, never the look of the render.
+
+**The three board cells do not come from `render_asset.py`.** Each board is shown *with its grab
+rod*, and the rod is a procedural C# mesh — there is no FBX to hand Blender. So the board tiles are
+rendered by `unity/GloomhavenVR.Assets/Assets/Editor/PreviewBoardAsset.cs` (see also
+`PreviewGrabBar.cs`) and matched to the Blender renders by hand: 900 px, ortho 0.78, yaw 35,
+pitch 50, transparent clear (`build_readme_images.py:181-197`). A `grabbars.png` sheet of the four
+rods on their own was built first and then folded into this matrix; it is gone from the tree and
+nothing references it.
 
 The three `styles-*.png` strips are still built and still committed — they are the per-family
 image and remain useful — but the README shows only the matrix.
 
-## The asset strips## The asset strips
+## The asset strips
 
 `styles-hands.png`, `styles-masks.png`, `styles-boards.png` are rendered from the **shipped bundle
 assets** by `unity/asset-preview/render_asset.py`, which reproduces `GloomhavenVR/BoardLit` node for
@@ -374,8 +405,10 @@ get a nicer frame; fifty review frames hang off each one.
 
 ## Still missing
 
-Each has a visible placeholder in the README at the spot it belongs; dropping the file in with the
-exact name below makes its `<!-- VIDEO: … -->` comment the line to replace.
+There are **no placeholders in the README** for these — an earlier arrangement put an
+`<!-- VIDEO: … -->` comment at each spot and that is gone; `grep -n "VIDEO:" README.md README.de.md`
+returns nothing. Adding one of these means writing its block into both READMEs by hand, next to the
+clips that are already there, and keeping the two language pages in step.
 
 | File | What it should show |
 |---|---|

@@ -1,6 +1,14 @@
 GloomhavenVR — third-party assets shipped inside gloomhavenvr.bundle
 ====================================================================
 
+This file lists the third-party material inside gloomhavenvr.bundle: what it is, who
+made it, and under what terms it travels with the mod. Read the last section before
+reusing anything from this bundle — one asset in it is NOT redistributable by you.
+
+The full provenance record for the environment art — every source URL, the date each
+licence was re-read at its source, and the modifications made — lives in the repository
+at unity/GloomhavenVR.Assets/Assets/Bundle/Environments/License.md.
+
 VR CONTROLLER MODELS
 --------------------
 The controller models shown during the tutorial's controls lesson (Meta Quest
@@ -42,3 +50,56 @@ those trademarks in derivative works (such as alternate controller skins), and
 they may not be used to endorse or promote products derived from this software
 without specific prior written permission. GloomhavenVR uses the models solely
 to show a player the controller they are physically holding.
+
+
+ENVIRONMENT ART
+---------------
+The two ambient rooms (cellar and night forest) are assembled from original geometry
+plus the photoscanned models, texture sets and cut-out atlases below.
+
+Public domain / CC0 1.0 — no attribution required, credited here with thanks:
+
+  * Poly Haven (https://polyhaven.com, CC0 1.0) — the room props and PBR texture
+    sets: wine_barrel_01, wooden_crate_01, small_wooden_table_01, wooden_stool_02,
+    wooden_bookshelf_worn, wooden_bucket_01, jug_01, dead_tree_trunk,
+    dead_tree_trunk_02, tree_stump_01, tree_stump_02, root_cluster_02, single_root,
+    rock_moss_set_01, rock_moss_set_02, dry_branches_medium_01, grass_medium_02,
+    fern_02, shrub_03, moss_01, wooden_axe_02; medieval_blocks_05,
+    monastery_stone_floor, dark_wooden_planks, forest_ground_04, forest_leaves_04,
+    pine_bark, bark_brown_02, brass_candleholders (flame map), fir_tree_01 (twig
+    maps only). Decimated, resized and re-packed; meshes and UVs otherwise intact.
+
+  * ambientCG (https://ambientcg.com, CC0 1.0) — "Leaf Set 017", the climbing ivy.
+
+  * TextureCan (https://www.texturecan.com, CC0 1.0) — asset others_0015,
+    "Spider Web / Cobweb", the cellar cobwebs.
+
+  * Wikimedia Commons (all CC0 1.0) — four bracket-fungus photographs keyed into the
+    cellar wall-growth atlas: "Tinder-fungus-1817040.jpg" (Tappancs),
+    "Porling nahe Rheingoldhalle.jpg" (ManuelB701), "Bracket fungus, 2021-09-15,
+    Bird Park, 01.jpg" and "Shelf fungus, Fox Chapel, 2022-03-05, 01.jpg" (Cbaile19).
+
+  * Flickr (CC0 1.0) — "handprints 4" by lisafree54 (Lisa Ann Yount), keyed into the
+    apparition atlas.
+
+  * Bright Star Catalogue, 5th Revised Edition — Hoffleit D. & Warren Jr. W.H., 1991,
+    Astronomical Data Center, NSSDC/ADC. A US Government work, not subject to
+    copyright. Drives the star field.
+
+
+THE ONE ASSET THAT IS NOT REDISTRIBUTABLE BY YOU
+------------------------------------------------
+The fire texture atlas (fire_atlas_alb.png) is derived from the greyscale flame and
+turbulence masks of two free Unity Asset Store packages — "Free Fire VFX - HDRP" by
+Vefects (asset id 239742) and "Fire 001" by N2Studio — used under the standard Unity
+Asset Store EULA (https://unity.com/legal/as-terms).
+
+That licence is non-transferable and may not be sublicensed. It permits GloomhavenVR to
+embed these texels in the mod and to distribute the mod. It grants YOU nothing: receiving
+this file does not give you a licence to those textures separately from the mod, and the
+mod's own GPL-3.0 licence does not and cannot cover them. If you fork or redistribute
+this project, carve this asset out or replace it — a blanket open-source statement over
+it would be inaccurate, because there is no right to grant.
+
+Every other third-party asset above is CC0 or public domain and carries no such
+restriction. Read this section before adding any further Asset Store material.

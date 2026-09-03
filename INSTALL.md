@@ -83,7 +83,8 @@ There is one thing to check, and it is just that two folders exist:
 ```
 Gloomhaven/                      ← the folder with GH.exe in it
 ├── GH.exe
-├── INSTALL.txt                  ← this came out of the mod's zip
+├── INSTALL.txt                  ← these two came out of the mod's zip
+├── INSTALL-DEUTSCH.txt          ←   (the same short guide in German)
 └── BepInEx/
     ├── plugins/GloomhavenVR/    ← both of these must exist
     └── patchers/GloomhavenVR/

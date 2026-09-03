@@ -17,26 +17,42 @@ install hidden, exactly as CI sees it:
 | `GloomhavenVR.Preload.dll` | compiled, no game references at all | 31 KB |
 | `RuntimeDeps/Unity.XR.*.dll` | `scripts/build-runtimedeps.sh` — compiled from needle-mirror package source at pinned **tags** | 270 KB |
 | `Natives/openxr_loader.dll`, `UnityOpenXR.dll` | `scripts/fetch-natives.sh` — SHA256-pinned download from the OpenXR package | 2.7 MB |
-| `gloomhavenvr.bundle` | **already in the repository** at `prebuilt/gloomhavenvr.bundle` | 70.2 MB |
-| `INSTALL.txt` | rendered from `packaging/INSTALL.txt.in` | 3.6 KB |
+| `gloomhavenvr.bundle` | **already in the repository** at `prebuilt/gloomhavenvr.bundle` | 71 MB |
+| `INSTALL.txt`, `INSTALL-DEUTSCH.txt` | rendered from `packaging/INSTALL.txt.in` and `packaging/INSTALL.de.txt.in` | ~4 KB each |
+| `THIRD-PARTY.txt` | copied from `packaging/` — the licence notice the bundled art requires; ships only when the bundle does | 2 KB |
 
-Result: `dist/GloomhavenVR-<version>.zip`, **73,894,279 bytes**, `package-release.sh`'s
-own layout assertions passing.
+Result: `dist/GloomhavenVR-<version>.zip`, a little over the bundle's own size,
+`package-release.sh`'s own layout assertions passing.
+
+**No exact byte count is written down here on purpose.** It used to be, and it went stale the
+first time the bundle was rebuilt — twice over, because the bundle figure it was computed from
+was stale too. `ls -l prebuilt/gloomhavenvr.bundle` is the answer, and it is current by
+construction.
 
 Two things that are often assumed and are worth stating plainly:
 
-* **The 70 MB asset bundle is not a problem, because it is committed.**
-  `prebuilt/gloomhavenvr.bundle` is a tracked blob in `main`'s history (it has been
-  byte-identical at 70,218,494 bytes since ModBuild 172). `package-release.sh` falls
-  back to it whenever a freshly built bundle is absent, which on a runner is always.
-  So **a release is ~74 MB, not ~300 KB**, and `scripts/check-bundle-format.sh` runs
-  in CI in full — it is not skipped.
+* **The 71 MB asset bundle is not a problem, because it is committed.**
+  `prebuilt/gloomhavenvr.bundle` is a tracked blob in `main`'s history.
+  `package-release.sh` falls back to it whenever a freshly built bundle is absent, which
+  on a runner is always. So **a release is ~71 MB, not ~300 KB**, and
+  `scripts/check-bundle-format.sh` runs in CI in full — it is not skipped.
+
+  It is **not** frozen. It is rebuilt whenever an asset changes, and has been many times
+  (ModBuild 291-296, 324-326, 330, 335-336, 340, 352, 363 among others). `git log --
+  prebuilt/gloomhavenvr.bundle` is the record; do not assume a build is DLL-only without
+  checking it.
 * **Nothing about the pipeline requires a self-hosted runner.** That option was on the
   table and is not needed.
 
-The zip layout is exactly what `scripts/package-release.sh` and
-`packaging/INSTALL.txt.in` define. The pipeline does not change it — the in-game
-auto-updater can rely on it.
+The zip layout is exactly what `scripts/package-release.sh` and the two
+`packaging/INSTALL*.txt.in` templates define. The pipeline does not change it.
+
+**The in-game auto-updater constrains that layout and is not consulted when it changes.**
+`Core/SelfUpdate/SelfUpdateZip.cs` re-verifies every entry of a downloaded zip and rejects
+the whole archive on anything it does not recognise outside `BepInEx/`. Adding a file to the
+zip root is therefore a change to the updater's accept-list as well as to the packager —
+change both in the same commit, or the update path breaks silently while every local install
+keeps working.
 
 ---
 
@@ -272,8 +288,8 @@ you press enter.** There is no undo beyond deleting the release and the tag afte
 Before you type it, four things are worth having done:
 
 ```bash
-scripts/wire-tests.sh        # the golden vectors (146,839 assertions) — CI CANNOT run these (see §5)
-scripts/build.sh Release     # sanity: 0 errors, 6 warnings
+scripts/wire-tests.sh        # the golden vectors (200,000+ assertions) — CI CANNOT run these (see §5)
+scripts/ci-build.sh Release  # sanity: 0 errors and 0 warnings
 scripts/bump-version.sh      # THE number about to be released — it is not bumped for you first
 git log --oneline main..dev  # what is about to go out
 ```
@@ -290,17 +306,19 @@ Afterwards, `dev` is exactly `main` plus one bookkeeping commit. That is expecte
 what keeps the next `git push origin dev:main` a fast-forward. Nothing needs merging
 back.
 
-**The very first release** is a special case worth knowing about, in two ways.
+**The very first release** was a special case, in two ways, and both are now history —
+`v0.1.0` was tagged on 2026-08-23 and the csproj on `dev` moved to `0.1.1`, exactly as the
+machinery above describes. It is written up here because the same two things apply to any
+repository adopting this pipeline, and because the second one is still live code.
 
-It will be **`v0.1.0`** — the number sitting in the csproj right now — because a release
-publishes the committed version rather than bumping past it. `dev` becomes `0.1.1`
-immediately afterwards.
+It was **`v0.1.0`** — the number that was sitting in the csproj — because a release publishes
+the committed version rather than bumping past it.
 
-And it has no previous tag: `main` carries ~2,140 commits of history and nothing to
-compare against. `scripts/release-notes.sh` handles that deliberately — it does **not**
-print 2,140 commit subjects (that would exceed GitHub's 125,000-character release-body
-limit and the API call would fail outright). It says plainly that this is the first
-release and links to the full commit history instead.
+And it had no previous tag: `main` carried over two thousand commits of history and nothing to
+compare against. `scripts/release-notes.sh` handles that deliberately — it does **not** print
+two thousand commit subjects (that would exceed GitHub's 125,000-character release-body limit
+and the API call would fail outright). It says plainly that this is the first release and links
+to the full commit history instead.
 
 Every later release still lists the real commit subjects since the previous tag, capped
 at 100 with an explicit "… and N more" and with `chore(release):` commits filtered out —
@@ -381,7 +399,7 @@ to push events.
 |---|---|
 | `check-refasm.py` | the committed stubs still contain zero method bodies |
 | `build-runtimedeps.sh` | the three shipped Unity XR assemblies still compile |
-| `ci-build.sh Release` | 0 errors and **exactly 6** warnings, all known |
+| `ci-build.sh Release` | 0 errors and **0** warnings |
 | `check-mirrors.sh` | no mirrored constant was tuned in only one place |
 | `check-frame-order.sh` | no locked per-frame order moved |
 | `patch-inventory.sh check` | no Harmony patch class went unregistered |
@@ -391,22 +409,32 @@ to push events.
 | wire tests **compile** | no wire file was moved or renamed (the vectors do not run — §5) |
 
 It also uploads `GloomhavenVR.dll` + `GloomhavenVR.Preload.dll` as a 14-day workflow
-artifact on pushes. That is the *whole* useful payload for a hardware test — every
-install since ModBuild 172 has been plugin-DLL-only because the bundle has not
-changed — and it costs 6 MB per push instead of the 74 MB a full zip would cost.
+artifact on pushes. It costs ~6 MB per push instead of the ~71 MB a full zip would cost,
+and for a DLL-only build it is the whole useful payload for a hardware test.
+
+**It is not sufficient for every build.** The artifact carries no bundle, so a build that
+rebuilt `prebuilt/gloomhavenvr.bundle` cannot be tested from it — the tester needs a full
+zip. `git log --oneline -1 -- prebuilt/gloomhavenvr.bundle` tells you which kind of build
+you have; say which one when you hand a build over.
 
 ### The warning gate
 
-`scripts/ci-build.sh` asserts 0 errors and exactly 6 warnings. `TreatWarningsAsErrors`
-cannot be switched on while those six pre-existing nullable-analysis complaints exist,
-so without the count a seventh warning would be invisible.
+**The ratchet reached zero and stayed there.** `Directory.Build.props` sets
+`<TreatWarningsAsErrors>true</TreatWarningsAsErrors>` (since 2026-08-27), so the compiler
+itself now stops a new warning before `ci-build.sh` gets a chance to count one.
 
-It checks the **count**, the **codes** (`CS8602`, `CS8604` only) and the **files**
-(`ButtonCluster.cs`, `RemotePickBanner.cs`, `RemoteHandFan.cs`, `StatPanelSurface.cs`
-only). It deliberately does **not** check line numbers: those move whenever the
-surrounding code is edited, and a gate that cries wolf gets switched off. When someone
-finally fixes one of the six, the gate fails and tells you to lower the number — that
-is the intended ratchet.
+`scripts/ci-build.sh` still asserts the count, as a second line that survives someone
+switching the property off: `EXPECT_WARNINGS=0`, with `EXPECT_CODES` and `EXPECT_FILES`
+**deliberately empty** — meaning any warning of any kind in any file fails the gate. That
+is the strongest form the gate has ever had, and it only became possible once the count
+was zero.
+
+It deliberately does **not** check line numbers: those move whenever the surrounding code
+is edited, and a gate that cries wolf gets switched off.
+
+If a warning is ever accepted again, put its code and its file back into `EXPECT_CODES` /
+`EXPECT_FILES` rather than only raising the count — a bare count accepts a *different*
+warning in a different file just as happily.
 
 ---
 
@@ -509,8 +537,9 @@ defect this exists to catch was purely topological.
 
 ### The wire vectors do not run. This one matters.
 
-`scripts/wire-tests.sh` drives 146,839 byte-exact assertions over the multiplayer wire
-format. It **cannot run on a hosted runner**, and no amount of work in this lane
+`scripts/wire-tests.sh` drives over 200,000 byte-exact assertions over the multiplayer
+wire format — the suite prints the exact count as it runs, and it grows with every wire
+change, so no figure is frozen here. It **cannot run on a hosted runner**, and no amount of work in this lane
 changes that:
 
 * `tests/GloomhavenVR.WireTests` references `UnityEngine.CoreModule.dll` with
@@ -560,11 +589,12 @@ gate a release genuinely cannot self-serve.
 ## 6. Versions
 
 `<Version>` in `src/GloomhavenVR/GloomhavenVR.csproj` is the single source of truth,
-`MAJOR.MINOR.PATCH`, today `0.1.0`.
+`MAJOR.MINOR.PATCH`. Read it rather than trusting a number written here; at the time of
+writing it is `0.1.1`, and `v0.1.0` is the one tag that exists.
 
 * **The number on `dev` is the version the NEXT release will carry**, not the one that
   was last released. A release publishes what the csproj already says and then advances
-  it, so the first release is `v0.1.0` and `dev` becomes `0.1.1` immediately after.
+  it — which is why `v0.1.0` was released and `dev` moved to `0.1.1` the same minute.
   (This is a change: the previous design bumped first and released `current + 1`.)
 * **A release** advances the patch component automatically, on `dev`, after publishing:
   `0.1.0 → 0.1.1 → 0.1.2`. For a minor or a major, run
@@ -595,7 +625,7 @@ gate a release genuinely cannot self-serve.
 | `Tag vX.Y.Z already exists` | that version has been released — usually two releases fired close together, so the second one is building a commit that predates the first one's bump | `git push origin dev:main` again; `dev` now carries the bump. If it really is a re-push of an old commit, set `<Version>` past it on `dev` |
 | `main no longer contains <sha>` | `main` was force-pushed backwards mid-release | nothing was published. Sort `main` out, then release again |
 | Build fails with hundreds of `CS0117` / `CS1061` | `libs/RefAsm` is stale after a game update | §2.4 |
-| `error: N warning(s), expected exactly 6` | a new warning, or one of the six was fixed | fix it, or lower `EXPECT_WARNINGS` in `scripts/ci-build.sh` |
+| `error: N warning(s), expected exactly 0` | a new warning — normally the compiler stops it first, so seeing this means `TreatWarningsAsErrors` was switched off | fix the warning. Raising `EXPECT_WARNINGS` in `scripts/ci-build.sh` gives the ratchet away |
 | `check-refasm.py` says a file has IL bodies | a real game DLL was committed into `libs/RefAsm` | `git rm` it and re-run `scripts/make-refasm.sh` — never commit game DLLs |
 | `Dirty tree at checkout` | a tracked file differs from the commit being released | should be impossible on a runner; read the file list the step prints |
 | Tag exists but no GitHub Release | `gh release create` failed after the tag push | re-run `gh release create v<x> dist/…zip …` locally, or delete the tag and release again |
@@ -660,8 +690,8 @@ Ordinary work is untouched: `git push origin dev:main`, `gh release create`,
 python3 .claude/hooks/test-guard-destructive.py
 ```
 
-66 cases — 39 refusals, 26 allowances, and one unparsable command proving it fails
-closed. **Run it after editing the guard.** The three files are tracked in git on
+68 cases — 40 refusals, 27 allowances, and one unparsable command proving it fails
+closed (the script prints the tally; take it from there rather than from here). **Run it after editing the guard.** The three files are tracked in git on
 purpose (`.gitignore` re-includes them) so a fresh clone gets the guard; the rest of
 `.claude/` stays ignored.
 

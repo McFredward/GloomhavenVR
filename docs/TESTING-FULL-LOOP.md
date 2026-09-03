@@ -1,11 +1,19 @@
 # Full-loop hardware session — M4 / v0.1 validation script
 
 > The end-to-end pass that gates the v0.1 release: **fresh install → main menu →
-> scenario (hero placement) → two full rounds → guildmaster return**, exercising
-> every module in one sitting. Run it on Quest 3 over at least one runtime
-> (ideally all three: Quest Link, Virtual Desktop/VDXR, Steam Link/SteamVR).
-> Per-feature deep checklists live in `TESTING-P1..P4.md` and are referenced per
-> station below; failures triage through `TESTING-P1.md` §4 first.
+> campaign map → scenario (hero placement) → two full rounds → guildmaster
+> return**. Run it on Quest 3 over at least one runtime (ideally all three: Quest
+> Link, Virtual Desktop/VDXR, Steam Link/SteamVR). Per-feature deep checklists
+> live in `TESTING-P1..P4.md` and are referenced per station below; failures
+> triage through `TESTING-P1.md` §4 first.
+>
+> **What this script covers**, of the twelve modules the plugin registers
+> (`Plugin.RegisterModules`): Core, VREvents, Rig, Hands, Cards, Board, WorldUI,
+> Compat — plus the map room (station 1b). **What it does NOT cover** — run these
+> separately, they have no station here: multiplayer (Net) and spatial voice
+> (Voice), SelfUpdate, MixedReality, WallFade, the mod's environments, and the
+> ControlsLesson controls tutorial. A green run of this script says nothing about
+> any of them.
 >
 > Keep `BepInEx/LogOutput.log` after every run — attach it to any issue.
 
@@ -21,35 +29,80 @@
 - [ ] `GH_Data/Plugins/x86_64/{UnityOpenXR,openxr_loader}.dll` and the
       `UnitySubsystems` manifest were created; `install-state.json` next to the
       preloader lists their hashes.
-- [ ] All config files created under `BepInEx/config/` (`dev.gloomhavenvr*.cfg`, 5 files).
+- [ ] A `dev.gloomhavenvr*.cfg` set appears under `BepInEx/config/` — the main
+      `dev.gloomhavenvr.cfg` **plus one file per module** that binds its own
+      (`…hands.cfg`, `…board.cfg`, `…cards.cfg`, `…worldui.cfg`, `…comfort.cfg`, …;
+      the naming is built in `Core/ModuleConfig.cs`). Do not count them against a
+      fixed number — a module gains a file the first time it binds one.
 - [ ] (Vanilla guard) Set `[General] Enabled = false`, boot: zero mod log lines after
       the disabled notice, game fully normal. Re-enable.
 
 ## 1. Main menu (flat screen + menu rig) — P3c/P5
 
-- [ ] Log: `Menu rig built around camera ...`; the menu view is **head-tracked**
-      (lean around — parallax, no frozen viewpoint).
+- [ ] Log: `Menu rig built at vantage of camera '<name>'`; the menu view is
+      **head-tracked** (lean around — parallax, no frozen viewpoint).
 - [ ] The floating 2D screen shows the full menu, readable, following slow head
       turns lazily (recenters past ~45°).
 - [ ] Hands visible; dominant-hand laser + reticle on the screen; trigger clicks;
       click-and-drag works (map pan on the guildmaster screen later).
-- [ ] Settings chord: hold non-dominant A/X 0.6 s → panel opens in front of you;
-      poke a toggle; close with X. (Gear button is scenario-only.)
+- [ ] Non-dominant A/X **tap** (press and release quickly): the game's own pause
+      menu opens, floated in front of you — log `OPTIONS TAP: <menu> OPENED (X tap)`.
+      Tap again → `… CLOSED (X tap)`. The mod's settings live in that window's
+      Options page now; there is no separate mod settings panel to open.
+      A **long hold** of the same button is the flat-screen rescue chord instead
+      (`[WorldUI] ManualScreenChordSeconds`, see station 2).
 - [ ] Recenter chord (B+Y both hands, 1 s) re-centers the menu view.
 - [ ] Navigate: Guildmaster → party/roster screens all usable on the flat screen.
 
-## 1b. Campaign / world map (Menu2D mask + RT composite) — test #10 fixes
+## 1b. Campaign / world map — the 3D MAP ROOM (default)
 
-- [ ] On the campaign map the HMD shows **ONLY void + flat screen + hands** — NO
-      giant 3D map below/around you. Log: `Menu rig built at vantage of camera
-      'MapCamera' (… mask MOD-ONLY 0x… (anchor 0x… NOT copied — test #10) …)`.
-- [ ] The flat screen shows the **full map render** (terrain visible, not black)
-      plus the map UI on top.
-- [ ] Campaign intro video / encounter ("Begegnung") backgrounds: ambient art or
-      video visible behind story boxes — not a black field. Log around it:
-      `FlatScreen stack capture: 'Video Camera' → RenderTexture (… rect … mask …)`,
-      `… fullscreen SolidColor clear DEMOTED to Depth …`, and later
-      `FlatScreen stack member 'Video Camera' DISABLED …` when the video ends.
+`[Rig] Vanilla2DMap` ships **false**, and off is the 3D map room: you stand IN the
+campaign map. (It was `[Rig] Experimental3DMap`, off by default, up to ModBuild 229;
+230 renamed AND inverted it. An existing config's choice is carried across once —
+`[Rig] MapPresentationMigrated230`.) The flat 2D map is the opt-out at the end of
+this station, not the expected picture.
+
+- [ ] Enter guildmaster / campaign: the HMD puts you at a table-sized parchment you
+      can walk around and lean over — NOT a floating 2D screen. Log: the multi-line
+      `MAP ROOM ENGAGED.` block (predicate / parchment / scale / seat / eye / mask)
+      and, for anything wrong, the `MAP SCENE REPORT`.
+- [ ] The main menu is untouched: `MAP ROOM ENGAGED` must NOT appear before a map
+      is open (the gate is a live `MapChoreographer`, not "not a scenario").
+- [ ] Location icons are **pressable**: poke one, or point the dominant laser at it
+      and pull the trigger → log `MAP ROOM location CLICK on '<name>' (<source>)`.
+      Hover feedback animates (`[MapRoom] HoverAnimation`).
+- [ ] Press the **already-selected** location again → the travel / quest window
+      floats with its confirm button (log lines prefixed `MAP TRAVEL CONFIRM:`);
+      confirming actually travels / starts the quest.
+- [ ] **Table buttons**: the guildmaster option bar (enhance, shop, trainer, map,
+      temple, city, town records, mercenary log) stands as physical caps on the
+      table rim, with the game's own icons and its highlight pulse. Press each →
+      `MAP TABLE BUTTON '<mode>' (<source>)`; the matching game screen opens.
+- [ ] **Map-room card hand** (`[WorldUI] MapRoomHand`, on by default): the selected
+      character's scenario loadout fans on the non-dominant palm with the SAME
+      gesture, animation and grab-to-read as in a scenario, and the wrist plate
+      shows that character. Change the selection in the party display → fan and
+      wrist follow live. Cards are inspect-only here (no play, no reordering).
+- [ ] Windows that open on the map (story pages, quest info, shared map windows)
+      float as world-space windows and are clickable by laser AND fingertip.
+- [ ] City ↔ world map switch: no teleport/rebuild flicker; the room stays up.
+- [ ] Sizes readable: the five `[MapRoom]` dials (`IconScale`,
+      `GloomhavenIconScale`, `CityIconScale`, `PartyMarkerScale`, `PathWidthScale`)
+      each visibly change what they name, live.
+- [ ] Enter a scenario from the map: the room stands down and `VR rig built at
+      focus …` appears (station 2). Leave the scenario → the room comes back.
+- [ ] **Opt-out**: set `[Rig] Vanilla2DMap = true` and restart the map. Now the
+      HMD shows void + flat screen + hands, the screen carries the **full map
+      render** (terrain visible, not black) plus the map UI on top, and the room's
+      extras (pressable icons, travel confirmation, map-room hand, the `[MapRoom]`
+      dials) are all gone with it. Log: `Menu rig built at vantage of camera
+      '<name>'`, and NO `MAP ROOM ENGAGED`.
+- [ ] (Both presentations) Campaign intro video / encounter ("Begegnung")
+      backgrounds: ambient art or video visible behind story boxes — not a black
+      field. Log around it: `FlatScreen stack capture: 'Video Camera' →
+      RenderTexture (… rect … mask …)`, `… fullscreen SolidColor clear DEMOTED to
+      Depth …`, and later `FlatScreen stack member 'Video Camera' DISABLED …` when
+      the video ends.
 - [ ] Story boxes ('UI Story Box') page through and confirm via laser clicks.
 
 ## 2. Scenario start & hero placement — P1/P3a
@@ -113,11 +166,14 @@ Turn (movement):
       table; actor HP bars float above miniatures and track damage.
 - [ ] Wrist HUD: look at the non-dominant wrist (watch gesture) → HP/XP/gold panel.
 - [ ] Short rest: rest token on the tray → game confirmation appears as a
-      **world-space modal**; while it is up the laser only shows when pointing at
-      the dialog (ModalUI cone gating); poke Yes/No.
-- [ ] In-VR settings panel via the SET gear: change snap-turn degrees and world
-      scale live; toggle seated mode → immediate recenter; values persist in
-      `dev.gloomhavenvr.comfort.cfg` after quitting.
+      **world-space modal**; the laser stays visible wherever the hand points (the
+      old ModalUI cone gate is retired — `[Hands] ModalRayConeDegrees` no longer
+      exists) and clamps to the dialog when it crosses it; poke or trigger Yes/No.
+- [ ] Settings via the tray's SET gear (or the non-dominant A/X tap): change
+      `[Comfort] SnapTurnDegrees` and `TurnHand` live — the very next stick flick
+      obeys them; values persist in `dev.gloomhavenvr.comfort.cfg` after quitting.
+      (There is no seated-mode switch and no table-scale slider any more: the
+      recenter seat is a single standing preset and the pinch-zoom owns the scale.)
 
 ## 5. Scenario end → guildmaster return
 

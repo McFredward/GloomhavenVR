@@ -13,7 +13,8 @@
       the proxy yaw/scale numbers drift with the hand sway animation.
 - [ ] Release **G**: back to `idle`; `savedScaleMult` updated and written to
       `dev.gloomhavenvr.comfort.cfg`.
-- [ ] **F11** logs `Dev recenter requested` (no rig — safe no-op).
+- [ ] **F11** (desktop dev mode only — `[Dev] Enabled` and VR NOT running) logs
+      `Dev recenter requested (F11).` and requests a recenter (no rig — safe no-op).
 - [ ] F6 hot reload (ScriptEngine): no errors, comfort stack reinstalls, config
       rebinds (log: "Comfort settings bound").
 
@@ -67,24 +68,98 @@
 ## 4. Recenter & height
 
 - [ ] Hold **B+Y on both controllers** ~1 s (chord progress % in gizmos): rig recenters
-      — eyes ~0.7 m above the table focus, ~0.7 m back, facing the board; `GrabPulse`
-      on both hands. Holding longer does not re-fire.
-- [ ] `SeatedMode = true` (edit config or ConfigurationManager): recenter re-runs
-      immediately; table now sits correctly for a chair (eyes 0.50 m above, 0.55 m back).
-- The `TableHeightOffset = 0.2` check is GONE with the setting (user ruling 2026-08:
-  "durch das freie Bewegen braucht man das nicht mehr"). No setting changes where a
-  recenter puts you any more — it is always the 0.7 m / 0.7 m standing seat.
+      to the ONE standing seat — eyes **0.30 m above** the table focus plane and
+      **0.70 m back**, facing the board (`ComfortSettings.StandingEyeHeightMeters` /
+      `StandingEyeBackMeters`); `GrabPulse` on both hands. Holding longer does not re-fire.
+- There is NO seat setting to test. `[Comfort] SeatedMode` and `[Comfort]
+  TableHeightOffset` are both gone (user ruling 2026-08: "durch das freie Bewegen
+  braucht man das nicht mehr"). The 0.30 m is not a typo and not a regression: the
+  tuned `TableHeightOffset` was -0.40 against a 0.70 preset, so folding the addend
+  into the constant keeps the seat exactly where every build so far put it. How high
+  you sit while PLAYING is locomotion now — flight and the world grab, below.
 - [ ] Recenter after dragging/scaling the table across the room: one chord brings the
       table back to a sane spot at the current scale.
 - [ ] `RecenterHoldSeconds = 0`: chord disabled.
 
-## 5. Vignette (config-gated, default off)
+## 5. Stick flight
 
-- [ ] `VignetteEnabled = true`: radial dark border fades in while dragging/rotating/
-      scaling and on every snap turn, fades out ~0.5 s after motion stops. Center of
-      view always stays clear.
-- [ ] No vignette ever appears with `VignetteEnabled = false` (default).
-- [ ] `VignetteStrength` visibly scales the effect.
+`[Comfort] FlightEnabled` (default ON), `FlightHand` (default Left), `FlightDirection`
+(`Head` = fly where you look, pitch included / `Hand` = along the dominant aim ray),
+`FlightMaxSpeed` (apparent m/s at FULL deflection, range 0.2–3). Shipped values live in
+`src/GloomhavenVR/Defaults/Defaults.Rig.cs`. Grep the log for `stick flight:`.
+
+- [ ] Push the flight hand's thumbstick FORWARD: you fly through the scene; BACK flies
+      backwards; SIDEWAYS strafes level. Partial deflection is squared — small pushes
+      creep, full push is exactly `FlightMaxSpeed`.
+- [ ] Speed is in APPARENT metres: zoom the diorama in and out and fly again — it must
+      feel the same, not faster on a big table.
+- [ ] `FlightDirection = Head` follows the HMD's forward INCLUDING pitch (look down,
+      fly down); `Hand` follows the dominant aim ray, so you can fly one way and look
+      another.
+- [ ] With turn and flight on DIFFERENT hands (the shipped default: turn right, fly
+      left) both work at once. Put them on the SAME hand: turning keeps the sideways
+      axis, strafe stands down, forward/back flight still works — and the log says so
+      once (`stick flight: sideways strafe OFF — …`).
+- [ ] While a live AoE pattern is rotating on that hand, strafe stands down too and
+      comes back after the aim (same log line, `allowed` flipping back).
+- [ ] Point the beam at a scrollable menu list and push the stick: flight SUSPENDS
+      (`stick flight: SUSPENDED on the <side> hand …`) and RESUMES when the beam leaves
+      (`… RESUMED …`). The other hand is unaffected.
+- [ ] `FlightEnabled = false`: that stick does nothing at all. Turning is untouched.
+- [ ] Any time flight refuses to move you, ONE line says why:
+      `stick flight: doing nothing because <reason>. (Mode …, FlightEnabled=…,
+      FlightHand=…, TurnHand=…)`. Quote it in the report — do not guess.
+
+## 5b. Vertical lift on the turn stick
+
+`[Comfort] TurnStickVertical` (default **OFF** — its off state is the pre-feature
+behaviour, and uncommanded vertical motion is the nausea risk in this feature).
+
+- [ ] With it OFF: pushing the turn stick forward/back does nothing.
+- [ ] Set it true: push the TURN stick forward to rise, back to sink, straight up and
+      down at `FlightMaxSpeed`. Log: `stick vertical lift: ACTIVE on the <side> turn
+      stick — …`.
+- [ ] Turning still owns the sideways axis and is never blocked: a push has to be
+      clearly more vertical than sideways (~56°) before it lifts, so a 45° diagonal is
+      a pure turn. Verify a diagonal flick turns and does NOT lift.
+- [ ] It needs turn hand ≠ flight hand. Put both on one controller: forward/back flight
+      keeps that axis and the lift does nothing — log
+      `stick vertical lift: STANDING DOWN on the <side> turn …`.
+
+## 5c. Laser carry reel (pull a window toward you)
+
+`[Comfort] LaserCarryReel` (default **ON**) and `LaserCarryReelSpeed` (apparent m/s at
+full deflection, range 0.25–6).
+
+- [ ] Grab a floating window at a distance with the laser (trigger on its grab bar):
+      log `<name> grab: LASER-CARRY armed (<side>, …)`.
+- [ ] While holding it, pull THAT hand's thumbstick BACK → the window comes toward you;
+      push FORWARD → it goes away. (Back = toward you is the corrected mapping, ModBuild
+      231 — the first hardware round reported the opposite.)
+- [ ] It comes all the way to just in front of your hand — close enough to then simply
+      grab it — and stops there rather than being driven into your face. It cannot be
+      pushed past the reach of the laser holding it.
+- [ ] Turning is never affected (turning reads sideways, the reel reads up/down).
+- [ ] While the reel has the stick, that hand's flight AND its `TurnStickVertical` lift
+      stand down, and the log NAMES the reel as the reason
+      (`… a LASER CARRY owns it — …`). Release the window → both come back, logged
+      (`<name> grab: LASER-CARRY reel closed (<side>, <why>) — …`).
+- [ ] `LaserCarryReel = false`: the stick keeps doing whatever it did before, and a
+      laser-held window stays at the distance you grabbed it.
+
+## 5d. Keep your place across a tracking-origin change
+
+`[Comfort] KeepPlaceOnReorigin` (default **ON**).
+
+- [ ] Stand somewhere deliberate at the table, note exactly where and which way you
+      face. Take the headset OFF and put it back ON (the usual cause of a runtime
+      origin shift). You must end up at the SAME spot with the SAME facing.
+- [ ] Nothing world-anchored moved: the board, panels and tray are where they were —
+      it is the rig that was shifted back, not the world.
+- [ ] A tracking BLIP must not trigger it: brief occlusion / a quick controller loss
+      leaves you where you are (the detector waits a few frames to be sure).
+- [ ] `KeepPlaceOnReorigin = false`: the runtime's origin wins again (old behaviour) —
+      useful to confirm the feature is what you were seeing.
 
 ## 6. Regression & stability
 
@@ -95,7 +170,7 @@
 - [ ] Scenario exit mid-grab (or hands lose tracking mid-grab): no errors, grab state
       resets, rig teardown clean.
 - [ ] F6 hot reload with VR running: comfort stack + config rebind cleanly; no
-      duplicate vignette rings / gizmo overlays.
+      duplicate gizmo overlays, no stuck flight/reel state.
 - [ ] Frametime: no hitching while grabbing/turning (all comfort code is per-frame
       math, no allocations; config file writes only at gesture end).
 

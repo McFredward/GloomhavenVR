@@ -31,12 +31,49 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static class SelfUpdateZip
 {
-    /// <summary>Entries below this path, plus the single file <see cref="AllowedRootFile"/>, are
+    /// <summary>Entries below this path, plus the files in <see cref="AllowedRootFiles"/>, are
     /// the entire legal contents of a release zip (see scripts/package-release.sh).</summary>
     internal const string AllowedPrefix = "BepInEx/";
 
-    /// <summary>The one entry a release zip carries outside <see cref="AllowedPrefix"/>.</summary>
-    internal const string AllowedRootFile = "INSTALL.txt";
+    /// <summary>
+    /// The entries a release zip carries outside <see cref="AllowedPrefix"/>.
+    ///
+    /// <para><b>THIS WAS A SINGLE FILE UNTIL 2026-09-03, AND THAT WAS A SHIPPED REGRESSION OF MY
+    /// OWN MAKING.</b> The German documentation round added a second root file to both packagers —
+    /// scripts/package-release.sh:120 renders INSTALL-DEUTSCH.txt beside INSTALL.txt, and
+    /// scripts/install.ps1 was changed in the same commit to match, precisely so the two packagers
+    /// could not describe the install differently. Nobody changed THIS constant, and
+    /// <see cref="Verify"/> rejects any root entry that is not the one allowed name. So every
+    /// release zip built after that commit would have been REFUSED by the in-VR updater, with the
+    /// failing term "entry 'INSTALL-DEUTSCH.txt' is outside BepInEx/ and is not INSTALL.txt".</para>
+    ///
+    /// <para>It has not bitten anybody because no release has been cut since. It was found by a
+    /// documentation audit reading the packagers against the code, not by a test — the verifier's
+    /// own gate suite has no release zip to run on, and the packager's self-check
+    /// (package-release.sh:144-146) asserts the file is PRESENT, which is the opposite question.
+    /// That asymmetry is the lesson: a producer that checks "is it there" and a consumer that
+    /// checks "is anything else there" agree on every zip except the one that changed.</para>
+    ///
+    /// <para>A SET RATHER THAN A SECOND CONSTANT, because the next translated INSTALL file must be
+    /// one line here and not a third code path. Order is irrelevant; the lookup is a short linear
+    /// scan over two entries on a path that runs once per downloaded archive.</para>
+    /// </summary>
+    internal static readonly string[] AllowedRootFiles =
+    {
+        "INSTALL.txt",
+        "INSTALL-DEUTSCH.txt",
+    };
+
+    /// <summary>Is <paramref name="name"/> one of the root files a release zip may carry?</summary>
+    private static bool IsAllowedRootFile(string name)
+    {
+        for (int i = 0; i < AllowedRootFiles.Length; i++)
+        {
+            if (string.Equals(name, AllowedRootFiles[i], StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>Entries that MUST be present, or the zip is not a GloomhavenVR release.</summary>
     internal static readonly string[] RequiredEntries =
@@ -122,10 +159,10 @@ internal static class SelfUpdateZip
                     return verdict;
                 }
                 if (!name.StartsWith(AllowedPrefix, StringComparison.Ordinal)
-                    && !string.Equals(name, AllowedRootFile, StringComparison.Ordinal))
+                    && !IsAllowedRootFile(name))
                 {
                     verdict.FailedTerm = $"entry '{name}' is outside {AllowedPrefix} and is not "
-                        + AllowedRootFile;
+                        + "one of " + string.Join(", ", AllowedRootFiles);
                     return verdict;
                 }
 
