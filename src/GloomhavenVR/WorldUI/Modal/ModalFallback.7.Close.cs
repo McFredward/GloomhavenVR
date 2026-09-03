@@ -74,6 +74,20 @@ internal static partial class ModalFallback
             // window stays chord-closable no matter how many permanent ones stand in front of it.
             if (IsMapRoomPermanent(window))
                 continue;
+            // ModBuild 381 — A MANDATORY-DECISION WINDOW GETS THE CHORD'S THIRD ACTION, not its
+            // close and not a `continue`. Hiding it would strand the same waiter the withheld X
+            // strands; skipping it would leave the player with no hatch out of a float that failed
+            // to draw its own buttons (which the 380 log shows this very window doing). So the chord
+            // RELEASES THE FLOAT AND RAISES THE 2D COMPOSITE instead — the player keeps a guaranteed
+            // way forward, the window is never hidden, and nothing is written to the game. The
+            // reasoning, the map-room check that makes it work there, and the release ownership are
+            // all in RescueForMandatoryDecision. `return` because the chord is still one press, one
+            // action; every other window below is untouched by this branch.
+            if (IsMandatoryDecision(window, out string chordReason))
+            {
+                RescueForMandatoryDecision(window, chordReason, heldSeconds);
+                return;
+            }
             VRLog.Info("WorldUI", $"MODAL ESCAPE CHORD: closing top modal '{window.name}' (ID {window.ID}) — " +
                                   $"non-dominant A/X held {heldSeconds:F1}s.");
             CloseFloatedWindow(window);

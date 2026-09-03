@@ -3161,6 +3161,11 @@ internal static partial class ModalFallback
 
         EnterPhase(PhaseEscape);
         TickEscapeChord(); // test #17: floating modals must always be closable
+        // ModBuild 381: the falling edge of the chord's THIRD action. When the chord was used on a
+        // mandatory-decision window it raised the 2D composite instead of closing the window, and on
+        // the campaign map nothing else can take that latch down again — there is no manual chord
+        // there and the rescue has no timeout by design. This is the requester's own watchdog.
+        TickMandatoryRescue();
         EnterPhase(PhasePublish);
 
         // The ModalUI LOCK tracks wantLock (blocking prompts only), NOT want (float) — item 3b.

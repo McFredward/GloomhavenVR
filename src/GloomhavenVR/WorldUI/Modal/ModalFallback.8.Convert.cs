@@ -721,10 +721,22 @@ internal static partial class ModalFallback
                                       // (ModalFallback.7.Close.cs:69-77, :101-108), so claiming the chord
                                       // still closes it would be this line asserting a mechanism that is
                                       // false on its own most common branch.
+                                      // THE THREE BRANCHES ARE IN CloseTopModal'S OWN EVALUATION
+                                      // ORDER (ModalFallback.7.Close.cs): it tests IsMapRoomPermanent
+                                      // and `continue`s, THEN tests IsMandatoryDecision and redirects,
+                                      // and only then closes. A window matching both must be reported
+                                      // under the term that actually runs first, or this line asserts
+                                      // a behaviour the code does not have.
                                       + (isMapRoomPermanent
                                           ? " THE ESCAPE CHORD ALSO SKIPS this window and"
                                             + " CloseFloatedWindow refuses it; the chord walks PAST it to"
                                             + " the next floated window, so nothing here can trap the room."
+                                          : isMandatoryDecision
+                                          ? " THE ESCAPE CHORD IS REDIRECTED for this window (ModBuild"
+                                            + " 381): it does NOT close it and does not skip it either —"
+                                            + " it releases the float and raises the 2D composite, so the"
+                                            + " player always has a way forward and no waiter is ever"
+                                            + " stranded. Look for MODAL ESCAPE CHORD REDIRECTED."
                                           : " THE ESCAPE CHORD IS UNCHANGED and still reaches this window:"
                                             + " only the drawn cross is withheld, which is the precedent"
                                             + " every other no-X window above already sets."));
