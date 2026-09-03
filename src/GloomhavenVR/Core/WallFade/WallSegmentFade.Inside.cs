@@ -1385,7 +1385,7 @@ internal static partial class WallSegmentFade
                 + "two ice-crystal formations and the numbered light shaft — appearing there means "
                 + "the widening reached geometry the user ruled must STAY, and that is a withdrawal "
                 + "of ModBuild 386 rather than a retune. THEIR NAMES ARE DELIBERATELY NOT SPELLED "
-                + "HERE (ModBuild 390): 386 printed them in this sentence, so a grep for any of the "
+                + "HERE (ModBuild 391): 386 printed them in this sentence, so a grep for any of the "
                 + "three returned 48 hits in the ModBuild-388 log and every one was this line "
                 + "quoting itself — the same self-quoting defect 386 had just fixed on another "
                 + "marker, reintroduced by its own falsifier. Grep the named list, not the prose.");

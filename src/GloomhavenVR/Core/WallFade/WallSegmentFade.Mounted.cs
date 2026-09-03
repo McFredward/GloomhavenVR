@@ -473,7 +473,7 @@ internal static partial class WallSegmentFade
         private int _censusMountedUnitHome;
 
         /// <summary>
-        /// WALL PROVENANCE HOME (ModBuild 390) — the wall the GENERATOR parented this prop under,
+        /// WALL PROVENANCE HOME (ModBuild 391) — the wall the GENERATOR parented this prop under,
         /// which is a fact about the hierarchy and not a guess about distance.
         ///
         /// <para>THE DEFECT. User 2026-09-03, hardware, ModBuild 388, flammen-licht.jpg:
@@ -1398,7 +1398,7 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
-            // ModBuild 390 — strictly per rescan, like every other number on this line. A session
+            // ModBuild 391 — strictly per rescan, like every other number on this line. A session
             // total would let a rule that fired once at load read as a rule that is still working.
             _censusMountedWallHome = 0;
             _censusMountedWallHomeStuck = 0;
@@ -1484,7 +1484,7 @@ internal static partial class WallSegmentFade
             // the prop-unit pass has already run (CommitPhase.PropUnits precedes .Mounted) and
             // seg.Renderers is therefore the authoritative "who owns this unit's wall half".
             BuildMountedUnitHomes();
-            // ModBuild 390: built in the same breath and from the same table. It must exist before
+            // ModBuild 391: built in the same breath and from the same table. It must exist before
             // the sticky-carry loop below, because the FIRST thing the wrong-wall rule has to do is
             // unstick a prop the old distance election bound to a neighbour — a rule that only ran
             // at adoption time would never reach a sconce that is already held.
@@ -1592,7 +1592,7 @@ internal static partial class WallSegmentFade
                                 $"mounted:'{stickyHome.Anchor!.name}'(prop unit)");
                             continue;
                         }
-                        // WALL PROVENANCE (ModBuild 390) — STICKY OWNERSHIP MUST NOT OUTLIVE BEING
+                        // WALL PROVENANCE (ModBuild 391) — STICKY OWNERSHIP MUST NOT OUTLIVE BEING
                         // ON THE WRONG WALL, and this is the site that decides whether the fix can
                         // reach the sconces already in the scene. A prop the old distance election
                         // bound to a neighbour is in _mountedOwned before the sweep below runs
@@ -2001,7 +2001,7 @@ internal static partial class WallSegmentFade
                             byUnitHome = true;
                         }
                     }
-                    // WALL PROVENANCE (ModBuild 390) — THE GENERATOR'S PARENTAGE OVERRULES THE
+                    // WALL PROVENANCE (ModBuild 391) — THE GENERATOR'S PARENTAGE OVERRULES THE
                     // DISTANCE SEARCH. User 2026-09-03, flammen-licht.jpg, and he derived the rule
                     // himself: "sie sind an die falsche Wand gebunden, somit kann eine Wand
                     // verschwinden und die Elemente übrig lassen".
@@ -2211,7 +2211,7 @@ internal static partial class WallSegmentFade
                     _mountedOwned.Add(c);
                     if (byUnitHome)
                         _censusMountedUnitHome++;
-                    // ModBuild 390 — counted HERE, at the adoption, for the reason stated at the
+                    // ModBuild 391 — counted HERE, at the adoption, for the reason stated at the
                     // override: everything between the two points can still refuse this candidate.
                     if (byWallHome && wallHomeFrom != null)
                         NoteWallHomeCorrection(c, wallHomeFrom, best, stuck: false);
@@ -2237,7 +2237,7 @@ internal static partial class WallSegmentFade
                             + $"gap {bestGap:F2} → '{wall}'"
                             + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty)
                             + (byWallHome
-                                ? " [the wall its HIERARCHY names, not the nearest — ModBuild 390]"
+                                ? " [the wall its HIERARCHY names, not the nearest — ModBuild 391]"
                                 : string.Empty)
                             + (wallBuilt ? " [WALL-BUILT: adopted on provenance, ModBuild 266]"
                                          : string.Empty)
@@ -2375,7 +2375,7 @@ internal static partial class WallSegmentFade
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
             // the one line below and one grep still finds every leftover.
             SweepRunLeftovers();
-            // ModBuild 390: the wrong-wall line stands alone for the same reason the two alarms
+            // ModBuild 391: the wrong-wall line stands alone for the same reason the two alarms
             // below do — it is the whole of this round and must not be a clause inside a line
             // about something else. It is emitted UNCONDITIONALLY, not behind a change trigger:
             // its zero is a reading, and a change-gated line with a constant value prints once and
@@ -3330,7 +3330,7 @@ internal static partial class WallSegmentFade
 
         /// <summary>
         /// THE WRONG-WALL MARKER, hoisted for the same reason as
-        /// <see cref="LeftoverMarker"/> and with a worse history (ModBuild 390).
+        /// <see cref="LeftoverMarker"/> and with a worse history (ModBuild 391).
         ///
         /// <para>Until this build the phrase existed in exactly ONE place in the whole mod: inside
         /// the leftover line's explanatory prose, telling the reader that a particle system can be
@@ -3385,7 +3385,7 @@ internal static partial class WallSegmentFade
                 + "rather than at first adoption — that second number is the one that decides "
                 + "whether a sconce already hanging in the scene can be corrected at all, because "
                 + "an adopted prop never re-runs the election while its owner is still hiding. "
-                + "Until ModBuild 390 this condition had a NAME in the code, a sentence describing "
+                + "Until ModBuild 391 this condition had a NAME in the code, a sentence describing "
                 + "it on the leftover line, and no emitter: the user diagnosed it by hand instead "
                 + "(2026-09-03, flammen-licht.jpg, 'sie sind an die falsche Wand gebunden'). WHY IT "
                 + "HAPPENS: HorizontalGap is XZ-only and returns 0.00 for any footprint overlap, so "
