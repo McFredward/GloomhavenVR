@@ -43,6 +43,12 @@ internal enum ControlAction
     // gesture, and never another panel's bar. Appended, not inserted: nothing persists these
     // values, but a value that keeps its number keeps every log line that ever printed it true.
     BoardCarry,     // hold GRIP on the bar under the control board, move the hand -> the board follows
+    // The control board, RESIZED by both GRIPs on its bar (user request 2026-09-03: "dass man
+    // das Brett mit den GRIP-Tasten kleiner und größer skalieren kann"). Reported by the same
+    // WorldUI.PanelGrabHandle, for the PlayTray's handle only, as the FRACTION the board's
+    // localScale has moved from where it stood when the step's first two-hand pinch began —
+    // |scale / scale0 - 1|, a rising maximum, so Accumulated IS that maximum. Appended, as above.
+    BoardScale,     // both GRIPs on the bar, hands apart/together -> the board grows/shrinks
 }
 
 /// <summary>
@@ -86,6 +92,24 @@ internal static class ControlsProgress
     /// </summary>
     internal static float BoardCarryGripSeconds { get; set; }
 
+    /// <summary>
+    /// The board's localScale.x the moment the FIRST two-hand pinch of the current
+    /// <see cref="ControlAction.BoardScale"/> step began, or 0 while none has. Owned here rather
+    /// than in the reporter because it is a fact about the STEP, not about one pinch: a player who
+    /// grows the board 10 %, lets go, and grows it 10 % more has changed it 21 %, and the second
+    /// pinch must measure against the same origin as the first. Zeroed with the channel.
+    /// </summary>
+    internal static float BoardScaleStart { get; set; }
+
+    /// <summary>The board's localScale.x as last seen by the reporter of
+    /// <see cref="ControlAction.BoardScale"/> — the END value the completion line prints.</summary>
+    internal static float BoardScaleLive { get; set; }
+
+    /// <summary>Seconds BOTH grips have been held on the board's bar during the current
+    /// <see cref="ControlAction.BoardScale"/> step, summed across pinches. The second quantity
+    /// that step's hardware line states beside the size change.</summary>
+    internal static float BoardScalePinchSeconds { get; set; }
+
     private static bool _disabledByError;
 
     internal static void BeginWaiting(ControlAction action)
@@ -93,6 +117,9 @@ internal static class ControlsProgress
         Waiting = action;
         Accumulated = 0f;
         BoardCarryGripSeconds = 0f;
+        BoardScaleStart = 0f;
+        BoardScaleLive = 0f;
+        BoardScalePinchSeconds = 0f;
     }
 
     internal static void StopWaiting() => BeginWaiting(ControlAction.None);

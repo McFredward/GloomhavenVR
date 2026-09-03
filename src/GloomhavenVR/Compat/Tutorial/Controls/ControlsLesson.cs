@@ -195,6 +195,33 @@ internal static class ControlsLesson
         new(ControlAction.BoardCarry, "ctl_board", ControllerKey.Squeeze, showsController: true,
             target: 0.20f),
 
+        // THE CONTROL BOARD, RESIZED BY BOTH GRIPS (user request 2026-09-03, verbatim: "Dass man
+        // das (Kontroll-)Brett mit den GRIP-Tasten kleiner und größer skalieren kann sollte als
+        // Test/Schritt im Tutorial ergänzt werden").
+        //
+        // THE GESTURE, AS THE CODE HAS IT (WorldUI.PanelGrabHandle, not invented here): the bar
+        // under the board is ONE grabbable with two grip slots — CanGrab stays true while a slot is
+        // free, so a second palm inside the same bar zone (PlayTray.BuildHandle's trigger box, 62 %
+        // of the board wide) squeezing its GRIP lands in _handB, and from that frame the pair
+        // resizes: target localScale = scale-at-engage × (hand distance / distance-at-engage),
+        // clamped LIVE into the board's own apparent-width window (PlayTray's GrabScaleLimits,
+        // the [Cards] BoardMin/BoardMaxWidthMeters band). Hands apart grows it, together shrinks
+        // it; the pair's midpoint carries it along. Both hands on the BAR — a grip anywhere else
+        // on the board takes nothing.
+        //
+        // WHY HERE: straight after the one-hand carry, on the same bar with the same key, so the
+        // card adds exactly one thing — the second hand. Both controllers light (LessonHands.Both
+        // is the instruction, as for the recentre chord: both grips ARE pressed).
+        //
+        // WHAT COMPLETES IT: the board's localScale moved by 15 % or more, in EITHER direction,
+        // from where it stood when the step's first two-hand pinch began — |scale/scale0 − 1| as a
+        // rising maximum, in ControlsProgress.Accumulated, across as many pinches as it takes. The
+        // origin is the STEP's (ControlsProgress.BoardScaleStart), not the pinch's, so two small
+        // pinches in the same direction add up. 15 % is a change the eye cannot miss and a tenth of
+        // the shipped window's span, so a board parked against one limit still has the other way.
+        new(ControlAction.BoardScale, "ctl_board_scale", ControllerKey.Squeeze, showsController: true,
+            target: 0.15f),
+
         // --- the game ---------------------------------------------------------------------
         // These two, and the three conveniences below, need the room to be in a particular state —
         // a card in the fan, a window open to reel. That used to set a `Situational` flag that
@@ -409,6 +436,21 @@ internal static class ControlsLesson
                     "no setting gates the board's bar ([Cards] BoardMoveMode only picks the carry "
                     + "mode) — either hand's GRIP takes it");
 
+            case ControlAction.BoardScale:
+                // The pinch itself has no on/off dial either, but its RESULT is clamped into the
+                // [Cards] BoardMinWidthMeters..BoardMaxWidthMeters apparent-width band
+                // (PlayTray's GrabScaleLimits, live every resize frame). A band whose span is below
+                // 1.15² cannot offer a 15 % change in at least one direction from every position
+                // inside it — so the card would be unsatisfiable, and is removed rather than shown.
+                // The max is floored at min + 2 cm exactly as PlayTray.MaxWidthMeters floors it.
+                return BoardResizeSpan() >= 1.15f * 1.15f
+                    ? new StepAvailability(true, LessonHands.Both,
+                        "no setting gates the two-hand pinch; [Cards] BoardMin/BoardMaxWidthMeters "
+                        + $"span x{BoardResizeSpan():0.00} leaves 15 % of room in at least one "
+                        + "direction — both GRIPs press, so both light")
+                    : Off("[Cards] BoardMin/BoardMaxWidthMeters span "
+                        + $"x{BoardResizeSpan():0.00} is too narrow for a 15 % change");
+
             default:
                 // CardTake — no config entry gates it and it works on either hand. LaserClick and
                 // ProximityGrab no longer have a step at all (both removed 2026-09-03) but both
@@ -545,6 +587,28 @@ internal static class ControlsLesson
     private static HandSide Opposite(HandSide side)
     {
         return side == HandSide.Left ? HandSide.Right : HandSide.Left;
+    }
+
+    /// <summary>The board's apparent-width window as a RATIO, max over min — the same two dials
+    /// and the same min + 2 cm floor as <c>PlayTray.MaxWidthMeters</c>/<c>MinWidthMeters</c>, read
+    /// defensively for the same reason as <see cref="FingertipTouchOn"/>: <c>CardsConfig</c> binds
+    /// on its own schedule. Fails OPEN to the shipped 18–140 cm span (×7.78).</summary>
+    private static float BoardResizeSpan()
+    {
+        try
+        {
+            float min = Cards.CardsConfig.BoardMinWidthMeters != null
+                ? Cards.CardsConfig.BoardMinWidthMeters.Value : 0.18f;
+            float max = Cards.CardsConfig.BoardMaxWidthMeters != null
+                ? Cards.CardsConfig.BoardMaxWidthMeters.Value : 1.4f;
+            min = UnityEngine.Mathf.Max(min, 1e-3f);
+            max = UnityEngine.Mathf.Max(max, min + 0.02f);
+            return max / min;
+        }
+        catch (System.Exception)
+        {
+            return 1.4f / 0.18f;
+        }
     }
 
     /// <summary>[Board] TouchTilesWithFingertip, read the way <c>HeldCardGrip.Enabled</c> reads its

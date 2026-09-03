@@ -731,6 +731,45 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     }
 
     /// <summary>
+    /// Controls lesson, "resize the control board" (<c>Compat.ControlAction.BoardScale</c>): report
+    /// how far the board's size has moved from where it stood when the step's first two-hand pinch
+    /// began, as a FRACTION — |scale / scale0 − 1| — and how long both grips have been held. Runs
+    /// once per frame from <see cref="Update"/>, BEFORE the two-hand branch writes this frame's
+    /// scale, so the origin is captured on the first pinch frame before the pinch has moved it.
+    ///
+    /// <para>COLD PATH IS TWO STATIC READS, as for <see cref="ReportCarryToLesson"/>. Then two
+    /// refusals: fewer than two hands (a one-hand carry, laser or palm, changes no size — there is
+    /// nothing to report) and any owner but the control board (<c>Cards.PlayTray</c>).</para>
+    ///
+    /// <para>THE ORIGIN BELONGS TO THE STEP, NOT TO THE HANDLE. <c>ControlsProgress.BoardScaleStart</c>
+    /// is zeroed when the lesson starts waiting and set here on the first two-hand frame after
+    /// that; a release and a second pinch keep measuring against it, so two 10 % pulls in one
+    /// direction complete the card as one 21 % pull would. The report is the RISING MAXIMUM of the
+    /// fraction, handed over as increments against the channel's own running total, so
+    /// <c>Accumulated</c> ends up holding exactly that maximum — a pinch that overshoots and comes
+    /// back keeps the larger excursion. The read is of the scale written LAST frame (one frame
+    /// behind the hands), which for a maximum is a delay and not an error.</para>
+    /// </summary>
+    private void ReportScaleToLesson(Transform root)
+    {
+        if (Compat.ControlsProgress.Waiting != Compat.ControlAction.BoardScale)
+            return;
+        if (_handA == null || _handB == null || !(_owner is Cards.PlayTray))
+            return;
+        float scale = root.localScale.x;
+        if (!(scale > 1e-5f) || float.IsInfinity(scale))
+            return;
+        if (!(Compat.ControlsProgress.BoardScaleStart > 0f))
+            Compat.ControlsProgress.BoardScaleStart = scale;
+        Compat.ControlsProgress.BoardScaleLive = scale;
+        Compat.ControlsProgress.BoardScalePinchSeconds += Time.unscaledDeltaTime;
+        float net = Mathf.Abs(scale / Compat.ControlsProgress.BoardScaleStart - 1f);
+        float reported = Compat.ControlsProgress.Accumulated;
+        if (net > reported)
+            Compat.ControlsProgress.Notify(Compat.ControlAction.BoardScale, net - reported);
+    }
+
+    /// <summary>
     /// The hover/held highlight, and the ONE writer of the handle material's colour.
     ///
     /// <para><b>ONE WRITE STILL LIGHTS A THREE-PIECE ROD.</b> The bars are no longer cubes: a
@@ -823,6 +862,7 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             return;
 
         ReportCarryToLesson();
+        ReportScaleToLesson(root);
 
         float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);
 

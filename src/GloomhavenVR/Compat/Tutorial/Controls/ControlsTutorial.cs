@@ -447,9 +447,12 @@ internal static class ControlsTutorial
                 EnterDwell(ControlsStepState.AlreadyDone, PreSatisfiedDwellSeconds, step.Id);
                 return;
             }
-            // Read BEFORE EnterDwell: it stops the progress channel, which zeroes both numbers.
+            // Read BEFORE EnterDwell: it stops the progress channel, which zeroes every number.
             float carried = ControlsProgress.Accumulated;
             float gripHeld = ControlsProgress.BoardCarryGripSeconds;
+            float scale0 = ControlsProgress.BoardScaleStart;
+            float scale1 = ControlsProgress.BoardScaleLive;
+            float pinchHeld = ControlsProgress.BoardScalePinchSeconds;
             EnterDwell(ControlsStepState.Done, CompletedDwellSeconds, step.Id);
             VRHands.Left?.SendHaptic(HapticPreset.ClickPulse);
             VRHands.Right?.SendHaptic(HapticPreset.ClickPulse);
@@ -466,6 +469,19 @@ internal static class ControlsTutorial
                     + $"{gripHeld:0.0} s, against a target of {step.Target:0.00} m. Reported by "
                     + "PanelGrabHandle for the PlayTray's bar only, palm grip only (a laser carry "
                     + "does not count).");
+            }
+            if (step.Action == ControlAction.BoardScale)
+            {
+                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+                VRLog.Note("Tutorial", $"Controls lesson BOARD SCALE: the control board was resized "
+                    + $"from localScale {scale0:0.000} to {scale1:0.000} "
+                    + $"({(scale0 > 0f ? (scale1 / scale0 - 1f) * 100f : 0f):+0.0;-0.0} %, the "
+                    + $"largest excursion either way was {carried * 100f:0.0} %) with BOTH GRIPs "
+                    + $"held on its bar for {pinchHeld:0.0} s in total, against a target of "
+                    + $"±{step.Target * 100f:0} %. Reported by PanelGrabHandle for the PlayTray's "
+                    + "bar only, two-hand pinch only; the origin is the size at the step's first "
+                    + "pinch, so several pinches in one direction add up.");
             }
             return;
         }

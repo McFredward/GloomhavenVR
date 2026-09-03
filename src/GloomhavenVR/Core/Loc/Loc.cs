@@ -393,6 +393,16 @@ internal static partial class Loc
             "Reach for the bar under the control board, hold the GRIP and carry the board somewhere else.",
             "Fass die Stange unter dem Kontrollbrett, halte den GRIP und trag das Brett woandershin."),
 
+        // THE CONTROL BOARD, RESIZED (user request 2026-09-03: "dass man das Brett mit den
+        // GRIP-Tasten kleiner und größer skalieren kann"). The gesture as PanelGrabHandle has it:
+        // BOTH palms on the same bar, both GRIPs held (the second hand joins the first's grab as
+        // _handB), hands apart = grow, together = shrink. It follows ctl_board on the same bar
+        // with the same key, so the sentence only adds the second hand and the motion.
+        ["ctl_board_scale_t"] = Pair("Resize the control board", "Das Kontrollbrett skalieren"),
+        ["ctl_board_scale_b"] = Pair(
+            "Hold the bar under the board with BOTH GRIPs and pull your hands apart or together to resize it.",
+            "Halte die Stange unter dem Brett mit BEIDEN GRIPs und zieh die Hände auseinander oder zusammen."),
+
         ["ctl_card_take_t"] = Pair("Take a card", "Eine Karte nehmen"),
         ["ctl_card_take_b"] = Pair(
             "Turn a palm towards you and take a card from the fan with the TRIGGER.",
