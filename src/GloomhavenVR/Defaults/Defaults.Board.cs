@@ -54,10 +54,10 @@ internal static partial class Defaults
     // figure value this mod ships, taken from the entries above and from the shipped seed chain
     // they feed ({Style}HeldRotPitch <- {Style}HeldTiltDegrees <- HeldTiltDegrees = 17, etc.), so
     // the first build with these keys holds a prop exactly where ModBuild 349 held it.
-    internal const float PropHeldOffsetSide = 0.03f;        // => [FigureGrab] PropHeldOffsetSide
-    internal const float PropHeldOffsetUp = 0.01f;          // => [FigureGrab] PropHeldOffsetUp
+    internal const float PropHeldOffsetSide = 0.051f;       // => [FigureGrab] PropHeldOffsetSide
+    internal const float PropHeldOffsetUp = -0.013f;        // => [FigureGrab] PropHeldOffsetUp
     internal const float PropHeldOffsetForward = 0.05f;     // => [FigureGrab] PropHeldOffsetForward
-    internal const float PropHeldRotPitch = 17f;            // => [FigureGrab] PropHeldRotPitch
+    internal const float PropHeldRotPitch = 18f;            // => [FigureGrab] PropHeldRotPitch
     internal const float PropHeldRotYaw = -133f;            // => [FigureGrab] PropHeldRotYaw
     internal const float PropHeldRotRoll = 0f;              // => [FigureGrab] PropHeldRotRoll
     internal const bool PropHeldUpright = true;             // => [FigureGrab] PropHeldUpright

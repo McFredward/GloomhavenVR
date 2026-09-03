@@ -49,7 +49,12 @@ CFG_DIR = ROOT / ".planning" / "debug" / "default"
 ENTRY_RE = re.compile(
     r"^(?P<head>\s*internal\s+(?:const|static\s+readonly)\s+(?P<type>[A-Za-z0-9_.]+)\s+"
     r"(?P<name>[A-Za-z0-9_]+)\s*=\s*)(?P<init>.+?)(?P<tail>;\s*//\s*=>\s*\[(?P<section>[^\]]+)\]\s+"
-    r"(?P<key>\S+)(?:\s+\((?P<marker>legacy|pinned):\s*(?P<why>[^)]*)\))?\s*)$")
+    r"(?P<key>\S+)(?:\s+\((?:(?P<marker>legacy|pinned):\s*(?P<why>[^)]*)|(?P<note>.*))\))?\s*)$")
+# The annotation may carry a free-text parenthetical after the key ("(round 7: …)", "(ON since
+# ModBuild 227. …)") that is NOT a legacy/pinned marker. Before 2026-09-03 such lines did not match
+# ENTRY_RE at all and their keys were reported as "no Defaults line" on every run — 20 of them,
+# all of which DID have a Defaults line. A free-text note is now captured as `note` and ignored;
+# only `legacy:` / `pinned:` change the tool's behaviour.
 
 # How close two floats have to be to count as the SAME shipped default.
 #
@@ -130,6 +135,13 @@ def parse_cs(init, typ):
         parts = [p.strip() for p in m.group("args").split(",")]
         return tuple(float(p[:-1] if p.endswith("f") else p) for p in parts)
     if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_.]*\.[A-Za-z_][A-Za-z0-9_]*", t):
+        # A dotted name is an enum member (compare by member NAME) — unless the declared type
+        # is one this tool renders itself, in which case it is a REFERENCE to another constant
+        # (`CardGripPose.DefaultPitchDegrees`, `Vector3.zero`): not a literal we own, so it is
+        # reported as refused rather than compared as a string (that comparison used to crash
+        # the whole run with a TypeError, 2026-09-03).
+        if typ in ("bool", "int", "float", "string", "Color", "Vector2", "Vector3"):
+            return None
         return t.rsplit(".", 1)[-1]        # an enum member: compare by member NAME
     return None
 

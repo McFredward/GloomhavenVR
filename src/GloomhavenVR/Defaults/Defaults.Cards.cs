@@ -37,16 +37,16 @@ internal static partial class Defaults
     internal const float InHandPitch = CardGripPose.DefaultPitchDegrees;                              // => [Cards] InHandPitch
     internal static readonly Vector3 InHandPinchOffset = Vector3.zero;                                // => [Cards] InHandPinchOffset
     internal const float InHandGraspSeconds = CardGripPose.DefaultGraspSeconds;                       // => [Cards] InHandGraspSeconds
-    internal const float TrayForward = 0.54232f;                                                      // => [Cards] TrayForward
-    internal const float TrayDown = 0.060066f;                                                        // => [Cards] TrayDown
-    internal const float TrayRight = -0.113245f;                                                      // => [Cards] TrayRight
+    internal const float TrayForward = 0.75164f;                                                      // => [Cards] TrayForward
+    internal const float TrayDown = 0.298633f;                                                        // => [Cards] TrayDown
+    internal const float TrayRight = -0.47861f;                                                       // => [Cards] TrayRight
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
-    internal const float TrayYaw = -0.90576f;                                                         // => [Cards] TrayYaw
-    internal const float TrayScale = 1.69423f;                                                        // => [Cards] TrayScale
+    internal const float TrayYaw = -40.568f;                                                          // => [Cards] TrayYaw
+    internal const float TrayScale = 1.42826f;                                                        // => [Cards] TrayScale
     internal const float PokePadPixels = 14f;                                                         // => [Cards] PokePadPixels
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
-    internal const float TrayPitch = 58.854f;                                                         // => [Cards] TrayPitch
+    internal const float TrayPitch = 43.585f;                                                         // => [Cards] TrayPitch
     internal const float BoardPitchMinDegrees = -45f;                                                 // => [Cards] BoardPitchMinDegrees  (legacy: superseded by the per-board BoardPitchMin_<board>)
     internal const float BoardPitchMaxDegrees = 45f;                                                  // => [Cards] BoardPitchMaxDegrees  (legacy: superseded by the per-board BoardPitchMax_<board>)
     internal const float CardLerpSpeed = 14f;                                                         // => [Cards] CardLerpSpeed
@@ -260,7 +260,7 @@ internal static partial class Defaults
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
     internal const bool FaceMipBake = true;                                                           // => [Cards] FaceMipBake
-    internal const ControlBoard Board = ControlBoard.Bronze;                                          // => [Cards] Board
+    internal const ControlBoard Board = ControlBoard.Steel;                                           // => [Cards] Board
     internal static readonly Vector3 ItemUseSlotOffset_Oak = new Vector3(0.005f, -0.035f, 0f);        // => [Cards] ItemUseSlotOffset_Oak
     internal static readonly Vector3 ItemUseSlotOffset_Steel = new Vector3(0.005f, -0.035f, 0f);      // => [Cards] ItemUseSlotOffset_Steel
     internal static readonly Vector3 ItemUseSlotOffset_Bronze = new Vector3(0.005f, -0.035f, 0f);     // => [Cards] ItemUseSlotOffset_Bronze
@@ -429,7 +429,7 @@ internal static partial class Defaults
     // (BoardAnchors.StackDelta). A fresh board is right before anybody touches a dial, which is the
     // property the fifteen constants were trying and failing to buy.
     internal static readonly Vector3 RestButtonOffset = new Vector3(0f, 0f, 0f);                      // => [Cards] RestButtonOffset
-    internal const float RestButtonDiameter = 0.094f;                                                 // => [Cards] RestButtonDiameter
+    internal const float RestButtonDiameter = 0.196f;                                                 // => [Cards] RestButtonDiameter
     internal static readonly Vector3 ConfirmUndoOffset = new Vector3(0f, 0f, 0.012f);                 // => [Cards] ConfirmUndoOffset
     // [Cards] ConfirmUndoSize_{board} is GONE (retired 2026-08: the dial only fed the non-default
     // ROUND cap shape after the button-family split; the cap size is [BoardButtons] Width/Height
@@ -493,7 +493,7 @@ internal static partial class Defaults
     // THE TWO STACK SPACINGS, dimensionless and shared — see the seat-family note above. 1 = the
     // board's own authored recess pitch, i.e. every cap dead centre in its own well on every board.
     internal const float ButtonStackSpacing = 1f;                                                     // => [Cards] ButtonStackSpacing
-    internal const float RestStackSpacing = 1.29f;                                                    // => [Cards] RestStackSpacing
+    internal const float RestStackSpacing = 0.99f;                                                    // => [Cards] RestStackSpacing
 
     /// <summary>
     /// The anchor pitch a board that supplies NO usable anchor pair falls back to (board-local

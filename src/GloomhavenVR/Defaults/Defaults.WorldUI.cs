@@ -122,7 +122,7 @@ internal static partial class Defaults
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
     internal const bool BarFixedSize = true;                 // => [WorldUI] BarFixedSize
-    internal const float BarSizeScale = 0.70899f;            // => [WorldUI] BarSizeScale
+    internal const float BarSizeScale = 0.80899f;            // => [WorldUI] BarSizeScale
     // BarZoomMinScale (0.7) and BarZoomMaxScale (1.5) stood here. GONE (user ruling 2026-08-13:
     // "Mindest und Maximalgröße der Lebensbalken haben keinen sehbaren einfluss … ziemlich
     // unintuitiv"). The two numbers survive as the CONSTANTS ActorBars.ZoomFollowMin/Max, so the
@@ -245,7 +245,7 @@ internal static partial class Defaults
     internal const bool DesktopMirrorLeftEye = true;         // => [WorldUI] DesktopMirrorLeftEye
     internal const bool ShowIntro = true;                    // => [WorldUI] ShowIntro
     internal const float ScreenWidth = 2.2f;                 // => [WorldUI] ScreenWidth
-    internal const float ScreenDistance = 1.6f;              // => [WorldUI] ScreenDistance
+    internal const float ScreenDistance = 1.7f;              // => [WorldUI] ScreenDistance
     // [WorldUI] SuppressPhysicalMouse had its line here; UNBOUND by the 2026-08-22 settings audit
     // and now the constant WorldUIConfig.SuppressPhysicalMouse, where the argument is written down.
     internal const float MapWindOpacity = 0.3f;              // => [WorldUI] MapWindOpacity
