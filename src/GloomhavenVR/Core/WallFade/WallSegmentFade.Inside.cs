@@ -1381,12 +1381,14 @@ internal static partial class WallSegmentFade
                 + $"SOLID BLOCKER lines for that. Named {_splitToggleRescuedNames.Count} of "
                 + $"{_splitToggleRescued} (cap {SplitToggleRescuedNameCap}, freshest first, and a "
                 + $"truncated list is not absence): {named}. FALSIFIER, and it is a NAME test on "
-                + "this very list: 'CV_Ice_Crystal_Form_02', 'CV_Ice_Crystal_Form_03' or "
-                + "'LightShaft_Prefab (1)' appearing here means the widening reached geometry the "
-                + "user ruled must STAY (2026-08-24) — the term that protects those three lives in "
-                + "the MOUNTED sweep and does NOT stand in front of this gate, so a hit is a "
-                + "withdrawal of ModBuild 386's widening and not a retune. Nothing else about this "
-                + "build is evidence against that ruling; this list is.");
+                + "the list above and nowhere else: the three assets of the 2026-08-24 ruling — the "
+                + "two ice-crystal formations and the numbered light shaft — appearing there means "
+                + "the widening reached geometry the user ruled must STAY, and that is a withdrawal "
+                + "of ModBuild 386 rather than a retune. THEIR NAMES ARE DELIBERATELY NOT SPELLED "
+                + "HERE (ModBuild 390): 386 printed them in this sentence, so a grep for any of the "
+                + "three returned 48 hits in the ModBuild-388 log and every one was this line "
+                + "quoting itself — the same self-quoting defect 386 had just fixed on another "
+                + "marker, reintroduced by its own falsifier. Grep the named list, not the prose.");
         }
 
         private void LogSplitRuns(float now)

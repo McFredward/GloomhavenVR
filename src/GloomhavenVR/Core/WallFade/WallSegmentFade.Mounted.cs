@@ -472,6 +472,85 @@ internal static partial class WallSegmentFade
         private readonly Dictionary<Transform, int> _mountedUnitHomeVotes = new(64);
         private int _censusMountedUnitHome;
 
+        /// <summary>
+        /// WALL PROVENANCE HOME (ModBuild 390) — the wall the GENERATOR parented this prop under,
+        /// which is a fact about the hierarchy and not a guess about distance.
+        ///
+        /// <para>THE DEFECT. User 2026-09-03, hardware, ModBuild 388, flammen-licht.jpg:
+        /// <i>"An einer Wand sind Kerzen und der dortige Schein der Kerzen verschwindet nicht mit
+        /// der Wand … scheinbar hängen sie an der falschen Wand. Die rechten Leuchten verschwinden
+        /// wenn die Wand rechts daneben verschwindet und die linken verschwinden wenn die Wand
+        /// daneben verschwindet."</i> He derived the rule himself by experiment: a sconce is bound
+        /// to a NEIGHBOUR, so its own wall dissolves and leaves it hanging while a different wall's
+        /// dissolve takes it.</para>
+        ///
+        /// <para>WHY THE EXISTING HIERARCHY TERM COULD NEVER CATCH IT. <see cref="_mountedUnitHome"/>
+        /// (ModBuild 258) keys on the PROP-UNIT root and is voted for only by
+        /// <c>seg.Renderers</c>/<c>seg.Foliage</c> — a wall's OWN geometry. A wall torch is its own
+        /// prop unit (<c>Walls/Wall 3/Generated Content/PCG_CR_WallTorch_Lit_Moth/…</c>) and no wall
+        /// renderer is under that root, so nothing ever votes for it and the map has no entry. The
+        /// ModBuild-388 log proves it: <c>0 attached to the wall that owns their PROP UNIT</c> on
+        /// all 18 census lines. The rule is structurally incapable of firing for a sconce, so the
+        /// election was pure distance in every case.</para>
+        ///
+        /// <para>WHY DISTANCE IS NOW A COIN TOSS, and this is what changed under the rule's feet.
+        /// Since the per-renderer split (ModBuild 259/260) a wall is SHATTERED into split segments
+        /// — <c>'Blocks'</c>, <c>'WallTop'</c>, <c>'SmallPillars'</c>, <c>'EN_CR_LBSkull'</c>,
+        /// <c>'SB_AncCaverns_DemonHead'</c> — each a <c>Segment</c> with its own small AABB, and the
+        /// election loop iterates ALL of them. "Nearest wall" therefore means "nearest individual
+        /// masonry block or skull ornament", and those sit far closer together than the 0.90 wu
+        /// reach. The 388 log has the candle's halo landing on a SKULL:
+        /// <c>'Glow'[→alpha] base 2.2 top 2.8 gap 0.15 → 'EN_CR_LBSkull'</c>, and flipping between
+        /// <c>'EN_CR_LBSkull'</c> and <c>'Blocks'</c> across rescans, while the candle itself is
+        /// <c>under 'Wall 2/Generated Content/CR_GE_Candle_V1/CandlePivot'</c>. A gap of 0.00 to a
+        /// segment proves adjacency, never that it is the right wall.</para>
+        ///
+        /// <para>THE RULE. A prop whose bounded ancestor walk finds a <see cref="ProceduralWall"/>
+        /// belongs to THAT wall. Distance then chooses only among that wall's own segments. The
+        /// walk is BOUNDED at <see cref="WallProvenanceProbeLevels"/> deliberately: the unbounded
+        /// <c>GetComponentInParent&lt;ProceduralWall&gt;()</c> reaches the scene root and answers
+        /// YES for a skeleton's thighs, a light shaft and 348 ice-crystal renderers the user rules
+        /// must STAY (WallSegmentFade.Standing.cs). A prop with no wall above it inside that window
+        /// resolves nothing and keeps today's answer exactly — free-standing scenery is untouched.
+        /// </para>
+        ///
+        /// <para>SPLIT RUNS. A split wall is not in the segment table any more; its pieces are, each
+        /// carrying <c>RunOwner = the ProceduralWall</c>. Under <c>[WallFade] SplitRunUnified</c>
+        /// (shipped ON, and True in the 388 log) every piece of a run takes the RUN's verdict, so
+        /// all pieces of the right wall carry the same fade and WHICH piece is chosen cannot change
+        /// what the player sees. The representative is therefore picked deterministically — first
+        /// seen, ties broken on the anchor name compared ordinally — so two peers cannot disagree.
+        /// With that dial OFF the choice is a piece of the CORRECT wall instead of a piece of the
+        /// wrong one, which is still strictly better than what it replaces; it is not claimed to be
+        /// optimal.</para>
+        ///
+        /// <para>MULTIPLAYER: local and deterministic. Derived from scene hierarchy and the local
+        /// segment table, both identical on every machine, with an ordinal tie-break for the same
+        /// reason <see cref="_mountedUnitHome"/> has one. Nothing here goes near the wire.</para>
+        /// </summary>
+        private readonly Dictionary<Component, Segment> _mountedWallHome = new(64);
+
+        /// <summary>Per-rescan memo for <see cref="WallProvenanceOf"/>, keyed by the renderer's own
+        /// transform. Cleared with the rest of the mounted scope: Apparance rebirths these subtrees
+        /// constantly, so a transform kept across rescans dangles within seconds.</summary>
+        private readonly Dictionary<Transform, Component?> _mountedWallProvenance = new(256);
+
+        /// <summary>How many props this rescan were attached to the wall their HIERARCHY names
+        /// rather than to the nearest segment — the ModBuild-390 acceptance number. Counted at the
+        /// adoption/handover and never at the intention.</summary>
+        private int _censusMountedWallHome;
+
+        /// <summary>Of those, how many were STUCK to a different wall and had to be handed over
+        /// rather than merely elected — i.e. how many the sticky path was freezing.</summary>
+        private int _censusMountedWallHomeStuck;
+
+        /// <summary>The freshest few corrections, for the wrong-wall line. Capped; the cap is
+        /// stated on the line, because a truncated list is not absence.</summary>
+        private readonly List<string> _mountedWallHomeNames = new();
+
+        /// <summary>Name cap for <see cref="_mountedWallHomeNames"/>.</summary>
+        private const int MountedWallHomeNameCap = 8;
+
         /// <summary>MODBUILD 266 — THE ACCEPTANCE NUMBER for "die Flagge inklusive der Stange
         /// vollständig mit faden": how many pieces reached the mounted ledger ONLY because the
         /// wall generator built them, i.e. how many of the three refusals
@@ -1319,6 +1398,11 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
+            // ModBuild 390 — strictly per rescan, like every other number on this line. A session
+            // total would let a rule that fired once at load read as a rule that is still working.
+            _censusMountedWallHome = 0;
+            _censusMountedWallHomeStuck = 0;
+            _mountedWallHomeNames.Clear();
             _censusMountedWallBuilt = 0;
             _censusMountedWallBuiltCarried = 0;
             _censusMountedWallBuiltBelowBar = 0; // ModBuild 271 — the sixth site's own number
@@ -1400,6 +1484,11 @@ internal static partial class WallSegmentFade
             // the prop-unit pass has already run (CommitPhase.PropUnits precedes .Mounted) and
             // seg.Renderers is therefore the authoritative "who owns this unit's wall half".
             BuildMountedUnitHomes();
+            // ModBuild 390: built in the same breath and from the same table. It must exist before
+            // the sticky-carry loop below, because the FIRST thing the wrong-wall rule has to do is
+            // unstick a prop the old distance election bound to a neighbour — a rule that only ran
+            // at adoption time would never reach a sconce that is already held.
+            BuildMountedWallHomes();
 
             // PARK THE PREVIOUS LISTS FIRST, IN A LOOP OF THEIR OWN. This used to share the sticky
             // loop below, and it cannot any more: the ModBuild-258 handover writes into ANOTHER
@@ -1501,6 +1590,37 @@ internal static partial class WallSegmentFade
                                 _censusMountedWallBuiltCarried++;
                             NoteOwnershipChange(p.Renderer,
                                 $"mounted:'{stickyHome.Anchor!.name}'(prop unit)");
+                            continue;
+                        }
+                        // WALL PROVENANCE (ModBuild 390) — STICKY OWNERSHIP MUST NOT OUTLIVE BEING
+                        // ON THE WRONG WALL, and this is the site that decides whether the fix can
+                        // reach the sconces already in the scene. A prop the old distance election
+                        // bound to a neighbour is in _mountedOwned before the sweep below runs
+                        // (Mounted.cs, the `_mountedOwned.Contains(c)` short-circuit), so the new
+                        // rule would apply only to props adopted AFTER it shipped and the user
+                        // would see no change at all on a wall he is already looking at.
+                        //
+                        // A HANDOVER, not a release, for the ModBuild-265 reason: a change of owner
+                        // may not make a piece more visible, and RestoreProp would switch a hidden
+                        // sconce back on for the rest of the rescan if its correct wall is faded.
+                        // The new owner's ApplyMounted drives it on the same frame.
+                        //
+                        // NO CHURN WHEN IT IS ALREADY RIGHT: SegmentBelongsToWall accepts the wall
+                        // itself AND any piece of its run, so a prop sitting on a different piece of
+                        // its OWN wall is left exactly where it is. Only a cross-WALL binding moves.
+                        Segment? wallHome = MountedWallHomeOf(p.Renderer, out Component? homeWall);
+                        if (wallHome != null && homeWall != null
+                            && !SegmentBelongsToWall(seg, homeWall)
+                            && !ReferenceEquals(wallHome, seg))
+                        {
+                            NoteWallHomeCorrection(p.Renderer, seg, wallHome, stuck: true);
+                            wallHome.Mounted.Add(p);
+                            _mountedReleased.Add(p); // the leavers loop must not undo the handover
+                            _censusMounted++;
+                            if (carriedWallBuilt)
+                                _censusMountedWallBuiltCarried++;
+                            NoteOwnershipChange(p.Renderer,
+                                $"mounted:'{wallHome.Anchor!.name}'(wall provenance)");
                             continue;
                         }
                         seg.Mounted.Add(p);
@@ -1864,6 +1984,7 @@ internal static partial class WallSegmentFade
                     // (`belowBar`) is NOT overruled: a candidate that reads as floor-supported
                     // cannot float and has nothing to be rescued from.
                     bool byUnitHome = false;
+                    bool byWallHome = false;
                     if (!belowBar)
                     {
                         Segment? home = MountedUnitHomeOf(c);
@@ -1878,6 +1999,56 @@ internal static partial class WallSegmentFade
                             // census that counts intentions is the failure this subsystem has
                             // paid for twice.
                             byUnitHome = true;
+                        }
+                    }
+                    // WALL PROVENANCE (ModBuild 390) — THE GENERATOR'S PARENTAGE OVERRULES THE
+                    // DISTANCE SEARCH. User 2026-09-03, flammen-licht.jpg, and he derived the rule
+                    // himself: "sie sind an die falsche Wand gebunden, somit kann eine Wand
+                    // verschwinden und die Elemente übrig lassen".
+                    //
+                    // WHY DISTANCE CANNOT DECIDE THIS. HorizontalGap is XZ-only and returns ZERO
+                    // for ANY footprint overlap, so a sconce between two wall slabs reads gap 0.00
+                    // from BOTH — which is why nearly every row of the WALL-MOUNTED DRESSING census
+                    // prints gap 0.00. The tie then falls to `gap >= bestGap`, i.e. to whichever
+                    // segment came first out of a Dictionary whose bucket order is unspecified and
+                    // is reshuffled by every add and remove across rescans. Ownership of a sconce
+                    // was being decided by hash-table layout. Since the per-renderer split the
+                    // candidates are individual blocks and skull ornaments a few centimetres apart,
+                    // far inside the 0.90 wu reach, so the coin toss is the normal case, not an
+                    // edge one: the 388 log has a candle's halo on a SKULL, 'Glow' gap 0.15 →
+                    // 'EN_CR_LBSkull', flipping to 'Blocks' and back across rescans.
+                    //
+                    // WHY IT IS SAFE. This never removes an owner and never adopts anything the
+                    // rules below would refuse: it only redirects a candidate that has ALREADY won
+                    // an election, to a segment that has already passed MountedHostEligible (same
+                    // doorway / room-plane / cap facts the search itself requires). A prop with no
+                    // ProceduralWall inside the bounded window resolves nothing and keeps today's
+                    // answer exactly, which is every piece of free-standing scenery in the scene.
+                    // `belowBar` is NOT overruled, for the ModBuild-258 reason: a candidate that
+                    // reads as floor-supported cannot float and has nothing to be rescued from.
+                    //
+                    // IT DEFERS TO A UNIT-AFFINITY ANSWER ON THE SAME WALL: SegmentBelongsToWall
+                    // accepts the wall itself and any piece of its run, so this only fires when the
+                    // standing answer is on a DIFFERENT wall. Counted at the ADOPTION below, never
+                    // here — a census that counts intentions is the failure this file has paid for
+                    // twice.
+                    Segment? wallHomeFrom = null;
+                    if (!belowBar && best != null)
+                    {
+                        Segment? wallHome = MountedWallHomeOf(c, out Component? homeWall);
+                        if (wallHome != null && homeWall != null
+                            && !SegmentBelongsToWall(best, homeWall)
+                            && !ReferenceEquals(wallHome, best))
+                        {
+                            // STASHED, NOT COUNTED. This candidate can still be refused below as a
+                            // MOBILE prop, and a census that counts intentions is the failure this
+                            // file has paid for twice. NoteWallHomeCorrection runs at the adoption.
+                            wallHomeFrom = best;
+                            best = wallHome;
+                            bestGap = particles
+                                ? HorizontalGap(wallHome.Bounds, c.transform.position)
+                                : HorizontalGap(wallHome.Bounds, b);
+                            byWallHome = true;
                         }
                     }
                     if (belowBar)
@@ -2040,6 +2211,10 @@ internal static partial class WallSegmentFade
                     _mountedOwned.Add(c);
                     if (byUnitHome)
                         _censusMountedUnitHome++;
+                    // ModBuild 390 — counted HERE, at the adoption, for the reason stated at the
+                    // override: everything between the two points can still refuse this candidate.
+                    if (byWallHome && wallHomeFrom != null)
+                        NoteWallHomeCorrection(c, wallHomeFrom, best, stuck: false);
                     if (wallBuilt)
                         _censusMountedWallBuilt++;
                     // ModBuild 271: a DISTINCT counter and a DISTINCT tag for the sixth site, so
@@ -2051,7 +2226,8 @@ internal static partial class WallSegmentFade
                         _censusMountedWallBuiltBelowBar++;
                     NoteOwnershipChange(c,
                         $"mounted:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
-                        + (byUnitHome ? "(prop unit)" : string.Empty));
+                        + (byUnitHome ? "(prop unit)" : string.Empty)
+                        + (byWallHome ? "(wall provenance)" : string.Empty));
                     _censusMounted++;
                     if (_mountedCensus.Count < MountedCensusCap)
                     {
@@ -2060,6 +2236,9 @@ internal static partial class WallSegmentFade
                             $"'{c.name}'[{RendererKind(c)}→{prop.Tier}] anchor {anchorY:F1} "
                             + $"gap {bestGap:F2} → '{wall}'"
                             + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty)
+                            + (byWallHome
+                                ? " [the wall its HIERARCHY names, not the nearest — ModBuild 390]"
+                                : string.Empty)
                             + (wallBuilt ? " [WALL-BUILT: adopted on provenance, ModBuild 266]"
                                          : string.Empty)
                             + (wallGenBelowBar
@@ -2196,6 +2375,12 @@ internal static partial class WallSegmentFade
             // beside its faded run (neues_wandproblem.jpg). Measured here so both classes reach
             // the one line below and one grep still finds every leftover.
             SweepRunLeftovers();
+            // ModBuild 390: the wrong-wall line stands alone for the same reason the two alarms
+            // below do — it is the whole of this round and must not be a clause inside a line
+            // about something else. It is emitted UNCONDITIONALLY, not behind a change trigger:
+            // its zero is a reading, and a change-gated line with a constant value prints once and
+            // then reads as a stopped tick.
+            EmitWrongWallLine();
             // The two alarms stand alone: a leftover is the reported defect, and a mobile prop
             // is the round-7 ruling being enforced against a class the ancestry test cannot see.
             LogMountedLeftovers();
@@ -2280,6 +2465,120 @@ internal static partial class WallSegmentFade
             if (root == null || !_mountedUnitHome.TryGetValue(root, out Segment? home))
                 return null;
             return MountedHostEligible(home) ? home : null;
+        }
+
+        /// <summary>
+        /// The <see cref="ProceduralWall"/> this renderer is parented under, or null — a BOUNDED
+        /// climb of at most <see cref="WallProvenanceProbeLevels"/> transforms, memoised for the
+        /// rescan. Deliberately NOT <c>GetComponentInParent&lt;ProceduralWall&gt;()</c>: that probe
+        /// is unbounded, reaches the scene root, and in the ModBuild-270 log answers YES for a
+        /// skeleton's thighs, a light shaft and 348 ice-crystal renderers the user rules must STAY
+        /// (see WallSegmentFade.Standing.cs). The same 12-level window
+        /// <see cref="WallProvenanceNote"/> already reports is the one this decides on, so the
+        /// diagnostic and the decision cannot disagree.
+        ///
+        /// <para>COST: for a sconce the wall is 2-4 levels up, and the answer is memoised per
+        /// transform for the rescan, so the steady-state cost is one dictionary probe per
+        /// candidate that reaches the election.</para>
+        /// </summary>
+        private Component? WallProvenanceOf(Renderer r)
+        {
+            Transform self = r.transform;
+            if (_mountedWallProvenance.TryGetValue(self, out Component? memo))
+                return memo;
+            Component? found = null;
+            Transform? t = self;
+            for (int depth = 0; t != null && depth <= WallProvenanceProbeLevels; depth++)
+            {
+                ProceduralWall? w = t.GetComponent<ProceduralWall>();
+                if (w != null)
+                {
+                    found = w;
+                    break;
+                }
+                t = t.parent;
+            }
+            _mountedWallProvenance[self] = found;
+            return found;
+        }
+
+        /// <summary>
+        /// Map every <see cref="ProceduralWall"/> to ONE segment that speaks for it — see
+        /// <see cref="_mountedWallHome"/> for the defect this exists for. An UNSPLIT wall is its
+        /// own anchor; a SPLIT wall is not in the table at all and is represented by one of its
+        /// pieces, which all carry <c>RunOwner</c> pointing back at it.
+        ///
+        /// <para>Only segments that could actually carry dressing are eligible
+        /// (<see cref="MountedHostEligible"/>), so a doorway (never fades — user ruling
+        /// 2026-08-02), a room with no trusted plane and a saturated segment are all excluded here
+        /// exactly as they are in the sweep's own search. A wall with no eligible segment resolves
+        /// nothing and the prop keeps today's answer.</para>
+        ///
+        /// <para>FIRST SEEN WINS, ties broken on the anchor name compared ordinally — a stable
+        /// string, for the same reason <see cref="VoteMountedUnitHome"/> has one: two peers must
+        /// not pick different homes for the same wall.</para>
+        /// </summary>
+        private void BuildMountedWallHomes()
+        {
+            _mountedWallHome.Clear();
+            _mountedWallProvenance.Clear();
+            foreach (Segment seg in _live.Segments.Values)
+            {
+                if (!MountedHostEligible(seg))
+                    continue;
+                Component? wall = seg.Anchor is ProceduralWall ? seg.Anchor : seg.RunOwner;
+                if (wall == null)
+                    continue;
+                if (!_mountedWallHome.TryGetValue(wall, out Segment? held))
+                {
+                    _mountedWallHome[wall] = seg;
+                    continue;
+                }
+                if (held.Anchor != null && seg.Anchor != null
+                    && string.CompareOrdinal(seg.Anchor.name, held.Anchor.name) < 0)
+                {
+                    _mountedWallHome[wall] = seg;
+                }
+            }
+        }
+
+        /// <summary>Does this segment belong to that wall — is it the wall itself, or a piece of
+        /// its run? The question the wrong-wall rule actually asks, because any piece of the right
+        /// run carries the right fade.</summary>
+        private static bool SegmentBelongsToWall(Segment seg, Component wall) =>
+            ReferenceEquals(seg.Anchor, wall) || ReferenceEquals(seg.RunOwner, wall);
+
+        /// <summary>The segment that speaks for the wall this renderer is PARENTED UNDER, or null
+        /// when it has no wall above it inside the bounded window, that wall has no eligible
+        /// segment, or the map is empty. Null means "no opinion" and leaves the geometric answer
+        /// standing — this rule never removes an owner, it only corrects one.</summary>
+        private Segment? MountedWallHomeOf(Renderer r, out Component? wall)
+        {
+            wall = null;
+            if (_mountedWallHome.Count == 0)
+                return null;
+            wall = WallProvenanceOf(r);
+            if (wall == null || !_mountedWallHome.TryGetValue(wall, out Segment? home))
+                return null;
+            return MountedHostEligible(home) ? home : null;
+        }
+
+        /// <summary>Record one wrong-wall correction for the census line. Observation of what the
+        /// two rules ANSWERED — it asserts nothing about what the player then saw.</summary>
+        private void NoteWallHomeCorrection(Renderer r, Segment from, Segment to, bool stuck)
+        {
+            _censusMountedWallHome++;
+            if (stuck)
+                _censusMountedWallHomeStuck++;
+            if (_mountedWallHomeNames.Count >= MountedWallHomeNameCap)
+                return;
+            string fromName = from.Anchor != null ? from.Anchor.name : "<dead>";
+            string toName = to.Anchor != null ? to.Anchor.name : "<dead>";
+            float fromGap = from.HasBounds ? HorizontalGap(from.Bounds, r.transform.position) : -1f;
+            float toGap = to.HasBounds ? HorizontalGap(to.Bounds, r.transform.position) : -1f;
+            _mountedWallHomeNames.Add(
+                $"'{r.name}' was on '{fromName}' (gap {fromGap:0.00}) and its hierarchy says "
+                + $"'{toName}' (gap {toGap:0.00}){(stuck ? " — STICKY was holding the old answer" : string.Empty)}");
         }
 
         /// <summary>May this segment be handed a prop by the unit-affinity rule? The same three
@@ -3030,6 +3329,77 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
+        /// THE WRONG-WALL MARKER, hoisted for the same reason as
+        /// <see cref="LeftoverMarker"/> and with a worse history (ModBuild 390).
+        ///
+        /// <para>Until this build the phrase existed in exactly ONE place in the whole mod: inside
+        /// the leftover line's explanatory prose, telling the reader that a particle system can be
+        /// "adopted by the wrong wall". There was no emitter. So the condition the user diagnosed by
+        /// hand on 2026-09-03 — <i>"sie sind an die falsche Wand gebunden"</i> — had a name in the
+        /// codebase, a sentence describing it, and not one line that ever reported it: a
+        /// <c>grep</c> over the ModBuild-388 log returns 18 hits and all 18 are that one sentence
+        /// quoting itself. <see cref="EmitWrongWallLine"/> is the emitter it never had; the prose
+        /// now cites the hyphenated <see cref="WrongWallMarkerCitation"/> instead, so the grep finds
+        /// events and not commentary.</para>
+        /// </summary>
+        private const string WrongWallMarker = "ADOPTED BY THE WRONG WALL";
+
+        /// <summary>How other lines REFER to <see cref="WrongWallMarker"/> without printing it.
+        /// Hyphenated on purpose: a human reads it as the same line, a grep for the marker does
+        /// not.</summary>
+        internal const string WrongWallMarkerCitation = "ADOPTED-BY-THE-WRONG-WALL";
+
+        /// <summary>
+        /// ADOPTED BY THE WRONG WALL — what the two answers were, per prop, at the tier the shipped
+        /// default prints.
+        ///
+        /// <para>WHAT IT ANSWERS. For every prop whose owning wall this rescan CHANGED because the
+        /// generator's parentage disagreed with the distance search, it names the prop, the wall it
+        /// was on with the gap to it, the wall its hierarchy names with the gap to that, and whether
+        /// STICKY was holding the old answer (i.e. whether the prop was already bound and had to be
+        /// handed over, which is the half that reaches sconces already in the scene).</para>
+        ///
+        /// <para>IT PRINTS ZERO ON PURPOSE. A zero means the provenance rule found nothing to
+        /// correct, and that is a reading: either the scene has no mis-bound dressing, or the rule
+        /// is not reaching it — and the next round must tell those apart before retuning anything.
+        /// A line that appeared only when non-zero could not say it.</para>
+        ///
+        /// <para>IT ASSERTS NOTHING IT CANNOT SEE. Owner, provenance and both gaps are read off the
+        /// live segment table and the live hierarchy at the moment of the change. It does not claim
+        /// the prop then faded correctly — that is the DISSOLVE CENSUS's and the leftover line's
+        /// business — and it must not be edited into saying so.</para>
+        ///
+        /// <para>MULTIPLAYER: a diagnostic. It writes no renderer, no material, no segment and no
+        /// wire record.</para>
+        /// </summary>
+        private void EmitWrongWallLine()
+        {
+            string named = _mountedWallHomeNames.Count == 0
+                ? "none named"
+                : string.Join("; ", _mountedWallHomeNames);
+            // HW-VERIFY
+            VRLog.Note(Name,
+                $"{WrongWallMarker}: {_censusMountedWallHome} prop(s) were moved this rescan from "
+                + "the wall the DISTANCE search picked to the wall the GENERATOR parented them "
+                + $"under, {_censusMountedWallHomeStuck} of them by unsticking an existing binding "
+                + "rather than at first adoption — that second number is the one that decides "
+                + "whether a sconce already hanging in the scene can be corrected at all, because "
+                + "an adopted prop never re-runs the election while its owner is still hiding. "
+                + "Until ModBuild 390 this condition had a NAME in the code, a sentence describing "
+                + "it on the leftover line, and no emitter: the user diagnosed it by hand instead "
+                + "(2026-09-03, flammen-licht.jpg, 'sie sind an die falsche Wand gebunden'). WHY IT "
+                + "HAPPENS: HorizontalGap is XZ-only and returns 0.00 for any footprint overlap, so "
+                + "a sconce between two wall pieces is equidistant from both, and the tie went to "
+                + "whichever segment came first out of a Dictionary. ZERO HERE IS A READING, not a "
+                + "non-event: it means the provenance rule found nothing to correct, which is only "
+                + "good news if the dressing census also shows the flames on their own wall. This "
+                + "counts OWNER CHANGES and says nothing about whether any of them then dissolved "
+                + $"— read the DISSOLVE CENSUS for that. Named {_mountedWallHomeNames.Count} of "
+                + $"{_censusMountedWallHome} (cap {MountedWallHomeNameCap}, and a truncated list is "
+                + $"not absence): {named}.");
+        }
+
+        /// <summary>
         /// THE MARKER TEXT ITSELF, hoisted so it is written down ONCE (ModBuild 386).
         ///
         /// <para>WHY THIS EXISTS. The two emitters below are the only lines that may print this
@@ -3125,7 +3495,7 @@ internal static partial class WallSegmentFade
                 + $"rejects (airborne bar, no wall in reach, FIGURE, standing prop, MOBILE) and "
                 + $"IsActuallyDrawing reads its live particleCount, so 0 here means none were "
                 + $"left over — NOT that none could be. The other place a drawing particle system "
-                + $"can be is ADOPTED BY THE WRONG WALL, which produces no reject at all and is "
+                + $"can be is {WrongWallMarkerCitation}, which produces no reject at all and is "
                 + $"counted on the WALL-MOUNTED DRESSING line instead "
                 + $"({_censusMountedCarriedParticles} this rescan). DEFECT names only — FLOATING "
                 + $"and OBSTRUCTING and WALL MEMBER, up to {MountedLeftoverCap} of the "
