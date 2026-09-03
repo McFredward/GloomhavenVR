@@ -161,6 +161,69 @@ internal static class TooltipWindowPatches
     /// WHOLE it always does, because the mod does not crop a floated window and so there is no
     /// viewport left for it to overflow.</para>
     ///
+    /// <para><b>** THAT LAST PARAGRAPH IS FALSIFIED, AND THE ZERO WAS THE SECOND HALF OF THE
+    /// DEFECT (ModBuild 386). **</b> The user re-reported the same screen after 367 shipped:
+    /// <i>"Beim erneuten Oeffnen der persoenlichen Quest nachdem man es schon geoeffnet hatte sind
+    /// die Abstaende falsch"</i>. The 380 hardware log has the cut RUNNING on this exact rect
+    /// (second_logs/LogOutput.log:8713, on <c>'Container'</c> inside
+    /// <c>GloomhavenVR.Panel_Modal_New Party display</c>) and the column shoved anyway, so
+    /// "neutralising this helper answers both" is not what happened.</para>
+    ///
+    /// <para><b>THE MEASUREMENT THAT KILLS THE ZERO.</b> The pre-reveal fit line for the same
+    /// window in the WORKING state names the column's rects outright — <c>'UI Battle Goal Picker
+    /// Slot/Rewards' 512x129px at (-617,203)</c> (second_logs/LogOutput.log:8653), i.e. the goal
+    /// cards span <c>-617..-105</c> authored px, one gap right of the 300 px character column at
+    /// <c>-960..-660</c>. The user's screenshot (fenster-abstand2.jpg) measures the SAME cards, at
+    /// 1:1 against that 328 px character column, at roughly <c>+190..+760</c> px — hard against
+    /// the right of the picker's own 1920 px canvas, about 1000 px right of where they belong.
+    /// <c>RefreshPosition</c> (UIBattleGoalPickerWindow.cs:202-207) assigns a FIXED cached
+    /// <c>slotContainerPosition</c>, force-rebuilds, and then adds this call's answer. For this
+    /// caller the helper is the only term that can produce two different seats at all — the other
+    /// two are a constant and a rebuild — so <b>a flat zero makes the column's seat a CONSTANT</b>,
+    /// and "returning zero leaves it where the flat game puts it" is a claim about a seat nobody
+    /// has ever measured.</para>
+    ///
+    /// <para><b>WHAT IS NOT PROVEN, STATED BEFORE THE FIX RATHER THAN AFTER IT.</b> The 385 log
+    /// (.planning/debug/LogOutput.log) falsifies the simple story in which this zero is the whole
+    /// cause. With the cut LIVE the party display's painted union alternates between
+    /// <c>-960..-104/-80/-90</c> at 123-128 graphic(s) and <c>-960..960</c> at 595-696, several
+    /// times over, while the picker stays open (LOADOUT CONFIRM SEAT LANE, 9 BESIDE against 4
+    /// OVER). A constant seat cannot alternate, so SOMETHING ELSE also moves this content. The
+    /// full-frame state's own furthest-outside contributor names it as a battle-goal part —
+    /// <c>'Information/Rewards' by 373 px</c> below a 1080 px frame — i.e. the goal list drawn at
+    /// full length rather than the two-card view, which is a clipping/extent question and not a
+    /// question about this delta.</para>
+    ///
+    /// <para><b>WHY THE CHANGE SHIPS ANYWAY, AND WHAT DECIDES IT NEXT ROUND.</b> Not because the
+    /// zero is proven to be the mover — it is not — but because zero is the wrong ANSWER for this
+    /// caller under either story, and because it made the mod blind: both 367 lines are written
+    /// once per session, so no log yet says how often the helper ran, on what, or what seat came
+    /// out. The replacement is the game's own clamp recomputed in a basis that is correct by
+    /// construction, and it carries the per-outcome line described on
+    /// <see cref="NoteViewportFit"/>. If the next log shows this prefix moving the column by
+    /// (0,0) while the seat it prints is already a thousand pixels right, the helper is INNOCENT
+    /// and the mover is upstream of <c>RefreshPosition</c> — one round, one number.</para>
+    ///
+    /// <para><b>WHAT REPLACES THE ZERO: THE SAME FIT, DONE IN THE WINDOW'S OWN BASIS.</b> Both
+    /// halves of the vanilla helper are still wrong on a floated window and neither is used. The
+    /// decision is retaken in the OWNING HOST'S local space (authored uGUI px, the frame both
+    /// rects actually live in) instead of through the parked <c>UIManager.Instance.UICamera</c>,
+    /// and the correction is handed back as <c>HostRect.TransformVector(dx, dy, 0)</c> instead of
+    /// a raw world-corner difference — so the caller's <c>position +=</c> slides the rect along
+    /// the window's own plane by exactly the authored pixels the clamp asked for, at any rig
+    /// scale, yaw or panel scale. Where the rect already fits, the delta is zero and the outcome
+    /// is byte-identical to the 367 cut.</para>
+    ///
+    /// <para><b>THE ZERO SURVIVES AS THE FALLBACK</b>, for the case the local basis cannot be
+    /// trusted: no <c>HostRect</c>, no <c>areaToFit</c>, or an <c>areaToFit</c> that resolves to a
+    /// DIFFERENT floated window (or to none) — three states in which host-local coordinates would
+    /// be comparing two frames. Those take the 367 behaviour unchanged.</para>
+    ///
+    /// <para>The four SCREEN-fit overloads above keep their flat zero and are untouched by this
+    /// build. Their frame is <c>Screen.width/height</c>, which a window standing in the room is
+    /// genuinely not on and for which no local basis exists; this one has a real in-window frame
+    /// handed to it as an argument, and that is the whole difference.</para>
+    ///
     /// <para>The <c>bool</c> is in the signature because the method has a DEFAULT argument, not an
     /// overload: <c>AccessTools</c> matches on the full parameter list including
     /// <c>checkBothAxies</c>, and a three-type array would not resolve.</para>
@@ -169,12 +232,50 @@ internal static class TooltipWindowPatches
     [HarmonyPatch(typeof(RectTransformExtensions),
         nameof(RectTransformExtensions.DeltaWorldPositionToFitRectTransform),
         new[] { typeof(RectTransform), typeof(Camera), typeof(RectTransform), typeof(bool) })]
-    private static bool CutWorldFitRectTransform(RectTransform rectTransform, ref Vector3 __result)
+    private static bool CutWorldFitRectTransform(RectTransform rectTransform, RectTransform areaToFit,
+                                                 ref Vector3 __result)
     {
         ArmViewportFitOnce();
-        if (!Cut(rectTransform, "DeltaWorldPositionToFitRectTransform(camera, areaToFit)",
-                 ref __result))
+        if (!WorldUIConfig.ConversionActive || rectTransform == null)
+            return true; // VR off — the game's arithmetic runs byte-identically
+
+        ConvertedPanel? owner = ModalFallback.FindOwningWindow(rectTransform);
+        if (owner == null)
+        {
+            // Not inside a floated window: the flat screen, or a surface the mod never took. The
+            // helper's own answer is the right one there and is handed back untouched.
+            NoteViewportFit(ViewportFitVerdict.NoFloatedHost, rectTransform, null, 0f, 0f);
             return true;
+        }
+
+        // The 367 fallback, kept for every state in which host-local coordinates would be
+        // comparing two different frames. See THE ZERO SURVIVES AS THE FALLBACK above.
+        RectTransform host = owner.HostRect;
+        if (host == null || areaToFit == null
+            || !ReferenceEquals(ModalFallback.FindOwningWindow(areaToFit), owner))
+        {
+            TooltipOnWindow.NoteScreenFitCut("DeltaWorldPositionToFitRectTransform(camera, areaToFit)",
+                                             rectTransform, owner);
+            __result = Vector3.zero;
+            NoteViewportFit(ViewportFitVerdict.CutToZero, rectTransform, owner, 0f, 0f);
+            return LogViewportFitCutOnce(rectTransform);
+        }
+
+        Vector2 fit = WindowLocalFitDelta(rectTransform, areaToFit, host);
+        __result = fit == Vector2.zero
+            ? Vector3.zero
+            : host.TransformVector(new Vector3(fit.x, fit.y, 0f));
+        NoteViewportFit(ViewportFitVerdict.FittedInWindow, rectTransform, owner, fit.x, fit.y);
+        return false;
+    }
+
+    /// <summary>
+    /// THE ModBuild 367 LINE, NARROWED TO THE STATE IT IS STILL TRUE OF. It is only written on the
+    /// fallback branch now, because that is the only branch that still returns a flat zero.
+    /// Always returns false (skip the original), so it reads as the tail of the caller.
+    /// </summary>
+    private static bool LogViewportFitCutOnce(RectTransform rectTransform)
+    {
         if (_loggedViewportFitCut)
             return false;
         _loggedViewportFitCut = true;
@@ -191,7 +292,14 @@ internal static class TooltipWindowPatches
             + "sideways. Zero returned instead, which leaves the seat the caller's own "
             + "anchoredPosition + LayoutRebuilder just gave it. THIS IS THE 2026-09-03 REPORT: the "
             + "battle-goal column landing right of the character rows and 'Verlies betreten' being "
-            + "clamped on top of it. Logged once per session; the cut keeps running.");
+            + "clamped on top of it. Logged once per session; the cut keeps running."
+            + " SINCE ModBuild 386 THIS IS THE FALLBACK BRANCH ONLY, and the sentence above about "
+            + "the seat being left alone is the thing that build falsified: the picker's own "
+            + "RefreshPosition assigns a fixed cached seat and RELIES on this helper to place the "
+            + "column, so a flat zero left it on the authored full-canvas seat, about 1000 px "
+            + "right of the character rows. The normal branch now re-decides the same clamp in the "
+            + "owning host's authored-pixel basis; this line means that basis was not usable "
+            + "(no host rect, no area, or an area owned by another window).");
         return false;
     }
 
@@ -213,7 +321,198 @@ internal static class TooltipWindowPatches
         VRLog.Note("WorldUI", "VIEWPORT FIT GATE ARMED: the game asked for a "
             + "DeltaWorldPositionToFitRectTransform and this prefix ran on it. If no VIEWPORT FIT "
             + "CUT line follows in this log, that means no fitted rect was ever inside a floated "
-            + "window — not that the patch is missing.");
+            + "window — not that the patch is missing."
+            + " ModBuild 386 SUPERSEDES THAT LAST SENTENCE: the cut is the FALLBACK branch now, so "
+            + "its absence no longer carries that meaning. The per-outcome line marked "
+            + ViewportFitMarker + " is the one that says what this prefix decided, on every "
+            + "outcome including the one where the game's own answer was handed straight back.");
+    }
+
+    // ---- THE WINDOW-LOCAL VIEWPORT FIT (ModBuild 386) ------------------------------------------
+
+    /// <summary>
+    /// THE GREP TOKEN FOR THE PER-OUTCOME LINE, HOISTED. It is a constant and not a literal in the
+    /// middle of the sentence for one reason, learned the expensive way on 2026-09-03: the two 367
+    /// lines beside it each SPELL OUT the marker they tell the reader to grep for, so grepping that
+    /// marker returns the line telling you to grep it and the reading is wrong before it starts.
+    /// Nothing printed by <see cref="NoteViewportFit"/> repeats these words.
+    /// </summary>
+    private const string ViewportFitMarker = "WINDOW LOCAL VIEWPORT FIT";
+
+    /// <summary>What the prefix decided for one call. One value per BRANCH, never per symptom.</summary>
+    private enum ViewportFitVerdict
+    {
+        /// <summary>No floated owner: the game's own arithmetic ran and its answer stands.</summary>
+        NoFloatedHost,
+
+        /// <summary>Floated, but no usable host-local basis — the ModBuild 367 zero.</summary>
+        CutToZero,
+
+        /// <summary>Floated, basis usable: the clamp was retaken in the host's authored pixels.</summary>
+        FittedInWindow,
+    }
+
+    /// <summary>
+    /// The fit the game meant, done in the frame the rects are actually in.
+    ///
+    /// <para>Both rects' world corners are pulled into <paramref name="host"/>'s local space, which
+    /// for a converted window is its own authored uGUI pixels (the host rect is 1988x1080 px on the
+    /// character screen, and its children are the game's own uGUI subtree). There the fit is an
+    /// axis-aligned clamp, and the LOW edge wins when a rect is larger than the area on an axis —
+    /// which is the same precedence the vanilla helper has, since its first branch tests corner 0
+    /// (bottom-left) and returns before the corner-2 branch can look.</para>
+    ///
+    /// <para>The answer is returned in those SAME authored pixels; the caller turns it into the
+    /// world vector with <c>host.TransformVector</c>, so the game's <c>transform.position +=</c>
+    /// becomes a slide along the window's own plane of exactly this many authored pixels — correct
+    /// at any rig scale, panel scale, yaw or pitch, and never off the plane. Returns
+    /// <c>Vector2.zero</c> when the rect already fits, which is the common case.</para>
+    /// </summary>
+    private static Vector2 WindowLocalFitDelta(RectTransform rect, RectTransform area,
+                                               RectTransform host)
+    {
+        if (!LocalBounds(rect, host, out Vector2 rectMin, out Vector2 rectMax)
+            || !LocalBounds(area, host, out Vector2 areaMin, out Vector2 areaMax))
+            return Vector2.zero;
+
+        return new Vector2(AxisFit(rectMin.x, rectMax.x, areaMin.x, areaMax.x),
+                           AxisFit(rectMin.y, rectMax.y, areaMin.y, areaMax.y));
+    }
+
+    /// <summary>One axis of the clamp. Low edge first — see <see cref="WindowLocalFitDelta"/>.</summary>
+    private static float AxisFit(float min, float max, float areaMin, float areaMax)
+    {
+        if (min < areaMin)
+            return areaMin - min;
+        if (max > areaMax)
+            return areaMax - max;
+        return 0f;
+    }
+
+    /// <summary>Scratch for the two <c>GetWorldCorners</c> calls (main thread, one call at a time).</summary>
+    private static readonly Vector3[] CornerScratch = new Vector3[4];
+
+    /// <summary>
+    /// A rect's axis-aligned bounds in <paramref name="host"/>'s local space. All four corners are
+    /// converted and min/max'd rather than taking corners 0 and 2, so a rect that carries a
+    /// rotation of its own inside the window still yields the box that actually has to fit.
+    /// </summary>
+    private static bool LocalBounds(RectTransform? rect, RectTransform? host,
+                                    out Vector2 min, out Vector2 max)
+    {
+        min = Vector2.zero;
+        max = Vector2.zero;
+        if (rect == null || host == null)
+            return false;
+        rect.GetWorldCorners(CornerScratch);
+        for (int i = 0; i < 4; i++)
+        {
+            Vector3 local = host.InverseTransformPoint(CornerScratch[i]);
+            if (i == 0)
+            {
+                min = new Vector2(local.x, local.y);
+                max = min;
+                continue;
+            }
+            min = new Vector2(Mathf.Min(min.x, local.x), Mathf.Min(min.y, local.y));
+            max = new Vector2(Mathf.Max(max.x, local.x), Mathf.Max(max.y, local.y));
+        }
+        return true;
+    }
+
+    // Running counts, one per branch, plus how many of the fitted calls actually MOVED anything.
+    private static int _viewportFitVanilla;
+    private static int _viewportFitZeroed;
+    private static int _viewportFitFitted;
+    private static int _viewportFitMoved;
+
+    /// <summary>Change gate: verdict + rect name + "did it move", plus a floor so the line cannot
+    /// go permanently quiet while the prefix is still running (a change-gated line with a constant
+    /// reason prints once and then reads exactly like a stopped tick).</summary>
+    private static string _viewportFitSignature = string.Empty;
+    private static int _viewportFitCallsAtLastLine = -1;
+
+    /// <summary>Re-print the same verdict after this many further calls, so silence means STOPPED.</summary>
+    private const int ViewportFitRepeatEvery = 400;
+
+    /// <summary>
+    /// THE OUTCOME LINE. It reports only what this method can see: which branch ran, on which rect,
+    /// what the four running counts are, and — on the fitted branch — the rect's own box in the
+    /// host's authored pixels before and after the delta, beside the area it was clamped into. It
+    /// does NOT claim the user's layout is fixed; the seat it prints is the evidence for that, and
+    /// the party display's own union lines are the independent second reading.
+    /// </summary>
+    private static void NoteViewportFit(ViewportFitVerdict verdict, RectTransform rect,
+                                        ConvertedPanel? owner, float dx, float dy)
+    {
+        switch (verdict)
+        {
+            case ViewportFitVerdict.NoFloatedHost: _viewportFitVanilla++; break;
+            case ViewportFitVerdict.CutToZero: _viewportFitZeroed++; break;
+            default:
+                _viewportFitFitted++;
+                if (dx != 0f || dy != 0f)
+                    _viewportFitMoved++;
+                break;
+        }
+
+        int calls = _viewportFitVanilla + _viewportFitZeroed + _viewportFitFitted;
+        string name = rect != null ? rect.name : "<destroyed>";
+        string signature = (int)verdict + "|" + name + "|" + (dx != 0f || dy != 0f ? "1" : "0");
+        if (signature == _viewportFitSignature
+            && calls - _viewportFitCallsAtLastLine < ViewportFitRepeatEvery)
+            return;
+        _viewportFitSignature = signature;
+        _viewportFitCallsAtLastLine = calls;
+
+        string window = owner != null && owner.HostGo != null ? owner.HostGo.name : "none";
+        string outcome = verdict switch
+        {
+            ViewportFitVerdict.NoFloatedHost =>
+                "the rect is not inside a window this mod floated, so the game's own answer was "
+                + "returned unchanged and this prefix changed nothing",
+            ViewportFitVerdict.CutToZero =>
+                "the rect IS on a floated window but no usable in-window basis was available (no "
+                + "host rect, no area rect, or an area rect owned by a different window), so the "
+                + "correction was zeroed — the ModBuild 367 behaviour, now the fallback",
+            _ =>
+                "the clamp was retaken in the owning window's own authored pixels and handed back "
+                + "as a slide along that window's plane, replacing a correction the game had "
+                + "decided on a screen this rect is not drawn on",
+        };
+
+        // The seat is measured on EVERY branch that has a host to measure it in, not only on the
+        // one that moves the rect. A branch that reports "moved it by (0,0)" while the seat it
+        // prints is already wrong says the mover is upstream of this call — which is the one thing
+        // a single hardware round has to be able to decide.
+        string seat = "no floated host to measure a seat in";
+        if (owner != null && LocalBounds(rect, owner.HostRect, out Vector2 rmin, out Vector2 rmax))
+        {
+            float x0 = rmin.x;
+            float x1 = rmax.x;
+            float y0 = rmin.y;
+            float y1 = rmax.y;
+            seat = $"the rect sits at x {x0:0}..{x1:0}, y {y0:0}..{y1:0} authored px "
+                 + $"in that window's frame and the correction moves it by ({dx:0},{dy:0}) px, "
+                 + $"to x {x0 + dx:0}..{x1 + dx:0}, y {y0 + dy:0}..{y1 + dy:0}";
+        }
+
+        // HW-VERIFY: the 2026-09-03 report "beim erneuten Oeffnen ... sind die Abstaende falsch".
+        VRLog.Note("WorldUI", $"{ViewportFitMarker} on '{name}' (window '{window}'): {outcome}. "
+            + $"{seat}. RUNNING COUNTS over this session: {_viewportFitFitted} call(s) took the "
+            + $"in-window clamp ({_viewportFitMoved} of them moved the rect at all), "
+            + $"{_viewportFitZeroed} took the zero fallback, {_viewportFitVanilla} were left to the "
+            + "game. HOW TO READ IT: the personal-quest column is a rect named 'Container' inside "
+            + "the party display; on the working layout its goal cards span roughly -617..-105 "
+            + "authored px, one gap right of the character rows at -960..-660. A seat printed near "
+            + "+190..+760 is the displacement the user photographed. This line is written when the "
+            + $"branch, the rect or the moved/not-moved answer changes, and again every "
+            + $"{ViewportFitRepeatEvery} calls so that a silent log means the prefix STOPPED, not "
+            + "that it settled. AND THE ONE DECISION IT EXISTS TO SETTLE: a correction of (0,0) "
+            + "printed beside a seat that is ALREADY a thousand px right means this helper is not "
+            + "what moved the column and the mover is upstream of the caller's own "
+            + "anchoredPosition + layout rebuild; a correction that carries the column from the "
+            + "right of the frame back beside the character rows means it was.");
     }
 
     /// <summary>
