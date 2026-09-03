@@ -315,10 +315,17 @@ internal sealed partial class PlayTray
                 $"wall {(_capWallMaterial != null ? _capWallMaterial.color.ToString() : "<n/a>")} " +
                 $"vs the WELL it sits in {WorldUI.ButtonTuning.CapWellColor}. " +
                 $"Seat floor {(seated ? "ENGAGED — the untinted-well comparison says this cap WOULD have rendered darker than its own recess (the 'invisible button, visible text' shape) and was lifted" : "not needed (face already clears its well)")}. " +
-                $"Body draws: {(bodyDraws ? "YES" : "NO")}.");
+                $"Body draws: {(bodyDraws ? "YES" : "NO")}. " +
+                $"Label tags: {_labelTags} rich-text tag(s) found in the game string this cap was last given" +
+                $"{(_labelTags > 0 ? " (stripped before display — see KEYCAP LABEL)" : "")}.");
         }
 
         private TextMeshPro? _label;
+
+        /// <summary>How many TMP rich-text tags the LAST string handed to <see cref="SetLabel"/>
+        /// carried before the seam stripped them — reported by <see cref="LogCapSurface"/> so a
+        /// log can say whether the cap ever received a tagged game string.</summary>
+        private int _labelTags;
         private Transform? _cap;
         private Color _accentColor;
 
@@ -1222,7 +1229,11 @@ internal sealed partial class PlayTray
             // prefix on a font without U+2713) instead of letting TMP draw a hollow box.
             // Same-instance fast path keeps the change gate below allocation-free; a null
             // font passes through and is re-judged on the next per-tick SetLabel.
-            text = WorldUI.NativeButtonSkin.SanitizeLabel(_label, text);
+            // The same seam strips TMP rich-text TAGS first (RichTextTags): the game's burn
+            // wording arrives as '<sprite name="LOST"> Verbrennen …' and the cap printed the
+            // tag as text (buttontext.jpg). The count is kept for the KEYCAP SURFACE line.
+            text = WorldUI.NativeButtonSkin.SanitizeLabel(_label, text, out int tags);
+            _labelTags = tags;
             if (_label.text == text)
                 return;
             _label.text = text;

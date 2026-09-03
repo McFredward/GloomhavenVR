@@ -104,6 +104,10 @@ internal static class Program
             // captions are live game text with runtime insertions, so this asserts a PROPERTY —
             // nothing is ever dropped — rather than a list of strings that cannot be complete.
             CapLabelFitVectors.Run(t, repoRoot);
+            // WHETHER A GAME STRING'S RICH-TEXT TAGS REACH THE KEY. The CONFIRM cap printed
+            // '<SPRITE NAME="LOST"> VERBRENNEN …' for the game's card-burn wording; the seam
+            // that strips it is pure string code and the screenshot string is pinned here.
+            KeycapLabelVectors.Run(t);
             // SOURCE LINT for record 35: the mirrored item-usable frame must be cut to the
             // OWNER's numbers. Both frames use the shared SoftCueArt machinery, which is the part
             // that matters; the pixel geometry is declared twice because the owner's constants are

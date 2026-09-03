@@ -248,6 +248,13 @@
          known-positive control. See the header of CapLabelFitVectors.cs. -->
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Cards\Caps\CapFaceLayout.cs" Link="cards\CapFaceLayout.cs" />
     <Compile Include="CapLabelFitVectors.cs" />
+    <!-- WHETHER A GAME STRING'S RICH-TEXT TAGS REACH THE KEY. The CONFIRM keycap printed
+         '<SPRITE NAME="LOST"> VERBRENNEN …' for the game's card-burn wording (user screenshot
+         buttontext.jpg) and nothing here could have said so. Core/RichTextTags.cs is pure string
+         code, free of Unity, so the exact screenshot string is pinned along with the same-instance
+         fast path the change-gated callers rely on. See the header of KeycapLabelVectors.cs. -->
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\RichTextTags.cs" Link="core\RichTextTags.cs" />
+    <Compile Include="KeycapLabelVectors.cs" />
 
     <!-- SOURCE LINT for extension record 35: the mirrored item-usable frame must be cut to the
          OWNER's numbers. Reads both shipped files; needs no game types. -->

@@ -836,10 +836,29 @@ internal static class NativeButtonSkin
     /// passes through unjudged, and the per-tick SetLabel re-runs the check once the font
     /// lands (the changed result then re-applies through the caller's change gate).</para>
     /// </summary>
-    internal static string SanitizeLabel(TMP_Text? label, string? text)
+    internal static string SanitizeLabel(TMP_Text? label, string? text) =>
+        SanitizeLabel(label, text, out _);
+
+    /// <summary>
+    /// <see cref="SanitizeLabel(TMP_Text?, string?)"/>, also reporting how many TMP rich-text
+    /// tags the raw string carried. THE TAG STRIP RUNS FIRST AND UNCONDITIONALLY — before the
+    /// font check, because a tag is un-renderable on a keycap whatever the font: the game's
+    /// pick-dialog wording <c>&lt;sprite name="LOST"&gt; Verbrennen '…'</c> reached this seam
+    /// verbatim and the cap printed the tag as text (user screenshot buttontext.jpg; the
+    /// mechanism and why the glyph is stripped rather than rendered are in
+    /// <see cref="RichTextTags"/>). Both the owner's <c>BoardButton.SetLabel</c> and the peer
+    /// mirror's <c>InertCap.SetLabel</c> come through here, so the two boards agree on the
+    /// cleaned wording by construction (MP 1:1 rule).
+    /// </summary>
+    internal static string SanitizeLabel(TMP_Text? label, string? text, out int tags)
     {
+        tags = 0;
         if (string.IsNullOrEmpty(text))
             return string.Empty;
+        string raw = text!;
+        text = RichTextTags.Strip(raw, out tags);
+        if (tags > 0)
+            LogStrippedTags(raw, text, tags, LabelOwnerName(label));
         TMP_FontAsset? font = label != null ? label.font : null;
         if (font == null)
             return text!;
@@ -884,6 +903,52 @@ internal static class NativeButtonSkin
                                   $"'{text}' → '{result}' — font '{font.name}' (incl. fallbacks) has no " +
                                   "outline for them and TMP would draw a hollow box (U+25A1) instead.");
         return result;
+    }
+
+    /// <summary>Distinct raw strings whose tags were reported this session — the change gate of
+    /// the KEYCAP LABEL line, capped at <see cref="TagLogCap"/> so a dialog whose wording
+    /// interpolates a card title cannot turn the line into a census.</summary>
+    private static readonly System.Collections.Generic.HashSet<string> _tagLogged = new();
+
+    /// <summary>How many KEYCAP LABEL lines one session may print.</summary>
+    private const int TagLogCap = 6;
+
+    /// <summary>
+    /// KEYCAP LABEL — the one line that says a game string carrying rich-text tags reached a
+    /// mod-owned label, what it carried and what the player reads instead. Change-gated on the
+    /// raw string and capped per session; a session with no such line had no tagged label.
+    /// Shared by the keycap seam (<see cref="SanitizeLabel(TMP_Text?, string?, out int)"/>) and
+    /// the board engravings (<c>Cards.BoardEngraving.SetText</c>).
+    /// </summary>
+    internal static void LogStrippedTags(string raw, string clean, int tags, string where)
+    {
+        if (_tagLogged.Count >= TagLogCap || !_tagLogged.Add(raw))
+            return;
+        // HW-VERIFY: the answer to "does the key still print a <sprite> tag?" is read off this
+        // line — the raw game string beside the cleaned one — so it must print at the DEFAULT
+        // log level (Note). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("WorldUI", $"KEYCAP LABEL: game string '{RichTextTags.Escape(raw)}' on '{where}' " +
+                              $"carried {tags} rich-text tag(s) — the label reads '{clean}' " +
+                              "(strategy STRIPPED: the mod label is a bare TextMeshPro with no sprite " +
+                              "asset, so TMP would draw a <sprite> tag as literal text, and a keycap " +
+                              "wears one engraved style that a colour/size tag would override). " +
+                              $"Line {_tagLogged.Count}/{TagLogCap} of this session.");
+    }
+
+    /// <summary>The label's owner for the KEYCAP LABEL line: up to two ancestors and the label,
+    /// e.g. <c>BoardButton_BESTÄTIGEN/Cap/Label</c>.</summary>
+    private static string LabelOwnerName(TMP_Text? label)
+    {
+        if (label == null)
+            return "<no label>";
+        Transform t = label.transform;
+        string name = t.name;
+        for (int i = 0; i < 2 && t.parent != null; i++)
+        {
+            t = t.parent;
+            name = t.name + "/" + name;
+        }
+        return name;
     }
 
     /// <summary>Can the font chain (own fallbacks + TMP global fallbacks) draw this UTF-16 unit?

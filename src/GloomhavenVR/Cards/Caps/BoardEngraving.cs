@@ -557,6 +557,15 @@ internal static class BoardEngraving
     /// flicker lesson, test #13), and these labels are refreshed from per-tick state.</summary>
     internal static void SetText(TMP_Text? label, string text)
     {
+        // Engravings wear game strings too (GUI_LONG_REST, upper-cased by the caller) and are
+        // bare TMP labels with no sprite asset — the same seam rule as the keycaps
+        // (RichTextTags): a tag the label cannot render is stripped, never printed as text.
+        // The strip is a same-instance no-op on a tag-free string, so the change gate below
+        // stays allocation-free.
+        string raw = text;
+        text = RichTextTags.Strip(raw, out int tags);
+        if (tags > 0 && label != null)
+            WorldUI.NativeButtonSkin.LogStrippedTags(raw, text, tags, label.name);
         if (label != null && label.text != text)
             label.text = text;
     }
