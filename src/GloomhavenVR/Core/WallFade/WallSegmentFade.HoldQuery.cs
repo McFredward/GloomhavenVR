@@ -45,6 +45,42 @@ internal static partial class WallSegmentFade
     /// mod and must not be switched back on by another of its subsystems.</summary>
     internal static bool IsHeldHiddenByEnable(Renderer r) => _driver != null && _driver.IsHeldHidden(r);
 
+    /// <summary>Hide a renderer THROUGH the enable ledger from outside the wall system (the
+    /// opened-door leaf, Core/Environment/DoorOpenWatch.cs), so the healer and every wall-fade
+    /// restore path treat it as a deliberate mod hide. Without a driver (wall fade off) the bit is
+    /// written directly. Returns true when the renderer was switched off by this call.</summary>
+    internal static bool HideByEnableExternal(Renderer r)
+    {
+        if (r == null)
+            return false;
+        if (_driver != null)
+        {
+            bool was = r.enabled;
+            _driver.HideByEnable(r);
+            return was;
+        }
+        if (!r.enabled)
+            return false;
+        r.enabled = false;
+        return true;
+    }
+
+    /// <summary>The counterpart of <see cref="HideByEnableExternal"/>: switch the renderer back on
+    /// only if the ledger says the mod turned it off (or, with no driver, unconditionally — the
+    /// caller is the one that hid it).</summary>
+    internal static void ShowIfWeHidExternal(Renderer r)
+    {
+        if (r == null)
+            return;
+        if (_driver != null)
+        {
+            _driver.ShowIfWeHid(r);
+            return;
+        }
+        if (!r.enabled)
+            r.enabled = true;
+    }
+
     private sealed partial class FadeDriver
     {
         /// <summary>Renderers whose <c>enabled</c> bit THIS driver switched off and has not yet
@@ -58,7 +94,7 @@ internal static partial class WallSegmentFade
         private int _declinedForeignEnables;
 
         /// <summary>Write <c>enabled = false</c> and remember that we did.</summary>
-        private void HideByEnable(Renderer r)
+        internal void HideByEnable(Renderer r)
         {
             if (r == null)
                 return;
@@ -69,7 +105,7 @@ internal static partial class WallSegmentFade
 
         /// <summary>Write <c>enabled = true</c> ONLY if we were the one who wrote false. Returns
         /// true when the renderer was switched on by this call.</summary>
-        private bool ShowIfWeHid(Renderer r)
+        internal bool ShowIfWeHid(Renderer r)
         {
             if (r == null)
                 return false;
