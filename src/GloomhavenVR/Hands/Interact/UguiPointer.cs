@@ -820,6 +820,28 @@ internal sealed class UguiPointer
                 return;
             }
 
+            // PHANTOM CLICK ON AN UN-STARTED WINDOW (ModBuild 389 follow-up). Same seam, same
+            // shape and the same reason as the branch above: a pooled UIWindow subtree renders
+            // for one frame at its prefab state, still hit-testable because only Start() drives
+            // its CanvasGroup to alpha 0 / blocksRaycasts false. Such a click cannot delete
+            // anything itself, but UIAdventureCharacterConfirmationBox.OnConfirmClick subscribes
+            // to onTransitionComplete BEFORE the Hide() that no-ops, leaving a permanent listener
+            // that turns the player's next ABBRECHEN into a character deletion. Withheld here, at
+            // the mod's own click delivery; nothing game-side is written. See the method for the
+            // term and for why both halves of it are needed.
+            if (ShouldWithholdUnstartedWindowClick(_pressedClickHandler, _sourceTag))
+            {
+                data.pointerPress = null;
+                data.eligibleForClick = false;
+                Pressing = null;
+                _pressedClickHandler = null;
+                _dragging = false;
+                data.dragging = false;
+                data.pointerDrag = null;
+                _dragTarget = null;
+                return;
+            }
+
             // The on-screen keyboard opens and closes on clicks. This is the world-space half of
             // that (converted panels, fingertip poke); FlatScreen.DirectClick is the flat-screen
             // half. Told before the click is delivered, so the keyboard is already up when the field
@@ -872,6 +894,135 @@ internal sealed class UguiPointer
         data.eligibleForClick = false;
         Pressing = null;
         _pressedClickHandler = null;
+    }
+
+
+    // ---- PHANTOM CLICK ON A WINDOW WHOSE Start() HAS NOT RUN (ModBuild 389 follow-up) -------
+
+    /// <summary>The (widget, window) pair the withheld-click line last named — the change gate.</summary>
+    private static string? s_lastUnstartedKey;
+
+    /// <summary>How many clicks this guard has withheld this session, INCLUDING the ones the
+    /// change gate above did not print. Reported on every line it does print.</summary>
+    private static int s_unstartedWithheld;
+
+    /// <summary>
+    /// Should this click be withheld because the window it lands in has never been through
+    /// <c>UIWindow.Start()</c>? Called by <see cref="Release"/> immediately before the click
+    /// would be dispatched, exactly like <c>ModalFallback.ShouldSwallowMenuTabClick</c> two
+    /// lines above it — <c>pointerUp</c> has already gone out (a real input module also
+    /// releases the press); only the click itself is withheld.
+    ///
+    /// <para>WHAT THIS EXISTS TO STOP (ModBuild 389 diagnosis, re-confirmed here against the
+    /// decompiled GH.Runtime). A pooled <c>UIWindow</c> subtree renders for exactly one frame
+    /// at its PREFAB state: <c>m_CurrentVisualState</c> is a field initialiser and only
+    /// <c>Start()</c> — which Unity runs at the top of the NEXT frame — drives the
+    /// <c>CanvasGroup</c> alpha to 0 and <c>blocksRaycasts</c> to false (UIWindow.cs:363-375,
+    /// via <c>EvaluateAndTransitionToVisualState</c>). During that frame the plate is still at
+    /// its authored, hit-testable values, so the mod's own <c>GraphicRaycaster</c> pass can
+    /// return it. The raycast half is not provably safe and is not assumed to be.</para>
+    ///
+    /// <para>THE CLICK ITSELF CANNOT DELETE ANYTHING - THE LISTENER IT LEAVES BEHIND CAN.
+    /// <c>UIAdventureCharacterConfirmationBox.OnConfirmClick</c> (:70-74) does two things and
+    /// only the second no-ops on an unshown window:
+    /// <c>window.onTransitionComplete.AddListener(OnTransitionComplete)</c> succeeds
+    /// unconditionally, then <c>window.Hide()</c> returns having done nothing because
+    /// <c>UIWindow.Hide(bool)</c> is guarded on <c>m_CurrentVisualState != Hidden</c>
+    /// (:524-537). <c>UnityEvent.AddListener</c> does not dedupe and only
+    /// <c>OnTransitionComplete</c> removes itself (:62-69), so the subscription is now
+    /// PERMANENT. On the player's next legitimate use the box opens with <c>confirmAction</c>
+    /// really assigned, he presses CANCEL, <c>OnBackClick</c>'s <c>Hide()</c> succeeds this
+    /// time, the transition completes, and the stale listener invokes <c>confirmAction</c> -
+    /// the cancel deletes the character. <c>UIRetireCharacterConfirmationBox</c> (:40) has the
+    /// same shape with an anonymous delegate, which cannot be removed at all.</para>
+    ///
+    /// <para>THE TERM IS <c>!HasGoneToStartingState</c> AND <c>!IsOpen</c>, AND BOTH HALVES ARE
+    /// LOAD-BEARING.
+    /// <list type="bullet">
+    /// <item><b><c>!HasGoneToStartingState</c></b> is the precise reading of "Unity has never
+    /// run <c>Start()</c> on this window". The flag is a public getter with a PRIVATE setter,
+    /// written in exactly one place — <c>UIWindow.Start()</c> (:370) — and never cleared: not
+    /// on hide, not on pooling, not on re-activation. That is what makes it immune to the
+    /// ambiguity <c>IsOpen</c> alone has, and it is the discriminator ModBuild 389 wanted but
+    /// did not have. <c>IsOpen</c> goes false at the START of a hide transition
+    /// (<c>EvaluateAndTransitionToVisualState</c> assigns <c>m_CurrentVisualState</c> before
+    /// the alpha tween is even started, :573-580), so <c>!IsOpen</c> is equally true for a
+    /// window the player is legitimately watching fade out - and a click during a fade-out is
+    /// a click the player meant. A fading window has had <c>Start()</c> run long ago, so this
+    /// first term is false for it and the click is delivered.</item>
+    /// <item><b><c>!IsOpen</c></b> is what keeps the standing ruling that it must ALWAYS be
+    /// possible to open the options menu. The mod's own standalone VR options pane is a clone
+    /// that <c>VROptionsTab.CloneWindow</c> deactivates inside the same synchronous block that
+    /// instantiates it, so Unity has never dispatched <c>Start()</c> on it and
+    /// <c>HasGoneToStartingState</c> is false - and <c>VROptionsTab.ShowStandalone</c> opens it
+    /// anyway by calling <c>UIWindow.Show()</c>, the one path that does not consult the flag
+    /// (that is the whole ModBuild 350 fix). For the rest of that frame the pane is genuinely
+    /// open with the flag still false. Requiring <c>!IsOpen</c> as well means that pane is
+    /// never a candidate here: it is open, so its clicks are delivered, and the ruling is kept
+    /// by construction rather than by a one-frame race. In the frame this guard is FOR,
+    /// <c>IsOpen</c> is false because <c>m_CurrentVisualState</c> still holds its field
+    /// initialiser <c>Hidden</c> - which is exactly what ModBuild 389 measured.</item>
+    /// </list></para>
+    ///
+    /// <para>IT FAILS TOWARD DELIVERING. No ancestor <c>UIWindow</c> means DELIVER, which is
+    /// what keeps the mod's own chrome working: the corner close X, the grab bars, the world
+    /// keycaps and the tray controls are mod objects with no game window over them. A throw
+    /// while resolving the ancestor also delivers. The only click withheld is one landing
+    /// inside a window that is neither started nor open - a window no player can have aimed
+    /// at, because until <c>Start()</c> runs it has never been drawn at a state anyone could
+    /// read (its labels still hold the TMP default, which is what proved the diagnosis).</para>
+    ///
+    /// <para>This withholds an input the MOD synthesises and writes nothing game-side. It does
+    /// not <c>Hide</c>, <c>SetActive</c> or <c>RemoveListener</c> anything, and it deliberately
+    /// does not repair the stale subscription - that is the game's bug; this only stops the mod
+    /// from being the thing that arms it. Local input handling: nothing goes on the wire, so
+    /// there is nothing here for a remote board to mirror.</para>
+    /// </summary>
+    internal static bool ShouldWithholdUnstartedWindowClick(GameObject? clickHandler, string sourceTag)
+    {
+        if (clickHandler == null)
+            return false;
+
+        UIWindow? win;
+        try
+        {
+            // The nearest ancestor window, the clicked object itself included. CONTAINMENT is the
+            // right question here - "which window does this click land in" - not identity.
+            win = clickHandler.GetComponentInParent<UIWindow>(true);
+        }
+        catch (System.Exception)
+        {
+            return false; // fail toward delivering
+        }
+
+        if (win == null)
+            return false; // mod chrome and anything else outside a game window: always delivered
+
+        if (win.HasGoneToStartingState || win.IsOpen)
+            return false;
+
+        s_unstartedWithheld++;
+
+        string key = clickHandler.name + " in " + win.name;
+        if (key == s_lastUnstartedKey)
+            return true; // same widget as the last printed line: counted, not re-printed
+        s_lastUnstartedKey = key;
+
+        // HW-VERIFY: the falsifier for this guard, and the only evidence it ever fires at all.
+        Core.VRLog.Note("Interact",
+            $"CLICK WITHHELD: '{clickHandler.name}' ({sourceTag}) inside window '{win.name}' - "
+            + "UIWindow.HasGoneToStartingState is false AND UIWindow.IsOpen is false, i.e. Unity has "
+            + "not run UIWindow.Start() on this window and nothing has opened it by hand either, so "
+            + "what the pointer hit is a pooled subtree still standing at its prefab state. pointerUp "
+            + $"was delivered as normal; only the click was withheld. That is {s_unstartedWithheld} "
+            + "withheld click(s) this session - this line is change-gated on the widget/window pair, "
+            + "so a jump in that count is repeats of one widget rather than a missing line. THIS LINE "
+            + "NAMING A CONTROL THE PLAYER MEANT TO PRESS IS THE FALSIFIER: it would mean a window the "
+            + "player can read and aim at is reaching this seam un-started and un-opened, that the "
+            + "guard is over-firing, and that a real press was eaten. Read the widget name first; if "
+            + "it is a button a player would recognise, this term is wrong and must be narrowed, not "
+            + "tuned.");
+        return true;
     }
 
     /// <summary>Abort any in-flight hover/press (interactor disabled, canvas gone, …).</summary>
