@@ -151,6 +151,7 @@ internal static partial class WallSegmentFade
             _censusFreeDropped = 0;
             _censusFreeCapHit = false;
             _censusFreeNoFloor = false;
+            _censusFreeRefusedDoorway = 0;
             _freeTouched.Clear();
             _freeUnits.Clear();
 
@@ -275,8 +276,11 @@ internal static partial class WallSegmentFade
                 Bounds b = r.bounds;
                 if ((b.min.y < airborneBar && b.max.y < topBar) || !IsArchitectureScale(b.size, 0f))
                     continue;
-                if (IsArchProtected(b, f.Name ?? r.name))
-                    continue; // the doorway's arch stays solid (user ruling 2026-08-02)
+                if (IsDoorwayAssembly(r, b, f.Name ?? r.name))
+                {
+                    _censusFreeRefusedDoorway++;
+                    continue; // doorways never fade (user rulings 2026-08-02 / 2026-09-04)
+                }
                 if (IsWaterProtected(b))
                     continue; // fountain/pond (user ruling 2026-08-09)
                 if (IsFigureOrActorRenderer(r))
@@ -534,6 +538,38 @@ internal static partial class WallSegmentFade
             AssociateRoom(seg);
         }
 
+        private int _censusFreeRefusedDoorway;
+        private int _censusFreeRidersRefusedDoorway;
+
+        /// <summary>
+        /// DOORWAYS NEVER FADE (ModBuild 410, torbogen_faded.jpg — the stone gate wall with its
+        /// cave rock and stalagmites dissolved as a unit while the round door plate hung in the
+        /// air; user: <i>"Torbögen bzw. die Elemente mit den Toren/Türen dürfen nicht faden"</i>).
+        ///
+        /// <para>WHY THE UNIT LANE TOOK IT. The standing doorway rule protects fade-SHADER
+        /// renderers hugging a door root (they land in a DOORWAY segment held solid) and the arch
+        /// rect (<see cref="IsArchProtected"/>). The doorway ASSEMBLY — the gate wall the
+        /// <see cref="ProceduralDoorway"/> generates under the door prop, its rock, its
+        /// stalagmites, the plate — is toggle-native masonry in no ProceduralWall run, which is
+        /// exactly the unit lane's population, and the arch test recognises the arch mesh, not
+        /// the assembly around it. Worse, a unit anchored on the door plate's own transform is
+        /// keyed on the SAME transform the DOORWAY segment would use.</para>
+        ///
+        /// <para>THE RULE, for unit members and riders alike: anything under a
+        /// <see cref="ProceduralDoorway"/> or a <see cref="UnityGameEditorDoorProp"/>, anything
+        /// within <see cref="DoorwayLinkMaxXZ"/> of a door root (the very radius that makes a
+        /// frame a DOORWAY segment), and anything in an arch rect is refused and counted.</para>
+        /// </summary>
+        private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name)
+        {
+            if (IsArchProtected(probe, name))
+                return true;
+            if (FindDoorwayRootFor(probe) != null)
+                return true;
+            return r.GetComponentInParent<ProceduralDoorway>() != null
+                || r.GetComponentInParent<UnityGameEditorDoorProp>() != null;
+        }
+
         private int _censusFreeRiders;
         private int _censusFreeRidersMesh;
         private int _censusFreeRidersParticles;
@@ -582,6 +618,7 @@ internal static partial class WallSegmentFade
             _censusFreeRidersFloorFooted = 0;
             _censusFreeRidersRefusedStanding = 0;
             _censusFreeRidersRefusedArchitecture = 0;
+            _censusFreeRidersRefusedDoorway = 0;
             if (_freeUnits.Count == 0 || float.IsInfinity(minFloorY) || _factCount == 0)
                 return;
             // Reach: the union of every unit's footprint plus the link, so the fact sweep
@@ -673,8 +710,11 @@ internal static partial class WallSegmentFade
                     continue;
 
                 Bounds archProbe = particles ? new Bounds(anchorPt, Vector3.zero) : b;
-                if (IsArchProtected(archProbe, f.Name ?? c.name))
-                    continue; // the doorway's arch stays solid (user ruling 2026-08-07)
+                if (IsDoorwayAssembly(c, archProbe, f.Name ?? c.name))
+                {
+                    _censusFreeRidersRefusedDoorway++;
+                    continue; // doorways never fade (user rulings 2026-08-07 / 2026-09-04)
+                }
                 if (IsWaterProtected(archProbe))
                     continue; // fountain/pond (user ruling 2026-08-09)
                 if (IsFigureOrActorRenderer(c))
@@ -799,7 +839,9 @@ internal static partial class WallSegmentFade
                   .Append(FreeStandingMinTopWU.ToString("0.0")).Append(" wu over the floor, ")
                   .Append(_censusFreeRefusedEngulf).Append(" refused as room-engulfing (a tile ")
                   .Append("or ceiling — never fades whole), ")
-                  .Append(_censusFreeRefusedNoRoom).Append(" refused for no decision-valid room");
+                  .Append(_censusFreeRefusedNoRoom).Append(" refused for no decision-valid room")
+                  .Append("; refused before clustering: ").Append(_censusFreeRefusedDoorway)
+                  .Append(" doorway");
             }
             else
             {
@@ -810,7 +852,8 @@ internal static partial class WallSegmentFade
                   .Append(_censusFreeBodyMembers).Append(" of them plain-mesh via the dissolve ")
                   .Append("swap; refused: ").Append(_censusFreeRefusedTop).Append(" too low, ")
                   .Append(_censusFreeRefusedEngulf).Append(" room-engulfing, ")
-                  .Append(_censusFreeRefusedNoRoom).Append(" no valid room; ")
+                  .Append(_censusFreeRefusedNoRoom).Append(" no valid room, ")
+                  .Append(_censusFreeRefusedDoorway).Append(" doorway; ")
                   .Append(_censusFreeDropped).Append(" earlier unit(s) dropped): ");
                 int named = 0;
                 foreach (Segment seg in _freeUnits)
@@ -868,7 +911,9 @@ internal static partial class WallSegmentFade
                   .Append(_censusFreeRidersFloorFooted).Append("; refused ")
                   .Append(_censusFreeRidersRefusedStanding).Append(" standing prop(s) and ")
                   .Append(_censusFreeRidersRefusedArchitecture)
-                  .Append(" architecture-scale mesh(es) — the sticky carries are in the per-unit ")
+                  .Append(" architecture-scale mesh(es), ")
+                  .Append(_censusFreeRidersRefusedDoorway)
+                  .Append(" doorway — the sticky carries are in the per-unit ")
                   .Append("counts, not here)");
             }
             if (_censusFreeCapHit)

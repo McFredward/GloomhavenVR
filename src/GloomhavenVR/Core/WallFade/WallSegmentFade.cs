@@ -6143,11 +6143,15 @@ internal static partial class WallSegmentFade
         /// walk's documented fail-open), while the door prop is a SIBLING subtree — but the door
         /// object knows exactly where it stands, and archway frames exist only around doors.
         /// </summary>
-        private Transform? FindDoorwayRoot(MeshRenderer r)
+        private Transform? FindDoorwayRoot(MeshRenderer r) => FindDoorwayRootFor(r.bounds);
+
+        /// <summary>The same link on a bare box (ModBuild 410): the free-standing lane asks it
+        /// for meshes AND particle emitters (a zero-size box at the emitter), so a doorway's
+        /// dressing is refused by the very radius that makes its frame a DOORWAY segment.</summary>
+        private Transform? FindDoorwayRootFor(Bounds b)
         {
             if (_doorRoots.Count == 0)
                 return null;
-            Bounds b = r.bounds;
             Transform? best = null;
             float bestSq = DoorwayLinkMaxXZ * DoorwayLinkMaxXZ;
             foreach (Transform door in _doorRoots)
