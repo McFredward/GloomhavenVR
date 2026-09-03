@@ -195,8 +195,15 @@ internal static class PropLift
     /// is game code running LINQ over reflection-produced enum arrays inside a discovery scan: a
     /// throw here would take the whole prop registry pass with it, and a scan that dies leaves the
     /// board with no grabbable props at all.
+    ///
+    /// <para>INTERNAL rather than private since ModBuild 371 so <see cref="PropReach"/> can ask the
+    /// same question through the same memo. It must not re-derive it: <c>CObjectProp.PropType</c>
+    /// runs two LINQ passes over <c>Enum.GetValues</c> comparing <c>x.ToString()</c> to the prefab
+    /// name (CObjectProp.cs:48-59), and the prop census asks about the same props on every walk —
+    /// a second uncached caller would re-introduce exactly the allocation this memo exists to
+    /// remove.</para>
     /// </summary>
-    private static EPropType ResolvePropType(CObjectProp prop)
+    internal static EPropType ResolvePropType(CObjectProp prop)
     {
         string name = prop.PrefabName ?? string.Empty;
         if (PropTypeByPrefab.TryGetValue(name, out EPropType cached))

@@ -129,6 +129,22 @@ internal static class PropGrab
     internal static bool IsRegistered(CObjectProp? prop) => prop != null && Registry.ContainsKey(prop);
 
     /// <summary>
+    /// The collider this prop actually REGISTERED against, or null if it is not registered — read
+    /// by the <c>[Props]</c> census's REACHHEXES column so the line measures the shape the hands
+    /// are really being tested against, not the shape this file believes it built.
+    ///
+    /// <para>Read-only: it hands back a reference and nothing else, so the census cannot become
+    /// load-bearing through it. A destroyed collider comes back as a Unity-null the caller's own
+    /// <c>== null</c> catches, which is the same contract <see cref="Prune"/> relies on.</para>
+    /// </summary>
+    internal static Collider? PickColliderOf(CObjectProp? prop)
+    {
+        if (prop == null)
+            return null;
+        return Registry.TryGetValue(prop, out GrabbableProp grabbable) ? grabbable.PickCollider : null;
+    }
+
+    /// <summary>
     /// One call per frame, from <c>FigureGrabDriver.RefreshRegistry</c> — the step that already
     /// owns "keep the adoption set current". Ordered: glides and the held re-assert first (both
     /// must run whatever the dial says), then the prune, then the ghost reconcile, then the gate,
@@ -342,9 +358,29 @@ internal static class PropGrab
             // Object.Destroy is deferred to end of frame, so the lookup below would hand the new
             // entry the doomed one. Reused instead: this lookup finds it exactly like an authored
             // collider, and `built` is false the second time round.
+            //
+            // THE CHOICE OF SHAPE MOVED OUT (ModBuild 371), AND THAT IS THE 2026-09-03 MULTI-HEX
+            // FIX. The two lines that used to stand here were `own = GetComponentInChildren
+            // <Collider>()` and `built ? BuildPropCollider(visual) : own` — i.e. the FIRST
+            // collider in the prop's subtree, falling back to the renderer-bounds box only when
+            // there was none at all. For a TwoHexObstacle that first collider is the authored
+            // one-hex shape on the prop root (the game picks props by raycast on the "Hovering"
+            // layer, which UnityGameEditorObject.Start sets on the ROOT only), and since the ONE
+            // registered collider is the only thing every reach test measures against, one hex of
+            // that prop answered the hand and the other did not: "das highlighting erscheint
+            // allerdings nur wenn ich beim prop über ein einziges feld mit der hand bin". The
+            // renderer-bounds fallback that would have spanned the whole prop was exactly the
+            // branch these props never took — the ModBuild 367 log says so in one clause,
+            // "Collider: the prop's own." PropReach carries the diagnosis and the sources.
+            //
+            // `own` is still resolved here, and still by the same expression, because it is what
+            // the single-hex answer IS: PropReach.Resolve hands it straight back for every prop
+            // that stands on one hex, so those props keep the shape their pick radius was tuned
+            // against, unchanged and unwidened.
             Collider? own = visual.GetComponentInChildren<Collider>();
             bool built = own == null;
-            Collider? collider = built ? FigureGrabDriver.BuildPropCollider(visual) : own;
+            Collider? collider = PropReach.Resolve(visual, prop, own,
+                out PropReach.Route reachRoute, out int reachHexes, out string reachHexSource);
             if (collider == null)
             {
                 _pendingResolve++;
@@ -368,7 +404,13 @@ internal static class PropGrab
                 + (built ? "built from its renderer bounds (the prop had none)." : "the prop's own.")
                 + " It now carries the figure hover glow, the figure pick radius, the trigger-only "
                 + "grab and a home ghost. Logged once per scenario; the [Props] census line counts "
-                + "the rest.");
+                + "the rest."
+                + $" REACH VOLUME (ModBuild 371): {PropReach.Describe(reachRoute)}; this prop "
+                + $"stands on {reachHexes} hex(es) according to {reachHexSource}. A prop on ONE hex "
+                + "keeps exactly the collider it had before this build; a prop on SEVERAL gets one "
+                + "trigger box spanning all of them, because the single registered collider is the "
+                + "only shape every hover and grab test measures against. The census line's "
+                + "REACHHEXES column says whether that landed, per prop.");
         }
 
     }

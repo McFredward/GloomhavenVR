@@ -696,6 +696,18 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     private readonly List<string> _censusUnliftable = new(PropCensusNamedSamples);
 
     /// <summary>
+    /// The MULTI-HEX props — the ones the 2026-09-03 report is about — named separately, for
+    /// exactly the reason <see cref="_censusUnliftable"/> is: the sample list above takes the
+    /// FIRST four liftable props it meets and is blind to anything that sorts fifth. The ModBuild
+    /// 367 hardware log is the proof rather than the worry: its four named samples were three
+    /// <c>OneHexObstacle</c>s and a <c>GoldPile</c>, on a board of eighteen liftable props that
+    /// also held the <c>TwoHexObstacle</c> the user reported. A multi-hex column that lived only
+    /// in the capped list would have printed nothing about the one prop the round exists to
+    /// answer. "A truncated list is not absence" is a lesson this project has already paid for.
+    /// </summary>
+    private readonly List<string> _censusMultiHex = new(PropCensusNamedSamples);
+
+    /// <summary>
     /// One INFO-tier line naming what prop discovery found and what it threw away. Deliberately
     /// <c>VRLog.Note</c> and not <c>VRLog.Info</c>: in this project Info is the DEBUG tier and is
     /// absent from a default-level log, which is why the ModBuild 334 hardware log carried none of
@@ -768,8 +780,13 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // control: it is the population registry 1 is supposed to be a view of, and the diagnosis
         // says it is not.
         int propTotal = 0, propLiftable = 0, propVisualFound = 0, propRefused = 0;
+        // ModBuild 371: how many liftable props stand on more than one hex, and how many of THOSE
+        // have a reach volume that covers every hex they stand on. Counted in full, never sampled.
+        int propMultiHex = 0;
+        int propMultiHexFull = 0;
         _censusProps.Clear();
         _censusUnliftable.Clear();
+        _censusMultiHex.Clear();
         List<CObjectProp>? props = ScenarioManager.CurrentScenarioState?.Props;
         if (props != null)
         {
@@ -801,6 +818,40 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                     continue;
                 }
 
+                // THE MULTI-HEX MEASUREMENT (ModBuild 371), AND IT RUNS FOR EVERY LIFTABLE PROP,
+                // ABOVE THE SAMPLE CAP. Two numbers that between them answer the 2026-09-03 report
+                // without a screenshot: how many hexes the GAME says this prop stands on, and how
+                // many of them the collider the hands are ACTUALLY tested against stands over.
+                // `hexes=2(PathingBlockers) REACHHEXES=2/2` is the fix working; `REACHHEXES=1/2`
+                // is the defect, still present, naming itself. Measured on PropGrab's REGISTERED
+                // collider rather than on anything this census builds, so it cannot agree with a
+                // broken build the way a re-derived shape would.
+                //
+                // It sits above the cap because of what the cap did to the last round: the four
+                // named samples were three OneHexObstacles and a GoldPile on a board that also
+                // held the TwoHexObstacle the user reported. Cost per prop is a PathingBlockers
+                // Count, one dictionary hit and (for multi-hex props only) one array index per
+                // covered hex — no scene query, on the census cadence.
+                Collider? reachVolume = PropGrab.PickColliderOf(prop);
+                int coveredHexes = PropReach.CoveredHexes(prop, out string hexSource);
+                int spannedHexes = PropReach.SpannedHexes(reachVolume, prop);
+                string reachSpan = reachVolume == null
+                    ? "unregistered"
+                    : spannedHexes < 0 ? "unlocated" : spannedHexes.ToString();
+                if (coveredHexes > 1)
+                {
+                    propMultiHex++;
+                    if (spannedHexes >= coveredHexes)
+                        propMultiHexFull++;
+                    if (_censusMultiHex.Count < PropCensusNamedSamples)
+                    {
+                        _censusMultiHex.Add($"'{prop.InstanceName}' {prop.ObjectType} "
+                            + $"hexes={coveredHexes}({hexSource}) "
+                            + $"REACHHEXES={reachSpan}/{coveredHexes} "
+                            + $"GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}");
+                    }
+                }
+
                 if (_censusProps.Count >= PropCensusNamedSamples)
                     continue;
                 // The visual lookup was done for the NAMED SAMPLES ONLY because GetPropObject logs
@@ -812,6 +863,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 GameObject? visual = PropVisualLookup.Resolve(prop, out PropVisualLookup.Route route);
                 if (visual != null)
                     propVisualFound++;
+
+                // The two multi-hex numbers were measured above the sample cap; they are printed
+                // here as well so a NAMED prop carries them inline next to its own via=/collider=.
                 _censusProps.Add($"'{prop.InstanceName}' {prop.ObjectType} type={prop.GetType().Name}"
                     + $" visual={(visual != null ? "'" + visual.name + "'" : "NOT IN ObjectCacheService")}"
                     + $" via={PropVisualLookup.Describe(route)}"
@@ -820,7 +874,9 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                     + $" hasHealth={(prop.PropHealthDetails != null && prop.PropHealthDetails.HasHealth ? "yes" : "NO")}"
                     + $" disallowMoveOrDestroy={(prop.OverrideDisallowDestroyAndMove ? "YES" : "no")}"
                     + $" MAYLIFT={liftVerdict}"
-                    + $" GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}");
+                    + $" GRABBABLE={(PropGrab.IsRegistered(prop) ? "yes" : "NO")}"
+                    + $" hexes={coveredHexes}({hexSource})"
+                    + $" REACHHEXES={reachSpan}/{coveredHexes}");
             }
         }
 
@@ -842,6 +898,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"Liftable props in the scenario state: {(_censusProps.Count == 0 ? "none" : string.Join(" | ", _censusProps))}. "
             + $"REFUSED as unliftable ({propRefused} in all, first {_censusUnliftable.Count} named): "
             + $"{(_censusUnliftable.Count == 0 ? "none" : string.Join(" | ", _censusUnliftable))}. "
+            + $"MULTI-HEX props (ModBuild 371): {propMultiHex} of the {propLiftable} liftable "
+            + $"stand on more than one hex, {propMultiHexFull} of those have reach over EVERY hex "
+            + $"they stand on; first {_censusMultiHex.Count} named: "
+            + $"{(_censusMultiHex.Count == 0 ? "none" : string.Join(" | ", _censusMultiHex))}. "
             + "READ IT LIKE THIS. The FIRST sentence is the retired path and its numbers are "
             + "EXPECTED TO BE ZERO: only a prop that HAS AN ACTOR ever appears in that list, a "
             + "prop only gets a CObjectActor when it has HEALTH (CMap.cs:502), and that actor is "
@@ -862,7 +922,26 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + "TERM that refused it - the game's own OverrideDisallowDestroyAndMove flag, or the "
             + "solid-obstacle family test. hasHealth is printed on every line because it is the "
             + "discriminator this gate deliberately does NOT use: the ModBuild 350 board had zero "
-            + "props with health, rocks included.";
+            + "props with health, rocks included."
+            + " THE MULTI-HEX SENTENCE IS SEPARATE FROM THE CAPPED SAMPLE LIST FOR THE SAME REASON "
+            + "THE REFUSED ONE IS: the samples are the first four liftable props met, and the "
+            + "ModBuild 367 log's four were three OneHexObstacles and a GoldPile on a board that "
+            + "also held the TwoHexObstacle the user reported - so the count is taken over ALL of "
+            + "them and only the naming is capped."
+            + " AND ModBuild 371 ADDS THE MULTI-HEX PAIR 'hexes=' / 'REACHHEXES=', which is the "
+            + "whole of the 2026-09-03 report ('props die mehrere tiles ueberspannen ... das "
+            + "highlighting erscheint nur wenn ich ueber ein einziges feld bin'). 'hexes=2"
+            + "(PathingBlockers)' is how many hexes the GAME says the prop stands on and which "
+            + "term said so - the obstacle's own PathingBlockers list, else its EPropType family "
+            + "name (TwoHexObstacle, ThreeHexCurvedObstacle), else 'assumed' for the one-hex "
+            + "default. 'REACHHEXES=2/2' is how many of those hexes the collider the hands are "
+            + "ACTUALLY tested against stands over - that single collider is the only shape the "
+            + "hover election and the grab gate ever measure, so 2/2 is the fix working and 1/2 "
+            + "is the defect still present. 'unregistered/2' means the prop has no registered "
+            + "collider yet (read the 'via=' column first, it is a resolve question, not a reach "
+            + "one) and 'unlocated/2' means the hexes could not be placed in the world at all - "
+            + "no PathingBlockers, or the client tile array is not built yet - which leaves the "
+            + "spanning box built from the prop's renderer bounds and simply unmeasured here.";
         if (line == _lastPropCensus)
             return;
         _lastPropCensus = line;
