@@ -42,6 +42,15 @@
 //       Nothing else refers to the key. The player's `dev.gloomhavenvr.cheats.cfg` then stops
 //       being written and can be deleted by hand; it holds one line and nothing else reads it.
 //
+//    6. DELETE src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs (the "every scenario
+//       loadable" toggle added 2026-09-03, see its header) and the TWO lines marked
+//       `// CHEATS (temporary)` in WorldUIModule.Install that register its patch classes:
+//
+//           VRSession.Harmony?.PatchAll(typeof(Patches.CQuestStateExtensions_CheckRequirements_Patch));
+//           VRSession.Harmony?.PatchAll(typeof(Patches.UnityGameEditorRuntime_LoadScenario_Patch));
+//
+//       then run `scripts/patch-inventory.sh generate` so docs/PATCH-INVENTORY.md forgets them.
+//
 //  THAT IS THE WHOLE FOOTPRINT. Deliberately:
 //    * NO Loc entries. Every user-facing string on this page lives in `Text()` at the bottom of
 //      this file, so removing the feature cannot leave orphaned translation keys behind in
@@ -51,16 +60,21 @@
 //      the gate the user asked for, and it is a whole file rather than a line on a shared one for
 //      exactly the reason this block exists: removing the feature must not leave a dead key in a
 //      player's tuned .cfg. Nothing else here persists a setting — no dependency rule, no curated
-//      row, no wire field.
-//    * NO Harmony patches. Nothing is hooked; both buttons CALL the game, on a press, and then
-//      stop existing again.
+//      row, no wire field. The third row (the toggle) is PROCESS STATE: off at every start, never
+//      written.
+//    * TWO Harmony patches, both in ScenarioGateCheat.cs and both inert while the toggle is off
+//      (2026-09-03; before that there were none). The two BUTTONS still hook nothing: they CALL
+//      the game, on a press, and then stop existing again. The toggle needs a hook because the
+//      gate it lifts — the party-requirement check — is re-evaluated by the map on every refresh
+//      and is never written to the save, so there is nothing a one-shot press could write.
 //    * NO wire fields, no NetProtocol change, no ModBuild implication.
 //
 //  ARCHITECTURAL RULE HONOURED: ScenarioRuleLibrary and Bolt are NOT patched. Both buttons go
 //  through the game's OWN debug seams — `DebugMenu.RevealAllRooms()` (the very method the game's
 //  own CheatPanel "Battle Cheats ▸ RevealAllRooms" calls) and the map's own
 //  `CQuestState.UnlockQuest()` / `SaveData.SaveCurrentAdventureData()` save-data API. Nothing
-//  here re-implements a rule; it presses the game's own buttons.
+//  here re-implements a rule; it presses the game's own buttons. The toggle's two patches sit
+//  on GH.Runtime (the UI-side requirement check and the scene-load seam), not on a rule library.
 //
 // =====================================================================================
 
@@ -169,7 +183,10 @@ internal static partial class VROptionsTab
             + "link is not drawn on the Erweitert index and the page itself cannot be reached. "
             + "Single-player only either way; both buttons refuse while a multiplayer session is "
             + "live. Read at the moment the menu is drawn, so a change applies the next time the "
-            + "options window is opened - no restart.");
+            + "options window is opened - no restart. Since 2026-09-03 the page also carries a "
+            + "third row, a TOGGLE ('every scenario loadable') that lifts the party-requirement "
+            + "gate (required class / level / item / personal quest / party size / starting "
+            + "village) while it is on; it is process state, off at every start, never written.");
 
         // Once per session, at a printed tier. Without it "the Cheats page is gone" and "the
         // Cheats page failed to build" read identically in a log — and the whole point of this
@@ -272,15 +289,16 @@ internal static partial class VROptionsTab
             "A temporary testing aid. It will be removed again once the walkthrough is done.",
             "Eine vorübergehende Testhilfe. Sie wird nach dem Durchtesten wieder entfernt."));
         BuildNote(ContentRoot, Text(
-            "Both buttons are SINGLE-PLAYER ONLY. In a multiplayer session they refuse, because "
-            + "neither change can be sent to the other players and both would desynchronise the game.",
-            "Beide Knöpfe funktionieren NUR IM EINZELSPIELER. In einer Mehrspieler-Sitzung "
-            + "verweigern sie, weil sich keine der beiden Änderungen an die Mitspieler senden lässt "
-            + "und beide das Spiel auseinanderlaufen ließen."));
+            "All three rows are SINGLE-PLAYER ONLY. In a multiplayer session they refuse, because "
+            + "none of the changes can be sent to the other players and each would desynchronise the game.",
+            "Alle drei Zeilen funktionieren NUR IM EINZELSPIELER. In einer Mehrspieler-Sitzung "
+            + "verweigern sie, weil sich keine der Änderungen an die Mitspieler senden lässt "
+            + "und jede das Spiel auseinanderlaufen ließe."));
 
         bool online = SessionOnline();
         int rows = 0;
         rows += BuildUnlockAllLevelsRow(online);
+        rows += BuildScenarioGateRow(online);
         rows += BuildOpenAllDoorsRow(online);
         return rows;
     }
@@ -314,11 +332,16 @@ internal static partial class VROptionsTab
         BuildHeader(ContentRoot, Text("Savegame", "Spielstand"), sub: true);
         BuildNote(ContentRoot, Text(
             "Unlocks every campaign scenario in the loaded savegame so you can walk through all of "
-            + "them. This WRITES the savegame — a copy of the old file is kept next to it first. "
+            + "them — locked ones AND blocked ones (the other branch of a linked-scenario choice; the "
+            + "game re-blocks those on the next map load, so press again after returning). This "
+            + "WRITES the savegame — a copy of the old file is kept next to it first. "
             + "Press once to arm, press again to confirm.",
             "Schaltet im geladenen Spielstand alle Kampagnen-Szenarien frei, damit du durch alle "
-            + "durchgehen kannst. Das SCHREIBT den Spielstand — eine Kopie der alten Datei wird "
-            + "vorher daneben abgelegt. Einmal drücken zum Scharfschalten, erneut zum Bestätigen."));
+            + "durchgehen kannst — gesperrte UND blockierte (der andere Zweig einer verknüpften "
+            + "Szenario-Wahl; die blockiert das Spiel beim nächsten Laden der Karte wieder, also "
+            + "nach der Rückkehr erneut drücken). Das SCHREIBT den Spielstand — eine Kopie der alten "
+            + "Datei wird vorher daneben abgelegt. Einmal drücken zum Scharfschalten, erneut zum "
+            + "Bestätigen."));
 
         RegisterCheatRow(
             BuildLinkRow(ContentRoot, UnlockCaption(online), () => OnUnlockAllLevels(), asAction: true),
@@ -381,13 +404,35 @@ internal static partial class VROptionsTab
                                               && q.Quest.Type != EQuestType.Job
                                               && q.QuestState == CQuestState.EQuestState.Locked);
 
+            // Gate (c), 2026-09-03: Blocked quests — the other branch of a linked-scenario choice
+            // — are skipped by UnlockQuest (it early-returns for anything not Locked,
+            // CQuestState.cs:508), so "all levels" used to leave them out silently. The game's own
+            // debug mode loads one by resetting it, so the model allows it; LockQuest() puts the
+            // quest back on the path UnlockQuest() accepts. CMapState.CheckForBlockedQuests
+            // re-blocks an Unlocked quest whose BlockedCondition still holds on the next map load
+            // (CMapState.cs:1544 → :1766 → :2951-2955), which is why the note on the row says to
+            // press again after returning.
+            int blockedBefore = all.Count(q => q != null && q.Quest != null
+                                               && q.Quest.Type != EQuestType.Job
+                                               && q.QuestState == CQuestState.EQuestState.Blocked);
+
             string backup = BackUpAdventureSave();
 
             int unlocked = 0;
+            int unblocked = 0;
             foreach (CQuestState quest in all.ToList())
             {
                 if (quest == null || quest.Quest == null || quest.Quest.Type == EQuestType.Job)
                     continue;
+                if (quest.QuestState == CQuestState.EQuestState.Blocked)
+                {
+                    quest.LockQuest();
+                    quest.UnlockQuest();
+                    if (quest.QuestState != CQuestState.EQuestState.Locked
+                        && quest.QuestState != CQuestState.EQuestState.Blocked)
+                        unblocked++;
+                    continue;
+                }
                 if (quest.QuestState != CQuestState.EQuestState.Locked)
                     continue;
                 quest.UnlockQuest();
@@ -398,6 +443,9 @@ internal static partial class VROptionsTab
             int lockedAfter = all.Count(q => q != null && q.Quest != null
                                              && q.Quest.Type != EQuestType.Job
                                              && q.QuestState == CQuestState.EQuestState.Locked);
+            int blockedAfter = all.Count(q => q != null && q.Quest != null
+                                              && q.Quest.Type != EQuestType.Job
+                                              && q.QuestState == CQuestState.EQuestState.Blocked);
 
             // The save-data API, not a file write of our own: BepInEx has no business serialising a
             // CMapState, and the game's own path is the one that deep-clones, writes on a worker and
@@ -431,7 +479,12 @@ internal static partial class VROptionsTab
                                   + "WHAT WOULD DISPROVE THIS: a later log line showing quests back at "
                                   + $"Locked, or a 'Locked after' above 0 — either means UnlockQuest "
                                   + "refused (it early-returns for anything not Locked) or the map "
-                                  + "reloaded the pre-cheat file over the top.");
+                                  + "reloaded the pre-cheat file over the top. "
+                                  + $"Blocked quests (gate (c), the other branch of a linked-scenario choice): "
+                                  + $"{blockedBefore} Blocked before, {blockedAfter} Blocked after, {unblocked} "
+                                  + "flipped via LockQuest()+UnlockQuest(); the game's own "
+                                  + "CMapState.CheckForBlockedQuests re-blocks them on the next map load if "
+                                  + "the branch condition still holds, so press again after returning.");
             RefreshCheatRows();
         }
         catch (Exception e)
@@ -473,6 +526,103 @@ internal static partial class VROptionsTab
         catch (Exception e)
         {
             return $"NOT TAKEN — the copy threw ({e.GetType().Name}: {e.Message})";
+        }
+    }
+
+    // ---- row 2 (2026-09-03): TOGGLE — every scenario loadable (party requirements) ---------
+
+    /// <summary>
+    /// "Every scenario loadable" — a toggle, not an armed button, because it writes nothing:
+    /// while it is on, <c>Patches.ScenarioGateCheat</c> empties the party-requirement fields of
+    /// every <c>RequirementCheckResult</c> the map builds (required class / level / item /
+    /// personal quest / party size / starting village), so the game's own <c>IsUnlocked()</c>
+    /// says yes and the Travel button goes. Off again restores the game's verdicts on the map's
+    /// next refresh. Gate (b) of the three the header of that file enumerates; gate (a) (state
+    /// Locked) and gate (c) (state Blocked) are the save-writing button above.
+    ///
+    /// <para>No arm step: the arm/confirm flow protects a save write, and this has none. The
+    /// multiplayer refusal is the same as the other two rows, for the same reason — the patch
+    /// itself is ALSO inert while <c>FFSNetwork.IsOnline</c>, so a session started with the
+    /// toggle already on does not carry it in.</para>
+    /// </summary>
+    private static int BuildScenarioGateRow(bool online)
+    {
+        if (ContentRoot == null)
+            return 0;
+
+        BuildHeader(ContentRoot, Text("Map requirements (test mode)", "Karten-Voraussetzungen (Testmodus)"), sub: true);
+        BuildNote(ContentRoot, Text(
+            "While ON, every unlocked scenario can be travelled to regardless of its party "
+            + "requirements — a required character, its level, an item, a personal quest, the party "
+            + "size or a locked starting village. Writes nothing; off at every game start. Locked "
+            + "scenarios still need the button above. A solo scenario entered without its class "
+            + "starts with one of your characters instead.",
+            "Solange AN, kann zu jedem freigeschalteten Szenario gereist werden, egal welche "
+            + "Gruppen-Voraussetzungen es hat — ein bestimmter Charakter, dessen Stufe, ein "
+            + "Gegenstand, eine persönliche Quest, die Gruppengröße oder ein gesperrtes Startdorf. "
+            + "Schreibt nichts; bei jedem Spielstart wieder aus. Gesperrte Szenarien brauchen "
+            + "weiterhin den Knopf oben. Ein Solo-Szenario ohne seine Klasse startet stattdessen mit "
+            + "einem deiner Charaktere."));
+
+        RegisterCheatRow(
+            BuildLinkRow(ContentRoot, ScenarioGateCaption(online), () => OnToggleScenarioGate(), asAction: true),
+            () => ScenarioGateCaption(SessionOnline()));
+        return 1;
+    }
+
+    private static string ScenarioGateCaption(bool online) =>
+        online
+            ? Text("Every scenario loadable — BLOCKED (multiplayer session)",
+                   "Jedes Szenario ladbar — GESPERRT (Mehrspieler-Sitzung)")
+            : Patches.ScenarioGateCheat.Enabled
+                ? Text("Every scenario loadable: ON (press to switch off)",
+                       "Jedes Szenario ladbar: AN (drücken zum Ausschalten)")
+                : Text("Every scenario loadable: OFF (press to switch on)",
+                       "Jedes Szenario ladbar: AUS (drücken zum Einschalten)");
+
+    private static void OnToggleScenarioGate()
+    {
+        try
+        {
+            bool online = SessionOnline();
+            if (online)
+            {
+                // Switching OFF is always allowed — it only ever restores the game's verdicts.
+                if (Patches.ScenarioGateCheat.Enabled)
+                {
+                    Patches.ScenarioGateCheat.Set(false);
+                    // HW-VERIFY
+                    VRLog.Note("WorldUI", "CHEAT 'every scenario loadable': switched OFF while a multiplayer "
+                                          + "session is live (FFSNetwork.IsOnline). It was already inert online; "
+                                          + "the game's own requirement verdicts stand from here on.");
+                    RefreshCheatRows();
+                    return;
+                }
+                VRLog.Info("WorldUI", "CHEAT 'every scenario loadable': REFUSED — a multiplayer session is "
+                                      + "live (FFSNetwork.IsOnline). Nothing was changed. The party-requirement "
+                                      + "verdict is evaluated on every client and there is no game action that "
+                                      + "could carry an overridden verdict to the other players.");
+                return;
+            }
+
+            bool now = !Patches.ScenarioGateCheat.Enabled;
+            Patches.ScenarioGateCheat.Set(now);
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"CHEAT 'every scenario loadable': switched {(now ? "ON" : "OFF")}. Mechanism: "
+                                  + "postfix on CQuestStateExtensions.CheckRequirements empties the party-"
+                                  + "requirement fields (required character / level / item / personal quest / "
+                                  + "party size / starting village) of the game's own RequirementCheckResult "
+                                  + "while ON, so RequirementCheckResult.IsUnlocked() — the Travel button's "
+                                  + "verdict — passes; nothing is written to the save; quest state Locked/Blocked "
+                                  + "(the button above) is NOT touched. Applies on the map's next refresh "
+                                  + "(hover a marker, reopen the quest log). Multiplayer session active: no "
+                                  + "(checked FFSNetwork.IsOnline immediately before). One line per scenario "
+                                  + "load will name the gates it overrode for that scenario.");
+            RefreshCheatRows();
+        }
+        catch (Exception e)
+        {
+            VRLog.Error("WorldUI", $"CHEAT 'every scenario loadable' threw and was abandoned: {e}");
         }
     }
 

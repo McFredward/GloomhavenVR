@@ -68,6 +68,11 @@ internal sealed class WorldUIModule : IVRModule
         // camera's screen centre and would cancel the laser's hover every frame. Pure early-out,
         // keyed on MapRoomDriver.Active — inert in every other scene.
         VRSession.Harmony?.PatchAll(typeof(Patches.MapLocationSelectorGate));
+        // CHEATS (temporary), 2026-09-03: the "every scenario loadable" test toggle on the Cheats
+        // page. Both patches are inert while the toggle is off (a static bool, off at every start)
+        // and while FFSNetwork.IsOnline. Removal: step 6 in VROptionsTab.Cheats.cs's header.
+        VRSession.Harmony?.PatchAll(typeof(Patches.CQuestStateExtensions_CheckRequirements_Patch)); // CHEATS (temporary)
+        VRSession.Harmony?.PatchAll(typeof(Patches.UnityGameEditorRuntime_LoadScenario_Patch)); // CHEATS (temporary)
         // User request 2026-09-03: "Bitte deaktiviere die animationen für das mouseover im
         // Kartenraum wenn ich über ein Kartensymbol hovere - an der Stelle möchte ich es nicht."
         // MapLocation.Highlight pops the symbol to 1.2x and starts a NodeHoverIndicator particle
