@@ -483,7 +483,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// </summary>
     private bool ApplyHighlightOverlay(GameObject root, out string overlay)
     {
-        GameObject? propBody = ActorPropBody.BodyFor(_actor);
+        // ModBuild 400: glow the part that would actually ride the hand — the door LEAF — and not
+        // the arch it stands in. A glow is a promise of what the hand takes; it must not promise
+        // the frame. Falls back to the whole body only when no leaf could be isolated, in which
+        // case the hold is refused too (see ActorPropBody.HeldPartFor) and the glow is the one
+        // signal left that the object is a health prop.
+        GameObject? propBody = ActorPropBody.HeldPartFor(_actor) ?? ActorPropBody.BodyFor(_actor);
         if (propBody != null)
             return _highlight.Apply(propBody, propBody, null, Describe(), out overlay);
         return _highlight.Apply(root, _actor.m_AnimatedGameObject,

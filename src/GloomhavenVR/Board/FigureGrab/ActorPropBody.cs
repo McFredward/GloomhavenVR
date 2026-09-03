@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Apparance.Unity;
 using GloomhavenVR.Core;
@@ -208,13 +209,164 @@ internal static class ActorPropBody
     /// off for the length of the hold.</summary>
     private sealed class Held
     {
+        /// <summary>The prop visual the body was resolved from (the whole door prop). Never
+        /// moved since ModBuild 400 — see <see cref="Moved"/>.</summary>
         public GameObject Visual = null!;
+        /// <summary>The subtree that actually rides the hand: the door LEAF, never the arch.</summary>
+        public GameObject Moved = null!;
         public Transform? OrigParent;
         public Vector3 OrigLocalPos;
         public Quaternion OrigLocalRot;
         public Vector3 OrigLocalScale;
+        /// <summary>The leaf's WORLD pose at the grab — what the restore is measured against.</summary>
+        public Vector3 HomeWorldPos;
+        public Quaternion HomeWorldRot;
         public ApparanceEntity[] Frozen = System.Array.Empty<ApparanceEntity>();
         public bool[] FrozenMonitor = System.Array.Empty<bool>();
+    }
+
+    /// <summary>Prop-visual instance id -> the leaf chosen for it (null = refused). Memoised per
+    /// scenario; the walk is a few dozen transforms and the answer cannot change while the same
+    /// generated content stands.</summary>
+    private static readonly Dictionary<int, GameObject?> LeafCache = new(4);
+    private static readonly List<Renderer> RendererScratch = new(64);
+    private static readonly List<Transform> ChainScratch = new(16);
+    private static bool _loggedRefusal;
+    private static bool _loggedRelease;
+    private static int _releases;
+    private static float _worstReleaseDeltaWU;
+    private static float _worstReleaseDeltaDeg;
+
+    /// <summary>The game's own prefix for PROCEDURALLY PLACED content under a door's
+    /// <c>Generated Content</c>: the doorway arch (<c>PCG_CV_Doorway_01_PR</c>), the floor tile
+    /// (<c>PCG_CV_Floor_Basic_07_PR</c>). Everything the 396 and 399 logs record under
+    /// <c>ThickDoor/HexDoor(Clone)/Generated Content/</c> that is NOT the door leaf carries it,
+    /// and the leaf assembly (<c>CR_ST_Door_02/CR_ST_Door_01/…</c>) does not.</summary>
+    private const string ProceduralPlacementPrefix = "PCG_";
+
+    /// <summary>
+    /// THE PART OF A HEALTH PROP THAT MAY RIDE A HAND — for a door, the LEAF and nothing else
+    /// (user ruling 2026-09-03, testing ModBuild 399: <i>"der Türrahmen kommt mit und verdreht
+    /// sich … wenn ich loslasse ist der Türrahmen/Torbogen dann dauerhaft an einer anderen Stelle!
+    /// Exkludiere den Torbogen komplett — es reicht wenn wirklich nur das runde Türelement in der
+    /// Hand ist"</i>).
+    ///
+    /// <para><b>WHY THE WHOLE VISUAL WAS WRONG, AND WHY IT BROKE THE BOARD.</b> ModBuild 399
+    /// reparented the prop ROOT. That root is <c>ThickDoor : (guid)</c> → <c>HexDoor(Clone)</c>,
+    /// and <c>HexDoor(Clone)</c> is a <c>ProceduralDoorway</c> carrying an <c>ApparanceEntity</c>
+    /// whose <c>Generated Content</c> IS the arch and the floor. Moving that root moved the entity;
+    /// an Apparance entity re-generates its content when it is transformed, and the regeneration is
+    /// asynchronous — so the arch was re-baked around the HAND's pose and stayed there after the
+    /// transform itself had been put back. The frame that "kommt mit und verdreht sich" and the
+    /// frame that is "dauerhaft an einer anderen Stelle" are the same mistake seen twice.</para>
+    ///
+    /// <para><b>THE PARTITION IS STRUCTURAL, NOT A NAME LIST.</b> Under the door's generated
+    /// content the game places two kinds of thing: PROCEDURAL PLACEMENTS, whose roots carry the
+    /// <c>PCG_</c> prefix (the arch, the floor), and the door leaf assembly, which does not. The
+    /// movable set is every renderer with no <c>PCG_</c>-prefixed ancestor below the visual, and
+    /// the leaf root is the lowest common ancestor of that set. Three refusals, each of which
+    /// leaves the hold EMPTY rather than partial (the user's stated preference over a
+    /// board-damaging hold): the set is empty; its common ancestor is the visual itself (the
+    /// partition did not separate anything); or the candidate subtree contains an
+    /// <c>ApparanceEntity</c> — an entity is never transformed by this class again.</para>
+    /// </summary>
+    internal static GameObject? HeldPartFor(ActorBehaviour? actor)
+    {
+        GameObject? visual = BodyFor(actor);
+        return visual == null ? null : LeafOf(visual, out _);
+    }
+
+    private static GameObject? LeafOf(GameObject visual, out string why)
+    {
+        why = string.Empty;
+        int id = visual.GetInstanceID();
+        if (LeafCache.TryGetValue(id, out GameObject? memo))
+        {
+            if (memo != null)
+                return memo;
+            why = "refused earlier this scenario (memoised)";
+            return null;
+        }
+
+        RendererScratch.Clear();
+        visual.GetComponentsInChildren(includeInactive: true, RendererScratch);
+        int total = RendererScratch.Count, movable = 0, withMesh = 0;
+        Transform? lca = null;
+        Transform top = visual.transform;
+        for (int i = 0; i < RendererScratch.Count; i++)
+        {
+            Renderer r = RendererScratch[i];
+            if (r == null)
+                continue;
+            bool procedural = false;
+            for (Transform? t = r.transform; t != null && t != top; t = t.parent)
+            {
+                if (t.name.StartsWith(ProceduralPlacementPrefix, StringComparison.Ordinal))
+                {
+                    procedural = true;
+                    break;
+                }
+            }
+            if (procedural)
+                continue;
+            movable++;
+            if (HasMesh(r))
+                withMesh++;
+            lca = lca == null ? r.transform : CommonAncestor(lca, r.transform, top);
+        }
+        RendererScratch.Clear();
+
+        GameObject? leaf = null;
+        if (movable == 0)
+            why = $"no movable renderer — all {total} sit under a '{ProceduralPlacementPrefix}' placement";
+        else if (withMesh == 0)
+            why = $"{movable} movable renderer(s) but none has a mesh";
+        else if (lca == null || lca == top)
+            why = $"the {movable} movable renderer(s) have no common ancestor below the visual — the "
+                  + "partition separated nothing";
+        else if (lca.GetComponentInChildren<ApparanceEntity>(includeInactive: true) != null)
+            why = $"the candidate '{lca.name}' contains an ApparanceEntity, which is never transformed";
+        else
+        {
+            leaf = lca.gameObject;
+            why = $"'{lca.name}' carries {movable} of {total} renderer(s) ({withMesh} with a mesh); the "
+                  + $"other {total - movable} stay under their '{ProceduralPlacementPrefix}' placements";
+        }
+        LeafCache[id] = leaf;
+        return leaf;
+    }
+
+    private static bool HasMesh(Renderer r)
+    {
+        if (r is SkinnedMeshRenderer smr)
+            return smr.sharedMesh != null;
+        MeshFilter? mf = r.GetComponent<MeshFilter>();
+        return mf != null && mf.sharedMesh != null;
+    }
+
+    /// <summary>Lowest common ancestor of two transforms, not climbing above <paramref name="top"/>
+    /// (returns <paramref name="top"/> itself when nothing below it is shared).</summary>
+    private static Transform CommonAncestor(Transform a, Transform b, Transform top)
+    {
+        ChainScratch.Clear();
+        for (Transform? t = a; t != null; t = t.parent)
+        {
+            ChainScratch.Add(t);
+            if (t == top)
+                break;
+        }
+        for (Transform? t = b; t != null; t = t.parent)
+        {
+            if (ChainScratch.Contains(t))
+            {
+                ChainScratch.Clear();
+                return t;
+            }
+            if (t == top)
+                break;
+        }
+        ChainScratch.Clear();
+        return top;
     }
 
     private static readonly Dictionary<ActorBehaviour, Held> HeldBodies = new(2);
@@ -255,13 +407,40 @@ internal static class ActorPropBody
         if (visual == null || visual.transform == into || into.IsChildOf(visual.transform))
             return;
 
+        // ONLY THE LEAF RIDES THE HAND (ModBuild 400). See HeldPartFor for the partition and for
+        // the ModBuild 399 defect it ends. A refusal leaves the hold EMPTY — the hand takes the
+        // bodiless actor exactly as it did before 399 — because an empty hand is harmless and a
+        // half-door in the hand moved the arch for the rest of the scenario.
+        GameObject? leaf = LeafOf(visual, out string leafWhy);
+        if (leaf == null)
+        {
+            if (_loggedRefusal)
+                return;
+            _loggedRefusal = true;
+            // HW-VERIFY: the line that says a health prop was NOT lent to the hand and why. Its
+            // presence beside a 'grabbed figure (PropDummyObject)' line means the empty hand is
+            // deliberate, not the ModBuild 399 defect returning.
+            VRLog.Note("FigureGrab",
+                $"HEALTH-PROP BODY REFUSED for the hold of '{visual.name}': {leafWhy}. Nothing is "
+                + "attached and the hand takes the empty actor, which is the pre-ModBuild-399 state "
+                + "and damages nothing. A partial hold is never shipped: the 399 hardware round "
+                + "moved the whole prop root, and that root carries the ApparanceEntity whose "
+                + "generated content IS the doorway arch — it was re-baked around the hand's pose "
+                + "and stayed there after release. Logged once per scenario.");
+            return;
+        }
+        Transform leafT = leaf.transform;
+
         var held = new Held
         {
             Visual = visual,
-            OrigParent = visual.transform.parent,
-            OrigLocalPos = visual.transform.localPosition,
-            OrigLocalRot = visual.transform.localRotation,
-            OrigLocalScale = visual.transform.localScale,
+            Moved = leaf,
+            OrigParent = leafT.parent,
+            OrigLocalPos = leafT.localPosition,
+            OrigLocalRot = leafT.localRotation,
+            OrigLocalScale = leafT.localScale,
+            HomeWorldPos = leafT.position,
+            HomeWorldRot = leafT.rotation,
         };
 
         EntityScratch.Clear();
@@ -284,7 +463,7 @@ internal static class ActorPropBody
         // worldPositionStays: the door does not move when it becomes a child; it is exactly where
         // the player last saw it standing, and the hand's own reparent (one line later in
         // FigureGrabbable.OnGrab) is what lifts it.
-        visual.transform.SetParent(into, worldPositionStays: true);
+        leafT.SetParent(into, worldPositionStays: true);
         HeldBodies[actor] = held;
 
         if (_loggedAttach)
@@ -309,7 +488,13 @@ internal static class ActorPropBody
             + "exclusion until release, when the next rescan re-seeds it. Transient and "
             + "self-correcting; if the masonry above the arch is seen flickering DURING a hold, "
             + "that is the mechanism and the remedy belongs in the fade subsystem, not here. "
-            + "Logged once per scenario.");
+            + "Logged once per scenario. "
+            + $"ModBuild 400 CORRECTION to the sentences above: only the LEAF rides the hand now — "
+            + $"'{leaf.name}' ({leafWhy}) — and the prop root with its ApparanceEntity never moves, "
+            + "so the KNOWN SIDE EFFECT can no longer arise (the arch rect is seeded from renderers "
+            + "that stay exactly where they were) and the frozen entities are frozen as a "
+            + "precaution against a rebuild that would destroy the held leaf, not because they are "
+            + "moved. The restore is MEASURED on release — grep HEALTH-PROP BODY RELEASED.");
     }
 
     /// <summary>Put the body back where the board had it and hand every <c>MonitorMovement</c>
@@ -321,6 +506,22 @@ internal static class ActorPropBody
             return;
         HeldBodies.Remove(actor);
 
+        // ORDER (ModBuild 400): the transform goes back BEFORE any MonitorMovement is handed back.
+        // The 399 code did it the other way round, and an entity that is re-armed while its
+        // content is still at the hand's pose is exactly what re-bakes the arch there. The leaf is
+        // not an entity, so the order is a belt here — but it is the right belt.
+        float deltaWU = -1f, deltaDeg = -1f;
+        if (held.Moved != null)
+        {
+            Transform t = held.Moved.transform;
+            t.SetParent(held.OrigParent != null ? held.OrigParent : null, worldPositionStays: false);
+            t.localPosition = held.OrigLocalPos;
+            t.localRotation = held.OrigLocalRot;
+            t.localScale = held.OrigLocalScale;
+            deltaWU = Vector3.Distance(t.position, held.HomeWorldPos);
+            deltaDeg = Quaternion.Angle(t.rotation, held.HomeWorldRot);
+        }
+
         for (int i = 0; i < held.Frozen.Length; i++)
         {
             ApparanceEntity e = held.Frozen[i];
@@ -328,13 +529,27 @@ internal static class ActorPropBody
                 e.MonitorMovement = held.FrozenMonitor[i];
         }
 
-        if (held.Visual == null)
+        _releases++;
+        if (deltaWU > _worstReleaseDeltaWU) _worstReleaseDeltaWU = deltaWU;
+        if (deltaDeg > _worstReleaseDeltaDeg) _worstReleaseDeltaDeg = deltaDeg;
+        // The line prints on the FIRST release and again whenever a release is worse than every
+        // earlier one, so a silently failing restore cannot hide behind a clean first reading.
+        bool worse = deltaWU >= 0.001f || deltaDeg >= 0.05f;
+        if (_loggedRelease && !worse)
             return;
-        Transform t = held.Visual.transform;
-        t.SetParent(held.OrigParent != null ? held.OrigParent : null, worldPositionStays: false);
-        t.localPosition = held.OrigLocalPos;
-        t.localRotation = held.OrigLocalRot;
-        t.localScale = held.OrigLocalScale;
+        _loggedRelease = true;
+        string moved = held.Moved != null ? held.Moved.name : "<destroyed during the hold>";
+        // HW-VERIFY: the PROOF that a released door is back where the board had it. 'delta 0.000 wu
+        // / 0.00 deg' is a measured zero, not a missing line; anything else names a restore that
+        // did not land and is the 399 'dauerhaft an einer anderen Stelle' defect in a new coat.
+        VRLog.Note("FigureGrab",
+            $"HEALTH-PROP BODY RELEASED '{moved}' of '{(held.Visual != null ? held.Visual.name : "<destroyed>")}': "
+            + $"world delta after the restore {(deltaWU < 0 ? "UNMEASURABLE (leaf destroyed)" : $"{deltaWU:0.000} wu / {deltaDeg:0.00} deg")} "
+            + $"against the pose captured at the grab; worst this scenario {_worstReleaseDeltaWU:0.000} wu / "
+            + $"{_worstReleaseDeltaDeg:0.00} deg over {_releases} release(s). The prop root and its "
+            + "ApparanceEntity were never transformed, so the arch had nothing to re-bake from; "
+            + "MonitorMovement was handed back only AFTER the leaf was home. A non-zero delta here "
+            + "means the leaf's original parent moved or was rebuilt during the hold.");
     }
 
     /// <summary>Is this actor's body currently riding a hold? Read by the anchor measurement, which
@@ -435,5 +650,11 @@ internal static class ActorPropBody
         _nextCensus = 0f;
         _lastCensusSignature = -1;
         _loggedAttach = false;
+        LeafCache.Clear();
+        _loggedRefusal = false;
+        _loggedRelease = false;
+        _releases = 0;
+        _worstReleaseDeltaWU = 0f;
+        _worstReleaseDeltaDeg = 0f;
     }
 }
