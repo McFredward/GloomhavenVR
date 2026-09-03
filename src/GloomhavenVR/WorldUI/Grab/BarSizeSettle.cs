@@ -40,9 +40,12 @@ namespace GloomhavenVR.WorldUI;
 /// <i>instantly</i> (<i>"ich möchte gerne dass es instant reagiert"</i>), and
 /// <c>GrabbableModal.SyncBarVisibility</c> is untouched by anything here. And the TWO-HAND RESIZE,
 /// which is not a rect change at all: <see cref="PanelGrabHandle"/> writes the GRAB ROOT's
-/// <c>localScale</c> (PanelGrab.cs:904), the rod is a child of that root, and so the pinch keeps
-/// scaling the whole assembly — window and handle together, at the frame rate, through a term that
-/// never enters this class.</para>
+/// <c>localScale</c> (PanelGrab.cs:904), and the rod inherits that scale on both owners — directly,
+/// as a child of the grab root, in <c>SurfaceGrabBar</c>; through the DRAWN pose in
+/// <c>GrabbableModal</c>, whose <c>_visual.localScale</c> is written from the same grab factor
+/// (GrabbableModal.cs, <c>AdvanceVisual</c>). So the pinch keeps scaling the whole assembly —
+/// window and handle together, at the frame rate — through a term that never enters this class,
+/// and the remote-pose easing that shares that term on a peer's window is equally untouched.</para>
 /// </summary>
 internal sealed class BarSizeSettle
 {
