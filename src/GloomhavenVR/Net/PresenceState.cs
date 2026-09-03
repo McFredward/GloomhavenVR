@@ -838,7 +838,16 @@ internal struct PresenceState
     /// <summary>The sender's live item-USE cap wording — "USE", or an item-SURRENDER demand's own
     /// wording (meaningful only when <see cref="HasItemUseCapLabel"/>). A widget label, never an
     /// item name: the surrender wording names the DEMAND, and nothing here reads a card. Capped at
-    /// <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.</summary>
+    /// <see cref="NetProtocol.CapLabelMaxBytes"/> UTF8 bytes.
+    ///
+    /// <para>ModBuild 380 WIDENED WHAT THIS MEANS, without touching its id, its width or its codec.
+    /// It is no longer only the CAP's wording: it is the item-use AREA's wording, which the recess
+    /// engraving and the cap both read. The two are relabelled in the same statement group on the
+    /// owner's board and again in <c>RemoteBoardFurniture.SetCapLabels</c>, so one string still
+    /// describes both widgets and a peer cannot see them disagree. The practical consequence for a
+    /// reader of this field: it is now populated from the FIRST FRAME of a surrender demand, before
+    /// any cap exists — the older contract "null while the control is hidden" no longer holds and
+    /// was corrected at the sender.</para></summary>
     public string? ItemUseCapLabel;
 
     /// <summary>
