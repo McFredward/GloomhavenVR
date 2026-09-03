@@ -503,6 +503,68 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     /// failure is named well before <see cref="BlindAlertSeconds"/>.</summary>
     private const float HoldLogSeconds = 0.5f;
 
+    // ==========================================================================================
+    // ModBuild 376 — THE LADDER NOW CONSULTS THE MOD'S OWN PANEL, BECAUSE ITS PREMISE WAS FALSE.
+    //
+    // USER, 2026-09-03, verbatim: "Ich bin einmal zum Desktop gewechselt, hab also das Spiel
+    // minimiert während das Entscheidungsfenster offen ist, und bin dann wieder zurück, dann hing
+    // das Entscheidungsfenster plötzlich an der Kopfbewegung und es war kein Fenster mehr wie
+    // zuvor! ... Zuerst hatte es funktioniert - finde was das ausgelöst hat und fix das."
+    //
+    // WHAT ACTUALLY HAPPENED, read off .planning/debug/LogOutput.log (ModBuild 375):
+    //   :2367-:2381  the popup converts, floats, and the fit measures DRAWN CONTENT 416x464 px
+    //                from 30 visible graphic(s) — a real panel, really on the screen.
+    //   :2385        the hold arms: the game is still distributing, no popup resolves any more.
+    //   :2390-:2416  the PLAYER GRABS AND CARRIES THAT PANEL, twice, and re-faces it.
+    //   :2689        90 s later HoldMaxSeconds lapses. He had alt-tabbed to the desktop — the
+    //                heartbeat at :2688 reads "devices=1 L=invalid R=invalid" — so the wall clock
+    //                ran out while he was away, which is what "TRIGGERED it" means here. The
+    //                ALT-TAB IS NOT THE MECHANISM; the wall clock is. The same flow would have
+    //                lapsed identically if he had simply read the reward text for 90 seconds.
+    //   :2690-:2695  the cap releases the float, the rescue screen is raised, and the mod's own
+    //                deadlock alert fires. The head-locked 2D composite he described IS the
+    //                rescue screen (:2712 onward, FlatScreen quad tracking the head camera).
+    //
+    // SO THE ESCALATION MADE A WORKING SITUATION BROKEN. Its own log text states the premise it
+    // was acting on — "so the player is never left in front of nothing" and "the mod has had
+    // NOTHING in front of the player for that whole time" — and in this log that premise is
+    // measurably false, in the mod's own instruments, in the same run. The cap's own comment
+    // even names the gap: it lapses "rather than an indefinitely-held float NOBODY CAN PROVE IS
+    // DRAWING ANYTHING". Now somebody can, so the ladder asks before it escalates.
+    //
+    // THE TERM IS DRAWN CONTENT, NOT EXISTENCE, and it is the fit's own verdict rather than a
+    // fifth liveness test — CanvasConversion.TryMeasureDrawnContent, the same per-graphic
+    // visibility rule the HIT RECT and Host rect fit lines above are printed from, so the number
+    // this veto acts on is the number the log already shows. It is documented non-writing ("no
+    // entry is created, no cadence is disturbed, no rect is committed"), which is what lets a
+    // gate call it: an instrument that writes cannot also be a gate term.
+    //
+    // WHY NOT ModalFallback's EMPTY WINDOW HIDDEN machinery, which answers the same question for
+    // the modal family: it is keyed on ModalFallback's private WindowPanel records, and these
+    // surfaces are not UIWindows and never enter that registry — IsDormantPanel(Panel) is
+    // permanently false for every panel this file owns, so reusing it here would be a term that
+    // reads clean on a dark panel. Its per-graphic verdict is not the fit's either. What IS
+    // reused from it is the SHAPE: an arming grace, a strided re-measure, and a dwell.
+    // ==========================================================================================
+
+    /// <summary>How often the drawn-content walk runs while a panel is floated. One subtree walk
+    /// per this interval (~85 us for a 251-transform window), not per frame — this surface ticks
+    /// on the map, where the frame budget is the tight one.</summary>
+    private const float DrawnCheckSeconds = 0.5f;
+
+    /// <summary>How long a positive reading may still hold the veto open. A veto that outlived its
+    /// measurement would be a latch, and a latch on this gate is the next deadlock: past this the
+    /// verdict is stale and counts as NOT drawing, so a panel that goes dark loses the veto within
+    /// one interval plus this.</summary>
+    private const float DrawnStaleSeconds = 2f;
+
+    /// <summary>Arming grace after a conversion, before an unmeasured panel counts as dark. A
+    /// freshly converted panel has not been laid out or measured yet, and calling that "empty"
+    /// would raise the rescue screen on every healthy float. Matches the modal family's
+    /// LivenessGraceSeconds so the two rules cannot disagree about what "too early to judge"
+    /// means.</summary>
+    private const float DrawnGraceSeconds = 1.5f;
+
     private UIDistributeRewardManager? _manager;
     private UIDistributeReward[]? _rewardUis;
     private bool _sweepTried;
@@ -527,6 +589,23 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     // ---- the guaranteed escape (see TickBlindWatch) -------------------------------------------
     private float _blindSince = -1f;
     private bool _rescueAsked;
+
+    // ---- is the mod's own panel actually drawing (see TickDrawnWatch) -------------------------
+    // Measured ONCE per tick, at a cadence, and read by BOTH the cap in TickHold and the escape
+    // in TickBlindWatch — one value per tick on purpose, so the two cannot disagree inside the
+    // same frame and tear each other's decision down (which is exactly what ModBuild 375 did:
+    // :2690 raised the rescue and :2691 released it again in the same tick).
+    private float _drawnNextCheck;
+    private float _drawnLastTrueAt = -1f;
+    private float _drawnConvertedAt = -1f;
+    private int _drawnGraphics;
+    private int _drawnWalks;
+    private bool _drawnVerdict;
+    private string _drawnWhy = "(not measured yet)";
+    private float _darkSince = -1f;
+    private bool _darkLogged;
+    private bool _capVetoLogged;
+    private int _capVetoes;
 
     // Per-distribution-episode latches, cleared when IsDistributing goes false.
     private bool _episodeOpen;
@@ -602,6 +681,51 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     private bool _windowIsPopupGo;
     private bool _windowHasControllerArea;
     private bool _identityCaptured;
+
+    // ==========================================================================================
+    // ModBuild 376 — WHY THE THREE PATHS ABOVE COULD NOT SETTLE FIX 2, AND WHAT REPLACES THEM.
+    //
+    // In the ModBuild 375 log all three read the SAME string:
+    //   window / popup component on / reward UI on
+    //     = 'Campaign Canvas/UI Distribute Rewards Window/UI Distribute Items Rewards Popup'
+    // and it is tempting to conclude "so they are one GameObject, therefore activeSelf==false and
+    // 'drawing 30 graphics' are a contradiction about one object". THAT CONCLUSION DOES NOT
+    // FOLLOW. A HIERARCHY PATH IS NOT AN IDENTITY: two siblings may carry the same name, and
+    // ScenePath() would print them identically. The instrument reports paths, so it cannot tell
+    // one object from a same-named neighbour, and every reading built on it inherits that gap.
+    //
+    // AND THERE IS A CONCRETE REASON TO EXPECT MORE THAN ONE. UIDistributeRewardManager holds
+    // `[SerializeField] private List<DistributeRewardProcess> processes` and chains
+    // `process.Process(rewards)` over ALL of them (UIDistributeRewardManager.Distribute). The
+    // decompile carries five subclasses — DistributeItemsProcess, DistributeGoldProcess,
+    // DistributeGoldBagProcess, DistributeConditionsProcess, DistributeAttackModifierProcess —
+    // and each of them dereferences its own `processUI.PopUp`, i.e. each has its own
+    // UIDistributeReward. The scoped lookup here resolved exactly ONE ("reward UIs resolved=1,
+    // scene sweep tried=False", LogOutput.log:2695). One of two things is therefore true, and
+    // the log cannot currently say which:
+    //   (a) the other process UIs live OUTSIDE the manager's subtree, so ResolveRewardUis is
+    //       structurally blind to them and may be watching a reward UI the game is not using; or
+    //   (b) all five share one UIDistributeReward, and the single resolved instance really is the
+    //       one on screen — in which case the contradiction is about ONE object and the cause is
+    //       downstream of the resolver entirely.
+    // Those have different fixes, so this round ships the measurement that separates them and NO
+    // remedy: three rounds have already been spent writing guesses into log lines on this defect.
+    //
+    // WHAT IS RECORDED, and why each field is load-bearing rather than decoration:
+    //   * instance ids for the reward UI, the popup component, the popup's GameObject and the
+    //     window — GetInstanceID() is the only identity Unity offers that survives a reparent and
+    //     cannot be confused with a same-named neighbour;
+    //   * the same for the mod's OWN live float target, plus a containment test in both
+    //     directions. If the resolved window and the float target are the SAME id while one reads
+    //     activeInHierarchy=False and the other is measured drawing, that is impossible and the
+    //     resolver is not the fault; if they are DIFFERENT ids, the resolver is watching the
+    //     wrong object and (a) is proven on the spot.
+    // ==========================================================================================
+    private int _rewardId;
+    private int _popupId;
+    private int _popupGoId;
+    private int _windowId;
+    private string _resolvedCensus = "(not captured)";
 
     // ==========================================================================================
     // ModBuild 375 — THE CLAUSE THAT WAS WRONG, AND THE INSTRUMENT THAT POISONED ITS OWN GREP.
@@ -802,6 +926,139 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
         _rewardGoPath = ScenePath(reward.transform);
         _windowIsPopupGo = ReferenceEquals(window, reward.PopUp.gameObject);
         _windowHasControllerArea = window.GetComponent<ControllerInputAreaLocal>() != null;
+
+        // ModBuild 376 — the identities the paths above cannot carry. All four are plain
+        // GetInstanceID() reads on objects already dereferenced two lines up; nothing is searched
+        // for and nothing is written to the game.
+        _rewardId = reward.GetInstanceID();
+        _popupId = reward.PopUp.GetInstanceID();
+        _popupGoId = reward.PopUp.gameObject.GetInstanceID();
+        _windowId = window.GetInstanceID();
+        _resolvedCensus = DescribeResolvedSet();
+    }
+
+    /// <summary>
+    /// EVERY reward UI the lookup resolved, by identity — not just the one that happened to be
+    /// shown. This is the half of Fix 2 that decides whether <see cref="ResolveRewardUis"/> is
+    /// watching the right object at all: the manager chains a LIST of processes and each of them
+    /// owns a <c>processUI.PopUp</c>, so a census of one entry is itself the finding.
+    ///
+    /// <para>READ-ONLY AND ALLOCATION-BOUNDED. It walks the array this class already holds — no
+    /// scene search, no <c>FindObjectsOfType</c>, no component lookup — and it is called only
+    /// from <see cref="CaptureIdentity"/>, i.e. at most once per distribution episode. Its result
+    /// is a string built once and printed by the verdict lines; nothing reads it as state.</para>
+    /// </summary>
+    private string DescribeResolvedSet()
+    {
+        UIDistributeReward[]? uis = _rewardUis;
+        if (uis == null || uis.Length == 0)
+            return "RESOLVED SET: none (the lookup held no reward UIs at capture time).";
+        var sb = new System.Text.StringBuilder(160);
+        sb.Append("RESOLVED SET (").Append(uis.Length).Append("): ");
+        for (int i = 0; i < uis.Length; i++)
+        {
+            if (i > 0)
+                sb.Append("; ");
+            sb.Append('#').Append(i).Append(' ');
+            UIDistributeReward ui = uis[i];
+            if (ui == null)
+            {
+                sb.Append("<destroyed>");
+                continue;
+            }
+            sb.Append("rewardUI id=").Append(ui.GetInstanceID())
+              .Append(" on '").Append(ui.gameObject.name).Append('\'');
+            UIDistributePointsPopup pop = ui.PopUp;
+            if (pop == null)
+            {
+                sb.Append(", PopUp=<destroyed>");
+                continue;
+            }
+            sb.Append(", PopUp id=").Append(pop.GetInstanceID())
+              .Append(" on go id=").Append(pop.gameObject.GetInstanceID());
+            GameObject w = pop.window;
+            if (w == null)
+            {
+                sb.Append(", window=<destroyed>");
+                continue;
+            }
+            sb.Append(", window go id=").Append(w.GetInstanceID())
+              .Append(" activeSelf=").Append(w.activeSelf)
+              .Append(" activeInHierarchy=").Append(w.activeInHierarchy);
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// THE ONE COMPARISON THE PREVIOUS THREE ROUNDS COULD NOT MAKE: is the object the resolver is
+    /// judging the same object the mod has floated?
+    ///
+    /// <para>Both sides are already in hand — <c>_rootMemoWindow</c> is the window the live
+    /// conversion was built from, and <see cref="WorldSurface.Panel"/>'s <c>Target</c> is what the
+    /// host actually holds — so this is four reference comparisons and a bounded parent walk. It
+    /// takes no measurement, searches nothing and writes nothing.</para>
+    ///
+    /// <para>HOW TO READ THE ANSWER, stated here so the next round does not have to infer it:
+    /// SAME OBJECT with the float target measured drawing and the window reading
+    /// activeInHierarchy=False is not possible, and the resolver is then NOT the fault — look
+    /// downstream. DIFFERENT OBJECTS means the resolver is judging something other than what is
+    /// on screen, and the manager-scoped <see cref="ResolveRewardUis"/> is the place to fix.
+    /// NEITHER CONTAINS THE OTHER additionally means the float root was not derived from this
+    /// window at all.</para>
+    /// </summary>
+    private string DescribeFloatIdentity()
+    {
+        ConvertedPanel? panel = Panel;
+        if (panel == null || !panel.IsAlive || panel.Target == null)
+            return "FLOAT IDENTITY: no live conversion, so there is nothing to compare the "
+                   + "resolved window against.";
+        GameObject targetGo = panel.Target.gameObject;
+        GameObject? window = _rootMemoWindow;
+        var sb = new System.Text.StringBuilder(160);
+        sb.Append("FLOAT IDENTITY: the mod's live float target is '").Append(targetGo.name)
+          .Append("' go id=").Append(targetGo.GetInstanceID())
+          .Append(" activeSelf=").Append(targetGo.activeSelf)
+          .Append(" activeInHierarchy=").Append(targetGo.activeInHierarchy)
+          .Append(", now parented under '")
+          .Append(panel.Target.parent != null ? panel.Target.parent.name : "<no parent>")
+          .Append("'. ");
+        if (window == null)
+        {
+            sb.Append("The resolver holds NO window for this conversion (the memo is empty), so "
+                      + "the two cannot be compared — which is itself the finding.");
+            return sb.ToString();
+        }
+        sb.Append("The window the resolver judges is go id=").Append(window.GetInstanceID())
+          .Append(" activeSelf=").Append(window.activeSelf)
+          .Append(" activeInHierarchy=").Append(window.activeInHierarchy)
+          .Append(". SAME OBJECT=").Append(ReferenceEquals(window, targetGo))
+          .Append(", window is INSIDE the float target=").Append(IsDescendantOf(window.transform, panel.Target))
+          .Append(", float target is INSIDE the window=").Append(IsDescendantOf(panel.Target, window.transform))
+          .Append(". WHAT EACH ANSWER MEANS: SAME OBJECT true, with this surface's drawn-content "
+                  + "verdict positive and activeInHierarchy false, is a state that cannot exist — "
+                  + "so the resolver is not the fault and the cause is downstream of it. SAME "
+                  + "OBJECT false means the resolver is judging a DIFFERENT GameObject from the "
+                  + "one on screen, and the manager-scoped lookup is the place to fix. Both "
+                  + "containment terms false means the float root was never derived from this "
+                  + "window.");
+        return sb.ToString();
+    }
+
+    /// <summary>Bounded ancestor walk — is <paramref name="node"/> at or below
+    /// <paramref name="root"/>? Depth-capped for the same reason <see cref="ScenePath"/> is: this
+    /// runs on a diagnostic path and must never become an unbounded climb.</summary>
+    private static bool IsDescendantOf(Transform? node, Transform? root)
+    {
+        if (node == null || root == null)
+            return false;
+        const int MaxDepth = 24;
+        Transform? t = node;
+        for (int i = 0; t != null && i < MaxDepth; t = t.parent, i++)
+        {
+            if (ReferenceEquals(t, root))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Hierarchy path, root-first, depth-capped. Only ever called from a once-per-episode
@@ -1019,6 +1276,146 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     private bool HoldForDistribution =>
         Panel != null && !_holdLapsed && _manager != null && _manager.IsDistributing;
 
+    /// <summary>
+    /// THE VETO TERM. True while the mod has a panel in front of the player that is measurably
+    /// DRAWING — alive, not hidden by any of the three hides, and carrying at least one graphic
+    /// the fit's own visibility rule counts as content. Read by the hard cap in
+    /// <see cref="TickHold"/> and by the guaranteed escape in <see cref="TickBlindWatch"/>.
+    ///
+    /// <para><b>IT CANNOT LATCH, AND THAT IS THE PROPERTY THAT MAKES IT SAFE TO PUT IN FRONT OF A
+    /// DEADLOCK GUARD.</b> It is not a flag anyone sets; it is the last measurement, and it stops
+    /// being true <see cref="DrawnStaleSeconds"/> after that measurement was taken. So the worst
+    /// case for a panel that goes dark is one check interval plus the staleness bound — under
+    /// three seconds — after which every branch below behaves exactly as it did before this
+    /// change.</para>
+    ///
+    /// <para><b>DURING THE ARMING GRACE IT IS TRUE ON PURPOSE.</b> A conversion that happened this
+    /// frame has not been laid out, so "no graphics measured" is "too early to tell", not "dark".
+    /// Judging it would raise the rescue screen on every healthy float. The grace is bounded by
+    /// <see cref="DrawnGraceSeconds"/> and starts at the conversion, so it can delay a verdict by
+    /// at most that and can never withhold one.</para>
+    /// </summary>
+    private bool PanelIsDrawing
+    {
+        get
+        {
+            if (Panel == null)
+                return false;
+            // The watch has not seen this conversion yet — it runs before base.Tick(), so the
+            // tick that CONVERTS always lands here first. One tick, bounded, and it is the same
+            // "too early to judge" the grace below covers.
+            if (_drawnConvertedAt < 0f)
+                return true;
+            if (Time.unscaledTime - _drawnConvertedAt < DrawnGraceSeconds)
+                return true;
+            return _drawnVerdict && _drawnLastTrueAt >= 0f
+                   && Time.unscaledTime - _drawnLastTrueAt <= DrawnStaleSeconds;
+        }
+    }
+
+    /// <summary>
+    /// Take the drawn-content measurement, at most once per <see cref="DrawnCheckSeconds"/>, and
+    /// exactly once per tick. Called at the top of <see cref="Tick"/> so every consumer in the
+    /// same frame reads ONE value: ModBuild 375's cap raised the rescue screen and the escape
+    /// released it again in the same tick (LogOutput.log:2690 then :2691), which is what two
+    /// consumers evaluating a moving term looks like.
+    ///
+    /// <para>WHY THIS IS A GATE TERM AND NOT AN INSTRUMENT, in the sense scripts/
+    /// check-instrument-writes.py cares about: <c>CanvasConversion.TryMeasureDrawnContent</c>
+    /// commits nothing — no hit-rect entry, no fit cadence, no dormancy counter — so switching the
+    /// logging below off would not change what any other subsystem does. The fields written here
+    /// are this rule's own state, read only by this rule.</para>
+    /// </summary>
+    private void TickDrawnWatch()
+    {
+        if (Panel == null)
+        {
+            _drawnConvertedAt = -1f;
+            _drawnVerdict = false;
+            _drawnLastTrueAt = -1f;
+            _drawnNextCheck = 0f;
+            _drawnGraphics = 0;
+            _drawnWhy = "(no panel is floated)";
+            // The darkness clock belongs to ONE conversion. Carrying it across a release would
+            // let a previous float's darkness raise the rescue on the first frame of the next
+            // one — a clock that measures two different panels is not measuring either.
+            _darkSince = -1f;
+            _darkLogged = false;
+            return;
+        }
+
+        if (_drawnConvertedAt < 0f)
+        {
+            _drawnConvertedAt = Time.unscaledTime;
+            _drawnNextCheck = 0f;
+        }
+
+        if (Time.unscaledTime < _drawnNextCheck)
+            return;
+        _drawnNextCheck = Time.unscaledTime + DrawnCheckSeconds;
+        _drawnWalks++;
+
+        ConvertedPanel panel = Panel;
+        // The three hides are checked BEFORE the walk, and a hidden panel counts as NOT drawing.
+        // That is the fail-safe direction twice over: a hidden panel genuinely shows the player
+        // nothing, and the walk reads CanvasRenderer state that is frozen while a panel is
+        // render-hidden, so its answer there would not be trustworthy anyway.
+        if (!panel.IsAlive)
+        {
+            _drawnVerdict = false;
+            _drawnGraphics = 0;
+            _drawnWhy = "the conversion target is destroyed (ConvertedPanel.IsAlive false)";
+            return;
+        }
+        if (panel.RevealPending || panel.RenderHidden || panel.OwnerRenderHidden)
+        {
+            _drawnVerdict = false;
+            _drawnGraphics = 0;
+            _drawnWhy = "the panel is HIDDEN, so it draws nothing whatever its content says "
+                        + "(RevealPending=" + panel.RevealPending
+                        + ", RenderHidden=" + panel.RenderHidden
+                        + ", OwnerRenderHidden=" + panel.OwnerRenderHidden + ")";
+            return;
+        }
+
+        if (CanvasConversion.TryMeasureDrawnContent(panel, out Rect content, out _, out int contributors)
+            && contributors > 0)
+        {
+            _drawnVerdict = true;
+            _drawnGraphics = contributors;
+            _drawnLastTrueAt = Time.unscaledTime;
+            _drawnWhy = "measured " + contributors + " visible graphic(s) over "
+                        + content.width.ToString("0") + "x" + content.height.ToString("0") + " px";
+            return;
+        }
+
+        _drawnVerdict = false;
+        _drawnGraphics = 0;
+        _drawnWhy = "the drawn-content walk found NO visible graphic under the float root — the "
+                    + "panel is on the screen and empty";
+    }
+
+    /// <summary>The drawn-content verdict in words, for the lines that act on it. Formatted at log
+    /// time only; the walk itself is the cadenced thing.</summary>
+    private string DescribeDrawn()
+    {
+        return "DRAWN-CONTENT VERDICT: the mod's own floated panel is "
+               + (PanelIsDrawing ? "DRAWING" : "NOT DRAWING")
+               + " — " + _drawnWhy
+               + " (visible graphic(s) at the last walk: " + _drawnGraphics
+               + ", last positive reading "
+               + (_drawnLastTrueAt < 0f
+                   ? "never taken"
+                   : (Time.unscaledTime - _drawnLastTrueAt).ToString("0.0") + " s ago")
+               + ", " + _drawnWalks + " walk(s) this conversion, re-measured every "
+               + DrawnCheckSeconds.ToString("0.0") + " s and treated as stale after "
+               + DrawnStaleSeconds.ToString("0.0") + " s). THIS IS THE SAME PER-GRAPHIC "
+               + "VISIBILITY RULE the HIT RECT and Host rect fit lines are printed from, so the "
+               + "count here and the count there are the same quantity. WHAT IT DOES NOT SAY: "
+               + "that the player can READ the panel, or that the right popup is on it — only "
+               + "that something the fit counts as content is being drawn.";
+    }
+
     public override void Tick()
     {
         // A popup switch under a live conversion (one reward's popup hides and the next process's
@@ -1045,6 +1442,11 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                       + "float in its place.");
             }
         }
+
+        // ONE measurement per tick, taken before anything consults it. Both the cap in TickHold
+        // and the escape in TickBlindWatch read the value this leaves behind, so they cannot
+        // disagree inside one frame.
+        TickDrawnWatch();
 
         TickHold(now != null);
 
@@ -1115,6 +1517,10 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                 _holdArmed = false;
                 bool wasLogged = _holdLogged;
                 _holdLogged = false;
+                // The cap's veto marker is per HOLD, not per episode: two holds in one
+                // distribution are two independent chances for the cap to come due.
+                _capVetoLogged = false;
+                _capVetoes = 0;
                 // Only report an end for a hold that reported its start. The pair must stay a
                 // pair: an ENDED line with no HELD line above it reads as a hold nobody armed.
                 if (!wasLogged)
@@ -1143,7 +1549,13 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                                         + "(IsDistributing false), which is also "
                                                         + "the moment MapChoreographer."
                                                         + "WaitDistributionEnds stops waiting")
-                                      + ". " + DescribeTerms());
+                                      + ". " + DescribeTerms()
+                                      // APPENDED, ModBuild 376. How many times the hard cap came
+                                      // due during this hold and was refused because the mod's
+                                      // own panel was measurably drawn. A non-zero count on a
+                                      // hold that ended cleanly is the fix having done its job.
+                                      + " CAP VETOES THIS HOLD: " + _capVetoes + ". "
+                                      + DescribeDrawn());
             }
             return;
         }
@@ -1192,11 +1604,86 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                   + "it — " + AreaLineCaveat
                                   + " The hold ends on IsDistributing, on the manager going away, "
                                   + "on the panel dying, on the manual screen, or at the "
-                                  + HoldMaxSeconds.ToString("0") + " s cap.");
+                                  + HoldMaxSeconds.ToString("0") + " s cap."
+                                  // APPENDED, ModBuild 376 — Fix 2's instrument, on the line that
+                                  // fires at the moment the contradiction exists: the resolver
+                                  // says no popup is shown WHILE the mod holds a float. These
+                                  // clauses name both sides by instance id and say whether they
+                                  // are one object. A path could not: two siblings may share a
+                                  // name and ScenePath() prints them identically.
+                                  + " IDENTITIES (instance ids, which a path cannot carry): "
+                                  + "rewardUI=" + _rewardId + ", PopUp component=" + _popupId
+                                  + ", PopUp GameObject=" + _popupGoId + ", window=" + _windowId
+                                  + ". " + _resolvedCensus
+                                  + " " + DescribeFloatIdentity()
+                                  + " " + DescribeDrawn());
         }
 
         if (!_holdLapsed && Time.unscaledTime - _holdSince >= HoldMaxSeconds)
         {
+            // ==================================================================================
+            // ModBuild 376 — THE CAP DOES NOT LAPSE WHILE THE PLAYER HAS A DRAWN PANEL.
+            //
+            // The cap exists to bound one overridden gate term, and its stated justification is
+            // that lapsing "does not put the player in front of nothing". In the ModBuild 375
+            // hardware log that justification was false: it lapsed on a panel that had been
+            // measured drawing 30 graphics and that the player had grabbed and carried
+            // (LogOutput.log :2371, :2390-:2416), and the composite it raised in exchange is the
+            // head-locked screen he reported. The right outer bound was never the wall clock; it
+            // was "is there something in front of him", and that is now measured.
+            //
+            // WHAT STILL REACHES THE ESCALATION AFTER THIS CHANGE — write it down, because a veto
+            // in front of a deadlock guard is only as good as the cases it still lets through:
+            //   1. The panel is DARK. PanelIsDrawing goes false within one check interval plus
+            //      the staleness bound, the cap lapses on the next evaluation exactly as before,
+            //      and TickBlindWatch's dark branch raises the rescue on its own clock as well.
+            //      An empty panel therefore DEFEATS this veto — which is the requirement, since
+            //      "up but drawing nothing" is precisely the failure the ladder exists for and
+            //      the user's standing rule is "Es darf niemals leere Fenster geben".
+            //   2. There is NO panel at all — the popup was destroyed, the lookup missed, or the
+            //      conversion refused. PanelIsDrawing is false with no panel, so this branch is
+            //      not even reached; TickBlindWatch's original Panel == null path raises the
+            //      rescue after RescueSeconds. THAT IS THE FOUR-ROUND TRAVEL-EVENT DEADLOCK, and
+            //      it is the path the ModBuild 375 log took at :2712. Untouched by this change.
+            //   3. The panel is hidden by the reveal gate, the render hide or the owner hide —
+            //      counted as not drawing, so the cap lapses.
+            //   4. Every gate term the hold never overrode: conversion off, the A/X chord, the
+            //      manager going away, the target dying, module shutdown. All unchanged.
+            //
+            // The veto also cannot outlive its evidence: PanelIsDrawing is a measurement with a
+            // staleness bound, not a latch, so no code path can leave it standing.
+            // ==================================================================================
+            if (PanelIsDrawing)
+            {
+                _capVetoes++;
+                if (!_capVetoLogged)
+                {
+                    _capVetoLogged = true;
+                    // HW-VERIFY: THE ModBuild 376 FIX, FIRING. Its presence means the 90 s cap
+                    // came due and was REFUSED because the mod's own panel was measurably in
+                    // front of the player — i.e. the escalation that produced "es war kein
+                    // Fenster mehr wie zuvor" did not happen this time. Once per hold.
+                    VRLog.Alert("WorldUI", "DISTRIBUTE HOLD CAP VETOED: the "
+                                          + HoldMaxSeconds.ToString("0") + " s hard cap came due "
+                                          + "and was REFUSED, because the mod's own floated panel "
+                                          + "is measurably in front of the player. Lapsing here is "
+                                          + "what produced the 2026-09-03 report: ModBuild 375 "
+                                          + "released a panel that had been measured drawing 30 "
+                                          + "graphics and that the player had just carried, and "
+                                          + "put the head-locked 2D composite up in its place. The "
+                                          + "cap's premise — that lapsing never leaves the player "
+                                          + "in front of nothing — is only true when there is "
+                                          + "nothing there, so it now has to be measured rather "
+                                          + "than assumed. " + DescribeDrawn()
+                                          + " THE VETO IS DEFEATED BY AN EMPTY PANEL: it is a "
+                                          + "measurement with a staleness bound, not a latch, so a "
+                                          + "panel that goes dark loses it within one check "
+                                          + "interval and the cap lapses on the next evaluation. "
+                                          + DescribeTerms());
+                }
+                return;
+            }
+
             _holdLapsed = true;
             // HW-VERIFY: the hold's own outer bound. If this ever appears, the hold was standing
             // for a minute and a half on a panel the game no longer described as shown, and the
@@ -1207,7 +1694,12 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                   + "released and the guaranteed escape takes over on this same "
                                   + "tick, so the player is never left in front of nothing. A hold "
                                   + "standing this long means the popup never came back: "
-                                  + DescribeTerms());
+                                  + DescribeTerms()
+                                  // APPENDED, ModBuild 376. Reaching this line now MEANS the veto
+                                  // was evaluated and did not hold, so the sentence above about
+                                  // never leaving the player in front of nothing is a measured
+                                  // claim here rather than an assumption. Read the verdict.
+                                  + " " + DescribeDrawn());
             FlatScreen.RequestRescueScreen(
                 "DistributeRewardSurface",
                 "The game has been distributing a reward for " + HoldMaxSeconds.ToString("0")
@@ -1238,6 +1730,14 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
             _blindSince = -1f;
             _holdLapsed = false;
             _identityCaptured = false;
+            // ModBuild 376 — the drawn-content watch's per-episode latches go with the episode,
+            // for the same reason every latch above does: a marker that fired for the last
+            // distribution must not stay silent through the next one.
+            _darkSince = -1f;
+            _darkLogged = false;
+            _capVetoLogged = false;
+            _capVetoes = 0;
+            _resolvedCensus = "(not captured)";
             // THE ESCAPE ENDS WITH THE FLOW IT WAS RAISED FOR — nothing else ever clears it, which
             // is what makes it impossible for this surface to strand the player behind a screen it
             // forgot about. `distributing` false covers both endings: the promise chain resolved
@@ -1271,50 +1771,127 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
 
         if (Panel != null)
         {
-            // A panel is up: the player is not staring at nothing, so any standing rescue is over.
-            // (It cannot normally be standing here — the rescue sets ManualScreenActive, which
-            // releases this surface's float — but the tick order between FlatScreen and the
-            // surfaces is not something this file gets to assume, so the release is written
-            // level-triggered rather than as a claim about ordering.)
-            _blindSince = -1f;
-            if (_rescueAsked)
+            // ==================================================================================
+            // ModBuild 376 — "A PANEL IS UP" IS NOT "THE PLAYER CAN SEE SOMETHING".
+            //
+            // Through ModBuild 375 the mere EXISTENCE of a ConvertedPanel cleared the escape's
+            // clock and released any standing rescue. That is wrong in both directions and both
+            // of them are user rules:
+            //   * a panel that is up and DARK suppressed the escape for ever — "Es darf niemals
+            //     leere Fenster geben", and the escape is the thing that was supposed to catch
+            //     exactly that;
+            //   * and the cap, which had no such term at all, tore down a panel that WAS drawn.
+            // One measurement fixes both ends, and it is the same one: PanelIsDrawing.
+            // ==================================================================================
+            bool drawing = PanelIsDrawing;
+
+            if (!_floatLogged)
             {
-                _rescueAsked = false;
-                FlatScreen.ReleaseRescueScreen("the distribute popup is floated in world space "
-                                               + "again, so the player has a usable panel without "
-                                               + "the 2D composite");
+                _floatLogged = true;
+                // HW-VERIFY: the positive half of the 2026-09-03 travel-event deadlock verdict. It is
+                // the only line that says the map-side distribute popup reached the player's eyes, and
+                // it names the popup and the exact subtree that was floated — because "did the confirm
+                // button come with it" is the term that decides whether this fix is a fix or a second
+                // deadlock. Once per distribution episode.
+                VRLog.Note("WorldUI", "DISTRIBUTE POPUP FLOATED: '" + _popupName + "' is in world space "
+                                      + "in front of the HMD. FLOAT ROOT: '" + _rootPath + "', chosen as "
+                                      + _rootHow + ". The game's own widgets ride along — the slot +/- "
+                                      + "buttons and the confirm button are the game's, clicked by poke "
+                                      + "or laser, and the promise this popup gates "
+                                      + "(UIDistributeReward.Distribute → OnConfirmClick → promise."
+                                      + "Resolve, waited on by MapChoreographer.WaitDistributionEnds) "
+                                      + "resolves exactly as it does in 2D. WHAT THIS DOES NOT CLAIM: "
+                                      + "that the player pressed anything. If the campaign still does "
+                                      + "not advance after this line, the panel is on screen and the "
+                                      + "fault is downstream of the float."
+                                      + " SCENE IDENTITY (captured once, and the thing the ModBuild 371 "
+                                      + "post-mortem had to guess at): window='" + _windowPath
+                                      + "', popup component on='" + _popupGoPath
+                                      + "', reward UI on='" + _rewardGoPath
+                                      + "', window IS the popup's own GameObject=" + _windowIsPopupGo
+                                      + ", window carries the ControllerInputAreaLocal="
+                                      + _windowHasControllerArea
+                                      + ". EITHER BOOL TRUE means a later deactivate or destroy of that "
+                                      + "window would RUN controllerArea.Destroy "
+                                      + "(UIDistributePointsPopup.OnDisable and ControllerInputAreaLocal."
+                                      + "OnDisable both call it). That is a statement about which code "
+                                      + "would execute, and nothing more: " + AreaLineCaveat
+                                      // APPENDED, ModBuild 376 — Fix 2's instrument. The paths above
+                                      // cannot tell one GameObject from a same-named neighbour; these
+                                      // three clauses name the objects by instance id, list EVERY
+                                      // reward UI the lookup resolved, and state whether the object
+                                      // the resolver judges is the object the mod has floated.
+                                      + " " + _resolvedCensus
+                                      + " " + DescribeFloatIdentity()
+                                      + " " + DescribeDrawn());
             }
-            if (_floatLogged)
+
+            if (drawing)
+            {
+                // The player has something in front of him. Any standing rescue is over.
+                // (It cannot normally be standing here — the rescue sets ManualScreenActive,
+                // which releases this surface's float — but the tick order between FlatScreen and
+                // the surfaces is not something this file gets to assume, so the release is
+                // written level-triggered rather than as a claim about ordering.)
+                _blindSince = -1f;
+                _darkSince = -1f;
+                _darkLogged = false;
+                if (_rescueAsked)
+                {
+                    _rescueAsked = false;
+                    FlatScreen.ReleaseRescueScreen("the distribute popup is floated in world space "
+                                                   + "again, so the player has a usable panel without "
+                                                   + "the 2D composite");
+                }
                 return;
-            _floatLogged = true;
-            // HW-VERIFY: the positive half of the 2026-09-03 travel-event deadlock verdict. It is
-            // the only line that says the map-side distribute popup reached the player's eyes, and
-            // it names the popup and the exact subtree that was floated — because "did the confirm
-            // button come with it" is the term that decides whether this fix is a fix or a second
-            // deadlock. Once per distribution episode.
-            VRLog.Note("WorldUI", "DISTRIBUTE POPUP FLOATED: '" + _popupName + "' is in world space "
-                                  + "in front of the HMD. FLOAT ROOT: '" + _rootPath + "', chosen as "
-                                  + _rootHow + ". The game's own widgets ride along — the slot +/- "
-                                  + "buttons and the confirm button are the game's, clicked by poke "
-                                  + "or laser, and the promise this popup gates "
-                                  + "(UIDistributeReward.Distribute → OnConfirmClick → promise."
-                                  + "Resolve, waited on by MapChoreographer.WaitDistributionEnds) "
-                                  + "resolves exactly as it does in 2D. WHAT THIS DOES NOT CLAIM: "
-                                  + "that the player pressed anything. If the campaign still does "
-                                  + "not advance after this line, the panel is on screen and the "
-                                  + "fault is downstream of the float."
-                                  + " SCENE IDENTITY (captured once, and the thing the ModBuild 371 "
-                                  + "post-mortem had to guess at): window='" + _windowPath
-                                  + "', popup component on='" + _popupGoPath
-                                  + "', reward UI on='" + _rewardGoPath
-                                  + "', window IS the popup's own GameObject=" + _windowIsPopupGo
-                                  + ", window carries the ControllerInputAreaLocal="
-                                  + _windowHasControllerArea
-                                  + ". EITHER BOOL TRUE means a later deactivate or destroy of that "
-                                  + "window would RUN controllerArea.Destroy "
-                                  + "(UIDistributePointsPopup.OnDisable and ControllerInputAreaLocal."
-                                  + "OnDisable both call it). That is a statement about which code "
-                                  + "would execute, and nothing more: " + AreaLineCaveat);
+            }
+
+            // ==================================================================================
+            // A PANEL IS FLOATED AND IT IS DRAWING NOTHING. This is a case ModBuild 375 could not
+            // reach at all: the existence test above returned early, so the escape's clock was
+            // cleared and the rescue could never be raised for it. It gets its own clock and its
+            // own marker rather than borrowing the blind one, because the blind line's text says
+            // "the mod has no panel up" and that would be a false statement here — an instrument
+            // that misdescribes its own trigger costs a round.
+            //
+            // NOTE THE ONE THING THIS DELIBERATELY DOES NOT DO: it does not release or hide the
+            // panel. Nothing here writes game state — no Show, no Hide, no SetActive, no
+            // synthesised click. It raises the mod's own 2D composite, on which the game's own
+            // widgets are drawn and clickable, and the player presses the game's own button.
+            // ==================================================================================
+            if (_darkSince < 0f)
+                _darkSince = Time.unscaledTime;
+            if (Time.unscaledTime - _darkSince < RescueSeconds)
+                return;
+
+            if (!_darkLogged)
+            {
+                _darkLogged = true;
+                // HW-VERIFY: the empty-panel half of the escape, which did not exist before
+                // ModBuild 376. Its presence means the mod had a decision panel floated that was
+                // drawing NOTHING while the campaign was gated on it — the "leeres Fenster" case
+                // — and that the escape treated it as nothing rather than as a panel.
+                VRLog.Alert("WorldUI", "DISTRIBUTE FLOAT IS DARK: the mod has a decision panel "
+                                      + "floated for this distribution and it has been drawing "
+                                      + "NOTHING for " + RescueSeconds.ToString("0") + " s while "
+                                      + "UIDistributeRewardManager.IsDistributing is still true. "
+                                      + "An empty panel is not a panel: through ModBuild 375 the "
+                                      + "mere existence of a conversion cleared this escape's "
+                                      + "clock, so this state suppressed the rescue instead of "
+                                      + "raising it. The 2D composite goes up on this same tick. "
+                                      + DescribeDrawn() + " " + DescribeTerms()
+                                      + " " + DescribeFloatIdentity());
+            }
+
+            if (_rescueAsked)
+                return;
+            _rescueAsked = true;
+            FlatScreen.RequestRescueScreen(
+                "DistributeRewardSurface",
+                "The game has been distributing a reward for " + RescueSeconds.ToString("0")
+                + " s and the panel the mod has floated for it has been drawing NOTHING for that "
+                + "whole time — an empty window, which the standing user ruling forbids. "
+                + DescribeDrawn() + " " + DescribeTerms());
             return;
         }
 
@@ -1362,7 +1939,13 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                   + "', reward UI on='" + _rewardGoPath
                                   + "', window IS the popup's own GameObject=" + _windowIsPopupGo
                                   + ", window carries the ControllerInputAreaLocal="
-                                  + _windowHasControllerArea + ".");
+                                  + _windowHasControllerArea + "."
+                                  // APPENDED, ModBuild 376 — every reward UI the lookup resolved,
+                                  // by instance id. "resolved=1" above is a COUNT; the manager
+                                  // chains a LIST of DistributeRewardProcess and each of them
+                                  // owns a processUI.PopUp, so WHICH one was resolved is the
+                                  // question, and a count cannot answer it.
+                                  + " " + _resolvedCensus);
         }
 
         // ==================================================================================
@@ -1462,5 +2045,21 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
         _rootMemo = null;
         _rootMemoFor = null;
         _rootMemoWindow = null;
+        _drawnNextCheck = 0f;
+        _drawnLastTrueAt = -1f;
+        _drawnConvertedAt = -1f;
+        _drawnGraphics = 0;
+        _drawnWalks = 0;
+        _drawnVerdict = false;
+        _drawnWhy = "(not measured yet)";
+        _darkSince = -1f;
+        _darkLogged = false;
+        _capVetoLogged = false;
+        _capVetoes = 0;
+        _rewardId = 0;
+        _popupId = 0;
+        _popupGoId = 0;
+        _windowId = 0;
+        _resolvedCensus = "(not captured)";
     }
 }
