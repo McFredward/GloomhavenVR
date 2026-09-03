@@ -39,6 +39,12 @@ internal static partial class WallSegmentFade
     /// by <see cref="DoorOpenWatch"/> to answer "does the mod hold a rule on this door leaf".</summary>
     internal static string? DescribeHold(Renderer r) => _driver != null ? _driver.DescribeHoldOn(r) : null;
 
+    /// <summary>Is <paramref name="r"/> currently held OFF by the wall system — i.e. the wall fade
+    /// wrote <c>enabled = false</c> and has not restored it yet? The healer's "don't win a write war"
+    /// term (Core/MaterialLoaderHeal.cs): a renderer in the ledger is disabled ON PURPOSE by this
+    /// mod and must not be switched back on by another of its subsystems.</summary>
+    internal static bool IsHeldHiddenByEnable(Renderer r) => _driver != null && _driver.IsHeldHidden(r);
+
     private sealed partial class FadeDriver
     {
         /// <summary>Renderers whose <c>enabled</c> bit THIS driver switched off and has not yet
@@ -87,6 +93,8 @@ internal static partial class WallSegmentFade
                 return;
             _hidByEnable.RemoveWhere(static x => x == null);
         }
+
+        internal bool IsHeldHidden(Renderer r) => r != null && _hidByEnable.Contains(r);
 
         internal string? DescribeHoldOn(Renderer r)
         {

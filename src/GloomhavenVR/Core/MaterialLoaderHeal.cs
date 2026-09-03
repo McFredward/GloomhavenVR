@@ -501,6 +501,14 @@ internal static class MaterialLoaderHeal
         private readonly List<ProceduralMapTile> _tileScratch = new();
         private readonly List<MaterialLoaderData> _pruneScratch = new();
         private readonly HashSet<MaterialLoader> _touchedLoaders = new();
+        /// <summary>Instance ids of the renderers the slow scan completed THIS pass, and the
+        /// signature of the set the last "completed N stalled renderer(s)" line reported. The line
+        /// is change-gated on the SET, not on the count: the ModBuild 413 hardware log carried that
+        /// line 513 times with the same N (14, then 17, then 5) — the same renderers, every second,
+        /// because the healer was re-enabling riders the wall fade had hidden and the wall fade hid
+        /// them again next frame. A repeat with an identical set says nothing new.</summary>
+        private readonly List<int> _doneIdsScratch = new(32);
+        private string _lastDoneSignature = string.Empty;
         private float _nextScan;
         private float _nextPrune;
         private float _nextSeed;
@@ -645,6 +653,11 @@ internal static class MaterialLoaderHeal
                     }
                     if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
                         continue;
+                    if (WallSegmentFade.IsHeldHiddenByEnable(r))
+                    {
+                        _tracks.Remove(data);
+                        continue; // held OFF by the wall fade on purpose — see HealAllLoaders
+                    }
 
                     LoaderState state = Classify(data, rendererEnabled: false, out _, out _, out _);
                     if (state != LoaderState.DoneStuck)
@@ -722,7 +735,8 @@ internal static class MaterialLoaderHeal
                 return;
 
             _touchedLoaders.Clear();
-            int nNever = 0, nNull = 0, nPending = 0, nDone = 0;
+            _doneIdsScratch.Clear();
+            int nNever = 0, nNull = 0, nPending = 0, nDone = 0, nHeldByWallFade = 0;
 
             foreach (MaterialLoader loader in _loaderScratch)
             {
@@ -788,6 +802,17 @@ internal static class MaterialLoaderHeal
                     // never touches anything inside it, in any state.
                     if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
                         continue;
+                    // DON'T WIN A WRITE WAR (ModBuild 414, the 413 log's 513x "completed N stalled"
+                    // repeat): a renderer the wall fade holds OFF through its enable ledger is
+                    // disabled on purpose by this mod. Re-enabling it here only makes the fade
+                    // hide it again next frame — a one-second flicker on every rider over a faded
+                    // wall. Concede the flag; count it and leave it alone.
+                    if (WallSegmentFade.IsHeldHiddenByEnable(r))
+                    {
+                        nHeldByWallFade++;
+                        _tracks.Remove(data);
+                        continue;
+                    }
                     // ROUND 8: a done-stuck-looking entry whose loaded materials are
                     // ALREADY on the renderer means the loader finished — the disable came
                     // from elsewhere. Outside door props nothing in the game legitimately
@@ -798,6 +823,7 @@ internal static class MaterialLoaderHeal
                     {
                         r.enabled = true;
                         nDone++;
+                        _doneIdsScratch.Add(r.GetInstanceID());
                         _touchedLoaders.Add(loader);
                         _tracks.Remove(data);
                         if (nDone <= 3)
@@ -857,6 +883,7 @@ internal static class MaterialLoaderHeal
                             if (TryFinishDirect(data, r))
                             {
                                 nDone++;
+                                _doneIdsScratch.Add(r.GetInstanceID());
                                 _touchedLoaders.Add(loader);
                                 _tracks.Remove(data);
                                 if (nDone <= 3) // forensic sample: WHICH strand was it?
@@ -892,12 +919,24 @@ internal static class MaterialLoaderHeal
                     + $"({retriggered} renderer(s)) — reason: "
                     + string.Join(", ", reasons));
             }
-            if (nDone > 0)
+            if (nDone > 0 || nHeldByWallFade > 0)
             {
-                VRLog.Info(Name,
-                    $"MaterialLoaderHeal: completed {nDone} stalled renderer(s) directly — "
-                    + "reason: done-stuck (all handles loaded, the game's CheckAllMaterialLoaded "
-                    + "never re-enabled them)");
+                // Change-gated on the SET of completed renderers (sorted instance ids) plus the
+                // held count — a pass that completes the same renderers as the last logged pass
+                // is the write war, not news, and prints nothing.
+                _doneIdsScratch.Sort();
+                string signature = string.Join(",", _doneIdsScratch) + "|" + nHeldByWallFade;
+                if (signature != _lastDoneSignature)
+                {
+                    _lastDoneSignature = signature;
+                    VRLog.Info(Name,
+                        $"MaterialLoaderHeal: completed {nDone} stalled renderer(s) directly — "
+                        + "reason: done-stuck (all handles loaded, the game's CheckAllMaterialLoaded "
+                        + "never re-enabled them)"
+                        + $"; held by the wall fade, left alone: {nHeldByWallFade} (renderers the wall "
+                        + "fade's enable ledger holds OFF on purpose — the healer no longer re-enables "
+                        + "them, so this line is change-gated on the set and prints once per distinct set)");
+                }
             }
         }
 
