@@ -579,6 +579,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
 
+    /// <summary>
+    /// THE SHARED SETTLE RULE, one instance per size term and per window — the answer to the
+    /// 2026-09-03 report, which asked for the handle's size flicker to be suppressed <i>"allgemein"</i>
+    /// and not on the one panel it was noticed on. <c>SurfaceGrabBar</c> holds exactly this pair and
+    /// feeds it exactly these two quantities, so a modal window's handle and a decision panel's
+    /// handle behave identically. The full derivation, the settle window and the shrink ruling all
+    /// live on <see cref="BarSizeSettle"/>; nothing about them is restated here, because two copies
+    /// of a rule is how two handles drift.
+    /// </summary>
+    private readonly BarSizeSettle _widthSettle = new("width");
+    private readonly BarSizeSettle _heightSettle = new("height");
+
     /// <summary>True while a hand grips the bar (owner skips no writes — the host just follows).</summary>
     internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
 
@@ -1587,6 +1599,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             return;
         }
 
+        // ModBuild 376 — A NEW ROD STARTS WITH NO SETTLED SIZE. This class is REUSED across a
+        // window's closes and re-opens (Destroy drops the holder, EnsureFrame builds a new one), so
+        // a settler that kept its value would hold the previous float's rod size for a whole settle
+        // window against a rect it was never measured on. Reset here as well as in Destroy: the
+        // build path is the one that matters, because it is the one a re-open takes.
+        _widthSettle.Reset();
+        _heightSettle.Reset();
+
         var holderGo = new GameObject($"GloomhavenVR.ModalGrab_{_logName}");
         _holder = holderGo.transform;
         // DRAG-FLICKER FIX: LateUpdate re-sync of the host from the frame — see LateSyncHost.
@@ -1699,7 +1719,25 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // numerically identical to the previous fixed constants. The proportion is deliberately
         // still taken from the HOST RECT and not from the ink: it is a comfort rule about how big
         // the physical handle may be next to its window, and the window is the frame.
-        float panelHeight = halfHeight * 2f / Mathf.Max(worldScale, 1e-4f);
+        //
+        // ModBuild 376 — THE HEIGHT TERM GOES THROUGH THE SHARED SETTLE RULE (BarSizeSettle), the
+        // same one SurfaceGrabBar runs and for the same reported artefact: a host rect that moves
+        // and moves straight back changes the rod's thickness and its gap without the window really
+        // changing. The clamp is applied AFTER the settle, so the rule owns the measurement and the
+        // comfort bound above still owns the answer.
+        //
+        // THE VISIBILITY TERM. A change made while the rod is not drawn is adopted at once — see
+        // BarSizeSettle's OFF-SCREEN CHANGES ARE FREE block for the closed bug (the post-reveal
+        // jump) that depends on this, since every window is fitted BEFORE the reveal gate lets it
+        // through. Both halves are read: the reveal gate's own flags on the panel, and the rod's own
+        // GameObject, which SyncBarVisibility switches off for an empty window on the tick below.
+        // (_bar is non-null from this method's own first line, and GrabBarVisual.Root is a
+        // non-nullable Transform the visual owns for its whole life — the placement writes below
+        // dereference it unguarded for the same reason.)
+        bool onScreen = _panel != null && !_panel.RenderHidden && !_panel.OwnerRenderHidden
+                        && _bar.Root.gameObject.activeInHierarchy;
+        float panelHeight = _heightSettle.Apply(halfHeight * 2f / Mathf.Max(worldScale, 1e-4f),
+            onScreen, _logName);
         float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
             MinBarProportion, 1f);
         float gap = BarGapMeters * proportion * worldScale;
@@ -1720,26 +1758,48 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         // THE FRAME-BASED PLACEMENT — byte-for-byte what shipped through ModBuild 235, and still the
         // answer whenever the ink cannot be measured (see the degenerate branch below).
-        float frameBarWidth = Mathf.Max(width * BarWidthFraction, minWidth);
-        float frameZoneWidth = Mathf.Max(width * ZoneWidthFraction, minWidth);
         float x = 0f;
         float y = -(halfHeight + gap);
-        float barWidth = frameBarWidth;
-        float zoneWidth = frameZoneWidth;
+
+        // THE WIDTH THE ROD IS A FRACTION OF, as ONE number — the frame's, or the ink's when the ink
+        // is narrower. It is a REWRITE OF THE SAME ARITHMETIC, not a new rule, and the equality is
+        // worth stating because the old shape is what every other build's numbers came from. It was:
+        //
+        //     frameBarWidth = Max(width * F, minWidth)
+        //     barWidth      = ink ? Clamp(inkW * F, minWidth, frameBarWidth) : frameBarWidth
+        //
+        // and it is now Max(Min(inkW, width) * F, minWidth). With inkW <= width the upper clamp
+        // never binds, so both give Max(inkW * F, minWidth); with inkW > width both give
+        // Max(width * F, minWidth) — the old form by hitting its cap, the new one by taking the Min.
+        // Same for the zone's fraction. Nothing about "the bar can only ever get NARROWER than the
+        // frame-based one" changed: the Min IS that cap.
+        //
+        // ModBuild 376 — AND IT GOES THROUGH THE SHARED SETTLE RULE (BarSizeSettle). One settled
+        // width feeds BOTH fractions, so the drawn rod and the palm zone can never disagree about
+        // how wide the window is, and the ink branch is covered by the same gate as the frame branch
+        // rather than by a second one: whichever of the two moves, it is this scalar that moves.
+        float sourceWidth = _inkValid && unit > 1e-9f
+            ? Mathf.Min(_inkRect.width * unit, width)
+            : width;
+        sourceWidth = _widthSettle.Apply(sourceWidth, onScreen, _logName);
+
+        // The MinBarWidth floor stays OUTSIDE the settle rule: it is a hard invariant about a rod
+        // shorter than its own two caps, not a size the rule may own for a settle window.
+        float barWidth = Mathf.Max(sourceWidth * BarWidthFraction, minWidth);
+        float zoneWidth = Mathf.Max(sourceWidth * ZoneWidthFraction, minWidth);
 
         if (_inkValid && unit > 1e-9f)
         {
             // BELOW THE LOWEST DRAWN GRAPHIC. hostRect.yMin x unit is exactly -halfHeight for a
             // pivot-centred host, so a window whose ink stays inside its frame is unchanged; the Min
             // is what keeps the bar from ever RISING into the frame when the ink is short.
+            //
+            // POSITION IS UNGATED, and that is deliberate — see BarSizeSettle. A handle that lags
+            // its own window hangs off the side of it, which is a worse artefact than the one the
+            // settle rule was built for and is not the one that was reported.
             y = Mathf.Min(hostRect.yMin, _inkRect.yMin) * unit - gap;
             // CENTRED ON THE INK. For a window whose ink fills its frame this is 0 and nothing moved.
             x = _inkRect.center.x * unit;
-            // A FRACTION OF WHAT IS DRAWN, floored at MinBarWidth so the grab/laser target survives
-            // and capped at the frame-based width so the bar can only ever get NARROWER than the one
-            // the user has already accepted on every other window.
-            barWidth = Mathf.Clamp(_inkRect.width * unit * BarWidthFraction, minWidth, frameBarWidth);
-            zoneWidth = Mathf.Clamp(_inkRect.width * unit * ZoneWidthFraction, minWidth, frameZoneWidth);
         }
 
         _bar.Root.localPosition = new Vector3(x, y, 0f);
@@ -2766,6 +2826,9 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _handle = null;
         _visualValid = false;
         _easing = false;
+        // ModBuild 376 — the settled sizes describe a host rect that no longer has a rod on it.
+        _widthSettle.Reset();
+        _heightSettle.Reset();
         // The ink capture describes furniture that no longer exists; a rebuilt holder must measure
         // again from scratch rather than inherit a union taken against the old host rect.
         _inkValid = false;

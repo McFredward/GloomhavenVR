@@ -52,6 +52,14 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// of transform arithmetic that is a straight read of <c>GrabbableModal.SyncBar</c>'s frame-based
 /// branch, with the same constants, so the two handles cannot drift in look or feel.</para>
 ///
+/// <para><b>AND SINCE ModBuild 376 THEY CANNOT DRIFT IN BEHAVIOUR EITHER.</b> The rule that decides
+/// when a size change reaches the rod at all is <see cref="BarSizeSettle"/>, a shared class both
+/// this type and <c>GrabbableModal</c> instantiate per bar and per size term. It answers the report
+/// of 2026-09-03 — <i>"Wenn sich das Fenster nicht wirklich vergrößert, sollte der Greifbalken auch
+/// nicht größer werden"</i>, asked for <i>"allgemein"</i> — and its whole derivation, its settle
+/// window and its symmetric shrink ruling live over there rather than being restated here, because
+/// two copies of one rule is precisely how two handles drift.</para>
+///
 /// <para><b>NO CLOSE X, BY CONSTRUCTION AND NOT BY OMISSION.</b> The X is a SEPARATE call in
 /// <c>ModalFallback.8.Convert</c> — <c>ModalCloseButton.Attach(panel, window)</c> — taken beside
 /// the grab decision, not inside it, and its second argument is a <c>UIWindow</c> these panels do
@@ -160,6 +168,16 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     private bool _lastHostPosValid;
     private bool _userMoved;
 
+    /// <summary>
+    /// THE SHARED SETTLE RULE, one instance per size term and per bar (see
+    /// <see cref="BarSizeSettle"/> for the report it answers and for the whole derivation).
+    /// <c>GrabbableModal</c> holds the same pair for the same two terms and feeds them the same
+    /// quantities, so the two handles cannot drift in behaviour any more than the constants above
+    /// let them drift in look.
+    /// </summary>
+    private readonly BarSizeSettle _widthSettle = new("width");
+    private readonly BarSizeSettle _heightSettle = new("height");
+
     /// <summary>True while a hand grips the bar.</summary>
     internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
 
@@ -192,6 +210,11 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         _extraScale = extraScale;
         _spawnWorldScale = Mathf.Max(worldScale, 0.01f);
         _logName = logName;
+        // BEFORE EnsureFrame, which ends in the first Tick. A settler carrying a previous float's
+        // value would hold the old rod size for a whole settle window on a panel it was never
+        // measured against; the first sample after a Reset is adopted immediately instead.
+        _widthSettle.Reset();
+        _heightSettle.Reset();
         EnsureFrame();
         if (_frame != null && panel.HostGo != null)
         {
@@ -316,7 +339,23 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         float unit = metersPerPixel * _extraScale * _spawnWorldScale;
         float worldScale = _spawnWorldScale;
 
-        float panelHeight = rect.height * unit / Mathf.Max(worldScale, 1e-4f);
+        // THE TWO SIZE TERMS GO THROUGH THE SHARED SETTLE RULE, and only these two: a change in
+        // either makes the ROD itself bigger or smaller, which is the whole of the 2026-09-03
+        // report ("Wenn sich das Fenster nicht wirklich vergrößert, sollte der Greifbalken auch
+        // nicht größer werden"). Everything else below is POSITION and is deliberately ungated —
+        // see BarSizeSettle's class comment for why a lagging handle would be the worse artefact.
+        //
+        // The visibility term is the SAME predicate IPanelGrabOwner.GrabVisible answers with —
+        // "grabbing something that is not there" and "gating a size the player cannot see" are the
+        // same question about the same rod. A change made behind the reveal gate is adopted at once;
+        // see BarSizeSettle's OFF-SCREEN CHANGES ARE FREE block for the closed bug that depends on
+        // it (a decision panel is built, fitted and only then revealed).
+        bool onScreen = _panel != null && _panel.IsAlive && !_panel.RenderHidden
+                        && !_panel.OwnerRenderHidden
+                        && _holder != null && _holder.gameObject.activeInHierarchy;
+        float panelHeight = _heightSettle.Apply(rect.height * unit / Mathf.Max(worldScale, 1e-4f),
+                                                onScreen, _logName);
+        float sourceWidth = _widthSettle.Apply(rect.width * unit, onScreen, _logName);
         float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
                                        MinBarProportion, 1f);
         float gap = BarGapMeters * proportion * worldScale;
@@ -333,8 +372,12 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         // hung off an assumed pivot is a bar that silently detaches the day one is not.
         float x = rect.center.x * unit;
         float y = rect.yMin * unit - gap;
-        float barWidth = Mathf.Max(rect.width * unit * BarWidthFraction, minWidth);
-        float zoneWidth = Mathf.Max(rect.width * unit * ZoneWidthFraction, minWidth);
+        // ONE settled width feeds BOTH fractions, so the drawn rod and the palm zone can never
+        // disagree about how wide the panel is. The MinBarWidth floor stays OUTSIDE the settle rule:
+        // it is a hard invariant about a rod shorter than its own two caps, not a size the rule may
+        // own for a settle window.
+        float barWidth = Mathf.Max(sourceWidth * BarWidthFraction, minWidth);
+        float zoneWidth = Mathf.Max(sourceWidth * ZoneWidthFraction, minWidth);
 
         _bar.Root.localPosition = new Vector3(x, y, 0f);
         _bar.Root.localScale = Vector3.one * rodScale;
@@ -496,6 +539,10 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         _panel = null;
         _lastHostPosValid = false;
         _userMoved = false;
+        // The settled sizes describe a rect that no longer exists. Cleared here as well as in
+        // Build, so an instance that is destroyed and never rebuilt leaves no state behind either.
+        _widthSettle.Reset();
+        _heightSettle.Reset();
     }
 
     /// <summary>
