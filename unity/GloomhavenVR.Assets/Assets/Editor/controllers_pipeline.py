@@ -29,8 +29,13 @@ one -- pico-4's root carries scale (-1,1,1) -- does not).
 
 Output -> unity/GloomhavenVR.Assets/Assets/Bundle/Controllers/
     <profile>/<hand>_<part>__m<N>.obj     one mesh per part per material
-    <profile>/tex_<N>.(png|jpg)           base-colour textures, downscaled
-    <profile>/nrm_<N>.png                 tangent-space normal maps, where the profile has one
+    <profile>/tex_<hand>_<N>.(png|jpg)    base-colour textures, downscaled. HAND-NAMED since
+                                          2026-09-03: each hand is its own glTF document whose
+                                          first image is index 0, so a name without the hand
+                                          made the two overwrite each other and both models
+                                          wore the right hand's letters. An image byte-identical
+                                          across the hands is still written once and shared.
+    <profile>/nrm_<hand>_<N>.png          tangent-space normal maps, where the profile has one
     <profile>/mrs_*.png                   metallic(R)/roughness(G): the glTF pack times its
                                           factors, or a 4x4 constant when there is no pack
     <profile>/controller.json             parts, materials, key anchors, bounds
@@ -345,14 +350,54 @@ def texture_source(g, node, key):
     return g["textures"][t["index"]].get("source")
 
 
-def export_textures(g, binary, out_dir):
+def export_textures(g, binary, out_dir, hand):
     """Albedo, normal and a metallic/roughness pack -- ALL THREE, because the bundled BoardLit
     shader reads all three and dropping two of them is what makes a plastic controller read as
     matte cardboard. Which maps exist varies by profile and is recorded in the manifest rather
     than assumed: the Index and the generic fallback ship metallic/roughness, the generic one
-    also ships a normal map, and the Quest and Pico ship albedo only."""
+    also ships a normal map, and the Quest and Pico ship albedo only.
+
+    EVERY FILENAME CARRIES THE HAND, AND THAT IS THE WHOLE OF A SHIPPED BUG (2026-09-03).
+    User: "Die linke Quest Controller ist der gespiegelte rechte Controller! So eine
+    Spiegelung geht bei den Haenden, aber nicht bei den Controller-Assets, denn die Buttons
+    heissen anders bei beiden Controllern."
+
+    The GEOMETRY was never mirrored -- left and right are separate downloads and their
+    manifests differ (2547 vs 2545 vertices on the Quest body, both with a POSITIVE signed
+    volume, which a mirror could not have). What was shared is the TEXTURE, and the texture is
+    where the letters are. This function used to name its output after the glTF IMAGE INDEX,
+    `tex_{src}.jpg` -- and each hand is its own glTF document whose first image is index 0. So
+    both hands wrote `tex_0.jpg` into the same folder and the SECOND one processed won. HANDS
+    is ("left", "right"), so every profile shipped the RIGHT hand's texture on BOTH models:
+    A and B on a controller whose buttons are X and Y.
+
+    The manifests say plainly that these are different materials and it went unread for as
+    long as the file names hid it -- Quest: controllerMATphongLT vs controllerMATphongRT;
+    Index: knuckles_left vs knuckles_right. (Pico and the generic profile genuinely share one
+    material across both hands, which is why the dedupe below exists rather than a blanket
+    duplicate: an identical image is written once and both hands point at it, so a profile
+    that was correct keeps its exact bundle bytes.)"""
     mats = []
     tex_files = {}
+
+    def emit(fn, save):
+        """Write `fn` through `save`, then FOLD IT BACK onto an identical file if one is
+        already there. Content-addressed rather than name-addressed: the hand prefix makes a
+        collision impossible, and this makes the correction free for the two profiles whose
+        hands really do share a texture."""
+        path = os.path.join(out_dir, fn)
+        save(path)
+        blob = open(path, "rb").read()
+        for other in sorted(os.listdir(out_dir)):
+            if other == fn or not other.startswith(("tex_", "nrm_", "mrs_")):
+                continue
+            op = os.path.join(out_dir, other)
+            if os.path.getsize(op) != len(blob):
+                continue
+            if open(op, "rb").read() == blob:
+                os.remove(path)
+                return other, True
+        return fn, False
 
     def albedo(src):
         if src in tex_files:
@@ -361,14 +406,15 @@ def export_textures(g, binary, out_dir):
         has_alpha = im.mode in ("RGBA", "LA") and \
             np.asarray(im.convert("RGBA"))[..., 3].min() < 255
         if has_alpha:
-            fn = f"tex_{src}.png"
-            im.convert("RGBA").save(os.path.join(out_dir, fn), optimize=True)
+            fn, shared = emit(f"tex_{hand}_{src}.png",
+                              lambda p: im.convert("RGBA").save(p, optimize=True))
         else:
-            fn = f"tex_{src}.jpg"
-            im.convert("RGB").save(os.path.join(out_dir, fn), quality=92)
+            fn, shared = emit(f"tex_{hand}_{src}.jpg",
+                              lambda p: im.convert("RGB").save(p, quality=92))
         tex_files[src] = fn
         print(f"    albedo {fn} {im.size[0]}x{im.size[1]} "
-              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB"
+              + ("  (identical to the other hand's - shared)" if shared else ""))
         return fn
 
     def normal(src):
@@ -376,11 +422,12 @@ def export_textures(g, binary, out_dir):
         if key in tex_files:
             return tex_files[key]
         im = decode_image(g, binary, src).convert("RGB")
-        fn = f"nrm_{src}.png"          # PNG: a normal map must not be JPEG-rung
-        im.save(os.path.join(out_dir, fn), optimize=True)
+        # PNG: a normal map must not be JPEG-rung. Hand-named for the same reason as the albedo.
+        fn, shared = emit(f"nrm_{hand}_{src}.png", lambda p: im.save(p, optimize=True))
         tex_files[key] = fn
         print(f"    normal {fn} {im.size[0]}x{im.size[1]} "
-              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB")
+              f"{os.path.getsize(os.path.join(out_dir, fn))/1e3:.0f} kB"
+              + ("  (identical to the other hand's - shared)" if shared else ""))
         return fn
 
     def mrs(src, metal_factor, rough_factor):
@@ -407,21 +454,26 @@ def export_textures(g, binary, out_dir):
         if src is None:
             metal = np.full((4, 4), metal_factor, dtype=np.float64)
             rough = np.full((4, 4), rough_factor, dtype=np.float64)
+            # A CONSTANT PACK IS NAMED BY ITS VALUES, not by the hand: two hands with the same
+            # two factors describe the same 4x4 image, and the dedupe below would fold them
+            # together anyway. Leaving the name value-addressed keeps it readable in the folder.
             fn = f"mrs_const_{int(metal_factor * 255):03d}_{int(rough_factor * 255):03d}.png"
             note = f"constant (metallic {metal_factor:.2f}, roughness {rough_factor:.2f})"
         else:
             a = np.asarray(decode_image(g, binary, src).convert("RGB")).astype(np.float64) / 255.0
             metal = a[..., 2] * metal_factor
             rough = a[..., 1] * rough_factor
-            fn = f"mrs_{src}.png"
+            fn = f"mrs_{hand}_{src}.png"
             note = (f"{a.shape[1]}x{a.shape[0]} metallic {metal.mean():.2f} avg, "
                     f"roughness {rough.mean():.2f} avg")
         packed = np.zeros(metal.shape + (3,), dtype=np.uint8)
         packed[..., 0] = np.clip(metal * 255.0, 0, 255).astype(np.uint8)
         packed[..., 1] = np.clip(rough * 255.0, 0, 255).astype(np.uint8)
-        Image.fromarray(packed).save(os.path.join(out_dir, fn), optimize=True)  # PNG: linear data
+        # PNG: linear data.
+        fn, shared = emit(fn, lambda p: Image.fromarray(packed).save(p, optimize=True))
         tex_files[key] = fn
-        print(f"    mrs    {fn} {note}")
+        print(f"    mrs    {fn} {note}"
+              + ("  (identical to the other hand's - shared)" if shared else ""))
         return fn
 
     for mi, mat in enumerate(g.get("materials", [])):
@@ -470,7 +522,7 @@ def main():
                         os.path.join(CACHE, profile, f"{hand}.glb"))
             g, wm, meshes = convert(profile, hand, glb, out_dir, f"{mod_id}_{hand}")
             _, binary = read_glb(glb)
-            mats = export_textures(g, binary, out_dir)
+            mats = export_textures(g, binary, out_dir, hand)
             manifest[hand] = {
                 "meshes": meshes,
                 "materials": mats,

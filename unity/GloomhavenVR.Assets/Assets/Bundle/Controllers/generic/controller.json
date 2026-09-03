@@ -89,9 +89,9 @@
     ],
     "metallic": 1.0,
     "roughness": 1.0,
-    "texture": "tex_2.jpg",
-    "normalTexture": "nrm_0.png",
-    "mrsTexture": "mrs_1.png"
+    "texture": "tex_left_2.jpg",
+    "normalTexture": "nrm_left_0.png",
+    "mrsTexture": "mrs_left_1.png"
    }
   ],
   "anchors": [
@@ -208,9 +208,9 @@
     ],
     "metallic": 1.0,
     "roughness": 1.0,
-    "texture": "tex_2.jpg",
-    "normalTexture": "nrm_0.png",
-    "mrsTexture": "mrs_1.png"
+    "texture": "tex_right_2.jpg",
+    "normalTexture": "nrm_left_0.png",
+    "mrsTexture": "mrs_left_1.png"
    }
   ],
   "anchors": [

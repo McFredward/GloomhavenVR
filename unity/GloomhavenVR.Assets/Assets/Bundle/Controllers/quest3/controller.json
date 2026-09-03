@@ -125,7 +125,7 @@
     ],
     "metallic": 0,
     "roughness": 0.5527864098548889,
-    "texture": "tex_0.jpg",
+    "texture": "tex_left_0.jpg",
     "normalTexture": null,
     "mrsTexture": "mrs_const_000_140.png"
    }
@@ -304,7 +304,7 @@
     ],
     "metallic": 0,
     "roughness": 0.5527864098548889,
-    "texture": "tex_0.jpg",
+    "texture": "tex_right_0.jpg",
     "normalTexture": null,
     "mrsTexture": "mrs_const_000_140.png"
    }

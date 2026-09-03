@@ -70,24 +70,31 @@ namespace GloomhavenVR
         {
             Directory.CreateDirectory(Out);
             string only = System.Environment.GetEnvironmentVariable("CTRL_ONLY");
+            // BOTH HANDS SINCE 2026-09-03, and that is why the defect this preview could have
+            // caught went out. User: "Die linke Quest Controller ist der gespiegelte rechte
+            // Controller! ... denn die Buttons heissen anders bei beiden Controllern." This tool
+            // rendered ONLY the right prefab, so the letters on the LEFT model were never once
+            // looked at on this machine. A preview aimed at one of two assets cannot report on the
+            // other, and "it looked right" was true of the only one it drew.
             foreach (string id in string.IsNullOrEmpty(only)
                      ? new[] { "quest3", "pico4", "index", "generic" } : new[] { only })
-                Render(id);
+            foreach (string hand in new[] { "left", "right" })
+                Render(id, hand);
             Debug.Log($"[GloomhavenVR] controller previews -> {Path.GetFullPath(Out)}");
             if (Application.isBatchMode)
                 EditorApplication.Exit(0);
         }
 
-        private static void Render(string id)
+        private static void Render(string id, string hand)
         {
-            var stage = new GameObject($"stage_{id}");
+            var stage = new GameObject($"stage_{id}_{hand}");
 
             // The device pose. Everything the runtime hangs off VRHand.transform hangs off this.
             var device = new GameObject("DevicePose");
             device.transform.SetParent(stage.transform, false);
 
             string prefabPath =
-                $"Assets/Bundle/Controllers/{id}/Controller_{id}_right.prefab";
+                $"Assets/Bundle/Controllers/{id}/Controller_{id}_{hand}.prefab";
             var controllerPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(prefabPath);
             if (controllerPrefab == null)
             {
@@ -97,16 +104,25 @@ namespace GloomhavenVR
             }
             var controller = (GameObject)PrefabUtility.InstantiatePrefab(controllerPrefab);
 
-            // The hand, at its shipped seat below the same device pose.
+            // The hand, at its shipped seat below the same device pose. THE GLOVE FOLLOWS THE
+            // HAND BEING RENDERED (2026-09-03) and its mirrored terms are mirrored here the same
+            // way VRHand.SyncVisualOffset mirrors them at runtime: roll, yaw, lateral and spread
+            // negate, pitch does not. Mirroring the GLOVE is correct and mirroring a CONTROLLER is
+            // not — a left hand IS a right hand reflected, a left controller is a different object
+            // with different letters on it, which is the whole of the 2026-09-03 report.
+            bool left = hand == "left";
+            float mirror = left ? -1f : 1f;
             var handPrefab = AssetDatabase.LoadAssetAtPath<GameObject>(
-                "Assets/Bundle/Hands/VRHand_R.prefab");
+                left ? "Assets/Bundle/Hands/VRHand_L.prefab"
+                     : "Assets/Bundle/Hands/VRHand_R.prefab");
             if (handPrefab != null)
             {
-                var hand = (GameObject)PrefabUtility.InstantiatePrefab(handPrefab);
-                hand.transform.SetParent(device.transform, false);
-                hand.transform.localPosition =
-                    new Vector3(SeatLateral + SeatSpread, SeatVertical, SeatForward);
-                hand.transform.localRotation = Quaternion.Euler(-SeatPitch, SeatYaw, SeatRoll);
+                var glove = (GameObject)PrefabUtility.InstantiatePrefab(handPrefab);
+                glove.transform.SetParent(device.transform, false);
+                glove.transform.localPosition =
+                    new Vector3(mirror * (SeatLateral + SeatSpread), SeatVertical, SeatForward);
+                glove.transform.localRotation =
+                    Quaternion.Euler(-SeatPitch, mirror * SeatYaw, mirror * SeatRoll);
 
                 // THE DEVICE POSE, and the alternative that was measured and rejected.
                 //
@@ -129,7 +145,7 @@ namespace GloomhavenVR
                 // controller in the wrist, which is what a frame mismatch looks like.
                 if (System.Environment.GetEnvironmentVariable("CTRL_GRAB") == "1")
                 {
-                    Transform grab = Find(hand.transform, "Anchor_Grab") ?? hand.transform;
+                    Transform grab = Find(glove.transform, "Anchor_Grab") ?? glove.transform;
                     controller.transform.SetParent(grab, false);
                     controller.transform.localPosition = Offset;
                     controller.transform.localRotation = Quaternion.Euler(Euler);
@@ -184,7 +200,7 @@ namespace GloomhavenVR
                 var tex = new Texture2D(Size, Size, TextureFormat.RGB24, false);
                 tex.ReadPixels(new Rect(0, 0, Size, Size), 0, 0);
                 tex.Apply();
-                File.WriteAllBytes($"{Out}/{id}_{name}.png", tex.EncodeToPNG());
+                File.WriteAllBytes($"{Out}/{id}_{hand}_{name}.png", tex.EncodeToPNG());
                 RenderTexture.active = null;
                 cam.targetTexture = null;
                 Object.DestroyImmediate(rt);

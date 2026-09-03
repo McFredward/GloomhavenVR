@@ -107,7 +107,19 @@ namespace GloomhavenVR
                 if (manifest == null || string.IsNullOrEmpty(manifest.modId))
                     throw new Exception($"{json} did not parse into a manifest.");
 
-                var materials = new Dictionary<int, Material>();
+                // KEYED BY (HAND, MATERIAL INDEX), NOT BY INDEX (2026-09-03). User: "Die linke
+                // Quest Controller ist der gespiegelte rechte Controller! ... denn die Buttons
+                // heissen anders bei beiden Controllern." Both hands number their first material
+                // 0, and this cache used to make that one Unity Material — so whichever hand was
+                // built first decided the texture for both, and the manifest said in plain text
+                // that they are different materials (controllerMATphongLT vs ...RT on the Quest,
+                // knuckles_left vs knuckles_right on the Index). The texture is where the letters
+                // are, so both models wore one hand's A/B or X/Y. The pipeline half of this is in
+                // controllers_pipeline.export_textures, which used to write both hands' images to
+                // the same tex_0 filename; an image identical across the hands is still emitted
+                // once and both materials point at it, so a profile that was already correct
+                // keeps its exact bundle bytes.
+                var materials = new Dictionary<string, Material>();
                 foreach (string hand in new[] { "left", "right" })
                 {
                     HandEntry entry = hand == "left" ? manifest.left : manifest.right;
@@ -123,7 +135,7 @@ namespace GloomhavenVR
         }
 
         private static void BuildHand(string dir, Manifest manifest, string hand,
-                                      HandEntry entry, Dictionary<int, Material> materials)
+                                      HandEntry entry, Dictionary<string, Material> materials)
         {
             string id = manifest.modId;
             var root = new GameObject($"Controller_{id}_{hand}");
@@ -147,7 +159,7 @@ namespace GloomhavenVR
                 go.transform.SetParent(part, false);
                 go.AddComponent<MeshFilter>().sharedMesh = mesh;
                 go.AddComponent<MeshRenderer>().sharedMaterial =
-                    GetMaterial(dir, id, entry, me.material, materials);
+                    GetMaterial(dir, id, hand, entry, me.material, materials);
             }
 
             // Anchors last, so a key that has no mesh of its own (the Index's grip is a force
@@ -301,16 +313,31 @@ namespace GloomhavenVR
                 importer.SaveAndReimport();
         }
 
-        private static Material GetMaterial(string dir, string id, HandEntry entry,
-                                            int index, Dictionary<int, Material> cache)
+        /// <summary>
+        /// The Unity Material for one hand's glTF material, cached so two meshes of the same hand
+        /// share one asset.
+        ///
+        /// <para>THE CACHE KEY IS THE RESOLVED MAP SET, not the material index (2026-09-03). Both
+        /// hands number their first material 0 and they are NOT the same material — the Quest
+        /// calls them controllerMATphongLT and controllerMATphongRT, the Index knuckles_left and
+        /// knuckles_right — and the difference is the texture, which is where the button LETTERS
+        /// are. Keying on the index handed the left controller the right one's A/B. Keying on the
+        /// three map paths splits them when they differ and still shares one asset when they do
+        /// not, which is the case for the Pico and the generic profile and is why those two keep
+        /// their exact bundle bytes.</para>
+        /// </summary>
+        private static Material GetMaterial(string dir, string id, string hand, HandEntry entry,
+                                            int index, Dictionary<string, Material> cache)
         {
-            if (cache.TryGetValue(index, out Material cached))
+            MaterialEntry me = entry.materials?.FirstOrDefault(m => m.index == index);
+            string key = $"{me?.texture ?? "-"}|{me?.normalTexture ?? "-"}|{me?.mrsTexture ?? "-"}|"
+                         + string.Join(",", me?.baseColorFactor ?? new float[0]);
+            if (cache.TryGetValue(key, out Material cached))
                 return cached;
 
             Shader shader = Shader.Find(ShaderName)
                 ?? throw new Exception($"Bundled shader '{ShaderName}' not found (compile error?).");
-            MaterialEntry me = entry.materials?.FirstOrDefault(m => m.index == index);
-            var mat = new Material(shader) { name = $"Controller_{id}_m{index}" };
+            var mat = new Material(shader) { name = $"Controller_{id}_{hand}_m{index}" };
             if (me?.baseColorFactor != null && me.baseColorFactor.Length == 4)
                 mat.color = new Color(me.baseColorFactor[0], me.baseColorFactor[1],
                                       me.baseColorFactor[2], me.baseColorFactor[3]);
@@ -350,9 +377,9 @@ namespace GloomhavenVR
                 }
             }
             mat.SetFloat("_Cull", 2f); // Back: the meshes are closed and correctly wound.
-            string matPath = $"{dir}/Controller_{id}_m{index}.mat".Replace('\\', '/');
+            string matPath = $"{dir}/Controller_{id}_{hand}_m{index}.mat".Replace('\\', '/');
             AssetDatabase.CreateAsset(mat, matPath);
-            cache[index] = mat;
+            cache[key] = mat;
             return mat;
         }
 

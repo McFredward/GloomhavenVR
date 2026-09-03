@@ -87,6 +87,13 @@ unity/GloomhavenVR.Assets/board-unity-preview.png
 render/windowmaterialise/
 render/clouds/
 cloud-preview.log
+
+# controller pipeline: the .glb download cache (regenerated on demand, ~17 MB of vendor
+# models we do not redistribute in source form) and the two Unity batch transcripts the
+# prefab builder and its preview station leave at the repo root.
+.ctrl-cache/
+build-controllers.log
+preview-controllers.log
 .planning/refactor/census-2026-08/*.json
 .planning/refactor/census-2026-08/__pycache__/
 
