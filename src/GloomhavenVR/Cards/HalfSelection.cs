@@ -849,9 +849,25 @@ internal sealed class HalfSelection
                 hand.SendHaptic(HapticPreset.HoverTick);
         }
 
+        /// <summary>
+        /// THE ZONE RACE (ModBuild 405, see <see cref="PokePads"/>): this fires at 8 mm fingertip
+        /// contact, 20 mm BEFORE the card face's uGUI click can (PokePressDepthMm), so a finger
+        /// aimed at the small default-action plate always played the big action instead — the
+        /// ModBuild 404 "es drückt IMMER die größere Fläche". A poke whose fingertip lies inside a
+        /// LIVE default action's padded rect is therefore refused here and left to the plate's own
+        /// uGUI click. Both plates are probed, not only this half's: they sit near the card's
+        /// middle band, so either may lie inside this zone's box. A plate that is not interactable
+        /// does not take the poke — the zone then commits exactly as before.
+        /// </summary>
         public override void OnPoke(VRHand hand)
         {
-            if (!_playable)
+            Vector3 tip = hand.Rig.IndexTip.position;
+            PokePads.LocateDefaultActions(_card.FullCard, tip, hand.WorldScale,
+                out PokePads.PadProbe top, out PokePads.PadProbe bottom);
+            bool carvedOut = _playable && (top.CarvesOut || bottom.CarvesOut);
+            PokePads.LogZonePoke(_type == CBaseCard.ActionType.TopAction ? "top" : "bottom", hand.Side,
+                _playable, in top, in bottom, carvedOut);
+            if (!_playable || carvedOut)
                 return;
             hand.SendHaptic(HapticPreset.ClickPulse);
             _owner.RequestPlay(_card, _type);

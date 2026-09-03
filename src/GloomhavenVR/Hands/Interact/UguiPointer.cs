@@ -301,8 +301,75 @@ internal sealed class UguiPointer
             top = default;
             return false;
         }
-        top = _hits[0];
+        // ModBuild 405: the FINGER prefers a poke-only pad wherever it ranks. The pad is a CHILD of
+        // the small default-action button, so in the depth sort it sits right behind that button
+        // and under every later sibling that overlaps the plate (the half's big action button, the
+        // face-wide header graphic); taking _hits[0] there hands the finger to the big area at any
+        // pixel inside the plate. A pad exists only where the design wants the finger to win, so
+        // its mere presence in the list decides. The laser branch above is untouched.
+        _lastPokeHitCount = _hits.Count;
+        _lastPokePadRank = -1;
+        for (int i = 0; i < _hits.Count; i++)
+        {
+            GameObject? go = _hits[i].gameObject;
+            if (go != null && go.GetComponent<PokeOnlyTarget>() != null)
+            {
+                _lastPokePadRank = i;
+                break;
+            }
+        }
+        top = _lastPokePadRank >= 0 ? _hits[_lastPokePadRank] : _hits[0];
+        // The runner-up for the POKE PICK line: what would have won without the pad rule, or the
+        // next hit down when no pad was in the list.
+        _lastPokeRunnerUp = _lastPokePadRank > 0 ? _hits[0].gameObject
+            : _hits.Count > 1 ? _hits[1].gameObject : null;
         return true;
+    }
+
+    // ---- POKE PICK bookkeeping (ModBuild 405) — written by TryRaycastTop, read by the log --
+    private int _lastPokeHitCount;
+    private int _lastPokePadRank = -1;
+    private GameObject? _lastPokeRunnerUp;
+    private static int s_pokePickLogsLeft = PokePickLogBudget;
+    private static string? s_lastPokePickKey;
+    private const int PokePickLogBudget = 10;
+
+    /// <summary>
+    /// The POKE PICK line: on a fingertip click, the winner, the hit that lost to it and whether the
+    /// finger lay inside a default action's padded rect — which is exactly "a poke-only pad was in
+    /// the hit list", since the pad IS that rect. Change-gated on (handler, pad present, runner-up)
+    /// and capped per session. Event-driven: one candidate line per synthesized click.
+    /// </summary>
+    private void LogPokePick(GameObject handler, GameObject hit)
+    {
+        if (s_pokePickLogsLeft <= 0)
+            return;
+        bool padInList = _lastPokePadRank >= 0;
+        string runner = _lastPokeRunnerUp != null ? _lastPokeRunnerUp.name : "<none>";
+        string key = handler.name + ' ' + padInList + ' ' + runner;
+        if (key == s_lastPokePickKey)
+            return;
+        s_lastPokePickKey = key;
+        s_pokePickLogsLeft--;
+        GameObject? runnerHandler = _lastPokeRunnerUp != null
+            ? ExecuteEvents.GetEventHandler<IPointerClickHandler>(_lastPokeRunnerUp)
+            : null;
+        string displaced = _lastPokePadRank > 0
+            ? $"the pad ranked #{_lastPokePadRank} (0 = topmost) in the GraphicRaycaster's depth sort and was "
+              + $"PROMOTED over '{runner}' (which would have clicked "
+              + $"'{(runnerHandler != null ? runnerHandler.name : "<no click handler>")}')"
+            : padInList
+                ? "the pad was already the topmost hit; runner-up '" + runner + "'"
+                : $"no pad in the list; runner-up '{runner}'";
+        // HW-VERIFY: the pick behind every fingertip click. 'inside a default action's padded rect:
+        // YES' with a click on anything but that default action would be the pick losing again;
+        // 'no' on a poke the player aimed at the plate means the finger was outside the padded
+        // rect, so the pad size is the question, not the pick. Zero hits cannot reach this line.
+        Core.VRLog.Note("Interact",
+            $"POKE PICK ({_sourceTag}): click delivered to '{handler.name}' through hit '{hit.name}' — "
+            + $"{_lastPokeHitCount} raycast hit(s) under the fingertip, {displaced}; fingertip inside a "
+            + $"default action's padded rect: {(padInList ? "YES" : "no")} ({s_pokePickLogsLeft} more of "
+            + "these lines).");
     }
 
     /// <summary>
@@ -875,6 +942,10 @@ internal sealed class UguiPointer
             // the verification trace for the whole far-click path (test #18).
             if (!Core.PerfConfig.Quiet)
                 Core.VRLog.Info("Interact", $"uGUI click: '{_pressedClickHandler.name}' ({_sourceTag}).");
+            // ModBuild 405: the fingertip's pick, beside the click it produced (poke only — the
+            // laser's resolution did not change and gets no new line).
+            if (!_farRay && _hovered != null)
+                LogPokePick(_pressedClickHandler, _hovered);
 
             // CLICK ACKNOWLEDGEMENT (user report 2026-08-09: "das Ablehnen-Geräusch … immer
             // dann … wenn man in der Initiativreihenfolge ein Bild von einem nicht-spielbaren

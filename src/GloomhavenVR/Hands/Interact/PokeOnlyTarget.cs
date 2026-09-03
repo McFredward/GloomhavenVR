@@ -12,6 +12,12 @@ namespace GloomhavenVR.Hands.Interact;
 /// <c>GraphicRaycaster</c> per canvas by design (the whole modality/lock gating lives on that one
 /// component), and a marker read on the result list is the smallest thing that separates the two
 /// without touching how either of them raycasts.</para>
+///
+/// <para>ModBuild 405: the marker cuts both ways. The FINGER's top-hit resolution prefers a result
+/// carrying this component wherever it ranks in the depth sort — a pad is a child of the small
+/// button it serves and therefore sorts under every later sibling that overlaps it, so without
+/// the preference the big area won at any pixel inside the plate. A pad exists only where the
+/// finger is meant to win; its presence in the list is the decision.</para>
 /// </summary>
 internal sealed class PokeOnlyTarget : MonoBehaviour
 {
