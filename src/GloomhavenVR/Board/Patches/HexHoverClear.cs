@@ -280,6 +280,16 @@ internal static class HexHoverClear
         // turns that hand's ray OFF, which puts the pick permanently not-on-a-hex and made this
         // method fire every frame of the hold. Both writers were correct about their own premise;
         // only one of them knows a prop is being held, so the test belongs here.
+        //
+        // RE-VERIFIED FOR ModBuild 366, WHICH CHANGED WHICH WINDOW THE HELD CARD IS IN. A prop with
+        // a rich card — a trap, hazardous terrain, difficult terrain, a carryable quest item — now
+        // raises UIPropInfoPanel instead of UITextInfoPanel so it keeps its effect rows
+        // ("Ich will, dass wenn man etwas in die Hand nimmt immer die detaillierteste Info
+        // angezeigt wird inkl. aller effekte"). This early return already covers that: it sits
+        // ABOVE both blocks and returns before either panel is touched, so the guard is on the
+        // METHOD and not on one of the two windows. Nothing to change here — but it had to be
+        // checked, because a guard that had been written per-panel would have silently kept hiding
+        // the better card four times a second.
         if (Board.FigureGrab.HeldProps.Count > 0)
             return;
 

@@ -159,6 +159,12 @@ internal sealed partial class FigureHighlight
     /// <see cref="Apply"/> and must not share <see cref="Candidates"/> with a live hover.</summary>
     private static readonly List<Renderer> AuditScratch = new(16);
 
+    /// <summary>Pass-3 input (ModBuild 366): the pass-1 survivors that pass 2 also kept, i.e. the
+    /// exact set the clone loop will walk. Its own list rather than a slice of
+    /// <see cref="Candidates"/>, because the surface guard's denominator has to be that set and
+    /// nothing else — see the pass-3 note in <see cref="Apply"/>.</summary>
+    private static readonly List<Renderer> SurfaceScratch = new(16);
+
     /// <summary>
     /// Figures already audited this session — <see cref="AuditFigure"/> writes one line per
     /// DISTINCT figure, not one per spawn. Never read outside the audit.
@@ -346,14 +352,40 @@ internal sealed partial class FigureHighlight
         MiniatureVerdict verdict = Judge(figureRoot, animatedRoot, Candidates);
         Transform? animatedT = animatedRoot != null ? animatedRoot.transform : null;
 
+        // PASS 3 — WHICH OF THOSE ACTUALLY DRAW THEIR OWN SURFACE (ModBuild 366). User,
+        // 2026-09-03: "zusätzlich zu dem korrekten Highlighting noch so ein Rechteck was da drin
+        // steckt und nicht hingehört." A decal box or a beam card contributes NO pixels of its own
+        // geometry in the game and a hard rectangle in an unlit additive re-draw of it. The rule,
+        // the evidence for it and the alternatives that were rejected all live in one place —
+        // FigureOverlay's surface-rule note — because the frozen ghost has the identical defect and
+        // two copies of a rule is two places for the next fix to land on one of them.
+        //
+        // Judged over the set that survives PASS 2, not over every candidate: `verdict.Restrict`
+        // may already have removed most of the actor, and a guard whose denominator is the wrong
+        // population is the "ratio with two populations" defect this project has already paid for.
+        SurfaceScratch.Clear();
+        for (int i = 0; i < Candidates.Count; i++)
+        {
+            Renderer r = Candidates[i];
+            if (verdict.Restrict && !IsUnder(r.transform, animatedT!))
+                continue;
+            SurfaceScratch.Add(r);
+        }
+        FigureOverlay.SurfaceVerdict surfaces = FigureOverlay.JudgeSurfaces(SurfaceScratch);
+        SurfaceScratch.Clear();
+
         int cloned = 0;
         Bounds originals = default;
         var clonedDesc = new List<string>(6);
+        var sliverDesc = new List<string>(4);
         for (int i = 0; i < Candidates.Count; i++)
         {
             Renderer r = Candidates[i];
             if (verdict.Restrict && !IsUnder(r.transform, animatedT!))
                 continue; // actor furniture — named by the verdict, not listed a second time here
+
+            if (surfaces.Enforce && !FigureOverlay.DrawsOwnSurface(r, out _))
+                continue; // non-surface — named in full by the surface verdict, not twice here
 
             if (!CloneOne(r, root.transform, mat))
                 continue;
@@ -364,6 +396,12 @@ internal sealed partial class FigureHighlight
             // player photographed. See FigureOverlay.DescribeSource.
             if (clonedDesc.Count < 6)
                 clonedDesc.Add(FigureOverlay.DescribeSource(r));
+            // …AND EVERY SLIVER IS NAMED WHATEVER THE CAP SAYS (ModBuild 366). The list above is
+            // capped at six and this prop kind has 26 renderers; the one the user photographed is
+            // by definition the odd one out, so it is the one an ellipsis eats. A renderer whose
+            // box is a card rather than an object gets its own entry even when the cap is full.
+            else if (sliverDesc.Count < 8 && FigureOverlay.IsSliver(r.bounds, out _, out _))
+                sliverDesc.Add(FigureOverlay.DescribeSource(r));
 
             // The ORIGINAL's box, accumulated only so the report has something to compare the
             // CLONES against. It is never the answer on its own — see the report below.
@@ -381,7 +419,7 @@ internal sealed partial class FigureHighlight
                      + $"actor root, {f.Kind} non-mesh, {f.Disabled} with "
                      + $"Renderer.enabled=false, {f.Ring} on the selection ring, "
                      + $"{f.ModOwned} mod-owned, {verdict.Dropped} actor furniture outside "
-                     + $"m_AnimatedGameObject. {verdict.Headline}";
+                     + $"m_AnimatedGameObject. {verdict.Headline} {surfaces.Headline}";
             return false;
         }
 
@@ -420,11 +458,15 @@ internal sealed partial class FigureHighlight
                  + $" CLONED: {string.Join("; ", clonedDesc)}"
                  + (cloned > clonedDesc.Count ? $" (+{cloned - clonedDesc.Count} more not named)" : "")
                  + "."
+                 + (sliverDesc.Count == 0
+                     ? " No CLONED renderer past the named ones is a card-shaped sliver."
+                     : $" CLONED SLIVERS past the cap ({sliverDesc.Count}, named whatever the cap "
+                       + $"says): {string.Join("; ", sliverDesc)}.")
                  + " Skipped: "
                  + $"{f.Kind} non-mesh, {f.Disabled} with Renderer.enabled=false, "
                  + $"{f.Ring} on the selection ring, {f.ModOwned} mod-owned, of "
                  + $"{f.OnActiveObjects} renderer(s) on active objects. "
-                 + verdict.Headline;
+                 + verdict.Headline + " " + surfaces.Headline;
         OverlayVisibilityProbe.Attach(root, $"{label}/glow", $"GLOW on {label}");
         return true;
     }
@@ -463,6 +505,11 @@ internal sealed partial class FigureHighlight
         CollectCandidates(figureRoot, excludeSubtree, ownContainer: null,
                           requireEnabled: false, AuditScratch);
         MiniatureVerdict verdict = Judge(figureRoot, animatedRoot, AuditScratch);
+        // ModBuild 366 — the roster answers the OVER-exclusion question too. "Does the surface rule
+        // eat any figure?" cannot be answered from the four figures a player's hand happened to
+        // reach; the audit sees every figure the scenario spawns, so it is the only instrument that
+        // can say so before a hardware round is spent on it.
+        FigureOverlay.SurfaceVerdict surfaces = FigureOverlay.JudgeSurfaces(AuditScratch);
         AuditScratch.Clear();
 
         string who = $"'{label}' (m_AnimatedGameObject '{model}', layer '{verdict.AnimatedLayer}', "
@@ -475,7 +522,7 @@ internal sealed partial class FigureHighlight
             // audit printed nothing is indistinguishable from a session in which the audit never
             // ran, and that ambiguity is the whole reason the line exists.
             VRLog.Note("FigureGrab",
-                $"MINIATURE AUDIT {Audited.Count}: {who} — {verdict.Headline}");
+                $"MINIATURE AUDIT {Audited.Count}: {who} — {verdict.Headline} {surfaces.Headline}");
             return;
         }
 
@@ -484,7 +531,8 @@ internal sealed partial class FigureHighlight
         // can under-glow in a corner of the game with nothing in the log to say so — which is
         // exactly what happened to the boss for sixteen builds.
         VRLog.Alert("FigureGrab",
-            $"MINIATURE AUDIT {Audited.Count}: {who} is NOT proven by construction — {verdict.Headline}");
+            $"MINIATURE AUDIT {Audited.Count}: {who} is NOT proven by construction — {verdict.Headline}"
+            + $" {surfaces.Headline}");
     }
 
     /// <summary>

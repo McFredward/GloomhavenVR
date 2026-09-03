@@ -191,6 +191,11 @@ internal static class HeldProps
         Held.Clear();
         Sides.Clear();
         Visuals.Clear();
+        // Nothing is held any more, so no window can be a held card. Cleared HERE rather than only
+        // in GrabbableProp.ClearInfo because this path is the one that runs when a hold ends
+        // WITHOUT a release — scenario teardown, the feature dial going off, a driver prune — and a
+        // stale claim would leave the hover card looking for a hand that is not holding anything.
+        HeldPropCard.Clear();
     }
 
     /// <summary>Reference identity, never <c>Equals</c>: <c>CObjectProp</c> is a plain rule-library

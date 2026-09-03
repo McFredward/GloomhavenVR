@@ -151,7 +151,24 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// it exists to make readable.</summary>
     private const int LogBudget = 4;
 
-    private static int _highlightLogsLeft = LogBudget;
+    /// <summary>
+    /// How many DISTINCT prop kinds the hover census names per session (ModBuild 366).
+    ///
+    /// <para>The 2026-09-03 question is "which prop kinds still glow correctly, and how many
+    /// renderers does each one contribute", and a budget of four CONSECUTIVE lines answers it for
+    /// whichever prop the hand happened to sweep first — the 2026-09-03 log spent all four of them
+    /// on two obstacles. Keyed on <see cref="CObjectProp.PrefabName"/> the same four lines become a
+    /// roster instead, which is the shape <see cref="FigureHighlight.AuditFigure"/> already uses for
+    /// figures and for the same reason. Twelve, because a scenario carries chests, gold, traps,
+    /// obstacles, quest items, resources and terrain and the roster is worth nothing truncated.</para>
+    /// </summary>
+    private const int HighlightKindBudget = 12;
+
+    /// <summary>Prop kinds whose hover census has already been printed this session — one line per
+    /// KIND, never one per hover. Never read outside the census.</summary>
+    private static readonly HashSet<string> HighlightKinds = new();
+
+    private static int _highlightLogsLeft = HighlightKindBudget;
     private static int _grabLogsLeft = LogBudget;
 
     private readonly CObjectProp _prop;
@@ -209,6 +226,19 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private float _nextInfoCheck;
     private int _infoLosses;
     private static bool _loggedInfoWriteWar;
+
+    // --- WHICH of the two info windows this hold's card is in, and how it got there (ModBuild
+    //     364). The window is a per-HOLD decision, taken once at the grab and re-asserted, never
+    //     re-elected; the route string is diagnostic only and is what the card-route roster prints.
+    private HeldPropCardWindow _infoWindow;
+    private string _infoRoute = string.Empty;
+    private static bool _loggedRichThrow;
+
+    /// <summary>Prop kinds whose card-route line has already been printed this scenario — see
+    /// <see cref="LogCardRoute"/>. One line per KIND, never one per grab.</summary>
+    private static readonly HashSet<string> CardRouteKinds = new();
+
+    private static int _cardRouteLogsLeft = HighlightKindBudget;
 
     // --- release glide.
     private bool _glideActive;
@@ -332,7 +362,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // SEEN? follow-up line names, so a prop's glow is attributable exactly like a
         // figure's rather than reporting as an anonymous overlay.
         bool glow = _highlight.Apply(_visual, null, null, Label, out string overlay);
-        if (_highlightLogsLeft <= 0)
+        // ONE LINE PER PROP KIND, NOT THE FIRST FOUR HOVERS (ModBuild 366) — see
+        // HighlightKindBudget. The Add is what gates the line, so a kind already censused costs one
+        // hash probe per hover and nothing else.
+        if (_highlightLogsLeft <= 0 || !HighlightKinds.Add(_prop != null ? _prop.PrefabName : "?"))
             return;
         _highlightLogsLeft--;
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
@@ -756,23 +789,231 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// the prop in the hand instead of the prop under the pointer. The text is built here to the
     /// game's own recipe — see <see cref="BuildInfoText"/>.</para>
     ///
+    /// <para><b>AND THAT PARAGRAPH NAMED THE WRONG WINDOW (ModBuild 366).</b> It is right that the
+    /// pickup card needs no new surface and no new panel; it is wrong that there is only one panel.
+    /// User, 2026-09-03, verbatim: "Wenn ich mit dem laser über eine Falle hovere sehe ich noch
+    /// weitere 'Effekte' der Falle. Wenn ich die Falle allerdings in die Hand nehme mit dem neuen
+    /// Feature sehen ich nur den Hinweis 'Falle' ohne die Effekte darunter. Ich will, dass wenn man
+    /// etwas in die Hand nimmt immer die detaillierteste Info angezeigt wird inkl. aller effekte bei
+    /// allen props die man in die Hand nehmen kann."</para>
+    ///
+    /// <para>The game has TWO hover-info windows and picks between them per prop:</para>
+    /// <list type="bullet">
+    ///   <item><b>The RICH one</b> — <c>UIPropInfoPanel</c> ('Prop Info Panel', UIWindowID
+    ///   TrapInfoPanel), which carries the EFFECT rows the user is missing (damage, move cost, and
+    ///   one row per <c>CCondition.ENegativeCondition</c>). It is raised NOT from the tile hover but
+    ///   from the prop's own <c>IHoverable</c> component on a raycast hover
+    ///   (<c>HoverRegisterer.Update</c> → <c>OnCursorEnter</c>), and exactly three components do it:
+    ///   <c>UnityGameEditorTrapProp</c> → <c>ShowTrap(gameObject)</c>,
+    ///   <c>UnityGameEditorHazardousTerrainProp</c> → <c>ShowHazardousTerrain(gameObject)</c>,
+    ///   <c>UnityGameEditorDifficultTerrainProp</c> → <c>ShowDifficultTerrain(gameObject)</c>. A
+    ///   fourth route, <c>ShowQuestItem(title, description)</c>, comes from the TILE path for a
+    ///   <c>CarryableQuestItem</c> (WSHD.cs:3599-3602).</item>
+    ///   <item><b>The PLAIN one</b> — <c>UITextInfoPanel</c>, everything else: chests, gold piles,
+    ///   obstacles, doors, pressure plates, portals, resources (WSHD.cs:3604-3607).</item>
+    /// </list>
+    ///
+    /// <para><b>THE GAME'S OWN PATH IS CALLED, NOT REPRODUCED.</b> For the three
+    /// <c>IHoverable</c> kinds this invokes <c>OnCursorEnter()</c> on the prop's own component —
+    /// the very method the pointer hover invokes — so the panel is populated by the game's code,
+    /// from the game's data, through the game's <c>InstanceName</c> lookup, including the game's own
+    /// LevelEditor guard. A hand-built description would drift from the game's the first time a
+    /// keyword or a loc key changes; this cannot. Only the quest-item route composes anything, and
+    /// it composes the same two loc keys the tile path does (<c>PrefabName + "_TOOLTIP"</c> /
+    /// <c>+ "_DESCR_TOOLTIP"</c>, WSHD.cs:3455-3459) because <c>PropInfo</c> is a private nested
+    /// class with no entry point.</para>
+    ///
+    /// <para><b>A PROP WITH NO RICH CARD STILL GETS THE PLAIN ONE.</b> The rich attempt is
+    /// MEASURED, not assumed: <see cref="TryPushRichInfo"/> hides the panel first (so
+    /// <c>UIWindow.IsOpen</c> is false whatever a previous hover left behind), calls the route, and
+    /// reads <c>IsOpen</c> back. A route that silently bailed — no matching <c>CObjectTrap</c> in
+    /// <c>ScenarioState.Props</c>, a transition in flight, the results screen up, gamepad tooltips
+    /// suppressed — therefore reports failure and the plain card is shown instead. Showing nothing
+    /// is never an outcome.</para>
+    ///
     /// <para>Gated on <c>[FigureGrab] HeldFigureInfo</c>, the SAME dial the figure's pickup panel
     /// obeys ("mach diese aber auch optional in dem VR Einstellungen deaktivierbar") — one switch
     /// for "show me what I picked up", not one per kind of thing picked up.</para>
     ///
-    /// <para>NO GAME STATE IS WRITTEN. <c>UITextInfoPanel.Show</c> sets label text and shows a
-    /// UIWindow; it does not touch the prop, the tile, looting or the turn.</para>
+    /// <para>NO GAME STATE IS WRITTEN, on either route. <c>UITextInfoPanel.Show</c> sets label text
+    /// and shows a UIWindow. <c>UIPropInfoPanel.Show*</c> sets its own <c>propType</c> /
+    /// <c>_lastSelected*</c> UI fields, rebuilds its effect rows and shows a UIWindow; every
+    /// scenario-side touch it makes is a READ (<c>ScenarioState.Props</c>,
+    /// <c>Scenario.SLTE.TrapDamage</c>, the localisation tables). Neither touches the prop, the
+    /// tile, looting or the turn — and neither does this class.</para>
     /// </summary>
     private void ShowInfo()
     {
         if (!FigureGrabConfig.HeldFigureInfoEnabled || _prop == null)
             return;
-        BuildInfoText(out _infoTitle, out _infoDescription);
-        if (_infoTitle.Length == 0)
-            return;
-        _infoShown = PushInfo();
+
+        // THE DETAILED CARD FIRST — "immer die detaillierteste Info". The plain card is the
+        // fallback, never the default.
+        if (TryPushRichInfo(out string route))
+        {
+            _infoWindow = HeldPropCardWindow.PropInfo;
+            _infoRoute = route;
+            _infoShown = true;
+        }
+        else
+        {
+            BuildInfoText(out _infoTitle, out _infoDescription);
+            if (_infoTitle.Length == 0)
+                return;
+            _infoWindow = HeldPropCardWindow.TextInfo;
+            _infoRoute = "UITextInfoPanel.Show — " + route;
+            _infoShown = PushInfo();
+        }
+
+        if (_infoShown)
+            HeldPropCard.Claim(this, _infoWindow);
+        else
+            _infoWindow = HeldPropCardWindow.None;
+
         _infoLosses = 0;
         _nextInfoCheck = Time.unscaledTime + InfoReassertSeconds;
+        LogCardRoute();
+    }
+
+    /// <summary>
+    /// ONE LINE PER PROP KIND SAYING WHICH WINDOW IT RESOLVED TO — the field that decides the
+    /// 2026-09-03 round.
+    ///
+    /// <para>"All props show the detailed info" is a claim about a ROSTER, and the only honest way
+    /// to check it is a log that names, per prop kind, which of the two windows the held card
+    /// actually landed in and by which route. A boolean "the panel came up" cannot tell a trap that
+    /// got its effect rows from a trap that fell back to a title.</para>
+    /// </summary>
+    private void LogCardRoute()
+    {
+        if (_prop == null || _cardRouteLogsLeft <= 0)
+            return;
+        string kind = $"{_prop.PrefabName}|{_prop.ObjectType}";
+        if (!CardRouteKinds.Add(kind))
+            return;
+        _cardRouteLogsLeft--;
+        // HW-VERIFY: this is the roster line for "wenn man etwas in die Hand nimmt immer die
+        // detaillierteste Info ... bei allen props". It must stay at a tier the DEFAULT log level
+        // prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] held-prop CARD ROUTE for {Label}: "
+            + (_infoWindow == HeldPropCardWindow.PropInfo
+                ? "the RICH window UIPropInfoPanel ('Prop Info Panel', ID TrapInfoPanel) — it "
+                  + "carries the effect rows"
+                : _infoWindow == HeldPropCardWindow.TextInfo
+                    ? "the PLAIN window UITextInfoPanel ('Text Info Panel', ID TextInfoPanel) — this "
+                      + "prop kind has no rich card in the game either, so a laser hover shows the "
+                      + "same thing"
+                    : "NO CARD AT ALL — neither window could be raised")
+            + $"; route = {_infoRoute}. "
+            + $"({_cardRouteLogsLeft} more card-route lines this scenario.)");
+    }
+
+    /// <summary>
+    /// Populate the RICH card the way the pointer hover does, and report whether it took.
+    ///
+    /// <para>The <c>Hide()</c> that opens this is not cosmetic: it is what makes the
+    /// <c>IsOpen</c> read afterwards a MEASUREMENT rather than a leftover. Without it a panel still
+    /// standing open from the laser hover that preceded the grab would answer "yes" for a prop whose
+    /// route bailed out silently, and the user would get the previous prop's effect rows on the
+    /// thing in his hand.</para>
+    /// </summary>
+    private bool TryPushRichInfo(out string route)
+    {
+        route = "no rich card for this prop kind";
+        if (_visual == null || _prop == null || !Singleton<UIPropInfoPanel>.IsInitialized)
+            return false;
+        UIPropInfoPanel? panel = Singleton<UIPropInfoPanel>.Instance;
+        if (panel == null)
+            return false;
+        UIWindow? window = panel.GetComponent<UIWindow>();
+        if (window == null)
+            return false;
+
+        // Resolved from the prop's OWN subtree, so whatever we call passes its own gameObject to
+        // the panel and the panel's InstanceName lookup is self-consistent by construction. The
+        // prop visual is named exactly CObjectProp.InstanceName ("PrefabName : (guid)") — the game
+        // writes that name itself (Choreographer.cs:13161, DelayedDropSMB.cs:182).
+        var trap = _visual.GetComponentInChildren<UnityGameEditorTrapProp>(includeInactive: true);
+        var hazard = trap != null
+            ? null
+            : _visual.GetComponentInChildren<UnityGameEditorHazardousTerrainProp>(includeInactive: true);
+        var difficult = trap != null || hazard != null
+            ? null
+            : _visual.GetComponentInChildren<UnityGameEditorDifficultTerrainProp>(includeInactive: true);
+        bool questItem = trap == null && hazard == null && difficult == null
+                         && _prop.ObjectType == ScenarioManager.ObjectImportType.CarryableQuestItem;
+
+        if (trap == null && hazard == null && difficult == null && !questItem)
+            return false;
+
+        try
+        {
+            panel.Hide(); // clear any previous hover's content AND close the window — see the doc
+            if (trap != null)
+            {
+                route = "UnityGameEditorTrapProp.OnCursorEnter → UIPropInfoPanel.ShowTrap";
+                trap.OnCursorEnter();
+            }
+            else if (hazard != null)
+            {
+                route = "UnityGameEditorHazardousTerrainProp.OnCursorEnter → "
+                        + "UIPropInfoPanel.ShowHazardousTerrain";
+                hazard.OnCursorEnter();
+            }
+            else if (difficult != null)
+            {
+                route = "UnityGameEditorDifficultTerrainProp.OnCursorEnter → "
+                        + "UIPropInfoPanel.ShowDifficultTerrain";
+                difficult.OnCursorEnter();
+            }
+            else
+            {
+                route = "UIPropInfoPanel.ShowQuestItem (the tile path's recipe, WSHD.cs:3455-3459)";
+                BuildQuestItemText(out string qTitle, out string qDescription);
+                panel.ShowQuestItem(qTitle, qDescription);
+            }
+        }
+        catch (System.Exception e)
+        {
+            // A half-built scenario state must never cost the player a card: fall through to the
+            // plain one. Logged once, because a route that throws on EVERY grab is a different
+            // defect from one that never matched.
+            route = $"{route} THREW ({e.GetType().Name}: {e.Message})";
+            if (!_loggedRichThrow)
+            {
+                _loggedRichThrow = true;
+                VRLog.Alert("FigureGrab",
+                    $"[Props] the RICH held-prop card route threw for {Label} — falling back to the "
+                    + $"plain UITextInfoPanel for this hold and every later one this scenario. {route}");
+            }
+            return false;
+        }
+
+        if (window.IsOpen)
+            return true;
+        route = $"{route} declined (the panel stayed closed: no matching CObject in "
+                + "ScenarioState.Props, a transition in flight, the results screen up, or gamepad "
+                + "tooltips suppressed)";
+        return false;
+    }
+
+    /// <summary>The quest-item card's two strings, to the tile path's own recipe
+    /// (WSHD.cs:3455-3459 for the loc keys, <c>PropInfo.Get</c> at WSHD.cs:83-107 for the
+    /// <c>LootedBy</c> suffix). Composed rather than called because <c>PropInfo</c> is a private
+    /// nested class of <c>WorldspaceStarHexDisplay</c> with no entry point — it is the ONE route of
+    /// the four that the game does not expose.</summary>
+    private void BuildQuestItemText(out string title, out string description)
+    {
+        string prefab = _prop != null ? _prop.PrefabName : string.Empty;
+        title = Translate(prefab + "_TOOLTIP");
+        description = Translate(prefab + "_DESCR_TOOLTIP");
+        if (_prop == null || string.IsNullOrEmpty(_prop.CanLootLocKey))
+            return;
+        string fmt = Translate("GUI_PROP_CAN_BE_LOOTED_BY");
+        string who = Translate(_prop.CanLootLocKey);
+        string lootedBy = fmt.Contains("{0}") ? string.Format(fmt, who) : $"{fmt} {who}";
+        description = string.IsNullOrEmpty(description) ? lootedBy : description + "\n" + lootedBy;
     }
 
     /// <summary>Populate and show the game's text info window. False when the singleton is not up
@@ -812,13 +1053,14 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             return;
         _nextInfoCheck = now + InfoReassertSeconds;
 
-        if (!Singleton<UITextInfoPanel>.IsInitialized)
+        // WATCH THE WINDOW THIS HOLD ACTUALLY RAISED (ModBuild 366). Watching UITextInfoPanel while
+        // the card lives in UIPropInfoPanel would read a permanently-hidden window and concede on
+        // the sixth tick of every trap hold — a re-assert aimed at the wrong panel is exactly the
+        // "gated remedy that never ran" with the sign flipped.
+        UIWindow? window = InfoWindowComponent();
+        if (window == null)
             return;
-        UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
-        if (panel == null)
-            return;
-        UIWindow? window = panel.GetComponent<UIWindow>();
-        if (window == null || window.IsVisible)
+        if (window.IsVisible)
         {
             _infoLosses = 0; // still up (IsVisible is alpha>0, so a fade-IN counts as up)
             return;
@@ -827,7 +1069,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _infoLosses++;
         if (_infoLosses <= InfoLossBudget)
         {
-            PushInfo();
+            RePushInfo();
             return;
         }
         if (_loggedInfoWriteWar)
@@ -842,17 +1084,79 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + "Board/Patches/HexHoverClear.HideStaleTooltips, which hides UITextInfoPanel on every frame "
             + "the VR pick is not on a hex — and holding a prop turns the hand's ray OFF, so it fires "
             + "every frame for the whole hold. The fix is one line there: return early while "
-            + "HeldProps.Count > 0 (a held prop's card is not a stale hover). Logged once per session.");
+            + "HeldProps.Count > 0 (a held prop's card is not a stale hover). Logged once per session."
+            // ModBuild 366 — the window is no longer always the text one, and the guard above is no
+            // longer the only candidate writer. Say which window this hold was actually fighting for.
+            + $" THIS HOLD'S CARD WAS IN {_infoWindow} (route {_infoRoute}); HexHoverClear's early "
+            + "return covers BOTH panels, so if this line appears with PropInfo the writer is "
+            + "elsewhere — most likely the game's own IHoverable OnCursorExit from HoverRegisterer.");
+    }
+
+    /// <summary>The <c>UIWindow</c> of whichever panel THIS hold's card is in, or null when that
+    /// singleton is not up. One accessor, so the re-assert, the concede test and the take-down can
+    /// never disagree about which window they are talking about.</summary>
+    private UIWindow? InfoWindowComponent()
+    {
+        if (_infoWindow == HeldPropCardWindow.PropInfo)
+        {
+            if (!Singleton<UIPropInfoPanel>.IsInitialized)
+                return null;
+            UIPropInfoPanel? rich = Singleton<UIPropInfoPanel>.Instance;
+            return rich != null ? rich.GetComponent<UIWindow>() : null;
+        }
+        if (!Singleton<UITextInfoPanel>.IsInitialized)
+            return null;
+        UITextInfoPanel? plain = Singleton<UITextInfoPanel>.Instance;
+        return plain != null ? plain.GetComponent<UIWindow>() : null;
+    }
+
+    /// <summary>Re-show the card in the window this hold already resolved to. It never re-runs the
+    /// rich/plain ELECTION: that decision was made and logged at the grab, and re-deciding it four
+    /// times a second against a panel somebody else keeps hiding is how a card starts alternating
+    /// between two windows.</summary>
+    private void RePushInfo()
+    {
+        if (_infoWindow == HeldPropCardWindow.PropInfo)
+        {
+            if (TryPushRichInfo(out _))
+                return;
+            // The rich route stopped taking mid-hold (the prop was looted out of ScenarioState, a
+            // transition started). Concede to the plain card rather than leave the hand empty.
+            BuildInfoText(out _infoTitle, out _infoDescription);
+            if (_infoTitle.Length == 0)
+                return;
+            _infoWindow = HeldPropCardWindow.TextInfo;
+            _infoRoute = "UITextInfoPanel.Show — the rich route stopped taking mid-hold";
+            if (PushInfo())
+                HeldPropCard.Claim(this, _infoWindow);
+            return;
+        }
+        PushInfo();
     }
 
     /// <summary>Take the card down (idempotent). Called from both release paths, so a prop that
-    /// leaves the hand never leaves its card behind.</summary>
+    /// leaves the hand never leaves its card behind. Takes down whichever of the two windows THIS
+    /// hold raised, and drops the <see cref="HeldPropCard"/> claim so the dock stops following a
+    /// prop that is no longer in a hand.</summary>
     private void ClearInfo()
     {
         if (!_infoShown)
             return;
         _infoShown = false;
         _infoLosses = 0;
+        HeldPropCardWindow was = _infoWindow;
+        _infoWindow = HeldPropCardWindow.None;
+        HeldPropCard.Release(this);
+
+        if (was == HeldPropCardWindow.PropInfo)
+        {
+            if (!Singleton<UIPropInfoPanel>.IsInitialized)
+                return;
+            UIPropInfoPanel? rich = Singleton<UIPropInfoPanel>.Instance;
+            if (rich != null)
+                rich.Hide(); // the same untyped Hide the game's own IHoverable OnCursorExit calls
+            return;
+        }
         if (!Singleton<UITextInfoPanel>.IsInitialized)
             return;
         UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
@@ -1816,12 +2120,16 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// <summary>Re-arm the per-session log budgets (a new scenario is a new hardware question).</summary>
     internal static void ResetLogBudgets()
     {
-        _highlightLogsLeft = LogBudget;
+        _highlightLogsLeft = HighlightKindBudget;
+        HighlightKinds.Clear(); // the roster is per SCENARIO — a new one carries different props
         _grabLogsLeft = LogBudget;
         _probesLeft = ProbeBudget;
         _watchesLeft = WatchBudget;
         _loggedInfoWriteWar = false;
         _loggedFreeze = false;
+        _loggedRichThrow = false;
+        _cardRouteLogsLeft = HighlightKindBudget;
+        CardRouteKinds.Clear();
         PropAnimWatch.Reset();
     }
 }

@@ -69,10 +69,16 @@ internal sealed class PropInfoSurface
         public ConvertedPanel? Panel;
         public bool PendingShow;
 
-        /// <summary>True for the <c>UITextInfoPanel</c> watch — the ONE window a held prop raises
-        /// (<c>GrabbableProp.PushInfo</c>), and therefore the only one that may ever be docked at a
-        /// hand instead of at the fixed slot. <c>UIPropInfoPanel</c> is hover-only and keeps the
-        /// head-follow unconditionally.</summary>
+        /// <summary>True for the <c>UITextInfoPanel</c> watch, false for the <c>UIPropInfoPanel</c>
+        /// one.
+        ///
+        /// <para>Until ModBuild 366 this flag also answered "may this watch dock at a hand?",
+        /// because <c>UITextInfoPanel</c> was the ONE window a held prop could raise. ModBuild 366
+        /// moved the held card to the RICH window whenever the prop has one (the user wants "immer
+        /// die detaillierteste Info ... inkl. aller effekte"), so the two questions came apart:
+        /// this stays the WINDOW discriminator and <c>HeldPropCard.Owns</c> answers the held one.
+        /// Leaving the dock keyed on this flag would have fixed the content and lost the
+        /// position.</para></summary>
         public bool IsTextInfo;
 
         /// <summary>Unscaled time at which a scheduled release fires; 0 = none pending.</summary>
@@ -310,7 +316,15 @@ internal sealed class PropInfoSurface
         // then the anchored branch, then the fixed slot. This surface has no board-cell branch (a
         // hover card names whatever the pointer is on, and the pointer is the head's business), so
         // it is a two-way selector: held, else the slot.
-        if (watch.IsTextInfo
+        //
+        // THE GATE IS "IS THIS THE HELD CARD?", NOT "IS THIS THE TEXT PANEL?" (ModBuild 366). Those
+        // were the same question only while a held prop could raise nothing but UITextInfoPanel;
+        // 364 gives a trap in the hand the RICH UIPropInfoPanel so it keeps its effect rows, and a
+        // dock still keyed on the window would have put the card back in front of the head the
+        // moment the content got better. HeldPropCard.Owns answers the real question, and the OTHER
+        // window - the one the laser hover is driving - still takes the fixed slot on the same
+        // frame, because only one of the two watches can be the held card at a time.
+        if (Board.FigureGrab.HeldPropCard.Owns(watch.IsTextInfo)
             && TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
                                   out string route, out HandSide dockSide))
         {

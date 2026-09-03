@@ -86,8 +86,11 @@ internal sealed class HexHintFacing
         public Vector3 PosVel;
         public Quaternion Rot;
 
-        /// <summary>True for the <c>UITextInfoPanel</c> state - the only window a held prop can
-        /// raise, and therefore the only one this step ever stands down for.</summary>
+        /// <summary>True for the <c>UITextInfoPanel</c> state, false for the
+        /// <c>UIPropInfoPanel</c> one. Since ModBuild 366 this is the WINDOW discriminator only:
+        /// which of the two a held prop's card is in is answered by
+        /// <c>Board.FigureGrab.HeldPropCard.Owns</c>, because a trap in the hand now raises the
+        /// rich window.</summary>
         public bool IsTextInfo;
 
         /// <summary>Edge state for the one-shot stand-down line (see <see cref="LateTick"/>).</summary>
@@ -157,7 +160,14 @@ internal sealed class HexHintFacing
         // hands move in LateUpdate, and this step is registered last in the WorldUI chain, so
         // writing it again here is what keeps the card glued to the prop instead of trailing it by
         // a frame.
-        if (s.IsTextInfo
+        //
+        // AND THE CARVE-OUT FOLLOWS THE CARD, NOT THE WINDOW (ModBuild 366). `s.IsTextInfo` was the
+        // right test only while UITextInfoPanel was the one window a held prop could raise; 364
+        // gives a trap in the hand the RICH UIPropInfoPanel so it keeps its effect rows, and a
+        // stand-down still keyed on the window would drag that better card straight back to the
+        // centre of view. Board.FigureGrab.HeldPropCard.Owns answers "is THIS window the held
+        // card?"; the other one keeps the head-follow on the very same frame.
+        if (Board.FigureGrab.HeldPropCard.Owns(s.IsTextInfo)
             && Surfaces.PropInfoSurface.TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
                                                            out string how, out _))
         {

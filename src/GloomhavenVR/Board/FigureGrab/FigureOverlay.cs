@@ -256,13 +256,47 @@ internal static class FigureOverlay
             Object.Destroy(mb);
         }
 
+        // ModBuild 366 — JUDGE THE SURFACE RULE BEFORE ACTING ON IT, over exactly the set the
+        // tint loop below will reach. Two exclusions from the candidate set, both so the guard's
+        // arithmetic means what it says: the VFX branch destroys its renderers whatever this rule
+        // says, and the preserved selection RING is game art we deliberately keep on its own
+        // materials (an overlay/ZTest-Always material sits well above the opaque ceiling, so
+        // counting it would push a healthy figure into "most of this art is transparent").
+        var surfaceCandidates = new List<Renderer>(8);
+        foreach (Renderer r in ghost.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null || !r.gameObject.activeInHierarchy)
+                continue;
+            if (r is ParticleSystemRenderer or TrailRenderer or LineRenderer || HasVfxShader(r))
+                continue;
+            if (ringTwin != null && (r.transform == ringTwin || r.transform.IsChildOf(ringTwin)))
+                continue;
+            surfaceCandidates.Add(r);
+        }
+        SurfaceVerdict surfaces = JudgeSurfaces(surfaceCandidates);
+        var surfaceKilled = new List<string>(4);
+
         // Re-tint every KEPT renderer to the translucent ghost material (one shared instance);
         // destroy VFX renderers outright (task #3). The ring twin keeps its original materials.
         var tint = new List<Renderer>(8);
+        int inactiveSkipped = 0;
         foreach (Renderer r in ghost.GetComponentsInChildren<Renderer>(true))
         {
             if (r == null)
                 continue;
+            // A RENDERER ON AN INACTIVE OBJECT IS NOT GHOST CONTENT (ModBuild 366). It draws
+            // nothing, so tinting it is a no-op the player can never see — but it is counted, it
+            // is given a depth-prepass twin, and it lands in the census. That is not hypothetical:
+            // StripModOwned SetActive(false)s the mod's OWN highlight overlay and Object.Destroy is
+            // deferred to end of frame, so the 2026-09-03 log's 'OneHexObstacle' ghost reported
+            // "26 clone renderer(s), 26 with Renderer.enabled=true, 13 on active objects" — 13 real
+            // renderers and 13 dead 'VROverlay' clones of our own glow. A census that doubles the
+            // count cannot answer "how many renderers does this prop kind contribute".
+            if (!r.gameObject.activeInHierarchy)
+            {
+                inactiveSkipped++;
+                continue;
+            }
             if (r is ParticleSystemRenderer or TrailRenderer or LineRenderer || HasVfxShader(r))
             {
                 // RECORD WHAT WAS KILLED AND WHY. HasVfxShader is a NAME match on the shader
@@ -301,6 +335,21 @@ internal static class FigureOverlay
                                       + "soft-falloff art, a depth stamp would be a solid disc)");
                 continue;
             }
+            // THE SURFACE RULE (ModBuild 366), applied AFTER the ring exemption so preserved game
+            // art can never be destroyed by it. A ghost tints rather than re-draws, but the effect
+            // is identical: a decal box or a beam card that draws nothing on its own becomes a
+            // solid translucent slab standing at the home cell. The 2026-09-03 log proves the ghost
+            // carries the same defect as the hover glow — 'DECAL_BloodSplat_Proj_PR' is in that
+            // obstacle ghost's DEPTH PREPASS list, i.e. it was kept, tinted AND given a depth stamp,
+            // while the same line says "no renderer was destroyed as VFX".
+            if (surfaces.Enforce && !DrawsOwnSurface(r, out string surfaceWhy))
+            {
+                if (surfaceKilled.Count < 6)
+                    surfaceKilled.Add(DescribeSource(r) + " — " + surfaceWhy);
+                r.enabled = false;    // instant off; the Destroy itself is deferred
+                Object.Destroy(r);
+                continue;
+            }
             // Asked BEFORE the tint replaces the materials: it is the SOURCE art that decides
             // whether this mesh's geometry is its silhouette.
             string renderType = SourceRenderType(r);
@@ -334,6 +383,22 @@ internal static class FigureOverlay
               + $"shader name contains Distort/Particle/Fog/FX): {string.Join(", ", vfxKilled)} — if "
               + "the figure's own BODY is in that list, this rule is why the ghost is invisible";
 
+        // The surface rule's verdict for THIS ghost — the field the 2026-09-03 rectangle report is
+        // decided by. It is not marked HW-VERIFY here because it is not a call site: it rides the
+        // caller's already-marked VRLog.Note ghost line (PropGhosts.NotifyHeld /
+        // FigureGhosts.NotifyHeld), which is where the tier is enforced.
+        string surfaceSays = surfaces.Headline
+            + (surfaceKilled.Count == 0
+                ? string.Empty
+                : $" DESTROYED AS NON-SURFACE: {string.Join("; ", surfaceKilled)}"
+                  + (surfaces.Dropped > surfaceKilled.Count
+                      ? $" (+{surfaces.Dropped - surfaceKilled.Count} more)" : string.Empty))
+            + (inactiveSkipped == 0
+                ? string.Empty
+                : $" {inactiveSkipped} renderer(s) on INACTIVE objects were skipped outright (they "
+                  + "draw nothing; before ModBuild 366 they were counted, tinted and depth-stamped, "
+                  + "which is why an obstacle ghost reported 26 renderers for 13 real ones).");
+
         if (tint.Count == 0)
         {
             report = $"NOTHING LEFT TO TINT — the source subtree '{animatedRoot.name}' offered "
@@ -351,7 +416,7 @@ internal static class FigureOverlay
                  + $"stands at ({animatedRoot.transform.position.x:F2}, "
                  + $"{animatedRoot.transform.position.y:F2}, {animatedRoot.transform.position.z:F2}), "
                  + $"{Vector3.Distance(worldPos, animatedRoot.transform.position):F2} wu away. "
-                 + $"{vfxSays}. Tinted {tint.Count} renderer(s)"
+                 + $"{vfxSays}. {surfaceSays} Tinted {tint.Count} renderer(s)"
                  + (preserveOriginal != null ? " (the selection ring keeps its own materials)" : "")
                  + $"; ghost material shader '{(ghostMat != null && ghostMat.shader != null ? ghostMat.shader.name : "<none>")}' "
                  + $"alpha {(ghostMat != null ? ghostMat.color.a : 0f):F2}. KEPT: "
@@ -446,8 +511,93 @@ internal static class FigureOverlay
         sb.Append(", box size (").Append(b.size.x.ToString("F2")).Append(", ")
           .Append(b.size.y.ToString("F2")).Append(", ").Append(b.size.z.ToString("F2"))
           .Append("), y ").Append(b.min.y.ToString("F2")).Append("..")
-          .Append(b.max.y.ToString("F2")).Append(')');
+          .Append(b.max.y.ToString("F2"));
+        // ModBuild 366 — THE THREE FIELDS THAT NAME A TALL THIN QUAD. Everything above describes
+        // the mesh; none of it separates "the prop" from "a beam card standing in the prop". The
+        // SHAPE (aspect) says a renderer is a sliver; the SHADER and the QUEUE say why it is
+        // invisible in the game and a solid rectangle in an unlit re-draw. See the surface rule.
+        sb.Append(", ").Append(DescribeAspect(b))
+          .Append(", ").Append(DescribeShading(r)).Append(')');
         return sb.ToString();
+    }
+
+    /// <summary>
+    /// The renderer's world box as a SHAPE rather than three numbers: the ratio of its longest
+    /// extent to its shortest, plus a word for the degenerate cases.
+    ///
+    /// <para>ModBuild 366. The user photographed "so ein Rechteck was da drin steckt und nicht
+    /// hingehört" — a narrow, tall, upright translucent rectangle standing in the middle of an
+    /// otherwise correct hover glow. Every census field the mod had could describe that renderer
+    /// and none of them could SORT it: 'box size (0.05, 6.30, 0.40)' is a sentence a human has to
+    /// divide before it says "sliver". This does the division.</para>
+    /// </summary>
+    private static string DescribeAspect(Bounds b)
+    {
+        IsSliver(b, out string word, out float ratio);
+        return float.IsPositiveInfinity(ratio)
+            ? $"aspect long/short = infinite ({word})"
+            : ratio <= 0f ? "aspect n/a (empty box)"
+            : $"aspect long/short = {ratio:F1} ({word})";
+    }
+
+    /// <summary>Aspect ratio above which a box counts as a card rather than an object. Eight,
+    /// because the rectangle the user photographed measures roughly 40 px across against 550 px
+    /// tall in a 3840-wide frame and every real prop part named in the same session's census is
+    /// under 4:1.</summary>
+    private const float SliverAspect = 8f;
+
+    /// <summary>
+    /// TRUE when <paramref name="b"/> is a card rather than an object — flat in one axis, or long
+    /// and thin past <see cref="SliverAspect"/>.
+    ///
+    /// <para>Used for one thing only: to make sure a sliver that the surface rule KEPT is still
+    /// named in the census even when the named list is full. "A truncated list is not absence" —
+    /// a tall thin quad that falls off the end of an ellipsis is exactly the renderer a round is
+    /// being spent to find.</para>
+    /// </summary>
+    internal static bool IsSliver(Bounds b, out string shape, out float ratio)
+    {
+        Vector3 s = b.size;
+        float longest = Mathf.Max(s.x, Mathf.Max(s.y, s.z));
+        float shortest = Mathf.Min(s.x, Mathf.Min(s.y, s.z));
+        if (longest <= 1e-5f)
+        {
+            shape = "empty box";
+            ratio = 0f;
+            return false;
+        }
+        ratio = shortest > 1e-5f ? longest / shortest : float.PositiveInfinity;
+        if (shortest <= 1e-3f * longest)
+        {
+            shape = "FLAT — one axis is zero, i.e. a PLANE";
+            return true;
+        }
+        if (ratio >= SliverAspect)
+        {
+            shape = "SLIVER — a tall/thin card, the shape of a beam or a decal edge";
+            return true;
+        }
+        shape = "compact";
+        return false;
+    }
+
+    /// <summary>
+    /// What the renderer's SOURCE material declares about itself: shader, <c>RenderType</c> tag
+    /// and render QUEUE. The queue is the term the surface rule decides on
+    /// (<see cref="DrawsOwnSurface"/>), so a census that reports the verdict without it cannot be
+    /// checked; the shader name is what a human recognises ('Custom/MeshDecal', 'LightShaftShd').
+    /// </summary>
+    internal static string DescribeShading(Renderer r)
+    {
+        string type = SourceRenderType(r);
+        int lowest = int.MaxValue;
+        Material[] mats = r.sharedMaterials;
+        for (int i = 0; i < mats.Length; i++)
+            if (mats[i] != null && mats[i].renderQueue < lowest)
+                lowest = mats[i].renderQueue;
+        return $"shader '{FirstShaderName(r)}', RenderType "
+               + (string.IsNullOrEmpty(type) ? "<none>" : $"'{type}'")
+               + ", queue " + (lowest == int.MaxValue ? "<none>" : lowest.ToString());
     }
 
     /// <summary>
@@ -906,6 +1056,173 @@ internal static class FigureOverlay
                + ". Without this a world-space panel drawn after the ghost (sortingOrder 100+ vs 0) "
                + "has no depth to fail against and paints over it."
                + skipped;
+    }
+
+    // ---- THE SURFACE RULE (ModBuild 366) --------------------------------------------------------
+    //
+    // User, 2026-09-03, verbatim: "Ich habe elemente entdeckt die beim drüber fahren mit der Hand
+    // kein richtiges overlay haben wie es sein sollte, siehe rechteck-highlighting.jpg. Dort
+    // erkennt man zusätzlich zu dem korrekten Highlighting noch so ein Rechteck was da drin steckt
+    // und nicht hingehört."
+    //
+    // WHAT A RE-DRAW ASSUMES. Both overlays copy somebody else's mesh and paint it with an unlit
+    // `_MainTex * _Color` material. That is a picture OF the object only while the object's own
+    // material also draws that mesh's SURFACE. It is false for the whole family of renderers whose
+    // geometry is a VOLUME and whose visible pixels are computed from something else:
+    //
+    //   * a MESH DECAL — `Custom/MeshDecal` at queue 2600 in this game — is a box that reconstructs
+    //     world position from the depth buffer and paints only where the box intersects the scene.
+    //     Its own faces are never drawn. Re-drawn unlit, the BOX becomes a solid slab.
+    //   * a light shaft / beam / glow card — `LightShaftShd` at queue 3000, y 0.7..7.0 — is a tall
+    //     narrow quad whose look is a soft gradient with near-zero alpha at the edges. Re-drawn
+    //     unlit and additive it is a hard, opaque rectangle standing on end.
+    //
+    // Both are in this scenario and at least one of them is INSIDE a prop subtree: the 2026-09-03
+    // log names 'DECAL_BloodSplat_Proj_PR' (Custom/MeshDecal, q2600) in the DEPTH PREPASS list of
+    // the 'OneHexObstacle' home ghost — i.e. it was cloned, kept and tinted — while the same
+    // session's FLOOR CENSUS lines carry both it and 'LightShaft_Prefab' (LightShaftShd, q3000)
+    // against ordinary prop geometry that sits at queue 2000 ('Amp_Basic', 'Amp_Basic_N_MRAO') and
+    // the obstacle's own alpha-cut meshes at RenderType 'TransparentCutout' (queue 2450).
+    //
+    // THE PROPERTY, AND WHY THIS ONE. Unity's render QUEUE is the engine's own declaration of that
+    // distinction and it is carried by the MATERIAL, so it survives a renamed prefab, a renamed
+    // shader and the next scenario's art. Everything at or below <see cref="OpaqueQueueCeiling"/>
+    // (2500 — the top of the AlphaTest band) draws its own surface; everything above it is a
+    // transparent/effect pass. The alternatives were rejected on the evidence, not on taste:
+    //   * a prefab-name blacklist dies the first time the art changes;
+    //   * "degenerate bounds (a plane)" is FALSIFIED here — the mesh decal is a box 0.9 wu deep —
+    //     and would eat a genuinely thin real prop (a plank, a blade);
+    //   * "disabled or edge-on before the clone" cannot be it: CollectCandidates already drops
+    //     `!r.enabled`, and the census says every one of that obstacle's 26 renderers was enabled;
+    //   * "no _MainTex" is false for a decal, which projects a texture;
+    //   * a `Projector` COMPONENT catches nothing — this game draws its decals as mesh renderers;
+    //   * widening HasVfxShader's Distort/Particle/Fog/FX name match is a name blacklist by
+    //     another name, and it already fails on both 'Custom/MeshDecal' and 'LightShaftShd'.
+    //
+    // A renderer is dropped only when EVERY one of its materials is above the ceiling: a mixed
+    // mesh (opaque body + a glass submesh) still draws a surface and still gets its glow.
+
+    /// <summary>The highest render queue at which a material is still drawing the mesh's OWN
+    /// surface: 2500, the top of Unity's AlphaTest band. Above it live the transparent and effect
+    /// passes whose geometry is a volume, not a picture. See the surface-rule note above.</summary>
+    internal const int OpaqueQueueCeiling = 2500;
+
+    /// <summary>
+    /// TRUE when at least one of the renderer's CURRENT materials draws the mesh's own surface,
+    /// i.e. sits at or below <see cref="OpaqueQueueCeiling"/>. <paramref name="why"/> names the
+    /// queue and shader that decided it, for the census.
+    ///
+    /// <para>Never false on ignorance: a renderer with no materials, or with only null ones, is
+    /// KEPT — the glow exists so the player can see what he is about to grab, and refusing to draw
+    /// a renderer we could not measure is the wrong side to fail on.</para>
+    /// </summary>
+    internal static bool DrawsOwnSurface(Renderer r, out string why)
+    {
+        Material[] mats = r.sharedMaterials;
+        int lowest = int.MaxValue;
+        string shader = "<none>";
+        int judged = 0;
+        for (int i = 0; i < mats.Length; i++)
+        {
+            Material m = mats[i];
+            if (m == null)
+                continue;
+            judged++;
+            int q = m.renderQueue;
+            if (q < lowest)
+            {
+                lowest = q;
+                shader = m.shader != null ? m.shader.name : "<null shader>";
+            }
+        }
+        if (judged == 0)
+        {
+            why = "no material to judge — KEPT rather than dropped on ignorance";
+            return true;
+        }
+        if (lowest <= OpaqueQueueCeiling)
+        {
+            why = $"queue {lowest} on '{shader}'";
+            return true;
+        }
+        why = $"queue {lowest} on '{shader}' — above the {OpaqueQueueCeiling} opaque ceiling, so "
+              + "this renderer's geometry is a VOLUME (decal box, beam/shaft card, glow plane) and "
+              + "an unlit re-draw of it is a solid rectangle";
+        return false;
+    }
+
+    /// <summary>
+    /// THE VERDICT ON THE SURFACE RULE, and the guard that can switch it off.
+    ///
+    /// <para>Same shape (and same reason) as <c>FigureHighlight.Judge</c>'s ModBuild 341 guard:
+    /// REFUSE the exclusion when it would drop at least as many VERTICES as it keeps. A prop whose
+    /// art is genuinely transparent end to end — an ice crystal, a spirit — must not lose its glow
+    /// altogether, because a weak glow is a usability regression and the glow exists so the player
+    /// can see what he is about to grab. Vertex count rather than renderer count for the reason
+    /// <see cref="VertexCount"/> gives: one body mesh against two effect cards is 1-against-2 and
+    /// would read as a minority.</para>
+    /// </summary>
+    internal readonly struct SurfaceVerdict
+    {
+        internal SurfaceVerdict(bool enforce, int dropped, int keptVerts, int droppedVerts,
+                                string dropList)
+        {
+            Enforce = enforce;
+            Dropped = dropped;
+            KeptVerts = keptVerts;
+            DroppedVerts = droppedVerts;
+            DropList = dropList;
+        }
+
+        /// <summary>Whether the caller must actually skip the non-surface renderers.</summary>
+        internal bool Enforce { get; }
+
+        internal int Dropped { get; }
+        internal int KeptVerts { get; }
+        internal int DroppedVerts { get; }
+
+        /// <summary>Every renderer the rule names, with the queue/shader that decided it and its
+        /// own box — the field a hardware log is read for. NOT truncated: a tall thin quad that
+        /// falls off the end of an ellipsis is exactly the renderer this rule exists to name.</summary>
+        internal string DropList { get; }
+
+        internal string Headline =>
+            Dropped == 0
+                ? "SURFACE RULE: nothing dropped — every renderer draws its own surface (all at or "
+                  + $"below queue {OpaqueQueueCeiling})."
+                : Enforce
+                    ? $"SURFACE RULE: {Dropped} renderer(s) dropped as NON-SURFACE ({DroppedVerts} "
+                      + $"vert(s) against {KeptVerts} kept) — {DropList}"
+                    : $"SURFACE RULE REFUSED: it would have dropped {Dropped} renderer(s) carrying "
+                      + $"{DroppedVerts} vert(s) against only {KeptVerts} kept, i.e. most of this "
+                      + "prop's art IS transparent, so nothing was dropped and the glow stays whole "
+                      + $"— {DropList}";
+    }
+
+    /// <summary>Judge <paramref name="candidates"/> against the surface rule. Pure: writes
+    /// nothing, and the caller decides what to do with <see cref="SurfaceVerdict.Enforce"/>.</summary>
+    internal static SurfaceVerdict JudgeSurfaces(List<Renderer> candidates)
+    {
+        int dropped = 0, keptVerts = 0, droppedVerts = 0;
+        var names = new List<string>(4);
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            Renderer r = candidates[i];
+            if (r == null)
+                continue;
+            int verts = VertexCount(r);
+            if (DrawsOwnSurface(r, out string why))
+            {
+                keptVerts += verts;
+                continue;
+            }
+            dropped++;
+            droppedVerts += verts;
+            names.Add(DescribeSource(r) + " — " + why);
+        }
+        bool enforce = dropped > 0 && droppedVerts < keptVerts;
+        return new SurfaceVerdict(enforce, dropped, keptVerts, droppedVerts,
+                                  names.Count == 0 ? "nothing" : string.Join("; ", names));
     }
 
     /// <summary>The first non-empty <c>RenderType</c> tag on a renderer's CURRENT materials —

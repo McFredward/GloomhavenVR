@@ -202,7 +202,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | postfix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | prefix | &nbsp; |
-| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:557</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
+| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:571</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
 
 ## Registration sites
 
