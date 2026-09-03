@@ -115,6 +115,108 @@ internal static class TooltipWindowPatches
         !Cut(rectTransform, "DeltaPositionToFitTheScreen(margin)", ref __result);
 
     /// <summary>
+    /// <b>THE FIFTH MEMBER OF THIS FAMILY, AND THE ONE ModBuild 191 DID NOT KNOW ABOUT</b>
+    /// (ModBuild 367). <c>DeltaWorldPositionToFitRectTransform(this RectTransform, Camera,
+    /// RectTransform areaToFit, bool checkBothAxies)</c> — RectTransformExtensions.cs:155-207.
+    ///
+    /// <para>User, 2026-09-03: <i>"Wenn ich bei der Szenario-Auswahl am Ende die persoenlichen
+    /// Quests ausgewaehlt habe, dann aber bei einem Character nochmal draufklicke um meine Meinung
+    /// zu aendern sind die Abstaende kaputt (siehe fenster-abstand.jpg). Ich will das es wieder
+    /// ganz links spawnt wie es war und der button rechts daneben, nicht darueber liegend. Das
+    /// gilt auch wenn ich dort noch anderen Charactereigenschaften wieder auf mache."</i></para>
+    ///
+    /// <para><b>IT IS THE SAME DEFECT AS THE FOUR ABOVE, WITH A VIEWPORT AS THE FRAME INSTEAD OF
+    /// THE SCREEN.</b> It decides whether a corner has escaped by projecting BOTH rects through the
+    /// camera it is handed — eight <c>camera.WorldToScreenPoint</c> calls, :162-167 — and then
+    /// returns a RAW WORLD-CORNER DIFFERENCE (<c>array[2].x - array2[2].x</c>, :189) which the
+    /// caller adds to <c>.position</c>. Every caller passes <c>UIManager.Instance.UICamera</c>,
+    /// which in VR is parked and does not render a floated panel at all: the decision is taken on a
+    /// screen the rect is not on, and the correction is then applied to a <c>WorldSpace</c> canvas
+    /// standing metres away at roughly 1/1000 scale. Both halves are wrong independently, which is
+    /// the whole reason this family is cut rather than corrected.</para>
+    ///
+    /// <para><b>WHAT IT COST, MEASURED IN THE 2026-09-03 LOG.</b> The battle-goal picker places its
+    /// card column with it (<c>UIBattleGoalPickerWindow.RefreshPosition</c>, :202-207, called from
+    /// <c>Display</c> and again one frame later from <c>RefreshPositionDelayed</c>, which is why
+    /// re-opening the picker is when it shows). Shoved right, the column pushed the party display's
+    /// painted union from <c>-960..-104</c> authored px (picker closed) out to <c>-960..763</c> px,
+    /// and the mod's own confirm seat — which puts 'Verlies betreten' one 24 px gap right of
+    /// everything the window paints — then had 187 px of room for a 307 px control and was clamped
+    /// back to <c>653..960</c>, i.e. 110 px INSIDE the cards. <c>LOADOUT CONFIRM RESEATED</c> caught
+    /// the move whole: <c>(719,0)</c> px in one step. So "nicht ganz links" and "darueber liegend"
+    /// are one cause, and neutralising this helper answers both.</para>
+    ///
+    /// <para><b>AND IT ANSWERS HIS SECOND SENTENCE BY CONSTRUCTION.</b> "Das gilt auch wenn ich
+    /// dort noch anderen Charactereigenschaften wieder auf mache" is a request about a CLASS, and
+    /// the class is the caller set of this one method: <c>UIBattleGoalPickerWindow</c> (the
+    /// personal-quest picker), <c>UIPartyCharacterAbilityCardsDisplay</c> (the ability cards, the
+    /// other thing a character row opens) and <c>UIFollowMapLocationInsideArea</c>. Cutting the
+    /// helper covers all three; cutting the picker would have fixed the screenshot and left the
+    /// second one to be reported next round.</para>
+    ///
+    /// <para><b>ZERO IS THE AUTHORED LAYOUT, NOT A GUESS.</b> The caller's two preceding statements
+    /// already put the container on the seat the artist authored and rebuilt its layout; this
+    /// helper only ever ADDS to that. Returning zero therefore leaves the column exactly where the
+    /// flat game puts it whenever it already fits — which on a 1920x1080 canvas the mod floats
+    /// WHOLE it always does, because the mod does not crop a floated window and so there is no
+    /// viewport left for it to overflow.</para>
+    ///
+    /// <para>The <c>bool</c> is in the signature because the method has a DEFAULT argument, not an
+    /// overload: <c>AccessTools</c> matches on the full parameter list including
+    /// <c>checkBothAxies</c>, and a three-type array would not resolve.</para>
+    /// </summary>
+    [HarmonyPrefix]
+    [HarmonyPatch(typeof(RectTransformExtensions),
+        nameof(RectTransformExtensions.DeltaWorldPositionToFitRectTransform),
+        new[] { typeof(RectTransform), typeof(Camera), typeof(RectTransform), typeof(bool) })]
+    private static bool CutWorldFitRectTransform(RectTransform rectTransform, ref Vector3 __result)
+    {
+        ArmViewportFitOnce();
+        if (!Cut(rectTransform, "DeltaWorldPositionToFitRectTransform(camera, areaToFit)",
+                 ref __result))
+            return true;
+        if (_loggedViewportFitCut)
+            return false;
+        _loggedViewportFitCut = true;
+        // HW-VERIFY: this is the one line that says the 2026-09-03 layout report was answered on
+        // hardware. The shared SCREEN-FIT CUT line beside it is VRLog.Info, i.e. the DEBUG tier,
+        // which a default-level log does not carry — and promoting THAT line would promote it for
+        // all five helpers at once, including UILocalTooltip's, which is written on every
+        // LateUpdate of every shown hint. One line of its own instead.
+        VRLog.Note("WorldUI", $"VIEWPORT FIT CUT: the game asked to slide '{rectTransform.name}' back "
+            + "inside a viewport rect, and that rect is drawing inside a window this mod floated "
+            + "into the room. The helper decides in SCREEN space through the parked "
+            + "UIManager.Instance.UICamera and then returns a WORLD-space correction, so on a "
+            + "WorldSpace canvas metres away at ~1/1000 scale it can only shove the content "
+            + "sideways. Zero returned instead, which leaves the seat the caller's own "
+            + "anchoredPosition + LayoutRebuilder just gave it. THIS IS THE 2026-09-03 REPORT: the "
+            + "battle-goal column landing right of the character rows and 'Verlies betreten' being "
+            + "clamped on top of it. Logged once per session; the cut keeps running.");
+        return false;
+    }
+
+    private static bool _loggedViewportFitCut;
+    private static bool _armedViewportFit;
+
+    /// <summary>
+    /// ONE-SHOT PROOF OF LIFE. The line above is written at most once per session, so a log without
+    /// it is ambiguous between "the patch never attached" and "no fitted rect was ever inside a
+    /// floated window" — the exact ambiguity this project has already paid rounds for. This says
+    /// which of the two it is.
+    /// </summary>
+    private static void ArmViewportFitOnce()
+    {
+        if (_armedViewportFit)
+            return;
+        _armedViewportFit = true;
+        // HW-VERIFY: proof the viewport-fit prefix is LIVE.
+        VRLog.Note("WorldUI", "VIEWPORT FIT GATE ARMED: the game asked for a "
+            + "DeltaWorldPositionToFitRectTransform and this prefix ran on it. If no VIEWPORT FIT "
+            + "CUT line follows in this log, that means no fitted rect was ever inside a floated "
+            + "window — not that the patch is missing.");
+    }
+
+    /// <summary>
     /// True when this rect's screen fit must be neutralized — i.e. VR is converting AND the rect
     /// lives inside a floated window. Sets <paramref name="result"/> to zero in that case. Two
     /// component-free checks plus one parent walk per call; the walk is

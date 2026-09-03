@@ -347,6 +347,13 @@ internal static partial class WindowMaterialise
             UIWindow w = e.Window;
             if (w == null)
                 return;
+            // NO CLOSE-EDGE HOLD FOR A HOVER CARD (ModBuild 367). This hold exists to keep a
+            // window's pixels on screen for the one tick between the game hiding it and the mod
+            // starting the dissolve. With no dissolve to wait for, holding a hover card's pixels
+            // open would keep the card visible AFTER the pointer left it — the effect's gate has
+            // to sit on every one of its three entry points, not only on the two that animate.
+            if (ModalFallback.IsMapRoomHoverCard(w))
+                return;
 
             ConvertedPanel? panel = PanelUnder(w.transform);
             if (panel == null)
@@ -515,6 +522,9 @@ internal static partial class WindowMaterialise
             return;
         if (!Enabled)
             return;
+        // A HOVER CARD ARRIVES INSTANTLY — see IsHoverCard (ModBuild 367).
+        if (IsHoverCard(panel))
+            return;
         float seconds = AppearSeconds;
         if (seconds <= 0f)
             return;
@@ -571,6 +581,15 @@ internal static partial class WindowMaterialise
         DetachInput(panel);
 
         if (!Enabled)
+        {
+            onDone();
+            return;
+        }
+        // A HOVER CARD LEAVES INSTANTLY — see IsHoverCard (ModBuild 367). The callback runs
+        // synchronously here, which is PlayOut's documented "effect off" path: the card is
+        // released in this frame, exactly as it was before the effect existed. Deferring a hover
+        // card's release behind a 0.9 s dissolve would also keep it alive across the next hover.
+        if (IsHoverCard(panel))
         {
             onDone();
             return;
@@ -671,4 +690,56 @@ internal static partial class WindowMaterialise
         : panel.HostGo != null ? panel.HostGo.name
         : panel.Target != null ? panel.Target.name
         : "<released>";
+
+    /// <summary>
+    /// <b>A CARD THE POINTER MERELY TOUCHES IS NOT A WINDOW THAT ARRIVES</b> (ModBuild 367).
+    /// User, 2026-09-03, for the second time: <i>"Dieselbe Animation die bei den Fenstern kommt
+    /// (auflösen und materialisieren mit dem Staub), kommt immer noch auch bei dem Mouseover von
+    /// dem Kartensymbolen. Hier soll es nicht kommen, es handelt sich hier nicht um ein Fenster in
+    /// dem Sinne. Diesen request hatte ich schon gestellt, ist aber nach wie vor da."</i>
+    ///
+    /// <para><b>THE FIRST ATTEMPT MISSED BECAUSE IT NAMED THE WRONG ANIMATION.</b> ModBuild 365
+    /// took the map symbol's own hover animation off — the 20 % <c>MeshParent</c> scale pop and
+    /// the <c>NodeHoverIndicator</c> particles, patched on <c>MapLocation.Highlight</c>. That is a
+    /// DIFFERENT animation on a DIFFERENT object, and switching it off could not touch this one:
+    /// the dust he is describing is the mod's own window decoration, played on the card the hover
+    /// raises. The 2026-09-03 log settles it in one read — 6 <c>WINDOW MATERIALISE APPEAR</c> and
+    /// 13 <c>WINDOW MATERIALISE VANISH</c> lines, every one of them on
+    /// <c>'GloomhavenVR.Panel_Modal_UI Quest Preview Popup'</c>, which is the map room's hover
+    /// card and nothing else. Nineteen ceremonies for nineteen pointer sweeps.</para>
+    ///
+    /// <para><b>THE CLASS, NOT THE ONE WINDOW.</b> The distinction the effect needs is exactly the
+    /// one <see cref="ModalFallback.IsMapRoomHoverCard"/> already draws and already justifies at
+    /// length: a window the player OPENS is a thing that arrives and may take a moment doing it; a
+    /// card that opens and closes WITH THE POINTER is a readout, and a readout that has to
+    /// assemble itself before it can be read is worse than one that is simply there. So the
+    /// tooltips go with the quest preview — the same rule, matched by COMPONENT and never by
+    /// name.</para>
+    ///
+    /// <para><b>THIS IS A DECORATION GATE AND NOTHING ELSE.</b> The card still floats, still gets
+    /// its seat, still follows the head, still closes with the hover. All that changes is that it
+    /// appears and disappears in one frame, which is what it did before the effect existed and
+    /// what every tooltip in every other part of the game does. Nothing here writes to the game.
+    /// </para>
+    ///
+    /// <para>Resolved from the panel's own conversion target: <c>ModalFallback</c>'s test wants the
+    /// <c>UIWindow</c>, and the rect a window is converted through is not required to BE that
+    /// window's transform (containment is not identity). So the window is looked up on the target
+    /// and, failing that, the two hover-card components are asked for directly — a target that
+    /// carries the preview popup is the preview popup whether or not the <c>UIWindow</c> sits on
+    /// the same GameObject.</para>
+    /// </summary>
+    internal static bool IsHoverCard(ConvertedPanel? panel)
+    {
+        RectTransform? target = panel?.Target;
+        if (target == null)
+            return false;
+        if (!MapRoom.MapRoomDriver.Active)
+            return false;
+        var window = target.GetComponent<UIWindow>();
+        if (window != null)
+            return ModalFallback.IsMapRoomHoverCard(window);
+        return target.GetComponent<UIQuestPreviewPopup>() != null
+               || target.GetComponent<UILocalTooltip>() != null;
+    }
 }

@@ -654,6 +654,34 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
     private int _propCensusWalksLeft = PropCensusWalkBudget;
 
+    /// <summary>
+    /// <b>THE BUDGET RE-ARMS WHEN THE ANSWER CHANGES</b> (ModBuild 367). Twelve walks cover the
+    /// first ~24 s of a board, which is the whole of a NORMAL load and reveal — and the
+    /// 2026-09-03 log is the counter-example that matters: at the last walk it could still only
+    /// say <c>0 grabbable, 18 still unresolved</c>, and then the census went quiet for the
+    /// remaining 6,000 lines. Silence there is the worst possible reading, because it is
+    /// indistinguishable from "it settled". Now a CHANGE in the registry's size buys a few more
+    /// walks, so the line that says the props finally arrived — or never did — is in the log
+    /// wherever in the session it happens.
+    ///
+    /// <para>Bounded twice over, because a re-arm on a changing number is exactly how a diagnostic
+    /// turns into a per-frame cost: four walks per change, and a hard ceiling of
+    /// <see cref="PropCensusWalkCeiling"/> walks for the whole driver whatever happens. A board
+    /// whose prop count oscillates therefore costs at most that ceiling and then nothing, for
+    /// ever.</para>
+    /// </summary>
+    private const int PropCensusReArmWalks = 4;
+
+    /// <summary>Hard ceiling on census walks per driver instance — see
+    /// <see cref="PropCensusReArmWalks"/>. Forty at 2 s is at most 80 s of walking spread over a
+    /// whole scenario, and it cannot be exceeded by any sequence of re-arms.</summary>
+    private const int PropCensusWalkCeiling = 40;
+
+    private int _propCensusWalksSpent;
+
+    /// <summary>Registry size at the last census walk — the re-arm trigger.</summary>
+    private int _lastCensusRegistered = -1;
+
     private float _nextPropCensus;
 
     /// <summary>The last line emitted -- an unchanged census is not news and is not re-logged.</summary>
@@ -675,6 +703,15 @@ internal sealed class FigureGrabDriver : MonoBehaviour
     /// </summary>
     private void LogPropCensus()
     {
+        // THE RE-ARM, ABOVE THE BUDGET TEST so a change is never lost to an exhausted budget.
+        // PropGrab.Registered is a Dictionary.Count read; nothing walks here.
+        int registeredNow = PropGrab.Registered;
+        if (registeredNow != _lastCensusRegistered)
+        {
+            _lastCensusRegistered = registeredNow;
+            if (_propCensusWalksSpent < PropCensusWalkCeiling)
+                _propCensusWalksLeft = Mathf.Max(_propCensusWalksLeft, PropCensusReArmWalks);
+        }
         if (_propCensusWalksLeft <= 0)
             return;
         Choreographer? ch = Choreographer.s_Choreographer;
@@ -685,6 +722,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             return;
         _nextPropCensus = now + PropCensusIntervalSeconds;
         _propCensusWalksLeft--;
+        _propCensusWalksSpent++;
 
         // --- registry 1: the object ACTORS this pass adopts from.
         int entries = 0, withBehaviour = 0, liftable = 0, drawing = 0, adopted = 0;
@@ -765,16 +803,18 @@ internal sealed class FigureGrabDriver : MonoBehaviour
 
                 if (_censusProps.Count >= PropCensusNamedSamples)
                     continue;
-                // The visual lookup is done for the NAMED SAMPLES ONLY: GetPropObject logs a
-                // warning of the game's own on a miss, and a census must not be the loudest thing
-                // in the log it is meant to make readable.
-                GameObject? visual = Singleton<Script.Controller.ObjectCacheService>.IsInitialized
-                    ? Singleton<Script.Controller.ObjectCacheService>.Instance.GetPropObject(prop)
-                    : null;
+                // The visual lookup was done for the NAMED SAMPLES ONLY because GetPropObject logs
+                // a warning of the game's own on a miss and a census must not be the loudest thing
+                // in the log it is meant to make readable. ModBuild 367 removed the reason — the
+                // lookup below reads the cache dictionary and says nothing on a miss — but the cap
+                // stays: four NAMED samples is a readability budget, not a cost one, and a line
+                // that names twenty-one props is a line nobody reads.
+                GameObject? visual = PropVisualLookup.Resolve(prop, out PropVisualLookup.Route route);
                 if (visual != null)
                     propVisualFound++;
                 _censusProps.Add($"'{prop.InstanceName}' {prop.ObjectType} type={prop.GetType().Name}"
                     + $" visual={(visual != null ? "'" + visual.name + "'" : "NOT IN ObjectCacheService")}"
+                    + $" via={PropVisualLookup.Describe(route)}"
                     + $" collider={(visual != null && visual.GetComponentInChildren<Collider>() != null ? "yes" : "no")}"
                     + $" actorBehaviour={(visual != null && ActorBehaviour.GetActorBehaviour(visual) != null ? "yes" : "NO")}"
                     + $" hasHealth={(prop.PropHealthDetails != null && prop.PropHealthDetails.HasHealth ? "yes" : "NO")}"
@@ -793,6 +833,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"GrabProps={(FigureGrabConfig.GrabPropsEnabled ? "on" : "OFF")}. "
             + $"PropGrab registry: {PropGrab.Registered} prop(s) grabbable, {PropGrab.Pending} still "
             + $"unresolved; {HeldProps.Count} in hand, {PropGhosts.Count} home ghost(s). "
+            + $"Prop cache RE-KEYS this scenario: {PropVisualLookup.RekeyedThisScenario} "
+            + "(a non-zero count means the game's own GetPropObject would MISS for every prop from "
+            + "here on, because its dictionary is keyed by object identity and the scenario state "
+            + "has handed back fresh CObjectProp instances - ModBuild 367; before that build this "
+            + "was the whole 'no prop can be grabbed and none highlights' report). "
             + $"Refused from m_ClientObjects: {(_censusRejects.Count == 0 ? "none" : string.Join(" | ", _censusRejects))}. "
             + $"Liftable props in the scenario state: {(_censusProps.Count == 0 ? "none" : string.Join(" | ", _censusProps))}. "
             + $"REFUSED as unliftable ({propRefused} in all, first {_censusUnliftable.Count} named): "
@@ -806,7 +851,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + "well below liftable with unresolved > 0 means ObjectCacheService has not produced "
             + "those visuals (watch it settle over the first seconds); registered == 0 with "
             + "unresolved == 0 and liftable > 0 means discovery ran and rejected everything, which "
-            + "is a whitelist or collider question, not a registry one. The REFUSED sentence is the "
+            + "is a whitelist or collider question, not a registry one. AND SINCE ModBuild 367 THE "
+            + "'via=' COLUMN SETTLES THE REMAINING CASE: 'the game's own reference key' is the "
+            + "healthy answer, 'its InstanceName' means the cache has been re-keyed and only the "
+            + "mod's own resolver is still finding these props, and 'nothing' means the visual is "
+            + "in the cache under NO key at all - i.e. genuinely not spawned yet (an unrevealed "
+            + "room) or destroyed, which is the one case a longer wait actually fixes. The REFUSED sentence is the "
             + "ModBuild 350 destructibility gate (PropLift): every prop it names is one the hand "
             + "passes straight over, with no glow, no ghost and no panel, and the arrow gives the "
             + "TERM that refused it - the game's own OverrideDisallowDestroyAndMove flag, or the "

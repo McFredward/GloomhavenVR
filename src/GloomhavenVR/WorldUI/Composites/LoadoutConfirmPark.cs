@@ -216,6 +216,12 @@ internal static class LoadoutConfirmPark
     /// never a separation.</summary>
     private const float ConfirmGapPx = 24f;
 
+    /// <summary>Has the frame clamp been reported as biting this session? One line, not one per
+    /// tick: the solve runs on every reseat and a clamped state persists for as long as the picker
+    /// is open, so a per-tick line would be the loudest thing in the log about a control the player
+    /// can still press.</summary>
+    private static bool _clampBiteLogged;
+
     /// <summary>Below this the re-place is skipped, in authored uGUI px — <c>MapTravelConfirm</c>'s
     /// <c>OffsetEpsilon</c>, for its reason: a settled layout is not bit-identical frame to frame and
     /// writing it back every frame would keep the host's content fit re-measuring forever.</summary>
@@ -1296,6 +1302,43 @@ internal static class LoadoutConfirmPark
         float left = Mathf.Clamp(wantLeft, frame.xMin, Mathf.Max(frame.xMin, frame.xMax - inkW));
         float midY = Mathf.Clamp(wantMidY, frame.yMin + inkHalfH, Mathf.Max(frame.yMin + inkHalfH,
                                                                             frame.yMax - inkHalfH));
+
+        // ...AND THE PARAGRAPH ABOVE WAS FALSIFIED ON HARDWARE (ModBuild 367). It reasoned that the
+        // clamp had "1920 - 894 - 307 = 719 px of slack in the worst state the ModBuild 239
+        // hardware log recorded". The 2026-09-03 log recorded a worse one: with the battle-goal
+        // picker re-opened the painted union reached x=763, leaving 197 px for a 307 px control, so
+        // the clamp bit and pulled the button 110 px back OVER the cards. User: "sind die Abstaende
+        // kaputt ... der button rechts daneben, NICHT DARUEBER LIEGEND."
+        //
+        // THE CAUSE IS FIXED SOMEWHERE ELSE, and deliberately: the column had no business being at
+        // x=763 at all — the game's own viewport fit shoved it there through a camera that no
+        // longer looks at this panel (TooltipWindowPatches.CutWorldFitRectTransform). With that cut
+        // the union goes back to about -104 and this clamp has its slack again.
+        //
+        // WHAT CHANGES HERE IS THAT THE CLAMP CAN NO LONGER BITE SILENTLY. There is no geometric
+        // escape to fall back to on this window and the line above must not invent one: the painted
+        // union spans the FULL HEIGHT of the frame (-540..540 in the same log), so "below the
+        // content" and "left of the content" are not free either, and the ModBuild 239 ruling —
+        // ugly beats unreachable — still stands as the last resort. A silent last resort is the
+        // part that was wrong. If this ever fires again it now says so at a tier a hardware log
+        // carries, with the two numbers that decide it, so the next round starts from the measured
+        // overlap instead of from a screenshot.
+        if (wantLeft > frame.xMax - inkW + 0.5f && !_clampBiteLogged)
+        {
+            _clampBiteLogged = true;
+            // HW-VERIFY: this line is the falsifier for the 2026-09-03 layout report. It must stay
+            // at a tier the DEFAULT log level prints (Note/Alert/Error).
+            VRLog.Alert(Scope, "LOADOUT CONFIRM CLAMPED OVER THE CONTENT: the seat solve asked for "
+                + $"left={wantLeft:F0} authored px (one {ConfirmGapPx:F0} px gap right of a painted "
+                + $"union reaching {Mathf.Max(content.xMax, band.xMax):F0}), but the control is "
+                + $"{inkW:F0} px wide and the window frame ends at {frame.xMax:F0}, so the frame "
+                + $"clamp pulled it back to {left:F0} — {wantLeft - left:F0} px INSIDE the content "
+                + "it is supposed to sit beside. THIS IS THE STATE THE USER PHOTOGRAPHED on "
+                + "2026-09-03 (fenster-abstand.jpg). If this line is in a log built after ModBuild "
+                + "367 the viewport-fit cut did NOT hold and the battle-goal column is still being "
+                + "shoved right — grep VIEWPORT FIT CUT and VIEWPORT FIT GATE ARMED next, in that "
+                + "order. The button is still reachable; it is only ugly. Logged once per session.");
+        }
 
         _anchorPivot = new Vector2(left - inkLeftFromPivot, midY - inkMidYFromPivot);
         _anchorSeat = Rect.MinMaxRect(left, midY - inkHalfH, left + inkW, midY + inkHalfH);

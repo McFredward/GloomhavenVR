@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**85 patch classes, 140 patched methods.**
+**85 patch classes, 141 patched methods.**
 
 ## Board
 
@@ -188,6 +188,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `RectTransformExtensions.DeltaWorldPositionToFitTheScreen(RectTransform, Camera, float, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, Camera, float)` | prefix | &nbsp; |
 | &nbsp; | `RectTransformExtensions.DeltaPositionToFitTheScreen(RectTransform, float)` | prefix | &nbsp; |
+| &nbsp; | `RectTransformExtensions.DeltaWorldPositionToFitRectTransform(RectTransform, Camera, RectTransform, bool)` | prefix | &nbsp; |
 | &nbsp; | `UILocalTooltip.RefreshPosition()` | postfix | &nbsp; |
 | &nbsp; | `UIPartyItemInventoryTooltip.RefreshPosition()` | postfix | &nbsp; |
 | &nbsp; | `UITempleSlotTooltip.Show()` | postfix | &nbsp; |

@@ -58,12 +58,30 @@ internal static class PropGrab
     /// late arrival this scan exists to survive.</summary>
     private const float ScanIntervalSeconds = 2f;
 
-    /// <summary>Scans allowed after the prop list last CHANGED SIZE, while liftable props are
-    /// still unresolved. Twelve at the interval above covers ~24 s — the whole of the load and
-    /// reveal — and then costs nothing. A hard budget rather than a cadence that runs forever,
-    /// because <c>ObjectCacheService.GetPropObject</c> logs a warning of the game's own on every
-    /// miss and a discovery pass must not be the loudest thing in the log.</summary>
-    private const int SettleScanBudget = 12;
+    /// <summary>
+    /// <b>THIS BUDGET IS GONE (ModBuild 367), AND ITS REMOVAL IS HALF THE 2026-09-03 FIX.</b>
+    ///
+    /// <para>It used to read: <i>"Scans allowed after the prop list last CHANGED SIZE, while
+    /// liftable props are still unresolved. Twelve at the interval above covers ~24 s — the whole
+    /// of the load and reveal — and then costs nothing. A hard budget rather than a cadence that
+    /// runs forever, because ObjectCacheService.GetPropObject logs a warning of the game's own on
+    /// every miss and a discovery pass must not be the loudest thing in the log."</i></para>
+    ///
+    /// <para>Every sentence of that was true and the conclusion was still wrong, because the
+    /// premise it rests on — that a miss is loud — was a property of HOW we asked, not of the
+    /// question. <see cref="PropVisualLookup"/> reads the cache dictionary directly and says
+    /// nothing on a miss, so the reason to stop looking is gone. What the budget cost is the
+    /// 2026-09-03 report in full: once it expired, <c>resolve</c> was false for the rest of the
+    /// scenario, every unresolved prop was counted as pending WITHOUT a lookup, and no prop could
+    /// ever become grabbable again — no glow, no collider, no ghost, no card, silently, with the
+    /// census budget also spent so the log said nothing either. A prop whose room is revealed in
+    /// minute ten is the ordinary case, not the edge case.</para>
+    ///
+    /// <para>The floor that replaces it: the walk runs while ANY liftable prop is unresolved, at
+    /// the same 2 s cadence, and the walk is a <c>PropLift</c> test per prop plus one dictionary
+    /// probe per missing one. No scene query, ever. Once everything has resolved, a scan is one
+    /// <c>List.Count</c> comparison and a return, exactly as before.</para>
+    /// </summary>
 
     /// <summary>Cadence ticks between the slow floor sweeps — one full (but resolution-free) walk
     /// every <c>IdleSweepScans * ScanIntervalSeconds</c> seconds, ~10 s. See the change gate in
@@ -77,7 +95,6 @@ internal static class PropGrab
     private static float _nextScan;
     private static int _lastPropCount = -1;
     private static int _pendingResolve;
-    private static int _settleScansLeft = SettleScanBudget;
     private static int _idleScansLeft = IdleSweepScans;
     private static object? _lastState;
     private static bool _loggedRegistration;
@@ -183,8 +200,10 @@ internal static class PropGrab
             if (Registry.Count > 0)
                 ReleaseAll();
             _lastPropCount = -1;
-            _settleScansLeft = SettleScanBudget;
             _pendingResolve = 0;
+            // A NEW board is a new cache population: the InstanceName index and the re-key counter
+            // are per scenario, and a stale index would answer for a prop that no longer exists.
+            PropVisualLookup.Reset();
         }
 
         if (props == null)
@@ -211,29 +230,24 @@ internal static class PropGrab
         // Steady state is therefore one int comparison per tick, and one dictionary walk per ten
         // seconds. Nothing here queries the scene.
         bool countChanged = props.Count != _lastPropCount;
-        bool settling = !countChanged && _pendingResolve > 0 && _settleScansLeft > 0;
+        // SETTLING NO LONGER EXPIRES (ModBuild 367) — see SettleScanBudget's note for what its
+        // expiry cost. While a liftable prop has no visual, the walk keeps looking, silently.
+        bool settling = !countChanged && _pendingResolve > 0;
         bool sweep = --_idleScansLeft <= 0;
         if (sweep)
             _idleScansLeft = IdleSweepScans;
         if (!countChanged && !settling && !sweep)
             return;
         if (countChanged)
-        {
             _lastPropCount = props.Count;
-            _settleScansLeft = SettleScanBudget;
-        }
-        else if (settling)
-        {
-            _settleScansLeft--;
-        }
 
-        // MAY THIS WALK ASK ObjectCacheService? Only while the population is genuinely still
-        // settling. GetPropObject logs a warning of the GAME's own on every miss (ObjectCacheService
-        // .cs:104), so a prop whose visual never arrives would otherwise print one line every sweep
-        // for the rest of the session — a discovery pass must not be the loudest thing in the log
-        // it is meant to make readable. A bare sweep still does its other half: dropping props the
-        // scenario state no longer lists.
-        bool resolve = countChanged || _settleScansLeft > 0;
+        // EVERY WALK MAY ASK NOW (ModBuild 367). The clause that used to stand here withheld the
+        // lookup once a settle budget expired, because GetPropObject logs a warning of the GAME's
+        // own on every miss (ObjectCacheService.cs:104) and a discovery pass must not be the
+        // loudest thing in the log it is meant to make readable. That reasoning was sound and the
+        // conclusion was still the 2026-09-03 defect: a withheld lookup is a prop that can never
+        // come back. PropVisualLookup reads the cache dictionary directly and is silent on a miss,
+        // so the trade-off it was balancing no longer exists — see SettleScanBudget's note.
 
         // PHASE 1 — membership. Who does the scenario state say a hand may lift, right now.
         //
@@ -296,21 +310,17 @@ internal static class PropGrab
 
         // PHASE 3 — register what is not registered yet.
         _pendingResolve = 0;
-        ObjectCacheService? cache = Singleton<ObjectCacheService>.IsInitialized
-            ? Singleton<ObjectCacheService>.Instance
-            : null;
+        PropVisualLookup.Route route = PropVisualLookup.Route.None;
 
         foreach (CObjectProp prop in Seen)
         {
             if (Registry.ContainsKey(prop))
                 continue;
-            if (cache == null || !resolve)
-            {
-                _pendingResolve++;
-                continue;
-            }
 
-            GameObject? visual = cache.GetPropObject(prop);
+            // THE LOOKUP IS NO LONGER GetPropObject (ModBuild 367). It is the same dictionary,
+            // asked so that a RE-KEYED cache still answers and a miss stays silent —
+            // PropVisualLookup carries the whole diagnosis and the three routes.
+            GameObject? visual = PropVisualLookup.Resolve(prop, out route);
             // NOT YET DRAWING is the same answer as NOT YET SPAWNED and takes the same retry: the
             // census watched both flip from "no" to "yes" within the first seconds of a scenario.
             if (visual == null || !FigureGrabDriver.DrawsSomething(visual))
@@ -353,7 +363,8 @@ internal static class PropGrab
             VRLog.Note("FigureGrab",
                 $"[Props] registry OPEN: first grabbable prop is {grabbable.Label}, visual "
                 + $"'{visual.name}' resolved through ObjectCacheService (NOT through an actor — it "
-                + "has none, which is exactly what the ModBuild 335 census measured). Collider: "
+                + "has none, which is exactly what the ModBuild 335 census measured). RESOLVED "
+                + $"THROUGH {PropVisualLookup.Describe(route)} (ModBuild 367). Collider: "
                 + (built ? "built from its renderer bounds (the prop had none)." : "the prop's own.")
                 + " It now carries the figure hover glow, the figure pick radius, the trigger-only "
                 + "grab and a home ghost. Logged once per scenario; the [Props] census line counts "
@@ -389,8 +400,9 @@ internal static class PropGrab
         PropGhosts.Clear();
         _lastPropCount = -1;
         _pendingResolve = 0;
-        _settleScansLeft = SettleScanBudget;
         _idleScansLeft = IdleSweepScans;
+        // The InstanceName index and the re-key counter belong to the board that is going away.
+        PropVisualLookup.Reset();
         _nextScan = 0f;
         _loggedRegistration = false;
         _refusedThisScan = 0;
