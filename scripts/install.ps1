@@ -348,9 +348,12 @@ if (-not (Test-Path $bootConfig)) {
 # the two GloomhavenVR subtrees that were just installed means the archive is by
 # construction the tree that works on this machine.
 #
-# The INSTALL.txt comes from packaging/INSTALL.txt.in, the same template
-# package-release.sh renders, so the two packagers cannot describe the install
-# differently.
+# The INSTALL.txt files come from packaging/INSTALL.txt.in and
+# packaging/INSTALL.de.txt.in, the same templates package-release.sh renders, so
+# the two packagers cannot describe the install differently. BOTH LANGUAGES SHIP,
+# and both are asserted below: an English-only zip out of this packager and a
+# bilingual one out of package-release.sh is exactly the drift the paragraph above
+# says a second layout definition causes.
 # ---------------------------------------------------------------------------
 if (-not $NoPackage) {
     Step "Packaging release zip"
@@ -368,10 +371,19 @@ if (-not $NoPackage) {
     Copy-Item -Recurse -Force $pluginDir  (Join-Path $stage "BepInEx\plugins\GloomhavenVR")
     Copy-Item -Recurse -Force $patcherDir (Join-Path $stage "BepInEx\patchers\GloomhavenVR")
 
-    $template = Join-Path $root "packaging\INSTALL.txt.in"
-    if (-not (Test-Path $template)) { Write-Error "Missing $template - cannot package." }
-    (Get-Content -LiteralPath $template -Raw).Replace('@VERSION@', $version) |
-        Set-Content -LiteralPath (Join-Path $stage "INSTALL.txt") -Encoding UTF8 -NoNewline
+    $templates = @{
+        "INSTALL.txt"         = Join-Path $root "packaging\INSTALL.txt.in"
+        "INSTALL-DEUTSCH.txt" = Join-Path $root "packaging\INSTALL.de.txt.in"
+    }
+    foreach ($name in $templates.Keys) {
+        $template = $templates[$name]
+        if (-not (Test-Path $template)) { Write-Error "Missing $template - cannot package." }
+        # UTF8 on purpose: both files carry em dashes and the German one carries
+        # umlauts. Transliterating would be the only alternative and it reads
+        # amateurish to the person the file is written for.
+        (Get-Content -LiteralPath $template -Raw).Replace('@VERSION@', $version) |
+            Set-Content -LiteralPath (Join-Path $stage $name) -Encoding UTF8 -NoNewline
+    }
 
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
     # itself and restarts the game once on the boot that needs it.
@@ -386,7 +398,8 @@ if (-not $NoPackage) {
         "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll",
         "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll",
         "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll",
-        "INSTALL.txt")
+        "INSTALL.txt",
+        "INSTALL-DEUTSCH.txt")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
     try   { $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' } }

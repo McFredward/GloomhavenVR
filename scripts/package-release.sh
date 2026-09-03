@@ -4,7 +4,8 @@
 # Builds Release and assembles dist/GloomhavenVR-<version>.zip with the EXACT
 # install layout the runtime expects (paths verified against the code):
 #
-#   INSTALL.txt
+#   INSTALL.txt                                        <- packaging/INSTALL.txt.in
+#   INSTALL-DEUTSCH.txt                                <- packaging/INSTALL.de.txt.in
 #   BepInEx/plugins/GloomhavenVR/GloomhavenVR.dll
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
@@ -97,17 +98,26 @@ Developers: build it with scripts/build-bundles.sh (needs Unity 2021.3.x).
 EOF
 fi
 
-# ---- INSTALL.txt ----------------------------------------------------------------------------
-# ONE source of truth for the text a drag-and-drop user reads: packaging/INSTALL.txt.in.
-# install.ps1 renders the same template, so the zip it produces and the zip this produces
-# cannot describe the install differently — which they silently did before the template
-# existed (this file's copy never mentioned the graphics-jobs restart at all).
+# ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
+# ONE source of truth per language for the text a drag-and-drop user reads:
+# packaging/INSTALL.txt.in and packaging/INSTALL.de.txt.in. install.ps1 renders the same
+# templates, so the zip it produces and the zip this produces cannot describe the install
+# differently — which they silently did before the template existed (this file's copy never
+# mentioned the graphics-jobs restart at all).
+#
+# BOTH ship. The mod's own UI is English and German, so a German player must not have to read
+# the install through English; each file's first body line names the other one, so opening the
+# wrong one costs a glance rather than a search.
 TEMPLATE="$ROOT/packaging/INSTALL.txt.in"
-if [[ ! -f "$TEMPLATE" ]]; then
-    echo "error: missing $TEMPLATE" >&2
-    exit 1
-fi
-sed "s/@VERSION@/$VERSION/g" "$TEMPLATE" > "$STAGE/INSTALL.txt"
+TEMPLATE_DE="$ROOT/packaging/INSTALL.de.txt.in"
+for f in "$TEMPLATE" "$TEMPLATE_DE"; do
+    if [[ ! -f "$f" ]]; then
+        echo "error: missing $f" >&2
+        exit 1
+    fi
+done
+sed "s/@VERSION@/$VERSION/g" "$TEMPLATE"    > "$STAGE/INSTALL.txt"
+sed "s/@VERSION@/$VERSION/g" "$TEMPLATE_DE" > "$STAGE/INSTALL-DEUTSCH.txt"
 
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
@@ -131,11 +141,12 @@ for path in \
     "BepInEx/plugins/GloomhavenVR/RuntimeDeps/Unity.XR.OpenXR.dll" \
     "BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll" \
     "BepInEx/patchers/GloomhavenVR/Natives/openxr_loader.dll" \
-    "INSTALL.txt"; do
+    "INSTALL.txt" \
+    "INSTALL-DEUTSCH.txt"; do
     if ! unzip -l "$ZIP" | grep -q "$path"; then
         echo "error: packaged zip is missing '$path'" >&2
         exit 1
     fi
 done
 echo
-echo "Layout verified (plugin, RuntimeDeps, preloader, natives, INSTALL.txt)."
+echo "Layout verified (plugin, RuntimeDeps, preloader, natives, INSTALL.txt + INSTALL-DEUTSCH.txt)."

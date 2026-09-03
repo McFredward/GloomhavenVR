@@ -18,6 +18,12 @@
 </p>
 
 <p align="center">
+  <img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="README.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
+</p>
+
+<p align="center">
   A community-made VR mod for <a href="https://store.steampowered.com/app/780290/Gloomhaven/"><b>Gloomhaven (Digital)</b></a>.<br>
   Demeo-like motion controls, fully integrated VR Multiplayer, Custom Environments, Mixed Reality …
 </p>

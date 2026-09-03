@@ -1,5 +1,11 @@
 # GloomhavenVR — playing guide
 
+<p align="center">
+  <img src="img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="PLAYING.de.md"><img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
+</p>
+
 Every control, what each part of the table does, how a session with other people works, and the
 honest list of what is still rough. If you have not installed it yet, that is the
 [install guide](../INSTALL.md).

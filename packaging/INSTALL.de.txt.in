@@ -1,0 +1,118 @@
+GloomhavenVR @VERSION@ — so installierst du es
+==============================================
+
+In English: INSTALL.txt (next to this file)
+
+Spiele Gloomhaven (digital) als raumgroßes VR-Brettspiel: du stehst am Tisch und
+nimmst deine Karten mit den Händen in die Hand.
+
+WAS DU BRAUCHST
+  * Gloomhaven (digital) für den PC, Version 1.1.x — Steam oder GOG.
+  * Windows und ein PC-VR-Headset. Entwickelt und getestet auf einer Quest 3
+    über Virtual Desktop. Andere Headsets und Streaming-Apps (Quest Link,
+    Steam Link, SteamVR) sollten gehen, sind aber nicht getestet.
+  * BepInEx 5.4.23.5 — ein kleines, kostenloses Programm, ohne das Mods
+    überhaupt nicht laufen. Das installierst du einmal. Schritt 1 unten.
+
+Alles andere, was die Mod braucht, steckt schon in diesem Zip. Sonst gibt es
+nichts herunterzuladen.
+
+
+1. BepInEx INSTALLIEREN, EINMALIG
+   Lade BepInEx_win_x64_5.4.23.5.zip herunter von
+     https://github.com/BepInEx/BepInEx/releases/tag/v5.4.23.5
+   und entpack es in deinen Gloomhaven-Ordner — den Ordner, in dem GH.exe liegt.
+   (Bei Steam: Rechtsklick auf das Spiel -> Verwalten -> Lokale Dateien
+   durchsuchen.)
+
+   Dann starte das Spiel einmal ganz normal und beende es wieder. In einem neuen
+   Ordner namens BepInEx sollte jetzt eine Datei namens LogOutput.log liegen.
+   Dass diese Datei auftaucht, ist dein Beweis, dass es geklappt hat.
+
+2. GloomhavenVR INSTALLIEREN
+   Entpack DIESES Zip in denselben Gloomhaven-Ordner und lass Windows den Ordner
+   BepInEx zusammenführen, wenn es fragt. Ob es an der richtigen Stelle gelandet
+   ist, siehst du an diesen zwei Ordnern:
+
+     BepInEx\plugins\GloomhavenVR\
+     BepInEx\patchers\GloomhavenVR\
+
+   Wenn einer davon fehlt, entpack das Zip lieber noch einmal, statt Dateien von
+   Hand herumzuschieben.
+
+3. DEINER HEADSET-SOFTWARE SAGEN, DASS SIE PC-SPIELE ÜBERNIMMT
+   Jedes Headset hat eine Einstellung, die festlegt, welche App PC-VR-Spiele
+   anzeigt. Sie heißt meistens OpenXR-Laufzeit (OpenXR runtime).
+     Virtual Desktop  -> in den Streamer-Einstellungen von Virtual Desktop
+                         VDXR wählen.
+     Quest Link       -> Meta-Quest-Link-App, Einstellungen, Allgemein,
+                         OpenXR-Laufzeit, "Meta Quest Link als aktiv festlegen".
+     Steam Link       -> SteamVR-Einstellungen, OpenXR, "SteamVR als
+                         OpenXR-Laufzeit festlegen".
+
+4. DAS SPIEL STARTEN
+   Setz das Headset auf und starte Gloomhaven so, wie du es immer startest.
+
+   BEIM ERSTEN START NACH DEM INSTALLIEREN ODER UPDATEN SCHLIESST SICH DAS SPIEL
+   UND GEHT VON SELBST WIEDER AUF — EINMAL. Das soll so sein. Es ist kein
+   Absturz. Siehe unten.
+
+
+WARUM SICH DAS SPIEL EINMAL SELBST NEU STARTET
+----------------------------------------------
+Die Mod schaltet eine Geschwindigkeits-Einstellung ein, die das Spiel nur beim
+Hochfahren liest — sie kann also nie in dem Durchlauf wirken, der sie
+einschaltet. Statt dir zu sagen, du sollst beenden und neu starten, macht die
+Mod es für dich.
+
+Auf dem Testrechner war diese Einstellung der Unterschied zwischen ruckeligen
+45 Bildern pro Sekunde und glatten 90, und das Schmieren beim Kopfdrehen war
+weg.
+
+Es passiert einmal, nach dem Installieren oder Updaten. In einer Schleife kann
+es nicht hängenbleiben, und es passiert beim Hochfahren, bevor irgendein
+Spielstand angefasst wird.
+
+Willst du das nicht? Öffne BepInEx\config\dev.gloomhavenvr.cfg und setz unter
+der Überschrift [Core] AutoRestartForGraphicsJobs = false. Dann bittet dich das
+Spiel stattdessen, es selbst neu zu starten.
+
+Das ist die EINZIGE Spieldatei, die die Mod jemals verändert: zwei Zeilen, die
+zu GH_Data\boot.config dazukommen, alles andere darin bleibt unangetastet, und
+das Original wird als boot.config.gloomhavenvr-backup daneben gesichert. Falls
+das Spiel irgendwann gar nicht mehr startet, kopier dieses Backup zurück über
+boot.config — dabei kann die Mod dir nicht helfen, denn an diesem Punkt kommt
+sie gar nicht mehr zum Laufen.
+
+
+EINSTELLUNGEN
+-------------
+Alles lässt sich direkt im Headset einstellen: öffne das Optionen-Fenster des
+Spiels und geh auf den Reiter VR Optionen.
+
+Wenn du das Spiel eine Weile völlig unverändert spielen willst, öffne
+BepInEx\config\dev.gloomhavenvr.cfg und setz unter der Überschrift [General]
+Enabled = false. Du musst dafür nichts deinstallieren.
+
+
+MIT ANDEREN ZUSAMMEN SPIELEN
+----------------------------
+Alle, die zusammen spielen, brauchen dieselbe Version der Mod — haben zwei Leute
+unterschiedliche, sagt das Spiel das, statt die Sitzung still schiefgehen zu
+lassen. Wer die Mod gar nicht hat, kann trotzdem ganz normal mit dir spielen.
+
+
+WENN ETWAS SCHIEFGEHT
+---------------------
+Das Spiel startet auf dem Monitor statt im Headset, oder das Headset bleibt
+schwarz? Prüf zuerst Schritt 3 oben. Wenn der stimmt und es trotzdem passiert,
+trag -force-d3d11 in die Startoptionen des Spiels bei Steam oder GOG ein.
+
+Etwas anderes? Es gibt eine Datei zum Verschicken, in deinem Gloomhaven-Ordner:
+  BepInEx\LogOutput.log
+Schick diese ganze Datei, sag, was du gerade gemacht hast, und sag, welches
+Headset du benutzt und wie du es anschließt.
+
+Die vollständige Anleitung — Spielen, alle Einstellungen, bekannte raue Kanten,
+Deinstallieren — ist das README auf der Projektseite:
+  https://github.com/McFredward/GloomhavenVR

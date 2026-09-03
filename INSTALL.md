@@ -1,5 +1,11 @@
 # GloomhavenVR — install guide
 
+<p align="center">
+  <img src="docs/img/flag-en.png" width="24" alt="English">&nbsp;<b>English</b>
+  &nbsp;&nbsp;|&nbsp;&nbsp;
+  <a href="INSTALL.de.md"><img src="docs/img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
+</p>
+
 Everything you need to get from a normal copy of Gloomhaven to standing at the table, and
 everything you might need afterwards. If you have not read what this is yet, start at the
 [README](README.md).
