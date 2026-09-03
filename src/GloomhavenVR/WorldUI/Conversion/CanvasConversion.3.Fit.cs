@@ -2423,6 +2423,30 @@ internal static partial class CanvasConversion
         internal int BurstPeakGraphics;
         internal int BurstFirstGraphics;
         internal Vector2 BurstPeakUnion;
+
+        // ---- ModBuild 396: WHICH GRAPHIC MADE THE COLUMN WIDE ------------------------------
+        //
+        // The 395 log settles two questions and opens this one. The column is measured every fit
+        // pass, and it caught the flash TWICE in that session — "the CHARACTER COLUMN renders
+        // 1964x1080 px … [99 graphic(s)] … GREW by 1636,0 px since the pin", against a settled
+        // 328x1080 at 85-86 graphics. So the flash is not a pre-Start paint (24 pre-Start windows
+        // all session, 0 accepted) and not a stale canvas restore (PRE-START RESTORE WITHHELD
+        // 0 of 0): it is ~13 extra graphics that paint across the FULL width of the window and
+        // 384 px below it, and no instrument in the tree names one of them.
+        //
+        // These three hold the transforms at the extremes of the column's own union on the
+        // current pass. They are live only within the pass that wrote them and are resolved to
+        // text immediately, by the report below, on the passes where the column overspilled.
+        internal Transform? BaseEdgeLeft;
+        internal Transform? BaseEdgeRight;
+        internal Transform? BaseEdgeBottom;
+        internal float BaseEdgeLeftX;
+        internal float BaseEdgeRightX;
+        internal float BaseEdgeBottomY;
+
+        /// <summary>Printed COLUMN OVERSPILL lines so far — capped, so a window that overspills
+        /// every pass cannot flood the log the way ModBuild 331 was asked to stop.</summary>
+        internal int OverspillLines;
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -3063,6 +3087,24 @@ internal static partial class CanvasConversion
                 fx.BaseRawGraphics++;
                 if (transient != 0)
                     continue;
+                // ModBuild 396: remember WHICH graphic sits at each extreme of the column union.
+                // Three compares and, at most, three reference writes per accepted graphic; the
+                // strings are built only on a pass that actually overspilled. See the report.
+                if (fx.BaseGraphics == 0 || gMin.x < fx.BaseEdgeLeftX)
+                {
+                    fx.BaseEdgeLeftX = gMin.x;
+                    fx.BaseEdgeLeft = g.transform;
+                }
+                if (fx.BaseGraphics == 0 || gMax.x > fx.BaseEdgeRightX)
+                {
+                    fx.BaseEdgeRightX = gMax.x;
+                    fx.BaseEdgeRight = g.transform;
+                }
+                if (fx.BaseGraphics == 0 || gMin.y < fx.BaseEdgeBottomY)
+                {
+                    fx.BaseEdgeBottomY = gMin.y;
+                    fx.BaseEdgeBottom = g.transform;
+                }
                 baseMin = Vector2.Min(baseMin, gMin);
                 baseMax = Vector2.Max(baseMax, gMax);
                 fx.BaseGraphics++;
@@ -3615,6 +3657,7 @@ internal static partial class CanvasConversion
             {
                 column += " (not pinned yet)";
             }
+            ReportColumnOverspill(panel, fx, bs);
         }
 
         // THE SEAM, and where it came from — so "the seat is the column's edge" is a stated number.
@@ -3766,7 +3809,21 @@ internal static partial class CanvasConversion
             $"{fx.BaseWrites} column re-assert(s), {fx.ScaleWrites} sub-view scale write(s), " +
             $"{fx.Shifts} sub-view re-seat(s), {fx.ReAsserts} foreign overwrite(s) of a pose we had " +
             "written — the host size is written ONCE, the host is never re-posed, and the conversion " +
-            "target itself is never scaled.");
+            "target itself is never scaled." +
+            // ModBuild 396 — WHY THE SETTLE BURST READ ZERO, stated on the line the burst is read
+            // beside. The 395 session contains no SUB-VIEW SETTLE BURST line at all, where the 392
+            // session's burst was the only instrument that had quantified the flash. Nothing about
+            // the burst changed: TickSubViewBurst arms only when the OPEN-SET SIGNATURE changes
+            // after a baseline observation, and a session in which the player never switched
+            // sub-view produces no event for it to count. That is a correct zero and an unreadable
+            // one, so the state now rides here — a burst count of 0 beside a valid baseline and a
+            // non-zero sub-view count means "no tab was switched", not "the instrument is gone".
+            $" SUB-VIEW BURST STATE: {fx.Bursts} burst(s) armed and {fx.BurstsExpired} expired this "
+            + $"session over {fx.Views.Count} known sub-view(s); the open-set baseline is "
+            + (fx.BurstSigValid ? "OBSERVED" : "NOT YET OBSERVED (the burst cannot arm before it)")
+            + ". The burst counts CHANGES of the open set, so zero bursts with a valid baseline "
+            + "means the set never changed while this window was up — read the COLUMN OVERSPILL "
+            + "line for the flash instead, which is measured every pass and needs no event.");
     }
 
     // =============================================================================================
@@ -5974,5 +6031,117 @@ internal static partial class CanvasConversion
             + "alpha below the fit floor, or clipped by a mask) — compare against the PANEL "
             + "SUPERSAMPLE capture-frame line for the same window, which measures the same "
             + "overspill with a deliberately more permissive test.");
+    }
+
+    // ==========================================================================================
+    // ModBuild 396 — NAME THE GRAPHIC, NOT THE NUMBER (user report 2026-09-03, after 395: "Die
+    // 'flashs' sind nach wie vor genau so da ohne dass ich eine Veränderung feststellen kann.")
+    // ==========================================================================================
+    //
+    // TWO PREMISES DIED IN ONE LOG, and both were falsified by instruments built to falsify them.
+    //
+    //   * NOTHING IS PRE-START. 'FLASH VEIL SCAN #7' examined 591,324 registry entries across
+    //     8,826 scans and found 24 with HasGoneToStartingState == false — 20 of those held at
+    //     alpha 0 by a real CanvasGroup, the rest without a converted-panel ancestor. PREVENTED 0.
+    //     So the flashing subtree has ALREADY RUN Start(); ModBuild 392's discriminator describes
+    //     a population that is not the defect. (LET THROUGH 4 is the one thing that line proves
+    //     positively: the veil is not eating close animations.)
+    //   * THE REVEAL RECORDS NO PREFAB DEFAULT. 'REVEAL RESTORE WITHHELD' on New Party display
+    //     reads "0 canvas(es) of 0" — the panel's hide never recorded a canvas off a pre-Start
+    //     window, so the ModBuild 395 mechanism does not occur. It restored 16 canvases and not
+    //     one of them was a candidate.
+    //
+    // WHAT SURVIVED IS THIS FILE'S OWN COLUMN MEASUREMENT, and it caught the flash twice in that
+    // session without being asked to:
+    //
+    //     the CHARACTER COLUMN renders 1964x1080 px from (-1002,-540) [99 graphic(s)],
+    //     pinned at (-982,-540) at 328x1080 px -> MOVED by -20,0 px and GREW by 1636,0 px
+    //
+    // against a settled 328x1080 at 85-86 graphics, and on the same frame PanelSupersample reports
+    // "draws content that reaches 1996x1453 uGUI px around a 1988x1080 host rect" with "measured
+    // overspill L32 R32 D384 U0". So the flash is about THIRTEEN extra graphics that paint across
+    // the full width of the window and 384 px below it — not a whole tree at once, and not
+    // anything either 392 or 395 was built for.
+    //
+    // WHAT NO LINE IN THE TREE SAYS IS **WHICH** GRAPHICS. Every reading so far has been a count
+    // or a rectangle, and a count is compatible with every explanation ([[a-summary-stat-is-not-
+    // the-field]], [[name-the-blocker-not-the-number]] — six rounds of tuning a fraction ended the
+    // moment one field named WHICH renderer was responsible). This line names them: the three
+    // graphics standing at the left, right and bottom extremes of the column's own union on a pass
+    // where the column overspilled its pin, each with its full path and the verdict of the nearest
+    // UIWindow above it. If the subtree is a sibling screen the game briefly enables, its window
+    // is in that text; if it is one window drawn before its data binding runs, its window is in
+    // that text and reports itself OPEN. Either way the next round starts from a name.
+    //
+    // IT IS NOT A FIX AND DOES NOT PRETEND TO BE. It writes nothing, reads only what the fit walk
+    // has already visited, and builds strings on the passes that overspilled and no others.
+
+    /// <summary>How far past its pinned width the column may drift before this counts as the
+    /// flash. Four pixels, i.e. anything the existing SAME SIZE, SAME PLACE test would not have
+    /// already called equal.</summary>
+    private const float ColumnOverspillPx = 4f;
+
+    /// <summary>Printed overspill lines per panel per session. Eight is far more than the two the
+    /// 395 session produced and far fewer than a flood.</summary>
+    private const int ColumnOverspillMaxLines = 8;
+
+    /// <summary>
+    /// SAY WHICH GRAPHIC MADE THE COLUMN WIDE, on the passes where it was wide. Change-triggered
+    /// on a condition that is FALSE in the settled state — the column at its pin — so this is a
+    /// quiet line that fires on the defect and nowhere else.
+    /// </summary>
+    private static void ReportColumnOverspill(ConvertedPanel panel, FixedFitState fx, Vector2 bs)
+    {
+        if (!fx.BasePinned || fx.OverspillLines >= ColumnOverspillMaxLines)
+            return;
+        Vector2 grew = bs - fx.BaseSizeAtPin;
+        if (grew.x <= ColumnOverspillPx && grew.y <= ColumnOverspillPx)
+            return;
+        fx.OverspillLines++;
+
+        // HW-VERIFY: the line that names the flashing subtree. A round asking "what is drawing"
+        // reads this; the counts on the FIXED FIT line above it only ever said "something is".
+        VRLog.Note("WorldUI", "COLUMN OVERSPILL on "
+            + $"'{(panel.HostGo != null ? panel.HostGo.name : "?")}' at frame {Time.frameCount} "
+            + $"(#{fx.OverspillLines} of at most {ColumnOverspillMaxLines}): the character column "
+            + $"measured {bs.x:F0}x{bs.y:F0} px against the {fx.BaseSizeAtPin.x:F0}x"
+            + $"{fx.BaseSizeAtPin.y:F0} px it was pinned at — GREW by {grew.x:F0},{grew.y:F0} px "
+            + $"over {fx.BaseGraphics} graphic(s). THE THREE EXTREMES OF THAT UNION, each with the "
+            + "nearest UIWindow above it and that window's own verdict on itself: LEFT edge "
+            + $"x={fx.BaseEdgeLeftX:F0} {DescribeOverspillEdge(fx.BaseEdgeLeft, panel)}; RIGHT edge "
+            + $"x={fx.BaseEdgeRightX:F0} {DescribeOverspillEdge(fx.BaseEdgeRight, panel)}; BOTTOM "
+            + $"edge y={fx.BaseEdgeBottomY:F0} {DescribeOverspillEdge(fx.BaseEdgeBottom, panel)}. "
+            + "HOW TO READ IT: a window reporting OPEN=True is one the game is deliberately "
+            + "showing, so the defect is its CONTENT arriving late and the owner is whatever "
+            + "populates it; OPEN=False with its canvas enabled is a subtree that is drawing "
+            + "against the game's own verdict, and THAT is a visibility defect this lane can act "
+            + "on. STARTED=False on any of them would mean the pre-Start population is back, which "
+            + "the 395 session measured at zero.");
+    }
+
+    /// <summary>One extreme graphic, as a path plus the nearest ancestor UIWindow's verdict.
+    /// Reads only; every failure degrades to a string rather than an exception.</summary>
+    private static string DescribeOverspillEdge(Transform? t, ConvertedPanel panel)
+    {
+        if (t == null)
+            return "'(none — no graphic at this extreme)'";
+        string path = t.name;
+        Transform? node = t.parent;
+        for (int depth = 0; node != null && depth < 6; depth++, node = node.parent)
+        {
+            path = node.name + "/" + path;
+            if (panel.Target != null && ReferenceEquals(node, panel.Target))
+                break;
+        }
+
+        var w = t.GetComponentInParent<UIWindow>();
+        if (w == null)
+            return $"'{path}' (NO UIWindow above it inside 6 levels — it belongs to the column "
+                   + "proper or to something the game parents outside a window)";
+        var c = w.GetComponent<Canvas>();
+        return $"'{path}' under UIWindow '{w.gameObject.name}' (ID {w.ID}): OPEN={w.IsOpen}, "
+               + $"STARTED={w.HasGoneToStartingState}, VISIBLE={w.IsVisible}, "
+               + $"activeSelf={w.gameObject.activeSelf}, canvas="
+               + (c == null ? "none" : c.enabled ? "enabled" : "disabled");
     }
 }

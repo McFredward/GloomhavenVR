@@ -227,15 +227,29 @@ internal static partial class CanvasConversion
         // Everything else is restored bit-for-bit as before. See RevealRestoreWithheld.
         s_revealWithheldCanvases = 0;
         s_revealPreStartNotOpen = 0;
+        s_revealRecordedPreStart = 0;
         s_revealWithheldName = "none";
         for (int i = 0; i < panel.HiddenCanvases.Count; i++)
         {
             Canvas c = panel.HiddenCanvases[i];
             if (c == null || c.enabled)
                 continue;
+            // ModBuild 396 REMOVES THE PRE-START GATE THAT MADE THIS INERT, and the 395 log is the
+            // reason. 'REVEAL RESTORE WITHHELD on New Party display … 0 canvas(es) of 0': that
+            // panel's hide never recorded ONE canvas off a pre-Start window, so the gate below was
+            // never true and the rule never ran. The flag is kept and still reported — it is the
+            // measurement that killed the 395 premise and it must stay readable — but it no longer
+            // decides anything. What decides is the same thing it always should have: whether the
+            // GAME, right now, says this window is not shown, and whether the canvas is the lever
+            // it would switch back on when it next shows it. That question is well-posed for a
+            // POOLED window too, which is what New Party display is — it opened four times in the
+            // 395 session and HasGoneToStartingState is set once and never reset, so on opens 2..n
+            // every sub-view is "started" and the old gate could never fire again by construction.
             bool preStart = i < panel.HiddenCanvasWasPreStart.Count
                             && panel.HiddenCanvasWasPreStart[i];
-            if (preStart && RevealRestoreWithheld(panel, c))
+            if (preStart)
+                s_revealRecordedPreStart++;
+            if (RevealRestoreWithheld(panel, c))
             {
                 s_revealWithheldCanvases++;
                 s_revealWithheldName = c.gameObject.name;
@@ -543,6 +557,12 @@ internal static partial class CanvasConversion
     /// <summary>How many printed REVEAL RESTORE WITHHELD lines this session has produced.</summary>
     private static int s_revealClauseLines;
 
+    /// <summary>Recorded canvases in THIS reveal that were recorded off a PRE-START window. Kept
+    /// as a pure measurement after ModBuild 396 stopped gating on it: the 395 log read 0 of 0 on
+    /// every panel, and that zero is the evidence that killed the 395 premise. It must stay
+    /// readable, and it must stay out of the decision.</summary>
+    private static int s_revealRecordedPreStart;
+
     /// <summary>How many recorded canvases the last reveal left OFF because the game had decided
     /// against them while the hide held them (see the block above).</summary>
     internal static int RevealWithheldCanvases => s_revealWithheldCanvases;
@@ -563,9 +583,13 @@ internal static partial class CanvasConversion
               + "recorded a prefab default and the rule has nothing to do here; a zero on the "
               + "first with the second non-zero means every one of them was refused by the "
               + "`_disableCanvas` term, i.e. those windows hide by their CanvasGroup alpha and "
-              + "this rule is not the lever that reaches them."
+              + "this rule is not the lever that reaches them. Of the recorded canvases, "
+              + $"{s_revealRecordedPreStart} were recorded off a PRE-START window — that number is "
+              + "a measurement only from ModBuild 396 on, and the 395 session read it as zero on "
+              + "every panel, which is what retired the 395 premise."
             : $"PRE-START RESTORE WITHHELD {s_revealWithheldCanvases} of {s_revealPreStartNotOpen} "
-              + "candidate canvas(es) (last "
+              + $"candidate canvas(es) ({s_revealRecordedPreStart} recorded off a pre-Start window, "
+              + "which no longer gates anything) (last "
               + $"'{s_revealWithheldName}'): each was recorded as 'enabled' while its own UIWindow "
               + "had not run Start() yet — a prefab default, not a decision — and that window now "
               + "reports itself started and NOT open. Switching them on is what painted the whole "
