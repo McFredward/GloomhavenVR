@@ -449,7 +449,7 @@ internal static partial class WallSegmentFade
             // the fade edge would leave regenerated pieces standing inside a faded wall for up
             // to two seconds — a look change, which this round forbids.
             using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
-            // ModBuild 392: this sweep runs between rescans, while Apparance regenerates subtrees,
+            // ModBuild 393: this sweep runs between rescans, while Apparance regenerates subtrees,
             // so it rebuilds the map rather than trusting the one the last rescan left behind.
             EnsureWallHomes();
             _fastSegScratch.Clear();
@@ -568,7 +568,7 @@ internal static partial class WallSegmentFade
                 float bestGap = float.PositiveInfinity;
                 Segment? corner = null, cornerB = null;
                 float cornerGap = float.PositiveInfinity;
-                // ModBuild 392: the SECOND election of the stacked lane, and it must carry the same
+                // ModBuild 393: the SECOND election of the stacked lane, and it must carry the same
                 // provenance term as the first. The ModBuild-388 OWNERSHIP CHURN line names this
                 // one explicitly — 'CandleFlame' … stacked-fast:'EN_CR_LBSkull' → stacked-fast:
                 // 'Wall 2' — so a fix that reached only the main rounds would be re-overwritten
@@ -711,7 +711,7 @@ internal static partial class WallSegmentFade
         /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
         private void CollectStackedShellPieces()
         {
-            // ModBuild 392: the wall-home map must exist BEFORE this pass elects anything — it is
+            // ModBuild 393: the wall-home map must exist BEFORE this pass elects anything — it is
             // built inside the mounted sweep, which runs later. The decline census is reset here
             // and only here: this is the first of the three lanes in a rescan, and the emitter runs
             // in the last of them, so one window covers all three (plus any fast-reclaim sweeps

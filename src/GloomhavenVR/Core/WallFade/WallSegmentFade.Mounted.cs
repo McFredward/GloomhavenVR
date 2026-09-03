@@ -552,7 +552,7 @@ internal static partial class WallSegmentFade
         private const int MountedWallHomeNameCap = 8;
 
         /// <summary>
-        /// WHY THE WRONG-WALL RULE DECLINED, by reason and by LANE (ModBuild 392).
+        /// WHY THE WRONG-WALL RULE DECLINED, by reason and by LANE (ModBuild 393).
         ///
         /// <para>ModBuild 390's line counted MOVES and nothing else, so its zero in the 391
         /// hardware log was unreadable: it could not tell "no wall above this prop", "already on a
@@ -1440,7 +1440,7 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
-            // ModBuild 392 — THESE THREE ARE NO LONGER RESET HERE. The wrong-wall rule now runs on
+            // ModBuild 393 — THESE THREE ARE NO LONGER RESET HERE. The wrong-wall rule now runs on
             // three lanes and the stacked ones run BEFORE this sweep, so clearing their counters at
             // the top of the mounted pass would erase every stacked correction before the emitter
             // at the bottom of it could print one — the census would have gone on reading zero for
@@ -1652,7 +1652,7 @@ internal static partial class WallSegmentFade
                         // itself AND any piece of its run, so a prop sitting on a different piece of
                         // its OWN wall is left exactly where it is. Only a cross-WALL binding moves.
                         Segment? wallHome = MountedWallHomeOf(p.Renderer, out Component? homeWall);
-                        // ModBuild 392: the sticky lane records its declines too. This is the half
+                        // ModBuild 393: the sticky lane records its declines too. This is the half
                         // that reaches props ALREADY hanging in the scene, so "it did not fire
                         // here" and "it did not fire at the election" are different findings and
                         // must not share one number.
@@ -2117,7 +2117,7 @@ internal static partial class WallSegmentFade
                     Segment? wallHomeFrom = null;
                     if (!belowBar && !byUnitHome)
                     {
-                        // EVERY OUTCOME IS RECORDED, INCLUDING THE DECLINES (ModBuild 392). The
+                        // EVERY OUTCOME IS RECORDED, INCLUDING THE DECLINES (ModBuild 393). The
                         // 390 line counted moves only, so its zero on hardware could not be told
                         // apart from "never asked" — and "never asked" is exactly what it was.
                         if (homeWall == null)
@@ -2610,7 +2610,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         /// <summary>
         /// Build the wall-home map AT MOST ONCE PER RESCAN, and early enough for every lane that
-        /// needs it (ModBuild 392).
+        /// needs it (ModBuild 393).
         ///
         /// <para>ModBuild 390 called the builder from inside <see cref="CollectWallMountedProps"/>,
         /// which runs AFTER the stacked-shell pass — so the stacked lane could not have consulted
@@ -2630,7 +2630,7 @@ internal static partial class WallSegmentFade
             _mountedWallProvenance.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
-                // LANE-NEUTRAL ON PURPOSE (ModBuild 392). ModBuild 390 filtered this with
+                // LANE-NEUTRAL ON PURPOSE (ModBuild 393). ModBuild 390 filtered this with
                 // MountedHostEligible, which reads seg.Mounted.Count — and at the point the builder
                 // ran that list still held the PREVIOUS rescan's props, because it is cleared two
                 // loops later. A map built from a stale count, then handed to a second lane with a
@@ -3491,7 +3491,7 @@ internal static partial class WallSegmentFade
             string named = _mountedWallHomeNames.Count == 0
                 ? "none named"
                 : string.Join("; ", _mountedWallHomeNames);
-            // THE DECLINES, COMPLETE AND NOT TRUNCATED (ModBuild 392). The reason set is closed and
+            // THE DECLINES, COMPLETE AND NOT TRUNCATED (ModBuild 393). The reason set is closed and
             // small, so this is a full distribution rather than a sample: "why did it not fire" is
             // the question a zero above leaves open, and a truncated answer to it would be the same
             // unreadable zero wearing more words.
