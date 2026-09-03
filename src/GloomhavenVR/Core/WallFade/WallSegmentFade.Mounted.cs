@@ -3030,6 +3030,31 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
+        /// THE MARKER TEXT ITSELF, hoisted so it is written down ONCE (ModBuild 386).
+        ///
+        /// <para>WHY THIS EXISTS. The two emitters below are the only lines that may print this
+        /// phrase. Every OTHER line that wants to send a reader here must cite it through
+        /// <see cref="LeftoverMarkerCitation"/> instead, which spells it with hyphens — because a
+        /// line that tells you to grep for a phrase must not contain that phrase. Before this
+        /// build the SOLID BLOCKER line named this marker verbatim inside its own text, so
+        /// <c>grep -c "LEFTOVER OVER A FADED WALL"</c> over a hardware log returned 25 hits of
+        /// which 15 were SOLID BLOCKER quoting itself. That is not a cosmetic defect: it was read
+        /// as "the leftover audit fired 25 times" in the ModBuild-385 round and sent an hour of
+        /// analysis at the wrong population.</para>
+        ///
+        /// <para>The literal is unchanged, so <c>check-surface.py</c> still finds the same grep
+        /// tokens in this file; only the number of PLACES that can emit it has gone from three
+        /// to two.</para>
+        /// </summary>
+        private const string LeftoverMarker = "LEFTOVER OVER A FADED WALL";
+
+        /// <summary>How another log line REFERS to <see cref="LeftoverMarker"/> without printing
+        /// it. Hyphenated on purpose: a human reads it as the same line, and a grep for the marker
+        /// does not. Any new line that routes a reader to the leftover audit must use this.
+        /// </summary>
+        internal const string LeftoverMarkerCitation = "the LEFTOVER-OVER-A-FADED-WALL line";
+
+        /// <summary>
         /// THE PICTURE, not the ledger (see <see cref="_mountedLeftovers"/>). One WARN per
         /// rescan that found an airborne renderer DRAWING next to a segment at full fade —
         /// which is the user's photograph, stated in the log, with the reason it was not
@@ -3047,7 +3072,7 @@ internal static partial class WallSegmentFade
                 // Only the ModBuild 259 class fired. Printed on its own rather than folded into
                 // a line whose every clause is about airborne dressing.
                 VRLog.Warn(Name,
-                    $"LEFTOVER OVER A FADED WALL: {_runLeftover} SPLIT-RUN PIECE(S) are actually "
+                    $"{LeftoverMarker}: {_runLeftover} SPLIT-RUN PIECE(S) are actually "
                     + "drawing (renderer enabled + active in hierarchy — read off the renderer, "
                     + "never off our ledger) while the wall run they belong to is faded. This is "
                     + "the 2026-08-24 photograph (neues_wandproblem.jpg): "
@@ -3065,7 +3090,7 @@ internal static partial class WallSegmentFade
             int mlOther = _censusMountedLeftover - mlFloating - mlObstructing - mlWallMember
                           - mlAllowed;
             VRLog.Warn(Name,
-                $"LEFTOVER OVER A FADED WALL: {_censusMountedLeftover} renderer(s) are actually "
+                $"{LeftoverMarker}: {_censusMountedLeftover} renderer(s) are actually "
                 // THE VERDICT FIRST (ModBuild 262). The 260 log printed this count 122 times,
                 // steady at 71, with no statement anywhere on the line about whether the user
                 // minds any of them — so the number was quoted for two rounds as if it were a

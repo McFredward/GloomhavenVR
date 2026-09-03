@@ -5450,6 +5450,11 @@ internal static partial class WallSegmentFade
 
             // Adopt new walls / refresh renderer lists, shader-variant info and bounds.
             _claimedRenderers.Clear();
+            // ModBuild 386: strictly PER RESCAN, like every other census counter here. A session
+            // total would hide a widening that fired once at load and never again, which is the
+            // exact shape of the defect it was added for (Apparance regenerates these subtrees).
+            _splitToggleRescued = 0;
+            _splitToggleRescuedNames.Clear();
             _censusWallsWithoutFade = 0;
             _unfadeableWallShaders.Clear();
             List<ProceduralWall> cache = ProceduralWall.m_WallCache;
@@ -5942,12 +5947,32 @@ internal static partial class WallSegmentFade
         /// <para>PROOF OF EXHAUSTIVENESS. <see cref="CollectWallFadeInfo"/> returns false for
         /// exactly two reasons: (a) <c>IsStandingFigureProp</c>, and (b) no shared material with
         /// either a WallFade-family shader NAME or a live toggle. Neither split site can reach
-        /// (b): <see cref="RefreshSplitWall"/> pre-filters with <c>RendererUsesWallFade</c>, which
-        /// is the same <c>IsWallFadeShaderName</c> test the NAME arm uses, and the engulf split
-        /// only ever iterates <c>group.Renderers</c>, i.e. renderers that already returned true
-        /// from this very method earlier in the same rescan. So (a) is the whole set — and if a
-        /// future change breaks that, the leftover audit will print this string for a piece the
-        /// STANDING PROP census does not name, which is the falsifier.</para>
+        /// (b): <see cref="RefreshSplitWall"/> pre-filters with
+        /// <see cref="RendererIsWallFadeCapable"/>, which is the same NAME-or-TOGGLE pair
+        /// <see cref="CollectWallFadeInfo"/> admits on, and the engulf split only ever iterates
+        /// <c>group.Renderers</c>, i.e. renderers that already returned true from this very
+        /// method earlier in the same rescan. So (a) is the whole set — and if a future change
+        /// breaks that, the leftover audit will print this string for a piece the STANDING PROP
+        /// census does not name, which is the falsifier.</para>
+        ///
+        /// <para>MODBUILD 386 — THIS PARAGRAPH WAS TRUE OF THE PIECES THAT GOT THROUGH AND SAID
+        /// NOTHING ABOUT THE ONES THE PRE-FILTER REMOVED, and that silence was the pillar defect
+        /// (user 2026-09-03, säulen.jpg). Until this build the pre-filter was
+        /// <c>RendererUsesWallFade</c> — <c>IsWallFadeShaderName</c> ONLY — while the choke point
+        /// it stands in front of admits on NAME <b>or</b> <c>HasLiveWallFadeToggle</c>. In this
+        /// tileset the toggle arm is not a corner case: the ModBuild-385 WALL-PATH AUDIT counts
+        /// <c>157 native-name + 950 toggle-native</c>, so the pre-filter was narrower than its own
+        /// choke point over 86 % of the fade-capable population. A TOGGLE-NATIVE renderer under an
+        /// engulf-SPLIT wall was dropped at the <c>continue</c> before any segment existed: no
+        /// <c>Segment</c>, no <see cref="Segment.GeometryRefusedWhy"/> (that is written in the
+        /// <c>else</c> arm, downstream of the skip), no <c>_claimedRenderers</c> entry, no
+        /// <c>_splitPieceScratch</c> entry — and therefore no row in ANY diagnostic, because every
+        /// one of them is reached from a segment. The engulf split itself is not affected (it
+        /// iterates renderers that already passed the choke point), which is why the SAME asset
+        /// could read <c>'CR_OS_Pillar_Large_02' block installed at fade 0.164</c> from the pass
+        /// that split its wall and <c>NO WALL SEGMENT OWNS IT [UNOWNED]</c> ever after: Apparance
+        /// regenerates these subtrees continuously, the old renderer's segment is pruned as a dead
+        /// key, and the new renderer only ever meets the narrow pre-filter.</para>
         /// </summary>
         private const string SplitPieceRefusalReason =
             "REFUSED AS WALL GEOMETRY at the choke point — a floor-standing prop "
@@ -5974,8 +5999,23 @@ internal static partial class WallSegmentFade
             MeshRenderer[] all = wall.GetComponentsInChildren<MeshRenderer>(includeInactive: false);
             foreach (MeshRenderer r in all)
             {
-                if (r == null || !RendererUsesWallFade(r))
+                if (r == null)
                     continue;
+                // MODBUILD 386 — THE PRE-FILTER NOW ASKS THE SAME QUESTION AS THE CHOKE POINT IT
+                // STANDS IN FRONT OF. It used to be RendererUsesWallFade (shader NAME only) while
+                // CollectWallFadeInfo two screens down admits on NAME **or** a live toggle, so a
+                // toggle-native mesh under a split wall left here before a Segment existed and was
+                // then invisible to every instrument in this subsystem. See the correction
+                // paragraph on SplitPieceRefusalReason for the evidence and the asset it cost.
+                if (!RendererIsWallFadeCapable(r))
+                    continue;
+                // COUNTED ON THE ACCEPT PATH, because the number that matters is the one the OLD
+                // gate would have DROPPED and this one keeps — not the pieces both gates reject.
+                // A widening whose population is zero is a widening that did not run, and this
+                // build must not be judged on a headset before that number has been read. Named
+                // on the SPLIT RUN line.
+                if (!RendererUsesWallFade(r))
+                    NoteSplitPieceToggleRescued(r, wall);
                 if (!_live.Segments.TryGetValue(r, out Segment? sub))
                 {
                     sub = new Segment { Anchor = r, FromWallCache = true };
@@ -6834,6 +6874,75 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>Any shared material on a wall-fade-capable shader? (Cached per Shader.)</summary>
+        /// <summary>
+        /// IS THIS RENDERER FADE-CAPABLE BY THE SAME TEST <see cref="CollectWallFadeInfo"/> USES —
+        /// a WallFade-family shader NAME <b>or</b> a live wall-fade toggle (ModBuild 386).
+        ///
+        /// <para>WHY IT IS NOT <see cref="RendererUsesWallFade"/>. That method is the NAME arm on
+        /// its own and it has other callers (the adopted-sibling sweep, the stacked-shell
+        /// candidate filter, the audit) whose behaviour must not move in this build — several of
+        /// them use it to mean "is this a wall in its own right", where the toggle arm would change
+        /// the answer for the 950 toggle-native renderers this tileset carries. So the widened test
+        /// is a SEPARATE predicate with exactly one caller, <see cref="RefreshSplitWall"/>, which is
+        /// the site whose gate disagreed with its own choke point.</para>
+        ///
+        /// <para>COST. One <c>GetSharedMaterials</c> into the shared scratch list (the List
+        /// overload, no allocation) and, per material, the cached per-Shader name verdict — i.e.
+        /// exactly what the old gate paid. The toggle arm is asked ONLY for materials the name arm
+        /// already rejected, and it is three <c>Material.HasProperty</c> id probes plus at most one
+        /// <c>GetFloat</c>/<c>IsKeywordEnabled</c>. It runs inside the 2 s rescan, once per renderer
+        /// of a SPLIT wall only, and adds no scene sweep, no allocation and no per-frame work.
+        /// <c>HasLiveWallFadeToggle</c> is already paid on this same population one screen down
+        /// inside <see cref="CollectWallFadeInfo"/>.</para>
+        /// </summary>
+        private bool RendererIsWallFadeCapable(MeshRenderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            foreach (Material m in _matScratch)
+            {
+                if (m == null)
+                    continue;
+                Shader sh = m.shader;
+                if (sh == null)
+                    continue;
+                if (!_shaderVerdict.TryGetValue(sh, out bool capable))
+                {
+                    capable = IsWallFadeShaderName(sh.name);
+                    _shaderVerdict[sh] = capable;
+                }
+                if (capable || HasLiveWallFadeToggle(m))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>How many toggle-native renderers the ModBuild-386 widening kept at the split
+        /// pre-filter this rescan — pieces the NAME-only gate dropped before a Segment existed.
+        /// Reset with the rest of the split census, printed on the SPLIT RUN line.</summary>
+        private int _splitToggleRescued;
+
+        /// <summary>The freshest few of them, with the wall they belong to. Capped, and the cap is
+        /// stated on the line: a truncated list is not absence.</summary>
+        private readonly List<string> _splitToggleRescuedNames = new();
+
+        /// <summary>Name cap for <see cref="_splitToggleRescuedNames"/>.</summary>
+        private const int SplitToggleRescuedNameCap = 6;
+
+        /// <summary>Record one renderer the OLD name-only pre-filter would have dropped here.
+        /// Observation only — it asserts nothing about whether the piece then faded, which is the
+        /// SPLIT RUN and FADE WRITE lines' business.</summary>
+        private void NoteSplitPieceToggleRescued(MeshRenderer r, ProceduralWall wall)
+        {
+            _splitToggleRescued++;
+            if (_splitToggleRescuedNames.Count >= SplitToggleRescuedNameCap)
+                return;
+            Bounds b = r.bounds;
+            _splitToggleRescuedNames.Add(
+                $"'{r.name}' y[{b.min.y:0.0}..{b.max.y:0.0}] under "
+                + $"'{(wall != null ? wall.name : "<dead>")}'");
+        }
+
         private bool RendererUsesWallFade(MeshRenderer r)
         {
             _matScratch.Clear();
@@ -7096,6 +7205,12 @@ internal static partial class WallSegmentFade
             _paUnclaimedByClass.TryGetValue("FLOATING", out int uFloating);
             _paUnclaimedByClass.TryGetValue("OBSTRUCTING", out int uObstructing);
             _paUnclaimedByClass.TryGetValue("ALLOWED", out int uAllowed);
+            // ModBuild 386: WALL MEMBER is in the signature for the same reason the other three
+            // are. It was missing, so a pass whose ONLY moving number was the class documented as
+            // "the class that must read ZERO" looked converged and backed the audit off towards
+            // its 60 s ceiling — the instrument going quiet exactly while the defect it names is
+            // changing.
+            _paUnclaimedByClass.TryGetValue("WALL MEMBER", out int uWallMember);
             int h = 17;
             unchecked
             {
@@ -7115,6 +7230,7 @@ internal static partial class WallSegmentFade
                 h = h * 31 + uFloating;
                 h = h * 31 + uObstructing;
                 h = h * 31 + uAllowed;
+                h = h * 31 + uWallMember;
             }
             return h;
         }
@@ -7239,7 +7355,15 @@ internal static partial class WallSegmentFade
             _paUnclaimedByClass.TryGetValue("FLOATING", out int uFloating);
             _paUnclaimedByClass.TryGetValue("OBSTRUCTING", out int uObstructing);
             _paUnclaimedByClass.TryGetValue("ALLOWED", out int uAllowed);
-            int uOther = _paUnclaimed - uFloating - uObstructing - uAllowed;
+            // MODBUILD 386 — WALL MEMBER WAS BEING PRINTED AS "AN INPUT WAS MISSING". ClassifyLeftover
+            // returns four classes and this line read three, so every WALL MEMBER row fell into the
+            // residue below and was reported as UNJUDGED with a sentence naming causes ("no
+            // playable-tile grid for the room, or no sample of it in view this tick") that were
+            // NOT what happened: the piece was judged, and provenance won. An instrument may not
+            // assert a mechanism it cannot observe. The class is read by name now and the residue
+            // keeps only the rows that really are unjudged.
+            _paUnclaimedByClass.TryGetValue("WALL MEMBER", out int uWallMember);
+            int uOther = _paUnclaimed - uFloating - uObstructing - uAllowed - uWallMember;
             // ModBuild 262 lane F: the pass guard above returns when there are no cache WALLS,
             // never when the walls hold no RENDERERS — and a wall cache that registers before
             // the tileset's meshes exist reached the all-clear text with every bucket at zero.
@@ -7274,7 +7398,11 @@ internal static partial class WallSegmentFade
                 + $"{_paUnclaimed} UNCLAIMED"
                 + (_paUnclaimed > 0
                     ? " [fell through every path — BY THE USER'S THREE CLASSES: "
-                      + $"{uFloating} FLOATING, {uObstructing} OBSTRUCTING, {uAllowed} ALLOWED"
+                      + $"{uFloating} FLOATING, {uObstructing} OBSTRUCTING, {uAllowed} ALLOWED, "
+                      + $"{uWallMember} WALL MEMBER (the wall generator built it — a defect "
+                      + "whatever its height and whatever it hides, and the class that must read "
+                      + "ZERO; before ModBuild 386 this line had no term for it and printed every "
+                      + "one of these as UNJUDGED)"
                       + (uOther > 0
                           ? $", {uOther} UNJUDGED (an input was missing — no playable-tile "
                             + "grid for the room, or no sample of it in view this tick; the "
@@ -7897,9 +8025,52 @@ internal static partial class WallSegmentFade
             }
             if (sb.Length == 0)
                 sb.Append("no CMap identified yet");
-            return $"AUTHORED ROOM TEMPLATE (level-editor field, NOT the built tileset — ModBuild 263 printed Crypt/Catacombs for a confirmed FOREST session; verify against the PCG_ prefixes in this same log) {sb} over {_censusMapsSeen.Count} distinct CMap(s); "
+            return $"SCENARIO {ScenarioIdentity()}; "
+                + $"AUTHORED ROOM TEMPLATE (level-editor field, NOT the built tileset — ModBuild 263 printed Crypt/Catacombs for a confirmed FOREST session; verify against the PCG_ prefixes in this same log) {sb} over {_censusMapsSeen.Count} distinct CMap(s); "
                 + $"{_roomMapKeys.Count} logical room(s) registered, {noMap} of them with no "
                 + "CMap of their own";
+        }
+
+        /// <summary>
+        /// WHICH LEVEL THIS IS (ModBuild 386). Every hardware report to date names the level in
+        /// prose — <i>"das Level mit den Säulen"</i>, 2026-09-03 — and every log answers
+        /// <c>scene='ProcGen'</c>, which is the name of the ONE scene every generated scenario
+        /// loads into (<c>Choreographer.c_ProcGenSceneName</c>). It is not an identity, so two
+        /// logs from two different scenarios have never been distinguishable, and a finding could
+        /// not be scoped to a level.
+        ///
+        /// <para>The game's own answer is <c>ScenarioManager.CurrentScenarioState</c>, the same
+        /// property this mod already reads in <c>Board/FigureGrab/PropGrab.cs</c>. Its
+        /// <c>Name</c>/<c>ScenarioFileName</c>/<c>ScenarioType</c> are the stable id.
+        /// <c>ScenarioManager.Scenario</c> is deliberately NOT used: it throws on the campaign
+        /// map (see Net/RevealGate.cs), and this line must survive being printed there.</para>
+        ///
+        /// <para>READ-ONLY, presentation-only, local: nothing here writes game state and nothing
+        /// is networked, so it is multiplayer-compatible by construction. COST: one static
+        /// property read and at most three field reads, on the two census lines that already call
+        /// <see cref="TilesetLabel"/> — never per frame, no allocation beyond the string.</para>
+        ///
+        /// <para>Whole body wrapped: the state object is built by the game and can be mid-load,
+        /// and a diagnostic that can throw is worse than no diagnostic. An unavailable state is
+        /// reported as such rather than as an empty name.</para>
+        /// </summary>
+        private static string ScenarioIdentity()
+        {
+            try
+            {
+                ScenarioRuleLibrary.ScenarioState? st =
+                    ScenarioRuleLibrary.ScenarioManager.CurrentScenarioState;
+                if (st == null)
+                    return "<no scenario state — campaign map or mid-load>";
+                string name = string.IsNullOrEmpty(st.Name) ? "<unnamed>" : st.Name;
+                string file = string.IsNullOrEmpty(st.ScenarioFileName)
+                    ? "<no file>" : st.ScenarioFileName;
+                return $"'{name}' file '{file}' type {st.ScenarioType}";
+            }
+            catch (System.Exception e)
+            {
+                return "<scenario identity threw: " + e.GetType().Name + ">";
+            }
         }
 
         /// <summary>One CMap into the biome histogram, deduplicated by reference. Every read is

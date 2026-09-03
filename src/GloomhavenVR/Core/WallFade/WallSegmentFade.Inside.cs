@@ -1331,6 +1331,64 @@ internal static partial class WallSegmentFade
         /// an intention — and to expose the orphan population, which is the one class this
         /// mechanism cannot own.
         /// </summary>
+        /// <summary>
+        /// SPLIT PRE-FILTER — the ModBuild-386 remedy's own falsifier, at the tier the shipped
+        /// default prints.
+        ///
+        /// <para>WHAT IT ANSWERS, and it is one question. Until ModBuild 386
+        /// <c>RefreshSplitWall</c>'s gate was the shader-NAME test while the choke point behind it
+        /// admits on NAME <b>or</b> a live toggle, so a toggle-native renderer under an
+        /// engulf-split wall was dropped before a <c>Segment</c> existed and was then invisible to
+        /// every instrument in this subsystem — no owner row, no reject row, no audit row. That is
+        /// what <c>'CR_OS_Pillar_Large_02' … NO WALL SEGMENT OWNS IT [UNOWNED]</c> was in the
+        /// ModBuild-385 log (user 2026-09-03, säulen.jpg). This line prints how many renderers the
+        /// widened gate KEPT that the old one would have dropped.</para>
+        ///
+        /// <para>IT PRINTS ZERO ON PURPOSE. A line that only appears when the number is non-zero
+        /// cannot say "the widening did not run", and "no improvement" from a remedy that never
+        /// executed carries zero information — the failure this project has already paid for. A
+        /// zero here means the pillar's cause is NOT this gate and the next round must read the
+        /// SOLID BLOCKER line's [UNOWNED] arm again, not retune anything.</para>
+        ///
+        /// <para>IT ASSERTS NOTHING IT CANNOT SEE. It counts admissions at one <c>if</c>. It does
+        /// not claim any of them faded — that is the FADE WRITE and SOLID BLOCKER lines' business,
+        /// and this line must never be edited into saying so.</para>
+        ///
+        /// <para>SPENT WHEN ANSWERED. One hardware round with a non-zero count and the pillars
+        /// gone retires this line; a probe that has answered and keeps printing is its own defect.
+        /// </para>
+        ///
+        /// <para>MULTIPLAYER: a diagnostic. It writes no renderer, no material, no segment and no
+        /// wire record.</para>
+        /// </summary>
+        private void EmitSplitPreFilterLine()
+        {
+            string named = _splitToggleRescuedNames.Count == 0
+                ? "none named"
+                : string.Join(", ", _splitToggleRescuedNames);
+            // HW-VERIFY
+            VRLog.Note(Name,
+                $"SPLIT PRE-FILTER: {_splitToggleRescued} renderer(s) were kept at the split "
+                + "wall's gate this rescan that ModBuild 385 would have DROPPED — toggle-native "
+                + "meshes (a live wall-fade toggle, no 'WallFade' in the shader name) under a wall "
+                + "the engulf rule had split. Before 386 that gate asked the shader NAME only "
+                + "while the choke point behind it admits NAME or TOGGLE, so such a renderer left "
+                + "before a Segment existed and could then appear in NO diagnostic at all: no "
+                + "owner row, no reject row, no audit row. ZERO HERE IS A READING, not a "
+                + "non-event: it means the widening found nothing and the pillar report's "
+                + "[UNOWNED] arm has a different cause. This counts ADMISSIONS at one gate and "
+                + "says nothing about whether any of them then faded — read the FADE WRITE and "
+                + $"SOLID BLOCKER lines for that. Named {_splitToggleRescuedNames.Count} of "
+                + $"{_splitToggleRescued} (cap {SplitToggleRescuedNameCap}, freshest first, and a "
+                + $"truncated list is not absence): {named}. FALSIFIER, and it is a NAME test on "
+                + "this very list: 'CV_Ice_Crystal_Form_02', 'CV_Ice_Crystal_Form_03' or "
+                + "'LightShaft_Prefab (1)' appearing here means the widening reached geometry the "
+                + "user ruled must STAY (2026-08-24) — the term that protects those three lives in "
+                + "the MOUNTED sweep and does NOT stand in front of this gate, so a hit is a "
+                + "withdrawal of ModBuild 386's widening and not a retune. Nothing else about this "
+                + "build is evidence against that ruling; this list is.");
+        }
+
         private void LogSplitRuns(float now)
         {
             if (_runsTotal == 0 && _runOrphans == 0)
@@ -1339,6 +1397,7 @@ internal static partial class WallSegmentFade
                 return;
             _nextRunLogTime = now + InsideLogIntervalSeconds;
             LogSplitRunLeftoverBreakdown();
+            EmitSplitPreFilterLine();
             VRLog.Info(Name,
                 $"SPLIT RUN: {_runsFaded} of {_runsTotal} split wall run(s) faded, driving "
                 + $"{_runMembersTotal} piece(s) as whole walls ({_runMembersRefused} of those "
