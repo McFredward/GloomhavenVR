@@ -160,6 +160,16 @@ internal sealed class RayUguiDriver
             }
             if (!canvas.isActiveAndEnabled)
                 continue;
+            // A PANE WHOSE ELEMENTS ARE MISSING IS NOT A SURFACE (user, 2026-09-03: the dust of a
+            // window appearing or dissolving "collides with the laser"). The dust has no collider
+            // and no graphic; what the beam stopped at was THIS clamp, on the invisible plane of a
+            // window mid-materialise — a vanishing window stays registered here until its release
+            // runs at the END of the dissolve, with its Canvas held on for the whole of it, and an
+            // appearing one is registered before its first element is drawn. Skipping it here (and
+            // not after the pick) also frees the distance budget, so a window standing BEHIND the
+            // dissolving one is hittable through the dust. See WindowMaterialise.IsPointerBlind.
+            if (WorldUI.WindowMaterialise.IsPointerBlind(canvas))
+                continue;
             LogCanvasOnce(canvas);
             if (TryIntersect(canvas, pick.Origin, pick.Direction, bestDist, out float dist, out Vector3 point))
             {
@@ -202,6 +212,19 @@ internal sealed class RayUguiDriver
             if (RayInteractor.WantFanOcclusionNote)
                 _hand.Ray.NoteFanOcclusion($"uGUI panel '{best.name}'", bestDist);
             solidOccluded = best;
+            best = null;
+        }
+
+        // THE ASSERTION BEHIND THE SKIP ABOVE. Unreachable by construction — the loop never lets a
+        // blind pane become the winner — and kept exactly for that reason: if any later change
+        // routes a hit around the skip, the LASER HIT PARTICLE line names it and the pane is still
+        // dropped. The probe is edge-gated inside and costs one list walk only while an effect
+        // is in flight.
+        if (best != null && WorldUI.WindowMaterialise.IsPointerBlind(best))
+        {
+            WorldUI.WindowMaterialise.ProbePointerHit(_hand.Side.ToString(),
+                                                      "far-ray canvas-plane clamp (RayUguiDriver)",
+                                                      best.transform);
             best = null;
         }
 
@@ -411,6 +434,14 @@ internal sealed class RayUguiDriver
     {
         Canvas canvas = _canvas!;
         if (canvas == null || !canvas.isActiveAndEnabled)
+        {
+            Cancel();
+            return;
+        }
+        // A press latched on a pane that began dissolving under it ends here rather than holding
+        // the beam on an invisible plane until the trigger releases (the same term as the hover
+        // loop in Tick). PlayOut has already disabled the raycaster, so nothing was reachable.
+        if (WorldUI.WindowMaterialise.IsPointerBlind(canvas))
         {
             Cancel();
             return;

@@ -33,7 +33,13 @@ namespace GloomhavenVR.WorldUI;
 /// <item><b>Nothing sits between a keypress and a window opening.</b> <see cref="PlayIn"/> is
 ///   called AFTER the window has been made visible and interactive; it never gates, never delays
 ///   and never returns a "not yet". The window's collider, its <c>GraphicRaycaster</c> and its
-///   laser target are up before this class hears about it, and it does not touch any of them.</item>
+///   laser target are up before this class hears about it, and it does not touch any of them.
+///   ONE READ-ONLY QUALIFICATION (2026-09-03): the far-ray and poke drivers ASK this class
+///   whether a pane's elements are still missing (<see cref="IsPointerBlind"/>) and skip its
+///   canvas plane while they are — for an appear that is the element sweep only, about 0.2 s
+///   of the 0.35 s, after which the window is whole and the last dust settles on a clickable
+///   pane. Nothing on the window is switched; the drivers merely decline a plane that shows
+///   nothing, so the beam runs through the dust instead of stopping on an invisible pane.</item>
 /// <item><b>A dismissed window detaches from input in the same statement it starts fading.</b>
 ///   <see cref="PlayOut"/> disables the host's <c>GraphicRaycaster</c> as its first act. Only the
 ///   pixels linger; a player cannot click a ghost.</item>
@@ -293,6 +299,118 @@ internal static partial class WindowMaterialise
     }
 
     internal static void Unregister(WindowMaterialiseRunner r) => Live.Remove(r);
+
+    // ---- the pane is not a pointer surface while its elements are missing --------------------
+    //
+    // USER, 2026-09-03: "Die Partikel der Materialisieren- bzw. Verpuffen-Animation von Fenstern
+    // colliden aktuell mit dem Laser; das soll nicht der Fall sein." — the laser collides with the
+    // dust of a window appearing or dissolving.
+    //
+    // WHAT THE BEAM ACTUALLY STOPPED AT. Not a shard: the debris is two MeshRenderers with no
+    // Collider and no Graphic (WindowMaterialiseDebris.BuildHalf), on the mod layer, and
+    // PanelInkBounds skips any subtree carrying a Renderer, so no pointer path — the physics pick
+    // (RayInteractor), the canvas-plane clamp (RayUguiDriver), the GraphicRaycaster (UguiPointer),
+    // the hit-rect walk — ever resolved a hit on the dust. What every one of them DID resolve was
+    // the window's own canvas plane: RayUguiDriver clamps the beam to every canvas in
+    // UguiPokeSurfaces that is isActiveAndEnabled on mere hover of its HIT RECT, with no term for
+    // the GraphicRaycaster (PlayOut disables it — clicks were already dead), the CanvasGroup, or
+    // this effect. A vanishing window stays registered until CanvasConversion.Release runs at the
+    // END of the dissolve, and its Canvas is held ON by WindowVisibilityHold for the whole 0.9 s;
+    // an appearing window is registered at conversion and its elements are at alpha 0 for the
+    // first ElementSpan of the appear. Either way the beam ended on an invisible pane in the
+    // middle of a dust cloud, which is indistinguishable from "the particles collide with the
+    // laser". This predicate is the one term those drivers were missing.
+
+    /// <summary>
+    /// <b>Is this canvas the pane of a window whose elements are currently missing?</b> True for
+    /// the whole of a vanish and for the element sweep of an appear
+    /// (<see cref="WindowMaterialiseRunner.PointerBlind"/>). The far-ray driver and the poke
+    /// driver skip such a canvas in their surface loops, so the beam runs through the dust to
+    /// whatever stands behind the window and a fingertip cannot press a pane that is not there.
+    /// Costs a walk of <see cref="Live"/>, which is empty almost always and never longer than the
+    /// number of windows in flight.
+    /// </summary>
+    internal static bool IsPointerBlind(Canvas? canvas)
+    {
+        if (canvas == null || Live.Count == 0)
+            return false;
+        for (int i = 0; i < Live.Count; i++)
+        {
+            WindowMaterialiseRunner r = Live[i];
+            if (r != null && r.PointerBlind && r.Panel != null
+                && ReferenceEquals(r.Panel.HostCanvas, canvas))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Is <paramref name="t"/> one of the effect's own objects — under a live runner's carrier
+    /// (the debris hangs off it), or anything wearing a <c>ParticleSystemRenderer</c>? A particle
+    /// cloud is never a click target, whoever spawned it.
+    /// </summary>
+    private static bool IsEffectObject(Transform t, out string why)
+    {
+        for (int i = 0; i < Live.Count; i++)
+        {
+            WindowMaterialiseRunner r = Live[i];
+            if (r != null && t.IsChildOf(r.transform))
+            {
+                why = "under a live materialise carrier";
+                return true;
+            }
+        }
+        if (t.GetComponent<ParticleSystemRenderer>() != null)
+        {
+            why = "it carries a ParticleSystemRenderer";
+            return true;
+        }
+        why = string.Empty;
+        return false;
+    }
+
+    private static int _pointerHitPrinted;
+    private static int _pointerHitLastId;
+    private static string _pointerHitLastPath = string.Empty;
+
+    /// <summary>
+    /// <b>A pointer path resolved a hit — was it on the effect?</b> Called by the physics pick on
+    /// every change of hit collider and by the far-ray driver on every canvas it clamps to; both
+    /// are edge-triggered by their callers, so this costs nothing while nothing changes. Prints
+    /// the <c>LASER HIT PARTICLE</c> line, change-gated on (path, object) and capped at six per
+    /// session. THE LINE MUST BE ABSENT from the next log: the fix above closes the pane and the
+    /// dust never had a surface, so a hit here names a path this fix did not close.
+    /// </summary>
+    internal static void ProbePointerHit(string side, string path, Transform? hit)
+    {
+        if (hit == null || _pointerHitPrinted >= 6)
+            return;
+        string why;
+        bool blind = false;
+        if (Live.Count > 0)
+        {
+            Canvas? canvas = hit.GetComponent<Canvas>();
+            blind = canvas != null && IsPointerBlind(canvas);
+        }
+        if (blind)
+            why = "the pane of a window whose elements are missing";
+        else if (!IsEffectObject(hit, out why))
+            return;
+        int id = hit.GetInstanceID();
+        if (id == _pointerHitLastId && path == _pointerHitLastPath)
+            return;
+        _pointerHitLastId = id;
+        _pointerHitLastPath = path;
+        _pointerHitPrinted++;
+        // HW-VERIFY
+        VRLog.Note(Scope, $"LASER HIT PARTICLE: the {side} hand's {path} resolved a hit on "
+                          + $"'{hit.name}' (layer {hit.gameObject.layer}) — {why}. A pointer path is "
+                          + "treating the materialise effect as a surface. USER REPORT (2026-09-03): "
+                          + "the dust collides with the laser. THIS LINE MUST BE ABSENT: every "
+                          + "pointer path skips a pane whose elements are missing and the dust "
+                          + "carries no collider, so a hit here names a path the fix did not close. "
+                          + $"{_pointerHitPrinted} of 6 for this session.");
+    }
 
     // ---- the close edge -----------------------------------------------------------------------
 

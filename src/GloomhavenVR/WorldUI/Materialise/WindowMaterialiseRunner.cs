@@ -117,6 +117,39 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     private double _buildMs;
 
     /// <summary>
+    /// <b>The pane is not a pointer surface while its elements are missing.</b> True for the whole
+    /// of a VANISH and for an APPEAR until the element front has swept the window
+    /// (<c>k &gt;= WindowMaterialiseField.ElementSpan</c>); false once the window is whole and only
+    /// dust is still settling on it.
+    ///
+    /// <para><b>THE 2026-09-03 REPORT, IN ONE SENTENCE:</b> <i>"Die Partikel der Materialisieren-
+    /// bzw. Verpuffen-Animation von Fenstern colliden aktuell mit dem Laser."</i> The dust carries
+    /// no collider and no graphic, so no pointer path ever hit a shard — what the beam stopped at
+    /// was the WINDOW'S OWN CANVAS PLANE. <c>RayUguiDriver</c> clamps the beam to every registered
+    /// canvas that is <c>isActiveAndEnabled</c> on mere hover of its plane, with no term for the
+    /// raycaster, the group or this effect; a vanishing window stays registered until
+    /// <c>CanvasConversion.Release</c> runs at the END of the dissolve and its canvas is HELD ON by
+    /// <see cref="WindowVisibilityHold"/> for the whole 0.9 s, so the beam ended on an invisible
+    /// pane in the middle of the dust cloud — which is exactly what "collides with the particles"
+    /// looks like. <see cref="WindowMaterialise.IsPointerBlind"/> is what the far-ray and poke
+    /// drivers ask, and this is the bit they read.</para>
+    /// </summary>
+    internal bool PointerBlind { get; private set; }
+
+    /// <summary>How long the pane was pointer-blind, accumulated in unscaled seconds; printed by
+    /// <see cref="Report"/> beside the duration so a log shows the blind window was the element
+    /// sweep and not the whole appear.</summary>
+    private float _blindSeconds;
+
+    // Censused ONCE in Begin, straight after the debris is built, and printed by Report: what the
+    // effect's own objects are to a pointer. A physics ray needs a Collider; a bounds walk would
+    // see a Renderer; neither should find anything here, and the line says so in numbers.
+    private string _effectRootName = string.Empty;
+    private int _effectLayer = -1;
+    private int _effectColliders;
+    private string _effectRendererTypes = string.Empty;
+
+    /// <summary>
     /// Start an effect on <paramref name="panel"/>. Returns false when nothing could be started, in
     /// which case NOTHING has been written and the caller is exactly where it was — for
     /// <c>PlayOut</c> that means running the release inline, which is today's behaviour.
@@ -237,6 +270,7 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         }
         build.Stop();
         runner._buildMs = build.Elapsed.TotalMilliseconds;
+        runner.CensusPointerSurface(carrier);
 
         WindowMaterialise.Register(runner);
 
@@ -304,6 +338,38 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// What the effect's own objects are to a pointer, censused once and printed at the end. The
+    /// root is the debris carrier when there is one (it is the object <c>VRLayers.Apply</c> moved
+    /// to the mod layer) and this runner's own carrier otherwise. Colliders and renderers are
+    /// counted over the WHOLE subtree, because a pointer path would find one anywhere in it.
+    /// </summary>
+    private void CensusPointerSurface(GameObject carrier)
+    {
+        try
+        {
+            GameObject root = _debris?.Go != null ? _debris.Go : carrier;
+            _effectRootName = root.name;
+            _effectLayer = root.layer;
+            _effectColliders = carrier.GetComponentsInChildren<Collider>(true).Length;
+            Renderer[] rends = carrier.GetComponentsInChildren<Renderer>(true);
+            var types = new List<string>(2);
+            for (int i = 0; i < rends.Length; i++)
+            {
+                string tn = rends[i].GetType().Name;
+                if (!types.Contains(tn))
+                    types.Add(tn);
+            }
+            _effectRendererTypes = types.Count > 0
+                ? $"{string.Join("+", types)} x{rends.Length}"
+                : "none";
+        }
+        catch (Exception ex)
+        {
+            _effectRendererTypes = $"census threw {ex.GetType().Name}";
+        }
+    }
+
     /// <summary>Where the four corners and the centre of an element are sampled, in its own
     /// normalised rect.</summary>
     private static readonly float[] SampleU = { 0f, 1f, 0f, 1f, 0.5f };
@@ -349,6 +415,8 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             }
 
             _elapsed += Time.unscaledDeltaTime;
+            if (PointerBlind)
+                _blindSeconds += Time.unscaledDeltaTime;
 
             // THE WATCHDOG. Not a timing mechanism — the ramp below finishes on its own — but the
             // answer to "what if _seconds was somehow zero, or unscaledDeltaTime is pathological".
@@ -412,6 +480,13 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
 
         WindowMaterialiseField.Progresses(k, _materialising,
                                           out float elementProgress, out float debrisFront);
+
+        // THE PANE IS A POINTER SURFACE ONLY WHILE IT IS WHOLE. A vanish is blind from its first
+        // frame to its last; an appear is blind exactly while the element front is still moving
+        // (elementProgress is 1 at k = 0 and exactly 0 from k = ElementSpan on, see Progresses),
+        // so the last shards settle onto a window the laser can already click. Read by
+        // RayUguiDriver and PokeInteractor through WindowMaterialise.IsPointerBlind.
+        PointerBlind = !_materialising || elementProgress > 0f;
 
         List<CanvasRenderer>? rs = _renderers;
         List<float>? th = _threshold;
@@ -599,7 +674,20 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                               ? "drawn"
                               : "NOT drawn (no shader / degenerate rect / no visible element / "
                                 + "intensity 0)")
-                          + ". Budget is 11.11 ms.");
+                          + ". Budget is 11.11 ms."
+                          // 2026-09-03, "the dust collides with the laser": what a pointer could
+                          // find under the effect (nothing), and how long the PANE was withheld
+                          // from the far-ray and poke drivers — the thing the beam really stopped
+                          // at. A vanish is blind for its whole duration; an appear for its
+                          // element sweep (ElementSpan x duration) only.
+                          + $" POINTER: effect root '{_effectRootName}' on layer {_effectLayer} "
+                          + $"('{LayerMask.LayerToName(_effectLayer)}'), {_effectColliders} "
+                          + $"Collider(s) and renderer(s) {_effectRendererTypes} under it, so no "
+                          + "physics ray or bounds walk has anything of the dust to hit; the pane's "
+                          + $"canvas plane was POINTER-BLIND for {_blindSeconds:F2}s of the "
+                          + $"{_elapsed:F2}s (RayUguiDriver and PokeInteractor skip it while "
+                          + "elements are missing — WindowMaterialise.IsPointerBlind), so the beam "
+                          + "runs through the dust to whatever stands behind the window.");
     }
 
     /// <summary>The host was deactivated under us. <c>LateUpdate</c> will not run again, so the

@@ -399,6 +399,11 @@ internal sealed class PokeInteractor
             }
             if (!canvas.isActiveAndEnabled)
                 continue;
+            // The same term the far-ray loop carries (RayUguiDriver.Tick, 2026-09-03): a pane
+            // whose elements are missing — dissolving, or not yet materialised — is not a surface
+            // the fingertip can hover or press. See WindowMaterialise.IsPointerBlind.
+            if (WorldUI.WindowMaterialise.IsPointerBlind(canvas))
+                continue;
 
             Transform t = canvas.transform;
             // uGUI renders facing -forward: the viewer/front side is where

@@ -36,6 +36,10 @@ internal sealed class RayInteractor : IPickProvider
     private bool _enabled = true;
     private PickPose _current;
 
+    /// <summary>The collider the LASER HIT PARTICLE probe last classified, so the probe runs on a
+    /// change of hit and not per frame (<see cref="WorldUI.WindowMaterialise.ProbePointerHit"/>).</summary>
+    private Collider? _lastProbedCollider;
+
     /// <summary>Layers the pick ray tests. Phase-3a sets the game's selection mask here.</summary>
     public LayerMask Mask = Physics.DefaultRaycastLayers;
 
@@ -764,12 +768,25 @@ internal sealed class RayInteractor : IPickProvider
                 _current.HitPoint = hit.point;
                 _current.HitDistance = hit.distance;
                 _current.HitCollider = hit.collider;
+                // EDGE-GATED PROBE (2026-09-03, "the dust collides with the laser"): on every
+                // CHANGE of hit collider, ask whether the physics pick has resolved onto a
+                // materialise effect's object or a ParticleSystemRenderer. The dust carries no
+                // collider, so this can only ever print if a path this fix did not see exists;
+                // the line it prints (LASER HIT PARTICLE) must be absent from the next log.
+                if (!ReferenceEquals(hit.collider, _lastProbedCollider))
+                {
+                    _lastProbedCollider = hit.collider;
+                    WorldUI.WindowMaterialise.ProbePointerHit(_hand.Side.ToString(),
+                                                              "physics pick (RayInteractor)",
+                                                              hit.collider.transform);
+                }
             }
         }
         else
         {
             _current.HasHit = false;
             _current.HitCollider = null;
+            _lastProbedCollider = null;
         }
 
         UpdateVisuals(origin, direction, maxDistance, scale);
