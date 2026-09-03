@@ -835,8 +835,10 @@ internal sealed class StatPanelSurface
     /// any singleton flavor is caught) and every <see cref="UIWindow"/> in <paramref name="copy"/>.
     /// Order matters: ActorStatPanel [RequireComponent(typeof(UIWindow))] must go before its window.
     /// Plain viewer components (Image/TMP_Text/layout/scrollers) are kept — they are the imagery.
+    /// Internal since the two-props build: <see cref="PropInfoSurface"/> builds the second
+    /// held-PROP card by the same recipe and calls this rather than carrying a third copy of it.
     /// </summary>
-    private static int StripLogicComponents(GameObject copy)
+    internal static int StripLogicComponents(GameObject copy)
     {
         int stripped = 0;
         MonoBehaviour[] behaviours = copy.GetComponentsInChildren<MonoBehaviour>(true);

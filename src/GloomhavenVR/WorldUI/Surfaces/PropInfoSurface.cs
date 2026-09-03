@@ -126,7 +126,10 @@ internal sealed class PropInfoSurface
         // panel is converted, so it cannot clear the edge on the frame the prop is dropped, and
         // without this the second pickup of the same prop in the same hand would print nothing.
         if (HeldProps.Count == 0)
-            _dockedRoute = null;
+        {
+            _liveDock.Route = null;
+            _copyDock.Route = null;
+        }
 
         TickWatch(_textInfo,
             Singleton<UITextInfoPanel>.IsInitialized ? Singleton<UITextInfoPanel>.Instance : null,
@@ -134,6 +137,7 @@ internal sealed class PropInfoSurface
         TickWatch(_propInfo,
             Singleton<UIPropInfoPanel>.IsInitialized ? Singleton<UIPropInfoPanel>.Instance : null,
             "PropInfoPanel");
+        TickSecondCard();
     }
 
     private void TickWatch(Watch watch, Component? live, string name)
@@ -325,14 +329,17 @@ internal sealed class PropInfoSurface
         // window - the one the laser hover is driving - still takes the fixed slot on the same
         // frame, because only one of the two watches can be the held card at a time.
         if (Board.FigureGrab.HeldPropCard.Owns(watch.IsTextInfo)
-            && TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
+            && TryGetHeldDockPose(watch.IsTextInfo, out Vector3 heldPos, out Quaternion heldRot,
                                   out string route, out HandSide dockSide))
         {
             // The user's live "Infotafel-Groesse" dial still owns the size, exactly as in the
             // docked case - the hold changes WHERE the card is, never how big it is.
             CanvasConversion.PlaceHost(watch.Panel, heldPos, heldRot,
                 PanelLayout.WorldScale * WorldUIConfig.HoverInfoScaleLive());
-            ReportDock(route, dockSide);
+            ReportDock(_liveDock, route, dockSide,
+                watch.IsTextInfo ? "the GAME window UITextInfoPanel" : "the GAME window UIPropInfoPanel",
+                Board.FigureGrab.HeldPropCard.OwnerOf(watch.IsTextInfo
+                    ? HeldPropCardWindow.TextInfo : HeldPropCardWindow.PropInfo)?.Label);
             return;
         }
 
@@ -389,12 +396,21 @@ internal sealed class PropInfoSurface
     private static readonly long[] _regStamp = new long[2];
     private static long _regSerial;
 
-    /// <summary>Edge state for the one-shot dock line - the route and hand we last reported
-    /// docking by, or null while no held card is up. Kept as two fields rather than one composed
-    /// key because <see cref="ReportDock"/> is on a per-frame path and composing a key there would
-    /// allocate a string every frame of every hold.</summary>
-    private static string? _dockedRoute;
-    private static HandSide _dockedSide;
+    /// <summary>Edge state for the one-shot dock line - the route, hand and content we last
+    /// reported docking by, or a null route while no held card is up. Kept as fields rather than
+    /// one composed key because <see cref="ReportDock"/> is on a per-frame path and composing a
+    /// key there would allocate a string every frame of every hold. One edge PER CARD: the live
+    /// window and the second card dock on the same frames, and a shared edge would flip between
+    /// them every frame and print every frame.</summary>
+    private sealed class DockEdge
+    {
+        public string? Route;
+        public HandSide Side;
+        public string? Content;
+    }
+
+    private static readonly DockEdge _liveDock = new();
+    private static readonly DockEdge _copyDock = new();
 
     /// <summary>
     /// TRUE while a prop in the hand owns the text-info card, with the pose it must take.
@@ -415,7 +431,11 @@ internal sealed class PropInfoSurface
     /// <see cref="PlaceWatch"/> and <c>HexHintFacing.LateTick</c>, and a formatted string here
     /// would be a per-frame allocation on a VR hot path. The sentence is composed once, on the
     /// edge, in <see cref="ReportDock"/>.</remarks>
-    internal static bool TryGetHeldDockPose(out Vector3 pos, out Quaternion rot,
+    /// <param name="isTextInfo">Which window is asking. Since the two-props build each live window
+    /// docks at ITS OWNER's hand (<c>HeldPropCard.OwnerOf</c>), so a chest in one hand and a trap
+    /// in the other put each card beside its own prop; only an owner without a known hand falls
+    /// back to the ModBuild 404 rule (the most recent grab).</param>
+    internal static bool TryGetHeldDockPose(bool isTextInfo, out Vector3 pos, out Quaternion rot,
                                             out string route, out HandSide side)
     {
         pos = default;
@@ -424,8 +444,20 @@ internal sealed class PropInfoSurface
         side = HandSide.Right;
         if (HeldProps.Count == 0 || !FigureGrabConfig.HeldFigureInfoEnabled)
             return false;
-        if (!TryResolveHeldAnchor(out Transform? anchor, out side, out route) || anchor == null)
+        Board.FigureGrab.GrabbableProp? owner = Board.FigureGrab.HeldPropCard.OwnerOf(
+            isTextInfo ? HeldPropCardWindow.TextInfo : HeldPropCardWindow.PropInfo);
+        HandSide? ownerSide = owner?.HolderSide;
+        Transform? anchor;
+        if (ownerSide.HasValue)
+        {
+            side = ownerSide.Value;
+            if (!TryResolveAnchorForHand(side, out anchor, out route) || anchor == null)
+                return false;
+        }
+        else if (!TryResolveHeldAnchor(out anchor, out side, out route) || anchor == null)
+        {
             return false;
+        }
         if (!StatPanelSurface.TryComputeHeldPose(anchor.position, StatPanelSurface.SignFor(side),
                                                  out pos, out rot))
         {
@@ -483,25 +515,58 @@ internal sealed class PropInfoSurface
         {
             if (!HeldProps.TryGetSlot(slot, out _, out HandSide s))
                 continue;
-            VRHand? hand = VRHands.Get(s);
-            Transform? grab = hand != null && hand.Rig != null ? hand.Rig.GrabAnchor : null;
-            if (grab == null)
+            if (!TryResolveGrabAnchor(s, out anchor, out how) || anchor == null)
                 continue;
             side = s;
-            for (int i = 0; i < grab.childCount; i++)
-            {
-                Transform child = grab.GetChild(i);
-                if (child == null || !HeldProps.OwnsRendererOf(child))
-                    continue;
-                anchor = child;
-                how = "prop visual under the grab anchor";
-                return true;
-            }
-            anchor = grab;
-            how = "grab anchor (prop visual not found under it)";
             return true;
         }
         return false;
+    }
+
+    /// <summary>The same three routes as <see cref="TryResolveHeldAnchor"/>, for ONE named hand:
+    /// its explicit registration, else the prop visual under its grab anchor, else the grab anchor.
+    /// This is what lets two cards dock at two different hands on the same frame.</summary>
+    private static bool TryResolveAnchorForHand(HandSide side, out Transform? anchor, out string how)
+    {
+        anchor = _regAnchors[(int)side];
+        if (anchor != null)
+        {
+            how = "registered prop visual";
+            return true;
+        }
+        for (int slot = 0; slot < HeldProps.Count; slot++)
+        {
+            if (!HeldProps.TryGetSlot(slot, out _, out HandSide s) || s != side)
+                continue;
+            return TryResolveGrabAnchor(side, out anchor, out how);
+        }
+        how = "unresolved (no held prop in that hand)";
+        return false;
+    }
+
+    /// <summary>Routes 2 and 3 of <see cref="TryResolveHeldAnchor"/> for one hand: the child of
+    /// its <c>Rig.GrabAnchor</c> that <see cref="HeldProps.OwnsRendererOf"/> claims, else the
+    /// anchor itself. False only when the hand has no rig.</summary>
+    private static bool TryResolveGrabAnchor(HandSide side, out Transform? anchor, out string how)
+    {
+        anchor = null;
+        how = "unresolved (no grab anchor for that hand)";
+        VRHand? hand = VRHands.Get(side);
+        Transform? grab = hand != null && hand.Rig != null ? hand.Rig.GrabAnchor : null;
+        if (grab == null)
+            return false;
+        for (int i = 0; i < grab.childCount; i++)
+        {
+            Transform child = grab.GetChild(i);
+            if (child == null || !HeldProps.OwnsRendererOf(child))
+                continue;
+            anchor = child;
+            how = "prop visual under the grab anchor";
+            return true;
+        }
+        anchor = grab;
+        how = "grab anchor (prop visual not found under it)";
+        return true;
     }
 
     /// <summary>
@@ -510,14 +575,20 @@ internal sealed class PropInfoSurface
     /// so it prints once per pickup and never per frame; its ABSENCE during a hold means the held
     /// branch never ran and the card is still on the fixed slot with the head-follower on it.
     /// </summary>
-    private static void ReportDock(string route, HandSide side)
+    /// <param name="edge">The card's own edge state — one per card, see <see cref="DockEdge"/>.</param>
+    /// <param name="kind">Which card this is: the game's own window, or the mod's frozen copy.</param>
+    /// <param name="content">The content key — the held prop's label — so a log with two docks
+    /// says which prop each card is showing.</param>
+    private static void ReportDock(DockEdge edge, string route, HandSide side, string kind, string? content)
     {
         // Ordinal compare, not ReferenceEquals: the routes ARE interned literals today, but a
         // reference test would silently start logging every frame the day one of them is composed.
-        if (_dockedSide == side && string.Equals(_dockedRoute, route, System.StringComparison.Ordinal))
+        if (edge.Side == side && string.Equals(edge.Route, route, System.StringComparison.Ordinal)
+            && string.Equals(edge.Content, content, System.StringComparison.Ordinal))
             return;   // steady state: no allocation, no string built
-        _dockedRoute = route;
-        _dockedSide = side;
+        edge.Route = route;
+        edge.Side = side;
+        edge.Content = content;
         string how = $"{route}; hand {side}, dock side "
                      + (StatPanelSurface.SignFor(side) < 0f ? "viewer-LEFT" : "viewer-RIGHT");
         // HW-VERIFY: a standing hardware question is waiting on this line - it must stay at a tier
@@ -528,7 +599,11 @@ internal sealed class PropInfoSurface
             + "FIGURE's stat card uses. HexHintFacing stands down for this window while the hold "
             + "lasts and keeps the head-follow for laser hover, which the user asked to leave "
             + "alone. If this line is absent while a prop is held, the card is still on the fixed "
-            + "PropInfo slot and the head-follower still owns it.");
+            + "PropInfo slot and the head-follower still owns it."
+            // Two-props build: which card, whose hand, and what it shows. With a prop in each
+            // hand of the same card kind this line prints TWICE — once for the game window (the
+            // later grab) and once for the mod card (the earlier grab's frozen copy).
+            + $" CARD: {kind}; hand {side}; content key {content ?? "<unknown>"}.");
     }
 
     private static void Release(Watch watch)
@@ -566,7 +641,283 @@ internal sealed class PropInfoSurface
     {
         DetachWatch(_textInfo);
         DetachWatch(_propInfo);
+        DropSecondCard("surface shutdown");
     }
+
+    // ---- the SECOND held-prop card (two-props build) ----------------------------------------
+    //
+    // User, 2026-09-03 (translated): "When holding two PROPS (one in each hand) one sees the
+    // floating info of only ONE of them; I want to be able to see the info of BOTH. Figure + prop
+    // mixed works — the problem is only with a prop in both hands."
+    //
+    // THE GAME HAS ONE WINDOW PER CARD KIND AND ONE CONTENT SLOT IN EACH. Verified in the
+    // decompiled sources: UITextInfoPanel (decompiled/GH.Runtime/UITextInfoPanel.cs) is a
+    // Singleton<UITextInfoPanel> whose Show(params (title, description)[]) writes ONE fixed row
+    // set (_elements, _maxNumberOfPanels = 2 rows of the SAME card) and whose Awake calls
+    // SetInstance(this); UIPropInfoPanel (decompiled/GH.Runtime/UIPropInfoPanel.cs) is a
+    // Singleton<UIPropInfoPanel> with one propName and one conditions list, rebuilt by every
+    // ShowTrap/ShowHazardousTerrain/ShowDifficultTerrain/ShowQuestItem. Two props of the same
+    // kind therefore cannot both be shown by the game's own windows, and a plain Instantiate of
+    // a window would run that Awake and STEAL the singleton.
+    //
+    // SO THE SECOND CARD IS A FROZEN COPY, built the way StatPanelSurface.BuildStaticCopy builds
+    // the second held FIGURE's card — the machinery this project already trusts for exactly this
+    // shape: Instantiate under an INACTIVE holder (no Awake ever runs), DestroyImmediate every
+    // Singleton-derived component and the UIWindow while still never-activated (no OnDestroy
+    // either), and only then hand the bare imagery to CanvasConversion. The one addition is the
+    // rich window's AutoScrollRect, which restarts a scroll coroutine on every OnEnable; a frozen
+    // card has nothing to scroll, so it goes too.
+    //
+    // WHICH PROP GETS WHICH CARD. The LATER grab keeps the game's live window and the EARLIER
+    // grab gets the copy — the figure card's rule (StatPanelSurface.Reconcile, "PRIMARY IS THE
+    // LATEST-GRABBED HAND"), and for the figure card's reason: at the instant of the second grab
+    // the window is already showing the earlier prop, fully populated, so the copy is taken from
+    // what is on screen (HeldPropCard.BeforePopulate, called inside GrabbableProp's push routes
+    // BEFORE the overwrite) with nothing borrowed and nothing blanked; the prop just picked up is
+    // the one the player is looking at, and it keeps the live window's re-assert and mip cadence.
+    // It also leaves the ModBuild 404 dock rule ("the LATER grab docks the card") exactly as it
+    // was. Both cards clear on release: the understudy's release destroys the copy; the owner's
+    // release promotes the understudy back into the live window (HeldPropCard.Release) and
+    // destroys the copy on the same frame.
+    //
+    // NEVER AN EMPTY WINDOW. The copy's filled fields are COUNTED at build time (active TMP
+    // texts with non-blank content); a readable zero means the window was hidden or blank when
+    // the later grab arrived, and then the copy is destroyed before it is ever converted. The
+    // HELD PROP SECOND CARD line prints the count either way.
+    //
+    // MULTIPLAYER. The held-prop feature is local-only by design and carries nothing on the wire
+    // (HeldProps class doc: "This build is deliberately LOCAL-ONLY and adds nothing to the wire";
+    // no Net/ record exists for a held prop, unlike ExtIdSecondFigure / the second held card for
+    // figures). A peer does not see the prop in the hand, so the FIRST held-prop card is not
+    // mirrored today and the second is not either — consistent, and no per-sub-feature toggle.
+    // When the held-prop record the HeldProps doc specifies is claimed, it names BOTH hands'
+    // props and the receive side derives both cards itself, exactly as it would the first.
+
+    private static GameObject? _copyHolder;
+    private static RectTransform? _copyRect;
+    private static ConvertedPanel? _copyPanel;
+    private static HeldPropCardWindow _copyWindow;
+    private static HandSide _copySide;
+    private static string _copyLabel = string.Empty;
+    private static bool _copyCommitted;
+
+    /// <summary>
+    /// Take the frozen copy of <paramref name="window"/> for the prop that owns it, NOW — the
+    /// caller is about to overwrite that window for the other hand. <paramref name="side"/> is the
+    /// displaced prop's hand (the copy docks there) and <paramref name="label"/> its content key.
+    /// The copy is provisional until <see cref="CommitSecondCard"/>; an uncommitted copy is
+    /// destroyed by <see cref="DiscardUncommittedSnapshot"/>. At most one copy exists at a time:
+    /// two hands can displace each other only once per grab.
+    /// </summary>
+    internal static void SnapshotDisplacedCard(HeldPropCardWindow window, HandSide side, string label)
+    {
+        DropSecondCard(null);
+        if (!WorldUIConfig.ConversionActive || !FigureGrabConfig.HeldFigureInfoEnabled)
+            return;
+        Component? live = window switch
+        {
+            HeldPropCardWindow.TextInfo => Singleton<UITextInfoPanel>.IsInitialized
+                ? Singleton<UITextInfoPanel>.Instance : null,
+            HeldPropCardWindow.PropInfo => Singleton<UIPropInfoPanel>.IsInitialized
+                ? Singleton<UIPropInfoPanel>.Instance : null,
+            _ => null,
+        };
+        if (live == null)
+            return;
+
+        int stripped;
+        int filled;
+        GameObject holder;
+        GameObject copy;
+        try
+        {
+            holder = new GameObject("GloomhavenVR.PropInfoCopyHolder");
+            holder.SetActive(false); // MUST precede the Instantiate — keeps every Awake from running
+            copy = Object.Instantiate(live.gameObject, holder.transform, false);
+            copy.name = "GloomhavenVR.PropInfoPanelCopy";
+            stripped = StatPanelSurface.StripLogicComponents(copy);
+            AutoScrollRect[] scrollers = copy.GetComponentsInChildren<AutoScrollRect>(true);
+            for (int i = 0; i < scrollers.Length; i++)
+            {
+                if (scrollers[i] == null)
+                    continue;
+                Object.DestroyImmediate(scrollers[i]);
+                stripped++;
+            }
+            // The window may have been copied mid fade — force the copy fully opaque and inert.
+            var group = copy.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                group.alpha = 1f;
+                group.interactable = false;
+                group.blocksRaycasts = false;
+            }
+            filled = CountFilledFields(copy);
+        }
+        catch (System.Exception e)
+        {
+            // A copy that cannot be built must never cost the player the LIVE card: the later
+            // grab's push proceeds untouched, and the earlier prop simply keeps no card.
+            VRLog.Alert("WorldUI",
+                $"HELD PROP SECOND CARD could not be built for {label} ({WindowName(window)}, hand "
+                + $"{side}): {e.GetType().Name}: {e.Message} — the earlier prop keeps no card.");
+            return;
+        }
+
+        // HW-VERIFY: the line the two-props round is waiting on — it must stay at a tier the
+        // DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("WorldUI",
+            $"HELD PROP SECOND CARD built for {label}: a frozen snapshot copy of {WindowName(window)} "
+            + $"for hand {side} — {filled} field(s) filled, {stripped} logic component(s) stripped "
+            + "(game singleton untouched). "
+            + (filled > 0
+                ? "It is shown beside that hand as the MOD card once the later grab's content has "
+                  + "taken the game window; the 'held-prop INFO card docks' line names both."
+                : "ZERO fields filled: this would have been an EMPTY window, so the copy is destroyed "
+                  + "and NOT shown — the earlier prop keeps no card for the rest of this hold. The "
+                  + "window was hidden or blank at the instant of the second grab (a lost re-assert, "
+                  + "see the INFO CONCEDED line if present)."));
+        if (filled == 0)
+        {
+            Object.Destroy(holder);
+            return;
+        }
+
+        _copyHolder = holder;
+        _copyRect = copy.transform as RectTransform;
+        _copyWindow = window;
+        _copySide = side;
+        _copyLabel = label;
+        _copyCommitted = false;
+    }
+
+    /// <summary>The later grab landed in <paramref name="window"/>: the copy taken of it is the
+    /// displaced prop's card from now on.</summary>
+    internal static void CommitSecondCard(HeldPropCardWindow window)
+    {
+        if (_copyHolder != null && _copyWindow == window)
+            _copyCommitted = true;
+    }
+
+    /// <summary>The election is over and no claim committed the copy — destroy it.</summary>
+    internal static void DiscardUncommittedSnapshot()
+    {
+        if (_copyHolder != null && !_copyCommitted)
+            DropSecondCard("the later grab took the other window");
+    }
+
+    /// <summary>Destroy the second card (idempotent). <paramref name="why"/> is logged at the debug
+    /// tier when a card actually existed; null means silent.</summary>
+    internal static void DropSecondCard(string? why)
+    {
+        bool had = _copyHolder != null || _copyPanel != null;
+        if (_copyPanel != null)
+        {
+            CanvasConversion.Release(_copyPanel);
+            _copyPanel = null;
+        }
+        if (_copyHolder != null)
+        {
+            Object.Destroy(_copyHolder);
+            _copyHolder = null;
+        }
+        _copyRect = null;
+        _copyCommitted = false;
+        _copyDock.Route = null;
+        if (had && why != null)
+            VRLog.Info("WorldUI", $"held-prop second card ({_copyLabel}) torn down: {why}.");
+    }
+
+    /// <summary>Convert the committed copy once and keep it docked at its hand; tear it down when
+    /// the feature or the conversion goes off. Update-pass half; <see cref="LateTickSecondCard"/>
+    /// re-asserts the pose after the hands have moved.</summary>
+    private static void TickSecondCard()
+    {
+        bool active = WorldUIConfig.ConversionActive && FigureGrabConfig.HeldFigureInfoEnabled;
+        if (_copyHolder != null && (!active || HeldProps.Count < 2))
+        {
+            // Fewer than two props held and a copy still standing means a hold ended without a
+            // release (teardown, prune) and the registry was cleared around us — never show a
+            // card for a prop that is not in a hand.
+            DropSecondCard(!active ? "conversion or the HeldFigureInfo dial went off" : "fewer than two props held");
+            return;
+        }
+        if (_copyHolder == null || !_copyCommitted || _copyRect == null)
+            return;
+        if (_copyPanel != null && !_copyPanel.IsAlive)
+            _copyPanel = null;
+        if (_copyPanel == null)
+        {
+            // Same treatment as the live window (TickWatch): non-pokeable, flattened, no MR plate
+            // (it is the same opaque card art), one mip pass — a static copy never loads anything
+            // afterwards, and this is a throwaway we own, so no restore is ever needed.
+            _copyPanel = CanvasConversion.Convert(_copyRect, "PropInfoPanelCopy", pokeable: false,
+                flatten2D: true);
+            if (_copyPanel == null)
+                return;
+            _copyPanel.MrBackingSuppressed = true;
+            PanelMipBake.Rescan(_copyRect, "PropInfoPanelCopy");
+        }
+        if (_copyPanel.HostRaycaster != null && _copyPanel.HostRaycaster.enabled)
+            _copyPanel.HostRaycaster.enabled = false;
+        PlaceSecondCard();
+    }
+
+    /// <summary>LateUpdate re-assert of the copy's pose — the hands move in LateUpdate, and the
+    /// live held card gets the same second placement from <c>HexHintFacing.LateTick</c>.</summary>
+    internal static void LateTickSecondCard()
+    {
+        if (_copyPanel == null || _copyHolder == null)
+            return;
+        PlaceSecondCard();
+    }
+
+    private static void PlaceSecondCard()
+    {
+        if (_copyPanel == null)
+            return;
+        if (!TryResolveAnchorForHand(_copySide, out Transform? anchor, out string how) || anchor == null)
+            return;
+        if (!StatPanelSurface.TryComputeHeldPose(anchor.position, StatPanelSurface.SignFor(_copySide),
+                                                 out Vector3 pos, out Quaternion rot))
+            return;
+        CanvasConversion.PlaceHost(_copyPanel, pos, rot,
+            PanelLayout.WorldScale * WorldUIConfig.HoverInfoScaleLive());
+        ReportDock(_copyDock, how, _copySide,
+            _copyWindow == HeldPropCardWindow.TextInfo
+                ? "the MOD card (a frozen snapshot copy of UITextInfoPanel; the EARLIER grab)"
+                : "the MOD card (a frozen snapshot copy of UIPropInfoPanel; the EARLIER grab)",
+            _copyLabel);
+    }
+
+    /// <summary>How many text fields the copy would actually show: TMP texts that are active all
+    /// the way up to the copy root (the holder itself is inactive, so <c>activeInHierarchy</c>
+    /// cannot be used) with non-blank content. Zero is the "empty window" verdict.</summary>
+    private static int CountFilledFields(GameObject copy)
+    {
+        TMPro.TMP_Text[] texts = copy.GetComponentsInChildren<TMPro.TMP_Text>(true);
+        int filled = 0;
+        for (int i = 0; i < texts.Length; i++)
+        {
+            TMPro.TMP_Text t = texts[i];
+            if (t == null || string.IsNullOrWhiteSpace(t.text))
+                continue;
+            bool active = true;
+            for (Transform? cur = t.transform; cur != null && active; cur = cur.parent)
+            {
+                active = cur.gameObject.activeSelf;
+                if (ReferenceEquals(cur.gameObject, copy))
+                    break;
+            }
+            if (active)
+                filled++;
+        }
+        return filled;
+    }
+
+    private static string WindowName(HeldPropCardWindow window) =>
+        window == HeldPropCardWindow.TextInfo ? "UITextInfoPanel ('Text Info Panel')"
+                                              : "UIPropInfoPanel ('Prop Info Panel')";
 }
 
 /// <summary>

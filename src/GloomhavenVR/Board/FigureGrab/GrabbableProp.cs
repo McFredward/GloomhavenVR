@@ -264,7 +264,17 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
 
     /// <summary>The prop's prefab name plus its import type — the vocabulary every other
     /// <c>[Props]</c> line uses, so a hardware log reads as one story.</summary>
-    internal string Label => $"'{(_prop != null ? _prop.PrefabName : "?")}' {(_prop != null ? _prop.ObjectType.ToString() : "?")}";
+    /// <remarks>Cached on first use (the prop's prefab name and import type never change for the
+    /// life of this wrapper): since the two-props build the dock edge test reads it EVERY FRAME of
+    /// a hold (<c>PropInfoSurface.ReportDock</c>), and an interpolation there would be a per-frame
+    /// allocation on a VR hot path.</remarks>
+    internal string Label => _label ??= $"'{(_prop != null ? _prop.PrefabName : "?")}' {(_prop != null ? _prop.ObjectType.ToString() : "?")}";
+
+    private string? _label;
+
+    /// <summary>The hand this prop rides, or null between holds. Read by <see cref="HeldPropCard"/>
+    /// to dock a displaced prop's snapshot card beside ITS hand, not the later grab's.</summary>
+    internal HandSide? HolderSide => _holder != null ? _holder.Side : null;
 
     // ---- IGrabbable ---------------------------------------------------------------------------
 
@@ -882,7 +892,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         {
             BuildInfoText(out _infoTitle, out _infoDescription);
             if (_infoTitle.Length == 0)
+            {
+                HeldPropCard.EndClaim(); // a rich-window snapshot may be standing; nothing claims it
                 return;
+            }
             _infoWindow = HeldPropCardWindow.TextInfo;
             _infoRoute = "UITextInfoPanel.Show — " + route;
             _infoShown = PushInfo();
@@ -892,6 +905,12 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             HeldPropCard.Claim(this, _infoWindow);
         else
             _infoWindow = HeldPropCardWindow.None;
+        // TWO PROPS, ONE WINDOW EACH (user 2026-09-03: a prop in each hand showed only ONE info).
+        // Whichever window this hold repopulated was snapshotted for its previous owner just before
+        // the overwrite (HeldPropCard.BeforePopulate, called inside both push routes); the Claim
+        // above committed that copy if this hold landed in the same window, and a copy taken for a
+        // window this hold then did NOT take is destroyed here.
+        HeldPropCard.EndClaim();
 
         _infoLosses = 0;
         _nextInfoCheck = Time.unscaledTime + InfoReassertSeconds;
@@ -969,6 +988,11 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
 
         if (trap == null && hazard == null && difficult == null && !questItem)
             return false;
+
+        // BEFORE the Hide: if the OTHER hand's prop is showing in this window, that Hide destroys
+        // its effect rows. The snapshot copy that becomes its card has to be taken from the window
+        // as it stands now (HeldPropCard doc, "the displaced writer keeps a copy").
+        HeldPropCard.BeforePopulate(this, HeldPropCardWindow.PropInfo);
 
         try
         {
@@ -1048,6 +1072,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
         if (panel == null)
             return false;
+        // Same seam as the rich route: the other hand's prop may be showing in this window, and
+        // Show() overwrites its rows in place — snapshot them first.
+        HeldPropCard.BeforePopulate(this, HeldPropCardWindow.TextInfo);
         panel.Show(_infoTitle, _infoDescription);
         return true;
     }
@@ -1070,6 +1097,12 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     private void TickInfo()
     {
         if (!_infoShown || _infoLosses > InfoLossBudget)
+            return;
+        // DISPLACED BY THE OTHER HAND'S PROP: this hold's card is PropInfoSurface's frozen copy,
+        // and the live window is showing the later grab. A re-assert here would be the two hands
+        // rewriting one window against each other four times a second — the write war this
+        // method exists to refuse. The copy needs no re-assert; nothing hides it.
+        if (HeldPropCard.IsUnderstudy(this))
             return;
         float now = Time.unscaledTime;
         if (now < _nextInfoCheck)
@@ -1137,7 +1170,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// rich/plain ELECTION: that decision was made and logged at the grab, and re-deciding it four
     /// times a second against a panel somebody else keeps hiding is how a card starts alternating
     /// between two windows.</summary>
-    private void RePushInfo()
+    /// <remarks>Internal since the two-props build: <see cref="HeldPropCard.Release"/> calls it
+    /// on the understudy it promotes when the later prop leaves the hand, so the earlier prop's
+    /// content is back in the live window on the same frame its frozen copy goes away.</remarks>
+    internal void RePushInfo()
     {
         if (_infoWindow == HeldPropCardWindow.PropInfo)
         {
@@ -1152,6 +1188,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             _infoRoute = "UITextInfoPanel.Show — the rich route stopped taking mid-hold";
             if (PushInfo())
                 HeldPropCard.Claim(this, _infoWindow);
+            HeldPropCard.EndClaim(); // same election hygiene as ShowInfo: no orphaned snapshot
             return;
         }
         PushInfo();
@@ -1169,22 +1206,27 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _infoLosses = 0;
         HeldPropCardWindow was = _infoWindow;
         _infoWindow = HeldPropCardWindow.None;
-        HeldPropCard.Release(this);
 
+        // HIDE FIRST, RELEASE SECOND. Release may promote the other hand's prop back into this
+        // very window and re-push its content at once; a Hide after that would take the promoted
+        // card down on the frame it came back. The hide only touches the window THIS hold raised,
+        // and the other prop is the understudy of that same window, so the order is the whole fix.
         if (was == HeldPropCardWindow.PropInfo)
         {
-            if (!Singleton<UIPropInfoPanel>.IsInitialized)
-                return;
-            UIPropInfoPanel? rich = Singleton<UIPropInfoPanel>.Instance;
-            if (rich != null)
-                rich.Hide(); // the same untyped Hide the game's own IHoverable OnCursorExit calls
-            return;
+            if (Singleton<UIPropInfoPanel>.IsInitialized)
+            {
+                UIPropInfoPanel? rich = Singleton<UIPropInfoPanel>.Instance;
+                if (rich != null)
+                    rich.Hide(); // the same untyped Hide the game's own IHoverable OnCursorExit calls
+            }
         }
-        if (!Singleton<UITextInfoPanel>.IsInitialized)
-            return;
-        UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
-        if (panel != null)
-            panel.Hide();
+        else if (Singleton<UITextInfoPanel>.IsInitialized)
+        {
+            UITextInfoPanel? panel = Singleton<UITextInfoPanel>.Instance;
+            if (panel != null)
+                panel.Hide();
+        }
+        HeldPropCard.Release(this);
     }
 
     /// <summary>

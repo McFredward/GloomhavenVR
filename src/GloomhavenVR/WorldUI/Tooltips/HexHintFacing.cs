@@ -119,6 +119,12 @@ internal sealed class HexHintFacing
         FaceHint(
             Singleton<UIPropInfoPanel>.IsInitialized ? Singleton<UIPropInfoPanel>.Instance : null,
             _prop, head, "PropInfoPanel (quest item)");
+
+        // The SECOND held prop's card (a frozen copy, not a singleton window, so FaceHint never
+        // sees it) gets the same late re-assert the live held card gets below: placed in Update,
+        // the hands move in LateUpdate, and this step is the last in the chain — without it the
+        // copy trails its hand by a frame while the live card does not.
+        Surfaces.PropInfoSurface.LateTickSecondCard();
     }
 
     private void FaceHint(Component? panel, HintState s, Camera head, string name)
@@ -168,7 +174,8 @@ internal sealed class HexHintFacing
         // centre of view. Board.FigureGrab.HeldPropCard.Owns answers "is THIS window the held
         // card?"; the other one keeps the head-follow on the very same frame.
         if (Board.FigureGrab.HeldPropCard.Owns(s.IsTextInfo)
-            && Surfaces.PropInfoSurface.TryGetHeldDockPose(out Vector3 heldPos, out Quaternion heldRot,
+            && Surfaces.PropInfoSurface.TryGetHeldDockPose(s.IsTextInfo,
+                                                           out Vector3 heldPos, out Quaternion heldRot,
                                                            out string how, out _))
         {
             host.SetPositionAndRotation(heldPos, heldRot);
