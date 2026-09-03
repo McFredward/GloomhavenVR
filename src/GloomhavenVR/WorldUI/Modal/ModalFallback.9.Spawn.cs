@@ -862,6 +862,7 @@ internal static partial class ModalFallback
         bool arcPlaced = false;   // holds a reservation → the reservation, not a box test, deconflicts it
         bool arcGoverned = false; // the map room's cone decided this placement
         ArcCornerSeat corner = default; // a corner window: its centre goes over the corner point
+        string cornerRefusal = "";      // a corner window NOT on its corner: why (MAP ROOM CORNER)
         // Did this spawn have to substitute the player's eye height because the head camera carried
         // no tracked pose? Stored on the anchor so a REPLAY reports it too — the replay uses the
         // corrected head by construction (it replays HeadPos), and a log line that did not say so
@@ -958,7 +959,7 @@ internal static partial class ModalFallback
             {
                 arcWhy = "replayed against the final fitted geometry — the CORNER is unchanged";
                 if (arcPlaced && TryRefreshCornerClaim(self, arcSlot, halfSize, scale, headPos,
-                        out string cornerReplayNote))
+                        ref corner, out string cornerReplayNote))
                     arcWhy = cornerReplayNote;
             }
             // AND THE RESERVATION IS RE-TAKEN ON WHAT THE WINDOW ACTUALLY DRAWS (ModBuild 234).
@@ -1091,7 +1092,7 @@ internal static partial class ModalFallback
             // board-top floor would have put two windows back on the same height.
             if (TryClaimArcSeat(self, levelMessage, halfSize, scale, gazeYawDeg, headPos,
                     out arcSlot, out arcYawDeg, out int arcOverlapRank, out float arcPullWorld,
-                    out corner, out arcWhy))
+                    out corner, out cornerRefusal, out arcWhy))
             {
                 arcGoverned = true;
                 arcPlaced = arcSlot >= 0;
@@ -1246,11 +1247,24 @@ internal static partial class ModalFallback
         //      A corner is a point, so after the chain has had its say the horizontal residual is
         //      measured (and printed on the slot line in mm) and the corner is written back. Height
         //      is untouched here; the bar-height rule below owns it, exactly as before.
+        Vector3 cornerHostXZ = default;   // where the HOST centre goes: corner − offset × right
         if (corner.Seated)
         {
-            float offWorld = new Vector3(pos.x - corner.Point.x, 0f, pos.z - corner.Point.z).magnitude;
+            // THE DRAWN CENTRE GOES ON THE CORNER; the host is set back by the content's offset
+            // inside its frame along the window's own lateral axis. That axis follows the facing,
+            // which is the corner seen from the spawn point (yaw only), so it is derived here from
+            // the same two points the facing below uses and not from a rotation that does not
+            // exist yet. `right` is the player's right when facing the window (= the window's own
+            // +X, the axis the drawn offset is measured along; + = the player's right).
+            Vector3 facing = corner.Point - corner.SpawnPoint;
+            facing.y = 0f;
+            Vector3 right = facing.sqrMagnitude >= 1e-6f
+                ? Vector3.Cross(Vector3.up, facing.normalized)
+                : Vector3.right;
+            cornerHostXZ = corner.Point - right * corner.DrawnOffsetWorld;
+            float offWorld = new Vector3(pos.x - cornerHostXZ.x, 0f, pos.z - cornerHostXZ.z).magnitude;
             corner.ClampedOffMm = offWorld / Mathf.Max(scale, 1e-4f) * 1000f;
-            pos = new Vector3(corner.Point.x, pos.y, corner.Point.z);
+            pos = new Vector3(cornerHostXZ.x, pos.y, cornerHostXZ.z);
         }
 
         string? barHeightNote = null;
@@ -1327,7 +1341,9 @@ internal static partial class ModalFallback
         // vector runs FROM the spawn point TO the window), yaw only, applied once at placement.
         if (corner.Seated)
         {
-            Vector3 fromSpawn = pos - corner.SpawnPoint;
+            // From the spawn point to the CORNER (the drawn centre), not to the host centre — the
+            // host is offset sideways by the content's own offset and must not skew the facing.
+            Vector3 fromSpawn = corner.Point - corner.SpawnPoint;
             fromSpawn.y = 0f;
             if (fromSpawn.sqrMagnitude >= 1e-4f)
                 rot = Quaternion.LookRotation(fromSpawn.normalized, Vector3.up);
@@ -1548,12 +1564,16 @@ internal static partial class ModalFallback
                                   + (corner.Seated
                                       ? $" CORNER SEAT: the {corner.Which} far corner of the map "
                                         + $"table, corner point ({corner.Point.x:F2},"
-                                        + $"{corner.Point.y:F2},{corner.Point.z:F2}) wu; window "
-                                        + $"centre written at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) wu; "
-                                        + "horizontal error "
-                                        + $"{new Vector3(pos.x - corner.Point.x, 0f, pos.z - corner.Point.z).magnitude / Mathf.Max(scale, 1e-4f) * 1000f:F0} mm "
-                                        + $"at room scale (the clamp chain had left it "
-                                        + $"{corner.ClampedOffMm:F0} mm off the corner before the "
+                                        + $"{corner.Point.y:F2},{corner.Point.z:F2}) wu; the window's "
+                                        + "DRAWN centre is written at "
+                                        + $"({pos.x + (rot * Vector3.right).x * corner.DrawnOffsetWorld:F2},{pos.y:F2},{pos.z + (rot * Vector3.right).z * corner.DrawnOffsetWorld:F2}) wu "
+                                        + $"(host centre ({pos.x:F2},{pos.y:F2},{pos.z:F2}) wu, "
+                                        + $"content offset {corner.DrawnOffsetWorld / Mathf.Max(scale, 1e-4f):+0.000;-0.000} m "
+                                        + "along the window's own right); horizontal error of the "
+                                        + "drawn centre "
+                                        + $"{new Vector3(pos.x + (rot * Vector3.right).x * corner.DrawnOffsetWorld - corner.Point.x, 0f, pos.z + (rot * Vector3.right).z * corner.DrawnOffsetWorld - corner.Point.z).magnitude / Mathf.Max(scale, 1e-4f) * 1000f:F0} mm "
+                                        + $"at room scale (the clamp chain had left the host "
+                                        + $"{corner.ClampedOffMm:F0} mm off its target before the "
                                         + "corner was re-asserted). It faces the spawn point "
                                         + $"({corner.SpawnPoint.x:F2},{corner.SpawnPoint.y:F2},"
                                         + $"{corner.SpawnPoint.z:F2}) wu, yaw {rot.eulerAngles.y:F1}°."
@@ -1589,6 +1609,34 @@ internal static partial class ModalFallback
                     ? "after the pre-reveal re-place"
                     : "after a spawn / refloat placement",
                 self, pos);
+        }
+
+        // THE OTHER HALF OF THE CORNER FALSIFIER (2026-09-03, second round): a CORNER WINDOW placed
+        // by anything but the corner claim says so at the default log tier, naming the path and
+        // the reason — the ModBuild 411 log had two entries with no CORNER SEAT clause at all and
+        // nothing that said why, which cost a hardware round. OUTSIDE the arc block on purpose: the
+        // case "the window converted before the room was standing" is exactly the one where the
+        // arc does not govern, and it must print there most of all.
+        if (!corner.Seated && !levelMessage
+            && (MapRoom.MapRoomDriver.Active || MapRoom.MapRoomDriver.Wanted)
+            && TryCornerWindowSide(self, out bool cornerRight))
+        {
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{(self != null ? PanelLogName(self) : "<panel>")}' "
+                                  + $"is the {(cornerRight ? "RIGHT" : "LEFT")} corner window and was "
+                                  + "NOT placed by the corner claim — path: "
+                                  + (replay.HasValue
+                                      ? "the pre-reveal RE-PLACE of a spawn that was not corner-seated "
+                                        + "(see that spawn's own MAP ROOM CORNER line)"
+                                      : arcGoverned
+                                          ? "spawn / refloat through the ANGULAR SEARCH"
+                                          : "spawn / refloat OUTSIDE the map room's arc (the room was "
+                                            + "not standing when it was placed — the one-shot re-seat "
+                                            + "after the rig recentre is what puts it on its corner)")
+                                  + $"; reason: {(cornerRefusal.Length > 0 ? cornerRefusal : arcGoverned ? "the corner claim reported no refusal — the identity test (TryCornerWindowSide) is the suspect" : "MapRoomDriver.Active was false, so TryClaimArcSeat refused the whole placement")}. "
+                                  + $"Room: MapRoomDriver.Active={MapRoom.MapRoomDriver.Active}, "
+                                  + $"Wanted={MapRoom.MapRoomDriver.Wanted}, spawn point "
+                                  + $"{MapRoom.MapRoomDriver.SeatFloor}.");
         }
 
         // ANNOUNCE THE WRITE THAT IS ABOUT TO HAPPEN (ModBuild 197). This method computes a pose; it

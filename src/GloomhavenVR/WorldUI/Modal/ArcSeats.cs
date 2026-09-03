@@ -567,6 +567,11 @@ internal static partial class ModalFallback
             ConvertedPanel? p = _arcClaims[i].Panel;
             if (p == null || !p.IsAlive || p.HostGo == null || p.HostRect == null)
                 continue;
+            // A corner claim's drawn centre is a fixed place (the corner) and its HOST moves with
+            // the content offset — the opposite of the "host has not moved" premise below. Its
+            // registry is kept by the corner path (TryRefreshCornerClaim) instead.
+            if (_arcClaims[i].Corner)
+                continue;
             float dist = _arcClaims[i].DistanceWorld;
             if (dist <= 1e-4f)
                 continue;
@@ -1004,6 +1009,17 @@ internal static partial class ModalFallback
         /// <summary>Filled by <c>ComputeHmdPose</c>: how far the clamp chain had moved the window
         /// off the corner horizontally before the corner was re-asserted, mm at room scale.</summary>
         public float ClampedOffMm;
+
+        /// <summary>
+        /// Lateral offset of the window's DRAWN content from its HOST rect centre, WORLD units,
+        /// + = the player's right — 0 until the content is measurable. THE CORNER IS FOR THE DRAWN
+        /// CENTRE: the ModBuild 411 log (:4428) has the character screen drawing a 14° column at
+        /// −32° inside a 73° frame, so a host centred on the corner would stand its visible column
+        /// a metre left of it. <c>ComputeHmdPose</c> writes the host at
+        /// <c>corner − offset × right</c>, which puts the content over the corner; the pre-reveal
+        /// re-place refreshes this from the fitted geometry and moves the host accordingly.
+        /// </summary>
+        public float DrawnOffsetWorld;
     }
 
     /// <summary>
@@ -1017,7 +1033,16 @@ internal static partial class ModalFallback
     private static bool TryCornerWindowSide(ConvertedPanel? panel, out bool right)
     {
         right = false;
-        UIWindow? window = WindowForPanel(panel);
+        if (panel == null)
+            return false;
+        // ModBuild 411 LESSON (LogOutput.log :1195/:1233 and :4282/:4309 — no CORNER SEAT clause
+        // on either entry): this used WindowForPanel, which looks the panel up in `Converted`, and
+        // ModalFallback.8.Convert calls PlaceAtHmd BEFORE Converted.Add — so at the one moment the
+        // claim is made the lookup answered null for both windows, both fell through to the
+        // angular search, and the corner path never ran. Same IS-A read IsPermanentPanel uses.
+        UIWindow? window = panel.Target != null ? panel.Target.GetComponent<UIWindow>() : null;
+        if (window == null)
+            window = WindowForPanel(panel);
         if (window == null)
             return false;
         if (IsQuestLogWindow(window))
@@ -1161,8 +1186,9 @@ internal static partial class ModalFallback
                   + "window instead";
             return false;
         }
-        float hostWorldYaw = WorldYawDeg(flat);
-        yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
+        // THE CORNER IS WHERE THE DRAWN CENTRE GOES; the host rect is recovered from it by the
+        // content's own offset inside its frame (see ArcCornerSeat.DrawnOffsetWorld).
+        float drawnWorldYaw = WorldYawDeg(flat);
 
         // The distance the registry books is the TRUE head→centre distance at the height the
         // bar-height rule will deliver, so the drawn interval is measured where the window hangs.
@@ -1181,7 +1207,8 @@ internal static partial class ModalFallback
         // occupancy and overlap this line prints are measured against the room as it is.
         RefreshStandingArcClaims(-1);
         string standing = ArcSeatOccupancyText(gazeYawDeg);
-        float drawnWorldYaw = hostWorldYaw + geo.OffsetDeg;
+        float hostWorldYaw = drawnWorldYaw - geo.OffsetDeg;
+        yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
         float halfAngle = geo.DrawnHalfDeg;
         ArcSeatFootprint(hostWorldYaw, geo.FrameHalfDeg, geo.OffsetDeg, halfAngle,
             out float footYaw, out float footHalf);
@@ -1194,15 +1221,19 @@ internal static partial class ModalFallback
             Which = right ? "RIGHT" : "LEFT",
             Point = point,
             SpawnPoint = spawnPoint,
+            DrawnOffsetWorld = geo.OffsetWorld,
         };
 
         why = $"IT IS A CORNER WINDOW — the {corner.Which} far corner of the map table is ITS BY "
               + "IDENTITY (character screen LEFT, quest log RIGHT — user ruling 2026-09-03), a "
               + "PLACE IN THE ROOM and not an angle off his gaze. " + cornerNote
               + $". From the head that corner is {distWorld / Mathf.Max(scale, 1e-4f):F2} m away at "
-              + $"{yawDeg:F0}° off the spawn gaze (nominal reading distance "
-              + $"{WindowDistanceMeters:F2} m — the difference is the corner's, not a ladder step); "
-              + "the window's CENTRE goes exactly over the corner point and it faces the spawn "
+              + $"{Mathf.DeltaAngle(gazeYawDeg, drawnWorldYaw):F0}° off the spawn gaze (nominal "
+              + $"reading distance {WindowDistanceMeters:F2} m — the difference is the corner's, "
+              + "not a ladder step); the window's DRAWN CENTRE goes exactly over the corner point "
+              + $"(its host rect {geo.OffsetDeg:F0}° / "
+              + $"{geo.OffsetWorld / Mathf.Max(scale, 1e-4f):F3} m to the other side of that, "
+              + "which is the content's own offset inside its frame) and it faces the spawn "
               + "point. NO SEAT SEARCH RAN and no clamp may move it sideways: ComputeHmdPose "
               + "re-asserts the corner after the clamp chain and prints the residual in mm. "
               + $"It books {halfAngle * 2f:F0}° of drawn content at world yaw {drawnWorldYaw:F0}° so "
@@ -1261,7 +1292,7 @@ internal static partial class ModalFallback
     /// material changed. Never runs the seat search — that is the whole point of a corner.
     /// </summary>
     private static bool TryRefreshCornerClaim(ConvertedPanel? panel, int slot, Vector2 halfSizeWorld,
-        float scale, Vector3 headPos, out string note)
+        float scale, Vector3 headPos, ref ArcCornerSeat corner, out string note)
     {
         note = "";
         if (panel == null || slot < 0 || slot >= _arcClaims.Length)
@@ -1282,24 +1313,137 @@ internal static partial class ModalFallback
             return false;
         float heldHalf = _arcClaims[slot].HalfWidthDeg;
         float heldOffset = _arcClaims[slot].DrawnOffsetDeg;
+        float heldOffsetWorld = corner.DrawnOffsetWorld;
         if (Mathf.Abs(geo.DrawnHalfDeg - heldHalf) < 0.5f
             && Mathf.Abs(geo.OffsetDeg - heldOffset) < 0.5f)
             return false;
-        float hostWorldYaw = _arcSeatWorldYaw[slot] - heldOffset;
-        _arcSeatWorldYaw[slot] = hostWorldYaw + geo.OffsetDeg;
+        // THE DRAWN CENTRE STAYS ON THE CORNER; it is the HOST that moves by the newly measured
+        // content offset (ComputeHmdPose writes host = corner − offset × right). So the registry's
+        // drawn yaw is re-read from the corner and the head, never derived from the old host.
+        Vector3 flat = new Vector3(point.x - headPos.x, 0f, point.z - headPos.z);
+        if (flat.sqrMagnitude >= 1e-6f)
+            _arcSeatWorldYaw[slot] = WorldYawDeg(flat);
         _arcClaims[slot].HalfWidthDeg = geo.DrawnHalfDeg;
         _arcClaims[slot].DrawnOffsetDeg = geo.OffsetDeg;
         _arcClaims[slot].FrameHalfWidthDeg = geo.FrameHalfDeg;
         _arcClaims[slot].DistanceWorld = distWorld;
         _arcClaims[slot].DepthPullMeters = (WindowDistanceMeters * scale - distWorld)
                                            / Mathf.Max(scale, 1e-4f);
+        corner.DrawnOffsetWorld = geo.OffsetWorld;
         note = $"RE-MEASURED ON ITS DRAWN CONTENT while still render-hidden — the CORNER is "
                + $"unchanged. It had booked ±{heldHalf:F0}° at offset {heldOffset:F0}° (the pre-fit "
                + $"frame); it draws ±{geo.DrawnHalfDeg:F0}° at offset {geo.OffsetDeg:F0}°, so the "
-               + $"registry now holds that at world yaw {_arcSeatWorldYaw[slot]:F0}°. NOTHING MOVED: "
-               + $"the window's centre stays over the {_arcClaims[slot].CornerWhich} far corner. "
+               + $"registry now holds that at world yaw {_arcSeatWorldYaw[slot]:F0}°. THE HOST MOVES "
+               + $"BY THE CONTENT OFFSET ({heldOffsetWorld / Mathf.Max(scale, 1e-4f):F3} m → "
+               + $"{geo.OffsetWorld / Mathf.Max(scale, 1e-4f):F3} m) so that the DRAWN centre stays "
+               + $"over the {_arcClaims[slot].CornerWhich} far corner — invisible at this moment. "
                + geo.Note;
         return true;
+    }
+
+    /// <summary>
+    /// Forget the arc reservation <paramref name="panel"/> holds, if any, so its next placement
+    /// claims afresh. Used by the one-shot corner re-seat: a corner window that was seated by the
+    /// angular search (the room was not standing when it converted, or an earlier build placed it)
+    /// must not "re-use the seat it already holds".
+    /// </summary>
+    private static void ReleaseArcClaimOf(ConvertedPanel panel, string why)
+    {
+        for (int i = 0; i < _arcClaims.Length; i++)
+        {
+            if (!ReferenceEquals(_arcClaims[i].Panel, panel))
+                continue;
+            string name = _arcClaims[i].Name ?? "<window>";
+            _arcClaims[i] = default;
+            _arcSeatGeneration++;
+            VRLog.Info("WorldUI", $"MAP ROOM WINDOW SLOT DROPPED: '{name}' gave up reservation {i} "
+                                  + $"— {why}. The window is about to be placed again and claims "
+                                  + "afresh; nothing else standing is touched.");
+        }
+    }
+
+    /// <summary>
+    /// ONE-SHOT: seat the two corner windows on their corners when the room was placed AFTER they
+    /// were already floating (user request 2026-09-03 — "auch wenn man zum Tisch aus einem
+    /// Szenario zurückkehrt … aktuell spawnen dann beide in der Mitte übereinander"). Called by
+    /// <c>MapRoomDriver.NoteRecentered</c> exactly once per room engage, after the map rig's
+    /// recentre, i.e. when the seat, the spawn point and the table are all measurable and the head
+    /// is at the seat. On the ordinary entry (the ModBuild 411 log: both entries convert the
+    /// windows after MAP ROOM ENGAGED) it finds nothing floating and does nothing.
+    ///
+    /// <para>Same recipe as the presence-regain refloat: the grab FRAME is re-seated through
+    /// <c>ComputeHmdPose</c> (which announces itself to the pose watch as a placement), a window
+    /// the player or a peer has moved is left alone, and a window already on a corner claim is
+    /// left alone. A window seated elsewhere first drops its reservation so the claim runs the
+    /// corner path instead of re-using the old seat.</para>
+    /// </summary>
+    internal static void ReseatCornerWindowsOnce(string why)
+    {
+        int seen = 0, moved = 0;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (wp.Panel == null || !wp.Panel.IsAlive)
+                continue;
+            if (!TryCornerWindowSide(wp.Panel, out bool right))
+                continue;
+            seen++;
+            string name = wp.Window != null ? wp.Window.name : PanelLogName(wp.Panel);
+            string side = right ? "RIGHT" : "LEFT";
+            if (wp.Grab != null && (wp.Grab.UserMoved || wp.Grab.PeerPlaced))
+            {
+                // HW-VERIFY
+                VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) NOT re-seated "
+                                      + $"on the corner ({why}) — "
+                                      + (wp.Grab.UserMoved ? "the player moved it" : "a peer placed it")
+                                      + ", so its pose is not the mod's to write (user ruling: parked "
+                                      + "windows stay put).");
+                continue;
+            }
+            bool onCorner = false;
+            for (int s = 0; s < _arcClaims.Length; s++)
+            {
+                if (ReferenceEquals(_arcClaims[s].Panel, wp.Panel) && _arcClaims[s].Corner)
+                    onCorner = true;
+            }
+            if (onCorner)
+                continue; // already where it belongs — a second placement would be a visible jump
+            ReleaseArcClaimOf(wp.Panel, why);
+            bool levelMessage = IsLevelMessageWindow(wp.Window);
+            bool placed = false;
+            if (wp.Grab != null)
+            {
+                Vector2 half = PanelWorldHalfSize(wp.Panel, PanelLayout.WorldScale * wp.ExtraScale);
+                if (ComputeHmdPose(out Vector3 pos, out Quaternion rot, out _, 0, half, wp.Panel,
+                        levelMessage))
+                {
+                    wp.Grab.PlaceFrameAt(pos, rot);
+                    placed = true;
+                }
+            }
+            else
+            {
+                placed = PlaceAtHmd(wp.Panel, wp.ExtraScale, 0, levelMessage);
+            }
+            if (placed)
+                moved++;
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MAP ROOM CORNER: '{name}' ({side} corner window) was already "
+                                  + $"floating when the room was placed ({why}) — re-seated ONCE "
+                                  + (placed
+                                      ? "onto its corner through the ordinary placement (its MAP ROOM "
+                                        + "WINDOW SLOT line above carries the CORNER SEAT clause; if it "
+                                        + "does not, that line says which path placed it and why)."
+                                      : "was ATTEMPTED but no pose could be computed (no head camera?) — "
+                                        + "it keeps the pose it had."));
+        }
+        if (seen == 0)
+            VRLog.Info("WorldUI", $"MAP ROOM CORNER: no corner window was floating when the room was "
+                                  + $"placed ({why}) — nothing to re-seat; the windows that open from "
+                                  + "here on take their corners at spawn.");
+        else if (moved == 0)
+            VRLog.Info("WorldUI", $"MAP ROOM CORNER: {seen} corner window(s) were floating when the "
+                                  + $"room was placed ({why}) and none needed re-seating.");
     }
 
     /// <summary>
@@ -1871,18 +2015,21 @@ internal static partial class ModalFallback
     /// read only by the corner seat, which books the true head→corner distance.</param>
     /// <param name="corner">The corner seat when this window is one of the two corner windows and
     /// its corner could be measured (<see cref="ArcCornerSeat.Seated"/>); default otherwise.</param>
+    /// <param name="cornerRefusal">Non-empty only for a CORNER window that could not be seated on
+    /// its corner this time — the reason, for the MAP ROOM CORNER line.</param>
     /// <param name="why">Human-readable reason for the log line.</param>
     /// <returns>true when the map room's arc governs this placement.</returns>
     private static bool TryClaimArcSeat(ConvertedPanel? panel, bool levelMessage,
         Vector2 halfSizeWorld, float scale, float gazeYawDeg, Vector3 headPos,
         out int slot, out float yawDeg, out int overlapRank, out float foregroundPullWorld,
-        out ArcCornerSeat corner, out string why)
+        out ArcCornerSeat corner, out string cornerRefusal, out string why)
     {
         slot = -1;
         yawDeg = 0f;
         overlapRank = 0;
         foregroundPullWorld = 0f;
         corner = default;
+        cornerRefusal = "";
         why = "";
         if (panel == null || levelMessage || !MapRoom.MapRoomDriver.Active)
             return false;
@@ -1923,6 +2070,10 @@ internal static partial class ModalFallback
                     Which = _arcClaims[i].CornerWhich ?? "?",
                     Point = _arcClaims[i].CornerPoint,
                     SpawnPoint = MapRoom.MapRoomDriver.SeatFloor,
+                    // The content offset the registry holds, back in world units at the booked
+                    // distance (the same inversion ArcSeatDeliveredNote uses).
+                    DrawnOffsetWorld = Mathf.Tan(Mathf.Clamp(_arcClaims[i].DrawnOffsetDeg, -89f, 89f)
+                                                 * Mathf.Deg2Rad) * _arcClaims[i].DistanceWorld,
                 };
                 why += $" — and it is a CORNER SEAT: its centre goes back over the {corner.Which} "
                        + "far corner";
@@ -1941,7 +2092,7 @@ internal static partial class ModalFallback
             foregroundPullWorld = slot >= 0 ? _arcClaims[slot].DepthPullMeters * scale : 0f;
             return true;
         }
-        string cornerRefusal = why;
+        cornerRefusal = why;
         why = "";
 
         float nominalDist = WindowDistanceMeters * scale;  // WORLD units, both operands scaled
@@ -2640,8 +2791,18 @@ internal static partial class ModalFallback
         float bookedFrame = _arcClaims[slot].FrameHalfWidthDeg;
         float bookedOffset = _arcClaims[slot].DrawnOffsetDeg;
         float ratio = delivered / booked;
-        bool corrected = Mathf.Abs(ratio - 1f) > ArcDeliveredDistanceTolerance;
-        string fix = "";
+        // A CORNER claim books the distance to its DRAWN centre (the corner) and the pose delivered
+        // is the HOST centre, offset sideways by the content's own offset inside its frame — the
+        // two are different points by design, so the correction below must not run on it.
+        bool corrected = !_arcClaims[slot].Corner
+                         && Mathf.Abs(ratio - 1f) > ArcDeliveredDistanceTolerance;
+        string fix = _arcClaims[slot].Corner
+            ? $" A CORNER SEAT: the booked figure is the distance to its DRAWN centre (the "
+              + $"{_arcClaims[slot].CornerWhich} far corner) and the delivered figure is the HOST "
+              + $"centre's, which stands {_arcClaims[slot].DrawnOffsetDeg:F1}° to the side of it "
+              + "(the content's offset inside its frame); the registry is kept by the corner path "
+              + "and is not corrected here."
+            : "";
         if (corrected)
         {
             // Recover the world extents the booked angles were derived from — pure arithmetic, no

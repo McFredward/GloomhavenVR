@@ -202,5 +202,10 @@ internal sealed partial class VRRigDriver
                           + "(must read ~0°; anything else is a yaw this one-shot did not absorb). "
                           + "Spawn-only: the rig is never re-yawed per frame, so the player's own "
                           + "turning afterwards is untouched.");
+
+        // The head now stands at the seat facing the table: the one moment the corner windows that
+        // were already floating before this room was placed can be seated on their corners
+        // (once per engage — MapRoomDriver spends the flag).
+        MapRoomDriver.NoteRecentered();
     }
 }

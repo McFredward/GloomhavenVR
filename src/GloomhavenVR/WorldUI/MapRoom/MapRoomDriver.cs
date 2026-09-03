@@ -130,6 +130,28 @@ internal static class MapRoomDriver
     /// </summary>
     internal static Vector3 SeatFloor => _reportFloor;
 
+    /// <summary>Armed by <see cref="Engage"/>, spent by <see cref="NoteRecentered"/>: the ONE
+    /// corner re-seat of windows that were already floating when this room was placed.</summary>
+    private static bool _cornerReseatPending;
+
+    /// <summary>
+    /// The map rig has just been recentred onto the seat (<c>VRRigDriver.RecenterMap</c>) — the
+    /// first moment the head stands at the spawn point facing the table. Once per engage, the two
+    /// corner windows that were ALREADY floating before this room was placed (the scenario-return
+    /// case the user reported: "aktuell spawnen dann beide in der Mitte übereinander") are
+    /// re-seated onto their corners; windows that convert after this take their corners at spawn.
+    /// The B+Y chord reaches here too and finds the flag spent, so a manual recentre moves no
+    /// window.
+    /// </summary>
+    internal static void NoteRecentered()
+    {
+        if (!Active || !_cornerReseatPending)
+            return;
+        _cornerReseatPending = false;
+        ModalFallback.ReseatCornerWindowsOnce("the map room was placed and the rig recentred onto "
+                                              + "its seat while these windows were already floating");
+    }
+
     /// <summary>True when the mode is wanted THIS frame: the switch is on and a campaign map is
     /// provably open. Read by <c>VRRigDriver</c> to choose the rig flavour.</summary>
     internal static bool Wanted { get; private set; }
@@ -649,6 +671,7 @@ internal static class MapRoomDriver
         _reportFloor = floorPosition;
         _eyeHeightMeters = 0f;
         _reportPending = true;
+        _cornerReseatPending = true;
         // Re-arm the ONE map dump (FlatScreenStereo.LogMapSceneReport) so the room's own entry
         // produces a report too — the flat path's copy describes the same scene through a
         // different camera, and comparing the two is exactly how a later phase sizes what is
@@ -736,6 +759,7 @@ internal static class MapRoomDriver
         // gated on the same predicate) must stand down with the room rather than one frame after it.
         Core.Events.VRModeStateMachine.SetModRoom(false);
         _reportPending = false;
+        _cornerReseatPending = false;
         // FIRST: a borrowed card in the player's hand must never outlive the room it was read from.
         Hand.StandDown(reason);
         Locations.Release(reason);
