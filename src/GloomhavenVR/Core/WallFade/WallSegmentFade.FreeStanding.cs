@@ -152,6 +152,8 @@ internal static partial class WallSegmentFade
             _censusFreeCapHit = false;
             _censusFreeNoFloor = false;
             _censusFreeRefusedDoorway = 0;
+            _censusFreeRefusedNonOccluding = 0;
+            _censusFreeDroppedEmpty = 0;
             _freeTouched.Clear();
             _freeUnits.Clear();
 
@@ -290,6 +292,11 @@ internal static partial class WallSegmentFade
                 // the defect where it is.
                 if (r.GetComponentInParent<ProceduralWall>() != null)
                     continue;
+                if (IsNonOccludingRenderer(r))
+                {
+                    _censusFreeRefusedNonOccluding++;
+                    continue; // a light shaft, fog or glow hides nothing and never fades
+                }
                 // STANDING PROP (both arms): a prop unit whose union reaches the floor is never
                 // wall geometry on any path — the same choke point every wall lane asks.
                 if (IsStandingFigureProp(r))
@@ -540,6 +547,97 @@ internal static partial class WallSegmentFade
 
         private int _censusFreeRefusedDoorway;
         private int _censusFreeRidersRefusedDoorway;
+        private int _censusFreeRefusedNonOccluding;
+        private int _censusFreeRidersRefusedNonOccluding;
+        private int _censusFreeDroppedEmpty;
+
+        /// <summary>Unity's transparent queue starts at 3000 and the alpha-test (cutout) queue
+        /// at 2450; everything from 2500 up is transparent, additive or overlay — drawn without
+        /// depth writes, and a thing that writes no depth hides nothing.</summary>
+        private const int NonOccludingRenderQueue = 2500;
+
+        private readonly Dictionary<Shader, bool> _shaderNonOccluderVerdict = new();
+
+        /// <summary>
+        /// A RENDERER THAT CANNOT OCCLUDE (ModBuild 410; user: <i>"Lichtstrahlen blocken in
+        /// keinster Weise die Sicht und sollen daher nie faden"</i>). The 407 log formed two
+        /// units out of <c>'LightShaft_Prefab'</c> (<c>sh='LightShaftShd' q3000</c>, y[0.7..7.0])
+        /// and one of them read <c>blk 9/16 … ON fade 1.00</c> — its AABB is the whole beam
+        /// volume, and a ray through a beam was counted as a ray through a wall.
+        ///
+        /// <para>Non-occluding when EVERY material is: on a known non-occluder shader family
+        /// (light shaft, fog, glow, beam, god ray, volumetric, particle, additive) or at a render
+        /// queue ≥ <see cref="NonOccludingRenderQueue"/>. A mesh with one opaque or cutout
+        /// material still occludes. The shader-family verdict is cached per Shader; the queue is
+        /// a field read per material. Such a renderer is never a unit member (so the unit's own
+        /// <see cref="RayHitsWallMesh"/> walk cannot see it — admission is the guard, there is no
+        /// second test in the per-frame path), never a mesh rider, and never in the plain-mesh
+        /// dissolve swap.</para>
+        /// </summary>
+        private bool IsNonOccludingRenderer(Renderer r)
+        {
+            _matScratch.Clear();
+            r.GetSharedMaterials(_matScratch);
+            bool any = false;
+            foreach (Material m in _matScratch)
+            {
+                if (m == null)
+                    continue;
+                any = true;
+                Shader sh = m.shader;
+                bool family = false;
+                if (sh != null)
+                {
+                    if (!_shaderNonOccluderVerdict.TryGetValue(sh, out family))
+                    {
+                        family = IsNonOccluderShaderName(sh.name);
+                        _shaderNonOccluderVerdict[sh] = family;
+                    }
+                }
+                if (!family && m.renderQueue < NonOccludingRenderQueue)
+                    return false; // one opaque/cutout material — it occludes
+            }
+            return any; // no material at all draws nothing and occludes nothing
+        }
+
+        private static bool IsNonOccluderShaderName(string name)
+        {
+            const System.StringComparison ic = System.StringComparison.OrdinalIgnoreCase;
+            return name.IndexOf("LightShaft", ic) >= 0
+                || name.IndexOf("Light Shaft", ic) >= 0
+                || name.IndexOf("GodRay", ic) >= 0
+                || name.IndexOf("Volumetric", ic) >= 0
+                || name.IndexOf("Fog", ic) >= 0
+                || name.IndexOf("Glow", ic) >= 0
+                || name.IndexOf("Beam", ic) >= 0
+                || name.IndexOf("Particle", ic) >= 0
+                || name.IndexOf("Additive", ic) >= 0;
+        }
+
+        /// <summary>
+        /// A UNIT EMPTIED AFTER ITS FILL IS DROPPED (ModBuild 410). The prop-unit cohesion pass
+        /// runs after this lane and may move a unit's renderers to another owner; the 407 log
+        /// shows <c>'CV_Pillar_Generic_02' 0 renderer(s) +0 plain, 2 toggle-native</c> — a segment
+        /// with bounds and no meshes, which <see cref="RayHitsWallMesh"/> treats as "no meshes to
+        /// ask: keep the broad-phase verdict", i.e. its whole AABB blocks. Runs in the mounted
+        /// phase, before riders are attached.
+        /// </summary>
+        private void PruneEmptyFreeStandingUnits()
+        {
+            _censusFreeDroppedEmpty = 0;
+            for (int i = _freeUnits.Count - 1; i >= 0; i--)
+            {
+                Segment unit = _freeUnits[i];
+                if (unit.Renderers.Count > 0 || unit.Body.Count > 0)
+                    continue;
+                DropFreeStandingUnit(unit);
+                if (unit.Anchor != null)
+                    _live.Segments.Remove(unit.Anchor);
+                _freeUnits.RemoveAt(i);
+                _censusFreeDroppedEmpty++;
+            }
+            _censusFreeUnits = _freeUnits.Count;
+        }
 
         /// <summary>
         /// DOORWAYS NEVER FADE (ModBuild 410, torbogen_faded.jpg — the stone gate wall with its
@@ -619,6 +717,8 @@ internal static partial class WallSegmentFade
             _censusFreeRidersRefusedStanding = 0;
             _censusFreeRidersRefusedArchitecture = 0;
             _censusFreeRidersRefusedDoorway = 0;
+            _censusFreeRidersRefusedNonOccluding = 0;
+            PruneEmptyFreeStandingUnits(); // after the prop-unit pass, before anything rides
             if (_freeUnits.Count == 0 || float.IsInfinity(minFloorY) || _factCount == 0)
                 return;
             // Reach: the union of every unit's footprint plus the link, so the fact sweep
@@ -719,6 +819,12 @@ internal static partial class WallSegmentFade
                     continue; // fountain/pond (user ruling 2026-08-09)
                 if (IsFigureOrActorRenderer(c))
                     continue; // FIGURES are never touched (round-7 ruling, Lights severity)
+                if (!particles && IsNonOccludingRenderer(c))
+                {
+                    _censusFreeRidersRefusedNonOccluding++;
+                    continue; // a light-shaft or glow MESH never fades; particle systems are
+                              // effects and keep riding as the mounted lane's own class
+                }
                 if (!particles && IsArchitectureScale(b.size, 0f))
                 {
                     _censusFreeRidersRefusedArchitecture++;
@@ -841,7 +947,8 @@ internal static partial class WallSegmentFade
                   .Append("or ceiling — never fades whole), ")
                   .Append(_censusFreeRefusedNoRoom).Append(" refused for no decision-valid room")
                   .Append("; refused before clustering: ").Append(_censusFreeRefusedDoorway)
-                  .Append(" doorway");
+                  .Append(" doorway, ").Append(_censusFreeRefusedNonOccluding)
+                  .Append(" non-occluding");
             }
             else
             {
@@ -853,8 +960,11 @@ internal static partial class WallSegmentFade
                   .Append("swap; refused: ").Append(_censusFreeRefusedTop).Append(" too low, ")
                   .Append(_censusFreeRefusedEngulf).Append(" room-engulfing, ")
                   .Append(_censusFreeRefusedNoRoom).Append(" no valid room, ")
-                  .Append(_censusFreeRefusedDoorway).Append(" doorway; ")
-                  .Append(_censusFreeDropped).Append(" earlier unit(s) dropped): ");
+                  .Append(_censusFreeRefusedDoorway).Append(" doorway, ")
+                  .Append(_censusFreeRefusedNonOccluding).Append(" non-occluding; ")
+                  .Append(_censusFreeDropped).Append(" earlier unit(s) dropped, ")
+                  .Append(_censusFreeDroppedEmpty)
+                  .Append(" emptied by the prop-unit pass and dropped): ");
                 int named = 0;
                 foreach (Segment seg in _freeUnits)
                 {
@@ -913,7 +1023,8 @@ internal static partial class WallSegmentFade
                   .Append(_censusFreeRidersRefusedArchitecture)
                   .Append(" architecture-scale mesh(es), ")
                   .Append(_censusFreeRidersRefusedDoorway)
-                  .Append(" doorway — the sticky carries are in the per-unit ")
+                  .Append(" doorway, ").Append(_censusFreeRidersRefusedNonOccluding)
+                  .Append(" non-occluding mesh(es) — the sticky carries are in the per-unit ")
                   .Append("counts, not here)");
             }
             if (_censusFreeCapHit)
