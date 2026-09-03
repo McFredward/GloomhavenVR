@@ -156,6 +156,17 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     private bool _skinApplied;
     private bool _destroyed;
 
+    // ---- ModBuild 405: the SEAT LATCH, the owner's rule mirrored 1:1 ---------------------------
+    // The owner (WorldUI.WorldTooltips, the _latch* block) measures its seat ONCE per shown
+    // episode in the BOARD's frame and re-measures only on a content change. This mirror already
+    // held its seat by construction — _root is a child of the board root, and Reseat runs on the
+    // way UP only — but it never re-seated on a content change while up, so after the owner's
+    // re-latch the two boxes could disagree by whatever the docks had moved in between. Now a text
+    // change while shown re-measures too, with the root briefly inactive so the walk cannot see
+    // our own MR plate (Reseat's last paragraph). Frame and count ride the layout line.
+    private int _latchFrame;     // Time.frameCount of the episode's first seat
+    private int _latchRelatches; // re-seats on content change within this shown episode
+
     public RemoteBoardTooltip(Transform boardRoot, in RemoteBoardLayout layout,
                               in RemoteBoardTuning tuning)
     {
@@ -278,14 +289,29 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
         bool upgrade = !_skinApplied && GameSkin.TryEnsure();
         if (text == _shown && !upgrade)
             return;
+        bool contentChanged = text != _shown;
         _shown = text!;
-        // THE CORNER IS RE-MEASURED ON THE WAY UP ONLY, and the flag below is what enforces it --
-        // see Reseat's last paragraph: our own MR backing plate is a MeshRenderer parented under
-        // this root, so a walk taken while we are visible would feed our own box back into the
-        // corner that seats us.
+        // THE CORNER IS RE-MEASURED ONLY WHILE THE ROOT IS INACTIVE, and the flags below are what
+        // enforce it -- see Reseat's last paragraph: our own MR backing plate is a MeshRenderer
+        // parented under this root, so a walk taken while we are visible would feed our own box
+        // back into the corner that seats us. ModBuild 405: the owner re-latches its seat on a
+        // CONTENT change (WorldTooltips' seat latch), so a text change while this mirror is up
+        // re-measures too -- root off, walk, root back on inside the same Apply, which no frame
+        // renders between. A skin upgrade alone is not content and keeps the seat.
         bool comingUp = _root != null && !_root.gameObject.activeSelf;
         if (comingUp)
+        {
             Reseat();
+            _latchFrame = Time.frameCount;
+            _latchRelatches = 0;
+        }
+        else if (contentChanged && _root != null)
+        {
+            _root.gameObject.SetActive(false);
+            Reseat();
+            _root.gameObject.SetActive(true);
+            _latchRelatches++;
+        }
         Layout(_shown, upgrade);
         if (comingUp && _root != null)
             _root.gameObject.SetActive(true);
@@ -338,7 +364,8 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
     /// owner's tooltip cannot do this -- their canvas is not parented to their board. Measuring
     /// only while our root is inactive removes the loop by construction (the walk skips inactive
     /// renderers), and a corner only moves when the board's DOCKS change, which no single hint
-    /// outlives.</para>
+    /// outlives. ModBuild 405 adds the one re-measure the owner also does — on a CONTENT change
+    /// while up — and <see cref="Apply"/> takes the root inactive around it for the same reason.</para>
     /// </summary>
     private void Reseat()
     {
@@ -398,7 +425,10 @@ internal sealed class RemoteBoardTooltip : WorldUI.MrBacking.IBackedSurface
                           $"({_seatCorrection.x * 1000f:F0}, {_seatCorrection.y * 1000f:F0}) mm from " +
                           "the board's MEASURED extents (PlayTray.MeasureBoardLocalExtents, the " +
                           "owner's own rule — zero here means the docks reach no further than the " +
-                          "authored plate).");
+                          "authored plate). " +
+                          $"LATCH (ModBuild 405): seat latched in the board's frame on frame {_latchFrame}, " +
+                          $"re-latched {_latchRelatches} time(s) this shown episode (content change only; " +
+                          "the board moving carries the box rigidly, nothing is re-derived per frame).");
     }
 
     /// <summary>Copy the sampled game presentation onto our frame + label (idempotent).</summary>
