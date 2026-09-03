@@ -33,11 +33,16 @@ namespace GloomhavenVR.Core;
 /// lane runs AFTER the stacked lane (walls and their superstructure keep first claim) and BEFORE
 /// the prop-unit and mounted passes (which then see the unit's members as owned). It sweeps the
 /// fact table for meshes that are ARCHITECTURE by the mounted lane's own two guards (AABB volume
-/// above <see cref="FadeDriver.MountedMaxMeshVolumeWU3"/>, or fat on two axes), AIRBORNE (foot
-/// at least <see cref="FadeDriver.GroundExclusionHeightWU"/> over the room floor — a mesh resting
-/// on the floor is a standing prop or an obstacle and never fades on any lane), under no
-/// <c>ProceduralWall</c>, listed by no other segment, not a figure, not a standing prop, not in a
-/// doorway arch or water rect. Those are clustered by XZ proximity (AABB gap ≤
+/// above <see cref="FadeDriver.MountedMaxMeshVolumeWU3"/>, or fat on two axes), and either
+/// AIRBORNE (foot at least <see cref="FadeDriver.GroundExclusionHeightWU"/> over the room floor)
+/// or TALL (top at least <see cref="FadeDriver.FreeStandingMinTopWU"/> over it — the entrance's
+/// two SIDES go to the ground and hide the figures as the lintel does, and the STANDING PROP
+/// ruling's own height term says a floor-footed mesh that tall is not a floor prop), under no
+/// <c>ProceduralWall</c>, listed by no other segment, not a figure, not a standing prop (both
+/// arms, height term included), not in a doorway arch or water rect. The ground band cannot be
+/// reached: a ground-band renderer is one whose AABB top sits within 1.0 wu of the floor (the
+/// predicate <see cref="FadeDriver.StripGroundRenderers"/> and the WALL-PATH AUDIT share), every
+/// member kept has its top ≥ 2.5 wu over that floor, and a unit writes only to its own members. Those are clustered by XZ proximity (AABB gap ≤
 /// <see cref="FadeDriver.FreeStandingLinkXZ"/>) into units; a unit whose top does not reach
 /// <see cref="FadeDriver.FreeStandingMinTopWU"/> over its room floor is not view-blocking and is
 /// refused; a unit whose XZ box contains <see cref="FadeDriver.EngulfSampleFraction"/> of its
@@ -75,6 +80,10 @@ internal static partial class WallSegmentFade
         /// transform; refreshed only by its own lane (the adoption sweep and the engulf split
         /// skip it).</summary>
         public bool IsFreeStanding;
+        /// <summary>How many of this unit's members stand on the floor (foot under the 1.0 wu
+        /// airborne bar, admitted because their top clears 2.5 wu over the room floor — the
+        /// entrance's two sides). Diag only.</summary>
+        public int FreeStandingFloorFooted;
     }
 
     private sealed partial class FadeDriver
@@ -237,6 +246,14 @@ internal static partial class WallSegmentFade
             // every accept below is re-read from the live renderer.
             float airborneBar = minFloorY + GroundExclusionHeightWU;
             float prefilterBar = airborneBar - CensusBoundsSlackWU;
+            // FLOOR-FOOTED ARCHITECTURE (second commit of ModBuild 406): the entrance's two
+            // SIDES go to the ground and hide the figures exactly as the lintel does. The
+            // STANDING PROP ruling's own height term ("≤ 2.5 wu so a course of masonry can never
+            // qualify") says a floor-footed mesh whose top clears 2.5 wu is NOT a floor prop, so
+            // until now such a mesh belonged to nobody. A mesh whose TOP reaches the top bar
+            // qualifies whatever its foot; a lower mesh must still be airborne.
+            float topBar = minFloorY + FreeStandingMinTopWU;
+            float prefilterTopBar = topBar - CensusBoundsSlackWU;
             _freeCandidates.Clear();
             _freeCandidateBounds.Clear();
             for (int fi = 0; fi < _factCount; fi++)
@@ -244,7 +261,7 @@ internal static partial class WallSegmentFade
                 ref RendererFact f = ref _facts[fi];
                 if (f.Mesh == null || f.Mod || f.FoliageShader || f.WaterSurface || f.Figure)
                     continue;
-                if (f.Bounds.min.y < prefilterBar)
+                if (f.Bounds.min.y < prefilterBar && f.Bounds.max.y < prefilterTopBar)
                     continue;
                 if (!IsArchitectureScale(f.Bounds.size, CensusBoundsSlackWU))
                     continue;
@@ -256,7 +273,7 @@ internal static partial class WallSegmentFade
                 if (_freeListed.Contains(r))
                     continue;
                 Bounds b = r.bounds;
-                if (b.min.y < airborneBar || !IsArchitectureScale(b.size, 0f))
+                if ((b.min.y < airborneBar && b.max.y < topBar) || !IsArchitectureScale(b.size, 0f))
                     continue;
                 if (IsArchProtected(b, f.Name ?? r.name))
                     continue; // the doorway's arch stays solid (user ruling 2026-08-02)
@@ -376,10 +393,19 @@ internal static partial class WallSegmentFade
             }
             float floorY = _live.RoomFloorY[room];
             float foot = floorY + GroundExclusionHeightWU;
+            float top = floorY + FreeStandingMinTopWU;
             // Members are re-judged against THIS room's floor (the candidate sweep used the
-            // scene-wide minimum, which can only admit more): a piece resting in the ground band
-            // of its own room leaves the unit here.
+            // scene-wide minimum, which can only admit more): a piece that is neither airborne
+            // nor tall enough to be view-blocking leaves the unit here. THE GROUND BAND STAYS
+            // SOLID BY CONSTRUCTION: a ground-band renderer is one whose AABB TOP sits within
+            // GroundExclusionHeightWU (1.0 wu) of its room's floor — the one predicate
+            // StripGroundRenderers and the WALL-PATH AUDIT's "ground-band (solid by design)"
+            // count share — and every member kept here has its top ≥ 2.5 wu over that floor
+            // (airborne members by foot ≥ 1.0 AND the unit-level top bar below; floor-footed
+            // members by this very test), so no member can be in the band, and the unit writes
+            // to nothing but its own members.
             _freeMembers.Clear();
+            int floorFooted = 0;
             union = default;
             have = false;
             for (int i = 0; i < _freeClusterOf.Count; i++)
@@ -387,11 +413,14 @@ internal static partial class WallSegmentFade
                 if (_freeClusterOf[i] != cluster)
                     continue;
                 Bounds b = _freeCandidateBounds[i];
-                if (b.min.y < foot)
+                bool airborne = b.min.y >= foot;
+                if (!airborne && b.max.y < top)
                     continue;
                 MeshRenderer? r = _facts[_freeCandidates[i]].Mesh;
                 if (r == null)
                     continue;
+                if (!airborne)
+                    floorFooted++;
                 _freeMembers.Add(r);
                 if (!have) { union = b; have = true; }
                 else union.Encapsulate(b);
@@ -486,6 +515,7 @@ internal static partial class WallSegmentFade
             }
             seg.Bounds = union;
             seg.HasBounds = true;
+            seg.FreeStandingFloorFooted = floorFooted;
             if (seg.Body.Count > 0 && seg.ShaderNames == "?")
                 seg.ShaderNames = "plain (no fade shader — dissolve-swap delivery)";
             FinishRefresh(seg);
@@ -601,7 +631,10 @@ internal static partial class WallSegmentFade
                     sb.Append('\'').Append(name).Append("' ")
                       .Append(seg.Renderers.Count).Append(" renderer(s) +")
                       .Append(seg.Body.Count).Append(" plain, ")
-                      .Append(seg.ToggleNative).Append(" toggle-native, AABB c(")
+                      .Append(seg.ToggleNative).Append(" toggle-native, ")
+                      .Append(seg.FreeStandingFloorFooted).Append(" of ")
+                      .Append(seg.Renderers.Count + seg.Body.Count)
+                      .Append(" members floor-footed, AABB c(")
                       .Append(b.center.x.ToString("F1")).Append(',')
                       .Append(b.center.y.ToString("F1")).Append(',')
                       .Append(b.center.z.ToString("F1")).Append(") s(")
