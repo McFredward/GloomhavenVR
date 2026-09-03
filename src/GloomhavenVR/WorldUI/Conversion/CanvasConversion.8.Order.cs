@@ -443,6 +443,7 @@ internal static partial class CanvasConversion
                     continue;
                 panel.OrderDistance = PanelEyeDistance(panel, eye);
                 s_orderDistanceMeasures++;
+                StampShownPose(panel);
                 if (panel.OrderListed)
                     continue;
                 int at = OrderedPanels.Count;
@@ -582,6 +583,42 @@ internal static partial class CanvasConversion
     /// the historical order flicker, does not move this number at all, so the hysteresis gates only
     /// ever have real motion to reject.</para>
     /// </summary>
+    /// <summary>
+    /// <b>The last frame in which the shown-pose stamp ran at all.</b> Read by
+    /// <c>WindowMaterialise.PlayOut</c> to tell "this panel was not drawn on the previous frame"
+    /// (a verdict) from "the stamp has not been running" (no instrument, no verdict): the order
+    /// pass early-outs without a world camera, and a rule that refused every vanish because its
+    /// instrument was asleep would delete the effect the user asked for.
+    /// </summary>
+    internal static int ShownStampFrame { get; private set; }
+
+    /// <summary>
+    /// <b>Record that this panel was render-visible this frame, and where its host stood.</b> One
+    /// place, every frame, for every live panel: the order pass is the LAST WorldUI LateUpdate step
+    /// (WorldUIModule.cs), so a stamp taken here describes the pose the eye is about to be shown.
+    /// The terms are the mod's OWN visibility switches — the reveal gate, the conversion's render
+    /// hide, the owning surface's hide, the host's activity and its canvas — never the game's tweened
+    /// alpha, which the close-edge hold deliberately confounds (see
+    /// <c>ModalFallback.HasNothingToDissolve</c>). Cost: four flag reads and, on a shown panel, one
+    /// world-pose read; no allocation.
+    /// </summary>
+    private static void StampShownPose(ConvertedPanel panel)
+    {
+        ShownStampFrame = Time.frameCount;
+        if (panel.RenderHidden || panel.OwnerRenderHidden || panel.RevealPending)
+            return;
+        GameObject? go = panel.HostGo;
+        if (go == null || !go.activeInHierarchy)
+            return;
+        if (panel.HostCanvas != null && !panel.HostCanvas.enabled)
+            return;
+        RectTransform host = panel.HostRect;
+        panel.LastShownFrame = Time.frameCount;
+        panel.LastShownPosition = host.position;
+        panel.LastShownRotation = host.rotation;
+        panel.LastShownLossyScale = host.lossyScale;
+    }
+
     private static float PanelEyeDistance(ConvertedPanel panel, Vector3 eye)
     {
         RectTransform host = panel.HostRect;

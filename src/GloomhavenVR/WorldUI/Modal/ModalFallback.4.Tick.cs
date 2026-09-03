@@ -2934,6 +2934,20 @@ internal static partial class ModalFallback
             // Scenario-gated: on scenario exit the store is reset above, not re-fed here.
             if (inScenario && IsLevelMessageWindow(wp.Window))
                 StoreChainPose(wp);
+            // THE STRAY-DISSOLVE STAMP, TAKEN WHILE THE FLOAT IS STILL IN `Converted`. The vanish
+            // below asks ModalFallback.HasNothingToDissolve, which searches this list for the
+            // float — and the RemoveAt on the next line is why that search came back empty on
+            // every call from ModBuild 374 to 410 (0 VANISH SKIPPED lines in any log; the ModBuild
+            // 410 log shows a DORMANT 'New Party display' dissolving with 900 shards over an empty
+            // seat, :4424-:4459). The two lifetime terms and the trigger go onto the panel here, and
+            // the rule reads them back from the panel once the list no longer carries the float.
+            StampReleaseVerdict(wp,
+                !alive ? "the window died or the float is no longer wanted (alive=false)"
+                : wp.UserClosing ? "the player closed it (UserClosing)"
+                : wp.EmptyReleasePending ? "the empty-window rule (EmptyReleasePending)"
+                : refused ? "FLOAT RELEASED ON REFUSAL (the refusal table / story curtain)"
+                : answeredMandatory ? "MANDATORY DECISION ANSWERED (closed by the game)"
+                : "the game closed it (left OpenWindows, not sticky, no scripted message)");
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
             // ModBuild 230: read the chrome BEFORE it is torn down, so the release line can state

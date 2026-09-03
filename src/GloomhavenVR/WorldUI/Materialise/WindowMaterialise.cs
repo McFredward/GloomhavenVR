@@ -701,6 +701,25 @@ internal static partial class WindowMaterialise
 
         DetachInput(panel);
 
+        // A SECOND RELEASE OF A FLOAT THAT IS ALREADY DISSOLVING MUST NOT PLAY A SECOND CLOUD.
+        // The first runner's callback is the release; this call's callback is chained behind it,
+        // so both run exactly once (the contract) and the eye sees one dissolve, at the pose the
+        // first one started from. Before this clause, Cancel below would have cut the first
+        // dissolve short (its callback releasing the host) and Begin would then have run on a
+        // dead panel — no second cloud either, but a truncated first one.
+        WindowMaterialiseRunner? running = FindVanishing(panel);
+        if (running != null)
+        {
+            NoteStraySuppressed(panel, "a VANISH is already running for this float (a double "
+                                       + "release) — the new release is chained behind the running "
+                                       + "dissolve instead of starting a second one");
+            NotePlayOutOutcome(panel, ref _outStray,
+                               "SUPPRESSED AS A STRAY DISSOLVE — a vanish was already running for "
+                               + "this float, so the release was chained behind it");
+            running.ChainOnDone(onDone);
+            return;
+        }
+
         if (!Enabled)
         {
             NotePlayOutOutcome(panel, ref _outEffectOff,
@@ -754,6 +773,23 @@ internal static partial class WindowMaterialise
             onDone();
             return;
         }
+        // A VANISH MAY ONLY PLAY WHERE A WINDOW WAS DRAWN ON THE PREVIOUS FRAME (user report,
+        // 2026-09-03: at scenario start the dissolve appeared somewhere else entirely, where no
+        // window was any more). The two lifetime terms above are the rule's first line; this is
+        // the measured one: the order pass stamps every panel it found render-visible, with the
+        // host's pose, in the last LateUpdate — so a panel with no stamp from the previous frame
+        // was not on the screen for the eye to lose, and dust for it announces a window that is
+        // not there. A host that moved since it was last drawn is refused for the same reason:
+        // the pose the eye knows and the pose the cloud would spawn at are different places.
+        if (!DrawnOnPreviousFrame(panel, out string strayWhy))
+        {
+            DropPreRoll(panel, "the window was not drawn on the previous frame");
+            NoteStraySuppressed(panel, strayWhy);
+            NotePlayOutOutcome(panel, ref _outStray,
+                               $"SUPPRESSED AS A STRAY DISSOLVE — {strayWhy}");
+            onDone();
+            return;
+        }
         float seconds = VanishSeconds;
         if (seconds <= 0f)
         {
@@ -769,7 +805,8 @@ internal static partial class WindowMaterialise
             Cancel(panel, "a vanish started");
             NotePlayOutOutcome(panel, ref _outStarted,
                                "STARTED — the dissolve and its shards are running now, and the "
-                               + "release happens at the end of it");
+                               + "release happens at the end of it",
+                               SpawnClause(panel));
             if (!WindowMaterialiseRunner.Begin(panel, seconds, materialising: false, onDone))
                 onDone();
         }
@@ -817,9 +854,17 @@ internal static partial class WindowMaterialise
 
     private static int _outStarted;
 
+    /// <summary>The seventh outcome (2026-09-03, "dust where no window was"): refused by the
+    /// previous-frame rule or folded into a vanish already running. See
+    /// <see cref="DrawnOnPreviousFrame"/>.</summary>
+    private static int _outStray;
+
     private static string _lastOutKey = string.Empty;
 
-    private static void NotePlayOutOutcome(ConvertedPanel? panel, ref int counter, string outcome)
+    /// <param name="tail">An extra clause appended AFTER the change gate — it may vary per call
+    /// (a pose does) without defeating the gate, which keys on the window and the outcome only.</param>
+    private static void NotePlayOutOutcome(ConvertedPanel? panel, ref int counter, string outcome,
+                                           string tail = "")
     {
         counter++;
         string who = panel != null ? Name(panel) : "<no panel>";
@@ -828,7 +873,7 @@ internal static partial class WindowMaterialise
             return;
         _lastOutKey = key;
         int total = _outDeadPanel + _outEffectOff + _outHoverCard + _outSkipped
-                    + _outZeroLength + _outStarted;
+                    + _outZeroLength + _outStarted + _outStray;
         // HW-VERIFY
         VRLog.Note(Scope, $"WINDOW MATERIALISE PLAYOUT on '{who}': {outcome}. TALLY for this "
                           + $"session, {total} call(s) in total: {_outStarted} started, "
@@ -838,7 +883,155 @@ internal static partial class WindowMaterialise
                           + "panel that was already gone. THIS LINE IS THE FALSIFIER: it is written "
                           + "on EVERY entry to PlayOut, so a floated window that left the screen "
                           + "and is named by no line here was never handed to the effect at all — "
-                          + "that is a release-path question and not an effect question.");
+                          + "that is a release-path question and not an effect question."
+                          + $" STRAY RULE: {_outStray} suppressed for not having been drawn on the "
+                          + "previous frame or for being a double release (grep STRAY DISSOLVE "
+                          + "SUPPRESSED for the reason)."
+                          + tail);
+    }
+
+    // ---- THE STRAY-DISSOLVE RULE ---------------------------------------------------------------
+    //
+    // USER REPORT (2026-09-03, translated): "At scenario start in the map room, when the story
+    // opened for the first time, the DISSOLVE animation sometimes appears at a completely
+    // different place, although there was no window there (any more)."
+    //
+    // THE ModBuild 410 LOG, READ END TO END FOR THAT MOMENT: 'New Party display' went DORMANT at
+    // :4257 (EMPTY WINDOW HIDDEN — the game had emptied it; the liveness rule switched every Canvas
+    // and Renderer off and kept the seat), and the PANEL DRAW ORDER census kept reporting it
+    // "hidden: DORMANT" (:4270, :4297, :4385, :4418). The story curtain rose at :4420, released it
+    // ON REFUSAL at :4423, and PlayOut STARTED a 0.90 s vanish at :4424 — 900 shards over a 2.09 x
+    // 1.13 m frame at host pose (63.83, 225.24, -290.15), the seat it had claimed at world yaw 94
+    // degrees (:4145), 35 degrees to the right of the story window at yaw 59 (:4406). The vanish
+    // ended at :4459 having "OWNED 18 UIWindow(s), claimed at the release tick". The eye saw dust
+    // over an empty seat, next to the window it was reading.
+    //
+    // WHY THE ModBuild 374 GATE DID NOT CATCH IT: ModalFallback.HasNothingToDissolve searched
+    // `Converted` for the float, and the release loop had ALREADY removed it. The gate was inert on
+    // its only call site for 36 builds (0 VANISH SKIPPED lines in any log). Fixed at the source
+    // (StampReleaseVerdict, taken before the removal), and backed by the rule below, which does not
+    // depend on which list the float is in.
+    //
+    // THE RULE: a vanish may only play where a window was DRAWN ON THE PREVIOUS FRAME, and it spawns
+    // from the pose of THAT frame. "Drawn" is the mod's own visibility state as stamped by the order
+    // pass (CanvasConversion.StampShownPose, the last WorldUI LateUpdate step): the reveal gate open,
+    // no render hide, host active, host canvas on. It is deliberately NOT the game's alpha, which
+    // the close-edge hold confounds and which would refuse every ordinary close.
+
+    /// <summary>A host that moved more than this, in real metres, between the frame it was last
+    /// drawn and the release is refused: the eye knows one place and the cloud would appear in
+    /// another. One frame of an ordinary grab-follow moves millimetres; a re-seat moves decimetres.</summary>
+    private const float StrayMoveMetres = 0.10f;
+
+    private static int _strayPrinted;
+
+    private static string _strayLastKey = string.Empty;
+
+    /// <summary>
+    /// <b>Was this panel render-visible in the last order pass, and is its host still where it
+    /// was?</b> Returns true when the instrument itself has not run since the previous frame —
+    /// no stamp is no verdict, and a rule that refused every vanish because its instrument was
+    /// asleep would delete the effect the user asked for.
+    /// </summary>
+    internal static bool DrawnOnPreviousFrame(ConvertedPanel panel, out string why)
+    {
+        int now = Time.frameCount;
+        int stampRan = CanvasConversion.ShownStampFrame;
+        if (stampRan < now - 1)
+        {
+            why = $"the shown-pose stamp has not run since frame {stampRan} (now {now}) — no "
+                  + "verdict, the vanish plays";
+            return true;
+        }
+        if (panel.LastShownFrame < now - 1)
+        {
+            why = panel.LastShownFrame == 0
+                ? "it was NEVER render-visible in any order pass since it floated (reveal gate, "
+                  + "render hide or an inactive host on every frame), so the eye never saw it "
+                  + "standing"
+                : $"it was last render-visible on frame {panel.LastShownFrame}, "
+                  + $"{now - panel.LastShownFrame} frame(s) before this release — hidden since "
+                  + "(dormant, render-hidden or inactive), so there was no window on the screen "
+                  + "to lose";
+            return false;
+        }
+        RectTransform? host = panel.HostRect;
+        if (host != null)
+        {
+            float scale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+            float movedM = Vector3.Distance(host.position, panel.LastShownPosition) / scale;
+            if (movedM > StrayMoveMetres)
+            {
+                why = $"its host moved {movedM:F2} m since the frame it was last drawn (more than "
+                      + $"{StrayMoveMetres:F2} m), so the cloud would spawn somewhere the eye never "
+                      + "saw the window";
+                return false;
+            }
+        }
+        why = $"render-visible on frame {panel.LastShownFrame} (now {now})";
+        return true;
+    }
+
+    /// <summary>
+    /// The clause appended to the vanish's START and END lines: where the cloud spawns (world, and
+    /// real metres from the head), whether the window was drawn on the previous frame, how far the
+    /// host has moved since, and what released it. Computed once at the start of the effect.
+    /// </summary>
+    internal static string SpawnClause(ConvertedPanel panel)
+    {
+        RectTransform? host = panel.HostRect;
+        bool stamped = panel.LastShownFrame > 0;
+        Vector3 pos = stamped ? panel.LastShownPosition : host != null ? host.position : Vector3.zero;
+        float scale = Mathf.Max(PanelLayout.WorldScale, 1e-4f);
+        Camera? cam = CanvasConversion.WorldCamera;
+        string head = cam != null
+            ? $"{Vector3.Distance(cam.transform.position, pos) / scale:F2} m from the head"
+            : "head distance unknown (no world camera)";
+        int now = Time.frameCount;
+        bool drawnPrev = stamped && panel.LastShownFrame >= now - 1;
+        string moved = stamped && host != null
+            ? $"{Vector3.Distance(host.position, panel.LastShownPosition) / scale * 1000f:F0} mm"
+            : "n/a (never stamped)";
+        string trigger = panel.ReleaseTrigger.Length > 0 ? panel.ReleaseTrigger : "<not stamped>";
+        return $" SPAWN POSE: world ({pos.x:F2}, {pos.y:F2}, {pos.z:F2}), {head}, taken from "
+               + (stamped ? $"the last drawn frame {panel.LastShownFrame}" : "the live host (no stamp)")
+               + $"; DRAWN ON THE PREVIOUS FRAME: {(drawnPrev ? "YES" : "NO")} (now {now}); host "
+               + $"moved {moved} since it was last drawn; TRIGGER: {trigger}.";
+    }
+
+    /// <summary>The runner already dissolving this panel, if any — for the double-release fold.</summary>
+    private static WindowMaterialiseRunner? FindVanishing(ConvertedPanel panel)
+    {
+        for (int i = 0; i < Live.Count; i++)
+        {
+            WindowMaterialiseRunner r = Live[i];
+            if (r != null && r.Vanishing && ReferenceEquals(r.Panel, panel))
+                return r;
+        }
+        return null;
+    }
+
+    /// <summary>The <c>STRAY DISSOLVE SUPPRESSED</c> line: change-gated on (window, reason) and
+    /// capped at six per session. Every hit names a vanish the eye would have seen over nothing.</summary>
+    private static void NoteStraySuppressed(ConvertedPanel panel, string reason)
+    {
+        if (_strayPrinted >= 6)
+            return;
+        string key = Name(panel) + "\0" + reason;
+        if (key == _strayLastKey)
+            return;
+        _strayLastKey = key;
+        _strayPrinted++;
+        // HW-VERIFY
+        VRLog.Note(Scope, $"STRAY DISSOLVE SUPPRESSED on '{Name(panel)}' ({_strayPrinted}/6 this "
+                          + $"session): {reason}. The float is released in this frame with no shards "
+                          + "and no 0.9 s wait, exactly as with the effect switched off. USER REPORT "
+                          + "(2026-09-03): the dissolve appeared where no window was (any more) — in "
+                          + "the ModBuild 410 log that was a DORMANT 'New Party display' released by "
+                          + "the story curtain and dissolved over its empty seat. IF THIS LINE NAMES A "
+                          + "WINDOW THE PLAYER COULD SEE ON THE FRAME BEFORE, the previous-frame "
+                          + "stamp (CanvasConversion.StampShownPose) is the place to look."
+                          + SpawnClause(panel));
     }
 
     /// <summary>

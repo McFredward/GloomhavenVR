@@ -177,12 +177,29 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         ct.localPosition = Vector3.zero;
         ct.localRotation = Quaternion.identity;
         ct.localScale = Vector3.one;
+        // A VANISH SPAWNS FROM THE POSE OF THE LAST DRAWN FRAME, never from the live host: the
+        // carrier is still parented to the host (its lifetime is the host's), but its world pose is
+        // the one the order pass stamped in the previous LateUpdate, and its scale undoes any host
+        // scale change made since — so a re-seat between the last drawn frame and the release
+        // cannot move the cloud to a place the eye never saw the window. The previous-frame rule in
+        // PlayOut has already refused anything that moved more than StrayMoveMetres; what is left
+        // is at most one frame of motion. An APPEAR is left at the host: it is being revealed at
+        // its final pose in this very frame and has no drawn frame behind it yet.
+        if (!materialising && panel.LastShownFrame > 0)
+        {
+            ct.SetPositionAndRotation(panel.LastShownPosition, panel.LastShownRotation);
+            Vector3 cur = host.lossyScale;
+            Vector3 was = panel.LastShownLossyScale;
+            ct.localScale = new Vector3(SafeRatio(was.x, cur.x), SafeRatio(was.y, cur.y),
+                                        SafeRatio(was.z, cur.z));
+        }
 
         var runner = carrier.AddComponent<WindowMaterialiseRunner>();
         runner.Panel = panel;
         runner._seconds = Mathf.Max(seconds, WindowMaterialise.MinSeconds);
         runner._materialising = materialising;
         runner._onDone = onDone;
+        runner._spawnClause = materialising ? string.Empty : WindowMaterialise.SpawnClause(panel);
 
         // THE VISIBILITY HOLD IS TAKEN BEFORE ANYTHING IS DRAWN, and on a VANISH ONLY. On a vanish
         // the game has already started emptying the window from under us (its own 0.1 s alpha
@@ -533,6 +550,27 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     /// still runs its callback: the caller has already removed the window from every list it was
     /// in, so a swallowed callback would leave it alive with no owner.</para>
     /// </summary>
+    /// <summary>The SPAWN POSE / DRAWN ON THE PREVIOUS FRAME / TRIGGER clause, computed once in
+    /// <see cref="Begin"/> for a vanish and appended to the end line. Empty for an appear.</summary>
+    private string _spawnClause = string.Empty;
+
+    /// <summary>A per-axis scale ratio that survives a zero: a host scaled to nothing on one axis
+    /// has no cloud worth correcting, and a division by zero would give the carrier a NaN scale.</summary>
+    private static float SafeRatio(float was, float now)
+        => Mathf.Abs(now) > 1e-7f && Mathf.Abs(was) > 1e-7f ? was / now : 1f;
+
+    /// <summary>
+    /// <b>Run one more callback when this vanish ends</b> — the double-release fold: a second
+    /// <c>PlayOut</c> for a float that is already dissolving does not start a second cloud, it
+    /// chains its release behind the running one. Both callbacks still run exactly once, in order,
+    /// on every path <see cref="Finish"/> takes.
+    /// </summary>
+    internal void ChainOnDone(Action more)
+    {
+        Action? prev = _onDone;
+        _onDone = prev == null ? more : () => { prev(); more(); };
+    }
+
     internal void Finish(string reason, bool restore)
     {
         if (_finished)
@@ -687,7 +725,12 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                           + $"canvas plane was POINTER-BLIND for {_blindSeconds:F2}s of the "
                           + $"{_elapsed:F2}s (RayUguiDriver and PokeInteractor skip it while "
                           + "elements are missing — WindowMaterialise.IsPointerBlind), so the beam "
-                          + "runs through the dust to whatever stands behind the window.");
+                          + "runs through the dust to whatever stands behind the window."
+                          // 2026-09-03, "the dissolve appeared where no window was": the cloud's
+                          // spawn pose, its distance from the head, whether the window was drawn
+                          // on the frame before the release, and what released it. Empty for an
+                          // appear.
+                          + _spawnClause);
     }
 
     /// <summary>The host was deactivated under us. <c>LateUpdate</c> will not run again, so the

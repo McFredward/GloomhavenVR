@@ -999,6 +999,46 @@ internal sealed class ConvertedPanel
     /// is how the order pass drops it without a set lookup.</summary>
     public bool OrderListed;
 
+    // ---- WHERE THE WINDOW WAS LAST DRAWN (the stray-dissolve rule, 2026-09-03) ----------------
+    // USER REPORT: at scenario start in the map room the DISSOLVE dust appeared somewhere else
+    // entirely, where no window was (any more). ModBuild 410 log: 'New Party display' went DORMANT
+    // (EMPTY WINDOW HIDDEN, :4257) and stayed dark for the rest of its float; the story curtain
+    // released it (:4423) and the vanish played 900 shards over its empty seat (:4424-:4459),
+    // 35 degrees to the right of the story window the player was looking at. A VANISH may only
+    // play where a window was DRAWN on the previous frame, and it must spawn from THAT pose — so
+    // the last LateUpdate in which this panel was render-visible is stamped here, with the host's
+    // world pose at that moment. Written by CanvasConversion.TickPanelOrder (the last WorldUI
+    // LateUpdate step) and read by WindowMaterialise.PlayOut in the NEXT frame's Update: a stamp
+    // equal to Time.frameCount - 1 there means "drawn on the previous frame".
+    /// <summary><c>Time.frameCount</c> of the last order pass that found this panel render-visible
+    /// (no reveal gate, no render hide, host active and its canvas on). 0 = never.</summary>
+    public int LastShownFrame;
+
+    /// <summary>Host world position at <see cref="LastShownFrame"/>.</summary>
+    public Vector3 LastShownPosition;
+
+    /// <summary>Host world rotation at <see cref="LastShownFrame"/>.</summary>
+    public Quaternion LastShownRotation = Quaternion.identity;
+
+    /// <summary>Host lossy scale at <see cref="LastShownFrame"/>, so a debris cloud spawned from
+    /// the stamped pose can undo a scale change made since.</summary>
+    public Vector3 LastShownLossyScale = Vector3.one;
+
+    /// <summary>What released this float, stamped by the release loop BEFORE the float leaves
+    /// <c>ModalFallback.Converted</c>, so the vanish can name its trigger. Empty until released.
+    /// </summary>
+    public string ReleaseTrigger = string.Empty;
+
+    /// <summary>The release loop's own verdict on whether this float has anything on the screen to
+    /// dissolve, taken while the float was still in <c>ModalFallback.Converted</c> (the two
+    /// lifetime terms: APPEAR still owed, or DORMANT). Empty = there is something to dissolve.
+    /// WHY IT IS STAMPED: <c>ModalFallback.HasNothingToDissolve</c> searches <c>Converted</c> for
+    /// the float, and the release loop removes it from that list BEFORE calling
+    /// <c>WindowMaterialise.PlayOut</c> — so from ModBuild 374 to 410 the rule found nothing and
+    /// answered "dissolve it" for every dormant window it was written to refuse (0 VANISH SKIPPED
+    /// lines in any log since). The stamp survives the removal.</summary>
+    public string ReleaseNothingToDissolveWhy = string.Empty;
+
     /// <summary>The successor this panel currently wants to swap places with, and for how many
     /// consecutive frames it has wanted that. BOTH gates of the anti-flicker hysteresis: a swap
     /// needs a distance disagreement beyond the margin AND that same peer for a whole streak, so

@@ -3149,23 +3149,61 @@ internal static partial class ModalFallback
             WindowPanel wp = Converted[i];
             if (!ReferenceEquals(wp.Panel, panel))
                 continue;
-            if (wp.AppearOwed)
-            {
-                why = "it never drew anything in its whole life as a float — its materialise APPEAR "
-                      + "was still OWED (grep MODAL APPEAR HELD for the reveal edge that held it), "
-                      + "so there is nothing on the screen for a dissolve to take away";
-                return true;
-            }
-            if (wp.Dormant)
-            {
-                why = "it is DORMANT — the liveness rule has every Canvas and Renderer of this float "
-                      + $"switched off already ({wp.DormantReason}), so a dissolve would animate "
-                      + "alphas nobody renders and only delay the release";
-                return true;
-            }
-            return false;
+            return NothingToDissolveTerms(wp, out why);
+        }
+        // NOT IN THE LIST — which is the ORDINARY case at the one call site that matters. The
+        // release loop (ModalFallback.4.Tick.cs) does `Converted.RemoveAt(i)` and only THEN calls
+        // WindowMaterialise.PlayOut, so from ModBuild 374 to 410 this loop never found the float
+        // and the rule answered "dissolve it" for every dormant window it was written to refuse:
+        // 0 VANISH SKIPPED lines in any log, and in the ModBuild 410 log a DORMANT 'New Party
+        // display' (EMPTY WINDOW HIDDEN :4257) played 900 shards over its empty seat at the story
+        // curtain (:4424-:4459) — the "dissolve where no window was" the user reported. The loop
+        // now stamps its verdict on the panel BEFORE the removal (StampReleaseVerdict), and that
+        // stamp is the answer here.
+        if (panel.ReleaseNothingToDissolveWhy.Length > 0)
+        {
+            why = panel.ReleaseNothingToDissolveWhy;
+            return true;
         }
         return false;
+    }
+
+    /// <summary>The two lifetime terms of <see cref="HasNothingToDissolve"/>, on the float entry
+    /// itself. One body, two readers: the list lookup above and the release-loop stamp below.</summary>
+    private static bool NothingToDissolveTerms(WindowPanel wp, out string why)
+    {
+        why = string.Empty;
+        if (wp.AppearOwed)
+        {
+            why = "it never drew anything in its whole life as a float — its materialise APPEAR "
+                  + "was still OWED (grep MODAL APPEAR HELD for the reveal edge that held it), "
+                  + "so there is nothing on the screen for a dissolve to take away";
+            return true;
+        }
+        if (wp.Dormant)
+        {
+            why = "it is DORMANT — the liveness rule has every Canvas and Renderer of this float "
+                  + $"switched off already ({wp.DormantReason}), so a dissolve would animate "
+                  + "alphas nobody renders and only delay the release";
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// <b>Stamp the release verdict and its trigger on the panel while the float is still in
+    /// <c>Converted</c>.</b> Called by the release loop one statement before
+    /// <c>Converted.RemoveAt</c>; read back by <see cref="HasNothingToDissolve"/> (the verdict) and
+    /// by the vanish's own log lines (the trigger) after the list no longer carries the float.
+    /// Nothing is measured here — the two terms are the flags the liveness rule already owns.
+    /// </summary>
+    private static void StampReleaseVerdict(WindowPanel wp, string trigger)
+    {
+        ConvertedPanel? panel = wp.Panel;
+        if (panel == null)
+            return;
+        panel.ReleaseTrigger = trigger;
+        panel.ReleaseNothingToDissolveWhy = NothingToDissolveTerms(wp, out string why) ? why : string.Empty;
     }
 
     /// <summary>
