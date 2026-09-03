@@ -1060,6 +1060,7 @@ internal static partial class Loc
         ["vr_o_cardwidth"] = Pair("Card width (m)", "Kartenbreite (m)"),
         ["h_vr_o_cardwidth"] = Pair("How large every card is — in the fan, in your hand, on the board.", "Wie groß jede Karte ist — im Fächer, in der Hand, auf dem Brett."),
         ["vr_o_cardsounds"] = Pair("Card sounds", "Karten-Geräusche"),
+        ["vr_o_pokepad"] = Pair("Finger press: extra hitbox around the small actions (px)", "Finger-Druck: Zusatz-Hitbox um die kleinen Aktionen (px)"),
         ["h_vr_o_cardsounds"] = Pair("The mod's own card sounds: fan open and close, grab, place, take back. Off silences them all at once.", "Die Karten-Klänge des Mods: Fächer auf und zu, Greifen, Ablegen, Zurücknehmen. Aus schaltet alle auf einmal stumm."),
         ["vr_o_slothint"] = Pair("Glow on expected slot", "Erwarteter Slot leuchtet"),
         ["h_vr_o_slothint"] = Pair("The slot the game expects your card in glows softly.", "Der Slot, in den das Spiel deine Karte erwartet, leuchtet sanft."),

@@ -201,6 +201,23 @@ internal sealed class WorldTooltips
     private float _lastBoardTopEdgeWorldY;
     private Vector2 _lastTooltipHalfWorld;
 
+    // ---- ModBuild 403: the board-owned tooltip stands STILL, and the log can prove it ----------
+    /// <summary>Where the visible BOX's centre must be this tick (board-owned case), so the
+    /// second-stage pin below can put the box there exactly rather than trusting the canvas
+    /// back-computation to have landed it.</summary>
+    private Vector3 _frameCenterTarget;
+    private bool _frameCenterTargetValid;
+    private bool _driftActive;
+    private Vector3 _driftPrevCenter;
+    private float _driftMaxStep;      // world units, largest one-frame move of the box centre
+    private float _driftSum;          // world units, total path length while shown
+    private int _driftFrames;
+    private int _driftReversals;      // sign flips of the sideways step — the sawtooth's signature
+    private int _driftPrevSign;
+    private int _driftReportsLeft = 3;
+    private int _orderLogsLeft = 4;
+    private int _lastLoggedOrder = int.MinValue;
+
     /// <summary>Descendant transforms flattened this session (original local z + rotation for Restore).</summary>
     private readonly List<FlattenEntry> _flattened = new(32);
 
@@ -1118,6 +1135,7 @@ internal sealed class WorldTooltips
 
         if (!(contentShown || withinGrace) || !placed)
         {
+            FlushDriftReport(scale); // the shown episode is over — say what the box did
             // Not showing: hand the authored order straight back instead of leaving a lift
             // latched on the game's shared canvas (same reversibility contract as Restore).
             if (!onMenuPanel && _canvas.sortingOrder != _originalSortingOrder)
@@ -1140,13 +1158,56 @@ internal sealed class WorldTooltips
             // surfaces the area floats 2 cm proud of), below every panel genuinely nearer, with
             // the same sub-step lift the menu-laid case rides (MenuPanelSortingLift < the
             // ladder's PanelOrderStep, so it can never climb into the next panel's slot).
-            int boardOrder = CanvasConversion.OrderAboveDistance(
-                Vector3.Distance(head.transform.position, pos), MenuPanelSortingLift);
+            // ModBuild 403 — TWO CORRECTIONS TO THE SLOT (user: "die Tooltips halten die
+            // Perspektive nicht mit dem Optionsmenü dahinter ein"). (1) The distance was measured to
+            // `pos`, which is the CANVAS pivot — a screen-sized canvas whose pivot can sit half a
+            // metre from the visible box — not to the box the player sees; the box's own centre is
+            // what the ladder must rank. (2) The cluster-aware variant, for the same reason the
+            // ghost hand moved to it in ModBuild 396: the initiative track and the pile captions are
+            // furniture bands, not panels, and only that variant can place a plate above or below a
+            // whole band. The tie rule is unchanged: a panel within the swap margin counts as behind.
+            Vector3 rankPoint = _frameCenterTargetValid ? _frameCenterTarget : pos;
+            float eyeDist = Vector3.Distance(head.transform.position, rankPoint);
+            int boardOrder = CanvasConversion.OrderAboveDistanceAndClusters(eyeDist, MenuPanelSortingLift);
             if (_canvas.sortingOrder != boardOrder)
                 _canvas.sortingOrder = boardOrder;
+            if (boardOrder != _lastLoggedOrder && _orderLogsLeft > 0)
+            {
+                _orderLogsLeft--;
+                _lastLoggedOrder = boardOrder;
+                // HW-VERIFY: the tooltip's slot on the ladder beside the subjects that decided it.
+                // A window that still shows through reads here as the NEAREST subject in front with
+                // a larger order than this one — and its distance beside the box's says whether it
+                // really is nearer.
+                VRLog.Note("WorldUI",
+                    $"TOOLTIP ORDER (board-owned): sortingOrder {boardOrder} at {eyeDist:F2} wu from "
+                    + $"the eye, ranked by the BOX centre (ModBuild 403; the canvas pivot sat "
+                    + $"{Vector3.Distance(head.transform.position, pos):F2} wu away and was what the "
+                    + $"old slot measured) — {CanvasConversion.DescribeOrderNeighbours(eyeDist)}. "
+                    + $"({_orderLogsLeft} more of these lines this session.)");
+            }
         }
 
         _canvas.transform.SetPositionAndRotation(pos, rot);
+
+        // ModBuild 403 — THE SECOND-STAGE PIN, and then the measurement. The canvas position above
+        // was back-computed so that the box lands at the area; whatever residual that arithmetic
+        // leaves (the game moves the box inside its canvas EVERY Update from the hand-driven
+        // cursor — decompiled UITooltip.cs:410-441 — and re-pivots it against the screen edge) is
+        // taken out here by writing the BOX's world position directly, after the game's Update and
+        // before anything renders. One writer owns the final value. (User: "die Tooltips sollten
+        // komplett ruhig stehen bleiben ohne jegliche Bewegung".)
+        if (!onMenuPanel && _frameCenterTargetValid && _tooltip != null
+            && _tooltip.transform is RectTransform frameRect)
+        {
+            frameRect.GetWorldCorners(CornerScratch);
+            Vector3 actual = (CornerScratch[0] + CornerScratch[2]) * 0.5f;
+            Vector3 residual = _frameCenterTarget - actual;
+            if (residual.sqrMagnitude > 1e-12f)
+                frameRect.position += residual;
+            if (contentShown)
+                MeasureDrift(actual + residual, rot);
+        }
 
         // THE PLATE FOLLOWS THE BOX, NOT THE PLACEMENT LATCH — the whole "Streifen" fix (user report
         // 2026-08-09). This used to be an unconditional `true`, reached whenever the canvas was
@@ -1297,12 +1358,15 @@ internal sealed class WorldTooltips
                                 out Vector3 areaOrigin))
         {
             position = frameCenter - FrameCenterOffsetWorld(rotation);
+            _frameCenterTarget = frameCenter;
+            _frameCenterTargetValid = true;
             _lastBoardTopEdgeWorldY = areaOrigin.y;
             _lastTooltipHalfWorld = new Vector2(ttHalfW, ttHalfH);
             return true;
         }
 
         // Safe fallback: the original curved-table slot (top-right, above initiative).
+        _frameCenterTargetValid = false;
         _lastBoardTopEdgeWorldY = 0f;
         _lastTooltipHalfWorld = Vector2.zero;
         return PanelLayout.TryGetPose(PanelSlot.Tooltip, out position, out rotation);
@@ -1517,10 +1581,73 @@ internal sealed class WorldTooltips
         _addedMask = frame.gameObject.AddComponent<RectMask2D>();
     }
 
+    /// <summary>One shown frame of the board-owned tooltip: accumulate how far the box moved since
+    /// the previous shown frame and whether its sideways motion reversed. Reads the FINAL centre of
+    /// this tick, i.e. after the second-stage pin, so it measures what will be drawn.</summary>
+    private void MeasureDrift(Vector3 center, Quaternion rot)
+    {
+        if (!_driftActive)
+        {
+            _driftActive = true;
+            _driftPrevCenter = center;
+            _driftPrevSign = 0;
+            return;
+        }
+        Vector3 step = center - _driftPrevCenter;
+        _driftPrevCenter = center;
+        float mag = step.magnitude;
+        _driftFrames++;
+        _driftSum += mag;
+        if (mag > _driftMaxStep)
+            _driftMaxStep = mag;
+        float dx = Vector3.Dot(step, rot * Vector3.right);
+        int sign = dx > 1e-6f ? 1 : dx < -1e-6f ? -1 : 0;
+        if (sign != 0)
+        {
+            if (_driftPrevSign != 0 && sign != _driftPrevSign)
+                _driftReversals++;
+            _driftPrevSign = sign;
+        }
+    }
+
+    /// <summary>End of a shown episode: print what the box did, including the zero, then reset.
+    /// <paramref name="scale"/> is world units per real metre, so the numbers read in mm.</summary>
+    private void FlushDriftReport(float scale)
+    {
+        if (!_driftActive)
+            return;
+        _driftActive = false;
+        int frames = _driftFrames;
+        float maxMm = scale > 0f ? _driftMaxStep / scale * 1000f : 0f;
+        float sumMm = scale > 0f ? _driftSum / scale * 1000f : 0f;
+        int reversals = _driftReversals;
+        _driftFrames = 0;
+        _driftMaxStep = 0f;
+        _driftSum = 0f;
+        _driftReversals = 0;
+        _driftPrevSign = 0;
+        if (_driftReportsLeft <= 0 || frames < 2)
+            return;
+        _driftReportsLeft--;
+        // HW-VERIFY: the proof of stillness. 'largest one-frame move 0.00 mm' over N frames is a
+        // measured zero; a non-zero largest move with several reversals is the sawtooth the user
+        // described (creep one way, snap back), and its size says whether the second-stage pin
+        // is being overwritten by a writer that runs after LateUpdate.
+        VRLog.Note("WorldUI",
+            $"TOOLTIP STILLNESS (board-owned): over {frames} shown frame(s) the box centre's largest "
+            + $"one-frame move was {maxMm:0.00} mm ({sumMm:0.00} mm of path in total) with "
+            + $"{reversals} sideways reversal(s). Measured AFTER the second-stage pin, on the value "
+            + "that renders. Zero movement is the requirement (user 2026-09-03: 'komplett ruhig "
+            + "stehen bleiben ohne jegliche Bewegung'); a repeat of creep-and-snap here names a "
+            + $"writer this tick does not own. ({_driftReportsLeft} more of these lines this session.)");
+    }
+
     private void Restore()
     {
         if (!_converted)
             return;
+        FlushDriftReport(ResolveWorldScale());
+        _frameCenterTargetValid = false;
         _converted = false;
         CanvasConversion.RemoveMaskRequest();
 

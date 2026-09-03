@@ -884,6 +884,8 @@ internal static partial class VROptionsTab
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
+                        // ModBuild 403: the fingertip pad under the small default-action buttons.
+                        new("Cards", "PokePadPixels", "vr_o_pokepad"),
                         // Item 12: the board movement scheme (Frei / Begrenzt / Begrenzt mit
                         // Neigung) — a special row (TryBuildSpecialRow) so the dropdown shows
                         // localized labels instead of the raw enum member names.

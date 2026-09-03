@@ -567,6 +567,9 @@ internal sealed class CardFace
                 // answered once here instead of in each surface. Writes only to faces the mod owns
                 // outright and measures the rest — see CardHalfTone's class doc.
                 CardHalfTone.Observe(ability);
+                // ModBuild 403: the fingertip pad under each half's default action — same pump,
+                // same reason (one place both ability-face paths meet). See PokePads.
+                PokePads.Ensure(ability);
             }
             else if (item != null)
             {

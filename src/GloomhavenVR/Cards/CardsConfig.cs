@@ -116,6 +116,20 @@ internal static class CardsConfig
     /// <summary>Tray size multiplier (two-handed tray grab), clamped 0.5–2.</summary>
     internal static ConfigEntry<float> TrayScale = null!;
 
+    /// <summary>[Cards] PokePadPixels — how far past a default-action button's own rect the
+    /// FINGERTIP hitbox reaches, in the card's authored uGUI pixels (ModBuild 403). 0 = off. The
+    /// laser is never enlarged by it. See <see cref="PokePads"/>.</summary>
+    internal static ConfigEntry<float> PokePadPixels = null!;
+
+    internal const float PokePadPixelsMin = 0f;
+    internal const float PokePadPixelsMax = 60f;
+
+    /// <summary>The pad in force right now, clamped to the storage band; the pre-bind fallback is
+    /// the shipped default so a face built before the config is bound gets the same pad.</summary>
+    internal static float PokePadPixelsLive() =>
+        Mathf.Clamp(PokePadPixels != null ? PokePadPixels.Value : Defaults.PokePadPixels,
+                    PokePadPixelsMin, PokePadPixelsMax);
+
     /// <summary>Tray anchor mode (test #15): true = follows the player (rig-anchored), false = static in world.</summary>
     internal static ConfigEntry<bool> TrayFollow = null!;
 
@@ -769,6 +783,15 @@ internal static class CardsConfig
         // that the gesture writes this key — the two-handed tray grab persists what it reached —
         // and the same clamp bounds that gesture, so declaring it changes no reachable pose.
         // The live cfg ships 2, exactly the upper end, which the range includes.
+        PokePadPixels = _file.Bind("Cards", "PokePadPixels", Defaults.PokePadPixels,
+            new ConfigDescription(
+                "How far past a card half's small DEFAULT-ACTION button (Standard 2 Move / Attack) " +
+                "the FINGERTIP hitbox reaches, in the card's own pixels — the physical press with " +
+                "the extended finger lands on the small button from further away. 0 = no pad. The " +
+                "LASER's target is never enlarged by this. The vertical pad is clamped so the two " +
+                "actions of one card can never share a finger. (User 2026-09-03: 'man trifft es " +
+                "nicht weil es zu klein ist'.)",
+                new AcceptableValueRange<float>(PokePadPixelsMin, PokePadPixelsMax)));
         TrayScale = _file.Bind("Cards", "TrayScale", Defaults.TrayScale,
             new ConfigDescription(
                 "Control board size multiplier (0.5–2). Written automatically by the two-handed " +

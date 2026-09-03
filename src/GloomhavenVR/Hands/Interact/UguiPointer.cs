@@ -286,6 +286,21 @@ internal sealed class UguiPointer
             return false;
         }
         // GraphicRaycaster appends results sorted by depth (closest/topmost first).
+        // ModBuild 403: the LASER skips poke-only pads (Cards.PokePads) and takes the next hit —
+        // a pad enlarged for the fingertip must not enlarge what the beam can click.
+        if (_farRay)
+        {
+            for (int i = 0; i < _hits.Count; i++)
+            {
+                GameObject? go = _hits[i].gameObject;
+                if (go != null && go.GetComponent<PokeOnlyTarget>() != null)
+                    continue;
+                top = _hits[i];
+                return true;
+            }
+            top = default;
+            return false;
+        }
         top = _hits[0];
         return true;
     }
@@ -611,7 +626,7 @@ internal sealed class UguiPointer
     private void LogHover(string phase, GameObject widget, bool dispatched)
     {
         float now = Time.unscaledTime;
-        string key = phase + ' ' + widget.name;
+        string key = phase + '\u0000' + widget.name;
         if (key == _lastHoverLogKey && now - _lastHoverLogTime < HoverLogDedupeSeconds)
         {
             _hoverLogsSuppressed++;

@@ -43,6 +43,7 @@ internal static partial class Defaults
     internal const float TrayTilt = 30f;                                                              // => [Cards] TrayTilt  (legacy: read once as the seed for its successor)
     internal const float TrayYaw = -0.90576f;                                                         // => [Cards] TrayYaw
     internal const float TrayScale = 1.69423f;                                                        // => [Cards] TrayScale
+    internal const float PokePadPixels = 14f;                                                         // => [Cards] PokePadPixels
     internal const bool TrayFollow = false;                                                           // => [Cards] TrayFollow
     internal const BoardMoveMode BoardMoveMode = Cards.BoardMoveMode.Free;                            // => [Cards] BoardMoveMode
     internal const float TrayPitch = 58.854f;                                                         // => [Cards] TrayPitch

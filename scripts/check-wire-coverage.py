@@ -243,6 +243,7 @@ EXEMPT = {
     # table said it was fine. An exemption that describes a mechanism can be checked against the
     # mechanism -- and this one never was.
     ("Cards", "CardSoundsEnabled"): ("COMFORT", "master switch over the sounds THEY hear; every client plays its own"),
+    ("Cards", "PokePadPixels"): ("COMFORT", "an alpha-0 fingertip hitbox under the small default actions (ModBuild 403); local input geometry, never drawn, never mirrored"),
     ("Cards", "FanRevealSound"): ("COMFORT", "a sound THEY hear; every client plays its own"),
     ("Cards", "FanHideSound"): ("COMFORT", "as FanRevealSound"),
     ("Cards", "CardGrabSound"): ("COMFORT", "as FanRevealSound"),
