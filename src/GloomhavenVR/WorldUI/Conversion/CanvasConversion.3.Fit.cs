@@ -2372,6 +2372,47 @@ internal static partial class CanvasConversion
         internal bool ConcededLogged;
 
         internal float LastLogTime = float.NegativeInfinity;
+
+        // ---- the sub-view settle burst (user report 2026-09-03) — see part 9c -----------
+        //
+        // Appended at the END of this class on purpose: the refactor guard tracks member
+        // order, and nothing that already existed moves. None of these has an initializer
+        // except BurstLastReported, which needs a value no real outcome can take (an outcome
+        // is (+/-1)*(frames+1), so it is never 0).
+
+        /// <summary>Last open-set signature seen by <c>TickSubViewBurst</c>, and whether one
+        /// has ever been taken. NOT comparable with <see cref="OpenSignature"/> — the two are
+        /// different signatures of different granularity; part 9c's doc says why.</summary>
+        internal int BurstSignature;
+        internal bool BurstSigValid;
+
+        /// <summary>Checks the burst in flight may still force, the frame the next one is due
+        /// on, and the frame the burst was armed on.</summary>
+        internal int BurstChecksLeft;
+        internal int BurstNextCheckFrame;
+        internal int BurstStartFrame;
+
+        /// <summary>Checks this burst has actually run, and whether it ended because the fit
+        /// settled (rather than by spending its cap).</summary>
+        internal int BurstChecksRun;
+        internal bool BurstSettled;
+
+        /// <summary>A burst is armed and has not yet reported its outcome. SEPARATE from
+        /// <see cref="BurstChecksLeft"/> on purpose: the last forced check DECREMENTS that counter
+        /// to zero and only then runs, so "no checks left" and "this burst is over" are two
+        /// different facts and reading one as the other reports an expiry for a burst that goes on
+        /// to settle in the very same frame.</summary>
+        internal bool BurstActive;
+
+        /// <summary>Session totals for the report: bursts armed, bursts that spent every
+        /// check without settling, and the worst frames from an open-set change to the seat
+        /// landing — the number that bounds how long a wrong seat was on screen.</summary>
+        internal int Bursts;
+        internal int BurstsExpired;
+        internal int BurstWorstFrames;
+
+        /// <summary>The last outcome printed, so an identical one stays quiet.</summary>
+        internal int BurstLastReported;
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -2642,6 +2683,11 @@ internal static partial class CanvasConversion
             fx.PendingScale = wantScale;
             fx.PendingShift = groupShift;
             panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
+            // Part 9c: nothing left to write, so a settle burst in flight has done its job
+            // and stops here rather than spending its remaining checks on a window that has
+            // stopped moving. This is the branch that keeps the ordinary tab press at one or
+            // two extra checks instead of the cap.
+            NoticeFixedFitSettled(panel, fx);
             LogFixedFit(panel, fx, wantScale, "STABLE", string.Empty, throttled: true);
             return true;
         }
@@ -4195,6 +4241,15 @@ internal static partial class CanvasConversion
             SettlePreRevealFirstFit(panel);
             return;
         }
+
+        // USER REPORT 2026-09-03 (b)+(c): a fixed-size window whose OPEN SUB-VIEW SET just
+        // changed is checked at close spacing for a few frames instead of waiting out the
+        // cadence below — otherwise the sub-view's seat (the battle-goal picker's -381 px in
+        // the ModBuild 385 log) lands up to 60 frames after it is on screen and the player
+        // watches it pop. Deliberately BELOW every one-shot and pre-reveal return above, so
+        // the reveal gate cannot be reached from here; the only field it writes is
+        // FitNextCheckFrame. Part 9c carries the whole argument and the cost.
+        TickSubViewBurst(panel);
 
         if (panel.FitMeasuredOnce && Time.frameCount < panel.FitNextCheckFrame)
             return;

@@ -608,7 +608,18 @@ internal static partial class CanvasConversion
                 // supersample path runs the identical sweep, on the same cadence, with the same
                 // foreign-Renderer skip rule, onto its own capture layer — which the game's UI
                 // Camera cannot see either, so the guarantee this call protects still holds.
-                if (panel.ModLayerEnabled && (earlySettle || sweepDue || adoptedNew)
+                // USER REPORT 2026-09-03 (b), contributor 2: a repopulating window creates its
+                // new children on the GAME's UI layer, and until this sweep moves them the
+                // game's UI Camera draws exactly those children and nothing else of the
+                // window — a partial, differently-projected copy, for up to the 30 frames the
+                // periodic cadence can take. The 385 log names the size of that hole for the
+                // character screen: 1358 late transforms swept on the PERIODIC cadence, with
+                // nothing keyed to the content change that produced them. A settle burst is
+                // exactly the event 'this window just repopulated', so it sweeps too. The
+                // single-writer rule below is UNCHANGED: a supersampled panel's layers still
+                // belong to PanelSupersample alone, burst or no burst.
+                if (panel.ModLayerEnabled
+                    && (earlySettle || sweepDue || adoptedNew || SubViewBurstRunning(panel))
                     && !PanelSupersample.OwnsPanelLayers(panel))
                     ApplyModLayer(panel, initial: false);
             }
