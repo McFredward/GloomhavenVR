@@ -178,6 +178,47 @@ namespace GloomhavenVR.WorldUI;
 /// geometry, and its own verdict is scoped to ticks on which a guildmaster destination window is open
 /// — of which there are none during a loadout.</para>
 ///
+/// <para>=====================================================================================
+/// ModBuild 381 — WHAT ACTUALLY DIFFERS BETWEEN THE FIRST OPEN AND THE RE-OPEN
+/// =====================================================================================</para>
+///
+/// <para><b>USER, 2026-09-03:</b> <i>"Beim erneuten Öffnen der persönlichen Quest nachdem man es
+/// schon geöffnet hatte sind die Abstände falsch"</i>, and earlier, on the same defect: <i>"Ich will
+/// das es wieder ganz links spawnt wie es war und der button rechts daneben, nicht darüber
+/// liegend."</i></para>
+///
+/// <para><b>THE TERM THAT MOVES IS THIS CLASS'S CONTENT UNION, AND THE ModBuild 380 LOG PRINTS IT ON
+/// BOTH SIDES.</b> Every number below is a <c>LOADOUT CONFIRM RESEATED</c> line from
+/// <c>second_logs/LogOutput.log</c>, in order. Roster alone: 83-85 graphic(s), union
+/// -960..-656. QUEST INFORMATION OPEN AND CORRECT — this is the state the user wants back:
+/// 118/123/128 graphic(s), union right edge -104 / -90 / -80, seat -80..227 then -56..251, one 24 px
+/// gap and no overlap. THE BROKEN STATE, twice: <b>599 and 595 graphic(s), union -960..960 x
+/// -540..540</b>, seat clamped to 653..960. So the term is not subtle and it is not the gap constant:
+/// the union's graphic count goes up by a factor of roughly five and its right edge jumps 1050 px to
+/// the frame's own edge. <c>PanelInkBounds</c> agrees from its own implementation — the
+/// <c>HIT RECT</c> line for the same window at that instant reads "DRAWN CONTENT 1964x1453 px at
+/// (0,-187) from 597 visible graphic(s)", i.e. 373 px BELOW a frame that is 1080 px tall.</para>
+///
+/// <para><b>AND THE PHOTOGRAPH SAYS THE COLUMN REALLY IS SHOVED, NOT ONLY MIS-MEASURED.</b>
+/// fenster-abstand2.jpg, measured rather than eyeballed: the character column is 329 screen px wide
+/// against the 328 authored px the fixed-fit line reports, so near it the panel renders about 1:1,
+/// and the quest cards start 1055 screen px to the RIGHT of that column's right edge. In the good
+/// state the cards END at -80. They are drawn roughly a thousand authored px right of where the log's
+/// own correct state puts them, hard against the frame's right edge — which is the whole of
+/// <i>"die Abstände sind falsch"</i> and <i>"es soll wieder ganz links spawnen"</i>.</para>
+///
+/// <para><b>WHAT THAT MEANS FOR THIS FILE, STATED PLAINLY.</b> The seat solve is not the cause. It
+/// asks for one 24 px gap right of what the window paints, the window is painting to its own right
+/// edge, and a 307 px control cannot fit right of 960 inside a frame that ends at 960. The clamp is
+/// the CONSEQUENCE. The cause is whatever places the battle-goal column on a re-open, and it is
+/// <b>not</b> the ModBuild 367 viewport-fit cut: that cut FIRED in this log, on 'Container', inside
+/// this very window, and returned zero exactly as designed — the union reached the frame edge anyway.
+/// This file's job is therefore bounded and it is done here: <b>the overlap goes, on every one of the
+/// user's three cases, without pretending to have moved the column.</b> The lane solve below seats
+/// the control in the empty thousand px the photograph shows between the roster and the shoved
+/// column, which is where the user asked for it in the first place — <i>"rechts neben den
+/// Charakteren"</i>.</para>
+///
 /// <para><b>ALTERNATIVES REJECTED.</b>
 /// <list type="bullet">
 /// <item><i>Keep it under the roster and shorten the column.</i> That is presentation code resizing a
@@ -190,7 +231,13 @@ namespace GloomhavenVR.WorldUI;
 /// bar — and <c>PanelInkBounds</c>' class comment is the write-up of both.</item>
 /// <item><i>Seat it right of the CHARACTER BLOCK only.</i> Correct with the picker closed, underneath
 /// the picker the moment it opens. Rejected by requirement three, in the same sentence that asks for
-/// it.</item>
+/// it. <b>ModBuild 381 did not quietly adopt this.</b> Its lane fallback is not "right of the rows";
+/// it is "one gap right of the nearest painted edge inside the widest lane of the frame that draws
+/// no ink across the control's row", it runs ONLY when there is no room to the right of the union at
+/// all — a state the shipped build answered by drawing the button on top of the cards — and its
+/// blockers are measured with their uGUI clippers applied, so it cannot seat the control under a
+/// picker that is actually painting there. In the good state, where the union leaves room, not one
+/// pixel of the ModBuild 241 solve changes.</item>
 /// <item><i>Hard-code the ~565 px offset the picker adds.</i> That is coding against today's numbers.
 /// Another lane is changing <c>PanelInkBounds</c> this same round so that mouseover and tooltip
 /// subtrees stop counting as ink, and every union quoted above will move under this file. The seat is
@@ -221,6 +268,34 @@ internal static class LoadoutConfirmPark
     /// is open, so a per-tick line would be the loudest thing in the log about a control the player
     /// can still press.</summary>
     private static bool _clampBiteLogged;
+
+    /// <summary>ModBuild 381 — the three outcomes of the horizontal solve, in the order they cost
+    /// the player anything. <see cref="Beside"/> is the design: there was room to the right of
+    /// everything the window paints and the control took it. <see cref="Lane"/> is the escape added
+    /// in this build: there was NO room to the right, so the seat was re-solved into a vertical lane
+    /// of the frame that draws no ink across the control's own row. <see cref="Over"/> is the
+    /// ModBuild 239 last resort, now reached only when the frame has no such lane: the control is
+    /// clamped back over the content, ugly but reachable.</summary>
+    private enum SeatVerdict
+    {
+        Beside = 0,
+        Lane = 1,
+        Over = 2,
+    }
+
+    /// <summary>How many solves ended in each <see cref="SeatVerdict"/> this session. These are the
+    /// counts the seat-lane line carries so that a single printed line cannot be read as a stopped
+    /// tick: the line is change-gated, so its numbers are the only evidence of how often the state
+    /// it names actually held.</summary>
+    private static int _seatBesideCount;
+    private static int _seatLaneCount;
+    private static int _seatOverCount;
+
+    /// <summary>Change gate for the seat-lane line: the verdict kind and a coarse 64 px bucket of
+    /// the seat's left edge. Kind alone would freeze the counts above at whatever they were on the
+    /// first line of that kind; the seat bucket alone would re-print on every reflow, which is what
+    /// the re-seat line is already for.</summary>
+    private static int _seatVerdictStamp = int.MinValue;
 
     /// <summary>Below this the re-place is skipped, in authored uGUI px — <c>MapTravelConfirm</c>'s
     /// <c>OffsetEpsilon</c>, for its reason: a settled layout is not bit-identical frame to frame and
@@ -1299,9 +1374,55 @@ internal static class LoadoutConfirmPark
         // 719 px of slack in the worst state the ModBuild 239 hardware log recorded (the union with
         // the battle-goal picker open). Whether it ever fires is on the falsifier line as the
         // difference between the requested seat and the measured ink.
-        float left = Mathf.Clamp(wantLeft, frame.xMin, Mathf.Max(frame.xMin, frame.xMax - inkW));
+        float roomRight = Mathf.Max(frame.xMin, frame.xMax - inkW);
+        float clampedLeft = Mathf.Clamp(wantLeft, frame.xMin, roomRight);
+        float left = clampedLeft;
         float midY = Mathf.Clamp(wantMidY, frame.yMin + inkHalfH, Mathf.Max(frame.yMin + inkHalfH,
                                                                             frame.yMax - inkHalfH));
+
+        // ModBuild 381 — THE ESCAPE THE PARAGRAPH BELOW SAID DID NOT EXIST. It said "there is no
+        // geometric escape to fall back to on this window ... the painted union spans the FULL
+        // HEIGHT of the frame (-540..540 in the same log), so 'below the content' and 'left of the
+        // content' are not free either". That reasoning is a BOUNDING BOX argument, and a bounding
+        // box cannot see a gap. The 2026-09-03 photograph shows what the box hides: the roster
+        // column draws at the frame's LEFT edge, the shoved battle-goal column draws at its RIGHT
+        // edge, and roughly a thousand authored px of the frame between them is empty forest. The
+        // union -960..960 is true and useless; the LANES inside it are what decide where a 307 px
+        // control can stand.
+        //
+        // So when there is no room to the right — and ONLY then, so every state the shipped build
+        // gets right is untouched to the pixel — the seat is re-solved against the x-intervals of
+        // the ink that actually crosses the control's own row, rather than against their union. The
+        // rule inside the lane is the SAME rule as the primary solve, applied to the nearest painted
+        // edge on the control's left instead of to the global maximum: one ConfirmGapPx gap right of
+        // it. That is why this is not a second placement policy — it is the same sentence with a
+        // smaller subject, and it degrades to the ModBuild 239 clamp when no lane fits.
+        var verdict = SeatVerdict.Beside;
+        Rect lane = default;
+        float laneClearLeft = 0f;
+        float laneClearRight = 0f;
+        int laneBlockers = 0;
+        if (wantLeft > roomRight + 0.5f)
+        {
+            if (TryFreeLane(win, panel, rect, frame, midY - inkHalfH - ConfirmGapPx,
+                            midY + inkHalfH + ConfirmGapPx, inkW,
+                            out float laneLeft, out lane, out laneBlockers,
+                            out laneClearLeft, out laneClearRight))
+            {
+                left = laneLeft;
+                verdict = SeatVerdict.Lane;
+                _seatLaneCount++;
+            }
+            else
+            {
+                verdict = SeatVerdict.Over;
+                _seatOverCount++;
+            }
+        }
+        else
+        {
+            _seatBesideCount++;
+        }
 
         // ...AND THE PARAGRAPH ABOVE WAS FALSIFIED ON HARDWARE (ModBuild 367). It reasoned that the
         // clamp had "1920 - 894 - 307 = 719 px of slack in the worst state the ModBuild 239
@@ -1332,13 +1453,34 @@ internal static class LoadoutConfirmPark
                 + $"left={wantLeft:F0} authored px (one {ConfirmGapPx:F0} px gap right of a painted "
                 + $"union reaching {Mathf.Max(content.xMax, band.xMax):F0}), but the control is "
                 + $"{inkW:F0} px wide and the window frame ends at {frame.xMax:F0}, so the frame "
-                + $"clamp pulled it back to {left:F0} — {wantLeft - left:F0} px INSIDE the content "
+                + $"clamp pulled it back to {clampedLeft:F0} — {wantLeft - clampedLeft:F0} px INSIDE "
+                + "the content "
                 + "it is supposed to sit beside. THIS IS THE STATE THE USER PHOTOGRAPHED on "
                 + "2026-09-03 (fenster-abstand.jpg). If this line is in a log built after ModBuild "
                 + "367 the viewport-fit cut did NOT hold and the battle-goal column is still being "
                 + "shoved right — grep VIEWPORT FIT CUT and VIEWPORT FIT GATE ARMED next, in that "
-                + "order. The button is still reachable; it is only ugly. Logged once per session.");
+                + "order. The button is still reachable; it is only ugly. Logged once per session. "
+                // APPENDED ModBuild 381 — nothing above is reworded; two of its sentences are now
+                // wrong and the corrections have to travel with them or the next reader repeats the
+                // round this build came out of.
+                + "APPENDED ModBuild 381, TWO CORRECTIONS AND ONE CHANGE OF BEHAVIOUR. (1) THE "
+                + "INSTRUCTION ABOVE IS A DEAD END: in the ModBuild 380 hardware log the "
+                + "viewport-fit cut DID hold — it fired on 'Container' inside this very window and "
+                + "returned zero, exactly as designed — and the union still reached the frame edge. "
+                + "The column is therefore not being shoved by that helper and re-fixing it buys "
+                + "nothing. (2) THE NUMBER ABOVE IS NO LONGER WHERE THE CONTROL LANDS. It is what "
+                + "the frame clamp WOULD have done, kept verbatim so this line reads the same "
+                + "against every earlier log; since ModBuild 381 a seat with no room to its right "
+                + "is re-solved into the widest lane of the frame that draws no ink across the "
+                + "control's own row, and the clamp is only taken when the frame has no such lane. "
+                + "WHICH OF THE TWO HAPPENED, on this tick and on every later one, is the SEAT LANE "
+                + "line this class prints beside this one — read that for the outcome, and this one "
+                + "only for the fact that the right-hand seat was impossible.");
         }
+
+        ReportSeatVerdict(verdict, frame, wantLeft, clampedLeft, left, inkW,
+                          Mathf.Max(content.xMax, band.xMax), lane, laneBlockers,
+                          laneClearLeft, laneClearRight);
 
         _anchorPivot = new Vector2(left - inkLeftFromPivot, midY - inkMidYFromPivot);
         _anchorSeat = Rect.MinMaxRect(left, midY - inkHalfH, left + inkW, midY + inkHalfH);
@@ -1443,6 +1585,357 @@ internal static class LoadoutConfirmPark
 
     private static readonly List<Graphic> PaintScratch = new(64);
     private static readonly Vector3[] Corners = new Vector3[4];
+
+    // ---- ModBuild 381: the lane solve -------------------------------------------------------------
+
+    /// <summary>Corners of a CLIPPER, kept apart from <see cref="Corners"/> because the clipper walk
+    /// runs inside the loop that is already using those for the graphic being measured.</summary>
+    private static readonly Vector3[] ClipCorners = new Vector3[4];
+
+    /// <summary>The x-intervals of ink crossing the control's row, one <c>Vector2(min,max)</c> each,
+    /// before merging. Reused; never escapes <see cref="TryFreeLane"/>.</summary>
+    private static readonly List<Vector2> LaneScratch = new(64);
+
+    /// <summary>Left-to-right order for <see cref="LaneScratch"/>, cached so the merge does not
+    /// allocate a delegate on every solve.</summary>
+    private static readonly System.Comparison<Vector2> LaneOrder = (a, b) => a.x.CompareTo(b.x);
+
+    /// <summary>
+    /// THE WIDEST VERTICAL LANE OF <paramref name="frame"/> THAT DRAWS NO INK ACROSS THE CONTROL'S
+    /// OWN ROW, and the seat inside it.
+    ///
+    /// <para><b>WHY A LANE AND NOT THE UNION.</b> The horizontal solve above is
+    /// <c>union.xMax + gap</c>, and when the union reaches the frame's right edge that has no answer.
+    /// The ModBuild 367 note reasoned from the union's HEIGHT that there was no escape anywhere —
+    /// "the painted union spans the FULL HEIGHT of the frame". Both statements are about a bounding
+    /// box, and a bounding box is exactly the wrong instrument for "is there room": the
+    /// 2026-09-03 photograph shows the roster pinned to the frame's left edge, the battle-goal
+    /// column drawn against its right edge, and about a thousand authored px of nothing in between.
+    /// The union sees one rectangle from -960 to 960; the player sees two columns and a gap.</para>
+    ///
+    /// <para><b>WHAT COUNTS AS INK HERE, AND WHY IT IS STRICTER THAN THE UNION'S.</b> Same
+    /// visibility verdict as <see cref="TryPaintedBounds"/> — <c>CanvasConversion.CountsAsFitContent</c>,
+    /// borrowed and not re-invented — but the rect that verdict is applied to is CLAMPED TO ITS
+    /// ENCLOSING uGUI CLIPPERS (see <see cref="ClipToMasks"/>). The union deliberately does not do
+    /// that and is not being changed to: it is the shipped, hardware-tested zero for the seat, and
+    /// no build has shown its unclipped rects to move the answer. A LANE, though, is decided by the
+    /// ABSENCE of ink, and a scroll list's content rect — which reaches far outside the viewport
+    /// that clips it, 373 px below this very frame in the ModBuild 380 log — would close every lane
+    /// in the frame while drawing nothing the player can see. A gap search must measure the pixels,
+    /// not the layout rects that produce them.</para>
+    ///
+    /// <para><b>THE BAND.</b> Only ink whose clipped rect crosses <paramref name="bandMinY"/>..
+    /// <paramref name="bandMaxY"/> can block the control, because only that ink can be beside it.
+    /// The caller passes the control's own ink rows grown by one <see cref="ConfirmGapPx"/> on each
+    /// side, so a seat one pixel under a card's bottom edge is not counted as clear.</para>
+    ///
+    /// <para><b>WHICH LANE, AND WHERE IN IT.</b> The WIDEST usable lane, tie-broken rightmost —
+    /// widest because the clearance either side is the whole margin this solve has against a
+    /// measurement being slightly off, and rightmost because the control's whole reason for moving
+    /// is that content appeared to its left. Inside the lane the seat is the primary solve's own
+    /// rule with a nearer subject: one <see cref="ConfirmGapPx"/> right of the painted edge on the
+    /// control's left, or hard against the frame when the lane opens at the frame's own edge.</para>
+    /// </summary>
+    private static bool TryFreeLane(RectTransform win, ConvertedPanel? panel, RectTransform exclude,
+                                    Rect frame, float bandMinY, float bandMaxY, float inkW,
+                                    out float seatLeft, out Rect lane, out int blockers,
+                                    out float clearLeft, out float clearRight)
+    {
+        seatLeft = 0f;
+        lane = default;
+        blockers = 0;
+        clearLeft = 0f;
+        clearRight = 0f;
+        if (inkW <= 0f || frame.width <= inkW)
+            return false;
+        try
+        {
+            PaintScratch.Clear();
+            LaneScratch.Clear();
+            ClipMemo.Clear();
+            win.GetComponentsInChildren(includeInactive: false, PaintScratch);
+            if (panel != null)
+                CanvasConversion.BeginContentQuery();
+
+            Vector3[] corners = Corners;
+            for (int i = 0; i < PaintScratch.Count; i++)
+            {
+                Graphic g = PaintScratch[i];
+                if (g == null)
+                    continue;
+                RectTransform rt = g.rectTransform;
+                if (rt == null)
+                    continue;
+                if (ReferenceEquals(rt, exclude) || rt.IsChildOf(exclude))
+                    continue;
+                if (panel != null)
+                {
+                    if (!CanvasConversion.CountsAsFitContent(panel, g))
+                        continue;
+                }
+                else if (!CountsAsPaintedHere(g))
+                {
+                    continue;
+                }
+                Vector2 size = rt.rect.size;
+                if (size.x < 1f || size.y < 1f)
+                    continue;
+
+                rt.GetWorldCorners(corners);
+                float minX = float.MaxValue, minY = float.MaxValue;
+                float maxX = float.MinValue, maxY = float.MinValue;
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 p = win.InverseTransformPoint(corners[c]);
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.y < minY) minY = p.y;
+                    if (p.y > maxY) maxY = p.y;
+                }
+                if (!ClipToMasks(rt, win, ref minX, ref minY, ref maxX, ref maxY))
+                    continue;
+                if (maxY <= bandMinY || minY >= bandMaxY)
+                    continue; // draws nowhere near the control's row
+                minX = Mathf.Max(minX, frame.xMin);
+                maxX = Mathf.Min(maxX, frame.xMax);
+                if (maxX - minX < 0.5f)
+                    continue;
+                LaneScratch.Add(new Vector2(minX, maxX));
+                blockers++;
+            }
+            PaintScratch.Clear();
+            if (blockers == 0)
+            {
+                // NOTHING PAINTS IN THE CONTROL'S ROW, which contradicts the only state that gets
+                // here (the union reached the frame's right edge, so something is drawing). Either
+                // the band is wrong or the clip walk is eating real ink, and a lane solved from an
+                // empty measurement would fling the button to the frame's left edge. Decline, and
+                // let the ModBuild 239 clamp answer — the verdict line then says OVER with 0
+                // blockers, which is the signature of exactly this disagreement.
+                LaneScratch.Clear();
+                ClipMemo.Clear();
+                return false;
+            }
+
+            LaneScratch.Sort(LaneOrder);
+
+            // Walk the merged blockers left to right; every hole between two of them (and the two
+            // margins against the frame) is a candidate lane.
+            bool found = false;
+            float bestWidth = 0f;
+            float cursor = frame.xMin;
+            bool cursorIsInk = false;
+            for (int i = 0; i <= LaneScratch.Count; i++)
+            {
+                float holeMin = cursor;
+                float holeMax;
+                bool holeMaxIsInk;
+                if (i == LaneScratch.Count)
+                {
+                    holeMax = frame.xMax;
+                    holeMaxIsInk = false;
+                }
+                else
+                {
+                    Vector2 blk = LaneScratch[i];
+                    if (blk.x <= cursor + 0.5f)
+                    {
+                        // Overlaps or touches the run we are already inside — extend it and go on.
+                        if (blk.y > cursor)
+                        {
+                            cursor = blk.y;
+                            cursorIsInk = true;
+                        }
+                        continue;
+                    }
+                    holeMax = blk.x;
+                    holeMaxIsInk = true;
+                }
+
+                float usableMin = holeMin + (cursorIsInk ? ConfirmGapPx : 0f);
+                float usableMax = holeMax - (holeMaxIsInk ? ConfirmGapPx : 0f);
+                float usable = usableMax - usableMin;
+                if (usable >= inkW - 0.5f && usable >= bestWidth)
+                {
+                    found = true;
+                    bestWidth = usable;
+                    seatLeft = usableMin;
+                    lane = Rect.MinMaxRect(holeMin, bandMinY, holeMax, bandMaxY);
+                    clearLeft = seatLeft - holeMin;
+                    clearRight = holeMax - (seatLeft + inkW);
+                }
+
+                if (i < LaneScratch.Count)
+                {
+                    Vector2 blk = LaneScratch[i];
+                    cursor = Mathf.Max(cursor, blk.y);
+                    cursorIsInk = true;
+                }
+            }
+            LaneScratch.Clear();
+            ClipMemo.Clear();
+            return found;
+        }
+        catch (System.Exception)
+        {
+            PaintScratch.Clear();
+            LaneScratch.Clear();
+            ClipMemo.Clear();
+            blockers = 0;
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Intersect a graphic's host-local rect with every enclosing uGUI clipper between it and
+    /// <paramref name="win"/> — <see cref="RectMask2D"/> and stencil <see cref="Mask"/>, i.e. a
+    /// ScrollRect viewport. Returns false when nothing survives, which is the "fully scrolled out"
+    /// case. This is <c>CanvasConversion.TryGetVisibleHostRect</c>'s own clamp, re-derived here for
+    /// one reason: that method computes the clipped rect and <c>CountsAsFitContent</c> throws it
+    /// away with <c>out _</c>, and the conversion is another lane's file this round.
+    /// </summary>
+    private static bool ClipToMasks(RectTransform rt, RectTransform win,
+                                    ref float minX, ref float minY, ref float maxX, ref float maxY)
+    {
+        Transform? p = rt.parent;
+        for (int guard = 0; p != null && !ReferenceEquals(p, win) && guard < 64; guard++, p = p.parent)
+        {
+            Vector4 c = ClipperRect(p, win);
+            if (float.IsNaN(c.x))
+                continue;
+            if (c.x > minX) minX = c.x;
+            if (c.y > minY) minY = c.y;
+            if (c.z < maxX) maxX = c.z;
+            if (c.w < maxY) maxY = c.w;
+            if (maxX - minX < 0.5f || maxY - minY < 0.5f)
+                return false;
+        }
+        return maxX - minX >= 0.5f && maxY - minY >= 0.5f;
+    }
+
+    /// <summary>
+    /// The window-local rect a transform clips its descendants to, as (minX,minY,maxX,maxY), or a
+    /// <c>NaN</c> x when it clips nothing. A <see cref="RectMask2D"/> clips to its own rect; a
+    /// stencil <see cref="Mask"/> clips to the rect of the Graphic it masks with, which is on the
+    /// same object.
+    ///
+    /// <para>MEMOISED PER SOLVE, and that is not a micro-optimisation. Siblings share their whole
+    /// ancestor chain, so without the memo the walk is two <c>GetComponent</c> calls plus a corner
+    /// transform per ancestor per GRAPHIC — on the 600-graphic state this method exists to handle,
+    /// several thousand of each. This project has shipped a per-frame scene sweep it called
+    /// "near-free" more than once; the memo is the same lesson applied before the fact. The
+    /// dictionary is cleared at the start of every <see cref="TryFreeLane"/> because transforms move
+    /// between solves, which is <c>CanvasConversion.BeginContentQuery</c>'s own rule.</para>
+    /// </summary>
+    private static Vector4 ClipperRect(Transform t, RectTransform win)
+    {
+        if (ClipMemo.TryGetValue(t, out Vector4 memo))
+            return memo;
+        Vector4 result = NotAClipper;
+        if (t is RectTransform clip)
+        {
+            var rect2D = t.GetComponent<RectMask2D>();
+            bool clips = rect2D != null && rect2D.isActiveAndEnabled;
+            if (!clips)
+            {
+                var mask = t.GetComponent<Mask>();
+                clips = mask != null && mask.isActiveAndEnabled && mask.graphic != null;
+            }
+            if (clips)
+            {
+                clip.GetWorldCorners(ClipCorners);
+                float cMinX = float.MaxValue, cMinY = float.MaxValue;
+                float cMaxX = float.MinValue, cMaxY = float.MinValue;
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 q = win.InverseTransformPoint(ClipCorners[c]);
+                    if (q.x < cMinX) cMinX = q.x;
+                    if (q.x > cMaxX) cMaxX = q.x;
+                    if (q.y < cMinY) cMinY = q.y;
+                    if (q.y > cMaxY) cMaxY = q.y;
+                }
+                result = new Vector4(cMinX, cMinY, cMaxX, cMaxY);
+            }
+        }
+        ClipMemo[t] = result;
+        return result;
+    }
+
+    /// <summary>Sentinel for "this transform clips nothing" in <see cref="ClipMemo"/>.</summary>
+    private static readonly Vector4 NotAClipper = new(float.NaN, float.NaN, float.NaN, float.NaN);
+
+    /// <summary>Per-solve memo behind <see cref="ClipperRect"/>. Cleared by
+    /// <see cref="TryFreeLane"/>, never read outside it.</summary>
+    private static readonly Dictionary<Transform, Vector4> ClipMemo = new(32);
+
+    /// <summary>
+    /// THE OUTCOME OF THE HORIZONTAL SOLVE, AS A VERDICT AND NOT AS A PATH. Three states the user's
+    /// 2026-09-03 report cannot be answered without telling apart: the control sat beside the
+    /// content as designed; the control did not fit to the right and was re-seated into a free lane;
+    /// the control did not fit anywhere and is clamped over the content. The previous instrument
+    /// printed only the third and only once, so a log could not distinguish "fixed" from "the state
+    /// never occurred".
+    ///
+    /// <para>GREP: <c>LOADOUT CONFIRM SEAT LANE</c>. It is change-gated on the verdict kind plus a
+    /// 64 px bucket of the seat, so a settled layout says it once and a re-flow that changes the
+    /// answer says it again; the three counters are what make a single line readable as a live
+    /// instrument rather than a stopped one.</para>
+    /// </summary>
+    private static void ReportSeatVerdict(SeatVerdict verdict, Rect frame, float wantLeft,
+                                          float clampedLeft, float left, float inkW, float unionRight,
+                                          Rect lane, int blockers, float clearLeft, float clearRight)
+    {
+        int stamp = ((int)verdict * 1000003) + Mathf.RoundToInt(left / 64f);
+        if (stamp == _seatVerdictStamp)
+            return;
+        _seatVerdictStamp = stamp;
+
+        string body = verdict switch
+        {
+            SeatVerdict.Beside =>
+                $"BESIDE — the design case. The window's painted union ends at {unionRight:F0} "
+                + $"authored px, the {inkW:F0} px control was asked for left={wantLeft:F0}, and the "
+                + $"frame's right edge at {frame.xMax:F0} left room for it, so the seat is the "
+                + "solve's own answer and no clamp and no lane search ran.",
+            SeatVerdict.Lane =>
+                $"LANE — the right-hand seat was IMPOSSIBLE and was escaped without overlapping. The "
+                + $"painted union ends at {unionRight:F0}, the solve asked for left={wantLeft:F0} for "
+                + $"a {inkW:F0} px control, and the frame ends at {frame.xMax:F0}, so there was no "
+                + $"room to the right; the frame clamp would have put it at {clampedLeft:F0}, "
+                + $"{wantLeft - clampedLeft:F0} px inside the content. INSTEAD the seat is "
+                + $"{left:F0}, inside the widest lane of the frame that draws no ink across the "
+                + $"control's row: the lane spans x {lane.xMin:F0}..{lane.xMax:F0} over rows y "
+                + $"{lane.yMin:F0}..{lane.yMax:F0}, and the control clears {clearLeft:F0} px on its "
+                + $"left and {clearRight:F0} px on its right. {blockers} graphic(s) drew into that "
+                + "row and were measured with their uGUI clippers applied, so a scroll list's "
+                + "off-viewport content cannot close a lane it does not paint in.",
+            _ =>
+                $"OVER — the last resort, and the button is on the content. The painted union ends "
+                + $"at {unionRight:F0}, the solve asked for left={wantLeft:F0} for a {inkW:F0} px "
+                + $"control, the frame ends at {frame.xMax:F0}, and the lane search found no gap in "
+                + $"the control's own row wide enough for it among {blockers} graphic(s) that draw "
+                + $"there. Seat {left:F0}, overlapping the content by {wantLeft - left:F0} px. Ugly "
+                + "beats unreachable (ModBuild 239) and the control is still pressable, but this is "
+                + "the state the user photographed and it means the frame really is full across "
+                + "that row — the fix is then upstream, in whatever placed the content, not here.",
+        };
+
+        string tally = $" SOLVES THIS SESSION: {_seatBesideCount} beside, {_seatLaneCount} lane, "
+                       + $"{_seatOverCount} over.";
+        if (verdict == SeatVerdict.Over)
+        {
+            // HW-VERIFY: the 2026-09-03 layout report is answered by WHICH of these three verdicts a
+            // hardware log carries. It must stay at a tier the DEFAULT log level prints.
+            VRLog.Alert(Scope, "LOADOUT CONFIRM SEAT LANE: " + body + tally);
+        }
+        else
+        {
+            // HW-VERIFY: same line, same question; the two non-failing verdicts are the evidence
+            // that the failing one did NOT occur, which is the half a once-per-session Alert
+            // could never carry.
+            VRLog.Note(Scope, "LOADOUT CONFIRM SEAT LANE: " + body + tally);
+        }
+    }
 
     /// <summary>
     /// The painted bounds of a subtree in <paramref name="win"/>'s local (authored uGUI) space, with
