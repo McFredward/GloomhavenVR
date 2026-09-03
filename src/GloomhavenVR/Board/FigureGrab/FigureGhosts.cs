@@ -138,6 +138,16 @@ internal static class FigureGhosts
     /// <see cref="HeldFigures"/> nor <see cref="NetHeldFigures"/>) or was torn down. Cheap no-op when
     /// no ghost exists. Call once per frame.
     /// </summary>
+    /// <summary>The live ghost object standing at <paramref name="actor"/>'s home, or null. Read
+    /// by <c>ActorPropBody.LogHoldPicture</c> to prove the ghost is a CLONE (its own instance)
+    /// and not the held leaf wearing the ghost material.</summary>
+    internal static GameObject? GhostFor(ActorBehaviour? actor)
+    {
+        if (actor == null || !_ghosts.TryGetValue(actor, out Ghost ghost))
+            return null;
+        return ghost.Go != null ? ghost.Go : null;
+    }
+
     internal static void Tick()
     {
         if (_ghosts.Count == 0)

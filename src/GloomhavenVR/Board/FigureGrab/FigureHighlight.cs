@@ -184,6 +184,14 @@ internal sealed partial class FigureHighlight
     /// <summary>True while the highlight overlay exists.</summary>
     public bool Active => _overlayRoot != null;
 
+    /// <summary>How many renderers the LAST <see cref="Apply"/> cloned (0 = it lit nothing), and
+    /// whether the container it built was active in the hierarchy at that instant. Kept past
+    /// <see cref="Clear"/> so a grab that consumed the hover can still report what the hover
+    /// covered — read by <c>ActorPropBody.LogHoldPicture</c>.</summary>
+    public int LastCloned { get; private set; }
+
+    public bool LastContainerActive { get; private set; }
+
     /// <summary>How the pass-1 filters disposed of the renderers they refused, for the report.</summary>
     private struct Filtered
     {
@@ -410,6 +418,9 @@ internal sealed partial class FigureHighlight
             cloned++;
         }
         Candidates.Clear();
+
+        LastCloned = cloned;
+        LastContainerActive = cloned > 0 && root.activeInHierarchy;
 
         if (cloned == 0)
         {

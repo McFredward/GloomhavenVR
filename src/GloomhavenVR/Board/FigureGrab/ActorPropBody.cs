@@ -223,26 +223,80 @@ internal static class ActorPropBody
         public Quaternion HomeWorldRot;
         public ApparanceEntity[] Frozen = System.Array.Empty<ApparanceEntity>();
         public bool[] FrozenMonitor = System.Array.Empty<bool>();
+        /// <summary>The leaf's and the whole body's world boxes at the grab, for the picture
+        /// line: a leaf box that reaches the arch top is the frame in the hand; one that is a
+        /// 0.3 wu slab at floor level is the fog tile.</summary>
+        public Bounds LeafBox, BodyBox;
+        public int LeafRenderers, BodyRenderers;
+        public string Route = string.Empty;
+        /// <summary>The leaf's own up axis expressed in the actor root's frame at the grab. The
+        /// held pose is applied to the ROOT (FigureGrabbable.ApplyHeldPose), so the leaf stands
+        /// upright in the hand exactly when this is (0, 1, 0).</summary>
+        public Vector3 LeafUpInRoot;
+        public bool PictureLogged;
     }
 
-    /// <summary>Prop-visual instance id -> the leaf chosen for it (null = refused). Memoised per
-    /// scenario; the walk is a few dozen transforms and the answer cannot change while the same
-    /// generated content stands.</summary>
-    private static readonly Dictionary<int, GameObject?> LeafCache = new(4);
+    /// <summary>One leaf decision for a prop visual. A refusal is NOT permanent (ModBuild 405):
+    /// the door's animated content arrives asynchronously — <c>Choreographer.OpenDoor</c> itself
+    /// defers "Open" through <c>ProceduralProp.PlacementCompleteAction</c> when
+    /// <c>MF.GetGameObjectAnimator</c> finds nothing yet — so a leaf that is not there at the
+    /// first hover may be there a second later. A leaf, once found, is memoised for the
+    /// scenario.</summary>
+    private struct LeafEntry
+    {
+        public GameObject? Leaf;
+        public string Why;
+        public string Route;
+        public int PreviewExcluded;
+        public float RetryAt;
+    }
+
+    /// <summary>Prop-visual instance id -> the leaf chosen for it. Dropped with the scenario.</summary>
+    private static readonly Dictionary<int, LeafEntry> LeafCache = new(4);
     private static readonly List<Renderer> RendererScratch = new(64);
     private static readonly List<Transform> ChainScratch = new(16);
+    private static readonly List<Animator> AnimatorScratch = new(4);
     private static bool _loggedRefusal;
     private static bool _loggedRelease;
     private static int _releases;
     private static float _worstReleaseDeltaWU;
     private static float _worstReleaseDeltaDeg;
+    private static int _holdPictureLogsLeft = HoldPictureLogBudget;
+
+    /// <summary>How many HEALTH-PROP GHOST lines a scenario may print: the first hold, and then only
+    /// a hold whose picture is WRONG (the real leaf wearing the mod's overlay shader, no ghost
+    /// clone, or a glow that covered nothing).</summary>
+    private const int HoldPictureLogBudget = 4;
 
     /// <summary>The game's own prefix for PROCEDURALLY PLACED content under a door's
     /// <c>Generated Content</c>: the doorway arch (<c>PCG_CV_Doorway_01_PR</c>), the floor tile
     /// (<c>PCG_CV_Floor_Basic_07_PR</c>). Everything the 396 and 399 logs record under
     /// <c>ThickDoor/HexDoor(Clone)/Generated Content/</c> that is NOT the door leaf carries it,
-    /// and the leaf assembly (<c>CR_ST_Door_02/CR_ST_Door_01/…</c>) does not.</summary>
+    /// and the leaf assembly (<c>CR_ST_Door_02/CR_ST_Door_01/…</c>) does not.
+    /// <b>ModBuild 405: that was true of ONE door kit.</b> The ModBuild 404 door
+    /// (<c>CV_StoneDoorFrame_Split</c> / <c>CV_DoorSign</c>, 39 renderers, y −0.32..3.81) keeps
+    /// its whole door assembly under a <c>PCG_</c> placement, so this partition is the FALLBACK
+    /// now; the game's own animator handle comes first — see <see cref="LeafOf"/>.</summary>
     private const string ProceduralPlacementPrefix = "PCG_";
+
+    /// <summary>
+    /// The game's own name for the FOG-OF-WAR PREVIEW under a prop's <c>Generated Content</c>
+    /// (decompiled ProceduralMapTile.ShowContent, cs:154-171: <c>FindInChildren("Generated
+    /// Content")</c>, then <c>FindInChildren("Preview")</c>, and the preview is switched on for
+    /// <c>Visibility.Preview</c> / <c>PreviewWithDoors</c> while every sibling is the full content).
+    /// A door standing on the edge of an unrevealed room carries one: the hex kit 'Simple Tile' +
+    /// 'EN_Unseen_FloorHex_Edge_Damage_03_PR' + 'EN_CR_FloorTiles_Damaged_03' on the
+    /// <c>Amp_Basic_Unseen</c> shader, a 1.74 × 0.29 × 2.01 slab at y −0.37..−0.07.
+    ///
+    /// <para><b>THE MODBUILD 404 DEFECT, in one sentence:</b> those three were the ONLY renderers
+    /// under the door with no <c>PCG_</c> ancestor, so the ModBuild 400 partition chose the fog
+    /// tile as "the door leaf" — the log's <c>'Simple Tile' … shader 'Amp_Basic_Unseen' …
+    /// queue 2050</c> — and the hand took a translucent floor hex with the game's own fog material
+    /// on it. That is the "GHOST of the door" the user photographed: not the mod's ghost material
+    /// on the real leaf, but the real fog tile wearing its own. Nothing under this node is ever a
+    /// candidate again, on either route.</para>
+    /// </summary>
+    private const string PreviewNode = "Preview";
 
     /// <summary>
     /// THE PART OF A HEALTH PROP THAT MAY RIDE A HAND — for a door, the LEAF and nothing else
@@ -269,72 +323,240 @@ internal static class ActorPropBody
     /// board-damaging hold): the set is empty; its common ancestor is the visual itself (the
     /// partition did not separate anything); or the candidate subtree contains an
     /// <c>ApparanceEntity</c> — an entity is never transformed by this class again.</para>
+    ///
+    /// <para><b>MODBUILD 405: THE PARTITION ABOVE PICKED THE FOG TILE.</b> On the 404 door every
+    /// door renderer sat under a <c>PCG_</c> placement and the only renderers that did not were
+    /// the game's fog-of-war preview hex ('Simple Tile' on <c>Amp_Basic_Unseen</c>, y −0.37..−0.07)
+    /// — so the "leaf" was a translucent floor slab, which the user photographed as "a GHOST of
+    /// the door", with no highlight (the glow's container was built under it and measured
+    /// inactive) and a home ghost cloned from the same slab. The rule is now the game's own door
+    /// handle first — the animator <c>Choreographer.OpenDoor</c> plays "Open" on — with the
+    /// partition as a preview-excluded fallback. See <see cref="LeafOf"/>.</para>
     /// </summary>
     internal static GameObject? HeldPartFor(ActorBehaviour? actor)
     {
         GameObject? visual = BodyFor(actor);
-        return visual == null ? null : LeafOf(visual, out _);
+        return visual == null ? null : LeafOf(visual, out _, out _, out _);
     }
 
-    private static GameObject? LeafOf(GameObject visual, out string why)
+    /// <summary>
+    /// THE DOOR IS WHAT THE GAME SWINGS OPEN (ModBuild 405). The primary route is the game's own
+    /// handle on the door: <c>Choreographer.OpenDoor</c> (decompiled cs:13305-13343) resolves the
+    /// prop's GameObject and plays the "Open" state on <c>MF.GetGameObjectAnimator(doorGO)</c> —
+    /// the FIRST <c>Animator</c> with a <c>runtimeAnimatorController</c> below the visual (MF.cs:
+    /// 135-146) — and, when there is none yet, defers the whole call to
+    /// <c>ProceduralProp.PlacementCompleteAction</c>, which says the animator lives INSIDE the
+    /// asynchronously placed content. That animator's subtree is the door: the frame-and-wings
+    /// assembly the game animates, whatever kit it came from and whatever its placement node is
+    /// called. It is refused when it IS the visual root (nothing separated), when it contains an
+    /// <c>ApparanceEntity</c> (never transformed by this class), when it sits under or contains
+    /// the game's fog-of-war <see cref="PreviewNode"/>, or when it holds no mesh renderer at all.
+    ///
+    /// <para>The ModBuild 400 <c>PCG_</c> partition stays as the FALLBACK for a kit whose door has
+    /// no animator, now with the preview subtree excluded — which, on the ModBuild 404 kit, turns
+    /// the fog-tile hold into a clean refusal (an empty hand, the user's stated preference over a
+    /// board-damaging one) rather than into the fog tile.</para>
+    ///
+    /// <para>The three <c>out</c> strings feed the log: <paramref name="why"/> is the verdict,
+    /// <paramref name="route"/> names which of the two rules decided it, and
+    /// <paramref name="previewExcluded"/> counts what the preview exclusion removed — a readable
+    /// zero on a door with no preview.</para>
+    /// </summary>
+    private static GameObject? LeafOf(GameObject visual, out string why, out string route,
+                                      out int previewExcluded)
     {
-        why = string.Empty;
         int id = visual.GetInstanceID();
-        if (LeafCache.TryGetValue(id, out GameObject? memo))
+        float now = Time.unscaledTime;
+        if (LeafCache.TryGetValue(id, out LeafEntry memo))
         {
-            if (memo != null)
-                return memo;
-            why = "refused earlier this scenario (memoised)";
-            return null;
+            if (memo.Leaf != null || now < memo.RetryAt)
+            {
+                why = memo.Why;
+                route = memo.Route;
+                previewExcluded = memo.PreviewExcluded;
+                return memo.Leaf;
+            }
         }
 
-        RendererScratch.Clear();
-        visual.GetComponentsInChildren(includeInactive: true, RendererScratch);
-        int total = RendererScratch.Count, movable = 0, withMesh = 0;
-        Transform? lca = null;
         Transform top = visual.transform;
+        previewExcluded = 0;
+
+        // ROUTE 1 — the game's own door handle: the first animator with a controller, exactly the
+        // walk MF.GetGameObjectAnimator does (depth-first, active objects only).
+        GameObject? leaf = null;
+        route = "animator";
+        why = string.Empty;
+        AnimatorScratch.Clear();
+        visual.GetComponentsInChildren(includeInactive: false, AnimatorScratch);
+        Animator? animator = null;
+        for (int i = 0; i < AnimatorScratch.Count; i++)
+        {
+            Animator a = AnimatorScratch[i];
+            if (a != null && a.runtimeAnimatorController != null)
+            {
+                animator = a;
+                break;
+            }
+        }
+        AnimatorScratch.Clear();
+
+        if (animator == null)
+            why = "no Animator with a controller below the visual yet (the game's OpenDoor would "
+                  + "defer to PlacementCompleteAction here too)";
+        else
+        {
+            Transform at = animator.transform;
+            int meshes = CountMeshRenderers(at, out int underPreview);
+            if (at == top)
+                why = $"the animator sits on the visual root '{top.name}' itself, which separates nothing";
+            else if (IsUnderNode(at, top, PreviewNode))
+                why = $"the animator '{at.name}' sits under the game's '{PreviewNode}' fog-of-war node";
+            else if (underPreview > 0)
+                why = $"the animator '{at.name}' contains the game's '{PreviewNode}' node ({underPreview} "
+                      + "renderer(s) under it)";
+            else if (at.GetComponentInChildren<ApparanceEntity>(includeInactive: true) != null)
+                why = $"the animator '{at.name}' contains an ApparanceEntity, which is never transformed";
+            else if (meshes == 0)
+                why = $"the animator '{at.name}' holds no mesh renderer";
+            else
+            {
+                leaf = at.gameObject;
+                why = $"'{at.name}' is the object the game's OpenDoor animates ('{animator.runtimeAnimatorController.name}'), "
+                      + $"carrying {meshes} mesh renderer(s)";
+            }
+        }
+
+        // ROUTE 2 — the ModBuild 400 structural partition, preview-excluded.
+        if (leaf == null)
+        {
+            string animatorWhy = why;
+            route = "pcg-partition";
+            RendererScratch.Clear();
+            visual.GetComponentsInChildren(includeInactive: true, RendererScratch);
+            int total = RendererScratch.Count, movable = 0, withMesh = 0;
+            Transform? lca = null;
+            for (int i = 0; i < RendererScratch.Count; i++)
+            {
+                Renderer r = RendererScratch[i];
+                if (r == null)
+                    continue;
+                if (IsUnderNode(r.transform, top, PreviewNode))
+                {
+                    previewExcluded++;
+                    continue;
+                }
+                bool procedural = false;
+                for (Transform? t = r.transform; t != null && t != top; t = t.parent)
+                {
+                    if (t.name.StartsWith(ProceduralPlacementPrefix, StringComparison.Ordinal))
+                    {
+                        procedural = true;
+                        break;
+                    }
+                }
+                if (procedural)
+                    continue;
+                movable++;
+                if (HasMesh(r))
+                    withMesh++;
+                lca = lca == null ? r.transform : CommonAncestor(lca, r.transform, top);
+            }
+            RendererScratch.Clear();
+
+            if (movable == 0)
+                why = $"no movable renderer — all {total - previewExcluded} sit under a "
+                      + $"'{ProceduralPlacementPrefix}' placement";
+            else if (withMesh == 0)
+                why = $"{movable} movable renderer(s) but none has a mesh";
+            else if (lca == null || lca == top)
+                why = $"the {movable} movable renderer(s) have no common ancestor below the visual — the "
+                      + "partition separated nothing";
+            else if (lca.GetComponentInChildren<ApparanceEntity>(includeInactive: true) != null)
+                why = $"the candidate '{lca.name}' contains an ApparanceEntity, which is never transformed";
+            else
+            {
+                leaf = lca.gameObject;
+                why = $"'{lca.name}' carries {movable} of {total} renderer(s) ({withMesh} with a mesh); the "
+                      + $"other {total - movable - previewExcluded} stay under their "
+                      + $"'{ProceduralPlacementPrefix}' placements";
+            }
+            why = $"animator route refused ({animatorWhy}); PCG partition: {why}; {previewExcluded} "
+                  + $"renderer(s) under the game's '{PreviewNode}' fog-of-war node were excluded from "
+                  + "both routes";
+        }
+        else
+        {
+            why = $"{why}; {previewExcluded} renderer(s) under the game's '{PreviewNode}' node "
+                  + "excluded";
+        }
+
+        LeafCache[id] = new LeafEntry
+        {
+            Leaf = leaf, Why = why, Route = route, PreviewExcluded = previewExcluded,
+            RetryAt = leaf == null ? now + RetrySeconds : 0f,
+        };
+        return leaf;
+    }
+
+    /// <summary>True when a transform named <paramref name="node"/> lies on the chain from
+    /// <paramref name="t"/> (inclusive) up to <paramref name="top"/> (exclusive).</summary>
+    private static bool IsUnderNode(Transform t, Transform top, string node)
+    {
+        for (Transform? c = t; c != null && c != top; c = c.parent)
+        {
+            if (string.Equals(c.name, node, StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>Mesh-bearing renderers under <paramref name="root"/> (inclusive, inactive
+    /// included), and how many of ALL its renderers sit under a <see cref="PreviewNode"/>.</summary>
+    private static int CountMeshRenderers(Transform root, out int underPreview)
+    {
+        underPreview = 0;
+        int meshes = 0;
+        RendererScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: true, RendererScratch);
         for (int i = 0; i < RendererScratch.Count; i++)
         {
             Renderer r = RendererScratch[i];
             if (r == null)
                 continue;
-            bool procedural = false;
-            for (Transform? t = r.transform; t != null && t != top; t = t.parent)
-            {
-                if (t.name.StartsWith(ProceduralPlacementPrefix, StringComparison.Ordinal))
-                {
-                    procedural = true;
-                    break;
-                }
-            }
-            if (procedural)
-                continue;
-            movable++;
-            if (HasMesh(r))
-                withMesh++;
-            lca = lca == null ? r.transform : CommonAncestor(lca, r.transform, top);
+            if (IsUnderNode(r.transform, root, PreviewNode))
+                underPreview++;
+            else if (HasMesh(r))
+                meshes++;
         }
         RendererScratch.Clear();
-
-        GameObject? leaf = null;
-        if (movable == 0)
-            why = $"no movable renderer — all {total} sit under a '{ProceduralPlacementPrefix}' placement";
-        else if (withMesh == 0)
-            why = $"{movable} movable renderer(s) but none has a mesh";
-        else if (lca == null || lca == top)
-            why = $"the {movable} movable renderer(s) have no common ancestor below the visual — the "
-                  + "partition separated nothing";
-        else if (lca.GetComponentInChildren<ApparanceEntity>(includeInactive: true) != null)
-            why = $"the candidate '{lca.name}' contains an ApparanceEntity, which is never transformed";
-        else
-        {
-            leaf = lca.gameObject;
-            why = $"'{lca.name}' carries {movable} of {total} renderer(s) ({withMesh} with a mesh); the "
-                  + $"other {total - movable} stay under their '{ProceduralPlacementPrefix}' placements";
-        }
-        LeafCache[id] = leaf;
-        return leaf;
+        return meshes;
     }
+
+    /// <summary>World-space union of every enabled mesh renderer under <paramref name="root"/>,
+    /// with the count; a zero-size box with count 0 when there is none.</summary>
+    private static Bounds RendererUnion(Transform root, out int count)
+    {
+        count = 0;
+        Bounds union = default;
+        RendererScratch.Clear();
+        root.GetComponentsInChildren(includeInactive: false, RendererScratch);
+        for (int i = 0; i < RendererScratch.Count; i++)
+        {
+            Renderer r = RendererScratch[i];
+            if (r == null || !HasMesh(r))
+                continue;
+            Bounds b = r.bounds;
+            if (count == 0) union = b; else union.Encapsulate(b);
+            count++;
+        }
+        RendererScratch.Clear();
+        return union;
+    }
+
+    private static string Box(Bounds b, int count) => count == 0
+        ? "no mesh renderer"
+        : $"size ({b.size.x:0.00}, {b.size.y:0.00}, {b.size.z:0.00}) y {b.min.y:0.00}..{b.max.y:0.00} "
+          + $"from {count} mesh renderer(s)";
 
     private static bool HasMesh(Renderer r)
     {
@@ -411,7 +633,7 @@ internal static class ActorPropBody
         // the ModBuild 399 defect it ends. A refusal leaves the hold EMPTY — the hand takes the
         // bodiless actor exactly as it did before 399 — because an empty hand is harmless and a
         // half-door in the hand moved the arch for the rest of the scenario.
-        GameObject? leaf = LeafOf(visual, out string leafWhy);
+        GameObject? leaf = LeafOf(visual, out string leafWhy, out string leafRoute, out int previewExcluded);
         if (leaf == null)
         {
             if (_loggedRefusal)
@@ -441,7 +663,11 @@ internal static class ActorPropBody
             OrigLocalScale = leafT.localScale,
             HomeWorldPos = leafT.position,
             HomeWorldRot = leafT.rotation,
+            Route = leafRoute,
+            LeafUpInRoot = into.InverseTransformDirection(leafT.up),
         };
+        held.LeafBox = RendererUnion(leafT, out held.LeafRenderers);
+        held.BodyBox = RendererUnion(visual.transform, out held.BodyRenderers);
 
         EntityScratch.Clear();
         visual.GetComponentsInChildren(includeInactive: true, EntityScratch);
@@ -494,7 +720,112 @@ internal static class ActorPropBody
             + "so the KNOWN SIDE EFFECT can no longer arise (the arch rect is seeded from renderers "
             + "that stay exactly where they were) and the frozen entities are frozen as a "
             + "precaution against a rebuild that would destroy the held leaf, not because they are "
-            + "moved. The restore is MEASURED on release — grep HEALTH-PROP BODY RELEASED.");
+            + "moved. The restore is MEASURED on release — grep HEALTH-PROP BODY RELEASED. "
+            + $"ModBuild 405 CORRECTION: the leaf was chosen by the '{leafRoute}' route — 'animator' "
+            + "is the object the game's own OpenDoor plays 'Open' on (MF.GetGameObjectAnimator), "
+            + "'pcg-partition' the ModBuild 400 fallback — and the game's 'Preview' fog-of-war node "
+            + $"({previewExcluded} renderer(s), the 'Simple Tile' hex kit on Amp_Basic_Unseen that the "
+            + "404 hand took as the door) is excluded on both. LEAF BOX at the grab "
+            + $"{Box(held.LeafBox, held.LeafRenderers)} against the WHOLE BODY "
+            + $"{Box(held.BodyBox, held.BodyRenderers)}: a leaf reaching the body's top y is the frame "
+            + "in the hand, a 0.3 wu slab at floor level is the fog tile again, and a door reads "
+            + "roughly y 0..3.3 under a 4.6 arch. Leaf up axis in the actor root's frame "
+            + $"({held.LeafUpInRoot.x:0.00}, {held.LeafUpInRoot.y:0.00}, {held.LeafUpInRoot.z:0.00}) — "
+            + "the held pose is applied to the ROOT, so y=1.00 means the door stands upright in the "
+            + "hand exactly as a figure does. The picture of the hold (glow, ghost, held material) "
+            + "is on the HEALTH-PROP GHOST line one frame later.");
+    }
+
+    /// <summary>
+    /// THE PICTURE OF THE HOLD, one frame in (ModBuild 405) — the three things the 404 round could
+    /// not tell apart: what the hover glow covered, whether the home ghost is a CLONE of the leaf or
+    /// the leaf itself, and what material the REAL leaf wears in the hand. Called by
+    /// <c>FigureGrabbable.TickHeldScale</c> on the first held frame of a hold that has a prop body;
+    /// a no-op for every ordinary miniature. Prints on the first hold of a scenario, and again only
+    /// while the picture is WRONG (budgeted).
+    /// </summary>
+    internal static void LogHoldPicture(ActorBehaviour? actor, int glowClones, bool glowContainerActive,
+                                        GameObject? ghost)
+    {
+        if (actor == null || !HeldBodies.TryGetValue(actor, out Held held) || held.PictureLogged)
+            return;
+        held.PictureLogged = true;
+        if (_holdPictureLogsLeft <= 0)
+            return;
+
+        GameObject? leaf = held.Moved;
+        string leafName = leaf != null ? leaf.name : "<destroyed>";
+        string heldShader = "<no renderer>", heldMaterial = "<no renderer>";
+        int leafRenderers = 0;
+        bool leafWearsOverlay = false;
+        if (leaf != null)
+        {
+            RendererScratch.Clear();
+            leaf.GetComponentsInChildren(includeInactive: false, RendererScratch);
+            for (int i = 0; i < RendererScratch.Count; i++)
+            {
+                Renderer r = RendererScratch[i];
+                if (r == null || !HasMesh(r))
+                    continue;
+                if (leafRenderers == 0)
+                {
+                    Material? m = r.sharedMaterial;
+                    heldMaterial = m != null ? m.name : "<null material>";
+                    heldShader = m != null && m.shader != null ? m.shader.name : "<null shader>";
+                }
+                leafRenderers++;
+            }
+            RendererScratch.Clear();
+            leafWearsOverlay = heldShader.StartsWith("GloomhavenVR/", StringComparison.Ordinal);
+        }
+
+        bool ghostIsClone = ghost != null && leaf != null
+                            && ghost.GetInstanceID() != leaf.GetInstanceID()
+                            && !leaf.transform.IsChildOf(ghost.transform)
+                            && !ghost.transform.IsChildOf(leaf.transform);
+        int ghostRenderers = 0;
+        string ghostShader = "<no ghost>";
+        if (ghost != null)
+        {
+            RendererScratch.Clear();
+            ghost.GetComponentsInChildren(includeInactive: false, RendererScratch);
+            for (int i = 0; i < RendererScratch.Count; i++)
+            {
+                Renderer r = RendererScratch[i];
+                if (r == null || !HasMesh(r))
+                    continue;
+                if (ghostRenderers == 0)
+                {
+                    Material? m = r.sharedMaterial;
+                    ghostShader = m != null && m.shader != null ? m.shader.name : "<null shader>";
+                }
+                ghostRenderers++;
+            }
+            RendererScratch.Clear();
+        }
+
+        bool wrong = leafWearsOverlay || !ghostIsClone || glowClones == 0 || !glowContainerActive;
+        // The first hold always prints; later holds only while something above reads wrong.
+        if (_holdPictureLogsLeft < HoldPictureLogBudget && !wrong)
+            return;
+        _holdPictureLogsLeft--;
+
+        // HW-VERIFY: the line that separates the three ModBuild 404 symptoms. GLOW covered N
+        // renderer(s) (0 = the hover lit nothing; container INACTIVE = it was built under a switched-
+        // off object). GHOST CLONE=True with its own renderer count = a translucent copy stands at
+        // home. HELD LEAF shader = what the hand holds; the game's door material means the SOLID
+        // door, 'GloomhavenVR/Overlay' means the ghost material landed on the real leaf, and
+        // 'Amp_Basic_Unseen' means the fog tile is in the hand again.
+        VRLog.Note("FigureGrab",
+            $"HEALTH-PROP GHOST for the hold of '{(held.Visual != null ? held.Visual.name : "<destroyed>")}': "
+            + $"GLOW at the last hover covered {glowClones} renderer(s) (container "
+            + $"{(glowContainerActive ? "active" : "INACTIVE")}); HOME GHOST is a CLONE: {ghostIsClone} "
+            + $"({(ghost != null ? $"ghost instance {ghost.GetInstanceID()} vs leaf {(leaf != null ? leaf.GetInstanceID() : 0)}" : "no ghost object")}, "
+            + $"{ghostRenderers} mesh renderer(s) on the ghost, first shader '{ghostShader}'); HELD LEAF "
+            + $"'{leafName}' via the '{held.Route}' route has {leafRenderers} active mesh renderer(s), first "
+            + $"material '{heldMaterial}' on shader '{heldShader}' at the first held frame — "
+            + $"{(leafWearsOverlay ? "THE MOD'S OVERLAY SHADER IS ON THE REAL LEAF, which is the ghost-in-the-hand defect" : "the game's own material, so the hand holds the SOLID leaf")}. "
+            + $"Verdict {(wrong ? "WRONG" : "as designed")}; {_holdPictureLogsLeft} more of these this scenario.");
     }
 
     /// <summary>Put the body back where the board had it and hand every <c>MonitorMovement</c>
@@ -656,5 +987,6 @@ internal static class ActorPropBody
         _releases = 0;
         _worstReleaseDeltaWU = 0f;
         _worstReleaseDeltaDeg = 0f;
+        _holdPictureLogsLeft = HoldPictureLogBudget;
     }
 }

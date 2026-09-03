@@ -278,6 +278,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // AuthoritativeCellChanged for what a mismatch means and who polls it.
     private Point _grabCell;
 
+    /// <summary>Set by OnGrab when a health prop's body rides this hold; consumed on the FIRST
+    /// held frame by <see cref="TickHeldScale"/>, which hands the hover's glow count, the home
+    /// ghost and the held leaf to <c>ActorPropBody.LogHoldPicture</c>. False for every ordinary
+    /// miniature.</summary>
+    private bool _holdPictureDue;
+
     /// <summary>
     /// Re-apply the held pose from <see cref="FigureGrabConfig"/> to every held mini — the
     /// live-tune hook (wired to the config entries' SettingChanged). Called on the main
@@ -687,6 +693,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         ApplyHeldPose();
         ApplyRenderOnTop(); // Issue B — REVERTED, a no-op today (see the method)
         Live.Add(this);
+        // The picture of a health-prop hold is read ONE FRAME IN, not here: a writer that lands on
+        // the leaf's materials after the grab (the ghost build, the highlight teardown) would be
+        // invisible to a sample taken on the grab frame itself.
+        _holdPictureDue = ActorPropBody.IsHeld(_actor);
 
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
@@ -1058,7 +1068,16 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     internal static void TickHeldScale()
     {
         foreach (FigureGrabbable g in Live)
+        {
             g.ReassertHeldScale();
+            if (g._holdPictureDue)
+            {
+                g._holdPictureDue = false;
+                ActorPropBody.LogHoldPicture(g._actor, g._highlight.LastCloned,
+                                             g._highlight.LastContainerActive,
+                                             FigureGhosts.GhostFor(g._actor));
+            }
+        }
 
         // FIGURE RESCALE — keep the SIMULATED parts (capes/cloth) in step with whatever size was
         // just written, here and on the peer's mirror alike. Deliberately ridden on this step
