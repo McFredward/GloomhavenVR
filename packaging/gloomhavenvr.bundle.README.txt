@@ -1,0 +1,93 @@
+gloomhavenvr.bundle — REQUIRED. This copy of the release is INCOMPLETE without it.
+====================================================================================
+
+Deutsch: weiter unten in dieser Datei.
+
+This zip was packaged WITHOUT the file gloomhavenvr.bundle. That file is NOT optional.
+The mod still starts without it, but everything the mod draws in 3D lives inside that
+file, so all of it is missing:
+
+  * the hands — every glove model (leather, arcane, plate); you get crude placeholder hands
+  * the control board / play tray, the card backing and the keycaps — flat placeholders
+  * the map table and the parchment in the map room
+  * the head avatars of the other players in multiplayer
+  * the 3D environments (cellar, swamp) and the water — the game's own sky stays
+  * every shader the mod ships (board lighting, glows and hex markers, the window
+    dissolve, the water) — each effect that needs one is skipped
+  * the controller models in the tutorial's controls lesson
+
+The mod does not refuse to start and it does not crash: each part writes one line into
+the log and falls back. It just looks wrong everywhere at once.
+
+WHERE THE FILE GOES
+  <Gloomhaven folder>\BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
+
+  That is THIS folder, next to GloomhavenVR.dll — the same layout INSTALL.txt describes.
+  The file is about 75 MB. Nothing else to change; it is picked up at the next start.
+
+HOW TO GET IT
+  Download the release zip from
+    https://github.com/McFredward/GloomhavenVR/releases
+  Every published release contains the bundle; the release pipeline refuses to publish
+  a zip without it. A zip without it came out of a developer's checkout that had neither
+  a fresh Unity build nor the committed prebuilt copy (prebuilt/gloomhavenvr.bundle).
+  Developers: scripts/build-bundles.sh, on Unity 2021.3.5f1 exactly — any other 2021.3.x
+  editor writes a bundle the game cannot read.
+
+HOW TO CHECK IT LOADED
+  Start the game once, then open <Gloomhaven folder>\BepInEx\LogOutput.log and look for
+    [Info   :GloomhavenVR] [Hands] gloomhavenvr.bundle loaded from ...
+  If instead you find
+    [Warning:GloomhavenVR] [Hands] gloomhavenvr.bundle NOT FOUND at ...
+  the file is not where that line says it looked. If you find
+    [Warning:GloomhavenVR] [Hands] AssetBundle.LoadFromFile failed for ...
+  the file is there but damaged; the rest of that line says how, and a fresh copy fixes it.
+
+
+============================================================================================
+DEUTSCH
+============================================================================================
+
+gloomhavenvr.bundle — ERFORDERLICH. Ohne diese Datei ist diese Kopie der Mod UNVOLLSTÄNDIG.
+
+Dieses Zip wurde OHNE die Datei gloomhavenvr.bundle gepackt. Diese Datei ist NICHT
+optional. Die Mod startet zwar auch ohne sie, aber alles, was die Mod in 3D zeichnet,
+steckt in genau dieser Datei — und fehlt deshalb komplett:
+
+  * die Hände — jedes Handschuh-Modell (Leder, Arkan, Platte); du bekommst grobe Platzhalter
+  * das Steuerbrett / die Kartenablage, die Kartenrückseite und die Tasten — flache Platzhalter
+  * der Kartentisch und das Pergament im Kartenraum
+  * die Kopf-Avatare der anderen Spieler im Mehrspielermodus
+  * die 3D-Umgebungen (Keller, Sumpf) und das Wasser — es bleibt beim Himmel des Spiels
+  * jeder Shader der Mod (Brettbeleuchtung, Leuchten und Hex-Markierungen, das Auflösen
+    der Fenster, das Wasser) — jeder Effekt, der einen davon braucht, fällt aus
+  * die Controller-Modelle in der Steuerungs-Lektion des Tutorials
+
+Die Mod verweigert den Start nicht und stürzt nicht ab: jeder Teil schreibt eine Zeile
+ins Log und weicht aus. Es sieht nur überall gleichzeitig falsch aus.
+
+WO DIE DATEI HINGEHÖRT
+  <Gloomhaven-Ordner>\BepInEx\plugins\GloomhavenVR\gloomhavenvr.bundle
+
+  Das ist DIESER Ordner, neben GloomhavenVR.dll — dieselbe Struktur, die INSTALL-DEUTSCH.txt
+  beschreibt. Die Datei ist etwa 75 MB groß. Sonst ist nichts zu ändern; sie wird beim
+  nächsten Start gefunden.
+
+WOHER DU SIE BEKOMMST
+  Lade das Release-Zip herunter von
+    https://github.com/McFredward/GloomhavenVR/releases
+  Jedes veröffentlichte Release enthält das Bundle; die Release-Pipeline veröffentlicht kein
+  Zip ohne. Ein Zip ohne Bundle stammt aus einem Entwickler-Checkout, in dem weder ein
+  frischer Unity-Build noch die eingecheckte Kopie (prebuilt/gloomhavenvr.bundle) lag.
+  Entwickler: scripts/build-bundles.sh, mit Unity 2021.3.5f1 — genau dieser Version; jeder
+  andere 2021.3.x-Editor schreibt ein Bundle, das das Spiel nicht lesen kann.
+
+SO PRÜFST DU, OB ES GELADEN WURDE
+  Starte das Spiel einmal, öffne dann <Gloomhaven-Ordner>\BepInEx\LogOutput.log und such nach
+    [Info   :GloomhavenVR] [Hands] gloomhavenvr.bundle loaded from ...
+  Steht dort stattdessen
+    [Warning:GloomhavenVR] [Hands] gloomhavenvr.bundle NOT FOUND at ...
+  dann liegt die Datei nicht da, wo diese Zeile nachgesehen hat. Steht dort
+    [Warning:GloomhavenVR] [Hands] AssetBundle.LoadFromFile failed for ...
+  dann ist die Datei da, aber beschädigt; der Rest der Zeile sagt, wie — eine frische Kopie
+  behebt es.

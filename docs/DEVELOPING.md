@@ -92,9 +92,25 @@ BepInEx/patchers/GloomhavenVR/Natives/*.dll
 `THIRD-PARTY.txt` ships only when the bundle does — it is the licence notice the bundled art
 requires, and it has to travel with the copies.
 
+**The bundle is REQUIRED.** Every 3D asset (hands, control board, card backing, map table, head
+avatars, environments, controller models) and every shader the mod ships lives in it; without the
+file the mod starts, logs an Alert per subsystem and degrades to procedural placeholders everywhere.
+The bundle comes from a fresh Unity build if there is one, else from the committed
+`prebuilt/gloomhavenvr.bundle`. If neither exists the script warns on stderr and ships
+[`packaging/gloomhavenvr.bundle.README.txt`](../packaging/gloomhavenvr.bundle.README.txt) (English
+and German in one file) at the bundle's path, so the player who opens that zip is told what is
+missing, where it goes and which log line proves it loaded — `[Hands] gloomhavenvr.bundle loaded
+from …`. Such a zip is not a release; `release.yml` refuses to publish one without the bundle.
+
 It refuses to package when `libs/Natives` or `libs/RuntimeDeps` are unpopulated, and verifies the
-load-bearing paths inside the finished zip. The bundle comes from a fresh Unity build if there is
-one, else from the committed `prebuilt/gloomhavenvr.bundle`.
+load-bearing paths inside the finished zip.
+
+**Every `.txt` in the zip is written as UTF-8 with BOM and CRLF line endings**, whatever the
+template in git has, and `scripts/check-package-text.py <zip>` fails the run if one is not (or
+carries a double-encoded umlaut). The reader is a Windows user who double-clicks a `.txt`; without
+the BOM, legacy Notepad, WordPad, the 7-Zip and WinRAR viewers and the Explorer preview pane decode
+it as the ANSI code page and `raumgroßes` renders as `raumgroÃŸes`. `install.ps1` writes its zip
+the same way and runs the same check.
 
 `INSTALL.txt` and `INSTALL-DEUTSCH.txt` are rendered from
 **[`packaging/INSTALL.txt.in`](../packaging/INSTALL.txt.in)** and

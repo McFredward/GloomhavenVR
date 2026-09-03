@@ -456,6 +456,29 @@ internal static class HandVisuals
             VRLog.Alert("Hands", $"AssetBundle.LoadFromFileAsync failed for {path} — procedural hands active. " +
                                 $"Cause: {(path != null ? BundleDiagnostics.Explain(path) : "file missing")}");
         }
+        else
+        {
+            NoteLoaded(BundlePath());
+        }
+    }
+
+    /// <summary>
+    /// THE ONE DEFAULT-VISIBLE LINE THAT SAYS THE REQUIRED BUNDLE IS IN. Every other "loaded from
+    /// bundle" line in the mod is <see cref="VRLog.Info"/>, i.e. the DEBUG tier, so at the shipped
+    /// log level a player's LogOutput.log could not answer "did the bundle load?" at all — and
+    /// "crude hands, flat board, no environments" was reported as a rendering bug. The install
+    /// README beside the bundle (<c>packaging/gloomhavenvr.bundle.README.txt</c>) tells the player
+    /// to look for exactly this line, so its text is a contract: keep "gloomhavenvr.bundle loaded".
+    /// </summary>
+    private static void NoteLoaded(string? path)
+    {
+        long bytes = 0;
+        try { if (path != null) bytes = new FileInfo(path).Length; }
+        catch (System.Exception) { /* the size is decoration; the load already succeeded */ }
+        // HW-VERIFY: the bundle-present verdict for a player's log; once per session.
+        VRLog.Note("Hands", $"gloomhavenvr.bundle loaded from {path ?? BundleFileName} ({bytes:N0} bytes) — " +
+                            "bundled hands, control board, card backing, heads, environments and shaders " +
+                            "are available.");
     }
 
     private static AssetBundle? GetBundle()
@@ -489,7 +512,13 @@ internal static class HandVisuals
             if (bundlePath == null)
             {
                 string pluginDir = Path.GetDirectoryName(Assembly.GetExecutingAssembly().Location)!;
-                VRLog.Info("Hands", $"Asset bundle not found ({Path.Combine(pluginDir, BundleFileName)}) — procedural hands active.");
+                // ALERT, not Info: the bundle is a REQUIRED part of the install (hands, board,
+                // cards, heads, environments and every bundled shader live in it), and a missing
+                // one used to be logged on the DEBUG tier — invisible in the log a player sends.
+                VRLog.Alert("Hands", $"gloomhavenvr.bundle NOT FOUND at {Path.Combine(pluginDir, BundleFileName)} — " +
+                                    "procedural hands active, and every other bundled asset is missing too. The " +
+                                    "bundle is a required part of the release zip: unpack the zip again so that " +
+                                    "BepInEx\\plugins\\GloomhavenVR\\gloomhavenvr.bundle exists.");
                 return null;
             }
 
@@ -498,6 +527,8 @@ internal static class HandVisuals
             if (_bundle == null)
                 VRLog.Alert("Hands", $"AssetBundle.LoadFromFile failed for {bundlePath} — procedural hands active. " +
                                     $"Cause: {BundleDiagnostics.Explain(bundlePath)}");
+            else
+                NoteLoaded(bundlePath);
             return _bundle;
         }
     }

@@ -41,6 +41,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # docs/TESTING-*.md, docs/img/README.md, packaging/release-highlights/README.md,
 # packaging/THIRD-PARTY.txt, LICENSE, .planning/**, unity/**.
 #
+# ONE PLAYER-FACING FILE CARRIES BOTH LANGUAGES IN ONE FILE and is therefore not a pair:
+# packaging/gloomhavenvr.bundle.README.txt (English first, German below). It is only ever read
+# from inside a zip that was packaged WITHOUT the required asset bundle, in the bundle's place;
+# a twin file there would be a second thing to find in a folder the reader is already confused
+# by, so the German travels in the same file.
+#
 # ONE DOCUMENT IS GERMAN-ONLY AND STAYS THAT WAY: docs/ASSET-GUIDE-MITWIRKENDE.md. It is not a
 # page anybody browses — it is the brief handed to the external 3D artist who edits the mod's
 # meshes and textures, and that reader works in German. The English-default rule is about

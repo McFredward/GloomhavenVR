@@ -261,7 +261,10 @@ internal sealed class VRCardFactory
         string bundlePath = Path.Combine(pluginDir, BundleFileName);
         if (!File.Exists(bundlePath))
         {
-            VRLog.Info("Cards", $"Asset bundle not found ({bundlePath}) — procedural card/tray visuals active.");
+            // ALERT, not Info: the bundle is a REQUIRED part of the install, and HandVisuals
+            // says the same at the same tier — a player's log must name a missing 75 MB file.
+            VRLog.Alert("Cards", $"gloomhavenvr.bundle NOT FOUND at {bundlePath} — procedural card/tray visuals " +
+                                "active. The bundle is a required part of the release zip: unpack the zip again.");
             return null;
         }
 

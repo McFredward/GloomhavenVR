@@ -238,12 +238,44 @@ if (Test-Path (Join-Path $runtimeDepsDir "versions.json")) {
     Copy-Item (Join-Path $runtimeDepsDir "versions.json") $runtimeDepsDst -Force
 }
 
-# Asset bundle (control board 3D asset + future props): a freshly built one is
-# preferred, else the committed prebuilt copy. Without it the mod uses procedural
-# fallback visuals.
+# Text files a Windows user double-clicks: written as UTF-8 WITH BOM and CRLF, whatever the
+# source in git has (plain UTF-8, LF). Read EXPLICITLY as UTF-8, and this is the fix for a
+# reported defect: Windows PowerShell 5.1's Get-Content decodes a BOM-less file as the system
+# ANSI code page, so the German template's "sz" ligature (bytes C3 9F) came in as the two
+# Latin-1 characters "A-tilde, Y-umlaut" and Set-Content -Encoding UTF8 then wrote THOSE as
+# UTF-8 -- a double encoding no viewer can undo ("raumgroA~Yes" in INSTALL-DEUTSCH.txt,
+# 2026-09-03). The BOM is for the readers that have no UTF-8 heuristic (legacy Notepad,
+# WordPad, the 7-Zip and WinRAR viewers, the Explorer preview pane): without it they decode
+# the correct bytes as ANSI and show the same string. This script itself is saved WITH a BOM
+# for the same reason -- PowerShell 5.1 reads a BOM-less .ps1 as ANSI too, and the header
+# above carries em dashes.
+$script:Utf8Strict = New-Object System.Text.UTF8Encoding($false, $true)   # throws on invalid bytes
+$script:Utf8Bom    = New-Object System.Text.UTF8Encoding($true)
+function Write-WindowsText([string]$Source, [string]$Destination, [hashtable]$Replace = @{}) {
+    $text = [System.IO.File]::ReadAllText($Source, $script:Utf8Strict)   # strips a BOM if one is there
+    foreach ($key in $Replace.Keys) { $text = $text.Replace($key, [string]$Replace[$key]) }
+    $text = $text.Replace("`r`n", "`n").Replace("`n", "`r`n")
+    [System.IO.File]::WriteAllText($Destination, $text, $script:Utf8Bom)
+}
+
+# Asset bundle: a freshly built one is preferred, else the committed prebuilt copy.
+#
+# THE BUNDLE IS REQUIRED. Every 3D asset the mod draws (hands, control board, card backing,
+# map table, head avatars, environments, controller models) and every shader it ships live
+# in it; without the file the mod starts, logs an Alert per subsystem and degrades to
+# procedural placeholders everywhere at once. An install without it is not an install and a
+# zip without it is not a release -- so both are said out loud below, and the README that
+# ships in the bundle's place (packaging\gloomhavenvr.bundle.README.txt, EN + DE) says the
+# same to the player. package-release.sh does exactly the same; two packagers, one layout.
 $bundleFresh    = Join-Path $root "unity\GloomhavenVR.Assets\Build\Bundles\gloomhavenvr.bundle"
 $bundlePrebuilt = Join-Path $root "prebuilt\gloomhavenvr.bundle"
 $bundle = if (Test-Path $bundleFresh) { $bundleFresh } elseif (Test-Path $bundlePrebuilt) { $bundlePrebuilt } else { $null }
+if (-not $bundle) {
+    Write-Warning ("gloomhavenvr.bundle not found (neither $bundleFresh nor $bundlePrebuilt). The bundle is " +
+                   "REQUIRED: this install and the zip built from it are INCOMPLETE -- crude placeholder hands, " +
+                   "flat board, no environments. Shipping packaging\gloomhavenvr.bundle.README.txt in its place.")
+    Write-WindowsText (Join-Path $root "packaging\gloomhavenvr.bundle.README.txt") (Join-Path $pluginDir "gloomhavenvr.bundle.README.txt")
+}
 if ($bundle) {
     Copy-Item $bundle -Destination (Join-Path $pluginDir "gloomhavenvr.bundle") -Force
     # THE LICENCE NOTICE TRAVELS WITH THE BUNDLE (2026-09-03). The bundle carries third-party art
@@ -255,7 +287,9 @@ if ($bundle) {
     # contains, and this was the one thing they did.
     $thirdParty = Join-Path $root "packaging\THIRD-PARTY.txt"
     if (Test-Path $thirdParty) {
-        Copy-Item $thirdParty -Destination (Join-Path $pluginDir "THIRD-PARTY.txt") -Force
+        # Through Write-WindowsText, not Copy-Item: the notice is a .txt a Windows user may
+        # double-click, so it gets the BOM and CRLF like every other text file in the zip.
+        Write-WindowsText $thirdParty (Join-Path $pluginDir "THIRD-PARTY.txt")
     } else {
         Write-Warning "packaging\THIRD-PARTY.txt is missing - the bundle's third-party art would ship with no licence notice."
     }
@@ -393,11 +427,12 @@ if (-not $NoPackage) {
     foreach ($name in $templates.Keys) {
         $template = $templates[$name]
         if (-not (Test-Path $template)) { Write-Error "Missing $template - cannot package." }
-        # UTF8 on purpose: both files carry em dashes and the German one carries
-        # umlauts. Transliterating would be the only alternative and it reads
-        # amateurish to the person the file is written for.
-        (Get-Content -LiteralPath $template -Raw).Replace('@VERSION@', $version) |
-            Set-Content -LiteralPath (Join-Path $stage $name) -Encoding UTF8 -NoNewline
+        # UTF-8 with BOM + CRLF, read explicitly as UTF-8 -- see Write-WindowsText for the
+        # double-encoding this replaces: Get-Content without -Encoding decoded the template as
+        # ANSI on Windows PowerShell 5.1, and Set-Content -Encoding UTF8 re-encoded the damage.
+        # Both files carry em dashes and the German one carries umlauts; transliterating would
+        # be the only alternative and it reads amateurish to the person the file is written for.
+        Write-WindowsText $template (Join-Path $stage $name) @{ '@VERSION@' = $version }
     }
 
     # No graphics-jobs enabler ships any more: the preloader writes boot.config
@@ -416,12 +451,48 @@ if (-not $NoPackage) {
         "INSTALL.txt",
         "INSTALL-DEUTSCH.txt")
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # Every .txt in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and none
+    # of the two characters a double encoding always produces (U+00C3 from an umlaut's lead
+    # byte, U+00E2 from a dash's). The same four rules as scripts/check-package-text.py, which
+    # package-release.sh runs on its zip; a zip that renders "raumgroA~Yes" is not a release.
+    $textProblems = @()
     $archive = [System.IO.Compression.ZipFile]::OpenRead($zip)
-    try   { $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' } }
+    try {
+        $entries = $archive.Entries | ForEach-Object { $_.FullName -replace '\\', '/' }
+        foreach ($entry in $archive.Entries) {
+            if (-not $entry.FullName.ToLowerInvariant().EndsWith('.txt')) { continue }
+            $ms = New-Object System.IO.MemoryStream
+            $s = $entry.Open()
+            try { $s.CopyTo($ms) } finally { $s.Dispose() }
+            $bytes = $ms.ToArray()
+            if ($bytes.Length -lt 3 -or $bytes[0] -ne 0xEF -or $bytes[1] -ne 0xBB -or $bytes[2] -ne 0xBF) {
+                $textProblems += "$($entry.FullName): no UTF-8 byte-order mark"
+                $text = $null
+                try { $text = $script:Utf8Strict.GetString($bytes) } catch { $textProblems += "$($entry.FullName): not valid UTF-8" }
+            } else {
+                $text = $null
+                try { $text = $script:Utf8Strict.GetString($bytes, 3, $bytes.Length - 3) } catch { $textProblems += "$($entry.FullName): not valid UTF-8" }
+            }
+            if ($null -eq $text) { continue }
+            if ($text.Replace("`r`n", "").IndexOfAny([char[]]@("`r", "`n")) -ge 0) {
+                $textProblems += "$($entry.FullName): line endings are not all CRLF"
+            }
+            foreach ($code in @(0x00C3, 0x00E2)) {
+                $idx = $text.IndexOf([char]$code)
+                if ($idx -ge 0) {
+                    $textProblems += ("$($entry.FullName): contains U+{0:X4} at offset $idx - an umlaut or dash was " +
+                                      "decoded as ANSI and re-encoded (double encoding)") -f $code
+                }
+            }
+        }
+    }
     finally { $archive.Dispose() }
     $missing = $required | Where-Object { $entries -notcontains $_ }
     if ($missing) {
         Write-Error "Packaged zip is missing:`n  $($missing -join "`n  ")"
+    }
+    if ($textProblems) {
+        Write-Error "Packaged zip has text files that would not open cleanly on Windows:`n  $($textProblems -join "`n  ")"
     }
 
     $sizeMb = [math]::Round((Get-Item $zip).Length / 1MB, 1)

@@ -10,12 +10,24 @@
 #   BepInEx/plugins/GloomhavenVR/RuntimeDeps/*.dll     <- RuntimeDepsLoader.RuntimeDepsDir
 #                                                         (= <plugin dir>/RuntimeDeps)
 #   BepInEx/plugins/GloomhavenVR/gloomhavenvr.bundle   <- HandVisuals/WorldUIAssets probe
-#                                                         (<plugin dir>/gloomhavenvr.bundle);
-#                                                         placeholder README shipped when the
-#                                                         bundle has not been built
+#                                                         (<plugin dir>/gloomhavenvr.bundle).
+#                                                         REQUIRED: every 3D asset and every
+#                                                         bundled shader lives in it. When no
+#                                                         bundle can be found the script warns
+#                                                         loudly and ships a README in its place
+#                                                         (packaging/gloomhavenvr.bundle.README.txt)
+#                                                         that says so in both languages.
+#   BepInEx/plugins/GloomhavenVR/THIRD-PARTY.txt       <- packaging/THIRD-PARTY.txt
 #   BepInEx/patchers/GloomhavenVR/GloomhavenVR.Preload.dll
 #   BepInEx/patchers/GloomhavenVR/Natives/*.dll        <- Patcher.InstallNatives reads
 #                                                         <patcher dir>/Natives
+#
+# EVERY .txt IN THE ZIP IS WRITTEN AS UTF-8 WITH BOM AND CRLF LINE ENDINGS (stage_text below),
+# and scripts/check-package-text.py fails the run if one is not. The reader is a Windows user
+# who double-clicks a .txt: without the BOM, legacy Notepad, WordPad, the 7-Zip and WinRAR
+# viewers and the Explorer preview pane decode the file as the ANSI code page and the German
+# guide's "raumgroßes" renders as "raumgroÃŸes" (reported 2026-09-03). The templates in
+# packaging/ stay plain UTF-8 + LF in git; the conversion happens here, at staging.
 #
 # Usage: scripts/package-release.sh
 # Refuses to package when libs/Natives or libs/RuntimeDeps are not populated.
@@ -74,8 +86,27 @@ cp "${RUNTIMEDEPS[@]}" "$PLUGDIR/RuntimeDeps/"
 cp "$PRELOADER" "$PATCHDIR/"
 cp "${NATIVES[@]}" "$PATCHDIR/Natives/"
 
-# Asset bundle: prefer a freshly built one, else the committed prebuilt copy, else a
-# placeholder README at the probe location.
+# ---- text files a Windows user double-clicks -------------------------------------------------
+# stage_text SRC DEST: render @VERSION@ and write DEST as UTF-8 WITH BOM and CRLF line endings,
+# whatever SRC had. See the header for why. LC_ALL=C keeps sed byte-transparent: under a UTF-8
+# locale a multibyte-aware sed can reject or mangle bytes it considers invalid, and under any
+# locale the escapes below are bytes, not characters. Any BOM or CR already in SRC is stripped
+# first so the result is the same whichever line-ending convention the template was saved with.
+stage_text() {
+    local src="$1" dest="$2"
+    printf '\xEF\xBB\xBF' > "$dest"
+    LC_ALL=C sed -e '1s/^\xEF\xBB\xBF//' -e 's/\r$//' -e "s/@VERSION@/$VERSION/g" -e 's/$/\r/' "$src" >> "$dest"
+}
+
+# Asset bundle: prefer a freshly built one, else the committed prebuilt copy.
+#
+# THE BUNDLE IS REQUIRED. Every 3D asset the mod draws (hands, control board, card backing,
+# map table, head avatars, environments, controller models) and every shader it ships live in
+# it; without the file the mod starts, logs an Alert per subsystem and degrades to procedural
+# placeholders everywhere at once. A zip without it is not a release. The script still
+# completes, so a developer can package a DLL-only build on a checkout that has no bundle,
+# but it says so on stderr and ships a bilingual README at the probe location that says the
+# same to the player — the previous README called the bundle OPTIONAL, which it never was.
 BUNDLE="$ROOT/unity/GloomhavenVR.Assets/Build/Bundles/gloomhavenvr.bundle"
 [[ -f "$BUNDLE" ]] || BUNDLE="$ROOT/prebuilt/gloomhavenvr.bundle"
 if [[ -f "$BUNDLE" ]]; then
@@ -84,18 +115,12 @@ if [[ -f "$BUNDLE" ]]; then
     # MIT). That licence requires its notice to travel with the copies, and the bundle
     # builder deliberately excludes .txt files from the archive itself, so the notice
     # ships beside it.
-    cp "$ROOT/packaging/THIRD-PARTY.txt" "$PLUGDIR/THIRD-PARTY.txt"
+    stage_text "$ROOT/packaging/THIRD-PARTY.txt" "$PLUGDIR/THIRD-PARTY.txt"
 else
-    cat > "$PLUGDIR/gloomhavenvr.bundle.README.txt" <<'EOF'
-gloomhavenvr.bundle — OPTIONAL asset bundle (hand gloves, card backing, table props).
-
-This release was packaged without it: the mod falls back to procedural hand and
-table visuals automatically and is fully functional.
-
-If a bundle is published later, drop the file 'gloomhavenvr.bundle' into THIS folder
-(BepInEx/plugins/GloomhavenVR/) — no other change needed; it is probed at runtime.
-Developers: build it with scripts/build-bundles.sh (needs Unity 2021.3.x).
-EOF
+    echo "WARNING: no gloomhavenvr.bundle found (neither $ROOT/unity/GloomhavenVR.Assets/Build/Bundles/" >&2
+    echo "         nor $ROOT/prebuilt/). The bundle is REQUIRED — this zip is INCOMPLETE and must not" >&2
+    echo "         be published. Shipping packaging/gloomhavenvr.bundle.README.txt in its place." >&2
+    stage_text "$ROOT/packaging/gloomhavenvr.bundle.README.txt" "$PLUGDIR/gloomhavenvr.bundle.README.txt"
 fi
 
 # ---- INSTALL.txt / INSTALL-DEUTSCH.txt -------------------------------------------------------
@@ -116,8 +141,10 @@ for f in "$TEMPLATE" "$TEMPLATE_DE"; do
         exit 1
     fi
 done
-sed "s/@VERSION@/$VERSION/g" "$TEMPLATE"    > "$STAGE/INSTALL.txt"
-sed "s/@VERSION@/$VERSION/g" "$TEMPLATE_DE" > "$STAGE/INSTALL-DEUTSCH.txt"
+# Through stage_text, never a bare `sed > file`: that wrote the template's raw UTF-8 bytes with
+# no BOM and LF endings, which is what a Windows viewer without a BOM heuristic reads as ANSI.
+stage_text "$TEMPLATE"    "$STAGE/INSTALL.txt"
+stage_text "$TEMPLATE_DE" "$STAGE/INSTALL-DEUTSCH.txt"
 
 # NO graphics-jobs enabler ships any more. The preloader writes boot.config itself
 # and restarts the game once on the boot that needs it, so a script whose whole job
@@ -148,5 +175,10 @@ for path in \
         exit 1
     fi
 done
+
+# Every text file in the archive must open cleanly on Windows: valid UTF-8, BOM, CRLF, and no
+# double-encoded umlauts. Fails the run — a zip that renders "raumgroÃŸes" is not a release.
+python3 "$ROOT/scripts/check-package-text.py" "$ZIP"
+
 echo
 echo "Layout verified (plugin, RuntimeDeps, preloader, natives, INSTALL.txt + INSTALL-DEUTSCH.txt)."
