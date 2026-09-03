@@ -154,6 +154,7 @@ internal static partial class WallSegmentFade
             _censusFreeRefusedDoorway = 0;
             _censusFreeRefusedNonOccluding = 0;
             _censusFreeDroppedEmpty = 0;
+            _doorwayRefusalNames.Clear(); // one list per rescan: unit members, riders, hanging plants
             _freeTouched.Clear();
             _freeUnits.Clear();
 
@@ -278,9 +279,10 @@ internal static partial class WallSegmentFade
                 Bounds b = r.bounds;
                 if ((b.min.y < airborneBar && b.max.y < topBar) || !IsArchitectureScale(b.size, 0f))
                     continue;
-                if (IsDoorwayAssembly(r, b, f.Name ?? r.name))
+                if (IsDoorwayAssembly(r, b, f.Name ?? r.name, out string doorWhy))
                 {
                     _censusFreeRefusedDoorway++;
+                    NoteDoorwayRefusal("unit member", f.Name ?? r.name, b, doorWhy);
                     continue; // doorways never fade (user rulings 2026-08-02 / 2026-09-04)
                 }
                 if (IsWaterProtected(b))
@@ -659,13 +661,48 @@ internal static partial class WallSegmentFade
         /// frame a DOORWAY segment), and anything in an arch rect is refused and counted.</para>
         /// </summary>
         private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name)
+            => IsDoorwayAssembly(r, probe, name, out _);
+
+        /// <summary>
+        /// STRUCTURE, NOT DISTANCE (ModBuild 411; user: <i>"diesmal faden nur die Kristalle, aber
+        /// das Element ist wieder stabil"</i>). The ModBuild 410 version also refused anything
+        /// within <see cref="DoorwayLinkMaxXZ"/> of a door root, and the 410 log answered with
+        /// <c>refused before clustering: 40 doorway</c> on the entrance scenario: the collapsed
+        /// entrance has a ThickDoor in it, and a distance test cannot tell an entrance from a
+        /// doorway. The entrance's rocks live under <c>Generated Content/SB_CC_Bridge_Wall_…/
+        /// CV_Generic_Rock_01/LOD*</c> — the map tile, no door prop above them — so the two
+        /// ancestry terms and the arch rect are what separates doorway content from a formation
+        /// standing beside a door. <paramref name="why"/> names the term that fired and the nearest
+        /// door root with its XZ distance, so the next log shows which one it was.
+        /// </summary>
+        private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name, out string why)
         {
+            why = string.Empty;
+            string term;
             if (IsArchProtected(probe, name))
-                return true;
-            if (FindDoorwayRootFor(probe) != null)
-                return true;
-            return r.GetComponentInParent<ProceduralDoorway>() != null
-                || r.GetComponentInParent<UnityGameEditorDoorProp>() != null;
+                term = "ARCH RECT";
+            else if (r.GetComponentInParent<ProceduralDoorway>() != null)
+                term = "ProceduralDoorway ancestor";
+            else if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
+                term = "UnityGameEditorDoorProp ancestor";
+            else
+                return false;
+            Transform? nearest = FindDoorwayRootFor(probe);
+            why = nearest != null
+                ? $"{term} (nearest door root '{nearest.name}' {HorizontalGap(probe, nearest.position):F2} wu away)"
+                : $"{term} (no door root within {DoorwayLinkMaxXZ:0.0} wu — the distance term is NOT a refusal since ModBuild 411)";
+            return true;
+        }
+
+        private const int DoorwayRefusalNameCap = 4;
+        private readonly List<string> _doorwayRefusalNames = new();
+
+        private void NoteDoorwayRefusal(string lane, string name, Bounds b, string why)
+        {
+            if (_doorwayRefusalNames.Count >= DoorwayRefusalNameCap)
+                return;
+            _doorwayRefusalNames.Add(
+                $"{lane} '{name}' y[{b.min.y:F1}..{b.max.y:F1}] c({b.center.x:F1},{b.center.z:F1}) — {why}");
         }
 
         private int _censusFreeRiders;
@@ -810,9 +847,10 @@ internal static partial class WallSegmentFade
                     continue;
 
                 Bounds archProbe = particles ? new Bounds(anchorPt, Vector3.zero) : b;
-                if (IsDoorwayAssembly(c, archProbe, f.Name ?? c.name))
+                if (IsDoorwayAssembly(c, archProbe, f.Name ?? c.name, out string riderDoorWhy))
                 {
                     _censusFreeRidersRefusedDoorway++;
+                    NoteDoorwayRefusal("rider", f.Name ?? c.name, archProbe, riderDoorWhy);
                     continue; // doorways never fade (user rulings 2026-08-07 / 2026-09-04)
                 }
                 if (IsWaterProtected(archProbe))
@@ -1026,6 +1064,14 @@ internal static partial class WallSegmentFade
                   .Append(" doorway, ").Append(_censusFreeRidersRefusedNonOccluding)
                   .Append(" non-occluding mesh(es) — the sticky carries are in the per-unit ")
                   .Append("counts, not here)");
+            }
+            if (_doorwayRefusalNames.Count > 0)
+            {
+                // ModBuild 411: WHICH term refused, and where the nearest door root stands, so a
+                // formation refused beside a door and a doorway refused as itself read differently.
+                sb.Append(" Doorway refusals named (up to ").Append(DoorwayRefusalNameCap)
+                  .Append(", structure only — ancestry or arch rect, never distance): ")
+                  .Append(string.Join("; ", _doorwayRefusalNames)).Append('.');
             }
             if (_censusFreeCapHit)
             {
