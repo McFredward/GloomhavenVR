@@ -108,10 +108,26 @@ internal sealed class WindowVisibilityHold
         internal bool WasActive;
         internal bool ForcedCanvas;
         internal bool ForcedActive;
+        /// <summary>ModBuild 405: whether this hold may touch the window at all. TRUE for the
+        /// panel's own window and for every nested window that was OPEN or VISIBLE when the hold
+        /// was taken; FALSE for a nested window the game was holding hidden at alpha 0. Switching
+        /// a hidden window's CanvasGroup off made its whole sub-screen DRAWABLE at inherited alpha
+        /// 1.00 for the length of the dissolve (the 404 log: 181 graphics under windows reporting
+        /// OPEN=False VISIBLE=False, every one of them inside a vanish) — the level-up panel, the
+        /// equipment panel and the delete-character dialog all became visible under the effect.
+        /// A window the game keeps hidden draws nothing today and must draw nothing under the
+        /// dissolve, so its three channels are left exactly where the game put them.</summary>
+        internal bool Held;
     }
 
     private readonly List<Rec> _recs = new(2);
     private bool _released;
+
+    /// <summary>Windows whose channels this hold actually drives (see <see cref="Rec.Held"/>).</summary>
+    internal int HeldCount { get; private set; }
+
+    /// <summary>Nested windows the game was holding hidden when the hold was taken, left alone.</summary>
+    internal int LeftToGameCount { get; private set; }
 
     /// <summary>Reused between captures. A window subtree holds one <c>UIWindow</c> in the ordinary
     /// case and a handful in the nested ones, and a vanish happens on every window close.</summary>
@@ -174,8 +190,17 @@ internal sealed class WindowVisibilityHold
                 Go = go,
                 GroupWasEnabled = false,
                 WasActive = go.activeSelf || isPrimary,
+                // ModBuild 405: a nested window the game holds hidden (not open, alpha 0) is not
+                // this effect's to make drawable — see Rec.Held. IsVisible is `alpha > 0`, so a
+                // nested window mid-way through its own hide tween is still held and dissolves
+                // along with the panel, exactly as before.
+                Held = isPrimary || w.IsOpen || w.IsVisible,
             };
             rec.GroupWasEnabled = rec.Group != null && rec.Group.enabled;
+            if (rec.Held)
+                HeldCount++;
+            else
+                LeftToGameCount++;
             _recs.Add(rec);
         }
         Scratch.Clear();
@@ -194,6 +219,10 @@ internal sealed class WindowVisibilityHold
         {
             Rec r = _recs[i];
             if (r.Window == null)
+                continue;
+            // ModBuild 405: a window the game holds hidden keeps all three channels as the game
+            // left them (Rec.Held).
+            if (!r.Held)
                 continue;
 
             // (1) THE ALPHA, CONCEDED. Take the group out of the inherited-alpha multiply instead
@@ -274,6 +303,8 @@ internal sealed class WindowVisibilityHold
         for (int i = 0; i < _recs.Count; i++)
         {
             Rec r = _recs[i];
+            if (!r.Held)
+                continue;
             try
             {
                 if (r.Group != null)

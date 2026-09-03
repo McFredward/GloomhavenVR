@@ -103,6 +103,12 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     /// INSTANT hide, where the game empties the window inside its own call.</summary>
     private bool _heldFromEdge;
 
+    /// <summary>ModBuild 405: of <see cref="_held"/>, how many the hold actually drives and how
+    /// many were nested windows the game held hidden and were left alone
+    /// (<c>WindowVisibilityHold.Rec.Held</c>). Copied at claim time because the hold is released
+    /// before <see cref="Report"/> runs.</summary>
+    private int _heldGroups, _leftToGame;
+
     // Measured, not estimated. Printed once per effect at its end.
     private readonly Stopwatch _watch = new();
     private double _worstMs;
@@ -171,6 +177,8 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                 runner._hold = hold.Count > 0 ? hold : null;
             }
             runner._held = runner._hold?.Count ?? 0;
+            runner._heldGroups = runner._hold?.HeldCount ?? 0;
+            runner._leftToGame = runner._hold?.LeftToGameCount ?? 0;
         }
 
         var build = Stopwatch.StartNew();
@@ -279,7 +287,11 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                     _threshold.Add(1f);
                 continue;
             }
-            _origAlpha.Add(cr.GetAlpha());
+            // ModBuild 405: THROUGH THE VEIL. A renderer the hidden-window veil is holding reads
+            // 0 here, and capturing that zero as its "own" alpha restored it as zero in Finish —
+            // one half of the black character column in the 404 log. The veil keeps the pre-veil
+            // value; this asks for it and falls back to the channel itself when nothing holds it.
+            _origAlpha.Add(CanvasConversion.PreVeilAlpha(cr, cr.GetAlpha()));
 
             var rt = cr.transform as RectTransform;
             for (int k = 0; k < WindowMaterialiseField.Samples; k++)
@@ -574,6 +586,11 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                                     + " — the game's 0.1 s alpha tween, its ChangeActive and its "
                                     + "_disableCanvas switch could not empty the window under this "
                                     + "animation."
+                                    + $" ModBuild 405: {_heldGroups} of them had their channels "
+                                    + $"driven and {_leftToGame} nested window(s) the game was "
+                                    + "holding hidden were LEFT TO THE GAME (their CanvasGroup "
+                                    + "stayed on, so their sub-screens did not become drawable "
+                                    + "under the dissolve)."
                                   : "VISIBILITY: NOT HELD — no UIWindow was found under the host, so "
                                     + "the game's own 0.1 s hide fade is still the thing that "
                                     + "removes this window and the dissolve is drawn over it.")
