@@ -179,7 +179,7 @@ namespace GloomhavenVR.WorldUI;
 /// — of which there are none during a loadout.</para>
 ///
 /// <para>=====================================================================================
-/// ModBuild 381 — WHAT ACTUALLY DIFFERS BETWEEN THE FIRST OPEN AND THE RE-OPEN
+/// ModBuild 382 — WHAT ACTUALLY DIFFERS BETWEEN THE FIRST OPEN AND THE RE-OPEN
 /// =====================================================================================</para>
 ///
 /// <para><b>USER, 2026-09-03:</b> <i>"Beim erneuten Öffnen der persönlichen Quest nachdem man es
@@ -231,7 +231,7 @@ namespace GloomhavenVR.WorldUI;
 /// bar — and <c>PanelInkBounds</c>' class comment is the write-up of both.</item>
 /// <item><i>Seat it right of the CHARACTER BLOCK only.</i> Correct with the picker closed, underneath
 /// the picker the moment it opens. Rejected by requirement three, in the same sentence that asks for
-/// it. <b>ModBuild 381 did not quietly adopt this.</b> Its lane fallback is not "right of the rows";
+/// it. <b>ModBuild 382 did not quietly adopt this.</b> Its lane fallback is not "right of the rows";
 /// it is "one gap right of the nearest painted edge inside the widest lane of the frame that draws
 /// no ink across the control's row", it runs ONLY when there is no room to the right of the union at
 /// all — a state the shipped build answered by drawing the button on top of the cards — and its
@@ -269,7 +269,7 @@ internal static class LoadoutConfirmPark
     /// can still press.</summary>
     private static bool _clampBiteLogged;
 
-    /// <summary>ModBuild 381 — the three outcomes of the horizontal solve, in the order they cost
+    /// <summary>ModBuild 382 — the three outcomes of the horizontal solve, in the order they cost
     /// the player anything. <see cref="Beside"/> is the design: there was room to the right of
     /// everything the window paints and the control took it. <see cref="Lane"/> is the escape added
     /// in this build: there was NO room to the right, so the seat was re-solved into a vertical lane
@@ -1380,7 +1380,7 @@ internal static class LoadoutConfirmPark
         float midY = Mathf.Clamp(wantMidY, frame.yMin + inkHalfH, Mathf.Max(frame.yMin + inkHalfH,
                                                                             frame.yMax - inkHalfH));
 
-        // ModBuild 381 — THE ESCAPE THE PARAGRAPH BELOW SAID DID NOT EXIST. It said "there is no
+        // ModBuild 382 — THE ESCAPE THE PARAGRAPH BELOW SAID DID NOT EXIST. It said "there is no
         // geometric escape to fall back to on this window ... the painted union spans the FULL
         // HEIGHT of the frame (-540..540 in the same log), so 'below the content' and 'left of the
         // content' are not free either". That reasoning is a BOUNDING BOX argument, and a bounding
@@ -1460,17 +1460,17 @@ internal static class LoadoutConfirmPark
                 + "367 the viewport-fit cut did NOT hold and the battle-goal column is still being "
                 + "shoved right — grep VIEWPORT FIT CUT and VIEWPORT FIT GATE ARMED next, in that "
                 + "order. The button is still reachable; it is only ugly. Logged once per session. "
-                // APPENDED ModBuild 381 — nothing above is reworded; two of its sentences are now
+                // APPENDED ModBuild 382 — nothing above is reworded; two of its sentences are now
                 // wrong and the corrections have to travel with them or the next reader repeats the
                 // round this build came out of.
-                + "APPENDED ModBuild 381, TWO CORRECTIONS AND ONE CHANGE OF BEHAVIOUR. (1) THE "
+                + "APPENDED ModBuild 382, TWO CORRECTIONS AND ONE CHANGE OF BEHAVIOUR. (1) THE "
                 + "INSTRUCTION ABOVE IS A DEAD END: in the ModBuild 380 hardware log the "
                 + "viewport-fit cut DID hold — it fired on 'Container' inside this very window and "
                 + "returned zero, exactly as designed — and the union still reached the frame edge. "
                 + "The column is therefore not being shoved by that helper and re-fixing it buys "
                 + "nothing. (2) THE NUMBER ABOVE IS NO LONGER WHERE THE CONTROL LANDS. It is what "
                 + "the frame clamp WOULD have done, kept verbatim so this line reads the same "
-                + "against every earlier log; since ModBuild 381 a seat with no room to its right "
+                + "against every earlier log; since ModBuild 382 a seat with no room to its right "
                 + "is re-solved into the widest lane of the frame that draws no ink across the "
                 + "control's own row, and the clamp is only taken when the frame has no such lane. "
                 + "WHICH OF THE TWO HAPPENED, on this tick and on every later one, is the SEAT LANE "
@@ -1586,7 +1586,7 @@ internal static class LoadoutConfirmPark
     private static readonly List<Graphic> PaintScratch = new(64);
     private static readonly Vector3[] Corners = new Vector3[4];
 
-    // ---- ModBuild 381: the lane solve -------------------------------------------------------------
+    // ---- ModBuild 382: the lane solve -------------------------------------------------------------
 
     /// <summary>Corners of a CLIPPER, kept apart from <see cref="Corners"/> because the clipper walk
     /// runs inside the loop that is already using those for the graphic being measured.</summary>
