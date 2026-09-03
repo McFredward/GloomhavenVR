@@ -169,6 +169,14 @@ internal sealed class CompatModule : IVRModule
         //   of opening in the same ProcessEvent call that dismisses HT_10 and arms our step.
         //   Inert unless the step engages it; releases hand the message straight back.
         VRSession.Harmony?.PatchAll(typeof(TutorialChainHold));
+        // - TutorialCameraSkip: postfix on LevelMessageUILayoutGroup.Show — the last statement of
+        //   the handler's display coroutine. Once the VR controls lesson has run, the tutorial's
+        //   two camera-introduction boxes (TB_2_2 / TB_3, which the lesson replaces) have their
+        //   own Continue button pressed for the player (LevelMessageUILayout.CloseButtonPressed,
+        //   the click's own handler), so the chain moves on through the box's own
+        //   LevelMessageDismissed event and the player never reads a "nothing to do here" page
+        //   (user ruling 2026-09-03). Gated to tutorial scenarios and to a lesson that ran.
+        VRSession.Harmony?.PatchAll(typeof(LevelMessageUILayoutGroup_Show_Patch));
         VRLog.Info(Name, "Tutorial VR bridge armed — camera step completes from world-grab "
             + "locomotion, flat camera hints show VR movement text (tutorial scenarios only).");
 

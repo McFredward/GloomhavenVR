@@ -43,6 +43,7 @@ internal static class LevelEventsController_StartListeningForEvents_Patch
             // Scenario boundary for the controls phase — anything still open belongs to the level
             // that just ended (this postfix is the one point where a new scripted level begins).
             ControlsTutorial.Reset();
+            TutorialCameraSkip.Reset();
 
             var sb = new StringBuilder(2048);
             List<CLevelMessage>? msgs = __instance.m_MessagesToShow;

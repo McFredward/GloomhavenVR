@@ -380,6 +380,18 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     private const float ReelDesignNearMeters = 0.05f;
 
     // Gesture anchors (captured on every hand-count change).
+    // ---- controls-lesson report (Compat.ControlAction.BoardCarry) --------------------------
+    // The lesson's "move the control board" card completes on REAL metres of NET palm travel from
+    // where the bar was taken, with the grip held. Net (distance from the origin, reported as a
+    // rising maximum) rather than a per-frame sum, so tracking jitter on a still hand can never
+    // accumulate into a completion. The origin is captured on the frame the lesson starts
+    // listening — ReportCarryToLesson is a cold path everywhere else — and re-captured whenever
+    // the carrying hand changes identity (a two-hand release promotes _handB).
+    private float _lessonGrabAt;       // Time.unscaledTime the FIRST hand took the bar
+    private VRHand? _lessonHand;       // the hand the origin below belongs to
+    private Vector3 _lessonPalm0;      // that hand's palm, world, at capture
+    private float _lessonReported;     // real metres already reported (the running net maximum)
+
     private Vector3 _anchorPos;        // palm (one-hand) or midpoint (two-hand) at engage
     private float _anchorHeading;      // pair heading at engage (two-hand), LEVEL-frame deg
     private Quaternion _anchorHandRot = Quaternion.identity; // hand rotation at engage (one-hand)
@@ -428,6 +440,11 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
             // _laserCarry one statement before the ForceGrab that lands here, so this reads the
             // grabber's own identity rather than guessing from how far away the hand is.
             LastGrabWasLaser = _laserCarry;
+            // The lesson's clock and its net-distance origin start with the gesture (see the
+            // field block): three writes, no reads, on every grab.
+            _lessonGrabAt = Time.unscaledTime;
+            _lessonHand = null;
+            _lessonReported = 0f;
         }
         else if (_handB == null && hand != _handA)
         {
@@ -675,6 +692,45 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
     }
 
     /// <summary>
+    /// Controls lesson, "move the control board" (<c>Compat.ControlAction.BoardCarry</c>): report
+    /// how far the gripping palm has travelled from where it took the bar, in REAL metres, and
+    /// how long the grip has been held. Runs once per carry frame from <see cref="Update"/>.
+    ///
+    /// <para>COLD PATH IS TWO STATIC READS: the channel's <c>Waiting</c> names the step or nothing
+    /// happens. Then three refusals, each one a thing the card does not ask for — a LASER carry
+    /// (that is the trigger; the card says GRIP), a two-hand pinch (the palms are resizing, not
+    /// carrying — one hand's net travel would be a claim about a gesture that has no single
+    /// carrying hand), and any owner but the control board (<c>Cards.PlayTray</c> — every other
+    /// bar, the combat log's and the modals', is a window and not the board).</para>
+    ///
+    /// <para>REAL METRES. Palm positions are world units at the rig's diorama scale;
+    /// <c>VRHand.WorldScale</c> is the same divisor <see cref="TickCarryReel"/> uses. The report is
+    /// the RISING MAXIMUM of the net distance, handed over as increments so the lesson's summing
+    /// channel ends up holding exactly that maximum — jitter on a still hand cannot raise it.</para>
+    /// </summary>
+    private void ReportCarryToLesson()
+    {
+        if (Compat.ControlsProgress.Waiting != Compat.ControlAction.BoardCarry)
+            return;
+        if (_laserCarry || _handB != null || _handA == null || !(_owner is Cards.PlayTray))
+            return;
+        Vector3 palm = _handA.Rig.PalmCenter.position;
+        if (!ReferenceEquals(_handA, _lessonHand))
+        {
+            _lessonHand = _handA;
+            _lessonPalm0 = palm;
+        }
+        float scale = Mathf.Max(_handA.WorldScale, 1e-4f);
+        float net = Vector3.Distance(palm, _lessonPalm0) / scale;
+        if (net > _lessonReported)
+        {
+            Compat.ControlsProgress.Notify(Compat.ControlAction.BoardCarry, net - _lessonReported);
+            _lessonReported = net;
+        }
+        Compat.ControlsProgress.BoardCarryGripSeconds = Time.unscaledTime - _lessonGrabAt;
+    }
+
+    /// <summary>
     /// The hover/held highlight, and the ONE writer of the handle material's colour.
     ///
     /// <para><b>ONE WRITE STILL LIGHTS A THREE-PIECE ROD.</b> The bars are no longer cubes: a
@@ -765,6 +821,8 @@ internal sealed class PanelGrabHandle : MonoBehaviour, IGrabbable, IGrabHighligh
         }
         if (_handA == null)
             return;
+
+        ReportCarryToLesson();
 
         float k = 1f - Mathf.Exp(-Smoothing * Time.deltaTime);
 

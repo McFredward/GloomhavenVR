@@ -383,6 +383,16 @@ internal static partial class Loc
             "Keep BOTH thumbsticks down and turn your hands around each other.",
             "Halte BEIDE Sticks gedrückt und dreh die Hände umeinander."),
 
+        // THE CONTROL BOARD, MOVED BY ITS BAR (user request 2026-09-03: "noch einen Test: der das
+        // Kontrollbrett mit der GRIP-Taste an der Grab-Bar greift und bewegt"). One instruction
+        // by the rule above: where to reach (the bar under the board), which key (GRIP — the
+        // board's handle is grip-grabbed by PanelGrabHandle.GrabWithGrip, never by the trigger)
+        // and what to do (carry it). "Kontrollbrett" is docs/PLAYING.de.md's word for it.
+        ["ctl_board_t"] = Pair("Move the control board", "Das Kontrollbrett verschieben"),
+        ["ctl_board_b"] = Pair(
+            "Reach for the bar under the control board, hold the GRIP and carry the board somewhere else.",
+            "Fass die Stange unter dem Kontrollbrett, halte den GRIP und trag das Brett woandershin."),
+
         ["ctl_card_take_t"] = Pair("Take a card", "Eine Karte nehmen"),
         ["ctl_card_take_b"] = Pair(
             "Turn a palm towards you and take a card from the fan with the TRIGGER.",
@@ -529,6 +539,16 @@ internal static partial class Loc
         // event (TutorialVR.NotifyLocomotion), so "move the table once" literally advances the
         // tutorial. Bullet phrasing mirrors the settings panel's control names ("Stick-Klick",
         // snap turn) so the hint and the config UI never disagree on what a control is called.
+        //
+        // WHERE IT IS SEEN SINCE 2026-09-03. The tutorial-2 camera introduction (TB_2_2 + TB_3)
+        // is now taught by the VR controls lesson, which runs in front of it, and when that lesson
+        // has run the two boxes are not read at all: Compat.TutorialCameraSkip presses each box's
+        // own Continue button as it opens, so the tutorial continues seamlessly (user ruling
+        // 2026-09-03 — the interim "you have just done all of this by hand — nothing to do here"
+        // page, tut_vr_covered_body, was removed with it: "ergibt keinen Sinn"). This text is what
+        // those boxes carry when the lesson did NOT run (switched off, or abandoned before its
+        // card opened) and what any OTHER tutorial's camera hint gets through the tier-2/tier-3
+        // matches — in both cases a hint no lesson has run in front of.
         ["tut_vr_move_title"] = Pair("Moving in VR", "Bewegen in VR"),
         ["tut_vr_move_body"] = Pair(
             "This step normally explains the desktop camera — in VR you move the world directly:\n\n" +
@@ -543,27 +563,6 @@ internal static partial class Loc
             "ziehe sie auseinander oder zusammen, um zu zoomen.\n" +
             "• Stick kurz nach links/rechts = Schnelldrehung.\n\n" +
             "Bewege den Tisch einmal, dann geht das Tutorial weiter."),
-
-        // THE CAMERA INTRODUCTION, REPLACED RATHER THAN RE-EXPLAINED (user ruling 2026-09-03,
-        // verbatim: "dann unser neues Tutorial das die Kameraeinführung komplett ersetzt und so
-        // sollte es dann weitergehen"). Since the lesson now runs BETWEEN TB_2_1 and the camera
-        // segment, the two boxes that segment is made of — TB_2_2 (the flat keyboard/WASD text,
-        // matched on the "w a s d" marker in the 394 log) and TB_3 (the camera box) — would
-        // otherwise teach a second time, worse, what the player has just performed with their own
-        // hands. They cannot simply be dropped: TB_4's display trigger is LevelMessageDismissed
-        // ctxId='TB_3', so the chain needs both of them shown and dismissed. So their TEXT is
-        // replaced and their dismissal is left to the player, which is the only version of
-        // "completely replaces" that does not write game state from presentation code.
-        //
-        // IT NAMES NO MECHANISM ON PURPOSE. tut_vr_move_body ends on a promise — "move the table
-        // once and the tutorial continues" — which is only true while something is actually
-        // waiting on CameraRoomButtonPressed; in the 394 flow dump TB_3's dismiss is the box's own
-        // button. A line that names neither the button nor the motion is true under both, and the
-        // box's own Continue button (or, in the trigger case, TutorialVR's locomotion bridge) is
-        // what moves the chain on either way.
-        ["tut_vr_covered_body"] = Pair(
-            "You have just done all of this by hand in the VR lesson — nothing to do here.",
-            "Das hast du im VR-Tutorial gerade alles selbst gemacht — hier ist nichts zu tun."),
 
         // ---- tutorial VR step instructions (TutorialHints exact-key table) --------------------
         // One id per ACTION the tutorial demands — each pinned HelpText strip instructs, in VR

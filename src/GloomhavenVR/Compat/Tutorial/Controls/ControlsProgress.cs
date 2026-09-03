@@ -37,6 +37,12 @@ internal enum ControlAction
     Ping,           // A/X marks a hex for the others
     Recenter,       // hold B+Y to re-seat yourself
     OpenMenu,       // short tap of the NON-dominant A/X -> the pause menu
+    // The control board, taken by the GRIP at its bar and carried (user request 2026-09-03).
+    // Reported by WorldUI.PanelGrabHandle for the PlayTray's handle only, in real metres of NET
+    // palm displacement from where the bar was taken — never the laser carry, which is a trigger
+    // gesture, and never another panel's bar. Appended, not inserted: nothing persists these
+    // values, but a value that keeps its number keeps every log line that ever printed it true.
+    BoardCarry,     // hold GRIP on the bar under the control board, move the hand -> the board follows
 }
 
 /// <summary>
@@ -71,12 +77,22 @@ internal static class ControlsProgress
     /// event for the discrete ones.</summary>
     internal static float Accumulated { get; private set; }
 
+    /// <summary>
+    /// How long the GRIP has been held on the control board's bar during the current carry,
+    /// seconds — written per frame by the reporter of <see cref="ControlAction.BoardCarry"/>
+    /// (<c>WorldUI.PanelGrabHandle</c>) while that step waits, read once by the lesson's
+    /// completion line. It is a second quantity the one-number channel cannot carry, and the
+    /// hardware line for that step is required to state both: the metres carried AND the hold.
+    /// </summary>
+    internal static float BoardCarryGripSeconds { get; set; }
+
     private static bool _disabledByError;
 
     internal static void BeginWaiting(ControlAction action)
     {
         Waiting = action;
         Accumulated = 0f;
+        BoardCarryGripSeconds = 0f;
     }
 
     internal static void StopWaiting() => BeginWaiting(ControlAction.None);

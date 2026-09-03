@@ -204,8 +204,20 @@ internal static class ControlsTutorial
     /// STEP so the line prints once per card rather than once per repaint.</summary>
     private static string? _controlNamedFor;
     private static bool _disabledByError;
+    private static bool _ranThisScenario;
 
     internal static bool IsRunning => _phase == Phase.Running && ControlsBox.IsShowing;
+
+    /// <summary>
+    /// DID THE LESSON'S CARD OPEN IN THIS SCENARIO? Set the moment the box is showing the first
+    /// card (<see cref="Begin"/>), cleared only at the scenario boundary (<see cref="Reset"/>) —
+    /// NOT by <see cref="Stop"/>, because the question it answers is asked AFTER the lesson has
+    /// ended: <see cref="TutorialCameraSkip"/> presses the camera introduction's Continue buttons
+    /// only for a player who has just been taught that content here. A lesson that was switched
+    /// off, or abandoned before its card opened, leaves this false and the camera boxes standing
+    /// with the VR movement text.
+    /// </summary>
+    internal static bool RanThisScenario => _ranThisScenario;
 
     /// <summary>[Compat] ControlsLesson, plus the error latch.</summary>
     internal static bool Enabled =>
@@ -305,6 +317,11 @@ internal static class ControlsTutorial
 
     internal static void Tick()
     {
+        // The camera-box skip lives on this tick because its work starts when the lesson has
+        // ENDED (the boxes it presses through are the ones the lesson's hold released) — so it
+        // must run while _phase is Idle. It is its own try/catch and its own error latch; one
+        // static read when nothing is pending.
+        TutorialCameraSkip.Tick();
         if (_disabledByError || _phase == Phase.Idle)
             return;
         try
@@ -430,12 +447,26 @@ internal static class ControlsTutorial
                 EnterDwell(ControlsStepState.AlreadyDone, PreSatisfiedDwellSeconds, step.Id);
                 return;
             }
+            // Read BEFORE EnterDwell: it stops the progress channel, which zeroes both numbers.
+            float carried = ControlsProgress.Accumulated;
+            float gripHeld = ControlsProgress.BoardCarryGripSeconds;
             EnterDwell(ControlsStepState.Done, CompletedDwellSeconds, step.Id);
             VRHands.Left?.SendHaptic(HapticPreset.ClickPulse);
             VRHands.Right?.SendHaptic(HapticPreset.ClickPulse);
             // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
             // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
             VRLog.Note("Tutorial", $"Controls lesson: '{step.Id}' done.");
+            if (step.Action == ControlAction.BoardCarry)
+            {
+                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+                VRLog.Note("Tutorial", $"Controls lesson BOARD CARRY: the control board was carried "
+                    + $"{carried:0.00} m (real metres — net displacement of the gripping palm from "
+                    + $"where it took the bar, divided by the rig scale) with the GRIP held for "
+                    + $"{gripHeld:0.0} s, against a target of {step.Target:0.00} m. Reported by "
+                    + "PanelGrabHandle for the PlayTray's bar only, palm grip only (a laser carry "
+                    + "does not count).");
+            }
             return;
         }
         RefreshBox();
@@ -533,6 +564,7 @@ internal static class ControlsTutorial
         AuditStepTable();
         AuditStateLine();
         _phase = Phase.Running;
+        _ranThisScenario = true;
         _runningAt = Time.unscaledTime;
         _windowClosedSince = -1f;
         ApplyStep(_index);
@@ -959,6 +991,7 @@ internal static class ControlsTutorial
         _openingDialog = null;
         _gateMessage = null;
         _phase = Phase.Idle;
+        _ranThisScenario = false;
     }
 
     /// <summary>Session teardown — the hands are going away, so drop every reference to them.</summary>

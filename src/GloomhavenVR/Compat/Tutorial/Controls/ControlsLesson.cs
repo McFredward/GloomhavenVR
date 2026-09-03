@@ -95,7 +95,9 @@ internal readonly struct ControlsStep
 /// moving yourself is what a newcomer reaches for in the first minute, and it needs the same single
 /// stick the drag just taught. Postponing it behind the two-handed gestures, as the first version
 /// did, split the stick's lesson in half and put the harder grip in the middle of it. Then the
-/// cards, which are the game. Everything after is a convenience.</para>
+/// control board by its bar (added 2026-09-03 at the user's request) — the first GRIP, alone,
+/// before the cards need the trigger and then the two together. Then the cards, which are the
+/// game. Everything after is a convenience.</para>
 ///
 /// <para>AND EVERY ROW IS NOW CONDITIONAL ON THE PLAYER'S OWN SETTINGS — see
 /// <see cref="Availability"/>, which is the single place that knows which dial gates which step and
@@ -166,6 +168,32 @@ internal static class ControlsLesson
             target: 0.35f),
         new(ControlAction.WorldRotate, "ctl_rotate", ControllerKey.Thumbstick, showsController: true,
             target: 25f),
+
+        // THE CONTROL BOARD, CARRIED BY ITS BAR (user request 2026-09-03, verbatim: "noch einen
+        // Test: der das Kontrollbrett mit der GRIP-Taste an der Grab-Bar greift und bewegt").
+        //
+        // WHY HERE. It is the first card that touches the GRIP, and it sits between the five stick
+        // cards and the two card cards for the same reason the sticks are consecutive: one key at
+        // a time. The stick lesson has just ended; this introduces the grip ALONE, on the one
+        // object in the room that is always there to grip (the board is built whenever a hand is
+        // active); then ctl_card_take asks for the TRIGGER alone, and ctl_card_hold combines the
+        // two ("hold the GRIP as well") — a card that would be teaching two keys at once if neither
+        // had been met before. It also puts the board where the player wants it BEFORE the card
+        // cards ask them to drop cards into its slots.
+        //
+        // CONTROLLER, by the rule above the table: the step turns on FINDING A KEY the player may
+        // not have found yet. ControllerKey.Squeeze lights on the models that have a grip part and
+        // falls back to the anchor marker or to nothing on the two that do not (the Index's grip is
+        // a force sensor with no mesh; the generic model has no separate grip) — the word GRIP in
+        // the body is the channel that works on all three, which is why it is shouted.
+        //
+        // WHAT COMPLETES IT: 0.20 m of REAL palm travel, net from the point where the bar was
+        // taken, with the GRIP held on the PlayTray's own bar (WorldUI.PanelGrabHandle reports it
+        // for that owner only, and never for a laser carry — that is the trigger, and another
+        // card). Net rather than summed so tracking jitter on a still hand cannot accumulate into
+        // a completion; 0.20 m is a deliberate move and well under the reach of a seated arm.
+        new(ControlAction.BoardCarry, "ctl_board", ControllerKey.Squeeze, showsController: true,
+            target: 0.20f),
 
         // --- the game ---------------------------------------------------------------------
         // These two, and the three conveniences below, need the room to be in a particular state —
@@ -370,6 +398,16 @@ internal static class ControlsLesson
                 return One(Opposite(DominantSide()),
                     "always available; the pause-menu tap is on the NON-dominant hand "
                     + "([Hands] PrimaryHand -> " + DominantSide() + ")");
+
+            case ControlAction.BoardCarry:
+                // Checked rather than assumed: the board's bar has no on/off dial. [Cards]
+                // BoardMoveMode only chooses HOW a carry may rotate the board (Frei / Begrenzt /
+                // Begrenzt mit Neigung — PlayTray's IPanelGrabOwner.CarryMode), every mode moves
+                // it; PanelGrabHandle.GrabWithGrip is a constant true; and the bar itself is built
+                // with the board (PlayTray.BuildHandle). Either hand's grip takes it.
+                return new StepAvailability(true, LessonHands.Both,
+                    "no setting gates the board's bar ([Cards] BoardMoveMode only picks the carry "
+                    + "mode) — either hand's GRIP takes it");
 
             default:
                 // CardTake — no config entry gates it and it works on either hand. LaserClick and

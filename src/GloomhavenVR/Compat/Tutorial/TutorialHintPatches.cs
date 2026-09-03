@@ -91,29 +91,67 @@ internal static class TutorialHints
     /// required input action (their dismiss is the box's own Continue button, which exists in VR)
     /// and stay vanilla.
     ///
-    /// <para>THE TWO CAMERA PAGES BOTH POINT AT THE SAME LINE SINCE 2026-09-03 (user ruling: the
-    /// controls lesson now runs BEFORE them and <i>"die Kameraeinführung komplett ersetzt"</i>).
-    /// <c>TEXT_003</c> is the tutorial-2 camera box (user-verified flat "W A S D" content) and
-    /// <c>TEXT_002_2</c> is the page immediately before it — the 394 hardware log caught that one
-    /// on the tier-3 <c>"w a s d"</c> marker and asked in as many words for it to be promoted here
-    /// (LogOutput.log:7828), which this does. Together they ARE the camera introduction.</para>
+    /// <para>THE TWO CAMERA PAGES (<see cref="CameraPageKeys"/>): <c>TEXT_003</c> is the tutorial-2
+    /// camera box (user-verified flat "W A S D" content) and <c>TEXT_002_2</c> is the page
+    /// immediately before it — the 394 hardware log caught that one on the tier-3
+    /// <c>"w a s d"</c> marker and asked in as many words for it to be promoted here
+    /// (LogOutput.log:7828), which this does. Together they ARE the camera introduction, and since
+    /// 2026-09-03 the controls lesson runs BEFORE them (user ruling: <i>"die Kameraeinführung
+    /// komplett ersetzt"</i>).</para>
     ///
-    /// <para>WHY THEY ARE RE-TEXTED AND NOT REMOVED. <c>TB_4</c>'s display trigger is
-    /// <c>LevelMessageDismissed ctxId='TB_3'</c>, so the scripted chain needs both boxes shown and
-    /// dismissed; dropping them would strand the tutorial at the camera step forever. Replacing
-    /// what they SAY is the whole of "completely replaces" that presentation code may do — the
-    /// dismissal stays the player's, and no game state is written to fake it.</para>
-    ///
-    /// <para><c>tut_vr_move_body</c> is no longer reached from this table and is deliberately kept:
-    /// it is still the tier-2/tier-3 fallback text for any OTHER tutorial's camera hint, which is
-    /// a hint no lesson has run in front of.</para>
+    /// <para>WHAT HAPPENS TO THEM, in two cases. When the lesson RAN, the boxes are not read at
+    /// all: <see cref="TutorialCameraSkip"/> presses each box's own Continue button the moment it
+    /// is laid out, so the tutorial goes straight on to <c>TB_4</c> (user ruling 2026-09-03: the
+    /// "you have just done all of this — nothing to do here" line those pages carried between
+    /// ModBuild 394 and 405 <i>"ergibt keinen Sinn"</i>; the tutorial must continue seamlessly).
+    /// They cannot simply be dropped from the queue — <c>TB_4</c>'s display trigger is
+    /// <c>LevelMessageDismissed ctxId='TB_3'</c>, so the chain needs both shown and dismissed —
+    /// which is why they are dismissed through their own button rather than removed. When the
+    /// lesson did NOT run (switched off, or abandoned before its card opened) nothing has taught
+    /// VR movement yet, and the boxes stand with <c>tut_vr_move_body</c>: the VR movement
+    /// instructions, the same text the tier-2/tier-3 fallback gives any other tutorial's camera
+    /// hint. The text below is therefore the text of the SECOND case only; in the first it is
+    /// resolved and never seen.</para>
     /// </summary>
     private static readonly Dictionary<string, string> BodyOverrides =
         new(StringComparer.OrdinalIgnoreCase)
         {
-            ["TUTORIAL_2_TEXT_002_2"] = "tut_vr_covered_body",
-            ["TUTORIAL_2_TEXT_003"] = "tut_vr_covered_body",
+            ["TUTORIAL_2_TEXT_002_2"] = "tut_vr_move_body",
+            ["TUTORIAL_2_TEXT_003"] = "tut_vr_move_body",
         };
+
+    /// <summary>The page keys that make up the tutorial-2 camera introduction — the same two
+    /// pinned in <see cref="BodyOverrides"/>, named once so the text table and the skip cannot
+    /// disagree about which boxes are "the camera introduction".</summary>
+    private static readonly string[] CameraPageKeys =
+        { "TUTORIAL_2_TEXT_002_2", "TUTORIAL_2_TEXT_003" };
+
+    /// <summary>
+    /// Is this scripted message one of the camera-introduction boxes? True when it has at least
+    /// one page and EVERY page is a pinned camera page — a box that also carried some other page
+    /// would lose that page if skipped, so it is not one of these.
+    /// </summary>
+    internal static bool IsCameraBox(CLevelMessage? message)
+    {
+        if (message?.Pages == null || message.Pages.Count == 0)
+            return false;
+        for (int i = 0; i < message.Pages.Count; i++)
+        {
+            CLevelMessagePage? page = message.Pages[i];
+            if (page == null)
+                return false;
+            bool pinned = false;
+            for (int k = 0; k < CameraPageKeys.Length; k++)
+                if (Matches(CameraPageKeys[k], page.PageTextKey, page.PageTextKeyController))
+                {
+                    pinned = true;
+                    break;
+                }
+            if (!pinned)
+                return false;
+        }
+        return true;
+    }
 
     /// <summary>Pinned TITLE keys → mod loc id. For the HelpText strip the title IS the
     /// instruction line; each mapping instructs (in VR terms) exactly the action the
