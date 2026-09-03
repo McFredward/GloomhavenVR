@@ -3823,7 +3823,8 @@ internal static partial class CanvasConversion
             + (fx.BurstSigValid ? "OBSERVED" : "NOT YET OBSERVED (the burst cannot arm before it)")
             + ". The burst counts CHANGES of the open set, so zero bursts with a valid baseline "
             + "means the set never changed while this window was up — read the COLUMN OVERSPILL "
-            + "line for the flash instead, which is measured every pass and needs no event.");
+            + "line for the flash instead, which is measured every pass and needs no event. "
+            + DescribeHiddenWindowVeil(panel) + ".");
     }
 
     // =============================================================================================

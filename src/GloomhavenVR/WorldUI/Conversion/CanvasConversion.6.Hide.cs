@@ -309,6 +309,7 @@ internal static partial class CanvasConversion
         }
         panel.HiddenRenderers.Clear();
         panel.RenderHidden = false;
+        panel.LastRevealFrame = Time.frameCount;
     }
 
     /// <summary>Convenience overload for callers that do not report counts.</summary>

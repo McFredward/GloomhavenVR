@@ -251,6 +251,7 @@ internal static partial class CanvasConversion
             }
         }
 
+        ReleaseHiddenWindowVeil(panel);
         DestroyHostSafely(panel, "release");
 
         if (Active.Count == 0)
@@ -1024,6 +1025,11 @@ internal static partial class CanvasConversion
             ConvertedPanel panel = Active[i];
             if (!panel.IsAlive)
                 continue;
+            // ModBuild 401 — the hidden-window veil runs FIRST, before the reveal flip below, so the
+            // frame a panel becomes visible in already has every game-hidden nested window culled
+            // at the renderer. See CanvasConversion.9e.HiddenWindowVeil.cs for the whole account.
+            using (Core.PerfMonitor.Scope("WorldUI.HiddenWindowVeil"))
+                TickHiddenWindowVeil(panel);
             if (panel.FlattenEnabled)
                 FlattenSubtree(panel);
 

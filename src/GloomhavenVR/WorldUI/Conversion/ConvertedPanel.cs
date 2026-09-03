@@ -905,6 +905,11 @@ internal sealed class ConvertedPanel
     /// </summary>
     public readonly List<Canvas> HiddenCanvases = new(8);
 
+    /// <summary>Frame on which this panel's render hide was last lifted (the reveal). Read by the
+    /// hidden-window veil so a veil that lands on the reveal frame can say so — that coincidence
+    /// is the mechanism the ModBuild 401 note describes.</summary>
+    public int LastRevealFrame = -1;
+
     /// <summary>
     /// ONE FLAG PER ENTRY OF <see cref="HiddenCanvases"/>, in lockstep with it: was the
     /// <c>UIWindow</c> ON THAT CANVAS'S OWN GameObject still PRE-START when this panel's hide
