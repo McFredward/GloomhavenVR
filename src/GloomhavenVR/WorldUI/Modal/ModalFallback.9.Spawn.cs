@@ -798,6 +798,12 @@ internal static partial class ModalFallback
         /// rather than re-deriving it from a registry that may have been narrowed since.</summary>
         public float ArcYawDeg;
 
+        /// <summary>The corner seat this spawn took, if it is one of the two corner windows
+        /// (<c>ArcCornerSeat.Seated</c>). The replay re-asserts the same corner point after the
+        /// clamps and faces the same spawn point, so the pre-reveal re-place cannot move a corner
+        /// window off its corner however its fitted size differs from the pre-fit one.</summary>
+        public ArcCornerSeat Corner;
+
         /// <summary><see cref="HeadPos"/>'s HEIGHT was substituted at spawn because the head camera
         /// carried no tracked XR pose (see <see cref="HeadEyeHeight"/>). Carried so the replay's log
         /// line repeats the fact instead of presenting the replayed head as a fresh measurement.</summary>
@@ -855,6 +861,7 @@ internal static partial class ModalFallback
         string arcWhy = "";
         bool arcPlaced = false;   // holds a reservation → the reservation, not a box test, deconflicts it
         bool arcGoverned = false; // the map room's cone decided this placement
+        ArcCornerSeat corner = default; // a corner window: its centre goes over the corner point
         // Did this spawn have to substitute the player's eye height because the head camera carried
         // no tracked pose? Stored on the anchor so a REPLAY reports it too — the replay uses the
         // corrected head by construction (it replays HeadPos), and a log line that did not say so
@@ -943,6 +950,17 @@ internal static partial class ModalFallback
                               + "same corrected head by construction — it is not a second, "
                               + "independent measurement agreeing with the first";
             arcWhy = "replayed against the final fitted geometry — the ANGLE is unchanged";
+            corner = a.Corner;
+            // A CORNER WINDOW'S REPLAY NEVER RUNS THE SEAT SEARCH (2026-09-03): its place is the
+            // corner point, which RawPos already carries and the re-assert below restores after the
+            // clamps. Only the registry is brought up to date with what it now draws.
+            if (corner.Seated)
+            {
+                arcWhy = "replayed against the final fitted geometry — the CORNER is unchanged";
+                if (arcPlaced && TryRefreshCornerClaim(self, arcSlot, halfSize, scale, headPos,
+                        out string cornerReplayNote))
+                    arcWhy = cornerReplayNote;
+            }
             // AND THE RESERVATION IS RE-TAKEN ON WHAT THE WINDOW ACTUALLY DRAWS (ModBuild 234).
             // This call is the one moment the window's final geometry exists while it is still
             // render-hidden, and it is also the first moment its DRAWN extent can be measured at
@@ -953,7 +971,8 @@ internal static partial class ModalFallback
             // booked arc against 14° of drawn content, and re-seating it here is what hands the
             // other 74° back to the room. A move at this instant is invisible by construction —
             // the same premise TickPoseRePlace itself is built on.
-            if (arcPlaced && TryReseatArcClaimOnDrawnContent(self, arcSlot, halfSize, scale,
+            if (arcPlaced && !corner.Seated
+                && TryReseatArcClaimOnDrawnContent(self, arcSlot, halfSize, scale,
                     gazeYawDeg, out float reseatYaw, out int reseatRank, out float reseatPull,
                     out string reseatNote))
             {
@@ -1070,8 +1089,9 @@ internal static partial class ModalFallback
             // not a rotation, so pitch and roll are still zero. ModBuild 192's right+down stagger
             // is deliberately GONE: down is where the control board is, and ClampSpawnPose's
             // board-top floor would have put two windows back on the same height.
-            if (TryClaimArcSeat(self, levelMessage, halfSize, scale, gazeYawDeg, out arcSlot,
-                    out arcYawDeg, out int arcOverlapRank, out float arcPullWorld, out arcWhy))
+            if (TryClaimArcSeat(self, levelMessage, halfSize, scale, gazeYawDeg, headPos,
+                    out arcSlot, out arcYawDeg, out int arcOverlapRank, out float arcPullWorld,
+                    out corner, out arcWhy))
             {
                 arcGoverned = true;
                 arcPlaced = arcSlot >= 0;
@@ -1084,6 +1104,11 @@ internal static partial class ModalFallback
                 // azimuth-preserving, height-preserving construction is written once; see
                 // ApplyArcDepth for why it moves along the window's own flattened radial.
                 ApplyArcDepth(ref pos, headPos, fwd, arcYawDeg, scale, arcPullWorld);
+                // A CORNER WINDOW (2026-09-03): the raw pose's X/Z ARE the corner point. The
+                // height is left to the clamps and the bar-height rule exactly as for every other
+                // map-room window, so "the height is fine as it is" holds bit for bit.
+                if (corner.Seated)
+                    pos = new Vector3(corner.Point.x, pos.y, corner.Point.z);
             }
             else if (staggerIndex > 0)
             {
@@ -1114,6 +1139,7 @@ internal static partial class ModalFallback
             ArcGoverned = arcGoverned,
             ArcYawDeg = arcYawDeg,
             HeadSubstituted = headSubstituted,
+            Corner = corner,
         };
         float maxPitchDeg = levelMessage ? LevelMsgMaxSpawnPitchDeg : MaxSpawnPitchDeg;
         string? clampReason = ClampSpawnPose(headPos, fwd, ref pos, scale, halfSize, maxPitchDeg,
@@ -1213,6 +1239,20 @@ internal static partial class ModalFallback
         // MapRoom.HoverCardPose rewrites every tick from the map icon it describes — a spawn height
         // written for that family would be overwritten the same frame and would look, in the log,
         // exactly like a rule that worked.
+        // ---- 2026-09-03 — A CORNER WINDOW'S X/Z ARE THE CORNER, AND THIS IS THE LAST WORD ON THEM.
+        //      Every clamp above (the steep-gaze flatten, the board-top raise that lengthens the
+        //      hypotenuse, the overlap swing, the cone restore) reasons in the head's frame and can
+        //      move the window ALONG THE GAZE — the delivered line has measured up to +5.5 % of it.
+        //      A corner is a point, so after the chain has had its say the horizontal residual is
+        //      measured (and printed on the slot line in mm) and the corner is written back. Height
+        //      is untouched here; the bar-height rule below owns it, exactly as before.
+        if (corner.Seated)
+        {
+            float offWorld = new Vector3(pos.x - corner.Point.x, 0f, pos.z - corner.Point.z).magnitude;
+            corner.ClampedOffMm = offWorld / Mathf.Max(scale, 1e-4f) * 1000f;
+            pos = new Vector3(corner.Point.x, pos.y, corner.Point.z);
+        }
+
         string? barHeightNote = null;
         if (arcGoverned && !levelMessage && TryMapTableTopWorldY(out float tableTopY,
                 out float tableScale))
@@ -1281,6 +1321,17 @@ internal static partial class ModalFallback
                 flat = Vector3.forward;
         }
         rot = Quaternion.LookRotation(flat.normalized, Vector3.up);
+        // A CORNER WINDOW FACES THE SPAWN POINT, not wherever the head happens to be at the instant
+        // it converts (2026-09-03): the corner is a place in the room and so is its facing — the
+        // same pose on every entry. Same convention as above (canvas front faces −forward, so the
+        // vector runs FROM the spawn point TO the window), yaw only, applied once at placement.
+        if (corner.Seated)
+        {
+            Vector3 fromSpawn = pos - corner.SpawnPoint;
+            fromSpawn.y = 0f;
+            if (fromSpawn.sqrMagnitude >= 1e-4f)
+                rot = Quaternion.LookRotation(fromSpawn.normalized, Vector3.up);
+        }
 
         // YAW ONLY (user ruling ModBuild 189, see the MaxSpawnTiltDeg tombstone at the top of this
         // file). The request-B upward tilt used to be applied HERE, on exactly the condition that a
@@ -1486,7 +1537,27 @@ internal static partial class ModalFallback
                                   + ". After the one pre-reveal re-place this window is never posed "
                                   + "again while it floats: opening or closing any other window "
                                   + "moves nothing (user ruling), and only the player's own grab "
-                                  + "can move it.");
+                                  + "can move it."
+                                  // 2026-09-03 — THE CORNER CLAUSE, appended for a corner-seated
+                                  // window only: which corner, the corner's world point, the
+                                  // window centre being written, the horizontal error in mm at
+                                  // room scale (0 by construction after the re-assert; the number
+                                  // beside it is what the clamp chain had done before it), and the
+                                  // facing. The MAP ROOM ARC AUDIT that follows measures the same
+                                  // window LIVE off its transform.
+                                  + (corner.Seated
+                                      ? $" CORNER SEAT: the {corner.Which} far corner of the map "
+                                        + $"table, corner point ({corner.Point.x:F2},"
+                                        + $"{corner.Point.y:F2},{corner.Point.z:F2}) wu; window "
+                                        + $"centre written at ({pos.x:F2},{pos.y:F2},{pos.z:F2}) wu; "
+                                        + "horizontal error "
+                                        + $"{new Vector3(pos.x - corner.Point.x, 0f, pos.z - corner.Point.z).magnitude / Mathf.Max(scale, 1e-4f) * 1000f:F0} mm "
+                                        + $"at room scale (the clamp chain had left it "
+                                        + $"{corner.ClampedOffMm:F0} mm off the corner before the "
+                                        + "corner was re-asserted). It faces the spawn point "
+                                        + $"({corner.SpawnPoint.x:F2},{corner.SpawnPoint.y:F2},"
+                                        + $"{corner.SpawnPoint.z:F2}) wu, yaw {rot.eulerAngles.y:F1}°."
+                                      : ""));
             // BOOKED DISTANCE vs DELIVERED DISTANCE, RECONCILED — and the registry corrected to the
             // one that is true. This is the only point in the whole path where both numbers exist:
             // TryClaimArcSeat computed every angle at WindowDistanceMeters × scale, and every clamp

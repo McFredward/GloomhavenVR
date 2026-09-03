@@ -841,6 +841,24 @@ internal static partial class ModalFallback
         /// at claim time (spawn only) so the choice costs one bool per claim and no lookups.</para>
         /// </summary>
         public bool Permanent;
+
+        /// <summary>
+        /// THIS CLAIM IS A CORNER SEAT (2026-09-03): the window's centre stands over one of the map
+        /// table's two far corners, a PLACE IN THE ROOM chosen by the window's identity (character
+        /// screen LEFT, quest log RIGHT — see <c>TryClaimCornerSeat</c> in ArcSeats.cs), not an
+        /// angle the seat search found. Its angular interval is still booked here so every other
+        /// window's search sees it as taken; what this flag changes is how the claim is REPLAYED
+        /// (a refloat or the pre-reveal re-place re-derives the pose from the corner, never from
+        /// the angle) and how its distance is reported (the corner's own, not a ladder step).
+        /// </summary>
+        public bool Corner;
+
+        /// <summary>World point of the corner this claim stands over (y = the table top), valid
+        /// while <see cref="Corner"/>.</summary>
+        public Vector3 CornerPoint;
+
+        /// <summary>"LEFT" or "RIGHT" — which far corner, as seen from the spawn point.</summary>
+        public string? CornerWhich;
     }
 
     /// <summary>THE CLAIM REGISTRY. See <see cref="ArcClaim"/>.</summary>

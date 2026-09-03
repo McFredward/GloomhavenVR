@@ -941,6 +941,367 @@ internal static partial class ModalFallback
         return true;
     }
 
+    // =============================================================================================
+    //  THE CORNER SEATS (2026-09-03) — the two far corners of the map table belong to two windows
+    //  BY IDENTITY, and a corner is a POINT, not an angle.
+    //
+    //  USER REQUEST, translated: "I want the two windows (character UI and quest list) to spawn
+    //  ABOVE THE TWO FAR CORNERS of the table: one above the left corner, one above the right
+    //  corner. The height is fine as it is, but the windows do not spawn exactly above those
+    //  corners, and that must change."
+    //
+    //  WHAT THE ModBuild 243 CORNER RULE GOT WRONG, measured off the ModBuild 410 log. It offered the
+    //  corners as ANGLES off the live gaze, first come first served, at the NOMINAL reading distance:
+    //    * the angle was right but the DISTANCE was 1.40 m along the gaze whatever the corner's own
+    //      distance (≈2 m from the seat), so the window hung short of the corner, over the map;
+    //    * "left is tried first" seated the CHARACTER SCREEN on the RIGHT corner (:2557 "the RIGHT
+    //      far corner … at 12°") because the gaze at that instant was 23° off the table's forward
+    //      and the left corner fell outside ±40° — and the quest log then found no corner at all
+    //      (:2590, the free interval nearest the gaze);
+    //    * a corner freed by the game hiding the quest log went to whichever window opened next
+    //      (:4148 'UI Quest Popup', :4286 'UI Event Window'), so the two windows he named had no
+    //      fixed home.
+    //  All three are the same mistake: a corner was a RESERVATION SOMEBODY COULD WIN, not a place a
+    //  named window lives. So:
+    //    * the LEFT far corner is the CHARACTER SCREEN's (UIWindowID.PartyPanel) and the RIGHT far
+    //      corner is the QUEST LOG's (matched by its QuestLogManager component, its ID is None) —
+    //      the same two windows IsMapRoomPermanent names, and in the order the user wrote them;
+    //    * left/right are taken FROM THE SPAWN POINT (MapRoomDriver.SeatFloor) facing the table
+    //      centre — the frame the recentre now guarantees the head is in (VRRigDriver.RecenterMap),
+    //      and a pure function of the parchment bounds and the seat, so the same on every entry;
+    //    * the window's CENTRE is written exactly over the corner point (its X/Z), at the room's one
+    //      bar height (unchanged), facing the spawn point, and NO seat search, no ladder and no
+    //      soft clamp may move it horizontally — ComputeHmdPose re-asserts the corner after the
+    //      clamp chain and prints the residual in millimetres;
+    //    * the corners are NEVER offered to any other window (ArcSeatFreeInterval's pass −1 is off
+    //      for everything else), whether or not the two are standing, so a window that opens while
+    //      the quest log is hidden by the game cannot take its corner and be landed on when it
+    //      comes back. Every other window keeps the reservation system exactly as it was.
+    //  The corner window still BOOKS its angular interval in the registry, so the other windows'
+    //  search sees it as taken and steps in front of it on the depth ladder where they must overlap.
+    //  Grab-rotation stays authoritative afterwards, as for every spawn.
+    // =============================================================================================
+
+    /// <summary>
+    /// A CORNER SEAT as <c>ComputeHmdPose</c> needs it: which corner, its world point, and the
+    /// spawn point the window is faced at. Carried on the <c>SpawnAnchor</c> so the pre-reveal
+    /// re-place and a presence-regain refloat re-derive the same pose from the same place.
+    /// </summary>
+    private struct ArcCornerSeat
+    {
+        /// <summary>True when this placement is a corner seat; every other field is then valid.</summary>
+        public bool Seated;
+
+        /// <summary>"LEFT" or "RIGHT", as seen from the spawn point facing the table.</summary>
+        public string Which;
+
+        /// <summary>The corner of the table top, world units (y = the table top surface).</summary>
+        public Vector3 Point;
+
+        /// <summary>The spawn point (the seat's tracking floor), world units — the facing target.</summary>
+        public Vector3 SpawnPoint;
+
+        /// <summary>Filled by <c>ComputeHmdPose</c>: how far the clamp chain had moved the window
+        /// off the corner horizontally before the corner was re-asserted, mm at room scale.</summary>
+        public float ClampedOffMm;
+    }
+
+    /// <summary>
+    /// Which corner window <paramref name="panel"/> is, if either. IS-A on the converted root's own
+    /// <c>UIWindow</c> (the same identity the permanence rule uses): the character screen by its
+    /// ID, the quest log by its own component because its ID is None. The party ASSEMBLY window
+    /// (also permanent) is nested inside the character screen and never floats on its own in the
+    /// map room, so it is deliberately not a corner window — two windows on one corner would be the
+    /// stacking fault the corner rule exists to prevent.
+    /// </summary>
+    private static bool TryCornerWindowSide(ConvertedPanel? panel, out bool right)
+    {
+        right = false;
+        UIWindow? window = WindowForPanel(panel);
+        if (window == null)
+            return false;
+        if (IsQuestLogWindow(window))
+        {
+            right = true;
+            return true;
+        }
+        return window.ID == UIWindowID.PartyPanel;
+    }
+
+    /// <summary>
+    /// THE CORNER AS A WORLD POINT — the far-left or far-right corner of the table top as seen
+    /// from the SPAWN POINT facing the table centre. The slab is the surveyed multiple of the
+    /// parchment about their shared centre (the same ratios <see cref="TryTableFarCornersDeg"/> and
+    /// the shared anchor use, with the same aspect falsifier); "far" is the two corners with the
+    /// largest reach along the spawn→centre direction, and left/right is the sign of their lateral
+    /// offset from that line. Nothing here reads the head: a corner is a place in the room.
+    /// </summary>
+    private static bool TryTableFarCornerWorld(bool right, out Vector3 corner, out Vector3 spawnPoint,
+        out Vector3 tableCentre, out string note)
+    {
+        corner = Vector3.zero;
+        spawnPoint = Vector3.zero;
+        tableCentre = Vector3.zero;
+        note = "NO CORNER SEAT this placement — the parchment could not be measured (the room is "
+               + "standing down), so this corner window was seated by the angular search instead";
+        if (!MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 centre, out float _))
+            return false;
+        MeshRenderer? parchment = MapRoom.MapRoomDriver.ParchmentRenderer;
+        if (parchment == null)
+            return false;
+        Bounds b = parchment.bounds;
+        if (b.size.x <= 1e-3f || b.size.z <= 1e-3f)
+            return false;
+        float aspect = b.size.x / b.size.z;
+        if (Mathf.Abs(aspect - MapAspectXOverZ) > MapAspectTolerance)
+        {
+            note = $"NO CORNER SEAT this placement — the live parchment measures {b.size.x:F1} x "
+                   + $"{b.size.z:F1} world units, aspect {aspect:F2}, and the surveyed map is "
+                   + $"{MapAspectXOverZ:F2}, so the table the corner would belong to would be "
+                   + "invented. The angular search seats this corner window instead";
+            return false;
+        }
+
+        spawnPoint = MapRoom.MapRoomDriver.SeatFloor;
+        tableCentre = centre;
+        Vector3 forward = new Vector3(centre.x - spawnPoint.x, 0f, centre.z - spawnPoint.z);
+        if (forward.sqrMagnitude < 1e-6f)
+        {
+            note = "NO CORNER SEAT this placement — the spawn point coincides with the table "
+                   + "centre, so 'far' and 'left' have no meaning here. The angular search seats "
+                   + "this corner window instead";
+            return false;
+        }
+        forward.Normalize();
+        Vector3 lateralAxis = Vector3.Cross(Vector3.up, forward); // + = the player's right
+
+        float halfX = b.size.x * 0.5f * TableToMapWidthRatio;
+        float halfZ = b.size.z * 0.5f * TableToMapDepthRatio;
+        float topY = b.max.y;
+
+        // The two corners furthest along the spawn→centre line are the far pair; among them the
+        // requested side is the sign of the lateral offset. Ties in reach are the normal case (an
+        // axis-aligned seat) and are broken by the lateral sign alone.
+        float bestScore = float.MinValue;
+        for (int i = 0; i < 4; i++)
+        {
+            float cx = centre.x + ((i & 1) == 0 ? -halfX : halfX);
+            float cz = centre.z + ((i & 2) == 0 ? -halfZ : halfZ);
+            Vector3 rel = new Vector3(cx - centre.x, 0f, cz - centre.z);
+            float reach = Vector3.Dot(rel, forward);
+            float lateral = Vector3.Dot(rel, lateralAxis);
+            // Reach dominates (a far corner beats a near one by the whole table depth); the
+            // lateral sign selects the side among the far pair.
+            float score = reach * 1000f + (right ? lateral : -lateral);
+            if (score > bestScore)
+            {
+                bestScore = score;
+                corner = new Vector3(cx, topY, cz);
+            }
+        }
+        note = $"THE {(right ? "RIGHT" : "LEFT")} FAR CORNER of the map table is at "
+               + $"({corner.x:F2},{corner.y:F2},{corner.z:F2}) wu — the "
+               + $"{b.size.x * TableToMapWidthRatio:F0} x {b.size.z * TableToMapDepthRatio:F0} "
+               + "world-unit slab the parchment lies on, seen from the spawn point "
+               + $"({spawnPoint.x:F2},{spawnPoint.y:F2},{spawnPoint.z:F2}) wu facing the table "
+               + $"centre ({centre.x:F2},{centre.y:F2},{centre.z:F2}) wu";
+        return true;
+    }
+
+    /// <summary>
+    /// The world y the map room's bar-height rule will put THIS window's centre at — the same
+    /// arithmetic <c>ComputeHmdPose</c>'s bar-height block applies after the clamps, computed here
+    /// so a corner claim can book the TRUE distance from the head to the window's final centre
+    /// (the delivered line then reads 0.0 % instead of "corrected" on every corner window).
+    /// </summary>
+    private static bool TryPredictMapRoomCentreY(Vector2 halfSizeWorld, out float centreY)
+    {
+        centreY = 0f;
+        if (!TryMapTableTopWorldY(out float tableTopY, out float tableScale))
+            return false;
+        float halfWinYm = Mathf.Max(halfSizeWorld.y / tableScale, SharedAnchorMinHalfHeightMeters);
+        float barYm = ResolveMapRoomBarHeightMeters(halfWinYm, out string _);
+        centreY = tableTopY + (barYm + GrabBarDropMeters + halfWinYm) * tableScale;
+        return true;
+    }
+
+    /// <summary>
+    /// CLAIM A CORNER SEAT for a corner window. Returns true with the corner and the registry entry
+    /// written; false with an EMPTY <paramref name="why"/> for a window that is not a corner window
+    /// (the ordinary search runs), and false with a NON-empty <paramref name="why"/> for a corner
+    /// window whose corner could not be measured this time (the ordinary search runs and the note
+    /// is appended to its line, so a corner window seated elsewhere always says why).
+    /// </summary>
+    /// <param name="headPos">The head <c>ComputeHmdPose</c> measures from (height-corrected).</param>
+    /// <param name="yawDeg">Degrees to rotate the spawn gaze by to face the corner from the head
+    /// (the HOST rect's angle), + = right — what the raw pose is built from before the corner is
+    /// re-asserted.</param>
+    private static bool TryClaimCornerSeat(ConvertedPanel panel, Vector2 halfSizeWorld, float scale,
+        float gazeYawDeg, Vector3 headPos, out int slot, out float yawDeg, out ArcCornerSeat corner,
+        out string why)
+    {
+        slot = -1;
+        yawDeg = 0f;
+        corner = default;
+        why = "";
+        if (!TryCornerWindowSide(panel, out bool right))
+            return false;
+        if (!TryTableFarCornerWorld(right, out Vector3 point, out Vector3 spawnPoint,
+                out Vector3 tableCentre, out string cornerNote))
+        {
+            why = cornerNote;
+            return false;
+        }
+
+        Vector3 flat = new Vector3(point.x - headPos.x, 0f, point.z - headPos.z);
+        if (flat.sqrMagnitude < 1e-6f)
+        {
+            why = "NO CORNER SEAT this placement — the head is standing exactly over the corner, "
+                  + "so there is no honest direction to it. The angular search seats this corner "
+                  + "window instead";
+            return false;
+        }
+        float hostWorldYaw = WorldYawDeg(flat);
+        yawDeg = Mathf.DeltaAngle(gazeYawDeg, hostWorldYaw);
+
+        // The distance the registry books is the TRUE head→centre distance at the height the
+        // bar-height rule will deliver, so the drawn interval is measured where the window hangs.
+        float centreY = TryPredictMapRoomCentreY(halfSizeWorld, out float predictedY)
+            ? predictedY
+            : headPos.y;
+        Vector3 centreWorld = new Vector3(point.x, centreY, point.z);
+        float distWorld = Mathf.Max((centreWorld - headPos).magnitude, 1e-3f);
+        float nominalDist = WindowDistanceMeters * scale;
+        float halfWidthWorld = halfSizeWorld.x > 1e-4f
+            ? halfSizeWorld.x
+            : FallbackHalfWidthWorld(scale);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, distWorld);
+
+        // Everything standing describes itself truthfully first (registry only, no pose), so the
+        // occupancy and overlap this line prints are measured against the room as it is.
+        RefreshStandingArcClaims(-1);
+        string standing = ArcSeatOccupancyText(gazeYawDeg);
+        float drawnWorldYaw = hostWorldYaw + geo.OffsetDeg;
+        float halfAngle = geo.DrawnHalfDeg;
+        ArcSeatFootprint(hostWorldYaw, geo.FrameHalfDeg, geo.OffsetDeg, halfAngle,
+            out float footYaw, out float footHalf);
+        int wouldBeLevel = ArcSeatDepthLevel(footYaw, footHalf, -1, out string blockers);
+        float overlapDeg = ArcSeatWorstOverlapDeg(drawnWorldYaw, halfAngle, out string overlapWith);
+
+        corner = new ArcCornerSeat
+        {
+            Seated = true,
+            Which = right ? "RIGHT" : "LEFT",
+            Point = point,
+            SpawnPoint = spawnPoint,
+        };
+
+        why = $"IT IS A CORNER WINDOW — the {corner.Which} far corner of the map table is ITS BY "
+              + "IDENTITY (character screen LEFT, quest log RIGHT — user ruling 2026-09-03), a "
+              + "PLACE IN THE ROOM and not an angle off his gaze. " + cornerNote
+              + $". From the head that corner is {distWorld / Mathf.Max(scale, 1e-4f):F2} m away at "
+              + $"{yawDeg:F0}° off the spawn gaze (nominal reading distance "
+              + $"{WindowDistanceMeters:F2} m — the difference is the corner's, not a ladder step); "
+              + "the window's CENTRE goes exactly over the corner point and it faces the spawn "
+              + "point. NO SEAT SEARCH RAN and no clamp may move it sideways: ComputeHmdPose "
+              + "re-asserts the corner after the clamp chain and prints the residual in mm. "
+              + $"It books {halfAngle * 2f:F0}° of drawn content at world yaw {drawnWorldYaw:F0}° so "
+              + $"the other windows' search sees it as taken. Standing set [{standing}]"
+              + (wouldBeLevel > 0
+                  ? $". ITS FOOTPRINT INTERSECTS {blockers} — a corner window takes NO depth step "
+                    + "(the corner is the place), so it stands at the corner's distance behind or "
+                    + "beside whatever is already there and NOTHING IS MOVED (user ruling). A "
+                    + "window opened after it steps in front of it on the ladder as usual"
+                  : ". Its footprint intersects nothing standing")
+              + (overlapDeg > 0.5f
+                  ? $". MEASURED: its drawn interval overlaps '{overlapWith}' by {overlapDeg:F0}° "
+                    + "in angle"
+                  : ". MEASURED: it overlaps nothing in angle")
+              + ". GEOMETRY: " + geo.Note;
+
+        int free = FirstFreeClaimIndex();
+        if (free < 0)
+        {
+            why += $". THE REGISTRY IS FULL ({MaxWindowClaims} seats) — this corner window holds no "
+                   + "reservation, so a later window's search cannot see it; it still stands on "
+                   + "its corner";
+            _arcSeatGeneration++;
+            return true;
+        }
+        slot = free;
+        _arcSeatWorldYaw[free] = drawnWorldYaw;
+        _arcClaims[free] = new ArcClaim
+        {
+            Panel = panel,
+            Name = PanelLogName(panel),
+            CentreDeg = Mathf.DeltaAngle(gazeYawDeg, drawnWorldYaw),
+            SpawnGazeWorldYaw = gazeYawDeg,
+            HalfWidthDeg = halfAngle,
+            DrawnOffsetDeg = geo.OffsetDeg,
+            FrameHalfWidthDeg = geo.FrameHalfDeg,
+            DistanceWorld = distWorld,
+            OverlapRank = 0,
+            // Negative = further than nominal; ApplyArcDepth expresses it as an outward push, and
+            // the corner re-assert in ComputeHmdPose makes the exact point irrelevant to the pose.
+            DepthPullMeters = (nominalDist - distWorld) / Mathf.Max(scale, 1e-4f),
+            OverlapDeg = overlapDeg,
+            Permanent = IsPermanentPanel(panel),
+            Corner = true,
+            CornerPoint = point,
+            CornerWhich = corner.Which,
+        };
+        _arcSeatGeneration++;
+        return true;
+    }
+
+    /// <summary>
+    /// The pre-reveal re-place of a CORNER window: the pose is the corner's and does not move, so
+    /// only the REGISTRY is brought up to date with what the window now draws (the fitted width
+    /// and its content offset, at the corner's true distance). Returns false when nothing
+    /// material changed. Never runs the seat search — that is the whole point of a corner.
+    /// </summary>
+    private static bool TryRefreshCornerClaim(ConvertedPanel? panel, int slot, Vector2 halfSizeWorld,
+        float scale, Vector3 headPos, out string note)
+    {
+        note = "";
+        if (panel == null || slot < 0 || slot >= _arcClaims.Length)
+            return false;
+        if (!ReferenceEquals(_arcClaims[slot].Panel, panel) || !_arcClaims[slot].Corner)
+            return false;
+        Vector3 point = _arcClaims[slot].CornerPoint;
+        float centreY = TryPredictMapRoomCentreY(halfSizeWorld, out float predictedY)
+            ? predictedY
+            : headPos.y;
+        Vector3 centreWorld = new Vector3(point.x, centreY, point.z);
+        float distWorld = Mathf.Max((centreWorld - headPos).magnitude, 1e-3f);
+        float halfWidthWorld = halfSizeWorld.x > 1e-4f
+            ? halfSizeWorld.x
+            : FallbackHalfWidthWorld(scale);
+        ArcDrawnGeometry geo = MeasureArcDrawnGeometry(panel, halfWidthWorld, distWorld);
+        if (!geo.Measured)
+            return false;
+        float heldHalf = _arcClaims[slot].HalfWidthDeg;
+        float heldOffset = _arcClaims[slot].DrawnOffsetDeg;
+        if (Mathf.Abs(geo.DrawnHalfDeg - heldHalf) < 0.5f
+            && Mathf.Abs(geo.OffsetDeg - heldOffset) < 0.5f)
+            return false;
+        float hostWorldYaw = _arcSeatWorldYaw[slot] - heldOffset;
+        _arcSeatWorldYaw[slot] = hostWorldYaw + geo.OffsetDeg;
+        _arcClaims[slot].HalfWidthDeg = geo.DrawnHalfDeg;
+        _arcClaims[slot].DrawnOffsetDeg = geo.OffsetDeg;
+        _arcClaims[slot].FrameHalfWidthDeg = geo.FrameHalfDeg;
+        _arcClaims[slot].DistanceWorld = distWorld;
+        _arcClaims[slot].DepthPullMeters = (WindowDistanceMeters * scale - distWorld)
+                                           / Mathf.Max(scale, 1e-4f);
+        note = $"RE-MEASURED ON ITS DRAWN CONTENT while still render-hidden — the CORNER is "
+               + $"unchanged. It had booked ±{heldHalf:F0}° at offset {heldOffset:F0}° (the pre-fit "
+               + $"frame); it draws ±{geo.DrawnHalfDeg:F0}° at offset {geo.OffsetDeg:F0}°, so the "
+               + $"registry now holds that at world yaw {_arcSeatWorldYaw[slot]:F0}°. NOTHING MOVED: "
+               + $"the window's centre stays over the {_arcClaims[slot].CornerWhich} far corner. "
+               + geo.Note;
+        return true;
+    }
+
     /// <summary>
     /// THE FREE-INTERVAL SEARCH, shared by the spawn claim and the pre-reveal re-seat so the two
     /// can never drift apart (they were a copy-paste pair before ModBuild 241).
@@ -1297,6 +1658,8 @@ internal static partial class ModalFallback
                   .Append("° off");
             if (_arcClaims[i].Permanent)
                 sb.Append(" PERMANENT/no-X");
+            if (_arcClaims[i].Corner)
+                sb.Append(" CORNER/").Append(_arcClaims[i].CornerWhich ?? "?");
         }
         return sb.Length == 0 ? "(none)" : sb.ToString();
     }
@@ -1504,17 +1867,22 @@ internal static partial class ModalFallback
     /// intersects. See <see cref="ArcSeatDepthLevel"/>.</param>
     /// <param name="foregroundPullWorld">World units to pull the window toward the head along the
     /// FLATTENED forward (y = 0, so the placement's height is untouched). 0 at depth level 0.</param>
+    /// <param name="headPos">The head <c>ComputeHmdPose</c> measures from (height-corrected) —
+    /// read only by the corner seat, which books the true head→corner distance.</param>
+    /// <param name="corner">The corner seat when this window is one of the two corner windows and
+    /// its corner could be measured (<see cref="ArcCornerSeat.Seated"/>); default otherwise.</param>
     /// <param name="why">Human-readable reason for the log line.</param>
     /// <returns>true when the map room's arc governs this placement.</returns>
     private static bool TryClaimArcSeat(ConvertedPanel? panel, bool levelMessage,
-        Vector2 halfSizeWorld, float scale, float gazeYawDeg,
+        Vector2 halfSizeWorld, float scale, float gazeYawDeg, Vector3 headPos,
         out int slot, out float yawDeg, out int overlapRank, out float foregroundPullWorld,
-        out string why)
+        out ArcCornerSeat corner, out string why)
     {
         slot = -1;
         yawDeg = 0f;
         overlapRank = 0;
         foregroundPullWorld = 0f;
+        corner = default;
         why = "";
         if (panel == null || levelMessage || !MapRoom.MapRoomDriver.Active)
             return false;
@@ -1545,8 +1913,36 @@ internal static partial class ModalFallback
                   + $"{yawDeg:F0}° off the gaze this time) — a refloat must not take a second seat, "
                   + "and it returns to the same place in the ROOM even if the player has turned "
                   + "since";
+            if (_arcClaims[i].Corner)
+            {
+                // A corner window's place is the corner, not the angle: hand the point back so the
+                // refloat re-asserts it after the clamps exactly as the spawn did.
+                corner = new ArcCornerSeat
+                {
+                    Seated = true,
+                    Which = _arcClaims[i].CornerWhich ?? "?",
+                    Point = _arcClaims[i].CornerPoint,
+                    SpawnPoint = MapRoom.MapRoomDriver.SeatFloor,
+                };
+                why += $" — and it is a CORNER SEAT: its centre goes back over the {corner.Which} "
+                       + "far corner";
+            }
             return true;
         }
+
+        // ---- THE CORNER WINDOWS FIRST (2026-09-03). The character screen and the quest log own
+        //      the two far corners by identity; no search, no ladder. A corner window whose corner
+        //      could not be measured falls through to the ordinary search below and carries the
+        //      reason on its line.
+        if (TryClaimCornerSeat(panel, halfSizeWorld, scale, gazeYawDeg, headPos, out slot,
+                out yawDeg, out corner, out why))
+        {
+            overlapRank = 0;
+            foregroundPullWorld = slot >= 0 ? _arcClaims[slot].DepthPullMeters * scale : 0f;
+            return true;
+        }
+        string cornerRefusal = why;
+        why = "";
 
         float nominalDist = WindowDistanceMeters * scale;  // WORLD units, both operands scaled
         float halfWidthWorld = halfSizeWorld.x > 1e-4f
@@ -1580,8 +1976,17 @@ internal static partial class ModalFallback
         // ---- (b) AS FEW COLLISIONS AS POSSIBLE — his second rule. HIS TWO TABLE CORNERS ARE TRIED
         //          FIRST (ModBuild 243, the correction to 241's reading of his photograph), then the
         //          free interval nearest the gaze, with the MAP ITSELF as a thing to be clear of.
-        bool haveCorners = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
+        bool cornersMeasured = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
             out float cornerRightDeg, out string cornerNote);
+        // THE CORNERS ARE RESERVED BY IDENTITY (2026-09-03) and are never offered to the search:
+        // the LEFT one is the character screen's and the RIGHT one the quest log's, whether or not
+        // they are standing, so a window that opens while the game has hidden the quest log cannot
+        // take its corner and be landed on when it returns. The measurement still prints so the
+        // corners' angles stay readable on every line.
+        bool haveCorners = false;
+        if (cornersMeasured)
+            cornerNote += " — RESERVED BY IDENTITY (character screen LEFT, quest log RIGHT, user "
+                          + "ruling 2026-09-03): neither corner is offered to this window";
         bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
             out string channelNote);
         bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveCorners,
@@ -1857,6 +2262,11 @@ internal static partial class ModalFallback
                            : " — NOT honoured this time (see above)"
                    : "");
         why += ". GEOMETRY: " + geo.Note;
+        // A CORNER WINDOW that reached the ordinary search always says why its corner was refused —
+        // a corner window seated elsewhere with no reason on its line would be a rule nobody can
+        // tell from a rule that never ran.
+        if (cornerRefusal.Length > 0)
+            why += ". " + cornerRefusal;
 
         float overlapDeg = ArcSeatWorstOverlapDeg(worldYaw, halfAngle, out string overlapWith);
         if (overlapDeg > 0.5f)
@@ -2012,8 +2422,14 @@ internal static partial class ModalFallback
         // CORNERS have to be honoured HERE above all — this is the call that reproduces his
         // photograph, and it is why the corner rule is a parameter of the shared search rather than
         // a special case in the spawn path.
-        bool haveCorners = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
+        bool cornersMeasured = TryTableFarCornersDeg(gazeYawDeg, out float cornerLeftDeg,
             out float cornerRightDeg, out string cornerNote);
+        // RESERVED BY IDENTITY (2026-09-03) — the same rule as the spawn path, for the same reason:
+        // a corner is the character screen's or the quest log's, never this window's.
+        bool haveCorners = false;
+        if (cornersMeasured)
+            cornerNote += " — RESERVED BY IDENTITY (character screen LEFT, quest log RIGHT, user "
+                          + "ruling 2026-09-03): neither corner is offered to this window";
         bool haveChannel = TryMapChannelDeg(gazeYawDeg, out float channelLo, out float channelHi,
             out string channelNote);
         bool haveFree = ArcSeatFreeInterval(gazeYawDeg, centreLimit, halfAngle, haveCorners,
@@ -2289,7 +2705,12 @@ internal static partial class ModalFallback
                + $" INTERVAL NOW [{_arcSeatWorldYaw[slot] - _arcClaims[slot].HalfWidthDeg:F1}°,"
                + $"{_arcSeatWorldYaw[slot] + _arcClaims[slot].HalfWidthDeg:F1}°] world, at depth "
                + $"level {_arcClaims[slot].OverlapRank} and "
-               + (_arcClaims[slot].DepthPullMeters > 0.001f
+               + (_arcClaims[slot].Corner
+                   ? $"{Mathf.Abs(_arcClaims[slot].DepthPullMeters):F2} m "
+                     + $"{(_arcClaims[slot].DepthPullMeters > 0f ? "NEARER" : "FURTHER")} than "
+                     + $"nominal — a CORNER SEAT over the {_arcClaims[slot].CornerWhich} far corner: "
+                     + "the distance is the corner's own, not a ladder step"
+                   : _arcClaims[slot].DepthPullMeters > 0.001f
                    ? $"{_arcClaims[slot].DepthPullMeters:F2} m NEARER than nominal (the inward "
                      + "ladder)"
                    : _arcClaims[slot].DepthPullMeters < -0.001f

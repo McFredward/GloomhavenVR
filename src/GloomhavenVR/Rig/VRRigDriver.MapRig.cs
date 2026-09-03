@@ -136,13 +136,29 @@ internal sealed partial class VRRigDriver
     /// makes at 1:1). The VERTICAL part is deliberately KEPT: the tracking floor is the real floor,
     /// so the player's eyes land at their own real standing height above it — a tall player looks
     /// further down at the map, exactly as at a real table.</para>
+    ///
+    /// <para>THE HEAD'S OWN YAW IS ABSORBED TOO (user request 2026-09-03: "die Startausrichtung
+    /// ist oft verdreht"). Until this build the rig root was written <c>seat.Rotation</c> and
+    /// nothing else — but the player's VIEW is <c>rigRotation ∘ headLocalRotation</c>, so a player
+    /// who happened to be standing turned 25° in their play space at the moment the room built
+    /// arrived looking 25° past the table. The ModBuild 410 log shows it: the head at the seat
+    /// (x −184, i.e. the −X end, table forward = world yaw 90°) placed its first window from a
+    /// gaze at world yaw 113°. This is the same masked re-aim <see cref="ApplyRingSeat"/> already
+    /// performs for the scenario ring and the one Demeo performs in
+    /// <c>InputTracking.Recenter</c>: the rig yaw is <c>seat.Yaw ∘ headLocalYaw⁻¹</c>, so the
+    /// HEAD's world yaw is exactly the seat's, whatever direction the body is facing. One-shot:
+    /// this runs at the pending recentre of every map-rig build (main menu, back from a
+    /// scenario, after a load — all of them build the map rig) and on the B+Y chord, and never
+    /// per frame, so it cannot fight the player's own turning afterwards.</para>
     /// </summary>
     private void RecenterMap()
     {
         if (_rigRoot == null || _camera == null)
             return;
         float scale = _rigRoot.transform.localScale.x;
-        Quaternion yaw = _mapSeat.Rotation;
+        Quaternion headYawLocal = YawOnly(_camera.transform.localRotation);
+        float headYawBefore = YawOnly(_camera.transform.rotation).eulerAngles.y;
+        Quaternion yaw = _mapSeat.Rotation * Quaternion.Inverse(headYawLocal);
         Vector3 headLocal = _camera.transform.localPosition;
         var flat = new Vector3(headLocal.x, 0f, headLocal.z);
 
@@ -157,5 +173,34 @@ internal sealed partial class VRRigDriver
                           + $"surface at y={_mapSeat.TopY:F2}), rig root at {_rigRoot.transform.position}, "
                           + $"scale {scale:F2}. Horizontal head offset ({flat.x:F2}, {flat.z:F2}) m nulled; "
                           + "vertical kept (the tracking floor is the real floor).");
+
+        // THE FALSIFIER FOR THE ORIENTATION. The head's forward, flattened and read back off the
+        // camera AFTER the write, against the seat's own forward (which by construction points from
+        // the floor point at the map centre). The residual must read ~0° on every entry; a
+        // non-zero residual is a head yaw this recentre did not absorb.
+        Vector3 seatForward = _mapSeat.Rotation * Vector3.forward;
+        Vector3 headForward = _camera.transform.forward;
+        headForward.y = 0f;
+        float residualDeg = headForward.sqrMagnitude > 1e-6f
+            ? Vector3.SignedAngle(seatForward, headForward.normalized, Vector3.up)
+            : 0f;
+        float headYawAfter = YawOnly(_camera.transform.rotation).eulerAngles.y;
+        Vector3 tableCentre = MapRoomDriver.ParchmentRenderer != null
+            ? MapRoomDriver.ParchmentRenderer.bounds.center
+            : _mapSeat.FloorPosition + seatForward;
+        // HW-VERIFY
+        VRLog.Note("Rig", $"MAP ROOM SPAWN: spawn point (tracking floor) "
+                          + $"({_mapSeat.FloorPosition.x:F2},{_mapSeat.FloorPosition.y:F2},"
+                          + $"{_mapSeat.FloorPosition.z:F2}) wu, table centre "
+                          + $"({tableCentre.x:F2},{tableCentre.y:F2},{tableCentre.z:F2}) wu, "
+                          + $"seat yaw {_mapSeat.YawDegrees:F1}° (faces the map centre from the "
+                          + $"{_mapSeat.ViewSide} side). Head world yaw BEFORE the recentre "
+                          + $"{headYawBefore:F1}°, AFTER {headYawAfter:F1}° — the head's own "
+                          + $"{headYawLocal.eulerAngles.y:F1}° of play-space yaw was absorbed into the "
+                          + $"rig root (rig yaw now {yaw.eulerAngles.y:F1}°). RESIDUAL between the "
+                          + $"head's forward and the spawn→table direction: {residualDeg:F2}° "
+                          + "(must read ~0°; anything else is a yaw this one-shot did not absorb). "
+                          + "Spawn-only: the rig is never re-yawed per frame, so the player's own "
+                          + "turning afterwards is untouched.");
     }
 }

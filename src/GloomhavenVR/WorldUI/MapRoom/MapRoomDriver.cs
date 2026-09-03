@@ -119,6 +119,17 @@ internal static class MapRoomDriver
     private static Vector3 _reportFloor;
     private static float _eyeHeightMeters;
 
+    /// <summary>
+    /// THE SPAWN POINT — the seat's tracking-floor position the map rig was built on (banked by
+    /// <see cref="Engage"/>), world units. Read by the map room's CORNER SEATS (ArcSeats.cs) so the
+    /// character screen and the quest log can be seated over the table's far corners AS SEEN FROM
+    /// THE SPAWN, and faced at it, without re-solving the seat (<see cref="TrySolveSeat"/> re-runs
+    /// the parchment ENSURE, which a spawn path must not do). Meaningful only while
+    /// <see cref="Active"/>; a pure function of the parchment bounds and the game's map camera,
+    /// so it is the same point on every entry into the same room.
+    /// </summary>
+    internal static Vector3 SeatFloor => _reportFloor;
+
     /// <summary>True when the mode is wanted THIS frame: the switch is on and a campaign map is
     /// provably open. Read by <c>VRRigDriver</c> to choose the rig flavour.</summary>
     internal static bool Wanted { get; private set; }
