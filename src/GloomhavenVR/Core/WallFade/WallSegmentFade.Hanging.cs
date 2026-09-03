@@ -65,14 +65,44 @@ internal static partial class WallSegmentFade
         private int _censusHangingPlantsRefusedOther;
         private readonly List<string> _hangingRefusalNames = new();
 
+        /// <summary>ModBuild 412: refusals are kept PER TERM — a count and up to two names each —
+        /// so a flat list capped at four can no longer hide a vine behind two light shafts and a
+        /// door frame (the 411 log: "refused by another term: 16 (LightShaft…, CV_StoneDoorFrame…,
+        /// +12 more)" and no 'Vines' named).</summary>
+        private readonly Dictionary<string, int> _hangingRefusalByTerm = new();
+        private readonly Dictionary<string, string> _hangingRefusalNamesByTerm = new();
+        private const int HangingRefusalNamesPerTerm = 2;
+
         private void NoteHangingRefusal(string name, float foot, float top, float gap, string term)
         {
             _censusHangingPlantsRefusedOther++;
-            if (_hangingRefusalNames.Count >= HangingRefusalNameCap)
+            _hangingRefusalByTerm.TryGetValue(term, out int seen);
+            _hangingRefusalByTerm[term] = seen + 1;
+            if (seen >= HangingRefusalNamesPerTerm)
                 return;
-            _hangingRefusalNames.Add(
-                $"'{name}' foot {foot:F2} / top {top:F2} wu over the floor, nearest wall gap "
-                + (float.IsInfinity(gap) ? "none" : gap.ToString("F2")) + $" — {term}");
+            string row = $"'{name}' foot {foot:F2} / top {top:F2} wu over the floor, nearest wall gap "
+                + (float.IsInfinity(gap) ? "none" : gap.ToString("F2"));
+            _hangingRefusalNamesByTerm[term] = seen == 0
+                ? row
+                : _hangingRefusalNamesByTerm[term] + "; " + row;
+            if (_hangingRefusalNames.Count < HangingRefusalNameCap)
+                _hangingRefusalNames.Add(row + $" — {term}");
+        }
+
+        /// <summary>ModBuild 412: the ground-band refusals are named too (up to four, with the
+        /// wall's own Y span beside the plant's foot/top), so "N in the ground band" is decidable
+        /// against a vine on a cliff face the next time.</summary>
+        private readonly List<string> _hangingBandNames = new();
+
+        private void NoteHangingBandRefusal(string name, float foot, float top, Segment wall, float floorY)
+        {
+            _censusHangingPlantsRefusedBand++;
+            if (_hangingBandNames.Count >= HangingRefusalNameCap)
+                return;
+            string w = wall.Anchor != null ? wall.Anchor.name : "<dead>";
+            _hangingBandNames.Add(
+                $"'{name}' foot {foot:F2} / top {top:F2} wu over room floor {floorY:F2}, beside "
+                + $"'{w}' wy[{wall.Bounds.min.y - floorY:F2}..{wall.Bounds.max.y - floorY:F2}] over that floor");
         }
 
         private void CollectHangingPlants(float minFloorY)
@@ -83,6 +113,9 @@ internal static partial class WallSegmentFade
             _censusHangingPlantsRefusedOther = 0;
             _hangingPlantNames.Clear();
             _hangingRefusalNames.Clear();
+            _hangingRefusalByTerm.Clear();
+            _hangingRefusalNamesByTerm.Clear();
+            _hangingBandNames.Clear();
             if (float.IsInfinity(minFloorY) || _factCount == 0)
                 return;
 
@@ -151,6 +184,8 @@ internal static partial class WallSegmentFade
                 float nearestFloor = minFloorY;            // that wall's room floor, ditto
                 bool bandRefused = false;
                 bool spanRefused = false;
+                Segment? bandWall = null;                   // the wall the band refusal was judged against
+                float bandFloor = minFloorY;                // and that wall's room floor
                 foreach (Segment seg in _live.Segments.Values)
                 {
                     if (!seg.HasBounds || seg.IsFreeStanding || seg.DoorRoot != null
@@ -167,11 +202,22 @@ internal static partial class WallSegmentFade
                     if (gap > MountedLinkMaxXZ || gap >= bestGap)
                         continue;
                     float floorY = _live.RoomFloorY[seg.RoomIndex];
-                    // THE GROUND-BAND RULE STANDS: a plant topping out in the band, or barely
-                    // over it, is floor cover — the one thing this pass must never touch.
-                    if (topY < floorY + GroundExclusionHeightWU + HangingPlantMinAboveBandWU)
+                    // ORDER OF TERMS (ModBuild 412). The ground band protects FLOOR COVER ON THE
+                    // ROOM FLOOR: a plant that stands on that floor (foot at or above it, within
+                    // a quarter band) and tops out inside the band. It does not protect a cliff
+                    // face BELOW the room floor (nonfading_plants.jpg — the ivy hangs on the
+                    // outer faces of a raised platform, so against the room floor it "tops out in
+                    // the band" while hugging a faded wall's face and overlapping that wall's own
+                    // Y span). So: floor cover is refused; everything else is judged on the wall
+                    // face — taller than the standing-prop height bar, or overlapping the wall's
+                    // own span — whatever the room floor says.
+                    bool standsOnRoomFloor = anchorY >= floorY - GroundExclusionHeightWU * 0.25f;
+                    bool inBand = topY < floorY + GroundExclusionHeightWU + HangingPlantMinAboveBandWU;
+                    if (standsOnRoomFloor && inBand)
                     {
                         bandRefused = true;
+                        bandWall = seg;
+                        bandFloor = floorY;
                         continue;
                     }
                     bool tall = topY >= floorY + FreeStandingMinTopWU;
@@ -189,8 +235,8 @@ internal static partial class WallSegmentFade
                 float topOver = topY - nearestFloor;
                 if (best == null)
                 {
-                    if (bandRefused)
-                        _censusHangingPlantsRefusedBand++;
+                    if (bandRefused && bandWall != null)
+                        NoteHangingBandRefusal(name, anchorY - bandFloor, topY - bandFloor, bandWall, bandFloor);
                     else if (spanRefused)
                         NoteHangingRefusal(name, footOver, topOver, nearestGap,
                             $"neither taller than {FreeStandingMinTopWU:0.0} wu nor overlapping the wall's own Y span");
@@ -302,6 +348,27 @@ internal static partial class WallSegmentFade
                 if (_censusHangingPlantsRefusedOther > _hangingRefusalNames.Count)
                     sb.Append("; +").Append(_censusHangingPlantsRefusedOther - _hangingRefusalNames.Count).Append(" more");
             }
+            // ModBuild 412: BY TERM, so no term hides behind another — count and up to two names
+            // each; and the ground-band refusals named with the wall's own span beside them,
+            // because "in the ground band" against the room floor was the ambiguity of the 411 log.
+            if (_hangingRefusalByTerm.Count > 0)
+            {
+                sb.Append(". By term:");
+                bool first = true;
+                foreach (KeyValuePair<string, int> kv in _hangingRefusalByTerm)
+                {
+                    sb.Append(first ? " " : " | ").Append(kv.Key).Append(": ").Append(kv.Value);
+                    if (_hangingRefusalNamesByTerm.TryGetValue(kv.Key, out string? names))
+                        sb.Append(" (").Append(names).Append(')');
+                    first = false;
+                }
+            }
+            sb.Append(". Ground-band refusals named (up to ").Append(HangingRefusalNameCap)
+              .Append(", floor cover = stands on the ROOM floor and tops out under floor + ")
+              .Append((GroundExclusionHeightWU + HangingPlantMinAboveBandWU).ToString("0.0"))
+              .Append(" wu; a plant hugging a wall face BELOW the room floor is judged on that ")
+              .Append("wall's span instead, ModBuild 412): ")
+              .Append(_hangingBandNames.Count == 0 ? "none" : string.Join("; ", _hangingBandNames));
             sb.Append(". Foliage-family shaders are candidates here since ModBuild 411 (the 410 ")
               .Append("pass skipped them uncounted, and the ivy is Foliage-family)");
             sb.Append('.');
