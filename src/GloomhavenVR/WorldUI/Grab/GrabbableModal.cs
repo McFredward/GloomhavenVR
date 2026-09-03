@@ -474,6 +474,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// </summary>
     private bool _barWithheldForOwedAppear;
 
+    /// <summary>The withholding term's own words, kept from the RISING edge so the falling edge can
+    /// name what had held the rod back. See <see cref="NoteWithholdChange"/>.</summary>
+    private string _barWithholdWhy = string.Empty;
+
     /// <summary>Times the rod was WITHHELD (rising edge of <see cref="_barWithheldForOwedAppear"/>)
     /// over this window's life. Paired with <see cref="_barWithholdReleases"/> on the log line: a
     /// change-gated line whose reason never varies prints once and then reads like a dead
@@ -1971,8 +1975,26 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         if (owed == _barWithheldForOwedAppear)
             return;
         _barWithheldForOwedAppear = owed;
-        if (owed) _barWithholds++;
-        else _barWithholdReleases++;
+        if (owed)
+        {
+            _barWithholds++;
+            // KEPT FOR THE RELEASE LINE. AppearStillOwed writes `why` only when it answers TRUE, so
+            // on the falling edge the caller hands us an EMPTY string and the release half would
+            // read "it was ." — a sentence that names no term at all, on the one line whose whole
+            // job is to name the term. The reason a rod came BACK is the reason it went away, so it
+            // is held here rather than re-derived from a state that has already cleared.
+            _barWithholdWhy = owedWhy;
+        }
+        else
+        {
+            _barWithholdReleases++;
+            if (owedWhy.Length > 0)
+                _barWithholdWhy = owedWhy;
+        }
+        owedWhy = _barWithholdWhy.Length > 0
+            ? _barWithholdWhy
+            : "(the withholding term was not recorded — this instance was rebuilt while the rod "
+              + "was off the screen)";
         // HW-VERIFY
         VRLog.Note("WorldUI",
             $"MODAL GRAB BAR WITHHELD: '{_logName}' — the grab bar is "
@@ -2977,6 +2999,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // take-off line — the life of the holder that carried the rod. A rebuilt rod that is still
         // owed an appear is withheld again on its first tick, from a clean edge, and says so.
         _barWithheldForOwedAppear = false;
+        _barWithholdWhy = string.Empty;
         _barWithholds = 0;
         _barWithholdReleases = 0;
         _inkSigNodes = 0;
