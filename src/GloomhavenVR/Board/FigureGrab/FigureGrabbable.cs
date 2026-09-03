@@ -448,9 +448,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             // log ElderDrakeID engaged six times and every line said the glow was applied, while the
             // user reported no highlight on that figure at all — a pair a boolean cannot separate.
             // See FigureHighlight for what the report says and why it is the term that settles it.
-            bool glow = _highlight.Apply(root, _actor.m_AnimatedGameObject,
-                                         _actor.m_Hilight != null ? _actor.m_Hilight.transform : null,
-                                         Describe(), out string overlay);
+            bool glow = ApplyHighlightOverlay(root, out string overlay);
             // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
             // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
             VRLog.Note("FigureGrab",
@@ -463,6 +461,34 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         {
             ClearHighlight();
         }
+    }
+
+    /// <summary>
+    /// Build the hover overlay over WHATEVER THIS ACTOR'S BODY ACTUALLY IS. One method, because two
+    /// call sites raise the same glow and a body rule that lived in only one of them would light a
+    /// door on hover but not when walk-in mode released under a standing hover.
+    ///
+    /// <para><b>THE ORDINARY CASE IS UNCHANGED</b> — the actor root, restricted to
+    /// <c>m_AnimatedGameObject</c>, with the selection ring excluded.</para>
+    ///
+    /// <para><b>THE EXCEPTION (2026-09-03)</b> is an actor whose subtree is empty: a prop
+    /// configured for health is given an invisible <c>PropDummyObject</c> actor, and the ModBuild
+    /// 396 log's "NOTHING TO GLOW — no clonable renderer survived the filters" is that emptiness
+    /// reported correctly and consumed by nobody. Its body is its host prop's visual, so the glow
+    /// goes there. <see cref="ActorPropBody"/> returns null for every ordinary miniature and for
+    /// every ordinary door (which has no actor at all), so this branch is unreachable for them.</para>
+    ///
+    /// <para>No ring is excluded on that path: the ring belongs to the actor, not to the prop, and
+    /// the prop's subtree cannot contain it.</para>
+    /// </summary>
+    private bool ApplyHighlightOverlay(GameObject root, out string overlay)
+    {
+        GameObject? propBody = ActorPropBody.BodyFor(_actor);
+        if (propBody != null)
+            return _highlight.Apply(propBody, propBody, null, Describe(), out overlay);
+        return _highlight.Apply(root, _actor.m_AnimatedGameObject,
+                                _actor.m_Hilight != null ? _actor.m_Hilight.transform : null,
+                                Describe(), out overlay);
     }
 
     /// <summary>
@@ -569,9 +595,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             GameObject? root = g.Root;
             if (root == null || g._highlight.Active || NetHeldFigures.Owns(g._actor))
                 continue;
-            if (g._highlight.Apply(root, g._actor.m_AnimatedGameObject,
-                                   g._actor.m_Hilight != null ? g._actor.m_Hilight.transform : null,
-                                   g.Describe(), out string overlay))
+            if (g.ApplyHighlightOverlay(root, out string overlay))
                 // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
                 // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
                 VRLog.Note("FigureGrab",
@@ -605,6 +629,17 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // read AFTER the re-grab FinishGlide above, so a re-grab mid-glide latches the true board
         // size and not a mid-glide sample.
         _homeWorldScale = t.lossyScale;
+
+        // THE BODY, FOR AN ACTOR THAT HAS NONE (2026-09-03 ruling). A prop configured for health is
+        // given an invisible PropDummyObject actor; its host prop's visual is what the player sees.
+        // Bringing it into the actor root here — BEFORE the ghost is cloned and before the hand
+        // reparent below — is the whole of "die tür ist sichtbar in der Hand" AND "hinterlässt ein
+        // ghost": the ghost is Instantiated from this very object (FigureGhosts.GhostSource) and the
+        // hand reparents this very object, so one attachment serves both and there is no second
+        // writer of the door's pose to drift. Strict no-op for every ordinary miniature, and an
+        // ordinary door has no actor at all. Undone on every release path — see Restore and
+        // FinishGlide. See ActorPropBody for the link and for the Apparance freeze it carries.
+        ActorPropBody.Hold(_actor, t);
 
         // TASK #3 — leave a translucent ghost at the figure's HOME board pose while it is held.
         // Capture the pose from the visual (animated) object BEFORE we reparent it into the hand, and
@@ -1315,6 +1350,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             NoteClothScale(t); // back at board size → FigureCloth restores the authored coefficients
         }
 
+        // The prop body goes home LAST, after the actor root has landed on its own home pose, so it
+        // is restored from a settled parent rather than mid-glide. Idempotent and a no-op for every
+        // ordinary miniature. Both release paths call it — this one and Restore — because a hold can
+        // end through either and a door left parented under a dead actor never comes back.
+        ActorPropBody.Release(_actor);
+
         if (_actor != null)
             HeldFigures.Remove(_actor);
     }
@@ -1365,6 +1406,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
             _attached = false;
             _anchor = null;
         }
+
+        // The prop body of a health-bearing prop goes home too (idempotent; a no-op for every
+        // ordinary miniature). It is OUTSIDE the `_attached` block on purpose: this method is also
+        // the safety path — teardown, an authoritative move, the config gate — and a body that was
+        // attached must be put back whether or not the actor root still is.
+        ActorPropBody.Release(_actor);
 
         // Resume the game's transform writes → next Update snaps the mini back to its cell.
         if (_actor != null)

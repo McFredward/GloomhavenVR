@@ -160,6 +160,19 @@ internal static class ActorBars
         public float NextAnchorSample;
 
         /// <summary>
+        /// Is the actor this bar tracks an ATTACHED-PROP actor — the invisible
+        /// <c>PropDummyObject</c> the rule library gives a prop configured for health? Decided ONCE
+        /// at adopt, from a field that cannot change for the life of an actor
+        /// (<c>CObjectActor.AttachedProp</c>).
+        ///
+        /// <para>It is a field rather than a call because <see cref="ResampleAnchor"/> consults it
+        /// on the frame its budget runs out, i.e. on EVERY frame for the rest of the session, for
+        /// every bar on the board. That is precisely the shape of cost this project has shipped
+        /// twice by calling something "near-free"; a bool test is not.</para>
+        /// </summary>
+        public bool AttachedPropActor;
+
+        /// <summary>
         /// The <see cref="ActorBehaviour"/> this bar tracks, resolved from the controller's
         /// tracked figure at adopt (item 6): lets <see cref="LateTick"/> query
         /// <see cref="HeldFigures.Owns"/> so a bar is HIDDEN while its mini is held in the hand
@@ -1023,6 +1036,41 @@ internal static class ActorBars
         }
         RendererScratch.Clear();
 
+        // ── THE ATTACHED PROP'S OWN BODY, AND THE ARCH IT STANDS IN ──────────────────────
+        // USER, 2026-09-03: "die health bar soll dann ÜBER der tür schweben so wie bei Figuren
+        // auch", and then "Die Tür selber ist ja in einen Torbogen eingebettet, ich will auch
+        // nicht, dass die healtbar dann IN dem torbogen drin ist sondern darüber".
+        //
+        // THIS ACTOR HAS NO BODY OF ITS OWN. A prop configured for health is given an invisible
+        // CObjectActor (a "PropDummyObject": one MeshRenderer, no mesh, no material, a
+        // zero-size box), and that actor is what carries the bar. Measured against its own
+        // subtree the loop above returns a degenerate extent, the vanilla fallback is used, and
+        // the bar lands at the actor origin — inside the door. Its real body is its HOST PROP's
+        // visual; see ActorPropBody for the link (CObjectActor.AttachedProp, the game's own
+        // field, written only for a prop configured for health) and for why an ordinary door is
+        // untouched by construction rather than by a name test.
+        //
+        // FOLDED IN AS AN EXTRA MEASURED RENDERER rather than handled as a special case, so it
+        // rescues the two failure returns below (no usable renderer / degenerate extent) by the
+        // same arithmetic that serves every other figure. It can only RAISE the answer.
+        bool propBody = TryMeasureAttachedPropBody(tracked, out float propTopY, out float propMinY,
+                                                   out float propArchTopY, out bool propArchKnown,
+                                                   out string propReport);
+        if (propBody)
+        {
+            if (propTopY > liveMaxY)
+            {
+                liveMaxY = propTopY;
+                tallest = "the attached prop's own body";
+                tallestKind = "the ATTACHED PROP (this actor's own subtree is empty — see "
+                              + "ActorPropBody)";
+            }
+            if (propMinY < liveMinY) liveMinY = propMinY;
+            if (propTopY > boxMaxY) boxMaxY = propTopY;
+            if (propMinY < boxMinY) boxMinY = propMinY;
+            used++;
+        }
+
         // THE SECOND WALK IS PAID FOR ONLY BY THE LINES THAT PRINT. This string used to be
         // built on EVERY call — including the seven silent resamples per figure — and
         // CountAllRenderers inside it is a full includeInactive subtree walk.
@@ -1038,7 +1086,8 @@ internal static class ActorBars
         {
             if (wantReport)
                 report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — no usable "
-                         + $"renderer: {census}; vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+                         + $"renderer: {census}; vanilla fallback {fallback:F2} wu{Hex(fallback)}"
+                         + $"; ATTACHED PROP: {propReport}";
             return fallback;
         }
 
@@ -1059,7 +1108,8 @@ internal static class ActorBars
                 if (wantReport)
                     report = $"track {trackMode} y={track.y:F2}; MEASUREMENT FAILED — degenerate "
                              + $"live extent {liveHeight:F3} wu and a degenerate baked box too "
-                             + $"({census}); vanilla fallback {fallback:F2} wu{Hex(fallback)}";
+                             + $"({census}); vanilla fallback {fallback:F2} wu{Hex(fallback)}"
+                             + $"; ATTACHED PROP: {propReport}";
                 return fallback;
             }
         }
@@ -1127,12 +1177,49 @@ internal static class ActorBars
             ? headY
             : FigureBody.LiveTopY(liveMaxY, headY, headKnown: false, out _);
 
+        // ── AND THE ARCH WINS OVER BOTH, WHEN THERE IS ONE ───────────────────────────────
+        // ONE EXPRESSION, THREE CASES, and the middle one is the proof that this is not a door
+        // special case:
+        //   * a DESTRUCTIBLE DOOR standing in a stone frame — the arch top wins, so the bar
+        //     clears the whole doorway and not just the leaf (leaf 3.31 wu, arch 4.6 wu in the
+        //     ModBuild 396 log: that 1.3 wu gap IS the complaint);
+        //   * a DESTRUCTIBLE PROP THAT IS NOT A DOOR — the query finds no gate column, says so
+        //     in words, and the prop's own body decides, exactly as before;
+        //   * an ORDINARY DOOR — no attached actor at all, therefore no bar, therefore nothing
+        //     here is ever reached for it.
+        // The arch number is NOT re-derived: it is read from WallSegmentFade, which computes it
+        // for its own reason (the 2026-08-07 doorway ruling — the arch stays solid while the
+        // wall around it fades). Two measurements of one arch are two numbers that drift.
+        //
+        // ONE-SIDED, like the head floor above it: this term may only RAISE the top. A figure
+        // whose bar is already correct cannot be moved by it.
+        bool fromProp = false;
+        bool fromArch = false;
+        if (propBody)
+        {
+            float propTop = propArchKnown ? Mathf.Max(propTopY, propArchTopY) : propTopY;
+            if (propTop > top)
+            {
+                top = propTop;
+                fromHead = false;
+                fromProp = true;
+                fromArch = propArchKnown && propArchTopY >= propTopY;
+            }
+        }
+
         // The height the clearance is a percentage OF is the live figure, not a padded box.
         float height = Mathf.Max(top - track.y, 0.01f);
         // Clear the top of the mini by ~12% of its own height, everything in board units.
         float clearance = 0.12f * height;
         float raw = (top - track.y) + clearance;
-        float softCeiling = fallback + height;
+        // THE SOFT CEILING IS `fallback + height` BECAUSE `fallback` IS EVIDENCE — the artists'
+        // own m_WorldspaceOffsetY for THIS character, which the table below shows agreeing with the
+        // live head joint five times out of five. On an attached-prop actor it is nothing of the
+        // kind: it is whatever the shared invisible PropDummyObject prefab was authored with, and
+        // it says nothing about the door that actor is standing in. Letting it cap the arch term
+        // would eat exactly the clearance the arch term exists to buy. So for that one population
+        // the hard ceiling is the only bound, and it still bounds it.
+        float softCeiling = fromProp ? AnchorHardCeilingWU : fallback + height;
         float hi = Mathf.Min(softCeiling, AnchorHardCeilingWU);
         float clamped = Mathf.Clamp(raw, AnchorFloorWU, hi);
 
@@ -1196,7 +1283,15 @@ internal static class ActorBars
 
         // WHICH TERM PRODUCED THE TOP. A rule that silently stops applying is a rule nobody can
         // falsify, so the line names the winner rather than leaving it to arithmetic.
-        string topWhy = fromHead
+        string topWhy = fromProp
+            ? (fromArch
+                ? "the DOORWAY ARCH this prop stands in (2026-09-03 ruling: the bar must clear the "
+                  + "whole Torbogen, not the door leaf). The arch top is READ from WallSegmentFade, "
+                  + "never re-derived here"
+                : "the ATTACHED PROP'S OWN BODY — this actor is an invisible PropDummyObject and has "
+                  + "no geometry of its own; its host prop is what the player sees. No arch was "
+                  + "involved (see ATTACHED PROP below for whether there was none or none found)")
+            : fromHead
             ? $"the LIVE HEAD JOINT (ModBuild 335: the head DECIDES when a figure has one). It "
               + $"stands {headY - liveMaxY:F2} wu above the live extent of every renderer measured "
               + "— a NEGATIVE number here is the normal case for a winged or weapon-carrying "
@@ -1237,8 +1332,103 @@ internal static class ActorBars
                  + (headKnown
                      ? $"{Mathf.Abs(fallback - (headY - track.y)):F2} wu from this character's live "
                        + "head joint — the agreement that made it a floor"
-                     : "the only landmark this character offers");
+                     : "the only landmark this character offers")
+                 + $"; ATTACHED PROP: {propReport}";
         return clamped;
+    }
+
+    /// <summary>
+    /// THE BODY AN INVISIBLE ACTOR ACTUALLY HAS, and the arch it stands in.
+    ///
+    /// <para>Both terms and every failure reason land in <paramref name="report"/>, which the
+    /// caller prints on the anchor line. A MISSING ARCH AND AN ARCH OF HEIGHT ZERO MUST NOT READ
+    /// THE SAME — that is why the arch term is a bool plus a sentence and not a float that happens
+    /// to be 0.</para>
+    ///
+    /// <para>Returns false for every ordinary miniature (no attached prop) and while a health
+    /// prop's visual has not spawned yet — in both cases the caller's existing rules stand
+    /// untouched. It also returns false while the prop is IN SOMEBODY'S HAND: the body is then
+    /// riding the hand, its world bounds are wherever the player is holding it, and measuring an
+    /// anchor off that would park the bar in mid-air. The bar keeps the height it had.</para>
+    /// </summary>
+    private static bool TryMeasureAttachedPropBody(
+        GameObject tracked, out float topY, out float minY,
+        out float archTopY, out bool archKnown, out string report)
+    {
+        topY = 0f;
+        minY = 0f;
+        archTopY = 0f;
+        archKnown = false;
+
+        ActorBehaviour behaviour = ActorBehaviour.GetActorBehaviour(tracked);
+        CObjectProp? prop = ActorPropBody.PropFor(behaviour);
+        if (prop == null)
+        {
+            report = "none — this actor is not attached to a prop, which is every ordinary "
+                     + "miniature and every summon. Nothing on this path applied";
+            return false;
+        }
+        if (ActorPropBody.IsHeld(behaviour))
+        {
+            report = $"'{prop.InstanceName}' {prop.ObjectType} is IN A HAND right now, so its body "
+                     + "is wherever the player is holding it; no re-measurement, the bar keeps the "
+                     + "height it had";
+            return false;
+        }
+        GameObject? visual = ActorPropBody.BodyFor(behaviour);
+        if (visual == null)
+        {
+            report = $"'{prop.InstanceName}' {prop.ObjectType} — configured for health, but its "
+                     + "visual has not been resolved yet (retried; see the HEALTH-PROP BODY census "
+                     + "line). The anchor falls back to this actor's own empty subtree, which is "
+                     + "the pre-fix behaviour";
+            return false;
+        }
+
+        RendererScratchAll.Clear();
+        visual.GetComponentsInChildren(includeInactive: false, RendererScratchAll);
+        int onActive = RendererScratchAll.Count;
+        int measured = 0;
+        float hi = float.MinValue, lo = float.MaxValue;
+        for (int i = 0; i < RendererScratchAll.Count; i++)
+        {
+            Renderer r = RendererScratchAll[i];
+            // Same two exclusions the miniature walk makes, and for the same reasons: a statically
+            // batched renderer reports its whole batch, and a particle/trail/line renderer reports
+            // an effect VOLUME rather than a surface.
+            if (r == null || r.isPartOfStaticBatch)
+                continue;
+            if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
+                continue;
+            Bounds b = r.bounds;
+            if (b.size.sqrMagnitude <= 1e-8f)
+                continue;
+            if (b.max.y > hi) hi = b.max.y;
+            if (b.min.y < lo) lo = b.min.y;
+            measured++;
+        }
+        RendererScratchAll.Clear();
+
+        archKnown = WallSegmentFade.TryGetArchTopY(visual, out archTopY, out string archHow);
+
+        if (measured == 0)
+        {
+            report = $"'{prop.InstanceName}' {prop.ObjectType} resolved to '{visual.name}', but NOT "
+                     + "ONE of its renderers has a non-degenerate box — the body is there and has "
+                     + $"nothing to measure. ARCH: {(archKnown ? $"top {archTopY:F2} wu from " + archHow : archHow)}";
+            return false;
+        }
+
+        topY = hi;
+        minY = lo;
+        report = $"'{prop.InstanceName}' {prop.ObjectType} -> '{visual.name}', body y {lo:F2}..{hi:F2} "
+                 + $"from {measured} mesh renderer(s) of {onActive} on active objects; "
+                 + "ARCH: " + (archKnown
+                     ? $"top {archTopY:F2} wu from {archHow} — the arch stands {archTopY - hi:F2} wu "
+                       + "above the prop's own body, and a POSITIVE number here is the whole of the "
+                       + "2026-09-03 Torbogen complaint"
+                     : archHow);
+        return true;
     }
 
     /// <summary>
@@ -1281,7 +1471,13 @@ internal static class ActorBars
     /// </summary>
     private static void LogAnchor(string what, string label, float offset, string report)
     {
-        VRLog.Info("WorldUI",
+        // HW-VERIFY: the 2026-09-03 round asks where a destructible door's health bar was parked and
+        // WHY, and this is the only line that answers it (the ATTACHED PROP clause names the prop
+        // body and the arch, and which of the two won). It was VRLog.Info — the DEBUG tier, absent
+        // from a default-level log — so the tier is promoted and the text is left exactly as it was.
+        // Bounded by construction: one line per adoption plus at most AnchorSampleBudget resamples
+        // that actually CHANGED the answer, per bar.
+        VRLog.Note("WorldUI",
             $"BAR ANCHOR {what} '{label}': {offset:F2} wu{Hex(offset)} above the track point — {report}");
     }
 
@@ -1322,6 +1518,18 @@ internal static class ActorBars
     /// </summary>
     private static void ResampleAnchor(Adopted adopted, WorldspacePanelUIController controller, float now)
     {
+        // A BAR WHOSE BODY HAS NOT ARRIVED HAS NOT BEEN MEASURED YET, so its budget must not run
+        // out (2026-09-03). An attached-prop actor's body is its host prop's visual, and that
+        // visual is resolved asynchronously — the ModBuild 396 [Props] census still read
+        // "14 still unresolved" seconds into the scenario. Eight samples over four seconds is a
+        // budget sized for an animation cycle, not for a prop spawn, so while the body is genuinely
+        // missing the budget is re-armed rather than spent. It is re-armed and never merely held:
+        // the moment the body resolves, the ordinary budget applies and this stops.
+        if (adopted.AnchorSamplesLeft <= 0 && adopted.AttachedPropActor
+            && ActorPropBody.BodyFor(adopted.Actor) == null)
+        {
+            adopted.AnchorSamplesLeft = 1;
+        }
         if (adopted.AnchorSamplesLeft <= 0 || now < adopted.NextAnchorSample)
             return;
         adopted.AnchorSamplesLeft--;
@@ -1385,6 +1593,9 @@ internal static class ActorBars
             Actor = controller.m_ObjectToTrack != null
                 ? ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)
                 : null,
+            AttachedPropActor = controller.m_ObjectToTrack != null
+                && ActorPropBody.PropFor(
+                       ActorBehaviour.GetActorBehaviour(controller.m_ObjectToTrack)) != null,
         };
         Owned.Add(controller);
         LogAnchor("at ADOPT", LabelOf(controller, Adoptions[controller].Actor), anchorOffset, anchorReport);

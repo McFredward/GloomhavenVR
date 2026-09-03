@@ -305,6 +305,11 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // scenario-state identity so the next board re-discovers from scratch. ReleaseAll() above
         // already called PropGrab.ReleaseAll; this adds only the identity reset.
         PropGrab.Clear();
+        // Health-prop bodies: put any that is still riding a hold back on the board and forget the
+        // actor->prop->visual resolutions, which are per scenario (instance ids do not survive a
+        // scene change). ReleaseAll above already ended every hold through FigureGrabbable.Restore,
+        // so this is the belt; Clear is idempotent.
+        ActorPropBody.Clear();
         FigureRingSuppressor.Clear();
         FigureStallWatchdog.Reset();
         FigureCloth.Clear(); // no stale per-figure cloth bookkeeping across a scene change
@@ -524,6 +529,10 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         // frame order (.planning/refactor/FRAME-ORDER.lock) for no behavioural gain.
         PropGrab.Tick();
         LogPropCensus();
+        // The health-prop body census (2026-09-03) rides the same step for the same reason: it is a
+        // statement about the adoption set this method maintains, it is change-gated and capped, and
+        // a new step in Update would move a LOCKED frame order for no behavioural gain.
+        ActorPropBody.LogCensus();
 
         // Prune figures whose collider/actor died (actor removed / scene unloading).
         if (_adoptions.Count == 0)
