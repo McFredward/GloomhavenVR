@@ -911,8 +911,18 @@ internal static partial class CanvasConversion
         // disappear constantly. Blowing a health bar in on a cloud of particles every time an enemy
         // is revealed is noise the user did not ask for, and it would put the effect's per-element
         // cost on the busiest surfaces in the scene. A window with a grab bar is what he means.
+        //
+        // AND THE ANNOUNCEMENT WAITS FOR THE WINDOW IT ANNOUNCES (user report 2026-09-03: "kam …
+        // die Animation das ein neues Fenster spawnt aber das 'Fenster' ist sofort wieder
+        // verschwunden"). PlayAppearOrDefer plays the appear immediately for a float that has
+        // something drawable under it — which is every ordinary window — and OWES it, to be spent
+        // on first paint, for one that has not. It is asked here rather than inside PlayIn because
+        // the deferral is per-FLOAT state and ModalFallback owns the float; the whole argument,
+        // including why refusing the float or holding the reveal would both have been worse, is on
+        // WindowPanel.AppearOwed and on PlayAppearOrDefer itself. THE REVEAL ABOVE IS UNTOUCHED:
+        // this line decides a decoration and nothing else.
         if (ModalFallback.IsFloated(panel))
-            WindowMaterialise.PlayIn(panel);
+            ModalFallback.PlayAppearOrDefer(panel);
         panel.RevealPending = false;
         panel.RevealArmed = false;
         float waitedMs = (now - panel.RevealRequestedAt) * 1000f;

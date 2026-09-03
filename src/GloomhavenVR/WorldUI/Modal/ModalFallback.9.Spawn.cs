@@ -2377,12 +2377,70 @@ internal static partial class ModalFallback
     /// </summary>
     private static readonly HashSet<UIWindow> EmptyRefused = new();
 
-    /// <summary>Has this window been refused as empty and not yet closed? Read by the catch-all;
-    /// the prune lives there too, next to the <c>Failed</c> prune it mirrors.</summary>
-    private static bool EmptyRefusedNow(UIWindow window) => EmptyRefused.Contains(window);
+    /// <summary>Rate limit for the content probe below — the same 6 Hz <see cref="EmptyHeldNow"/>
+    /// uses, on its own field so one set's probe can never starve the other's.</summary>
+    private static float _nextEmptyRefusedProbe;
 
-    /// <summary>Forget a refusal — the window closed, so its next open is judged afresh.</summary>
-    private static void ClearEmptyRefusal(UIWindow window) => EmptyRefused.Remove(window);
+    /// <summary>
+    /// Is this window still held out of the float set for having been born empty? Read by the
+    /// catch-all, and PRUNED HERE — this is the one place the set is read, so the prune cannot
+    /// drift from it (exactly the shape <see cref="EmptyHeldNow"/> already has).
+    ///
+    /// <para><b>THE SECOND RELEASE CONDITION IS THE FIX FOR A DEADLOCK GENERATOR, AND THE FIRST ONE
+    /// ALONE WAS UNREACHABLE IN PRECISELY THE CASE THAT MATTERS.</b> Until now the only way out was
+    /// <c>!window.IsOpen</c> — "retry after a close and re-open". A window THE GAME IS PARKED ON
+    /// never closes, so one refusal was permanent for the session. The 2026-09-03 hardware log
+    /// carries the concrete instance: <c>'New Party display'</c> (ID PartyPanel) took its one
+    /// <c>UIWindow</c> SHOWN transition at :3554 and never a hidden one for the remaining 2800
+    /// lines, because the game drives the character screen through a DIFFERENT <c>UIWindow</c> one
+    /// level down ('Party Display UI ', which shows/hides at :3866, :4168, :4183, :4980) while the
+    /// outer one it floats stays <c>IsOpen</c> forever. The mod's own FIXED FIT GATE line says the
+    /// same thing from the other side: "identity 1 — the live party display drives this window: NO
+    /// (the live party display drives a DIFFERENT UIWindow instance)".</para>
+    ///
+    /// <para><b>AND IT CANNOT ARM THE CHURN FUSE.</b> The release requires the window to be
+    /// measured DRAWING (<see cref="DrawsAnythingLoose"/>: an enabled, un-culled Graphic above the
+    /// 0.05 effective-alpha floor with a non-degenerate rect, or an enabled Renderer). That test is
+    /// strictly stronger than the reveal edge's own <c>HasAnyDrawnContent</c>, which asks only for
+    /// PRESENCE — enabled Graphic, non-degenerate rect, mod-owned children skipped — and ignores
+    /// alpha and culling entirely. So a window released by this clause cannot be refused again by
+    /// the very next reveal, which is the only way the pair could churn. Beyond that, the number of
+    /// releases is bounded by the number of times the GAME turns this window's content back on, and
+    /// the probe itself runs at 6 Hz: a player opening his character screen, not a loop. This
+    /// project has twice shipped a fuse that counted the player as the abuser, so the argument is
+    /// written down rather than assumed.</para>
+    /// </summary>
+    private static bool EmptyRefusedNow(UIWindow window)
+    {
+        if (EmptyRefused.Count == 0 || !EmptyRefused.Contains(window))
+            return false;
+        if (!window.IsOpen)
+        {
+            EmptyRefused.Remove(window);
+            VRLog.Info("WorldUI", $"EMPTY WINDOW REFUSAL LIFTED: '{window.name}' (ID {window.ID}) — "
+                                  + "the game has closed the window, so its next open is judged "
+                                  + "afresh. This is the original ModBuild 226 release condition.");
+            return false;
+        }
+        float now = Time.unscaledTime;
+        if (now < _nextEmptyRefusedProbe)
+            return true;
+        _nextEmptyRefusedProbe = now + 1f / 6f;
+        if (!DrawsAnythingLoose(window.transform))
+            return true;
+        EmptyRefused.Remove(window);
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"EMPTY WINDOW REFUSAL LIFTED: '{window.name}' (ID {window.ID}) — the "
+                              + "window is DRAWING CONTENT AGAIN while the game still reports it "
+                              + "open, so it may float again. THE GAME NEVER CLOSED IT: the "
+                              + "original release condition was 'retry after a close and re-open', "
+                              + "which a window the game is parked on never satisfies — one false "
+                              + "verdict about such a window used to be permanent for the whole "
+                              + "session. The content test used here is strictly stronger than the "
+                              + "presence test the reveal edge refuses on, so this release cannot "
+                              + "hand the window straight back into the same refusal.");
+        return false;
+    }
 
     /// <summary>
     /// Called from <c>CanvasConversion.CompleteReveal</c> on the reveal edge, once per float.
@@ -2932,6 +2990,173 @@ internal static partial class ModalFallback
         return alpha;
     }
 
+    // =============================================================================================
+    // THE MATERIALISE APPEAR WAITS FOR THE WINDOW IT ANNOUNCES (user report 2026-09-03).
+    //
+    // The whole argument — what he saw, which log lines say it, and above all WHY refusing the
+    // FLOAT would have been the worse bug — is written out once, on WindowPanel.AppearOwed
+    // (ModalFallback.3.WindowPanel.cs). The short version: the map room's character screen is born
+    // dark on EVERY open, so "dark at the reveal edge" cannot tell a good open from a bad one; only
+    // "did the content ever arrive" can, and that is knowable later. So the decoration waits.
+    //
+    // WHAT IS NOT CHANGED, deliberately, and each for its own reason:
+    //
+    //   * THE REVEAL. It still fires on its deadline. A window must never stay invisible is a
+    //     standing ruling, and it costs nothing here: a float with nothing drawable under it is
+    //     invisible whether the mod reveals it or not, and the liveness rule owns what happens next
+    //     (dormant after its grace + dwell, back in one frame the moment it draws).
+    //   * THE FLOAT. Refusing to float this window is the one outcome that would break the feature
+    //     the user actually uses. See the WindowPanel block for the two log lines that prove the
+    //     normal open looks identical at this instant.
+    //   * THE CLOSE-EDGE VISIBILITY HOLD, the third of WindowMaterialise's entry points. Its job is
+    //     to keep pixels that the game is in the middle of taking away, and at the falling edge
+    //     those pixels are still there BY CONSTRUCTION (UIWindow.EvaluateAndTransitionToVisualState
+    //     starts a 0.1 s alpha tween; nothing has faded yet). A drawability gate there would be a
+    //     gate whose answer is always "not empty" — an instrument that cannot fail. It is left
+    //     alone and the hold self-expires in 0.15 s / 8 frames if no dissolve claims it.
+    // =============================================================================================
+
+    /// <summary>
+    /// THE REVEAL EDGE'S DECISION ABOUT THE APPEAR ANIMATION: play it now, or owe it.
+    ///
+    /// <para>Called from <c>CanvasConversion.CompleteReveal</c> in place of the direct
+    /// <c>WindowMaterialise.PlayIn</c>, and only for a panel <see cref="IsFloated"/> has already
+    /// said is a modal float — surfaces (health bars, initiative track, docks) never reach here and
+    /// their behaviour is byte-for-byte what it was.</para>
+    ///
+    /// <para><b>THE TEST IS THE SCRIPT-SIDE ONE, AND THAT IS NOT A SHORTCUT.</b> The strict verdict
+    /// (<see cref="MeasureDrawsSomething"/>, the content fit's own) reads
+    /// <c>CanvasRenderer.GetInheritedAlpha</c> and <c>cull</c>, which uGUI maintains by SERVICING a
+    /// canvas — and this runs in the very LateUpdate that just enabled those canvases, so nothing
+    /// has serviced them yet and the strict test would read stale zeros for a window that is about
+    /// to draw perfectly well. That is the same trap <see cref="DrawsAnythingScriptSide"/> was
+    /// written for on the dormant path, and it is why the looser, script-side test is the correct
+    /// instrument at this exact moment rather than merely the cheaper one.</para>
+    ///
+    /// <para>The asymmetry of the two errors is also the right way round. A wrong "it draws" costs
+    /// one appear over a window that then goes dormant — today's behaviour, exactly. A wrong "it is
+    /// dark" costs the appear being deferred by a few frames and then played on first paint, which
+    /// is what the user asked for anyway. Neither can strand a window.</para>
+    /// </summary>
+    internal static void PlayAppearOrDefer(ConvertedPanel? panel)
+    {
+        if (panel == null || !panel.IsAlive)
+            return;
+        WindowPanel? wp = null;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            if (ReferenceEquals(Converted[i].Panel, panel))
+            {
+                wp = Converted[i];
+                break;
+            }
+        }
+        // No float entry, no conversion target, or the game window died between the convert and the
+        // reveal: behave exactly as before this rule existed. A decoration must never be the thing
+        // that makes a rare path different, and a deferral we could not later name in a log line
+        // would be worse than no deferral at all.
+        if (wp == null || wp.Window == null || wp.Panel.Target == null)
+        {
+            WindowMaterialise.PlayIn(panel);
+            return;
+        }
+        if (DrawsAnythingScriptSide(wp.Panel.Target))
+        {
+            WindowMaterialise.PlayIn(panel);
+            return;
+        }
+        wp.AppearOwed = true;
+        wp.AppearOwedSince = Time.unscaledTime;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"MODAL APPEAR HELD: '{wp.Window.name}' (ID {wp.Window.ID}) reached its "
+                              + "reveal edge with NOTHING DRAWABLE under it (no active, enabled "
+                              + $"Graphic above the {CanvasConversion.FitMinAlpha:F2} alpha floor "
+                              + "with a non-degenerate rect, and no enabled Renderer, anywhere in "
+                              + "the conversion target), so the materialise APPEAR has NOT been "
+                              + "played — it is OWED and will run on the first frame this window is "
+                              + "measured drawing something. The window itself is revealed exactly "
+                              + "as before: nothing about the float, the seat, the pose, the fit or "
+                              + "the input path changes here, and only the decoration waits. USER "
+                              + "REPORT (2026-09-03): the spawn animation played for a window that "
+                              + "was already gone. IF THE MATCHING RELEASE LINE NEVER FOLLOWS, this "
+                              + "window never drew at all and the liveness rule's own verdict is "
+                              + "the next thing to read.");
+    }
+
+    /// <summary>
+    /// Spend the owed appear: the window is drawing, so now it may announce itself. One call per
+    /// float at most — the flag is cleared before the effect starts, so a re-entry or a second
+    /// wake can never replay it.
+    /// </summary>
+    private static void ReleaseOwedAppear(WindowPanel wp, float now, string how)
+    {
+        if (!wp.AppearOwed)
+            return;
+        wp.AppearOwed = false;
+        float waited = now - wp.AppearOwedSince;
+        wp.AppearOwedSince = 0f;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"MODAL APPEAR RELEASED: '{wp.Window.name}' (ID {wp.Window.ID}) is "
+                              + $"drawing — {how} — so the appear it was owed runs NOW, "
+                              + $"{waited * 1000f:F0} ms after its reveal edge held it. This is the "
+                              + "one and only time this float can spend it. Before this rule the "
+                              + "same animation ran at the reveal edge, i.e. over a window whose "
+                              + "content had not arrived yet — in the 2026-09-03 log that was true "
+                              + "of the character screen on EVERY open, and once of a window that "
+                              + "never drew at all.");
+        WindowMaterialise.PlayIn(wp.Panel);
+    }
+
+    /// <summary>
+    /// IS THERE ANYTHING ON THE SCREEN FOR A DISSOLVE TO TAKE AWAY? Asked by
+    /// <c>WindowMaterialise.PlayOut</c>, which must not blow a cloud of shards off a window the
+    /// player was never shown.
+    ///
+    /// <para><b>THE TERMS ARE LIFETIME PROPERTIES, NOT A MEASUREMENT AT THE CLOSE EDGE, AND THAT IS
+    /// THE WHOLE DESIGN.</b> Measuring drawability here would be confounded by the mod's own
+    /// close-edge hold: <c>WindowVisibilityHold</c> takes a window's <c>CanvasGroup</c> out of the
+    /// multiply by DISABLING the component (it deliberately never writes the alpha, so the game
+    /// stays the only writer), and <c>GetComponent&lt;CanvasGroup&gt;</c> returns a disabled
+    /// component — so <see cref="GroupChainAlpha"/> would read the game's tweened-to-zero alpha off
+    /// a group that is not contributing, call every ordinary closing window dark, and delete the
+    /// vanish animation outright. Two terms that cannot be confounded that way:</para>
+    /// <list type="number">
+    /// <item><b>The float still OWES its appear</b> — i.e. it has not once been measured drawing
+    /// anything since it floated. It was never on the screen, so there is nothing to dissolve.</item>
+    /// <item><b>The float is DORMANT</b> — render-hidden by the liveness rule, every Canvas and
+    /// Renderer of it already off. A dissolve there writes CanvasRenderer alphas nobody renders and
+    /// buys nothing but a 0.9 s delay on the release.</item>
+    /// </list>
+    /// </summary>
+    internal static bool HasNothingToDissolve(ConvertedPanel? panel, out string why)
+    {
+        why = string.Empty;
+        if (panel == null)
+            return false;
+        for (int i = 0; i < Converted.Count; i++)
+        {
+            WindowPanel wp = Converted[i];
+            if (!ReferenceEquals(wp.Panel, panel))
+                continue;
+            if (wp.AppearOwed)
+            {
+                why = "it never drew anything in its whole life as a float — its materialise APPEAR "
+                      + "was still OWED (grep MODAL APPEAR HELD for the reveal edge that held it), "
+                      + "so there is nothing on the screen for a dissolve to take away";
+                return true;
+            }
+            if (wp.Dormant)
+            {
+                why = "it is DORMANT — the liveness rule has every Canvas and Renderer of this float "
+                      + $"switched off already ({wp.DormantReason}), so a dissolve would animate "
+                      + "alphas nobody renders and only delay the release";
+                return true;
+            }
+            return false;
+        }
+        return false;
+    }
+
     /// <summary>
     /// Does this float's content draw anything RIGHT NOW, judged with the content fit's own
     /// visibility verdict? <paramref name="darkReason"/> carries the sub-reason when the answer is
@@ -3132,6 +3357,9 @@ internal static partial class ModalFallback
                           + "does not refresh — still says dark");
                     wp.LastDrawnAt = now;
                     wp.EmptySince = 0f;
+                    // The window is back on the screen as of the WakeDormant call above, so an
+                    // appear it never got to play is due NOW — this is the frame it arrives in.
+                    ReleaseOwedAppear(wp, now, "it woke from dormancy and is on the screen again");
                     armed++;
                     continue;
                 }
@@ -3185,6 +3413,14 @@ internal static partial class ModalFallback
                                           + "seat and grab frame and comes back in one frame the moment "
                                           + "it draws again).");
                 }
+                // THE APPEAR IS SPENT HERE, on the STRICT verdict, and the asymmetry against the
+                // looser test that DEFERRED it is deliberate. Deferral had to be cheap and had to
+                // run in a LateUpdate where no canvas had been serviced yet; spending it may wait
+                // for the measurement the whole liveness rule is built on, because a false "it
+                // draws" at this point would put the dust back over an empty window — the exact
+                // defect being fixed. This runs at most once per float (the flag is cleared inside).
+                ReleaseOwedAppear(wp, now, "the content fit's own visibility verdict measured it "
+                                           + "drawing for the first time since it floated");
                 armed++;
                 continue;
             }

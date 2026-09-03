@@ -594,6 +594,36 @@ internal static partial class WindowMaterialise
             onDone();
             return;
         }
+        // NOTHING ON THE SCREEN TO BLOW AWAY — the other half of the 2026-09-03 report. The dust
+        // must not announce a window that is not there, and it must not FAREWELL one either: in
+        // that same log 'GloomhavenVR.Panel_Modal_New Party display' played a full 0.90 s VANISH
+        // (:5012) over a window whose content the game had taken away eight hundred lines earlier
+        // and which the player therefore never saw standing.
+        //
+        // THE TERMS ARE LIFETIME PROPERTIES OF THE FLOAT, NOT A MEASUREMENT TAKEN HERE, and that
+        // distinction is load-bearing: this class's OWN close-edge hold disables the window's
+        // CanvasGroup component (WindowVisibilityHold concedes the alpha and takes the group out of
+        // the multiply instead), and a drawability test would read the game's tweened-to-zero alpha
+        // off that disabled group and call EVERY ordinary closing window empty — deleting the
+        // vanish animation the user asked for. ModalFallback.HasNothingToDissolve carries the two
+        // safe terms and the argument in full.
+        //
+        // Skipping is PlayOut's documented "effect off" path: the callback runs synchronously, the
+        // release happens in this frame, and any close-edge hold this window took is released
+        // first so nothing is left holding switches on a window that is being torn down.
+        if (ModalFallback.HasNothingToDissolve(panel, out string nothingWhy))
+        {
+            DropPreRoll(panel, "the window has nothing on the screen to dissolve");
+            // HW-VERIFY
+            VRLog.Note(Scope, $"WINDOW MATERIALISE VANISH SKIPPED on '{Name(panel)}': {nothingWhy}. "
+                              + "The float is released in this frame, exactly as it is with the "
+                              + "effect switched off — no shards, no 0.9 s wait. USER REPORT "
+                              + "(2026-09-03): dust for a window that was not there. IF THIS LINE "
+                              + "APPEARS FOR A WINDOW THE PLAYER COULD SEE, this gate is wrong and "
+                              + "the two terms it names are the place to look.");
+            onDone();
+            return;
+        }
         float seconds = VanishSeconds;
         if (seconds <= 0f)
         {

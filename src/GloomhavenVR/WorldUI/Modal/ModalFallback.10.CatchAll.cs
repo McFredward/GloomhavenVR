@@ -407,15 +407,20 @@ internal static partial class ModalFallback
             return false;
         // ModBuild 226: this window was floated once and reached its reveal edge with NOTHING drawn
         // under it, so the empty-window invariant released it (see RefuseEmptyFloat). Do not float it
-        // again until the game has closed and re-opened it — otherwise the pair churns once per tick.
-        // The prune is right here rather than in a tick step because this is the one place the set is
-        // read: a window the game no longer reports open has served its refusal.
+        // again until the refusal is released — otherwise the pair churns once per tick.
+        //
+        // THE PRUNE HAS MOVED INTO EmptyRefusedNow, next to the set it reads, and it now has TWO
+        // release conditions instead of one. The old single condition was `!window.IsOpen`, "retry
+        // after a close and re-open", and a window THE GAME IS PARKED ON never closes — so one
+        // false verdict about such a window was permanent for the session. That is a deadlock
+        // generator, it has a named instance in the 2026-09-03 log ('New Party display' takes one
+        // SHOWN transition and never a hidden one, because the game drives the character screen
+        // through a different UIWindow one level down), and the second condition — the window is
+        // measured DRAWING again — is what makes the retry reachable. The churn argument is written
+        // out on EmptyRefusedNow itself: the release test is strictly stronger than the reveal
+        // edge's own refusal test, so the two cannot ping-pong.
         if (EmptyRefusedNow(window))
-        {
-            if (window.IsOpen)
-                return false;
-            ClearEmptyRefusal(window);
-        }
+            return false;
         // ModBuild 230: and the liveness rule's own hold — this window was floated, drew nothing for
         // the whole dwell and was released for it. Same rule, later edge: 226 refuses a window that
         // was born empty, 230 releases one that went dark while standing. The un-enrolled path needs

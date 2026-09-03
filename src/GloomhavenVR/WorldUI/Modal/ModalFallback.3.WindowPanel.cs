@@ -283,6 +283,52 @@ internal static partial class ModalFallback
         /// this counter is the falsifier for the short hide dwell.</summary>
         public int DormantCycles;
 
+        // ---- THE APPEAR THIS FLOAT IS STILL OWED ------------------------------------------------
+        //
+        // USER REPORT (2026-09-03, map room, right after a reward popup), verbatim: "Nachdem das
+        // Fenster kam, kam nach ca. 1-2 Sekunden dahinter die Animation das ein neues Fenster
+        // spawnt aber das 'Fenster' ist sofort wieder verschwunden. Sowas sollte nicht passieren."
+        //   — "after the window came up, the animation of a new window spawning played behind it
+        //     about 1-2 seconds later, but the 'window' was gone again immediately."
+        //
+        // WHAT HE SAW, from Player.log (ModBuild 373): the map room re-floated 'New Party display'
+        // (ID PartyPanel) at :5592, the pre-reveal content fit reported it had NOTHING MEASURABLE
+        // (:5619), the reveal fired anyway on its 600 ms deadline (:5622) and the materialise dust
+        // played its full 0.35 s over it (:5633) — 2071 CanvasRenderers driven, 900 shards in the
+        // air — for a window that then failed the liveness rule's own verdict and was hidden again
+        // (:5640, "not one of 861 Graphic(s) … passes"). The dust ANNOUNCED a window that was not
+        // there.
+        //
+        // WHY THE REVEAL ITSELF IS NOT THE DEFECT, and this is the measurement that decides it.
+        // The SAME window is born dark on its ORDINARY opens too: :3554 shows it opening, :3849
+        // says "MODAL LIVENESS ARMED … after the bounded 1.5 s grace — it has NEVER been measured
+        // drawing anything since it floated", and only at :3866 does the game show the inner
+        // 'Party Display UI ' window that carries the content. That open was completely normal and
+        // the window is still standing 2000 lines later. So "dark at the reveal edge" does NOT
+        // distinguish the good open from the bad one — refusing the FLOAT on it would have thrown
+        // away the map room's character screen, which is exactly the worse bug. The only thing that
+        // distinguishes them is WHETHER THE CONTENT EVER ARRIVES, and that is knowable only later.
+        //
+        // SO THE ANNOUNCEMENT WAITS FOR THE THING IT ANNOUNCES. The reveal is untouched (a window
+        // must never stay invisible, and a window with nothing drawable is invisible either way);
+        // what moves is the DECORATION: when the reveal edge finds nothing drawable under the
+        // float, the appear is OWED rather than played, and it is spent on the first frame the
+        // liveness rule measures the window drawing — the first paint, or the wake from dormancy.
+        // A float that never draws never spends it, which is the whole point.
+
+        /// <summary>
+        /// This float reached its reveal edge with nothing drawable under it, so its materialise
+        /// APPEAR was not played and is still owed. Spent exactly once, by
+        /// <c>ReleaseOwedAppear</c>, on the first frame the liveness rule measures this window
+        /// drawing something; dropped unspent when the float is released.
+        /// </summary>
+        public bool AppearOwed;
+
+        /// <summary>Unscaled time <see cref="AppearOwed"/> was set (0 when nothing is owed) — the
+        /// "how long did the announcement wait" term of the release line, which is the number that
+        /// says whether the wait was a hundred milliseconds or a whole second.</summary>
+        public float AppearOwedSince;
+
         // ---- ModBuild 230: TRANSIENT ANNOUNCEMENTS (user: no X, click to dismiss) ---------------
 
         /// <summary>

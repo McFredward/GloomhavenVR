@@ -2031,6 +2031,16 @@ internal static partial class ModalFallback
     /// empty-window refusal), so it is re-stated here rather than called; a diagnostic must not
     /// change the state it reports on.</para>
     ///
+    /// <para><b>CORRECTION, AND IT WAS ALREADY TRUE BEFORE THIS BUILD: the "read-only" claim above
+    /// is not quite honest.</b> Two of the predicates re-stated here — <c>EmptyHeldNow</c> and (as
+    /// of the 2026-09-03 fix that made its retry condition reachable) <c>EmptyRefusedNow</c> — own
+    /// the prune of their own set, so asking them can RELEASE a stale hold. That is deliberate on
+    /// their side ("this is the one place the set is read, so the prune cannot drift from it") and
+    /// it is benign here: the only mutation is a hold being lifted for a window that has earned it,
+    /// which is the same thing the very next tick would have done. It is recorded rather than
+    /// quietly fixed, because a doc-comment that overstates an invariant is how a later reader
+    /// builds on something that is not there.</para>
+    ///
     /// <para>COST: called ONCE, from the map room's open watch, when a press decided to open a
     /// window and no float appeared within the watch's frame budget. Never per frame, never per
     /// press that worked.</para>
