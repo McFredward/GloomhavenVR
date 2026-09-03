@@ -57,12 +57,32 @@ internal static partial class WallSegmentFade
         private int _lastLoggedHangingPlants = -1;
         private readonly List<string> _hangingPlantNames = new();
 
+        /// <summary>ModBuild 411: every candidate that reached the election and was refused by a
+        /// term OTHER than the ground band is named with its foot/top/gap and the term, up to
+        /// this many — so a vine that stays solid is on the line with the reason, and "94 in
+        /// the ground band" can no longer stand in for it.</summary>
+        private const int HangingRefusalNameCap = 4;
+        private int _censusHangingPlantsRefusedOther;
+        private readonly List<string> _hangingRefusalNames = new();
+
+        private void NoteHangingRefusal(string name, float foot, float top, float gap, string term)
+        {
+            _censusHangingPlantsRefusedOther++;
+            if (_hangingRefusalNames.Count >= HangingRefusalNameCap)
+                return;
+            _hangingRefusalNames.Add(
+                $"'{name}' foot {foot:F2} / top {top:F2} wu over the floor, nearest wall gap "
+                + (float.IsInfinity(gap) ? "none" : gap.ToString("F2")) + $" — {term}");
+        }
+
         private void CollectHangingPlants(float minFloorY)
         {
             _censusHangingPlants = 0;
             _censusHangingPlantsRefusedStanding = 0;
             _censusHangingPlantsRefusedBand = 0;
+            _censusHangingPlantsRefusedOther = 0;
             _hangingPlantNames.Clear();
+            _hangingRefusalNames.Clear();
             if (float.IsInfinity(minFloorY) || _factCount == 0)
                 return;
 
@@ -89,9 +109,17 @@ internal static partial class WallSegmentFade
             {
                 ref RendererFact f = ref _facts[fi];
                 // Meshes only — a particle system is the mounted lane's own class and is judged
-                // by its emitter there. Wall-fade and foliage shaders have their own tracking.
+                // by its emitter there. A wall-fade shader has its own tracking. A FOLIAGE
+                // shader does NOT skip (ModBuild 411): the ModBuild 410 version skipped
+                // f.FoliageShader here, uncounted, and the ivy IS Foliage-family — the 407 log
+                // shows the same 'CR_RU_Vines' assets as "← foliage of 'Wall 3'" where they hang
+                // under a wall's subtree. The foliage lane is scoped to that subtree, so a
+                // tile-borne vine on a Foliage shader was skipped by this pass for carrying the
+                // one shader the other lane could not reach it on. That was the whole defect
+                // ("94 candidate(s) … in the ground band" were the floor cover; the vines were
+                // never among the candidates at all).
                 if (f.Mesh == null || f.Mod || f.Figure || f.Particles
-                    || f.WallFadeShader || f.FoliageShader || f.WaterSurface)
+                    || f.WallFadeShader || f.WaterSurface)
                 {
                     continue;
                 }
@@ -119,7 +147,10 @@ internal static partial class WallSegmentFade
 
                 Segment? best = null;
                 float bestGap = float.PositiveInfinity;
+                float nearestGap = float.PositiveInfinity; // any wall, for the refusal row
+                float nearestFloor = minFloorY;            // that wall's room floor, ditto
                 bool bandRefused = false;
+                bool spanRefused = false;
                 foreach (Segment seg in _live.Segments.Values)
                 {
                     if (!seg.HasBounds || seg.IsFreeStanding || seg.DoorRoot != null
@@ -128,6 +159,11 @@ internal static partial class WallSegmentFade
                         continue;
                     }
                     float gap = HorizontalGap(seg.Bounds, b);
+                    if (gap < nearestGap)
+                    {
+                        nearestGap = gap;
+                        nearestFloor = _live.RoomFloorY[seg.RoomIndex];
+                    }
                     if (gap > MountedLinkMaxXZ || gap >= bestGap)
                         continue;
                     float floorY = _live.RoomFloorY[seg.RoomIndex];
@@ -141,36 +177,73 @@ internal static partial class WallSegmentFade
                     bool tall = topY >= floorY + FreeStandingMinTopWU;
                     bool onFace = topY >= seg.Bounds.min.y && anchorY <= seg.Bounds.max.y;
                     if (!tall && !onFace)
+                    {
+                        spanRefused = true;
                         continue;
+                    }
                     best = seg;
                     bestGap = gap;
                 }
+                string name = f.Name ?? r.name;
+                float footOver = anchorY - nearestFloor;
+                float topOver = topY - nearestFloor;
                 if (best == null)
                 {
                     if (bandRefused)
                         _censusHangingPlantsRefusedBand++;
+                    else if (spanRefused)
+                        NoteHangingRefusal(name, footOver, topOver, nearestGap,
+                            $"neither taller than {FreeStandingMinTopWU:0.0} wu nor overlapping the wall's own Y span");
+                    else if (nearestGap > MountedLinkMaxXZ)
+                        NoteHangingRefusal(name, footOver, topOver, nearestGap,
+                            $"no decision-valid wall within {MountedLinkMaxXZ:0.00} wu");
                     continue;
                 }
-                string name = f.Name ?? r.name;
-                if (IsDoorwayAssembly(r, b, name))
+                if (IsDoorwayAssembly(r, b, name, out string doorWhy))
+                {
+                    NoteDoorwayRefusal("hanging plant", name, b, doorWhy);
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "doorway — " + doorWhy);
                     continue; // doorways never fade
+                }
                 if (IsWaterProtected(b))
-                    continue; // fountain/pond (user ruling 2026-08-09)
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "WATER rect (user ruling 2026-08-09)");
+                    continue;
+                }
                 if (IsFigureOrActorRenderer(r))
-                    continue; // FIGURES are never touched (round-7 ruling, Lights severity)
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "FIGURE (round-7 ruling)");
+                    continue;
+                }
                 if (IsNonOccludingRenderer(r))
-                    continue; // hides nothing, never fades
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "non-occluding shader/queue");
+                    continue;
+                }
                 if (IsArchitectureScale(b.size, 0f))
-                    continue; // architecture is a wall's or a unit's business, never dressing
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap,
+                        "architecture-scale (2 fat axes or volume > 1.5 wu³) — a wall's or a unit's business");
+                    continue;
+                }
                 if (r.GetComponentInParent<ProceduralWall>() != null)
-                    continue; // a wall run's own leftover is named on the LEFTOVER line, not hidden here
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap,
+                        "under a ProceduralWall — the wall path's own leftover, named on the LEFTOVER line");
+                    continue;
+                }
                 if (IsStandingFigureProp(r))
                 {
                     _censusHangingPlantsRefusedStanding++;
+                    NoteHangingRefusal(name, footOver, topOver, bestGap, "STANDING PROP (two-arm rule)");
                     continue; // a floor-standing prop unit keeps its protection
                 }
                 if (best.Mounted.Count >= MountedMaxPerSegment)
+                {
+                    NoteHangingRefusal(name, footOver, topOver, bestGap,
+                        $"wall SATURATED at {MountedMaxPerSegment} mounted props");
                     continue;
+                }
                 if (!_mountedTouched.TryGetValue(r, out MountedProp? prop))
                     prop = ClassifyProp(r);
                 best.Mounted.Add(prop);
@@ -220,6 +293,17 @@ internal static partial class WallSegmentFade
                   .Append(" in the ground band, ").Append(_censusHangingPlantsRefusedStanding)
                   .Append(" standing props refused)");
             }
+            // ModBuild 411: the refusals that are NOT the ground band, named with the term — a
+            // solid vine must be on this line with its reason, or it never reached the election.
+            sb.Append("; refused by another term: ").Append(_censusHangingPlantsRefusedOther);
+            if (_hangingRefusalNames.Count > 0)
+            {
+                sb.Append(" — ").Append(string.Join("; ", _hangingRefusalNames));
+                if (_censusHangingPlantsRefusedOther > _hangingRefusalNames.Count)
+                    sb.Append("; +").Append(_censusHangingPlantsRefusedOther - _hangingRefusalNames.Count).Append(" more");
+            }
+            sb.Append(". Foliage-family shaders are candidates here since ModBuild 411 (the 410 ")
+              .Append("pass skipped them uncounted, and the ivy is Foliage-family)");
             sb.Append('.');
             return sb.ToString();
         }
