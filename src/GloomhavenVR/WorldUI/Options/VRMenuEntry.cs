@@ -107,6 +107,11 @@ internal static class VRMenuEntry
     private static ESCMenu? _host;
     private static UIMainMenuOption? _entry;
 
+    /// <summary>The game's row each clone was cut from — the seat pass (<see cref="MenuRowSeat"/>)
+    /// measures the clone against it every frame the menu is shown.</summary>
+    private static UIMainMenuOption? _donor;
+    private static UIMainMenuOption? _mainDonor;
+
     /// <summary>The main menu we are injected into, and our row in it.</summary>
     private static UIMainOptionsMenu? _mainHost;
     private static UIMainMenuOption? _mainEntry;
@@ -217,6 +222,32 @@ internal static class VRMenuEntry
         }
     }
 
+    /// <summary>
+    /// Per-frame LateUpdate step: own each clone's SEAT in its menu (<see cref="MenuRowSeat"/>).
+    /// After every Update writer the game has, so the rendered frame is the seated one. The
+    /// pause menu is "shown" by its own window state; the main menu has no window of its own,
+    /// so its row's activeInHierarchy stands in.
+    /// </summary>
+    internal static void LateTick()
+    {
+        if (_degraded)
+            return;
+        try
+        {
+            MenuRowSeat.Tick(true, _entry, _donor, _host != null && _host.IsOpen);
+            MenuRowSeat.Tick(false, _mainEntry, _mainDonor,
+                             _mainEntry != null && _mainEntry.gameObject.activeInHierarchy);
+        }
+        catch (Exception ex)
+        {
+            _degraded = true;
+            VRLog.Error("WorldUI", "The VR menu row seat pass threw and the VR menu entries are disabled "
+                + "for this session; the game's own menus are unaffected and every VR setting remains "
+                + $"editable in BepInEx/config/dev.gloomhavenvr*.cfg. {ex.GetType().Name}: {ex.Message}\n"
+                + ex.StackTrace);
+        }
+    }
+
     // ==========================================================================================
     //  The pause menu (map room and scenario)
     // ==========================================================================================
@@ -229,6 +260,7 @@ internal static class VRMenuEntry
             // The menu went away with its scene; our clone went with it.
             _host = null;
             _entry = null;
+            _donor = null;
             return;
         }
         if (ReferenceEquals(host, _host) && _entry != null)
@@ -243,6 +275,7 @@ internal static class VRMenuEntry
 
         _host = host;
         _entry = null;
+        _donor = null;
         Inject(host);
         if (_entry == null)
             _pauseInjectFailed = host;
@@ -293,6 +326,7 @@ internal static class VRMenuEntry
             });
 
         _entry = clone;
+        _donor = donor;
         if (!_loggedInject)
         {
             _loggedInject = true;
@@ -330,6 +364,7 @@ internal static class VRMenuEntry
             _nextMainScan = 0f;
             _mainHost = null;
             _mainEntry = null;
+            _mainDonor = null;
             // The rival set and the arming belong to the menu instance that has just gone with its
             // scene; carrying either into the next one would arbitrate over destroyed rows
             // ([[gate-outliving-its-edge]]).
@@ -406,6 +441,7 @@ internal static class VRMenuEntry
 
         _mainHost = menu;
         _mainEntry = clone;
+        _mainDonor = donor;
         // Resolved here so the very first open already has the set; ResolveRivals() retries on its
         // own if the menu's Start() has not filled menuOptions yet.
         _mainRivals = null;
@@ -885,14 +921,22 @@ internal static class VRMenuEntry
     /// <summary>Module teardown: drop both clones, leaving the menus exactly as they shipped.</summary>
     internal static void Shutdown()
     {
+        // The seat pass re-based the game's own rows' hover caches; hand them back and rebuild
+        // the layout without the clones BEFORE the clones go (Destroy is deferred, a rebuild is
+        // not).
+        MenuRowSeat.Release(_entry);
+        MenuRowSeat.Release(_mainEntry);
+        MenuRowSeat.ResetLogLatches();
         if (_entry != null)
             UnityEngine.Object.Destroy(_entry.gameObject);
         if (_mainEntry != null)
             UnityEngine.Object.Destroy(_mainEntry.gameObject);
         _entry = null;
         _host = null;
+        _donor = null;
         _mainEntry = null;
         _mainHost = null;
+        _mainDonor = null;
         _mainRivals = null;
         _yieldArmed = false;
         MenuExclusivity.ResetLogLatches();

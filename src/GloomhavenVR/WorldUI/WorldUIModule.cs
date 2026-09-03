@@ -380,6 +380,11 @@ internal sealed class WorldUIModule : IVRModule
 
             var late = new List<(string, Action)>
             {
+                // The VR menu row's SEAT (MenuRowSeat): after every Update writer the game has —
+                // hover handlers, LeanTween, the row animators — so the rendered frame is the
+                // seated one. In-canvas anchoredPositions only; it moves no host, so it sits
+                // before every pose writer below.
+                ("VRMenuEntry.Late", VRMenuEntry.LateTick),
                 ("ActorBars", ActorBars.Tick),
                 ("ActorBars.Late", ActorBars.LateTick),
                 ("WorldTooltips.Late", _tooltips.LateTick),
