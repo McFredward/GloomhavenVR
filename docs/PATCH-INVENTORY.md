@@ -94,10 +94,10 @@ runtime, which is why a runtime audit could never do this job (see
 | `LoadoutHostingGuard`<br/><sub>src/GloomhavenVR/Compat/LoadoutHostingGuard.cs:116</sub> | `UILoadoutManager.OnSwitchedToMultiplayer()` *(private)* | prefix | `CompatModule`:83 |
 | `TutorialChainHold` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialChainHold.cs:74</sub> | *(resolved at runtime by `TargetMethod`)* | prefix | `CompatModule`:171 |
 | `LevelEventsController_StartListeningForEvents_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:35</sub> | `LevelEventsController.StartListeningForEvents()` *(private)* | postfix | `CompatModule`:160 |
-| `LevelEventsController_MessageWasDisplayed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:123</sub> | `LevelEventsController.MessageWasDisplayed()` *(private)* | postfix | `CompatModule`:161 |
-| `LevelEventsController_MessageWasDismissed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:146</sub> | `LevelEventsController.MessageWasDismissed()` *(private)* | postfix | `CompatModule`:162 |
-| `LevelMessagePageUI_OnLanguageChanged_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:413</sub> | `LevelMessagePageUI.OnLanguageChanged()` *(private)* | postfix | `CompatModule`:163 |
-| `LevelMessageUILayout_Title_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:449</sub> | `LevelMessageUILayout.Init()` *(private)* | postfix | `CompatModule`:164 |
+| `LevelEventsController_MessageWasDisplayed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:145</sub> | `LevelEventsController.MessageWasDisplayed()` *(private)* | postfix | `CompatModule`:161 |
+| `LevelEventsController_MessageWasDismissed_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialFlowPatches.cs:168</sub> | `LevelEventsController.MessageWasDismissed()` *(private)* | postfix | `CompatModule`:162 |
+| `LevelMessagePageUI_OnLanguageChanged_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:432</sub> | `LevelMessagePageUI.OnLanguageChanged()` *(private)* | postfix | `CompatModule`:163 |
+| `LevelMessageUILayout_Title_Patch`<br/><sub>src/GloomhavenVR/Compat/Tutorial/TutorialHintPatches.cs:468</sub> | `LevelMessageUILayout.Init()` *(private)* | postfix | `CompatModule`:164 |
 | &nbsp; | `LevelMessageUILayout.OnLanguageChanged()` *(private)* | postfix | &nbsp; |
 | `WallFadeDisable` *(degrades by design)*<br/><sub>src/GloomhavenVR/Compat/WallFadeDisable.cs:53</sub> | *(resolved at runtime by `TargetMethod`)* | postfix | `CompatModule`:71 |
 
@@ -126,7 +126,7 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `WorldspaceDisplayPanelBase_Patches`<br/><sub>src/GloomhavenVR/WorldUI/ActorBars.cs:1623</sub> | `WorldspaceDisplayPanelBase.TrackCharacter()` | prefix | `WorldUIModule`:52 |
+| `WorldspaceDisplayPanelBase_Patches`<br/><sub>src/GloomhavenVR/WorldUI/ActorBars.cs:1844</sub> | `WorldspaceDisplayPanelBase.TrackCharacter()` | prefix | `WorldUIModule`:52 |
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:53 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:54 |
@@ -203,7 +203,7 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | postfix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | prefix | &nbsp; |
-| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:571</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
+| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:584</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
 | `UIDistributePointsPopup_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:147</sub> | `UIDistributePointsPopup.Hide()` | prefix | `SurfaceCloseEdge`:77 |
 | `UIAbilityCardPicker_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:156</sub> | `UIAbilityCardPicker.Hide()` | prefix | `SurfaceCloseEdge`:78 |
 
