@@ -660,6 +660,58 @@ internal static partial class WallSegmentFade
         /// within <see cref="DoorwayLinkMaxXZ"/> of a door root (the very radius that makes a
         /// frame a DOORWAY segment), and anything in an arch rect is refused and counted.</para>
         /// </summary>
+        private enum DoorwayPartition : byte
+        {
+            /// <summary>No ProceduralDoorway and no door prop above it.</summary>
+            NotDoorway,
+            /// <summary>Under the door prop with no PCG_ placement root below it: the leaf, the
+            /// plate, the hinge, the sign — the door's own visual. Never fades.</summary>
+            DoorVisual,
+            /// <summary>A PCG_ placement of the doorway whose name says arch/frame. Never fades.</summary>
+            ArchByName,
+            /// <summary>A PCG_ placement of the doorway: pillar, rock, rubble, scatter. A
+            /// candidate — the collapsed gate the user wants faded.</summary>
+            Placement,
+        }
+
+        /// <summary>The structural walk behind <see cref="IsDoorwayAssembly"/>: up from the
+        /// renderer to the door prop (or the top), noting a PCG_-prefixed node and a
+        /// ProceduralDoorway on the way. The prop may sit above the doorway
+        /// (<c>ThickDoor : (guid)</c> → <c>HexDoor(Clone)</c>) or be its immediate child — both
+        /// shapes ProceduralDoorway.ApplyVisibility handles — so the climb does not stop at the
+        /// doorway.</summary>
+        private static DoorwayPartition ClassifyDoorwayContent(Renderer r, string name)
+        {
+            bool pcg = false, doorway = false, doorProp = false;
+            for (Transform? node = r.transform; node != null; node = node.parent)
+            {
+                if (!pcg && node.name.StartsWith("PCG_", System.StringComparison.Ordinal))
+                    pcg = true;
+                if (!doorway && node.GetComponent<ProceduralDoorway>() != null)
+                    doorway = true;
+                if (node.GetComponent<UnityGameEditorDoorProp>() != null)
+                {
+                    doorProp = true;
+                    break;
+                }
+            }
+            if (!doorway && !doorProp)
+                return DoorwayPartition.NotDoorway;
+            if (!pcg)
+                return DoorwayPartition.DoorVisual;
+            return IsArchOrFrameName(name) ? DoorwayPartition.ArchByName : DoorwayPartition.Placement;
+        }
+
+        private static bool IsArchOrFrameName(string name)
+        {
+            const System.StringComparison ic = System.StringComparison.OrdinalIgnoreCase;
+            return name.IndexOf("Door", ic) >= 0
+                || name.IndexOf("Arch", ic) >= 0
+                || name.IndexOf("Gate", ic) >= 0
+                || name.IndexOf("Portal", ic) >= 0
+                || name.IndexOf("Frame", ic) >= 0;
+        }
+
         private bool IsDoorwayAssembly(Renderer r, Bounds probe, string name)
             => IsDoorwayAssembly(r, probe, name, out _);
 
@@ -679,14 +731,38 @@ internal static partial class WallSegmentFade
         {
             why = string.Empty;
             string term;
-            if (IsArchProtected(probe, name))
-                term = "ARCH RECT";
-            else if (r.GetComponentInParent<ProceduralDoorway>() != null)
-                term = "ProceduralDoorway ancestor";
-            else if (r.GetComponentInParent<UnityGameEditorDoorProp>() != null)
-                term = "UnityGameEditorDoorProp ancestor";
+            // THE LINE BETWEEN THE TWO RULINGS (ModBuild 412). (a) 2026-09-03, kristalle_faden.jpg:
+            // "das Stück mit dem eingestürzten Tor fadet" — the collapsed gate's pillars, rocks
+            // and rubble FADE, and the user was happy with the round rune plate staying. (b)
+            // torbogen_faded.jpg: "Torbögen bzw. die Elemente mit den Toren/Türen dürfen nicht
+            // faden" — the arch, the frame, the leaf, the plate NEVER fade. Both are the same
+            // ProceduralDoorway assembly, so ancestry alone cannot separate them; the ModBuild
+            // 411 version refused the whole subtree and the entrance went solid again
+            // ("refused before clustering: 6 doorway … 'CV_Pillar_Generic_02' — ProceduralDoorway
+            // ancestor"). The partition is the one ActorPropBody proved on the door itself:
+            // under the door's generated content the game places PROCEDURAL PLACEMENTS, whose
+            // roots carry the PCG_ prefix (pillars, rocks, scatter, the arch), and the door
+            // leaf assembly, which does not. Door VISUAL = no PCG_ root below the door prop →
+            // refused. PCG_ placement → a candidate, unless its NAME says it is the arch/frame
+            // (Door/Arch/Gate/Portal/Frame — 'CV_StoneDoorFrame_Split'; the same name term the
+            // arch seed itself is built from). The arch RECT only decides for renderers that are
+            // NOT under a doorway at all (an arch mesh a wall or a tile placed): inside the
+            // assembly it would refuse the collapsed gate's rubble, which lies in the footprint
+            // by definition — 'CV_Floor_Scatter_09 (2)' y[1.7..3.2] 0.35 wu from the door root in
+            // the 411 log was exactly that.
+            DoorwayPartition part = ClassifyDoorwayContent(r, name);
+            if (part == DoorwayPartition.NotDoorway)
+            {
+                if (!IsArchProtected(probe, name))
+                    return false;
+                term = "ARCH RECT (not under a doorway — an arch piece a wall or tile placed)";
+            }
+            else if (part == DoorwayPartition.DoorVisual)
+                term = "DOOR VISUAL (under the door prop with no PCG_ placement root — leaf/plate/hinge)";
+            else if (part == DoorwayPartition.ArchByName)
+                term = "ARCH/FRAME BY NAME (a PCG_ placement named Door/Arch/Gate/Portal/Frame)";
             else
-                return false;
+                return false; // a PCG_ placement of the doorway: pillar, rock, rubble — a candidate
             Transform? nearest = FindDoorwayRootFor(probe);
             why = nearest != null
                 ? $"{term} (nearest door root '{nearest.name}' {HorizontalGap(probe, nearest.position):F2} wu away)"

@@ -2249,7 +2249,15 @@ internal static partial class WallSegmentFade
                 // (the mid-scenario reveal case), and a wrong fade deletes geometry. Solid is
                 // the vanilla look, strictly safe; the wall joins the fade the moment its room
                 // is anchored (next 2s rescan / reveal-triggered rescan).
-                else if (seg.Engulfing || seg.DoorRoot != null
+                // GATE COLUMN STAND-DOWN (ModBuild 412, torbogen_faded.jpg — user ruling
+                // 2026-09-03: "Torbögen bzw. die Elemente mit den Toren/Türen dürfen nicht
+                // faden"). The round-12 ruling (2026-08-07: the wall EMBEDDING a doorway fades,
+                // only the arch stays) is superseded for the pieces that CARRY the gate: the gate
+                // column — the door's own segment, which owns the flanking pillars and the gate
+                // face — is held solid with the arch, exactly as a DOORWAY segment is. Ordinary
+                // wall beyond the column keeps fading on its own coverage; only the LIFT that
+                // dragged the embedding wall down with the gate face is stood down (below).
+                else if (seg.Engulfing || seg.DoorRoot != null || seg.IsGateColumn
                     || !RoomDecisionValid(seg.RoomIndex))
                 {
                     seg.State = false;
@@ -2370,6 +2378,10 @@ internal static partial class WallSegmentFade
                 // above, but the lift LINGERS GateLiftLingerSeconds past it, so without this
                 // term an embedding wall would stay hidden for seconds after the mode engaged —
                 // an exception, and the user asked for none.
+                // ModBuild 412: the gate column never reaches State=true any more (held solid
+                // above), so this lift can no longer fire and the embedding wall fades on its own
+                // coverage only. Left in place, not deleted: the term is read by four diagnostics
+                // and its zero is the readable proof of the stand-down.
                 bool gateLift = seg.DoorRoot == null && !walkInside
                     && ((seg.GateLift != null && seg.GateLift.State)
                         || now < seg.GateLiftUntil);
@@ -2634,6 +2646,12 @@ internal static partial class WallSegmentFade
                     + $"disabled — user ruling 2026-08-02); {gates} GATE column(s) (the wall "
                     + $"EMBEDDING a doorway — fades like any wall, only the arch rect stays "
                     + $"solid — user ruling 2026-08-07); "
+                    // ModBuild 412 — appended, never reworded: the 2026-08-07 sentence above is
+                    // superseded for the column itself.
+                    + $"[{gates} gate column(s) held solid with the arch since ModBuild 412 — user "
+                    + "ruling 2026-09-03 'die Elemente mit den Toren/Türen dürfen nicht faden'; the "
+                    + "embedding-wall LIFT is stood down with it, ordinary wall beyond the column "
+                    + "fades on its own coverage] "
                     + $"{failSafeSegs} wall(s) FAIL-SAFE solid (room unanchored/no floor grid)"
                     + $"{unfadeable}) "
                     + $"(shader variants: {lowSegs} LOW / "
