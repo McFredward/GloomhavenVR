@@ -100,6 +100,12 @@ internal sealed class CompatModule : IVRModule
 
         WallSegmentFade.Install();
 
+        // The opened-door watch (user report 2026-09-03, runde_tür_problem.jpg): reads every
+        // scenario door's rules state, logs DOOR OPENED with the leaf census, replays the game's
+        // own 'Open' on a door whose animator instance never saw it (a rebuilt leaf), and
+        // unlatches an 'Open' state stuck at speed 0. Presentation only; no rules state written.
+        DoorOpenWatch.Install();
+
         // Revealed-room geometry (fehlender_boden2.png root cause): Apparance synthesizes
         // map content around Camera.main, which the rig PARKS — a door-open reveal
         // re-creates the room's native entities (ApparanceEntity.CheckEntity destroys them
@@ -224,6 +230,7 @@ internal sealed class CompatModule : IVRModule
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
         HostingChainWatch.Uninstall(); // drops the log hook and the driver GO — the Harmony guard goes with UnpatchSelf
+        DoorOpenWatch.Uninstall();       // nothing to restore — its writes are the game's own intended state
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert

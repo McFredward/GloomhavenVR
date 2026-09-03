@@ -424,7 +424,7 @@ internal static partial class WallSegmentFade
                     }
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
-                        p.Renderer.enabled = false;
+                        HideByEnable(p.Renderer);
                     ShowEdge(p, false, seg.Fade);
                 }
                 else
@@ -761,7 +761,7 @@ internal static partial class WallSegmentFade
                     _mountedTouched[r] = cprop;
                     EnsureDissolveChannel(cprop); // round 15: parked native, animates on return
                     DriveProp(cprop, 1f);
-                    r.enabled = false;
+                    HideByEnable(r);
                     claimed++;
                     continue;
                 }
@@ -788,7 +788,7 @@ internal static partial class WallSegmentFade
                 _mountedTouched[r] = prop;
                 EnsureDissolveChannel(prop); // round 15: parked native, animates on return
                 DriveProp(prop, 1f);
-                r.enabled = false;
+                HideByEnable(r);
                 claimed++;
             }
             if (claimed > 0)
@@ -1822,12 +1822,11 @@ internal static partial class WallSegmentFade
                 DriveProp(cp.Prop, fade);
                 if (fade >= FoliageHideFade)
                 {
-                    if (r.enabled)
-                        r.enabled = false;
+                    HideByEnable(r);
                 }
                 else if (!r.enabled)
                 {
-                    r.enabled = true;
+                    ShowIfWeHid(r);
                 }
             }
             if (lost)

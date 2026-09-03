@@ -213,7 +213,7 @@ internal static partial class WallSegmentFade
                     }
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
-                        p.Renderer.enabled = false;
+                        HideByEnable(p.Renderer);
                     ShowEdge(p, false, seg.Fade);
                 }
                 else

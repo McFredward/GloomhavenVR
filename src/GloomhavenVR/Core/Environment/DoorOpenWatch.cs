@@ -1,0 +1,662 @@
+using System.Collections.Generic;
+using System.Text;
+using ScenarioRuleLibrary;
+using UnityEngine;
+
+namespace GloomhavenVR.Core;
+
+/// <summary>
+/// THE OPENED DOOR WHOSE LEAF STAYS — the instrument and the two remedies (user report
+/// 2026-09-03, runde_tür_problem.jpg: <i>"Die runde Tür verschwindet nicht mehr wenn man die Tür
+/// regulär öffnet. Gameplay-technisch funktioniert alles und das Hex wird begehbar, aber das
+/// Asset verschwindet nicht mehr"</i>).
+///
+/// <para><b>WHAT THE FLAT GAME DOES (decompiled, 2026-09-03).</b> <c>Choreographer.OpenDoor</c>
+/// (Choreographer.cs:13305) plays the state <c>"Open"</c> on the door's animator —
+/// <c>MF.GetGameObjectAnimator(doorGO)</c>, the first <c>Animator</c> with a controller under the
+/// door prop root <c>'ThickDoor : (guid)'</c>. That animator sits on the Apparance-PLACED leaf
+/// assembly under <c>HexDoor(Clone)/Generated Content/</c> (the ModBuild 396-405 dumps in
+/// Board/FigureGrab/ActorPropBody.cs). If there is no animator yet, the play is deferred ONCE
+/// through <c>ProceduralProp.PlacementCompleteAction</c>; nothing in the game ever re-plays it.
+/// The rules side is <c>CObjectDoor.DoorIsOpen</c> (the path node's <c>IsBridgeOpen</c>) — that is
+/// why the hex is walkable while the picture is wrong: the rules moved on, the picture did not.</para>
+///
+/// <para><b>WHAT THE 21:58 LOG (ModBuild 413) PROVES AND DOES NOT PROVE.</b> No mod writer names a
+/// door-leaf renderer anywhere in 21 679 lines: every wall-fade lane refuses the whole scenario-door
+/// assembly (the DOORWAYS census, "SCENARIO DOOR (never fades)", <c>blk 0/0</c>), the FIGURE-GUARD
+/// drops renderers under an Animator before adoption, and <c>MaterialLoaderHeal</c> skips the
+/// <c>UnityGameEditorDoorProp</c> subtree on every path (its "re-enabled foreign-disabled" lines
+/// name only tables, candles and floor halves). So the log cannot say WHICH of the two remaining
+/// mechanisms took the leaf back, and both are consistent with the photograph (the disc stands at
+/// its CLOSED pose, not at any end pose of a clip):</para>
+/// <list type="number">
+///   <item><b>The content was rebuilt after the open.</b> <c>ApparanceEntity</c> content is
+///   destroyed and re-instantiated on every refresh (bounds/transform changes via
+///   <c>MonitorMovement</c>, a subtree going inactive→active, the engine's detail focus — see
+///   Board/FigureGrab/GrabbableProp.FreezeApparance and Core/Water/WaterTerrainVR.cs). A fresh
+///   leaf carries a fresh animator in its DEFAULT (closed) state, and the game's one deferred
+///   replay was spent long ago. The door then reads open in the rules and closed on screen.</item>
+///   <item><b>The animator never advanced.</b> The prop SMBs latch <c>animator.speed =
+///   Timekeeper.instance.m_GlobalClock.timeScale</c> ONCE in <c>OnStateEnter</c>
+///   (DelayedDestroySMB.cs:63, DelayedDeactivatePropAnimSMB.cs:58) and never refresh it; a state
+///   entered while the clock is paused keeps speed 0 forever (Board/FigureGrab/PropAnimWatch.cs
+///   documents the same latch on the chest).</item>
+/// </list>
+///
+/// <para><b>THE REMEDIES, each gated on its own observed condition and each logged when it fires,
+/// so the next log names the mechanism instead of guessing it.</b></para>
+/// <list type="bullet">
+///   <item>RE-ASSERT: a door the rules say is open whose current animator instance has never been
+///   seen in <c>"Open"</c> — a replaced instance (rebuild) or a lost deferral — gets the game's own
+///   call, <c>MF.GameObjectAnimatorPlay(root, "Open")</c>, exactly what <c>OpenDoor</c>'s deferred
+///   <c>PlacementCompleteAction</c> would have done. Never while the door is in the
+///   Choreographer's <c>DoorsUnlocking</c> list, never mid-transition, at most once per 2 s and
+///   <see cref="ReassertCap"/> times per door (the cap ALERTS: hitting it means the door's content
+///   is being rebuilt over and over, which is its own finding).</item>
+///   <item>UNLATCH: an animator in <c>"Open"</c> with <c>speed == 0</c> while the global clock runs
+///   gets <c>speed = TimeManager.TimeScale</c> — the value the SMB would have latched had it fired
+///   one frame later. The flat game has the same latch; a door in that state never opens there
+///   either, so this restores the authored intent rather than inventing behaviour.</item>
+/// </list>
+///
+/// <para><b>THE INSTRUMENT.</b> <c>DOOR OPENED</c> fires when a scenario door's RULES state flips
+/// to open (read-only, from <c>CObjectDoor.DoorIsOpen</c>, so a cheat's ForceActivate and a regular
+/// "Tür öffnen" both count), naming the root, the animator and its state, and the leaf renderers
+/// under the game's own animator handle: how many the game has disabled, how many the wall system
+/// holds a rule on (<see cref="WallSegmentFade.DescribeHold"/>), how many are still enabled.
+/// Three samples follow (+1 s, +3 s, +8 s); the +8 s line's "still enabled" must read 0 once the
+/// game's hide has run. A sample that shows <c>"Open"</c> at normalizedTime ≥ 1 with every leaf
+/// renderer still enabled and unmoved says the clip hides nothing and the hide lives elsewhere; a
+/// sample that shows the animator REPLACED names the rebuild.</para>
+///
+/// <para><b>NO GAME STATE IS WRITTEN.</b> <c>Animator.Play</c> and <c>Animator.speed</c> are
+/// presentation on this client's own copy of the door; the rules state is only read. MULTIPLAYER:
+/// every peer runs its own choreography against its own scene — nothing goes on the wire, and a
+/// peer without the mod sees exactly what its own game shows it.</para>
+///
+/// <para><b>COST.</b> One pass over the door registry (≈10 entries) every quarter second; the
+/// animator is cached per door and re-resolved (one <c>GetComponentsInChildren</c>) only while it
+/// is missing. The leaf walk runs at the open and at the three samples, never per tick.</para>
+/// </summary>
+internal static class DoorOpenWatch
+{
+    private const string Name = "Core";
+    private const string DriverName = "GloomhavenVR.DoorOpenWatch";
+
+    /// <summary>Re-asserts per door before the watch stops and ALERTS instead. Twelve is far
+    /// beyond any legitimate count (one rebuild per open would be one) and small enough that a
+    /// rebuild loop cannot turn into a per-second replay for the rest of the scenario.</summary>
+    private const int ReassertCap = 12;
+
+    private static Watch? _driver;
+
+    internal static void Install()
+    {
+        if (_driver != null || !VRSession.IsRunning)
+            return;
+        var go = new GameObject(DriverName);
+        Object.DontDestroyOnLoad(go);
+        _driver = go.AddComponent<Watch>();
+        VRLog.Info(Name,
+            "DoorOpenWatch installed — every scenario door's rules state (CObjectDoor.DoorIsOpen) "
+            + "is watched; a door that opens logs DOOR OPENED with its leaf renderers and three "
+            + "follow-up samples, an open door whose animator instance was never seen in 'Open' "
+            + "gets the game's own MF.GameObjectAnimatorPlay(root, \"Open\") replayed, and an 'Open' "
+            + "state latched at speed 0 while the clock runs is unlatched.");
+    }
+
+    internal static void Uninstall()
+    {
+        if (_driver == null)
+            return;
+        try { Object.Destroy(_driver.gameObject); }
+        catch { /* scene teardown already got it */ }
+        _driver = null;
+    }
+
+    private sealed class Entry
+    {
+        public UnityGameEditorDoorProp Prop = null!;
+        public string RootName = string.Empty;
+        public CObjectDoor? Door;
+        public float NextDoorResolve;
+        public bool SeenOnce;
+        public bool WasOpen;
+        /// <summary>True when the door was already open the first time the watch saw it (a save,
+        /// a hot reload) — no DOOR OPENED line, a longer grace before any re-assert.</summary>
+        public bool OpenAtFirstSight;
+        public float OpenedAt;
+        public Animator? Animator;
+        public int AnimatorId;
+        public float InstanceSeenAt;
+        public float NextAnimatorResolve;
+        /// <summary>The CURRENT animator instance has been observed in the 'Open' state.</summary>
+        public bool ObservedOpen;
+        public bool Rebuilt;
+        public int Reasserts;
+        public float LastReassert;
+        public bool NoOpenState;
+        public bool CapAlerted;
+        public int Unlatched;
+        public int SampleStage;
+        public float NextSample;
+        public readonly List<int> LeafIds = new(16);
+        public int LeafCount;
+        public Vector3 LeafCenter;
+    }
+
+    private sealed class Watch : MonoBehaviour
+    {
+        private const float TickSeconds = 0.25f;
+        private const float GraceSeconds = 1.5f;
+        private const float FirstSightGraceSeconds = 5f;
+        private const float ReassertSpacingSeconds = 2f;
+        private static readonly float[] SampleAt = { 1f, 3f, 8f };
+        private static readonly int OpenHash = Animator.StringToHash("Open");
+
+        private readonly List<UnityGameEditorDoorProp> _props = new(16);
+        private readonly Dictionary<int, Entry> _entries = new(16);
+        private readonly List<Renderer> _rendererScratch = new(32);
+        private readonly List<int> _deadScratch = new(4);
+        private readonly StringBuilder _sb = new(1024);
+        private ScenarioState? _state;
+        private float _nextTick;
+        private System.Action? _tick;
+
+        private void Awake() => _tick = Tick; // cached delegate — TickGuard hot-path contract
+
+        private void Update() => TickGuard.Run("Core.DoorOpenWatch", _tick!, Name);
+
+        private void Tick()
+        {
+            if (!VRSession.IsRunning)
+                return;
+            float now = Time.unscaledTime;
+            if (now < _nextTick)
+                return;
+            _nextTick = now + TickSeconds;
+
+            ScenarioState? state = null;
+            try { state = ScenarioManager.CurrentScenarioState; }
+            catch { /* rule library not ready */ }
+            if (!ReferenceEquals(state, _state))
+            {
+                _entries.Clear(); // a new scenario: every door is a new door
+                _state = state;
+            }
+            if (state == null)
+                return;
+
+            SceneRegistry.DoorProps.Collect(_props);
+            _deadScratch.Clear();
+            foreach (KeyValuePair<int, Entry> kv in _entries)
+            {
+                if (kv.Value.Prop == null)
+                    _deadScratch.Add(kv.Key);
+            }
+            foreach (int dead in _deadScratch)
+                _entries.Remove(dead);
+
+            foreach (UnityGameEditorDoorProp prop in _props)
+            {
+                if (prop == null)
+                    continue;
+                int id = prop.GetInstanceID();
+                if (!_entries.TryGetValue(id, out Entry e))
+                {
+                    e = new Entry { Prop = prop, RootName = prop.gameObject.name };
+                    _entries[id] = e;
+                }
+                Step(e, state, now);
+            }
+        }
+
+        private void Step(Entry e, ScenarioState state, float now)
+        {
+            if (e.Door == null && now >= e.NextDoorResolve)
+            {
+                e.NextDoorResolve = now + 5f;
+                e.Door = ResolveDoor(e.Prop, state);
+            }
+            if (e.Door == null)
+                return;
+
+            bool open;
+            try { open = e.Door.DoorIsOpen; }
+            catch { open = false; } // PathFinder not built yet — read as closed
+
+            if (!e.SeenOnce)
+            {
+                e.SeenOnce = true;
+                e.WasOpen = open;
+                if (open)
+                {
+                    e.OpenAtFirstSight = true;
+                    e.OpenedAt = now;
+                    ResolveAnimator(e, now, force: true);
+                }
+                return;
+            }
+
+            if (open && !e.WasOpen)
+            {
+                e.WasOpen = true;
+                e.OpenAtFirstSight = false;
+                e.OpenedAt = now;
+                e.Reasserts = 0;
+                e.Unlatched = 0;
+                e.CapAlerted = false;
+                e.SampleStage = 0;
+                e.NextSample = now + SampleAt[0];
+                ResolveAnimator(e, now, force: true);
+                CaptureLeaf(e);
+                LogOpened(e, now);
+                return;
+            }
+            if (!open)
+            {
+                e.WasOpen = false; // a scenario restart closes doors again — start over on the next open
+                return;
+            }
+
+            // Open in the rules. Keep the picture in step with that.
+            ResolveAnimator(e, now, force: false);
+            Animator? a = e.Animator;
+            if (a != null && a.isActiveAndEnabled && a.runtimeAnimatorController != null)
+            {
+                AnimatorStateInfo st = a.GetCurrentAnimatorStateInfo(0);
+                bool isOpen = st.IsName("Open");
+                if (isOpen)
+                {
+                    e.ObservedOpen = true;
+                    Unlatch(e, a, st, now);
+                }
+                else
+                {
+                    Reassert(e, a, st, now);
+                }
+            }
+
+            if (!e.OpenAtFirstSight && e.SampleStage < SampleAt.Length && now >= e.NextSample)
+            {
+                int stage = e.SampleStage;
+                e.SampleStage++;
+                if (e.SampleStage < SampleAt.Length)
+                    e.NextSample = e.OpenedAt + SampleAt[e.SampleStage];
+                LogOpenedSample(e, stage, now);
+            }
+        }
+
+        // ---------------------------------------------------------------- remedies
+
+        /// <summary>REMEDY A — the game's own deferred replay, generalised to every placement.</summary>
+        private void Reassert(Entry e, Animator a, AnimatorStateInfo st, float now)
+        {
+            if (e.ObservedOpen)
+                return; // this instance opened already and moved on — not ours to replay
+            float grace = e.OpenAtFirstSight ? FirstSightGraceSeconds : GraceSeconds;
+            float since = now - Mathf.Max(e.OpenedAt, e.InstanceSeenAt);
+            if (since < grace)
+                return;
+            if (e.NoOpenState || e.Reasserts >= ReassertCap)
+            {
+                if (e.Reasserts >= ReassertCap && !e.CapAlerted)
+                {
+                    e.CapAlerted = true;
+                    LogReassertCap(e, st);
+                }
+                return;
+            }
+            if (now - e.LastReassert < ReassertSpacingSeconds)
+                return;
+            if (a.IsInTransition(0))
+                return;
+            if (IsUnlocking(e.Door))
+                return;
+            if (!a.HasState(0, OpenHash))
+            {
+                e.NoOpenState = true;
+                LogNoOpenState(e, a, st);
+                return;
+            }
+            e.LastReassert = now;
+            e.Reasserts++;
+            bool played = false;
+            try { played = MF.GameObjectAnimatorPlay(e.Prop.gameObject, "Open"); }
+            catch (System.Exception ex)
+            {
+                VRLog.Warn(Name, $"DoorOpenWatch: replaying 'Open' on '{e.RootName}' threw {ex.GetType().Name}: {ex.Message}");
+            }
+            LogReasserted(e, a, st, played, now);
+        }
+
+        /// <summary>REMEDY B — an 'Open' state latched at speed 0 by an SMB while the clock was paused.</summary>
+        private void Unlatch(Entry e, Animator a, AnimatorStateInfo st, float now)
+        {
+            if (a.speed != 0f)
+                return;
+            bool paused;
+            float scale;
+            try { paused = TimeManager.IsPaused; scale = TimeManager.TimeScale; }
+            catch { return; }
+            if (paused || scale <= 0f)
+                return; // the clock IS stopped — speed 0 is the game's intent right now
+            if (st.normalizedTime >= 1f)
+                return; // the clip finished; a zero speed on a finished clip changes nothing
+            a.speed = scale;
+            e.Unlatched++;
+            LogUnlatched(e, a, st, scale, now);
+        }
+
+        private static bool IsUnlocking(CObjectDoor? door)
+        {
+            if (door == null)
+                return false;
+            try
+            {
+                Choreographer? c = Choreographer.s_Choreographer;
+                List<CObjectProp>? list = c != null ? c.DoorsUnlocking : null;
+                return list != null && list.Contains(door);
+            }
+            catch { return false; }
+        }
+
+        // ---------------------------------------------------------------- resolution
+
+        private static CObjectDoor? ResolveDoor(UnityGameEditorDoorProp prop, ScenarioState state)
+        {
+            try
+            {
+                UnityGameEditorObject? obj = prop.GetComponent<UnityGameEditorObject>();
+                if (obj != null && obj.PropObject is CObjectDoor byObject)
+                    return byObject;
+                string name = prop.gameObject.name;
+                List<CObjectProp>? doors = state.DoorProps;
+                if (doors != null)
+                {
+                    foreach (CObjectProp p in doors)
+                    {
+                        if (p is CObjectDoor d && p.InstanceName == name)
+                            return d;
+                    }
+                }
+            }
+            catch { /* rule library mid-load — retried in 5 s */ }
+            return null;
+        }
+
+        private void ResolveAnimator(Entry e, float now, bool force)
+        {
+            if (e.Animator != null && !force)
+                return;
+            if (!force && now < e.NextAnimatorResolve)
+                return;
+            e.NextAnimatorResolve = now + 1f;
+            Animator? a = null;
+            try { a = MF.GetGameObjectAnimator(e.Prop.gameObject); }
+            catch { /* a dying subtree — retried in 1 s */ }
+            if (a == null)
+            {
+                e.Animator = null;
+                return;
+            }
+            int id = a.GetInstanceID();
+            if (id != e.AnimatorId)
+            {
+                if (e.AnimatorId != 0)
+                    e.Rebuilt = true; // the leaf assembly was re-instantiated under us
+                e.AnimatorId = id;
+                e.InstanceSeenAt = now;
+                e.ObservedOpen = false;
+            }
+            e.Animator = a;
+        }
+
+        private void CaptureLeaf(Entry e)
+        {
+            e.LeafIds.Clear();
+            e.LeafCount = 0;
+            e.LeafCenter = Vector3.zero;
+            Animator? a = e.Animator;
+            if (a == null)
+                return;
+            _rendererScratch.Clear();
+            a.GetComponentsInChildren(includeInactive: true, _rendererScratch);
+            Vector3 sum = Vector3.zero;
+            foreach (Renderer r in _rendererScratch)
+            {
+                if (r == null)
+                    continue;
+                e.LeafIds.Add(r.GetInstanceID());
+                sum += r.transform.position;
+            }
+            e.LeafCount = e.LeafIds.Count;
+            if (e.LeafCount > 0)
+                e.LeafCenter = sum / e.LeafCount;
+            _rendererScratch.Clear();
+        }
+
+        // ---------------------------------------------------------------- the lines
+
+        private void LogOpened(Entry e, float now)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR OPENED '").Append(e.RootName).Append("' (")
+               .Append(DescribeDoor(e.Door)).Append("): the rules state flipped to open "
+               + "(CObjectDoor.DoorIsOpen, read-only — a regular 'Tür öffnen' and a cheat's "
+               + "ForceActivate both land here). ");
+            AppendAnimator(e, now);
+            AppendLeafCensus(e, "leaf renderers under the game's own animator handle at the flip");
+            _sb.Append(" Samples follow at +1 s, +3 s and +8 s; the +8 s line's 'still enabled' must "
+                     + "read 0 once the game's 'Open' has hidden the leaf. If it reads the full count "
+                     + "with the animator in 'Open' at normalizedTime >= 1 and the leaf unmoved, the clip "
+                     + "hides nothing and the hide lives elsewhere (an SMB destroy, or a rebuild that "
+                     + "re-placed a closed leaf — the sample says REPLACED when that happened).");
+            // HW-VERIFY: the door-leaf regression (2026-09-03, runde_tür_problem.jpg) is decided by this
+            // line and its samples — the tier must survive the default log level.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void LogOpenedSample(Entry e, int stage, float now)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR OPENED +").Append(SampleAt[stage].ToString("0")).Append(" s '")
+               .Append(e.RootName).Append("': ");
+            AppendAnimator(e, now);
+            AppendLeafCensus(e, "leaf renderers captured at the flip");
+            _sb.Append(" Wall-fade restores that DECLINED a foreign enable so far this session: ")
+               .Append(WallSegmentFade.DeclinedForeignEnables)
+               .Append(" (each one is a renderer the GAME switched off while the mod held a rule on "
+                     + "it — before ModBuild 414 the restore would have switched it back on).");
+            if (stage == SampleAt.Length - 1)
+                _sb.Append(" LAST SAMPLE — 'still enabled' must read 0 here.");
+            // HW-VERIFY: the +8 s sample is the reading the next hardware round is waiting on.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void LogReasserted(Entry e, Animator a, AnimatorStateInfo st, bool played, float now)
+        {
+            if (e.Reasserts > 3)
+                return; // the cap line reports the rest
+            _sb.Clear();
+            _sb.Append("DOOR OPEN RE-ASSERTED '").Append(e.RootName).Append("' (#").Append(e.Reasserts)
+               .Append("): the rules say open but the door's animator '").Append(a.gameObject.name)
+               .Append("' (controller '").Append(ControllerName(a)).Append("') was in state hash ")
+               .Append(st.shortNameHash).Append(" at normalizedTime ").Append(st.normalizedTime.ToString("0.00"))
+               .Append(", never seen in 'Open' on this instance — instance ")
+               .Append(e.Rebuilt ? "REPLACED since the open (the leaf assembly was re-instantiated: an Apparance rebuild of the door's HexDoor content)"
+                                 : "unchanged since the open (the game's one deferred replay never landed)")
+               .Append(". The mod replayed the game's own call, MF.GameObjectAnimatorPlay(root, \"Open\") — "
+                     + "Choreographer.OpenDoor's PlacementCompleteAction path — and it returned ")
+               .Append(played ? "true" : "FALSE (no 'Open' state on layer 0, or no controller)")
+               .Append(". ").Append((now - e.OpenedAt).ToString("0.0")).Append(" s after the open.");
+            // HW-VERIFY: fires only when the remedy runs; names the mechanism (REPLACED vs unchanged).
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void LogReassertCap(Entry e, AnimatorStateInfo st)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR OPEN RE-ASSERT CAP '").Append(e.RootName).Append("': replayed 'Open' ")
+               .Append(e.Reasserts).Append(" times and the animator is STILL not in 'Open' (state hash ")
+               .Append(st.shortNameHash).Append("). Either the door's content is rebuilt over and over "
+                     + "(each rebuild is a fresh closed leaf — look for the churn in the healer's "
+                     + "'completed N stalled renderer(s)' cadence) or 'Open' transitions straight out "
+                     + "again on this controller. The watch stops replaying this door.");
+            // HW-VERIFY: a cap hit is a finding in itself — a rebuild loop on a door prop.
+            VRLog.Alert(Name, _sb.ToString());
+        }
+
+        private void LogNoOpenState(Entry e, Animator a, AnimatorStateInfo st)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR OPEN NOT REPLAYABLE '").Append(e.RootName).Append("': the animator '")
+               .Append(a.gameObject.name).Append("' (controller '").Append(ControllerName(a))
+               .Append("') has no 'Open' state on layer 0 (state hash now ").Append(st.shortNameHash)
+               .Append("), so MF.GameObjectAnimatorPlay would refuse it too — this door is not "
+                     + "animated by the 'Open' state and the watch leaves it alone.");
+            // HW-VERIFY: tells the next round the door kit does not use the 'Open' state at all.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void LogUnlatched(Entry e, Animator a, AnimatorStateInfo st, float scale, float now)
+        {
+            if (e.Unlatched > 2)
+                return;
+            _sb.Clear();
+            _sb.Append("DOOR ANIMATOR UNLATCHED '").Append(e.RootName).Append("': animator '")
+               .Append(a.gameObject.name).Append("' sat in 'Open' at normalizedTime ")
+               .Append(st.normalizedTime.ToString("0.00")).Append(" with speed 0 while the global clock "
+                     + "runs at ").Append(scale.ToString("0.00"))
+               .Append(" — an SMB latched a paused clock in OnStateEnter (DelayedDestroySMB.cs:63 / "
+                     + "DelayedDeactivatePropAnimSMB.cs:58 latch once and never refresh). Speed set to the "
+                     + "clock's value; the clip can finish now. ")
+               .Append((now - e.OpenedAt).ToString("0.0")).Append(" s after the open.");
+            // HW-VERIFY: fires only when the latch was real — the second mechanism, caught by name.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        private void AppendAnimator(Entry e, float now)
+        {
+            Animator? a = e.Animator;
+            if (a == null)
+            {
+                _sb.Append("Animator: NONE under the root right now (MF.GetGameObjectAnimator found no "
+                         + "controller — the leaf content is not placed; the game would defer its 'Open' "
+                         + "to PlacementCompleteAction). ");
+                return;
+            }
+            string stateName = "?";
+            float nt = 0f;
+            int hash = 0;
+            bool inTransition = false;
+            try
+            {
+                AnimatorStateInfo st = a.GetCurrentAnimatorStateInfo(0);
+                hash = st.shortNameHash;
+                nt = st.normalizedTime;
+                stateName = st.IsName("Open") ? "Open" : st.IsName("Unlock") ? "Unlock"
+                    : st.IsName("Unlocked_Idle") ? "Unlocked_Idle" : st.IsName("Closed") ? "Closed"
+                    : st.IsName("Idle") ? "Idle" : "other";
+                inTransition = a.IsInTransition(0);
+            }
+            catch { /* controller mid-swap */ }
+            bool paused = false;
+            float scale = -1f;
+            try { paused = TimeManager.IsPaused; scale = TimeManager.TimeScale; }
+            catch { /* TimeManager not up */ }
+            _sb.Append("Animator '").Append(a.gameObject.name).Append("' (controller '")
+               .Append(ControllerName(a)).Append("', instance ").Append(e.AnimatorId)
+               .Append(e.Rebuilt ? " REPLACED since the open" : " unchanged since the open")
+               .Append("): state ").Append(stateName).Append(" (hash ").Append(hash)
+               .Append(") normalizedTime ").Append(nt.ToString("0.00"))
+               .Append(inTransition ? " in transition" : "")
+               .Append(", speed ").Append(a.speed.ToString("0.00"))
+               .Append(", enabled ").Append(a.isActiveAndEnabled)
+               .Append(", cullingMode ").Append(a.cullingMode)
+               .Append("; global clock timeScale ").Append(scale.ToString("0.00"))
+               .Append(paused ? " PAUSED" : " running")
+               .Append("; 'Open' observed on this instance: ").Append(e.ObservedOpen)
+               .Append("; re-asserts ").Append(e.Reasserts).Append(", unlatches ").Append(e.Unlatched)
+               .Append("; ").Append((now - e.OpenedAt).ToString("0.0")).Append(" s since the open. ");
+        }
+
+        private void AppendLeafCensus(Entry e, string what)
+        {
+            Animator? a = e.Animator;
+            int total = 0, gameDisabled = 0, modHeld = 0, stillEnabled = 0, destroyed = 0;
+            float moved = 0f;
+            int named = 0;
+            var names = new StringBuilder(160);
+            if (a != null)
+            {
+                _rendererScratch.Clear();
+                a.GetComponentsInChildren(includeInactive: true, _rendererScratch);
+                Vector3 sum = Vector3.zero;
+                var liveIds = new HashSet<int>();
+                foreach (Renderer r in _rendererScratch)
+                {
+                    if (r == null)
+                        continue;
+                    total++;
+                    liveIds.Add(r.GetInstanceID());
+                    sum += r.transform.position;
+                    bool enabledNow = r.enabled && r.gameObject.activeInHierarchy;
+                    string? hold = null;
+                    try { hold = WallSegmentFade.DescribeHold(r); }
+                    catch { /* wall system mid-teardown */ }
+                    if (hold != null)
+                        modHeld++;
+                    if (!enabledNow)
+                        gameDisabled++;
+                    else
+                    {
+                        stillEnabled++;
+                        if (named < 3)
+                        {
+                            named++;
+                            names.Append(names.Length == 0 ? "" : ", ").Append('\'').Append(r.name).Append('\'')
+                                 .Append(hold != null ? " [mod: " + hold + "]" : " [no mod rule]");
+                        }
+                    }
+                }
+                foreach (int id in e.LeafIds)
+                {
+                    if (!liveIds.Contains(id))
+                        destroyed++;
+                }
+                if (total > 0 && e.LeafCount > 0)
+                    moved = ((sum / total) - e.LeafCenter).magnitude;
+                _rendererScratch.Clear();
+            }
+            _sb.Append(what).Append(": ").Append(total).Append(" now (")
+               .Append(e.LeafCount).Append(" at the flip, ").Append(destroyed)
+               .Append(" of those DESTROYED since); game-disabled or inactive ").Append(gameDisabled)
+               .Append(", mod holds a rule on ").Append(modHeld)
+               .Append(", still enabled ").Append(stillEnabled)
+               .Append(stillEnabled > 0 ? " — " + names : "")
+               .Append("; leaf centre moved ").Append(moved.ToString("0.00")).Append(" wu since the flip.");
+        }
+
+        private static string ControllerName(Animator a)
+        {
+            try
+            {
+                RuntimeAnimatorController? c = a.runtimeAnimatorController;
+                return c != null ? c.name : "<none>";
+            }
+            catch { return "<?>"; }
+        }
+
+        private static string DescribeDoor(CObjectDoor? d)
+        {
+            if (d == null)
+                return "door state unresolved";
+            try
+            {
+                return $"type {d.DoorType}, lock {d.LockType}, entrance {d.IsDungeonEntrance}, exit {d.IsDungeonExit}";
+            }
+            catch { return "door state unreadable"; }
+        }
+    }
+}

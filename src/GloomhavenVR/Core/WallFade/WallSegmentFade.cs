@@ -3353,8 +3353,7 @@ internal static partial class WallSegmentFade
                         // (the reason no applier here has a held-state early-out), and such a
                         // piece would otherwise draw the held block's clip 1.20 and show
                         // nothing while its opaque slots kept drawing.
-                        if (r.enabled)
-                            r.enabled = false;
+                        HideByEnable(r);
                         ShowEdge(p, false, segFade);
                         return;
                     }
@@ -3382,8 +3381,7 @@ internal static partial class WallSegmentFade
                     break;
             }
             ShowEdge(p, true, segFade);
-            if (!r.enabled)
-                r.enabled = true;
+            ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
         }
 
         private static bool IsStandingPiece(in Bounds rb)
@@ -3646,12 +3644,11 @@ internal static partial class WallSegmentFade
         /// mid-fade; a null renderer triggers a prompt rescan.
         /// </summary>
         /// <summary>Return one foliage renderer to its vanilla state (visible, no MPB).</summary>
-        private static void RestoreFoliageRenderer(MeshRenderer r)
+        private void RestoreFoliageRenderer(MeshRenderer r)
         {
             if (r == null)
                 return;
-            if (!r.enabled)
-                r.enabled = true;
+            ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             r.SetPropertyBlock(null);
         }
 
@@ -3686,8 +3683,7 @@ internal static partial class WallSegmentFade
                     continue;
                 if (wroteBlock)
                     r.SetPropertyBlock(null);
-                if (!r.enabled)
-                    r.enabled = true;
+                ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.FoliageProps.Clear();
         }
@@ -3695,7 +3691,7 @@ internal static partial class WallSegmentFade
         /// <summary>Put ONE asset sibling back exactly as authored: its dissolve channel undone
         /// (authored materials back, our copies destroyed), property block cleared, renderer
         /// visible again. Round 15 — before that, siblings were a pure enabled toggle.</summary>
-        private static void RestoreSiblingProp(Segment seg, MeshRenderer? r)
+        private void RestoreSiblingProp(Segment seg, MeshRenderer? r)
         {
             if (r == null)
                 return;
@@ -3708,8 +3704,7 @@ internal static partial class WallSegmentFade
                 if (wroteBlock)
                     r.SetPropertyBlock(null);
             }
-            if (!r.enabled)
-                r.enabled = true;
+            ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
         }
 
         /// <summary>Restore ALL of a segment's asset siblings (doors/trim of a mixed asset) —
@@ -3717,7 +3712,7 @@ internal static partial class WallSegmentFade
         /// group split, toggle-off, teardown), so no door can stay hidden without an owner.
         /// Round 15: also undoes their dissolve channel, and sweeps records whose renderer died
         /// so a material copy can never leak.</summary>
-        private static void RestoreSegmentSiblings(Segment seg)
+        private void RestoreSegmentSiblings(Segment seg)
         {
             if (seg.SiblingState == 0)
                 return;
@@ -3737,8 +3732,7 @@ internal static partial class WallSegmentFade
                     continue;
                 if (wroteBlock)
                     r.SetPropertyBlock(null);
-                if (!r.enabled)
-                    r.enabled = true;
+                ShowIfWeHid(r); // enable ledger — never re-enable what the GAME switched off
             }
             seg.SiblingProps.Clear();
         }
@@ -3805,12 +3799,11 @@ internal static partial class WallSegmentFade
                 DriveProp(p, eff);
                 if (eff >= FoliageHideFade)
                 {
-                    if (s.enabled)
-                        s.enabled = false;
+                    HideByEnable(s);
                 }
                 else if (!s.enabled)
                 {
-                    s.enabled = true;
+                    ShowIfWeHid(s);
                 }
             }
             seg.SiblingState = want;
@@ -3887,8 +3880,7 @@ internal static partial class WallSegmentFade
                     {
                         DriveProp(p, eff);
                         p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
-                        if (f.enabled)
-                            f.enabled = false;
+                        HideByEnable(f);
                         ShowEdge(p, false, eff);
                     }
                     else
@@ -3907,8 +3899,10 @@ internal static partial class WallSegmentFade
                 // The order is arbitrary but STABLE: a piece does not flicker by re-randomising
                 // between frames, and every renderer of one prop leaves at the same instant.
                 bool hide = eff >= StaggerThresholdFor(f);
-                if (f.enabled == hide)
-                    f.enabled = !hide;
+                if (hide)
+                    HideByEnable(f);
+                else if (!f.enabled)
+                    ShowIfWeHid(f);
                 // ModBuild 261: the TORN RETURN falsifier used to watch the unit-dressing list
                 // only — the half that was already keyed on the prop unit. The half that could
                 // disagree with it was this one, and it was invisible. Same call, same records.
@@ -4218,6 +4212,7 @@ internal static partial class WallSegmentFade
             if (_rescanStage == RescanStage.Classify)
             {
                 _cycleClassifyFrames++;
+                PruneHidLedger(); // enable ledger (HoldQuery.cs): drop keys a rebuild destroyed
                 using (PerfMonitor.Scope("WallFade.Classify"))
                 {
                     // ModBuild 279 (Option A) — ONE ANCESTRY MEMO WINDOW PER CLASSIFY BATCH.
@@ -8566,7 +8561,7 @@ internal static partial class WallSegmentFade
         /// <summary>Post-refresh bookkeeping: clear our property block from renderers that LEFT a
         /// currently-faded segment (they would otherwise keep the fade forever — nothing else
         /// ever touches them again), then derive the blocked-test epsilon from the new bounds.</summary>
-        private static void FinishRefresh(Segment seg)
+        private void FinishRefresh(Segment seg)
         {
             if (seg.HasBlock)
             {
@@ -8805,6 +8800,7 @@ internal static partial class WallSegmentFade
             // died on some path before it could restore it (the orphan ledger's last stop).
             try { RestoreAllMountedProps(); }
             catch { /* renderers already dying with the scene */ }
+            _hidByEnable.Clear(); // every restore path above has consumed its entry; the rest are dead keys
             _live.Segments.Clear();
             _runs.Clear(); // run verdicts belong to the scenario they were measured in
             _live.RoomBounds.Clear();

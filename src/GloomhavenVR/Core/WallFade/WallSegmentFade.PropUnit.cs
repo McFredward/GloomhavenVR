@@ -1946,8 +1946,10 @@ internal static partial class WallSegmentFade
                     // resolved the KEY differently on a memo miss, which tore any prop split
                     // between seg.Foliage and seg.UnitDressing. See StaggerThresholdFor.
                     bool hide = want == 2 || eff >= StaggerThresholdFor(r);
-                    if (r.enabled == hide)
-                        r.enabled = !hide;
+                    if (hide)
+                        HideByEnable(r);
+                    else if (!r.enabled)
+                        ShowIfWeHid(r);
                     ShowEdge(p, !hide, eff);
                     continue;
                 }
@@ -1956,8 +1958,7 @@ internal static partial class WallSegmentFade
                     DriveProp(p, 1f);
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     ShowEdge(p, false, eff);
-                    if (r.enabled)
-                        r.enabled = false;
+                    HideByEnable(r);
                 }
                 else
                 {

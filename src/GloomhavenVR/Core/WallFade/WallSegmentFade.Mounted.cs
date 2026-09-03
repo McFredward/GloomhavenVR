@@ -1164,8 +1164,10 @@ internal static partial class WallSegmentFade
             // Read the picture BEFORE the enable, so the denominator below counts an actual
             // transition and not a no-op restore.
             bool wasDrawing = IsActuallyDrawing(r);
-            if (!r.enabled)
-                r.enabled = true;
+            // The enable ledger (WallSegmentFade.HoldQuery.cs): a renderer the GAME switched off
+            // while we held a rule on it — a door leaf hidden by its own 'Open' animation — is
+            // NOT switched back on here; only what this driver disabled is restored.
+            ShowIfWeHid(r);
             // ModBuild 261: this piece is visible again, and BY CONSTRUCTION as authored —
             // authored materials reassigned, property block cleared, particle modules restored
             // above. It is counted in the SHOW EDGE denominator so the line's "0 not as authored"
@@ -1309,7 +1311,7 @@ internal static partial class WallSegmentFade
                     }
                     p.Return = ReturnPhase.HeldHidden; // ModBuild 265 — see ShowAttachmentPiece
                     if (drawing)
-                        p.Renderer.enabled = false;
+                        HideByEnable(p.Renderer);
                     ShowEdge(p, false, eff);
                 }
                 else
