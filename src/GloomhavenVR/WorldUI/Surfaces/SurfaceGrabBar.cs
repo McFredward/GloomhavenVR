@@ -1,0 +1,512 @@
+using GloomhavenVR.Core;
+using UnityEngine;
+
+namespace GloomhavenVR.WorldUI.Surfaces;
+
+/// <summary>
+/// A GRAB BAR FOR A <see cref="WorldSurface"/>'S FLOATED PANEL — the same rod, the same grip, the
+/// same laser-carry and the same reel a floated <see cref="ModalFallback"/> window has, attached to
+/// a panel that <see cref="ModalFallback"/> can never see.
+///
+/// <para><b>THE REPORT (user, 2026-09-03, verbatim):</b> <i>"Ich sehe nun das Fenster in dem
+/// ausgewählt wird, allerdings ohne Greifbalken. Ich will das auch das wie jedes andere Fenster auch
+/// behandelt wird und das Fenster normal verschiebbar ist wie alle anderen Fenster auch."</i> The
+/// window is the map-side travel-event reward popup, floated by
+/// <see cref="DistributeRewardSurface"/>. It went up in ModBuild 373 and could not be moved,
+/// because nothing in the <see cref="WorldSurface"/> family had ever given a panel a handle.</para>
+///
+/// <para><b>WHAT THIS REUSES, AND WHAT IT DELIBERATELY DOES NOT.</b> "Drag a panel" is
+/// <see cref="PanelGrabHandle"/> — it owns the palm grab, the laser-carry, the reel, the two-hand
+/// resize, the head guard and the far bound — and "the rod the player grips" is
+/// <see cref="GrabBarVisual"/>. BOTH ARE USED HERE UNCHANGED, through the same
+/// <see cref="IPanelGrabOwner"/> seam <c>GrabbableModal</c>, <c>CombatLogSurface</c> and
+/// <c>PlayTray</c> already plug into. So there is no second drag implementation in this mod: there
+/// is one core with a fourth owner.</para>
+///
+/// <para><b>WHY NOT <c>GrabbableModal</c> ITSELF, WHICH IS THE MODAL WINDOWS' OWNER.</b> It was the
+/// first choice and it is structurally unavailable to a surface, for one reason that is not a
+/// matter of taste: <c>GrabbableModal.EnsureFrame</c> registers every holder it builds in
+/// <c>GrabbableModal.LiveHolders</c>, and <c>ModalFallback.SweepOrphanChrome</c> — which runs every
+/// <c>ChromeSweepSeconds</c> = 5 s from <c>ModalFallback.Tick</c>, on the map as well as in a
+/// scenario — destroys every holder in that list that is not referenced by some
+/// <c>ModalFallback.Converted[j].Grab</c>. A surface's holder is by construction owned by no
+/// <c>WindowPanel</c> (these panels carry no <c>UIWindow</c> at all — that IS the premise of
+/// <see cref="FloatingDecisionSurface"/>, and the ModBuild 373 log states it for this very popup:
+/// "the conversion target 'UI Distribute Items Rewards Popup' carries no UIWindow"), so a
+/// <c>GrabbableModal</c> built from here would be destroyed within five seconds with an
+/// ORPHAN CHROME DESTROYED warning, and the same teardown sweep would take it at every bulk release.
+/// Making it survivable needs an opt-out either in <c>ModalFallback.9.Spawn.cs</c> or in
+/// <c>GrabbableModal.cs</c>; both files are owned by another lane this round, so the route was
+/// rejected rather than half-taken. That is the ONLY blocker — everything else <c>GrabbableModal</c>
+/// does (its <c>Tick</c>, its <c>LateSyncHost</c>, its <c>SyncSharedState</c>) is callable from a
+/// surface as it stands.</para>
+///
+/// <para><b>AND THIS IS THE SMALL HALF OF IT.</b> What is NOT reimplemented here is everything
+/// <c>GrabbableModal</c> carries for reasons a decision panel does not have: the shared-window
+/// badge and the remote pose easing (multiplayer window sharing — a decision panel's pose is local
+/// presentation and nothing about it goes on the wire), the ink-union bar placement (it needs
+/// <c>PanelInkBounds</c>' committed union, which is fed by ModalFallback's fit machinery and does
+/// not exist for these panels — the bar is placed off the host rect instead, which is exactly what
+/// <c>GrabbableModal</c> itself falls back to when the ink cannot be measured), the close X and its
+/// plate (see NO X, below), the diagnostic throttle and the pose lock. What is left is ~120 lines
+/// of transform arithmetic that is a straight read of <c>GrabbableModal.SyncBar</c>'s frame-based
+/// branch, with the same constants, so the two handles cannot drift in look or feel.</para>
+///
+/// <para><b>NO CLOSE X, BY CONSTRUCTION AND NOT BY OMISSION.</b> The X is a SEPARATE call in
+/// <c>ModalFallback.8.Convert</c> — <c>ModalCloseButton.Attach(panel, window)</c> — taken beside
+/// the grab decision, not inside it, and its second argument is a <c>UIWindow</c> these panels do
+/// not have. So the bar-without-an-X shape this class produces is the same shape the map room's
+/// character screen ships in ("MODAL WINDOW: 'New Party display' (ID PartyPanel) floats WITHOUT an
+/// X"): a handle to move it, and the game's own buttons as the only exit. For the distribute popup
+/// that is not a nicety — <c>MapChoreographer.WaitDistributionEnds</c> is
+/// <c>WaitUntil(() =&gt; !UIDistributeRewardManager.Instance.IsDistributing)</c> and only the
+/// popup's own confirm button resolves it, while the map is input-locked by
+/// <c>AdventureMapUIManager.LockOptionsInteraction</c>, so an X on it would be a button that hands
+/// the player a hard deadlock. This class contains no close affordance and no code path that could
+/// grow one; if one is ever wanted for some other surface it must be decided by that surface, not
+/// by the handle.</para>
+///
+/// <para><b>IT CANNOT LOSE THE PANEL, and each half of that is somebody's existing guarantee rather
+/// than a promise made here.</b>
+/// <list type="bullet">
+/// <item>A PALM carry moves the panel to wherever the hand is, which is within arm's reach by
+/// definition.</item>
+/// <item>A LASER carry is bounded by the reel, whose far bound is
+/// <c>RayGrabDriver.MaxDistanceMeters</c> minus the panel's own reach — <c>PanelGrabHandle.ArmReel</c>
+/// states the intent in those words: "the drag bar can never be pushed past the distance at which
+/// the ray that pushed it would still find it. That is the honest definition of 'lost'".</item>
+/// <item>The NEAR side is the handle's own per-frame head guard, which measures the panel as a rect
+/// against the head and refuses the step.</item>
+/// <item>ORIENTATION cannot be lost either: the one-hand carry yaws the panel with the wrist
+/// (<see cref="PanelCarryMode.Level"/>), so <see cref="IPanelGrabOwner.OnGrabFinished"/> re-faces it
+/// through the same <c>PanelPlacement.Facing</c> the spawn placement uses — a released panel reads
+/// exactly like a freshly floated one.</item>
+/// <item>And the universal rescue is untouched: every <see cref="FloatingDecisionSurface"/> gates on
+/// <c>!FlatScreen.ManualScreenActive</c>, so the player's A/X chord releases the float and restores
+/// the popup to the 2D composite, wherever in the room he left it.</item>
+/// </list></para>
+///
+/// <para><b>AND IT CANNOT END A FLOAT.</b> Everything written from here is either a mod-owned
+/// transform (the holder, the frame, the rod, the grab zone) or the game host's
+/// position/rotation/localScale — which <see cref="FloatingDecisionSurface.Place"/> was already
+/// writing through <c>CanvasConversion.PlaceHost</c> before this class existed. There is no
+/// <c>Release</c>, no <c>SetActive</c> on game content, no write to any term of a surface's
+/// <c>WantConverted</c>, and nothing on the wire. In particular <see cref="DistributeRewardSurface"/>'s
+/// distribution HOLD (<c>_holdArmed</c> / <c>HoldForDistribution</c>) reads
+/// <c>UIDistributeRewardManager.IsDistributing</c> and the popup's own <c>activeSelf</c>, neither of
+/// which any line below touches.</para>
+///
+/// <para><b>MULTIPLAYER:</b> a panel pose is local presentation. No <c>NetProtocol</c> surface, no
+/// record, no game state. The peer-shared-window machinery in <c>GrabbableModal</c> (the badge, the
+/// glide, <c>SharedWindows.IsShared</c>) is deliberately absent rather than stubbed, because a
+/// decision panel is never a shared window.</para>
+/// </summary>
+internal sealed class SurfaceGrabBar : IPanelGrabOwner
+{
+    // ---- geometry: every constant below is GrabbableModal's, by value and by name, so the two
+    //      handles read as one piece of furniture. See GrabbableModal.SyncBar for the derivations.
+    /// <summary>Gap from the panel's bottom edge to the bar CENTRE (frame-local, scale-1 metres).</summary>
+    private const float BarGapMeters = 0.03f;
+
+    /// <summary>The rod's nominal radius — the design sheet's value, shared with every other bar.</summary>
+    private const float BarRadius = GrabBarMesh.DefaultRadius;
+
+    /// <summary>Drawn bar length as a fraction of the panel width.</summary>
+    private const float BarWidthFraction = 0.55f;
+
+    /// <summary>Palm grab zone width as a fraction of the panel width — wider than the drawn rod,
+    /// because a palm grab is a generous gesture and the laser has its own capsule.</summary>
+    private const float ZoneWidthFraction = 0.62f;
+
+    /// <summary>Floor on the drawn length. Below this the rod is shorter than its own two caps and
+    /// the laser capsule degenerates; GrabBarVisual.SetLength documents the arithmetic.</summary>
+    private const float MinBarWidth = 0.06f;
+
+    /// <summary>Floor on the short-panel proportion, so a small panel still has a grabbable rod.</summary>
+    private const float MinBarProportion = 0.5f;
+
+    /// <summary>Panel height at which the bar is drawn at full proportion.</summary>
+    private const float BarFullSizePanelHeightMeters = 0.30f;
+
+    /// <summary>Draw-order offset for the rod's three renderers: it must paint OVER its own panel.</summary>
+    private const int BarOrderOffset = 4;
+
+    /// <summary>Below this the release re-face writes nothing (and says nothing).</summary>
+    private const float ReFaceEpsilonDeg = 0.5f;
+
+    /// <summary>Pose delta that counts as "this panel is moving" for
+    /// <see cref="ConvertedPanel.GuardHostMoving"/> — the same 5 mm epsilon GrabbableModal uses.</summary>
+    private const float MovingEpsilonMeters = 0.005f;
+
+    private ConvertedPanel? _panel;
+    private string _logName = "surface panel";
+
+    /// <summary>The surface's own extra shrink on the host (the float factor), so the bar and the
+    /// host agree about how big a host pixel is.</summary>
+    private float _extraScale = 1f;
+
+    /// <summary>The diorama scale CAPTURED AT BUILD, never the live one — the same ruling
+    /// GrabbableModal follows (item 2, "no auto-scale with world zoom"): zooming the diorama after
+    /// the panel is up must not grow or shrink it under the player's hands.</summary>
+    private float _spawnWorldScale = 1f;
+
+    private Transform? _holder;     // scene root, identity pose and identity scale
+    private Transform? _frame;      // the GRAB ROOT at the panel centre; localScale = user factor
+    private GrabBarVisual? _bar;    // the drawn rod: shaft + two caps, one material
+    private BoxCollider? _grabZone; // the palm zone, on the frame, offset down to the rod
+    private PanelGrabHandle? _handle;
+
+    private Vector3 _lastHostPos;
+    private bool _lastHostPosValid;
+    private bool _userMoved;
+
+    /// <summary>True while a hand grips the bar.</summary>
+    internal bool IsGrabbed => _handle != null && _handle.IsGrabbed;
+
+    /// <summary>
+    /// Latched the first time the player grips this panel, and never cleared for the life of the
+    /// float. Exposed for the same reason <c>GrabbableModal.UserMoved</c> is: from that moment the
+    /// pose belongs to the player and no automatic re-placement may take it back. Today nothing
+    /// re-places a floated decision panel (<see cref="FloatingDecisionSurface.Place"/> is a
+    /// once-per-conversion write guarded by its own <c>_placed</c> latch), so this flag has no
+    /// consumer yet — it is published rather than inferred because the NEXT surface that wants a
+    /// re-place must be able to ask, and re-deriving "has the player touched this" from a live
+    /// grab state would answer no for every panel he moved and let go of.
+    /// </summary>
+    internal bool UserMoved => _userMoved;
+
+    /// <summary>True once the holder exists — i.e. this panel has a handle on the screen.</summary>
+    internal bool IsBuilt => _holder != null && _frame != null;
+
+    /// <summary>
+    /// Build the handle for a freshly floated, freshly PLACED host: the frame is seeded at the
+    /// host's current world pose, so the first follow tick keeps the panel exactly where the
+    /// surface put it and nothing jumps on the frame the bar appears.
+    /// </summary>
+    /// <param name="extraScale">The surface's own float shrink — the same factor it passed to
+    /// <c>CanvasConversion.PlaceHost</c> as part of the world scale. Kept separate here because the
+    /// bar's metres-per-host-pixel must be the host's own, not the diorama's.</param>
+    internal void Build(ConvertedPanel panel, float extraScale, float worldScale, string logName)
+    {
+        _panel = panel;
+        _extraScale = extraScale;
+        _spawnWorldScale = Mathf.Max(worldScale, 0.01f);
+        _logName = logName;
+        EnsureFrame();
+        if (_frame != null && panel.HostGo != null)
+        {
+            Transform h = panel.HostGo.transform;
+            _frame.SetPositionAndRotation(h.position, h.rotation);
+            _frame.localScale = Vector3.one; // user factor 1x
+        }
+        Tick(); // size the rod and re-write the host from the frame in the same frame
+    }
+
+    /// <summary>
+    /// The game-owned host follows the mod-owned grab frame — position, rotation and scale — and
+    /// the rod follows the host's live rect. Allocation-free; called once per surface tick.
+    /// </summary>
+    internal void Tick()
+    {
+        if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _panel.HostRect == null)
+            return;
+        EnsureFrame();
+        if (_holder == null || _frame == null)
+            return;
+
+        // THE HOLDER STAYS AT IDENTITY SCALE. GrabbableModal carries the same line and the same
+        // warning: scaling the holder ties the frame's WORLD position to the diorama scale, and a
+        // world scale that settles at scene start then drags the panel toward the origin with it.
+        _holder.localScale = Vector3.one;
+        if (!_holder.gameObject.activeSelf)
+            _holder.gameObject.SetActive(true);
+
+        bool held = _handle != null && _handle.IsGrabbed;
+        if (!_userMoved && held)
+        {
+            _userMoved = true;
+            // HW-VERIFY: THE ANSWER TO THE REPORT. The user asked for these panels to be
+            // "normal verschiebbar wie alle anderen Fenster auch"; this line is the only evidence
+            // that a hand actually took one. Printed ONCE per conversion (the latch), so it cannot
+            // become drag spam. If the SURFACE GRAB BAR line is in the log and this one is not, the
+            // handle was built but could not be gripped — look at GrabVisible's terms (RenderHidden
+            // / OwnerRenderHidden) and at whether the rod was on the screen at all.
+            VRLog.Note("WorldUI", $"SURFACE WINDOW: '{_logName}' grabbed — its pose is now "
+                                  + "PLAYER-OWNED. Nothing re-places a floated decision panel today "
+                                  + "(the surface places it once per conversion), so this is the "
+                                  + "claim being recorded, not a re-placement being refused.");
+        }
+
+        // PUBLISHED FOR THE SUPERSAMPLER, which defers its sharpening repair while a hand is on a
+        // window (PanelSupersample.HandOn). Without this write the repair would fire mid-drag on
+        // exactly the panels this class just made draggable. It can only ever DEFER work — nothing
+        // downstream of it releases a conversion — so a wrong value here is a cost, never a loss.
+        _panel.GuardHostHeld = held;
+
+        SyncHost();
+        SyncBar(_panel.HostRect.rect);
+    }
+
+    /// <summary>
+    /// Re-copy the frame onto the host in LateUpdate, AFTER every Update-phase writer in the
+    /// process has run. Driven by <see cref="HostLateSync"/> on the holder itself rather than by a
+    /// surface <c>LateTick</c>, because <c>WorldUIModule</c>'s generic late pass covers only the
+    /// slot-layout surfaces and adding the decision surfaces to it would be an edit outside this
+    /// lane's owned paths — and because a MonoBehaviour on the holder cannot get out of step with
+    /// the holder's own lifetime.
+    ///
+    /// <para>WHY IT IS NEEDED AT ALL (this is GrabbableModal.LateSyncHost's root cause, unchanged):
+    /// <see cref="PanelGrabHandle"/> moves the FRAME from its own MonoBehaviour <c>Update</c>,
+    /// which has NO defined execution order against <c>WorldUIModule.Update</c>. On every frame the
+    /// handle runs later, the host was synced from the PREVIOUS pose and the panel renders one
+    /// frame behind the rod that is carrying it — visible as the content shearing off its own
+    /// handle during a fast drag. Unity runs every LateUpdate after every Update, so a copy written
+    /// here is ordering-proof by rule instead of by luck. For a panel nobody is holding the frame
+    /// is static and this is a change-free write.</para>
+    /// </summary>
+    private void LateSync()
+    {
+        if (_panel == null || !_panel.IsAlive || _panel.HostGo == null || _frame == null)
+            return;
+        SyncHost();
+    }
+
+    /// <summary>Copy the grab frame's pose and the user's size factor onto the game-owned host.</summary>
+    private void SyncHost()
+    {
+        if (_panel == null || _panel.HostGo == null || _frame == null)
+            return;
+        // The user grab factor rides the SHARED range the two-hand pinch clamps to; a tighter floor
+        // here would silently re-cap what the pinch was allowed to shrink.
+        float factor = Mathf.Clamp(_frame.localScale.x, PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        Transform host = _panel.HostGo.transform;
+        Vector3 pos = _frame.position;
+        host.SetPositionAndRotation(pos, _frame.rotation);
+        host.localScale = Vector3.one * (metersPerPixel * _spawnWorldScale * _extraScale * factor);
+
+        _panel.GuardHostMoving = _lastHostPosValid
+                                 && (pos - _lastHostPos).sqrMagnitude
+                                    > MovingEpsilonMeters * MovingEpsilonMeters;
+        _lastHostPos = pos;
+        _lastHostPosValid = true;
+    }
+
+    /// <summary>
+    /// Place and size the rod and the palm zone under the panel's live rect.
+    ///
+    /// <para>Measured off the HOST RECT and not off the drawn ink, deliberately. GrabbableModal
+    /// prefers the ink union so a window that draws in a corner of an oversized frame still gets
+    /// its handle under what is visible — but that union comes from <c>PanelInkBounds</c>' committed
+    /// capture, which ModalFallback's fit machinery feeds and which does not exist for a surface
+    /// panel. The frame-based branch below is byte-for-byte the one GrabbableModal itself falls
+    /// back to whenever the ink cannot be measured, so this is its documented fallback rather than
+    /// a second rule. It is also the right one here on the merits: a decision popup is a tight
+    /// panel that fills its own frame (the ModBuild 373 log measures the reward popup's content at
+    /// 416x464 px inside a 368x500 px frame — it OVERFLOWS its rect rather than rattling inside
+    /// it), so an ink union would move the bar by pixels.</para>
+    /// </summary>
+    private void SyncBar(Rect rect)
+    {
+        if (_bar == null || _grabZone == null)
+            return;
+        float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
+        // Frame-local metres per host pixel. The frame's own localScale carries the user grab
+        // factor, so it must NOT appear here — otherwise the bar would grow twice with a pinch.
+        float unit = metersPerPixel * _extraScale * _spawnWorldScale;
+        float worldScale = _spawnWorldScale;
+
+        float panelHeight = rect.height * unit / Mathf.Max(worldScale, 1e-4f);
+        float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
+                                       MinBarProportion, 1f);
+        float gap = BarGapMeters * proportion * worldScale;
+        // A ROD TAKES A UNIFORM SCALE AND NOTHING ELSE — stretching along its axis would smear the
+        // domed caps into ellipsoids, which is the whole reason GrabBarVisual exists. The two
+        // factors that a stretched cube used to carry in its localScale become a uniform scale on
+        // the root, and the LENGTH is handed in separately through SetLength.
+        float rodScale = Mathf.Max(proportion * worldScale, 1e-4f);
+        float minWidth = MinBarWidth * worldScale;
+        float zoneDepth = 0.05f * worldScale;
+
+        // rect.yMin / rect.center are taken from the RectTransform rather than assuming a centred
+        // pivot: the host is created by CanvasConversion and is pivot-centred today, but a bar
+        // hung off an assumed pivot is a bar that silently detaches the day one is not.
+        float x = rect.center.x * unit;
+        float y = rect.yMin * unit - gap;
+        float barWidth = Mathf.Max(rect.width * unit * BarWidthFraction, minWidth);
+        float zoneWidth = Mathf.Max(rect.width * unit * ZoneWidthFraction, minWidth);
+
+        _bar.Root.localPosition = new Vector3(x, y, 0f);
+        _bar.Root.localScale = Vector3.one * rodScale;
+        // barWidth is in FRAME-local metres and SetLength wants the ROD's own, under a root scaled
+        // by rodScale — divide it back out and the drawn end-to-end length is barWidth exactly.
+        _bar.SetLength(barWidth / rodScale);
+        _grabZone.center = new Vector3(x, y, 0f);
+        _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
+    }
+
+    // ---- IPanelGrabOwner ---------------------------------------------------------------------
+
+    Transform? IPanelGrabOwner.GrabRoot => _frame;
+
+    // A panel the reveal gate is still hiding, or one its own surface render-hid, must not be
+    // grabbable either: "grabbing something that is not there" is the standing ruling, and
+    // PanelGrabHandle.CanGrab consults this for BOTH grab paths (the palm candidate scan and the
+    // laser's bar-collider ray test), so one property covers both.
+    bool IPanelGrabOwner.GrabVisible =>
+        _panel != null && _panel.IsAlive && !_panel.RenderHidden && !_panel.OwnerRenderHidden
+        && _holder != null && _holder.gameObject.activeInHierarchy;
+
+    // Carry the yaw with the hand, level in the plain WORLD frame — the same mode every floated
+    // window uses. Nothing else authors this panel's rotation, so there is no two-writer jitter.
+    PanelCarryMode IPanelGrabOwner.CarryMode => PanelCarryMode.Level;
+    Quaternion IPanelGrabOwner.GrabLevelFrame => Quaternion.identity;
+    Vector2 IPanelGrabOwner.GrabPitchLimits => new(-180f, 180f);
+
+    /// <summary>A decision panel has no apparent-size ruling, so the handle's generic factor range
+    /// IS its resize window — verbatim what GrabbableModal returns.</summary>
+    Vector2 IPanelGrabOwner.GrabScaleLimits => new(PanelGrabHandle.MinScale, PanelGrabHandle.MaxScale);
+
+    /// <summary>
+    /// RE-FACE ON RELEASE. The one-hand carry yaws the panel with the WRIST, so a drag to the side
+    /// leaves it turned to wherever the hand happened to point — readable only edge-on, and for a
+    /// panel with no close X that is the difference between "moved" and "lost". The moment the LAST
+    /// hand lets go, the rotation is re-derived through <c>PanelPlacement.Facing</c>, the same
+    /// formula the spawn placement uses, so a moved panel reads exactly like a freshly floated one.
+    ///
+    /// <para><b>THE PANEL DOES NOT TRAVEL.</b> The turn is about the frame origin, which for these
+    /// hosts IS the drawn centre: <c>CanvasConversion</c> creates a pivot-centred host and
+    /// <see cref="FloatingDecisionSurface.Place"/> seats the frame on it, so the arc-swing
+    /// GrabbableModal had to solve with an ink pivot (ModBuild 240 — a window whose ink sat 859 mm
+    /// off its frame origin travelled two thirds of a metre on a 44° re-face) cannot arise here.
+    /// It is stated rather than assumed because it is a property of how the frame is SEATED, and
+    /// the day a surface seats it somewhere else this comment is the thing that is wrong.</para>
+    /// </summary>
+    void IPanelGrabOwner.OnGrabFinished()
+    {
+        if (_frame == null)
+            return;
+        Camera? head = CanvasConversion.WorldCamera;
+        if (head == null)
+            return;
+        Quaternion facing = PanelPlacement.Facing(_frame.position, head.transform.position);
+        float turned = Quaternion.Angle(_frame.rotation, facing);
+        if (turned < ReFaceEpsilonDeg)
+            return;
+        _frame.rotation = facing;
+        SyncHost();
+        VRLog.Info("WorldUI", $"SURFACE WINDOW: '{_logName}' released after a move — re-faced the "
+                              + $"player by {turned:F1}°, about the frame origin (= the host's own "
+                              + "centre). The panel did not travel: only the orientation changed.");
+    }
+
+    // ---- construction ------------------------------------------------------------------------
+
+    /// <summary>
+    /// Build the scene-root holder tree. A SCENE ROOT and not a child of the host, because the host
+    /// FOLLOWS the frame rather than the other way round — which is also why
+    /// <see cref="Destroy"/> has to be called explicitly: nothing about releasing the panel can
+    /// reach this tree.
+    /// </summary>
+    private void EnsureFrame()
+    {
+        if (_holder != null && _frame != null)
+            return;
+        // NOTHING IS BUILT WITHOUT A PANEL. GrabbableModal carries the same guard for a reason this
+        // project paid a build for: an un-built handle is a brass bar hanging in mid-air with no
+        // window on it, and it looks exactly like a real one (ModBuild 225/226,
+        // .planning/debug/leeres_fenster.jpg).
+        if (_panel == null)
+            return;
+
+        var holderGo = new GameObject($"GloomhavenVR.SurfaceGrab_{_logName}");
+        _holder = holderGo.transform;
+        holderGo.AddComponent<HostLateSync>().Owner = this;
+
+        var frameGo = new GameObject("Frame");
+        _frame = frameGo.transform;
+        _frame.SetParent(_holder, worldPositionStays: false);
+
+        // Style Generic is the WINDOW rod (dark oiled walnut, small aged-brass knobs) — the same one
+        // every floated modal wears, so a decision panel is not visibly a different kind of object.
+        // overlay:true puts it on GloomhavenVR/Overlay with _ZWrite forced on, which is what makes
+        // it draw solid over the panel's own content while a hand physically in front still
+        // occludes it.
+        GrabBarVisual bar = GrabBarVisual.Build(_frame, "Bar", GrabBarStyle.Generic,
+                                                BarRadius, overlay: true);
+        // ALL THREE RENDERERS ride the draw-order ladder, not just the shaft: registering one would
+        // sort the shaft over the panel and leave both knobs behind it — a bar with its ends bitten
+        // off.
+        for (int i = 0; i < bar.Renderers.Count; i++)
+            CanvasConversion.RegisterOrderFollower(_panel, bar.Renderers[i], BarOrderOffset);
+        _bar = bar;
+
+        // The LASER's target is a capsule down the rod's own axis, which SetLength keeps in step;
+        // the PALM's target is the generous box on the frame below. The split is deliberate and is
+        // the lost-menu fix: the far ray must land only on the visible strip.
+        Collider barCollider = bar.AttachLaserTarget();
+
+        // Collider BEFORE the handle: PanelGrabHandle.OnEnable registers whatever Collider is on its
+        // own GameObject, and AddComponent runs OnEnable immediately.
+        _grabZone = frameGo.AddComponent<BoxCollider>();
+        _grabZone.isTrigger = true;
+        _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
+        _handle = frameGo.AddComponent<PanelGrabHandle>();
+        // bar.Renderer is the SHAFT, and all three pieces share ONE Material — so the handle's
+        // single sharedMaterial.color write in OnGrabHighlight lights the whole rod.
+        _handle.Init(this, bar.Renderer, "WorldUI", $"{_logName} panel");
+        _handle.SetBarCollider(barCollider);
+
+        // Render-only mod layer; grabs and pokes route through the registries, not through layers.
+        // After the rod exists, because it walks the tree it is given.
+        VRLayers.Apply(holderGo);
+
+        // The holder is a SCENE-ROOT tree, so the panel's reveal gate (which walks the host) could
+        // never hide the rod on its own — the handle would pop into the room at the pre-fit size
+        // before its panel drew anything, which is the "Aufploppen der Greifbar" the user reported
+        // for the modal windows. Registering it as an extra render root makes the panel's own hide
+        // walk this tree too.
+        CanvasConversion.AddRenderRoot(_panel, _holder);
+
+        // HW-VERIFY: the answer to "wie jedes andere Fenster auch". Its presence names the panel
+        // that got a handle; its ABSENCE for a panel the player says he cannot move is the whole
+        // diagnosis, because the only two ways to reach it are a null ConvertedPanel and a surface
+        // that never called Build.
+        VRLog.Note("WorldUI", $"SURFACE GRAB BAR: '{_logName}' is now a grabbable/scalable world "
+                              + "element — one hand on the rod moves it (palm grip or laser-carry "
+                              + "with the stick reel), two hands resize it "
+                              + $"{PanelGrabHandle.MinScale:0.##}x-{PanelGrabHandle.MaxScale:0.##}x, "
+                              + "and the last hand off re-faces it to the player. It carries NO "
+                              + "close X, deliberately: these panels have no UIWindow to close and "
+                              + "the game's own confirm button is the only thing that resolves the "
+                              + "promise the campaign is waiting on.");
+    }
+
+    /// <summary>Destroy the mod-owned holder. The game-owned host is released by the surface,
+    /// separately — this class never releases a conversion.</summary>
+    internal void Destroy()
+    {
+        if (_holder != null)
+            Object.Destroy(_holder.gameObject);
+        _holder = null;
+        _frame = null;
+        _bar = null;
+        _grabZone = null;
+        _handle = null;
+        _panel = null;
+        _lastHostPosValid = false;
+        _userMoved = false;
+    }
+
+    /// <summary>
+    /// The LateUpdate pump for <see cref="LateSync"/>, on the holder itself. An ordinary
+    /// MonoBehaviour: Unity guarantees every LateUpdate runs after every Update, which is the whole
+    /// point (see <see cref="LateSync"/>).
+    /// </summary>
+    private sealed class HostLateSync : MonoBehaviour
+    {
+        internal SurfaceGrabBar? Owner;
+
+        private void LateUpdate() => Owner?.LateSync();
+    }
+}

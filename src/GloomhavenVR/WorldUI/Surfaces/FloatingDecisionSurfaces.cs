@@ -50,6 +50,42 @@ internal abstract class FloatingDecisionSurface : WorldSurface
 
     private bool _placed;
 
+    /// <summary>
+    /// THE GRAB BAR — one per live conversion, for EVERY subclass of this family.
+    ///
+    /// <para><b>USER, 2026-09-03, verbatim:</b> <i>"Ich sehe nun das Fenster in dem ausgewählt wird,
+    /// allerdings ohne Greifbalken. Ich will das auch das wie jedes andere Fenster auch behandelt
+    /// wird und das Fenster normal verschiebbar ist wie alle anderen Fenster auch."</i> He met the
+    /// map-side reward popup (<see cref="DistributeRewardSurface"/>), which ModBuild 370-373 fought
+    /// onto the screen and which then could not be moved.</para>
+    ///
+    /// <para><b>THE BAR IS ON THE BASE CLASS, SO ALL THREE SUBCLASSES GET IT, AND THAT IS THE
+    /// EVIDENCE-BACKED SCOPE RATHER THAN A CONVENIENCE.</b> Every member of this family is placed by
+    /// the SAME <see cref="Place"/> — one metre in front of the HMD, once per conversion, at
+    /// <see cref="FloatScaleFactor"/> — so none of them can collide with a bar that another one
+    /// clears, and none of them has a second way to be moved today (<c>Place</c> is latched by
+    /// <c>_placed</c> and nothing else writes their host pose). Per subclass:
+    /// <list type="bullet">
+    /// <item><see cref="DoomPickerSurface"/> — floats at the HMD mid-scenario; no other mover; gets
+    /// the bar.</item>
+    /// <item><see cref="DistributePointsSurface"/> — same pose, same absence of any other mover;
+    /// gets the bar. Its select↔assign popup switch force-releases the conversion, and the handle
+    /// follows that: <see cref="OnConverted"/> destroys the old holder before the new panel is
+    /// placed, so a switch cannot leave a rod behind with no panel on it.</item>
+    /// <item><see cref="DistributeRewardSurface"/> — the reported one; gets the bar.</item>
+    /// </list>
+    /// NONE was left out. There is no member of this family that is docked, tray-mounted or
+    /// otherwise already movable, so there was nothing to exempt.</para>
+    ///
+    /// <para><b>AND IT CANNOT COST THE PANEL.</b> The handle writes mod-owned transforms and the
+    /// host's pose/scale — which <see cref="Place"/> already wrote before it existed — and nothing
+    /// else. It never releases a conversion, never touches a <c>WantConverted</c> term, and in
+    /// particular never touches <see cref="DistributeRewardSurface"/>'s distribution hold. See
+    /// <see cref="SurfaceGrabBar"/> for the full argument, including why it is not
+    /// <c>GrabbableModal</c> and why it has no close X.</para>
+    /// </summary>
+    private SurfaceGrabBar? _grab;
+
     /// <summary>The shown panel root to convert (null while hidden) — also the level trigger.</summary>
     protected abstract RectTransform? ShownPanel();
 
@@ -78,6 +114,16 @@ internal abstract class FloatingDecisionSurface : WorldSurface
     protected override void OnConverted()
     {
         _placed = false;
+        // A FRESH CONVERSION NEVER INHERITS THE OLD HANDLE. Two paths reach a new panel without the
+        // release branch below ever running: the framework pruning a dead target and re-converting
+        // in the same tick (WorldSurface.Tick's first branch), and a subclass calling
+        // ReleaseCurrentPanel() and falling straight into base.Tick() (the select↔assign popup
+        // switch). Both would otherwise leave the previous holder — a SCENE-ROOT tree that no host
+        // teardown can reach — standing in the room as a rod with no window on it, which is the
+        // artefact the user photographed three of for the modal windows
+        // (.planning/debug/leeres_fenster2.jpg). Destroying here makes "one live conversion, one
+        // handle" true by construction instead of by every caller remembering.
+        DestroyGrab();
         VRLog.Info("WorldUI", $"{Name}: decision panel floated pokeable in front of the HMD " +
                               "(plain-GameObject window — invisible to the UIWindow modal machinery; " +
                               "restored to its 2D home when the game hides it). Commit stays on the " +
@@ -91,6 +137,9 @@ internal abstract class FloatingDecisionSurface : WorldSurface
         if (Panel == null)
         {
             _placed = false;
+            // The handle goes with the panel. It is a scene-root tree, so nothing about releasing
+            // the conversion could reach it — see OnConverted for the other half of this rule.
+            DestroyGrab();
             if (hadPanel)
                 VRLog.Info("WorldUI", $"{Name}: decision panel released — restored to its 2D home " +
                                       "(game hid it / conversion gate closed)." + ReleaseDetail());
@@ -104,21 +153,61 @@ internal abstract class FloatingDecisionSurface : WorldSurface
 
     /// <summary>Place ONCE per conversion in front of the HMD (retried until a camera exists);
     /// a spawn-only pose, never a per-frame billboard — a decision panel must hold still under
-    /// an approaching fingertip.</summary>
+    /// an approaching fingertip.
+    ///
+    /// <para>THE ONCE-ONLY LATCH IS NOW ALSO WHAT MAKES THE PANEL MOVABLE. From the frame the
+    /// handle exists, the host's pose is a COPY OF THE GRAB FRAME (<see cref="SurfaceGrabBar.Tick"/>)
+    /// rather than of anything computed here, and <c>_placed</c> guarantees this method never
+    /// re-derives an HMD pose over the top of it. So there is exactly one writer of the host pose at
+    /// any moment: this method until the handle is built, the handle for ever after — no write war,
+    /// and no path by which a moved panel can be yanked back ([[dont-win-a-write-war]]).</para></summary>
     protected override void Place()
     {
-        if (Panel == null || _placed)
+        if (Panel == null)
             return;
-        Camera? head = CanvasConversion.WorldCamera;
-        if (head == null)
+        if (!_placed)
+        {
+            Camera? head = CanvasConversion.WorldCamera;
+            if (head == null)
+                return;
+            float scale = PanelLayout.WorldScale;
+            Transform h = head.transform;
+            Vector3 fwd = h.forward;
+            Vector3 pos = h.position + fwd * (FloatDistanceMeters * scale);
+            Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
+            CanvasConversion.PlaceHost(Panel, pos, rot, scale * FloatScaleFactor);
+            _placed = true;
+            // BUILT AFTER THE PLACE, NEVER BEFORE: SurfaceGrabBar.Build seeds its frame from the
+            // host's CURRENT world pose, so seeding it before the host was placed would put the
+            // handle at the origin and drag the panel there on the first follow tick.
+            _grab = new SurfaceGrabBar();
+            _grab.Build(Panel, FloatScaleFactor, scale, Name);
+        }
+        _grab?.Tick();
+    }
+
+    /// <summary>
+    /// Drop the mod-owned handle. Idempotent, and the ONLY place this family destroys one — three
+    /// callers (a fresh conversion, a release, a shutdown) so that no transition has to remember.
+    /// </summary>
+    private void DestroyGrab()
+    {
+        if (_grab == null)
             return;
-        float scale = PanelLayout.WorldScale;
-        Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        Vector3 pos = h.position + fwd * (FloatDistanceMeters * scale);
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-        CanvasConversion.PlaceHost(Panel, pos, rot, scale * FloatScaleFactor);
-        _placed = true;
+        _grab.Destroy();
+        _grab = null;
+    }
+
+    /// <summary>
+    /// A teardown must take the handle with it. The holder is a scene-root tree with a
+    /// MonoBehaviour on it, so a surface that shut down without this would leave a rod ticking in
+    /// the room against a panel that no longer exists.
+    /// </summary>
+    public override void Shutdown()
+    {
+        DestroyGrab();
+        _placed = false;
+        base.Shutdown();
     }
 }
 
@@ -240,8 +329,13 @@ internal sealed class DistributePointsSurface : FloatingDecisionSurface
 /// </code>
 /// <para>Line :13758 is written from inside <c>UIDistributePointsPopup.Show</c>, on the statement
 /// AFTER <c>window.SetActive(true)</c> (<c>controllerArea.Enable()</c>), so the popup provably went
-/// active. <c>Hide()</c> calls <c>controllerArea.Destroy()</c>, which would print "Unregister area
-/// Distribution" — that string appears NOWHERE in the log. The run then continues for another 800
+/// active. <c>Hide()</c> calls <c>controllerArea.Destroy()</c>, which WOULD have printed the game's
+/// unregister line — but only under a condition nobody checked at the time, and that string appears
+/// NOWHERE in the log. <b>ModBuild 375:</b> that second clause is NOT the evidence it was read as —
+/// see <c>AreaLineCaveat</c>, which carries the falsification and the four ways
+/// <c>ControllerInputAreaManager.UnregisterArea</c> runs silently. Nothing in this block's
+/// conclusion rests on it: the mod never saw this popup, which the ABSENCE of every mod-side line
+/// naming it proves on its own. The run then continues for another 800
 /// lines of pure mod telemetry (Heartbeat #40 → #43, ~3,600 frames ≈ 40 s of the player standing
 /// in front of nothing) before he quit. And the word "Distribute" appears in the WHOLE log only in
 /// those game lines: not one MODAL WINDOW, FLOAT, CATCH-ALL, refusal or conversion line names it.
@@ -341,6 +435,18 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     /// string "Unregister area Distribution", and that string occurs ZERO times in the whole log
     /// (the LAST <c>[AREA MANAGER]</c> line of the entire 8071-line run is the
     /// <c>Set Focused Area Distribution</c> at :7358, before the float).</para>
+    ///
+    /// <para><b>ModBuild 375 — THE PARAGRAPH ABOVE CONTAINS ONE INFERENCE THAT IS NOT SAFE, AND IT
+    /// IS RECORDED HERE RATHER THAN EDITED OUT.</b> "The game did NOT hide the popup" was read off
+    /// the absence of the unregister line, and ModBuild 373's log proves that absence is not
+    /// evidence: <c>ControllerInputAreaManager.UnregisterArea</c> logs only inside
+    /// <c>if (m_AvailableAreas.Remove(area))</c>, so a <c>Destroy()</c> on an area the manager no
+    /// longer holds — or with the manager gone, or with no <c>OnDisable</c> sent at all — runs
+    /// silently. See <c>AreaLineCaveat</c> for the four routes and for the suspicion that was
+    /// checked and rejected. The CONCLUSION of this block still stands on its own evidence, because
+    /// it never needed that inference: the <c>DISTRIBUTE POPUP NOT FLOATED</c> line reports the
+    /// other three gate terms as still true, so the release was the mod's, whether or not the game
+    /// had also hidden the popup.</para>
     ///
     /// <para><b>SO THE RELEASE WAS THE MOD'S OWN DECISION, AND IT IS THE THING THAT KILLS THE RUN.</b>
     /// While <c>UIDistributeRewardManager.IsDistributing</c> is true there is NO legitimate reason
@@ -477,18 +583,89 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
     // and each of them changes the diagnosis:
     //  * IsWindowThePopupGo — if `window` IS the UIDistributePointsPopup's own GameObject then
     //    deactivating or destroying it fires the popup's OnDisable, which calls
-    //    controllerArea.Destroy() and MUST print "Unregister area Distribution".
+    //    controllerArea.Destroy().
     //  * WindowHasControllerArea — same argument via ControllerInputAreaLocal.OnDisable, which is
     //    the component the game's own "[AREA MANAGER] Register area Distribution" line named.
-    // With either of them true, the ABSENCE of an Unregister line in a future log is proof the
-    // window was neither deactivated nor destroyed, and the remaining suspect is PopUp == null.
-    // With both false, that argument does not hold and the absence proves nothing.
+    //
+    // ModBuild 375 — WHAT THESE TWO BOOLS ARE WORTH, CORRECTED. Through ModBuild 373 this block
+    // ended: "With either of them true, the ABSENCE of an Unregister line in a future log is proof
+    // the window was neither deactivated nor destroyed, and the remaining suspect is PopUp == null."
+    // The ModBuild 373 hardware log falsified exactly that: both bools True, the term split naming
+    // the window inactive, and the game's unregister line absent. The two bools decide only whether
+    // controllerArea.Destroy() would RUN; whether that run LOGS anything is a separate condition
+    // living in ControllerInputAreaManager.UnregisterArea, and it is often false. The whole reading
+    // is on AreaLineCaveat, which is the text these two bools are now printed with — so the log can
+    // never again carry the conclusion without the caveat that bounds it.
     private string _windowPath = "(not captured)";
     private string _popupGoPath = "(not captured)";
     private string _rewardGoPath = "(not captured)";
     private bool _windowIsPopupGo;
     private bool _windowHasControllerArea;
     private bool _identityCaptured;
+
+    // ==========================================================================================
+    // ModBuild 375 — THE CLAUSE THAT WAS WRONG, AND THE INSTRUMENT THAT POISONED ITS OWN GREP.
+    //
+    // Through ModBuild 373 both verdict lines below ended with an argument of this shape: "either
+    // identity bool True ⇒ deactivating or destroying that window MUST print '<the game's
+    // unregister line>', so the ABSENCE of that game line proves the window is alive and active."
+    // Two things were wrong with it, and the hardware log falsified both in one run.
+    //
+    // 1. THE "MUST" IS FALSE. In the ModBuild 373 log (Player.log :5504-:5527) both bools ARE True,
+    //    the term split names the popup window inactive, and the game's unregister line occurs ZERO
+    //    times. Read out of decompiled/GH.Runtime/ControllerInputAreaManager.cs, the reason is that
+    //    the line is printed INSIDE `if (m_AvailableAreas.Remove(area))` — it is conditional on the
+    //    area still being IN the manager's list at that moment, which is a fact about the manager
+    //    and not about the window. Four silent routes, all read from source rather than guessed:
+    //      (a) ControllerInputAreaLocal.Destroy() is reached from BOTH
+    //          UIDistributePointsPopup.OnDisable and ControllerInputAreaLocal.OnDisable, and both
+    //          go through that same Remove — so at most the FIRST of the pair can ever print, and
+    //          every later Destroy on the same area is silent;
+    //      (b) ControllerInputAreaManager.UnregisterAllAreas() empties the list with no line at
+    //          all, after which every Destroy is silent;
+    //      (c) both call sites are `Instance?.` — a destroyed manager unregisters nothing and
+    //          prints nothing;
+    //      (d) Unity sends no OnDisable to a component that is not already activeInHierarchy, so
+    //          activeSelf can be written false with no message and therefore no line.
+    //    CHECKED AND REJECTED — "a Destroy() on an already-DISABLED area unregisters nothing".
+    //    ControllerInputAreaLocal.DisableGroup() only flips `isEnabled` and calls SetUnfocused();
+    //    it never touches m_AvailableAreas. The ModBuild 373 log proves it directly: the game's
+    //    disable line for this area is printed ONE LINE AFTER the register (:5504-:5505), and that
+    //    branch of RegisterArea runs with the area already added to the list.
+    //
+    // 2. IT WAS A HIT FOR ITS OWN SEARCH. Both lines told the reader to grep the log for the game's
+    //    unregister phrase and to read its ABSENCE as proof — while printing that phrase verbatim.
+    //    `grep -c` for it on the ModBuild 373 log returns 2, and both hits are these two lines
+    //    quoting themselves. An instrument that contaminates the search it prescribes is worse than
+    //    no instrument: the first reader of that log took the two hits for the game's.
+    //    So the phrase is DELIBERATELY NOT REPRODUCED in the emitted text below. The channel is
+    //    named (the game brackets these lines with [AREA MANAGER]) and the event is named in words,
+    //    which is greppable enough to find and cannot be a false positive for the phrase itself.
+    //
+    // One string, three consumers (both verdict lines and — through DescribeTerms — the release
+    // detail), so the correction cannot be applied to two of them and forgotten on the third.
+    // ==========================================================================================
+    private const string AreaLineCaveat =
+        "WHAT THE GAME'S AREA-MANAGER EVIDENCE PROVES: LESS THAN THIS LINE USED TO CLAIM. Through "
+        + "ModBuild 373 it said that with either identity bool True, deactivating or destroying "
+        + "that window MUST print the game's unregister line, so the absence of that line proved "
+        + "the window was alive and active. The ModBuild 373 log falsified it: both bools True, the "
+        + "term split naming the window inactive, and ZERO occurrences of that game line. THE "
+        + "REASON, from ControllerInputAreaManager: the line is printed inside "
+        + "'if (m_AvailableAreas.Remove(area))', i.e. only when a Destroy() finds the area STILL "
+        + "REGISTERED — a fact about the manager, not about the window. It is silent when (a) "
+        + "Destroy() already ran once (it is reached from UIDistributePointsPopup.OnDisable AND "
+        + "from ControllerInputAreaLocal.OnDisable, so only the FIRST of the pair can print), (b) "
+        + "UnregisterAllAreas() emptied the list, (c) the manager singleton is gone (both call "
+        + "sites are null-conditional), or (d) no OnDisable ran at all, because Unity does not send "
+        + "it to a component that was not already activeInHierarchy. NOT the cause, checked in the "
+        + "decompile and rejected: 'the area was already disabled' — DisableGroup() only flips "
+        + "isEnabled and unfocuses, and this same flow prints the game's DISABLE-AREA line one line "
+        + "after the register, i.e. with the area registered AND disabled at once. HOW TO SEARCH: "
+        + "the game brackets these events with [AREA MANAGER] and its area id here is Distribution "
+        + "— read that channel's events in order rather than grepping for the unregister phrase. "
+        + "THIS LINE DELIBERATELY DOES NOT SPELL THAT PHRASE OUT: through ModBuild 373 it did, and "
+        + "a count of it on that log returned 2 hits that were both this instrument quoting itself.";
 
     // FloatRoot memo. ShownPanel runs three times per tick (WantConverted, FindTarget, and the
     // switch check in Tick), and both Transform.name and GetComponent<Canvas> cost a marshalled
@@ -682,11 +859,27 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                               + "it had tried)");
                     break;
                 case PopupTerm.WindowInactive:
-                    sb.Append("WINDOW INACTIVE — alive, and somebody called SetActive(false) on it. "
-                              + "activeSelf is LOCAL, so a reparent cannot have done this; the "
-                              + "game's own route is UIDistributePointsPopup.Hide(), which also "
-                              + "runs controllerArea.Destroy() and therefore MUST have printed "
-                              + "'[AREA MANAGER] Unregister area Distribution' just above");
+                    // ModBuild 375 — TWO CORRECTIONS, BOTH FORCED BY THE ModBuild 373 LOG.
+                    //
+                    // (1) IT ASSERTED A MECHANISM IT CANNOT OBSERVE. "somebody called
+                    //     SetActive(false) on it" is not what !activeSelf means. A GameObject that
+                    //     has been inactive since the scene loaded reads activeSelf == false with
+                    //     no call ever made, and this test cannot distinguish the two. The reparent
+                    //     clause was and stays correct — activeSelf really is local — but it was
+                    //     doing duty for a conclusion it does not support.
+                    // (2) IT PROMISED A GAME LOG LINE THAT DID NOT APPEAR. See AreaLineCaveat for
+                    //     the falsification and for what the absence of that line actually proves
+                    //     (nothing, on its own). The promise is gone from here rather than repeated
+                    //     in three places: this term text is embedded in both verdict lines, and
+                    //     both of them carry the caveat once, in full.
+                    sb.Append("WINDOW INACTIVE — the window GameObject is ALIVE and its activeSelf "
+                              + "is FALSE. WHAT THAT DOES AND DOES NOT SAY: activeSelf is LOCAL, so "
+                              + "a reparent cannot have caused it — but it is equally NOT evidence "
+                              + "that anything deactivated it, because an object left inactive when "
+                              + "the scene loaded reads exactly the same and this test cannot tell "
+                              + "the two apart. The game's own deactivating route is "
+                              + "UIDistributePointsPopup.Hide(), which runs controllerArea.Destroy() "
+                              + "beside window.SetActive(false)");
                     break;
                 default:
                     sb.Append("NOT REACHED — the loop stopped before this entry");
@@ -991,15 +1184,14 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                   + "', window IS the popup's own GameObject=" + _windowIsPopupGo
                                   + ", window carries the ControllerInputAreaLocal="
                                   + _windowHasControllerArea
-                                  + ". READ THE IDENTITY LIKE THIS: if either of those two bools is "
-                                  + "True, then deactivating or destroying that window MUST have "
-                                  + "printed '[AREA MANAGER] Unregister area Distribution' (via "
-                                  + "OnDisable -> controllerArea.Destroy), so the ABSENCE of that "
-                                  + "game line proves the window is alive and active and the failed "
-                                  + "term is PopUp itself. If both are False that argument does not "
-                                  + "hold and the game line says nothing either way. The hold ends "
-                                  + "on IsDistributing, on the manager going away, on the panel "
-                                  + "dying, on the manual screen, or at the "
+                                  + ". READ THE IDENTITY LIKE THIS: either bool True means a "
+                                  + "deactivate or destroy of that window would have RUN "
+                                  + "controllerArea.Destroy (via OnDisable); both False means it "
+                                  + "would not, and the game's area lines then say nothing either "
+                                  + "way about this window. Running it is not the same as logging "
+                                  + "it — " + AreaLineCaveat
+                                  + " The hold ends on IsDistributing, on the manager going away, "
+                                  + "on the panel dying, on the manual screen, or at the "
                                   + HoldMaxSeconds.ToString("0") + " s cap.");
         }
 
@@ -1119,11 +1311,10 @@ internal sealed class DistributeRewardSurface : FloatingDecisionSurface
                                   + ", window carries the ControllerInputAreaLocal="
                                   + _windowHasControllerArea
                                   + ". EITHER BOOL TRUE means a later deactivate or destroy of that "
-                                  + "window MUST print '[AREA MANAGER] Unregister area Distribution' "
-                                  + "(UIDistributePointsPopup.OnDisable / ControllerInputAreaLocal."
-                                  + "OnDisable both run controllerArea.Destroy), so the absence of "
-                                  + "that game line later in this log is PROOF the window is still "
-                                  + "alive and active.");
+                                  + "window would RUN controllerArea.Destroy "
+                                  + "(UIDistributePointsPopup.OnDisable and ControllerInputAreaLocal."
+                                  + "OnDisable both call it). That is a statement about which code "
+                                  + "would execute, and nothing more: " + AreaLineCaveat);
             return;
         }
 
