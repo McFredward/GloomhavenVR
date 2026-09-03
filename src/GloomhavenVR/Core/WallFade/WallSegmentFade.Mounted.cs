@@ -584,6 +584,27 @@ internal static partial class WallSegmentFade
         private const string WallHomeLaneMountedSticky = "mounted sticky-carry";
         private const string WallHomeLaneStacked = "stacked shell";
         private const string WallHomeLaneFastReclaim = "stacked fast-reclaim";
+        /// <summary>MODBUILD 397 — THE FOURTH LANE, AND THE ONE THE 396 LOG PROVES WAS MISSING.
+        ///
+        /// <para>Every wrong-wall census in the 396 hardware log lists three lanes — <c>stacked
+        /// shell</c>, <c>mounted</c>, <c>mounted sticky-carry</c> — and never a fourth. That is not
+        /// a scene fact, it is the code: the STACKED sticky carry (WallSegmentFade.Stacked.cs)
+        /// re-added every <c>PrevStacked</c> prop untested, put its renderer into
+        /// <c>_stackedOwned</c>, and the adoption rounds then skip anything in that set. So a shell
+        /// piece bound to a neighbour's wall on one rescan was carried on that neighbour for as
+        /// long as the neighbour kept fading, and the ModBuild-392 provenance term at the election
+        /// was never consulted for it — nor did it record a decline, so the omission was invisible
+        /// in the census that exists to find exactly this.</para>
+        ///
+        /// <para>The evidence it explains: the candle's halo is written <c>'Glow' … ← stacked shell
+        /// of 'EN_CR_LBSkull' fade 0.00 [OWNER SOLID]</c> while the candle body two nodes above it
+        /// in the SAME prefab is <c>wall renderer of 'Wall 2' fade 1.00</c> — and the stacked
+        /// census in the same log has a sibling <c>'Glow' … gap 0.00 → 'Wall 2'</c>, i.e. the
+        /// election gets it RIGHT when it is allowed to run. The rows that are wrong read gap 0.60
+        /// and 0.62 to the skull, distances the election would never have chosen over a gap of
+        /// 0.00 — the signature of an answer frozen by a carry, not one just elected.</para>
+        /// </summary>
+        private const string WallHomeLaneStackedSticky = "stacked sticky-carry";
 
         private const string WallHomeDeclineNoWall = "no ProceduralWall within the bounded walk";
         private const string WallHomeDeclineNoSegment = "its wall has no segment in the table";
@@ -592,6 +613,123 @@ internal static partial class WallSegmentFade
         private const string WallHomeDeclineAlreadyHome = "already on the very segment chosen";
         private const string WallHomeDeclineNoCandidate =
             "its wall had no segment that passed this lane's band/reach tests";
+
+        // ---- MODBUILD 397: the two fields that turn the census's biggest bucket into a lead ----
+
+        /// <summary>
+        /// WHO THE "no ProceduralWall within the bounded walk" RENDERERS ACTUALLY ARE.
+        ///
+        /// <para>THE DEFECT THIS CLOSES. That reason is the largest bucket in every wrong-wall
+        /// census of the 396 log — 135 on the stacked lane and 123–220 on the mounted lane, stable
+        /// across every rescan — and it names nobody. Two completely different scenes produce it:
+        /// free-standing scenery that legitimately has no wall above it at any depth (the correct
+        /// decline, and the rule is meant to leave those alone), and dressing whose wall is real
+        /// but sits further up than <see cref="WallProvenanceProbeLevels"/> reaches (a BOUND
+        /// question, one constant away from being fixed). A count cannot tell them apart, so the
+        /// bucket carried no information at all for three hardware rounds.</para>
+        ///
+        /// <para>WHAT THE SAMPLE STATES, and every clause of it is measured at the moment of the
+        /// decline: the lane, the renderer's name, four levels of ancestor path, how many levels
+        /// the walk actually climbed, the highest node it reached, and — the term that decides the
+        /// next action — whether it stopped because it RAN OUT of ancestors or because the bound
+        /// stopped it. "Ran out" means no depth limit can help and the decline is correct; "the
+        /// bound stopped it" means there are more ancestors above and the constant is the
+        /// suspect.</para>
+        ///
+        /// <para>Capped and de-duplicated per renderer, because a truncated list is not absence and
+        /// the line says its own cap. The walk here is a fresh climb rather than a memo read: it is
+        /// taken at most <see cref="WallHomeNoWallSampleCap"/> times per rescan window, and the
+        /// memo cannot report the depth it reached.</para>
+        /// </summary>
+        private readonly List<string> _wallHomeNoWallSamples = new();
+        private readonly HashSet<Renderer> _wallHomeNoWallSeen = new(64);
+
+        /// <summary>Name cap for <see cref="_wallHomeNoWallSamples"/>. Stated on the line.</summary>
+        private const int WallHomeNoWallSampleCap = 10;
+
+        /// <summary>Count one "no wall above it" decline AND, up to the cap, say who it was.
+        /// Every caller that had the renderer in its hand uses this instead of the bare counter;
+        /// the bare counter stays for the sites that do not.</summary>
+        private void NoteWallHomeDeclineNoWall(string lane, Renderer? r)
+        {
+            NoteWallHomeDecline(lane, WallHomeDeclineNoWall);
+            if (r == null || _wallHomeNoWallSamples.Count >= WallHomeNoWallSampleCap)
+                return;
+            if (!_wallHomeNoWallSeen.Add(r))
+                return;
+            // The SAME loop shape WallProvenanceOf walks, so the depth reported and the depth
+            // decided on cannot disagree: nodes 0..WallProvenanceProbeLevels inclusive.
+            Transform? t = r.transform;
+            Transform highest = r.transform;
+            int levels = 0;
+            for (; t != null && levels <= WallProvenanceProbeLevels; levels++)
+            {
+                highest = t;
+                t = t.parent;
+            }
+            bool ranOut = t == null;
+            _wallHomeNoWallSamples.Add(
+                $"[{lane}] '{r.name}' under '{AncestorPath(r.transform)}' — the walk inspected "
+                + $"{levels} of {WallProvenanceProbeLevels + 1} node(s) and stopped at "
+                + $"'{highest.name}'"
+                + (ranOut
+                    ? " (RAN OUT of ancestors: this renderer has no ProceduralWall above it at ANY "
+                      + "depth, so raising the bound cannot change this decline)"
+                    : " (THE BOUND STOPPED IT: there are more ancestors above this node, so this "
+                      + "one is a bound question and not a scene fact)"));
+        }
+
+        /// <summary>
+        /// WHICH WALL A SEGMENT SPEAKS FOR — the field ModBuild 397 adds to every line that names a
+        /// fade owner, and the reason this defect survived three hardware rounds unreadable.
+        ///
+        /// <para>THE DEFECT. Since the per-renderer split every wall is shattered into segments
+        /// named after their own renderer, and the tileset gives every wall's masonry the SAME
+        /// leaf name. The 396 log's only non-zero wrong-wall correction therefore reads
+        /// <c>'p_Moths_Torch_Wall' was on 'Blocks' (gap 0.00) and its hierarchy says 'Blocks'
+        /// (gap 0.00)</c> — both sides the same string. That sentence is equally compatible with
+        /// "corrected onto the right wall" and "moved from one neighbour to another", so nothing
+        /// downstream of it could be believed. Two lines later the same census reads <c>was on
+        /// 'Wall 5' … and its hierarchy says 'Blocks'</c>, which is a real cross-wall move whose
+        /// DESTINATION is still unidentifiable.</para>
+        ///
+        /// <para>WHAT IT PRINTS. The owning <see cref="ProceduralWall"/>'s own name plus its
+        /// instance id, in the same bracket idiom the paths already use, so "Wall 3's Blocks" and
+        /// "Wall 4's Blocks" are one glance apart. A segment that speaks for no wall says so
+        /// rather than printing an empty bracket — that is a reading too: a stacked shell owner
+        /// outside every ProceduralWall run is a different finding from one inside the wrong
+        /// run.</para>
+        ///
+        /// <para>MULTIPLAYER: LOG TEXT ONLY. <c>GetInstanceID()</c> is per-process and two peers
+        /// will print different numbers for the same wall. It is never compared, never hashed into
+        /// a signature and never sent — the decisions in this file are made on the component
+        /// reference and on ordinal NAME comparison, exactly as before. Do not promote this string
+        /// into a tie-break.</para>
+        /// </summary>
+        /// <summary>The <see cref="ProceduralWall"/> a segment speaks for — itself when it IS the
+        /// wall, its run owner when it is one of the per-renderer split pieces, null when it is
+        /// neither. The single place that question is answered, so <see cref="WallIdTag"/> and the
+        /// SAME-WALL / CROSS-WALL verdict beside it cannot disagree.</summary>
+        private static Component? WallOfSegment(Segment? seg)
+        {
+            if (seg == null)
+                return null;
+            return seg.Anchor is ProceduralWall ? seg.Anchor : seg.RunOwner;
+        }
+
+        private static string WallIdTag(Segment? seg)
+        {
+            if (seg == null)
+                return "[wall <no segment>]";
+            Component? wall = WallOfSegment(seg);
+            if (wall == null)
+            {
+                return seg.Anchor == null
+                    ? "[wall NONE — segment anchor is dead]"
+                    : "[wall NONE — this segment is in no ProceduralWall run]";
+            }
+            return $"[wall '{wall.name}'#{wall.GetInstanceID()}]";
+        }
 
         /// <summary>MODBUILD 266 — THE ACCEPTANCE NUMBER for "die Flagge inklusive der Stange
         /// vollständig mit faden": how many pieces reached the mounted ledger ONLY because the
@@ -1657,7 +1795,7 @@ internal static partial class WallSegmentFade
                         // here" and "it did not fire at the election" are different findings and
                         // must not share one number.
                         if (homeWall == null)
-                            NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineNoWall);
+                            NoteWallHomeDeclineNoWall(WallHomeLaneMountedSticky, p.Renderer);
                         else if (wallHome == null)
                             NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineIneligible);
                         else if (SegmentBelongsToWall(seg, homeWall))
@@ -1857,7 +1995,8 @@ internal static partial class WallSegmentFade
                         {
                             string wall = owner.Seg.Anchor != null ? owner.Seg.Anchor.name : "<dead>";
                             NoteStructuralSkip(c,
-                                $"already the {owner.Kind} of '{wall}' (that wall's fade "
+                                $"already the {owner.Kind} of '{wall}'{WallIdTag(owner.Seg)} "
+                                + $"(that wall's fade "
                                 + $"{owner.Seg.Fade:F2}) — an owner that NEVER FADES, so nothing "
                                 + "will ever hide this piece with the wall it hugs");
                         }
@@ -2121,7 +2260,7 @@ internal static partial class WallSegmentFade
                         // 390 line counted moves only, so its zero on hardware could not be told
                         // apart from "never asked" — and "never asked" is exactly what it was.
                         if (homeWall == null)
-                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineNoWall);
+                            NoteWallHomeDeclineNoWall(WallHomeLaneMounted, c);
                         else if (!_mountedWallHome.ContainsKey(homeWall))
                             NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineNoSegment);
                         else if (best != null && SegmentBelongsToWall(best, homeWall))
@@ -2322,9 +2461,11 @@ internal static partial class WallSegmentFade
                     if (_mountedCensus.Count < MountedCensusCap)
                     {
                         string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
+                        // ModBuild 397: the owner's WALL, appended — 'Blocks' is every wall's
+                        // masonry and could not tell two walls apart. See WallIdTag.
                         _mountedCensus.Add(
                             $"'{c.name}'[{RendererKind(c)}→{prop.Tier}] anchor {anchorY:F1} "
-                            + $"gap {bestGap:F2} → '{wall}'"
+                            + $"gap {bestGap:F2} → '{wall}'{WallIdTag(best)}"
                             + (byUnitHome ? " [its PROP UNIT's wall, not the nearest]" : string.Empty)
                             + (byWallHome
                                 ? " [the wall its HIERARCHY names, not the nearest — ModBuild 391]"
@@ -2690,9 +2831,17 @@ internal static partial class WallSegmentFade
             string toName = to.Anchor != null ? to.Anchor.name : "<dead>";
             float fromGap = from.HasBounds ? HorizontalGap(from.Bounds, r.transform.position) : -1f;
             float toGap = to.HasBounds ? HorizontalGap(to.Bounds, r.transform.position) : -1f;
+            // MODBUILD 397: the WALL IDENTITY on both sides. Until this build both halves of this
+            // sentence printed a segment LEAF name, and every wall's masonry is called 'Blocks' —
+            // see WallIdTag for the 396 row this makes readable.
             _mountedWallHomeNames.Add(
                 $"'{r.name}' was on '{fromName}' (gap {fromGap:0.00}) and its hierarchy says "
-                + $"'{toName}' (gap {toGap:0.00}){(stuck ? " — STICKY was holding the old answer" : string.Empty)}");
+                + $"'{toName}' (gap {toGap:0.00}){(stuck ? " — STICKY was holding the old answer" : string.Empty)}"
+                + $" — FROM {WallIdTag(from)} TO {WallIdTag(to)}"
+                + (ReferenceEquals(WallOfSegment(from), WallOfSegment(to))
+                    ? " [SAME WALL: this move is between two pieces of one run and changes nothing "
+                      + "the player sees under SplitRunUnified]"
+                    : " [CROSS-WALL: this is the move the report is about]"));
         }
 
         /// <summary>May this segment be handed a prop by the unit-affinity rule? The same three
@@ -3320,6 +3469,8 @@ internal static partial class WallSegmentFade
             List<string> into = allowed ? _mountedLeftoverAllowed : _mountedLeftovers;
             if (into.Count >= MountedLeftoverCap)
                 return;
+            // ModBuild 397: the faded segment's WALL, appended below — "DRAWING 0.42 wu from
+            // 'Blocks'" named no wall at all until this build.
             string wall = faded.Anchor != null ? faded.Anchor.name : "<dead>";
             into.Add(
                 (allowed ? string.Empty : $"[{cls}] ")
@@ -3335,7 +3486,8 @@ internal static partial class WallSegmentFade
                 + (allowed ? string.Empty : PropUnitHomeNote(c))
                 + ", "
                 + $"DRAWING {_leftoverFadedGap:F2} wu from "
-                + $"'{wall}' whose fade is {faded.Fade:F2} — not adopted because: {why}");
+                + $"'{wall}'{WallIdTag(faded)} whose fade is {faded.Fade:F2} — not adopted "
+                + $"because: {why}");
         }
 
         /// <summary>ModBuild 262: the mounted leftover population by the user's three classes,
@@ -3512,6 +3664,35 @@ internal static partial class WallSegmentFade
                 }
                 declines = db.ToString();
             }
+            // MODBUILD 397 — THE BIGGEST BUCKET NOW NAMES NAMES. See _wallHomeNoWallSamples for
+            // why a count of 260 "no ProceduralWall within the bounded walk" was worth nothing.
+            // Both zero states are spelled out, because they mean opposite things: no decline of
+            // that kind happened at all, versus declines happened and the sampler never ran.
+            int noWallTotal = 0;
+            foreach (KeyValuePair<string, int> kv in _wallHomeDeclines)
+            {
+                if (kv.Key.EndsWith(WallHomeDeclineNoWall, System.StringComparison.Ordinal))
+                    noWallTotal += kv.Value;
+            }
+            string noWallSample;
+            if (noWallTotal == 0)
+            {
+                noWallSample = "no renderer declined for that reason this window, so there is "
+                    + "nothing to name — the rule ran and every candidate it saw had a wall above "
+                    + "it or failed on a different term";
+            }
+            else if (_wallHomeNoWallSamples.Count == 0)
+            {
+                noWallSample = $"{noWallTotal} declined for that reason and NONE was sampled, which "
+                    + "is a defect in this line and not a scene fact: every call site that has the "
+                    + "renderer in its hand is supposed to route through NoteWallHomeDeclineNoWall";
+            }
+            else
+            {
+                noWallSample = $"named {_wallHomeNoWallSamples.Count} of {noWallTotal} "
+                    + $"(cap {WallHomeNoWallSampleCap}, de-duplicated per renderer, and a truncated "
+                    + $"list is not absence): {string.Join("; ", _wallHomeNoWallSamples)}";
+            }
             // HW-VERIFY
             VRLog.Note(Name,
                 $"{WrongWallMarker}: {_censusMountedWallHome} prop(s) were moved this rescan from "
@@ -3539,7 +3720,49 @@ internal static partial class WallSegmentFade
                 + "STACKED-SHELL pass one stage earlier. THREE LANES are now counted separately "
                 + "and the lane is half the answer: a reason that appears on one lane and not "
                 + "another says WHERE to look, not just what. The window is one rescan, plus any "
-                + $"fast-reclaim sweeps since the previous one. {declines}.");
+                + $"fast-reclaim sweeps since the previous one. {declines}. WHO THE NO-WALL "
+                + "DECLINES ARE (ModBuild 397): that reason was the largest bucket in every census "
+                + "of the 396 log and named nobody, so it could not be told apart from free-"
+                + "standing scenery the rule is SUPPOSED to leave alone. Each sample states how "
+                + "many levels the walk climbed and whether it stopped because it RAN OUT of "
+                + "ancestors (correct decline, no bound can help) or because THE BOUND STOPPED IT "
+                + $"(WallProvenanceProbeLevels is the suspect): {noWallSample}. CROSS-WALL VETO "
+                + $"(ModBuild 397): the stacked lane refused {_censusStackedCrossWallVeto} "
+                + "adoption(s) this window rather than bind a piece to a wall that did not parent "
+                + "it — counted across the rescan election AND the fast-reclaim sweep. A ZERO IS A "
+                + "READING WITH TWO MEANINGS and the lane census above separates them: zero with "
+                + "'stacked shell: its wall had no segment that passed this lane's band/reach "
+                + "tests' ALSO zero means no candidate was ever in that position; zero while that "
+                + "reason is non-zero means every one of them had no geometric winner either, so "
+                + "there was nothing to refuse. A refusal does NOT leave the piece permanently "
+                + "solid: it is left out of the stacked ledger so the mounted sweep can claim it "
+                + $"for its own wall. Named {_stackCrossWallVetoNames.Count} of "
+                + $"{_censusStackedCrossWallVeto} (cap {StackCrossWallVetoNameCap}): "
+                + (_stackCrossWallVetoNames.Count == 0
+                    ? "none"
+                    : string.Join("; ", _stackCrossWallVetoNames))
+                + $". ON-WALL HOME (ModBuild 397): {_censusStackedOnWallHome} piece(s) were "
+                + "redirected onto the wall their HIERARCHY names by the relaxed on-wall term — "
+                + "the STACK BAND asks 'does this mesh continue this column upward', which is the "
+                + "right question for a battlement and a meaningless one for a halo hanging in the "
+                + "middle of the wall that built it, so for a segment of the piece's OWN wall it "
+                + "is replaced by a plain Y-span overlap. Every other test is unchanged (XZ reach, "
+                + "room decision, ground band, face domain) and the piece is adopted RIDE-ONLY, so "
+                + "the coverage AABB that decides WHETHER to fade is untouched. This is the number "
+                + "the candle halo of flammen-licht.jpg is meant to appear in; if it reads 0 while "
+                + "the lane census still shows 'stacked shell: its wall had no segment that passed "
+                + "this lane's band/reach tests', the term that failed is one of the four this "
+                + $"build did NOT touch. Named {_stackOnWallHomeNames.Count} of "
+                + $"{_censusStackedOnWallHome} (cap {StackOnWallHomeNameCap}): "
+                + (_stackOnWallHomeNames.Count == 0
+                    ? "none"
+                    : string.Join("; ", _stackOnWallHomeNames))
+                + ". THE FOURTH LANE (ModBuild 397): 'stacked sticky-carry' is new in this build. "
+                + "Its total ABSENCE from every census of the 396 log was the finding — the "
+                + "stacked carry re-added props untested and skipped the election for them, so a "
+                + "cross-wall binding froze. If that lane is missing from THIS log too, the carry "
+                + "never ran; if it reads 'already on a piece of its OWN wall's run' for "
+                + "everything, the carry is running and the bindings were already right.");
         }
 
         /// <summary>

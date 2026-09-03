@@ -386,6 +386,12 @@ internal static partial class WallSegmentFade
         /// renderer kept across calls is a dangling reference within a couple of seconds.</summary>
         private readonly Dictionary<Renderer, SolidOwner> _solidOwners = new(256);
 
+        /// <summary>MODBUILD 397 — every renderer with a write in <c>_fadeWrites</c> this census,
+        /// as a set. Read only by <see cref="DescribeSolidPiece"/>, to say whether a piece counted
+        /// solid for a unit was written under a DIFFERENT unit key. Held for one census call only,
+        /// for the same reason <see cref="_solidOwners"/> is.</summary>
+        private readonly HashSet<Renderer> _fadeWrittenSet = new(256);
+
         /// <summary>Unit indices with at least one still-solid renderer, ordered LARGEST FIRST
         /// for <see cref="EmitSolidBlockerLine"/>. A list rather than a re-sort of
         /// <c>_fadeUnits</c>: that order is the debug census's and is load-bearing for it.</summary>
@@ -409,22 +415,26 @@ internal static partial class WallSegmentFade
             foreach (Segment seg in _live.Segments.Values)
             {
                 string owner = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                // ModBuild 397: the SAME wall-identity suffix the write loop appends, so the two
+                // halves of a torn unit are still read in one currency — the whole point of this
+                // index sharing the write loop's path vocabulary. See WallIdTag.
+                string wallId = WallIdTag(seg);
                 string wallPath = IsPerRendererSplit(seg) ? "wall renderer[split segment]"
                                                           : "wall renderer";
                 foreach (MeshRenderer r in seg.Renderers)
-                    NoteSolidOwner(r, wallPath, owner, seg.Fade);
+                    NoteSolidOwner(r, wallPath + wallId, owner, seg.Fade);
                 foreach (MeshRenderer r in seg.Foliage)
-                    NoteSolidOwner(r, "foliage", owner, seg.Fade);
+                    NoteSolidOwner(r, "foliage" + wallId, owner, seg.Fade);
                 foreach (MeshRenderer r in seg.Siblings)
-                    NoteSolidOwner(r, "asset sibling", owner, seg.Fade);
+                    NoteSolidOwner(r, "asset sibling" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Body)
-                    NoteSolidOwner(p.Renderer, "wall body mesh", owner, seg.Fade);
+                    NoteSolidOwner(p.Renderer, "wall body mesh" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Stacked)
-                    NoteSolidOwner(p.Renderer, "stacked shell", owner, seg.Fade);
+                    NoteSolidOwner(p.Renderer, "stacked shell" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Mounted)
-                    NoteSolidOwner(p.Renderer, "mounted dressing", owner, seg.Fade);
+                    NoteSolidOwner(p.Renderer, "mounted dressing" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.UnitDressing)
-                    NoteSolidOwner(p.Renderer, "prop-unit dressing", owner, seg.Fade);
+                    NoteSolidOwner(p.Renderer, "prop-unit dressing" + wallId, owner, seg.Fade);
             }
         }
 
@@ -446,12 +456,34 @@ internal static partial class WallSegmentFade
         /// </summary>
         private string DescribeSolidPiece(Renderer piece)
         {
+            // MODBUILD 397 — WAS IT WRITTEN AT ALL, OR ONLY NOT WRITTEN *HERE*?
+            //
+            // "Written" is decided one screen up by scanning THIS UNIT'S OWN Written list, so a
+            // renderer the fade paths really did write, but whose write was filed against a
+            // DIFFERENT unit key, arrives here indistinguishable from one nothing touched. That is
+            // not a hypothetical: the 396 log's worst row is
+            //     TORN 'CR_St_WallTorch_Fire_Orange' 1/7 written … LEFT SOLID …
+            //     p_fire_torch (9) ← mounted dressing of 'Blocks' fade 1.00
+            //                        [OWNER FADING, THIS PIECE UNWRITTEN]
+            // and those six pieces sit in the Mounted list of a segment at fade 1.00 — a list the
+            // write loop walks unconditionally for every segment with Fade > 0. They cannot be
+            // unwritten and be there. So either the tear is MANUFACTURED BY THE GROUPING, or one
+            // of NoteFadeWrite's two early returns fired; this clause is the field that tells
+            // those apart, and until it existed the row sent three rounds at an ownership defect
+            // that may not be one. It states a membership, never a mechanism.
+            string filed = _fadeWrittenSet.Contains(piece)
+                ? " [BUT WRITTEN UNDER ANOTHER UNIT KEY — the fade paths DID write this renderer "
+                  + "this census; it is 'solid' only relative to THIS unit's Written list, so the "
+                  + "tear on this row is the GROUPING and not the fade]"
+                : " [AND IN NO UNIT'S WRITTEN LIST — no fade path wrote this renderer at all this "
+                  + "census, so the tear is real]";
             if (!_solidOwners.TryGetValue(piece, out SolidOwner o))
-                return piece.name + " ← NO WALL SEGMENT OWNS IT [UNOWNED]";
+                return piece.name + " ← NO WALL SEGMENT OWNS IT [UNOWNED]" + filed;
             return piece.name + " ← " + o.SegPath + " of '" + o.SegOwner + "' fade "
                    + o.SegFade.ToString("0.00")
                    + (o.SegFade <= 0f ? " [OWNER SOLID]"
-                                      : " [OWNER FADING, THIS PIECE UNWRITTEN]");
+                                      : " [OWNER FADING, THIS PIECE UNWRITTEN]")
+                   + filed;
         }
 
         /// <summary>Tally one still-solid renderer by its term. SEPARATE from
@@ -503,6 +535,12 @@ internal static partial class WallSegmentFade
                 if (seg.Fade <= 0f)
                     continue;
                 string owner = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                // MODBUILD 397 — WHICH WALL THIS OWNER SPEAKS FOR, appended to the path in the same
+                // bracket idiom the path already uses ([split segment], [prop unit]). Until this
+                // build a row read `← stacked shell of 'Blocks'` and every wall's masonry is called
+                // 'Blocks', so a reader could not tell "the right wall" from "the one next door" —
+                // which is the entire report. See WallIdTag.
+                string wallId = WallIdTag(seg);
                 // A segment whose anchor IS a renderer is one of the deliberate per-renderer
                 // splits (RefreshSplitWall / NeutralizeEngulfingSegments). The prop-unit pass
                 // steps around those on purpose, so the census has to say when a write came from
@@ -510,22 +548,22 @@ internal static partial class WallSegmentFade
                 string wallPath = IsPerRendererSplit(seg) ? "wall renderer[split segment]"
                                                           : "wall renderer";
                 foreach (MeshRenderer r in seg.Renderers)
-                    NoteFadeWrite(r, wallPath, owner, seg.Fade);
+                    NoteFadeWrite(r, wallPath + wallId, owner, seg.Fade);
                 foreach (MeshRenderer r in seg.Foliage)
-                    NoteFadeWrite(r, "foliage", owner, seg.Fade);
+                    NoteFadeWrite(r, "foliage" + wallId, owner, seg.Fade);
                 foreach (MeshRenderer r in seg.Siblings)
-                    NoteFadeWrite(r, "asset sibling", owner, seg.Fade);
+                    NoteFadeWrite(r, "asset sibling" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Body)
-                    NoteFadeWrite(p.Renderer, "wall body mesh", owner, seg.Fade);
+                    NoteFadeWrite(p.Renderer, "wall body mesh" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Stacked)
-                    NoteFadeWrite(p.Renderer, "stacked shell", owner, seg.Fade);
+                    NoteFadeWrite(p.Renderer, "stacked shell" + wallId, owner, seg.Fade);
                 foreach (MountedProp p in seg.Mounted)
-                    NoteFadeWrite(p.Renderer, "mounted dressing", owner, seg.Fade);
+                    NoteFadeWrite(p.Renderer, "mounted dressing" + wallId, owner, seg.Fade);
                 // ModBuild 259: the whole-unit arm. Without this line every member the prop-unit
                 // pass gave a dissolve channel to would still be counted LEFT SOLID and the TORN
                 // number would not move — the census would report the fix as the defect.
                 foreach (MountedProp p in seg.UnitDressing)
-                    NoteFadeWrite(p.Renderer, "prop-unit dressing", owner, seg.Fade);
+                    NoteFadeWrite(p.Renderer, "prop-unit dressing" + wallId, owner, seg.Fade);
             }
             foreach (CornerPiece cp in _live.CornerPieces)
             {
@@ -533,7 +571,8 @@ internal static partial class WallSegmentFade
                 if (fade <= 0f)
                     continue;
                 string owner = cp.A.Anchor != null ? cp.A.Anchor.name : "<dead>";
-                NoteFadeWrite(cp.Prop.Renderer, "shared corner piece", owner, fade);
+                NoteFadeWrite(cp.Prop.Renderer, "shared corner piece" + WallIdTag(cp.A),
+                              owner, fade);
             }
 
             // Change trigger. Quantised to 1/16 of a fade so a ramp does not reprint every line of
@@ -566,6 +605,7 @@ internal static partial class WallSegmentFade
             EmitFadeWriteCensus();
             EmitSolidBlockerLine();
             _solidOwners.Clear();
+            _fadeWrittenSet.Clear(); // ModBuild 397: same per-call lifetime as _solidOwners
         }
 
         /// <summary>Record one write, skipping renderers that are gone or ours.</summary>
@@ -653,6 +693,16 @@ internal static partial class WallSegmentFade
                 _fadeUnitPool.Add(u);
             }
             _fadeUnits.Clear();
+            // ModBuild 397: every renderer this census recorded a write for, regardless of which
+            // unit the write was filed against — the population DescribeSolidPiece needs to tell a
+            // real tear from a grouping artefact. Rebuilt per census and cleared with the rest of
+            // the per-call scope, because a renderer kept across calls dangles within seconds.
+            _fadeWrittenSet.Clear();
+            foreach (FadeWrite w in _fadeWrites)
+            {
+                if (w.R != null)
+                    _fadeWrittenSet.Add(w.R);
+            }
             _fadeUnitByRoot.Clear();
             _fadeUnitSubtreeCount.Clear();
             _fadeUnitMerge.Clear();

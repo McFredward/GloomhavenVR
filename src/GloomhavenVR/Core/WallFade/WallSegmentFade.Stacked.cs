@@ -406,6 +406,58 @@ internal static partial class WallSegmentFade
         /// visibly disappears although the decision loop holds ON 1.00.</summary>
         private const float FastReclaimIntervalSeconds = 0.25f;
 
+        /// <summary>MODBUILD 397 — props the stacked sticky carry HANDED OVER to the wall their
+        /// hierarchy names, so the leavers loop does not undo the handover by restoring them from
+        /// the wall they just left. The mounted lane has carried this exact bookkeeping since
+        /// ModBuild 258 (<c>_mountedReleased</c>); the stacked lane had no handover at all, which
+        /// is why it needed no such set.</summary>
+        private readonly HashSet<MountedProp> _stackedHandedOver = new();
+
+        /// <summary>
+        /// MODBUILD 397 — THE CROSS-WALL VETO'S OWN ACCEPTANCE NUMBER.
+        ///
+        /// <para>How many candidates the stacked election REFUSED rather than bind to a wall the
+        /// generator did not parent them under, when their own wall is in the table and simply had
+        /// no segment that passed this lane's band/reach tests. A refusal is a real behaviour
+        /// change and it must be a number before it is a claim: the 396 log shows 12–16 declines
+        /// per rescan on <c>stacked shell: its wall had no segment that passed this lane's
+        /// band/reach tests</c>, and every one of those that also had a geometric winner was being
+        /// adopted onto a neighbour. This counts the ones that stop.</para>
+        ///
+        /// <para>A refusal here is NOT "this piece stays solid forever": the renderer is left out
+        /// of <c>_stackedOwned</c>, so the MOUNTED sweep — which runs later, tests Y-SPAN OVERLAP
+        /// rather than a course-top band, and carries the same provenance term — still gets to
+        /// claim it for its own wall. The falsifier is therefore a rise in this count with no
+        /// matching rise in the mounted census.</para>
+        /// </summary>
+        private int _censusStackedCrossWallVeto;
+        private readonly List<string> _stackCrossWallVetoNames = new();
+        private const int StackCrossWallVetoNameCap = 8;
+
+        /// <summary>
+        /// MODBUILD 397 — THE ON-WALL HOME'S OWN ACCEPTANCE NUMBER, and the one the next hardware
+        /// round turns on.
+        ///
+        /// <para>How many pieces the stacked election redirected onto the wall their HIERARCHY
+        /// names, using the relaxed on-wall term (Y-span overlap instead of the course-top band),
+        /// after the strict restricted search came back empty. The candle halo of
+        /// <c>flammen-licht.jpg</c> is meant to be in this count: its wall is UNSPLIT, so the
+        /// strict band floor sits above it and nothing of its own wall could win.</para>
+        ///
+        /// <para>A ZERO IS A READING AND IT HAS TWO MEANINGS, which the lane census beside it
+        /// separates: zero while <c>stacked shell: its wall had no segment that passed this lane's
+        /// band/reach tests</c> is ALSO zero means no piece was ever in this position; zero while
+        /// that reason is non-zero means the relaxed term found nothing either — and then the term
+        /// that failed is the XZ reach, the room decision, the face domain or the Y overlap, none
+        /// of which this build touched.</para>
+        ///
+        /// <para>Every redirect is ALSO counted by <see cref="_censusMountedWallHome"/>, because it
+        /// is a wrong-wall correction and the headline number must not undercount them.</para>
+        /// </summary>
+        private int _censusStackedOnWallHome;
+        private readonly List<string> _stackOnWallHomeNames = new();
+        private const int StackOnWallHomeNameCap = 8;
+
         private float _nextFastReclaim;
         private int _fastReclaimTotal;
         private float _nextFastReclaimLog;
@@ -620,11 +672,25 @@ internal static partial class WallSegmentFade
                     }
                 }
                 if (homeWall == null)
-                    NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineNoWall);
+                    NoteWallHomeDeclineNoWall(WallHomeLaneFastReclaim, r);
                 else if (best != null && SegmentBelongsToWall(best, homeWall))
                     NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineOwnWall);
                 else if (bestHome == null)
+                {
                     NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineNoCandidate);
+                    // ModBuild 397 — THE SAME CROSS-WALL VETO, on the sweep that would otherwise
+                    // re-impose the wrong answer four times a second. The ModBuild-388 OWNERSHIP
+                    // CHURN line names this lane explicitly ('CandleFlame' … stacked-fast:
+                    // 'EN_CR_LBSkull' → stacked-fast:'Wall 2'), so a veto that reached only the
+                    // rescan election would be overwritten between rescans. Refusing here leaves
+                    // the renderer visible, which is correct: its OWN wall is not among the faded
+                    // segments this sweep is reclaiming into.
+                    if (best != null && _mountedWallHome.ContainsKey(homeWall))
+                    {
+                        _censusStackedCrossWallVeto++;
+                        continue;
+                    }
+                }
                 else if (ReferenceEquals(bestHome, best))
                     NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineAlreadyHome);
                 else if (best != null)
@@ -646,7 +712,8 @@ internal static partial class WallSegmentFade
                     _live.CornerPieces.Add(new CornerPiece { Prop = cprop, A = corner, B = cornerB });
                     _stackedOwned.Add(r);
                     NoteOwnershipChange(r,
-                        $"corner-fast:'{(corner.Anchor != null ? corner.Anchor.name : "?")}'");
+                        $"corner-fast:'{(corner.Anchor != null ? corner.Anchor.name : "?")}'"
+                        + WallIdTag(corner));
                     _mountedTouched[r] = cprop;
                     EnsureDissolveChannel(cprop); // round 15: parked native, animates on return
                     DriveProp(cprop, 1f);
@@ -672,7 +739,8 @@ internal static partial class WallSegmentFade
                     best.Bounds = ext;
                 _stackedOwned.Add(r);
                 NoteOwnershipChange(r,
-                    $"stacked-fast:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
+                    $"stacked-fast:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
+                    + WallIdTag(best));
                 _mountedTouched[r] = prop;
                 EnsureDissolveChannel(prop); // round 15: parked native, animates on return
                 DriveProp(prop, 1f);
@@ -691,6 +759,31 @@ internal static partial class WallSegmentFade
                         + $"churn; session total {_fastReclaimTotal}).");
                 }
             }
+        }
+
+        /// <summary>
+        /// MODBUILD 397 — the STACKED lane's own reading of the wall-home map, with the STACKED
+        /// lane's own eligibility applied.
+        ///
+        /// <para>Deliberately not <see cref="MountedWallHomeOf"/>: that one gates on
+        /// <see cref="MountedHostEligible"/> (which reads <c>seg.Mounted.Count</c> against the
+        /// mounted cap) and would answer for a lane this one is not. <c>BuildMountedWallHomes</c>
+        /// is lane-neutral by construction for exactly this reason — each lane asks its own
+        /// question at lookup and RECORDS A DECLINE when it refuses, so a home that is unusable
+        /// here is visible on the census rather than silently absent.</para>
+        ///
+        /// <para>Null means "no opinion" and leaves the standing answer alone. This never removes
+        /// an owner; it only redirects one.</para>
+        /// </summary>
+        private Segment? StackedWallHomeOf(Renderer r, out Component? wall)
+        {
+            wall = null;
+            if (_mountedWallHome.Count == 0)
+                return null;
+            wall = WallProvenanceOf(r);
+            if (wall == null || !_mountedWallHome.TryGetValue(wall, out Segment? home))
+                return null;
+            return StackEligible(home) && home.Stacked.Count < StackMaxPerSegment ? home : null;
         }
 
         /// <summary>May this segment carry stacked shell pieces? Doorways never fade (user
@@ -718,6 +811,16 @@ internal static partial class WallSegmentFade
             // that fired between the two, which the line says out loud).
             EnsureWallHomes();
             _wallHomeDeclines.Clear();
+            // ModBuild 397: the no-wall SAMPLE shares the decline window exactly — same reset
+            // point, same emitter — so the names on the line and the counts beside them can never
+            // describe two different populations.
+            _wallHomeNoWallSamples.Clear();
+            _wallHomeNoWallSeen.Clear();
+            _stackedHandedOver.Clear();
+            _censusStackedCrossWallVeto = 0;
+            _stackCrossWallVetoNames.Clear();
+            _censusStackedOnWallHome = 0;
+            _stackOnWallHomeNames.Clear();
             _censusMountedWallHome = 0;
             _censusMountedWallHomeStuck = 0;
             _mountedWallHomeNames.Clear();
@@ -781,6 +884,73 @@ internal static partial class WallSegmentFade
                         // Figures are NEVER carried, sticky or not (round-7 ruling).
                         if (IsFigureOrActorRenderer(p.Renderer))
                             continue;
+                        // MODBUILD 397 — WALL PROVENANCE ON THE STACKED CARRY, THE LANE THAT WAS
+                        // MISSING IT. Everything above this line carries a piece over UNTESTED and
+                        // then puts it in _stackedOwned, which the adoption rounds skip — so a
+                        // piece bound to a neighbour's wall on some earlier rescan could never
+                        // reach the ModBuild-392 election again, and recorded no decline either.
+                        // The 396 log's fingerprint of that: 'Glow' … gap 0.60 → 'EN_CR_LBSkull'
+                        // and gap 0.62 → 'Blocks' beside a sibling 'Glow' … gap 0.00 → 'Wall 2'.
+                        // An election that had run would not have preferred 0.60 over 0.00.
+                        //
+                        // A HANDOVER, NOT A RELEASE, for the ModBuild-265 reason the mounted lane
+                        // states: a change of owner may not make a piece more visible, and
+                        // RestoreProp would switch a hidden shell piece back on for the rest of the
+                        // rescan if its correct wall is faded. The new owner drives it on the same
+                        // frame. The target's AABB is deliberately NOT extended here — an extension
+                        // is a claim about what a wall's column occupies, and a handover has not
+                        // measured that; the piece rides the fade, which is all it needs to do.
+                        //
+                        // NO CHURN WHEN IT IS ALREADY RIGHT: SegmentBelongsToWall accepts the wall
+                        // itself and any piece of its run, so a piece sitting on another piece of
+                        // its OWN wall is left exactly where it is. Only a cross-WALL binding moves.
+                        //
+                        // MULTIPLAYER: hierarchy + the local segment table, both identical on every
+                        // peer, and the wall-home representative is chosen by ordinal name compare
+                        // (BuildMountedWallHomes). No per-peer state, no wire traffic.
+                        Segment? stackHome = StackedWallHomeOf(p.Renderer, out Component? stickyWall);
+                        if (stickyWall == null)
+                            NoteWallHomeDeclineNoWall(WallHomeLaneStackedSticky, p.Renderer);
+                        else if (stackHome == null)
+                            NoteWallHomeDecline(WallHomeLaneStackedSticky, WallHomeDeclineIneligible);
+                        else if (SegmentBelongsToWall(seg, stickyWall))
+                            NoteWallHomeDecline(WallHomeLaneStackedSticky, WallHomeDeclineOwnWall);
+                        else if (ReferenceEquals(stackHome, seg))
+                            NoteWallHomeDecline(WallHomeLaneStackedSticky, WallHomeDeclineAlreadyHome);
+                        else if (stackHome.Fade <= 0f && stackHome.StackedState == 0)
+                        {
+                            // ITS OWN WALL IS SOLID — so this piece must be VISIBLE, and a handover
+                            // could not deliver that. ApplyStacked's want==0 arm calls
+                            // RestoreSegmentStacked, which returns immediately on
+                            // `StackedState == 0`: a piece handed to a segment in that state would
+                            // be hidden by the wall it just left and never restored by the wall it
+                            // just joined. So it is RELEASED here instead, which is what the
+                            // leavers loop does for any piece that stops qualifying.
+                            //
+                            // THIS IS THE ONE PLACE THIS BUILD DELIBERATELY MAKES A PIECE MORE
+                            // VISIBLE, and it is the reported defect stated as an action: the halo
+                            // was hidden because a NEIGHBOUR'S wall opened. Its own wall is standing
+                            // — so it stands. RestoreProp is idempotent and removes the ledger entry
+                            // first, and _stackedHandedOver keeps the leavers loop from repeating it.
+                            NoteWallHomeCorrection(p.Renderer, seg, stackHome, stuck: true);
+                            RestoreProp(p);
+                            _stackedHandedOver.Add(p);
+                            NoteOwnershipChange(p.Renderer,
+                                "released(wall provenance: its own wall "
+                                + $"{WallIdTag(stackHome)} is solid, so this piece stands)");
+                            continue;
+                        }
+                        else
+                        {
+                            NoteWallHomeCorrection(p.Renderer, seg, stackHome, stuck: true);
+                            stackHome.Stacked.Add(p);
+                            _stackedHandedOver.Add(p); // the leavers loop must not undo it
+                            _censusStacked++;
+                            NoteOwnershipChange(p.Renderer,
+                                $"stacked:'{stackHome.Anchor!.name}'{WallIdTag(stackHome)}"
+                                + "(wall provenance)");
+                            continue;
+                        }
                         seg.Stacked.Add(p);
                         _censusStacked++;
                         if (seg.HasBounds)
@@ -824,7 +994,12 @@ internal static partial class WallSegmentFade
                 {
                     foreach (MountedProp prev in seg.PrevStacked)
                     {
-                        if (prev.Renderer != null && !seg.Stacked.Contains(prev))
+                        // ModBuild 397: a prop this segment HANDED OVER to the wall its hierarchy
+                        // names is not a leaver — it has an owner, on the other list, this rescan.
+                        // Restoring it here would switch it visible again and undo the correction
+                        // on the same frame, which is the ModBuild-265 blink in a new lane.
+                        if (prev.Renderer != null && !seg.Stacked.Contains(prev)
+                            && !_stackedHandedOver.Contains(prev))
                             RestoreProp(prev);
                     }
                     if (seg.Stacked.Count == 0)
@@ -1056,9 +1231,42 @@ internal static partial class WallSegmentFade
                     // ground, face-domain and reach tests as the first, so whatever it returns
                     // would have been a legal answer to the original election. Provenance chooses
                     // among legal answers; it never creates one.
+                    //
+                    // MODBUILD 397 — AND WHY THE 392 RESTRICTION WAS TOO TIGHT FOR THIS ASSET.
+                    // The 396 log measures it exactly, on ONE candle, in ONE census line:
+                    //     'CandleFlame' base 2.5 top 2.6 gap 0.00 → 'Wall 2'
+                    //     'Glow'        base 2.2 top 2.9 gap 0.14 → 'EN_CR_LBSkull'
+                    // Same prefab, same wall, 0.3 wu apart in Y, and only the LOWER one goes
+                    // astray. The term that separates them is the STACK BAND's lower bound,
+                    // `StackOrigTop - StackMaxOverlapDownWU`: Wall 2 is an UNSPLIT wall, so its
+                    // one segment's original course top is the whole wall's top (~3.5) and the
+                    // band floor lands between 2.2 and 2.5. The flame clears it; the halo does
+                    // not. So `bestHome` came back NULL for the halo — its own wall had no
+                    // segment that passed — and the search fell to the nearest thing that did,
+                    // which is a SKULL ornament on a neighbouring wall whose own tiny AABB puts
+                    // its band right where the halo sits.
+                    //
+                    // THE BAND IS THE WRONG QUESTION FOR A HOME-WALL SEGMENT. It asks "does this
+                    // mesh CONTINUE this column upward" — the right question for a battlement and
+                    // a meaningless one for a sconce halo hanging in the middle of the wall that
+                    // built it. Geometry is being asked to establish something the hierarchy
+                    // already states exactly. So a segment of the candidate's OWN wall gets a
+                    // third tracker with the band replaced by a plain Y-SPAN OVERLAP — is this
+                    // piece ON that wall at all — while every other test is unchanged: the XZ
+                    // reach, the room decision, the ground band that never fades, and the face
+                    // domain that stops a chain turning a corner.
+                    //
+                    // IT IS ADOPTED RIDE-ONLY. An AABB extension is a claim about what a wall's
+                    // column OCCUPIES, and the relaxed term has not measured that. The piece rides
+                    // its own wall's fade, which is the whole of what the user asked for, and the
+                    // coverage geometry that decides WHETHER to fade is left exactly as it was.
+                    //
+                    // MULTIPLAYER: hierarchy + the local segment table, identical on every peer.
                     Component? homeWall = WallProvenanceOf(c);
                     Segment? bestHome = null;
                     float bestHomeGap = float.PositiveInfinity;
+                    Segment? bestHomeOnWall = null;
+                    float bestHomeOnWallGap = float.PositiveInfinity;
                     foreach (Segment seg in _live.Segments.Values)
                     {
                         if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
@@ -1067,19 +1275,57 @@ internal static partial class WallSegmentFade
                         bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
                         if (gap > StackLinkMaxXZ)
                             continue;
-                        if (gap >= bestGap && !(homeMatch && gap < bestHomeGap))
+                        // The unrestricted prune is unchanged; a segment is only allowed past it on
+                        // the extra ticket that it belongs to this piece's OWN wall and is the
+                        // nearest such so far on one of the two home trackers.
+                        // `<=` on the on-wall term and not `<`: that tracker breaks EXACT ties on
+                        // the anchor name, and HorizontalGap returns 0.00 for any footprint
+                        // overlap, so exact ties are the normal case here rather than an edge one.
+                        // A strict prune would throw the tied candidate away before the tie-break
+                        // could see it, and the ordering would fall back to Dictionary order —
+                        // the very thing the tie-break exists to remove.
+                        if (gap >= bestGap
+                            && !(homeMatch && (gap < bestHomeGap || gap <= bestHomeOnWallGap)))
                             continue;
-                        // STACK BAND (hardware round 2 fix): the LOWER bound anchors on the
-                        // wall's ORIGINAL course top — whether the column already grew past
-                        // the piece is irrelevant to "does it continue the masonry". Only
-                        // the UPPER bound tracks the live top, so chained stories connect.
-                        if (b.min.y < seg.StackOrigTop - StackMaxOverlapDownWU
-                            || b.min.y > seg.Bounds.max.y + StackMaxRiseWU)
-                            continue; // not a course of THIS column
+                        // Reordered, not changed: these three are pure predicates and every one of
+                        // them applies to the home tracker too, so they are asked before the band
+                        // rather than after it. The ground band of a wall's own room never fades
+                        // (user ruling), and the face domain still stops a chain at a corner.
                         if (b.min.y < _live.RoomFloorY[seg.RoomIndex] + GroundExclusionHeightWU)
                             continue; // ground band of the wall's own room never fades
                         if (!InFaceDomain(seg, b))
                             continue; // round 7: chain in Y, never around corners
+                        // STACK BAND (hardware round 2 fix): the LOWER bound anchors on the
+                        // wall's ORIGINAL course top — whether the column already grew past
+                        // the piece is irrelevant to "does it continue the masonry". Only
+                        // the UPPER bound tracks the live top, so chained stories connect.
+                        bool bandOk = b.min.y >= seg.StackOrigTop - StackMaxOverlapDownWU
+                            && b.min.y <= seg.Bounds.max.y + StackMaxRiseWU;
+                        if (homeMatch && !bandOk
+                            // ON THE WALL, not floating over it and not buried under it: the two
+                            // AABBs overlap in Y. This is the term that replaces the course-top
+                            // band for a segment the generator itself parented this piece under.
+                            && b.min.y <= seg.Bounds.max.y + StackMaxRiseWU
+                            && b.max.y >= seg.Bounds.min.y
+                            // TIES BROKEN ON THE ANCHOR NAME, ORDINALLY — the house rule, for the
+                            // reason BuildMountedWallHomes states: _live.Segments is a Dictionary
+                            // whose bucket order is unspecified and is reshuffled by every add and
+                            // remove, so a strict `<` alone would let two peers pick different
+                            // pieces. Every candidate here belongs to ONE wall and every piece of a
+                            // run carries the run's verdict under SplitRunUnified, so a tie cannot
+                            // change what is drawn — but the discipline is cheap and the next edit
+                            // of this loop must not have to re-derive that argument.
+                            && (gap < bestHomeOnWallGap
+                                || (gap == bestHomeOnWallGap && bestHomeOnWall != null
+                                    && seg.Anchor != null && bestHomeOnWall.Anchor != null
+                                    && string.CompareOrdinal(
+                                        seg.Anchor.name, bestHomeOnWall.Anchor.name) < 0)))
+                        {
+                            bestHomeOnWallGap = gap;
+                            bestHomeOnWall = seg;
+                        }
+                        if (!bandOk)
+                            continue; // not a course of THIS column
                         if (gap < bestGap)
                         {
                             bestGap = gap;
@@ -1091,14 +1337,85 @@ internal static partial class WallSegmentFade
                             bestHome = seg;
                         }
                     }
+                    bool rideOnlyByHome = false;
                     // EVERY OUTCOME RECORDED, declines included — see NoteWallHomeDecline for why
                     // a bare zero cost ModBuild 391 a whole hardware round.
                     if (homeWall == null)
-                        NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineNoWall);
+                        NoteWallHomeDeclineNoWall(WallHomeLaneStacked, c);
                     else if (best != null && SegmentBelongsToWall(best, homeWall))
                         NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineOwnWall);
+                    else if (bestHome == null && bestHomeOnWall != null && best != null
+                             && !ReferenceEquals(bestHomeOnWall, best))
+                    {
+                        // MODBUILD 397 — THE ON-WALL HOME. The strict band found nothing on this
+                        // piece's own wall, but a segment of that wall is within reach, in the
+                        // right room, inside its face domain, above the ground band, and OVERLAPS
+                        // this piece in Y. The generator parented the piece there; that is a
+                        // stronger statement than being 0.14 wu nearer to a skull on the wall next
+                        // door. RIDE-ONLY: see the comment on the loop above.
+                        NoteWallHomeCorrection(c, best, bestHomeOnWall, stuck: false);
+                        _censusStackedOnWallHome++;
+                        if (_stackOnWallHomeNames.Count < StackOnWallHomeNameCap)
+                        {
+                            _stackOnWallHomeNames.Add(
+                                $"'{c.name}' y[{b.min.y:F1}..{b.max.y:F1}] left "
+                                + $"'{(best.Anchor != null ? best.Anchor.name : "<dead>")}'"
+                                + $"{WallIdTag(best)} at gap {bestGap:F2} for "
+                                + $"'{(bestHomeOnWall.Anchor != null ? bestHomeOnWall.Anchor.name : "<dead>")}'"
+                                + $"{WallIdTag(bestHomeOnWall)} at gap {bestHomeOnWallGap:F2} "
+                                + $"(that segment's course top {bestHomeOnWall.StackOrigTop:F1} "
+                                + $"puts the strict band floor at "
+                                + $"{bestHomeOnWall.StackOrigTop - StackMaxOverlapDownWU:F1}, "
+                                + $"which this piece's base {b.min.y:F1} is below)");
+                        }
+                        best = bestHomeOnWall;
+                        bestGap = bestHomeOnWallGap;
+                        rideOnlyByHome = true;
+                    }
                     else if (bestHome == null)
+                    {
                         NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineNoCandidate);
+                        // MODBUILD 397 — THE CROSS-WALL VETO. Reaching here with a geometric
+                        // winner means: this piece IS under a ProceduralWall, that wall IS in the
+                        // segment table, and none of its segments passed this lane's band/reach
+                        // tests — so the only thing left to adopt it onto is somebody ELSE'S wall.
+                        // Binding it there is the defect the user reported in three consecutive
+                        // rounds ("sie sind an die falsche Wand gebunden"): the piece then hides
+                        // when the neighbour opens and stands when its own wall opens.
+                        //
+                        // WHY REFUSING IS NOT "LEAVING A HOLE". The renderer stays out of
+                        // _stackedOwned, so the MOUNTED sweep later in the same rescan still sees
+                        // it, and that lane's band is a Y-SPAN OVERLAP against the wall's own AABB
+                        // rather than a course-top continuation test — which is the right question
+                        // for a sconce, a halo or a moth swarm hanging in the middle of a wall, and
+                        // the wrong one for a battlement. The stacked band was never meant to
+                        // decide these.
+                        //
+                        // NARROW ON PURPOSE: only when the wall is genuinely represented in the
+                        // map. If it is not, we have no alternative to offer and the old answer
+                        // stands, which is strictly what shipped before.
+                        if (best != null && _mountedWallHome.ContainsKey(homeWall))
+                        {
+                            _stackDead.Add(c);
+                            _censusStackedCrossWallVeto++;
+                            if (_stackCrossWallVetoNames.Count < StackCrossWallVetoNameCap)
+                            {
+                                _stackCrossWallVetoNames.Add(
+                                    $"'{c.name}' y[{b.min.y:F1}..{b.max.y:F1}] gap {bestGap:F2} to "
+                                    + $"'{(best.Anchor != null ? best.Anchor.name : "<dead>")}'"
+                                    + $"{WallIdTag(best)} but its hierarchy names "
+                                    + $"'{homeWall.name}'#{homeWall.GetInstanceID()}");
+                            }
+                            NoteStackReject(c, bestGap,
+                                "CROSS-WALL VETO (ModBuild 397): the nearest legal column belongs "
+                                + $"to a DIFFERENT wall {WallIdTag(best)} than the one that "
+                                + $"parented this renderer ('{homeWall.name}'"
+                                + $"#{homeWall.GetInstanceID()}), and no segment of its own wall "
+                                + "passed this lane's band/reach tests. Left unowned here on "
+                                + "purpose so the MOUNTED sweep can claim it for its own wall");
+                            continue;
+                        }
+                    }
                     else if (ReferenceEquals(bestHome, best))
                         NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineAlreadyHome);
                     else if (best != null)
@@ -1121,7 +1438,12 @@ internal static partial class WallSegmentFade
                     // while the user saw a solid keep in a faded state). The coverage slab
                     // stays decidable; the shell still opens.
                     Bounds ext = ClampExtensionToFace(best, EncapsulateCopy(best.Bounds, b));
-                    bool extend = !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
+                    // ModBuild 397: a piece redirected onto its OWN wall by the relaxed on-wall
+                    // term is RIDE-ONLY. It hides and dissolves with that wall, and it does not
+                    // move the decision AABB — the relaxed term established parentage, not
+                    // occupancy, and an instrument must not assert what it did not measure.
+                    bool extend = !rideOnlyByHome
+                        && !(InsideRoomFraction(ext, best.RoomIndex) >= EngulfSampleFraction
                         && InsideOwnRoomFraction(best) < EngulfSampleFraction);
                     // Live game logic / worldspace UI is never scenery (mounted-pass rule);
                     // the figure guard re-checks here too (belt over the prefilter — an
@@ -1151,16 +1473,24 @@ internal static partial class WallSegmentFade
                         best.Bounds = ext;
                     _stackedOwned.Add(c);
                     NoteOwnershipChange(c,
-                        $"stacked:'{(best.Anchor != null ? best.Anchor.name : "?")}'");
+                        $"stacked:'{(best.Anchor != null ? best.Anchor.name : "?")}'"
+                        + WallIdTag(best));
                     _censusStacked++;
                     adoptedAny = true;
                     if (_stackCensus.Count < StackCensusCap)
                     {
                         string wall = best.Anchor != null ? best.Anchor.name : "<dead>";
+                        // ModBuild 397: the OWNER'S WALL, appended. Every wall's masonry piece is
+                        // called 'Blocks' and every pillar ornament 'EN_CR_LBSkull', so the name on
+                        // its own could not tell two walls apart — see WallIdTag.
                         _stackCensus.Add(
                             $"'{c.name}'[→{prop.Tier}{(extend ? "" : ", ride-only")}] "
                             + $"base {b.min.y:F1} top {b.max.y:F1} "
-                            + $"gap {bestGap:F2} → '{wall}'");
+                            + $"gap {bestGap:F2} → '{wall}'{WallIdTag(best)}"
+                            + (rideOnlyByHome
+                                ? " [ON-WALL HOME: redirected to the wall its HIERARCHY names, "
+                                  + "ride-only — ModBuild 397]"
+                                : string.Empty));
                     }
                 }
                 if (!adoptedAny)
@@ -1226,7 +1556,7 @@ internal static partial class WallSegmentFade
                 _live.CornerPieces.Add(new CornerPiece { Prop = prop, A = a, B = second });
                 _stackedOwned.Add(c);
                 NoteOwnershipChange(c,
-                    $"corner:'{(a.Anchor != null ? a.Anchor.name : "?")}'");
+                    $"corner:'{(a.Anchor != null ? a.Anchor.name : "?")}'{WallIdTag(a)}");
             }
 
             if (_live.CornerPieces.Count != _lastLoggedCornerCount)
