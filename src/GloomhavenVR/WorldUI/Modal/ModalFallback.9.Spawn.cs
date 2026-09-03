@@ -3448,6 +3448,36 @@ internal static partial class ModalFallback
                 continue;
             }
 
+            // ModBuild 386 — DO NOT HIDE A FLOAT THE RELEASE LOOP IS GIVING UP IN THIS SAME TICK.
+            //
+            // THIS IS A RACE AND IT IS WON BY WHICHEVER LOOP RUNS FIRST, WHICH IS THIS ONE. A
+            // mandatory-decision window whose stickiness is spent (the game closed it, i.e. the
+            // player answered it) is released by the loop in ModalFallback.4.Tick.cs a few
+            // statements after this method returns, and that release is the ONE path that runs the
+            // materialise vanish. But the game's own out-animation takes the window's content below
+            // the fit's alpha floor BEFORE it calls Hide — in the 2026-09-03 log 'UI Event Window'
+            // was last measured drawing 0.5 s before it went dark and the hide dwell is 0.35 s, so
+            // the dwell had just elapsed at the close edge. Without this clause the liveness rule
+            // fires first, marks the float DORMANT, and the release two statements later reaches
+            // PlayOut with ModalFallback.HasNothingToDissolve's DORMANT term already true — the
+            // vanish is skipped and the window still leaves without an animation. The defect would
+            // survive its own fix, decided by the phase order rather than by any rule.
+            //
+            // SO THE DECISION IS DEFERRED, NOT MADE. Nothing is latched: EmptySince is cleared, so
+            // if the release somehow does not happen the dwell simply starts again from this
+            // moment, which is the same treatment the selection hold above gives a blank it was
+            // told to ignore. ModBuild 291's rule is untouched for every window it is actually
+            // about — a window the game still has OPEN that has stopped drawing.
+            //
+            // IT COSTS AT MOST ONE CENSUS LINE. This window is not counted in any of the four
+            // populations for the single tick it is here, because it is not in any of them: it is
+            // on its way out through the release loop and will not exist by the next tick.
+            if (StickinessSpentByAnsweredDecision(wp, out _))
+            {
+                wp.EmptySince = 0f;
+                continue;
+            }
+
             if (frame < wp.LivenessNextCheckFrame)
             {
                 if (wp.LivenessArmed) armed++;

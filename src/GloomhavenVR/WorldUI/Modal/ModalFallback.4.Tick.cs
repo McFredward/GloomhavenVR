@@ -288,6 +288,53 @@ internal static partial class ModalFallback
         ResetTickBreakdown();
     }
 
+    /// <summary>
+    /// ModBuild 386 — <b>IS THIS FLOAT'S STICKINESS SPENT BECAUSE THE DECISION IT CARRIED HAS BEEN
+    /// ANSWERED?</b>
+    ///
+    /// <para>Stickiness (<c>MapRoomParallel</c>, ModBuild 180, and <c>IsGameOwnedMenu</c>) defends a
+    /// float against a SIBLING taking the screen away from it — the flat game's single-window
+    /// discipline, which hides the merchant when the temple opens. A window enrolled in
+    /// <see cref="IsMandatoryDecision"/> is never in that relationship: it carries no close X
+    /// (ModBuild 381), the escape chord is redirected rather than allowed to close it (ModBuild
+    /// 384), and the game hides one only when the player has ANSWERED it. So a game-side hide of one
+    /// of these is the end of the window, and the float should go home through the ordinary release
+    /// — which is also the ONLY path that runs <c>WindowMaterialise.PlayOut</c>.</para>
+    ///
+    /// <para><b>ONE PREDICATE, TWO CALLERS, ON PURPOSE.</b> The release loop asks it to decide
+    /// whether the float is still wanted; <c>TickWindowLiveness</c> asks it to decide whether to
+    /// leave the float alone for the fraction of a tick before that loop runs. Those two answers
+    /// MUST agree — if the liveness rule hides the window first, the release reaches PlayOut with
+    /// <see cref="HasNothingToDissolve"/>'s DORMANT term already true and the vanish is skipped —
+    /// so they are one method rather than two copies of a four-term condition.</para>
+    ///
+    /// <para><b>THE ESC/OPTIONS CARVE-OUT IS THE NET UNDER THE DERIVED TERM.</b>
+    /// <see cref="IsMandatoryDecision"/>'s last term is <c>escapeKeyAction == None</c>, a derived
+    /// net rather than an identity, and inside the 3D map room EVERY non-confirmation window is
+    /// sticky. A menu of that family hidden by its own <c>ToggleGroup</c> sibling must keep its
+    /// stickiness, so the family is excluded here — the same exclusion the liveness rule makes, for
+    /// the same standing ruling: <i>"es MUSS immer möglich sein das Optionsmenu zu öffnen."</i></para>
+    ///
+    /// <para><b>NOTHING IS WRITTEN TO THE GAME ON THIS PATH.</b> The window has already been hidden
+    /// by the game itself; <c>UserClosing</c> stays false, so no <c>Hide</c>, no <c>Escape</c>, no
+    /// <c>CanvasGroup</c> write and nothing on the wire.</para>
+    ///
+    /// <para><paramref name="why"/> receives <see cref="IsMandatoryDecision"/>'s own reason, so a
+    /// log line can name WHICH term matched and an over-firing derived net is visible in the next
+    /// hardware log rather than inferred from a symptom.</para>
+    /// </summary>
+    private static bool StickinessSpentByAnsweredDecision(WindowPanel wp, out string why)
+    {
+        why = string.Empty;
+        // The cheap terms first: IsMandatoryDecision does a GetComponent, and a sticky float whose
+        // game window is CLOSED is a rare state, so it is the gate in front of that lookup.
+        return wp.Window != null
+               && wp.Sticky
+               && !wp.Window.IsOpen
+               && !MenuWindowFamily.IsEscOptionsFamily(wp.Window)
+               && IsMandatoryDecision(wp.Window, out why);
+    }
+
     private static void OnWindow(WindowVisibilityEvent e)
     {
         // Test #10: EVERY window transition is logged at Debug — a lock caused by a
@@ -2814,12 +2861,7 @@ internal static partial class ModalFallback
             // of that family hidden by its own ToggleGroup sibling must keep its stickiness, so the
             // family is excluded here — the same exclusion the liveness rule makes, for the same
             // standing ruling ("es MUSS immer möglich sein das Optionsmenu zu öffnen").
-            string mandatoryWhy = string.Empty;
-            bool answeredMandatory = wp.Window != null
-                                     && wp.Sticky
-                                     && !wp.Window.IsOpen
-                                     && !MenuWindowFamily.IsEscOptionsFamily(wp.Window)
-                                     && IsMandatoryDecision(wp.Window, out mandatoryWhy);
+            bool answeredMandatory = StickinessSpentByAnsweredDecision(wp, out string mandatoryWhy);
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
                              && (ContainsWindow(OpenWindows, wp.Window!)
                                  || (wp.Sticky && !answeredMandatory)
