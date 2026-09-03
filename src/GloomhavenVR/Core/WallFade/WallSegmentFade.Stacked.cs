@@ -449,6 +449,9 @@ internal static partial class WallSegmentFade
             // the fade edge would leave regenerated pieces standing inside a faded wall for up
             // to two seconds — a look change, which this round forbids.
             using var _fastScope = PerfMonitor.Scope("WallFade.FastReclaim");
+            // ModBuild 392: this sweep runs between rescans, while Apparance regenerates subtrees,
+            // so it rebuilds the map rather than trusting the one the last rescan left behind.
+            EnsureWallHomes();
             _fastSegScratch.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
@@ -565,10 +568,21 @@ internal static partial class WallSegmentFade
                 float bestGap = float.PositiveInfinity;
                 Segment? corner = null, cornerB = null;
                 float cornerGap = float.PositiveInfinity;
+                // ModBuild 392: the SECOND election of the stacked lane, and it must carry the same
+                // provenance term as the first. The ModBuild-388 OWNERSHIP CHURN line names this
+                // one explicitly — 'CandleFlame' … stacked-fast:'EN_CR_LBSkull' → stacked-fast:
+                // 'Wall 2' — so a fix that reached only the main rounds would be re-overwritten
+                // four times a second by this sweep while a wall is held faded.
+                Component? homeWall = WallProvenanceOf(r);
+                Segment? bestHome = null;
+                float bestHomeGap = float.PositiveInfinity;
                 foreach (Segment seg in _fastSegScratch)
                 {
                     float gap = HorizontalGap(seg.Bounds, b);
-                    if (gap > StackLinkMaxXZ || gap >= bestGap)
+                    bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
+                    if (gap > StackLinkMaxXZ)
+                        continue;
+                    if (gap >= bestGap && !(homeMatch && gap < bestHomeGap))
                         continue;
                     // BODY walls (round 6, enabled-only masonry): a regenerated course can
                     // sit anywhere in the wall column, so the band's lower bound is the
@@ -594,8 +608,30 @@ internal static partial class WallSegmentFade
                         }
                         continue;
                     }
-                    best = seg;
-                    bestGap = gap;
+                    if (gap < bestGap)
+                    {
+                        best = seg;
+                        bestGap = gap;
+                    }
+                    if (homeMatch && gap < bestHomeGap)
+                    {
+                        bestHome = seg;
+                        bestHomeGap = gap;
+                    }
+                }
+                if (homeWall == null)
+                    NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineNoWall);
+                else if (best != null && SegmentBelongsToWall(best, homeWall))
+                    NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineOwnWall);
+                else if (bestHome == null)
+                    NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineNoCandidate);
+                else if (ReferenceEquals(bestHome, best))
+                    NoteWallHomeDecline(WallHomeLaneFastReclaim, WallHomeDeclineAlreadyHome);
+                else if (best != null)
+                {
+                    NoteWallHomeCorrection(r, best, bestHome, stuck: true);
+                    best = bestHome;
+                    bestGap = bestHomeGap;
                 }
                 if (best == null && corner != null)
                 {
@@ -675,6 +711,16 @@ internal static partial class WallSegmentFade
         /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
         private void CollectStackedShellPieces()
         {
+            // ModBuild 392: the wall-home map must exist BEFORE this pass elects anything — it is
+            // built inside the mounted sweep, which runs later. The decline census is reset here
+            // and only here: this is the first of the three lanes in a rescan, and the emitter runs
+            // in the last of them, so one window covers all three (plus any fast-reclaim sweeps
+            // that fired between the two, which the line says out loud).
+            EnsureWallHomes();
+            _wallHomeDeclines.Clear();
+            _censusMountedWallHome = 0;
+            _censusMountedWallHomeStuck = 0;
+            _mountedWallHomeNames.Clear();
             _stackedOwned.Clear();
             _stackDead.Clear();
             _stackCandidates.Clear();
@@ -987,12 +1033,41 @@ internal static partial class WallSegmentFade
 
                     Segment? best = null;
                     float bestGap = float.PositiveInfinity;
+                    // MODBUILD 392 — WALL PROVENANCE, ON THE LANE THAT ACTUALLY OWNS THE CANDLE.
+                    //
+                    // ModBuild 390 put this rule in the mounted sweep. The 391 hardware round came
+                    // back with the defect unchanged and the wrong-wall census reading 0 on all 38
+                    // lines, and the log says why in one field: every still-broken row is in the
+                    // STACKED census format, not the mounted one —
+                    //   'CandleFlame' base 2.5 top 2.6 gap 0.00 -> 'Wall 2'
+                    //   'Glow'        base 2.2 top 2.9 gap 0.14 -> 'EN_CR_LBSkull (2)'
+                    // The rule was correct and was never on the path. This pass runs BEFORE the
+                    // mounted sweep and elects its own owner by distance alone, and once it has
+                    // claimed a renderer the mounted sweep sees it in _attachmentOwned and skips
+                    // it, so the mounted rule could never have reached it either.
+                    //
+                    // THE EVIDENCE THAT IT IS CROSS-WALL AND NOT A NEAR MISS: 'CandleFlame' is
+                    // under 'Wall 2/Generated Content/CR_GE_Candle_V1/CandlePivot' and lands on
+                    // 'Wall 2', while 'Glow' — its own CHILD — lands on 'EN_CR_LBSkull (2)' and on
+                    // 'Blocks', and neither of those names appears under Wall 2 anywhere in the
+                    // log. One candle, two owners, two different walls.
+                    //
+                    // A RESTRICTED SEARCH, not an override: the second tracker runs the SAME band,
+                    // ground, face-domain and reach tests as the first, so whatever it returns
+                    // would have been a legal answer to the original election. Provenance chooses
+                    // among legal answers; it never creates one.
+                    Component? homeWall = WallProvenanceOf(c);
+                    Segment? bestHome = null;
+                    float bestHomeGap = float.PositiveInfinity;
                     foreach (Segment seg in _live.Segments.Values)
                     {
                         if (!StackEligible(seg) || seg.Stacked.Count >= StackMaxPerSegment)
                             continue;
                         float gap = HorizontalGap(seg.Bounds, b);
-                        if (gap > StackLinkMaxXZ || gap >= bestGap)
+                        bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
+                        if (gap > StackLinkMaxXZ)
+                            continue;
+                        if (gap >= bestGap && !(homeMatch && gap < bestHomeGap))
                             continue;
                         // STACK BAND (hardware round 2 fix): the LOWER bound anchors on the
                         // wall's ORIGINAL course top — whether the column already grew past
@@ -1005,8 +1080,32 @@ internal static partial class WallSegmentFade
                             continue; // ground band of the wall's own room never fades
                         if (!InFaceDomain(seg, b))
                             continue; // round 7: chain in Y, never around corners
-                        bestGap = gap;
-                        best = seg;
+                        if (gap < bestGap)
+                        {
+                            bestGap = gap;
+                            best = seg;
+                        }
+                        if (homeMatch && gap < bestHomeGap)
+                        {
+                            bestHomeGap = gap;
+                            bestHome = seg;
+                        }
+                    }
+                    // EVERY OUTCOME RECORDED, declines included — see NoteWallHomeDecline for why
+                    // a bare zero cost ModBuild 391 a whole hardware round.
+                    if (homeWall == null)
+                        NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineNoWall);
+                    else if (best != null && SegmentBelongsToWall(best, homeWall))
+                        NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineOwnWall);
+                    else if (bestHome == null)
+                        NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineNoCandidate);
+                    else if (ReferenceEquals(bestHome, best))
+                        NoteWallHomeDecline(WallHomeLaneStacked, WallHomeDeclineAlreadyHome);
+                    else if (best != null)
+                    {
+                        NoteWallHomeCorrection(c, best, bestHome, stuck: false);
+                        best = bestHome;
+                        bestGap = bestHomeGap;
                     }
                     if (best == null)
                         continue; // near-miss classification runs once after the rounds

@@ -551,6 +551,48 @@ internal static partial class WallSegmentFade
         /// <summary>Name cap for <see cref="_mountedWallHomeNames"/>.</summary>
         private const int MountedWallHomeNameCap = 8;
 
+        /// <summary>
+        /// WHY THE WRONG-WALL RULE DECLINED, by reason and by LANE (ModBuild 392).
+        ///
+        /// <para>ModBuild 390's line counted MOVES and nothing else, so its zero in the 391
+        /// hardware log was unreadable: it could not tell "no wall above this prop", "already on a
+        /// piece of its own wall", "the home was not usable by this lane" and "this prop never
+        /// reached the rule at all" apart. Four different next actions behind one number. The user
+        /// had already reported the defect unchanged by then, so the round cost a build and
+        /// answered nothing — which is the failure this project keeps paying for: a zero that is
+        /// not a reading.</para>
+        ///
+        /// <para>The LANE is half the answer and was the whole of this round's finding. The candle
+        /// glow is claimed by the STACKED-SHELL pass, which runs before the mounted sweep and has
+        /// its own independent nearest-wall election; ModBuild 390 put the rule in the mounted
+        /// sweep only, so the rule was correct, the census was correct, and neither was ever
+        /// consulted for the prop in the photograph.</para>
+        /// </summary>
+        private readonly Dictionary<string, int> _wallHomeDeclines = new(16);
+
+        /// <summary>Record one decline. The reason strings are a CLOSED set defined at the call
+        /// sites; each is a fact the caller has just established, never an inference.</summary>
+        private void NoteWallHomeDecline(string lane, string reason)
+        {
+            string key = lane + ": " + reason;
+            _wallHomeDeclines.TryGetValue(key, out int n);
+            _wallHomeDeclines[key] = n + 1;
+        }
+
+        /// <summary>Reason keys — one place, so the emitter and the call sites cannot drift.</summary>
+        private const string WallHomeLaneMounted = "mounted";
+        private const string WallHomeLaneMountedSticky = "mounted sticky-carry";
+        private const string WallHomeLaneStacked = "stacked shell";
+        private const string WallHomeLaneFastReclaim = "stacked fast-reclaim";
+
+        private const string WallHomeDeclineNoWall = "no ProceduralWall within the bounded walk";
+        private const string WallHomeDeclineNoSegment = "its wall has no segment in the table";
+        private const string WallHomeDeclineIneligible = "its wall's segment cannot host on this lane";
+        private const string WallHomeDeclineOwnWall = "already on a piece of its OWN wall's run";
+        private const string WallHomeDeclineAlreadyHome = "already on the very segment chosen";
+        private const string WallHomeDeclineNoCandidate =
+            "its wall had no segment that passed this lane's band/reach tests";
+
         /// <summary>MODBUILD 266 — THE ACCEPTANCE NUMBER for "die Flagge inklusive der Stange
         /// vollständig mit faden": how many pieces reached the mounted ledger ONLY because the
         /// wall generator built them, i.e. how many of the three refusals
@@ -1398,11 +1440,12 @@ internal static partial class WallSegmentFade
             _censusMountedLeftoverParticles = 0;
             _censusMountedAdopted = 0;
             _censusMountedUnitHome = 0;
-            // ModBuild 391 — strictly per rescan, like every other number on this line. A session
-            // total would let a rule that fired once at load read as a rule that is still working.
-            _censusMountedWallHome = 0;
-            _censusMountedWallHomeStuck = 0;
-            _mountedWallHomeNames.Clear();
+            // ModBuild 392 — THESE THREE ARE NO LONGER RESET HERE. The wrong-wall rule now runs on
+            // three lanes and the stacked ones run BEFORE this sweep, so clearing their counters at
+            // the top of the mounted pass would erase every stacked correction before the emitter
+            // at the bottom of it could print one — the census would have gone on reading zero for
+            // a rule that was working. They are reset with the decline census, in
+            // CollectStackedShellPieces, which is the first lane of the rescan.
             _censusMountedWallBuilt = 0;
             _censusMountedWallBuiltCarried = 0;
             _censusMountedWallBuiltBelowBar = 0; // ModBuild 271 — the sixth site's own number
@@ -1609,6 +1652,18 @@ internal static partial class WallSegmentFade
                         // itself AND any piece of its run, so a prop sitting on a different piece of
                         // its OWN wall is left exactly where it is. Only a cross-WALL binding moves.
                         Segment? wallHome = MountedWallHomeOf(p.Renderer, out Component? homeWall);
+                        // ModBuild 392: the sticky lane records its declines too. This is the half
+                        // that reaches props ALREADY hanging in the scene, so "it did not fire
+                        // here" and "it did not fire at the election" are different findings and
+                        // must not share one number.
+                        if (homeWall == null)
+                            NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineNoWall);
+                        else if (wallHome == null)
+                            NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineIneligible);
+                        else if (SegmentBelongsToWall(seg, homeWall))
+                            NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineOwnWall);
+                        else if (ReferenceEquals(wallHome, seg))
+                            NoteWallHomeDecline(WallHomeLaneMountedSticky, WallHomeDeclineAlreadyHome);
                         if (wallHome != null && homeWall != null
                             && !SegmentBelongsToWall(seg, homeWall)
                             && !ReferenceEquals(wallHome, seg))
@@ -1934,6 +1989,18 @@ internal static partial class WallSegmentFade
                     // the segment was eligible to own it.
                     _leftoverFadedNear = null;
                     _leftoverFadedGap = float.PositiveInfinity;
+                    // MODBUILD 392 — A RESTRICTED SEARCH, NOT A POST-HOC OVERRIDE. ModBuild 390
+                    // let the distance search finish and then swapped the winner for the
+                    // provenance wall's representative. That representative had passed
+                    // MountedHostEligible but NOT this loop's per-segment tests — the Y-span
+                    // overlap and the reach — so the override could bolt a prop onto a segment
+                    // whose column it does not touch. Tracking a SECOND best inside the loop, under
+                    // the identical guard chain, cannot do that: whatever wins is a segment that
+                    // would have been a legal answer anyway, and the only thing provenance changes
+                    // is WHICH legal answer.
+                    Component? homeWall = belowBar ? null : WallProvenanceOf(c);
+                    Segment? bestHome = null;
+                    float bestHomeGap = float.PositiveInfinity;
                     foreach (Segment seg in _live.Segments.Values)
                     {
                         if (!seg.HasBounds)
@@ -1951,7 +2018,14 @@ internal static partial class WallSegmentFade
                         float gap = gapAny;
                         if (gap < nearestAny)
                             nearestAny = gap;
-                        if (belowBar || gap > linkMax || gap >= bestGap)
+                        bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
+                        if (belowBar || gap > linkMax)
+                            continue;
+                        // The unrestricted prune is unchanged; a segment is only allowed past it
+                        // on the extra ticket that it belongs to this prop's own wall and is the
+                        // nearest such so far. So the added work is bounded by the number of
+                        // segments of ONE wall, not by the table.
+                        if (gap >= bestGap && !(homeMatch && gap < bestHomeGap))
                             continue;
                         // GATE 2 OF THE FOUR (ModBuild 271): the PER-ROOM floor plane. This one
                         // does not read `belowBar`, so clearing that bool above does not reach it
@@ -1970,8 +2044,16 @@ internal static partial class WallSegmentFade
                             NoteMountedSaturated(seg);
                             continue;
                         }
-                        bestGap = gap;
-                        best = seg;
+                        if (gap < bestGap)
+                        {
+                            bestGap = gap;
+                            best = seg;
+                        }
+                        if (homeMatch && gap < bestHomeGap)
+                        {
+                            bestHomeGap = gap;
+                            bestHome = seg;
+                        }
                     }
                     // UNIT AFFINITY (ModBuild 258) — HIERARCHY OVERRULES THE NEAREST-WALL SEARCH.
                     // The search above is a distance test between AABBs and it put the icy wall
@@ -2033,21 +2115,29 @@ internal static partial class WallSegmentFade
                     // here — a census that counts intentions is the failure this file has paid for
                     // twice.
                     Segment? wallHomeFrom = null;
-                    if (!belowBar && best != null)
+                    if (!belowBar && !byUnitHome)
                     {
-                        Segment? wallHome = MountedWallHomeOf(c, out Component? homeWall);
-                        if (wallHome != null && homeWall != null
-                            && !SegmentBelongsToWall(best, homeWall)
-                            && !ReferenceEquals(wallHome, best))
+                        // EVERY OUTCOME IS RECORDED, INCLUDING THE DECLINES (ModBuild 392). The
+                        // 390 line counted moves only, so its zero on hardware could not be told
+                        // apart from "never asked" — and "never asked" is exactly what it was.
+                        if (homeWall == null)
+                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineNoWall);
+                        else if (!_mountedWallHome.ContainsKey(homeWall))
+                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineNoSegment);
+                        else if (best != null && SegmentBelongsToWall(best, homeWall))
+                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineOwnWall);
+                        else if (bestHome == null)
+                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineNoCandidate);
+                        else if (ReferenceEquals(bestHome, best))
+                            NoteWallHomeDecline(WallHomeLaneMounted, WallHomeDeclineAlreadyHome);
+                        else
                         {
                             // STASHED, NOT COUNTED. This candidate can still be refused below as a
                             // MOBILE prop, and a census that counts intentions is the failure this
                             // file has paid for twice. NoteWallHomeCorrection runs at the adoption.
                             wallHomeFrom = best;
-                            best = wallHome;
-                            bestGap = particles
-                                ? HorizontalGap(wallHome.Bounds, c.transform.position)
-                                : HorizontalGap(wallHome.Bounds, b);
+                            best = bestHome;
+                            bestGap = bestHomeGap;
                             byWallHome = true;
                         }
                     }
@@ -2518,13 +2608,37 @@ internal static partial class WallSegmentFade
         /// string, for the same reason <see cref="VoteMountedUnitHome"/> has one: two peers must
         /// not pick different homes for the same wall.</para>
         /// </summary>
+        /// <summary>
+        /// Build the wall-home map AT MOST ONCE PER RESCAN, and early enough for every lane that
+        /// needs it (ModBuild 392).
+        ///
+        /// <para>ModBuild 390 called the builder from inside <see cref="CollectWallMountedProps"/>,
+        /// which runs AFTER the stacked-shell pass — so the stacked lane could not have consulted
+        /// the map even if it had wanted to. That is half of why the 391 hardware round came back
+        /// unchanged; the other half is that the stacked lane was never asked. It is rebuilt at each
+        /// call site rather than stamped, and deliberately: the segment table is MUTATED between
+        /// the stacked pass and the mounted pass (the stacked pass adds pieces), and the fast
+        /// reclaim runs between rescans while Apparance regenerates subtrees, so a cached map would
+        /// be answering with a table that no longer exists. One walk of ~130 segments is cheaper
+        /// than the staleness it would buy.</para>
+        /// </summary>
+        private void EnsureWallHomes() => BuildMountedWallHomes();
+
         private void BuildMountedWallHomes()
         {
             _mountedWallHome.Clear();
             _mountedWallProvenance.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
-                if (!MountedHostEligible(seg))
+                // LANE-NEUTRAL ON PURPOSE (ModBuild 392). ModBuild 390 filtered this with
+                // MountedHostEligible, which reads seg.Mounted.Count — and at the point the builder
+                // ran that list still held the PREVIOUS rescan's props, because it is cleared two
+                // loops later. A map built from a stale count, then handed to a second lane with a
+                // different eligibility rule, is two bugs in one line. Membership is now the only
+                // question asked here: does this segment speak for a wall? Each lane applies its
+                // OWN eligibility at lookup and records a decline when it refuses, so a home that
+                // is unusable for one lane is visible rather than silently absent.
+                if (!seg.HasBounds || seg.Anchor == null || seg.DoorRoot != null)
                     continue;
                 Component? wall = seg.Anchor is ProceduralWall ? seg.Anchor : seg.RunOwner;
                 if (wall == null)
@@ -3377,6 +3491,27 @@ internal static partial class WallSegmentFade
             string named = _mountedWallHomeNames.Count == 0
                 ? "none named"
                 : string.Join("; ", _mountedWallHomeNames);
+            // THE DECLINES, COMPLETE AND NOT TRUNCATED (ModBuild 392). The reason set is closed and
+            // small, so this is a full distribution rather than a sample: "why did it not fire" is
+            // the question a zero above leaves open, and a truncated answer to it would be the same
+            // unreadable zero wearing more words.
+            string declines;
+            if (_wallHomeDeclines.Count == 0)
+            {
+                declines = "none recorded — the rule was not consulted at all this window, which "
+                    + "is itself the finding if the count above is also zero";
+            }
+            else
+            {
+                var db = new System.Text.StringBuilder();
+                foreach (KeyValuePair<string, int> kv in _wallHomeDeclines)
+                {
+                    if (db.Length > 0)
+                        db.Append("; ");
+                    db.Append(kv.Value).Append(" x ").Append(kv.Key);
+                }
+                declines = db.ToString();
+            }
             // HW-VERIFY
             VRLog.Note(Name,
                 $"{WrongWallMarker}: {_censusMountedWallHome} prop(s) were moved this rescan from "
@@ -3396,7 +3531,15 @@ internal static partial class WallSegmentFade
                 + "counts OWNER CHANGES and says nothing about whether any of them then dissolved "
                 + $"— read the DISSOLVE CENSUS for that. Named {_mountedWallHomeNames.Count} of "
                 + $"{_censusMountedWallHome} (cap {MountedWallHomeNameCap}, and a truncated list is "
-                + $"not absence): {named}.");
+                + $"not absence): {named}. WHY IT DECLINED, by LANE and reason, complete and not "
+                + "truncated — the field ModBuild 391 did not have, and the reason that round cost "
+                + "a build and answered nothing: its zero could not be told apart from 'this prop "
+                + "never reached the rule', which is exactly what it was. The rule ran on the "
+                + "mounted sweep only, while the candle glow in the photograph is claimed by the "
+                + "STACKED-SHELL pass one stage earlier. THREE LANES are now counted separately "
+                + "and the lane is half the answer: a reason that appears on one lane and not "
+                + "another says WHERE to look, not just what. The window is one rescan, plus any "
+                + $"fast-reclaim sweeps since the previous one. {declines}.");
         }
 
         /// <summary>
