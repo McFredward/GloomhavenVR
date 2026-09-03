@@ -70,6 +70,7 @@ internal static partial class WallSegmentFade
             Engulf,
             Ground2,
             Stacked,
+            FreeStanding,
             PropUnits,
             Siblings,
             Mounted,
@@ -89,7 +90,8 @@ internal static partial class WallSegmentFade
         {
             "Figures", "TileAnchors", "RoomRegistry", "DeadSegments", "WallCache", "Doors",
             "GateSeed", "Adopt", "Water", "Samples", "Rooms", "Ground", "Engulf", "Ground2",
-            "Stacked", "PropUnits", "Siblings", "Mounted", "WireKeys", "GateLift", "GateBounds",
+            "Stacked", "FreeStanding", "PropUnits", "Siblings", "Mounted", "WireKeys", "GateLift",
+            "GateBounds",
             "StandCensus", "UnitCensus", "BoardVolume",
         };
 

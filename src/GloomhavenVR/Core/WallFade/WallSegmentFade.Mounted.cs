@@ -2399,7 +2399,11 @@ internal static partial class WallSegmentFade
                                 _mountedOrphanedArchitectureNames.Add(
                                     $"'{c.name}' vol {volume:F1} wu³ y[{b.min.y:F1}..{b.max.y:F1}] "
                                     + $"gap {bestGap:F2} → '{ownWall}'{WallIdTag(best)} "
-                                    + $"(fade {best.Fade:F2})");
+                                    + $"(fade {best.Fade:F2})"
+                                    // ModBuild 406: WHERE the piece stands. The 405 log could not
+                                    // tell the arch's two sides apart — the rows that rode 'Wall 4'
+                                    // at fade 1.00 from the ones that rode the tile group at 0.00.
+                                    + $" @xz({b.center.x:F1},{b.center.z:F1})");
                             }
                             // fall through to adoption — do NOT `continue`
                         }
@@ -3934,7 +3938,13 @@ internal static partial class WallSegmentFade
                 + "driven to fade and it stays solid with all of the above at zero. That case is "
                 + "open and is not addressed by this build. The obstruction clause on the leftover "
                 + "rows is the third instrument of this round: a 'hides 0 of 0' with no clause "
-                + "beside it means this build did not ship.");
+                + "beside it means this build did not ship."
+                // ModBuild 406 — the open case above is now a lane of its own; the clause is
+                // built from the unit list the FreeStanding phase left in the live table.
+                + " [ModBuild 406: the 'open case' sentence above is superseded by the clause "
+                + "that follows, and ORPHANED ARCHITECTURE now only counts what that lane's own "
+                + "bars refused.]"
+                + FreeStandingUnitsClause());
         }
 
         /// <summary>

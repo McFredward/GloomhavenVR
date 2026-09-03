@@ -3614,6 +3614,10 @@ internal static partial class WallSegmentFade
             // Gate column (user ruling 2026-08-07): the doorway-EMBEDDING wall — fades.
             if (seg.IsGateColumn)
                 _diagSb.Append(" GATE");
+            // Free-standing mass unit (ModBuild 406): a formation in no wall run, judged on its
+            // own meshes — so the row reads "the entrance blocked k/16 and is ON/off" directly.
+            if (seg.IsFreeStanding)
+                _diagSb.Append(" FREE");
         }
 
         // ---- fade delivery ----------------------------------------------------------------
@@ -4896,6 +4900,15 @@ internal static partial class WallSegmentFade
                 // attach to the same wall the shell rides).
                 using (Phase(CommitPhase.Stacked))
                     CollectStackedShellPieces();
+                // FREE-STANDING MASS UNITS (ModBuild 406, eingang-faded-nicht.jpg — see
+                // WallSegmentFade.FreeStanding.cs): architecture-scale airborne meshes in NO
+                // ProceduralWall run, clustered by XZ proximity into segments of their own. AFTER
+                // the stacked lane (walls and their superstructure keep first claim on every
+                // mesh) and BEFORE the prop-unit and mounted passes (which must see the unit's
+                // members as owned, or the mounted lane adopts them ride-only onto a segment
+                // whose fade they can never drive — the 405 log's exact state).
+                using (Phase(CommitPhase.FreeStanding))
+                    CollectFreeStandingMasses();
                 // PROP UNIT COHESION (user report 2026-08-19, skelet.jpg — "Der Kopf des Skeletts wird
                 // immer noch ausgeblendet"): the statue's skull sat in one wall unit's renderer list
                 // and its body in another's, and the two walls fade independently, so the statue was
@@ -5665,6 +5678,9 @@ internal static partial class WallSegmentFade
                 if (seg.IsGateColumn)
                     continue; // gate columns are lifecycle-protected (round 13) — an engulf
                               // split would destroy the segment the arch/lift depend on
+                if (seg.IsFreeStanding)
+                    continue; // a formation IS a fat box; its own lane refuses the ones that
+                              // contain the room's floor before they are ever formed (ModBuild 406)
                 if (Mathf.Min(seg.Bounds.size.x, seg.Bounds.size.z) <= GroupSlabMaxHorizontal)
                     continue; // thin slab — cannot contain a room
                 if (InsideOwnRoomFraction(seg) < EngulfSampleFraction)
@@ -5778,7 +5794,10 @@ internal static partial class WallSegmentFade
             {
                 // Gate columns are seeded by SeedGateColumns (already refreshed this rescan)
                 // and own no wall renderers — the shader sweep must not reset them.
-                if (!kv.Value.FromWallCache && !kv.Value.IsGateColumn)
+                // Free-standing units (ModBuild 406) are refreshed by their own lane, which runs
+                // after this sweep; resetting them here would empty a segment that owns no
+                // NAME-matched renderer and the dead-key sweep below would dissolve it.
+                if (!kv.Value.FromWallCache && !kv.Value.IsGateColumn && !kv.Value.IsFreeStanding)
                     BeginRefresh(kv.Value);
             }
 
@@ -5914,8 +5933,8 @@ internal static partial class WallSegmentFade
                     FinishRefresh(seg);
                     continue;
                 }
-                if (seg.FromWallCache)
-                    continue;
+                if (seg.FromWallCache || seg.IsFreeStanding)
+                    continue; // a free-standing unit's own lane finishes and prunes it (ModBuild 406)
                 FinishRefresh(seg);
                 if (seg.Renderers.Count == 0)
                 {
@@ -6168,7 +6187,12 @@ internal static partial class WallSegmentFade
             _siblingOwned.Clear();
             foreach (Segment seg in _live.Segments.Values)
             {
-                if (seg.FromWallCache)
+                // A free-standing unit (ModBuild 406) takes no asset siblings: its members are
+                // toggle-native, which the NAME-only RendererUsesWallFade reads as "non-fade",
+                // so FindAssetRoot would return the members' own parent and this pass would
+                // list the unit's own renderers as siblings of themselves — and every other
+                // renderer under that root, floor rubble included, with them.
+                if (seg.FromWallCache || seg.IsFreeStanding)
                     continue;
                 seg.PrevSiblings.Clear();
                 seg.PrevSiblings.AddRange(seg.Siblings);
@@ -7531,124 +7555,7 @@ internal static partial class WallSegmentFade
             _reanchorCensus.Clear();
             _seamCensus.Clear();
             foreach (Segment seg in _live.Segments.Values)
-            {
-                seg.RoomIndex = -1;
-                seg.BorderRooms.Clear();
-                if (!seg.HasBounds)
-                    continue;
-                Bounds w = seg.Bounds;
-                float bestGap = float.PositiveInfinity;
-                float bestCenter = float.PositiveInfinity;
-                for (int r = 0; r < _live.RoomBounds.Count; r++)
-                {
-                    Bounds room = _live.RoomBounds[r];
-                    float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
-                    float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
-                    float gap = gx * gx + gz * gz;
-                    float cx = room.center.x - w.center.x;
-                    float cz = room.center.z - w.center.z;
-                    float center = cx * cx + cz * cz;
-                    if (gap < bestGap - 0.0001f
-                        || (gap <= bestGap + 0.0001f && center < bestCenter))
-                    {
-                        bestGap = gap;
-                        bestCenter = center;
-                        seg.RoomIndex = r;
-                    }
-                }
-
-                if (seg.RoomIndex >= 0 && !RoomDecisionValid(seg.RoomIndex))
-                {
-                    // Adjacent re-anchor (see the method doc): nearest DECISION-VALID room
-                    // the wall actually borders, if any.
-                    float maxGapSq = AdjacentReanchorMaxGapWU * AdjacentReanchorMaxGapWU;
-                    float altGap = float.PositiveInfinity;
-                    float altCenter = float.PositiveInfinity;
-                    int alt = -1;
-                    for (int r = 0; r < _live.RoomBounds.Count; r++)
-                    {
-                        if (!RoomDecisionValid(r))
-                            continue;
-                        Bounds room = _live.RoomBounds[r];
-                        float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
-                        float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
-                        float gap = gx * gx + gz * gz;
-                        if (gap > maxGapSq)
-                            continue;
-                        float cx = room.center.x - w.center.x;
-                        float cz = room.center.z - w.center.z;
-                        float center = cx * cx + cz * cz;
-                        if (gap < altGap - 0.0001f
-                            || (gap <= altGap + 0.0001f && center < altCenter))
-                        {
-                            altGap = gap;
-                            altCenter = center;
-                            alt = r;
-                        }
-                    }
-                    if (alt >= 0)
-                    {
-                        seg.RoomIndex = alt;
-                        if (_reanchorCensus.Count < 12)
-                        {
-                            string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
-                            _reanchorCensus.Add($"'{n}' gap {Mathf.Sqrt(altGap):F1}");
-                        }
-                    }
-                }
-
-                // ---- ROOM SEAM (user report 2026-08-09: one wall piece faded INVERTED) ------
-                // The pick above is "nearest room box, ties by nearest room centre". For a wall
-                // standing in the SEAM between two rooms that is a coin flip decided by tenths
-                // of a wu: the hardware log's two rooms are map tiles 'E' (x 17.1..25.9,
-                // z -4.1..4.1) and 'LL' (x 9.3..27.0, z 4.7..15.9) — their boxes are 0.65 wu
-                // apart, while a masonry slab here is 0.8..1.8 wu THICK. Every partition
-                // therefore overlaps or nearly overlaps BOTH boxes and the winner is decided by
-                // which side the slab happens to lean.
-                //
-                // That coin flip is the whole bug, because the coverage metric is what carries
-                // the side: a wall fades when it hides its OWN room's floor from the head, which
-                // is "outside-in" by construction — and measuring a seam wall against the room
-                // on the WRONG side inverts it exactly as reported ("von außen faded es nicht,
-                // aber von innen"). Standing in room 2 you are outside room 1, the wall hides
-                // room 1's floor, so it fades; standing outside room 2 it hides nothing of room
-                // 1, so it stays. Every other wall in the level borders one room and behaves.
-                //
-                // The fix does not try to guess the coin flip right — it removes the flip. A
-                // seam wall genuinely belongs to BOTH rooms it separates: from either side it is
-                // the thing hiding the room you are looking into, and the standing invariant
-                // ("Fading geht immer darum den Raum freizulegen von außen nach innen") holds
-                // for both. So the wall records every decision-valid room it BORDERS and
-                // BlockedFraction takes the max over them. This is NOT the retired round-3
-                // cross-room MAX, which maxed over ALL rooms including ones the wall stood far
-                // away from; the band is one wall thickness, so a wall that borders exactly one
-                // room — the overwhelming majority — is bit-for-bit unchanged.
-                //
-                // MULTIPLAYER: nothing to send. Which wall a head occludes is a per-player fact
-                // by definition, and the opt-in peer sync (wire record 17) already carries the
-                // RESULT — this only changes how the LOCAL decision is computed, from the same
-                // replicated room geometry on every machine, so the wire format, the key
-                // derivation and the record are untouched.
-                if (seg.RoomIndex >= 0)
-                {
-                    for (int r = 0; r < _live.RoomBounds.Count; r++)
-                    {
-                        if (r == seg.RoomIndex || !RoomDecisionValid(r))
-                            continue;
-                        Bounds room = _live.RoomBounds[r];
-                        float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
-                        float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
-                        if (gx * gx + gz * gz > RoomBorderBandWU * RoomBorderBandWU)
-                            continue;
-                        seg.BorderRooms.Add(r);
-                    }
-                    if (seg.BorderRooms.Count > 0 && _seamCensus.Count < 10)
-                    {
-                        string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
-                        _seamCensus.Add($"'{n}' r{seg.RoomIndex}+{string.Join("+", seg.BorderRooms)}");
-                    }
-                }
-            }
+                AssociateRoom(seg);
             if (_seamCensus.Count != _lastLoggedSeamCount)
             {
                 _lastLoggedSeamCount = _seamCensus.Count;
@@ -7670,6 +7577,142 @@ internal static partial class WallSegmentFade
                         + $"anchored room they border (reach ≤{AdjacentReanchorMaxGapWU:0.0} wu "
                         + $"— round 11: gate towers protrude on the rock base): "
                         + $"{string.Join(", ", _reanchorCensus)}.");
+            }
+        }
+
+        /// <summary>The first half of <see cref="AssociateRoom"/>, on its own so a lane can ask
+        /// which room a box belongs to BEFORE it commits a segment (the free-standing lane judges
+        /// its bars against that room's floor and refuses the unit if they fail). Nearest room box
+        /// by XZ gap, ties by nearest room centre; -1 with no rooms.</summary>
+        private int NearestRoomFor(Bounds w)
+        {
+            int pick = -1;
+            float bestGap = float.PositiveInfinity;
+            float bestCenter = float.PositiveInfinity;
+            for (int r = 0; r < _live.RoomBounds.Count; r++)
+            {
+                Bounds room = _live.RoomBounds[r];
+                float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                float gap = gx * gx + gz * gz;
+                float cx = room.center.x - w.center.x;
+                float cz = room.center.z - w.center.z;
+                float center = cx * cx + cz * cz;
+                if (gap < bestGap - 0.0001f
+                    || (gap <= bestGap + 0.0001f && center < bestCenter))
+                {
+                    bestGap = gap;
+                    bestCenter = center;
+                    pick = r;
+                }
+            }
+            return pick;
+        }
+
+        /// <summary>ONE segment's room association — the body of <see cref="AssociateRooms"/>'s
+        /// loop, lifted verbatim (ModBuild 406) so the free-standing lane, which runs after the
+        /// table-wide pass, can associate the unit it just formed without re-running every wall
+        /// against every room. Writes RoomIndex and BorderRooms; appends to the two census lists
+        /// the caller logs.</summary>
+        private void AssociateRoom(Segment seg)
+        {
+            seg.RoomIndex = -1;
+            seg.BorderRooms.Clear();
+            if (!seg.HasBounds)
+                return;
+            Bounds w = seg.Bounds;
+            seg.RoomIndex = NearestRoomFor(w);
+
+            if (seg.RoomIndex >= 0 && !RoomDecisionValid(seg.RoomIndex))
+            {
+                // Adjacent re-anchor (see the method doc): nearest DECISION-VALID room
+                // the wall actually borders, if any.
+                float maxGapSq = AdjacentReanchorMaxGapWU * AdjacentReanchorMaxGapWU;
+                float altGap = float.PositiveInfinity;
+                float altCenter = float.PositiveInfinity;
+                int alt = -1;
+                for (int r = 0; r < _live.RoomBounds.Count; r++)
+                {
+                    if (!RoomDecisionValid(r))
+                        continue;
+                    Bounds room = _live.RoomBounds[r];
+                    float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                    float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                    float gap = gx * gx + gz * gz;
+                    if (gap > maxGapSq)
+                        continue;
+                    float cx = room.center.x - w.center.x;
+                    float cz = room.center.z - w.center.z;
+                    float center = cx * cx + cz * cz;
+                    if (gap < altGap - 0.0001f
+                        || (gap <= altGap + 0.0001f && center < altCenter))
+                    {
+                        altGap = gap;
+                        altCenter = center;
+                        alt = r;
+                    }
+                }
+                if (alt >= 0)
+                {
+                    seg.RoomIndex = alt;
+                    if (_reanchorCensus.Count < 12)
+                    {
+                        string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                        _reanchorCensus.Add($"'{n}' gap {Mathf.Sqrt(altGap):F1}");
+                    }
+                }
+            }
+
+            // ---- ROOM SEAM (user report 2026-08-09: one wall piece faded INVERTED) ------
+            // The pick above is "nearest room box, ties by nearest room centre". For a wall
+            // standing in the SEAM between two rooms that is a coin flip decided by tenths
+            // of a wu: the hardware log's two rooms are map tiles 'E' (x 17.1..25.9,
+            // z -4.1..4.1) and 'LL' (x 9.3..27.0, z 4.7..15.9) — their boxes are 0.65 wu
+            // apart, while a masonry slab here is 0.8..1.8 wu THICK. Every partition
+            // therefore overlaps or nearly overlaps BOTH boxes and the winner is decided by
+            // which side the slab happens to lean.
+            //
+            // That coin flip is the whole bug, because the coverage metric is what carries
+            // the side: a wall fades when it hides its OWN room's floor from the head, which
+            // is "outside-in" by construction — and measuring a seam wall against the room
+            // on the WRONG side inverts it exactly as reported ("von außen faded es nicht,
+            // aber von innen"). Standing in room 2 you are outside room 1, the wall hides
+            // room 1's floor, so it fades; standing outside room 2 it hides nothing of room
+            // 1, so it stays. Every other wall in the level borders one room and behaves.
+            //
+            // The fix does not try to guess the coin flip right — it removes the flip. A
+            // seam wall genuinely belongs to BOTH rooms it separates: from either side it is
+            // the thing hiding the room you are looking into, and the standing invariant
+            // ("Fading geht immer darum den Raum freizulegen von außen nach innen") holds
+            // for both. So the wall records every decision-valid room it BORDERS and
+            // BlockedFraction takes the max over them. This is NOT the retired round-3
+            // cross-room MAX, which maxed over ALL rooms including ones the wall stood far
+            // away from; the band is one wall thickness, so a wall that borders exactly one
+            // room — the overwhelming majority — is bit-for-bit unchanged.
+            //
+            // MULTIPLAYER: nothing to send. Which wall a head occludes is a per-player fact
+            // by definition, and the opt-in peer sync (wire record 17) already carries the
+            // RESULT — this only changes how the LOCAL decision is computed, from the same
+            // replicated room geometry on every machine, so the wire format, the key
+            // derivation and the record are untouched.
+            if (seg.RoomIndex >= 0)
+            {
+                for (int r = 0; r < _live.RoomBounds.Count; r++)
+                {
+                    if (r == seg.RoomIndex || !RoomDecisionValid(r))
+                        continue;
+                    Bounds room = _live.RoomBounds[r];
+                    float gx = Mathf.Max(0f, Mathf.Max(room.min.x - w.max.x, w.min.x - room.max.x));
+                    float gz = Mathf.Max(0f, Mathf.Max(room.min.z - w.max.z, w.min.z - room.max.z));
+                    if (gx * gx + gz * gz > RoomBorderBandWU * RoomBorderBandWU)
+                        continue;
+                    seg.BorderRooms.Add(r);
+                }
+                if (seg.BorderRooms.Count > 0 && _seamCensus.Count < 10)
+                {
+                    string n = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                    _seamCensus.Add($"'{n}' r{seg.RoomIndex}+{string.Join("+", seg.BorderRooms)}");
+                }
             }
         }
 
