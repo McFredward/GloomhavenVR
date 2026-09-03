@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
 using Script.Controller;
@@ -137,6 +138,27 @@ internal static class PropGrab
     /// load-bearing through it. A destroyed collider comes back as a Unity-null the caller's own
     /// <c>== null</c> catches, which is the same contract <see cref="Prune"/> relies on.</para>
     /// </summary>
+    /// <summary>The nearest registered prop whose pick volume contains <paramref name="hand"/>'s
+    /// pinch point, or null. Pure; the registry is small (single digits to a few dozen), so this is
+    /// one ClosestPoint per prop per call and it is called only from the capture test's edge.</summary>
+    internal static GrabbableProp? NearestInReach(VRHand hand, out float realMetres)
+    {
+        GrabbableProp? best = null;
+        realMetres = float.PositiveInfinity;
+        foreach (KeyValuePair<CObjectProp, GrabbableProp> kv in Registry)
+        {
+            GrabbableProp g = kv.Value;
+            if (g == null || !g.InReachOf(hand, out float d))
+                continue;
+            if (d < realMetres)
+            {
+                realMetres = d;
+                best = g;
+            }
+        }
+        return best;
+    }
+
     internal static Collider? PickColliderOf(CObjectProp? prop)
     {
         if (prop == null)

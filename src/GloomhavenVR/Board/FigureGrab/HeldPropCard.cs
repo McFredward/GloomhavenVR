@@ -45,16 +45,26 @@ internal enum HeldPropCardWindow
 /// </summary>
 internal static class HeldPropCard
 {
-    private static object? _owner;
+    // ModBuild 404 — ONE OWNER PER WINDOW KIND (user: "sobald ich in beide Hände ein prop nehme
+    // ist der schwebende Hinweis … wieder an den Kopfbewegungen gebunden"). With a single owner,
+    // the second hand's Claim overwrote the first: a Trap (rich window) in one hand and an
+    // Obstacle (plain window) in the other left the first window OPEN but UN-OWNED, so its
+    // surface fell back to the head-follower — exactly the report. The game shows the two kinds
+    // in two different windows, so two owners is the honest count.
+    private static object? _ownerPropInfo;
+    private static object? _ownerTextInfo;
 
-    /// <summary>The window a held prop currently owns, or <see cref="HeldPropCardWindow.None"/>.</summary>
+    /// <summary>The window a held prop most recently claimed, or <see cref="HeldPropCardWindow.None"/>.</summary>
     internal static HeldPropCardWindow Window { get; private set; }
 
     /// <summary>Record that <paramref name="owner"/> (a <see cref="GrabbableProp"/>) has just
     /// populated <paramref name="window"/> for the prop in its hand.</summary>
     internal static void Claim(object owner, HeldPropCardWindow window)
     {
-        _owner = owner;
+        if (window == HeldPropCardWindow.TextInfo)
+            _ownerTextInfo = owner;
+        else if (window == HeldPropCardWindow.PropInfo)
+            _ownerPropInfo = owner;
         Window = window;
     }
 
@@ -62,16 +72,20 @@ internal static class HeldPropCard
     /// the card over — the second prop's card must survive the first prop's release.</summary>
     internal static void Release(object owner)
     {
-        if (!ReferenceEquals(_owner, owner))
-            return;
-        _owner = null;
-        Window = HeldPropCardWindow.None;
+        if (ReferenceEquals(_ownerTextInfo, owner))
+            _ownerTextInfo = null;
+        if (ReferenceEquals(_ownerPropInfo, owner))
+            _ownerPropInfo = null;
+        Window = _ownerPropInfo != null ? HeldPropCardWindow.PropInfo
+               : _ownerTextInfo != null ? HeldPropCardWindow.TextInfo
+               : HeldPropCardWindow.None;
     }
 
     /// <summary>Clear unconditionally (scenario teardown, feature dial off).</summary>
     internal static void Clear()
     {
-        _owner = null;
+        _ownerPropInfo = null;
+        _ownerTextInfo = null;
         Window = HeldPropCardWindow.None;
     }
 
@@ -81,5 +95,5 @@ internal static class HeldPropCard
     /// presentation steps keep their shape and gain one term.
     /// </summary>
     internal static bool Owns(bool isTextInfo) =>
-        isTextInfo ? Window == HeldPropCardWindow.TextInfo : Window == HeldPropCardWindow.PropInfo;
+        isTextInfo ? _ownerTextInfo != null : _ownerPropInfo != null;
 }

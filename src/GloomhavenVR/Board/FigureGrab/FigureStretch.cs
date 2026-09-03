@@ -231,6 +231,7 @@ internal static class FigureStretch
         }
         _boundsWarnTarget = null; // do not pin a torn-down grabbable just to throttle a warning
         StretchTarget.ClearAll();  // …and the adapters hold one too
+        StretchCaptureWatch.Clear();
     }
 
     /// <summary>Per-frame gesture tick. Called from <c>FigureGrabDriver.Update</c> BEFORE the
@@ -240,6 +241,7 @@ internal static class FigureStretch
     {
         TickHand(VRHands.Left);
         TickHand(VRHands.Right);
+        StretchCaptureWatch.Tick();
     }
 
     private static void TickHand(VRHand? hand)
@@ -255,6 +257,7 @@ internal static class FigureStretch
         {
             EndGesture(hand, st, "hand lost tracking");
             st.Captured = false;
+            StretchCaptureWatch.NoteReleased(hand.Side);
             return;
         }
 
@@ -271,8 +274,12 @@ internal static class FigureStretch
         // leave-and-return does.
         bool wasCaptured = st.Captured;
         st.Captured = false;
+        StretchCaptureWatch.NoteTick(hand.Side, StretchTarget.HeldBy(Other(hand.Side)) != null);
         if (hand.Grabber.Held != null)
+        {
+            if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return; // a full hand cannot gesture (this also covers "one figure per hand" holds)
+        }
 
         // A hovered CARD keeps its trigger — its highlight is a promise the player is looking at.
         // A hovered FIGURE does not block: the capture veto clears that highlight one frame later
@@ -286,18 +293,49 @@ internal static class FigureStretch
         if (hand.Grabber.Highlighted != null
             && hand.Grabber.Highlighted is not FigureGrabbable
             && hand.Grabber.Highlighted is not GrabbableProp)
+        {
+            if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return;
+        }
 
         StretchTarget? target = StretchTarget.HeldBy(Other(hand.Side));
         if (target == null || !target.TryGetHeldCenter(out Vector3 center))
+        {
+            if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return;
+        }
 
         // Surface-based, so the zone scales with the applied stretch (class doc, capture-zone
         // paragraph). The gesture's own d0 below stays CENTRE-based on purpose.
-        if (CaptureDistanceReal(hand, target, center) > FigureGrabConfig.StretchReachRealMeters)
+        float surfaceReal = CaptureDistanceReal(hand, target, center);
+        if (surfaceReal > FigureGrabConfig.StretchReachRealMeters)
+        {
+            if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return;
+        }
+
+        // ModBuild 404 — THE PICK BEATS THE SHELL (user: "Ist in einer Hand eine Figur, dann
+        // reagieren bei den props weder das highlighting noch kann ich die props grabben"). A hand
+        // whose pinch point is inside a prop's own pick volume is reaching for THAT PROP; the
+        // resize shell around the other hand's miniature stands down for it, so the prop keeps its
+        // highlight and its grab. The 396 log has the shell reaching 470-523 mm from an enlarged
+        // mini's centre and a prop hover ending "29 mm real from the palm … DISTANCE is not what
+        // ended this hover". A gesture already running is never interrupted by this (that branch
+        // returned above); to resize over a prop, move the free hand out of the prop's pick volume.
+        GrabbableProp? rival = PropGrab.NearestInReach(hand, out float rivalReal);
+        if (rival != null)
+        {
+            StretchCaptureWatch.NoteCaptureRefused(hand.Side, target.Label, surfaceReal,
+                rival.Label, rivalReal, FigureGrabConfig.PickRadiusRealMeters);
+            if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
+            return;
+        }
 
         st.Captured = true;
+        StretchCaptureWatch.NoteCaptured(hand.Side, target.Label, surfaceReal,
+            FigureGrabConfig.StretchReachRealMeters, float.PositiveInfinity, "n/a",
+            FigureStretchMath.CaptureCeilingRealMeters(target.TotalHeldSizeRatio),
+            target.TotalHeldSizeRatio, centreFallback: false);
 
         // The user's requested "close enough to pull" announcement: the figure-hover pulse, on
         // the zone-entry edge only (see the class doc's FEEDBACK paragraph).
@@ -314,6 +352,7 @@ internal static class FigureStretch
         if (hand.TriggerDown)
         {
             st.Active = true;
+            StretchCaptureWatch.NoteGestureStarted(hand.Side);
             st.Target = target;
             st.TargetOwner = target.Owner;
             // d0 is CENTRE distance, NOT the surface distance the capture used — the ratio's

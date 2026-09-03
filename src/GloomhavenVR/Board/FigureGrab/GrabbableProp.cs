@@ -320,6 +320,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // the holder's own early-out is above, so this can never refuse the hand that is holding.
         if (FigureStretch.Engaged(hand.Side))
         {
+            // ModBuild 404: the veto is COUNTED and NAMED (StretchCaptureWatch) — the 396 log
+            // could not say how often this branch fired, only that the trigger-level gesture did.
+            StretchCaptureWatch.NotePropVeto(hand.Side, Label, _inReach[(int)hand.Side]);
             _inReach[(int)hand.Side] = false; // and drop the hysteresis latch with the candidacy
             return false;
         }
@@ -332,6 +335,26 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         bool inside = Vector3.Distance(pinch, _collider.ClosestPoint(pinch)) <= admit;
         _inReach[side] = inside;
         return inside;
+    }
+
+    /// <summary>
+    /// Is <paramref name="hand"/>'s pinch point inside this prop's pick volume RIGHT NOW — the
+    /// same distance and the same admit radius <see cref="AllowsHand"/> uses, with no side effect
+    /// (the hysteresis latch is not read and not written). Read by <c>FigureStretch</c> BEFORE it
+    /// captures a hand: a hand physically at a prop is reaching for the prop, not for the other
+    /// hand's miniature (ModBuild 404). <paramref name="realMetres"/> is the pinch-to-surface
+    /// distance in real metres at the hand.
+    /// </summary>
+    internal bool InReachOf(VRHand hand, out float realMetres)
+    {
+        realMetres = float.PositiveInfinity;
+        if (_holder != null || _collider == null || hand == null)
+            return false;
+        float scale = Mathf.Max(hand.WorldScale, 1e-4f);
+        Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(PropHeldPose.HeldOffsetFor(hand.Side));
+        float world = Vector3.Distance(pinch, _collider.ClosestPoint(pinch));
+        realMetres = world / scale;
+        return realMetres <= FigureGrabConfig.PickRadiusRealMeters;
     }
 
     // ---- IGrabHighlight -----------------------------------------------------------------------

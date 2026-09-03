@@ -370,8 +370,10 @@ internal sealed class PropInfoSurface
     {
         if (anchor == null)
             return;
-        _regAnchor = anchor;
-        _regSide = holdingHand;
+        // ModBuild 404: one registration PER HAND; the most recent grab is the one the card
+        // docks beside ("neben der Hand die zuletzt ein prop genommen hat").
+        _regAnchors[(int)holdingHand] = anchor;
+        _regStamp[(int)holdingHand] = ++_regSerial;
     }
 
     /// <summary>Drop an explicit registration (release / teardown). Idempotent, and a no-op for a
@@ -379,12 +381,13 @@ internal sealed class PropInfoSurface
     /// way.</summary>
     internal static void ClearHeldProp(HandSide holdingHand)
     {
-        if (_regAnchor != null && _regSide == holdingHand)
-            _regAnchor = null;
+        _regAnchors[(int)holdingHand] = null;
+        _regStamp[(int)holdingHand] = 0;
     }
 
-    private static Transform? _regAnchor;
-    private static HandSide _regSide;
+    private static readonly Transform?[] _regAnchors = new Transform?[2];
+    private static readonly long[] _regStamp = new long[2];
+    private static long _regSerial;
 
     /// <summary>Edge state for the one-shot dock line - the route and hand we last reported
     /// docking by, or null while no held card is up. Kept as two fields rather than one composed
@@ -458,11 +461,21 @@ internal sealed class PropInfoSurface
         side = HandSide.Right;
         how = "unresolved";
 
-        if (_regAnchor != null)
+        // The newest live registration wins — a prop in each hand docks the card beside the hand
+        // that grabbed last, and a release hands it back to the other hand's prop.
+        int best = -1;
+        for (int i = 0; i < 2; i++)
         {
-            anchor = _regAnchor;
-            side = _regSide;
-            how = "registered prop visual";
+            if (_regAnchors[i] != null && (best < 0 || _regStamp[i] > _regStamp[best]))
+                best = i;
+        }
+        if (best >= 0)
+        {
+            anchor = _regAnchors[best];
+            side = (HandSide)best;
+            how = _regAnchors[1 - best] != null
+                ? "registered prop visual (two hands hold a prop; the LATER grab docks the card)"
+                : "registered prop visual";
             return true;
         }
 
