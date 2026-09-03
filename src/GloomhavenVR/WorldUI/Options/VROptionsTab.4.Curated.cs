@@ -1185,6 +1185,11 @@ internal static partial class VROptionsTab
                         // row (TryBuildSpecialRow) so the three-way choice reads as a localized
                         // dropdown instead of the raw enum members cycling in English.
                         new("WorldUI", "WindowFacing", ""),
+                        // 2026-09-03 ("es ploppt"): how long the grab bar under a window takes to
+                        // grow, shrink or slide when the window's content re-seats it. HERE, next
+                        // to the release-facing dial, because both are about what the bar the
+                        // player grabs does when the mod — not the hand — moves it. 0 = instant.
+                        new("WorldUI", "GrabBarTweenMs", "vr_o_grabbartween"),
                         new("WorldUI", "HexHintFollowView", "vr_o_hexhintfollow"),
                         new("ButtonAnim", "Enable", "vr_o_buttonanim"),
                     },

@@ -450,6 +450,13 @@ internal static class WorldUIConfig
     /// </summary>
     internal static ConfigEntry<WindowFaceMode> WindowFacing = null!;
 
+    /// <summary>
+    /// How long a window's grab bar takes to grow, shrink or slide to a new place (user, 2026-09-03:
+    /// "es ploppt"). Read LIVE by <see cref="GrabBarTween"/> on every leg, so a change applies to the
+    /// next transition. 0 = instant, which is exactly the pop that was reported.
+    /// </summary>
+    internal static ConfigEntry<float> GrabBarTweenMs = null!;
+
     // [WorldUI] ClickMode is GONE (user ruling 2026-08-13): clicks are delivered through uGUI
     // ExecuteEvents, always. Of its three values only the default 'execute' ever worked —
     // 'virtualmouse' was disproven on hardware (test #7: the virtual-mouse BUTTON edges do not
@@ -918,6 +925,15 @@ internal static class WorldUIConfig
             "excluded from all three and never turn: they belong to everyone in the room, so a " +
             "facing correction here would turn them away from the other players and would silently " +
             "disagree with the pose this client just published.");
+        GrabBarTweenMs = _file.Bind("WorldUI", "GrabBarTweenMs", Defaults.GrabBarTweenMs,
+            new ConfigDescription(
+                "How long a floated window's GRAB BAR takes to change shape or place, in " +
+                "milliseconds. The bar under a window re-seats whenever the window's drawn content " +
+                "changes (a sub-view, a fit, a withhold and its release); with this above 0 it GROWS " +
+                "or SHRINKS to its new size, SLIDES to its new position and grows from nothing when " +
+                "it returns, instead of popping. A bar you are holding never eases — it follows your " +
+                "hand at once. 0 = instant (the old pop). Live. Range 0-1000.",
+                new AcceptableValueRange<float>(0f, 1000f)));
         // ClickMode: gone — user ruling 2026-08-13. Clicks are delivered via uGUI ExecuteEvents,
         // unconditionally, and deliberate drags via the uGUI drag handlers; see the tombstone.
 

@@ -442,7 +442,19 @@ internal sealed class WorldUIModule : IVRModule
             // the scenario path, and TickArrivals guards on the frame number, so the two can never
             // double-swap. Before 192 the ONLY thing baking a floated window was PanelSamplingProbe —
             // a measuring instrument, on a 30-frame scan, blind to inactive graphics by construction.
+            // FRAME-ORDER WorldUIModule.LateTail [PanelMipBake.TickArrivals, GrabBarTween.TickAll, CanvasConversion.TickPanelOrder]
+            //   Locked (.planning/refactor/FRAME-ORDER.lock) because the tween's place is an
+            //   ordering, not a preference: it must run AFTER every writer of a grab bar's target
+            //   (GrabbableModal.SyncBar in ModalFallback's Update tick, SurfaceGrabBar.SyncBar in the
+            //   surfaces' ticks, and the surfaces' own LateTicks above) and BEFORE the transparency
+            //   round, so the rod that is drawn this frame is the eased one and nothing measures a
+            //   half-moved rod. Moving it ABOVE the surfaces would present last frame's target.
             late.Add(("PanelMipBake.Arrivals", PanelMipBake.TickArrivals));
+            // GRAB BAR TRANSITIONS (2026-09-03, "es ploppt"). Every writer of a window's grab bar
+            // sets a TARGET on GrabBarTween during Update; this is the one step that moves the
+            // DRAWN rod — its root, its length, its laser capsule and the palm zone — toward it.
+            // After every writer, before the transparency round; it moves no host.
+            late.Add(("GrabBarTween.Late", GrabBarTween.TickAll));
             // TRANSPARENCY ROUND, and it must stay LAST. CanvasConversion.TickPanelOrder assigns
             // every converted panel's draw order from its measured eye distance (far = painted
             // first), which is what makes panels occlude each other by perspective now that none of

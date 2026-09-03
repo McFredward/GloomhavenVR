@@ -259,6 +259,12 @@ internal static partial class Defaults
     // it was grabbed with the LASER, not when grabbed by hand." His default, verbatim — not a
     // taste of ours.
     internal const WindowFaceMode WindowFacing = WorldUI.WindowFaceMode.LaserOnly;  // => [WorldUI] WindowFacing
+    // 2026-09-03 — "es ploppt": how long a window's grab bar takes to grow, shrink or slide into
+    // its new place (GrabBarTween). 150 ms is fast enough that nobody waits for it and long enough
+    // to read as motion at 90 Hz (~13 frames); 0 = every change is instant, i.e. the bar the user
+    // reported. LOCAL PRESENTATION ONLY: a peer's copy of a shared window runs the same tween on
+    // its own copy of the same target, so there is no wire field.
+    internal const float GrabBarTweenMs = 150f;              // => [WorldUI] GrabBarTweenMs
     internal const bool CombatLogFollowSeat = false;         // => [WorldUI] CombatLogFollowSeat
     internal const float CombatLogForward = -0.234156f;      // => [WorldUI] CombatLogForward
     internal const float CombatLogRight = 0.941762f;         // => [WorldUI] CombatLogRight

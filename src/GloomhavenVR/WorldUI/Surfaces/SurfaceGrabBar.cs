@@ -161,6 +161,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     private Transform? _holder;     // scene root, identity pose and identity scale
     private Transform? _frame;      // the GRAB ROOT at the panel centre; localScale = user factor
     private GrabBarVisual? _bar;    // the drawn rod: shaft + two caps, one material
+    private GrabBarTween? _barTween; // THE ONE WRITER of the rod's presented pose — see GrabBarTween
     private BoxCollider? _grabZone; // the palm zone, on the frame, offset down to the rod
     private PanelGrabHandle? _handle;
 
@@ -229,6 +230,25 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     internal void SetWithheld(bool withheld)
     {
         _withheld = withheld;
+        // 2026-09-03 ("es ploppt") — the RELEASE grows the rod from zero at its place; the
+        // WITHHOLD itself stays instant, and that is not an omission: both of its callers are
+        // edges on which the rod must not be seen at all — SurfaceMaterialise's reveal-edge
+        // verdict for a panel that has never drawn, and BeginVanish, where the window's own
+        // pixels are leaving on this frame (.planning/debug/leeres_fenster2.jpg is a rod that
+        // outlived its window by ONE frame; a 150 ms shrink would be thirteen of them).
+        if (_barTween != null)
+        {
+            bool gateHidden = _panel == null || !_panel.IsAlive || _panel.RenderHidden
+                              || _panel.OwnerRenderHidden;
+            string? snapWhy = withheld
+                ? "the rod leaves with the window's pixels (a withhold is a never-drew or a vanish verdict)"
+                : gateHidden ? "the panel is behind the reveal gate"
+                : (_handle != null && _handle.IsGrabbed) ? "a hand is carrying the panel"
+                : null;
+            _barTween.SetVisible(!withheld, snapWhy,
+                withheld ? "SurfaceGrabBar.SetWithheld (withheld)"
+                         : "SurfaceGrabBar.SetWithheld (released: the panel draws)");
+        }
         ApplyWithheld();
     }
 
@@ -236,7 +256,11 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     {
         if (_bar == null)
             return;
-        bool want = !_withheld;
+        // The tween's Shown is ANDed in for symmetry with GrabbableModal, though it can never
+        // widen this: a withhold snaps the tween to hidden on the same call, so Shown is false
+        // whenever _withheld is true. Kept as one expression so a later eased withhold needs no
+        // second rule here.
+        bool want = !_withheld || (_barTween != null && _barTween.Shown);
         System.Collections.Generic.IReadOnlyList<MeshRenderer> rs = _bar.Renderers;
         for (int i = 0; i < rs.Count; i++)
         {
@@ -435,13 +459,19 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         float barWidth = Mathf.Max(sourceWidth * BarWidthFraction, minWidth);
         float zoneWidth = Mathf.Max(sourceWidth * ZoneWidthFraction, minWidth);
 
-        _bar.Root.localPosition = new Vector3(x, y, 0f);
-        _bar.Root.localScale = Vector3.one * rodScale;
-        // barWidth is in FRAME-local metres and SetLength wants the ROD's own, under a root scaled
-        // by rodScale — divide it back out and the drawn end-to-end length is barWidth exactly.
-        _bar.SetLength(barWidth / rodScale);
-        _grabZone.center = new Vector3(x, y, 0f);
-        _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
+        // 2026-09-03 ("es ploppt") — TARGETS, NOT WRITES: the root position, the uniform scale, the
+        // length (barWidth is in FRAME-local metres and SetLength wants the ROD's own, under a root
+        // scaled by rodScale — divided back out so the drawn end-to-end length is barWidth exactly)
+        // and the palm zone's box go to GrabBarTween, which eases the drawn rod toward them in
+        // LateUpdate. Snapped, never eased, while a hand carries the panel or while the rod is off
+        // the screen — the same two exemptions GrabbableModal.SyncBar states, for the same reasons.
+        bool carried = _handle != null && _handle.IsGrabbed;
+        string? snapWhy = carried
+            ? "a hand is carrying the panel"
+            : !onScreen ? "the rod is off the screen (behind the reveal gate or withheld)" : null;
+        _barTween?.SetTarget(new Vector3(x, y, 0f), rodScale, barWidth / rodScale,
+                             new Vector3(zoneWidth, zoneDepth, zoneDepth), snapWhy,
+                             "SurfaceGrabBar.SyncBar (the host rect)");
     }
 
     // ---- IPanelGrabOwner ---------------------------------------------------------------------
@@ -553,6 +583,11 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         _grabZone = frameGo.AddComponent<BoxCollider>();
         _grabZone.isTrigger = true;
         _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
+        // THE TWEEN OWNS THE ROD'S POSE FROM HERE ON (2026-09-03): SyncBar and SetWithheld set
+        // targets, WorldUIModule's GrabBarTween.Late step eases the drawn rod, its laser capsule
+        // and this palm zone toward them. Seeded from the withhold verdict already taken, so a
+        // panel withheld before its frame existed starts at zero and grows when released.
+        _barTween = new GrabBarTween(bar, _grabZone, _logName, visible: !_withheld);
         _handle = frameGo.AddComponent<PanelGrabHandle>();
         // bar.Renderer is the SHAFT, and all three pieces share ONE Material — so the handle's
         // single sharedMaterial.color write in OnGrabHighlight lights the whole rod.
@@ -593,6 +628,8 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         _holder = null;
         _frame = null;
         _bar = null;
+        _barTween?.Release(); // leaves the LateUpdate tick list; the rod it presented is gone
+        _barTween = null;
         _grabZone = null;
         _handle = null;
         _panel = null;

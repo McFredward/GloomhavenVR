@@ -1099,6 +1099,8 @@ internal static partial class Loc
         ["h_vr_o_pokefirm"] = Pair("Decision buttons want a deliberate press, so a stray touch cannot answer for you.", "Entscheidungs-Tasten wollen einen bewussten Druck — eine Streifberührung antwortet nicht für dich."),
         ["vr_o_hexhintfollow"] = Pair("Hex hint follows view", "Feld-Hinweis folgt Blick"),
         ["h_vr_o_hexhintfollow"] = Pair("The hex info panel turns to face wherever you look.", "Die Feld-Infotafel dreht sich dorthin, wo du hinschaust."),
+        ["vr_o_grabbartween"] = Pair("Grab bar: transition (ms)", "Greifbalken: Übergang (ms)"),
+        ["h_vr_o_grabbartween"] = Pair("How long a window's grab bar takes to grow, shrink or slide into its new place. 0 = instant.", "Wie lange der Greifbalken eines Fensters braucht, um zu wachsen, zu schrumpfen oder an seinen neuen Platz zu gleiten. 0 = sofort."),
         ["vr_o_buttonanim"] = Pair("Key animation", "Tasten-Animation"),
         ["h_vr_o_buttonanim"] = Pair("Board keycaps crumble away and reassemble instead of popping.", "Brett-Tasten zerfallen und setzen sich wieder zusammen, statt zu ploppen."),
         // Boolean rows say what they ARE, the way the game's own settings do.

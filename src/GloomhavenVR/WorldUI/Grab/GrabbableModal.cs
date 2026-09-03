@@ -599,6 +599,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private Transform? _frame;                  // grab root at the panel centre; localScale = user factor
     private Transform? _visual;                 // THE DRAWN pose — see the REMOTE POSE EASING block
     private GrabBarVisual? _bar;                // the drawn rod: three pieces, ONE material
+    private GrabBarTween? _barTween;            // THE ONE WRITER of the rod's presented pose — see GrabBarTween
     private Transform? _badge;                  // the shared-window mark, null until built
 
     private BoxCollider? _grabZone;
@@ -1690,6 +1691,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _grabZone = frameGo.AddComponent<BoxCollider>();
         _grabZone.isTrigger = true;
         _grabZone.size = new Vector3(0.25f, 0.05f, 0.05f);
+        // THE TWEEN OWNS THE ROD'S POSE FROM HERE ON (2026-09-03, "es ploppt"): SyncBar and
+        // SyncBarVisibility set TARGETS on it and WorldUIModule's GrabBarTween.Late step eases the
+        // drawn rod, its laser capsule and this palm zone toward them. Built visible — the rod is
+        // active from construction exactly as before, and the first SyncBarVisibility decides.
+        _barTween = new GrabBarTween(bar, _grabZone, _logName, visible: true);
         _handle = frameGo.AddComponent<PanelGrabHandle>();
         // THE SHAFT'S RENDERER, and the three pieces share ONE Material — so PanelGrabHandle's single
         // sharedMaterial.color write in OnGrabHighlight still lights the WHOLE rod, and its Init
@@ -1827,16 +1833,28 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             x = _inkRect.center.x * unit;
         }
 
-        _bar.Root.localPosition = new Vector3(x, y, 0f);
-        _bar.Root.localScale = Vector3.one * rodScale;
-        // barWidth is in frame-local metres; SetLength wants the rod's OWN local metres, and the root
-        // it sits under is scaled by rodScale. Divide it back out and the drawn end-to-end length is
-        // barWidth exactly, as the cube's X scale made it.
-        _bar.SetLength(barWidth / rodScale);
-        // The palm grab zone rides WITH the visible handle, as it always has — it is not the hit rect
-        // (that contract, "always contains the host rect", belongs to the conversion and is untouched).
-        _grabZone.center = new Vector3(x, y, 0f);
-        _grabZone.size = new Vector3(zoneWidth, zoneDepth, zoneDepth);
+        // 2026-09-03 ("es ploppt") — THESE ARE TARGETS NOW, NOT WRITES. The rod's root position,
+        // its uniform scale, its length (barWidth is in frame-local metres; SetLength wants the rod's
+        // OWN local metres under a root scaled by rodScale, so it is divided back out and the drawn
+        // end-to-end length is barWidth exactly) and the palm zone's box all go to GrabBarTween,
+        // which eases the drawn rod toward them in LateUpdate. The palm zone still rides WITH the
+        // visible handle — it is not the hit rect (that contract, "always contains the host rect",
+        // belongs to the conversion and is untouched) — it just rides with the PRESENTED handle.
+        //
+        // TWO REASONS TO SNAP INSTEAD, both printed on the tween's line: a hand on the bar (the
+        // tween is for the mod's own re-seats, never a lag against the player's carry) and a rod
+        // that is off the screen (nobody can see the transition, and holding the old value only
+        // makes the presented pose untrue when the rod appears — the same argument BarSizeSettle
+        // makes for its off-screen branch above).
+        bool carried = _handle != null && _handle.IsGrabbed;
+        string? snapWhy = carried
+            ? "a hand is carrying the window"
+            : !onScreen ? "the rod is off the screen (behind the reveal gate or withheld)" : null;
+        _barTween?.SetTarget(new Vector3(x, y, 0f), rodScale, barWidth / rodScale,
+                             new Vector3(zoneWidth, zoneDepth, zoneDepth), snapWhy,
+                             _inkValid && unit > 1e-9f
+                                 ? "GrabbableModal.SyncBar (the ink union)"
+                                 : "GrabbableModal.SyncBar (the host rect)");
 
         SyncBarVisibility();
 
@@ -1925,8 +1943,34 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // going-dark rule it was written for. It is ANDed rather than given a branch of its own so
         // there is exactly one expression in this class that decides whether the handle is drawn.
         bool visible = (!_barHiddenForEmpty && !owed) || (_handle != null && _handle.IsGrabbed);
-        if (_bar.Root.gameObject.activeSelf != visible)
-            _bar.Root.gameObject.SetActive(visible);
+        // 2026-09-03 ("es ploppt") — THE VISIBILITY IS A TARGET TOO. A rod that returns grows from
+        // zero at its place; a rod that goes dark shrinks to zero and only THEN leaves the screen.
+        // The GameObject switch below is still this class's, on the tween's Shown answer, for the
+        // reasons the doc comment above gives (the reveal gate's restore set cannot see an inactive
+        // root). Three edges are NOT eased, each printed as the reason on the tween's line: a hand
+        // on the bar; a window behind the reveal gate (nobody can see it); and the ModBuild 378
+        // withhold of a window that has NEVER drawn — CompleteReveal asks for that one in LateUpdate
+        // on the very frame the renderers come back, and a 150 ms shrink there would draw the rod on
+        // an empty window for exactly the frames that round removed. Only a window that drew and
+        // then went dark (_barHiddenForEmpty) shrinks.
+        bool shown = visible;
+        if (_barTween != null)
+        {
+            bool carried = _handle != null && _handle.IsGrabbed;
+            bool gateHidden = _panel != null && (_panel.RenderHidden || _panel.OwnerRenderHidden);
+            string? snapWhy = carried
+                ? "a hand is carrying the window"
+                : gateHidden ? "the window is behind the reveal gate"
+                : (!visible && owed) ? "the window has never drawn (withheld at its reveal edge)"
+                : null;
+            _barTween.SetVisible(visible, snapWhy,
+                visible ? "GrabbableModal.SyncBarVisibility (the window draws again)"
+                        : owed ? "GrabbableModal.SyncBarVisibility (withheld: appear still owed)"
+                               : "GrabbableModal.SyncBarVisibility (the window went dark)");
+            shown = _barTween.Shown;
+        }
+        if (_bar.Root.gameObject.activeSelf != shown)
+            _bar.Root.gameObject.SetActive(shown);
         if (_grabZone.enabled != visible)
             _grabZone.enabled = visible;
 
@@ -2815,7 +2859,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // 1.28 R (GrabBarVisual's laser-target note), so at the bar's two extremities the drawn top
         // edge is about a quarter of a shaft radius higher than this line reports. The claim being
         // tested is about the long run clearing the ink, which is the shaft.
-        Vector3 pos = _bar.Root.localPosition;
+        //
+        // THE TARGET, NOT THE TRANSFORM (2026-09-03). The rod now EASES toward its place over
+        // GrabBarTweenMs, and this report fires on the very tick the target moved — reading the
+        // transform here would judge a rod that is still travelling and print NOT ACHIEVED for a
+        // placement that lands 150 ms later. The claim under test is where the bar is SEATED.
+        Vector3 pos = _barTween != null ? _barTween.TargetPosition : _bar.Root.localPosition;
         float barTopPx = (pos.y + thickness * 0.5f) / unit;
         float barCentrePx = pos.x / unit;
         float barHalfPx = barWidth * 0.5f / unit;
@@ -2956,6 +3005,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _frame = null;
         _visual = null;
         _bar = null;
+        _barTween?.Release(); // leaves the LateUpdate tick list; the rod it presented is gone
+        _barTween = null;
         _badge = null;
         _grabZone = null;
         _handle = null;

@@ -248,6 +248,9 @@ internal static partial class VROptionsTab
                         // listed here too because this topic is the catalog's own index of the
                         // window family and a curated row is an extra door, never a wall.
                         new BoardRef("WorldUI", "WindowFacing", perBoard: false),
+                        // The grab bar's transition time (2026-09-03) — curated on Tafeln ▸
+                        // Bedienung beside WindowFacing; listed here for the same reason it is.
+                        new BoardRef("WorldUI", "GrabBarTweenMs", perBoard: false),
                         new BoardRef("WorldUI", "ManualScreenChordSeconds", perBoard: false),
                     },
                 },
