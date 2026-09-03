@@ -2768,9 +2768,75 @@ internal static partial class ModalFallback
             UIWindow? intervalHost = wp.Window != null ? RefusedForTheMomentAbove(wp.Window) : null;
             bool refused = wp.Window != null
                            && (FloatRefusalTable.Refuses(wp.Window) || intervalHost != null);
+            // ModBuild 386 — STICKINESS MAY NOT OUTLIVE THE DECISION IT IS PROTECTING, AND THIS
+            // LINE IS WHY THE ENCOUNTER WINDOW HAD NO VANISH.
+            //
+            // USER REPORT (2026-09-03), verbatim: "Das Begenung-Fenster hat keine Animation wenn es
+            // verschwindet, es ploppt einfach weg." Every other floated window dissolves. That one
+            // did not, and the reason is entirely here rather than anywhere in the effect:
+            //
+            //   * `WindowMaterialise.PlayOut` has exactly ONE call site, and it is the release
+            //     below in this same loop. A float that never leaves this loop never gets a vanish,
+            //     however healthy the effect is.
+            //   * 'UI Event Window' is STICKY, because `MapRoomParallel` (ModalFallback.7.Close.cs)
+            //     makes every non-confirmation, non-hover window sticky while the 3D map room
+            //     stands — ModBuild 180's ruling, "Die UI Elemente … dürfen NIE [verschwinden]
+            //     selbst wenn ich auf den Händler oder so klicke."
+            //   * So when the game closed it (2026-09-03 hardware log, the line reading
+            //     "window 'UI Event Window' (ID EventsPanel) hidden — untracked"), `wp.Sticky` held
+            //     `stillOpen` true and the float was kept. It left the screen 0.35 s later through
+            //     the liveness rule's dormancy hide instead — every Canvas and Renderer switched
+            //     off in ONE frame, no animation — and stayed a dormant zombie holding an arc seat
+            //     until the map room itself stood down (the slot was given back only at teardown).
+            //     There is no vanish line and no skip line for it anywhere in that log, because
+            //     PlayOut was never REACHED, not because a rule refused it.
+            //
+            // THE TERM THAT SEPARATES THE TWO CASES ALREADY EXISTS AND IS ALREADY USER-BACKED.
+            // Stickiness defends a window against a SIBLING taking it away — the flat game's
+            // single-window discipline, which hides the merchant when the temple opens. A MANDATORY
+            // DECISION is never in that relationship: ModBuild 381 enrolled these windows precisely
+            // because the player may not walk away from them, they carry no close X, and the game
+            // itself only hides one when it has been ANSWERED. A hide of one of these is the end of
+            // the window, not a sibling borrowing the screen, so stickiness has nothing left to
+            // defend and the float goes home through the ordinary release — which is also the only
+            // path that can give it the dissolve he is asking for.
+            //
+            // WHAT THIS DOES NOT TOUCH. `Sticky` itself is unchanged (ModalFallback.8.Convert.cs),
+            // so the merchant and the temple still stand open together. `IsMandatoryDecision` is
+            // read, never edited, so the no-X enrolment (381) and the redirected escape chord (384)
+            // are exactly as they were. NOTHING IS WRITTEN TO THE GAME: `UserClosing` stays false,
+            // so the `wp.Window.Hide()` gap-close below cannot fire and nothing goes on the wire —
+            // this is a presentation release of a window the game has ALREADY closed.
+            //
+            // THE ESC/OPTIONS CARVE-OUT IS THE NET UNDER THE DERIVED TERM. IsMandatoryDecision's
+            // last term is `escapeKeyAction == None`, which is a DERIVED net rather than an
+            // identity, and inside the map room every open window is MapRoomParallel-sticky. A menu
+            // of that family hidden by its own ToggleGroup sibling must keep its stickiness, so the
+            // family is excluded here — the same exclusion the liveness rule makes, for the same
+            // standing ruling ("es MUSS immer möglich sein das Optionsmenu zu öffnen").
+            string mandatoryWhy = string.Empty;
+            bool answeredMandatory = wp.Window != null
+                                     && wp.Sticky
+                                     && !wp.Window.IsOpen
+                                     && !MenuWindowFamily.IsEscOptionsFamily(wp.Window)
+                                     && IsMandatoryDecision(wp.Window, out mandatoryWhy);
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
-                             && (ContainsWindow(OpenWindows, wp.Window!) || wp.Sticky
+                             && (ContainsWindow(OpenWindows, wp.Window!)
+                                 || (wp.Sticky && !answeredMandatory)
                                  || ScriptedLevelMessageActive(wp.Window));
+            if (answeredMandatory && !stillOpen)
+                // HW-VERIFY
+                VRLog.Note("WorldUI", $"MANDATORY DECISION ANSWERED: '{wp.Window!.name}' (ID "
+                                      + $"{wp.Window.ID}) was closed BY THE GAME, so its map-room "
+                                      + "stickiness is spent and the float is given up through the "
+                                      + "ORDINARY release — the one path that runs the materialise "
+                                      + "vanish, which is what it never reached before ModBuild 386 "
+                                      + "(it went dormant instead and held its arc seat until the "
+                                      + "room stood down). THE TERM THAT MATCHED, so an over-firing "
+                                      + $"derived net is visible rather than inferred: {mandatoryWhy}. "
+                                      + "NOTHING WAS WRITTEN TO THE GAME: the window was already "
+                                      + "hidden by the game itself, UserClosing is not set, no Hide, "
+                                      + "no Escape, nothing on the wire.");
             if (refused && alive)
                 VRLog.Info("WorldUI", $"FLOAT RELEASED ON REFUSAL: '{wp.Window!.name}' (ID " +
                                       $"{wp.Window.ID}) — " +

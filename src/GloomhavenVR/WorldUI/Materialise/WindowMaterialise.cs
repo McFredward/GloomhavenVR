@@ -574,6 +574,9 @@ internal static partial class WindowMaterialise
         EnsureSubscribed();
         if (panel == null || !panel.IsAlive || panel.HostGo == null)
         {
+            NotePlayOutOutcome(panel, ref _outDeadPanel,
+                               "THE PANEL WAS ALREADY GONE — dead, or its world host had been "
+                               + "destroyed — so there was never anything to dissolve");
             onDone();
             return;
         }
@@ -582,6 +585,9 @@ internal static partial class WindowMaterialise
 
         if (!Enabled)
         {
+            NotePlayOutOutcome(panel, ref _outEffectOff,
+                               "THE EFFECT IS SWITCHED OFF at its own dial, so the release ran "
+                               + "synchronously, exactly as before the effect existed");
             onDone();
             return;
         }
@@ -591,6 +597,9 @@ internal static partial class WindowMaterialise
         // card's release behind a 0.9 s dissolve would also keep it alive across the next hover.
         if (IsHoverCard(panel))
         {
+            NotePlayOutOutcome(panel, ref _outHoverCard,
+                               "IT IS A MAP-ROOM HOVER CARD (ModBuild 367), which arrives and "
+                               + "leaves instantly by design — no dust either way");
             onDone();
             return;
         }
@@ -621,12 +630,18 @@ internal static partial class WindowMaterialise
                               + "(2026-09-03): dust for a window that was not there. IF THIS LINE "
                               + "APPEARS FOR A WINDOW THE PLAYER COULD SEE, this gate is wrong and "
                               + "the two terms it names are the place to look.");
+            NotePlayOutOutcome(panel, ref _outSkipped,
+                               "SKIPPED, because the float had nothing on the screen left to take "
+                               + $"away: {nothingWhy}");
             onDone();
             return;
         }
         float seconds = VanishSeconds;
         if (seconds <= 0f)
         {
+            NotePlayOutOutcome(panel, ref _outZeroLength,
+                               "THE VANISH LENGTH IS ZERO at its own dial, so the release ran "
+                               + "synchronously with no animation");
             onDone();
             return;
         }
@@ -634,6 +649,9 @@ internal static partial class WindowMaterialise
         try
         {
             Cancel(panel, "a vanish started");
+            NotePlayOutOutcome(panel, ref _outStarted,
+                               "STARTED — the dissolve and its shards are running now, and the "
+                               + "release happens at the end of it");
             if (!WindowMaterialiseRunner.Begin(panel, seconds, materialising: false, onDone))
                 onDone();
         }
@@ -645,6 +663,64 @@ internal static partial class WindowMaterialise
             Cancel(panel, "PlayOut threw");
             onDone();
         }
+    }
+
+    // ---- WHAT HAPPENED THE LAST TIME A WINDOW WAS ASKED TO DISSOLVE -----------------------------
+    //
+    // ModBuild 386 — A ZERO THAT MEANT TWO DIFFERENT THINGS. In the 2026-09-03 hardware log the
+    // vanish-skip line had ZERO hits, and that reading was ambiguous between "no window was ever
+    // skipped" and "PlayOut was never REACHED for the window in the report" — which is what it
+    // actually was: 'UI Event Window' is sticky in the map room, so the release loop kept it and
+    // the one call site never ran. A skip line can only ever say something about a call that
+    // happened, so the missing half is an ENTRY line, and this is it.
+    //
+    // HOW TO READ THE NEXT LOG. Every one of these lines names the window and the outcome and
+    // carries the running tally of all six outcomes, so:
+    //   * a window that left the screen and has NO line here at all  ⇒ PlayOut was never reached
+    //     (look at the release loop in ModalFallback.4.Tick.cs, not at the effect);
+    //   * a line saying SKIPPED                                      ⇒ it was reached and refused
+    //     by the ModBuild 374 rule, and the skip line beside it names which of its two terms;
+    //   * a line saying STARTED                                      ⇒ the dissolve ran, and the
+    //     "ended (completed)" report that follows carries the element and shard counts.
+    //
+    // CHANGE-GATED ON (outcome, window), NOT ON THE COUNTS, because the counts change on every
+    // call and a gate that reads them is no gate at all. A window that opens and closes fifty
+    // times with the same outcome therefore prints once and the fifty are still in the tally the
+    // next DIFFERENT line prints. The counters are bumped before the gate, so nothing is lost.
+    private static int _outDeadPanel;
+
+    private static int _outEffectOff;
+
+    private static int _outHoverCard;
+
+    private static int _outSkipped;
+
+    private static int _outZeroLength;
+
+    private static int _outStarted;
+
+    private static string _lastOutKey = string.Empty;
+
+    private static void NotePlayOutOutcome(ConvertedPanel? panel, ref int counter, string outcome)
+    {
+        counter++;
+        string who = panel != null ? Name(panel) : "<no panel>";
+        string key = who + " " + outcome;
+        if (key == _lastOutKey)
+            return;
+        _lastOutKey = key;
+        int total = _outDeadPanel + _outEffectOff + _outHoverCard + _outSkipped
+                    + _outZeroLength + _outStarted;
+        // HW-VERIFY
+        VRLog.Note(Scope, $"WINDOW MATERIALISE PLAYOUT on '{who}': {outcome}. TALLY for this "
+                          + $"session, {total} call(s) in total: {_outStarted} started, "
+                          + $"{_outSkipped} skipped for having nothing to dissolve, "
+                          + $"{_outHoverCard} hover card(s), {_outEffectOff} with the effect off, "
+                          + $"{_outZeroLength} with a zero-length vanish, {_outDeadPanel} on a "
+                          + "panel that was already gone. THIS LINE IS THE FALSIFIER: it is written "
+                          + "on EVERY entry to PlayOut, so a floated window that left the screen "
+                          + "and is named by no line here was never handed to the effect at all — "
+                          + "that is a release-path question and not an effect question.");
     }
 
     /// <summary>
