@@ -56,7 +56,7 @@ internal abstract class WorldSurface
         }
         else if (!want && Panel != null)
         {
-            CanvasConversion.Release(Panel);
+            ReleasePanel(Panel);
             Panel = null;
         }
 
@@ -108,7 +108,7 @@ internal abstract class WorldSurface
     {
         if (Panel == null)
             return false;
-        CanvasConversion.Release(Panel);
+        ReleasePanel(Panel);
         Panel = null;
         return true;
     }
@@ -117,8 +117,28 @@ internal abstract class WorldSurface
     {
         if (Panel != null)
         {
-            CanvasConversion.Release(Panel);
+            ReleasePanel(Panel);
             Panel = null;
         }
     }
+
+    /// <summary>
+    /// GIVE THE GAME'S PANEL BACK TO ITS 2D HOME. The single seam every release in this class goes
+    /// through, so a subclass that has something to do at the release edge cannot be defeated by
+    /// which of the three transitions reached it.
+    ///
+    /// <para><b>THE DEFAULT IS BYTE-FOR-BYTE WHAT EVERY CALL SITE USED TO DO</b> — one
+    /// <c>CanvasConversion.Release</c> — so nothing about any surface changes by this existing. It
+    /// is <c>virtual</c> for exactly one override today: <see cref="FloatingDecisionSurface"/> hands
+    /// the release to a running vanish animation when one is in flight, and falls straight through
+    /// to this body when one is not, which is every other case.</para>
+    ///
+    /// <para><b>AN OVERRIDE MAY DEFER THE RELEASE BUT MAY NEVER DROP IT.</b> The caller sets
+    /// <c>Panel = null</c> in the same statement, so from this line on nothing else in the framework
+    /// holds the conversion: an override that swallowed it would leave the game's window parented
+    /// under a mod host with no owner. That is the same contract
+    /// <c>WindowMaterialise.PlayOut</c> states for its own callback, and it is why the one override
+    /// routes through a method whose totality is documented rather than through a timer.</para>
+    /// </summary>
+    protected virtual void ReleasePanel(ConvertedPanel panel) => CanvasConversion.Release(panel);
 }

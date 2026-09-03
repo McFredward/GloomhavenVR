@@ -49,6 +49,7 @@ The mod patches the five heaviest receivers in the game's dispatch table: `Chore
 | `Placement_Click_Diagnostics` | Choreographer | **ISOLATED** | A **diagnostic** prefix on the heaviest receiver in the game. Wrapped in ModBuild 334: a log line must never be able to end somebody's multiplayer evening. |
 | `TakeDamagePanelSafety` | TakeDamagePanel | **SELF-GUARDED** | `Live`/`Allow` are null-safe by construction and the one body that does real work, `AutoUseMandatoryActiveBonuses`, is wholly inside its own `try`. |
 | `TakeDamagePanel_BurnHover_Skip` | TakeDamagePanel | **CANNOT-THROW** | Four expression-bodied `=> false`. |
+| `UIAbilityCardPicker_Hide_Patch` | UIAbilityCardPicker | **SELF-GUARDED** | A void prefix on `Hide()`, so it cannot skip or alter the game's close. Its whole body is one call to `SurfaceCloseEdge.Publish`, which is wholly inside its own `try/catch` and reports once per process — the close-edge notification that starts a decision panel's vanish must never be able to end somebody's multiplayer evening. |
 
 ## Adding a patch
 

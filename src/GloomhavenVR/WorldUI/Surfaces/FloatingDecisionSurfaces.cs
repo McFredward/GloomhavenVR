@@ -86,6 +86,23 @@ internal abstract class FloatingDecisionSurface : WorldSurface
     /// </summary>
     private SurfaceGrabBar? _grab;
 
+    /// <summary>
+    /// THE PANEL WHOSE RELEASE A VANISH IS CURRENTLY HOLDING, or null.
+    ///
+    /// <para><b>USER, 2026-09-03, verbatim:</b> <i>"Weiterhin hat das Entscheidungsfenster bei dem zB
+    /// einem Character ein Item gegeben werden muss keine Animation. Auch dieses Fenster soll die
+    /// Animation zum auftauchen und Verschwinden haben."</i> The whole feature — what was missing,
+    /// why it was structural, what is reused, what the player will actually see and why holding this
+    /// particular window's GameObject open was refused — is written out once, on
+    /// <see cref="SurfaceMaterialise"/>.</para>
+    ///
+    /// <para><b>IT IS A FIELD AND NOT A QUESTION ASKED OF THE EFFECT</b> because the surface must be
+    /// able to end ITS OWN dissolve without ending another surface's: at most one conversion is live
+    /// per surface, so at most one of these is ever non-null, and every place that must not wait
+    /// (a re-float, a shutdown) names this panel rather than the family.</para>
+    /// </summary>
+    private ConvertedPanel? _vanishing;
+
     /// <summary>The shown panel root to convert (null while hidden) — also the level trigger.</summary>
     protected abstract RectTransform? ShownPanel();
 
@@ -124,6 +141,11 @@ internal abstract class FloatingDecisionSurface : WorldSurface
         // (.planning/debug/leeres_fenster2.jpg). Destroying here makes "one live conversion, one
         // handle" true by construction instead of by every caller remembering.
         DestroyGrab();
+        // THE CLOSE EDGE IS PUBLISHED BY A PREFIX ON THE GAME'S OWN Hide(), and it is installed
+        // here — on the first float of a decision panel — rather than from WorldUIModule.Init,
+        // which is outside this lane's owned paths. Idempotent; see SurfaceCloseEdge for why one
+        // Update tick later is already too late to tear a single shard.
+        SurfaceCloseEdge.EnsureInstalled();
         VRLog.Info("WorldUI", $"{Name}: decision panel floated pokeable in front of the HMD " +
                               "(plain-GameObject window — invisible to the UIWindow modal machinery; " +
                               "restored to its 2D home when the game hides it). Commit stays on the " +
@@ -132,6 +154,16 @@ internal abstract class FloatingDecisionSurface : WorldSurface
 
     public override void Tick()
     {
+        // A DECORATION MAY NEVER MAKE A DECISION WINDOW WAIT FOR ITS SLOT. If this surface wants to
+        // float again while its previous panel's release is still held by a dissolve, the dissolve
+        // ends NOW and the release runs inside this call — WindowMaterialise.Cancel's documented
+        // contract is that a cancelled vanish still runs its callback, so cancelling the animation
+        // can never cancel the release. This also closes the re-convert hazard
+        // WindowMaterialise.IsVanishing exists for on the modal side: converting a target that is
+        // still parented under a dying host would record that host as its 2D home.
+        if (_vanishing != null && Panel == null && WantConverted)
+            SurfaceMaterialise.FinishNow(_vanishing, "the surface is floating a decision panel again");
+
         bool hadPanel = Panel != null;
         base.Tick(); // convert / release / Place
         if (Panel == null)
@@ -147,7 +179,14 @@ internal abstract class FloatingDecisionSurface : WorldSurface
         }
         // The one surface family that must accept input even under the game's UI-lock
         // raycaster mirror — these panels ARE the decision (ModalFallback modal exemption).
-        if (Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled)
+        //
+        // NOT WHILE IT IS DISSOLVING. WindowMaterialise.PlayOut's first act is to disable this
+        // raycaster, on the standing rule that a player must never be able to click a ghost, and a
+        // window is only ever dissolving here because the GAME has already closed it — so there is
+        // no decision left to keep reachable. Re-enabling it would make this line the second owner
+        // of that switch and hand the ghost back its hit surface for a frame.
+        if (Panel.HostRaycaster != null && !Panel.HostRaycaster.enabled
+            && !SurfaceMaterialise.IsVanishing(Panel))
             Panel.HostRaycaster.enabled = true;
     }
 
@@ -182,6 +221,10 @@ internal abstract class FloatingDecisionSurface : WorldSurface
             // handle at the origin and drag the panel there on the first follow tick.
             _grab = new SurfaceGrabBar();
             _grab.Build(Panel, FloatScaleFactor, scale, Name);
+            // ARMED IN THE SAME STATEMENT AS THE ROD, and that is ModBuild 378's rule made a
+            // property of this call site: one event arms both, one stored verdict decides both, so
+            // the dust and the handle cannot disagree about whether this panel has content.
+            SurfaceMaterialise.Arm(Panel, Name, _grab);
         }
         _grab?.Tick();
     }
@@ -199,6 +242,43 @@ internal abstract class FloatingDecisionSurface : WorldSurface
     }
 
     /// <summary>
+    /// HAND THE RELEASE TO THE DISSOLVE WHEN THERE IS ONE, AND OTHERWISE RELEASE EXACTLY AS BEFORE.
+    ///
+    /// <para>There is a dissolve only when <see cref="SurfaceCloseEdge"/> published this window's
+    /// close one moment earlier, i.e. only on the one transition the game itself drives. Every other
+    /// route into a release — a destroyed target, a scene unload, the A/X flat-screen chord, the
+    /// select↔assign popup switch, a config toggle, a shutdown — finds no record and takes the base
+    /// body, so the animation is strictly ADDITIVE and the pre-existing path is the default
+    /// rather than the fallback.</para>
+    ///
+    /// <para><b>THE RELEASE CANNOT BE LOST OR RUN TWICE.</b> <see cref="SurfaceMaterialise.HandOffRelease"/>
+    /// returns false — meaning "release right now" — when there is no record and when the effect has
+    /// already finished; it returns true only after storing the callback on a live record whose one
+    /// completion path runs it. And the effect's own completion is total by
+    /// <c>WindowMaterialise.PlayOut</c>'s contract: the callback runs on the end of the dissolve, on
+    /// a cancel, on a watchdog, on the host being deactivated or destroyed, and synchronously when
+    /// the effect cannot run at all.</para>
+    /// </summary>
+    protected override void ReleasePanel(ConvertedPanel panel)
+    {
+        ConvertedPanel p = panel;
+        // The appear watch ends with the conversion. Ahead of the hand-off, because the close edge
+        // that could still start a vanish has already run by the time any release is reached.
+        SurfaceMaterialise.Disarm(p);
+        if (SurfaceMaterialise.HandOffRelease(p, () =>
+            {
+                if (ReferenceEquals(_vanishing, p))
+                    _vanishing = null;
+                CanvasConversion.Release(p);
+            }))
+        {
+            _vanishing = p;
+            return;
+        }
+        base.ReleasePanel(p);
+    }
+
+    /// <summary>
     /// A teardown must take the handle with it. The holder is a scene-root tree with a
     /// MonoBehaviour on it, so a surface that shut down without this would leave a rod ticking in
     /// the room against a panel that no longer exists.
@@ -207,6 +287,12 @@ internal abstract class FloatingDecisionSurface : WorldSurface
     {
         DestroyGrab();
         _placed = false;
+        // A TEARDOWN MUST NOT DEFER FIVE RELEASES BEHIND AN ANIMATION — WindowMaterialise.CancelAll
+        // carries the same rule for the modal windows and for the same reason. Ended BEFORE
+        // base.Shutdown so the panel this surface still holds is released by the base call and not
+        // by a callback firing into a torn-down surface.
+        SurfaceMaterialise.FinishNow(_vanishing, "the surface is shutting down");
+        _vanishing = null;
         base.Shutdown();
     }
 }

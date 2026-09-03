@@ -197,6 +197,58 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     internal bool IsBuilt => _holder != null && _frame != null;
 
     /// <summary>
+    /// THE ROD IS OFF BECAUSE THE PANEL HAS NOTHING ON IT — the ModBuild 378 rule, carried into the
+    /// surface family by <see cref="SurfaceMaterialise"/>.
+    ///
+    /// <para><b>USER, 2026-09-03, verbatim:</b> <i>"Wenn kein Fenster inhalt hat soll neben der
+    /// Animation auch kein Greifbalken erscheinen."</i> On the modal side that is one stored verdict
+    /// — <c>ModalFallback.AppearStillOwed</c>, which <c>GrabbableModal.SyncBarVisibility</c> reads —
+    /// so the dust and the rod cannot disagree about whether a window has content. This flag is the
+    /// same seam for a surface panel, and the verdict behind it is likewise stored ONCE, by
+    /// <see cref="SurfaceMaterialise"/>, and read from here: this class measures nothing.</para>
+    ///
+    /// <para>It also carries the CLOSE edge. The moment the game hides one of these popups its
+    /// whole subtree goes inactive in the same statement (<c>UIDistributePointsPopup.Hide</c> →
+    /// <c>window.SetActive(false)</c>), and the surface only notices on its next Update tick — so
+    /// without this the rod would hang in the room for a frame with no window on it, which is the
+    /// artefact the user photographed three of (.planning/debug/leeres_fenster2.jpg).</para>
+    ///
+    /// <para><b>IT CANNOT STRAND THE PANEL.</b> Nothing here touches the host, the conversion, any
+    /// <c>WantConverted</c> term or any game state — it writes the mod-owned rod's own
+    /// <c>MeshRenderer.enabled</c> and one bool that <see cref="IPanelGrabOwner.GrabVisible"/>
+    /// consults, so the worst a wrong value can do is hide a handle. The panel itself, its buttons
+    /// and the game's confirm are untouched.</para>
+    /// </summary>
+    private bool _withheld;
+
+    /// <summary>
+    /// Withhold or restore the rod. Idempotent; safe before the handle is built (the value is
+    /// re-asserted from <see cref="Tick"/>, so a withhold taken at the reveal edge survives a later
+    /// reveal walk re-enabling the recorded renderer set).
+    /// </summary>
+    internal void SetWithheld(bool withheld)
+    {
+        _withheld = withheld;
+        ApplyWithheld();
+    }
+
+    private void ApplyWithheld()
+    {
+        if (_bar == null)
+            return;
+        bool want = !_withheld;
+        System.Collections.Generic.IReadOnlyList<MeshRenderer> rs = _bar.Renderers;
+        for (int i = 0; i < rs.Count; i++)
+        {
+            MeshRenderer r = rs[i];
+            // Written only on a DIFFERENCE: this runs every tick and an unconditional write would
+            // fight the panel's own reveal walk over the same renderers every frame.
+            if (r != null && r.enabled != want)
+                r.enabled = want;
+        }
+    }
+
+    /// <summary>
     /// Build the handle for a freshly floated, freshly PLACED host: the frame is seeded at the
     /// host's current world pose, so the first follow tick keeps the panel exactly where the
     /// surface put it and nothing jumps on the frame the bar appears.
@@ -268,6 +320,10 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
 
         SyncHost();
         SyncBar(_panel.HostRect.rect);
+        // RE-ASSERTED EVERY TICK, and only where it differs. The panel's reveal walk owns the same
+        // three MeshRenderers (the holder is registered with CanvasConversion.AddRenderRoot), so a
+        // withhold taken at the reveal edge would be undone by the next show pass without this.
+        ApplyWithheld();
     }
 
     /// <summary>
@@ -351,7 +407,7 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         // see BarSizeSettle's OFF-SCREEN CHANGES ARE FREE block for the closed bug that depends on
         // it (a decision panel is built, fitted and only then revealed).
         bool onScreen = _panel != null && _panel.IsAlive && !_panel.RenderHidden
-                        && !_panel.OwnerRenderHidden
+                        && !_panel.OwnerRenderHidden && !_withheld
                         && _holder != null && _holder.gameObject.activeInHierarchy;
         float panelHeight = _heightSettle.Apply(rect.height * unit / Mathf.Max(worldScale, 1e-4f),
                                                 onScreen, _logName);
@@ -396,8 +452,11 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     // grabbable either: "grabbing something that is not there" is the standing ruling, and
     // PanelGrabHandle.CanGrab consults this for BOTH grab paths (the palm candidate scan and the
     // laser's bar-collider ray test), so one property covers both.
+    // ModBuild 378's rule joins the same predicate rather than sitting beside it: a rod that is
+    // WITHHELD because the panel is drawing nothing is exactly "something that is not there".
     bool IPanelGrabOwner.GrabVisible =>
         _panel != null && _panel.IsAlive && !_panel.RenderHidden && !_panel.OwnerRenderHidden
+        && !_withheld
         && _holder != null && _holder.gameObject.activeInHierarchy;
 
     // Carry the yaw with the hand, level in the plain WORLD frame — the same mode every floated
@@ -539,6 +598,9 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         _panel = null;
         _lastHostPosValid = false;
         _userMoved = false;
+        // A withhold describes a panel that no longer exists. Cleared here as well, so an instance
+        // that is destroyed and rebuilt does not start life with the previous float's verdict.
+        _withheld = false;
         // The settled sizes describe a rect that no longer exists. Cleared here as well as in
         // Build, so an instance that is destroyed and never rebuilt leaves no state behind either.
         _widthSettle.Reset();

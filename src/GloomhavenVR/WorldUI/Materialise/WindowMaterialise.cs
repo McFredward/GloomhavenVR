@@ -705,7 +705,7 @@ internal static partial class WindowMaterialise
     {
         counter++;
         string who = panel != null ? Name(panel) : "<no panel>";
-        string key = who + " " + outcome;
+        string key = who + "\0" + outcome;
         if (key == _lastOutKey)
             return;
         _lastOutKey = key;
