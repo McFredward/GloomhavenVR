@@ -390,8 +390,18 @@ internal static partial class CanvasConversion
     {
         // Nothing converted -> nothing of the mod's is being drawn, so there is nothing to
         // withhold. Release anything still standing rather than leaving it culled.
+        // ModBuild 395 — THE STATUS LINE IS UNCONDITIONAL AND IT IS FIRST. It is called here,
+        // ABOVE every early return, because the 392 hardware log contained ZERO 'FLASH VEIL' lines
+        // and that zero was unreadable: ReportFlashVeil is only reachable from RaiseFlashVeil (i.e.
+        // after a veil went up) and from the deadline branch, so "the scan found nothing" and "the
+        // scan never ran" printed exactly the same thing — nothing. The 392 report promised the
+        // LET THROUGH counter would falsify the reasoning "and the log says so in those words";
+        // a counter that only prints when something else printed cannot falsify anything.
+        ReportFlashVeilScanStatus();
+
         if (Active.Count == 0)
         {
+            s_fvScansIdle++;
             if (FlashVeils.Count > 0)
                 ServiceFlashVeils(releaseAll: true);
             return;
@@ -503,8 +513,13 @@ internal static partial class CanvasConversion
             return; // the game's registry is not available (teardown) — draw everything
         }
         if (windows == null || windows.Count == 0)
+        {
+            s_fvScansEmptyRegistry++;
             return;
+        }
 
+        s_fvScansRan++;
+        s_fvWindowsSeen += windows.Count;
         foreach (UIWindow w in windows)
         {
             if (w == null)
@@ -519,18 +534,50 @@ internal static partial class CanvasConversion
             // Not open and still painting is what a close animation looks like from outside.
             bool notOpenAndPainting = !w.IsOpen && w.IsVisible;
 
+            if (preStart)
+                s_fvPreStartSeen++;
+
             if (!preStart && !notOpenAndPainting)
+            {
+                s_fvRejFast++;
                 continue; // the fast reject: every window in the game, on almost every frame
+            }
+            // ModBuild 395 WIDENS THIS ONE TERM, and only this one. UIWindow.IsVisible is
+            // `m_CanvasGroup != null && m_CanvasGroup.alpha > 0f` (decompiled UIWindow.cs:305-315),
+            // so a window whose CanvasGroup reference was never bound — Awake binds it only when
+            // `_otherActive` is false, and StartAlphaTween/SetCanvasAlpha both null-guard it, which
+            // is the game's own admission that it can be null — reads FALSE for ever, including on
+            // the frame it paints its prefab through its Canvas. Rejecting on IsVisible alone
+            // therefore threw away exactly the windows that hide by their canvas rather than by
+            // their alpha. The replacement asks the question the old term MEANT to ask: is there a
+            // CanvasGroup, and is it actually holding this window at zero?
             if (preStart && !w.IsVisible)
-                continue; // a prefab authored at alpha 0 paints nothing; there is no flash to stop
+            {
+                var cg = w.GetComponent<CanvasGroup>();
+                if (cg != null && cg.alpha <= 0f)
+                {
+                    s_fvRejAuthoredInvisible++;
+                    continue; // a prefab authored at alpha 0 paints nothing; no flash to stop
+                }
+                s_fvNoCanvasGroupKept++;
+            }
             if (!w.gameObject.activeInHierarchy)
+            {
+                s_fvRejInactive++;
                 continue;
+            }
             if (preStart && IsFlashVeiled(w))
+            {
+                s_fvRejAlreadyVeiled++;
                 continue; // already held; do not pay the ancestry walk again while it stands
+            }
 
             ConvertedPanel? owner = FindFlashVeilOwner(w.transform);
             if (owner == null)
+            {
+                s_fvRejNoOwner++;
                 continue; // not inside anything the mod draws — not the mod's to withhold
+            }
 
             if (!preStart)
             {
@@ -548,13 +595,25 @@ internal static partial class CanvasConversion
             }
 
             if (owner.RenderHidden || owner.OwnerRenderHidden)
+            {
+                s_fvRejPanelHidden++;
                 continue; // already withheld whole, by the reveal gate or by a surface
+            }
             if (ReferenceEquals(w.transform, owner.Target))
+            {
+                s_fvRejIsTarget++;
                 continue; // never the converted window itself — see the header's refusals
+            }
             if (FlashVeils.Count >= FlashVeilMaxWindows)
+            {
+                s_fvRejCap++;
                 continue; // blast-radius cap reached: the rest draw
+            }
             if (FlashVeilGaveUp.Contains(w.GetInstanceID()))
+            {
+                s_fvRejGaveUp++;
                 continue; // the deadline already released this one; it is never veiled again
+            }
 
             RaiseFlashVeil(w, owner);
         }
@@ -627,6 +686,7 @@ internal static partial class CanvasConversion
         int held = ApplyFlashVeil(e);
         if (held == 0)
         {
+            s_fvRejNothingToHold++;
             // Nothing was drawing under it after all. Do not hold an entry (and do not claim a
             // prevention) for a subtree that had no visible renderer.
             e.Window = null;
@@ -798,5 +858,100 @@ internal static partial class CanvasConversion
         // the remedy is inert rather than ineffective, and the next round measures the candidate
         // population instead of the veil.
         VRLog.Note("WorldUI", "FLASH VEIL " + body);
+    }
+
+    // ==========================================================================================
+    // ModBuild 395 — THE UNCONDITIONAL STATUS LINE (and why the 392 round was spent on a zero)
+    // ==========================================================================================
+    //
+    // The 392 hardware log contains ZERO occurrences of 'FLASH VEIL', and also zero of
+    // 'PREVENTED', 'LET THROUGH' and 'DEADLINE RELEASED' — because all four strings live in ONE
+    // line, and that line is only reachable from RaiseFlashVeil (after a veil has gone up) and
+    // from the deadline branch. So a session with no veils and a session with no scan print the
+    // same thing, and the counter that was supposed to be the falsifier could never appear.
+    //
+    // What follows is the correction, and the rule it obeys is the one this session has now paid
+    // for three times: an instrument must be able to say "I ran and I found nothing" in the same
+    // words it says "I ran and I found this". Every term of the candidate scan gets its own
+    // counter, so the next log names WHICH clause rejected the population rather than reporting
+    // a total that is compatible with every explanation. The line is unconditional, printed at
+    // the Info tier the shipped default level prints, and rate-limited by frames rather than by
+    // change — a change-gated line with a constant reason prints once and then reads as a dead
+    // tick ([[held-instrument-reads-as-dead]]).
+    //
+    // COST: one integer compare per LateUpdate on the quiet path (Time.frameCount against a
+    // stored deadline), and one string build per FlashVeilStatusFrames — 1800 frames is 20 s at
+    // 90 Hz, so a 25,000-frame session produces about fourteen lines. Budget is 11.11 ms.
+
+    /// <summary>Frames between two unconditional status lines. 1800 = 20 s at 90 Hz.</summary>
+    private const int FlashVeilStatusFrames = 1800;
+
+    /// <summary>Frame the next status line is due on. 0 means "due on the first scan", which is
+    /// deliberate: the first line proves the part is installed and reached at all.</summary>
+    private static int s_fvStatusDueFrame;
+
+    /// <summary>How many status lines have been printed (so a reader can see the cadence).</summary>
+    private static int s_fvStatusLines;
+
+    // ---- what the scan did, cumulative over the session -------------------------------------
+    private static int s_fvScansRan;              // scans that enumerated a non-empty registry
+    private static int s_fvScansIdle;             // scans that returned because no panel is live
+    private static int s_fvScansEmptyRegistry;    // scans that found the registry empty/unavailable
+    private static long s_fvWindowsSeen;          // registry entries examined, summed over scans
+    private static long s_fvPreStartSeen;         // of those, entries with HasGoneToStartingState false
+
+    // ---- which clause rejected a candidate, one counter per `continue` -----------------------
+    private static long s_fvRejFast;              // neither pre-Start nor not-open-but-painting
+    private static long s_fvRejAuthoredInvisible; // pre-Start, and a CanvasGroup really holds it at 0
+    private static long s_fvNoCanvasGroupKept;    // pre-Start, IsVisible false, but NO CanvasGroup — kept
+    private static long s_fvRejInactive;          // GameObject not active in hierarchy
+    private static long s_fvRejAlreadyVeiled;     // a veil already stands on this window
+    private static long s_fvRejNoOwner;           // no ConvertedPanel ancestor
+    private static long s_fvRejPanelHidden;       // the owning panel is render-hidden already
+    private static long s_fvRejIsTarget;          // it IS the panel's conversion target
+    private static long s_fvRejCap;               // blast-radius cap reached this frame
+    private static long s_fvRejGaveUp;            // released by the deadline earlier this session
+    private static long s_fvRejNothingToHold;     // accepted, but every CanvasRenderer was already off
+
+    /// <summary>
+    /// SAY WHAT THE SCAN DID, WHETHER OR NOT IT DID ANYTHING. Called from the top of
+    /// <see cref="TickFlashVeilScan"/>, above every early return.
+    /// </summary>
+    private static void ReportFlashVeilScanStatus()
+    {
+        int now = Time.frameCount;
+        // `now < due` and not `now - due < 0`: the sentinel is 0 and frameCount only grows, so
+        // there is no wrap to protect against here — and an `int.MinValue` sentinel subtracted
+        // from a frame count is the overflow that made a cadence never fire once already.
+        if (s_fvStatusDueFrame != 0 && now < s_fvStatusDueFrame)
+            return;
+        s_fvStatusDueFrame = now + FlashVeilStatusFrames;
+        s_fvStatusLines++;
+
+        // HW-VERIFY: this is the line that says whether part 9d ran at all. A hardware round that
+        // wants to know why a flash was not prevented reads THIS, not the veil line — the veil
+        // line only exists when a veil went up, which is the hole ModBuild 392 fell into.
+        VRLog.Note("WorldUI", "FLASH VEIL SCAN "
+            + $"#{s_fvStatusLines} at frame {now}: the pre-Start candidate scan RAN "
+            + $"{s_fvScansRan} time(s) over a non-empty window registry, returned early "
+            + $"{s_fvScansIdle} time(s) with no converted panel live and {s_fvScansEmptyRegistry} "
+            + $"time(s) with the registry empty or unavailable; it examined {s_fvWindowsSeen} "
+            + $"registry entr(ies) in total, of which {s_fvPreStartSeen} had "
+            + "HasGoneToStartingState == false. REJECTED BY CLAUSE, in the order the scan asks "
+            + $"them: neither-pre-Start-nor-painting {s_fvRejFast}; a CanvasGroup really holds it "
+            + $"at alpha 0 {s_fvRejAuthoredInvisible}; GameObject inactive {s_fvRejInactive}; "
+            + $"already veiled {s_fvRejAlreadyVeiled}; NO ConvertedPanel ancestor {s_fvRejNoOwner}; "
+            + $"the owning panel is already render-hidden {s_fvRejPanelHidden}; it IS the panel's "
+            + $"conversion target {s_fvRejIsTarget}; blast-radius cap {s_fvRejCap}; released by the "
+            + $"deadline earlier {s_fvRejGaveUp}; accepted but every CanvasRenderer was already off "
+            + $"{s_fvRejNothingToHold}. KEPT BY THE 395 WIDENING (pre-Start, IsVisible false, but no "
+            + $"CanvasGroup to hold it at zero): {s_fvNoCanvasGroupKept}. OUTCOME: PREVENTED "
+            + $"{s_flashVeilSuppressed} flash frame(s) over {s_flashVeilRenderers} CanvasRenderer(s) "
+            + $"held; LET THROUGH {s_flashVeilSpared} not-open-but-painting window(s) (last "
+            + $"'{s_flashVeilSparedName}'); DEADLINE RELEASED {s_flashVeilGaveUp}. Worst scan cost "
+            + $"this session {s_flashVeilWorstMicros} us against an 11.11 ms budget. HOW TO READ A "
+            + "ZERO: 'PREVENTED 0' beside a non-zero clause count names the clause that owns the "
+            + "zero; 'PREVENTED 0' with every clause at zero and 'examined 0' means the scan is "
+            + "not being reached at all, which is a call-site defect and not a candidate-set one.");
     }
 }

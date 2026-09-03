@@ -905,6 +905,32 @@ internal sealed class ConvertedPanel
     /// </summary>
     public readonly List<Canvas> HiddenCanvases = new(8);
 
+    /// <summary>
+    /// ONE FLAG PER ENTRY OF <see cref="HiddenCanvases"/>, in lockstep with it: was the
+    /// <c>UIWindow</c> ON THAT CANVAS'S OWN GameObject still PRE-START when this panel's hide
+    /// recorded it? (No <c>UIWindow</c> there at all, or one that had already run its
+    /// <c>Start()</c>, both record <c>false</c>.)
+    ///
+    /// <para>WHY THE FLAG EXISTS, and it is the whole of ModBuild 395's fix. The hide's
+    /// exact-restore contract — "only components that were enabled at hide time are recorded, so
+    /// the restore can never switch on something that was deliberately off" — rests on the
+    /// recorded <c>true</c> being a DECISION by the game. For a window whose <c>Start()</c> has
+    /// not run yet it is not a decision, it is the PREFAB's authored default: <c>UIWindow.Start</c>
+    /// is the method that first drives the window to its starting visual state (decompiled
+    /// UIWindow.cs:358-372), and for a <c>_disableCanvas</c> window that state is written as
+    /// <c>_canvas.enabled</c> in <c>OnTransitionStarted</c>. A panel converted at prefab state is
+    /// therefore recorded with EVERY sub-view canvas "enabled", the game decides moments later
+    /// (while our hide already holds them off, so its write is a no-op it cannot repeat), and the
+    /// reveal then replays the prefab default over the game's verdict — which is the screen the
+    /// user photographed: the delete-character confirmation, the mercenary-create screen and
+    /// dozens of un-populated labels all painting at once.</para>
+    ///
+    /// <para>Entries flagged <c>false</c> are restored exactly as before — the contract still
+    /// holds wherever the recorded value really was a decision, so a window that was fading out
+    /// when the hide ran keeps today's behaviour to the bit.</para>
+    /// </summary>
+    public readonly List<bool> HiddenCanvasWasPreStart = new(8);
+
     /// <summary>Renderers this panel's render hide turned off — same exact-restore contract as
     /// <see cref="HiddenCanvases"/> (grab bar, MR backing plate).</summary>
     public readonly List<Renderer> HiddenRenderers = new(8);

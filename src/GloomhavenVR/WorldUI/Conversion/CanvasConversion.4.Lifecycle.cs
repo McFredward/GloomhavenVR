@@ -982,7 +982,7 @@ internal static partial class CanvasConversion
                                   $"pop-in; {poseState}, final scale {finalScale}; unhid {shownCanvases} " +
                                   $"canvas(es) + {shownRenderers} renderer(s) (grab bar, X, " +
                                   $"MR plate) in this ONE frame at frame phase {phase}, frame " +
-                                  $"{Time.frameCount}.");
+                                  $"{Time.frameCount}. {RevealWithholdClause()}");
         }
         else
         {
@@ -1005,7 +1005,7 @@ internal static partial class CanvasConversion
                                   $"fit={fitState}) — revealing anyway, a window must never stay invisible; " +
                                   $"{poseState}, final scale {finalScale}; unhid {shownCanvases} canvas(es) " +
                                   $"+ {shownRenderers} renderer(s) at frame phase {phase}, frame " +
-                                  $"{Time.frameCount}. NOTE: any pose re-place still pending is " +
+                                  $"{Time.frameCount}. {RevealWithholdClause()} NOTE: any pose re-place still pending is " +
                                   "now permanently SKIPPED — moving a visible window is the jump this gate " +
                                   "exists to prevent.");
         }

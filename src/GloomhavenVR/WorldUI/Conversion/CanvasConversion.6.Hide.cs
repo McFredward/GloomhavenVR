@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using GloomhavenVR.Core;
+using HarmonyLib;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -216,15 +218,73 @@ internal static partial class CanvasConversion
 
         // Reveal: exactly the recorded set, in one pass — everything becomes visible in the SAME
         // frame. Destroyed components (Unity fake-null) are simply skipped.
+        //
+        // ModBuild 395 — WITH ONE EXCEPTION, AND IT IS THE USER'S FLASH. An entry recorded off a
+        // window that had not yet run Start() carries the PREFAB's default, not a decision; the
+        // game makes the real decision moments later, into a canvas our hide already holds off,
+        // and replaying the prefab default over it is what put the whole character screen on the
+        // wall at once. For those entries only, the game's CURRENT verdict is asked instead.
+        // Everything else is restored bit-for-bit as before. See RevealRestoreWithheld.
+        s_revealWithheldCanvases = 0;
+        s_revealPreStartNotOpen = 0;
+        s_revealWithheldName = "none";
         for (int i = 0; i < panel.HiddenCanvases.Count; i++)
         {
             Canvas c = panel.HiddenCanvases[i];
             if (c == null || c.enabled)
                 continue;
+            bool preStart = i < panel.HiddenCanvasWasPreStart.Count
+                            && panel.HiddenCanvasWasPreStart[i];
+            if (preStart && RevealRestoreWithheld(panel, c))
+            {
+                s_revealWithheldCanvases++;
+                s_revealWithheldName = c.gameObject.name;
+                continue;
+            }
             c.enabled = true;
             canvasesChanged++;
         }
+        // FAIL TOWARD DRAWING, and this is the net that makes the exception safe to ship. If the
+        // pass above ended with NOTHING switched on and something withheld, the panel would be
+        // revealed empty — the one outcome "Es darf niemals leere Fenster geben" forbids outright.
+        // Then the withhold is abandoned wholesale and the old exact restore runs instead.
+        if (canvasesChanged == 0 && s_revealWithheldCanvases > 0)
+        {
+            for (int i = 0; i < panel.HiddenCanvases.Count; i++)
+            {
+                Canvas c = panel.HiddenCanvases[i];
+                if (c == null || c.enabled)
+                    continue;
+                c.enabled = true;
+                canvasesChanged++;
+            }
+            VRLog.Alert("WorldUI", "REVEAL RESTORE WITHHELD: the pre-Start withhold would have "
+                + $"revealed '{panel.HostGo?.name ?? "?"}' with ZERO canvases switched on, so it "
+                + $"was ABANDONED and all {canvasesChanged} recorded canvas(es) were restored the "
+                + "old way. The window draws; the flash this rule prevents may be back on this one "
+                + "open. A repeat of this line names a panel whose every recorded canvas belongs "
+                + "to a not-open UIWindow, which means the rule's premise does not hold there.");
+            s_revealWithheldCanvases = 0;
+            s_revealWithheldName = "none";
+        }
+        // AND SAY SO AT A TIER THE SHIPPED DEFAULT PRINTS. The clause this rule appends to the two
+        // MODAL REVEAL lines rides VRLog.Info/Warn, which ModBuild 331 moved to the DEBUG tier — so
+        // on the user's hardware that clause is invisible, and reading it here would repeat exactly
+        // the mistake that made the 392 round unreadable. This line is printed, and it is emitted
+        // on the first three reveals of a session WHATEVER it found (so a zero is legible as a
+        // zero) and afterwards only on a reveal that actually had something to decide (so it can
+        // never become per-frame chatter).
+        if (s_revealPreStartNotOpen > 0 || s_revealClauseLines < 3)
+        {
+            s_revealClauseLines++;
+            // HW-VERIFY: the number that says whether the pre-Start restore exception reaches the
+            // screen the user photographed. See RevealWithholdClause for how to read the pair.
+            VRLog.Note("WorldUI", $"REVEAL RESTORE WITHHELD on '{panel.HostGo?.name ?? "?"}' at "
+                + $"frame {Time.frameCount}: {RevealWithholdClause()} Restored "
+                + $"{canvasesChanged} canvas(es) this reveal.");
+        }
         panel.HiddenCanvases.Clear();
+        panel.HiddenCanvasWasPreStart.Clear();
         for (int i = 0; i < panel.HiddenRenderers.Count; i++)
         {
             Renderer r = panel.HiddenRenderers[i];
@@ -261,6 +321,12 @@ internal static partial class CanvasConversion
                 continue; // already off (by us on an earlier pass, or by the game on purpose)
             c.enabled = false;
             panel.HiddenCanvases.Add(c);
+            // ModBuild 395: record WHETHER THE `true` WE JUST READ WAS A DECISION. See
+            // ConvertedPanel.HiddenCanvasWasPreStart for the full argument; the read itself is one
+            // GetComponent on a GameObject we are already touching, paid once per canvas per hide
+            // (a canvas already recorded is skipped by the `!c.enabled` line above), and it writes
+            // nothing to the game.
+            panel.HiddenCanvasWasPreStart.Add(IsOnPreStartWindow(c));
             canvasesChanged++;
         }
 
@@ -412,5 +478,198 @@ internal static partial class CanvasConversion
             renderersChanged++;
         }
         OwnerHideRendererScratch.Clear();
+    }
+
+    // ==========================================================================================
+    // ModBuild 395 — THE PRE-START RESTORE EXCEPTION (user report 2026-09-03: "Leider ist es noch
+    // da. … Weiterhin tritt es jetzt auch auf nachdem ich das erste mal auf 'Reisen' drücke. Auch
+    // nachdem ich eine persönliche Quest gewählt habe blitzt es wieder auf.")
+    // ==========================================================================================
+    //
+    // WHAT THE 392 LOG SAYS, and it is the reason this rule lives HERE and not in part 9d. The
+    // flash the user photographed is measured by the mod's own instrument: SUB-VIEW SETTLE BURST
+    // on 'GloomhavenVR.Panel_Modal_New Party display' reports "694 visible graphic(s) … PEAK 694
+    // over a union of 1920x1080 px" where "the settled state of this window is 85-128". Its
+    // visibility test is the fit's own TryGetVisibleHostRect, which rejects on cull AND on
+    // colour times CanvasGroup-inherited alpha (CanvasConversion.3.Fit.cs:324-331) — so those 694
+    // are graphics that really put pixels on the wall, not a census that would agree with a
+    // closed window.
+    //
+    // AND THE SAME LOG SAYS WHEN. Every one of the six opens of that panel reads
+    // "MODAL REVEAL: 'GloomhavenVR.Panel_Modal_New Party display' FORCED after ~605 ms
+    // (deadline 600 ms; still waiting on first content fit) … unhid 16 canvas(es)". Sixteen, every
+    // time, on a screen the ModBuild 388 adoption sweep found no nested canvas worth adopting in.
+    // Those sixteen are the sub-views, and the reveal switches all sixteen on in one frame.
+    //
+    // WHY THE OLD EXACT RESTORE IS NOT EXACT HERE. The contract on HiddenCanvases is "only
+    // components that were enabled at hide time are recorded, so the restore can never switch on
+    // something that was deliberately off". That is true whenever the recorded `true` was a
+    // DECISION. A panel is RenderHidden from Convert itself (part 1), i.e. from the frame the
+    // screen is instantiated, and at that frame no sub-view UIWindow has run Start() yet — Start
+    // is where UIWindow first drives itself to its starting visual state, and for a window that
+    // hides by its canvas that write is `_canvas.enabled = false` in OnTransitionStarted
+    // (decompiled UIWindow.cs:358-372, 566-580). So the hide records the PREFAB default for all
+    // sixteen, the game decides "hidden" a few frames later into a canvas we are already holding
+    // off (its write is a no-op it never repeats), and ~605 ms later the reveal replays the prefab
+    // default over the game's verdict. That is the delete-character confirmation, the
+    // mercenary-create screen and the un-populated "New Text" labels arriving together.
+    //
+    // WHY PART 9d's VEIL COULD NEVER HAVE CAUGHT IT, which is the same fact from the other side:
+    // its candidates must be pre-Start AND inside a panel that is NOT RenderHidden
+    // (CanvasConversion.9d.FlashVeil.cs:516/550). On this screen those two conditions are disjoint
+    // in time — the panel is RenderHidden for the whole ~605 ms in which its sub-views are
+    // pre-Start, and by the time it is revealed every one of them has started. The veil is not
+    // wrong; the frames it was aimed at are not the frames the user sees.
+    //
+    // WHAT THIS RULE MAY AND MAY NOT DO. It never calls SetActive, Show or Hide, never writes the
+    // game's alpha, state or event wiring, and never writes anything at all on the game side: it
+    // DECLINES ONE WRITE OF OUR OWN, and only for an entry whose recorded value we can prove
+    // carried no information. Everything else restores bit-for-bit, so a window that was mid
+    // fade-out when the hide ran — HasGoneToStartingState already true — is untouched to the bit.
+
+    /// <summary>Counter for the clause the two MODAL REVEAL lines append. Set by the reveal pass
+    /// immediately before those lines are built, and read by nothing else.</summary>
+    private static int s_revealWithheldCanvases;
+
+    /// <summary>Name of the last canvas the reveal pass left off, for the same clause.</summary>
+    private static string s_revealWithheldName = "none";
+
+    /// <summary>Recorded canvases in THIS reveal that were the defect population — recorded while
+    /// their window was pre-Start, and that window now reports started and not open. The
+    /// difference between this and <see cref="s_revealWithheldCanvases"/> is exactly the set the
+    /// `_disableCanvas` term refused, and it is the number the next hardware round reads.</summary>
+    private static int s_revealPreStartNotOpen;
+
+    /// <summary>How many printed REVEAL RESTORE WITHHELD lines this session has produced.</summary>
+    private static int s_revealClauseLines;
+
+    /// <summary>How many recorded canvases the last reveal left OFF because the game had decided
+    /// against them while the hide held them (see the block above).</summary>
+    internal static int RevealWithheldCanvases => s_revealWithheldCanvases;
+
+    /// <summary>The last such canvas's GameObject name, or "none".</summary>
+    internal static string RevealWithheldName => s_revealWithheldName;
+
+    /// <summary>
+    /// The clause both MODAL REVEAL lines append. UNCONDITIONAL — it states the zero as plainly as
+    /// it states a count, because a clause that only appears when it acted cannot tell a reader
+    /// whether the rule ran; that is the exact hole part 9d's 392 line fell into.
+    /// </summary>
+    private static string RevealWithholdClause() =>
+        s_revealWithheldCanvases == 0
+            ? "PRE-START RESTORE WITHHELD 0 canvas(es) of "
+              + $"{s_revealPreStartNotOpen} that were recorded off a pre-Start UIWindow the game "
+              + "has since decided against. A zero on BOTH numbers means this panel's hide never "
+              + "recorded a prefab default and the rule has nothing to do here; a zero on the "
+              + "first with the second non-zero means every one of them was refused by the "
+              + "`_disableCanvas` term, i.e. those windows hide by their CanvasGroup alpha and "
+              + "this rule is not the lever that reaches them."
+            : $"PRE-START RESTORE WITHHELD {s_revealWithheldCanvases} of {s_revealPreStartNotOpen} "
+              + "candidate canvas(es) (last "
+              + $"'{s_revealWithheldName}'): each was recorded as 'enabled' while its own UIWindow "
+              + "had not run Start() yet — a prefab default, not a decision — and that window now "
+              + "reports itself started and NOT open. Switching them on is what painted the whole "
+              + "character screen at once. If a sub-view is missing after a reveal, this count is "
+              + "the first suspect and this is the line that names it.";
+
+    /// <summary>
+    /// Is <paramref name="c"/>'s OWN GameObject a <c>UIWindow</c> that has not run <c>Start()</c>
+    /// yet? GetComponent and not GetComponentInParent: a canvas nested under a window is not that
+    /// window's visibility lever, and [[containment-is-not-identity]] is the record of the two
+    /// questions being different ones.
+    /// </summary>
+    private static bool IsOnPreStartWindow(Canvas c)
+    {
+        if (c == null)
+            return false;
+        var w = c.GetComponent<UIWindow>();
+        return w != null && !w.HasGoneToStartingState;
+    }
+
+    /// <summary>
+    /// Should the reveal leave this recorded canvas OFF? Only ever asked for an entry recorded
+    /// while its window was pre-Start, i.e. one whose recorded <c>enabled == true</c> is a prefab
+    /// default rather than a decision. Answers YES only when the GAME'S OWN current verdict is
+    /// "this window is not shown", and every uncertainty answers NO — which is the direction that
+    /// draws.
+    /// </summary>
+    private static bool RevealRestoreWithheld(ConvertedPanel panel, Canvas c)
+    {
+        if (c == null)
+            return false;
+        // NEVER the panel's own root. The host canvas and the conversion target carry the window
+        // the player opened; withholding either is the empty window the 2026-08-02 ruling forbids
+        // outright, and the reveal gate (part 4) is the only owner of that one's visibility.
+        if (ReferenceEquals(c, panel.HostCanvas))
+            return false;
+        if (panel.Target != null && ReferenceEquals(c.transform, panel.Target))
+            return false;
+        if (panel.HostGo != null && ReferenceEquals(c.gameObject, panel.HostGo))
+            return false;
+
+        var w = c.GetComponent<UIWindow>();
+        if (w == null)
+            return false; // not a game window's lever — we have no verdict to defer to
+        if (!w.HasGoneToStartingState)
+            return false; // the game STILL has not decided; replay what we found and let it decide
+        if (w.IsOpen)
+            return false; // the game wants it shown — restore, and this is the common case
+
+        // From here the entry IS the defect population: recorded at prefab state, and the game has
+        // since decided the window is not shown. Count it BEFORE the last term, so the reveal line
+        // can state how many the `_disableCanvas` term then refused — that number, and only that
+        // number, says whether this rule reaches the screen the user photographed.
+        s_revealPreStartNotOpen++;
+
+        // THE LAST TERM, AND IT IS THE ONE THAT KEEPS THE RULE FROM LATCHING A WINDOW OFF FOREVER.
+        // Withholding is only safe where the GAME will switch this canvas back on when it next
+        // shows the window — i.e. where the canvas is the window's OWN visibility lever. That is
+        // exactly UIWindow's serialized `_disableCanvas` (decompiled UIWindow.cs:119): with it set,
+        // OnTransitionStarted writes `_canvas.enabled = true` on every Show and false on every
+        // instant Hide (:566-580). With it CLEAR the window hides by its CanvasGroup alpha and
+        // NEVER touches Canvas.enabled — so a canvas withheld there would stay dark through every
+        // later Show, which is the "leeres Fenster" the standing ruling forbids and a far worse
+        // defect than the flash. There is no public accessor, so the field is read once through a
+        // cached FieldInfo; a read that fails for any reason answers "restore".
+        return ReadsDisableCanvas(w);
+    }
+
+    /// <summary>Cached <c>UIWindow._disableCanvas</c> accessor — resolved once, never written.</summary>
+    private static System.Reflection.FieldInfo? s_disableCanvasField;
+
+    private static bool s_disableCanvasFieldResolved;
+
+    /// <summary>Does this window hide itself by switching its own Canvas off? See
+    /// <see cref="RevealRestoreWithheld"/> for why the answer bounds the whole rule.</summary>
+    private static bool ReadsDisableCanvas(UIWindow w)
+    {
+        if (!s_disableCanvasFieldResolved)
+        {
+            s_disableCanvasFieldResolved = true;
+            try
+            {
+                s_disableCanvasField = AccessTools.Field(typeof(UIWindow), "_disableCanvas");
+            }
+            catch (System.Exception)
+            {
+                s_disableCanvasField = null;
+            }
+            if (s_disableCanvasField == null)
+                VRLog.Alert("WorldUI", "REVEAL RESTORE WITHHELD: UIWindow._disableCanvas could not "
+                    + "be resolved, so the pre-Start restore exception is STOOD DOWN for the whole "
+                    + "session and every recorded canvas is restored the old way. The window always "
+                    + "draws; the flash it prevents is back. A rename of that field in a game patch "
+                    + "is the expected cause.");
+        }
+        if (s_disableCanvasField == null)
+            return false;
+        try
+        {
+            return s_disableCanvasField.GetValue(w) is true;
+        }
+        catch (System.Exception)
+        {
+            return false;
+        }
     }
 }
