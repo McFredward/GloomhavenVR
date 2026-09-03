@@ -149,6 +149,43 @@ internal static partial class WallSegmentFade
             // end, when the piece is already fully solid and nobody can see it. A symmetric ramp
             // cannot produce an asymmetric artifact; an edge bolted onto one end of it can, and
             // this is that edge.
+            // THE POP (ModBuild 412; user on 411: "Teile davon ploppen nun weg ohne Animation und
+            // tauchen wieder auf"). The early-out below used to fire FIRST for any mesh whose
+            // material has a _Cutoff — which every toggle-native masonry material has — so a
+            // 'wallfade-native' rider (the collapsed gate's rocks riding the crystal group 'J' in
+            // the 411 log: "+16 mounted prop(s) [LOD2/wallfade-native, …] … 0 native-dissolve,
+            // 17 own alpha/particle channel") was driven by a bare _Cutoff lerp that the
+            // wall-fade shader ignores without the map/toggle block, i.e. nothing visible
+            // happened until the piece was switched off at fade 0.99 and switched back on at the
+            // release. The Tier string said native, the channel was not. A MESH whose materials
+            // ALL carry the live wall-fade toggle now takes the native path FIRST, whatever
+            // colour or cutoff property ClassifyProp also found: the same map/_Cutoff ramp the
+            // wall renderers get, animated both ways. Particle systems and channel-less pieces
+            // are unchanged.
+            if (p.System == null && r is MeshRenderer)
+            {
+                _matScratch.Clear();
+                r.GetSharedMaterials(_matScratch);
+                bool allNative = _matScratch.Count > 0;
+                foreach (Material m in _matScratch)
+                {
+                    if (m == null || !HasLiveWallFadeToggle(m))
+                    {
+                        allNative = false;
+                        break;
+                    }
+                }
+                if (allNative)
+                {
+                    foreach (Material m in _matScratch)
+                        CaptureMasonryTemplate(m); // late-donor: props may beat the walls to it
+                    p.SwapChecked = true;
+                    p.NativeFade = true;
+                    p.DissolveWhy = null;
+                    _nativeTotal++;
+                    return;
+                }
+            }
             if (p.System != null || p.ColorId >= 0 || p.DissolveControlId >= 0 || p.CutoffId >= 0)
             {
                 p.SwapChecked = true;
