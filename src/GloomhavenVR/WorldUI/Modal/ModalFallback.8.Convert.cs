@@ -631,11 +631,67 @@ internal static partial class ModalFallback
             // UIWindow and ControllerInputArea, :18, and caches its window with GetComponent in
             // Awake, :68, so the manager and the window are ONE GameObject by construction.
             bool isLoadoutScreen = window.GetComponent<UILoadoutManager>() != null;
+            // ModBuild 381 — AND ANY WINDOW WHERE A DECISION IS MANDATORY, WHICH IS WHAT TURNS THE
+            // SEVEN CLAUSES ABOVE FROM A BLACKLIST INTO A RULE.
+            //
+            // USER REPORT (2026-09-03), verbatim: "Das Fenster 'Begegnung!' hat ein 'X' zum
+            // schließen. Das darf nicht sein - hier MUSS eine Entscheidung getroffen werden, drückt
+            // ein User das X kommt das einem Deadlock gleich. Prüfe nochmal das jedes Fenster bei
+            // dem zwingend eine Entscheidunge getroffen werden muss auch kein X hat."
+            //
+            // WHAT WAS WRONG WITH THE GATE, not just with one window. Every clause above is an
+            // exclusion, so the default for a window nobody has classified is TO GET AN X. The
+            // comment above defends that by pointing out the X runs the same CloseFloatedWindow the
+            // escape chord already applies without a whitelist — which is an argument about the
+            // MECHANISM being uniform, and the mechanism is. The CONSEQUENCE is not: on most windows
+            // a Hide() is a close, and on the encounter window it is a campaign map with no HUD, no
+            // quest log, no party display, actions paused and the encounter button greyed out
+            // forever. The 380 log has the defect as a line — 7846, "MODAL CLOSE (X button):
+            // attached to 'UI Event Window' (ID EventsPanel)".
+            //
+            // IsMandatoryDecision carries the whole argument and the decompiled proof of the
+            // strand, plus the honest limits of its second term. It is TWO terms: an identity match
+            // on the encounter window (which is what makes the report provably fixed, because the
+            // second term's input is serialized in a prefab and cannot be read from the decompile),
+            // and the derived net "the mod's X must not do what the game's own ESC key refuses to
+            // do" (escapeKeyAction None), with one exemption for the mod's own settings pane.
+            bool isMandatoryDecision = IsMandatoryDecision(window, out string mandatoryReason);
             if (!isResultsPanel && !isStoryBox && !isRewardShowcase && !isLevelMsg && !isHoverCard
-                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen)
+                && !isMapRoomPermanent && !isTransient && !isLoadoutScreen && !isMandatoryDecision)
+            {
                 ModalCloseButton.Attach(panel, window);
+                // HW-VERIFY
+                // THE AUDIT IS ONLY RE-CHECKABLE IF BOTH VERDICTS PRINT. Until this build only the
+                // no-X branch logged, at VRLog.Info — the DEBUG tier, not printed at the shipped
+                // default — so a hardware log could not say which windows got a cross, and the
+                // user's "prüfe nochmal das JEDES Fenster …" could only ever be answered by reading
+                // source. The TIER is what changed here and in the else-branch; no existing text was
+                // reworded. ESCAPE POLICY is the field that decides the open question: it is the
+                // only way to learn what escapeKeyAction each window actually carries, because the
+                // value is [SerializeField] and lives in the asset bundles. If a window in this
+                // list reads 'None' the derived term would have caught it unaided; if 'UI Event
+                // Window' had read 'None', term 1 was belt-and-braces rather than the load-bearing
+                // half. One line per window per conversion, never per frame.
+                VRLog.Note("WorldUI", $"MODAL WINDOW X AUDIT: '{name}' (ID {window.ID}) floats WITH an X — "
+                                      + "no exclusion matched, so the mod judges this window safe to "
+                                      + "close: hiding it strands nothing that cannot be reopened. "
+                                      + $"ESCAPE POLICY escapeKeyAction={EscapePolicyOf(window)} (the "
+                                      + "game's own ESC verdict for this window; None would mean the "
+                                      + "game refuses to close it and this line is then the bug). "
+                                      + "TERMS TESTED, all false here: results panel, story box, "
+                                      + "reward showcase, level message, hover card, map-room "
+                                      + "permanent, transient announcement, loadout screen, mandatory "
+                                      + "decision. HOW TO READ IT: this line and the 'floats WITHOUT "
+                                      + "an X' line are exhaustive over converted windows — a window "
+                                      + "that appears in NEITHER was never converted at all, which is "
+                                      + "a different question from whether it got a cross.");
+            }
             else
-                VRLog.Info("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
+                // HW-VERIFY
+                // Promoted from VRLog.Info (DEBUG tier, not printed at the shipped default) to
+                // VRLog.Note (Info tier, printed) so the exclusion side of the audit survives the
+                // ModBuild 331 quiet-log mapping. The TEXT is unchanged and only appended to.
+                VRLog.Note("WorldUI", $"MODAL WINDOW: '{name}' (ID {window.ID}) floats WITHOUT an X " +
                                       $"({(isResultsPanel ? "results window — native buttons are the only exit"
                                           : isRewardShowcase ? "reward showcase — native continue is the only exit (its callback releases the message pump)"
                                           : isLevelMsg ? "tutorial/level message — the player must engage, not dismiss (its own button/action is the only exit)"
@@ -647,7 +703,31 @@ internal static partial class ModalFallback
                                           : isMapRoomPermanent ? MapRoomPermanentReason(window)
                                           : isTransient ? TransientAnnouncementReason(window)
                                           : isLoadoutScreen ? "pre-scenario loadout screen — the quest intro is told IN this window by StoryComposite, and closing it would hide the window its own Enter Dungeon button is a child of"
-                                          : "click-through story box")}).");
+                                          // ModBuild 381: LAST in the chain, so it can only be the
+                                          // printed reason when no older exclusion already owned this
+                                          // window. A window matched by BOTH is reported under the
+                                          // older term, which is correct — the reason must name what
+                                          // actually decided, and the clauses are evaluated in order.
+                                          : isMandatoryDecision ? mandatoryReason
+                                          : "click-through story box")})"
+                                      // ModBuild 381: the same ESCAPE POLICY field the WITH-an-X line
+                                      // carries, so the two halves of the audit are comparable. It is
+                                      // the only route to the serialized escapeKeyAction values, and
+                                      // the answer to "would the derived term have sufficed on its
+                                      // own" is read off this field across both lines, not inferred.
+                                      + $" ESCAPE POLICY escapeKeyAction={EscapePolicyOf(window)}."
+                                      // NOT ONE SENTENCE FOR BOTH CASES: a map-room permanent window is
+                                      // ALSO skipped by CloseTopModal and refused by CloseFloatedWindow
+                                      // (ModalFallback.7.Close.cs:69-77, :101-108), so claiming the chord
+                                      // still closes it would be this line asserting a mechanism that is
+                                      // false on its own most common branch.
+                                      + (isMapRoomPermanent
+                                          ? " THE ESCAPE CHORD ALSO SKIPS this window and"
+                                            + " CloseFloatedWindow refuses it; the chord walks PAST it to"
+                                            + " the next floated window, so nothing here can trap the room."
+                                          : " THE ESCAPE CHORD IS UNCHANGED and still reaches this window:"
+                                            + " only the drawn cross is withheld, which is the precedent"
+                                            + " every other no-X window above already sets."));
             // ModBuild 230: the transient's replacement for the X. Built AFTER the X decision and
             // before the WindowPanel so a failure to build it cannot cost the window its float.
             if (isTransient)
