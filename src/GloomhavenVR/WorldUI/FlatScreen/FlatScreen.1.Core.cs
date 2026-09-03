@@ -385,11 +385,40 @@ internal sealed partial class FlatScreen
     private bool _chordFired;
     private bool _chordArmingLogged;
 
+    // ==========================================================================================
+    // PROGRAMMATIC RESCUE LATCH (ModBuild 373) — the same screen the chord raises, asked for by
+    // code instead of by a press.
+    //
+    // WHY IT HAD TO BE BUILT, AND WHY IT IS STATIC. The 2026-09-03 travel-event deadlock leaves
+    // the player on the CAMPAIGN MAP with `UIDistributeRewardManager.IsDistributing` true, the map
+    // locked by `AdventureMapUIManager.LockOptionsInteraction`, and no panel anywhere. The mod's
+    // standing universal escape is the A/X chord — and on the map that chord DOES NOT EXIST:
+    // `TickManualChord` returns immediately (and clears `_manualShow`) unless
+    // `VRModeStateMachine.ScenarioBoardExists`, and `WantVisible` refuses the screen outright
+    // while `MapRoomDriver.Active`. So the one place this deadlock happens is the one place the
+    // rescue was unreachable. ModBuild 370's lane declined to build this entry point; that call
+    // was overruled on 2026-09-03 after the second identical report.
+    //
+    // The latch is SEPARATE from `_manualShow` on purpose: `_manualShow` is a chord state the
+    // scenario-board guard is entitled to clear every tick, and a rescue that is wiped by that
+    // guard is not a rescue. It is STATIC because the requester is a WorldUI surface with no
+    // handle on the FlatScreen instance, exactly like `ManualScreenActive` above; the module owns
+    // a single FlatScreen for the life of the session.
+    //
+    // IT IS NOT A SECOND POLICY. While it is set, `ManualScreenActive` is true — bit for bit the
+    // state the chord produces — so ModalFallback's release-on-manual-screen path and every
+    // surface's `!FlatScreen.ManualScreenActive` gate behave IDENTICALLY to a player press. There
+    // is deliberately no second code path for anything to disagree about.
+    // ==========================================================================================
+    private static bool _rescueShow;
+    private static string _rescueRequester = string.Empty;
+
     /// <summary>
-    /// True while the manual chord forces the full screen (P8): ModalFallback reads
-    /// this to RELEASE its floating window conversions — a window re-parented onto a
-    /// world-space host would be missing from the screen's RT composite, so the
-    /// universal rescue must always put the windows back into the 2D UI first.
+    /// True while the full screen forces the 2D composite — the manual chord OR a programmatic
+    /// rescue request (<see cref="RequestRescueScreen"/>). ModalFallback reads this to RELEASE
+    /// its floating window conversions — a window re-parented onto a world-space host would be
+    /// missing from the screen's RT composite, so the universal rescue must always put the
+    /// windows back into the 2D UI first.
     /// </summary>
     internal static bool ManualScreenActive { get; private set; }
 
@@ -402,7 +431,16 @@ internal sealed partial class FlatScreen
         Core.Events.VREvents.SceneLoaded += OnSceneLoaded;
     }
 
-    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e) => ReleaseStack();
+    private void OnSceneLoaded(Core.Events.SceneLoadedEvent e)
+    {
+        ReleaseStack();
+        // A rescue is asked for by a watchdog watching ONE stuck flow in ONE scene. A scene load
+        // ends that flow's world, so the latch is dropped here rather than trusted to a requester
+        // that may itself have been destroyed with the scene. This can never strand the player:
+        // every requester re-asks from its own per-tick watchdog, so a request that is still true
+        // after the load is back within a frame, and one that is not was stale.
+        ReleaseRescueScreen("<scene load>");
+    }
 
     public void Tick()
     {
@@ -435,7 +473,9 @@ internal sealed partial class FlatScreen
         }
 
         TickManualChord();
-        ManualScreenActive = _manualShow;
+        // ONE flag, two writers, no second policy: a programmatic rescue is indistinguishable
+        // downstream from a player's chord press (see the latch block in the fields above).
+        ManualScreenActive = _manualShow || _rescueShow;
 
         bool want = !preMenu && WantVisible();
         if (want && !_visible)

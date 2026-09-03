@@ -301,6 +301,26 @@ internal static partial class CanvasConversion
     private const int DeferredHostMaxTries = 120;
     private static readonly List<int> DeferredHostTries = new(2);
 
+    // ==========================================================================================
+    // THE PARKED HOST'S SCENE MEMBERSHIP, CARRIED ALONGSIDE IT (ModBuild 373).
+    //
+    // Release restores scene membership when it detaches a target to the bare scene root
+    // (RestoreTargetScene, called from Release). ServiceDeferredHosts frees a target the SAME WAY
+    // — `stuck.SetParent(null, …)` — and did NOT, so a DontDestroyOnLoad window that came loose on
+    // the deferred path was left sitting in the ACTIVE scene and died at the next scene load.
+    // That is the ModBuild 361 / 'Confirmation Box_MainMenu_pc' failure exactly, reached through
+    // the other door: the guard that was added to STOP that cascade could itself re-create it.
+    //
+    // The panel object is not carried past DestroyHostSafely, so the two facts RestoreTargetScene
+    // needs — the home scene and whether it was persistent — are carried in parallel lists keyed
+    // by index, the same way the retry counter already is. Applying the TARGET's home scene to
+    // whatever came loose is right by construction: the only thing a float host holds that is not
+    // mod-owned is that target (or content parked under a mod-owned intermediate, which belongs to
+    // the same window).
+    // ==========================================================================================
+    private static readonly List<Scene> DeferredHostScenes = new(2);
+    private static readonly List<bool> DeferredHostPersistent = new(2);
+
     /// <summary>Everything the mod parks under a float host carries this prefix — the materialise
     /// carrier and its debris (<c>GloomhavenVR.WindowMaterialiseDebris*</c>), the close-X plate
     /// (<c>GloomhavenVR.ModalCloseX</c>), the supersample display (<c>GloomhavenVR.PanelSS_*</c>),
@@ -360,6 +380,8 @@ internal static partial class CanvasConversion
             return;
         DeferredHosts.Add(host);
         DeferredHostTries.Add(0);
+        DeferredHostScenes.Add(panel.TargetHomeScene);
+        DeferredHostPersistent.Add(panel.TargetWasPersistent);
         // HW-VERIFY: the guard that stops a mod host from deleting a game window. Every
         // appearance is a cascade that WOULD have happened before ModBuild 361.
         VRLog.Alert("WorldUI", $"HOST DESTROY DEFERRED ({why}): the float host '{host.name}' still "
@@ -380,13 +402,13 @@ internal static partial class CanvasConversion
             GameObject host = DeferredHosts[i];
             if (host == null)
             {
-                DeferredHosts.RemoveAt(i);
-                DeferredHostTries.RemoveAt(i);
+                DropDeferredHost(i);
                 continue;
             }
             // Retry the detach — this frame is a normal Update, not a Unity activation callback,
             // so SetParent is allowed now. Bounded: at most one game node comes loose per pass and
             // the loop below re-tests, so a pathological tree costs one frame per node.
+            int freed = 0;
             for (int guard = 0; guard < 8; guard++)
             {
                 Transform? stuck = FindGameContent(host.transform, depth: 4);
@@ -395,15 +417,23 @@ internal static partial class CanvasConversion
                 stuck.SetParent(null, worldPositionStays: false);
                 if (stuck.IsChildOf(host.transform))
                     break; // still refused — try again next frame rather than spinning
+                // SCENE MEMBERSHIP GOES HOME HERE TOO. `SetParent(null)` leaves the freed object in
+                // whatever scene it currently belongs to — which, for anything that was parented
+                // under a host, is the host's. Release already fixes that for its own detach
+                // (RestoreTargetScene); this path did not, so a DontDestroyOnLoad window freed on
+                // the deferred path lost its persistence and died at the next scene load. Same
+                // defect as ModBuild 361, different door.
+                RestoreFreedContentScene(stuck, DeferredHostScenes[i], DeferredHostPersistent[i]);
+                freed++;
             }
             if (!HostHoldsGameContent(host, out string blocker))
             {
                 VRLog.Note("WorldUI", $"HOST DESTROY DEFERRED — RESOLVED: '{host.name}' came loose "
                     + "on a normal frame and is destroyed now. The game object it was holding is "
-                    + "alive and back at the scene root.");
+                    + $"alive and back at the scene root ({freed} object(s) freed, scene membership "
+                    + $"restored, persistent={DeferredHostPersistent[i]}).");
                 Object.Destroy(host);
-                DeferredHosts.RemoveAt(i);
-                DeferredHostTries.RemoveAt(i);
+                DropDeferredHost(i);
                 continue;
             }
             DeferredHostTries[i]++;
@@ -413,8 +443,51 @@ internal static partial class CanvasConversion
                 + $"object '{blocker}' after {DeferredHostMaxTries} frame(s) of retries. The host "
                 + "is LEAKED ALIVE rather than destroyed — an orphan empty canvas costs a few "
                 + "bytes, deleting a game window costs the session.");
-            DeferredHosts.RemoveAt(i);
-            DeferredHostTries.RemoveAt(i);
+            DropDeferredHost(i);
+        }
+    }
+
+    /// <summary>Drop one parked host and everything carried alongside it. One method so the four
+    /// parallel lists can never fall out of step — a mismatch would apply one window's scene to
+    /// another window's content, which is the exact class of bug this file keeps paying for.</summary>
+    private static void DropDeferredHost(int i)
+    {
+        DeferredHosts.RemoveAt(i);
+        DeferredHostTries.RemoveAt(i);
+        DeferredHostScenes.RemoveAt(i);
+        DeferredHostPersistent.RemoveAt(i);
+    }
+
+    /// <summary>
+    /// Put game content freed from a PARKED host back in the scene it came from. Same contract as
+    /// <see cref="RestoreTargetScene"/>, but keyed on the two facts carried alongside the host
+    /// rather than on a <see cref="ConvertedPanel"/> that is long out of scope by then. Failure is
+    /// never fatal — the worst case is the pre-fix behaviour — and it is logged.
+    /// </summary>
+    private static void RestoreFreedContentScene(Transform freed, Scene home, bool wasPersistent)
+    {
+        try
+        {
+            if (wasPersistent)
+            {
+                Object.DontDestroyOnLoad(freed.gameObject);
+                // HW-VERIFY: the ModBuild 361 guard closing its OTHER door. A persistent game
+                // window that came loose on the deferred path used to be left in the active scene,
+                // where the next load deletes it while the game's Singleton keeps pointing at it.
+                VRLog.Note("WorldUI", $"DEFERRED DETACH SCENE RESTORE: '{freed.name}' is a "
+                    + "PERSISTENT game object that came loose from a parked float host, so it was "
+                    + "made DontDestroyOnLoad again instead of being left in the active scene, "
+                    + "where the next scene load would have deleted it — the ModBuild 361 defect "
+                    + "reached through ServiceDeferredHosts instead of through Release.");
+                return;
+            }
+            if (home.IsValid() && home.isLoaded && home != freed.gameObject.scene)
+                SceneManager.MoveGameObjectToScene(freed.gameObject, home);
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("WorldUI", $"DEFERRED DETACH SCENE RESTORE FAILED for '{freed.name}': "
+                + $"{e.GetType().Name}: {e.Message}.");
         }
     }
 

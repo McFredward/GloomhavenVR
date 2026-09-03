@@ -522,7 +522,20 @@ internal static partial class CanvasConversion
                 return;
             }
             if (!home.isLoaded)
+            {
+                // HW-VERIFY: the ModBuild 361 protection SKIPPED. MoveGameObjectToScene refuses a
+                // scene that is not loaded (a scene mid-unload), so the host stays in the active
+                // scene and the target joins it on the reparent below — exactly the pre-361
+                // behaviour, for this one conversion. Silence here would have read as "the pin
+                // ran"; it did not, and the next scene load is the thing to watch.
+                VRLog.Note("WorldUI", $"HOST SCENE PIN SKIPPED for '{name}': the target's home "
+                    + $"scene '{home.name}' is NOT LOADED (mid-unload), and "
+                    + "MoveGameObjectToScene refuses it. The float host stays in the active scene, "
+                    + "so this conversion runs with the pre-ModBuild-361 scene semantics: the "
+                    + "target joins the active scene on the reparent. Release detaches it and "
+                    + "restores its scene, so the exposure is bounded by the life of this float.");
                 return;
+            }
             SceneManager.MoveGameObjectToScene(hostGo, home);
         }
         catch (System.Exception e)

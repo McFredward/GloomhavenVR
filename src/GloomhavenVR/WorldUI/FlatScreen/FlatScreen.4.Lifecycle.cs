@@ -58,6 +58,10 @@ internal sealed partial class FlatScreen
     {
         Core.Events.VREvents.SceneLoaded -= OnSceneLoaded;
         ManualScreenActive = false;
+        // The rescue latch is static and therefore outlives this instance; a module teardown must
+        // not leave the next FlatScreen booting with somebody's stale emergency still asserted.
+        _rescueShow = false;
+        _rescueRequester = string.Empty;
         Hide();
         DestroyIndicator();
         RestoreDesktopMirrorMode();      // ITEM 9: reversible on VR stop / hot reload
@@ -93,6 +97,23 @@ internal sealed partial class FlatScreen
         // state, so the screen returns through this very policy the frame loading ends.
         if (LoadingIndicator.FlatScreenSuppressed)
             return false;
+
+        // PROGRAMMATIC RESCUE (ModBuild 373) — ABOVE the map-room gate, and that placement IS the
+        // fix. The rescue is only ever asserted by a watchdog that has established the game is
+        // waiting on a decision the player has no way to make: on 2026-09-03 that was
+        // UIDistributeRewardManager.IsDistributing standing true on the campaign map with the map
+        // locked and no panel floated anywhere. In that state the map room is not a thing worth
+        // protecting — it is the wall the player is stuck behind, and the two reasons the gate
+        // below exists (the screen is "a lit quad hanging in front of the map"; the stereo
+        // compositor fights the map room for the parchment renderer) are both cosmetic against a
+        // campaign that cannot continue. Note that the manual A/X chord CANNOT reach past this
+        // gate — TickManualChord clears _manualShow whenever no scenario board exists — so on the
+        // map this latch is not a shortcut to the standing escape, it is the ONLY escape.
+        //
+        // The loading gate above deliberately stays higher: raising a composite of a half-torn-down
+        // scene is not a rescue, and the requester's watchdog is still ticking when loading ends.
+        if (_rescueShow)
+            return true;
 
         // 3D MAP ROOM GATE ([Rig] Vanilla2DMap off, which is the default from ModBuild 230):
         // while the player is STANDING IN the campaign
@@ -187,10 +208,97 @@ internal sealed partial class FlatScreen
 
         _chordFired = true;
         NonDominantHold.Consumed = true; // the release must not also toggle the OPTIONS window
+        // THE PLAYER'S PRESS OUTRANKS A WATCHDOG'S REQUEST. If a rescue raised the screen and he
+        // now chords it away, leaving the latch set would re-raise it on the very next tick and
+        // the toggle would read as broken hardware. Handing control back is safe: the requester's
+        // watchdog is still running, so a flow that is genuinely still stuck will re-request —
+        // it just has to earn the screen again through its own dwell, which is exactly right for
+        // a player who has just said "not this".
+        if (_rescueShow)
+        {
+            VRLog.Note("WorldUI", "RESCUE SCREEN RELEASED (manual chord): the player took the "
+                                  + $"screen back by hand; the request from '{_rescueRequester}' "
+                                  + "is dropped. Its watchdog may re-raise the screen if the flow "
+                                  + "it is guarding is still stuck.");
+            _rescueShow = false;
+            _rescueRequester = string.Empty;
+        }
         _manualShow = !_manualShow;
         NonDominantHold.Hand?.SendHaptic(HapticPreset.ClickPulse);
         VRLog.Info("WorldUI", $"MANUAL SCREEN CHORD: flat screen toggled {(_manualShow ? "ON" : "OFF")} " +
                               $"(non-dominant A/X held {threshold:F1}s in scenario).");
+    }
+
+    // ---- programmatic rescue (ModBuild 373) --------------------------------------------------
+
+    /// <summary>True while a programmatic rescue holds the 2D composite up.</summary>
+    internal static bool RescueScreenActive => _rescueShow;
+
+    /// <summary>
+    /// RAISE THE 2D COMPOSITE BECAUSE THE PLAYER HAS NO OTHER WAY FORWARD.
+    ///
+    /// <para>This is the guaranteed-escape entry point demanded by the standing ruling that a
+    /// player must always end in one of two observable states — a usable panel on screen, or the
+    /// action having happened, never "nothing". It goes through exactly the same latch the A/X
+    /// chord drives (<see cref="ManualScreenActive"/>), so ModalFallback and every WorldUI surface
+    /// release their floats and restore their windows to the 2D UI first, and the composite the
+    /// player then sees contains the game's own screen-space widgets, clickable with the laser.
+    /// Nothing here writes game state: no Show, no Hide, no SetActive, no synthesised click. The
+    /// mod raises its OWN presentation surface and lets the player press the game's own button.</para>
+    ///
+    /// <para>IDEMPOTENT. Calling this every tick is the expected usage — a watchdog cannot know
+    /// whether it already asked. Only the rising edge logs and only the rising edge changes state,
+    /// so a per-frame caller costs one boolean compare. A second requester while one is standing is
+    /// recorded in the name but does not re-log.</para>
+    ///
+    /// <para>THE CALLER OWNS THE RELEASE. There is deliberately no timeout here: a screen that
+    /// takes itself away on a timer would put the player back in front of nothing, which is the
+    /// exact failure this exists to prevent. It ends when the requester says the flow is unstuck
+    /// (<see cref="ReleaseRescueScreen"/>), when the player chords it away by hand, on the next
+    /// scene load, or on module shutdown.</para>
+    /// </summary>
+    /// <param name="requester">Short name of the watchdog, for the log and for the release line.</param>
+    /// <param name="why">One sentence naming what the player is stuck on. Logged once, at Alert.</param>
+    internal static void RequestRescueScreen(string requester, string why)
+    {
+        if (_rescueShow)
+            return;
+        _rescueShow = true;
+        _rescueRequester = requester;
+        // HW-VERIFY: the ONLY line that says the mod put a last-resort surface in front of the
+        // player. If a deadlock report ever arrives WITH this line in the log, the escape fired and
+        // the 2D composite was up — look at what he could not do on it. If a deadlock report
+        // arrives WITHOUT it, the escape did not fire and its trigger is the thing to read next.
+        VRLog.Alert("WorldUI", $"RESCUE SCREEN RAISED by '{requester}': {why} The mod has forced "
+                              + "the full 2D composite up through the same latch the manual A/X "
+                              + "chord uses, so every floated window has been restored to the 2D "
+                              + "UI and the game's own widgets are on the screen quad, clickable "
+                              + "with the laser. NOTHING WAS WRITTEN TO THE GAME — no Show, no "
+                              + "Hide, no SetActive, no synthesised click; the player presses the "
+                              + "game's own button. This screen does NOT time out: it stands until "
+                              + "the requester reports the flow unstuck, the player chords it away, "
+                              + "the scene changes, or the module shuts down.");
+    }
+
+    /// <summary>
+    /// End a rescue. Idempotent and safe to call from a per-tick watchdog; only the falling edge
+    /// logs. A caller that is not the current requester still releases — the latch is a single
+    /// emergency, not a refcount, and two watchdogs both wanting the screen up at once has never
+    /// happened; if it ever does, the second one's next tick re-raises it within a frame.
+    /// </summary>
+    internal static void ReleaseRescueScreen(string why)
+    {
+        if (!_rescueShow)
+            return;
+        string requester = _rescueRequester;
+        _rescueShow = false;
+        _rescueRequester = string.Empty;
+        // HW-VERIFY: pairs with RESCUE SCREEN RAISED. Its presence proves the escape was BOUNDED —
+        // that the mod let go of the player's view again — which is the one way a rescue could
+        // itself become the next deadlock report.
+        VRLog.Note("WorldUI", $"RESCUE SCREEN RELEASED: the request from '{requester}' ended "
+                              + $"({why}). ManualScreenActive returns to the chord's own state and "
+                              + "the floated surfaces resume normally.");
     }
 
     private static bool IsConfirmationBoxOpen() =>
