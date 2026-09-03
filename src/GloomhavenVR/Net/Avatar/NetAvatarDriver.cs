@@ -1675,6 +1675,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         string? undoLabelNow = trayNow != null && trayNow.UndoControlShown
             ? trayNow.UndoControlLabel
             : null;
+        // …AND THE ITEM-USE ONE IS THE WHOLE AREA'S WORDING SINCE ModBuild 378, which breaks the
+        // "null while the control is hidden" sentence directly above FOR THIS FIELD ONLY. The
+        // engraved caption under the item recess carries the same per-flow word as the cap and is
+        // up from the FIRST frame of a demand, while the cap only appears once the picker reports
+        // the selection ready — i.e. after the card is already in the recess. So bit 3 is present
+        // for the whole demand and its presence tracks the item-use BERTH, not the cap. Correcting
+        // the claim rather than the code: this is a widening of an existing field's meaning inside
+        // its declared width (48 B), not a new field, and it is what lets a peer read the owner's
+        // "ITEM ABGEBEN" under their mirrored recess at the same moment the owner does.
         string? itemUseLabelNow = trayNow != null ? trayNow.ItemUseCapLabel : null;
         bool capLabelsChanged = confirmLabelNow != _lastSentConfirmLabel
                                 || skipLabelNow != _lastSentSkipLabel
@@ -2306,7 +2315,10 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                               "GUI_SKIP_MOVEMENT / GUI_UNDO / GUI_USE. The UNDO and item-USE slots " +
                               "(mask bits 2/3) are new this build: they carry the pick flow's " +
                               "dialog-CANCEL wording and an item-SURRENDER demand's wording, both of " +
-                              "which used to read as a plain undo / 'USE' on every peer's board.");
+                              "which used to read as a plain undo / 'USE' on every peer's board. " +
+                              "itemUse is the whole ITEM-USE AREA's wording (cap AND the caption " +
+                              "engraved under the recess), so it is present for the whole demand " +
+                              "and not only while the cap is up.");
         }
 
         if (boardUiChanged)

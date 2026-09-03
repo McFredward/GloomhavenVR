@@ -645,7 +645,7 @@ internal sealed partial class PlayTray
         var label = labelGo.AddComponent<TextMeshPro>();
         // MOD string, not Loc.Game("GUI_USE"): that key does not resolve in this build, so the
         // English fallback shipped and a German board read "USE" (see Loc's item_use_area note).
-        label.text = Core.Loc.Mod("item_use_area").ToUpperInvariant();
+        label.text = ItemUseAreaCaption();
         label.alignment = TextAlignmentOptions.Center;
         label.color = ItemUseLabelColor;
         WorldUI.NativeButtonSkin.ApplyFont(label);
@@ -664,6 +664,7 @@ internal sealed partial class PlayTray
         Core.TmpFit.Fit(label, ItemUseLabelWidth, ItemUseLabelHeight, maxFontSize: 0.22f, wrap: false);
         // Parked OUTSIDE the recess (below) means nothing is behind it any more — back it in MR.
         WorldUI.MrBacking.Label(label);
+        _itemUseCaption = label;
 
         // Requirement 9a: the item "Use" confirm is no longer a bespoke keycap beside the slot — it is a
         // GENERIC cluster board button in the right-hand Confirm/Undo column (built in BuildButtons,
@@ -704,6 +705,53 @@ internal sealed partial class PlayTray
             RebuildAttachedControls(); // rebuilds Confirm/Undo (+ Use when active) at the new count
         }
         _itemUseConfirm?.SetVisible(visible);
+    }
+
+    /// <summary>
+    /// THE WHOLE ITEM-USE AREA'S WORDING, in one call — the cap AND the caption engraved under the
+    /// recess. Set by <see cref="ItemsPile"/> the moment a demand opens (surrender / refresh /
+    /// goal-chest forfeit) and cleared to null when it ends; null means the neutral zone name.
+    ///
+    /// <para>THE REPORTED DEFECT (user, 2026-09-03): "Das Item-Overlay wird unter dem Controllboard
+    /// angezeigt, allerdings steht da noch 'benutzen' — das passt hier nicht, da ja ein Gegenstand
+    /// abgeworfen wird der dort hingelegt wird." The KEYCAP has carried the per-flow override since
+    /// ModBuild 352 (<see cref="SetItemUseConfirmVisible"/>), and it still does. The CAPTION did not:
+    /// <c>BuildItemUseSlot</c> wrote <c>Loc.Mod("item_use_area")</c> into it once, at construction,
+    /// and nothing ever re-read it — so the engraving under the recess an item is being SURRENDERED
+    /// into read "BENUTZEN" for the whole flow. Two widgets naming one zone, one of them relabelled.</para>
+    ///
+    /// <para>IT IS ALSO EARLIER THAN THE CAP. The cap only exists once the picker reports the
+    /// selection READY, i.e. after the card is already in the recess; the caption is up from the
+    /// first frame of the demand, which is exactly when the player needs to be told what the recess
+    /// is for. That is why this is its own call and not a parameter of the confirm's.</para>
+    /// </summary>
+    internal void SetItemUseAreaLabel(string? label)
+    {
+        if (_itemUseAreaLabel == label)
+            return;
+        _itemUseAreaLabel = label;
+        ApplyItemUseCaption();
+    }
+
+    /// <summary>The word the recess engraving currently wants — the live per-flow override, or the
+    /// neutral zone name. The SINGLE source both the build path and the live relabel read, so a
+    /// caption built during a demand and one relabelled into it cannot come out different.</summary>
+    private string ItemUseAreaCaption() =>
+        (_itemUseAreaLabel ?? Core.Loc.Mod("item_use_area")).ToUpperInvariant();
+
+    /// <summary>Re-state the caption and RE-FIT it. The re-fit is the point: the neutral word is one
+    /// short token and a demand's is two long ones, and a box solved for the first truncates the
+    /// second (ModBuild 281's truncation family).</summary>
+    private void ApplyItemUseCaption()
+    {
+        TMPro.TextMeshPro? label = _itemUseCaption;
+        if (label == null)
+            return;
+        string want = ItemUseAreaCaption();
+        if (label.text == want)
+            return;
+        label.text = want;
+        Core.TmpFit.Fit(label, ItemUseLabelWidth, ItemUseLabelHeight, maxFontSize: 0.22f, wrap: false);
     }
 
     /// <summary>Requirement 6 / 4 — is <paramref name="target"/> the item-use CONFIRM button? The board
@@ -1010,11 +1058,21 @@ internal sealed partial class PlayTray
     /// <see cref="SetItemUseConfirmVisible"/>). The mirror hardcoded the localized "USE", so a peer
     /// watching a player hand an item over saw them apparently USE it. A widget label, never an
     /// item name.</para>
+    /// <para>IT IS THE WHOLE AREA'S WORDING SINCE ModBuild 378, not only the cap's. The engraved
+    /// caption under the recess carries the same per-flow word (see
+    /// <see cref="SetItemUseAreaLabel"/>) and is up from the FIRST frame of a demand, long before
+    /// the cap exists — so the seam reports the area label first and falls back to the live cap
+    /// text. That is a widening of an existing field's MEANING, not a new one: record 13 bit 3
+    /// still carries one string, the mirror still applies it to its cap, and it now also states
+    /// its caption from it. A peer therefore reads "ITEM ABGEBEN" under the mirrored recess at the
+    /// same moment the owner does, which is what the 1:1 rule asks for and what no new wire field
+    /// was needed to buy.</para>
     /// </summary>
     internal string? ItemUseCapLabel =>
-        _itemUseActive && _itemUseConfirm != null && _itemUseConfirm.LogicalVisible
+        _itemUseAreaLabel
+        ?? (_itemUseActive && _itemUseConfirm != null && _itemUseConfirm.LogicalVisible
             ? _itemUseConfirm.CurrentLabel
-            : null;
+            : null);
 
     /// <summary>
     /// The slot whose GOLD SNAP GLOW is lit right now (-1 = none) — the multiplayer read seam for

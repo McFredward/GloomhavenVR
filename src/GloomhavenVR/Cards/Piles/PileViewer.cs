@@ -759,7 +759,14 @@ internal sealed class PileViewer
                             $"Per-item mask 0x{mask:X4} over Inventory.AllItems index — the value " +
                             "PileViewer.ItemsUsableMask publishes for a peer's mirrored item fan; " +
                             "0x0000 here and a pulsing fan on the owner's own board would mean the " +
-                            "mask, not the mirror, is wrong.");
+                            "mask, not the mirror, is wrong. " +
+                            // …AND WHICH PREDICATE produced the
+                            // bits. During an item demand the ordinary turn/bonus gate is replaced
+                            // by the picker's own candidate list, and the two are told apart here
+                            // rather than inferred: a demand with 0 usable would mean the picker
+                            // filter is running and rejecting everything, while "ordinary" with 0
+                            // during a demand would mean the replacement never engaged at all.
+                            $"Predicate: {_itemsBrowse.UsableSourceDescription}.");
     }
 
     // ------------------------------------------------------------------ dispatch --

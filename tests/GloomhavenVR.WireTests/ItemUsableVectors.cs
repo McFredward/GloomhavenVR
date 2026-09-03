@@ -109,6 +109,124 @@ internal static class ItemUsableVectors
         t.True(owner.Contains("if (i < UsableMaskBits)"),
                "and the owner still sets bit i from the RAW AllItems index, which is the half of "
                + "the pair that makes the skip necessary");
+
+        RunAreaCaption(t, repoRoot, owner);
+    }
+
+    /// <summary>
+    /// SOURCE LINT #2 (user report 2026-09-03): the item-use area's CAP and its engraved CAPTION
+    /// name ONE zone and must not be able to disagree.
+    ///
+    /// <para>WHAT SHIPPED. The cap has carried a per-flow override since ModBuild 352 — an item
+    /// SURRENDER demand relabels it so "the user must never read a surrender as an ordinary use" —
+    /// and it travels to peers on wire record 13 bit 3. The CAPTION engraved under the recess was
+    /// written once, at board build, from <c>Loc.Mod("item_use_area")</c>, on BOTH builders. So the
+    /// keycap said "ITEM ABGEBEN" while the engraving under the very recess the item was being laid
+    /// into still said "BENUTZEN", on the owner's board and on every mirror of it. Nothing in the
+    /// build, the wire tests or any hardware log said so: the mod's own log line named the CAP and
+    /// stopped there, and the KEYCAP SURFACE line printed a build-time GameObject NAME.</para>
+    ///
+    /// <para>The fix is one string set by one call on each side. This lint is what keeps it one: a
+    /// future edit that re-introduces a bare <c>Loc.Mod("item_use_area")</c> at either caption site,
+    /// or drops either side's shared accessor, fails here rather than on a co-op hardware round.</para>
+    /// </summary>
+    private static void RunAreaCaption(Harness t, string repoRoot, string ownerPile)
+    {
+        t.Case("item-use area: the cap and the recess caption cannot drift apart");
+
+        string trayPath = Path.Combine(repoRoot, "src", "GloomhavenVR", "Cards", "Tray",
+                                       "PlayTray.4.Slots.cs");
+        string posePath = Path.Combine(repoRoot, "src", "GloomhavenVR", "Cards", "Tray",
+                                       "PlayTray.3.Pose.cs");
+        string mirrorPath = Path.Combine(repoRoot, "src", "GloomhavenVR", "Net", "Remote",
+                                         "RemoteBoardFurniture.cs");
+        t.True(File.Exists(trayPath) && File.Exists(posePath) && File.Exists(mirrorPath),
+               "the three files that draw the item-use area are where this lint expects them");
+        if (!File.Exists(trayPath) || !File.Exists(posePath) || !File.Exists(mirrorPath))
+            return;
+
+        string tray = File.ReadAllText(trayPath);
+        string pose = File.ReadAllText(posePath);
+        string mirror = File.ReadAllText(mirrorPath);
+
+        // ONE ACCESSOR PER SIDE, and the caption built through it. The build-time literal is the
+        // exact shape of the defect: a caption that is correct on the frame it is created and never
+        // again.
+        foreach ((string what, string src) in new[] { ("PlayTray", tray),
+                                                      ("RemoteBoardFurniture", mirror) })
+        {
+            t.True(src.Contains("ItemUseAreaCaption()"),
+                   $"{what} resolves the recess caption through the shared ItemUseAreaCaption() "
+                   + "accessor, not from a literal at the build site");
+            t.True(src.Contains("ApplyItemUseCaption()"),
+                   $"{what} can RE-STATE the caption live — a caption that is only written at "
+                   + "construction is the shipped defect");
+        }
+        t.True(tray.Contains("label.text = ItemUseAreaCaption();"),
+               "the owner's berth caption is built from the accessor");
+        t.True(mirror.Contains("caption.text = ItemUseAreaCaption();"),
+               "…and so is the mirror's, so a peer reads the owner's word under the same recess");
+
+        // THE PAIRING. Each side re-states the cap and the caption in ONE statement group: the cap
+        // relabel is the line the caption relabel must sit next to, because relabelling only the cap
+        // is exactly what shipped.
+        t.True(Adjacent(pose, "_itemUseConfirm.SetLabel(", "ApplyItemUseCaption();", 12),
+               "the owner re-states cap and caption together (PlayTray.RebuildAttachedControls)");
+        t.True(Adjacent(mirror, "_use.SetLabel(use ??", "ApplyItemUseCaption();", 12),
+               "and the mirror applies the wire wording to cap and caption together "
+               + "(RemoteBoardFurniture.SetCapLabels)");
+
+        // ONE WIRE FIELD FOR BOTH. Record 13 bit 3 carries the whole area's wording now; the seam
+        // must report the AREA label first, or the caption's word never leaves the owner's machine
+        // before the cap exists (which is after the card is already in the recess).
+        t.True(Adjacent(tray, "internal string? ItemUseCapLabel =>", "_itemUseAreaLabel", 1)
+               && Adjacent(tray, "internal string? ItemUseCapLabel =>", "_itemUseConfirm.CurrentLabel", 6),
+               "ItemUseCapLabel reports the AREA wording first and falls back to the live cap text "
+               + "— that ordering is what makes the caption's word reach a peer from the FIRST "
+               + "frame of a demand, on the existing field and with no new one");
+
+        // THE ELIGIBILITY REPLACEMENT (request (b)): the fan frame and the wire mask must come from
+        // ONE predicate. Two predicates is how the stack could beat while no card was framed.
+        t.True(ownerPile.Contains("private ItemCardPicker? DemandCandidateFilter()"),
+               "ItemsPile has a single demand-eligibility accessor");
+        t.True(CountOf(ownerPile, "DemandCandidateFilter()") >= 4,
+               "…and it is what CanUseNow (the per-chip frame), UsableMask (the peer's bits), "
+               + "HeldDemandCandidate (the approach ghost) and the diagnostic all ask — one "
+               + "predicate rendered four ways, never four predicates");
+        t.True(ownerPile.Contains("DemandItemsOverride() == null ? DemandCandidateFilter() : null"),
+               "the WIRE mask still refuses the goal-chest forfeit, whose fan is built from REWARD "
+               + "items and therefore has no Inventory.AllItems index a peer could resolve");
+
+        // The approach ghost — the (a) half. The demand branch used to hard-force it off.
+        t.True(ownerPile.Contains("TickUseGhost(_demandChip == null, HeldDemandCandidate());"),
+               "the surrender demand drives the landing-preview ghost from its own candidate "
+               + "finder; TickUseGhost(false, null) here was the missing approach feedback");
+    }
+
+    /// <summary>Do the two snippets appear within <paramref name="lines"/> lines of each other?
+    /// The pairing this lint protects is a PROXIMITY fact, not a call-count one.</summary>
+    private static bool Adjacent(string source, string a, string b, int lines)
+    {
+        int ia = source.IndexOf(a, StringComparison.Ordinal);
+        if (ia < 0)
+            return false;
+        int ib = source.IndexOf(b, ia, StringComparison.Ordinal);
+        if (ib < 0)
+            return false;
+        int newlines = 0;
+        for (int i = ia; i < ib; i++)
+            if (source[i] == '\n')
+                newlines++;
+        return newlines <= lines;
+    }
+
+    private static int CountOf(string source, string needle)
+    {
+        int n = 0;
+        for (int i = source.IndexOf(needle, StringComparison.Ordinal); i >= 0;
+             i = source.IndexOf(needle, i + needle.Length, StringComparison.Ordinal))
+            n++;
+        return n;
     }
 
     /// <summary>The literal a <c>const</c>/<c>readonly</c> of <paramref name="name"/> is declared

@@ -2050,6 +2050,13 @@ internal sealed class RemoteBoardFurniture
         {
             _appliedUseWire = use;
             _use.SetLabel(use ?? Loc.Mod("item_use_area").ToUpperInvariant());
+            // …AND THE CAPTION UNDER THE RECESS, IN THE SAME STATEMENT GROUP as the owner does it
+            // (PlayTray.RebuildAttachedControls). Record 13 bit 3 now carries the whole AREA
+            // wording rather than only the cap - it is non-null from the first frame of a demand,
+            // before the cap exists at all - so this is where a peer learns that the recess their
+            // co-player is about to lay an item into says "ITEM ABGEBEN", at the same moment the
+            // owner reads it. No new wire field: the same string, applied to both widgets.
+            ApplyItemUseCaption();
         }
     }
 
@@ -2287,6 +2294,7 @@ internal sealed class RemoteBoardFurniture
         _appliedUndoWire = null;
         _appliedUseWire = null;
         _use.SetLabel(Loc.Mod("item_use_area").ToUpperInvariant());
+        ApplyItemUseCaption(); // the caption is language-dependent too, and the gate above re-arms
         // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
         // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
         // refresh re-applies it in the new language.
@@ -2410,6 +2418,29 @@ internal sealed class RemoteBoardFurniture
     /// <c>_itemUseSlotGlow</c> is now the field quad's material and nothing writes it after build.
     /// The armed state is carried by the USE keycap alone, on both boards.</para>
     /// </summary>
+    /// <summary>The word engraved under the MIRRORED item-use recess: the owner live per-flow
+    /// wording when record 13 bit 3 carries one, else the neutral zone name. The single source both
+    /// the build path and <see cref="SetCapLabels"/> read, so the mirrored caption cannot be built
+    /// from one string and re-stated from another. Mirrors PlayTray.ItemUseAreaCaption.</summary>
+    private string ItemUseAreaCaption() =>
+        (_appliedUseWire ?? Loc.Mod("item_use_area")).ToUpperInvariant();
+
+    /// <summary>Re-state the mirrored caption and RE-FIT it - the owner does the same, and for the
+    /// same reason: the neutral word is one short token and a demand is two long ones.</summary>
+    private void ApplyItemUseCaption()
+    {
+        TextMeshPro? caption = _itemUseCaption;
+        if (caption == null)
+            return;
+        string want = ItemUseAreaCaption();
+        if (caption.text == want)
+            return;
+        caption.text = want;
+        Core.TmpFit.Fit(caption, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
+    }
+
+    private TextMeshPro? _itemUseCaption;
+
     private Transform BuildItemUseRecess(Vector3 mount, out WorldUI.SoftCueReveal? reveal)
     {
         var root = new GameObject("ItemUseRecess").transform;
@@ -2484,7 +2515,13 @@ internal sealed class RemoteBoardFurniture
             new Vector3(0f, -(_itemCardH * 0.5f + 0.026f), -0.001f),
             new Vector2(0.095f, 0.024f), 0.22f,
             new Color(0.85f, 0.8f, 0.7f), TextAlignmentOptions.Center);
-        caption.text = Loc.Mod("item_use_area").ToUpperInvariant();
+        caption.text = ItemUseAreaCaption();
+        // KEEP IT. The caption is not a constant any more: an item-SURRENDER demand relabels the
+        // whole item-use AREA on the owner board (PlayTray.SetItemUseAreaLabel), and that wording
+        // travels on record 13 bit 3 - the field this mirror already applies to its cap. Applying
+        // it to the cap only is exactly the defect the owner board shipped with, one layer down:
+        // the peer would watch a co-player hand an item over into a recess engraved "BENUTZEN".
+        _itemUseCaption = caption;
         // MR readability parity with the owner's board: the local item-use caption below the
         // recess is MrBacking.Label'd (PlayTray.4.Slots), because it hangs below the recess in
         // open air — over the passthrough room in MR. Same treatment for its mirror; the fitted

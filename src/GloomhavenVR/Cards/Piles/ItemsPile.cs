@@ -873,7 +873,17 @@ internal sealed class ItemsPile
             // and the confirm — the action-turn use gate below must not fight it (it would
             // hide the slot every tick: IsActionTurn is false while the Choreographer waits
             // in WaitingForItemRefresh).
-            TickUseGhost(false, null);
+            //
+            // …BUT IT DOES NOT OWN THE APPROACH GHOST, and passing (false, null) here is what the
+            // user reported as "Es gibt kein Feedback oder im overlay eine anzeige wenn ich mit der
+            // Karte in die Nähe komme, wie es sonst ist" (2026-09-03 (a)). The landing preview is
+            // the ONE distance-gated cue the ordinary use flow has, the take-damage place flow
+            // already drives it (TickTakeDamagePick), and both flows put their card into the very
+            // same berth — so its absence here was a hole in one flow, not two different slots.
+            // Driven from the demand own candidate finder, so the ghost promises a landing the drop
+            // router will actually honour: an ineligible card gets no preview and then bounces,
+            // which is the same sentence told twice instead of a promise and a refusal.
+            TickUseGhost(_demandChip == null, HeldDemandCandidate());
         }
         else if (_pendingBonus != null && _pendingUseChip != null)
         {
@@ -2188,9 +2198,23 @@ internal sealed class ItemsPile
     /// also does not go through <see cref="ItemChip.IsActivatable"/>, which such an item can never
     /// satisfy: it is passive, and passive is exactly why it has a bonus row instead of a bar slot.</para>
     /// </summary>
-    internal bool CanUseNow(ItemChip chip) =>
-        chip != null && _hand != null
-        && ((CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable) || chip.HasOfferedBonus);
+    internal bool CanUseNow(ItemChip chip)
+    {
+        if (chip == null || _hand == null)
+            return false;
+        // A DEMAND REPLACES THE GATE, it does not add to it (user request 2026-09-03 (b)). While a
+        // surrender / refresh / goal-chest forfeit pick is open, the ONLY question the fan can
+        // usefully answer is "which of my items does this demand accept", and the picker's own
+        // candidate list is the authority on it - see DemandCandidateFilter for the real filter and
+        // why it is not "the item burns when used". The ordinary arm is deliberately NOT ORed in:
+        // IsActionTurn is false for the whole pick anyway (the Choreographer waits), so ORing would
+        // add nothing but would let a stale bonus row frame a card the demand refuses - a highlight
+        // that promises a placement the drop router would bounce.
+        ItemCardPicker? demand = DemandCandidateFilter();
+        if (demand != null)
+            return chip.Item != null && CardsGameApi.IsItemPickCandidate(demand, chip.Item);
+        return (CardsGameApi.IsActionTurn(_hand) && chip.IsActivatable) || chip.HasOfferedBonus;
+    }
 
     /// <summary>
     /// The SINGLE live activatability predicate, shared by the chips (<see cref="ItemChip.IsActivatable"/>)
@@ -2353,11 +2377,30 @@ internal sealed class ItemsPile
         List<CItem>? items = ItemsOf(hand);
         if (items == null)
             return 0;
+        // THE DEMAND ARM (user request 2026-09-03 (b)) - the same replacement CanUseNow makes, so
+        // the closed stack beat, the per-chip frames in the open fan and the bit a peer receives
+        // are three renderings of ONE predicate.
+        //
+        // INDEX BASIS, and why the goal-chest FORFEIT is excluded here but not in CanUseNow. This
+        // mask is defined over Inventory.AllItems RAW index - that is the correspondence
+        // RemoteUsableFrame.ResolveSlots re-seats the bits through, and it only holds because both
+        // fans are built from that same list. The forfeit flow is the one demand that fans the
+        // picker REWARD items instead (DemandItemsOverride), and those are in no inventory at all,
+        // so there is no index a peer could resolve them by; publishing anyway would frame whichever
+        // inventory card happened to sit at that position on their board. It stays 0 there - the
+        // local frames still light (CanUseNow is not index-based), the mirrored ones do not. That
+        // asymmetry is inherent to the forfeit fan contents, not to this mask: a peer mirrored
+        // fan already shows the owner INVENTORY during a forfeit, so there is no correct card to
+        // frame. Named here rather than left to be rediscovered.
+        ItemCardPicker? demand = DemandItemsOverride() == null ? DemandCandidateFilter() : null;
         ushort mask = 0;
         for (int i = 0; i < items.Count; i++)
         {
-            if (!((turn && IsItemActivatable(items[i]))
-                  || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null))
+            bool eligible = demand != null
+                ? items[i] != null && CardsGameApi.IsItemPickCandidate(demand, items[i])
+                : (turn && IsItemActivatable(items[i]))
+                  || CardsGameApi.PlaceableBonusForItem(items[i], owner) != null;
+            if (!eligible)
                 continue;
             count++;
             if (i < UsableMaskBits)
@@ -4084,6 +4127,71 @@ internal sealed class ItemsPile
             : CardsGameApi.OpenItemPicker(out _, out _);
 
     /// <summary>
+    /// THE ELIGIBILITY AUTHORITY WHILE A DEMAND IS OPEN — the live picker, or null when no demand
+    /// is running. While it is non-null it REPLACES the ordinary use gate everywhere the mod asks
+    /// "may this card be played right now": <see cref="CanUseNow"/> (the per-chip gold frame in the
+    /// fan) and <see cref="UsableMask"/> (the same answer for the closed stack's beat and for a
+    /// peer's mirrored fan). One accessor for both, so the frame a player sees and the bit a peer
+    /// receives can never come from two different predicates.
+    ///
+    /// <para>USER REQUEST (2026-09-03): "Ich will, dass die Items die in Frage kommen für den flow,
+    /// dass sie im geöffneten Fächer entsprechend gehighlighted werden (selbes highlighting wie wenn
+    /// man ein Gegenstand nutzen kann)." Before this, the fan lit nothing during a demand: the
+    /// ordinary arm is <c>IsActionTurn</c>, and the Choreographer is parked in
+    /// <c>WaitingForItemRefresh</c> for the whole pick, so it is false by construction — the player
+    /// had to discover the candidate set by dropping cards and watching them bounce.</para>
+    ///
+    /// <para>WHY THE PICKER AND NOT A RE-DERIVATION. <c>ItemCardPicker</c> itself holds no filter at
+    /// all: <c>cardSlots</c> is built from whatever list <c>ItemCardRefreshPicker.Show</c> handed it
+    /// (ItemCardRefreshPicker.cs:22-34), and THAT filter is
+    /// <c>YMLData.PermanentlyConsumed != true</c> AND the item's current <c>SlotState</c> is in the
+    /// ability's <c>SlotStateToConsume</c> list AND the item's EQUIP SLOT
+    /// (<c>YMLData.Slot</c>) is in its <c>SlotToConsume</c> list — both lists authored per ability in
+    /// the scenario YAML (AbilityData.cs:5382-5432) and passed through Choreographer.cs:5882. For
+    /// the pre-scenario malus the user hit, <c>ScenarioAbility_ConsumeSmallItem_Self</c>, that list
+    /// is [SmallItem]: the Heiltrank qualifies because it occupies the small-item slot and the
+    /// Adleraugenbrille does not because it occupies the HEAD slot. Nothing in the filter reads
+    /// <c>CItem.EUsageType</c>, so "it must burn when used" is not the rule; re-deriving it here
+    /// would be re-implementing scenario YAML from memory, and the picker already holds the answer.
+    /// </para>
+    /// </summary>
+    private ItemCardPicker? DemandCandidateFilter() =>
+        _demandActive ? ActiveDemandPicker() : null;
+
+    /// <summary>WHICH predicate <see cref="UsableMask"/> and <see cref="CanUseNow"/> are currently
+    /// answering from, for the highlight diagnostic. A summary stat is not the field: "0 usable" is
+    /// produced both by a demand whose filter rejects everything and by a replacement that never
+    /// engaged, and only this says which.</summary>
+    internal string UsableSourceDescription =>
+        !_demandActive
+            ? "ordinary use gate (action turn + live SlotState, or an offered active bonus)"
+            : DemandItemsOverride() != null
+                ? "goal-chest FORFEIT picker candidates (local frames only — the fan shows REWARD "
+                  + "items, which are in no inventory, so the peer mask stays 0x0000 by design)"
+                : "ITEM DEMAND picker candidates (ItemCardPicker.cardSlots — the game's own filter: "
+                  + "not permanently consumed AND the equip SLOT/slot state the triggering ability "
+                  + "authored in its YAML; it is the SLOT, not 'burns when used')";
+
+    /// <summary>The HELD chip that this demand would actually accept — the demand's twin of
+    /// <see cref="HeldActivatableChip"/> / <c>HeldTakeDamageCandidate</c>, and the argument the
+    /// approach GHOST needs. Null while nothing eligible is in a hand.</summary>
+    private ItemChip? HeldDemandCandidate()
+    {
+        ItemCardPicker? picker = DemandCandidateFilter();
+        if (picker == null)
+            return null;
+        for (int i = 0; i < _chips.Count; i++)
+        {
+            ItemChip c = _chips[i];
+            if (c == null || c.Holder == null || c.Item == null)
+                continue;
+            if (CardsGameApi.IsItemPickCandidate(picker, c.Item))
+                return c;
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Flow 1 content override: while the goal-chest forfeit demand is live the fan presents
     /// the picker's REWARD items (never in any inventory — <see cref="CardsGameApi.LoseRewardItems"/>);
     /// null otherwise, and <see cref="Populate"/>/<see cref="Signature"/> fall back to the
@@ -4170,6 +4278,16 @@ internal sealed class ItemsPile
         // The use slot IS the ask — visible for the whole demand (Tick's action-turn gate is
         // bypassed while _demandActive, see there).
         PlayTray.Current?.SetItemUseSlotVisible(true);
+        // …AND IT MUST SAY WHAT IT IS FOR, from this first frame. User report 2026-09-03: "Das
+        // Item-Overlay wird unter dem Controllboard angezeigt, allerdings steht da noch 'benutzen' —
+        // das passt hier nicht, da ja ein Gegenstand abgeworfen wird der dort hingelegt wird." The
+        // confirm CAP already carried this word, but it only exists once the picker reports the
+        // selection ready — i.e. after the card is in the recess — while the engraving under the
+        // recess (which is up the whole time and is what the player reads on approach) was written
+        // once at board build and never re-read. Same string as the cap's, by construction: one
+        // call sets both (PlayTray.SetItemUseAreaLabel), and it rides the SAME wire field the cap's
+        // wording already used, so a peer reads it at the same moment.
+        PlayTray.Current?.SetItemUseAreaLabel(DemandConfirmLabel());
 
         // Clipped-chip service: a grab-back DESELECTS through the picker's own slot seam; the
         // chip's own release then glides it home (or re-clips on a re-drop).
@@ -4254,7 +4372,15 @@ internal sealed class ItemsPile
         VRLog.Info("Cards", $"ITEM SURRENDER clip-in: '{chip.name}' SELECTED through the game's " +
                             "ItemCardPickerSlot seam — press the slot button " +
                             $"('{DemandConfirmLabel()}') " +
-                            "to commit, or grab it back to swap.");
+                            "to commit, or grab it back to swap. " +
+                            // The clause that used to be missing. This line named the CAP wording and
+                            // stopped; the engraving under the recess was a build-time constant and
+                            // still read the neutral zone name for the whole flow, which is what the
+                            // user actually reported. Both are now one string set by one call, and
+                            // both are named here so a future divergence is readable, not inferred.
+                            $"The recess engraving reads the same word ('{DemandConfirmLabel().ToUpperInvariant()}') " +
+                            "from the first frame of the demand, and that wording rides wire record 13 " +
+                            "bit 3 to every peer.");
     }
 
     /// <summary>
@@ -4337,6 +4463,7 @@ internal sealed class ItemsPile
                 chip.ReturnToFan();
         }
         PlayTray.Current?.SetItemUseConfirmVisible(false, null);
+        PlayTray.Current?.SetItemUseAreaLabel(null); // back to the neutral zone name
         PlayTray.Current?.SetItemUseSlotVisible(false);
         _useSlotShownLogged = false;
         VRLog.Info("Cards", $"ITEM SURRENDER pick END ({why}).");

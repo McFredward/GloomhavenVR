@@ -291,7 +291,22 @@ internal sealed partial class PlayTray
                 * _capTint);
             bool bodyDraws = _capMeshRenderer != null && _capMeshRenderer.enabled && liveSlots > 0
                              && (subMeshes <= 0 || liveSlots >= subMeshes);
-            VRLog.Info("Cards", $"KEYCAP SURFACE [{when}] '{name}': layer {gameObject.layer} " +
+            // THE NAME IS A BUILD-TIME SNAPSHOT AND THIS LINE USED TO PRINT ONLY THE NAME - which
+            // made it an instrument that asserted a caption it had not measured. `name` is
+            // "BoardButton_" + the fallbackLabel the cap was CONSTRUCTED with (Create), and this
+            // mod relabels caps live: the item-use cap wears an item-SURRENDER wording
+            // ("ITEM ABGEBEN"), the UNDO cap wears a pick flow dialog CANCEL, the CONFIRM cap wears
+            // whatever the game state says. On 2026-09-03 the log therefore read
+            // 'BoardButton_BENUTZEN' at REVEAL through an entire surrender demand while the cap
+            // itself displayed "ITEM ABGEBEN", and the next session read that as the caption defect
+            // and went looking for it on the cap. It was on the recess CAPTION beside it. Printing
+            // the LIVE label next to the name is what makes the two separable without a hardware
+            // round; when they differ the name is the birth wording and `reads` is what a player
+            // sees.
+            string liveLabel = _label != null ? _label.text : "<no label>";
+            VRLog.Info("Cards", $"KEYCAP SURFACE [{when}] '{name}' reads '{liveLabel}'" +
+                $"{(name == "BoardButton_" + liveLabel ? "" : " (RELABELLED since build - the name is the birth wording, 'reads' is what the player sees)")}" +
+                $": layer {gameObject.layer} " +
                 $"(mod layer {Core.VRLayers.ModLayer}){(gameObject.layer == Core.VRLayers.ModLayer ? "" : " — OFF THE MOD LAYER")}, " +
                 $"shader '{shaderName}', renderQueue {queue}, submeshes {subMeshes} vs material slots " +
                 $"{slots} ({liveSlots} non-null){(subMeshes > liveSlots ? " — SLOTS MISSING: those submeshes draw NOTHING" : "")}. " +

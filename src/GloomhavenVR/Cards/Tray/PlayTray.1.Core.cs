@@ -321,6 +321,19 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     // Item-surrender pick: demand-specific label override for the item-use confirm button
     // ("ITEM ABGEBEN" instead of "USE"); null = the default GUI_USE label.
     private string? _itemUseConfirmLabel;
+    // …and the same wording on the ENGRAVED CAPTION under the recess. THIS is the string the
+    // user actually reported ("Das Item-Overlay … allerdings steht da noch 'benutzen'"): the cap
+    // has carried the per-flow override since ModBuild 352, but the caption below the berth was
+    // written ONCE at build time from Loc "item_use_area" and never re-read, so a surrender demand
+    // showed the right word on the keycap and "BENUTZEN" engraved under the very recess the item is
+    // being laid into. Null = the neutral zone name. The two are deliberately ONE string set by ONE
+    // call (SetItemUseAreaLabel): a cap and a caption that name the same zone must not be able to
+    // disagree, which is what shipped.
+    private string? _itemUseAreaLabel;
+    // The caption TMP itself, captured at build so the label can be re-stated live (SetLabel-style
+    // re-fit) instead of only at construction — the ModBuild 281 lesson, "a fit that is not re-run
+    // is a fit for the wrong text", applied to a caption whose text now changes with the flow.
+    private TMPro.TextMeshPro? _itemUseCaption;
     private System.Action? _itemUseConfirmAction;
     private bool _placed;
     private bool _wantVisible;
