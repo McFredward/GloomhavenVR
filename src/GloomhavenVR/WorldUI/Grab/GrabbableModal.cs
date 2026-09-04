@@ -601,6 +601,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private GrabBarVisual? _bar;                // the drawn rod: three pieces, ONE material
     private GrabBarTween? _barTween;            // THE ONE WRITER of the rod's presented pose — see GrabBarTween
     private Transform? _badge;                  // the shared-window mark, null until built
+    private Material? _badgeMaterial;           // the badge's OWN instance — the pulse's ONE writer
 
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
@@ -1158,7 +1159,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         }
         _updatePosValid = false;
 
+        // FRAME-ORDER GrabbableModal.LateSyncHost [SyncHostToFrame, SeatBadge]
+        //   Locked (.planning/refactor/FRAME-ORDER.lock). The badge is seated in the HOST's own
+        //   authored pixels, so it can only be placed once the host's final pose for this frame has
+        //   been written — and that write is the very next line, in this phase, for the reason
+        //   this whole method exists. Putting the seat anywhere earlier is the 2026-09-04 "zieht nach"
+        //   defect ("Zusätzlich zieht es immer etwas nach wenn man das Fenster bewegt statt fix
+        //   auf der Ebene zu sein"); see THE BADGE'S SEAT block.
         SyncHostToFrame(host, metersPerPixel, _spawnWorldScale);
+        SeatBadge(host);
     }
 
     // ---- REMOTE POSE EASING -----------------------------------------------------------------
@@ -1487,21 +1496,39 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private const string BadgeResource = "GloomhavenVR.Assets.net_shared.png";
 
     /// <summary>
-    /// The badge's edge length in the window's OWN authored px — the unit the host rect, the ink
-    /// rect and the close X's inset are all in, so it scales with the window and with the user's
-    /// two-hand resize exactly as the rest of the chrome does.
+    /// The badge's edge length as a MULTIPLE OF THE CLOSE X'S PLATE — not a magic number, and not a
+    /// world metre. The plate is the one piece of chrome that already stands in this corner, and its
+    /// height is read LIVE off its own <c>RectTransform</c> (see <see cref="SyncBadge"/>), never
+    /// copied from <c>ModalCloseButton.ButtonSizePx</c>, so a change over there moves the badge with
+    /// it. Being a multiple of a HOST-PX quantity it rides the two-hand resize (0.5x-2x) and the
+    /// diorama scale exactly as the rod and the X already do.
     ///
-    /// <para>JUDGED AGAINST THE CLOSE X RATHER THAN INVENTED. That plate is 34 px square
-    /// (<c>ModalCloseButton.ButtonSizePx</c>, read there — this file does not keep a copy, and the
-    /// one place the size is USED reads it live off the plate's own RectTransform, see
-    /// <see cref="SyncBadge"/>). 24 px is roughly seven tenths of it: unmistakably the smaller of
-    /// the two marks in that corner, so it can never read as the control. Against the X's GLYPH it
-    /// is larger — the X's crossed bars occupy 44 % of the plate, about 15 px — but the X carries a
-    /// dark plate behind it and the badge carries none, so what the eye compares is a 24 px keyed
-    /// glyph against a 34 px filled tile. "Nicht aufdringlich" is a statement about weight, not
-    /// about bounding boxes.</para>
+    /// <para>USER REPORT (2026-09-04, verbatim): <i>"Das Symbol, dass anzeigt, dass es sich um ein
+    /// Multiplayer-Fenster handelt ist zu klein"</i>. It shipped at 24 px against a 34 px plate —
+    /// 0.7 of it — under a "nicht aufdringlich" argument this report overrules. 1.5x is 51 px at
+    /// today's plate: a little over DOUBLE the drawn area, about 39 mm at the 0.773 mm/px the
+    /// ModBuild 241 log reports for the options window, i.e. roughly 3.7 degrees at arm's length
+    /// against the 1.8 degrees it had. It is deliberately LARGER than the close X now, and the old
+    /// block's reasoning survives inverted: the X is a CONTROL and stays the size a finger needs,
+    /// the badge is a STATEMENT and has to be read.</para>
+    ///
+    /// <para><b>IT STILL CLEARS BOTH NEIGHBOURS, and the growth direction is the whole argument.</b>
+    /// The badge is seated by its TOP-RIGHT corner one <see cref="BadgeGapPx"/> BELOW the plate's
+    /// bottom edge, so every pixel it gains goes DOWN and LEFT, away from the X — the gap to the
+    /// plate is a constant and cannot shrink with size. Downward it is floored at
+    /// <c>hostRect.yMin</c> by the survival clamp that was already there, and the rod is placed a
+    /// further <c>gap</c> BELOW that same edge, so the two cannot meet. Neither clearance is left as
+    /// an argument: both are MEASURED and printed on the SHARED WINDOW BADGE line, in the same host
+    /// px this constant is in, the way GRAB BAR CLEARS THE INK reports the rod's.</para>
     /// </summary>
-    private const float BadgeSizePx = 24f;
+    private const float BadgePlateFraction = 1.5f;
+
+    /// <summary>The badge's edge in host px when the window has NO close X to measure against —
+    /// which is not the rare case but the IMPORTANT one: the story box is explicitly excluded from
+    /// the X and is the most frequently SHARED window there is (see <see cref="SyncBadge"/>). 51 px
+    /// is <see cref="BadgePlateFraction"/> x the 34 px the plate path resolves to today, so the two
+    /// paths draw the SAME mark and a window that gains or loses an X does not change size.</summary>
+    private const float BadgeFallbackPx = 51f;
 
     /// <summary>How far the badge is inset from the committed rectangle's own top-right corner, in
     /// host px. Used ONLY on the degenerate path where the window carries no close X — see
@@ -1523,6 +1550,174 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// window ever brings them within a pixel of each other.
     /// </summary>
     private const int BadgeOrderOffset = 5;
+
+    // ---- THE BLUE PULSE (2026-09-04) --------------------------------------------------------
+    //
+    // USER REQUEST, verbatim: "außerdem will ich das es blau blinkt (nicht zu extrem)".
+    //
+    // "NICHT ZU EXTREM" IS A CONSTRAINT ON TWO NUMBERS, and it is the reason both of them are
+    // stated with their reasoning rather than dialled. There is no config key: the user did not ask
+    // for one and a per-window presentation dial on a SHARED window would be a per-sub-feature sync
+    // setting in all but name — the same refusal the SHARED-WINDOW MARK block already records.
+    //
+    // WHY A MULTIPLY CANNOT SIMPLY BE MADE BLUE, and what is done instead. The glyph in the texture
+    // is WARM GOLD and this material multiplies: gold's own blue channel is about 0.3, and a
+    // multiply can only ever take a channel DOWN, so a plain blue tint would produce a dark olive,
+    // not a blue. That is exactly the trap the block above records for the wooden rod ("filtering a
+    // wood grain through blue, which reads as a fault"). So BadgeTint's blue channel is deliberately
+    // ABOVE 1: the shader multiplies in float and only the final fragment is clamped, so gold
+    // (1.00, 0.80, 0.30) x this lands at about (0.45, 0.56, 1.00) — a clear blue at full brightness
+    // instead of a darkened gold. It is this badge's OWN material instance (BuildBadge news one per
+    // window), so nothing else in the frame can be tinted by it, and the pulse is two float
+    // operations and a colour write per frame — never a material per frame.
+    //
+    // THE CLOCK IS UNSCALED, and that is not a preference. A floated window keeps standing while
+    // the game's own clock is stopped (a halted ActionProcessor, a pause, a modal the game itself
+    // froze behind), and a pulse driven by Time.deltaTime would simply stop there and read as a
+    // dead badge — the same argument AdvanceVisual's glide already makes one block up. None of this
+    // is game state.
+
+    /// <summary>
+    /// The pulse's PERIOD in seconds on the unscaled clock. 2.4 s is 0.42 Hz: one slow breath, far
+    /// from anything that reads as a strobe, and far above the ~0.03 Hz floor below which a
+    /// modulation stops being seen as movement at all and no amount of amplitude buys it back
+    /// ([[measure-the-product-not-one-factor]]).
+    ///
+    /// <para>IT IS A CONSTANT AND IT IS MULTIPLIED BY THE CLOCK, which is why nothing scales it.
+    /// A strength term on a FREQUENCY is wrong at every instant except zero and drifts the phase
+    /// whenever it changes ([[frequency-scrub-bug-class]]); the amplitude below therefore scales the
+    /// oscillator's OUTPUT and only its output.</para>
+    /// </summary>
+    private const float BadgePulsePeriodSeconds = 2.4f;
+
+    /// <summary>How far the tint dims at the trough, as a fraction of its resting brightness: the
+    /// drawn brightness sweeps 1.00 -> 0.70 -> 1.00 over one <see cref="BadgePulsePeriodSeconds"/>.
+    /// A 30 % swing on a mark 39 mm across is plainly a pulse and plainly not a flash; a hard on/off
+    /// is what "nicht zu extrem" rules out. The wave is written so that phase 0 gives exactly 1.00 —
+    /// the resting value — so a badge that has just appeared is never caught mid-dim.</summary>
+    private const float BadgePulseDepth = 0.30f;
+
+    /// <summary>The badge's resting tint, at the top of the pulse. See the block above for why the
+    /// blue channel is above 1 and why that is the only way to turn a gold glyph blue through a
+    /// multiply.</summary>
+    private static readonly Color BadgeTint = new(0.45f, 0.70f, 3.40f, 1f);
+
+    /// <summary>The pulse's phase in radians, wrapped to [0, 2*PI). Integrated from
+    /// <c>Time.unscaledDeltaTime</c> rather than read from <c>Time.unscaledTime</c>: that clock
+    /// grows without bound and a float's resolution at a few hours of session is coarser than this
+    /// period needs, which would show as the pulse quantising rather than as drift.</summary>
+    private float _badgePulsePhase;
+
+    // ---- THE BADGE'S SEAT, and where it is written ------------------------------------------
+    //
+    // 2026-09-04, verbatim: "Zusätzlich zieht es immer etwas nach wenn man das Fenster bewegt statt
+    // fix auf der Ebene zu sein."
+    //
+    // WHAT WAS ACTUALLY WRONG, stated as the structure rather than as a guess. The badge is seated
+    // ENTIRELY IN THE HOST'S OWN AUTHORED PIXELS — against the host rect, against the committed ink
+    // union, against the close X's plate — and every one of those quantities lives in the HOST
+    // transform's frame. But the badge itself hung under `_visual`, which is a DIFFERENT transform:
+    // a scene-root SIBLING of the grab frame that the REMOTE POSE EASING block builds precisely so
+    // that it CAN lag ("A SIBLING of the frame, not a child: it must be able to lag behind it, which
+    // a child cannot"). The two are kept equal only because two separate statements write them from
+    // one field — and they are not written the same way: `Tick` writes `_visual` and then the host
+    // in UPDATE, while `LateSyncHost` writes the host in LATEUPDATE unconditionally but re-pins
+    // `_visual` only `if (!_easing || !_visualValid)`. `_easing` is true for exactly one class of
+    // window: a SHARED one a peer is moving — i.e. exactly the windows that have a badge. So the
+    // mark whose whole placement is expressed in host pixels was riding a PROXY of the host kept in
+    // step by two writes in two phases, one of them conditional, and the seat itself was computed a
+    // phase early (in `SyncBar`, from `Tick`, in Update) while the pose it is measured in is
+    // finalised in LateUpdate. That is the "positioned in Update while the host moves in LateUpdate"
+    // shape and the "parented outside the host and re-derives its pose" shape at once.
+    //
+    // WHAT IS DONE: `SyncBadge` no longer writes a transform at all. It RESOLVES the seat (in host
+    // px) and the size, and `SeatBadge` — called from `LateSyncHost`, in LateUpdate, IMMEDIATELY
+    // AFTER the one statement that writes the host's final pose — puts the badge on the host's own
+    // plane by `host.TransformPoint`. Same phase, after the writer, and no term of the badge's world
+    // pose comes from `_visual` any more. The badge is reparented to `_holder` for the same reason:
+    // the holder is the identity-pose, identity-scale root this class asserts every tick, so the
+    // badge inherits NOTHING that can glide underneath it.
+    //
+    // WHY NOT SIMPLY PARENT IT UNDER THE HOST, which would be rigid by construction and needs no
+    // per-frame write at all. Three separate refusals, each already paid for elsewhere in this
+    // module:
+    //   * PanelSupersample.ApplyCaptureLayer walks the HOST SUBTREE and moves everything it finds
+    //     onto that window's private capture layer. A badge under the host would be rendered INTO
+    //     the window's render target and resampled with it instead of being drawn into the eye.
+    //   * CanvasConversion.HideTree also walks the host subtree, so the reveal gate would own the
+    //     badge's renderer — and SyncBarVisibility is the one owner of whether this mark is on the
+    //     screen ([[dont-win-a-write-war]]). Today it cannot be recorded there at all, because it is
+    //     an INACTIVE GameObject when it is off.
+    //   * The host canvas is GAME-OWNED and is released and re-converted under a live
+    //     GrabbableModal — the same reason the SHARED-WINDOW MARK block gives for not building this
+    //     as a uGUI Image on it. A child of the host is destroyed with the host, behind this class's
+    //     back, and `_badge` would be a dangling reference `BuildBadge` never runs again to repair.
+    // So a per-frame follow it is — and, per the standing rule for that, it runs in the same phase
+    // and after the writer of the pose it follows, and the adjacency is locked
+    // (.planning/refactor/FRAME-ORDER.lock, GrabbableModal.LateSyncHost).
+
+    /// <summary>The badge's centre in the HOST's own authored px, resolved by
+    /// <see cref="SyncBadge"/> and consumed by <see cref="SeatBadge"/>.</summary>
+    private Vector2 _badgeSeatPx;
+
+    /// <summary>The badge's resolved edge length in host px — <see cref="BadgePlateFraction"/> x the
+    /// live plate, or <see cref="BadgeFallbackPx"/> where there is no plate.</summary>
+    private float _badgeSizePx;
+
+    /// <summary>False until <see cref="SyncBadge"/> has resolved a seat this window can be placed
+    /// from; <see cref="SeatBadge"/> writes nothing while it is false rather than guessing.</summary>
+    private bool _badgeSeatValid;
+
+    /// <summary>Clear space measured between the close X plate's bottom edge and the badge's top
+    /// edge, in host px, or a negative number where the two overlap. <c>float.NaN</c> when the window
+    /// has no plate to clear. Reported, never acted on.</summary>
+    private float _badgeGapToPlatePx = float.NaN;
+
+    /// <summary>Clear space measured between the badge's bottom edge and the rod's TOP edge, in host
+    /// px, or a negative number where the two overlap. Reported, never acted on.</summary>
+    private float _badgeGapToRodPx = float.NaN;
+
+    // ---- THE BADGE'S OWN FALSIFIER ----------------------------------------------------------
+    //
+    // "Zieht nach" has to be answerable from the log rather than from the eye next round, and it has
+    // to be answerable in a way that cannot subtract a value from itself — the pose-gap probe two
+    // blocks up shipped once doing exactly that and "proved" a defect out of existence with 84,647
+    // samples of 0.00 ([[one-step-too-early]]). So TWO different distances are sampled, both in the
+    // window's own authored pixels and both while the window is MOVING, which is the only interval
+    // the complaint is about:
+    //
+    //   SEAT — how far the badge was from its seat at the instant the frame's final host pose
+    //          landed, sampled BEFORE this frame's write. It is the residual the badge carried into
+    //          the frame; on the fixed path it is one frame of window travel and nothing else, so a
+    //          number much larger than the drag rate means something is still moving the host after
+    //          SeatBadge ran.
+    //   PROXY — how far `_visual` (the transform the badge USED to hang under) sits from the host
+    //          (the transform its seat is measured in). This is the term the diagnosis above names,
+    //          and it is now measured instead of argued: 0.00 across a drag says the pose chain was
+    //          never the cause and the next round must look at the DRAW path (the supersample
+    //          display quad is posed in Camera.onPreCull, a phase later than everything here);
+    //          anything else says the proxy was the cause and the reparent removed it.
+    //
+    // BOUNDED BY CONSTRUCTION: at most BadgeSampleCap moving samples per window, then ONE line, and
+    // never again for that window. Nothing here is a per-frame line.
+
+    /// <summary>How many MOVING frames are sampled before the one line is written. ~2 s of drag at
+    /// 90 Hz — long enough that a mean is not one lucky frame, short enough that it closes during
+    /// the first real drag of a session.</summary>
+    private const int BadgeSampleCap = 180;
+
+    /// <summary>A host that moved less than this between two LateUpdates is not "being moved", and
+    /// its sample would only dilute the mean with stillness. 0.1 mm at diorama scale 1.</summary>
+    private const float BadgeMovingEpsilonMeters = 0.0001f;
+
+    private int _badgeSamples;
+    private float _badgeSeatSumPx;
+    private float _badgeSeatWorstPx;
+    private float _badgeProxySumPx;
+    private float _badgeProxyWorstPx;
+    private Vector3 _badgeLastHostPos;
+    private bool _badgeLastHostPosValid;
+    private bool _badgeReported;
 
     /// <summary>Is this window SHARED for this client right now — <see cref="SharedWindows.IsShared"/>
     /// as of the last tick. False for every window in a single-player session and for every private
@@ -1584,11 +1779,39 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _shared = shared;
         if (shared == was)
             return;
-        VRLog.Info("WorldUI", $"SHARED WINDOW BADGE: '{_logName}' (game window '{window?.name ?? "?"}', " +
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"SHARED WINDOW BADGE: '{_logName}' (game window '{window?.name ?? "?"}', " +
                               $"kind {kind}) now {(shared ? "SHOWS" : "hides")} the network badge in its " +
                               $"top-right corner — {(shared
                                   ? "every player in this room sees this window's state, so moving it is a shared act"
-                                  : "this window is private to this client right now (its sync is off, or it is not a shared kind)")}.");
+                                  : "this window is private to this client right now (its sync is off, or it is not a shared kind)")}."
+                              + " SIZE: the mark resolves to "
+                              + (_badgeSeatValid
+                                  ? $"{_badgeSizePx:F0} host px on an edge, "
+                                    + (float.IsNaN(_badgeGapToPlatePx)
+                                        ? "scaled from BadgeFallbackPx because this window has no "
+                                          + "close X to measure against - which is the STORY BOX case, "
+                                          + "i.e. the badge's most frequent customer"
+                                        : $"scaled as {BadgePlateFraction:F2} x the close X plate's LIVE "
+                                          + "height, read off that plate's own RectTransform and never "
+                                          + "copied from ModalCloseButton")
+                                    + ". CLEARANCES, measured and not asserted: "
+                                    + (float.IsNaN(_badgeGapToPlatePx)
+                                        ? "no plate to clear"
+                                        : $"{_badgeGapToPlatePx:F1} px to the close X plate's bottom edge")
+                                    + $", {_badgeGapToRodPx:F1} px to the grab rod's top edge - a NEGATIVE "
+                                    + "figure on either is an overlap this round created and neither is "
+                                    + "acted on here, exactly as GRAB BAR CLEARS THE INK reports the rod's."
+                                  : "no seat yet - SyncBadge has not run on this window since it was built, "
+                                    + "so nothing is drawn and the size below is not yet resolved")
+                              + " USER REPORT (2026-09-04): 'Das Symbol, dass anzeigt, dass es sich um "
+                              + "ein Multiplayer-Fenster handelt ist zu klein - außerdem will ich das es "
+                              + "blau blinkt (nicht zu extrem). Zusätzlich zieht es immer etwas nach wenn "
+                              + "man das Fenster bewegt statt fix auf der Ebene zu sein.' The PULSE is "
+                              + $"{BadgePulsePeriodSeconds:F1} s per breath ({1f / BadgePulsePeriodSeconds:F2} "
+                              + $"Hz) at a {BadgePulseDepth * 100f:F0} % dim on the UNSCALED clock, so it "
+                              + "keeps running behind a paused game; the LAG is answered by the separate "
+                              + "SHARED WINDOW BADGE MOTION line, once per window.");
     }
 
     // ---- build ------------------------------------------------------------------------------
@@ -1708,8 +1931,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // LOST-MENU FIX: split laser vs palm — the far ray grabs ONLY the visible bar strip.
         _handle.SetBarCollider(barCollider);
 
-        // THE SHARED-WINDOW MARK, built beside the rod and under the same DRAWN pose so it travels
-        // with the window through a glide. Built for EVERY floated window and shown for none of them
+        // THE SHARED-WINDOW MARK, built beside the rod but under the HOLDER, because its whole
+        // placement is expressed in the HOST's authored pixels and SeatBadge puts it on the host's
+        // own plane in LateUpdate (see THE BADGE'S SEAT block — this is the 2026-09-04 "zieht nach"
+        // report). It travels with the window through a remote glide for the same reason it always
+        // did: the host itself is written from the drawn pose.
+        // Built for EVERY floated window and shown for none of them
         // until SyncBarVisibility sees _shared — participation can flip while the window stands (the
         // player may toggle the 3D world map with a story box open), so a badge decided at build time
         // would be a false statement for the rest of that window's life.
@@ -1862,8 +2089,12 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // rectangle — so the two pieces of chrome can never disagree about where the window is.
         SyncCloseX(hostRect);
         // AFTER the X, because the badge is seated off the plate whenever there is one, and off the
-        // answer SyncCloseX just stored rather than off a second derivation of it.
-        SyncBadge(hostRect, unit);
+        // answer SyncCloseX just stored rather than off a second derivation of it. The rod's drawn
+        // TOP EDGE goes with it, in host px, so the badge's clearance to the handle is MEASURED from
+        // the same two numbers that placed the handle rather than re-derived beside them — the
+        // badge grew this round (2026-09-04, "zu klein") and this is the check that says it still
+        // clears, in the same shape as GRAB BAR CLEARS THE INK.
+        SyncBadge(hostRect, unit, (y + thickness * 0.5f) / unit);
 
         if (_inkReportDue || _inkFallbackDue)
         {
@@ -2063,13 +2294,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     /// <summary>
-    /// Build the shared-window badge under the DRAWN pose, beside the rod. Called once, from
+    /// Build the shared-window badge under the HOLDER, beside the rod. Called once, from
     /// <see cref="EnsureFrame"/>; the whole design and the user's ruling are on the SHARED-WINDOW
-    /// MARK block. Never throws: a window that cannot have a badge must still be a window.
+    /// MARK block, and why it hangs under the holder rather than under the drawn pose is on THE
+    /// BADGE'S SEAT block. Never throws: a window that cannot have a badge must still be a window.
     /// </summary>
     private void BuildBadge()
     {
-        if (_visual == null || _panel == null)
+        if (_holder == null || _panel == null)
             return;
 
         // Clamp, not Repeat: a badge is a single tile and Repeat would let bilinear filtering fetch
@@ -2102,7 +2334,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         Collider? primitiveCollider = go.GetComponent<Collider>();
         if (primitiveCollider != null)
             Object.DestroyImmediate(primitiveCollider);
-        go.transform.SetParent(_visual, worldPositionStays: false);
+        // UNDER THE HOLDER, NOT UNDER `_visual` (2026-09-04 — see THE BADGE'S SEAT block). The
+        // holder is the identity-pose, identity-scale root this class re-asserts every tick, so the
+        // badge inherits nothing at all: its whole world pose is written by SeatBadge from the HOST,
+        // in the same LateUpdate step and immediately after the statement that finalises the host.
+        // `_visual` is deliberately allowed to lag the grab frame, which is exactly what a mark
+        // seated in host pixels must not do. It is still inside the holder tree, so the render root
+        // registration, the layer pass and the orphan sweep all still see it, unchanged.
+        go.transform.SetParent(_holder, worldPositionStays: false);
 
         var mr = go.GetComponent<MeshRenderer>();
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
@@ -2117,10 +2356,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // element smaller. GloomhavenVR/Overlay already defaults to _ZWrite 0 with SrcAlpha /
         // OneMinusSrcAlpha and ZTest LEqual, which is precisely what is wanted, so nothing is set
         // here at all and the default is the documented behaviour rather than an accident.
-        var material = new Material(shader) { color = Color.white };
+        // BUILT AT THE PULSE'S RESTING TINT, which is the value phase 0 produces — a badge that has
+        // just been built and a badge at the top of its breath are the same picture, so there is no
+        // first frame in another colour. PulseBadge owns this material's colour from here on, and it
+        // is this window's OWN instance: nothing else can be tinted by it.
+        var material = new Material(shader) { color = BadgeTint };
         if (material.HasProperty("_MainTex"))
             material.mainTexture = tex;
         mr.sharedMaterial = material;
+        _badgeMaterial = material;
 
         // Over the depthless menu canvas by ORDER, the same way the bar and the X are (see
         // BadgeOrderOffset). A MeshRenderer and a Canvas both sort by sortingLayer then sortingOrder,
@@ -2159,7 +2403,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// private to that class and it owns the plate's geometry; this reads the height off the plate's
     /// own <c>RectTransform</c>, so a change over there moves the badge with it. Two hand-kept copies
     /// of one boundary is how the caps end up painted in shaft material, and this project has paid
-    /// for that shape of drift often enough.</para>
+    /// for that shape of drift often enough. Since 2026-09-04 that read decides the badge's SIZE as
+    /// well as its seat: the edge is <see cref="BadgePlateFraction"/> times the live plate height
+    /// (<see cref="BadgeFallbackPx"/> where there is no plate), because "zu klein" is a judgement
+    /// against the chrome standing beside it and not against a number.</para>
+    ///
+    /// <para><b>IT RESOLVES A SEAT; IT DOES NOT WRITE A TRANSFORM.</b> This runs in Update and every
+    /// quantity it computes is in the host's authored pixels, whose world meaning is not settled
+    /// until <see cref="LateSyncHost"/> has written the host. <see cref="SeatBadge"/> does the
+    /// placing, in that same LateUpdate step and immediately after that write. THE BADGE'S SEAT
+    /// block has the user report this answers and the three reasons the badge is not simply
+    /// parented under the host.</para>
     ///
     /// <para>THE DEGENERATE PATH IS NOT DEAD CODE, and that is worth stating because the brief for
     /// this change assumed it was. A converted window has a close X only if
@@ -2173,19 +2427,31 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// <c>y -540..1287</c> against a frame that ends at 540), and a mark seated at <c>ink.yMax</c>
     /// would hang off in the room.</para>
     /// </summary>
-    private void SyncBadge(Rect hostRect, float unit)
+    private void SyncBadge(Rect hostRect, float unit, float rodTopPx)
     {
         if (_badge == null || unit <= 1e-9f)
+        {
+            _badgeSeatValid = false;
             return;
+        }
+
+        // THE SIZE IS READ OFF THE PLATE, NEVER COPIED FROM IT (see BadgePlateFraction). The HEIGHT
+        // rather than the width, because the plate is square today and the height is the dimension
+        // the badge's own downward growth is measured against; a plate that ever became a rectangle
+        // would move the badge with its short axis, which is the safe direction.
+        float sizePx = BadgeFallbackPx;
+        if (_closeXPlaced && _closeX != null && _closeX.rect.height > 1f)
+            sizePx = _closeX.rect.height * BadgePlateFraction;
 
         // The badge's own TOP-RIGHT corner, in the host's authored px.
         float cornerX = hostRect.xMax - BadgeInsetPx;
         float cornerY = hostRect.yMax - BadgeInsetPx;
         if (_inkValid && _inkRect.width > 0f && _inkRect.height > 0f)
         {
-            cornerX = Mathf.Clamp(_inkRect.xMax - BadgeInsetPx, hostRect.xMin + BadgeSizePx, cornerX);
-            cornerY = Mathf.Clamp(_inkRect.yMax - BadgeInsetPx, hostRect.yMin + BadgeSizePx, cornerY);
+            cornerX = Mathf.Clamp(_inkRect.xMax - BadgeInsetPx, hostRect.xMin + sizePx, cornerX);
+            cornerY = Mathf.Clamp(_inkRect.yMax - BadgeInsetPx, hostRect.yMin + sizePx, cornerY);
         }
+        _badgeGapToPlatePx = float.NaN;
         if (_closeXPlaced && _closeX != null)
         {
             cornerX = _closeXPlacement.Corner.x;
@@ -2193,22 +2459,153 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // gives the plate: a window barely taller than its own close button would otherwise have
             // its badge hanging below its bottom edge, out in the room. It never bites on a window
             // tall enough to hold both marks, which is every window this has been reasoned about on.
-            cornerY = Mathf.Max(_closeXPlacement.Corner.y - _closeX.rect.height - BadgeGapPx,
-                                hostRect.yMin + BadgeSizePx);
+            float underPlate = _closeXPlacement.Corner.y - _closeX.rect.height - BadgeGapPx;
+            cornerY = Mathf.Max(underPlate, hostRect.yMin + sizePx);
+            // MEASURED, NOT ASSERTED. It is BadgeGapPx whenever the survival clamp does not bite,
+            // and a NEGATIVE number if that clamp ever pushes the badge back up into the plate --
+            // which is the one way this placement could collide, and the growth this round adds is
+            // the one thing that could make it bite. The SHARED WINDOW BADGE line says which.
+            _badgeGapToPlatePx = (_closeXPlacement.Corner.y - _closeX.rect.height) - cornerY;
         }
 
-        // Host px -> frame-local metres, the same conversion the bar's placement makes, against the
-        // same origin: the badge hangs under _visual, which carries the host's pose and the user's
-        // grab factor, and `unit` carries metersPerPixel x extraScale x worldScale.
-        float sizeM = BadgeSizePx * unit;
-        _badge.localPosition = new Vector3((cornerX - BadgeSizePx * 0.5f) * unit,
-                                           (cornerY - BadgeSizePx * 0.5f) * unit, 0f);
+        // AND THE CLEARANCE TO THE ROD, on the same terms and in the same units. rodTopPx is the
+        // drawn shaft's TOP edge in these host px: the rod is placed BELOW hostRect.yMin (or the
+        // ink's, whichever is lower) minus a gap, and the badge is floored AT hostRect.yMin, so this
+        // is expected to be comfortably positive — but "expected to be" is what the ink round cost
+        // a build for, so it is measured and printed instead of argued.
+        _badgeGapToRodPx = (cornerY - sizePx) - rodTopPx;
+
+        // RESOLVED HERE, WRITTEN IN LATEUPDATE. This method runs in Update (SyncBar, from Tick) and
+        // every quantity above is in the HOST's authored pixels; the host's final world pose is not
+        // known until LateSyncHost has run. So the seat is STORED and SeatBadge places it — see THE
+        // BADGE'S SEAT block for the "zieht nach" report this answers.
+        _badgeSeatPx = new Vector2(cornerX - sizePx * 0.5f, cornerY - sizePx * 0.5f);
+        _badgeSizePx = sizePx;
+        _badgeSeatValid = true;
+    }
+
+    /// <summary>
+    /// <b>PUT THE BADGE ON THE HOST'S OWN PLANE — the LateUpdate half of the seat.</b> Called from
+    /// <see cref="LateSyncHost"/> immediately after <see cref="SyncHostToFrame"/>, i.e. in the same
+    /// phase as, and after, the one statement that writes the pose this mark is measured in. The
+    /// full argument, the user's words and the three refusals of the obvious "just parent it under
+    /// the host" are on THE BADGE'S SEAT block.
+    ///
+    /// <para>Never throws and never writes game state: the only objects touched are the mod's own
+    /// quad and the mod's own material.</para>
+    /// </summary>
+    private void SeatBadge(Transform host)
+    {
+        // A private window's badge is an INACTIVE GameObject: it needs no pose and no pulse, and
+        // skipping it here is what keeps a single-player session paying nothing for this feature.
+        if (_badge == null || !_badge.gameObject.activeSelf)
+            return;
+
+        // The pulse runs on the SEAT's cadence and not on the follow tick's, for one reason: this is
+        // the step that is guaranteed to run every frame for every live holder, and a mark that
+        // breathed at the follow tick's cadence would stutter whenever that tick did.
+        PulseBadge();
+
+        if (!_badgeSeatValid)
+            return;
+        // World metres per authored host px — the host's own lossy scale, which is exactly what
+        // SyncHostToFrame wrote one line up and therefore the same unit the seat is expressed in.
+        float pxToWorld = host.lossyScale.x;
+        if (pxToWorld <= 1e-9f)
+            return;
+
+        Vector3 want = host.TransformPoint(new Vector3(_badgeSeatPx.x, _badgeSeatPx.y, 0f));
+        SampleBadgeSeat(host, want, pxToWorld);
+
+        // Z = 0 IN THE HOST'S FRAME, exactly as before: coplanar with the window's content, with the
+        // draw decided by ORDER (BadgeOrderOffset) and not by a depth offset — the ruling
+        // ModalCloseButton arrived at after a viewer nudge alone failed to decide it. "Fix auf der
+        // Ebene" is now true by construction instead of by two transforms happening to agree.
+        _badge.SetPositionAndRotation(want, host.rotation);
         // A quad is 1x1 in its own local units, so this is a size and not a distortion; z stays 1
-        // because there is no z to scale. It sits AT z = 0, coplanar with the window's content and
-        // level with the rod, exactly as the bar does — the draw is decided by ORDER
-        // (BadgeOrderOffset), not by a depth offset, which is the ruling ModalCloseButton arrived at
-        // after a viewer nudge alone failed to decide it.
-        _badge.localScale = new Vector3(sizeM, sizeM, 1f);
+        // because there is no z to scale. The parent is the holder, whose identity scale this class
+        // re-asserts every tick, so a LOCAL scale here IS a world size.
+        float sizeWorld = _badgeSizePx * pxToWorld;
+        _badge.localScale = new Vector3(sizeWorld, sizeWorld, 1f);
+    }
+
+    /// <summary>
+    /// Advance the blue pulse one frame and write the badge's tint. Two float operations and one
+    /// colour write on a material this window owns outright — never a material per frame, and never
+    /// a shader keyword (a MaterialPropertyBlock cannot set one in this codebase). Both numbers, and
+    /// why the clock is unscaled, are on THE BLUE PULSE block.
+    /// </summary>
+    private void PulseBadge()
+    {
+        if (_badgeMaterial == null)
+            return;
+        const float twoPi = Mathf.PI * 2f;
+        _badgePulsePhase += Mathf.Max(Time.unscaledDeltaTime, 0f) * (twoPi / BadgePulsePeriodSeconds);
+        if (_badgePulsePhase >= twoPi)
+            _badgePulsePhase -= twoPi * Mathf.Floor(_badgePulsePhase / twoPi);
+        // 0 at phase 0 and 1 at the trough, so the DEPTH scales this OUTPUT and never the phase step
+        // above it, and the resting tint is exactly what a freshly built badge already wears.
+        float dim = BadgePulseDepth * (0.5f - 0.5f * Mathf.Cos(_badgePulsePhase));
+        float b = 1f - dim;
+        _badgeMaterial.color = new Color(BadgeTint.r * b, BadgeTint.g * b, BadgeTint.b * b, BadgeTint.a);
+    }
+
+    /// <summary>
+    /// Sample the two distances THE BADGE'S OWN FALSIFIER block defines, while the window is moving,
+    /// and emit the one line when the budget closes. Called from <see cref="SeatBadge"/> BEFORE the
+    /// write, because a measurement taken after it would be subtracting a value from itself.
+    /// </summary>
+    private void SampleBadgeSeat(Transform host, Vector3 want, float pxToWorld)
+    {
+        Vector3 hostPos = host.position;
+        bool moving = _badgeLastHostPosValid
+                      && (hostPos - _badgeLastHostPos).sqrMagnitude
+                         > BadgeMovingEpsilonMeters * BadgeMovingEpsilonMeters;
+        _badgeLastHostPos = hostPos;
+        _badgeLastHostPosValid = true;
+        if (!moving || _badgeReported || _badge == null)
+            return;
+
+        float seatPx = Vector3.Distance(_badge.position, want) / pxToWorld;
+        float proxyPx = _visual != null ? Vector3.Distance(_visual.position, hostPos) / pxToWorld : 0f;
+        _badgeSamples++;
+        _badgeSeatSumPx += seatPx;
+        _badgeProxySumPx += proxyPx;
+        if (seatPx > _badgeSeatWorstPx)
+            _badgeSeatWorstPx = seatPx;
+        if (proxyPx > _badgeProxyWorstPx)
+            _badgeProxyWorstPx = proxyPx;
+        if (_badgeSamples < BadgeSampleCap)
+            return;
+        // THE LATCH IS WRITTEN HERE, IN THE MECHANISM, and not inside the report: a diagnostic that
+        // writes a field the mechanism reads is a diagnostic that cannot be switched off
+        // ([[a-write-inside-a-logger]]).
+        _badgeReported = true;
+        ReportBadgeSeat();
+    }
+
+    /// <summary>Write the one SHARED WINDOW BADGE MOTION line. Reads only — the latch that stops the
+    /// sampling is set by its caller, for the reason stated there.</summary>
+    private void ReportBadgeSeat()
+    {
+        float seatMean = _badgeSamples > 0 ? _badgeSeatSumPx / _badgeSamples : 0f;
+        float proxyMean = _badgeSamples > 0 ? _badgeProxySumPx / _badgeSamples : 0f;
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"SHARED WINDOW BADGE MOTION: '{_logName}' over {_badgeSamples} MOVING frame(s) - "
+            + $"SEAT offset mean {seatMean:F2} px, worst {_badgeSeatWorstPx:F2} px (how far the "
+            + "badge was from its seat when the frame's final host pose landed, sampled BEFORE this "
+            + "frame's write; on the fixed path that is one frame of window travel and nothing "
+            + $"else). PROXY offset mean {proxyMean:F2} px, worst {_badgeProxyWorstPx:F2} px (how "
+            + "far '_visual' - the transform this mark used to hang under - sat from the HOST, the "
+            + "transform its seat is measured in). USER REPORT (2026-09-04): 'Zusätzlich zieht es "
+            + "immer etwas nach wenn man das Fenster bewegt statt fix auf der Ebene zu sein.' A "
+            + "PROXY of 0.00 says the pose chain was never the cause and the next round must look at "
+            + "the DRAW path - the supersample display quad is posed in Camera.onPreCull, a phase "
+            + "later than every writer here; anything else says the proxy WAS the cause and the "
+            + "reparent removed it. Both figures are in this window's own authored pixels. ONE LINE "
+            + $"PER WINDOW: the sampling latches off after {BadgeSampleCap} moving frames, so "
+            + "nothing here is written per frame.");
     }
 
     /// <summary>
@@ -3008,6 +3405,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _barTween?.Release(); // leaves the LateUpdate tick list; the rod it presented is gone
         _barTween = null;
         _badge = null;
+        // The material died with the holder; the seat and the pulse describe a window that no longer
+        // has a mark on it, and this class is REUSED across a window's closes and re-opens, so a
+        // phase kept here would make the next float's badge appear mid-dim.
+        _badgeMaterial = null;
+        _badgeSeatValid = false;
+        _badgeSizePx = 0f;
+        _badgePulsePhase = 0f;
+        _badgeGapToPlatePx = float.NaN;
+        _badgeGapToRodPx = float.NaN;
+        _badgeLastHostPosValid = false;
         _grabZone = null;
         _handle = null;
         _visualValid = false;
