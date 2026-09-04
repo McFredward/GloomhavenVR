@@ -347,7 +347,15 @@ internal static class ModalCloseButton
         // win the cross-raycaster tie against the adopted game content behind it — WITHOUT also
         // winning the draw against a nearer info panel. Registered as a nested surface exactly
         // like before; released with the host, so no teardown of its own.
-        var hitGo = new GameObject("HitPlane") { layer = layer };
+        // THE `GloomhavenVR.` PREFIX IS LOAD-BEARING, NOT DECORATION (2026-09-04). It is the ONLY
+        // thing that tells CanvasConversion's FindGameContent whether an object under a float host
+        // belongs to the mod or to the game: the walk descends through mod-owned nodes and stops at
+        // the first name without the prefix, calling it the game's. This plate was named bare
+        // "HitPlane", so every single window close read "the float host still holds the GAME object
+        // 'HitPlane'", deferred the host destroy, and then freed the host to the scene root — one
+        // leaked GameObject per close, and the HOST DESTROY DEFERRED warning on every close in every
+        // hardware log. Nothing looks this object up by name; the prefix is the whole fix.
+        var hitGo = new GameObject("GloomhavenVR.HitPlane") { layer = layer };
         var hitRect = hitGo.AddComponent<RectTransform>();
         hitRect.SetParent(rect, worldPositionStays: false);
         hitRect.anchorMin = Vector2.zero;

@@ -115,9 +115,42 @@ internal sealed class OptionsToggle
     /// a single printed line is never mistaken for a single press ([[held-instrument-reads-as-dead]]).
     /// </summary>
     private const int OptionsKeyLineCap = 10;
+
+    /// <summary>
+    /// A CAP MUST GO QUIET, NOT GO SILENT (user report 2026-09-04). The rapid-press burst that
+    /// produced "am linken Rand des auges so ein Rand der dem Kopf folgt" carried 47 taps and NOT
+    /// ONE <c>OPTIONS KEY</c> line, because <see cref="OptionsKeyLineCap"/> had been spent an hour
+    /// earlier on ordinary presses. The instrument was at its most useful exactly where it had
+    /// nothing to say — the same defect as [[a-truncated-list-is-not-absence]], one layer down: a
+    /// reader who greps this token and finds nothing concludes the player never pressed the key.
+    ///
+    /// <para>Past the cap the per-press line stops and a SUMMARY takes over, one line per this many
+    /// withheld presses. It carries the counts rather than the pictures, so the log still answers
+    /// "how often, and did the ruling hold every time" at a fixed cost per press.</para>
+    /// </summary>
+    private const int OptionsKeySummaryEvery = 25;
+
+    /// <summary>
+    /// A VERDICT THAT IS NOT "TOUCHED NOTHING ELSE" IS NOT CAPPED AT TEN. That verdict is the
+    /// falsifier for the 2026-09-03 ruling, and withholding it is withholding the one line the
+    /// ruling is checked with; the ordinary "nothing happened" lines are what the cap is for. It is
+    /// still bounded — by this larger cap, and before that by the change gate, which prints a
+    /// repeated identical violation exactly once.
+    /// </summary>
+    private const int OptionsKeyViolationLineCap = 40;
+
     private int _optionsKeyPresses;
     private int _optionsKeyLines;
+    private int _optionsKeyViolationLines;
     private int _optionsKeyWithheld;
+    /// <summary>Presses folded into the SUMMARY since the last one was printed, and how many of
+    /// them read TOUCHED NOTHING ELSE. The difference is the only number that matters.</summary>
+    private int _optionsKeySinceSummary;
+    private int _optionsKeyCleanSinceSummary;
+    private int _optionsKeySummaries;
+    /// <summary>The last verdict folded into the SUMMARY that was NOT "TOUCHED NOTHING ELSE", so a
+    /// violation past both caps still reaches the log by name instead of only as a count.</summary>
+    private string _optionsKeyLastDirtyVerdict = string.Empty;
     private string _optionsKeyLastSig = string.Empty;
     private readonly List<UIWindow> _censusBefore = new(16);
     private readonly List<UIWindow> _censusAfter = new(16);
@@ -351,13 +384,27 @@ internal sealed class OptionsToggle
               + (hid > 0 && opened > 0 ? "; " : string.Empty)
               + (opened > 0 ? $"OPENED: {openedNames}{(opened > 4 ? $" (+{opened - 4} more)" : string.Empty)}" : string.Empty);
         string sig = $"{menuName}|{closed}|{before}|{beforeNames}|{verdict}";
-        if (sig == _optionsKeyLastSig || _optionsKeyLines >= OptionsKeyLineCap)
+        // THE CAP IS PER VERDICT CLASS. A press that touched nothing else is bookkeeping and spends
+        // the ordinary budget; a press that HID or OPENED something is the ruling being broken and
+        // spends the violation budget, which is four times larger. Before 2026-09-04 both shared one
+        // ten-line budget, so a session's ordinary presses could spend the whole allowance and leave
+        // a later violation unprintable.
+        bool clean = hid == 0 && opened == 0;
+        bool capped = clean
+            ? _optionsKeyLines >= OptionsKeyLineCap
+            : _optionsKeyViolationLines >= OptionsKeyViolationLineCap;
+        if (sig == _optionsKeyLastSig || capped)
         {
             _optionsKeyWithheld++;
+            if (capped)
+                FoldIntoOptionsKeySummary(clean, verdict);
             return;
         }
         _optionsKeyLastSig = sig;
-        _optionsKeyLines++;
+        if (clean)
+            _optionsKeyLines++;
+        else
+            _optionsKeyViolationLines++;
         int sinceLast = _optionsKeyWithheld;
         _optionsKeyWithheld = 0;
         // HW-VERIFY: the falsifier for the 2026-09-03 ruling ("only the pause/options menu opens and
@@ -371,8 +418,61 @@ internal sealed class OptionsToggle
             "Counted on the game's own UIWindow registry (IsOpen, measured on the tap's call stack, after " +
             "the mod's close/open and the game's cascade both ran); the pause menu, its sub-windows and " +
             "the mod's settings window are the key's domain and are not counted. " +
-            $"Line {_optionsKeyLines} of {OptionsKeyLineCap} this session; {sinceLast} press(es) since " +
+            // The budget named here is the one this verdict class actually spends (2026-09-04):
+            // a TOUCHED NOTHING ELSE line spends the ordinary cap, a HID/OPENED line the violation
+            // cap. Printing the other class's counter would misstate how much headroom is left for
+            // the line that matters.
+            $"Line {(clean ? _optionsKeyLines : _optionsKeyViolationLines)} of " +
+            $"{(clean ? OptionsKeyLineCap : OptionsKeyViolationLineCap)} this session; {sinceLast} press(es) since " +
             "the last line showed the same picture and were not printed.");
+    }
+
+    /// <summary>
+    /// What a spent budget prints INSTEAD of nothing. Accumulates the presses the caps withheld and
+    /// emits one line per <see cref="OptionsKeySummaryEvery"/> of them.
+    ///
+    /// <para>WHY THIS EXISTS: the 2026-09-04 report ("Wenn man schnell hintereinander die
+    /// Optionstaste drückt erscheint am linken Rand des auges so ein Rand der dem Kopf folgt statt
+    /// dem Optionsmenu") was investigated from a log in which that burst — 47 taps — produced NOT
+    /// ONE <c>OPTIONS KEY</c> line, because the ten-line cap had been spent long before it. The cap
+    /// was right to stop the flood and wrong to stop the evidence.</para>
+    ///
+    /// <para>The summary carries COUNTS, not pictures, so its cost per press is fixed. The one field
+    /// that decides the ruling survives verbatim: how many of the folded presses read TOUCHED
+    /// NOTHING ELSE, and the last verdict that did not.</para>
+    /// </summary>
+    private void FoldIntoOptionsKeySummary(bool clean, string verdict)
+    {
+        _optionsKeySinceSummary++;
+        if (clean)
+            _optionsKeyCleanSinceSummary++;
+        else
+            _optionsKeyLastDirtyVerdict = verdict;
+        if (_optionsKeySinceSummary < OptionsKeySummaryEvery)
+            return;
+
+        int folded = _optionsKeySinceSummary;
+        int cleanFolded = _optionsKeyCleanSinceSummary;
+        string dirty = _optionsKeyLastDirtyVerdict;
+        _optionsKeySinceSummary = 0;
+        _optionsKeyCleanSinceSummary = 0;
+        _optionsKeyLastDirtyVerdict = string.Empty;
+        _optionsKeySummaries++;
+
+        // HW-VERIFY: past the per-press cap this is the ONLY line that says the options key was
+        // pressed at all, and the only one that says whether the 2026-09-03 ruling held while it
+        // was. Bounded by construction: one line per OptionsKeySummaryEvery withheld presses.
+        VRLog.Note("WorldUI",
+            $"OPTIONS KEY SUMMARY #{_optionsKeySummaries}: {folded} further press(es) folded " +
+            $"(press #{_optionsKeyPresses} is the latest), of which {cleanFolded} read TOUCHED NOTHING " +
+            $"ELSE and {folded - cleanFolded} did not. " +
+            (dirty.Length > 0
+                ? $"The last verdict that was NOT clean: {dirty}. That is the 2026-09-03 ruling broken, "
+                  + "and the per-press lines above it name the picture."
+                : "Every folded press left the other open windows exactly as it found them, which is "
+                  + "the 2026-09-03 ruling holding.") +
+            " The per-press line is capped per verdict class; this summary is what a spent budget " +
+            "prints instead of going silent, so a burst can never read as no presses at all.");
     }
 
     /// <summary>Record the intent the mod just asserted so the next tick can belt-reconcile it once.</summary>
