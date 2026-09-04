@@ -323,6 +323,13 @@ internal sealed class MapLocationInteractor
         if (_locations.Count == 0)
         {
             SetHover(null, "no map locations in the scene");
+            // ModBuild 422 — THIS EXIT WAS THE SILENT ONE. Report 3b's whole difficulty was that 45
+            // seconds of a dead map produced nothing to read (host Player.log:46433-51278), and this
+            // return sits ABOVE the press instrument the 421 lane added, so a press made while the
+            // registered set is empty said nothing at all. It says it now, rate-limited by the same
+            // clock as the other no-target line.
+            NotePressWithNoLocation("no MapLocation is registered at all — the scan found none, so "
+                                    + "there was nothing for either hand to point at");
             return;
         }
 
@@ -332,10 +339,31 @@ internal sealed class MapLocationInteractor
         // PickFrom). The shared pick keeps deciding what the beam and reticle do, and because the
         // pads are ordinary colliders on the locations' own layer it clamps the beam on the pad —
         // i.e. on the icon — for free.
-        MapLocation? want = PickFrom(VRHands.Primary, out string how);
-        if (want == null)
-            want = PickFrom(OtherHand(VRHands.Primary), out how);
+        //
+        // TWO HANDS, AND THE SECOND ONE IS ONLY ASKED WHEN THE FIRST CANNOT SERVE (ModBuild 422).
+        // Up to 421 the second call was made whenever the first found nothing — and it was INERT,
+        // because VRModeStateMachine.InteractorsFor strips Interactors.Ray from the NON-DOMINANT
+        // hand in every mode under every config, so TryGetPick on that hand always returned false.
+        // PickFrom now accepts a policy-stood-down hand's AIM POSE (see its own doc), which makes
+        // that call real for the first time — so the condition has to be narrowed in the same
+        // change, or the player's resting off hand would start stealing the hover from a live
+        // dominant beam that is merely pointing somewhere else this frame. The rule is the one the
+        // old code MEANT: the off hand gets a turn exactly when the dominant hand has no usable
+        // beam of its own.
+        VRHand? primaryHand = VRHands.Primary;
+        bool primaryHasBeam = HasLiveBeam(primaryHand);
+        MapLocation? want = PickFrom(primaryHand, out string how);
+        if (want == null && !primaryHasBeam)
+        {
+            MapLocation? alt = PickFrom(OtherHand(primaryHand), out string otherHow);
+            if (alt != null)
+            {
+                want = alt;
+                how = otherHow;
+            }
+        }
         SetHover(want, "laser", how);
+        NoteRouteChange(primaryHand, primaryHasBeam, how);
 
         TickHoverVerdict();
         TickClickVerdict();
@@ -677,18 +705,70 @@ internal sealed class MapLocationInteractor
     /// <c>Ray.Mask</c>, and the same length — clamped by the hand's own
     /// <c>SolidOccluderDistance</c>, so a raised card fan or the control board still occludes the
     /// map exactly as it occludes it for every other consumer.</para>
+    ///
+    /// <para>A POLICY-OFF BEAM NO LONGER MEANS AN UNREACHABLE MAP (ModBuild 422, report 3b:
+    /// <i>"Ich hab mehrere Szenarien angeklickt - irgendwann ist das Fenster vollständig
+    /// verschwunden und auch nicht mehr aufgetaucht nachdem ich andere Questsymbole angeklickt
+    /// habe. Man hat nurnoch die Sounds gehört."</i>). Up to 421 this method returned null the
+    /// moment <c>Ray.TryGetPick</c> was false, and <c>TryGetPick</c> is false whenever ANY of the
+    /// five terms of <c>RayInteractor.Active</c> holds. The map's icons are physical objects on the
+    /// table in front of the player, so that made five unrelated facts about the BEAM into five
+    /// ways of not being able to start a scenario — and the whole path was silent about it.</para>
+    ///
+    /// <para>THE ONE TERM THIS WORKS AROUND, AND WHY IT IS EXACTLY ONE.
+    /// <c>RayStandDown.ModePolicy</c> is the only STANDING term: it is written from outside
+    /// (<c>HandsDriver.ApplyMode</c>), nothing re-reads a device level to clear it, and
+    /// <c>VRModeStateMachine.InteractorsFor</c> strips the ray from the NON-DOMINANT hand in every
+    /// mode under every config — so a hand can sit in it for a whole session. It did, in the very
+    /// session this report came from: <c>.planning/debug/remote/Player.log:4762</c> reads "Right ray
+    /// OFF — mode policy — no Ray in the TableIdle mask" and no "Right ray ON" follows it in the
+    /// remaining 38,000 lines, while four <c>MAP ROOM deselect REFUSED … the ray was on nothing —
+    /// this hand's ray is stood down</c> lines in that same stretch record the player pulling that
+    /// hand's trigger at the map and being ignored. Under that term this method takes the hand's
+    /// LIVE AIM POSE (<c>RayInteractor.TryGetAimPose</c>) instead.</para>
+    ///
+    /// <para>THE OTHER FOUR ARE REFUSED, deliberately, and this is the "correct about one
+    /// population, starving another" trap this project keeps stepping in. <c>NoPose</c> has no aim
+    /// to offer. <c>Holding</c>, <c>Grip</c> and <c>CardContact</c> are the player's hand being
+    /// USED for something else right now — a carried window, the physical-press posture, a hand
+    /// inside a card — and each is re-derived from a live button level or an unscaled-time deadline
+    /// every frame (<c>RayInteractor.Active</c>'s own truth table proves it row by row), so none of
+    /// them can strand the map: they end when the player lets go. Overriding them would pop preview
+    /// cards and select scenarios UNDER a window the player is dragging across the map, which is
+    /// the ModBuild 191 complaint in a new coat. The guarantee still holds without them, because
+    /// the other hand is asked whenever this one has no live beam (see <c>Tick</c>) and the other
+    /// hand is precisely the one that is always policy-off.</para>
+    ///
+    /// <para>WHAT WAS REJECTED: making the mod's own floated panels not block the pick, which the
+    /// 421 lane named as the lead. The panels do not block it — <c>PickFrom</c> raycasts
+    /// <c>Ray.Mask</c>, which this class narrows to the MapLocations' own layer (0x00008000, see
+    /// ApplyMask), and a converted window lives on the mod's dedicated layer 27; and the only
+    /// occluder <c>SolidOccluderDistance</c> can carry is a card fan or the control board
+    /// (<c>RayInteractor.ComputeFanOccluder</c>/<c>ComputeBoardOccluder</c>), neither of which
+    /// printed its "ray occluded by" line even once in either 420 log. Nothing was changed about
+    /// the panels, and nothing needed to be.</para>
     /// </summary>
     private MapLocation? PickFrom(VRHand? hand, out string how)
     {
         how = "no hand";
         if (hand == null || !hand.HasPose)
             return null;
-        if (!hand.Ray.TryGetPick(out PickPose pick))
+        bool viaBeam = hand.Ray.TryGetPick(out PickPose pick);
+        if (!viaBeam)
         {
-            how = "the ray is stood down";
-            return null;
+            // THE MAP IS NOT ALLOWED TO GO UNREACHABLE — see the block comment above this method.
+            RayStandDown standDown = hand.Ray.StandDown;
+            if (standDown != RayStandDown.ModePolicy || !hand.Ray.TryGetAimPose(out pick))
+            {
+                how = StoodDownVerdict(standDown);
+                return null;
+            }
         }
 
+        // The occluder term is unchanged and needs no branch: RayInteractor.Tick resets
+        // SolidOccluderDistance to +inf on every inactive frame, so on the aim-pose route this
+        // Min is already just the length bound. A fan or the control board can only shorten a
+        // pick made through a LIVE beam, which is the only case it was ever measured for.
         float limit = Mathf.Min(hand.Ray.SolidOccluderDistance,
                                 MaxPickMeters * Mathf.Max(hand.WorldScale, 0.0001f));
         int n = Physics.RaycastNonAlloc(pick.Origin, pick.Direction, _hits, limit, hand.Ray.Mask);
@@ -723,21 +803,125 @@ internal sealed class MapLocationInteractor
             }
         }
 
+        // The route is named in every verdict, not just the successful ones: "the aim pose" and
+        // "laser" are two different claims about what the player could see themselves doing, and a
+        // hardware round that cannot tell them apart cannot tell a fixed map from a lucky one.
+        string route = viaBeam ? "laser" : "aim pose, beam policy-off";
         if (padHit != null)
         {
-            how = $"its DRAWN ICON pad at {padDist:F1} world units ({hand.Side} laser)";
+            how = $"its DRAWN ICON pad at {padDist:F1} world units ({hand.Side} {route})";
             return padHit;
         }
         if (boxHit != null)
         {
             how = $"the game's own collider '{boxCollider!.name}' at {boxDist:F1} world units "
-                  + $"({hand.Side} laser) — no drawn-icon pad was on this ray";
+                  + $"({hand.Side} {route}) — no drawn-icon pad was on this ray";
             return boxHit;
         }
         how = n > 0
-            ? $"{n} collider(s) on the ray, none of them a location"
-            : "nothing on the ray";
+            ? $"{n} collider(s) on the ray, none of them a location ({hand.Side} {route})"
+            : viaBeam ? "nothing on the ray" : "nothing on the aim pose (beam policy-off)";
         return null;
+    }
+
+    /// <summary>Does this hand have a beam the map can pick through RIGHT NOW? The question the
+    /// second-hand fallback in <see cref="Tick"/> asks — deliberately the SAME predicate
+    /// <see cref="PickFrom"/> opens with, so the two can never disagree about which hand is
+    /// serving.</summary>
+    private static bool HasLiveBeam(VRHand? hand) =>
+        hand != null && hand.HasPose && hand.Ray.TryGetPick(out _);
+
+    /// <summary>
+    /// The verdict text for a hand whose ray is down and whose aim pose the map will NOT take.
+    /// Literals, one per reason: this runs on the pick path, every frame, on a hand that is not
+    /// serving — it must not interpolate a string to say so.
+    /// </summary>
+    private static string StoodDownVerdict(RayStandDown standDown) => standDown switch
+    {
+        RayStandDown.NoPose =>
+            "this hand has no tracked pose — there is no aim to fall back to either",
+        RayStandDown.Holding =>
+            "the ray is stood down because this hand is CARRYING something (Grabber.Held), and a "
+            + "carrying hand does not also drive the map — the other hand does",
+        RayStandDown.Grip =>
+            "the ray is stood down because the GRIP is held on this hand (the physical-press "
+            + "posture), and that posture is the player choosing the fingertip over the beam",
+        RayStandDown.CardContact =>
+            "the ray is stood down because this hand is INSIDE A CARD (card-contact deadline)",
+        RayStandDown.ModePolicy =>
+            "the ray is policy-off AND this hand has no aim pose either — nothing to point with",
+        _ => "the ray is stood down for no reason this class can name, which is itself the bug",
+    };
+
+    /// <summary>The last route key <see cref="NoteRouteChange"/> printed. <c>int.MinValue</c> =
+    /// nothing printed yet, and it is a sentinel that is COMPARED, never arithmetic — see the note
+    /// at the top of <see cref="Tick"/> about what an int.MinValue subtraction did to ModBuild
+    /// 178.</summary>
+    private int _routeLogged = int.MinValue;
+
+    /// <summary>Floor under the change gate — see <see cref="NoteRouteChange"/>.</summary>
+    private const float RouteLogIntervalSeconds = 1f;
+
+    private float _routeLoggedAt = float.NegativeInfinity;
+
+    /// <summary>
+    /// The map's PICK CAPABILITY as one comparable value: which hand is dominant, what (if
+    /// anything) is holding its beam down, and whether the off hand is therefore being asked.
+    ///
+    /// <para>DELIBERATELY NOT KEYED ON WHETHER AN ICON WAS HIT. Keying it on the hit would fire a
+    /// line every time the beam swept on and off a symbol — dozens per second in ordinary play,
+    /// which is the flood ModBuild 331 removed. What a hardware round needs from this is the thing
+    /// that does NOT change while the player waves their hand around: the route that is available
+    /// to them at all.</para>
+    /// </summary>
+    private static int RouteKey(VRHand? primary, bool primaryHasBeam)
+    {
+        if (primary == null)
+            return 0;
+        int side = primary.Side == HandSide.Left ? 1 : 2;
+        return (side * 16) + ((int)primary.Ray.StandDown * 2) + (primaryHasBeam ? 0 : 1);
+    }
+
+    /// <summary>
+    /// ONE line whenever the map changes HOW it can be reached — the dominant hand's live beam, or
+    /// (its beam being down) whichever hand's aim pose <see cref="PickFrom"/> will accept.
+    /// Change-gated, not rate-limited: this runs on the pick path every frame, and the key it
+    /// watches only moves when the player picks something up, squeezes the grip, switches dominant
+    /// hand, or the mode mask moves under them.
+    /// </summary>
+    private void NoteRouteChange(VRHand? primary, bool primaryHasBeam, string how)
+    {
+        int key = RouteKey(primary, primaryHasBeam);
+        if (key == _routeLogged)
+            return;
+        // A FLOOR UNDER THE CHANGE GATE, because one of the terms is a button the player taps. The
+        // grip is held to arm the physical press (RayInteractor.GripSuppressed), so a run of pokes
+        // toggles this key once per poke; a change gate alone would then print per poke. Note that
+        // _routeLogged is NOT advanced when the floor swallows a change — the next transition after
+        // the floor still prints, so a route that moves and STAYS moved can never be swallowed.
+        if (Time.unscaledTime - _routeLoggedAt < RouteLogIntervalSeconds)
+            return;
+        _routeLoggedAt = Time.unscaledTime;
+        _routeLogged = key;
+        RayStandDown stand = primary != null ? primary.Ray.StandDown : RayStandDown.NoPose;
+        // HW-VERIFY: report 3b — which hand the map is reachable through, and why.
+        VRLog.Note(Scope,
+            $"MAP ROOM PICK ROUTE CHANGED: the dominant hand is "
+            + $"{(primary != null ? primary.Side.ToString() : "<none>")}, its beam is "
+            + $"{(primaryHasBeam ? "LIVE" : "DOWN")}"
+            + (primaryHasBeam ? "" : $" (RayInteractor.StandDown={stand})")
+            + $", so the map is being picked {(primaryHasBeam ? "through that beam" : "through an AIM POSE and/or the OTHER hand")}. "
+            + $"The pick's verdict on this frame is '{how}'. WHAT CHANGED IN ModBuild 422: up to 421 "
+            + "PickFrom returned null the moment Ray.TryGetPick was false, and Tick's second ask was "
+            + "INERT because VRModeStateMachine.InteractorsFor strips Interactors.Ray from the "
+            + "NON-DOMINANT hand in every mode under every config — so the campaign map had exactly "
+            + "ONE route and every reason the beam stood down was also a reason no scenario could be "
+            + "started, silently. 422 accepts a hand's live aim pose under StandDown=ModePolicy only "
+            + "(the one term nothing re-reads a device level to clear), which is what makes the "
+            + "second ask real. READ IT LIKE THIS: a hardware round that reports a dead map and shows "
+            + "beam=LIVE here has a cause that is NOT the stand-down, and MAP ROOM PRESS REACHED NO "
+            + "LOCATION is then the line that names it; a round with no MAP ROOM PICK ROUTE line at "
+            + "all never changed route, which is the ordinary healthy case.");
     }
 
     private static VRHand? TriggerEdgeHand()
@@ -1440,7 +1624,22 @@ internal sealed class MapLocationInteractor
             + "return without showing anything. If a future log shows this line WITH IsOpen=False "
             + "and activeInHierarchy=True, the ray is the cause and the window state is innocent; "
             + "if it shows IsOpen=True while nothing is on screen, the mod has left the game "
-            + "believing a window is up that it is not drawing, and THAT is the deadlock class.");
+            + "believing a window is up that it is not drawing, and THAT is the deadlock class. "
+            // APPENDED IN 422, NOT REWORDED (house rule): the sentence above states the 421 lane's
+            // occluder lead. It is now falsified and the line has to say so where it is read.
+            + "ModBuild 422 — THE OCCLUDER LEAD ABOVE IS FALSIFIED, do not chase it again: this "
+            + "pick raycasts Ray.Mask, which ApplyMask narrows to the MapLocations' OWN layer "
+            + "(0x00008000), and a floated panel lives on the mod's dedicated layer 27, so a panel "
+            + "cannot be on this ray at all; the only thing SolidOccluderDistance can carry is a "
+            + "card fan or the control board, and RayInteractor's own 'ray occluded by' line "
+            + "appears ZERO times in either 420 log. What DID appear is the ray standing down: "
+            + "remote/Player.log:4762 'Right ray OFF — mode policy — no Ray in the TableIdle mask' "
+            + "with no 'Right ray ON' in the following 38,000 lines, and four 'deselect REFUSED … "
+            + "this hand's ray is stood down' presses inside that stretch. THIS HAND RIGHT NOW: "
+            + $"Ray.StandDown={clicking.Ray.StandDown}, and 422 lets the map take a hand's aim pose "
+            + "when and only when that reads ModePolicy — so if you are reading this line WITH "
+            + "ModePolicy, the aim pose was taken and missed, which is a geometry answer and no "
+            + "longer a stand-down one.");
     }
 
     /// <summary>Seconds between <see cref="NotePressWithNoLocation"/> lines. A held trigger must not

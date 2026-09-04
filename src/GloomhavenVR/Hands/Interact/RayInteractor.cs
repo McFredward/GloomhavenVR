@@ -558,6 +558,36 @@ internal sealed class RayInteractor : IPickProvider
     /// </summary>
     public bool Active => _enabled && _hand.HasPose && !IsHolding && !GripSuppressed && !CardContactStandDown;
 
+    /// <summary>
+    /// WHICH of <see cref="Active"/>'s terms is holding this ray down, as a value a consumer can
+    /// BRANCH on. <see cref="StateReason"/> already says it in prose, for a human reading a log;
+    /// this says it to code, because ModBuild 422 has a consumer that must treat exactly one of
+    /// the five differently (<c>MapLocationInteractor.PickFrom</c> — the campaign map's only route
+    /// from a hand to a scenario icon).
+    ///
+    /// <para>THE TERM ORDER IS THE SAME AS <see cref="Active"/>'s AND <see cref="SyncActiveState"/>'s,
+    /// deliberately and permanently: three places name the same five facts, and if they ever
+    /// disagree the log line and the branch would be describing different frames. Add a term to one
+    /// and you add it to all three.</para>
+    ///
+    /// <para>WHY A CONSUMER CARES WHICH ONE. Four of the five are LIVE — the truth table above
+    /// proves each of them re-reads a device level or a deadline every frame, so they end on their
+    /// own and a consumer may simply wait them out. <see cref="RayStandDown.ModePolicy"/> is the
+    /// odd one: it is a STANDING policy written from outside (<c>HandsDriver.ApplyMode</c> →
+    /// <c>VRModeStateMachine.InteractorsFor</c>), it has no live input behind it, and it is the one
+    /// the truth table itself marks "WAS THE #19 LATCH". A hand can sit in it for a whole session —
+    /// which is not hypothetical: <c>.planning/debug/remote/Player.log:4762</c> is
+    /// "Right ray OFF — mode policy — no Ray in the TableIdle mask" with no "Right ray ON" in the
+    /// remaining 38,000 lines of that session.</para>
+    /// </summary>
+    internal RayStandDown StandDown =>
+        !_enabled ? RayStandDown.ModePolicy
+        : !_hand.HasPose ? RayStandDown.NoPose
+        : IsHolding ? RayStandDown.Holding
+        : GripSuppressed ? RayStandDown.Grip
+        : CardContactStandDown ? RayStandDown.CardContact
+        : RayStandDown.None;
+
     /// <summary>Transient suppression: the hand is actually holding a grabbable RIGHT NOW.</summary>
     private bool IsHolding => _hand.Grabber != null && _hand.Grabber.Held != null;
 
@@ -602,6 +632,37 @@ internal sealed class RayInteractor : IPickProvider
     {
         pick = _current;
         return Active;
+    }
+
+    /// <summary>
+    /// The hand's LIVE AIM POSE — origin and direction only — whether or not the beam is standing.
+    /// <c>false</c> only when the hand has no pose at all, in which case there is nothing to aim.
+    ///
+    /// <para>THIS IS NOT A SECOND PICK AND IT MUST NEVER BECOME ONE. It carries no hit, no
+    /// occluder distance and no commit claim: <c>HasHit</c> is cleared on every inactive frame by
+    /// <see cref="Tick"/> and <see cref="SolidOccluderDistance"/> is reset to +inf there, so a
+    /// caller that reads this while the beam is down reads "here is where the controller points",
+    /// nothing more. Everything the beam arbitrates — the far click, the grab, the uGUI hover —
+    /// still goes through <see cref="TryGetPick"/> and still stands down with it.</para>
+    ///
+    /// <para>ADDED FOR ModBuild 422, report 3b: "irgendwann ist das Fenster vollständig
+    /// verschwunden und auch nicht mehr aufgetaucht nachdem ich andere Questsymbole angeklickt
+    /// habe". The campaign map's icons are physical objects on the table in front of the player and
+    /// its ONLY route from a hand to one of them was <c>TryGetPick</c> — so every reason the beam
+    /// stands down was also a reason no scenario could be selected, silently. See
+    /// <c>MapLocationInteractor.PickFrom</c> for which of the five reasons it accepts this pose
+    /// under, and why it accepts exactly one of them.</para>
+    ///
+    /// <para>THE POSE IS FRESH ON AN INACTIVE FRAME TOO — see <see cref="WriteAimPose"/>. Before
+    /// 422 <c>_current.Origin/Direction</c> were written only on active frames, so a consumer that
+    /// read <c>_current</c> while the beam was down would have aimed from wherever the hand was
+    /// when the beam last stood. A frozen ray is exactly the shape of the defect this is fixing,
+    /// and shipping a second one inside the fix is not on offer.</para>
+    /// </summary>
+    internal bool TryGetAimPose(out PickPose pose)
+    {
+        pose = _current;
+        return _hand.HasPose;
     }
 
     internal void Tick()
@@ -650,33 +711,22 @@ internal sealed class RayInteractor : IPickProvider
             SolidOccluderDistance = float.PositiveInfinity;
             SolidOccluderIsBoard = false;
             _boardOccluderHoldUntil = 0f;
+            // THE AIM POSE KEEPS TICKING, THE BEAM DOES NOT (ModBuild 422). Origin and direction
+            // are the controller's own pointer pose; nothing about them is an arbitration and
+            // nothing downstream can act on them without asking for them by name
+            // (TryGetAimPose — TryGetPick still returns false on this frame). Leaving them at the
+            // value they had when the beam last stood would hand that one consumer a FROZEN ray,
+            // which looks exactly like the dead map this build is fixing.
+            if (_hand.HasPose)
+                WriteAimPose();
             return;
         }
 
         float scale = _hand.WorldScale;
-        Vector3 origin;
-        Vector3 direction;
-        // Direction ALWAYS comes from the controller's OpenXR aim pose, never from the visual
-        // hand. Deriving it from the hand was tried (so the beam would be collinear with the
-        // finger at any seat) and it aimed worse: the aim pose is what the runtime tuned for
-        // pointing, and coupling the ray to a cosmetic setting made aiming move whenever the
-        // hand was tuned. The visible beam still STARTS at the knuckle (LaserFingerOrigin) —
-        // that part reads correctly and costs only a small angular difference near the hand.
-        if (_hand.HasPointerPose)
-        {
-            // OpenXR aim pose — see class doc.
-            origin = _hand.PointerOrigin;
-            direction = _hand.PointerDirection;
-        }
-        else
-        {
-            origin = _hand.Rig.GetFinger(Finger.Index).Root.position;
-            direction = _hand.Rig.Root.forward;
-        }
+        WriteAimPose();
+        Vector3 origin = _current.Origin;
+        Vector3 direction = _current.Direction;
         float maxDistance = MaxDistanceMeters * scale;
-
-        _current.Origin = origin;
-        _current.Direction = direction;
 
         // Fan occlusion (user issue): the off-hand's raised card fan sits between the
         // pointing hand and the board/menu. Its cards live on the mod render layer — which
@@ -790,6 +840,33 @@ internal sealed class RayInteractor : IPickProvider
         }
 
         UpdateVisuals(origin, direction, maxDistance, scale);
+    }
+
+    /// <summary>
+    /// Write this frame's aim origin and direction into <see cref="_current"/>. Called from BOTH
+    /// arms of <see cref="Tick"/> (ModBuild 422) so the pose a consumer reads is this frame's,
+    /// whether or not the beam is standing; the body is verbatim what the active arm did before.
+    ///
+    /// <para>Direction ALWAYS comes from the controller's OpenXR aim pose, never from the visual
+    /// hand. Deriving it from the hand was tried (so the beam would be collinear with the finger at
+    /// any seat) and it aimed worse: the aim pose is what the runtime tuned for pointing, and
+    /// coupling the ray to a cosmetic setting made aiming move whenever the hand was tuned. The
+    /// visible beam still STARTS at the knuckle (LaserFingerOrigin) — that part reads correctly and
+    /// costs only a small angular difference near the hand.</para>
+    /// </summary>
+    private void WriteAimPose()
+    {
+        if (_hand.HasPointerPose)
+        {
+            // OpenXR aim pose — see class doc.
+            _current.Origin = _hand.PointerOrigin;
+            _current.Direction = _hand.PointerDirection;
+        }
+        else
+        {
+            _current.Origin = _hand.Rig.GetFinger(Finger.Index).Root.position;
+            _current.Direction = _hand.Rig.Root.forward;
+        }
     }
 
     /// <summary>
@@ -1161,4 +1238,40 @@ internal sealed class RayInteractor : IPickProvider
             _reticle = null;
         }
     }
+}
+
+/// <summary>
+/// WHICH term of <see cref="RayInteractor.Active"/> is holding a hand's beam down. One value per
+/// row of that property's truth table, in the SAME ORDER the property evaluates them — see
+/// <see cref="RayInteractor.StandDown"/> for why the order is load-bearing.
+///
+/// <para>Read the LIVE/STANDING split, not the names: <see cref="NoPose"/>, <see cref="Holding"/>,
+/// <see cref="Grip"/> and <see cref="CardContact"/> are all re-derived from a device level or an
+/// unscaled-time deadline every frame, so they end without anybody having to remember to end them.
+/// <see cref="ModePolicy"/> is a value written from outside and left standing until something
+/// writes it again, which is why it is the only one a consumer is allowed to work around.</para>
+/// </summary>
+internal enum RayStandDown
+{
+    /// <summary>The beam is up; <c>Active</c> is true.</summary>
+    None,
+
+    /// <summary>Mode/hand policy (<c>RayInteractor.Enabled</c> is false). STANDING, not live:
+    /// <c>HandsDriver.ApplyMode</c> writes it on a mode change and on a PrimaryHand change, and
+    /// <c>VRModeStateMachine.InteractorsFor</c> strips <c>Interactors.Ray</c> from the NON-DOMINANT
+    /// hand in every mode under every config ("Nur die aktive Hand soll einen Laser haben"), so the
+    /// off hand sits in this value for a whole session by design.</summary>
+    ModePolicy,
+
+    /// <summary>No tracked pose on this hand. There is no aim to fall back to either.</summary>
+    NoPose,
+
+    /// <summary>The hand is carrying a grabbable right now (<c>Grabber.Held != null</c>).</summary>
+    Holding,
+
+    /// <summary>The grip is held on THIS hand — the physical-press posture.</summary>
+    Grip,
+
+    /// <summary>The hand is inside a card (a deadline in unscaled time).</summary>
+    CardContact,
 }
