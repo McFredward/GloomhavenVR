@@ -625,6 +625,91 @@ internal static partial class WindowMaterialise
     }
 
     /// <summary>
+    /// <b>END the vanish on this window's float NOW, and let its pending release run.</b> The
+    /// re-open counterpart to <see cref="IsVanishing"/>: same ancestry match, but instead of
+    /// answering "wait", it resolves the wait.
+    ///
+    /// <para><b>USER REPORT, 2026-09-04, ModBuild 418 (hardware):</b> <i>"Wenn man schnell
+    /// hintereinander die Optionstaste drückt erscheint am linken Rand des auges so ein Rand der
+    /// dem Kopf folgt statt dem Optionsmenu. Gehe dem nach und fix das. Ein schneller Drücken der
+    /// Optionstaste auch hintereinander soll das nicht auslösen sondern eben einfach das
+    /// Optionsmeenu als Fenster öffnen/schließen."</i> — pressing the options key rapidly showed a
+    /// head-locked rim at the LEFT EDGE of the eye instead of the menu. That rim was the GAME's own
+    /// 2D ESC menu drawn at its screen-space home: its ink spans x -979..-591 of a 1920-wide canvas
+    /// (<c>MODAL CLOSE X ON THE INK</c>, ModBuild 418 log), a 388 px strip hard against the left
+    /// edge, and screen space means head-locked. It reached the eye because a close/re-open left the
+    /// window un-floatable for the whole 0.9 s dissolve (<see cref="IsVanishing"/>) while the
+    /// pre-convert blackout gave up after 8 frames (~0.11 s) — ModBuild 418 log :19849,
+    /// <c>MODAL PRE-CONVERT BLACKOUT: … was still un-floated after 9 frames</c>, the ONLY such line
+    /// in the session and squarely inside the rapid-press burst.</para>
+    ///
+    /// <para><b>WHY THIS IS THE SHAPE, AND WHAT WAS REJECTED.</b> The alternative was to re-adopt
+    /// the dying host and play the appear back over it — visually nicer, but it fights
+    /// <see cref="WindowMaterialiseRunner.Finish"/>'s invariant that <i>cancelling the ANIMATION
+    /// never cancels the RELEASE</i>: the caller has already removed the window from every list it
+    /// was in, so a re-adopted host would have no owner and the release would have to be invented
+    /// somewhere else. This call keeps that invariant exactly as written — it does what
+    /// <see cref="Cancel"/> does, so the alphas are restored, the visibility hold goes back and the
+    /// pending <c>CanvasConversion.Release</c> runs, in that order, before this method returns — and
+    /// the convert loop then floats the window fresh in the same tick. The gap collapses from ~0.9 s
+    /// to nothing.</para>
+    ///
+    /// <para>Returns false and touches nothing when no vanish matches, so a caller may use it as
+    /// "resolve it if there is one" and fall back to its previous refusal.</para>
+    ///
+    /// <para>MULTIPLAYER: local rendering only. This ends a local decoration early and runs a local
+    /// re-parent; no game state, no wire traffic, nothing on the remote copy of the window.</para>
+    /// </summary>
+    /// <param name="windowRoot">The GAME window's own transform, matched by ancestry exactly as
+    /// <see cref="IsVanishing"/> matches it — containment is not identity, and the rect a window is
+    /// converted through need not be the <c>UIWindow</c>'s own transform.</param>
+    /// <param name="reason">Printed in the runner's own end line.</param>
+    /// <param name="elapsed">Seconds the dissolve had already run (0 when nothing matched).</param>
+    /// <param name="total">Seconds it had been started with (0 when nothing matched).</param>
+    internal static bool EndVanishNow(Transform? windowRoot, string reason,
+                                      out float elapsed, out float total)
+    {
+        elapsed = 0f;
+        total = 0f;
+        if (windowRoot == null)
+            return false;
+        bool ended = false;
+        // BACKWARDS, because Finish unregisters the runner from this very list (Cancel iterates the
+        // same way for the same reason). Every matching runner is ended, not only the first: a
+        // window with two vanishes in flight would otherwise leave one of them holding a release.
+        for (int i = Live.Count - 1; i >= 0; i--)
+        {
+            WindowMaterialiseRunner r = Live[i];
+            if (r == null)
+            {
+                Live.RemoveAt(i);
+                continue;
+            }
+            if (!r.Vanishing)
+                continue;
+            RectTransform? target = r.Panel?.Target;
+            if (target == null)
+                continue;
+            if (!ReferenceEquals(target, windowRoot) && !windowRoot.IsChildOf(target)
+                && !target.IsChildOf(windowRoot))
+                continue;
+            if (!ended)
+            {
+                elapsed = r.Elapsed;
+                total = r.Total;
+            }
+            ended = true;
+            // THE RELEASE RUNS INSIDE THIS CALL. Finish restores every alpha, hands the visibility
+            // hold back and THEN invokes the pending callback, which is
+            // `CanvasConversion.Release(dying)` — the call that re-parents the game's window back to
+            // its 2D home. That is the whole point: the convert loop can record the TRUE parent one
+            // statement later instead of the dying host.
+            r.Finish(reason, restore: true);
+        }
+        return ended;
+    }
+
+    /// <summary>
     /// <b>The window is up, visible and interactive — now make it look like it arrived.</b> Call
     /// this AFTER the reveal, in the same LateUpdate, so the first frame the eye sees is already
     /// the first frame of the animation rather than a full-alpha pop.

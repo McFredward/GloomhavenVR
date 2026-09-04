@@ -68,8 +68,48 @@ internal static partial class ModalFallback
     //    reveal skip them and leave a permanently invisible menu — hence the explicit release.
     //  * <see cref="TickPreConvertHide"/> runs FIRST in <see cref="Tick"/> and force-restores on
     //    every other outcome: window closed, conversion failed, the flat-screen/screen-style
-    //    path took over, Menu2D, VR stopped — plus a hard <see cref="PreConvertHideMaxFrames"/>
-    //    frame budget that ends the blackout no matter what went wrong.
+    //    path took over, Menu2D, VR stopped — plus, since ModBuild 419, the hand-back rule below:
+    //    the blackout stands only while a NAMED, BOUNDED intent to float this window stands, and
+    //    goes back the moment none does.
+    //
+    // ---- ROUND 2026-09-04: THE BUDGET WAS A FRAME COUNT WHERE THE QUESTION WAS A CONDITION ----
+    //
+    // THE SYMPTOM, verbatim: "Wenn man schnell hintereinander die Optionstaste drückt erscheint am
+    // linken Rand des auges so ein Rand der dem Kopf folgt statt dem Optionsmenu. Gehe dem nach und
+    // fix das. Ein schneller Drücken der Optionstaste auch hintereinander soll das nicht auslösen
+    // sondern eben einfach das Optionsmeenu als Fenster öffnen/schließen." — rapid repeated presses
+    // of the options key produced a head-locked rim at the LEFT EDGE of the eye instead of the
+    // options menu. That rim is the artifact THIS FILE EXISTS TO PREVENT, and the ModBuild 418 log
+    // measured it: 'MODAL CLOSE X ON THE INK' reports the ESC menu's FRAME at x -960..960 of a
+    // 1920x1080 canvas and its INK at x -979..-591 — a 388 px strip hard against the left edge,
+    // overhanging it — and screen space means head-locked.
+    //
+    // THE CHAIN, with both constants:
+    //   * A close plays the dissolve; ModalFallback.4.Tick's convert loop refuses to float a window
+    //     whose previous float is still dissolving (WindowMaterialise.IsVanishing), and that vanish
+    //     runs 0.90 s ("VANISH … ended (completed) after 0.92s of 0.90s").
+    //   * The blackout gave up after PreConvertHideMaxFrames = 8 frames, ~0.11 s at 72 Hz.
+    //   * So a close followed at once by a re-open left the window un-floatable for ~0.9 s and
+    //     un-blacked-out after ~0.11 s. It was never "one flat frame": the flat, head-locked canvas
+    //     stayed up until the vanish finished or the player tapped again.
+    //   * ModBuild 418 log :19849 is the single 'was still un-floated after 9 frames' line in the
+    //     whole session, and it sits inside the rapid-press burst. The other 24 opens handed back
+    //     after 0 or 1 frames.
+    //
+    // THE TWO FIXES, and they are deliberately BOTH kept (either one alone would mask the other):
+    //   1. ModalFallback.4.Tick's convert loop now ENDS the vanish on a re-open
+    //      (WindowMaterialise.EndVanishNow via ResolveVanishForReopen below) instead of skipping the
+    //      window for half a second. The gap collapses from ~0.9 s to nothing.
+    //   2. This file no longer counts frames. A FRAME COUNT CANNOT TELL "the conversion is stuck"
+    //      FROM "the conversion is deliberately waiting for a bounded thing" — that is the whole
+    //      defect. The budget's PRINCIPLE ("a window must never stay invisible") is right and is
+    //      kept; its INSTRUMENT is replaced by PreConvertHideHold, which names the standing intent
+    //      and its bound, and hands the 2D rendering back the moment no such intent stands.
+    //
+    // AND THE NUMBER WAS NOT SIMPLY RAISED. Standing ruling from the user: "Ich will gar keine
+    // Zeitlimits dieser Art." The one outer safety left, PreConvertHideDefectSeconds, is set far
+    // above every intent's own bound precisely so it can never fire before them, and firing it logs
+    // as a DEFECT naming which intent overran — never as routine.
     //  * It never runs in Menu2D: there the head camera renders the mod layer ONLY and the flat
     //    screen composites the game's 2D UI, so there is nothing to hide and hiding would blink
     //    the flat screen. The artifact is a SCENARIO one by construction.
@@ -78,11 +118,48 @@ internal static partial class ModalFallback
     // no game state, no wire traffic.
 
     /// <summary>
-    /// Hard bound on the blackout (frames). The conversion lands in the very next tick, so this
-    /// is pure insurance: whatever goes wrong, the game's window is handed back after ~0.1 s at
-    /// 72 Hz. A window must never stay invisible — same ruling as the reveal gate's 0.6 s bound.
+    /// <b>THE OUTER SAFETY, AND IT IS A DEFECT DETECTOR RATHER THAN A BUDGET.</b> A window must
+    /// never stay invisible — that ruling is unchanged, and it is what
+    /// <see cref="PreConvertHideHold"/> enforces by holding the blackout ONLY while a named,
+    /// bounded intent stands. This number exists for the case where one of those intents overruns
+    /// its own bound, i.e. a bug somewhere else.
+    ///
+    /// <para><b>WHY 5 s AND NOT SOMETHING TIGHTER.</b> It has to be unreachable by every honoured
+    /// intent, or it becomes the budget again and re-creates the 2026-09-04 defect one number
+    /// higher. The largest honoured bound is the dissolve's, which is
+    /// <see cref="WindowMaterialise.HardCeilingSeconds"/> = 2.0 s plus
+    /// <see cref="WindowMaterialise.WatchdogSlackSeconds"/> = 0.5 s of watchdog slack = 2.5 s; the
+    /// story bridge is 2 ticks; the first-pass grace is 1 tick. 5 s is twice the largest of them.
+    /// If this ever fires, the log line says WHICH intent overran, and that is the bug to fix —
+    /// not this number.</para>
     /// </summary>
-    private const int PreConvertHideMaxFrames = 8;
+    private const float PreConvertHideDefectSeconds = 5f;
+
+    /// <summary>
+    /// How many <see cref="TickPreConvertHide"/> passes ago a convert-loop refusal still counts as
+    /// current. ONE: <see cref="TickPreConvertHide"/> runs FIRST in <see cref="Tick"/> and the
+    /// convert loop runs LATER IN THE SAME TICK, so the freshest refusal a pass can ever read was
+    /// stamped on the previous pass. Anything older is a stamp nobody renewed, which is exactly the
+    /// state in which the blackout must go back.
+    /// </summary>
+    private const int PreConvertHideStampTicks = 1;
+
+    /// <summary>
+    /// Monotonic count of <see cref="TickPreConvertHide"/> passes. The only clock the stamps below
+    /// are compared against — deliberately NOT <c>Time.frameCount</c>, because the convert loop and
+    /// this method share a tick and not a frame, and a rule that assumed one tick per frame would be
+    /// wrong the first time <see cref="Tick"/> is skipped.
+    /// </summary>
+    private static int s_preConvertTick;
+
+    /// <summary>Session tally of blackouts that hit <see cref="PreConvertHideDefectSeconds"/>.
+    /// Bounded by window opens (one line per entry at most, and the entry is dropped in the same
+    /// pass); printed so a hardware log says whether this happened once or kept happening.</summary>
+    private static int s_preConvertDefects;
+
+    /// <summary>Session tally of re-opens that cut a dissolve short — see
+    /// <see cref="NoteReopenDuringVanish"/>.</summary>
+    private static int s_reopenDuringVanish;
 
     /// <summary>One game window whose 2D rendering is suppressed until the mod converts it.</summary>
     private sealed class PreHiddenWindow
@@ -95,6 +172,20 @@ internal static partial class ModalFallback
         public CanvasGroup? Group;
         public float GroupAlpha;
         public int HiddenAtFrame;
+        /// <summary>Unscaled time the blackout was raised — the only term
+        /// <see cref="PreConvertHideDefectSeconds"/> is measured against.</summary>
+        public float HiddenAtTime;
+        /// <summary><see cref="TickPreConvertHide"/> passes this entry has survived. The convert
+        /// loop's first pass is the one the conversion normally lands on, and this counts it.</summary>
+        public int Passes;
+        /// <summary>The pass on which the convert loop last reported that
+        /// <c>StoryComposite.HoldsBack</c> refused this window. Stamped by the convert loop with the
+        /// answer it already had — this file never asks StoryComposite itself, so that subsystem's
+        /// own hold tally still counts exactly one consultation per tick.</summary>
+        public int StoryHeldTick;
+        /// <summary>The last intent that held the blackout, for the hand-back line. Null once
+        /// nothing stands.</summary>
+        public string? LastHold;
     }
 
     private static readonly List<PreHiddenWindow> PreHidden = new(2);
@@ -138,8 +229,9 @@ internal static partial class ModalFallback
         if (IsConverted(window))
             return;
         // ModBuild 232: a window the refusal table refuses is NEVER converted, so a blackout started
-        // for it could only ever end on the PreConvertHideMaxFrames budget with the "was still
-        // un-floated after N frames — handing its 2D rendering back regardless" warning. The
+        // for it could only ever end on the outer safety with the "was still un-floated after N
+        // frames — handing its 2D rendering back regardless" warning (before ModBuild 419, on the
+        // 8-frame budget that warning used to carry). The
         // catch-all releases it explicitly (WithdrawRefusedFloat), but not starting it is cheaper and
         // cannot be forgotten. Inert for the two rows that exist today, whose ids are None: OnWindow
         // returns before this method unless IsFallbackWindow(e.Id).
@@ -178,6 +270,7 @@ internal static partial class ModalFallback
                 Window = window,
                 Name = window.name,
                 HiddenAtFrame = Time.frameCount,
+                HiddenAtTime = Time.unscaledTime,
             };
             PreHidden.Add(entry);
         }
@@ -329,7 +422,15 @@ internal static partial class ModalFallback
         }
         VRLog.Debug("WorldUI", $"MODAL PRE-CONVERT BLACKOUT: '{entry.Name}' handed back after " +
                                $"{Time.frameCount - entry.HiddenAtFrame} frame(s) — {reason} " +
-                               $"({restored} canvas(es) re-enabled).");
+                               $"({restored} canvas(es) re-enabled)." +
+                               // ModBuild 419: the seconds, and the last intent that stood. A frame
+                               // count alone could not tell the 2026-09-04 defect (0.11 s of blackout
+                               // against a 0.9 s dissolve) from a normal open; the seconds and the
+                               // named intent can, and they are the two fields that decide the next
+                               // hardware log.
+                               $" It stood for {Time.unscaledTime - entry.HiddenAtTime:F3}s over " +
+                               $"{entry.Passes} convert pass(es); the last bounded intent that held " +
+                               $"it was {(entry.LastHold == null ? "NONE" : "'" + entry.LastHold + "'")}.");
     }
 
     private static PreHiddenWindow? FindPreHidden(UIWindow? window)
@@ -345,14 +446,170 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// <b>THE NAMED, BOUNDED INTENTS THAT KEEP THE BLACKOUT STANDING</b> — the ModBuild 419
+    /// replacement for the 8-frame budget. Returns the printable reason, or null when the mod is no
+    /// longer waiting for anything and the game's 2D rendering must go back.
+    ///
+    /// <para>EVERY ENTRY HERE IS BOUNDED AND SAYS SO IN ITS OWN TEXT. That is the acceptance rule,
+    /// not a nicety: a blackout that can be held open forever is a permanently invisible window,
+    /// which is the failure the budget was defending against and is worse than the rim.</para>
+    ///
+    /// <para><b>WHAT IS DELIBERATELY NOT AN INTENT, AND WHY.</b> ModBuild 230's empty-window hold
+    /// (<c>EmptyHeldNow</c>) is NOT honoured, although it too makes the convert loop skip the
+    /// window. Two reasons, either sufficient. (a) It is not bounded: it lifts when the window's
+    /// content comes back or when the window closes, and neither is a bound. (b) It does not need
+    /// to be: a window that rule is holding is by definition drawing NOTHING, so its 2D home draws
+    /// nothing either and handing the rendering back cannot show a rim. Honouring it would trade a
+    /// bounded artifact for an unbounded invisible window. It is also asked at a 6 Hz cadence the
+    /// convert loop owns, and a second caller here would eat that probe slot.</para>
+    /// </summary>
+    private static string? PreConvertHideHold(PreHiddenWindow entry, UIWindow window)
+    {
+        // (a) THE CONVERT LOOP HAS NOT HAD A PASS YET. This is what the frame budget was really
+        //     buying on a normal open: the blackout is raised from the game's own Show(), and the
+        //     conversion lands on the next convert pass. BOUNDED: exactly one pass, counted on this
+        //     entry, never re-armed.
+        if (entry.Passes < PreConvertHideStampTicks)
+            return "the convert loop has not run a pass since the blackout was raised, and the "
+                   + "conversion lands on that pass (BOUNDED: exactly one tick)";
+        // (b) ITS PREVIOUS FLOAT IS STILL DISSOLVING. Re-floating inside that gap would record the
+        //     DYING HOST as the window's original parent, so the convert loop refuses — see the
+        //     IsVanishing clause in ModalFallback.4.Tick.cs. BOUNDED by the effect's own hard code
+        //     ceiling plus its watchdog slack. Since ModBuild 419 the convert loop ENDS that vanish
+        //     on a re-open rather than waiting it out, so this should now stand for at most the one
+        //     pass between the blackout going up and the convert loop reaching the window — and if
+        //     a log ever shows it standing longer, ResolveVanishForReopen refused, which is the bug.
+        if (WindowMaterialise.IsVanishing(window.transform))
+            return "its previous float is still dissolving, so the convert loop cannot record the "
+                   + "window's true parent yet (BOUNDED: the dissolve's hard code ceiling "
+                   + $"{WindowMaterialise.HardCeilingSeconds:F1}s + "
+                   + $"{WindowMaterialise.WatchdogSlackSeconds:F1}s watchdog slack)";
+        // (c) THE STORY CURTAIN'S CONVERT BRIDGE. BOUNDED: 2 ticks per gate, never re-armed, and
+        //     bounded again by StoryComposite's own deadlock floor. Read from the stamp the convert
+        //     loop leaves, never by asking StoryComposite a second time — HoldsBack increments that
+        //     subsystem's own hold tally, and a diagnostic must not write another one's counters.
+        if (entry.StoryHeldTick > 0 && s_preConvertTick - entry.StoryHeldTick <= PreConvertHideStampTicks)
+            return "the story curtain's convert bridge holds it back (BOUNDED: 2 ticks per gate, "
+                   + "never re-armed, plus StoryComposite's own deadlock floor)";
+        return null;
+    }
+
+    /// <summary>
+    /// The convert loop refused this window because <c>StoryComposite.HoldsBack</c> said so. Record
+    /// the answer it ALREADY HAS on the standing blackout, so <see cref="PreConvertHideHold"/> can
+    /// honour it next pass without asking StoryComposite again. No-op when no blackout stands, which
+    /// is the usual case.
+    /// </summary>
+    private static void NoteStoryHold(UIWindow window)
+    {
+        PreHiddenWindow? entry = FindPreHidden(window);
+        if (entry != null)
+            entry.StoryHeldTick = s_preConvertTick;
+    }
+
+    /// <summary>
+    /// <b>A RE-OPEN MUST NOT WAIT OUT THE DISSOLVE.</b> Called from the convert loop's
+    /// <c>IsVanishing</c> clause: end the previous float's vanish NOW so the window is floatable on
+    /// this very tick, instead of skipping it for the ~0.9 s the dissolve still owes.
+    ///
+    /// <para>USER REPORT 2026-09-04 (ModBuild 418, hardware), verbatim: <i>"Wenn man schnell
+    /// hintereinander die Optionstaste drückt erscheint am linken Rand des auges so ein Rand der dem
+    /// Kopf folgt statt dem Optionsmenu. Gehe dem nach und fix das. Ein schneller Drücken der
+    /// Optionstaste auch hintereinander soll das nicht auslösen sondern eben einfach das
+    /// Optionsmeenu als Fenster öffnen/schließen."</i></para>
+    ///
+    /// <para>Returns true when the window may be floated now. False leaves EVERYTHING as it was and
+    /// the caller keeps its previous refusal — that is the whole failure mode, and it is a
+    /// <c>continue</c>, not a fault.</para>
+    /// </summary>
+    private static bool ResolveVanishForReopen(UIWindow window)
+    {
+        if (window == null || !window.IsOpen)
+            return false;
+        // EndVanishNow goes through the same exit Cancel does: alphas restored, visibility hold
+        // handed back, and THEN the pending onDone — which is CanvasConversion.Release(dying), the
+        // call that re-parents the game's window back to its 2D home. Cancelling the ANIMATION never
+        // cancels the RELEASE (WindowMaterialiseRunner.Finish's contract); this fix depends on that
+        // invariant rather than fighting it, which is why re-adopting the dying host and playing the
+        // appear back — nicer to look at — was NOT the shape taken: the caller has already removed
+        // the window from every list, so a re-adopted host would have no owner left.
+        if (!WindowMaterialise.EndVanishNow(window.transform,
+                "the window was re-opened while its float was still dissolving",
+                out float elapsed, out float total))
+            return false;
+        // THE RELEASE RAN INSIDE THAT CALL, so re-ask both questions about the window afterwards.
+        // Release re-parents game hierarchy and destroys (or defers) the dying host, and Unity
+        // activation callbacks can run inside a SetParent — so the window can in principle be gone,
+        // or the game can have closed it, between the two statements. Returning false here leaves
+        // the caller with its previous refusal, which is the safe answer for a window that no
+        // longer wants floating.
+        if (window == null || !window.IsOpen)
+            return false;
+        // Belt: if anything is STILL dissolving over this window, the hazard the refusal exists for
+        // is still live and the old refusal is still the right answer.
+        if (WindowMaterialise.IsVanishing(window.transform))
+            return false;
+        // THE RELEASE JUST RAN, AND IT RESTORED A VISIBLE 2D WINDOW. CanvasConversion.Release forces
+        // the game's hidden state only for a window the game reports CLOSED (its FIX B); this one is
+        // OPEN, so it is now sitting enabled at its screen-space home — which is the head-locked rim
+        // itself. Re-assert the blackout over whatever the release re-enabled, in this same Update,
+        // before anything renders. PreConvertHide is idempotent, keeps this entry's original
+        // HiddenAtFrame, and TryConvertWindow releases it as its first act a few statements later.
+        // (ModBuild 418's log shows the old code losing exactly this race: the expiry line reads
+        // "(0 canvas(es) re-enabled)" because something else had already switched the canvas back
+        // on under the standing blackout.)
+        PreConvertHide(window);
+        NoteReopenDuringVanish(window, elapsed, total);
+        return true;
+    }
+
+    /// <summary>
+    /// One line per re-open that cut a dissolve short: which window, how much of the vanish was
+    /// still owed, and what was done about it.
+    ///
+    /// <para>BOUNDED BY THE PLAYER'S HAND — it fires on an EVENT (a re-open landing inside a vanish),
+    /// and a vanish can only be ended once because the runner is gone afterwards, so a held key
+    /// cannot make this a per-frame line. The tally below is belt against a future caller that is
+    /// not the convert loop: the first eight are printed in full, then one per doubling, and every
+    /// line carries the running total so a burst is still visible.</para>
+    /// </summary>
+    private static void NoteReopenDuringVanish(UIWindow window, float elapsed, float total)
+    {
+        s_reopenDuringVanish++;
+        if (s_reopenDuringVanish > 8
+            && (s_reopenDuringVanish & (s_reopenDuringVanish - 1)) != 0)
+            return;
+        float left = Mathf.Max(0f, total - elapsed);
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"MODAL RE-OPEN DURING VANISH ({s_reopenDuringVanish} this session): "
+                              + $"'{window.name}' (ID {window.ID}) was re-opened {elapsed:F2}s into "
+                              + $"the {total:F2}s dissolve of its PREVIOUS float, with {left:F2}s "
+                              + "still to run. The dissolve was ENDED NOW and its pending release "
+                              + "ran inside that call, so the window is floatable on this tick "
+                              + "instead of being skipped for the rest of the dissolve. USER REPORT "
+                              + "2026-09-04: 'Wenn man schnell hintereinander die Optionstaste "
+                              + "drückt erscheint am linken Rand des auges so ein Rand der dem Kopf "
+                              + "folgt statt dem Optionsmenu' — that rim was the game's own 2D ESC "
+                              + "menu (ink x -979..-591 of a 1920 px canvas, i.e. hard left, "
+                              + "screen-space and therefore head-locked) drawn because the blackout "
+                              + "expired after 8 frames while this refusal ran for 0.9 s. IF THIS "
+                              + "LINE IS PRESENT AND 'was still un-floated after N frames' IS NOT, "
+                              + "the burst was handled.");
+    }
+
+    /// <summary>
     /// FIRST step of <see cref="Tick"/>: end every blackout whose window will not be converted
     /// this tick after all — closed, dead, already floated, conversion failed, screen style /
-    /// manual screen / Menu2D / VR off — and, unconditionally, any blackout older than
-    /// <see cref="PreConvertHideMaxFrames"/>. Nothing else in the mod can leave a game window
-    /// switched off, and this runs before any step that could throw.
+    /// manual screen / Menu2D / VR off — and, since ModBuild 419, every blackout for which no
+    /// named bounded intent to float still stands (<see cref="PreConvertHideHold"/>). Nothing else
+    /// in the mod can leave a game window switched off, and this runs before any step that could
+    /// throw.
     /// </summary>
     private static void TickPreConvertHide()
     {
+        // Advanced before the early return so the stamps below are compared against a clock that
+        // moves whenever Tick runs, blackout or no blackout.
+        s_preConvertTick++;
         if (PreHidden.Count == 0)
             return;
         bool globallyOff = !VRSession.IsRunning || !WorldUIConfig.ConversionActive
@@ -368,6 +625,15 @@ internal static partial class ModalFallback
                 continue;
             }
             int age = Time.frameCount - entry.HiddenAtFrame;
+            float stood = Time.unscaledTime - entry.HiddenAtTime;
+            // The standing intent, evaluated ONCE and reused by both the hold decision and the log
+            // line — a rule that measured one thing and printed another is how the 8-frame budget
+            // survived for as long as it did.
+            string? hold = globallyOff || !VRModeStateMachine.TableInFrontOfPlayer || !window.IsOpen
+                           || IsConverted(window) || ContainsWindow(Failed, window)
+                ? null
+                : PreConvertHideHold(entry, window);
+            bool defect = hold != null && stood > PreConvertHideDefectSeconds;
             string? reason =
                 globallyOff ? "the floated-window path is no longer active (screen style / Menu2D / VR off)"
                 // Floating requires a scenario board (Tick's `want`). A window that opens during the
@@ -379,17 +645,45 @@ internal static partial class ModalFallback
                 : !window.IsOpen ? "the game closed it again before it was ever floated"
                 : IsConverted(window) ? "it is already floated"
                 : ContainsWindow(Failed, window) ? "its conversion failed — it belongs to the flat screen now"
-                : age > PreConvertHideMaxFrames
-                    ? $"the {PreConvertHideMaxFrames}-frame budget expired without a conversion — a window " +
-                      "must never stay invisible"
+                // THE ModBuild 419 RULE. No named bounded intent to float this window stands any
+                // more, so the mod is not waiting for anything and the 2D rendering goes back. This
+                // is the routine hand-back and it is not a warning.
+                : hold == null
+                    ? "no bounded intent to float it stands any more — nothing the mod is waiting " +
+                      "for, so a window must never stay invisible"
+                : defect
+                    ? $"a bounded intent OVERRAN its own bound ({hold}) — a window must never stay " +
+                      "invisible"
                 : null;
             if (reason == null)
+            {
+                entry.Passes++;
+                entry.LastHold = hold;
                 continue;
-            if (age > PreConvertHideMaxFrames && window.IsOpen && !IsConverted(window))
-                VRLog.Warn("WorldUI", $"MODAL PRE-CONVERT BLACKOUT: '{entry.Name}' was still un-floated after " +
+            }
+            if (defect)
+            {
+                s_preConvertDefects++;
+                // HW-VERIFY
+                VRLog.Alert("WorldUI", $"MODAL PRE-CONVERT BLACKOUT: '{entry.Name}' was still un-floated after " +
                                       $"{age} frames — handing its 2D rendering back regardless. It may show one " +
                                       "flat frame at its screen-space home (the artifact this guard exists to " +
-                                      "prevent), but an invisible window is strictly worse.");
+                                      "prevent), but an invisible window is strictly worse." +
+                                      // ModBuild 419 appendix — APPENDED, never reworded: the
+                                      // sentence above is the grep token the 2026-09-04 round was
+                                      // read with. What is new is that this line is now a DEFECT
+                                      // report rather than a routine budget expiry.
+                                      $" THIS IS A DEFECT AND NOT ROUTINE ({s_preConvertDefects} this session): " +
+                                      $"the blackout stood {stood:F2}s over {entry.Passes} convert pass(es), past " +
+                                      $"the {PreConvertHideDefectSeconds:F1}s outer safety. That safety is set far " +
+                                      "above every honoured intent's own bound (the largest is the dissolve's " +
+                                      $"{WindowMaterialise.HardCeilingSeconds:F1}s ceiling + " +
+                                      $"{WindowMaterialise.WatchdogSlackSeconds:F1}s watchdog slack) so that it can " +
+                                      "never fire before them, so reaching it means an intent overran. THE INTENT " +
+                                      $"THAT OVERRAN: {hold}. Fix that, not this number — the 8-frame budget this " +
+                                      "replaced was itself the 2026-09-04 defect, and raising a number is how it " +
+                                      "would come back.");
+            }
             RestorePreHidden(entry, reason);
             PreHidden.RemoveAt(i);
         }

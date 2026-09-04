@@ -67,6 +67,15 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
     /// <c>Converted</c> and whose release is still pending.</summary>
     internal bool Vanishing => !_materialising;
 
+    /// <summary>Seconds this effect has been running. Read-only, and offered for ONE caller:
+    /// <see cref="WindowMaterialise.EndVanishNow"/>, whose log line has to say how much of the
+    /// dissolve was still owed when a re-open cut it short. Nothing decides on it.</summary>
+    internal float Elapsed => _elapsed;
+
+    /// <summary>The duration this effect was started with (after the code clamp). Same single
+    /// reader as <see cref="Elapsed"/>, same reason.</summary>
+    internal float Total => _seconds;
+
     private Action? _onDone;
     private float _elapsed;
     private bool _finished;

@@ -2553,8 +2553,14 @@ internal static partial class ModalFallback
         //   between two of these is a decision, and the marker makes it one.
         EnterPhase(PhasePreConvertHide);
         // Round 8, FIRST — before any step that could throw: end every pre-convert 2D blackout
-        // whose window will not be floated after all, and enforce the frame budget (part 11).
-        // A window the mod switched off must never outlive the reason it was switched off.
+        // whose window will not be floated after all (part 11). A window the mod switched off must
+        // never outlive the reason it was switched off.
+        //
+        // ModBuild 419: "the reason" is now a NAMED, BOUNDED INTENT and no longer a frame count.
+        // The convert loop below is the other half of that rule — it stamps the one refusal this
+        // method cannot re-derive without writing another subsystem's counters (NoteStoryHold), and
+        // it runs LATER IN THIS SAME TICK, which is why part 11's stamps are one pass old by
+        // construction.
         TickPreConvertHide();
 
         // "IS THERE A ROOM TO FLOAT A WINDOW IN", not "is a scenario running" (ModBuild 178). The
@@ -3131,7 +3137,35 @@ internal static partial class ModalFallback
             // it into a destroyed object. The gap is bounded by the effect's hard code ceiling
             // (2.0 s), so this can never hold a window out indefinitely, and it is asked about the
             // WINDOW's own transform rather than about any ancestor.
-            if (WindowMaterialise.IsVanishing(window.transform))
+            //
+            // ModBuild 419 — AND A RE-OPEN NO LONGER WAITS IT OUT. USER REPORT 2026-09-04
+            // (hardware, ModBuild 418), verbatim: "Wenn man schnell hintereinander die Optionstaste
+            // drückt erscheint am linken Rand des auges so ein Rand der dem Kopf folgt statt dem
+            // Optionsmenu. Gehe dem nach und fix das. Ein schneller Drücken der Optionstaste auch
+            // hintereinander soll das nicht auslösen sondern eben einfach das Optionsmeenu als
+            // Fenster öffnen/schließen."
+            //
+            // The `continue` above was HALF the chain. Closing and immediately re-opening the ESC
+            // menu left it un-floatable here for the whole 0.90 s dissolve, while the pre-convert
+            // blackout that stops the game's own 2D window from being drawn gave up after 8 frames
+            // (~0.11 s at 72 Hz) — ModBuild 418 log :19849, the only 'MODAL PRE-CONVERT BLACKOUT:
+            // … was still un-floated after 9 frames' line in the whole session, inside the
+            // rapid-press burst. For the remaining ~0.8 s the game's screen-space ESC menu was
+            // drawn straight into the HMD at its 2D home, whose ink spans x -979..-591 of a 1920 px
+            // canvas ('MODAL CLOSE X ON THE INK'): a 388 px strip hard against the left edge, and
+            // screen space means head-locked. That is the rim the user saw.
+            //
+            // So resolve the wait instead of serving it. ResolveVanishForReopen ends the vanish and
+            // lets its PENDING RELEASE run inside that call — the invariant that "cancelling the
+            // ANIMATION never cancels the RELEASE" (WindowMaterialiseRunner.Finish) is what makes
+            // this legal, and the window's true parent is therefore restored one statement before
+            // TryConvertWindow records it. The alternative — re-adopting the dying host and playing
+            // the appear back, which would look nicer — was REJECTED: it fights that same
+            // invariant, because the release loop above has already removed the window from every
+            // list and a re-adopted host would have no owner left.
+            //
+            // A false return leaves everything exactly as it was and the old refusal stands.
+            if (WindowMaterialise.IsVanishing(window.transform) && !ResolveVanishForReopen(window))
                 continue;
             // ModBuild 232 — A TWO-TICK BRIDGE, NOT A SUPPRESSION. StoryComposite's point-of-no-
             // return gate is a ONE-SHOT at the rising edge: it closes a NAMED set of windows through
@@ -3153,7 +3187,15 @@ internal static partial class ModalFallback
             // and raises the flat screen for it, and "closed" here means closed, not moved to a
             // screen.
             if (StoryComposite.HoldsBack(window))
+            {
+                // ModBuild 419: hand THIS answer to the pre-convert blackout so it can keep the
+                // game's 2D window switched off for the bridge instead of handing it back and
+                // showing the flat window for those two ticks. The blackout deliberately does not
+                // ask StoryComposite itself — HoldsBack increments that subsystem's own hold tally,
+                // and a second caller per tick would inflate a count another rule reads back.
+                NoteStoryHold(window);
                 continue;
+            }
             if (!TryConvertWindow(window))
                 Failed.Add(window);
         }
