@@ -3832,6 +3832,26 @@ internal static partial class ModalFallback
             _livenessWalks = 0;
             _chromeSweeps = 0;
             _chromeOrphansSinceCensus = 0;
+
+            // ModBuild 422 — CONTROL COVERAGE RIDES THIS CADENCE AND NO OTHER. User, 2026-09-04,
+            // multiplayer, map environment: "Der Button mit dem ein Szenario starten kann ist nicht
+            // im Fenster - man kann also effektiv kein Szenario starten!" Nothing in this mod could
+            // answer that from a log, so it is answered here: once per census window, per floated
+            // panel, every interactive control the window owns is tested against the rectangle the
+            // conversion committed for it and the ones that fall outside are NAMED. It is deliberately
+            // NOT on the fit's own path — the fit runs once per window, before the game has finished
+            // building the card, and the control that is missing is precisely the one that was not
+            // there yet. See WorldUI.Modal.FloatedControlCoverage for the whole argument. Silent when
+            // every control is inside, so a printed line is always a defect.
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                WindowPanel cp = Converted[i];
+                if (cp.Panel == null || cp.Dormant)
+                    continue;
+                FloatedControlCoverage.ReportIfIncomplete(
+                    cp.Panel.HostGo != null ? cp.Panel.HostGo.name : "<unnamed panel>",
+                    cp.Panel);
+            }
         }
     }
 

@@ -904,9 +904,18 @@ internal static class MapTravelConfirm
 
         if (!MapRoomDriver.Active || questWindow == null || options == null)
         {
+            // ModBuild 422 — the ONLINE no-container case is its own state and gets its own name.
+            // Before this build it was reported as "the game's travel options are gone", which was
+            // true of an object that online is never the confirm in the first place. See
+            // ResolveContainer's class-doc paragraph and NoteOnlineConfirmMissing.
+            bool onlineStandBy = MapRoomDriver.Active && questWindow != null && FFSNetwork.IsOnline;
+            if (onlineStandBy)
+                NoteOnlineConfirmMissing(questWindow!);
             Unpark(!MapRoomDriver.Active ? "map room stood down"
                 : questWindow == null ? "no quest window is floated"
-                : "the game's travel options are gone");
+                : onlineStandBy
+                    ? "online, and the game is not showing the multiplayer quest confirm yet"
+                    : "the game's travel options are gone");
             // Leaving the room clears a park stand-down: whatever went wrong was about THIS visit's
             // objects, and re-entering rebuilds all of them.
             if (!MapRoomDriver.Active)
@@ -1061,6 +1070,34 @@ internal static class MapTravelConfirm
     /// <para>IF THE REFLECTION FAILS the online branch is simply never taken and the offline
     /// container is used, i.e. exactly the ModBuild 225 behaviour. Nothing throws and nothing is
     /// lost that was working before.</para>
+    ///
+    /// <para><b>ONLINE, THE OFFLINE CONTAINER IS NOT A FALLBACK — IT IS AN EMPTY SHELL (ModBuild
+    /// 422).</b> User report 2026-09-04, multiplayer, map environment, verbatim: <i>"Der Button mit
+    /// dem ein Szenario starten kann ist nicht im Fenster - man kann also effektiv kein Szenario
+    /// starten!"</i> The game's own <c>AdventureMapUIManager.EnableTravelOptions</c> opens with
+    /// <c>travelButton.gameObject.SetActive(!FFSNetwork.IsOnline)</c> (decompiled
+    /// AdventureMapUIManager.cs:410-412), so ONLINE the only button inside
+    /// <c>travelOptions</c> is deactivated by the game on every single call. Parking that container
+    /// therefore parks a rectangle with nothing drawn in it, and the ModBuild 420 host log says so
+    /// in three places at once: the reveal warning at Player.log:45367 names
+    /// <c>the container has no visible Graphic this tick</c> as the reason no pose could be
+    /// written, <c>MAP TRAVEL CONFIRM placement</c> does not appear ONCE in 52,099 lines (so
+    /// <see cref="ApplyPose"/> returned false on every tick of every parking), and the unpark line
+    /// at :51296 reads <c>travel options handed back</c> rather than <c>the multiplayer quest
+    /// confirm</c> — i.e. the object parked into the multiplayer quest card for the whole session
+    /// was the SINGLE-PLAYER one. So online this returns null and the parking simply stands by for
+    /// the ready toggle, which is the only object that commits the journey there.</para>
+    ///
+    /// <para>WHAT THIS DOES NOT CLAIM. It does not make the ready toggle appear: whether the game
+    /// shows it is the game's decision (<c>UIReadyToggle.ShouldBeVisible</c> =
+    /// <c>_requestVisible &amp;&amp; _interactable &amp;&amp; !_allPlayersReady &amp;&amp; no
+    /// visibility block</c>, decompiled UIReadyToggle.cs:144-154), and in the 420 log
+    /// <c>UIWindow SHOWN: 'Multiplayer Ready Toggle'</c> occurs ZERO times on either machine while
+    /// <c>Determining host toggle lock</c> occurs on every selection — so the toggle was asked for
+    /// and refused itself. Writing that state from here would be writing game state from
+    /// presentation code, which is forbidden. What this build adds instead is the ONE line that
+    /// names which term refused, so the next round reads the answer instead of inferring it — see
+    /// <see cref="NoteOnlineConfirmMissing"/>.</para>
     /// </summary>
     private static GameObject? ResolveContainer(AdventureMapUIManager? mgr, out bool readyToggle)
     {
@@ -1075,6 +1112,15 @@ internal static class MapTravelConfirm
             return toggle.gameObject;
         }
         readyToggle = false;
+        // ModBuild 422 — see the class-doc paragraph above. Online the game guarantees the offline
+        // container's button is inactive, so parking it can only produce the "revealed with no
+        // placement" state the 420 log shipped. REJECTED ALTERNATIVE: parking it anyway and letting
+        // the fallback pose below put it inside the frame. That would put an EMPTY rectangle on the
+        // quest card and call it the travel confirm — an empty control is exactly the failure the
+        // standing ruling "es darf niemals leere Fenster geben" forbids, and it would also keep
+        // reporting "travel options handed back" as if the multiplayer confirm had been handled.
+        if (FFSNetwork.IsOnline)
+            return null;
         return mgr != null ? _travelOptions?.GetValue(mgr) as GameObject : null;
     }
 
@@ -1197,6 +1243,115 @@ internal static class MapTravelConfirm
         ApplyPose(rect, win, out _, out _, out _);
         return true;
     }
+
+    /// <summary>Seconds between <see cref="NoteOnlineConfirmMissing"/> lines. The state it reports
+    /// is level-triggered and can stand for a whole map-room visit, so it is rate-limited rather
+    /// than printed per tick; the answer only changes when the game changes its mind.</summary>
+    private const float OnlineConfirmReportIntervalSeconds = 20f;
+
+    private static float _onlineConfirmLoggedAt = float.NegativeInfinity;
+    private static string _onlineConfirmLastVerdict = string.Empty;
+
+    // Optional reflection into UIReadyToggle's own visibility terms. All four are private and ALL
+    // FOUR ARE OPTIONAL: a missing one prints "<not resolvable>" and nothing else changes. Resolved
+    // once, on the first line that needs them.
+    private static bool _visibilityTermsResolved;
+    private static FieldInfo? _fRequestVisible;
+    private static FieldInfo? _fInteractable;
+    private static FieldInfo? _fAllPlayersReady;
+    private static FieldInfo? _fVisibilityRequests;
+
+    /// <summary>
+    /// THE LINE THAT DECIDES REPORT 3a ON THE NEXT HARDWARE LOG (ModBuild 422). User, 2026-09-04,
+    /// multiplayer, map environment, verbatim: <i>"Der Button mit dem ein Szenario starten kann ist
+    /// nicht im Fenster - man kann also effektiv kein Szenario starten!"</i>
+    ///
+    /// <para>WHY IT EXISTS. In the ModBuild 420 logs the reason the quest card carried no start
+    /// button had to be assembled from four separate absences: <c>UIWindow SHOWN: 'Multiplayer
+    /// Ready Toggle'</c> occurs ZERO times on either machine, <c>MAP TRAVEL CONFIRM placement</c>
+    /// occurs ZERO times in 52,099 lines, the reveal warning at host Player.log:45367 names
+    /// <c>the container has no visible Graphic this tick</c>, and the unpark at :51296 says
+    /// <c>travel options handed back</c>. Four absences are not an answer. This is the one line
+    /// that states, positively: the room is online, the quest window IS floated, and the object
+    /// that commits the journey online is not being shown - together with WHICH term of the game's
+    /// own <c>UIReadyToggle.ShouldBeVisible</c> is refusing it.</para>
+    ///
+    /// <para>IT WRITES NOTHING. Every value below is READ - three public properties and four
+    /// private fields reached through optional reflection - and the ruling "never write game state
+    /// from presentation code" is why this class cannot simply show the toggle itself. Whether the
+    /// multiplayer confirm appears is <c>DetermineHostToggleInteractability</c>'s decision
+    /// (decompiled MapChoreographer.cs:3318-3339) and it stays that way.</para>
+    /// </summary>
+    private static void NoteOnlineConfirmMissing(UIWindow questWindow)
+    {
+        if (!Singleton<UIReadyToggle>.IsInitialized)
+            return;
+        UIReadyToggle? toggle = Singleton<UIReadyToggle>.Instance;
+        if (toggle == null)
+            return;
+
+        if (!_visibilityTermsResolved)
+        {
+            _visibilityTermsResolved = true;
+            _fRequestVisible = AccessTools.Field(typeof(UIReadyToggle), "_requestVisible");
+            _fInteractable = AccessTools.Field(typeof(UIReadyToggle), "_interactable");
+            _fAllPlayersReady = AccessTools.Field(typeof(UIReadyToggle), "_allPlayersReady");
+            _fVisibilityRequests = AccessTools.Field(typeof(UIReadyToggle), "_visibilityRequests");
+        }
+
+        string state = _readyToggleState?.GetValue(toggle) is EReadyUpToggleStates s
+            ? s.ToString()
+            : "<not resolvable>";
+        string requestVisible = Term(_fRequestVisible, toggle);
+        string interactable = Term(_fInteractable, toggle);
+        string allReady = Term(_fAllPlayersReady, toggle);
+        string blocks = _fVisibilityRequests?.GetValue(toggle) is System.Collections.ICollection c
+            ? c.Count.ToString()
+            : "<not resolvable>";
+
+        // CHANGE-GATED AND RATE-LIMITED, in that order: a verdict that has not moved says nothing
+        // new, and one that HAS moved is the event worth a line even inside the interval.
+        string verdict = $"{state}|{requestVisible}|{interactable}|{allReady}|{blocks}";
+        bool changed = verdict != _onlineConfirmLastVerdict;
+        if (!changed && Time.unscaledTime - _onlineConfirmLoggedAt < OnlineConfirmReportIntervalSeconds)
+            return;
+        _onlineConfirmLastVerdict = verdict;
+        _onlineConfirmLoggedAt = Time.unscaledTime;
+
+        // HW-VERIFY: report 3a — "the button that starts a scenario is not in the window".
+        VRLog.Note(Scope,
+            "MAP TRAVEL CONFIRM ONLINE STAND-BY: this client is ONLINE, the quest card "
+            + $"'{questWindow.name}' IS floated, and NOTHING has been parked into it, because the "
+            + "object that commits a journey online is the game's multiplayer quest confirm "
+            + $"('{toggle.name}', GUI_SELECT_QUEST) and the game is not showing it. "
+            + $"ITS OWN VISIBILITY TERMS RIGHT NOW: ShouldBeVisible={toggle.ShouldBeVisible}, "
+            + $"IsVisible (= its UIWindow.IsOpen)={toggle.IsVisible}, readyUpToggleState={state} "
+            + $"(only Quests is this window's confirm), _requestVisible={requestVisible}, "
+            + $"_interactable={interactable}, _allPlayersReady={allReady}, "
+            + $"{blocks} outstanding BlockVisibility request(s). READ THEM IN THAT ORDER: "
+            + "ShouldBeVisible is exactly `_requestVisible && _interactable && !_allPlayersReady && "
+            + "no blocks` (decompiled UIReadyToggle.cs:144-154), so the FIRST false term on this "
+            + "line names the cause and no other line has to be correlated with it. "
+            + "_requestVisible false means UIMapMultiplayerController.ToggleReadyUpUI(show: true) "
+            + "was never reached for this selection; _interactable false means "
+            + "MapChoreographer.DetermineHostToggleInteractability computed its `flag` as false, "
+            + "which online for a Participant ready-up requires AllPlayers.Count > 1, no joining or "
+            + "connecting users, and EVERY player IsParticipant. "
+            + "WHY THIS IS NOT A BUG THIS CLASS CAN FIX: the offline container "
+            + "AdventureMapUIManager.travelOptions is NOT a fallback online - the game's own "
+            + "EnableTravelOptions does travelButton.gameObject.SetActive(!FFSNetwork.IsOnline) "
+            + "(decompiled AdventureMapUIManager.cs:410-412), so parking it would park a rectangle "
+            + "with no active button in it, which is what ModBuild 420 shipped and what the user "
+            + "reported as 'der Button ist nicht im Fenster'. Showing the toggle from here would be "
+            + "writing game state from presentation code. IF THIS LINE IS ABSENT and the button is "
+            + "still missing, the parking DID happen and the fault is a placement fault - read "
+            + "MAP TRAVEL CONFIRM placement and MODAL CONTROL COVERAGE instead.");
+    }
+
+    /// <summary>One private bool read as text, or "&lt;not resolvable&gt;" when the field is gone.
+    /// A missing field must never take a diagnostic down with it.</summary>
+    private static string Term(FieldInfo? field, UIReadyToggle toggle) =>
+        field?.GetValue(toggle) is bool b ? b.ToString() : "<not resolvable>";
 
     /// <summary>ONE Warn for "the container cannot be parked at all", naming the consequence.</summary>
     private static void WarnCannotPark(string why)
@@ -1515,6 +1670,7 @@ internal static class MapTravelConfirm
         if (!_anchorValid)
         {
             _posed = false;
+            ApplyFallbackPose(rect, frame, windowHeight);
             return false;
         }
 
@@ -1547,6 +1703,75 @@ internal static class MapTravelConfirm
         _wroteValid = true;
         _posed = true;
         return true;
+    }
+
+    /// <summary>
+    /// Fraction of the quest window's own height at which an UNPLACED container's top edge is
+    /// parked, measured up from the window's bottom edge. A confirm bar is ~65 px tall in a card
+    /// that is 800-1021 px tall, so a twelfth of the height leaves the whole bar inside the frame
+    /// with room to spare at every card length this window takes.
+    /// </summary>
+    private const float FallbackTopFractionAboveBottom = 0.12f;
+
+    /// <summary>
+    /// WHERE A CONTAINER SITS WHILE ITS ZERO CANNOT BE MEASURED (ModBuild 422). User report
+    /// 2026-09-04, multiplayer, map environment, verbatim: <i>"Der Button mit dem ein Szenario
+    /// starten kann ist nicht im Fenster - man kann also effektiv kein Szenario starten!"</i>
+    ///
+    /// <para>THE DEFECT THIS REMOVES, WITH THE LOG LINE THAT PROVES IT. Until this build, a parking
+    /// whose measured zero never resolved wrote NOTHING to <c>anchoredPosition</c> at all - the
+    /// early return above was taken before the write. The container therefore kept the value
+    /// <c>rect.SetParent(win, worldPositionStays: false)</c> left on it, which is the FLAT HUD BAR's
+    /// own offset re-read against the quest window's top-left corner: a screen-bottom bar offset
+    /// interpreted inside an 801 px card puts it hundreds of pixels below the frame. Then
+    /// <see cref="TickVisibility"/>'s reveal deadline showed it anyway, and its own Warn said so -
+    /// ModBuild 420 host Player.log:45367, <c>the travel options are being revealed although no
+    /// placement could be written for them . CONSEQUENCE: the button is showing wherever it last
+    /// stood</c>. "Wherever it last stood" was outside the window. That warning also promised
+    /// <i>"if this line repeats, REPORT IT"</i>, and it fired twice in one session (:24353, :45367)
+    /// while <c>MAP TRAVEL CONFIRM placement</c> fired zero times in 52,099 lines.</para>
+    ///
+    /// <para>WHAT IS WRITTEN INSTEAD. The container's pivot - <see cref="Park"/> sets it to
+    /// (0.5, 1), i.e. its own TOP CENTRE - is put on the window's horizontal centre at
+    /// <see cref="FallbackTopFractionAboveBottom"/> of the window height above the window's bottom
+    /// edge. That is a point INSIDE the committed frame by construction, for every card length and
+    /// every rig scale, with no measurement and no timer in it. It is NOT a guess at the tuned
+    /// placement and it does not pretend to be one: <c>_posed</c> stays false, so the hold-down and
+    /// the reveal deadline behave exactly as before, and the first tick the real zero resolves the
+    /// dialled pose overwrites this one on the same frame.</para>
+    ///
+    /// <para>WHY NOT SIMPLY REFUSE TO REVEAL. That was considered and rejected: it converts "the
+    /// button is in the wrong place" into "there is no button", and the standing ruling is that a
+    /// control the flat game shows must exist in the room. The reveal deadline already exists and
+    /// already chose visibility over placement - this makes the position it reveals at a defined,
+    /// in-frame one instead of a foreign coordinate system's leftovers.</para>
+    ///
+    /// <para>LEVEL-TRIGGERED, like every other write in this class: the rect is only touched when it
+    /// does not already carry the answer, so a steady state costs one vector compare. The
+    /// <c>_wrote*</c> record is updated so <see cref="WatchDrift"/> does not count this class's own
+    /// write as a foreign one.</para>
+    /// </summary>
+    private static void ApplyFallbackPose(RectTransform rect, Rect frame, float windowHeight)
+    {
+        // Same correction ApplyPose makes, for the same reason: anchoredPosition is meaningless
+        // against a STRETCHED anchor, because that also drives the container's own rect size.
+        if (rect.anchorMin != rect.anchorMax)
+        {
+            rect.anchorMin = rect.anchorMax = Vector2.up;
+            _watchAnchorDeviations++;
+        }
+        Vector2 wantPivot = new(frame.center.x,
+                                frame.yMin + FallbackTopFractionAboveBottom * windowHeight);
+        Vector2 reference = AnchorReference(frame, rect.anchorMin, rect.anchorMax);
+        Vector2 want = wantPivot - reference;
+        if ((rect.anchoredPosition - want).sqrMagnitude > OffsetEpsilon * OffsetEpsilon)
+            rect.anchoredPosition = want;
+
+        _wrotePos = rect.anchoredPosition;
+        _wroteAnchorMin = rect.anchorMin;
+        _wroteAnchorMax = rect.anchorMax;
+        _wrotePivot = rect.pivot;
+        _wroteValid = true;
     }
 
     /// <summary>

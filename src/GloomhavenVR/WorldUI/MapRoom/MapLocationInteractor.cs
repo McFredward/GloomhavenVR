@@ -8,6 +8,7 @@ using Script.GUI.SMNavigation;
 using Script.GUI.SMNavigation.States.CampaignMapStates;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.UI;   // UIWindow / UIWindowID — the game ships them in this namespace
 
 namespace GloomhavenVR.WorldUI.MapRoom;
 
@@ -337,10 +338,15 @@ internal sealed class MapLocationInteractor
         SetHover(want, "laser", how);
 
         TickHoverVerdict();
+        TickClickVerdict();
         TickDeselect();
 
         if (_hover == null)
+        {
+            // ModBuild 422 — report 3b's own falsifier. See NotePressWithNoLocation.
+            NotePressWithNoLocation(how);
             return;
+        }
         VRHand? clicking = TriggerEdgeHand();
         if (clicking == null)
             return;
@@ -1343,6 +1349,188 @@ internal sealed class MapLocationInteractor
     /// game version that moved one of these will not un-move it on the next room.</summary>
     private static bool _capitalRouteStoodDown;
 
+    // ---- REPORT 3b: "the window vanished and never came back" (ModBuild 422) ------------------
+
+    /// <summary>
+    /// USER REPORT (2026-09-04, hardware, multiplayer, map environment), verbatim: <i>"b) Ich hab
+    /// mehrere Szenarien angeklickt - irgendwann ist das Fenster vollständig verschwunden und auch
+    /// nicht mehr aufgetaucht nachdem ich andere Questsymbole angeklickt habe. Man hat nurnoch die
+    /// Sounds gehört."</i>
+    ///
+    /// <para>WHAT THE ModBuild 420 LOGS ALREADY SETTLE, AND WHAT THEY DO NOT. They settle that the
+    /// GAME never got the later clicks at all. On the host, the game's own
+    /// <c>ON MOUSE UP. IsStartingVillageUnlocked</c> stops at Player.log:46402, this class's
+    /// <c>MAP ROOM location CLICK</c> stops at :46432, its hover verdict line
+    /// <c>MAP ROOM hover '…'</c> stops at :46396, and NOT ONE of the three appears again in the
+    /// remaining 5,667 lines (~45 s, ending with the session). The peer log has the same shape at
+    /// its own last click, remote/Player.log:36805. So <c>UIQuestPopupManager.ShowQuest</c> was
+    /// never called; the popup was not "shown and hidden" and it was not "refused because it
+    /// already read open" — the presses never reached a MapLocation.</para>
+    ///
+    /// <para>WHAT THEY DO NOT SETTLE is WHY the presses stopped reaching one, because every path
+    /// out of <see cref="Tick"/> that ends in "no location under the ray" is SILENT. A hover that
+    /// never changes prints nothing (<see cref="SetHover"/> early-outs on reference equality), a
+    /// hover that goes null prints nothing, a trigger pull with no hover returns before
+    /// <see cref="Dispatch"/> can print, and <see cref="TickDeselect"/>'s own REFUSED line is
+    /// rate-limited and sits behind the map-lock gate. Eight instruments, and the interval in which
+    /// the defect lives is exactly the interval none of them covers — which is this project's
+    /// "the blind spot is the lead" verbatim. This method is that blind spot's line.</para>
+    ///
+    /// <para>IT ANSWERS BOTH HALVES THE ROUND ASKED FOR. Whether the game showed the window: the
+    /// popup's own <c>UIWindow.IsOpen</c> and its GameObject's <c>activeInHierarchy</c> are printed,
+    /// and those two ARE the two ways <c>UIWindow.Show</c> can be a silent no-op (decompiled
+    /// UIWindow.cs:474-490 — <c>if (!IsActive()) return;</c> and <c>if (m_CurrentVisualState != 0)</c>).
+    /// And what the mod had left the open-state reading: whether this mod has the window FLOATED,
+    /// plus <c>UIQuestPopupManager.IsQuestShown</c>, which is the game's own memo that makes
+    /// <c>ShowQuest(quest)</c> a no-op for a quest it believes is already up
+    /// (UIQuestPopupManager.cs:35-43).</para>
+    ///
+    /// <para>RATE-LIMITED, not per press: a trigger held over the table would otherwise print every
+    /// frame, and the answer does not change that fast.</para>
+    /// </summary>
+    /// <param name="how">What the pick found instead of a location — <see cref="PickFrom"/>'s own
+    /// verdict, so the line says whether the ray was stood down, hit nothing, or hit colliders that
+    /// were not locations.</param>
+    private void NotePressWithNoLocation(string how)
+    {
+        VRHand? clicking = TriggerEdgeHand();
+        if (clicking == null)
+            return;
+        if (Time.unscaledTime - _noTargetLoggedAt < NoTargetLogIntervalSeconds)
+            return;
+        _noTargetLoggedAt = Time.unscaledTime;
+
+        UIWindow? popup = UIWindow.GetWindow(UIWindowID.QuestPopup);
+        bool floated = ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup) != null;
+        string popupState = popup == null
+            ? "the QuestPopup UIWindow could not be found in the game's own window registry at all"
+            : $"'{popup.name}' IsOpen={popup.IsOpen}, gameObject.activeInHierarchy="
+              + $"{popup.gameObject.activeInHierarchy}, component enabled={popup.enabled}";
+        string managerState = Singleton<UIQuestPopupManager>.IsInitialized
+                              && Singleton<UIQuestPopupManager>.Instance != null
+            ? Singleton<UIQuestPopupManager>.Instance.IsQuestShown.ToString()
+            : "<manager not initialised>";
+
+        // HW-VERIFY: report 3b — "das Fenster ist verschwunden und auch nicht mehr aufgetaucht".
+        VRLog.Note(Scope,
+            $"MAP ROOM PRESS REACHED NO LOCATION: {clicking.Side} trigger pulled in the map room "
+            + $"with NO icon under either ray — the pick's own verdict is '{how}', and the "
+            + $"{_locations.Count} registered location(s) were therefore never offered this press. "
+            + "NO MapLocation.OnPointerClick was dispatched, so the game's own ShowQuest path was "
+            + "not entered and the absence of a window is NOT a window failing to open. "
+            + $"THE RAY: mask 0x{clicking.Ray.Mask:X8} (this class asked for 0x{_maskInForce:X8}), "
+            + $"solid occluder at {clicking.Ray.SolidOccluderDistance:F1} world units, "
+            + $"RayUgui.HasHit={clicking.RayUgui.HasHit}"
+            + (clicking.RayUgui.HasHit
+                ? $" on '{(clicking.RayUgui.HoveredCanvas != null ? clicking.RayUgui.HoveredCanvas.name : "<unnamed canvas>")}'"
+                  + $" at {clicking.RayUgui.HitDistance:F1} world units"
+                : string.Empty)
+            + $", Ray.HasFreshUiHit={clicking.Ray.HasFreshUiHit}. A SOLID OCCLUDER NEARER THAN THE "
+            + "TABLE IS THE LEAD: PickFrom limits its raycast to Ray.SolidOccluderDistance, so a "
+            + "floated panel hanging over the map cuts every ray to the icons short and this class "
+            + "goes silent — which is exactly the shape of the ModBuild 420 dead stretch (host "
+            + "Player.log:46432-51278, two floated windows ARMED throughout, no hover and no click "
+            + "line in 45 s). "
+            + $"THE POPUP'S OWN STATE AT THIS INSTANT: {popupState}; this mod has it "
+            + $"{(floated ? "FLOATED" : "not floated")}; UIQuestPopupManager.IsQuestShown="
+            + $"{managerState}. READ THOSE THREE LAST: UIWindow.Show is a silent no-op when the "
+            + "object is not activeInHierarchy or the component is disabled (decompiled "
+            + "UIWindow.cs:474-478 via IsActive()), and a second no-op when the window already "
+            + "reads open; IsQuestShown=True is the game's own memo that makes ShowQuest(sameQuest) "
+            + "return without showing anything. If a future log shows this line WITH IsOpen=False "
+            + "and activeInHierarchy=True, the ray is the cause and the window state is innocent; "
+            + "if it shows IsOpen=True while nothing is on screen, the mod has left the game "
+            + "believing a window is up that it is not drawing, and THAT is the deadlock class.");
+    }
+
+    /// <summary>Seconds between <see cref="NotePressWithNoLocation"/> lines. A held trigger must not
+    /// flood the log; the state it reports does not change within a second.</summary>
+    private const float NoTargetLogIntervalSeconds = 3f;
+
+    private float _noTargetLoggedAt = float.NegativeInfinity;
+
+    // ---- the click verdict: did the press this class DID dispatch produce a window? -------------
+
+    private int _clickVerdictFrame = int.MinValue;
+    private string _clickedName = string.Empty;
+    private bool _clickOpenBefore;
+    private bool _clickActiveBefore;
+    private bool _clickQuestShownBefore;
+
+    /// <summary>How many frames after a dispatched click the verdict is read. The game shows the
+    /// popup from its own Update and the conversion runs a tick later, so the same delay the hover
+    /// verdict already uses is the right one here — and it is a DIAGNOSTIC delay, not a policy
+    /// timeout: nothing behaves differently because of it.</summary>
+    private const int ClickVerdictDelayFrames = 12;
+
+    /// <summary>Record what the popup's open-state read BEFORE a click is dispatched. Cheap: two
+    /// registry lookups per click, and a click is a human action.</summary>
+    private void ArmClickVerdict(MapLocation loc)
+    {
+        UIWindow? popup = UIWindow.GetWindow(UIWindowID.QuestPopup);
+        _clickedName = loc != null ? loc.name : "<null>";
+        _clickOpenBefore = popup != null && popup.IsOpen;
+        _clickActiveBefore = popup != null && popup.gameObject.activeInHierarchy;
+        _clickQuestShownBefore = Singleton<UIQuestPopupManager>.IsInitialized
+                                 && Singleton<UIQuestPopupManager>.Instance != null
+                                 && Singleton<UIQuestPopupManager>.Instance.IsQuestShown;
+        _clickVerdictFrame = Time.frameCount;
+    }
+
+    /// <summary>
+    /// THE OTHER HALF OF REPORT 3b. <see cref="NotePressWithNoLocation"/> covers a press that never
+    /// reached a location; this covers one that DID and still produced no window — the case the
+    /// round's own hypothesis named ("the game never Show()ed it because the mod left it reading
+    /// open"). That hypothesis is not established by the 420 logs (there were no later clicks at
+    /// all), so rather than shipping a fix for it this states, from one line, whether it is true.
+    ///
+    /// <para>ONE LINE PER CLICK, and only when the click did NOT produce an open window — a click
+    /// that worked needs no explanation and a line printed for every working click is the flood
+    /// ModBuild 331 removed.</para>
+    /// </summary>
+    private void TickClickVerdict()
+    {
+        if (_clickVerdictFrame == int.MinValue)
+            return;
+        if (Time.frameCount - _clickVerdictFrame < ClickVerdictDelayFrames)
+            return;
+        _clickVerdictFrame = int.MinValue;
+
+        UIWindow? popup = UIWindow.GetWindow(UIWindowID.QuestPopup);
+        bool openNow = popup != null && popup.IsOpen;
+        if (openNow)
+            return;   // the click did what it was supposed to do; nothing to explain
+
+        bool activeNow = popup != null && popup.gameObject.activeInHierarchy;
+        bool floated = ModalFallback.FloatedWindowWithId(UIWindowID.QuestPopup) != null;
+        string managerNow = Singleton<UIQuestPopupManager>.IsInitialized
+                            && Singleton<UIQuestPopupManager>.Instance != null
+            ? Singleton<UIQuestPopupManager>.Instance.IsQuestShown.ToString()
+            : "<manager not initialised>";
+
+        // HW-VERIFY: report 3b — a click that produced no window, and why.
+        VRLog.Note(Scope,
+            $"MAP ROOM CLICK PRODUCED NO WINDOW: the press on '{_clickedName}' was dispatched "
+            + $"{ClickVerdictDelayFrames} frame(s) ago as the game's own pointerClickHandler, and "
+            + "the quest popup is STILL not open. BEFORE the dispatch it read IsOpen="
+            + $"{_clickOpenBefore}, activeInHierarchy={_clickActiveBefore}, "
+            + $"UIQuestPopupManager.IsQuestShown={_clickQuestShownBefore}; NOW it reads IsOpen="
+            + $"{openNow}, activeInHierarchy={activeNow}, IsQuestShown={managerNow}, and this mod "
+            + $"has it {(floated ? "FLOATED" : "not floated")}. WHICH OF THE THREE REFUSALS IT WAS, "
+            + "in the order UIWindow and UIQuestPopupManager test them: (1) activeInHierarchy=False "
+            + "or the component disabled means UIWindow.Show returned at its own IsActive() gate "
+            + "without so much as playing its show sound (decompiled UIWindow.cs:474-478) — if the "
+            + "mod is the one that deactivated it, that is ours; (2) IsOpen=True BEFORE and after, "
+            + "with nothing on screen, means the game believes the window is already up and every "
+            + "further click toggles an already-open window, which is 'man hat nurnoch die Sounds "
+            + "gehört' exactly; (3) IsQuestShown=True BEFORE means UIQuestPopupManager.ShowQuest "
+            + "took its `!Equals(questState, selectedQuest)` early-out (UIQuestPopupManager.cs:35-43) "
+            + "and never called into the popup at all — that one is CORRECT for a re-click on the "
+            + "SAME quest and a defect only for a different one. If all three read innocent, the "
+            + "game refused the selection itself (MapLocation.IsSelectable / m_OnClickAction) and "
+            + "the flat build would have refused the same click.");
+    }
+
     /// <summary>
     /// The click. One dispatch, through the game's own handler chain — see the class doc on why
     /// this and not <c>Select()</c> directly.
@@ -1397,6 +1585,9 @@ internal sealed class MapLocationInteractor
         var data = new PointerEventData(es!) { button = PointerEventData.InputButton.Left };
         try
         {
+            // ModBuild 422 — READ THE POPUP'S OPEN-STATE BEFORE THE DISPATCH, because one frame
+            // later our own click has changed it and the evidence is gone. See TickClickVerdict.
+            ArmClickVerdict(loc);
             ExecuteEvents.Execute(loc.gameObject, data, ExecuteEvents.pointerClickHandler);
             _selected = loc;   // what a later "press somewhere else" deselects
             _selectedAt = Time.unscaledTime;
