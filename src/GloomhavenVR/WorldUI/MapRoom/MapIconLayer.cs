@@ -771,6 +771,26 @@ internal sealed class MapIconLayer
         ScaleFor(CurrentSurface, IsCapital(OwnerOf(decal)));
 
     /// <summary>
+    /// The same number as <see cref="ScaleForDrawnQuad"/>, asked from the LOCATION instead of from
+    /// its decal — for the one caller that already holds a <c>MapLocation</c> and cannot hold a
+    /// decal.
+    ///
+    /// <para>WHY IT EXISTS (ModBuild 425). The map-icon hover instrument in
+    /// <see cref="MapIconHoverAnimation"/> has to name the symbol-size dial that was in force when
+    /// the highlight fired, because the user's question is explicitly about the interaction between
+    /// the two: <i>"Das will ich wieder haben, unabhängig der eingestellten Symbolgröße."</i> It is
+    /// driven from <see cref="MapLocationInteractor.SetHover"/>, which knows the location and
+    /// nothing else. The <c>Decal</c> type lives in an unreferenced assembly and is reached here
+    /// only by reflection, so the hover lane cannot type a decal field to hand to the overload
+    /// above — but <see cref="OwnerOf"/> is exactly the decal→location step this method skips, so
+    /// asking from the far end of the same edge is the SAME answer and not a second copy of the
+    /// rule. Both overloads end in the one <see cref="ScaleFor"/>, off the one
+    /// <see cref="CurrentSurface"/>, so a dial added tomorrow still reaches all three callers.</para>
+    /// </summary>
+    internal static float ScaleForLocation(global::MapLocation? loc) =>
+        ScaleFor(CurrentSurface, IsCapital(loc));
+
+    /// <summary>
     /// THE DIAL CHOICE, in one place so the draw loop and the hover pads cannot drift apart.
     ///
     /// <para>On the CITY map every drawn icon takes <c>[MapRoom] CityIconScale</c> — including,

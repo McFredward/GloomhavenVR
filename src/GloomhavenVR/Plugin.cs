@@ -202,12 +202,22 @@ public class Plugin : BaseUnityPlugin
     /// hovere - an der Stelle möchte ich es nicht.").
     ///
     /// <para>The hover ITSELF is untouched - the symbol still highlights, the quest card still
-    /// appears above it and the click still selects. What stops is the movement:
-    /// <c>MapLocation.Highlight</c> (decompiled MapLocation.cs:525-555) scales the symbol's
-    /// <c>MeshParent</c> to 1.2x and switches on a <c>NodeHoverIndicator</c> particle effect the
-    /// moment a hover starts, and those two are put straight back. The highlight sprite and the
-    /// highlighted decal material - the still, non-moving half of the same reaction - stay, because
-    /// removing them would remove the hover indication he did not ask to lose.</para>
+    /// appears above it and the click still selects. What stops is the one thing on that path that
+    /// actually MOVES: <c>MapLocation.Highlight</c> (decompiled MapLocation.cs:525-555) switches on
+    /// a <c>NodeHoverIndicator</c> particle effect the moment a hover starts - an
+    /// <c>EffectAlphaFadeParticles</c> running a 0.6 s alpha-fade coroutine - and it is put
+    /// straight back. The highlight sprite and the highlighted decal material - the still,
+    /// non-moving half of the same reaction - stay, because removing them would remove the hover
+    /// indication he did not ask to lose.</para>
+    ///
+    /// <para>THE 20 % SCALE STEP IS NO LONGER UNDER THIS DIAL (ModBuild 425). It was, from 365 to
+    /// 424. User, 2026-09-05: "Wenn du im flat game ueber ein Symbol hoverest auf der map wird es
+    /// temporaer etwas groesser damit es hervorgehoben ist ... Das will ich wieder haben,
+    /// unabhaengig der eingestellten Symbolgroesse." (umlauts spelled out: this file is read by
+    /// tooling that has been bitten by them). It is a single assignment with no tween or coroutine
+    /// (:545-551) - a highlight STATE, not an animation - so it now runs whichever way this dial is
+    /// set, and it multiplies with the three symbol-size dials rather than fighting them. See
+    /// <c>WorldUI/MapRoom/MapIconHoverAnimation</c> for the verbatim German and the split.</para>
     ///
     /// <para>3D MAP ROOM ONLY: the suppression is gated on <c>MapRoomDriver.Active</c>, so with
     /// [Rig] Vanilla2DMap on (the flat 2D campaign map) the game animates exactly as it always
@@ -688,14 +698,14 @@ public class Plugin : BaseUnityPlugin
             // and the reader lost exactly the closing sentences — so this one was cut to fit
             // before it shipped rather than after a report.
             new ConfigDescription(
-                "MOUSEOVER ANIMATION of a location symbol in the 3D map room. OFF by default, as "
-                + "asked: a symbol you point at no longer jumps. The hover itself is untouched — "
-                + "the symbol still highlights, its quest card still appears above it and the "
-                + "trigger still selects it. Only the movement stops: the game grows the symbol "
-                + "20% the instant you point at it and starts a particle effect on it, and both "
-                + "are put straight back. The still half — glow ring and brighter artwork — "
-                + "stays, so you still see what you point at. Turn it on for the game's original "
-                + "behaviour. Applies live, 3D map room only; the flat 2D map is unaffected."));
+                "MOUSEOVER PARTICLE EFFECT on a location symbol in the 3D map room. OFF by "
+                + "default, as asked. The hover itself is untouched: the symbol still highlights, "
+                + "it still GROWS 20% while you point at it, its quest card still appears above it "
+                + "and the trigger still selects it. Only the sparkle stops — the game starts a "
+                + "fading particle effect on the symbol the instant you point at it, and that one "
+                + "is put straight back. The 20% growth is no longer part of this setting and runs "
+                + "either way; it multiplies with your chosen symbol size, so it stays equally "
+                + "visible at any size. Applies live, 3D map room only."));
         WorldTiltDegrees = Config.Bind(
             "Rig", "WorldTiltDegrees", Defaults.WorldTiltDegrees,
             new ConfigDescription(

@@ -78,31 +78,6 @@ internal sealed class MapIconHoverPads
     /// is a location the game is hiding; giving it a hit box would hover an invisible icon.</summary>
     private const float MinPadEdgeWorld = 0.05f;
 
-    /// <summary>
-    /// The scale factor <c>MapLocation.Highlight</c> puts on <c>MeshParent</c> while a location is
-    /// highlighted (<c>c_HighlightedNodeScaleFactor</c>, decompiled MapLocation.cs:121, applied at
-    /// :545-551). The decal is a child of <c>MeshParent</c> (MapLocation.cs:401), so its
-    /// <c>lossyScale</c> — the footprint this class measures — GROWS BY THIS FACTOR the moment the
-    /// hover starts. Dividing it back out keeps the pad the same size hovered or not: without it
-    /// the hover target would inflate 20% as soon as it was acquired and shrink again as soon as it
-    /// was lost, which is a latch that makes a hover both harder to leave and able to reach over a
-    /// neighbour's icon while it lasts.
-    ///
-    /// <para>ModBuild 365 — STILL LIVE CODE, AND STILL LOAD-BEARING, but it is no longer the
-    /// unconditional divide it was. The user asked for the mouseover animation to stop ("Bitte
-    /// deaktiviere die animationen für das mouseover im Kartenraum…"), and with
-    /// <c>[MapRoom] HoverAnimation</c> off — the shipped default — a HOVER's inflation is put back
-    /// in the same frame it is made (<see cref="MapIconHoverAnimation"/>). Dividing by 1.2 anyway
-    /// would then make every hovered pad 17% SMALLER than the icon it shadows, which is the
-    /// ModBuild 188 defect re-opened from the other side. A SELECTION still inflates, because the
-    /// suppression is deliberately hover-only — so the question "is this icon inflated right now"
-    /// is no longer answerable from <c>IsHighlighted</c> alone and is asked of
-    /// <see cref="MapIconHoverAnimation.IsInflated"/>, which is the one place that knows the
-    /// policy. The factor is NOT retired: with the dial on it is exactly the pre-364 arithmetic,
-    /// and it is what keeps the pads honest if the animation ever comes back.</para>
-    /// </summary>
-    private const float HighlightedNodeScaleFactor = 1.2f;
-
     /// <summary>The Decalicious <c>Decal</c> type, reached by name — it lives in an unreferenced
     /// assembly, exactly as <see cref="MapIconLayer"/> reaches it.</summary>
     private static System.Type? _decalType;
@@ -249,14 +224,29 @@ internal sealed class MapIconHoverPads
 
     /// <summary>
     /// The drawn footprint: <c>decal.lossyScale.xz</c> — the value <see cref="MapIconLayer"/> feeds
-    /// its quad matrix — with the highlight inflation divided back out WHEN IT IS ACTUALLY THERE
-    /// (see <see cref="HighlightedNodeScaleFactor"/> and
-    /// <see cref="MapIconHoverAnimation.IsInflated"/>) and the pad's thickness on Y.
+    /// its quad matrix — with the highlight inflation divided back out BY HOW MUCH IT IS ACTUALLY
+    /// THERE (see <see cref="MapIconHoverAnimation.InflationOf"/>) and the pad's thickness on Y.
     /// </summary>
     private static Vector3 FootprintOf(Transform decal, MapLocation loc)
     {
         Vector3 ds = decal.lossyScale;
-        float inflate = MapIconHoverAnimation.IsInflated(loc) ? HighlightedNodeScaleFactor : 1f;
+        // THE HIGHLIGHT INFLATION, DIVIDED BACK OUT — MEASURED, NOT MODELLED (ModBuild 425).
+        // MapLocation.Highlight scales MeshParent by 1.2 while a location is highlighted
+        // (c_HighlightedNodeScaleFactor, decompiled MapLocation.cs:121, applied at :545-551), and
+        // the decal is a CHILD of MeshParent (:401) — so the lossyScale this method measures
+        // already carries it. Without the divide the hover target would inflate 20% the instant it
+        // was acquired and shrink again the instant it was lost, a latch that makes a hover both
+        // harder to leave and able to reach over a neighbour's icon while it lasts (ModBuild 188).
+        //
+        // The factor is now ASKED OF THE TRANSFORM rather than reconstructed from IsHighlighted and
+        // a hard-coded 1.2. Up to 424 it was a policy question, because the mod put a hover's
+        // inflation straight back and only a SELECTION's was left standing; 425 restored the game's
+        // own highlight in full (user, 2026-09-05: "Das will ich wieder haben, unabhängig der
+        // eingestellten Symbolgröße"), so the pad must follow whatever the game actually last wrote
+        // — including through Select/Deselect, which call Highlight WITHOUT moving m_IsHighlighted
+        // (MapLocation.cs:660-677) and would make any flag-based model wrong in both directions.
+        // See MapIconHoverAnimation.InflationOf for the measurement and its plausibility band.
+        float inflate = MapIconHoverAnimation.InflationOf(loc);
         // ModBuild 189 — THE PAD IS THE DRAWN ICON, SO IT TAKES THE SIZE DIAL TOO. The user asked
         // for the map symbols to be enlargeable ("Die Symbole auf der Map sind sehr klein"), and
         // MapIconLayer multiplies each drawn quad by a size dial. This class's whole contract is

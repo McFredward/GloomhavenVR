@@ -92,10 +92,17 @@ internal static partial class Defaults
     // hovere - an der Stelle möchte ich es nicht."). FALSE IS THE REQUEST, not a conservative
     // guess: he asked for the animations gone, so the shipped build must be the build he asked
     // for and the dial exists only so a taste ruling on a visual can be taken back without a new
-    // build. It suppresses exactly two of the four things MapLocation.Highlight does on a hover
-    // (decompiled MapLocation.cs:525-555) — the 20 % scale pop on MeshParent and the
-    // NodeHoverIndicator particle effect — and leaves the highlight sprite, the highlighted decal
-    // material and the whole quest-preview card alone. See WorldUI/MapRoom/MapIconHoverAnimation.
+    // build. Since ModBuild 425 it suppresses exactly ONE of the four things
+    // MapLocation.Highlight does on a hover (decompiled MapLocation.cs:525-555): the
+    // NodeHoverIndicator particle effect, which is the only one of the four that actually moves
+    // (an EffectAlphaFadeParticles on a 0.6 s alpha-fade coroutine). The 20 % scale step on
+    // MeshParent was suppressed with it from 365 to 424 and is NOT any more — user, 2026-09-05:
+    // "Wenn du im flat game über ein Symbol hoverest auf der map wird es temporär etwas größer
+    // damit es hervorgehoben ist … Das will ich wieder haben, unabhängig der eingestellten
+    // Symbolgröße." It is a single assignment with no tween, i.e. a highlight STATE and not an
+    // animation, so it runs whichever way this dial is set. The highlight sprite, the highlighted
+    // decal material and the quest-preview card were never touched by either round.
+    // See WorldUI/MapRoom/MapIconHoverAnimation.
     internal const bool MapHoverAnimation = false;                           // => [MapRoom] HoverAnimation
     internal const float WorldTiltDegrees = 0f;                              // => [Rig] WorldTiltDegrees
     internal const float MaskedReaimHeadRate = 30f;                          // => [Rig] MaskedReaimHeadRate

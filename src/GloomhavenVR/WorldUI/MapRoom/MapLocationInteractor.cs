@@ -405,6 +405,10 @@ internal sealed class MapLocationInteractor
         unchecked { _scanGeneration++; }
         _pads.Release(reason);
         MapHoverVerdict.Reset();
+        // The room is gone: the next one is entitled to say again which half of the mouseover ran
+        // and to re-measure the hover highlight, so the verdict edges and the per-outcome gate go
+        // down with it. Idempotent — the Highlight postfix rearms on the same condition.
+        MapIconHoverAnimation.Rearm();
         _scanFrame = int.MinValue;
         _reported = false;
         _hoverFrame = int.MinValue;
@@ -988,6 +992,14 @@ internal sealed class MapLocationInteractor
             VRLog.Warn(Scope, $"MapLocation.OnPointerExit threw ({why}): {ex.Message}");
         }
 
+        // THE OTHER HALF OF THE HOVER-HIGHLIGHT READING (ModBuild 425). Read AFTER OnPointerExit,
+        // and after the capital's forced un-highlight above it, so what it measures is the scale
+        // the icon is actually left at — the "unabhängig der eingestellten Symbolgröße" round turns
+        // on the symbol going back to exactly the configured size, and a check taken before the
+        // game's own UnHighlight would be measuring the hover, not the restore. Outside the try:
+        // it reads two transforms and cannot throw where OnPointerExit can.
+        MapIconHoverAnimation.ReportHoverExit(had);
+
         try
         {
             if (want != null)
@@ -999,6 +1011,11 @@ internal sealed class MapLocationInteractor
                 // and returns.
                 if (CapitalRouteAllowed(want) && CapitalHover(want, active: true))
                     _capitalForced = true;
+                // ARM THE HOVER-HIGHLIGHT READING (ModBuild 425), after BOTH paths that can raise
+                // the highlight: the game's own OnPointerEnter above and the capital's forced
+                // Highlight beside it. Arming earlier would record the icon's resting scale and
+                // report every hover as "DID NOT GROW". See MapIconHoverAnimation.
+                MapIconHoverAnimation.ReportHoverEnter(want);
                 StateMachineEnterHover(want);
             }
             else if (had != null)
