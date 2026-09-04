@@ -367,6 +367,19 @@ internal static partial class ModalFallback
         // window is drawn once — by the head camera, which renders every layer — at its
         // screen-space home. Switch its rendering off right here; TryConvertWindow hands it
         // straight back so the conversion's own hide/reveal bookkeeping stays exact. Full
+        // ModBuild 421 — AND IT RUNS BEFORE THE BLACKOUT, BECAUSE THE STRADDLE IS UPSTREAM OF IT.
+        // The ModBuild 420 log shows an engage/stand-down lifetime of the panel supersample
+        // STRADDLING this very Show three times in one options-key burst: the pre-convert census
+        // reads the ESC menu on capture layer 26 with its capture camera still alive, and the
+        // stand-down follows eight log lines later. While that straddle is open the old entry's
+        // sweep is live over a window the game has already re-shown and repopulated, so it claims
+        // children of the NEW open onto the OLD entry's layer and records whatever transient layer
+        // they carried as their "original" — and that restore is permanent. Ending the capture here,
+        // synchronously inside Show(), removes the whole family of orderings rather than repairing
+        // one of them. `IsConverted` is passed so a STICKY menu the game re-Shows inside a float
+        // that never went away is left completely alone: there is no straddle in that case.
+        // Full account: PanelSupersample.NoticeWindowShown.
+        PanelSupersample.NoticeWindowShown(e.Window.transform, e.Window.name, IsConverted(e.Window));
         // reasoning, evidence and the safety bounds: ModalFallback part 11.
         PreConvertHide(e.Window);
         // Test #10: track fallback windows EVEN outside a scenario. The scenario-start

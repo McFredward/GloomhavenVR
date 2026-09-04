@@ -2347,22 +2347,38 @@ internal static partial class PanelSupersample
     /// layer. That guard is what makes this restore commute with
     /// <c>CanvasConversion.Release</c>'s: whichever runs first, the transform ends on the layer the
     /// game gave it, and neither restore can overwrite the other's work.
+    ///
+    /// <para><b>ModBuild 421 — IT NOW RETURNS THE SIZE OF ITS OWN BLIND SPOT.</b> The guard above is
+    /// correct and it is also the one place a layer can be silently left behind: a transform that
+    /// drifted off our layer between the sweep and the stand-down is skipped, and this method had no
+    /// way to say so. That is the difference between "the restore ran" and "the restore restored
+    /// everything", and three rounds on the left-edge rim have shown what it costs to confuse the
+    /// two. The count is returned rather than logged here so this stays a mechanism and not an
+    /// instrument; <see cref="StandDown"/> prints it.</para>
     /// </summary>
-    private static void RestoreLayers(Entry e)
+    /// <returns>How many live records this restore REFUSED because the transform was no longer on
+    /// our layer. Zero is the healthy answer and the common one.</returns>
+    private static int RestoreLayers(Entry e)
     {
         int layer = e.Layer;
         if (layer < 0)
         {
             e.Relayered.Clear();
-            return;
+            return 0;
         }
+        int refused = 0;
         for (int i = 0; i < e.Relayered.Count; i++)
         {
             LayerRecord record = e.Relayered[i];
-            if (record.Transform != null && record.Transform.gameObject.layer == layer)
+            if (record.Transform == null)
+                continue; // died with its scene; its layer died with it
+            if (record.Transform.gameObject.layer == layer)
                 record.Transform.gameObject.layer = record.OriginalLayer;
+            else
+                refused++;
         }
         e.Relayered.Clear();
+        return refused;
     }
 
     // ---- camera hooks -------------------------------------------------------------------------
@@ -2769,7 +2785,7 @@ internal static partial class PanelSupersample
 
     private static void StandDown(Entry e, int index, string why)
     {
-        RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
+        int refusedRestores = RestoreLayers(e);   // must run BEFORE the layer goes back in the pool: it reads e.Layer
         MipBiasNextReport.Remove(e.Window); // a re-engaged window reports its bias immediately
         // ModBuild 204: the target-life record dies with the entry, for the same reason. Its counters
         // are all "since engage" and a re-engaged window is a new engagement — carrying them over
@@ -2807,6 +2823,56 @@ internal static partial class PanelSupersample
                           + $"into the pool ({FreeLayers.Count} of {PoolSize} free), so a window that "
                           + "was refused for want of one can now be re-considered. Input was never "
                           + "affected either way.");
+        NoteRefusedLayerRestores(e, layer, refusedRestores);
+    }
+
+    /// <summary>Session tally of stand-downs that could not restore every layer they recorded.</summary>
+    private static int s_refusedRestoreStandDowns;
+
+    /// <summary>
+    /// <b>THE STAND-DOWN LEFT A RECORDED TRANSFORM ON A LAYER IT DID NOT PUT IT ON.</b> This is the
+    /// one outcome that would make a capture layer visible in the headset and nowhere else, and
+    /// until ModBuild 421 nothing in this mod could say whether it had happened.
+    ///
+    /// <para><b>WHY IT IS AN OUTCOME CHECK AND NOT ANOTHER PREDICATE.</b> Three rounds on the
+    /// left-edge rim have each measured a mechanism from its own side, read green and shipped. This
+    /// does not ask whether the restore RAN; it asks whether the restore's own guard had to skip
+    /// anything, which is the only way a layer survives a stand-down. Zero means every transform this
+    /// entry moved is back where the game had it.</para>
+    ///
+    /// <para>Refusal is not automatically a fault — the guard exists so this restore commutes with
+    /// <c>CanvasConversion.Release</c>'s, and a transform a NEW conversion has already taken to the
+    /// mod layer 27 is skipped for exactly the right reason. What the line gives the next round is
+    /// the COUNT and the layer, so a non-zero reading can be checked against the ordering instead of
+    /// being assumed either way.</para>
+    ///
+    /// <para>COST: one comparison per record <see cref="RestoreLayers"/> was already visiting, and
+    /// one log line per stand-down that refuses anything, capped at the first eight plus one per
+    /// doubling. No new traversal, so the ModBuild 193 finding about this file's per-frame sweeps
+    /// does not apply — there is no sweep here.</para>
+    /// </summary>
+    private static void NoteRefusedLayerRestores(Entry e, int layer, int refused)
+    {
+        if (refused <= 0)
+            return;
+        s_refusedRestoreStandDowns++;
+        if (s_refusedRestoreStandDowns > 8
+            && (s_refusedRestoreStandDowns & (s_refusedRestoreStandDowns - 1)) != 0)
+            return;
+        // HW-VERIFY
+        VRLog.Alert(Scope, $"PANEL SUPERSAMPLE LAYER RESTORE REFUSED ({s_refusedRestoreStandDowns} "
+            + $"this session): standing '{e.Window}' down could not hand {refused} of its recorded "
+            + $"transform(s) back, because they were no longer on capture layer {layer} when the "
+            + "restore ran — the guard skips those so this restore commutes with "
+            + "CanvasConversion.Release's. THAT GUARD IS ALSO THE ONLY WAY A CAPTURE LAYER SURVIVES "
+            + "A STAND-DOWN, and a capture layer is outside the game's 'UI Camera' mask and inside "
+            + "the head camera's, so anything stranded on one is invisible on the desktop and "
+            + "visible in the headset. IF THIS LINE IS ABSENT the restore handed back everything it "
+            + "took, and a surviving left-edge rim did NOT come from this subsystem's layers. IF IT "
+            + "IS PRESENT, check it against the mod-layer pass: a transform already taken to layer 27 "
+            + "by a NEW conversion is skipped here for the right reason, and one skipped for any "
+            + "other reason is the defect. USER REPORT 2026-09-04, third round on the same symptom: "
+            + "'Wenn ich den button oft genug spamme, tritt das Problem immer noch auf.'");
     }
 
     private static void DestroyEntryObjects(Entry e)

@@ -2159,6 +2159,100 @@ internal static partial class PanelSupersample
         }
     }
 
+    /// <summary>Session tally of straddles ended by <see cref="NoticeWindowShown"/>.</summary>
+    private static int s_straddlesEnded;
+
+    /// <summary>
+    /// <b>THE GAME IS SHOWING THIS WINDOW AGAIN — END ANY CAPTURE THAT BELONGS TO ITS PREVIOUS
+    /// FLOAT, NOW, BEFORE ANYTHING ELSE LOOKS AT IT.</b> ModBuild 421, third round on one symptom.
+    ///
+    /// <para><b>THE MEASUREMENT.</b> The ModBuild 420 hardware log carries a 42-cycle options-key
+    /// burst. Its pre-convert census changes seven times and THREE of those reads put the ESC menu on
+    /// layer 26 — one of this class's capture layers — with
+    /// <c>GloomhavenVR.PanelSSCam_UI Scenario Esc Menu</c> listed alive beside it. Lined up by log
+    /// line the ordering is unambiguous, three times over (6462, 7252, 7878):</para>
+    ///
+    /// <code>
+    ///   7214  PANEL SUPERSAMPLE engaged on 'UI Scenario Esc Menu'
+    ///   7243  1 pooled/late transform(s) ... joined capture layer 26
+    ///   7252  BLACKOUT census: layer 26      &lt;- the game Show()s the window again, HERE
+    ///   7260  PANEL SUPERSAMPLE stood down on 'UI Scenario Esc Menu'
+    /// </code>
+    ///
+    /// <para>An engage/stand-down lifetime STRADDLES the re-open. That is the class this method
+    /// removes, and it is a class rather than a symptom: while the straddle is open, this entry's
+    /// sweep is live over a window the game has already re-shown and repopulated, so it CLAIMS
+    /// CHILDREN THAT BELONG TO THE NEW OPEN onto the old entry's layer and records whatever transient
+    /// layer they happened to carry as their "original". The restore is permanent — this file says so
+    /// itself about foreign-pool records — and every one of the four "pooled/late transform(s) …
+    /// joined capture layer 26" lines in that burst sits inside a straddle.</para>
+    ///
+    /// <para><b>WHY SHAPE (b) AND NOT (a).</b> The alternative was to make the stand-down restore
+    /// everything it ever moved including late joiners. It ALREADY DOES: the sweep appends every
+    /// joiner to <c>Entry.Relayered</c> and <c>RestoreLayers</c> walks that whole list. The 420 log
+    /// agrees — every layer-26 census is followed by a layer-5 census on the next open, so no
+    /// permanent stranding of the window root is visible anywhere in the session. (a) would therefore
+    /// have repaired a symptom the log does not show, which is precisely the move that has now failed
+    /// twice on this report. Removing the straddle removes the whole family of orderings instead, and
+    /// it leaves <c>RestoreLayers</c>' commuting guard doing only the job it was written for.</para>
+    ///
+    /// <para><b>REACHABILITY, WHICH DECIDED IT.</b> (b) needs a synchronous observation of the game's
+    /// Show(). There is one: <c>UIWindow_Transition_Patch</c> raises <c>VREvents.WindowVisibility</c>
+    /// from a postfix on the game's single visibility choke point, on the main thread, before the
+    /// frame renders — and <c>ModalFallback.PreConvertHide</c> already runs there and already emits
+    /// the census that found this. The fix and the instrument observe the same event, one statement
+    /// apart.</para>
+    ///
+    /// <para><b>WHAT IT COSTS.</b> One reference compare per live entry (0–2 in every log to date) on
+    /// a window OPEN. Nothing per frame. The stand-down it may trigger is work this class was going
+    /// to do a tick later anyway, moved earlier; no sweep is added, so the ModBuild 193 finding about
+    /// per-frame sweeps in this file does not apply.</para>
+    ///
+    /// <para><b>WHAT IT DOES NOT DO.</b> It never stands down the capture of a window that is
+    /// genuinely still floated — the caller passes <paramref name="stillFloated"/> from its own
+    /// <c>IsConverted</c> answer, and a sticky menu the game re-Shows inside a live float is left
+    /// alone. There is no straddle in that case: the float never went away.</para>
+    ///
+    /// <para>MULTIPLAYER: local rendering only. No wire field, no game state, no config key.</para>
+    /// </summary>
+    internal static void NoticeWindowShown(Transform? windowRoot, string windowName, bool stillFloated)
+    {
+        if (windowRoot == null || stillFloated || Entries.Count == 0)
+            return;
+        for (int i = Entries.Count - 1; i >= 0; i--)
+        {
+            Entry e = Entries[i];
+            // Identity first: Entry.Panel.Target IS the game window's own RectTransform (the entry is
+            // built with `Window = panel.Target.name`). The name is the belt for the case where the
+            // panel's target reference has already been cleared by a teardown in flight — matching on
+            // a name alone would be [[containment-is-not-identity]], matching on it as a FALLBACK
+            // behind the reference is just not losing the entry.
+            bool mine = e.Panel != null && ReferenceEquals(e.Panel.Target, windowRoot);
+            if (!mine && !(e.Panel == null && e.Window == windowName))
+                continue;
+            s_straddlesEnded++;
+            bool report = s_straddlesEnded <= 8
+                          || (s_straddlesEnded & (s_straddlesEnded - 1)) == 0;
+            StandDown(e, i, "the game re-opened this window while its previous float was still "
+                            + "supersampled (ModBuild 421: an engage/stand-down lifetime must never "
+                            + "straddle a Show of its own window)");
+            if (!report)
+                continue;
+            // HW-VERIFY
+            VRLog.Note(Scope, $"PANEL SUPERSAMPLE STRADDLE ENDED AT SHOW ({s_straddlesEnded} this "
+                + $"session): '{windowName}' was re-opened by the game while the capture of its "
+                + "PREVIOUS float was still engaged, so that capture was stood down synchronously "
+                + "inside the game's Show() — before the pre-convert blackout, before the convert "
+                + "loop, and before this class's own sweep could claim any of the new open's "
+                + "children onto the old entry's layer. WHY THIS EXISTS: the ModBuild 420 log put "
+                + "this window on capture layer 26 at THREE of seven census reads, each one landing "
+                + "between an engage and its stand-down, and all four 'pooled/late transform(s) … "
+                + "joined capture layer' lines in that burst sat inside such a straddle. THIS LINE "
+                + "GOING TO ZERO PROVES THE STRADDLE IS GONE AND PROVES NOTHING ABOUT THE RIM — the "
+                + "user-visible test is the only verdict on that.");
+        }
+    }
+
     /// <summary>Full teardown (module shutdown / VR off / hot reload): every panel back to direct
     /// rendering, every camera mask handed back, every allocation released.</summary>
     internal static void Shutdown()
