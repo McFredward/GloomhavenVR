@@ -1571,7 +1571,20 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
 /// is the term to add, and the anchor line now prints the bone box and the baked box side by side
 /// so the size of the miss is readable rather than inferred.</para>
 ///
-/// <para>Pure functions, no allocation, no component lookup beyond the renderer already in hand.
+/// <para><b>AND THE HARDWARE LOG SHOWED IT (2026-09-04, healtbar_demon.jpg).</b> The paragraph
+/// above named the condition under which the missing term becomes real work — "if a hardware log
+/// ever shows a bar clipping a helmet" — and <c>FrostDemonID</c> is it: head joint 1.78 wu above
+/// the track point, bone extent 0.00..1.95, bar parked at 2.00, and the figure's ice crystals
+/// clearly rising past it. So the term exists now, as <see cref="TryMeshTopY"/> — but NOT as the
+/// bind-pose constant that was rejected. That rejection stands and for the same reason: a
+/// bind-pose pad is a second unmeasured number stacked on a first. This one bakes the skin IN THE
+/// CURRENT POSE and reads its actual vertices, which is a measurement, and the caller
+/// (<c>ActorBars.MeasureAnchorOffsetWU</c>) owns every policy question about it — the column that
+/// keeps a wingtip out, the band that refuses an implausible reading, the bound on how far it may
+/// raise anything, and the per-mesh cache that keeps the bake off the frame.</para>
+///
+/// <para>Pure functions apart from <see cref="TryMeshTopY"/>, which owns two pieces of reused
+/// scratch (one bake target, one vertex list) and allocates nothing per call in steady state.
 /// </para>
 /// </summary>
 internal static class FigureBody
@@ -1657,5 +1670,170 @@ internal static class FigureBody
             fromHead = true;
         }
         return top;
+    }
+
+    /// <summary>
+    /// How many vertices this class will walk for ONE renderer's mesh top.
+    ///
+    /// <para>A belt, not a dial. A board miniature's skin is a few thousand vertices; a number an
+    /// order of magnitude past that says the renderer in hand is not a miniature — a map chunk
+    /// that slipped past the static-batch filter, a foreign mesh dropped into the subtree — and
+    /// walking it would put a scene-sized loop on the adopt path, which is the one defect this
+    /// project has shipped more than any other. Refusing costs nothing: the caller's mesh-top term
+    /// is one-sided, so a refusal is exactly the answer the caller already had.</para>
+    /// </summary>
+    private const int MeshTopVertexCap = 60000;
+
+    /// <summary>
+    /// The reused bake target for <see cref="TryMeshTopY"/> — ONE <c>Mesh</c> for the process,
+    /// created on first use and never destroyed. <c>BakeMesh</c> overwrites it in place, so a
+    /// per-call <c>new Mesh()</c> would hand the GC a mesh per measurement and leak native memory
+    /// until a collection ran.
+    /// </summary>
+    private static Mesh? s_bakeScratch;
+
+    /// <summary>
+    /// The reused vertex buffer for <see cref="TryMeshTopY"/>. <c>Mesh.GetVertices(List&lt;T&gt;)</c>
+    /// fills an existing list rather than returning a fresh array the way <c>Mesh.vertices</c>
+    /// does, so after the first figure of a session this allocates nothing at all.
+    /// </summary>
+    private static readonly List<Vector3> BakedVertices = new(8192);
+
+    /// <summary>
+    /// The topmost point of one renderer's REAL SKIN, in world units, inside a vertical COLUMN of
+    /// radius <paramref name="columnRadius"/> around <paramref name="axis"/>.
+    ///
+    /// <para>WHY THIS IS NOT <see cref="TryLiveExtentY"/>. That method reads BONE TRANSFORMS, which
+    /// sit inside the silhouette by construction: a crystal, a horn or a crest whose tip extends
+    /// past the last bone weighted to it is invisible to every term built on it. On
+    /// <c>FrostDemonID</c> (2026-09-04) the whole defect lives in that gap — the bones stop at 1.95
+    /// wu and the ice spikes do not.</para>
+    ///
+    /// <para><b>WHICH OVERLOAD, AND WHICH MATRIX — read this before touching either.</b>
+    /// <c>SkinnedMeshRenderer.BakeMesh(Mesh)</c>, the ONE-ARGUMENT overload, writes vertices in the
+    /// renderer transform's LOCAL space with that transform's own scale NOT applied; changing that
+    /// is precisely what the Unity 2020.2 <c>BakeMesh(Mesh, bool useScale)</c> overload was added
+    /// for. So the matrix that carries those vertices to the world is the renderer transform's full
+    /// <c>localToWorldMatrix</c> — translation, rotation AND scale — and the two choices are a
+    /// PAIR: <c>useScale: true</c> with the same matrix applies the figure's scale twice, and on
+    /// this board's figure scales that is a mesh top metres out of the room. This paragraph is a
+    /// claim about an engine API, not a measurement, which is exactly why the caller wraps the
+    /// answer in a plausibility band: get it wrong and the band refuses the term in words on the
+    /// next hardware line instead of launching a bar into the sky.</para>
+    ///
+    /// <para>THE COLUMN IS THE CALLER'S POLICY and is applied here only because doing it per vertex
+    /// inside the one loop that already touches every vertex is free, where handing the caller a
+    /// vertex list would not be. A vertex outside the column is COUNTED in
+    /// <paramref name="excluded"/> and not otherwise mentioned: exclusion is the normal case, not a
+    /// failure. A plain <c>MeshRenderer</c> has no vertices to filter — its
+    /// <c>Renderer.bounds</c> is already live world geometry — so its box is admitted whole, and
+    /// only when it is BOTH centred inside the column AND narrower than the column is wide. That
+    /// pair is deliberately conservative: it takes a crest or a horn parented to the head and
+    /// refuses a banner, a spear or a wing panel, which is the same distinction the column itself
+    /// is drawing.</para>
+    ///
+    /// <para>Returns false — with <paramref name="why"/> EMPTY — when this renderer simply had
+    /// nothing inside the column, and false with <paramref name="why"/> set when the measurement
+    /// itself could not be taken. The caller prints the second and counts the first.</para>
+    /// </summary>
+    internal static bool TryMeshTopY(
+        Renderer r, Vector3 axis, float columnRadius,
+        out float topY, out int considered, out int excluded, out string why)
+    {
+        topY = 0f;
+        considered = 0;
+        excluded = 0;
+        why = string.Empty;
+        if (r == null || r.isPartOfStaticBatch)
+        {
+            why = "static-batched (its box is the whole batch)";
+            return false;
+        }
+
+        float r2 = columnRadius * columnRadius;
+
+        if (r is SkinnedMeshRenderer smr)
+        {
+            Mesh? shared = smr.sharedMesh;
+            if (shared == null)
+            {
+                why = "a SkinnedMeshRenderer with no sharedMesh";
+                return false;
+            }
+            int vertexCount = shared.vertexCount;
+            if (vertexCount <= 0)
+            {
+                why = "a SkinnedMeshRenderer whose sharedMesh has no vertices";
+                return false;
+            }
+            if (vertexCount > MeshTopVertexCap)
+            {
+                why = $"refused: {vertexCount} vertices is past the {MeshTopVertexCap} cap, so this "
+                      + "renderer is not a miniature and walking it would be a scene-sized loop";
+                return false;
+            }
+
+            // The bake and the read are the only two calls here that can throw, and a throw on the
+            // adopt path would take the whole anchor measurement with it. Catch, name it, and let
+            // the caller keep the answer it already had — a mesh-top term that cannot measure is a
+            // term that does nothing, which is the design.
+            try
+            {
+                s_bakeScratch ??= new Mesh { name = "GVR_FigureBody_BakeScratch" };
+                smr.BakeMesh(s_bakeScratch);
+                s_bakeScratch.GetVertices(BakedVertices);
+            }
+            catch (System.Exception e)
+            {
+                why = $"BakeMesh threw ({e.GetType().Name}: {e.Message})";
+                return false;
+            }
+
+            // See the overload note above: one-argument bake => LOCAL space without the renderer
+            // transform's scale => the full localToWorldMatrix is the correct carrier.
+            Matrix4x4 toWorld = smr.transform.localToWorldMatrix;
+            float hi = float.MinValue;
+            for (int i = 0; i < BakedVertices.Count; i++)
+            {
+                Vector3 w = toWorld.MultiplyPoint3x4(BakedVertices[i]);
+                float dx = w.x - axis.x;
+                float dz = w.z - axis.z;
+                if (dx * dx + dz * dz > r2)
+                {
+                    excluded++;
+                    continue;
+                }
+                considered++;
+                if (w.y > hi)
+                    hi = w.y;
+            }
+            if (considered == 0)
+                return false;
+            topY = hi;
+            return true;
+        }
+
+        if (r is MeshRenderer)
+        {
+            Bounds b = r.bounds;
+            if (b.size.sqrMagnitude <= 1e-8f)
+            {
+                why = "a MeshRenderer with a degenerate box";
+                return false;
+            }
+            float bx = b.center.x - axis.x;
+            float bz = b.center.z - axis.z;
+            if (bx * bx + bz * bz > r2 || Mathf.Max(b.extents.x, b.extents.z) > columnRadius)
+            {
+                excluded++;
+                return false;
+            }
+            considered++;
+            topY = b.max.y;
+            return true;
+        }
+
+        why = "neither a MeshRenderer nor a SkinnedMeshRenderer";
+        return false;
     }
 }

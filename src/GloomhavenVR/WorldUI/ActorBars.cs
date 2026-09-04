@@ -909,6 +909,131 @@ internal static class ActorBars
     /// </summary>
     private const float AnchorResampleTolerance = 0.02f;
 
+    // ── THE MESH TOP TERM (2026-09-04) ───────────────────────────────────────────────────
+    // USER, with healtbar_demon.jpg: "Die Healthbar von Frostdemon ist etwas zu tief drin das es
+    // mit der Figur clipped. Ansonsten sind die höhen schon sehr gut wie sie sich aktuell dynamisch
+    // anpassen. Schärfe sie nur etwas bei figuren wie die (wie der Frostdemon) [die] eventuell noch
+    // stacheln oder so etwas nach oben rausragen haben. Nimm als Messung am Besten immer den
+    // obersten Teil des meshes der Figur falls das gut möglich ist."
+    //
+    // So: the dynamic heights are ACCEPTED and are not being redesigned. One population is wrong —
+    // a figure whose spikes, crystals or horns stand above the joint that decides its bar — and the
+    // remedy he names is the one this file had no term for: the topmost point of the actual MESH.
+    //
+    // WHY NOTHING ALREADY IN THIS FILE COULD SEE IT. FrostDemonID's line reads head 1.78, live bone
+    // extent 0.00..1.95, bar parked at 2.00 wu — and the crystals are visibly above 2.00. The head
+    // joint is inside the skull; the "live extent" is BONE TRANSFORMS, and bones sit inside the
+    // silhouette by construction, so a spike whose tip reaches past the last bone weighted to it is
+    // invisible to every term above. The baked box does see it (y -1.02..2.71 on that figure) and
+    // is exactly the number ModBuild 294 retired for being bind-pose/root-bone carried — it reaches
+    // a full metre of board BELOW the figure's own base. Neither the joint nor the bone box nor the
+    // baked box answers this; the skin does, in the current pose, which is FigureBody.TryMeshTopY.
+
+    /// <summary>
+    /// MESH TOP: the radius of the vertical column the mesh top is measured in, as a fraction of
+    /// the figure's own height above the track point.
+    ///
+    /// <para><b>THIS IS THE TERM THAT KEEPS ModBuild 335 FIXED, so read that round before touching
+    /// it.</b> On <c>ElderDrakeID</c> the highest thing on the figure is its outstretched WINGTIPS,
+    /// roughly twice as high as its head, and a bar anchored to them floated far above the
+    /// creature. Handing the anchor back to "the topmost vertex" with no lateral test would ship
+    /// that defect again on the first frame.</para>
+    ///
+    /// <para>What separates the two cases is not height, it is DISTANCE FROM THE FIGURE'S OWN
+    /// AXIS. A crystal on a shoulder, a horn, a crest, a raised helmet sits above the TORSO —
+    /// within a fraction of the body's own width of the axis the bar is already anchored on. A
+    /// spread wingtip, an outstretched arm, a spear, a banner on a pole is far out laterally, which
+    /// is the whole reason it is not what a health bar should clear.</para>
+    ///
+    /// <para>0.30 of the figure's height above the track point, which on the 2026-09-04 readings is
+    /// 0.53 wu on <c>FrostDemonID</c> (head 1.78), 0.20 wu on <c>CaveBearID</c> (head 0.67) and
+    /// 1.03 wu on the boss (head ~3.43). The first is comfortably wider than a demon's shoulders
+    /// and the last is far narrower than a dragon's wingspan, which is the gap this number lives
+    /// in. It is a FRACTION rather than an absolute because the population spans 0.57 to 3.43 wu of
+    /// figure and a fixed radius would be a torso on one end and a wing on the other.</para>
+    /// </summary>
+    private const float MeshTopColumnFraction = 0.30f;
+
+    /// <summary>The column's absolute floor, so a figure measured mid-assembly at a near-zero
+    /// height cannot produce a column with nothing in it and a "measured" answer of nothing.</summary>
+    private const float MeshTopColumnMinWU = 0.15f;
+
+    /// <summary>
+    /// MESH TOP: the most this term may RAISE the top it was handed, as a fraction of the figure's
+    /// height, and <see cref="MeshTopRaiseCapWU"/> in absolute board units alongside it.
+    ///
+    /// <para>The column is the rule; this is the bound on being wrong about it. The case it exists
+    /// for is a dragon whose wings are FOLDED UP rather than spread — wing roots sit near the axis
+    /// by construction, so the column cannot promise to exclude them. With the pair below, the
+    /// worst a folded wing can do to the boss is 0.60 wu on a 3.43 wu figure, which is a bar
+    /// sitting a little high; without it, it is the ModBuild 335 defect returning at full
+    /// size.</para>
+    ///
+    /// <para>Both arms bind somewhere: the fraction is the smaller number on every figure over 1.7
+    /// wu (0.35 x 1.78 = 0.62 on <c>FrostDemonID</c>, so the cap is what actually holds there) and
+    /// the cap is the smaller one on everything taller. 0.60 wu is about a third of a Brute — large
+    /// enough for any crown of spikes on this board, small enough that a mismeasurement reads as a
+    /// bar set slightly high rather than a bar the player has to go looking for. An absolute number
+    /// is meaningful here in a way it is not for the column: every miniature stands on the same
+    /// board at the same scale, so "how big can a spike be" is a board question.</para>
+    /// </summary>
+    private const float MeshTopRaiseFraction = 0.35f;
+
+    /// <summary>The absolute arm of the mesh-top raise bound; see <see cref="MeshTopRaiseFraction"/>.</summary>
+    private const float MeshTopRaiseCapWU = 0.60f;
+
+    /// <summary>
+    /// MESH TOP: the PLAUSIBILITY BAND, as fractions of the figure's height — how far below the
+    /// live bone extent, and how far above the top already in hand, a measured mesh top may land
+    /// before it is refused outright.
+    ///
+    /// <para>WHY A BAND AND NOT JUST THE BOUND ABOVE. The bake's space convention is a claim about
+    /// an engine API (see <c>FigureBody.TryMeshTopY</c> — one-argument <c>BakeMesh</c>, local space
+    /// without the transform's scale, carried by the full <c>localToWorldMatrix</c>), and this
+    /// build ships without a hardware round to check it. A wrong matrix does not produce a slightly
+    /// wrong number, it produces a number in a different space — the figure's scale applied twice,
+    /// or not at all, or vertices still sitting at the origin. The band's job is to make that fail
+    /// LOUDLY AND HARMLESSLY: outside it the term is dropped, the anchor is exactly what ModBuild
+    /// 417 would have given, and the line says in words which arm refused it and with what
+    /// numbers.</para>
+    ///
+    /// <para>The lower arm is the strong one. Skin envelops the bones it is weighted to, so a mesh
+    /// top BELOW the bone extent by a quarter of the figure is not a pose, it is a space error. The
+    /// upper arm is deliberately loose — a full figure-height above the top already in hand — because
+    /// <see cref="MeshTopRaiseFraction"/> is what does the tuning; this arm only has to catch a
+    /// number that is not a figure at all.</para>
+    /// </summary>
+    private const float MeshTopBandBelowFraction = 0.25f;
+
+    /// <summary>The upper arm of the mesh-top plausibility band; see <see cref="MeshTopBandBelowFraction"/>.</summary>
+    private const float MeshTopBandAboveFraction = 1.00f;
+
+    /// <summary>
+    /// MESH TOP CACHE: mesh-top height as a MULTIPLE of the head-derived top, per skin asset.
+    ///
+    /// <para>WHY THIS IS THE EXPENSIVE PART AND WHY IT CACHES SOUNDLY. Baking a skinned mesh and
+    /// walking its vertices is the only work in this file that scales with GEOMETRY rather than
+    /// with the number of bars, and <see cref="ResampleAnchor"/> re-measures each bar up to
+    /// <see cref="AnchorSampleBudget"/> times. Uncached that is ~20 bars x 9 samples of bake, on the
+    /// adopt path, in a project whose worst shipped defect is a per-frame scene sweep. Cached it is
+    /// ONE bake per distinct skin — about fifteen in a scenario — because the quantity stored is a
+    /// RATIO of two heights on the same figure and is therefore invariant to the figure's scale and
+    /// to where it is standing. How far a demon's crystals rise above its head joint, measured in
+    /// head heights, is a property of the prefab.</para>
+    ///
+    /// <para>KEYED ON THE SKIN ASSET'S INSTANCE ID, not on a class name: a <c>Mesh</c> asset's
+    /// instance id is unique per asset for the session, and two prefabs sharing one share their
+    /// geometry and their skeleton, so they share this ratio by construction rather than by
+    /// coincidence. A figure whose tallest renderer is not a skinned mesh contributes no key and is
+    /// simply measured fresh every time, which is bounded by the sample budget.</para>
+    ///
+    /// <para>A ratio is written only from a measurement that passed the band AND was taken on a
+    /// figure with no renderer still streaming its materials — the one state this file already
+    /// knows means "you are looking at something that is not finished". A poisoned class constant
+    /// would outlive the figure that produced it.</para>
+    /// </summary>
+    private static readonly Dictionary<int, float> MeshTopRatioBySkin = new();
+
     /// <summary>
     /// Board-space anchor height above the track point, from the miniature's LIVE, ANIMATED extent
     /// (<see cref="FigureBody"/> — bone transforms for skinned meshes, own transform for props;
@@ -979,6 +1104,17 @@ internal static class ActorBars
         float boxMinY = float.MaxValue;
         string tallest = "?";
         string tallestKind = "?";
+        // The MESH TOP cache key — the skin asset carried by whichever renderer reaches highest.
+        // Captured here rather than re-derived later because this loop is already the only walk
+        // that knows which renderer that is. 0 means "no skinned renderer won", which the mesh-top
+        // term reads as "do not cache", never as a key.
+        int tallestSkinId = 0;
+        // …and the fallback key, for the figure whose tallest renderer is a plain mesh (a weapon, a
+        // crest, a carried prop) while its BODY is skinned. Without it such a figure would offer no
+        // key at all and re-bake on every one of its AnchorSampleBudget samples, which is the exact
+        // cost the cache exists to remove. Same kind of key: a Mesh asset's instance id.
+        int bodySkinId = 0;
+        int bodySkinBones = -1;
         for (int i = 0; i < RendererScratch.Count; i++)
         {
             Renderer r = RendererScratch[i];
@@ -1018,10 +1154,18 @@ internal static class ActorBars
             totalBones += bones;
             if (bones == 0 && r is SkinnedMeshRenderer)
                 bonelessSkinned++;
+            if (r is SkinnedMeshRenderer bodySkin && bones > bodySkinBones && bodySkin.sharedMesh != null)
+            {
+                bodySkinBones = bones;
+                bodySkinId = bodySkin.sharedMesh.GetInstanceID();
+            }
 
             if (rMaxY > liveMaxY)
             {
                 liveMaxY = rMaxY;
+                tallestSkinId = r is SkinnedMeshRenderer tallestSkin && tallestSkin.sharedMesh != null
+                    ? tallestSkin.sharedMesh.GetInstanceID()
+                    : 0;
                 tallest = r.name;
                 tallestKind = r is SkinnedMeshRenderer
                     ? (bones > 0
@@ -1177,6 +1321,162 @@ internal static class ActorBars
             ? headY
             : FigureBody.LiveTopY(liveMaxY, headY, headKnown: false, out _);
 
+        // ── AND THE FIGURE'S OWN SKIN MAY RAISE IT (2026-09-04) ──────────────────────────
+        // See MeshTopColumnFraction for the round and the FrostDemonID numbers. Everything below
+        // this line is POLICY; the measurement itself is FigureBody.TryMeshTopY, which bakes the
+        // skin in its current pose and reads real vertices.
+        //
+        // ONE-SIDED, exactly like the head floor above it and the arch term below it: this term may
+        // only RAISE the top. Every failure path — no renderer, an empty column, a throw, a reading
+        // outside the plausibility band — leaves `top` byte-for-byte what ModBuild 417 produced, and
+        // says which one in words on the anchor line. That is the whole shape of shipping a
+        // measurement we cannot check on hardware first.
+        //
+        // NOT ATTEMPTED ON AN ATTACHED-PROP ACTOR. That population's body is its HOST prop and its
+        // top is the doorway arch (2026-09-03) — a column drawn around a PropDummyObject's origin
+        // is not a question about a door, and three rounds were already spent re-breaking the
+        // collapsed-entrance rules while fixing the doorway beside them.
+        float preMeshTop = top;
+        float preMeshHeight = Mathf.Max(preMeshTop - track.y, 0.01f);
+        int meshCacheKey = tallestSkinId != 0 ? tallestSkinId : bodySkinId;
+        float meshColumnR = Mathf.Max(MeshTopColumnFraction * preMeshHeight, MeshTopColumnMinWU);
+        bool meshFresh = false;
+        bool meshHave = false;
+        bool meshWon = false;
+        bool meshCacheWritten = false;
+        float meshTopY = 0f;
+        int meshVertsIn = 0;
+        int meshVertsOut = 0;
+        int meshBoxesIn = 0;
+        int meshBoxesOut = 0;
+        string meshWhy = string.Empty;
+
+        if (propBody)
+        {
+            meshWhy = "NOT ATTEMPTED — this actor is an invisible PropDummyObject whose body is its "
+                      + "host prop; the 2026-09-03 arch rules own that population";
+        }
+        else if (meshCacheKey != 0 && MeshTopRatioBySkin.TryGetValue(meshCacheKey, out float ratio))
+        {
+            // A ratio of two heights on the same figure, so it re-scales with whatever this
+            // instance's height turned out to be. No bake, no vertex walk, no subtree walk.
+            meshTopY = track.y + ratio * preMeshHeight;
+            meshHave = true;
+        }
+        else
+        {
+            // THE FRESH PATH, AND THE ONLY PLACE A SECOND SUBTREE WALK HAPPENS. It runs once per
+            // distinct skin asset in a scenario (see MeshTopRatioBySkin), not once per bar and not
+            // once per resample, which is what keeps a geometry-sized loop off the adopt path.
+            RendererScratch.Clear();
+            tracked.GetComponentsInChildren(includeInactive: false, RendererScratch);
+            float meshHi = float.MinValue;
+            for (int i = 0; i < RendererScratch.Count; i++)
+            {
+                Renderer r = RendererScratch[i];
+                // The SAME two exclusions the extent walk above makes, and for the same reasons: a
+                // static-batched renderer reports its whole batch, and a particle/trail/line
+                // renderer reports an effect VOLUME. They are skipped HERE rather than left to
+                // TryMeshTopY's own guards so that a figure with a VFX child does not fill this
+                // line's one reason slot with "neither a MeshRenderer nor a SkinnedMeshRenderer"
+                // and bury the reason that mattered.
+                if (r == null || r.isPartOfStaticBatch)
+                    continue;
+                if (r is not MeshRenderer && r is not SkinnedMeshRenderer)
+                    continue;
+                bool skinned = r is SkinnedMeshRenderer;
+                bool got = FigureBody.TryMeshTopY(
+                    r, track, meshColumnR, out float rTopY, out int rIn, out int rOut, out string rWhy);
+                if (skinned)
+                {
+                    meshVertsIn += rIn;
+                    meshVertsOut += rOut;
+                }
+                else
+                {
+                    meshBoxesIn += rIn;
+                    meshBoxesOut += rOut;
+                }
+                // A renderer that simply had nothing in the column returns an EMPTY reason and is
+                // already counted; only a measurement that could not be TAKEN gets named, and only
+                // the first one, so the line stays one line.
+                if (!got)
+                {
+                    if (meshWhy.Length == 0 && rWhy.Length != 0)
+                        meshWhy = $"'{r.name}': {rWhy}";
+                    continue;
+                }
+                if (rTopY > meshHi)
+                    meshHi = rTopY;
+            }
+            RendererScratch.Clear();
+            meshFresh = true;
+            if (meshHi > float.MinValue)
+            {
+                meshTopY = meshHi;
+                meshHave = true;
+            }
+        }
+
+        if (meshHave)
+        {
+            float bandLo = liveMaxY - MeshTopBandBelowFraction * preMeshHeight;
+            float bandHi = preMeshTop + MeshTopBandAboveFraction * preMeshHeight;
+            bool sane = !float.IsNaN(meshTopY) && !float.IsInfinity(meshTopY)
+                        && meshTopY >= bandLo && meshTopY <= bandHi;
+            if (!sane)
+            {
+                meshWhy = $"REJECTED BY THE PLAUSIBILITY BAND — {meshTopY - track.y:F2} wu above the "
+                          + $"track point is outside {bandLo - track.y:F2}..{bandHi - track.y:F2} "
+                          + $"(the live bone extent {liveMaxY - track.y:F2} less "
+                          + $"{MeshTopBandBelowFraction:P0} of the figure, up to the top in hand "
+                          + $"{preMeshTop - track.y:F2} plus {MeshTopBandAboveFraction:P0} of it). A "
+                          + "mesh top that far off is a SPACE error — the bake's matrix — and not a "
+                          + "pose, so the term is dropped and the anchor is exactly what it was "
+                          + "before this rule existed";
+            }
+            else
+            {
+                // The cache is written from a SANE reading only, and never from a figure whose
+                // materials are still streaming: `componentDisabled` is this file's own name for
+                // "you are looking at something that is not finished", and a class constant taken
+                // there would outlive the figure that produced it.
+                if (meshFresh && meshCacheKey != 0 && componentDisabled == 0)
+                {
+                    MeshTopRatioBySkin[meshCacheKey] = (meshTopY - track.y) / preMeshHeight;
+                    meshCacheWritten = true;
+                }
+
+                if (meshTopY <= preMeshTop)
+                {
+                    meshWhy = $"the skin reaches {meshTopY - track.y:F2} wu, which is at or below the "
+                              + $"{preMeshTop - track.y:F2} wu top already in hand — nothing sticks up "
+                              + "past the joint on this figure, which is the ordinary case";
+                }
+                else
+                {
+                    float allowedRaise = Mathf.Min(
+                        MeshTopRaiseFraction * preMeshHeight, MeshTopRaiseCapWU);
+                    float wantedRaise = meshTopY - preMeshTop;
+                    bool clipped = wantedRaise > allowedRaise;
+                    top = preMeshTop + Mathf.Min(wantedRaise, allowedRaise);
+                    meshWon = true;
+                    meshWhy = clipped
+                        ? $"WON but CLIPPED BY THE RAISE BOUND — it asked for {wantedRaise:F2} wu and "
+                          + $"got {allowedRaise:F2} (the smaller of {MeshTopRaiseFraction:P0} of the "
+                          + $"{preMeshHeight:F2} wu figure and the {MeshTopRaiseCapWU:F2} wu board cap), "
+                          + "which is the bound that keeps a FOLDED wing from doing what a spread one "
+                          + "did in ModBuild 335"
+                        : $"WON — it raised the top by {wantedRaise:F2} wu, inside the "
+                          + $"{allowedRaise:F2} wu raise bound";
+                }
+            }
+        }
+        else if (meshWhy.Length == 0)
+        {
+            meshWhy = "no renderer offered a mesh top inside the column";
+        }
+
         // ── AND THE ARCH WINS OVER BOTH, WHEN THERE IS ONE ───────────────────────────────
         // ONE EXPRESSION, THREE CASES, and the middle one is the proof that this is not a door
         // special case:
@@ -1299,6 +1599,12 @@ internal static class ActorBars
             : "the LIVE EXTENT (bones for skinned meshes, own transform for props) — this figure "
               + "has NO head joint, which is the only case the extent still decides";
 
+        // APPENDED, NOT SUBSTITUTED. The clause above still names which term chose the BASE top;
+        // the mesh term is a raise applied on top of it, and a line that replaced one with the
+        // other would lose the fact that the head joint is still what the raise is measured from.
+        if (meshWon)
+            topWhy += ", THEN RAISED BY THE MESH TOP TERM (2026-09-04 — see MESH TOP below)";
+
         string head = headKnown
             ? $"head joint at {headY - track.y:F2} wu above the track point"
             : "no head joint on this character (the floor is absent; nothing else changes)";
@@ -1314,6 +1620,33 @@ internal static class ActorBars
                            : ", no base point on this controller")
                        + $"; the old ModBuild 293 rule would have given "
                        + $"{(boxMaxY - boxUnderBase - track.y) + 0.12f * Mathf.Max(boxMaxY - boxUnderBase - track.y, 0.01f):F2} wu";
+
+        // THE MESH TOP CLAUSE. The one field that makes the 2026-09-04 term falsifiable: what the
+        // skin actually measured, how much of it the column kept, whether the number came from a
+        // bake or from the per-skin cache, and — when it did not move the anchor — WHICH rule
+        // refused it, in words. A term that silently declines is a term nobody can check.
+        string meshClause = propBody
+            ? $"MESH TOP: {meshWhy}"
+            : !meshHave
+            ? $"MESH TOP not measured ({(meshFresh ? "FRESH" : "CACHED")}, column radius "
+              + $"{meshColumnR:F2} wu; {meshVertsIn} vertex/vertices considered, {meshVertsOut} "
+              + $"excluded by the column; {meshBoxesIn} plain-mesh box(es) in, {meshBoxesOut} out) "
+              + $"— {meshWhy}"
+            : $"MESH TOP {meshTopY - track.y:F2} wu{Hex(meshTopY - track.y)} above the track point "
+              + $"({(meshFresh ? "FRESH" : "CACHED")}"
+              + (meshFresh
+                  ? meshCacheWritten
+                      ? ", ratio now cached for this skin"
+                      : ", NOT cached (this figure offered no skin asset to key on, or materials were "
+                        + "still streaming)"
+                  : ", from this skin's cached ratio — no bake and no subtree walk this call")
+              + $", column radius {meshColumnR:F2} wu = {MeshTopColumnFraction:P0} of the "
+              + $"{preMeshHeight:F2} wu figure; {meshVertsIn} vertex/vertices considered, "
+              + $"{meshVertsOut} excluded by the column; {meshBoxesIn} plain-mesh box(es) in, "
+              + $"{meshBoxesOut} out) — "
+              + (meshWon
+                  ? $"{meshWhy}, moving the top {preMeshTop - track.y:F2} -> {top - track.y:F2} wu"
+                  : $"did NOT win: {meshWhy}");
 
         string userSays = userOffset == 0f
             ? "; [WorldUI] BarHeightOffset is 0, so the measurement stands unmodified"
@@ -1333,7 +1666,8 @@ internal static class ActorBars
                      ? $"{Mathf.Abs(fallback - (headY - track.y)):F2} wu from this character's live "
                        + "head joint — the agreement that made it a floor"
                      : "the only landmark this character offers")
-                 + $"; ATTACHED PROP: {propReport}";
+                 + $"; ATTACHED PROP: {propReport}"
+                 + $"; {meshClause}";
         return clamped;
     }
 
@@ -1475,6 +1809,11 @@ internal static class ActorBars
         // WHY, and this is the only line that answers it (the ATTACHED PROP clause names the prop
         // body and the arch, and which of the two won). It was VRLog.Info — the DEBUG tier, absent
         // from a default-level log — so the tier is promoted and the text is left exactly as it was.
+        //
+        // AND THE 2026-09-04 ROUND asks whether the MESH TOP term measured the FrostDemon's crystals
+        // in the right space at all — a question that ships untested, so the clause names the number,
+        // the column, FRESH vs CACHED, and the rule that refused it when one did. Read the MESH TOP
+        // clause of FrostDemonID's line before reading anything else in that log.
         // Bounded by construction: one line per adoption plus at most AnchorSampleBudget resamples
         // that actually CHANGED the answer, per bar.
         VRLog.Note("WorldUI",
@@ -1829,6 +2168,12 @@ internal static class ActorBars
         s_loggedSizeFactor = float.NaN;
         s_loggedWorldScale = float.NaN;
         s_nextSizeLog = 0f;
+        // Drop the per-skin mesh-top ratios with the scenario that produced them. Not for
+        // correctness — the ratio is scale-free and the key is an asset instance id — but because
+        // Addressables unloads a scenario's character meshes, and a dictionary that only ever grows
+        // is a dictionary nobody notices growing. One bake per class on the next scenario is the
+        // price, and it is the price the fresh path was designed for.
+        MeshTopRatioBySkin.Clear();
     }
 }
 
