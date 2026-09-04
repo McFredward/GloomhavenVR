@@ -96,6 +96,48 @@ namespace GloomhavenVR.WorldUI;
 /// layout group and has one (11 of 15); <c>UIMapEscMenu</c> toggles only its tutorial row and its
 /// divisor and is authored as fixed positions on a grid (8 of 9).</para>
 ///
+/// <para><b>THREE BUILDS OF CORRECT ARITHMETIC IN A FRAME THAT DOES NOT EXIST — ModBuild 424, and
+/// the first thing to read here.</b> User, on 423, <c>menu_kaputt2.jpg</c>: <i>"Weitere regression
+/// bei den Buttons im Menu-Fenster: Diesmal ist 'Spiel verlassen' und 'Hauptmenu' vollständig
+/// übereinander gelegt."</i> The 423 log's own census, read back off the live rects AFTER the
+/// writes, says every row landed on an even 70 px grid: <c>-35, -115, -195, -265, -335, -405,
+/// -475, -545</c>. The plan was right, the writes landed, and the picture was wrong.</para>
+///
+/// <para><b><c>anchoredPosition.y</c> IS NOT A COMMON FRAME.</b> It is measured from a rect's OWN
+/// anchor reference to its OWN pivot, so two siblings authored with different pivots carry numbers
+/// that cannot be compared, added to, or spaced against one another. In <c>UIMapEscMenu</c>'s
+/// column, <c>Main Menu</c> is pivoted at its TOP and <c>Exit</c> at its BOTTOM — 35 px either side
+/// of centre on a 70 px row. Every measurement this file made was in that non-frame.</para>
+///
+/// <para>The hypothesis reproduces all three builds exactly, which is why it is written down rather
+/// than argued. Authored anchored values from the 423 census: <c>Compendium -275, Divisor -355,
+/// Main Menu -365, Exit -515</c>; authored CENTRES therefore <c>-275, -355, -400, -480</c> — and
+/// -400/-480 is precisely what photogrammetry off the unmodded ModBuild 420 screenshot measured for
+/// Hauptmenü and Spiel verlassen. Then:</para>
+/// <list type="bullet">
+/// <item><description><b>422</b> (cascade, pitch 80, slot -275): Compendium -275→-355, Main Menu
+/// -365→-435, Exit -515→<c>min(-515, -515)</c> = -515, unmoved. That is the log's own
+/// <c>pushing 2 of 3</c>, exactly. In CENTRES: -355, -470, -480 — Hauptmenü and Spiel verlassen 10
+/// px apart. Measured off <c>menu_kaputt.jpg</c>: -467 and -479, 12 px apart.</description></item>
+/// <item><description><b>423</b> (rigid shift then re-flow onto a 70 grid): Main Menu -475, Exit
+/// -545 in anchored values — in CENTRES <b>both at -510</b>, one exactly on top of the other.
+/// Measured off <c>menu_kaputt2.jpg</c>: the merged band's centre is at -508.</description></item>
+/// </list>
+///
+/// <para><b>SO EVERY NUMBER IN THIS FILE IS NOW A CENTRE IN THE PARENT'S LOCAL SPACE</b>
+/// (<see cref="Centre"/>) — pitch, gaps, plans, the overlap test and the census alike — and every
+/// write is applied as a DELTA on <c>anchoredPosition</c> (<see cref="Nudge"/>), because a
+/// translation is the one operation that means the same thing in every frame. The census prints the
+/// centre and the raw anchored value side by side and flags any member whose two disagree, so a rect
+/// with a foreign pivot names itself in the log the first time it appears.</para>
+///
+/// <para><b>AND THE INSTRUMENT WAS COMPLICIT.</b> 423's verdict read <c>'Options' at y=-195 and
+/// 'PauseMenuEntry' at y=-265 = 70 px apart where their two rects need 70 px not to overlap —
+/// VERDICT OVERPRINT</c>: exactly touching, called an overlap by a comparison with no tolerance,
+/// while the real overprint further down went unreported because it was measured in the same wrong
+/// frame. Both are fixed — <see cref="OverlapEpsilon"/>, and centres — and the ROW CENSUS is now a
+/// read-back that can disagree with the plan rather than a restatement of it.</para>
+///
 /// <para><b>WHO OWNS A ROW'S POSITION, IN EACH CASE. This is the whole contract.</b></para>
 /// <list type="bullet">
 /// <item><description><b>A layout group exists and is enabled → THE GAME OWNS EVERY ROW.</b>
@@ -221,15 +263,26 @@ internal static class MenuRowSeat
     private const float MemberMinHeightFactor = 0.08f;
 
     /// <summary>
-    /// A member must be at least this tall to have a vote on the PITCH. A separator has to travel
-    /// with the block, but it must not SET the block's step: a 40 px divider authored inside a
-    /// deliberate gap would otherwise make the pitch 40 and seat the mod's row half-way inside its
-    /// own donor. Measured on the rows, applied to everything.
+    /// A member must be at least this tall to count as a ROW (<see cref="IsFullRow"/>) — to have a
+    /// vote on the PITCH, and to be asked whether it overlaps a neighbour. A separator has to
+    /// travel with the block, but it must not SET the block's step and it must not be accused of
+    /// sitting where it was authored to sit. The campaign map's divider is 36 px against a 70 px
+    /// row, so 0.8 separates them with room to spare; a real row is within a few per cent of the
+    /// donor's height.
     /// </summary>
-    private const float PitchRowMinHeightFactor = 0.5f;
+    private const float PitchRowMinHeightFactor = 0.8f;
 
     /// <summary>How many children the row census prints before it says "+N more".</summary>
     private const int CensusCap = 14;
+
+    /// <summary>
+    /// Two rects exactly touching are not overlapping. The ModBuild 423 log accused its own
+    /// correctly-seated pair — <c>70 px apart where their two rects need 70 px — VERDICT
+    /// OVERPRINT</c> — because the comparison was not strict enough to survive float arithmetic on
+    /// two numbers that are equal. Half a pixel of tolerance, and the real overprint further down
+    /// stops being crowded out of the verdict by a false one.
+    /// </summary>
+    private const float OverlapEpsilon = 0.5f;
 
     private const int ShowLogCap = 6;
     private const int DriftLogCap = 6;
@@ -263,6 +316,10 @@ internal static class MenuRowSeat
         /// game's layout group, or the mod. Named on the instrument line.</summary>
         public string Placement = "not yet placed";
 
+        /// <summary>The CENTRE this pass intended for each member it placed. Kept so the census can
+        /// report the outcome against the intention instead of reprinting the intention.</summary>
+        public readonly Dictionary<RectTransform, float> Planned = new();
+
         public Seat(string menu) { Menu = menu; }
 
         public void Reset()
@@ -277,6 +334,7 @@ internal static class MenuRowSeat
             RebasedThisShow = 0;
             ArrivalGap = 0f;
             Placement = "not yet placed";
+            Planned.Clear();
         }
     }
 
@@ -453,6 +511,7 @@ internal static class MenuRowSeat
             // position a layout group owns is a write war, and the seat cache below is only ever
             // used to DETECT drift, never as the value written.
             LayoutRebuilder.ForceRebuildLayoutImmediate(parent);
+            seat.Planned.Clear();   // nothing was planned here; the census must not imply otherwise
             seat.Placement = $"the game's {seat.Layout.GetType().Name} laid the rows out";
         }
         else
@@ -475,6 +534,9 @@ internal static class MenuRowSeat
                 continue;
             UIMenuOptionToggle? writer = HoverWriter(child);
             seat.Rows.Add(new Row(child, writer));
+            // anchoredPosition and not a centre, deliberately: this value is only ever compared
+            // with the SAME rect's later on, to catch a writer. It is never compared across rects,
+            // which is the mistake ModBuild 424 exists to undo.
             seat.Seated[child] = child.anchoredPosition;
 
             if (writer == null || !writer._useStartAnchoredPosition)
@@ -496,27 +558,30 @@ internal static class MenuRowSeat
     /// WHOLE BLOCK of column members below it down by that same pitch. Rigid — every gap the game
     /// authored inside that block survives untouched, and the only new adjacency is the donor's.
     ///
+    /// <para><b>EVERY NUMBER HERE IS A CENTRE IN THE PARENT'S LOCAL SPACE</b>
+    /// (<see cref="Centre"/>), never an <c>anchoredPosition</c>. That is the whole of the ModBuild
+    /// 424 fix and the reason three builds in a row shipped an overprint whose arithmetic checked
+    /// out; see the class remarks. Writes are still applied to <c>anchoredPosition</c>, but only as
+    /// a DELTA, which is a pure translation and therefore means the same thing in any frame.</para>
+    ///
     /// <para><b>WHY RIGID, AND WHY THE ModBuild 422 CASCADE WAS WRONG.</b> 422 moved each row
     /// "only as far as it has to go" (<c>min(shipped, lastY - pitch)</c>), which let a row keep its
     /// shipped position while the row above it was pushed down. That guarantee only ever covered
-    /// rows in the mod's OWN list: a sibling the membership test excluded is not in the
-    /// <c>lastY</c> chain at all, so the mod pushed a member down onto it. The 422 log said so in
-    /// its own words — <c>pushing 2 of 3 game row(s) below it down</c> — while the eye counts three
-    /// rows below the slot and only one of them (Spielanleitung) landed where the mod intended. A
-    /// rigid shift has no chain to fall out of: every member moves by the same number, so every gap
-    /// between members is the gap the game authored.</para>
+    /// rows in the mod's OWN list, and it also let one row stand still while its neighbour moved —
+    /// two ways to lose. A rigid shift has neither: every member moves by the same number, so every
+    /// gap between members is the gap the game authored.</para>
     ///
     /// <para><b>THE PROOF.</b> Let <c>p</c> be the pitch (<see cref="MeasurePitch"/>) and <c>D</c>
-    /// the donor's position. The members split AT THE DONOR — not at the clone's slot, which is
-    /// what makes the proof unconditional: everything at or above <c>D</c> is untouched, everything
+    /// the donor's centre. The members split AT THE DONOR — not at the clone's slot, which is what
+    /// makes the proof unconditional: everything at or above <c>D</c> is untouched, everything
     /// strictly below <c>D</c> moves to <c>shipped - p</c>, and the clone takes <c>D - p</c>. In
     /// the finished column, reading downwards:</para>
     /// <list type="number">
     /// <item><description>Everything above the donor is exactly where the game put
     /// it.</description></item>
     /// <item><description>donor to clone is exactly <c>p</c>, which is floored at
-    /// <see cref="MinPitchFraction"/> of a row height — above the
-    /// <see cref="OverprintFraction"/> the OVERPRINT verdict fires at.</description></item>
+    /// <see cref="MinPitchFraction"/> of a row height — a clone is a full-height row and needs a
+    /// full row height of clearance.</description></item>
     /// <item><description>clone to the topmost shifted member <c>b</c> is
     /// <c>(D - p) - (b - p) = D - b</c> — the gap the game authored between the donor and that
     /// member, neither widened nor narrowed.</description></item>
@@ -525,34 +590,33 @@ internal static class MenuRowSeat
     /// </list>
     /// <para>Every gap in the result is therefore either <c>p</c> or a gap the game itself
     /// authored: <b>the mod cannot put two rows closer together than the game already had
-    /// them</b>, whatever the pitch came out as and whatever order the children are in. That is the
-    /// property the user is owed after two overprints in two builds, and it is a property of the
-    /// rule rather than of a measurement taken afterwards. (Splitting at the SLOT instead would
-    /// need the extra premise that no member lies between <c>D</c> and <c>D - p</c>, which the
-    /// pitch floor can break; splitting at the donor needs no premise at all.)</para>
+    /// them</b>, whatever the pitch came out as and whatever order the children are in. (Splitting
+    /// at the SLOT instead would need the extra premise that no member lies between <c>D</c> and
+    /// <c>D - p</c>, which the pitch floor can break; splitting at the donor needs no premise.)</para>
     ///
-    /// <para>Every target is computed from a row's SHIPPED position (<see cref="Shipped"/>) plus
-    /// the pitch, never from where the row currently stands, so the pass is a fixed point: run it
-    /// a hundred times and it writes the same numbers once. A row is assigned only when its current
-    /// position actually differs, so this is not a per-frame writer even on the frames the drift
-    /// belt calls it.</para>
+    /// <para>Every target is computed from a row's SHIPPED centre (<see cref="ShippedCentre"/>)
+    /// plus the pitch, never from where the row currently stands, so the pass is a fixed point: run
+    /// it a hundred times and it writes the same numbers once. A row is assigned only when its
+    /// current centre actually differs, so this is not a per-frame writer even on the frames the
+    /// drift belt calls it.</para>
     ///
     /// <para><b>MEMBERSHIP IS BY SHAPE, NOT BY COMPONENT</b> — see <see cref="IsColumnMember"/> for
-    /// why the 422 <c>GetComponent&lt;UIMainMenuOption&gt;</c> test is the suspect for the row that
-    /// escaped, and why nothing row-shaped can escape the new one.</para>
+    /// why the ModBuild 422 <c>GetComponent&lt;UIMainMenuOption&gt;</c> test had to go, and
+    /// <see cref="IsFullRow"/> for the separate, narrower question of what counts as a ROW when the
+    /// pitch is measured and when two things are asked whether they overlap.</para>
     /// </summary>
     private static void PlaceWithoutLayout(Seat seat, RectTransform parent, RectTransform row,
                                            RectTransform donor)
     {
         PruneDisplaced();
+        seat.Planned.Clear();
 
         float donorHeight = DonorHeight(donor, row);
-        float pitch = MeasurePitch(parent, row, donor, donorHeight);
-        Vector2 donorSeat = Shipped(donor);
+        float pitch = MeasurePitch(parent, row, donorHeight);
+        float donorCentre = ShippedCentre(donor);
 
         // THE SPLIT IS AT THE DONOR, not at the clone's slot — see the proof above. Everything the
-        // game authored at or above the donor keeps the game's own placement and is collected only
-        // so the plan can be judged against it.
+        // game authored at or above the donor keeps the game's own placement.
         int above = 0;
         var below = new List<Plan>(8);
         for (int i = 0; i < parent.childCount; i++)
@@ -562,19 +626,20 @@ internal static class MenuRowSeat
                 continue;
             if (!IsColumnMember(child, donorHeight))
                 continue;
-            Vector2 shipped = Shipped(child);
-            if (shipped.y >= donorSeat.y - 0.5f)
+            float shipped = ShippedCentre(child);
+            if (shipped >= donorCentre - 0.5f)
                 above++;
             else
-                Insert(below, new Plan(child, shipped, child.rect.height, shipped.y));
+                Insert(below, new Plan(child, shipped, child.rect.height,
+                                       IsFullRow(child, donorHeight), shipped));
         }
 
         // PLAN A, THE RIGID BLOCK SHIFT: one number for all of them, so no gap between them can
         // change. Nothing is written yet — the plan is judged first.
         for (int i = 0; i < below.Count; i++)
-            below[i] = below[i].At(below[i].Shipped.y - pitch);
-        var clone = new Plan(row, row.anchoredPosition, row.rect.height, donorSeat.y - pitch);
-        var donorPlan = new Plan(donor, donorSeat, donorHeight, donorSeat.y);
+            below[i] = below[i].At(below[i].Shipped - pitch);
+        var clone = new Plan(row, Centre(row), row.rect.height, true, donorCentre - pitch);
+        var donorPlan = new Plan(donor, donorCentre, donorHeight, true, donorCentre);
         string how = $"the MOD placed the row (no layout group on '{parent.name}'), one pitch of "
             + $"{pitch:F0} px below the donor, and shifted the whole block of {below.Count} of "
             + $"{above + below.Count} column member(s) below it down by that same pitch "
@@ -583,11 +648,11 @@ internal static class MenuRowSeat
         // THE REMEDY, and the reason the user's word is the last one. A rigid shift cannot CREATE
         // an overlap, but it faithfully preserves one the GAME authored — and a menu the player
         // cannot read is a menu the player cannot read, whoever authored it. So the plan is
-        // measured before it is written, and if any pair still overlaps the authored spacing is
-        // given up and the column below the donor goes onto one even grid. Legibility wins over
-        // the author's spacing; that is the user's own priority, not a taste of mine.
+        // measured before it is written, and if any pair of ROWS still overlaps the authored
+        // spacing is given up and the column below the donor goes onto one even grid. Legibility
+        // wins over the author's spacing; that is the user's own priority, not a taste of mine.
         float slack = WorstSlack(donorPlan, clone, below, out string worst, out float had, out float need);
-        if (slack < 0f)
+        if (slack < -OverlapEpsilon)
         {
             float step = Mathf.Max(pitch, (donorHeight + clone.Height) * 0.5f);
             float previous = clone.Height;
@@ -596,64 +661,94 @@ internal static class MenuRowSeat
                 step = Mathf.Max(step, (previous + below[i].Height) * 0.5f);
                 previous = below[i].Height;
             }
-            clone = clone.At(donorSeat.y - step);
+            clone = clone.At(donorCentre - step);
             for (int i = 0; i < below.Count; i++)
-                below[i] = below[i].At(donorSeat.y - step * (i + 2));
+                below[i] = below[i].At(donorCentre - step * (i + 2));
             how += $"; then RE-FLOWED that column onto an even grid of {step:F0} px, because the "
                 + $"rigid plan left {worst} only {had:F0} px apart where their rects need "
                 + $"{need:F0} — a spacing the GAME authored, kept by a rigid shift and given up "
                 + "here because legibility wins over it";
         }
 
-        // ...and only now is anything written.
-        for (int i = 0; i < below.Count; i++)
-        {
-            Plan p = below[i];
-            var want = new Vector2(p.Shipped.x, p.Y);
-            if (!Displaced.ContainsKey(p.Rect))
-                Displaced[p.Rect] = p.Shipped;
-            if ((p.Rect.anchoredPosition - want).sqrMagnitude > DriftEpsilonSq)
-                p.Rect.anchoredPosition = want;
-        }
-        var seated = new Vector2(donorSeat.x, clone.Y);
-        if ((row.anchoredPosition - seated).sqrMagnitude > DriftEpsilonSq)
-            row.anchoredPosition = seated;
-
+        // ...and only now is anything written, as a DELTA on anchoredPosition: a pure translation,
+        // which is the one operation that means the same thing whatever a rect's pivot and anchors
+        // are. The planned centres are kept so the census can say whether each write LANDED.
+        Write(below, clone, seat);
         seat.Placement = how;
     }
 
+    /// <summary>Apply a decided plan and record what was intended, so <see cref="RowCensus"/> can
+    /// report the outcome against it rather than repeating the intention.</summary>
+    private static void Write(List<Plan> below, Plan clone, Seat seat)
+    {
+        for (int i = 0; i < below.Count; i++)
+        {
+            Plan p = below[i];
+            if (!Displaced.ContainsKey(p.Rect))
+                Displaced[p.Rect] = p.Rect.anchoredPosition;
+            seat.Planned[p.Rect] = p.Y;
+            Nudge(p.Rect, p.Y);
+        }
+        seat.Planned[clone.Rect] = clone.Y;
+        Nudge(clone.Rect, clone.Y);
+    }
+
+    /// <summary>Move a rect so that its CENTRE lands on <paramref name="centre"/>, by translating
+    /// its <c>anchoredPosition</c>. A translation is frame-free; assigning an absolute
+    /// <c>anchoredPosition</c> is not, and assuming it was cost this project three builds.</summary>
+    private static void Nudge(RectTransform rect, float centre)
+    {
+        float delta = centre - Centre(rect);
+        if (Mathf.Abs(delta) <= 0.5f)
+            return;
+        Vector2 a = rect.anchoredPosition;
+        rect.anchoredPosition = new Vector2(a.x, a.y + delta);
+    }
+
     /// <summary>One column member and where this pass intends to put it. Positions are decided
-    /// entirely in these before a single <c>anchoredPosition</c> is written, so the menu never
-    /// holds an intermediate arrangement and the rule that ran is decided once.</summary>
+    /// entirely in these before a single write, so the menu never holds an intermediate
+    /// arrangement and the rule that ran is decided once. Every position is a CENTRE in the
+    /// parent's local space.</summary>
     private readonly struct Plan
     {
         public readonly RectTransform Rect;
-        public readonly Vector2 Shipped;
+        /// <summary>Where the game shipped this member's centre.</summary>
+        public readonly float Shipped;
         public readonly float Height;
+        /// <summary>False for a divider or other thin decoration — it travels with the block but
+        /// does not vote on the pitch and is not asked whether it overlaps its neighbours.</summary>
+        public readonly bool FullRow;
+        /// <summary>The centre this pass intends to give it.</summary>
         public readonly float Y;
 
-        public Plan(RectTransform rect, Vector2 shipped, float height, float y)
+        public Plan(RectTransform rect, float shipped, float height, bool fullRow, float y)
         {
-            Rect = rect; Shipped = shipped; Height = height; Y = y;
+            Rect = rect; Shipped = shipped; Height = height; FullRow = fullRow; Y = y;
         }
 
-        public Plan At(float y) => new Plan(Rect, Shipped, Height, y);
+        public Plan At(float y) => new Plan(Rect, Shipped, Height, FullRow, y);
     }
 
-    /// <summary>Insertion sort by SHIPPED position, top of the column first. A menu has under
-    /// twenty rows and this runs on a show edge, not on a frame.</summary>
+    /// <summary>Insertion sort by SHIPPED centre, top of the column first. A menu has under twenty
+    /// rows and this runs on a show edge, not on a frame.</summary>
     private static void Insert(List<Plan> sorted, Plan entry)
     {
         int at = sorted.Count;
-        while (at > 0 && sorted[at - 1].Shipped.y < entry.Shipped.y)
+        while (at > 0 && sorted[at - 1].Shipped < entry.Shipped)
             at--;
         sorted.Insert(at, entry);
     }
 
     /// <summary>
-    /// How much room the tightest pair in a PLANNED column has to spare. Negative means those two
-    /// rects overlap — which is the only question worth asking, and a physical one: a pair whose
-    /// heights are <c>h1</c> and <c>h2</c> needs <c>(h1 + h2) / 2</c> between their positions.
+    /// How much room the tightest pair of ROWS in a PLANNED column has to spare. Negative means
+    /// those two rects overlap — which is the only question worth asking, and a physical one: a
+    /// pair whose heights are <c>h1</c> and <c>h2</c> needs <c>(h1 + h2) / 2</c> between their
+    /// centres.
+    ///
+    /// <para>ONLY FULL ROWS ARE ASKED. A divider is authored to sit inside a row's space — the
+    /// game's own main menu has one 45 px from the row below it where that formula wants 53 — so
+    /// including dividers turns the game's correct layout into a permanent accusation, and in
+    /// ModBuild 423 it fired the re-flow that destroyed the authored spacing.</para>
     ///
     /// <para>The part of the column judged here is exactly the part the mod is ANSWERABLE for —
     /// the donor, the clone and everything below them. Rows above the donor are never moved by
@@ -668,11 +763,13 @@ internal static class MenuRowSeat
         var all = new List<Plan>(below.Count + 2);
         all.Add(donor);
         all.Add(clone);
-        all.AddRange(below);
+        for (int i = 0; i < below.Count; i++)
+            all.Add(below[i]);
+        all.RemoveAll(p => !p.FullRow);
         all.Sort((a, b) => b.Y.CompareTo(a.Y));
 
         float worst = float.MaxValue;
-        pair = "fewer than two column members — nothing to compare";
+        pair = "fewer than two rows — nothing to compare";
         had = 0f;
         need = 0f;
         for (int i = 1; i < all.Count; i++)
@@ -684,8 +781,8 @@ internal static class MenuRowSeat
             worst = gap - wants;
             had = gap;
             need = wants;
-            pair = $"'{Short(all[i - 1].Rect.name)}' at y={all[i - 1].Y:F0} and "
-                 + $"'{Short(all[i].Rect.name)}' at y={all[i].Y:F0}";
+            pair = $"'{Short(all[i - 1].Rect.name)}' at centre {all[i - 1].Y:F0} and "
+                 + $"'{Short(all[i].Rect.name)}' at centre {all[i].Y:F0}";
         }
         return worst == float.MaxValue ? 0f : worst;
     }
@@ -705,8 +802,7 @@ internal static class MenuRowSeat
     /// <see cref="OverprintFraction"/> of a row height and the seat is always at least a tenth of
     /// a row height further away than that.</para>
     /// </summary>
-    private static float MeasurePitch(RectTransform parent, RectTransform row, RectTransform donor,
-                                      float donorHeight)
+    private static float MeasurePitch(RectTransform parent, RectTransform row, float donorHeight)
     {
         var ys = new List<float>(8);
         for (int i = 0; i < parent.childCount; i++)
@@ -714,10 +810,9 @@ internal static class MenuRowSeat
             var child = parent.GetChild(i) as RectTransform;
             if (child == null || ReferenceEquals(child, row))
                 continue;
-            if (!IsColumnMember(child, donorHeight)
-                || child.rect.height < donorHeight * PitchRowMinHeightFactor)
+            if (!IsColumnMember(child, donorHeight) || !IsFullRow(child, donorHeight))
                 continue;
-            ys.Add(Shipped(child).y);
+            ys.Add(ShippedCentre(child));
         }
 
         float pitch = float.PositiveInfinity;
@@ -736,10 +831,36 @@ internal static class MenuRowSeat
         return pitch;
     }
 
-    /// <summary>Where the game shipped this row — its recorded position once the mod has moved
-    /// it, its current one until then.</summary>
+    /// <summary>Where the game shipped this row — its recorded <c>anchoredPosition</c> once the
+    /// mod has moved it, its current one until then. Used for the UNDO in <see cref="Release"/>
+    /// and as the origin of the translation below; never compared against another rect's.</summary>
     private static Vector2 Shipped(RectTransform rect)
         => Displaced.TryGetValue(rect, out Vector2 shipped) ? shipped : rect.anchoredPosition;
+
+    /// <summary>
+    /// A RECT'S VERTICAL CENTRE IN ITS PARENT'S LOCAL SPACE — the one coordinate in which two
+    /// sibling rects can be compared, and the frame the player's eye is in.
+    ///
+    /// <para><b>Read the class remarks before replacing this with <c>anchoredPosition.y</c>.</b>
+    /// <c>anchoredPosition</c> is measured from a rect's OWN anchor reference to its OWN pivot, so
+    /// two siblings authored with different pivots or anchors carry numbers in different frames.
+    /// The campaign map's pause menu does exactly that: 'Main Menu' is pivoted at its top and
+    /// 'Exit' at its bottom, 35 px either side of centre on a 70 px row. Three builds of correct
+    /// arithmetic in that non-frame produced three overprints.</para>
+    ///
+    /// <para><c>localPosition.y</c> is the PIVOT in parent space and <c>rect.rect.center.y</c> is
+    /// <c>(0.5 - pivot.y) * height</c>, the centre relative to that pivot; their sum is the centre
+    /// in parent space, and it is correct for any pivot and any anchors, stretched ones
+    /// included.</para>
+    /// </summary>
+    private static float Centre(RectTransform rect)
+        => rect.localPosition.y + rect.rect.center.y;
+
+    /// <summary>The centre the game shipped this rect at. Derived from the centre it has NOW plus
+    /// the translation the mod has applied to it, because a translation is the same number in
+    /// every frame — which is precisely why the writes are translations.</summary>
+    private static float ShippedCentre(RectTransform rect)
+        => Centre(rect) + (Shipped(rect).y - rect.anchoredPosition.y);
 
     /// <summary>The row height every measurement here is scaled against, with a floor so a rect
     /// that has not been laid out yet cannot make the pitch collapse.</summary>
@@ -777,6 +898,21 @@ internal static class MenuRowSeat
     }
 
     /// <summary>
+    /// A FULL ROW, as opposed to a divider or other thin decoration. The narrower of the two
+    /// questions, and it decides two things: what may set the column's PITCH, and what may be
+    /// accused of OVERLAPPING something.
+    ///
+    /// <para>A divider is authored to sit inside the space between two rows — the game's own main
+    /// menu has one whose centre is 45 px from the row below it where <c>(h1 + h2) / 2</c> wants
+    /// 53. Counting that as an overlap turns the game's correct, shipped layout into a permanent
+    /// accusation, and in ModBuild 423 it did worse than that: it fired the re-flow remedy, which
+    /// then gave up the authored spacing of a column that never needed fixing. A divider still
+    /// TRAVELS with the block (<see cref="IsColumnMember"/>) — it just does not get a vote.</para>
+    /// </summary>
+    private static bool IsFullRow(RectTransform child, float donorHeight)
+        => child.rect.height >= donorHeight * PitchRowMinHeightFactor;
+
+    /// <summary>
     /// THE FALSIFIER'S EYES: the most OVERLAPPING pair of column members anywhere in the finished
     /// menu, not just the mod's row against its donor. ModBuild 422 shipped an overprint that its
     /// own verdict called SEATED, because the verdict only ever looked at those two rows; widening
@@ -792,22 +928,25 @@ internal static class MenuRowSeat
     private static float TightestGap(RectTransform parent, RectTransform row, float donorHeight,
                                      out float needed, out string pair)
     {
+        // MEASURED IN CENTRES, and read back off the live rects — not off the plan. A plan that
+        // was never written, or written into the wrong frame, has to be able to fail here.
         var found = new List<(float Y, float H, string Name)>(12);
         for (int i = 0; i < parent.childCount; i++)
         {
             var child = parent.GetChild(i) as RectTransform;
-            if (child == null || !IsColumnMember(child, donorHeight))
+            if (child == null || !IsColumnMember(child, donorHeight)
+                || !IsFullRow(child, donorHeight))
                 continue;
-            found.Add((child.anchoredPosition.y, child.rect.height, child.name));
+            found.Add((Centre(child), child.rect.height, child.name));
         }
         if (!ReferenceEquals(row.parent, parent))
-            found.Add((row.anchoredPosition.y, row.rect.height, row.name));
+            found.Add((Centre(row), row.rect.height, row.name));
 
         found.Sort((a, b) => b.Y.CompareTo(a.Y));
         float gapOfWorst = float.MaxValue;
         float worstSlack = float.MaxValue;
         needed = 0f;
-        pair = "fewer than two column members — nothing to compare";
+        pair = "fewer than two rows — nothing to compare";
         for (int i = 1; i < found.Count; i++)
         {
             float gap = found[i - 1].Y - found[i].Y;
@@ -818,15 +957,29 @@ internal static class MenuRowSeat
             worstSlack = slack;
             gapOfWorst = gap;
             needed = need;
-            pair = $"'{Short(found[i - 1].Name)}' at y={found[i - 1].Y:F0} and "
-                 + $"'{Short(found[i].Name)}' at y={found[i].Y:F0}";
+            pair = $"'{Short(found[i - 1].Name)}' at centre {found[i - 1].Y:F0} and "
+                 + $"'{Short(found[i].Name)}' at centre {found[i].Y:F0}";
         }
         return gapOfWorst;
     }
 
-    /// <summary>Every child of the row parent with its shipped and its final position — the clause
-    /// that decides the next hardware round without anyone having to measure a photograph.</summary>
-    private static string RowCensus(RectTransform parent, float donorHeight)
+    /// <summary>
+    /// Every child of the row parent, READ BACK OFF THE LIVE RECT after the writes — the clause
+    /// that decides the next hardware round without anyone having to measure a photograph.
+    ///
+    /// <para>Each entry reads <c>'name' c=SHIPPED-&gt;NOW (a=ANCHORED, h=HEIGHT) kind</c>, where
+    /// <c>c</c> is the CENTRE in the parent's local space — the frame the eye is in and the only
+    /// one in which two siblings compare — and <c>a</c> is the raw <c>anchoredPosition.y</c>
+    /// beside it. <b>When the two disagree by more than a pixel, that member's pivot or anchors
+    /// differ from the donor's</b>, which is the ModBuild 424 defect written down: 'Main Menu' is
+    /// pivoted at its top and 'Exit' at its bottom, so their anchored values sat 35 px either side
+    /// of their centres and three builds of arithmetic on them produced three overprints.</para>
+    ///
+    /// <para>Where this pass intended a position, <c>!=PLANNED(x)</c> is appended if the rect did
+    /// not end up there. A silent census is a census that agreed with itself; this one can only
+    /// stay silent by being right.</para>
+    /// </summary>
+    private static string RowCensus(Seat seat, RectTransform parent, float donorHeight)
     {
         var sb = new System.Text.StringBuilder();
         for (int i = 0; i < parent.childCount; i++)
@@ -841,14 +994,21 @@ internal static class MenuRowSeat
             }
             if (i > 0)
                 sb.Append(", ");
-            Vector2 now = child.anchoredPosition;
-            Vector2 was = Shipped(child);
-            string moved = Mathf.Abs(now.y - was.y) > 0.5f
-                ? $"y={was.y:F0}->{now.y:F0}" : $"y={now.y:F0}";
+
+            float now = Centre(child);
+            float was = ShippedCentre(child);
+            float anchored = child.anchoredPosition.y;
+            string moved = Mathf.Abs(now - was) > 0.5f ? $"c={was:F0}->{now:F0}" : $"c={now:F0}";
+            string frame = Mathf.Abs(anchored - now) > 1f
+                ? $" (a={anchored:F0} — ITS OWN FRAME, offset {anchored - now:F0})" : "";
             string kind = !child.gameObject.activeSelf ? "off"
-                : IsColumnMember(child, donorHeight) ? "member"
-                : $"NOT A MEMBER (h={child.rect.height:F0})";
-            sb.Append($"'{Short(child.name)}' {moved} {kind}");
+                : !IsColumnMember(child, donorHeight) ? $"NOT A MEMBER (h={child.rect.height:F0})"
+                : IsFullRow(child, donorHeight) ? $"row h={child.rect.height:F0}"
+                : $"divider h={child.rect.height:F0}";
+            string landed = seat.Planned.TryGetValue(child, out float planned)
+                            && Mathf.Abs(planned - now) > 0.5f
+                ? $" !=PLANNED({planned:F0})" : "";
+            sb.Append($"'{Short(child.name)}' {moved}{frame} {kind}{landed}");
         }
         return sb.ToString();
     }
@@ -961,7 +1121,7 @@ internal static class MenuRowSeat
         float tightestNeeds = 0f;
         if (seat.Parent != null)
             tightest = TightestGap(seat.Parent, row, donorHeight, out tightestNeeds, out tightestPair);
-        bool tightOverprint = tightest < tightestNeeds;
+        bool tightOverprint = tightest < tightestNeeds - OverlapEpsilon;
 
         string signature = $"{seat.Menu}|{overprint}|{arrivedOverprinted}|{row.GetSiblingIndex()}|{donor.GetSiblingIndex()}"
             + $"|{Mathf.RoundToInt(row.anchoredPosition.y)}|{Mathf.RoundToInt(donor.anchoredPosition.y)}"
@@ -1009,7 +1169,7 @@ internal static class MenuRowSeat
             + $"TIGHTEST PAIR anywhere in this menu: {tightestPair} = {TightestText(tightest)} apart "
             + $"where their two rects need {tightestNeeds:F0} px not to overlap — VERDICT "
             + $"{(tightOverprint ? "OVERPRINT" : "CLEAR")}. "
-            + $"ROWS: {(seat.Parent != null ? RowCensus(seat.Parent, donorHeight) : "the row parent is gone")}. "
+            + $"ROWS: {(seat.Parent != null ? RowCensus(seat, seat.Parent, donorHeight) : "the row parent is gone")}. "
             + "CORRECTION (ModBuild 423) to the PLACEMENT rule of 422, which half-worked and shipped a "
             + "SECOND overprint further down the same menu (user, 2026-09-04, menu_kaputt.jpg: \"Das "
             + "Menu ist nun immer dauerhaft mit einer anderen Überlagerung drin 'Hauptmenu' und "
@@ -1020,7 +1180,20 @@ internal static class MenuRowSeat
             + "so every gap between rows is the gap the game authored, and judges column membership "
             + "by row SHAPE rather than by a UIMainMenuOption component. The ROWS census above names "
             + "every child and says which ones are members: a row printed as NOT A MEMBER beside a "
-            + "row-sized height is the next bug, and needs no photograph to find.";
+            + "row-sized height is the next bug, and needs no photograph to find. "
+            + "CORRECTION (ModBuild 424) to everything above, which measured the wrong QUANTITY and "
+            + "was therefore right about a frame that does not exist. User on 423, menu_kaputt2.jpg: "
+            + "\"Weitere regression bei den Buttons im Menu-Fenster: Diesmal ist 'Spiel verlassen' "
+            + "und 'Hauptmenu' vollständig übereinander gelegt.\" The 423 census read an even 70 px "
+            + "grid back off the live rects and the picture still showed two rows in one place, "
+            + "because anchoredPosition.y is measured from each rect's OWN anchor to its OWN pivot: "
+            + "'Main Menu' is pivoted at its top and 'Exit' at its bottom, 35 px either side of "
+            + "centre on a 70 px row, so anchored -475 and -545 are the SAME centre, -510 — which "
+            + "is where the photograph has them. Every number on this line is now a CENTRE in the "
+            + "parent's local space and every write is a translation, which means the same thing in "
+            + "any frame. In the ROWS census, 'c=' is that centre and 'a=' the raw anchored value "
+            + "printed beside it: a member whose two disagree has a pivot or anchors of its own, "
+            + "and that is the thing to look at first. '!=PLANNED(x)' means a write did not land.";
 
         if (overprint || tightOverprint)
         {
