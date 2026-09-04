@@ -352,16 +352,22 @@ internal static partial class ModalFallback
     /// </summary>
     private static void LogPreHideCameraCensus(UIWindow window)
     {
-        int layerBit = 1 << window.gameObject.layer;
+        int layer = window.gameObject.layer;
+        int layerBit = 1 << layer;
         PreHideCensusSb.Clear();
-        PreHideCensusSb.Append("layer ").Append(window.gameObject.layer).Append(':');
+        PreHideCensusSb.Append("layer ").Append(layer).Append(':');
         int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
         int drawers = 0;
+        Camera? capture = null;
         for (int i = 0; i < count; i++)
         {
             Camera cam = cams[i];
             if (cam == null || !cam.enabled || (cam.cullingMask & layerBit) == 0)
                 continue;
+            // A LIVE MOD CAPTURE CAMERA ON THE OPENING WINDOW'S LAYER IS THE ANOMALY THIS ROUND
+            // FOUND — see NoteStaleCaptureLayer below for the whole account.
+            if (capture == null && cam.name.StartsWith("GloomhavenVR.PanelSSCam", System.StringComparison.Ordinal))
+                capture = cam;
             drawers++;
             string target = cam.targetTexture != null ? cam.targetTexture.name : string.Empty;
             if (string.IsNullOrEmpty(target))
@@ -378,6 +384,7 @@ internal static partial class ModalFallback
             .Append(" eye texture ").Append(UnityEngine.XR.XRSettings.eyeTextureWidth).Append('x')
             .Append(UnityEngine.XR.XRSettings.eyeTextureHeight)
             .Append(" XR ").Append(UnityEngine.XR.XRSettings.enabled ? "on" : "off");
+        NoteStaleCaptureLayer(window, layer, capture);
         string census = PreHideCensusSb.ToString();
         if (census == s_preHideCensus)
             return;
@@ -386,7 +393,96 @@ internal static partial class ModalFallback
                               "BACKBUFFER target draws the game's 2D UI straight into the HMD eye textures — " +
                               "that is the left-edge one-eye flash this blackout removes. 'flat screen HIDDEN' " +
                               "means the stereo screen's per-eye RTs do not exist here, so the two eyes share " +
-                              "one render path and a per-eye RT divergence cannot explain a flash at this site.");
+                              "one render path and a per-eye RT divergence cannot explain a flash at this site." +
+                              // APPENDED 2026-09-04 round 2, never reworded. THE 'mask=0xFFFFFFFF'
+                              // FIELD ABOVE IS READ ONE STAGE TOO EARLY TO ANSWER THE QUESTION IT IS
+                              // BEING ASKED. PanelSupersample strips its capture-pool layers from
+                              // every foreign camera in OnPreCull — after every Update and
+                              // LateUpdate, i.e. after this census runs — so for a POOL layer the
+                              // head camera's Update-time mask always reads 0xFFFFFFFF whether or
+                              // not that layer is drawn into the eye. The sentence above is correct
+                              // for the game's own UI layer 5 and OVER-CLAIMS for a pool layer.
+                              " CAVEAT (ModBuild 420): the culling masks above are read in Update. " +
+                              "PanelSupersample strips its capture-pool layers from foreign cameras " +
+                              "in OnPreCull, which runs AFTER every Update and LateUpdate — so for a " +
+                              "layer in that pool this mask is measured one stage too early and " +
+                              "cannot say whether the eye drew it. It is only decisive for the " +
+                              "game's own UI layer.");
+    }
+
+    /// <summary>Session tally of opens that landed on a live capture layer — see below.</summary>
+    private static int s_staleCaptureOpens;
+
+    /// <summary>
+    /// <b>THE GAME RE-OPENED THIS WINDOW WHILE THE MOD'S SUPERSAMPLE FOR ITS PREVIOUS FLOAT WAS
+    /// STILL ENGAGED.</b> Measured, not inferred: in the ModBuild 420 hardware log the census
+    /// changes seven times across a 42-cycle options-key burst, and THREE of those reads put the ESC
+    /// menu on layer 26 — a PanelSupersample capture layer — with
+    /// <c>GloomhavenVR.PanelSSCam_UI Scenario Esc Menu</c> listed alive beside it. The interleaving
+    /// is unambiguous in the line numbers:
+    ///
+    /// <code>
+    ///   7214  PANEL SUPERSAMPLE engaged on 'UI Scenario Esc Menu'
+    ///   7252  BLACKOUT census: layer 26   &lt;- the game Show()s the window again, HERE
+    ///   7260  PANEL SUPERSAMPLE stood down on 'UI Scenario Esc Menu'
+    ///   7318  BLACKOUT census: layer 5    &lt;- the next open reads normal again
+    /// </code>
+    ///
+    /// <para>The re-open lands BETWEEN the engage and the stand-down, three times, at 7252, 7878 and
+    /// 6462. That is the ordering nothing in this mod had a line for.</para>
+    ///
+    /// <para><b>WHY THIS IS THE LEAD AND THE FLOAT-INTENT INVARIANT IS NOT.</b> That invariant
+    /// returned ZERO violations over the same burst — no game canvas of a tracked window was ever
+    /// enabled while un-floated — so the rim is something the invariant cannot see BY CONSTRUCTION.
+    /// A capture layer is exactly that: it is outside the game's own 'UI Camera' mask
+    /// (<c>0x00000020</c>, layer 5 alone, and it renders to a scrub sink rather than to the eye) and
+    /// inside the head camera's, so anything stranded on it is INVISIBLE ON THE DESKTOP AND VISIBLE
+    /// IN THE HEADSET — which is the shape of a symptom only the VR user can report. It is also
+    /// outside the subtree this file walks whenever the stranded object is a late-arriving child
+    /// rather than the window root ("1 pooled/late transform(s) … joined capture layer 26", four
+    /// times in the same burst).</para>
+    ///
+    /// <para><b>WHAT THIS LINE DOES AND DOES NOT CLAIM.</b> It reports an ORDERING, not a fault: a
+    /// window opening on a live capture layer is not by itself wrong, because PanelSupersample's
+    /// OnPreCull strips that layer from the head camera while the entry lives. What it names is the
+    /// window in which a lost or late layer restore would become visible — the moment the entry is
+    /// stood down, the strip lifts, and anything still on that layer is drawn into the eye with no
+    /// second camera left to hide it. PanelSupersample is not this lane's to edit; this line is the
+    /// evidence that says whether it should be.</para>
+    ///
+    /// <para>BOUNDED: fires on a window OPEN, never per frame, and capped at the first eight plus one
+    /// per doubling with the running total on every line.</para>
+    /// </summary>
+    private static void NoteStaleCaptureLayer(UIWindow window, int layer, Camera? capture)
+    {
+        if (capture == null)
+            return;
+        s_staleCaptureOpens++;
+        if (s_staleCaptureOpens > 8
+            && (s_staleCaptureOpens & (s_staleCaptureOpens - 1)) != 0)
+            return;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        // HW-VERIFY
+        VRLog.Alert("WorldUI", $"MODAL OPEN ON A LIVE CAPTURE LAYER ({s_staleCaptureOpens} this " +
+            $"session): the game re-opened '{window.name}' (ID {window.ID}) while it still sits on " +
+            $"layer {layer}, and the mod's own capture camera '{capture.name}' is ALIVE on that " +
+            $"layer, rendering into " +
+            $"{(capture.targetTexture != null ? capture.targetTexture.name : "the BACKBUFFER")}. " +
+            "That means this window's PREVIOUS float is still supersampled at the moment its NEXT " +
+            "open begins: the engage, this open and the stand-down interleave in that order, which " +
+            "the ModBuild 420 log shows three times in one 42-cycle options-key burst (log lines " +
+            "6462, 7252, 7878 read layer 26 while 6471, 7260 and 7886 stand the capture down " +
+            "afterwards). A capture layer is outside the game's 'UI Camera' mask (0x00000020) and " +
+            "inside the head camera's, so anything left on it is INVISIBLE ON THE DESKTOP AND " +
+            "VISIBLE IN THE HEADSET — the shape of the user's report. IT IS THE STAND-DOWN THAT " +
+            "DECIDES: while the entry lives PanelSupersample strips this layer from foreign cameras " +
+            "in OnPreCull, and the moment it is stood down that strip lifts. THE QUESTION FOR THE " +
+            "NEXT ROUND: does the stand-down restore the layer of EVERYTHING it moved, including " +
+            "the 'pooled/late transform(s) … joined capture layer' arrivals, when the window has " +
+            $"already re-opened underneath it? Head camera '{(head != null ? head.name : "<none>")}' " +
+            $"Update-time mask 0x{(head != null ? head.cullingMask : 0):X8} — NOT decisive on its " +
+            "own, because the OnPreCull strip runs after every Update. USER REPORT 2026-09-04: " +
+            "'Wenn ich den button oft genug spamme, tritt das Problem immer noch auf.'");
     }
 
     /// <summary>
@@ -619,17 +715,24 @@ internal static partial class ModalFallback
                               + "the burst was handled."
                               // APPENDED 2026-09-04 round 2, never reworded (the sentence above is a
                               // grep token). THAT LAST TEST IS FALSIFIED AND MUST NOT BE TRUSTED: the
-                              // ModBuild 419 hardware log satisfies it exactly — 3 of these lines,
-                              // ZERO 'was still un-floated after N frames' — and the user's verdict on
-                              // that build was "Das Problem besteht weiterhin". A line proving that
+                              // ModBuild 419 hardware log satisfies it exactly and the user's verdict
+                              // on that build was "Das Problem besteht weiterhin". A line proving that
                               // THIS mechanism ran proves nothing about the artifact.
+                              //
+                              // AND THIS TEXT DELIBERATELY SPELLS NO OTHER INSTRUMENT'S GREP TOKEN.
+                              // The first draft of this correction quoted two of them verbatim, and
+                              // both `grep -c` reads of the 420 log then returned 3 hits that were
+                              // THIS SENTENCE rather than the instrument — a diagnostic that answers
+                              // for itself. Name the instrument, never quote its token.
                               + " CORRECTION (ModBuild 420, from the 419 hardware log): THAT LAST TEST "
                               + "IS FALSIFIED. The 419 log satisfies it exactly and the user still "
-                              + "reported the rim ('Das Problem besteht weiterhin'). The line that "
-                              + "decides the burst now is 'MODAL FLOAT INTENT VIOLATION' — the "
-                              + "float-intent invariant, which reports the PICTURE (a live canvas on a "
-                              + "tracked, un-floated window going into the render loop) rather than "
-                              + "this mechanism's own bookkeeping.");
+                              + "reported the rim ('Das Problem besteht weiterhin'). Read the "
+                              + "float-intent invariant's own line instead (ModalFallback.11"
+                              + ".PreConvertHide.cs, NoteFloatIntentViolation): it reports the PICTURE "
+                              + "— a live canvas on a tracked, un-floated window going into the render "
+                              + "loop — rather than this mechanism's own bookkeeping. On ModBuild 420 "
+                              + "it fired ZERO times over a 42-cycle burst, so the artifact is NOT a "
+                              + "game canvas of a tracked window while un-floated.");
     }
 
     /// <summary>
@@ -1101,8 +1204,10 @@ internal static partial class ModalFallback
             $"WHO DRAWS IT: {reach}. THE CANVAS HAS BEEN SWITCHED OFF THROUGH THE BLACKOUT'S OWN " +
             "LEDGER, so the restore stays one for one. USER REPORT 2026-09-04 on ModBuild 419: " +
             "'Das Problem besteht weiterhin' — the head-locked rim at the left edge of one eye on a " +
-            "rapid options-key burst. 419's frame-budget hypothesis is FALSIFIED (its own log has " +
-            "ZERO 'was still un-floated after N frames' lines and 24 clean 'handed back after 1 " +
-            "frame(s)'); THIS line is the picture that bookkeeping could not see.");
+            "rapid options-key burst. 419's frame-budget hypothesis is FALSIFIED by its own log (its " +
+            "outer-safety warning never fired once, and every blackout handed back after one frame); " +
+            "THIS line is the picture that bookkeeping could not see. It quotes no other " +
+            "instrument's grep token on purpose — the first draft did, and both counts of the 420 " +
+            "log came back matching this sentence instead of the instrument.");
     }
 }
