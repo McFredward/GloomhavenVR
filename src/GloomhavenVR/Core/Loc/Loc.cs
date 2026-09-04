@@ -204,6 +204,22 @@ internal static partial class Loc
         // same thing — go to the next card.
         ["ctl_next"] = Pair("NEXT", "WEITER"),
         ["ctl_skip"] = Pair("SKIP", "ÜBERSPRINGEN"),
+        // ---- the multiplayer quest card ----
+        // WHY THE MOD OWNS THIS SENTENCE AND THE GAME'S KEY DOES NOT SUFFICE (user, 2026-09-04):
+        // "Ich möchte in dem Fenster an dem normalerweise der Button ist, dass dort ein kleiner
+        // Hinweis steht, dass jedem Spieler mind. 1 Character zugewiesen werden muss, damit es
+        // weiter gehen kann - dann ist es dem Spieler bewusst."
+        // The game HAS a key for this state — GUI_MULTIPLAYER_WARNING_TEXT_WaitingForCharAssignment,
+        // "Warten, bis alle Spieler Söldner zugewiesen haben" — and the card already shows it. But it
+        // describes a STATE ("we are waiting") and never names the ACTION that ends it, which is
+        // precisely the information the reporting session lacked: two players, both heroes owned by
+        // the host, and three builds spent looking for a missing button that the game was withholding
+        // on purpose. This line is the instruction, shown under the game's own sentence.
+        ["mp_assign_hint"] = Pair(
+            "Every player needs at least one mercenary before the journey can start. "
+            + "Assign them in the multiplayer menu.",
+            "Jedem Spieler muss mindestens ein Söldner zugewiesen sein, damit es weitergehen kann. "
+            + "Die Zuweisung erfolgt im Mehrspieler-Menü."),
         // RETIRED 2026-09-02, and kept only because a checker cannot tell a UI string from a log
         // marker. This labelled the box's second button; the user removed that button ("Weiterhin
         // möchte ich keinen button 'geht gerade Nicht'") and nothing calls Loc.Mod("ctl_cant") any

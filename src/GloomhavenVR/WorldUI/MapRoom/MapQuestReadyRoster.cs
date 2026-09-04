@@ -684,9 +684,18 @@ internal static class MapQuestReadyRoster
 
         string missing = NonParticipants();
         if (missing.Length > 0)
+            // THE GAME'S SENTENCE, THEN WHO, THEN WHAT TO DO — and the third line is the one the
+            // user asked for (2026-09-04): "ein kleiner Hinweis, dass jedem Spieler mind. 1
+            // Character zugewiesen werden muss, damit es weiter gehen kann - dann ist es dem
+            // Spieler bewusst." The game's own key describes the STATE ("waiting until…") and never
+            // names the ACTION that ends it, which is exactly what was missing in the session that
+            // produced this report: three rounds were spent hunting a button the game was
+            // deliberately withholding, and nobody could see why. Ordered state → who → action, so
+            // a player who already knows the rule can stop reading after the first line.
             return Loc.Game("GUI_MULTIPLAYER_WARNING_TEXT_WaitingForCharAssignment",
                             "Waiting until every player has been assigned a mercenary.")
-                   + "\n" + missing;
+                   + "\n" + missing
+                   + "\n" + Loc.Mod("mp_assign_hint");
 
         return string.Empty;
     }
