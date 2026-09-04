@@ -4,6 +4,7 @@ using System.Text;
 using GloomhavenVR.Core;
 using GloomhavenVR.Core.Events;
 using UnityEngine;
+using UnityEngine.Rendering;
 using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
@@ -11,8 +12,8 @@ namespace GloomhavenVR.WorldUI;
 /// <summary>
 /// <b>THE LEFT RIM — A TRIGGERED, WHOLE-SCENE CENSUS OF EVERYTHING THAT CAN PAINT INTO AN EYE.</b>
 ///
-/// <para>THE SYMPTOM, five rounds running, most recently on ModBuild 422:
-/// <i>"Das Problem mit dem linken Streifen ist nach wie vor da."</i> With his screenshot
+/// <para>THE SYMPTOM, seven rounds running, most recently on ModBuild 424:
+/// <i>"Das Problem mit dem linken Element im Auge besteht weiterhin."</i> With his screenshot
 /// (<c>.planning/debug/linkes_element.png</c>):
 /// <i>"Wenn man schnell hintereinander die Optionstaste drückt erscheint am linken Rand des auges so
 /// ein Rand der dem Kopf folgt statt dem Optionsmenu"</i> and <i>"man sieht das das ursprüngliche
@@ -46,7 +47,29 @@ namespace GloomhavenVR.WorldUI;
 ///     <c>alphaAtCanvas=0.00</c>; and the ESC menu itself reads <c>mode=ScreenSpaceCamera
 ///     cam=UI Camera enabled=False … → REACHES AN EYE: no — drawn by 'UI Camera', which renders into
 ///     'GloomhavenVR.DesktopScrubSink'</c>. FALSIFIED.</item>
+///   <item><b>ModBuild 423</b> — this class's own first answer. It matched the ESC menu's own panel
+///     FOUR times (<c>] EYE CENSUS GRAPHIC MATCH</c> 4). That reading was correct and it named the
+///     cause of 424 below — but removing it did not end the symptom, so the panel was a
+///     CONTRIBUTOR, not the artifact.</item>
+///   <item><b>ModBuild 424</b> — the adopt-time camera leak: a game canvas left bound to the mod's
+///     own head camera, which parks it in front of the eyes and head-locks it. <b>THIS ONE WAS
+///     REAL.</b> The 424 log counts <c>] MODAL ADOPT CAMERA LEAK</c> <b>31 times</b>, and the four
+///     graphic matches are gone: <c>] EYE CENSUS GRAPHIC MATCH</c> and
+///     <c>] EYE CENSUS RENDERER MATCH</c> both read 0 across all 7 runs. AND THE USER STILL SEES THE
+///     BAND. A fired fix that removes every match and leaves the symptom standing was at most ONE
+///     CONTRIBUTOR ([[one-contributor-is-not-the-union]]) — the strongest evidence in the whole
+///     investigation that more than one thing draws this shape.</item>
 /// </list>
+///
+/// <para><b>THE TRIGGER IS NO LONGER THE OPTIONS KEY (ModBuild 425).</b> Seven builds of correct,
+/// useless readings have exactly two explanations left, and the tap triggers cannot separate them:
+/// either this census never SAMPLED the artifact, or the artifact is in one of the blind spots this
+/// class prints on every verdict. So <see cref="EyePixelBandWatch"/> now watches the OUTPUT FRAME and
+/// calls <see cref="FirePixelTriggered"/> when the picture itself shows the band. A run that fires
+/// BECAUSE the band is on screen cannot miss it, and its verdict decides the question either way —
+/// read that class's doc for the full argument. The tap triggers below are kept, on their own
+/// budget, because the BASELINE they produce is the diff partner a pixel-triggered run is read
+/// against.</para>
 ///
 /// <para><b>SO THE ARTIFACT IS NOT A CANVAS OF A TRACKED WINDOW.</b> Every instrument so far reported
 /// the modal subsystem's OWN BOOKKEEPING, and every reading was true and useless — the failure mode
@@ -87,6 +110,12 @@ namespace GloomhavenVR.WorldUI;
 ///     exactly the shape of a head-parented quad. Matching rows print the LEFT-eye and RIGHT-eye
 ///     rects separately, which is the direct test of "aus dem linken augenwinkel".</item>
 ///   <item><c>] EYE CENSUS HEADCHILD</c> — what is glued to the head camera transform right now.</item>
+///   <item><c>] EYE CENSUS EFFECT</c> — the two leading BLIND SPOTS, enumerated rather than listed:
+///     every <c>CommandBuffer</c> attached to any camera (by <c>CameraEvent</c>, with its name and
+///     size) and every <c>MonoBehaviour</c> on a camera that implements <c>OnRenderImage</c>. Both
+///     paint into the frame without being a camera, a canvas, a graphic or a renderer, so all four
+///     sections above are structurally blind to them. The summary row also states plainly what is
+///     NOT reachable — XR compositor overlay layers — instead of guessing at it.</item>
 ///   <item><c>] EYE CENSUS VERDICT</c> — the ranked answer: how many rows matched the picture, the
 ///     measured cost, and — stated, not implied — what this census still could NOT see.</item>
 /// </list>
@@ -138,10 +167,26 @@ internal static class EyeReachCensus
     /// one-frame transition.</summary>
     private const float SettleSecondSeconds = 4.0f;
 
-    /// <summary>Hard cap on census runs per session, so a hammered button cannot flood the log
-    /// ([[a-quiet-log-silenced-the-backlog]] is about the opposite failure; this is the guard that
-    /// lesson needs). One reproduction costs at most four: BASELINE, BURST and two SETTLED.</summary>
+    /// <summary>Hard cap on OPTIONS-KEY census runs per session, so a hammered button cannot flood
+    /// the log ([[a-quiet-log-silenced-the-backlog]] is about the opposite failure; this is the guard
+    /// that lesson needs). One reproduction costs at most four: BASELINE, BURST and two SETTLED. The
+    /// 424 log spent 7 of these 8 on 24 taps and matched nothing.</summary>
     private const int MaxRuns = 8;
+
+    /// <summary>
+    /// Hard cap on PIXEL-TRIGGERED runs, held SEPARATELY from <see cref="MaxRuns"/>.
+    ///
+    /// <para>They cannot share a budget. The tap triggers burn theirs early and indiscriminately —
+    /// the 424 log had spent 7 of 8 before the user had finished the reproduction he was asked for —
+    /// so a shared cap would leave the one trigger that fires on the ARTIFACT ITSELF starved by the
+    /// six triggers that have already failed six times. Four covers two full band episodes at the
+    /// two runs each (<c>ONSET</c> and <c>HELD</c>) that <see cref="EyePixelBandWatch"/> spends.</para>
+    ///
+    /// <para>Worst case for the session is therefore <c>MaxRuns + MaxPixelRuns</c> = 12 sweeps at the
+    /// 8.1 ms the 424 log measured — bounded, stated on every verdict line, and never on a per-frame
+    /// path.</para>
+    /// </summary>
+    private const int MaxPixelRuns = 4;
 
     /// <summary>How many settle runs a chain that never reached <see cref="BurstTapThreshold"/> may
     /// spend. Without this, one idle tap at the main menu could eat two of the eight runs before the
@@ -198,6 +243,7 @@ internal static class EyeReachCensus
     // ---- TRIGGER STATE (written by Tick / NoteOptionsTap, never by the logger) ------------------
 
     private static int s_runs;
+    private static int s_pixelRuns;
     private static int s_totalTaps;
     private static int s_chainTaps;
     private static float s_lastTapTime = float.NegativeInfinity;
@@ -213,6 +259,30 @@ internal static class EyeReachCensus
     private static readonly Vector3[] BoundsCorners = new Vector3[8];
     private static readonly List<Graphic> GraphicScratch = new(64);
     private static readonly StringBuilder Sb = new(512);
+
+    /// <summary>Every <c>CameraEvent</c> the engine defines, cached once. <c>Enum.GetValues</c>
+    /// allocates, and the blind-spot pass below walks this per camera.</summary>
+    private static readonly CameraEvent[] AllCameraEvents =
+        (CameraEvent[])System.Enum.GetValues(typeof(CameraEvent));
+
+    /// <summary>Does this component type declare <c>OnRenderImage</c>? Reflection is per TYPE, not
+    /// per instance, so a scene full of the same effect costs one lookup.</summary>
+    private static readonly Dictionary<System.Type, bool> ImageEffectTypes = new(32);
+
+    /// <summary>
+    /// The picture the PIXEL WATCH measured off the output frame, set by
+    /// <see cref="FirePixelTriggered"/> immediately before a run and cleared immediately after.
+    ///
+    /// <para>It is set and cleared by the TRIGGER, never by the logger: a logger that writes state
+    /// something else reads is how a spent diagnostic latched a subsystem off for good
+    /// ([[a-write-inside-a-logger]]).</para>
+    /// </summary>
+    private static string s_pixelContext = string.Empty;
+
+    /// <summary>True once every pixel-triggered run has been spent, so
+    /// <see cref="EyePixelBandWatch"/> can stand its capture down rather than keep paying for
+    /// samples that could no longer produce a paired reading.</summary>
+    internal static bool PixelBudgetSpent => s_pixelRuns >= MaxPixelRuns;
 
     /// <summary>
     /// One options-key tap edge. Called from <see cref="OptionsToggle"/> on EVERY short-tap
@@ -268,6 +338,12 @@ internal static class EyeReachCensus
     /// </summary>
     internal static void Tick()
     {
+        // THE PIXEL TRIGGER (ModBuild 425). Pumped ABOVE the early return below, because the whole
+        // point of it is that it does NOT depend on the options key having been pressed: the tap
+        // triggers have now been true and useless six times, and this one fires on the artifact
+        // itself. Two field reads and a return once it has armed its host.
+        EyePixelBandWatch.Tick();
+
         if (float.IsPositiveInfinity(s_settleFirstDue) && float.IsPositiveInfinity(s_settleSecondDue))
             return;
 
@@ -319,13 +395,55 @@ internal static class EyeReachCensus
         s_runs++;
         try
         {
-            LogEyeReachCensus(why, s_runs);
+            LogEyeReachCensus(why, $"{s_runs}/{MaxRuns} TAP-TRIGGERED");
         }
         catch (System.Exception ex)
         {
             VRLog.Error("WorldUI", $"EYE CENSUS THREW on run {s_runs}/{MaxRuns} ({why}) — the census is "
                 + "read-only, so nothing was left half-applied, but this run produced no answer and the "
                 + $"options tap that triggered it continues normally: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// <b>THE RUN THAT THE PICTURE ASKED FOR.</b> Called by <see cref="EyePixelBandWatch"/> when the
+    /// OUTPUT FRAME shows the band the user photographed, with <paramref name="geometry"/> being the
+    /// measured shape off that frame.
+    ///
+    /// <para>This is the pairing six rounds have never had. Every earlier trigger was a statement
+    /// about the mod's own bookkeeping — a tap, a settle, a window state — and each one could be, and
+    /// was, perfectly true at a moment when the artifact was not on screen. This one cannot be: the
+    /// band is on screen, measured in pixels, and the sweep below runs against that same frame.</para>
+    ///
+    /// <para>Its budget is separate (<see cref="MaxPixelRuns"/>) so the tap triggers cannot starve
+    /// it, and its throw is caught for the same reason the tap path's is: a diagnostic must never
+    /// cost the player the menu he is hammering. This one runs from an
+    /// <c>AsyncGPUReadback</c> callback rather than the tap handler, so a throw here would abandon
+    /// the watch instead — which is why the watch stands itself down on one.</para>
+    /// </summary>
+    internal static void FirePixelTriggered(string why, string geometry)
+    {
+        if (s_pixelRuns >= MaxPixelRuns)
+            return;
+        s_pixelRuns++;
+        // Set by the trigger, cleared by the trigger. The logger only ever READS it.
+        s_pixelContext = geometry;
+        try
+        {
+            LogEyeReachCensus($"{why} — THE OUTPUT FRAME ITSELF SHOWS THE BAND RIGHT NOW, so this sweep and "
+                + "the picture are the same moment. This is the reading that separates \"the census never "
+                + "sampled the artifact\" from \"the artifact is in one of the census's blind spots\"",
+                $"{s_pixelRuns}/{MaxPixelRuns} PIXEL-TRIGGERED");
+        }
+        catch (System.Exception ex)
+        {
+            VRLog.Error("WorldUI", $"EYE CENSUS THREW on pixel-triggered run {s_pixelRuns}/{MaxPixelRuns} "
+                + $"({why}) — the census is read-only, so nothing was left half-applied, but the one run "
+                + $"that coincided with the band on screen produced no answer: {ex}");
+        }
+        finally
+        {
+            s_pixelContext = string.Empty;
         }
     }
 
@@ -337,7 +455,7 @@ internal static class EyeReachCensus
     /// Enumerate the scene and print what can paint into an eye. Read-only: it writes nothing but its
     /// own scratch buffers.
     /// </summary>
-    private static void LogEyeReachCensus(string why, int run)
+    private static void LogEyeReachCensus(string why, string run)
     {
         long t0 = Stopwatch.GetTimestamp();
         Camera? head = Rig.VRRigDriver.HeadCamera;
@@ -390,7 +508,7 @@ internal static class EyeReachCensus
         // ---- HEADER (printed first, so the rows below always have their context) ----------------
         // HW-VERIFY: the run header. If a burst is reported and no EYE CENSUS RUN line exists, the
         // trigger never fired and nothing below it means anything — check this before anything else.
-        VRLog.Note("WorldUI", $"EYE CENSUS RUN {run}/{MaxRuns} — {why}. HEAD CAMERA: "
+        VRLog.Note("WorldUI", $"EYE CENSUS RUN {run} — {why}. HEAD CAMERA: "
             + (head != null
                 ? $"'{head.name}' fov={head.fieldOfView:F1} stereoEnabled={head.stereoEnabled} "
                   + $"mask=0x{head.cullingMask:X8} rect=({head.rect.x:F3},{head.rect.y:F3},{head.rect.width:F3},"
@@ -401,7 +519,11 @@ internal static class EyeReachCensus
             + $"{UnityEngine.XR.XRSettings.eyeTextureWidth}x{UnityEngine.XR.XRSettings.eyeTextureHeight}, "
             + $"XR mirror mode={UnityEngine.XR.XRSettings.gameViewRenderMode}, "
             + $"mode={VRModeStateMachine.CurrentMode}, room={VRModeStateMachine.TableInFrontOfPlayer}, "
-            + $"flat screen {(FlatScreen.ScreenVisible ? "SHOWN" : "HIDDEN")}. THE PICTURE THIS IS RANKED "
+            + $"flat screen {(FlatScreen.ScreenVisible ? "SHOWN" : "HIDDEN")}. "
+            + (s_pixelContext.Length > 0
+                ? "MEASURED OFF THE OUTPUT FRAME AT THIS MOMENT: " + s_pixelContext + ". "
+                : string.Empty)
+            + "THE PICTURE THIS IS RANKED "
             + "AGAINST: a full-height, left-anchored, translucent dark band whose right edge sits at ~0.23 "
             + "of the frame width, in ONE eye.");
 
@@ -687,19 +809,122 @@ internal static class EyeReachCensus
             Sb.Clear();
         }
 
+        // ---- THE BLIND SPOTS, NARROWED (ModBuild 425) --------------------------------------------
+        //
+        // Every verdict since 423 has ended by naming what this census cannot see, and the top two
+        // entries on that list are the only two that are cheap to enumerate directly: a
+        // CommandBuffer attached to a camera, and a MonoBehaviour on a camera that implements
+        // OnRenderImage. Both draw into the frame WITHOUT being a camera, canvas, graphic or
+        // renderer, so all four sections above are structurally blind to them, and a full-screen
+        // effect painting a translucent dark quad over the left fifth is exactly the picture.
+        //
+        // Both reads are small and bounded: Camera.commandBufferCount is one property, and the
+        // per-CameraEvent walk only happens on a camera that reports a non-zero one. The reflection
+        // is cached PER TYPE, so a scene full of one effect costs a single lookup.
+        int effectRows = 0;
+        int camerasWithBuffers = 0;
+        int effectComponents = 0;
+        for (int i = 0; i < cameras.Length; i++)
+        {
+            Camera cam = cameras[i];
+            if (cam == null)
+                continue;
+
+            Sb.Clear();
+            int bufferCount = cam.commandBufferCount;
+            if (bufferCount > 0)
+            {
+                camerasWithBuffers++;
+                for (int e = 0; e < AllCameraEvents.Length; e++)
+                {
+                    CommandBuffer[] bufs = cam.GetCommandBuffers(AllCameraEvents[e]);
+                    if (bufs.Length == 0)
+                        continue;
+                    Sb.Append(" | ").Append(AllCameraEvents[e]).Append(':');
+                    for (int b = 0; b < bufs.Length; b++)
+                    {
+                        Sb.Append(" '").Append(bufs[b] != null ? bufs[b].name : "<null>").Append('\'');
+                        if (bufs[b] != null)
+                            Sb.Append(" (").Append(bufs[b].sizeInBytes).Append(" B)");
+                    }
+                }
+            }
+
+            MonoBehaviour[] behaviours = cam.GetComponents<MonoBehaviour>();
+            int effectsHere = 0;
+            for (int b = 0; b < behaviours.Length; b++)
+            {
+                MonoBehaviour mb = behaviours[b];
+                if (mb == null || !HasOnRenderImage(mb.GetType()))
+                    continue;
+                effectsHere++;
+                effectComponents++;
+                Sb.Append(" | IMAGE EFFECT '").Append(mb.GetType().FullName).Append("' enabled=")
+                    .Append(mb.enabled);
+            }
+
+            if (bufferCount == 0 && effectsHere == 0)
+                continue;
+            if (effectRows >= MaxCameraRows)
+                continue;
+            effectRows++;
+            // HW-VERIFY: a blind-spot row. A camera listed here draws something that is NOT a camera,
+            // canvas, graphic or renderer, so no other section of this census can account for it. If a
+            // PIXEL-TRIGGERED verdict says 0 rows matched, the answer is on one of these lines.
+            VRLog.Note("WorldUI", $"EYE CENSUS EFFECT '{cam.name}' path={ScenePath(cam.transform)} "
+                + $"active={cam.gameObject.activeInHierarchy} enabled={cam.enabled} "
+                + $"target={(cam.targetTexture != null ? $"'{cam.targetTexture.name}'" : "BACKBUFFER (null)")} "
+                + $"commandBufferCount={bufferCount} imageEffects={effectsHere}"
+                + $"{(IsModOwned(cam.transform) ? " [MOD]" : " [GAME]")}:{Sb}");
+        }
+        Sb.Clear();
+        // HW-VERIFY: the blind-spot summary. Two ZEROS here on a run whose header reports the band on
+        // screen eliminate BOTH leading blind spots at once and promote the XR compositor overlay to
+        // first place.
+        VRLog.Note("WorldUI", $"EYE CENSUS EFFECT SUMMARY {camerasWithBuffers} of {cameras.Length} camera(s) "
+            + $"carry a CommandBuffer and {effectComponents} MonoBehaviour(s) on a camera implement "
+            + $"OnRenderImage ({effectRows} row(s) named above, cap {MaxCameraRows}). "
+            + "XR COMPOSITOR OVERLAY LAYERS: NOT ENUMERABLE in this runtime, stated rather than guessed. "
+            + "Unity 2021.3 exposes no managed API for the layers an OpenXR runtime composites outside "
+            + "the camera loop; com.unity.xr.compositionlayers, which would, requires 2022.3 and is not a "
+            + "dependency of this mod (libs/RuntimeDeps carries Unity.XR.OpenXR 1.10.0 only). What CAN be "
+            + $"said: loadedDeviceName='{UnityEngine.XR.XRSettings.loadedDeviceName}', "
+            + $"stereoRenderingMode={UnityEngine.XR.XRSettings.stereoRenderingMode}, "
+            + $"XR enabled={UnityEngine.XR.XRSettings.enabled}. Note also that the ModBuild 425 pixel watch "
+            + "samples the BACKBUFFER, which a compositor overlay never reaches — so if the watch never "
+            + "reports a band while the user does see one, THAT is the overlay evidence.");
+
         double ms = (Stopwatch.GetTimestamp() - t0) * 1000.0 / Stopwatch.Frequency;
         // HW-VERIFY: THE VERDICT. This is the line the next hardware round is decided on. If it says 0
         // rows matched while the user reports the rim on screen, then the rim is drawn by something NONE
         // of the four sections above can see, and the blind spots named on this line are the entire
         // remaining search space.
-        VRLog.Note("WorldUI", $"EYE CENSUS VERDICT run {run}/{MaxRuns}: {matches} row(s) MATCH the "
+        VRLog.Note("WorldUI", $"EYE CENSUS VERDICT run {run}: {matches} row(s) MATCH the "
             + $"photographed shape — a full-height, left-anchored band with its right edge between "
             + $"{ShapeRightEdgeMin:F2} and {ShapeRightEdgeMax:F2} of the frame. {camPaints} camera(s) paint to "
             + $"a display, {cameras.Length} camera(s), {canvases.Length} canvas(es), {graphicsExamined} "
             + $"graphic(s) and {renderersExamined} enabled renderer(s) were examined. COST: {ms:F1} ms "
-            + $"measured, {run}/{MaxRuns} run(s) spent this session, {s_totalTaps} options tap(s) so far. "
+            + $"measured, {s_runs}/{MaxRuns} tap-triggered and {s_pixelRuns}/{MaxPixelRuns} pixel-triggered "
+            + $"run(s) spent this session, {s_totalTaps} options tap(s) so far. "
+            + (s_pixelContext.Length == 0
+                ? "THIS RUN WAS TRIGGERED BY THE OPTIONS KEY, NOT BY THE PICTURE, so a 0 here does not "
+                  + "distinguish \"nothing was painting the band\" from \"the band was not on screen when "
+                  + "this ran\" — only a PIXEL-TRIGGERED run can. "
+                : matches > 0
+                    ? "*** THE PIXELS AND THE SWEEP AGREE. *** The output frame showed the band at this "
+                      + "moment AND the sweep names a row above: that row IS the artifact, and reading (A) "
+                      + "— the census was never sampling when the band was up — was the right one. Take the "
+                      + "scene path off the matching row; the search is over. "
+                    : "*** THE BAND WAS ON SCREEN AND THIS SWEEP MATCHED NOTHING. *** That is the finding, "
+                      + "not a failure: reading (A) is dead — this run DID coincide with the artifact, "
+                      + "measured in pixels off the frame — and reading (B) is proved. The band is painted "
+                      + "by something no camera, canvas, graphic or renderer in this scene can account for, "
+                      + "so the blind-spot list below is now the ENTIRE remaining search space and the "
+                      + "] EYE CENSUS EFFECT rows above are the first place to look. ")
             + "STILL INVISIBLE TO THIS CENSUS, in falling order of likelihood: a full-screen image effect "
-            + "(OnRenderImage or a CommandBuffer on any camera), an XR compositor overlay layer submitted "
+            + "(OnRenderImage or a CommandBuffer on any camera — both ENUMERATED as of ModBuild 425, see "
+            + "the ] EYE CENSUS EFFECT rows, so this entry is now about what those rows do not decode: "
+            + "what a listed effect or buffer actually DRAWS), an XR compositor overlay layer submitted "
             + "outside Unity's camera loop, an IMGUI OnGUI draw, geometry displaced by a vertex shader "
             + "outside its own bounds ([[culling-cannot-see-vertex-shaders]]), and any renderer removed by "
             + "the angular-size prefilter above.");
@@ -762,6 +987,38 @@ internal static class EyeReachCensus
                + "a fixed distance in front of the eyes and it follows the head. The head camera is "
                + "never a value the GAME writes, so a GAME canvas bound to it was left there by the mod "
                + "— see CanvasConversion.SafeOriginalWorldCamera, grep '] MODAL ADOPT CAMERA LEAK'";
+    }
+
+    /// <summary>
+    /// Does this component type implement <c>OnRenderImage</c>? Unity dispatches image effects by
+    /// message, so there is no interface and no base class to test — the signature IS the contract,
+    /// and reflection is the only way to ask.
+    ///
+    /// <para>Cached per TYPE. The census can run twelve times against a scene holding many instances
+    /// of the same effect, and a per-instance reflection lookup on a bounded diagnostic is exactly
+    /// the "near-free" assumption that has shipped a frame-owning sweep twice in this project
+    /// ([[findobjectsoftype-is-the-default-suspect]]).</para>
+    /// </summary>
+    private static bool HasOnRenderImage(System.Type type)
+    {
+        if (ImageEffectTypes.TryGetValue(type, out bool known))
+            return known;
+        bool has;
+        try
+        {
+            // Declared anywhere in the chain, public or private: Unity finds it either way.
+            has = type.GetMethod("OnRenderImage",
+                System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.FlattenHierarchy,
+                null, new[] { typeof(RenderTexture), typeof(RenderTexture) }, null) != null;
+        }
+        catch (System.Exception)
+        {
+            // A type whose assembly cannot be walked is not a finding, and must not abort the sweep.
+            has = false;
+        }
+        ImageEffectTypes[type] = has;
+        return has;
     }
 
     private static bool ShapeMatches(Rect r) =>
