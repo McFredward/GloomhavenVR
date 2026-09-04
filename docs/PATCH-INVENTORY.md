@@ -165,8 +165,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `MouseWorldSurfaceCut`<br/><sub>src/GloomhavenVR/WorldUI/Patches/MouseWorldSurfaceCut.cs:75</sub> | `EventSystem.RaycastAll()` | postfix | `WorldUIModule`:65 |
 | `PartyPanelStackingHide` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPanelStackingHide.cs:170</sub> | `NewPartyDisplayUI.Hide(object, bool, Action, bool)` | prefix | `WorldUIModule`:176 |
 | `PartyPreviewStorm`<br/><sub>src/GloomhavenVR/WorldUI/Patches/PartyPreviewStorm.cs:113</sub> | `UIAdventurePartyAssemblyWindow.PreviewCharacterInfo(CMapCharacter)` *(private)* | prefix | `WorldUIModule`:108 |
-| `CQuestStateExtensions_CheckRequirements_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:344</sub> | `CQuestStateExtensions.CheckRequirements()` | postfix | `WorldUIModule`:74 |
-| `UnityGameEditorRuntime_LoadScenario_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:358</sub> | `UnityGameEditorRuntime.LoadScenario(ScenarioState, UnityAction<ScenarioState>)` | prefix | `WorldUIModule`:75 |
+| `CQuestStateExtensions_CheckRequirements_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:620</sub> | `CQuestStateExtensions.CheckRequirements()` | postfix | `WorldUIModule`:74 |
+| `UnityGameEditorRuntime_LoadScenario_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Patches/ScenarioGateCheat.cs:634</sub> | `UnityGameEditorRuntime.LoadScenario(ScenarioState, UnityAction<ScenarioState>)` | prefix | `WorldUIModule`:75 |
 | `SettingsClickExemption` *(degrades by design)*<br/><sub>src/GloomhavenVR/WorldUI/Patches/SettingsClickExemption.cs:102</sub> | *(resolved at runtime by `TargetMethod`)* | finalizer | `SettingsClickExemption`:146 |
 | `TakeDamagePanelSafety`<br/><sub>src/GloomhavenVR/WorldUI/Patches/TakeDamagePanelSafety.cs:58</sub> | `TakeDamagePanel.TakeDamage()` | prefix | `WorldUIModule`:56 |
 | &nbsp; | `TakeDamagePanel.BurnAvailableCard(bool)` | prefix | &nbsp; |

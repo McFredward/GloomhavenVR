@@ -342,6 +342,20 @@ internal static partial class VROptionsTab
             + "nach der Rückkehr erneut drücken). Das SCHREIBT den Spielstand — eine Kopie der alten "
             + "Datei wird vorher daneben abgelegt. Einmal drücken zum Scharfschalten, erneut zum "
             + "Bestätigen."));
+        // 2026-09-04. His report names "eine map ... die wegen den Cheats aktiviert wurde, die
+        // eigentlich gesperrt sind". The row BELOW is off in multiplayer from this round on; THIS
+        // one cannot be, because its effect is a save write that is already in the file by the time
+        // a session starts. Saying so on the row is the only honest place: the multiplayer refusal
+        // on the button is about the PRESS, never about what an earlier press left behind.
+        BuildNote(ContentRoot, Text(
+            "Multiplayer cannot switch this one off again: it is written into the savegame, so "
+            + "scenarios opened here are still open once a session starts. One the game would "
+            + "still refuse — a locked starting village, or party requirements — shows its warning "
+            + "when clicked and closes the open quest window with it.",
+            "Im Mehrspieler lässt sich das hier nicht wieder abschalten: es steht im Spielstand, "
+            + "hier geöffnete Szenarien sind also auch in einer Sitzung offen. Eines, das das Spiel "
+            + "trotzdem ablehnt — gesperrtes Startdorf oder Gruppen-Voraussetzungen — zeigt beim "
+            + "Anklicken seine Warnung und schließt das offene Quest-Fenster mit."));
 
         RegisterCheatRow(
             BuildLinkRow(ContentRoot, UnlockCaption(online), () => OnUnlockAllLevels(), asAction: true),
@@ -544,6 +558,14 @@ internal static partial class VROptionsTab
     /// multiplayer refusal is the same as the other two rows, for the same reason — the patch
     /// itself is ALSO inert while <c>FFSNetwork.IsOnline</c>, so a session started with the
     /// toggle already on does not carry it in.</para>
+    ///
+    /// <para>ROUND 2026-09-04, his ruling: <i>"Dieser Cheat soll im Multiplayer völlig deaktiviert
+    /// werden - man soll also nach wie vor dann nicht darauf klicken können"</i>. Since then the
+    /// refusal is not only per call: the first verdict consulted while a session is live switches
+    /// the toggle off outright and asks the map to repaint its markers, so the scenario icon a
+    /// player must not be able to click gets its lock mask back. The row therefore has to SAY that
+    /// — a cheat that silently stops working reads as a broken cheat — which is the second note
+    /// below, in both languages, beside the caption that already reads BLOCKED.</para>
     /// </summary>
     private static int BuildScenarioGateRow(bool online)
     {
@@ -563,6 +585,18 @@ internal static partial class VROptionsTab
             + "Schreibt nichts; bei jedem Spielstart wieder aus. Gesperrte Szenarien brauchen "
             + "weiterhin den Knopf oben. Ein Solo-Szenario ohne seine Klasse startet stattdessen mit "
             + "einem deiner Charaktere."));
+        // 2026-09-04, his ruling: "Dieser Cheat soll im Multiplayer völlig deaktiviert werden - man
+        // soll also nach wie vor dann nicht darauf klicken können". A cheat that silently stops
+        // working reads as a broken cheat, so the row says it in his own language: the caption
+        // below already reads BLOCKED while a session is live, and this note says what happens to a
+        // toggle that was already on when one starts.
+        BuildNote(ContentRoot, Text(
+            "COMPLETELY OFF IN MULTIPLAYER. A running session switches this off, and the scenario "
+            + "icons go back to the game's own locked look, so a scenario the game keeps locked "
+            + "cannot be entered there. Switch it on again after the session.",
+            "IM MEHRSPIELER VÖLLIG DEAKTIVIERT. Eine laufende Sitzung schaltet das hier aus, und "
+            + "die Szenario-Symbole zeigen wieder die Sperre des Spiels — ein gesperrtes Szenario "
+            + "lässt sich dort also nicht betreten. Nach der Sitzung wieder einschalten."));
 
         RegisterCheatRow(
             BuildLinkRow(ContentRoot, ScenarioGateCaption(online), () => OnToggleScenarioGate(), asAction: true),

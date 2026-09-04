@@ -92,12 +92,92 @@
 //  party" to the guests — a host travelling to a scenario the guests' clients consider locked
 //  would put the two sides of the session on different verdicts. Offline-only cannot be got wrong.
 //
+//  ---------------------------------------------------------------------------------------------
+//  ROUND 2026-09-04 — THE RULING: COMPLETELY OFF IN MULTIPLAYER, AND THE PICTURE GOES BACK TOO
+//  ---------------------------------------------------------------------------------------------
+//
+//  USER, verbatim: "Es ist wieder vorgekommen, dass das Fenster komplett verschwunden ist und es
+//  dannach komisch wurde. Ich habe aber rausgefunden woran es liegt: Das passiert wenn ich eine
+//  map anklicke, die wegen den Cheats aktiviert wurde, die eigentlich gesperrt sind. Dieser Cheat
+//  soll im Multiplayer völlig deaktiviert werden - man soll also nach wie vor dann nicht darauf
+//  klicken können - das sollte dann auch das Problem fixen."
+//
+//  He found the trigger for the recurring "the window vanished and then it got strange" defect:
+//  clicking a scenario on the map that is selectable ONLY because a cheat opened it. The ruling is
+//  not a hypothesis to re-litigate: in multiplayer the cheat is off, and such a scenario must stay
+//  un-clickable there.
+//
+//  WHAT WAS ALREADY TRUE (ModBuild 407) AND WHAT WAS NOT. The verdict override already refused
+//  while FFSNetwork.IsOnline — the postfix returned early and the game's own numbers stood. What
+//  did NOT go back was THE PICTURE. UIQuestMapMarker.RefreshState (UIQuestMapMarker.cs:41-59) is
+//  the only writer of a marker's lock mask and greyed material, and it runs on a REFRESH, not per
+//  frame: a marker painted while the toggle was on and the session was still offline keeps its
+//  unlocked look — no incompleteMask, full alpha — after the session goes live. A scenario the
+//  game holds locked therefore still LOOKED open, which is the invitation he describes.
+//
+//  WHAT THE VANISH ACTUALLY IS — read from source this round, and it is NOT this file:
+//    * The lock mask is paint, not a gate. MapLocation.IsSelectable (MapLocation.cs:315-329)
+//      returns true for ANY campaign location carrying a LocationQuest, and in VR the click is
+//      dispatched straight at the MapLocation with ExecuteEvents.pointerClickHandler
+//      (WorldUI/MapRoom/MapLocationInteractor.cs:1400), so nothing drawn on the marker can stop
+//      it. A greyed, masked marker is clickable in VR with or without any cheat.
+//    * The refusal is what tears the window down. MapChoreographer.cs:1243-1248 answers a refused
+//      selection with AdventureMapUIManager.DeselectCurrentMapLocation (:387-394), which deselects
+//      the PREVIOUSLY selected location — the one whose quest window is open — and that re-enters
+//      OnMapLocationSelect(prev, active:false) → QuestManager.OnMapLocationQuestSelected(prev,
+//      false) (QuestManager.cs:142-167) → UIQuestPopup.Hide (:342-351) → UIWindow.Hide, whose
+//      ChangeActive (UIWindow.cs:742-747) can SetActive(false) the popup GameObject. That rect is
+//      the one the VR side re-parented into a world panel, so the panel blanks, the sticky
+//      re-show fights it and concedes, and the float is released. "Das Fenster ist komplett
+//      verschwunden und dannach wurde es komisch."
+//    * So the cheat is the thing that puts him in front of that click; it is not the thing that
+//      makes the click possible. Making a refused scenario genuinely UN-clickable in VR is a
+//      pre-check in the map-room interactor (a different lane owns WorldUI/MapRoom/**), and
+//      surviving a game-side hide of an adopted window is the modal fallback's job. Neither is
+//      here, and this file must not be read as having delivered them.
+//
+//  THEREFORE, three things now, all of them subtractive, and all of them about the cheat itself:
+//    1. The verdict is still asked per call — the gate is evaluated AT THE MOMENT THE VERDICT IS
+//       PRODUCED (in the postfix, on the game's own result object), never latched when the toggle
+//       is flipped. Toggling the row mid-session cannot bypass it because the row is not what is
+//       consulted; FFSNetwork.IsOnline is, on every single evaluation.
+//    2. The first such refusal SWITCHES THE TOGGLE OFF for good ("völlig deaktiviert"), so nothing
+//       downstream — now or the day someone adds a second consumer — can find it on while a
+//       session is live. Only a CERTAIN answer latches: if the game's own property throws we still
+//       refuse (fail closed) but leave the toggle alone, because one throw in single player must
+//       not silently end his test run.
+//    3. And the map's own picture is put back: one deferred, one-shot
+//       MapMarkersManager.RefreshQuestsState() (MapMarkersManager.cs:204-210 — the very call
+//       QuestManager.RefreshLockedQuests makes, marker repaint only, no window lifecycle, no state
+//       write) so every marker re-asks CheckRequirements, now gets the game's verdict, and puts
+//       its lock mask and greyed icon back. Deferred by one frame onto VRSession.CoroutineHost
+//       rather than called inline, because the refusal usually happens INSIDE a marker's own
+//       RefreshState and repainting the list from within one of its entries is re-entrancy for no
+//       gain. This restores what the player SEES — the same picture a client without the cheat
+//       gets — and, per the paragraph above, it does not by itself make the icon un-clickable.
+//
+//  WHY THIS IS THE FIX AND NOT A PLASTER: both machines then compute the same unlock verdict from
+//  the same game state, with the same code, because neither of them is running the override any
+//  more. Nothing is sent, no wire field exists, no game state is written — the correctness comes
+//  from REMOVING a local divergence, which is why the desync-shaped symptom goes with it.
+//
+//  ALTERNATIVES REJECTED. (a) Unpatching the postfix when a session starts: it needs a session-
+//  start seam the mod does not own (FFSNetwork.StartUp is the game's) and a patch that comes and
+//  goes is harder to reason about than a body that returns early on a term it reads live.
+//  (b) Leaving 407's per-call refusal alone and doing nothing else: that is the build he tested,
+//  and it left a scenario the game holds locked wearing an unlocked face. (c) Host-only instead of offline-only: rejected for the
+//  whole page already (VROptionsTab.Cheats.cs) — a cheat that is correct only under a condition
+//  nobody checks is a trap. (d) Calling QuestManager.RefreshLockedQuests instead of the marker
+//  manager: it also refreshes the quest log and the quest POPUPS, and a popup is a window the VR
+//  side adopts — repainting markers must not move a window the player is looking at.
+//
 //  PROCESS STATE, NOT CONFIG. The toggle is a static bool that starts OFF at every game start and
 //  is not written anywhere. A test aid that survives a restart is a trap for the day the testing
 //  is over; and the Cheats page has exactly one config key by design (see its header).
 // =====================================================================================
 
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 using GloomhavenVR.Core;
@@ -105,6 +185,7 @@ using HarmonyLib;
 using MapRuleLibrary.Adventure;
 using MapRuleLibrary.MapState;
 using ScenarioRuleLibrary;
+using UnityEngine;
 using UnityEngine.Events;
 
 namespace GloomhavenVR.WorldUI.Patches;
@@ -140,17 +221,48 @@ internal static class ScenarioGateCheat
     private static bool _postfixWarned;
 
     /// <summary>
+    /// How many times a verdict was consulted while the toggle was on and a session was live —
+    /// i.e. how many times the multiplayer rule refused it. In the ordinary case this reaches
+    /// exactly 1, because the first CERTAIN refusal also switches the toggle off; it climbs only
+    /// while <c>FFSNetwork.IsOnline</c> is throwing, which is the case the count is here to make
+    /// visible. Never reset — it is a session tally, and the toggle going off does not clear it.
+    /// </summary>
+    private static int _onlineRefusals;
+
+    /// <summary>Change gate for the refusal line: ONE line per session, never one per call. The
+    /// count above carries every later refusal to the scenario-load line instead.</summary>
+    private static bool _onlineRefusalNoted;
+
+    /// <summary>True when the multiplayer rule, and not the player, switched the toggle off.</summary>
+    private static bool _forcedOffByOnline;
+
+    /// <summary>One-shot guard for the deferred marker repaint (see the header, point 3).</summary>
+    private static bool _repaintQueued;
+
+    /// <summary>
     /// Is a networked session live? Fails CLOSED — an exception reads as "online", and online
     /// means the toggle is inert. Same rule as <c>VROptionsTab.SessionOnline</c>.
     /// </summary>
-    internal static bool Online()
+    internal static bool Online() => Online(out _);
+
+    /// <summary>
+    /// The same question, plus whether the game actually ANSWERED it. <paramref name="certain"/>
+    /// is false only when <c>FFSNetwork.IsOnline</c> threw: the verdict is still "online" so the
+    /// override refuses either way, but an answer nobody gave must not be the thing that switches
+    /// the toggle off for the rest of the session — one throw in single player would silently end
+    /// a test run, and the whole point of this toggle is walking a scenario list alone.
+    /// </summary>
+    private static bool Online(out bool certain)
     {
         try
         {
-            return FFSNetwork.IsOnline;
+            bool online = FFSNetwork.IsOnline;
+            certain = true;
+            return online;
         }
         catch
         {
+            certain = false;
             return true;
         }
     }
@@ -161,7 +273,10 @@ internal static class ScenarioGateCheat
     {
         Enabled = on;
         if (on)
+        {
             _everEnabled = true;
+            _forcedOffByOnline = false;
+        }
         else
         {
             Overrides.Clear();
@@ -180,8 +295,15 @@ internal static class ScenarioGateCheat
             return;
         try
         {
-            if (Online())
+            // THE MULTIPLAYER GATE, and it sits HERE on purpose: this is the moment the verdict is
+            // produced, so no order of events — toggling the row mid-session, a session started
+            // after the toggle, a session ended and restarted — can present an answer that was
+            // decided earlier. The term is the game's own FFSNetwork.IsOnline, asked live.
+            if (Online(out bool certain))
+            {
+                RefuseWhileOnline(quest?.ID, certain);
                 return;
+            }
 
             string id = quest?.ID ?? "?";
             int chars = result.missingRequiredCharacters?.Count ?? 0;
@@ -234,6 +356,130 @@ internal static class ScenarioGateCheat
         }
     }
 
+    /// <summary>
+    /// The multiplayer rule, run at the moment a verdict was produced: count the refusal, switch
+    /// the toggle off for good when the session term was answered rather than thrown, put the
+    /// map's own picture back, and say all of it once.
+    ///
+    /// <para>NOT a diagnostic despite what it mostly does — it carries the ruling's state change,
+    /// which is why the switch-off is here and not inside a <c>Log…</c> helper: a write that lives
+    /// in an instrument is a write that dies with the instrument.</para>
+    /// </summary>
+    private static void RefuseWhileOnline(string? questId, bool certain)
+    {
+        _onlineRefusals++;
+
+        // THE RULING, 2026-09-04: completely disabled in multiplayer. Refusing per call would be
+        // enough for THIS call; switching the toggle off is what makes it true for every OTHER
+        // reader of the flag, now and later, without any of them having to remember the rule.
+        bool latched = false;
+        if (certain && Enabled)
+        {
+            Set(false);
+            _forcedOffByOnline = true;
+            latched = true;
+        }
+
+        string repaint = latched
+            ? QueueMarkerRepaint()
+            : "not attempted — the toggle was left as it was";
+
+        if (_onlineRefusalNoted)
+            return;
+        _onlineRefusalNoted = true;
+
+        string term = certain
+            ? "FFSNetwork.IsOnline = true (BoltNetwork.IsRunning && !IsShuttingDown), read live at "
+              + "the moment the verdict was produced"
+            : "FFSNetwork.IsOnline THREW, and an unanswerable session question reads as online "
+              + "(fail closed) — so the override refused, and the toggle was deliberately NOT "
+              + "switched off, because a throw in single player must not end a test run";
+        string forQuest = questId ?? "unnamed quest";
+        string state = latched
+            ? "the toggle is now OFF for the rest of the session"
+            : Enabled
+                ? "the toggle is still ON and still inert while the session lasts"
+                : "the toggle was already off";
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "CHEAT 'every scenario loadable': CONSULTED and REFUSED because the "
+                              + "session is online. The game's own RequirementCheckResult was returned "
+                              + $"untouched for {forQuest}. Deciding term: {term}. Ruling 2026-09-04 — "
+                              + $"the cheat is completely disabled in multiplayer: {state}. Map marker "
+                              + $"repaint (so a marker painted while the toggle was on gets its lock "
+                              + $"mask back): {repaint}. Printed once per session; refusal count so far "
+                              + $"{_onlineRefusals}, later ones ride on the scenario-load line. "
+                              + "WHAT WOULD DISPROVE THIS: a travel that SUCCEEDED after this line to "
+                              + "a scenario the game holds locked, or a later line of this file "
+                              + "reporting an override while the session is still up. NOT a "
+                              + "falsifier: a locked marker that can still be poked in VR — the "
+                              + "map-room interactor dispatches the click past the marker paint "
+                              + "(MapLocationInteractor.cs:1400), which is a different lane.");
+    }
+
+    /// <summary>
+    /// Ask the map to repaint its quest markers on the NEXT frame, once per session.
+    ///
+    /// <para>Deferred rather than inline because this is reached from inside an arbitrary caller of
+    /// <c>CheckRequirements</c> — usually a marker's own <c>RefreshState</c> — and repainting the
+    /// marker list from within one of its entries is re-entrancy for no gain. Returns what happened
+    /// for the log line; the repaint itself reports its own outcome.</para>
+    /// </summary>
+    private static string QueueMarkerRepaint()
+    {
+        if (_repaintQueued)
+            return "already queued earlier this session";
+        MonoBehaviour? host = VRSession.CoroutineHost;
+        if (host == null)
+            return "NOT queued — no coroutine host yet; the map repaints on its own next refresh "
+                   + "and the click path re-asks CheckRequirements either way";
+        _repaintQueued = true;
+        host.StartCoroutine(RepaintMarkersNextFrame());
+        return "queued for the next frame";
+    }
+
+    /// <summary>
+    /// <c>MapMarkersManager.RefreshQuestsState()</c> — the marker half of the game's own
+    /// <c>QuestManager.RefreshLockedQuests</c>. Every quest marker re-asks
+    /// <c>CheckRequirements</c>, which the postfix no longer touches, and puts back the lock mask
+    /// and greyed material that MARK a locked scenario as locked. Paint, not a gate:
+    /// <c>MapLocation.IsSelectable</c> never consults it (see the header). No window is opened,
+    /// closed or reparented; nothing is written to the map state or the save.
+    /// </summary>
+    private static IEnumerator RepaintMarkersNextFrame()
+    {
+        yield return null;
+        string outcome;
+        try
+        {
+            MapMarkersManager? markers = Singleton<MapMarkersManager>.IsInitialized
+                ? Singleton<MapMarkersManager>.Instance
+                : null;
+            if (markers == null)
+            {
+                outcome = "no MapMarkersManager in the scene — the campaign map is not up, so there "
+                          + "is no stale marker to repaint";
+            }
+            else
+            {
+                markers.RefreshQuestsState();
+                outcome = "MapMarkersManager.RefreshQuestsState() ran; every quest marker re-asked "
+                          + "the game for its own verdict";
+            }
+        }
+        catch (Exception e)
+        {
+            outcome = $"the repaint threw ({e.GetType().Name}: {e.Message}) and was abandoned — the "
+                      + "map still repaints itself on its next refresh";
+        }
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "CHEAT 'every scenario loadable': marker repaint after the multiplayer "
+                              + $"refusal: {outcome}. WHAT WOULD DISPROVE THIS: a scenario icon still "
+                              + "drawn open — no lock mask, full alpha — after this line while the "
+                              + "game holds it locked.");
+    }
+
     private static string Summarise(RequirementCheckResult result, int chars, int levels, int items,
                                     int pqs, int amount, RequirementCheckResult.StartingLocatinState loc)
     {
@@ -273,6 +519,31 @@ internal static class ScenarioGateCheat
     }
 
     /// <summary>
+    /// The multiplayer half of the scenario-load line: was the override consulted while a session
+    /// was live, how often, and what the rule did about it. Reads state, writes none — the switch-off
+    /// it reports was made by <see cref="RefuseWhileOnline"/> at the moment of the verdict.
+    /// </summary>
+    private static string OnlineClause()
+    {
+        if (_onlineRefusals == 0)
+            return "Online rule: the override was never consulted while a session was live "
+                   + "(0 refusals), so nothing was refused for that reason.";
+
+        string what = _forcedOffByOnline
+            ? "and the rule switched the toggle OFF for the session (ruling 2026-09-04: the cheat "
+              + "is completely disabled in multiplayer)"
+            : "and the toggle was left as it was, because the session term threw rather than "
+              + "answered and an unanswered question must not end a single-player test run";
+        string repainted = _repaintQueued
+            ? " The quest markers were asked to repaint, so a marker painted while the toggle was "
+              + "on shows the game's own lock state again."
+            : "";
+        return $"Online rule: CONSULTED and REFUSED {_onlineRefusals} time(s) — the game's own "
+               + $"RequirementCheckResult was returned untouched each time {what}."
+               + repainted;
+    }
+
+    /// <summary>
     /// The prefix body for <c>UnityGameEditorRuntime.LoadScenario</c>: one line per scenario load
     /// naming the quest being loaded and what the toggle overrode for it.
     /// </summary>
@@ -298,11 +569,17 @@ internal static class ScenarioGateCheat
                 : $"no in-progress campaign quest (scenario id '{scenarioState?.ID ?? "?"}' — level editor, "
                   + "custom level, tutorial or a load outside the map)";
 
+            // The multiplayer clause, appended to both branches below rather than folded into
+            // them: the round of 2026-09-04 asks the next hardware log to say whether the cheat was
+            // CONSULTED and REFUSED online, and that is a different fact from whether it is on.
+            string online = OnlineClause();
+
             if (!Enabled)
             {
                 // HW-VERIFY
                 VRLog.Note("WorldUI", $"CHEAT 'every scenario loadable' at scenario load: OFF (was on earlier this "
-                                      + $"session, switched off cleanly — no requirement was overridden) for {who}.");
+                                      + $"session, switched off cleanly — no requirement was overridden) for {who}. "
+                                      + online);
                 return;
             }
 
@@ -323,8 +600,8 @@ internal static class ScenarioGateCheat
             VRLog.Note("WorldUI", $"CHEAT 'every scenario loadable' at scenario load: ON for {who}: {overrode}. "
                                   + "Mechanism: postfix on CQuestStateExtensions.CheckRequirements emptied the "
                                   + "requirement fields of the game's own RequirementCheckResult; nothing written to "
-                                  + $"the save. Multiplayer session active: {mp}. "
-                                  + "WHAT WOULD DISPROVE THIS: a Travel refusal warning on the map while this line "
+                                  + $"the save. Multiplayer session active: {mp}. " + online
+                                  + " WHAT WOULD DISPROVE THIS: a Travel refusal warning on the map while this line "
                                   + "says ON and the session is offline, or a load-time gate summary that does not "
                                   + "name the requirement the map showed.");
         }
