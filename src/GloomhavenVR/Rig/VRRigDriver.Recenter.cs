@@ -12,15 +12,23 @@ internal sealed partial class VRRigDriver
     /// <summary>
     /// Recenter the live rig, if any (the comfort entry point — chord/panel/dev key).
     ///
-    /// <para>DELIBERATELY WITHOUT THE SPAWN RING. This is the entry point a HUMAN pulls (B+Y hold,
-    /// the dev key), and re-solving the multiplayer ring here would teleport a player around the
-    /// table on an unrelated request. (It used to be reachable from a config change too — the
-    /// [Comfort] TableHeightOffset handler re-ran recenter live; that setting is gone, so today
-    /// EVERY caller is a deliberate human act, which only strengthens the rule.)
-    /// The ring is a JOIN placement, not a recenter behaviour — it lives entirely in
-    /// <see cref="TickSpawnRingSettle"/>. A manual recenter keeps the azimuth the player is
-    /// currently at, exactly what it has always done, and it also CLOSES the ring's window: a
-    /// player who has just placed themselves by hand must never be moved again.</para>
+    /// <para>DELIBERATELY WITHOUT THE SPAWN RING'S AZIMUTH SOLVE, and that half of the rule is
+    /// unchanged. This is the entry point a HUMAN pulls (B+Y hold, the dev key), and re-solving the
+    /// multiplayer ring here would teleport a player around the table on an unrelated request —
+    /// because a PEER moved. (It used to be reachable from a config change too — the [Comfort]
+    /// TableHeightOffset handler re-ran recenter live; that setting is gone, so today EVERY caller
+    /// is a deliberate human act, which only strengthens the rule.) The ring as a JOIN PLACEMENT —
+    /// which side of the table you get — lives entirely in <see cref="TickSpawnRingSettle"/>, and
+    /// this path never runs it. It also CLOSES the ring's window: a player who has just placed
+    /// themselves by hand must never be moved again.</para>
+    ///
+    /// <para>WHAT DID CHANGE (2026-09-04, hardware): the ring's GEOMETRY. The user: "Wenn man Y und
+    /// B gedrückt hält re-spawnt man an eine Stelle. Soweit so gut - allerdings ist der Spawnpunkt
+    /// IN dem Spielfeld wenn man sich so recentered. Ich will das der Spawnpunkt derselbe ist an dem
+    /// man am Anfang auch reingespawnt ist, der bereits die Regeln enthält." A recenter now solves
+    /// the radius, the height and the facing the way the arrival seat did — at the azimuth the
+    /// player ALREADY HAS, which is what keeps the paragraph above true. See
+    /// <see cref="SpawnRing.TryRecenterSeat"/>.</para>
     /// </summary>
     internal static void RequestRecenter()
     {
@@ -32,22 +40,42 @@ internal sealed partial class VRRigDriver
     }
 
     /// <summary>
-    /// Reposition the rig so the player's CURRENT head pose ends up at the FIXED table-edge
-    /// spot: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real) above the orbit
-    /// focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/> back — both the bare
-    /// STANDING preset (0.30 above / 0.70 back), since there is no seated preset any more and, since the
-    /// 2026-08 ruling, no [Comfort] TableHeightOffset to add to the height either. Called
+    /// Reposition the rig so the player's CURRENT head pose ends up back at the table. Called
     /// automatically on the first tracked pose, and bound to the B+Y hold chord (see
     /// <see cref="Comfort"/>).
     ///
-    /// <para>NOT CONFIGURABLE, ON PURPOSE. The seat is one constant pose so that "recenter" means
-    /// the same thing every time — the deterministic way back to the table from wherever free
-    /// locomotion left you. Eye height is the player's own business now: the stick (see
-    /// <see cref="Flight"/>) and the world grab move them up, down and through the scene at will,
-    /// which is precisely why the height dial was removed rather than kept alongside them.</para>
+    /// <para>TWO RULES, IN THIS ORDER, and the first one is new (2026-09-04, hardware — "allerdings
+    /// ist der Spawnpunkt IN dem Spielfeld wenn man sich so recentered. Ich will das der Spawnpunkt
+    /// derselbe ist an dem man am Anfang auch reingespawnt ist, der bereits die Regeln enthält"):
+    /// <list type="number">
+    /// <item>THE ARRIVAL SEAT'S GEOMETRY, whenever the board can be measured
+    /// (<see cref="SpawnRing.TryRecenterSeat"/>): out to the board's own EDGE along the seat
+    /// direction plus the standing clearance, backed off until the whole play field fits in a
+    /// glance, <see cref="SpawnRing.RingHeadAboveFocusMeters"/> above the board plane, facing the
+    /// board centre. The AZIMUTH is not re-solved — it is the one the ring seated this player at on
+    /// arrival, or failing that the side of the table they are already on.</item>
+    /// <item>THE TABLE-EDGE FALLBACK, byte-for-byte what this method has always done, when there is
+    /// no measurable board: eyes <see cref="ComfortSettings.EffectiveEyeHeightMeters"/> (real) above
+    /// the orbit focus plane and <see cref="ComfortSettings.EffectiveEyeBackMeters"/> back — both
+    /// the bare STANDING preset (0.30 above / 0.70 back), since there is no seated preset any more
+    /// and, since the 2026-08 ruling, no [Comfort] TableHeightOffset to add to the height either.
+    /// That rule is right in a world with no play field and wrong in one with a big play field,
+    /// which is precisely the defect above: <c>FocusPoint</c> moves with the player's view over a
+    /// scenario, and 0.70 m back from it lands in the middle of a large diorama.</item>
+    /// </list>
+    /// Both outcomes write ONE log line, both name the rule they took, and the fallback names WHY
+    /// the board could not be measured.</para>
     ///
-    /// <para>UNCONDITIONAL BEHAVIOUR: this method no longer knows the ring exists — do not give it
-    /// a <c>useSpawnRing</c> flag back. Why that shape failed is recorded once, at
+    /// <para>NOT CONFIGURABLE, ON PURPOSE. The seat is one derived pose so that "recenter" means the
+    /// same thing every time — the deterministic way back to the table from wherever free locomotion
+    /// left you. Eye height is the player's own business: the stick (see <see cref="Flight"/>) and
+    /// the world grab move them up, down and through the scene at will, which is precisely why the
+    /// height dial was removed rather than kept alongside them. No new key was added for any of the
+    /// above either.</para>
+    ///
+    /// <para>THE RING'S PLACEMENT IS STILL NOT HERE: this method borrows the ring's GEOMETRY and
+    /// never its azimuth solve, does not open, re-arm or consult the settle window, and must not be
+    /// given a <c>useSpawnRing</c> flag back. Why that shape failed is recorded once, at
     /// <see cref="TickSpawnRingSettle"/>.</para>
     /// </summary>
     internal void Recenter()
@@ -80,11 +108,13 @@ internal sealed partial class VRRigDriver
 
         float scale = _rigRoot.transform.localScale.x;
 
-        // World tilt composition: the seat math below is authored for a yaw-only rig
-        // (seatYaw reads the current rotation; offsets assume a level horizon). Flatten the
-        // tilt out first — TickWorldTilt re-applies the configured tilt on top of the fresh
-        // seat in LateUpdate this same frame, so a recenter lands at the standard table-edge
-        // seat viewed through the tilt, with no untilted frame ever rendered.
+        // World tilt composition: BOTH seat rules below are authored for a yaw-only rig (the
+        // fallback's seatYaw reads the current rotation, and the ring geometry's facing is a
+        // yaw-only LookRotation; both assume a level horizon). Flatten the tilt out first —
+        // TickWorldTilt re-applies the configured tilt on top of the fresh seat in LateUpdate this
+        // same frame, so a recenter lands at the solved seat viewed through the tilt, with no
+        // untilted frame ever rendered. (ApplyRingSeat flattens again on rule 1; YawOnly of a
+        // yaw-only rotation is the identity, so the second flatten is a no-op, not a second event.)
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
         // Attribute this frame's tilt re-apply (the LateUpdate heal after the flatten
@@ -94,6 +124,52 @@ internal sealed partial class VRRigDriver
         // the avatar root (InputTracking.Recenter / AvatarController.cs:684-694).
         _axisSnapReason = "recenter";
 
+        // ---- RULE 1: THE ARRIVAL SEAT'S GEOMETRY, at an azimuth nobody re-solves ---------------
+        // Read the board NOW (not at arrival) and at the CURRENT rig scale, so a player who has
+        // pinch-zoomed the table since they sat down still lands at its edge. Everything the solver
+        // returns in ...Meters is a REAL metre and everything in ...World is a world unit; the only
+        // conversion is the rig scale it was handed, and it is applied exactly once in each
+        // direction (SpawnRing.FillSeatGeometry states the frames).
+        if (SpawnRing.TryRecenterSeat(controller.FocusPoint, scale, _camera.transform.position,
+                                      _scenarioBaseYaw, _ringSeatAngleValid, _ringSeatAngleDegrees,
+                                      out SpawnRing.Seat ringSeat, out SpawnRing.Footprint board,
+                                      out string whyNotRing))
+        {
+            Vector3 ringHead = ApplyRingSeat(ringSeat, "recenter");
+
+            // VERIFY THE OUTCOME, NOT THE PATH — the same re-measure the ring's own SEATED line
+            // does. Everything above is what was ASKED for; this is the picture the player got,
+            // read back off the real camera transform after RigClamp.
+            SpawnRing.Framing achieved = SpawnRing.Frame(board, _camera.transform.position, scale);
+
+            // HW-VERIFY: THE LINE THAT DECIDES THE 2026-09-04 REPORT. "(table-edge seat)" is kept
+            // verbatim because it is the grep token every previous hardware round was read with;
+            // the clause after it names the rule that actually produced the pose. If the chord still
+            // drops the player into the diorama, this line says whether the ring geometry ran at all
+            // (SEAT RULE) and, if it did, whether it ACHIEVED being clear of the board — which
+            // localises the defect to the geometry rather than to the trigger.
+            VRLog.Note("Rig", $"Recentered — head at {ringHead}, rig root at " +
+                              $"{_rigRoot.transform.position} (table-edge seat). " +
+                              $"SEAT RULE: the spawn ring's own geometry at azimuth " +
+                              $"{ringSeat.AngleDegrees:F1}deg — " +
+                              $"{(ringSeat.AzimuthRemembered ? "the REMEMBERED ARRIVAL AZIMUTH, i.e. the seat this scenario spawned the player at" : "the player's CURRENT side of the table (no ring seat was ever placed in this scenario)")}, " +
+                              $"never re-solved against peers. Radius {ringSeat.RadiusMeters:F2} m " +
+                              $"({ringSeat.RadiusWorld:F2} world units at rig scale {scale:F2}) = board " +
+                              $"edge {ringSeat.EdgeMeters:F2} m along that direction + " +
+                              $"{ringSeat.ClearanceMeters:F2} m clearance" +
+                              $"{(ringSeat.FramingSteps > 0 ? $" [BACKED OFF {ringSeat.FramingSteps} step(s) to fit the play field in view]" : "")}" +
+                              $"{(ringSeat.RadiusRaisedToFloor ? $" [raised to the {SpawnRing.MinRadiusMeters:F2} m table-edge floor]" : "")}; " +
+                              $"{SpawnRing.RingHeadAboveFocusMeters:F2} m above the board plane, facing " +
+                              $"the board centre {ringSeat.Center} over {ringSeat.TileCount} tile(s). " +
+                              $"SOLVED FOR: {ringSeat.Framing}. ACHIEVED: {achieved} => " +
+                              $"{(achieved.Acceptable ? "REQUIREMENT MET" : "REQUIREMENT NOT MET")}.");
+            return;
+        }
+
+        // ---- RULE 2: THE TABLE-EDGE FALLBACK, exactly as it has always been --------------------
+        // Reached only when there is no measurable board (whyNotRing says which). The orbit focus
+        // point is then the only reference there is, and 0.70 m back from it is right in a world
+        // with nothing to sit around.
         Quaternion seatYaw = _rigRoot.transform.rotation;
         Vector3 desiredHeadWorld = controller.FocusPoint
                                    + seatYaw * (Vector3.back * (ComfortSettings.EffectiveEyeBackMeters * scale))
@@ -104,8 +180,17 @@ internal sealed partial class VRRigDriver
         RigClamp.Apply(_rigRoot.transform);
         RigPoseVersion++; // P6: world-anchored panels re-derive their seat yaw on recenter
 
-        VRLog.Info("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at " +
-                          $"{_rigRoot.transform.position} (table-edge seat).");
+        // HW-VERIFY: the same decision line for the OTHER outcome. A hardware round that reports a
+        // bad recenter and finds THIS variant is looking at a board the mod could not measure, and
+        // the reason is printed rather than inferred — the ring geometry never ran, so the pose is
+        // the board-blind one and blaming its numbers would be blaming the wrong stage.
+        VRLog.Note("Rig", $"Recentered — head at {desiredHeadWorld}, rig root at " +
+                          $"{_rigRoot.transform.position} (table-edge seat). " +
+                          $"SEAT RULE: the TABLE-EDGE FALLBACK — eyes " +
+                          $"{ComfortSettings.EffectiveEyeBackMeters:F2} m back and " +
+                          $"{ComfortSettings.EffectiveEyeHeightMeters:F2} m above the orbit focus " +
+                          $"{controller.FocusPoint} at the current rig yaw, at rig scale {scale:F2}. " +
+                          $"It ran because {whyNotRing}.");
     }
 
     /// <summary>
@@ -122,24 +207,31 @@ internal sealed partial class VRRigDriver
     /// and the reason <c>_axisSnapReason</c> is set below) makes the HEAD's world yaw exactly
     /// <c>seat.Yaw</c>, whatever direction the player is standing in.</para>
     /// </summary>
+    /// <param name="seat">The solved seat.</param>
+    /// <param name="axisSnapReason">What to attribute this frame's tilt re-aim to in the WorldTilt
+    /// change log. The ring's own placement is "spawn ring seat"; the B+Y chord passes "recenter",
+    /// because from the tilt's point of view that is exactly the masked re-aim it has always been —
+    /// the seat rule underneath it changed, the event did not.</param>
     /// <returns>The world head position the seat was written for (log material).</returns>
-    private Vector3 ApplyRingSeat(in SpawnRing.Seat seat)
+    private Vector3 ApplyRingSeat(in SpawnRing.Seat seat, string axisSnapReason = "spawn ring seat")
     {
         float scale = _rigRoot!.transform.localScale.x;
 
         if (_tiltActive)
             _rigRoot.transform.rotation = YawOnly(_rigRoot.transform.rotation);
-        _axisSnapReason = "spawn ring seat";
+        _axisSnapReason = axisSnapReason;
 
         Quaternion seatYaw = seat.Yaw * Quaternion.Inverse(YawOnly(_camera!.transform.localRotation));
         _rigRoot.transform.rotation = seatYaw;
 
         // RING SEATS SPAWN RAISED (user ruling 2026-08-04: "Heb den Spawn-Ring etwas an, ich will
         // dass alle Spieler etwas höher als das Spielfeld selber spawnen"). The lift is ON TOP of
-        // the standing eye height and applies to RING seats only — the B+Y recenter chord keeps
-        // the plain table-edge seat, because that gesture means "put me back AT the table", while
-        // the ring is an ARRIVAL pose: a slightly elevated vantage reads the whole field at a
-        // glance, and with stick flight the player descends in a second if they want to.
+        // the standing eye height. IT NOW APPLIES TO THE B+Y RECENTER TOO — that carve-out was
+        // removed on 2026-09-04, when the user asked for the opposite of what it assumed: "Ich will
+        // das der Spawnpunkt derselbe ist an dem man am Anfang auch reingespawnt ist, der bereits
+        // die Regeln enthält". The elevated arrival vantage that reads the whole field at a glance
+        // IS one of "die Regeln", and with stick flight the player descends in a second if they
+        // want to.
         //
         // THE HEIGHT COMES FROM SpawnRing.RingHeadAboveFocusMeters, not from a second copy of the
         // sum. The solver measures the picture at the head pose it is asking for; if this call site
@@ -356,6 +448,13 @@ internal sealed partial class VRRigDriver
 
         Vector3 head = ApplyRingSeat(seat);
         _ringPlaced = true;
+        // REMEMBER WHICH SIDE OF THE TABLE THE PLAYER WAS GIVEN. This is the only writer of the
+        // arrival azimuth, and it is deliberately HERE rather than inside ApplyRingSeat: the B+Y
+        // recenter also applies a seat through that method, and a recenter must never be able to
+        // promote its own azimuth into "the seat you spawned at". The one allowed correction
+        // overwrites it, which is right — the corrected seat IS the arrival seat.
+        _ringSeatAngleDegrees = seat.AngleDegrees;
+        _ringSeatAngleValid = true;
         _ringPeersAtPlacement = seat.PeerCount;
         _ringTilesAtPlacement = seat.TileCount;
         _ringNextLogTime = now + RingLogIntervalSeconds;

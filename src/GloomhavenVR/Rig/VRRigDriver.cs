@@ -274,6 +274,17 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     private bool _ringPlayerMoved;
     private string? _ringPlayerMovedWhat;
 
+    // THE ARRIVAL AZIMUTH, REMEMBERED FOR THE B+Y CHORD (2026-09-04: "Ich will das der Spawnpunkt
+    // derselbe ist an dem man am Anfang auch reingespawnt ist, der bereits die Regeln enthält").
+    // Written once by the ring's own placement in TickSpawnRingSettle and read only by Recenter,
+    // which re-solves the ring's RADIUS/HEIGHT/FACING rules at this angle rather than re-solving
+    // the angle itself — the azimuth must never move because a PEER moved (see RequestRecenter).
+    // A world azimuth in degrees, so it is independent of rig pose and rig scale and survives the
+    // player zooming, flying and turning; reset only on a real ARRIVAL at a scenario table, which
+    // is why a mid-scenario rig rebuild (health re-anchor, MSAA diagnostic) keeps it.
+    private bool _ringSeatAngleValid;
+    private float _ringSeatAngleDegrees;
+
     /// <summary>Cached settle-poll delegate ([Optimize] CacheTickDelegates).</summary>
     private System.Action? _tickSpawnRingSettle;
 
@@ -825,6 +836,16 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         _ringTilesAtPlacement = 0;
         _ringPlayerMoved = false;
         _ringPlayerMovedWhat = null;
+        // THE REMEMBERED ARRIVAL AZIMUTH DIES WITH THE ARRIVAL, NOT WITH THE RIG. A rebuild inside
+        // a running scenario is not a new arrival (see `arrival` above), and the seat the player was
+        // given when they sat down is still the seat the B+Y chord owes them; clearing it here would
+        // silently downgrade every recenter after a health re-anchor to the "current side of the
+        // table" rule. A genuine arrival at a new table has no remembered seat yet, by definition.
+        if (arrival)
+        {
+            _ringSeatAngleValid = false;
+            _ringSeatAngleDegrees = 0f;
+        }
         _circleReseatCountdown = CircleReseatIntervalFrames;
 
         // Clip planes seeded for this scale (~5 real cm near plane) and kept

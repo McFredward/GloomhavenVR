@@ -70,9 +70,11 @@ internal static class SpawnRing
     /// <summary>
     /// Extra height a RING seat adds on top of the standing eye preset, real metres (user ruling
     /// 2026-08-04: every player spawns "etwas höher als das Spielfeld selber"). Consumed by
-    /// <c>VRRigDriver.ApplyRingSeat</c> — ring seats only; the deliberate B+Y recenter keeps the
-    /// plain table-edge height. 0.35 m lifts the arrival vantage noticeably above the board plane
-    /// without reading as flying; from there stick flight puts the player wherever they like.
+    /// <c>VRRigDriver.ApplyRingSeat</c>, which since 2026-09-04 is also the B+Y recenter's path —
+    /// the "ring seats only" carve-out is gone, because the user asked for the recenter to land at
+    /// the arrival seat "der bereits die Regeln enthält" and this height is one of those rules.
+    /// 0.35 m lifts the vantage noticeably above the board plane without reading as flying; from
+    /// there stick flight puts the player wherever they like.
     /// </summary>
     internal const float RingSeatLiftMeters = 0.35f;
 
@@ -302,6 +304,12 @@ internal static class SpawnRing
         /// the ordinary scenario base yaw and only the radius came from the board footprint.</summary>
         public bool Solo;
 
+        /// <summary>RECENTER SEATS ONLY (<see cref="TryRecenterSeat"/>): true when the azimuth is
+        /// the one the spawn ring seated this player at on arrival, false when no ring seat was
+        /// ever placed and the seat kept the side of the table the player was already on. Log
+        /// material — it is the field that says WHICH of the two rules the chord took.</summary>
+        public bool AzimuthRemembered;
+
         /// <summary>Board centre, xz from the tile footprint, y on the orbit focus plane (the
         /// plane the eye height is measured from — unchanged from the ordinary seat).</summary>
         public Vector3 Center;
@@ -517,7 +525,44 @@ internal static class SpawnRing
         }
         AngleScratch.Clear();
 
-        Vector3 dir = Quaternion.AngleAxis(angle, Vector3.up) * Vector3.forward;
+        FillSeatGeometry(board, angle, scale, ref seat);
+        seat.MinGapDegrees = minGap;
+        seat.FromIndexFallback = fallback;
+        return Outcome.Placed;
+    }
+
+    /// <summary>
+    /// THE GEOMETRY RULE — how far out the seat sits, how high it is and which way it faces —
+    /// at an azimuth the CALLER has already chosen. Everything about a seat except WHICH SIDE of
+    /// the table it is on.
+    ///
+    /// <para>IT IS A SEPARATE METHOD BECAUSE IT HAS TWO CALLERS AND MUST HAVE ONE DEFINITION.
+    /// <see cref="SolveCore"/> reaches it after picking the azimuth across from the peers, and
+    /// <see cref="TryRecenterSeat"/> reaches it with an azimuth that was decided long ago — the
+    /// B+Y recenter chord (user, 2026-09-04: "allerdings ist der Spawnpunkt IN dem Spielfeld wenn
+    /// man sich so recentered. Ich will das der Spawnpunkt derselbe ist an dem man am Anfang auch
+    /// reingespawnt ist, der bereits die Regeln enthält"). "Die Regeln" are exactly the three
+    /// below, and copying them into the recenter instead of sharing them is how the two would
+    /// drift apart on the next board-shape change.</para>
+    ///
+    /// <para>UNITS, STATED ONCE. <paramref name="scale"/> is the rig root's scale: WORLD UNITS PER
+    /// REAL METRE. Everything named <c>...Meters</c> in here is a REAL metre (what the player's
+    /// body feels) and everything named <c>...World</c> is a world unit (what the board is measured
+    /// in). The board arrives in world units and is divided by the scale exactly once
+    /// (<c>edgeMeters</c>); the radius is decided in real metres and multiplied back exactly once
+    /// (<c>radiusWorld</c>). That is why a zoomed-in player still ends up standing 0.35 real metres
+    /// beyond the board's edge rather than 0.35 world units from it.</para>
+    /// </summary>
+    /// <param name="board">The measured footprint.</param>
+    /// <param name="angleDegrees">World azimuth of the side of the table to sit on.</param>
+    /// <param name="scale">Rig root scale, world units per real metre (already sanitised).</param>
+    /// <param name="seat">Filled in; fields the caller owns (Solo, PeerCount, MinGapDegrees,
+    /// FromIndexFallback, AzimuthRemembered) are left untouched.</param>
+    private static void FillSeatGeometry(in Footprint board, float angleDegrees, float scale,
+                                         ref Seat seat)
+    {
+        Vector3 center = board.Center;
+        Vector3 dir = Quaternion.AngleAxis(angleDegrees, Vector3.up) * Vector3.forward;
 
         // ---- HOW FAR: at the table edge on THAT side, then FAR ENOUGH TO SEE IT ALL ---------
         // Edge distance along the chosen direction (not the circumscribing radius — see
@@ -564,14 +609,124 @@ internal static class SpawnRing
         seat.Framing = framing;
         seat.HeadWorld = headWorld;
         seat.TileCount = board.TileCount;
-        seat.AngleDegrees = angle;
-        seat.MinGapDegrees = minGap;
-        seat.FromIndexFallback = fallback;
+        seat.AngleDegrees = angleDegrees;
         seat.HeadFlat = center + dir * radiusWorld;
         // FACE THE BOARD, AND THEREFORE THE PEER BEYOND IT: forward = seat → centre, world up ⇒
         // yaw only. With one peer this is literally "look at their mask across the table".
         seat.Yaw = Quaternion.LookRotation(-dir, Vector3.up);
-        return Outcome.Placed;
+    }
+
+    /// <summary>
+    /// THE RECENTER SEAT — the ring's geometry, at an azimuth NOBODY RE-SOLVES.
+    ///
+    /// <para>THE REPORT (user, hardware 2026-09-04, verbatim): "Wenn man Y und B gedrückt hält
+    /// re-spawnt man an eine Stelle. Soweit so gut - allerdings ist der Spawnpunkt IN dem Spielfeld
+    /// wenn man sich so recentered. Ich will das der Spawnpunkt derselbe ist an dem man am Anfang
+    /// auch reingespawnt ist, der bereits die Regeln enthält." The old recenter solved its seat from
+    /// <c>CameraController.FocusPoint</c> — a point that MOVES with the player's view over a
+    /// scenario — with a fixed 0.70 m set-back that knows nothing about how big this board is. After
+    /// any amount of play that lands in the middle of the diorama, which is the whole complaint.</para>
+    ///
+    /// <para>WHAT IS AND IS NOT TAKEN FROM THE RING. Taken: the RADIUS (the measured board edge
+    /// along the seat direction plus the standing clearance, backed off until the play field fits in
+    /// a glance), the HEIGHT (<see cref="RingHeadAboveFocusMeters"/> above the board plane) and the
+    /// FACING (the board centre) — the three things the user calls "die Regeln". NOT taken: the
+    /// AZIMUTH. Re-solving that against the peers here would teleport a player around the table
+    /// because somebody ELSE moved, on a request that had nothing to do with them; see the
+    /// <c>VRRigDriver.RequestRecenter</c> doc, which is unchanged and still governs.</para>
+    ///
+    /// <para>PURE AND READ-ONLY, and guarded like <see cref="Solve"/>: a throw in a comfort
+    /// geometry helper must degrade to "no ring geometry", never to "no recenter" — the recenter is
+    /// the player's way out of a bad pose and is the one thing that may not fail.</para>
+    /// </summary>
+    /// <param name="focusPoint">Orbit focus — used ONLY for the board plane's height, the same
+    /// vertical convention the ordinary seat has always used.</param>
+    /// <param name="rigScale">Rig root scale NOW (world units per real metre), so a player who has
+    /// zoomed the table still ends up standing at its edge rather than somewhere in the room.</param>
+    /// <param name="headWorld">The player's current head, world units — only consulted when there
+    /// is no remembered arrival azimuth, to keep them on the side of the table they are already on.</param>
+    /// <param name="baseYaw">The scenario rig's frozen flat board yaw — the last-resort direction,
+    /// identical to the one the solo ring uses, for a head sitting exactly on the board centre.</param>
+    /// <param name="hasRememberedAzimuth">True when the spawn ring actually seated this player in
+    /// this scenario and <paramref name="rememberedAzimuthDegrees"/> is that seat's azimuth.</param>
+    /// <param name="rememberedAzimuthDegrees">The arrival seat's world azimuth.</param>
+    /// <param name="seat">The solved seat (only meaningful when this returns true).</param>
+    /// <param name="board">The footprint the seat was solved on — the caller re-runs
+    /// <see cref="Frame"/> against it on the pose it ACTUALLY ends up at.</param>
+    /// <param name="whyNot">Empty on success; otherwise the reason there is no measurable board,
+    /// printed verbatim in the caller's fallback log line.</param>
+    internal static bool TryRecenterSeat(Vector3 focusPoint, float rigScale, Vector3 headWorld,
+                                         Quaternion baseYaw, bool hasRememberedAzimuth,
+                                         float rememberedAzimuthDegrees,
+                                         out Seat seat, out Footprint board, out string whyNot)
+    {
+        seat = default;
+        board = default;
+        whyNot = "";
+
+        try
+        {
+            if (!TryFootprint(focusPoint.y, out board))
+            {
+                whyNot = $"the scenario board is not measurable ({TileCount()} hex tile(s) in the " +
+                         "object cache), so there is no footprint to sit outside of";
+                return false;
+            }
+
+            float scale = rigScale > 0.0001f ? rigScale : 1f;
+
+            // ---- WHICH SIDE OF THE TABLE, and why it is never re-solved here -------------------
+            // FIRST CHOICE: the azimuth the spawn ring seated this player at when the scenario
+            // started. That is what "derselbe [Punkt] an dem man am Anfang reingespawnt ist" asks
+            // for literally, and remembering it also survives everything the alternatives do not: a
+            // peer joining or leaving, the player flying somewhere odd before pulling the chord, and
+            // a board that has stopped being measurable in between.
+            //
+            // SECOND CHOICE, when no ring seat was ever placed (single-player scenario whose tiles
+            // arrived after the window, a rig rebuilt mid-scenario, [Rig] SpawnInCircle off): the
+            // side of the table the player is standing on RIGHT NOW. Rejected alternative: the rig's
+            // own yaw, which is where they are LOOKING — a player who has turned to look at their
+            // hand would be re-seated on a different side of the board by a gesture that means
+            // "put me back at the table".
+            bool remembered = hasRememberedAzimuth;
+            float angle;
+            if (remembered)
+            {
+                angle = Mathf.Repeat(rememberedAzimuthDegrees, 360f);
+            }
+            else
+            {
+                Vector3 fromCenter = headWorld - board.Center;
+                fromCenter.y = 0f;
+                if (fromCenter.sqrMagnitude > 1e-6f)
+                {
+                    angle = Azimuth(fromCenter);
+                }
+                else
+                {
+                    // The head is exactly over the board centre — no side to keep. Fall back to the
+                    // very direction the SOLO ring uses, so the two rules agree at the degenerate
+                    // point instead of each inventing an answer.
+                    Vector3 fwd = baseYaw * Vector3.forward;
+                    fwd.y = 0f;
+                    angle = Azimuth(fwd.sqrMagnitude > 1e-6f ? fwd : Vector3.forward);
+                }
+            }
+
+            seat.AzimuthRemembered = remembered;
+            seat.Solo = true;          // no peer was consulted, by design
+            seat.PeerCount = 0;
+            seat.MinGapDegrees = 360f; // "no peer entered into this seat" — never a measured gap
+            FillSeatGeometry(board, angle, scale, ref seat);
+            return true;
+        }
+        catch (System.Exception e)
+        {
+            seat = default;
+            board = default;
+            whyNot = $"the recenter seat solve threw ({e.Message}), so the board could not be used";
+            return false;
+        }
     }
 
     /// <summary>
