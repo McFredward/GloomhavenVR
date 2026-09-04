@@ -60,8 +60,41 @@ internal sealed partial class VRRigDriver
     /// world space and which the flat ScenarioCamera therefore never had to render — its mask
     /// excludes layer 5 on hardware. Dropping either would blank the headset with no way back
     /// inside it, which is exactly the failure mode a "safe by default" switch must not have.
+    ///
+    /// <para>THE GAME UI BIT CANNOT BE DROPPED — the ModBuild 424 ruling, recorded here so round
+    /// seven does not re-propose it. The left-edge rim ("ein voller, halbtransparenter Streifen am
+    /// linken Rand") was hunted for five rounds; ModBuild 423's <c>EYE CENSUS GRAPHIC MATCH</c>
+    /// finally named the object with measurements: the GAME's own <c>UI Map Esc Menu/UI Menu Panel</c>,
+    /// an <c>Image</c> on layer 5, on a <c>ScreenSpaceCamera</c> canvas, rect
+    /// <c>(0.041,0.000)-(0.274,1.193)</c> inside the head camera's viewport at effective alpha
+    /// 0.895 / 0.741 — mid-fade, exactly as the user described it:
+    /// <i>"Es scheint so zu sein, dass das auftritt wenn man den Menu knopf bereits ein zweites mal
+    /// drückt bevor man die Animation abgewartet hat die das Optionsmenufenster materialisiert."</i>
+    /// The obvious structural fix is to stop the head camera rendering the game's UI layer at all.
+    /// It is not available: three families of GAME-owned uGUI are shown in VR *on layer 5* because
+    /// CAMERA-POLICY §2 forbids re-layering game objects — the live ability card faces
+    /// (<c>VRCard.Build</c>), the item card faces (<c>ItemsPile</c>, whose own comment says it
+    /// "renders via the VR camera's UI-layer bit owned by CanvasConversion") and the game's tooltip
+    /// canvas, which <c>WorldTooltips</c> flips to world space IN PLACE. Dropping the bit would blank
+    /// the player's whole hand and every hover panel — a far worse outcome than the rim. The full
+    /// inventory, with call sites, is on <see cref="VRLayers.GameUiLayer"/>. So the invariant
+    /// <i>"the head camera draws mod-owned content and the 3D world, never the game's flat 2D UI"</i>
+    /// has to be enforced at the OTHER end: nothing game-owned may be parked in front of this
+    /// camera. See <c>CanvasConversion.AdoptCanvas</c>, which is where it leaked.</para>
+    ///
+    /// <para>WHY THE 422 VERDICT WAS WRONG, which is the reusable lesson. ModBuild 422's
+    /// <c>MODAL 2D HOME CENSUS</c> judged this very canvas <c>REACHES AN EYE: no — drawn by
+    /// 'UI Camera', which renders into 'GloomhavenVR.DesktopScrubSink'</c>, reasoning from the
+    /// canvas's own <c>worldCamera</c>. A <c>ScreenSpaceCamera</c> canvas is not "drawn by" its
+    /// render camera in any exclusive sense: it is ORDINARY GEOMETRY parked at <c>planeDistance</c>
+    /// in front of that camera, and ANY camera whose frustum contains it and whose culling mask
+    /// includes its layer draws it too. The verdict was also reading a value that had since changed
+    /// under it — the same log shows the canvas at <c>cam=UI Camera</c> on the session's first open
+    /// (frame 2467) and at <c>cam=GloomhavenVR.HeadCamera</c> from frame 4140 on. Falsified causes,
+    /// for the record: 419 a frame budget, 420 a tracked window's canvas while un-floated, 421 a
+    /// capture-layer straddle, 422 an overlay-path canvas, 423 (this) the head mask itself.</para>
     /// </summary>
-    private static int MaskNarrowingFloor => VRLayers.ModLayerMask | (1 << 5);
+    private static int MaskNarrowingFloor => VRLayers.ModLayerMask | VRLayers.GameUiLayerMask;
 
     /// <summary>Last mask actually written, so the change is logged once and not per frame.</summary>
     private int _loggedHeadMask;
@@ -119,6 +152,70 @@ internal sealed partial class VRRigDriver
         VRLog.Info("Rig", sb.ToString());
     }
 
+    /// <summary>Last mask the HW-VERIFY line reported, and whether it has ever reported one.</summary>
+    private int _verifiedHeadMask;
+    private bool _verifiedHeadMaskSeen;
+
+    /// <summary>Append "5=UI, 27=&lt;unnamed&gt;, …" for every bit set in <paramref name="mask"/>.</summary>
+    private static void AppendLayerNames(System.Text.StringBuilder sb, int mask)
+    {
+        bool any = false;
+        for (int layer = 0; layer < 32; layer++)
+        {
+            if ((mask & (1 << layer)) == 0)
+                continue;
+            string name = LayerMask.LayerToName(layer);
+            sb.Append(any ? ", " : "").Append(layer).Append('=')
+              .Append(string.IsNullOrEmpty(name) ? "<unnamed>" : name);
+            any = true;
+        }
+        if (!any)
+            sb.Append("<none>");
+    }
+
+    /// <summary>
+    /// The hardware-verification line: name the head camera's culling mask, with layer names, once per distinct mask
+    /// (i.e. effectively once per rig build; a change prints again, which is the point). The one
+    /// question the next hardware log has to be able to answer without a debugger is whether the
+    /// GAME'S UI LAYER is in this mask, because five rounds of the left-edge-rim hunt turned on it.
+    ///
+    /// <para>It stays IN. <see cref="MaskNarrowingFloor"/> carries the full argument; the short form
+    /// is that the mod shows three families of game-owned uGUI (ability card faces, item card faces,
+    /// the world-space tooltip canvas) on layer 5 without re-layering them, so the bit is what draws
+    /// the player's hand. The rim is closed at the other end instead — no game canvas may be parked
+    /// in front of this camera (<c>CanvasConversion.AdoptCanvas</c>). This line exists so a reader of
+    /// the next log can PROVE which of those two states shipped rather than infer it.</para>
+    /// </summary>
+    private void LogHeadMaskVerify(int wanted, int source, string sourceName)
+    {
+        if (_verifiedHeadMaskSeen && wanted == _verifiedHeadMask)
+            return;
+        _verifiedHeadMask = wanted;
+        _verifiedHeadMaskSeen = true;
+        var sb = new System.Text.StringBuilder(384);
+        sb.Append("HEAD MASK: rig=").Append(_kind)
+          .Append(" source=0x").Append(source.ToString("X8")).Append(" (").Append(sourceName)
+          .Append(") → head camera mask 0x").Append(wanted.ToString("X8")).Append(" [");
+        AppendLayerNames(sb, wanted);
+        sb.Append("]. Mod layer ").Append(VRLayers.ModLayer)
+          .Append(": ").Append((wanted & VRLayers.ModLayerMask) != 0 ? "IN" : "OUT — the hands and every "
+              + "mod visual are gone, this is a bug")
+          .Append(". GAME UI layer ").Append(VRLayers.GameUiLayer).Append(": ")
+          .Append((wanted & VRLayers.GameUiLayerMask) != 0
+              ? "IN — which is the SHIPPED state and is by design. The mod shows three families of "
+                + "GAME-owned uGUI on this layer without re-layering them (ability card faces, item "
+                + "card faces, the world-space tooltip canvas), because CAMERA-POLICY §2 forbids "
+                + "re-layering game objects, so dropping the bit would blank the player's hand and "
+                + "every hover panel. The left-edge rim is therefore NOT fixed by this mask: it is "
+                + "fixed by never parking a game canvas in front of this camera"
+              : "OUT — the head camera no longer renders the game's flat 2D UI. VERIFY THE COST "
+                + "BEFORE BELIEVING THIS IS AN IMPROVEMENT: the ability card faces in hand, the item "
+                + "card faces and the world-space tooltip canvas are game-owned uGUI on this layer "
+                + "and are NOT re-layered, so they are now invisible unless something else moved them")
+          .Append(" — grep '] MODAL ADOPT CAMERA LEAK'.");
+        VRLog.Note("Rig", sb.ToString()); // HW-VERIFY
+    }
+
     private void TickHeadCullingMask()
     {
         if (_kind == RigKind.None || _camera == null)
@@ -133,6 +230,7 @@ internal sealed partial class VRRigDriver
             // ResolveMapMask's own last fallback is the mod layer alone, so even a total failure
             // to read a camera degrades to exactly the menu picture rather than to a broken menu.
             wanted = WorldUI.MapRoom.MapRoomDriver.ResolveMapMask(_anchor, out int _);
+            LogHeadMaskVerify(wanted, wanted, "the game map camera's own mask | the mod layer");
         }
         else if (_kind == RigKind.Menu)
         {
@@ -140,6 +238,7 @@ internal sealed partial class VRRigDriver
             // deliberately NOT applied here: the menu mask is already the minimum that keeps the
             // HMD usable, and it contains only the mod layer, which the drop can never remove.
             wanted = VRLayers.ModLayerMask;
+            LogHeadMaskVerify(wanted, wanted, "the mod layer ONLY (Menu2D, test #10)");
         }
         else
         {
@@ -165,6 +264,9 @@ internal sealed partial class VRRigDriver
             }
             wanted = ComposeHeadMask(source);
             LogHeadMaskChange(wanted, source, narrowed);
+            LogHeadMaskVerify(wanted, source, narrowed
+                ? "the ScenarioCamera's mask | MaskNarrowingFloor"
+                : "the live anchor camera's mask");
         }
         if (_camera.cullingMask != wanted)
             _camera.cullingMask = wanted;

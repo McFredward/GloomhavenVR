@@ -29,7 +29,42 @@ namespace GloomhavenVR.Core;
 /// </summary>
 internal static class VRLayers
 {
-    private const int FallbackLayer = 5; // built-in "UI"
+    /// <summary>
+    /// The built-in "UI" layer (5) — the layer the GAME authors its whole flat 2D UI on, and the
+    /// layer its own <c>UI Camera</c> renders EXCLUSIVELY (observed mask <c>0x00000020</c>, target
+    /// <c>GloomhavenVR.DesktopScrubSink</c>). Also the <see cref="FallbackLayer"/> when no unnamed
+    /// layer is free.
+    ///
+    /// <para>THE INVARIANT THIS LAYER *ALMOST* SATISFIES, and the one place it does not (ModBuild
+    /// 424 finding). The mod's convention is: <b>the head camera draws mod-owned content and the 3D
+    /// world, never the game's flat 2D UI</b> — converted windows are moved onto
+    /// <see cref="ModLayer"/> (<c>CanvasConversion.ApplyModLayer</c>), the game's own 2D UI stays on
+    /// layer 5 and is drawn by the game's UI Camera into the scrub sink. The head camera's mask
+    /// nevertheless CONTAINS layer 5, and it must, because three families of GAME-owned uGUI are
+    /// presented in world space by the mod and are deliberately never re-layered (CAMERA-POLICY §2
+    /// reversibility rule — <i>"converted uGUI panels, tooltips and live card faces keep their
+    /// authored layers; the UI-layer culling bit for those remains owned by CanvasConversion"</i>):
+    /// <list type="bullet">
+    /// <item><c>Cards/VRCard.Build</c> — <i>"The live game face (FullAbilityCard) re-parented in
+    /// LATER keeps its own game layer"</i>: every ability card face in the player's hand.</item>
+    /// <item><c>Cards/Piles/ItemsPile</c> :5074 — <i>"do NOT VRLayers.Apply(go) … a GAME-owned canvas
+    /// that must keep its authored UI layer … it renders via the VR camera's UI-layer bit owned by
+    /// CanvasConversion"</i>: every item card face.</item>
+    /// <item><c>WorldUI/Tooltips/WorldTooltips</c> :1061 — the game's own <c>Tooltip Canvas_unified</c>
+    /// (layer 5) is flipped to <see cref="UnityEngine.RenderMode.WorldSpace"/> IN PLACE, never
+    /// re-parented and never re-layered; <c>CanvasConversion.AddMaskRequest()</c> exists for exactly
+    /// this.</item>
+    /// </list>
+    /// Dropping bit 5 from the head camera's mask would therefore blank the player's cards and every
+    /// hover panel. It is not a narrowing this mod can make — see the block comment on
+    /// <c>VRRigDriver.MaskNarrowingFloor</c> for the full round-by-round evidence.</para>
+    /// </summary>
+    internal const int GameUiLayer = 5;
+
+    /// <summary>Culling-mask bit for <see cref="GameUiLayer"/>.</summary>
+    internal const int GameUiLayerMask = 1 << GameUiLayer;
+
+    private const int FallbackLayer = GameUiLayer; // built-in "UI"
 
     private static int _modLayer = -1;
 

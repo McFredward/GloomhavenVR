@@ -463,13 +463,37 @@ internal static class EyeReachCensus
             else if (drawer != null && drawer.targetTexture == null && drawer.isActiveAndEnabled)
             {
                 cannotReach = false;
-                reach = $"YES — drawn by '{drawer.name}', which renders to the BACKBUFFER";
+                reach = $"YES — drawn by '{drawer.name}', which renders to the BACKBUFFER"
+                        + ScreenSpaceCameraClause(root, drawer, head);
             }
             else
             {
-                cannotReach = true;
+                // ModBuild 424 — DO NOT reason from the canvas's own worldCamera alone. ModBuild
+                // 422's census said of the very canvas that turned out to BE the left-edge rim:
+                // "REACHES AN EYE: no — drawn by 'UI Camera', which renders into
+                // 'GloomhavenVR.DesktopScrubSink'", and that verdict cost a whole build. A
+                // ScreenSpaceCamera canvas is not drawn EXCLUSIVELY by its render camera: Unity
+                // parks it as ordinary geometry at planeDistance in front of that camera, and any
+                // OTHER camera whose frustum contains it and whose culling mask includes its layer
+                // draws it as well. The head camera's mask contains the game UI layer 5 by design
+                // and cannot drop it (Core/VRLayers.GameUiLayer), so the head camera is exactly such
+                // a camera. Test the head's mask AND frustum here, not the canvas's own binding.
+                bool headSees = HeadWouldDraw(c, root, head);
+                cannotReach = !headSees;
                 reach = $"no — drawn by '{(drawer != null ? drawer.name : "<none>")}', which renders into "
                         + $"'{(drawer != null && drawer.targetTexture != null ? drawer.targetTexture.name : "<none>")}'";
+                if (headSees)
+                {
+                    reach = "YES — its own render camera "
+                            + $"'{(drawer != null ? drawer.name : "<none>")}' renders into "
+                            + $"'{(drawer != null && drawer.targetTexture != null ? drawer.targetTexture.name : "<none>")}', "
+                            + "BUT that is not what decides it: a ScreenSpaceCamera canvas is ordinary "
+                            + "geometry parked in front of its render camera, and the head camera's mask "
+                            + $"0x{(head != null ? head.cullingMask : 0):X8} contains its layer "
+                            + $"{c.gameObject.layer} while its rect lies inside the head's viewport, so the "
+                            + "head camera draws it TOO"
+                            + ScreenSpaceCameraClause(root, drawer, head);
+                }
             }
 
             // The rect the canvas itself occupies. Engine truth for the alpha
@@ -686,6 +710,60 @@ internal static class EyeReachCensus
     // ============================================================================================
 
     /// <summary>Does this rect describe the band the user photographed?</summary>
+    /// <summary>Own scratch, so a reachability test never disturbs the rect the row reports.</summary>
+    private static readonly Vector3[] ReachCorners = new Vector3[4];
+
+    /// <summary>
+    /// Would the VR HEAD CAMERA draw <paramref name="c"/>, whatever its own render camera is?
+    /// Two conditions, both read off the head camera and neither off the canvas's binding: (1) the
+    /// head's culling mask contains the canvas's LAYER, and (2) the canvas's rect projects into the
+    /// head's viewport.
+    ///
+    /// <para>WHY THIS EXISTS (ModBuild 424, the reusable lesson). The 422-era verdict on a
+    /// <see cref="RenderMode.ScreenSpaceCamera"/> canvas read the canvas's own
+    /// <see cref="Canvas.worldCamera"/> and concluded "drawn by 'UI Camera', which renders into
+    /// 'GloomhavenVR.DesktopScrubSink'" — a false negative on the object that WAS the left-edge rim,
+    /// and it cost a build. A ScreenSpaceCamera canvas is not owned by its render camera; Unity
+    /// parks it as ordinary geometry at <c>planeDistance</c> in front of it, and every other camera
+    /// that can see that geometry draws it too. The head camera can: its mask contains the game UI
+    /// layer 5 by design and cannot drop it (<see cref="Core.VRLayers.GameUiLayer"/>). The same
+    /// wording still lives in <c>ModalFallback</c>'s <c>MODAL 2D HOME CENSUS</c>, which this file
+    /// does not own — that line still reasons from <c>worldCamera</c> and should be corrected
+    /// there.</para>
+    /// </summary>
+    private static bool HeadWouldDraw(Canvas c, Canvas root, Camera? head)
+    {
+        if (head == null || (head.cullingMask & (1 << c.gameObject.layer)) == 0)
+            return false;
+        if (root.renderMode == RenderMode.ScreenSpaceOverlay)
+            return false; // overlays are composited after the camera loop; no camera "draws" them
+        if (c.transform is not RectTransform rt)
+            return false;
+        rt.GetWorldCorners(ReachCorners);
+        if (!ViewportRectOf(head, ReachCorners, 4, Camera.MonoOrStereoscopicEye.Left, out Rect vr, out _))
+            return false;
+        return vr.xMax > 0f && vr.xMin < 1f && vr.yMax > 0f && vr.yMin < 1f;
+    }
+
+    /// <summary>
+    /// The one sentence that names the ModBuild 424 defect when a row exhibits it: a GAME-owned
+    /// <see cref="RenderMode.ScreenSpaceCamera"/> canvas whose render camera IS the mod's head
+    /// camera is PARKED IN FRONT OF THE HMD and is head-locked. Our head camera is never a value the
+    /// game wrote (it is untagged, so not <c>Camera.main</c>, and <c>VRCameraPolicy</c> keeps it out
+    /// of every game path), so this can only be a value the mod left behind —
+    /// <c>CanvasConversion.SafeOriginalWorldCamera</c> is the owner of the repair.
+    /// </summary>
+    private static string ScreenSpaceCameraClause(Canvas root, Camera? drawer, Camera? head)
+    {
+        if (root.renderMode != RenderMode.ScreenSpaceCamera || head == null || !ReferenceEquals(drawer, head))
+            return string.Empty;
+        return ". PARKED IN FRONT OF THE HMD: this is a ScreenSpaceCamera canvas whose render camera "
+               + $"is '{head.name}' at planeDistance {root.planeDistance:F1}, so Unity puts its geometry "
+               + "a fixed distance in front of the eyes and it follows the head. The head camera is "
+               + "never a value the GAME writes, so a GAME canvas bound to it was left there by the mod "
+               + "— see CanvasConversion.SafeOriginalWorldCamera, grep '] MODAL ADOPT CAMERA LEAK'";
+    }
+
     private static bool ShapeMatches(Rect r) =>
         r.xMin <= ShapeLeftEdgeMax
         && r.xMax >= ShapeRightEdgeMin && r.xMax <= ShapeRightEdgeMax
