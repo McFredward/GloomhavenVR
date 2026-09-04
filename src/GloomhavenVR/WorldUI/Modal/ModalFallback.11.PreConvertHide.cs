@@ -186,6 +186,15 @@ internal static partial class ModalFallback
         /// <summary>The last intent that held the blackout, for the hand-back line. Null once
         /// nothing stands.</summary>
         public string? LastHold;
+        /// <summary>ModBuild 420: this blackout was raised by <see cref="TickFloatIntentGuard"/>
+        /// rather than by the game's Show(), i.e. the invariant found a live canvas on a window
+        /// the mod still intends to float. Such an entry is stood down when it is handed back, so
+        /// a guard that guessed wrong costs ONE rendered frame and can never strobe.</summary>
+        public bool RaisedByLateGuard;
+        /// <summary>ModBuild 420: the first invariant violation on this window has been printed.
+        /// One line per window per blackout — the FIRST one is the diagnostic; a per-frame repeat
+        /// would be the flood ModBuild 331 removed.</summary>
+        public bool ViolationLogged;
     }
 
     private static readonly List<PreHiddenWindow> PreHidden = new(2);
@@ -401,6 +410,10 @@ internal static partial class ModalFallback
         for (int i = PreHidden.Count - 1; i >= 0; i--)
             RestorePreHidden(PreHidden[i], reason);
         PreHidden.Clear();
+        // ModBuild 420: the float-intent invariant's stand-down latch is per SESSION-state too. A
+        // shutdown / VR-off is a clean slate, and a window left latched across one would be a window
+        // the guard has silently stopped watching for the rest of the process.
+        PreHideGuardStoodDown.Clear();
     }
 
     private static void RestorePreHidden(PreHiddenWindow entry, string reason)
@@ -420,6 +433,15 @@ internal static partial class ModalFallback
             entry.Group.alpha = entry.GroupAlpha;
             entry.Group = null;
         }
+        // ModBuild 420: a blackout the float-intent invariant raised is STOOD DOWN the moment it is
+        // handed back, so the guard cannot raise it again on the very next frame. Without this a
+        // guard that guessed wrong is a 2-frames-off / 1-frame-on strobe — worse than the rim it
+        // removes. The latch is per open-cycle: PruneGuardStandDown drops the window when it closes
+        // or is floated, and NoteReleasedWhileOpen lifts it when the mod hands a still-open window
+        // back to its 2D home, which is the one event that makes the question fresh again.
+        if (entry.RaisedByLateGuard && entry.Window != null
+            && !ContainsWindow(PreHideGuardStoodDown, entry.Window))
+            PreHideGuardStoodDown.Add(entry.Window);
         VRLog.Debug("WorldUI", $"MODAL PRE-CONVERT BLACKOUT: '{entry.Name}' handed back after " +
                                $"{Time.frameCount - entry.HiddenAtFrame} frame(s) — {reason} " +
                                $"({restored} canvas(es) re-enabled)." +
@@ -594,7 +616,20 @@ internal static partial class ModalFallback
                               + "screen-space and therefore head-locked) drawn because the blackout "
                               + "expired after 8 frames while this refusal ran for 0.9 s. IF THIS "
                               + "LINE IS PRESENT AND 'was still un-floated after N frames' IS NOT, "
-                              + "the burst was handled.");
+                              + "the burst was handled."
+                              // APPENDED 2026-09-04 round 2, never reworded (the sentence above is a
+                              // grep token). THAT LAST TEST IS FALSIFIED AND MUST NOT BE TRUSTED: the
+                              // ModBuild 419 hardware log satisfies it exactly — 3 of these lines,
+                              // ZERO 'was still un-floated after N frames' — and the user's verdict on
+                              // that build was "Das Problem besteht weiterhin". A line proving that
+                              // THIS mechanism ran proves nothing about the artifact.
+                              + " CORRECTION (ModBuild 420, from the 419 hardware log): THAT LAST TEST "
+                              + "IS FALSIFIED. The 419 log satisfies it exactly and the user still "
+                              + "reported the rim ('Das Problem besteht weiterhin'). The line that "
+                              + "decides the burst now is 'MODAL FLOAT INTENT VIOLATION' — the "
+                              + "float-intent invariant, which reports the PICTURE (a live canvas on a "
+                              + "tracked, un-floated window going into the render loop) rather than "
+                              + "this mechanism's own bookkeeping.");
     }
 
     /// <summary>
@@ -604,6 +639,12 @@ internal static partial class ModalFallback
     /// named bounded intent to float still stands (<see cref="PreConvertHideHold"/>). Nothing else
     /// in the mod can leave a game window switched off, and this runs before any step that could
     /// throw.
+    ///
+    /// <para>ModBuild 420: THIS IS STILL THE ONLY OWNER OF THE HAND-BACK, and that sentence is why
+    /// <see cref="TickFloatIntentGuard"/> — the LateUpdate half of the same rule — only ever
+    /// switches canvases OFF and never back on. The guard can raise a blackout this method has just
+    /// handed back; that is the intended shape, and the stand-down latch in
+    /// <see cref="RestorePreHidden"/> is what stops the two from strobing against each other.</para>
     /// </summary>
     private static void TickPreConvertHide()
     {
@@ -687,5 +728,381 @@ internal static partial class ModalFallback
             RestorePreHidden(entry, reason);
             PreHidden.RemoveAt(i);
         }
+    }
+    // ==============================================================================================
+    // ROUND 2026-09-04 #2 — THE INVARIANT. 419 FIXED TWO REAL THINGS AND THE ARTIFACT SURVIVED BOTH.
+    // ==============================================================================================
+    //
+    // THE USER, ON ModBuild 419: "Das Problem besteht weiterhin." The head-locked rim at the left
+    // edge of one eye is still there on a rapid options-key burst.
+    //
+    // ---- 419's HYPOTHESIS IS FALSIFIED, BY 419's OWN INSTRUMENTS. DO NOT RE-DERIVE IT. ----------
+    //
+    // 419 assumed the pre-convert blackout's 8-frame budget was expiring during a burst and handing
+    // the game's flat canvas back mid-gap. In the ModBuild 419 hardware log
+    // (.planning/debug/Player.log):
+    //
+    //   * 'was still un-floated after N frames' — ZERO occurrences. The budget's replacement never
+    //     fired at all, so the mechanism 419 replaced was not running during the defect either.
+    //   * 'handed back after 1 frame(s)' — 24, and NO OTHER COUNT appears in the whole session.
+    //     Every single blackout ended the healthy way.
+    //   * 'MODAL RE-OPEN DURING VANISH' — 3. The second 419 mechanism DID run and did cut live
+    //     dissolves short (0.20-0.25 s in, 0.65-0.70 s still owed). It works. The artifact survives
+    //     it.
+    //   * The burst is real and large: 72 'OPTIONS TAP' lines between log lines 5713 and 7257,
+    //     ~36 opens — and only 11 reveals (rect=412x1080 / 405x1080 with canvas.enabled=True).
+    //     Roughly two thirds of the opens never reached a VR reveal at all.
+    //   * No panel was ever revealed at the unfitted 1920x1080 rect; no HOST DESTROY ABANDONED; all
+    //     24 deferred destroys resolved. Nothing downstream of the conversion is stuck either.
+    //
+    // So BOTH 419 mechanisms are correct and NEITHER is the cause. Both are kept.
+    //
+    // ---- WHAT NO INSTRUMENT IN THIS FILE COULD ANSWER, WHICH IS THE WHOLE JOB --------------------
+    //
+    // ON WHICH FRAMES is one of the game's own canvases ENABLED, and reachable by the head camera,
+    // while its window is NOT floated? Every line this file prints reports the blackout's own
+    // BOOKKEEPING — how many passes an entry survived, which intent held it, when it was handed
+    // back. Not one of them reports THE PICTURE. Eight clean bookkeeping reads mean the defect is in
+    // what no read covers ([[the-blind-spot-is-the-lead]], [[measure-the-picture-not-the-state]]).
+    //
+    // ---- THE RULE, STATED ONCE AND HELD EVERY FRAME ---------------------------------------------
+    //
+    //     A GAME WINDOW THAT THE MOD TRACKS AND INTENDS TO FLOAT MUST NEVER HAVE ITS OWN CANVASES
+    //     ENABLED WHILE IT IS NOT FLOATED.
+    //
+    // <see cref="TickFloatIntentGuard"/> below is that rule, and the per-open blackout is now a
+    // SPECIAL CASE of it rather than a second mechanism beside it: <see cref="PreConvertHide"/> is
+    // the one place that decides whether the mod intends to float a window and the one place that
+    // switches its canvases off, <see cref="PreHidden"/> is the one ledger, and
+    // <see cref="TickPreConvertHide"/> is the one owner of the hand-back. The guard adds no third
+    // lever — it re-asks the SAME question at the LAST moment before the frame renders.
+    //
+    // WHY LateUpdate AND NOT THE TICK. ModalFallback.Tick runs in Update, and so do the writers that
+    // break the invariant: OptionsToggle opens the window AFTER ModalFallback in the same Update
+    // pass, CanvasConversion.Release re-parents a released window back to its 2D home from
+    // PhaseRelease, and WindowMaterialise hands a held Canvas back from inside a vanish's onDone.
+    // Unity runs every Update before every LateUpdate and every LateUpdate before the render loop,
+    // so LateUpdate is the last phase in which a canvas that WOULD be drawn can still be switched
+    // off — the same argument CanvasConversion's own LateTick render-hide makes, and the reason the
+    // guard is called from there.
+    //
+    // WHY IT CANNOT BECOME A SECOND WRITER OF THE GAME'S SWITCH ([[dont-win-a-write-war]],
+    // [[a-remedy-knows-one-writer]]):
+    //   * It only ever acts through <see cref="PreConvertHide"/>, which applies EVERY gate the
+    //     blackout already applies (VR running, conversion active, window style, no manual screen,
+    //     not Menu2D, not dock-claimed, not refused, not a sub-view of a floated ancestor, not
+    //     already floated). A window outside those gates is never touched.
+    //   * Everything it switches off is recorded in the SAME ledger, so the restore stays
+    //     one-for-one and the conversion's own render hide still records the TRUE enabled state.
+    //   * It NEVER restores. The hand-back has exactly one owner, <see cref="TickPreConvertHide"/>,
+    //     which runs FIRST in the next Update — so a blackout the guard raised in error costs ONE
+    //     rendered frame and is then handed back with a named reason.
+    //   * A blackout the guard raised is STOOD DOWN when it is handed back
+    //     (<see cref="PreHideGuardStoodDown"/>), so the guard can never re-raise it on the next
+    //     frame. Without that latch a wrongly-raised blackout is a 2-frames-off / 1-frame-on strobe,
+    //     which is worse than the rim it removes. The stand-down is lifted by the two events that
+    //     make the question fresh again: the window closing or being floated (pruned below), and
+    //     CanvasConversion releasing it back to its 2D home while it is STILL OPEN
+    //     (<see cref="NoteReleasedWhileOpen"/>).
+    //
+    // WHAT HAPPENED TO THE OLD FRAME-BASED PATH: there is none left to remove. ModBuild 419 already
+    // deleted PreConvertHideMaxFrames; the only frame number this file still keeps is
+    // <c>HiddenAtFrame</c>, and it is printed, never compared. The outer safety is
+    // <see cref="PreConvertHideDefectSeconds"/>, which is a defect detector and stays.
+    //
+    // ---- THE HEAD CAMERA'S REACH, MEASURED — AND THE ONE-EYE READING, NOT ASSUMED ---------------
+    //
+    // THE MASK IS NOT AN ASSUMPTION. The ModBuild 419 log prints seven
+    // 'MODAL PRE-CONVERT BLACKOUT census (changed)' lines across the burst and every one of them
+    // reads `[GloomhavenVR.HeadCamera depth=0 stereo=Both mask=0xFFFFFFFF →BACKBUFFER (the HMD eye
+    // textures)]`. The head camera renders EVERY layer, straight into the eye textures, at the exact
+    // moments the windows opened. Two further measured facts from the same lines:
+    //
+    //   * THE WINDOW'S OWN LAYER ALTERNATES BETWEEN 5 AND 26 ACROSS CONSECUTIVE OPENS IN THE BURST.
+    //     26 is the mod's PanelSupersample capture layer. A window sitting at its screen-space 2D
+    //     home on layer 26 is OUTSIDE the game's own 'UI Camera' mask (0x00000020, layer 5 alone,
+    //     and it renders to GloomhavenVR.DesktopScrubSink, not to the eye) and INSIDE the head
+    //     camera's. The log shows how it gets there: 'PANEL SUPERSAMPLE: 1 pooled/late transform(s)
+    //     of "UI Scenario Esc Menu" joined capture layer 26' fires AFTER the release that already
+    //     stood the supersample down and put the layer back. That is a stale mod layer left on a
+    //     GAME window at its 2D home. The layer restore lives in PanelSupersample, which this lane
+    //     does not own — so this round MEASURES it (the violation line prints the layer and whether
+    //     the head camera's mask contains it) and does not fix it.
+    //   * 'flat screen HIDDEN' on every census: the mod's per-eye render targets do not exist at
+    //     this site, so a per-eye RT divergence cannot be the source of a one-eye artifact here.
+    //
+    // THE ONE-EYE READING IS CONSISTENT WITH ONE renderMode AND INCONSISTENT WITH THE OTHER, AND
+    // THAT FIELD IS THE ONE NOTHING HAS EVER PRINTED. XRSettings reports `MultiPass`, eye texture
+    // 3072x3264, i.e. the left eye and the right eye are two full independent passes:
+    //
+    //   * RenderMode.ScreenSpaceCamera / WorldSpace — drawn BY a camera. The head camera runs both
+    //     eye passes, so a canvas it draws appears in BOTH eyes. This does NOT explain
+    //     "am linken Rand des AUGES" (singular), and the geometric explanation the round-8 header
+    //     above offers for it — the left monocular sliver — requires the strip to sit at the very
+    //     edge of the binocular overlap, which is an argument about where the ink is, not about
+    //     which pass drew it.
+    //   * RenderMode.ScreenSpaceOverlay — drawn by NO camera. Unity composites an overlay canvas
+    //     once per FRAME onto the target display, after the camera loop, not once per eye pass.
+    //     Under MultiPass that single composite lands in whichever eye texture is bound at that
+    //     moment, i.e. in ONE eye. That reads exactly as the user's report and as the census's own
+    //     "one-eye flash" sentence.
+    //
+    // So: the mask question is ANSWERED (0xFFFFFFFF, measured, seven times). The one-eye question is
+    // NOT yet answered, it is now DECIDABLE, and it is decided by a single field — the offending
+    // canvas's renderMode — which the violation line below prints together with its worldCamera. If
+    // the next log's violation line says ScreenSpaceOverlay, the overlay composite is the mechanism
+    // and the round-8 monocular-sliver explanation is a coincidence of geometry. If it says
+    // ScreenSpaceCamera with worldCamera = GloomhavenVR.HeadCamera, the artifact is in both eyes and
+    // the user's "des auges" was about where it sits, not about how many eyes see it.
+    //
+    // MULTIPLAYER: local rendering only. Canvas.enabled writes on the local player's own UI, no game
+    // state, no wire traffic, no config key.
+
+    /// <summary>Session tally of invariant violations found by <see cref="TickFloatIntentGuard"/> —
+    /// i.e. of frames on which a tracked, un-floated window had a live canvas going into the render
+    /// loop. ZERO here on the next hardware log means the rim did not come from this class of
+    /// defect at all, which is information the 419 round did not have.</summary>
+    private static int s_floatIntentViolations;
+
+    /// <summary>
+    /// Windows <see cref="TickFloatIntentGuard"/> will not act on again until the question is fresh.
+    /// Two things put a window here: the guard raised a blackout for it and the hand-back rule then
+    /// found no standing intent (so the mod is NOT waiting to float it), or one of
+    /// <see cref="PreConvertHide"/>'s gates refused it outright (so the mod does not intend to float
+    /// it at all). Both are per-open-cycle answers: the prune in the guard drops a window that has
+    /// closed or been floated, and <see cref="NoteReleasedWhileOpen"/> lifts it the moment the mod
+    /// hands a still-open window back to its 2D home.
+    ///
+    /// <para>THIS LATCH IS WHAT MAKES THE GUARD FREE IN STEADY STATE. Without it the guard would run
+    /// a subtree walk per tracked window per frame forever — the same mistake
+    /// [[findobjectsoftype-is-the-default-suspect]] names, one size down. With it, a window is
+    /// walked at most once per open-cycle unless a blackout actually stands for it.</para>
+    /// </summary>
+    private static readonly List<UIWindow> PreHideGuardStoodDown = new(2);
+
+    /// <summary>
+    /// <b>THE INVARIANT, ENFORCED AND MEASURED EVERY FRAME.</b> See the section header above for the
+    /// rule, the falsified 419 hypothesis and the ownership argument.
+    ///
+    /// <para>Called from <see cref="CanvasConversion.LateTick"/>, i.e. after every Update-phase
+    /// writer and immediately before the render loop — the last phase in which a canvas that would
+    /// be drawn this frame can still be switched off.</para>
+    ///
+    /// <para><b>COST.</b> Steady state (nothing tracked, or everything floated): one integer
+    /// compare. While a blackout stands — 1 to 2 frames per window open in the log — one
+    /// <c>GetComponentsInChildren&lt;Canvas&gt;</c> into a reused list per standing entry, over the
+    /// window's own subtree (207 transforms for the ESC menu, the largest in the log). For a tracked
+    /// window with NO blackout it is at most ONE such walk per open-cycle, because the stand-down
+    /// latch above closes the question afterwards. No scene sweep, no allocation, no
+    /// <c>FindObjectsOfType</c>.</para>
+    /// </summary>
+    internal static void TickFloatIntentGuard()
+    {
+        if (PreHidden.Count == 0 && OpenWindows.Count == 0 && PreHideGuardStoodDown.Count == 0)
+            return;
+        PruneGuardStandDown();
+        // The same global gate TickPreConvertHide uses. Outside it the mod is not floating anything,
+        // so it must not own a single one of the game's switches — and the restore is the other
+        // method's job, which is why this one simply stops.
+        if (!VRSession.IsRunning || !WorldUIConfig.ConversionActive || !WorldUIConfig.ModalWindowStyle
+            || FlatScreen.ManualScreenActive || VRModeStateMachine.CurrentMode == VRMode.Menu2D
+            || !VRModeStateMachine.TableInFrontOfPlayer)
+            return;
+
+        // (A) EVERY STANDING BLACKOUT. This is the lead the round was handed: CanvasConversion
+        //     .Release re-enables the canvas of a window the game reports OPEN (its FIX B forces the
+        //     hidden state only for a window reported CLOSED), and WindowMaterialise's visibility
+        //     hold restores held Canvases from inside a vanish's onDone. Both run from Update, both
+        //     can land under a standing blackout, and the ModBuild 418 log recorded the shape
+        //     exactly once — an expiry line reading "(0 canvas(es) re-enabled)", i.e. something else
+        //     had already switched the canvas back on. ModBuild 419 re-asserted the blackout on ONE
+        //     of those orderings (ResolveVanishForReopen); this covers all of them, by not caring
+        //     which writer did it.
+        for (int i = PreHidden.Count - 1; i >= 0; i--)
+        {
+            PreHiddenWindow entry = PreHidden[i];
+            UIWindow window = entry.Window;
+            if (window == null)
+                continue; // TickPreConvertHide owns the removal; it runs first in the next Update
+            // The three states in which this entry is ALREADY on its way out and its canvases being
+            // live is not a violation but the correct picture: the window is floated (so what is
+            // enabled is the FLOATED copy), the game closed it, or its conversion failed and it
+            // belongs to the flat screen now. TickPreConvertHide hands each of them back by name in
+            // the next Update; reporting them here would be an instrument measuring one term
+            // ([[instrument-measures-one-term]]) and re-hiding them would be a second writer.
+            if (IsConverted(window) || !window.IsOpen || ContainsWindow(Failed, window))
+                continue;
+            Canvas? live = FirstLiveCanvas(window);
+            if (live == null)
+                continue;
+            NoteFloatIntentViolation(entry, window, live, "a blackout is STANDING for this window");
+            PreConvertHide(window); // idempotent: catches exactly the canvases that came back on
+        }
+
+        // (B) A TRACKED WINDOW THE MOD WANTS TO FLOAT, WITH NO BLACKOUT STANDING. The shape this is
+        //     for: a re-open runs the PREVIOUS float's pending release, that release re-parents the
+        //     game window back to its screen-space 2D home and leaves it ENABLED because the game
+        //     reports it OPEN, and no blackout is in force at that moment because the entry was
+        //     handed back when the conversion took over. PreConvertHide applies every gate, so a
+        //     window the mod does not intend to float produces no entry and is stood down instead.
+        for (int i = 0; i < OpenWindows.Count; i++)
+        {
+            UIWindow window = OpenWindows[i];
+            if (window == null || !window.IsOpen || IsConverted(window) || ContainsWindow(Failed, window))
+                continue;
+            if (FindPreHidden(window) != null || ContainsWindow(PreHideGuardStoodDown, window))
+                continue;
+            Canvas? live = FirstLiveCanvas(window);
+            if (live == null)
+                continue;
+            PreConvertHide(window);
+            PreHiddenWindow? raised = FindPreHidden(window);
+            if (raised == null)
+            {
+                // A gate refused it — the mod does not intend to float this window. Close the
+                // question for this open-cycle rather than walking its subtree again next frame.
+                PreHideGuardStoodDown.Add(window);
+                continue;
+            }
+            raised.RaisedByLateGuard = true;
+            NoteFloatIntentViolation(raised, window, live,
+                "NO blackout stood — the window is tracked, open, wanted and NOT floated");
+        }
+    }
+
+    /// <summary>Drop stand-down entries whose question is no longer open: destroyed, closed, or
+    /// floated. Bounded by the number of tracked windows (0-2 in every log to date).</summary>
+    private static void PruneGuardStandDown()
+    {
+        for (int i = PreHideGuardStoodDown.Count - 1; i >= 0; i--)
+        {
+            UIWindow w = PreHideGuardStoodDown[i];
+            if (w == null || !w.IsOpen || IsConverted(w))
+                PreHideGuardStoodDown.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// <b>CanvasConversion HANDED A STILL-OPEN WINDOW BACK TO ITS 2D HOME.</b> Called from
+    /// <see cref="CanvasConversion.Release"/> for exactly the case its FIX B does NOT cover: the
+    /// game reports the window OPEN, so the release leaves it enabled at its screen-space home
+    /// instead of forcing the hidden state. That is the head-locked rim itself, and it is also the
+    /// one event that makes the guard's question fresh again for a window it had stood down.
+    ///
+    /// <para>This is NOT a second fix bolted onto the release path — it lifts a latch, and the
+    /// invariant does the work on the same frame in LateUpdate. Cost: one list scan over 0-2
+    /// entries, on an event that fires once per release.</para>
+    /// </summary>
+    internal static void NoteReleasedWhileOpen(UIWindow? window)
+    {
+        if (window == null)
+            return;
+        for (int i = PreHideGuardStoodDown.Count - 1; i >= 0; i--)
+        {
+            if (ReferenceEquals(PreHideGuardStoodDown[i], window))
+                PreHideGuardStoodDown.RemoveAt(i);
+        }
+    }
+
+    /// <summary>
+    /// The first ENABLED Canvas anywhere in <paramref name="window"/>'s own subtree, or null.
+    /// Allocation-free — the shared scratch list <see cref="PreConvertHide"/> already uses, on the
+    /// same thread and never re-entered.
+    /// </summary>
+    private static Canvas? FirstLiveCanvas(UIWindow window)
+    {
+        window.transform.GetComponentsInChildren(false, PreHideScratch);
+        for (int i = 0; i < PreHideScratch.Count; i++)
+        {
+            Canvas c = PreHideScratch[i];
+            if (c != null && c.enabled)
+                return c;
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The last violation SHAPE printed in full — window, mod state, canvas, renderMode and layer.
+    /// A change here is a NEW defect and always prints; a repeat is the same defect happening again
+    /// and is counted rather than re-printed (see the cap in <see cref="NoteFloatIntentViolation"/>).
+    /// </summary>
+    private static string s_floatIntentSignature = string.Empty;
+
+    /// <summary>
+    /// ONE LINE PER WINDOW PER BLACKOUT: the picture, at the moment the invariant was broken.
+    /// This is the line the next hardware round is read with — it is the only place in the mod that
+    /// states WHAT would have been drawn rather than what the bookkeeping believed.
+    ///
+    /// <para><b>WHY IT IS CAPPED, AND WHY THE CAP IS A CHANGE GATE AND NOT A COUNT.</b> The report
+    /// this round answers is a 72-tap burst, so a line per blackout is up to ~36 Alert lines from one
+    /// press-and-hold — the flood ModBuild 331 removed, arriving through the front door. The cap is
+    /// the pattern this file already uses for <see cref="NoteReopenDuringVanish"/> (the first eight
+    /// in full, then one per doubling, every line carrying the running total so a burst is still
+    /// visible) with one addition: a violation whose SHAPE differs from the last printed one always
+    /// prints, because that is a different defect and a count would hide it
+    /// ([[a-summary-stat-is-not-the-field]]).</para>
+    /// </summary>
+    private static void NoteFloatIntentViolation(PreHiddenWindow entry, UIWindow window, Canvas live,
+                                                 string state)
+    {
+        if (entry.ViolationLogged)
+            return;
+        entry.ViolationLogged = true;
+        s_floatIntentViolations++;
+        string signature = $"{entry.Name}|{state}|{live.name}|{live.renderMode}|{live.gameObject.layer}";
+        bool shapeIsNew = signature != s_floatIntentSignature;
+        s_floatIntentSignature = signature;
+        if (!shapeIsNew && s_floatIntentViolations > 8
+            && (s_floatIntentViolations & (s_floatIntentViolations - 1)) != 0)
+            return;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        int layer = live.gameObject.layer;
+        int layerBit = 1 << layer;
+        bool inHeadMask = head != null && (head.cullingMask & layerBit) != 0;
+        bool headToEye = head != null && head.targetTexture == null;
+        Camera? world = live.worldCamera;
+        // WHO WOULD HAVE DRAWN IT. An OVERLAY canvas is drawn by no camera at all — it is composited
+        // onto the target display after the camera loop, which under MultiPass is the one-eye path
+        // described in the section header. A ScreenSpaceCamera canvas with no worldCamera falls back
+        // to overlay behaviour, so it reads the same way. Anything else is drawn by a camera, and
+        // then the question is whether that camera is the head camera or the game's blinded
+        // 'UI Camera' (→ GloomhavenVR.DesktopScrubSink, which never reaches the eye).
+        bool overlayPath = live.renderMode == RenderMode.ScreenSpaceOverlay
+                           || (live.renderMode == RenderMode.ScreenSpaceCamera && world == null);
+        string reach = overlayPath
+            ? "OVERLAY — no camera draws it; Unity composites it onto the target display ONCE PER " +
+              "FRAME after the camera loop, so under MultiPass it lands in ONE eye texture. THIS IS " +
+              "THE ONE-EYE READING, and this field is what decides it"
+            : world != null && head != null && ReferenceEquals(world, head)
+                ? "drawn BY THE HEAD CAMERA, which runs BOTH MultiPass eye passes — so this would " +
+                  "show in BOTH eyes, and a one-eye report would have to come from geometry (the " +
+                  "left monocular sliver) rather than from the draw path"
+                : world != null
+                    ? $"drawn by '{world.name}' (target " +
+                      $"{(world.targetTexture != null ? world.targetTexture.name : "BACKBUFFER")}) " +
+                      "— reaches the eye only if that target is the backbuffer"
+                    : "WORLD SPACE — drawn by every camera whose culling mask contains its layer";
+        // HW-VERIFY
+        VRLog.Alert("WorldUI", $"MODAL FLOAT INTENT VIOLATION ({s_floatIntentViolations} this " +
+            $"session): '{entry.Name}' (ID {window.ID}) is tracked and NOT floated, yet its canvas " +
+            $"'{live.name}' was ENABLED going into the render loop at frame {Time.frameCount}. " +
+            $"MOD STATE: {state}; blackout raised at frame {entry.HiddenAtFrame} and standing for " +
+            $"{Time.unscaledTime - entry.HiddenAtTime:F3}s over {entry.Passes} convert pass(es); " +
+            $"last bounded intent {(entry.LastHold == null ? "NONE" : "'" + entry.LastHold + "'")}; " +
+            $"previous float {(WindowMaterialise.IsVanishing(window.transform) ? "STILL VANISHING" : "not vanishing")}. " +
+            $"THE CANVAS: renderMode={live.renderMode}, layer {layer}, overrideSorting=" +
+            $"{live.overrideSorting}, sortingOrder={live.sortingOrder}, worldCamera=" +
+            $"{(world != null ? world.name : "<none>")}. THE HEAD CAMERA: " +
+            $"{(head != null ? head.name : "<none>")}, mask=0x{(head != null ? head.cullingMask : 0):X8}, " +
+            $"contains layer {layer}: {(inHeadMask ? "YES" : "no")}, renders to " +
+            $"{(head == null ? "<none>" : headToEye ? "the BACKBUFFER (the HMD eye textures)" : head.targetTexture!.name)}, " +
+            $"stereo {UnityEngine.XR.XRSettings.stereoRenderingMode} eye texture " +
+            $"{UnityEngine.XR.XRSettings.eyeTextureWidth}x{UnityEngine.XR.XRSettings.eyeTextureHeight}. " +
+            $"WHO DRAWS IT: {reach}. THE CANVAS HAS BEEN SWITCHED OFF THROUGH THE BLACKOUT'S OWN " +
+            "LEDGER, so the restore stays one for one. USER REPORT 2026-09-04 on ModBuild 419: " +
+            "'Das Problem besteht weiterhin' — the head-locked rim at the left edge of one eye on a " +
+            "rapid options-key burst. 419's frame-budget hypothesis is FALSIFIED (its own log has " +
+            "ZERO 'was still un-floated after N frames' lines and 24 clean 'handed back after 1 " +
+            "frame(s)'); THIS line is the picture that bookkeeping could not see.");
     }
 }

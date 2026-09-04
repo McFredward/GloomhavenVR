@@ -283,6 +283,16 @@ internal static class ModalCloseButton
         Action onClose)
     {
         var go = new GameObject(ObjectName) { layer = layer };
+        // THE OWNERSHIP MARKER, AND IT REPLACES A CONVENTION THAT FAILED TWICE (2026-09-04, round 2).
+        // CanvasConversion's host-destroy guard has to know whether an object under a float host is
+        // the mod's or the game's. Until now the only answer was the `GloomhavenVR.` name prefix, and
+        // the ModBuild 418 log lost that bet on the plate's own `HitPlane` while the ModBuild 419 log
+        // lost it again, 24 times, on this plate's `XBar` children — created eight lines below in
+        // THIS file, by the author who had just fixed the sibling. One mark on the SUBTREE ROOT
+        // answers for the plate, its hit target, its two bars and anything a later round adds under
+        // them; sealed (MayHoldGameContent: false) because nothing of the game's is ever parented
+        // here. See ModOwnedContent for the whole argument.
+        ModOwnedContent.Mark(go);
         var rect = go.AddComponent<RectTransform>();
         rect.SetParent(host, worldPositionStays: false);
         rect.pivot = new Vector2(1f, 1f);
@@ -385,7 +395,15 @@ internal static class ModalCloseButton
 
     private static void CrossBar(RectTransform parent, int layer, float angleDeg)
     {
-        var go = new GameObject("XBar") { layer = layer };
+        // THE PREFIX IS THE FALLBACK ANSWER TO THE OWNERSHIP QUESTION, AND IT IS RESTORED HERE
+        // (2026-09-04, round 2). This object was named a bare "XBar", so CanvasConversion's
+        // FindGameContent read it as the GAME's and the ModBuild 419 hardware log carries
+        // "HOST DESTROY DEFERRED (release): … still holds the GAME object 'XBar'" 24 times — once
+        // per window close, each one deferring a host destroy and freeing a mod bar to the scene
+        // root. The real fix is the ModOwnedContent marker on the plate above, which covers this
+        // object whether or not its name is ever right again; the prefix is kept in step with it so
+        // the two answers can never disagree. Nothing looks this object up by name.
+        var go = new GameObject("GloomhavenVR.XBar") { layer = layer };
         var rect = go.AddComponent<RectTransform>();
         rect.SetParent(parent, worldPositionStays: false);
         rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);

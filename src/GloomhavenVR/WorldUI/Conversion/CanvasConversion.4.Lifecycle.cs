@@ -249,6 +249,21 @@ internal static partial class CanvasConversion
                                       $"{(canvasDisabled ? "disabled" : "left as-is")}, CanvasGroup " +
                                       "alpha=0, raycasts off.");
             }
+            // THE OTHER HALF OF FIX B, AND IT IS NOT A SECOND FIX (2026-09-04, round 2). FIX B above
+            // forces the hidden state ONLY for a window the game reports CLOSED, for the reason
+            // stated there: a window released while genuinely open must stay visible in the 2D
+            // composite. But during a rapid options-key burst a RE-OPEN runs the previous float's
+            // pending release while the game already reports the window OPEN — so this branch parks
+            // an ENABLED screen-space window at its 2D home, which is the head-locked left-edge rim
+            // the user reported on ModBuild 418 and again on 419 ("Das Problem besteht weiterhin").
+            //
+            // Nothing is decided here. This tells ModalFallback that the question "does the mod
+            // still intend to float this window?" is fresh again for this window; its float-intent
+            // invariant re-asks it in LateUpdate, on this same frame, through the same gates and the
+            // same ledger as every other blackout. Patching the answer into this path instead is
+            // exactly the per-path patching that cost ModBuild 419 a round.
+            if (releasedWindow != null && releasedWindow.IsOpen)
+                ModalFallback.NoteReleasedWhileOpen(releasedWindow);
         }
 
         ReleaseHiddenWindowVeil(panel);
@@ -326,7 +341,13 @@ internal static partial class CanvasConversion
     /// carrier and its debris (<c>GloomhavenVR.WindowMaterialiseDebris*</c>), the close-X plate
     /// (<c>GloomhavenVR.ModalCloseX</c>), the supersample display (<c>GloomhavenVR.PanelSS_*</c>),
     /// the transient-dismiss catcher and the story dock (<c>GloomhavenVR.StoryDock</c>). A game
-    /// object never carries it, so the prefix IS the ownership test.</summary>
+    /// object never carries it, so the prefix IS the ownership test.
+    ///
+    /// <para>ModBuild 420: it is no longer the ONLY ownership test — see
+    /// <see cref="ModOwnedContent"/> and <see cref="FindGameContent"/>. It stays as the FALLBACK
+    /// for every mod-owned subtree that is parked from a file this lane does not own and is
+    /// therefore still named rather than marked. It is not deprecated and nothing that relies on
+    /// it changed.</para></summary>
     private const string ModOwnedPrefix = "GloomhavenVR.";
 
     /// <summary>
@@ -338,6 +359,18 @@ internal static partial class CanvasConversion
     /// children into it — so a direct-children-only test would have called that host empty and
     /// destroyed the story window with it. Stopping at the first non-mod node keeps the walk
     /// bounded by the mod's own (tiny) subtrees; it never enters game hierarchy.</para>
+    ///
+    /// <para><b>ModBuild 420 — THE OWNERSHIP QUESTION IS ASKED OF A COMPONENT FIRST, AND THE NAME
+    /// ONLY SECOND.</b> This test was a NAME PREFIX and it kept failing: ModBuild 419 renamed
+    /// <c>HitPlane</c> to <c>GloomhavenVR.HitPlane</c> because every close in every hardware log
+    /// read "still holds the GAME object 'HitPlane'", and the ModBuild 419 log then printed the
+    /// same warning 24 times naming <c>'XBar'</c> — a CHILD OF THAT SAME PLATE, created a few lines
+    /// further down the same file. A convention with no enforcement fails once per author, forever.
+    /// <see cref="ModOwnedContent"/> is asked first and answers for a whole SUBTREE, so marking the
+    /// one root a lane parks under the host covers every child it ever grows. A marked node that
+    /// declares <see cref="ModOwnedContent.MayHoldGameContent"/> is descended into exactly as a
+    /// prefixed one is — that is the StoryDock shape above, and it is why the marker carries a flag
+    /// instead of being a bare tag.</para>
     /// </summary>
     private static Transform? FindGameContent(Transform node, int depth)
     {
@@ -346,8 +379,19 @@ internal static partial class CanvasConversion
         for (int i = 0; i < node.childCount; i++)
         {
             Transform child = node.GetChild(i);
-            if (!child.name.StartsWith(ModOwnedPrefix, System.StringComparison.Ordinal))
+            // TryGetComponent, not GetComponent: it is documented allocation-free and this walk runs
+            // on every host destroy and once per parked host per frame from ServiceDeferredHosts.
+            if (child.TryGetComponent(out ModOwnedContent owned))
+            {
+                // A SEALED mod subtree holds nothing of the game's by declaration — skip it whole,
+                // which is also strictly less work than the prefix path did.
+                if (!owned.MayHoldGameContent)
+                    continue;
+            }
+            else if (!child.name.StartsWith(ModOwnedPrefix, System.StringComparison.Ordinal))
+            {
                 return child;
+            }
             Transform? deeper = FindGameContent(child, depth - 1);
             if (deeper != null)
                 return deeper;
@@ -1102,6 +1146,25 @@ internal static partial class CanvasConversion
         // The display quad's final pose is copied in the capture path's own onPreCull, i.e. after
         // every remaining LateUpdate pose writer (grab, board docks, the order ladder) has run.
         PanelSupersample.LateTick();
+
+        // THE FLOAT-INTENT INVARIANT, AND IT IS LAST IN THIS PASS ON PURPOSE (2026-09-04, round 2).
+        //
+        //     A game window that the mod tracks and INTENDS TO FLOAT must never have its own
+        //     canvases enabled while it is NOT floated.
+        //
+        // Everything above this line writes the mod's OWN hosts; this one asks whether any of the
+        // GAME's tracked windows is about to be drawn flat into the eye. It runs after every Update
+        // writer (OptionsToggle opens the window after ModalFallback in the same Update pass;
+        // Release hands a still-open window back to its 2D home from PhaseRelease) and after every
+        // LateUpdate writer in this method, i.e. in the last phase before the render loop — the same
+        // argument SetPanelRenderVisible above makes for the reveal gate.
+        //
+        // WHY IT LIVES IN ModalFallback AND IS ONLY CALLED FROM HERE: the intent, the gates and the
+        // one ledger that records what was switched off all belong to the blackout
+        // (ModalFallback.11.PreConvertHide.cs, which carries the whole account including the
+        // falsified ModBuild 419 hypothesis). This is the frame phase, not the owner. Cost in steady
+        // state is one integer compare.
+        ModalFallback.TickFloatIntentGuard();
     }
 
     // ---- floated-modal flicker instrumentation + per-frame sorting guard ------------------
