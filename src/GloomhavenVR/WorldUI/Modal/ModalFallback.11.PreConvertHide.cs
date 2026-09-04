@@ -195,6 +195,19 @@ internal static partial class ModalFallback
         /// One line per window per blackout — the FIRST one is the diagnostic; a per-frame repeat
         /// would be the flood ModBuild 331 removed.</summary>
         public bool ViolationLogged;
+        /// <summary>ModBuild 422 (round 4): this blackout holds a canvas on the OVERLAY PATH, i.e.
+        /// one that NO camera draws. See <see cref="IsOverlayPath"/> for what that means and why it
+        /// changes two decisions: the "its conversion failed — it belongs to the flat screen now"
+        /// hand-back does not apply to it (the flat screen composites CAMERAS, so it cannot show an
+        /// overlay canvas either), and <see cref="OverlayRuleNoteLogged"/> gates its one line.</summary>
+        public bool OverlayRule;
+        /// <summary>ModBuild 422: the overlay-rule line for this entry has been printed once.</summary>
+        public bool OverlayRuleNoteLogged;
+        /// <summary>ModBuild 422: the hold <see cref="PreConvertHideHold"/> returned on the last
+        /// pass was clause (d), the overlay rule. Read by <see cref="TickPreConvertHide"/> so the
+        /// 5 s outer safety — a DEFECT detector for an intent that overran its own bound — is not
+        /// fired by a hold that is a CONDITION and has no bound to overrun.</summary>
+        public bool HoldIsOverlayPath;
     }
 
     private static readonly List<PreHiddenWindow> PreHidden = new(2);
@@ -329,6 +342,7 @@ internal static partial class ModalFallback
                               "at its screen-space home (the ESC menu's column is docked hard LEFT, i.e. in the " +
                               "left eye's monocular sliver). Restored the instant the conversion takes over.");
         LogPreHideCameraCensus(window);
+        LogTwoDeeHomeCensus(window, "the game opened it and the blackout was raised");
     }
 
     /// <summary>
@@ -510,6 +524,9 @@ internal static partial class ModalFallback
         // shutdown / VR-off is a clean slate, and a window left latched across one would be a window
         // the guard has silently stopped watching for the rest of the process.
         PreHideGuardStoodDown.Clear();
+        // ModBuild 422: the overlay rule's diagnostic latch is per session-state as well — a window
+        // left latched across a VR-off is a window whose census would never print again.
+        OverlayRefusalNoted.Clear();
     }
 
     private static void RestorePreHidden(PreHiddenWindow entry, string reason)
@@ -583,6 +600,9 @@ internal static partial class ModalFallback
     /// </summary>
     private static string? PreConvertHideHold(PreHiddenWindow entry, UIWindow window)
     {
+        // Cleared FIRST so an (a)/(b)/(c) hold can never inherit the previous pass's answer to a
+        // question it did not ask ([[a-held-instrument-reads-as-dead]] in miniature).
+        entry.HoldIsOverlayPath = false;
         // (a) THE CONVERT LOOP HAS NOT HAD A PASS YET. This is what the frame budget was really
         //     buying on a normal open: the blackout is raised from the game's own Show(), and the
         //     conversion lands on the next convert pass. BOUNDED: exactly one pass, counted on this
@@ -609,6 +629,30 @@ internal static partial class ModalFallback
         if (entry.StoryHeldTick > 0 && s_preConvertTick - entry.StoryHeldTick <= PreConvertHideStampTicks)
             return "the story curtain's convert bridge holds it back (BOUNDED: 2 ticks per gate, "
                    + "never re-armed, plus StoryComposite's own deadlock floor)";
+        // (d) THE OVERLAY RULE (ModBuild 422, round 4). NOT a bounded intent to float — a statement
+        //     about what handing this canvas back would DO. See the round-4 section header for the
+        //     evidence; the argument in one sentence: an overlay canvas is drawn by NO camera, so
+        //     handing it back cannot make the window visible as a window — it can only put the
+        //     head-locked rim back. Every other clause here asks "is the mod still waiting for
+        //     something?"; this one asks "would giving up show the player anything he could use?",
+        //     and the answer is no.
+        //
+        //     THIS IS A CONDITION, NOT A TIME LIMIT (standing ruling: "Ich will gar keine
+        //     Zeitlimits dieser Art"), and it is level-triggered in both directions. It ends the
+        //     instant any of these becomes true, all of them re-read every pass by
+        //     TickPreConvertHide BEFORE this method is consulted: the game closes the window, the
+        //     mod floats it (the canvas is then nested under a WorldSpace host and IsOverlayPath is
+        //     false by construction), the room goes away, the window style / manual screen /
+        //     conversion / VR go off, or Menu2D takes over. It cannot latch: nothing here is
+        //     remembered, the predicate is re-derived from the live canvas on every pass.
+        if (OverlayPathStands(entry))
+        {
+            entry.HoldIsOverlayPath = true;
+            return "its own root canvas is on the OVERLAY PATH — NO camera draws it, so the flat "
+                   + "screen (which composites cameras) cannot show it either and handing it back "
+                   + "would restore the head-locked rim and nothing else (CONDITION, not a bound: "
+                   + "it ends when the window closes, is floated, or leaves the overlay path)";
+        }
         return null;
     }
 
@@ -773,11 +817,27 @@ internal static partial class ModalFallback
             // The standing intent, evaluated ONCE and reused by both the hold decision and the log
             // line — a rule that measured one thing and printed another is how the 8-frame budget
             // survived for as long as it did.
+            // ModBuild 422 (round 4): "it belongs to the flat screen now" is a claim about ANOTHER
+            // subsystem handling this window, and it is only true of a canvas a CAMERA draws. The
+            // flat screen composites the game's CAMERAS into a RenderTexture
+            // (FlatScreen.2.CameraStack: `cam.targetTexture = TargetFor(record)`), so an OVERLAY
+            // canvas is not in that composite — ModalFallback.12.ScreenBind's header is the proof
+            // and the whole reason that class exists. Handing a failed window's overlay canvas back
+            // therefore hands it to nobody, and what the player gets is the head-locked rim. The
+            // standing lesson this file already quotes, applied to this exit:
+            // SUPPRESSING X BECAUSE Y HANDLES IT REQUIRES Y TO ACTUALLY HANDLE IT.
+            bool failedElsewhere = ContainsWindow(Failed, window) && !OverlayPathStands(entry);
             string? hold = globallyOff || !VRModeStateMachine.TableInFrontOfPlayer || !window.IsOpen
-                           || IsConverted(window) || ContainsWindow(Failed, window)
+                           || IsConverted(window) || failedElsewhere
                 ? null
                 : PreConvertHideHold(entry, window);
-            bool defect = hold != null && stood > PreConvertHideDefectSeconds;
+            // The outer safety is a DEFECT DETECTOR for a bounded intent that overran its own bound.
+            // The overlay rule (clause (d)) has no bound to overrun — it is a condition on the live
+            // canvas — so firing this against it would report a defect that does not exist AND put
+            // the rim back after five seconds, which is the 8-frame budget returning wearing a
+            // different number. [[a-clamp-fallback-is-not-a-default]] one door over: the number is
+            // not the rule.
+            bool defect = hold != null && !entry.HoldIsOverlayPath && stood > PreConvertHideDefectSeconds;
             string? reason =
                 globallyOff ? "the floated-window path is no longer active (screen style / Menu2D / VR off)"
                 // Floating requires a scenario board (Tick's `want`). A window that opens during the
@@ -788,7 +848,7 @@ internal static partial class ModalFallback
                     ? "no room to float in yet — the floated-window path does not run here"
                 : !window.IsOpen ? "the game closed it again before it was ever floated"
                 : IsConverted(window) ? "it is already floated"
-                : ContainsWindow(Failed, window) ? "its conversion failed — it belongs to the flat screen now"
+                : failedElsewhere ? "its conversion failed — it belongs to the flat screen now"
                 // THE ModBuild 419 RULE. No named bounded intent to float this window stands any
                 // more, so the mod is not waiting for anything and the 2D rendering goes back. This
                 // is the routine hand-back and it is not a warning.
@@ -1071,6 +1131,141 @@ internal static partial class ModalFallback
             NoteFloatIntentViolation(raised, window, live,
                 "NO blackout stood — the window is tracked, open, wanted and NOT floated");
         }
+
+        // (C) THE OVERLAY RULE (ModBuild 422, round 4) — THE BACKSTOP THAT DOES NOT CARE WHICH
+        //     WRITER LEFT THE CANVAS ON. (A) and (B) are both written around the mod's INTENT
+        //     ("does the mod still mean to float this window?"), and each of them excludes, by
+        //     name, states in which the rim is exactly what happens: a window in `Failed`
+        //     ("it belongs to the flat screen now"), and a window the guard has stood down
+        //     (`PreHideGuardStoodDown`). Both exclusions are correct for a canvas a CAMERA draws
+        //     and both are false for an overlay canvas, for the single reason this whole round
+        //     turns on: no camera draws an overlay canvas, so no other subsystem in the build can
+        //     be the one handling it.
+        //
+        //     WHAT THIS PASS ADDS, AND WHY IT CANNOT HIDE A USABLE WINDOW. It asks one extra
+        //     question of every tracked, open, un-floated window: is its ROOT canvas on the overlay
+        //     path (see IsOverlayPath)? If it is, then in this mode the window is ALREADY invisible
+        //     as a window — the head camera does not draw it, the game's own UI camera is
+        //     retargeted to the desktop scrub sink, and the flat screen composites cameras — and
+        //     the only thing it can still produce is the head-locked rim. Switching it off through
+        //     the blackout's ledger therefore removes nothing the player could have used. That is
+        //     the whole safety argument, and it is why this pass may drop the two exclusions above
+        //     without risking the standing ruling that the options menu must always be openable:
+        //     what makes the menu openable is the FLOAT, and the float is untouched here.
+        //
+        //     COST: one GetComponent + a parent walk per tracked, open, UN-FLOATED window per
+        //     frame — no subtree walk, no allocation, no scene sweep. That population is EMPTY in
+        //     steady state (a tracked window is either floated or closed) and is 0-1 for the one or
+        //     two frames of a burst. The subtree walk only happens inside PreConvertHide, i.e. once
+        //     per window per blackout, exactly as before.
+        for (int i = 0; i < OpenWindows.Count; i++)
+        {
+            UIWindow window = OpenWindows[i];
+            if (window == null || !window.IsOpen || IsConverted(window))
+                continue;
+            PreHiddenWindow? standing = FindPreHidden(window);
+            if (standing != null)
+            {
+                // A blackout already stands for it (the game's Show raised it, or (A)/(B) did).
+                // Nothing to switch off — but the hand-back rule has to KNOW this window's 2D home
+                // is un-drawable, or TickPreConvertHide's `Failed` exit and its 5 s outer safety
+                // will give the canvas back and the rim with it.
+                if (!standing.OverlayRule && OverlayPathStands(standing))
+                {
+                    standing.OverlayRule = true;
+                    NoteOverlayRule(standing, window, null);
+                }
+                continue;
+            }
+            Canvas? overlay = LiveOverlayRootOf(window);
+            if (overlay == null)
+                continue;
+            PreConvertHide(window);
+            PreHiddenWindow? raised = FindPreHidden(window);
+            if (raised == null)
+            {
+                // ONE OF PreConvertHide's OWN GATES REFUSED IT, so the blackout is not ours to
+                // raise and this pass does nothing. That is deliberate — the gates encode the
+                // mod's intent and this rule does not overrule them — but it is also the one state
+                // in which the rim can survive this whole round, so it must not be silent
+                // ([[the-blind-spot-is-the-lead]]). The census prints the picture once per
+                // open-cycle; the marker below is what makes it once rather than once per frame,
+                // and it is a DIAGNOSTIC latch only — no decision reads it.
+                if (!ContainsWindow(OverlayRefusalNoted, window))
+                {
+                    OverlayRefusalNoted.Add(window);
+                    LogTwoDeeHomeCensus(window, "the OVERLAY RULE found a LIVE overlay-path canvas "
+                        + "on it, and a PreConvertHide gate refused the blackout — so this window "
+                        + "is open, un-floated, and drawn by nobody except the display composite. "
+                        + "If the rim survives ModBuild 422, THIS is the state it is in");
+                }
+                continue;
+            }
+            raised.OverlayRule = true;
+            NoteOverlayRule(raised, window, overlay);
+        }
+    }
+
+    /// <summary>
+    /// DIAGNOSTIC LATCH ONLY (ModBuild 422): windows whose overlay-rule refusal has already been
+    /// printed, so the census is one line per open-cycle rather than one per frame. Nothing
+    /// DECIDES on this list — it is pruned beside <see cref="PreHideGuardStoodDown"/> by the same
+    /// rule, for the same reason: the question is fresh again when the window closes or is floated.
+    /// </summary>
+    private static readonly List<UIWindow> OverlayRefusalNoted = new(2);
+
+    /// <summary>
+    /// <b>IS THIS CANVAS ON THE OVERLAY PATH — i.e. is it drawn by NO CAMERA AT ALL?</b> True for
+    /// <see cref="RenderMode.ScreenSpaceOverlay"/>, and for
+    /// <see cref="RenderMode.ScreenSpaceCamera"/> with a null <c>worldCamera</c>, which Unity
+    /// renders with overlay behaviour. Asked of the ROOT canvas, because a nested canvas inherits
+    /// its root's mode and camera — which is also why a canvas parented under a floated mod host
+    /// answers FALSE here by construction (the host's canvas is WorldSpace), and why nothing in
+    /// this file can touch a window while it is floated.
+    ///
+    /// <para><b>WHY THIS FIELD AND NOT A LAYER.</b> ModBuilds 420 and 421 both moved and restored
+    /// LAYERS and the rim survived both. For an overlay canvas the layer is IRRELEVANT: Unity
+    /// composites it onto the target display after the camera loop, so there is no culling mask to
+    /// fail and no camera to exclude it from. Only <c>Canvas.enabled</c>, the graphics' own alpha
+    /// or a <c>CanvasGroup</c> above them can suppress it. Do not re-derive this.</para>
+    /// </summary>
+    private static bool IsOverlayPath(Canvas canvas)
+    {
+        Canvas root = canvas.rootCanvas != null ? canvas.rootCanvas : canvas;
+        return root.renderMode == RenderMode.ScreenSpaceOverlay
+               || (root.renderMode == RenderMode.ScreenSpaceCamera && root.worldCamera == null);
+    }
+
+    /// <summary>
+    /// The window's own ENABLED root canvas when it is on the overlay path, else null. Deliberately
+    /// NOT a subtree walk — this runs per tracked un-floated window per frame, and a nested canvas
+    /// cannot be on the overlay path unless its root is (that is what "root" means here).
+    /// </summary>
+    private static Canvas? LiveOverlayRootOf(UIWindow window)
+    {
+        Canvas? own = window.GetComponent<Canvas>();
+        if (own == null)
+            own = window.GetComponentInParent<Canvas>();
+        if (own == null)
+            return null;
+        Canvas root = own.rootCanvas != null ? own.rootCanvas : own;
+        return root.enabled && IsOverlayPath(root) ? root : null;
+    }
+
+    /// <summary>
+    /// Does this blackout still hold a canvas NO CAMERA CAN DRAW? Read from the live canvases the
+    /// ledger recorded, never from a remembered verdict — the whole point is that the answer flips
+    /// the instant the window is floated (its root becomes the WorldSpace host) or handed home.
+    /// </summary>
+    private static bool OverlayPathStands(PreHiddenWindow entry)
+    {
+        for (int i = 0; i < entry.Canvases.Count; i++)
+        {
+            Canvas c = entry.Canvases[i];
+            if (c != null && IsOverlayPath(c))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Drop stand-down entries whose question is no longer open: destroyed, closed, or
@@ -1082,6 +1277,14 @@ internal static partial class ModalFallback
             UIWindow w = PreHideGuardStoodDown[i];
             if (w == null || !w.IsOpen || IsConverted(w))
                 PreHideGuardStoodDown.RemoveAt(i);
+        }
+        // ModBuild 422: the overlay rule's diagnostic latch is per open-cycle too, and by the same
+        // rule — a window that has closed or been floated is a fresh question.
+        for (int i = OverlayRefusalNoted.Count - 1; i >= 0; i--)
+        {
+            UIWindow w = OverlayRefusalNoted[i];
+            if (w == null || !w.IsOpen || IsConverted(w))
+                OverlayRefusalNoted.RemoveAt(i);
         }
     }
 
@@ -1105,6 +1308,87 @@ internal static partial class ModalFallback
             if (ReferenceEquals(PreHideGuardStoodDown[i], window))
                 PreHideGuardStoodDown.RemoveAt(i);
         }
+        s_releasedWhileOpen++;
+
+        // ModBuild 422 (round 4) — RE-ASSERT ON THIS CALL STACK, NOT ONE FRAME LATER.
+        //
+        // ModBuild 420 stopped here, lifting a latch and leaving the work to the LateUpdate
+        // invariant. The ModBuild 421 log shows why that is one step too late for THIS caller.
+        // CanvasConversion.Release's FIRST act is SetPanelRenderVisible(panel, visible: true),
+        // which re-enables every canvas the conversion's render hide had switched off — and during
+        // a burst this Release is the DEFERRED one, run from the dissolve's onDone inside the
+        // game's next Show(). So the order inside one frame is:
+        //
+        //   Show()  -> PreConvertHide switches the window's canvas OFF and records it
+        //           -> ResolveVanishForReopen ends the dissolve
+        //           -> Release re-enables that same canvas, and its FIX B does nothing because the
+        //              game reports the window OPEN
+        //           -> ... and the blackout's ledger still believes the canvas is off.
+        //
+        // Two owners, one switch, with the ledger holding the stale answer — the exact shape the
+        // round-2 header names as the lead ("an expiry line reading '(0 canvas(es) re-enabled)'").
+        // Re-asserting HERE closes it inside the same call stack instead of hoping the re-convert
+        // lands in the same tick; on the one occurrence in the ModBuild 421 log it did, which is
+        // why the invariant read clean while the defect was live.
+        //
+        // NOT A SECOND LEVER AND NOT A SECOND LEDGER: this calls PreConvertHide, which applies
+        // every gate it already applies (VR, conversion active, window style, no manual screen, not
+        // Menu2D, not dock-claimed, not refused, not a sub-view of a floated ancestor, not already
+        // floated), records into the SAME PreHidden ledger, and leaves TickPreConvertHide as the
+        // one owner of the hand-back. It is idempotent — it only catches canvases that came back
+        // on. If a gate refuses, nothing is switched off and the census below says which state the
+        // window was left in.
+        //
+        // WHY IT IS SAFE TO WRITE FROM INSIDE Release: the only write is Canvas.enabled, which
+        // Unity permits from an OnDisable/destroy callback (unlike SetParent, which Release itself
+        // has to verify — see the RELEASE DETACH REFUSED block there).
+        PreConvertHide(window);
+        LogTwoDeeHomeCensus(window, "released back to its 2D home while the game reports it OPEN");
+    }
+
+    /// <summary>Session tally of releases that handed a STILL-OPEN window back to its 2D home —
+    /// the event this round's fix hangs on. Printed by the census line.</summary>
+    private static int s_releasedWhileOpen;
+
+    /// <summary>Session tally of blackouts the overlay rule raised or claimed.</summary>
+    private static int s_overlayRuleHides;
+
+    /// <summary>
+    /// ONE LINE PER BLACKOUT for the overlay rule: what it caught and why handing it back would be
+    /// wrong. Not per frame — <see cref="PreHiddenWindow.OverlayRuleNoteLogged"/> is the gate and a
+    /// blackout is at most one per window per open.
+    /// </summary>
+    private static void NoteOverlayRule(PreHiddenWindow entry, UIWindow window, Canvas? raisedOn)
+    {
+        if (entry.OverlayRuleNoteLogged)
+            return;
+        entry.OverlayRuleNoteLogged = true;
+        s_overlayRuleHides++;
+        // HW-VERIFY: this is the line the ModBuild 422 round is read with. Zero of these across a
+        // burst means the rim did NOT come from an overlay canvas at its 2D home, and the next
+        // round reads the MODAL 2D HOME CENSUS below instead of this class.
+        VRLog.Note("WorldUI", $"MODAL OVERLAY RULE ({s_overlayRuleHides} this session): "
+            + $"'{entry.Name}' (ID {window.ID}) is tracked, OPEN and NOT floated, and its root "
+            + "canvas is on the OVERLAY PATH — drawn by NO camera. "
+            + (raisedOn != null
+                ? $"The blackout was RAISED for it here on '{raisedOn.name}' "
+                  + $"(renderMode={raisedOn.renderMode}, worldCamera="
+                  + $"{(raisedOn.worldCamera != null ? raisedOn.worldCamera.name : "<none>")}, "
+                  + $"sortingOrder={raisedOn.sortingOrder}, layer {raisedOn.gameObject.layer})."
+                : "A blackout already stood for it; this only marks it.")
+            + " WHAT THAT CHANGES: the hand-back rule may no longer give this canvas back on the "
+            + "'its conversion failed - it belongs to the flat screen now' exit, and the 5 s outer "
+            + "safety may no longer fire against it. Both of those hand a canvas to a subsystem "
+            + "that CANNOT show it: the flat screen composites the game's CAMERAS into a "
+            + "RenderTexture, and an overlay canvas is drawn by no camera, so it is in no composite "
+            + "- Unity composites it onto the target display after the camera loop, which is "
+            + "head-locked and, under MultiPass, lands in one eye texture. USER, ModBuild 421: "
+            + "'Wenn man schnell hintereinander die Optionstaste drueckt erscheint am linken Rand "
+            + "des auges so ein Rand der dem Kopf folgt statt dem Optionsmenu.' ModBuilds 420 and "
+            + "421 both moved and restored LAYERS; for an overlay canvas a layer is inert, which is "
+            + "why both read clean. The blackout is handed back the moment the window closes, is "
+            + "floated, or leaves the overlay path - nothing here is latched and nothing here is "
+            + "timed.");
     }
 
     /// <summary>
@@ -1209,5 +1493,218 @@ internal static partial class ModalFallback
             "THIS line is the picture that bookkeeping could not see. It quotes no other " +
             "instrument's grep token on purpose — the first draft did, and both counts of the 420 " +
             "log came back matching this sentence instead of the instrument.");
+    }
+
+    // ==============================================================================================
+    // ROUND 4 (ModBuild 422) — THE ONE FIELD THREE ROUNDS NEVER PRINTED FOR A WINDOW THAT LOOKED OK
+    // ==============================================================================================
+    //
+    // THE USER, ON ModBuild 421: "Wenn man schnell hintereinander die Optionstaste drückt erscheint
+    // am linken Rand des auges so ein Rand der dem Kopf folgt statt dem Optionsmenu." And, with the
+    // photograph: "man sieht etwas auf dem Flatscreen: linkes_element.png. Dort sieht man das das
+    // ursprüngliche graue overlay an der Stelle an der in flat das Optionsmenu wäre angezeigt wird.
+    // Wenn das der Fall ist sieht man es auch in VR aus dem linken augenwinkel und bewegt sich mit
+    // dem Kopf mit."
+    //
+    // ---- WHAT ROUNDS 2 AND 3 ESTABLISHED, SO NOBODY RE-DERIVES IT ------------------------------
+    //
+    // ModBuild 420 shipped the float-intent invariant; the 421 log reports ZERO violations.
+    // ModBuild 421 shipped the capture-straddle fix; the 421 log reports STRADDLE ENDED AT SHOW 1,
+    // MODAL OPEN ON A LIVE CAPTURE LAYER 0, PANEL SUPERSAMPLE LAYER RESTORE REFUSED 0. Both rounds
+    // moved and restored LAYERS, and BOTH ARE INERT AGAINST THE THING IN THE PHOTOGRAPH: an
+    // overlay canvas is drawn by NO camera, so it has no culling mask to fail and no camera to be
+    // excluded from. Only Canvas.enabled, the graphics' own alpha, or a CanvasGroup above them can
+    // suppress it. That is why both instruments read clean while the rim was live.
+    //
+    // ---- WHAT THE ModBuild 421 LOG ACTUALLY SHOWS, COUNTED ------------------------------------
+    //
+    // Ten opens, ten closes, ten releases of 'UI Map Esc Menu' — and only NINE
+    // 'release: restored 2D window forced hidden' lines. The tenth release took the OTHER branch of
+    // CanvasConversion.Release's FIX B, the one for a window the game reports OPEN, which hides
+    // nothing. And the very next MODAL DIAG reads:
+    //
+    //   :4939  MODAL DIAG '…Panel_Modal_UI Map Esc Menu' … | child 'UI Map Esc Menu' enabled=True
+    //
+    // That child is the window's own Canvas, and the root-canvas census recorded in
+    // ModalFallback.12.ScreenBind.cs's header (ModBuild 197, measured on this exact window) reads
+    //
+    //   'UI Map Esc Menu'  mode=ScreenSpaceOverlay  cam='<none>'  order=1200
+    //
+    // i.e. an ENABLED overlay canvas at its screen-space 2D home, 368x1080 px, anchors
+    // (0.00,0.00)..(0.00,1.00), pivot (0.00,0.50) in a 1920x1080 canvas — a left-anchored,
+    // full-height column. That is the shape in linkes_element.png.
+    //
+    // WHY IT HAPPENS ON A BURST AND NOT ON A SINGLE PRESS. :4950 says the supersample of the
+    // PREVIOUS float was still engaged when the game re-opened the window, which proves
+    // CanvasConversion.Release had NOT yet run at the close — it is DEFERRED to the end of the
+    // dissolve and runs from the vanish's onDone, i.e. inside the game's next Show(). Inside that
+    // one call: PreConvertHide switches the canvas off and records it, ResolveVanishForReopen ends
+    // the dissolve, Release's SetPanelRenderVisible(visible: true) switches the SAME canvas back
+    // on, and FIX B declines to re-hide it because the window is OPEN. Two owners, one switch, the
+    // ledger holding the stale answer.
+    //
+    // ---- WHAT THIS CENSUS ADDS, AND WHY IT IS THE LINE THAT ENDS THE ROUND ---------------------
+    //
+    // Every instrument this defect has been chased with reports the mod's BOOKKEEPING, and the one
+    // that does print renderMode (MODAL FLOAT INTENT VIOLATION) only prints it when the invariant
+    // has already fired. Three rounds of clean bookkeeping mean the defect is in what no read
+    // covers ([[the-blind-spot-is-the-lead]], [[measure-the-picture-not-the-state]]). So this line
+    // prints THE PICTURE for a tracked window unconditionally: every Canvas in its subtree with its
+    // renderMode, its worldCamera, whether it is enabled, its sortingOrder and layer, the alpha
+    // that actually reaches its graphics, and — stated, not implied — whether that canvas CAN reach
+    // an eye texture given its mode. Beside it, the mod's own state for the window, so a reader
+    // never has to correlate two lines to learn whether the mod thought it owned the window.
+    //
+    // BOUNDED: it is called on a window OPEN and on a release-that-left-the-window-open, never per
+    // frame, and it is change-gated on its own signature, so a session with nothing moving collapses
+    // to one line per window.
+    //
+    // ---- WHAT WAS REJECTED, AND WHY --------------------------------------------------------------
+    //
+    //  * ANOTHER LAYER MOVE. Rounds 2 and 3 both did one and both were inert here — see above. A
+    //    layer cannot suppress a canvas no camera draws.
+    //  * HIDING IT IN CanvasConversion.Release's FIX B, i.e. extending its "force the hidden state"
+    //    branch to a window the game reports OPEN. That branch exists to NOT do that, for a stated
+    //    reason ("a window released while genuinely open must stay visible in the 2D composite"),
+    //    and rewriting it would be per-path patching of the kind that cost ModBuild 419 a round.
+    //    The release path here only LIFTS a latch and re-asks the blackout's own question.
+    //  * A FRAME COUNT OR A TIMER anywhere. Standing ruling: "Ich will gar keine Zeitlimits dieser
+    //    Art." Clause (d) is a predicate on the live canvas, re-derived every pass.
+    //  * A SECOND LEDGER. Everything switched off goes into PreHidden and comes back through
+    //    TickPreConvertHide, which stays the one owner of the hand-back.
+    //  * TOUCHING ModalFallback.12.ScreenBind's `floatPathOwnsWindows` early return. It is a
+    //    genuine second instance of the same "Y handles it" assumption — in a room the fail-open
+    //    float is skipped for EVERY window, including ones the float path never takes — but the
+    //    overlay rule below covers the rendering consequence without moving that class's policy,
+    //    and a policy change there would decide where a window is SHOWN, which is not this round's
+    //    question. If ModBuild 422 comes back with MODAL 2D HOME CENSUS lines showing an
+    //    overlay-path canvas that a PreConvertHide gate refused, that early return is the next lead.
+    //
+    // MULTIPLAYER: read-only. It writes nothing but its own change gate.
+
+    /// <summary>Change gate for <see cref="LogTwoDeeHomeCensus"/> — the last SHAPE printed.</summary>
+    private static string s_homeCensusSignature = string.Empty;
+
+    /// <summary>Census lines printed this session (hard cap, see <see cref="HomeCensusMaxLines"/>).</summary>
+    private static int s_homeCensusLines;
+
+    /// <summary>
+    /// Hard cap on census lines per session. The change gate already collapses a settled session to
+    /// one line; this is the second guard, for the case where the SHAPE itself churns — a 72-tap
+    /// burst must not become 72 log lines ([[a-quiet-log-silenced-the-backlog]] is about the other
+    /// failure, and this is the one it was fixing).
+    /// </summary>
+    private const int HomeCensusMaxLines = 40;
+
+    /// <summary>How many canvases one census line names before it says "+N more".</summary>
+    private const int HomeCensusMaxCanvases = 8;
+
+    /// <summary>Census scratch (only used on the two bounded events; reused, no per-call alloc).</summary>
+    private static readonly List<Canvas> HomeCensusCanvases = new(8);
+    private static readonly System.Text.StringBuilder HomeCensusSb = new(640);
+
+    /// <summary>
+    /// <b>WHICH OF THIS WINDOW'S CANVASES CAN REACH AN EYE, AND WHAT THE MOD THINKS IT IS DOING.</b>
+    /// See the section header above for why this line exists and what it decides. Read-only.
+    /// </summary>
+    private static void LogTwoDeeHomeCensus(UIWindow window, string why)
+    {
+        if (window == null || s_homeCensusLines >= HomeCensusMaxLines)
+            return;
+
+        HomeCensusCanvases.Clear();
+        window.transform.GetComponentsInChildren(true, HomeCensusCanvases);
+
+        PreHiddenWindow? entry = FindPreHidden(window);
+        WindowPanel? panel = FindPanel(window);
+        string state = $"tracked={ContainsWindow(OpenWindows, window)}, floated={IsConverted(window)}"
+                       + $", sticky={(panel != null && panel.Sticky)}"
+                       + $", conversionFailed={ContainsWindow(Failed, window)}"
+                       + $", blackout={(entry == null ? "none" : $"standing since frame {entry.HiddenAtFrame} (overlayRule={entry.OverlayRule})")}"
+                       + $", guardStoodDown={ContainsWindow(PreHideGuardStoodDown, window)}"
+                       + $", screenBound={(FindScreenBound(window) != null)}"
+                       + $", failOpenClaim={StrandedClaim.Contains(window)}"
+                       + $", room={VRModeStateMachine.TableInFrontOfPlayer}"
+                       + $", mode={VRModeStateMachine.CurrentMode}"
+                       + $", flat screen {(FlatScreen.ScreenVisible ? "SHOWN" : "HIDDEN")}";
+
+        HomeCensusSb.Clear();
+        int named = 0;
+        for (int i = 0; i < HomeCensusCanvases.Count; i++)
+        {
+            Canvas c = HomeCensusCanvases[i];
+            if (c == null)
+                continue;
+            if (named >= HomeCensusMaxCanvases)
+                break;
+            named++;
+            Canvas root = c.rootCanvas != null ? c.rootCanvas : c;
+            Camera? cam = root.worldCamera;
+            bool overlay = IsOverlayPath(c);
+            string reach = overlay
+                ? "YES — OVERLAY: no camera draws it; Unity composites it onto the target display "
+                  + "after the camera loop, so it is head-locked and under MultiPass lands in one "
+                  + "eye texture. No layer and no culling mask can stop it"
+                : root.renderMode == RenderMode.WorldSpace
+                    ? "world space — drawn by every camera whose culling mask contains its layer"
+                    : cam != null && cam.targetTexture == null
+                        ? $"YES — drawn by '{cam.name}', which renders to the BACKBUFFER"
+                        : $"no — drawn by '{(cam != null ? cam.name : "<none>")}', which renders into "
+                          + $"'{(cam != null && cam.targetTexture != null ? cam.targetTexture.name : "<none>")}'";
+            HomeCensusSb.Append(" | '").Append(c.name).Append("'")
+                .Append(c.isRootCanvas ? " ROOT" : " nested")
+                .Append(" mode=").Append(root.renderMode)
+                .Append(" cam=").Append(cam != null ? cam.name : "<none>")
+                .Append(" enabled=").Append(c.enabled)
+                .Append(" order=").Append(c.sortingOrder)
+                .Append(" override=").Append(c.overrideSorting)
+                .Append(" layer=").Append(c.gameObject.layer)
+                .Append(" alphaAtCanvas=").Append(InheritedAlphaAt(c.transform, window.transform).ToString("F2"))
+                .Append(" → REACHES AN EYE: ").Append(reach);
+        }
+        if (HomeCensusCanvases.Count > named)
+            HomeCensusSb.Append(" | +").Append(HomeCensusCanvases.Count - named).Append(" further canvas(es) NOT NAMED (line cap)");
+        HomeCensusCanvases.Clear();
+
+        string body = HomeCensusSb.ToString();
+        string signature = window.name + "|" + state + "|" + body;
+        if (signature == s_homeCensusSignature)
+            return;
+        s_homeCensusSignature = signature;
+        s_homeCensusLines++;
+        // HW-VERIFY: the picture, not the bookkeeping. If a burst produces no MODAL OVERLAY RULE
+        // line and the rim is still reported, THIS line is where the next round starts: it names
+        // every canvas of the window and says which of them can be composited into an eye.
+        VRLog.Note("WorldUI", $"MODAL 2D HOME CENSUS '{window.name}' (ID {window.ID}) — {why}. "
+            + $"MOD STATE: {state}. CANVASES ({s_homeCensusLines}/{HomeCensusMaxLines} census "
+            + $"line(s) this session, {s_releasedWhileOpen} release(s) while open, "
+            + $"{s_overlayRuleHides} overlay-rule blackout(s)):{body}");
+    }
+
+    /// <summary>
+    /// The alpha that actually reaches the graphics under <paramref name="from"/>: the product of every
+    /// <see cref="CanvasGroup"/> from there up to and including <paramref name="stopAfter"/>,
+    /// honouring <c>ignoreParentGroups</c>. This is the term a renderMode census would otherwise be
+    /// missing — an enabled overlay canvas at inherited alpha 0 draws nothing and would read as a
+    /// defect ([[inherited-alpha-is-not-the-group]]).
+    /// </summary>
+    private static float InheritedAlphaAt(Transform from, Transform stopAfter)
+    {
+        float alpha = 1f;
+        Transform? t = from;
+        while (t != null)
+        {
+            var group = t.GetComponent<CanvasGroup>();
+            if (group != null)
+            {
+                alpha *= group.alpha;
+                if (group.ignoreParentGroups)
+                    return alpha;
+            }
+            if (ReferenceEquals(t, stopAfter))
+                return alpha;
+            t = t.parent;
+        }
+        return alpha;
     }
 }
