@@ -205,6 +205,12 @@ internal static class MapQuestReadyRoster
 
     // ---- B: the notice ------------------------------------------------------------------------------
 
+    /// <summary>How often the blocker sentence is re-evaluated, seconds. See the call site.</summary>
+    private const float BlockEvalIntervalSeconds = 0.25f;
+
+    private static float _blockNextEvalAt = float.NegativeInfinity;
+    private static string _blockText = string.Empty;
+
     private static GameObject? _noticeGo;
     private static TextMeshProUGUI? _notice;
     private static UIWindow? _noticeHost;
@@ -291,6 +297,8 @@ internal static class MapQuestReadyRoster
     {
         ReleaseRow("map room teardown");
         HideNotice();
+        _blockNextEvalAt = float.NegativeInfinity;
+        _blockText = string.Empty;
         _rowWarned = false;
         _reportVerdict = string.Empty;
     }
@@ -390,7 +398,12 @@ internal static class MapQuestReadyRoster
 
         if (rect.anchorMin != rect.anchorMax)
             rect.anchorMin = rect.anchorMax = Vector2.up;
-        rect.pivot = new Vector2(0.5f, 0f);   // bottom centre: the row grows UPWARD from the gap
+        // Bottom centre: the row grows UPWARD from the gap. Written only when it is not already
+        // the answer — a uGUI pivot write dirties the layout whether or not the value changed, and
+        // this method runs every frame a quest card is open.
+        var wantPivot = new Vector2(0.5f, 0f);
+        if (rect.pivot != wantPivot)
+            rect.pivot = wantPivot;
         Vector2 want = new Vector2(frame.center.x, confirmTop.y + gap)
                        - AnchorReference(frame, rect.anchorMin, rect.anchorMax);
         if ((rect.anchoredPosition - want).sqrMagnitude > 0.01f)
@@ -504,7 +517,18 @@ internal static class MapQuestReadyRoster
         if (questWindow.transform is not RectTransform win)
             return;
 
-        string text = DescribeBlock();
+        // THE SENTENCE IS RE-EVALUATED ON A CADENCE, NOT PER FRAME. DescribeBlock walks the player
+        // list and builds strings, and the state behind it changes on a human timescale (somebody
+        // joins, the host assigns a hero) — so re-asking four times a second is already far finer
+        // than the thing it measures, and re-asking every frame would be a per-frame allocation in
+        // the room whose Update budget the perf line already complains about. The last answer stands
+        // in between, which is also why it is cached rather than recomputed for the compare below.
+        if (Time.unscaledTime >= _blockNextEvalAt)
+        {
+            _blockNextEvalAt = Time.unscaledTime + BlockEvalIntervalSeconds;
+            _blockText = DescribeBlock();
+        }
+        string text = _blockText;
         if (text.Length == 0)
         {
             HideNotice();
