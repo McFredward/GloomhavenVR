@@ -50,13 +50,27 @@ internal static partial class CanvasConversion
         // Restore the game's own nested canvases (tests #19/#20): overrideSorting and
         // worldCamera back to their captured values; raycasters WE added are removed
         // (ones the game serialized stay).
+        //
+        // THE CAMERA IS NOT RESTORED HERE ANY MORE (ModBuild 426), AND THE REASON IS THE WHOLE
+        // DEFECT. This loop runs BEFORE the target is re-parented out of the float host, below.
+        // While a game canvas is still nested under our world-space host, Unity keeps its effective
+        // camera equal to the ROOT's — ours — so a worldCamera written here is discarded before it
+        // can mean anything. ModBuild 425's log has this release running in full (the stack trace at
+        // Player.log:7151 names Release, and this method's own `release: restored 2D window forced
+        // hidden` line printed) and the eye census read `cam='GloomhavenVR.HeadCamera'` on that very
+        // canvas immediately afterwards. So the camera is collected here and written on the FAR SIDE
+        // of the re-parent, where the canvas is a root again — see RestoreAdoptedCameras in
+        // CanvasConversion.4b.CameraOwnership.cs, which also reads the value back.
+        ReleaseCameraCanvases.Clear();
+        ReleaseCameraWanted.Clear();
         for (int i = 0; i < panel.AdoptedCanvases.Count; i++)
         {
             NestedCanvasRecord record = panel.AdoptedCanvases[i];
             if (record.Canvas != null)
             {
                 record.Canvas.overrideSorting = record.OriginalOverrideSorting;
-                record.Canvas.worldCamera = record.OriginalWorldCamera;
+                ReleaseCameraCanvases.Add(record.Canvas);
+                ReleaseCameraWanted.Add(record.OriginalWorldCamera);
                 // A conceded canvas is the one whose sortingOrder we took over — hand that back
                 // too, or the game's 2D home would keep a draw order borrowed from a world-space
                 // host that no longer exists.
@@ -67,6 +81,8 @@ internal static partial class CanvasConversion
                 Object.Destroy(record.AddedRaycaster);
         }
         panel.AdoptedCanvases.Clear();
+        panel.PreCapturedCanvases.Clear();
+        panel.PreCapturedCameras.Clear();
         // ModBuild 203: the sibling-rebase census describes a set that no longer exists. Zero it and
         // arm the rebuild, so a panel object that is ever re-converted cannot report — or write —
         // offsets derived from a previous life.
@@ -139,6 +155,13 @@ internal static partial class CanvasConversion
             record.Transform.localRotation = record.OriginalLocalRotation;
         }
         panel.Flattened.Clear();
+
+        // ModBuild 426, half 2 — the belt. Filled inside the block below and read by the verdict
+        // line after it, so a release whose target died still consumes the camera snapshot.
+        string ownershipName = panel.HostGo != null ? panel.HostGo.name : "<dead host>";
+        bool beltHid = false;
+        bool gameSaysClosed = false;
+        bool ownershipIsWindow = false;
 
         if (panel.Target != null)
         {
@@ -225,6 +248,9 @@ internal static partial class CanvasConversion
             // its own Show() re-enables it via OnTransitionStarted) — disabling any other window's
             // Canvas would be PERMANENT, because the game never touches `_canvas` for those.
             UIWindow? releasedWindow = target.GetComponent<UIWindow>();
+            ownershipName = target.name;
+            ownershipIsWindow = releasedWindow != null;
+            gameSaysClosed = releasedWindow != null && !releasedWindow.IsOpen;
             if (releasedWindow != null && !releasedWindow.IsOpen)
             {
                 bool canvasDisabled = false;
@@ -248,6 +274,17 @@ internal static partial class CanvasConversion
                                       $"'{target.name}' (ID {releasedWindow.ID}): canvas " +
                                       $"{(canvasDisabled ? "disabled" : "left as-is")}, CanvasGroup " +
                                       "alpha=0, raycasts off.");
+
+                // ModBuild 426, HALF 2 — THE BELT, and it does not depend on half 1 being right.
+                // FIX B above sets the CanvasGroup's alpha to 0, and the 425 census measured this
+                // very window at effectiveAlpha 0.845 immediately after a release that ran it: the
+                // game's own hide tween keeps writing that alpha, so a single write to it is not a
+                // hide ([[dont-win-a-write-war]] — concede the field, own the outcome). The canvas's
+                // own `enabled` flag is not a field the game's tween touches, so that is the one
+                // taken here, recorded one for one, and handed back the instant the game reopens the
+                // window, the mod re-converts it, or the module shuts down. Never a timer, never a
+                // frame count. See CanvasConversion.4b.CameraOwnership.cs.
+                beltHid = HoldReleasedWindowDark(releasedWindow, target);
             }
             // THE OTHER HALF OF FIX B, AND IT IS NOT A SECOND FIX (2026-09-04, round 2). FIX B above
             // forces the hidden state ONLY for a window the game reports CLOSED, for the reason
@@ -266,6 +303,12 @@ internal static partial class CanvasConversion
                 ModalFallback.NoteReleasedWhileOpen(releasedWindow);
         }
 
+        // ModBuild 426, HALF 1 — the camera restore, on the FAR SIDE of the re-parent above. Runs
+        // whether or not the target survived: the snapshot is the panel's adoption set and it has to
+        // be consumed either way. Writes, reads back, and says both values.
+        bool cameraWasWrong = RestoreAdoptedCameras("release");
+        NoteReleaseOwnership(ownershipName, cameraWasWrong, beltHid, gameSaysClosed, ownershipIsWindow);
+
         ReleaseHiddenWindowVeil(panel);
         DestroyHostSafely(panel, "release");
 
@@ -278,6 +321,10 @@ internal static partial class CanvasConversion
     {
         for (int i = Active.Count - 1; i >= 0; i--)
             Release(Active[i]);
+        // NOTHING THE BELT SWITCHED OFF MAY OUTLIVE THE MOD. A dark hold standing after a VR-off or
+        // a hot reload is a window the player cannot open, which is the one outcome the standing
+        // pause-menu ruling forbids.
+        LiftAllDarkHolds("the WorldUI module is shutting down (VR off / hot reload)");
         SoftLocks.Clear();
         // The draw ladder is a STATIC list (CanvasConversion.8.Order.cs); Release only clears each
         // panel's OrderListed flag, and the pruning pass that acts on it does not run again after a
@@ -576,6 +623,13 @@ internal static partial class CanvasConversion
         // Parked hosts first: a host that is only waiting for Unity to allow the detach must be
         // retried on a frame that is NOT inside a SetActive callback, and this is that frame.
         ServiceDeferredHosts();
+
+        // ModBuild 426: both ownership guards, at the TOP and outside the Active loop, because both
+        // of them are about windows the mod no longer owns — a pass that only ran while a panel was
+        // converted could never see the state it exists to correct. Bounded: a strided walk of the
+        // mod's own watch list and a walk of the (one- or two-entry) dark-hold list; no scene sweep,
+        // no component walk, no allocation. See CanvasConversion.4b.CameraOwnership.cs.
+        TickOwnershipGuards();
 
         // Part 9d, the LIFT half of the pre-Start flash veil, and it belongs at the TOP of the
         // Update phase for a reason the part's header states in full: Unity has already run

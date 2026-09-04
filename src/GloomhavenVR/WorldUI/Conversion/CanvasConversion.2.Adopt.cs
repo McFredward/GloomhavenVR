@@ -258,7 +258,7 @@ internal static partial class CanvasConversion
             Canvas = nested,
             OriginalOverrideSorting = nested.overrideSorting,
             OriginalSortingOrder = nested.sortingOrder,
-            OriginalWorldCamera = SafeOriginalWorldCamera(nested),
+            OriginalWorldCamera = SafeOriginalWorldCamera(panel, nested),
             KeepOverrideSorting = overlay,
             OverlaySortingOrder = nested.name == DropdownBlockerName
                 ? DropdownBlockerSortingOrder
@@ -275,6 +275,11 @@ internal static partial class CanvasConversion
             nested.overrideSorting = false;
         }
         nested.worldCamera = panel.HostCanvas.worldCamera;
+        // From this write on, a GAME canvas carries a MOD camera. That is correct while the mod owns
+        // it and wrong the instant the mod does not, so the canvas joins the repair pass's tracked
+        // population here — with the value it is owed — and leaves it only when it is destroyed.
+        // See CanvasConversion.4b.CameraOwnership.cs.
+        WatchAdoptedCamera(nested, record.OriginalWorldCamera);
         if (nested.GetComponent<GraphicRaycaster>() == null)
             record.AddedRaycaster = nested.gameObject.AddComponent<GraphicRaycaster>();
 
@@ -337,14 +342,40 @@ internal static partial class CanvasConversion
     /// to a state whose visibility the mod cannot state is not a fix — so restore the camera the
     /// game had, and let null stand only where no game UI camera exists at all.</para>
     /// </summary>
-    private static Camera? SafeOriginalWorldCamera(Canvas nested)
+    private static Camera? SafeOriginalWorldCamera(ConvertedPanel panel, Canvas nested)
     {
         Camera? observed = nested.worldCamera;
         Camera? head = Rig.VRRigDriver.HeadCamera;
-        if (head == null || !ReferenceEquals(observed, head))
+        if (head == null || !IsModOwnedCamera(observed))
             return observed;
 
         _adoptCameraLeaks++;
+
+        // ModBuild 426, AND THIS IS WHY 424 FIRED 23 TIMES AND CHANGED NOTHING. `observed` above is
+        // read AFTER Convert re-parented this window under the mod's world-space host, and Unity
+        // reports a nested canvas's worldCamera from its ROOT — so for essentially every adopted
+        // canvas it reports OURS whatever the canvas itself holds. The proof is in the 425 log: all
+        // fourteen 'Content' canvases and 'UI Map Esc Menu' report sortingOrder=1000, the host's
+        // SEED order and not their own (the census reads the same ESC-menu canvas at order=1200 once
+        // it is a root again), and the ONE adoption that did not leak is the one canvas whose
+        // overrideSorting the game holds TRUE — i.e. the one that IS its own sorting root and
+        // therefore reports its own values. So prefer the value captured BEFORE the re-parent; that
+        // is an observation of the game's canvas, and everything below it is a fallback.
+        Camera? preCaptured = PreCapturedCameraOf(panel, nested, out bool preSeen);
+        if (preSeen && !IsModOwnedCamera(preCaptured))
+        {
+            // HW-VERIFY: the ordinary, healthy path once ModBuild 426 ships. If the two branches
+            // below still dominate this log, the pre-capture is not reaching the canvases that leak.
+            VRLog.Note("WorldUI", $"MODAL ADOPT CAMERA LEAK: game canvas '{nested.name}' reads OUR "
+                + $"camera '{CamName(observed)}' from the float host it is now nested under — an "
+                + "INHERITED read, not the canvas's own value. Recording the camera captured before "
+                + $"the re-parent, '{CamName(preCaptured)}', which is what the GAME had. LIVE VALUE "
+                + $"AFTER THIS GUARD: '{CamName(nested.worldCamera)}' — adoption sets it to the "
+                + "host's camera on the next line, which is correct while the mod owns this canvas; "
+                + "the release and the repair pass own it from the moment the mod does not. "
+                + $"LEAK #{_adoptCameraLeaks} this session."); // HW-VERIFY
+            return preCaptured;
+        }
         for (int p = 0; p < Active.Count; p++)
         {
             ConvertedPanel other = Active[p];
@@ -359,7 +390,17 @@ internal static partial class CanvasConversion
                     + "Recording THAT panel's captured original "
                     + $"'{(rec.OriginalWorldCamera != null ? rec.OriginalWorldCamera.name : "<none>")}' "
                     + "instead of the value the mod itself wrote, so the release hands the game back "
-                    + $"what the game had. LEAK #{_adoptCameraLeaks} this session."); // HW-VERIFY
+                    + $"what the game had. LEAK #{_adoptCameraLeaks} this session."
+                    // APPENDED ModBuild 426 — never reword the sentence above it. 424 shipped a line
+                    // that stated what it CAUGHT and never what the canvas was left holding, so a
+                    // catch that corrected nothing read exactly like a fix for a whole build.
+                    + $" LIVE VALUE AFTER THIS GUARD: '{CamName(nested.worldCamera)}'"
+                    + (IsModOwnedCamera(nested.worldCamera)
+                        ? " — STILL OURS. That is BY DESIGN here (adoption binds it to the host on "
+                          + "the next line); it stops being by design at Release, which is where "
+                          + "'] CANVAS CAMERA RESTORE' states the live value on the far side of the "
+                          + "re-parent, and '] CANVAS CAMERA REPAIR' corrects anything that survives."
+                        : " — not a mod camera.")); // HW-VERIFY
                 return rec.OriginalWorldCamera;
             }
         }
@@ -378,7 +419,20 @@ internal static partial class CanvasConversion
                   + $"'{(gameUi.targetTexture != null ? gameUi.targetTexture.name : "the BACKBUFFER")}'."
                 : " — no game UI camera exists here, so the canvas degrades to Screen-Space-OVERLAY, "
                   + "which ModalFallback's screen-bind owns.")
-            + $" LEAK #{_adoptCameraLeaks} this session."); // HW-VERIFY
+            + $" LEAK #{_adoptCameraLeaks} this session."
+            // APPENDED ModBuild 426 — see the note on the other branch. The sentence above is 424's
+            // and stays word for word.
+            + $" LIVE VALUE AFTER THIS GUARD: '{CamName(nested.worldCamera)}'"
+            + (IsModOwnedCamera(nested.worldCamera)
+                ? " — STILL OURS, which is by design at ADOPTION and never at release. "
+                  + "PRE-CAPTURE: " + (preSeen
+                      ? "this canvas WAS captured before the re-parent and the captured value was a "
+                        + "mod camera too, so the game's own value was already gone before this "
+                        + "conversion started — the repair pass is what closes that."
+                      : "this canvas was NOT captured before the re-parent (it arrived late — a "
+                        + "pooled row, a dropdown, a repopulated sub-view), so this branch is the "
+                        + "only answer available and it is a guess by construction.")
+                : " — not a mod camera.")); // HW-VERIFY
         return gameUi;
     }
 

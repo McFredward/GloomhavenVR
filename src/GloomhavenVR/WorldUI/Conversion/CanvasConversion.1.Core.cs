@@ -268,6 +268,17 @@ internal static partial class CanvasConversion
         // ==================================================================================
         KeepHostInTargetScene(panel, hostGo, name);
 
+        // THE LAST MOMENT AT WHICH THE GAME'S OWN CANVAS VALUES ARE READABLE. Once the line below
+        // re-parents the window under the world-space host, Unity reports every nested canvas's
+        // worldCamera and sortingOrder from the ROOT — which is now OURS — so an "original" captured
+        // from inside the float is the mod's own value read back to itself
+        // ([[a-claim-must-not-measure-itself]]). ModBuild 424's leak guard fired on 23 of the 24
+        // adoptions in the 425 log for exactly that reason. Two lines, one component walk, and the
+        // release hands back an observation instead of a guess. See
+        // CanvasConversion.4b.CameraOwnership.cs.
+        LiftDarkHoldFor(target); // a re-conversion must never float a canvas the belt switched off
+        PreCaptureGameCameras(panel, target);
+
         // Re-parent and center: anchors collapse to the middle so the captured
         // size becomes absolute.
         target.SetParent(hostRect, worldPositionStays: false);

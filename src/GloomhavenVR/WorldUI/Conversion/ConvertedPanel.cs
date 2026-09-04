@@ -213,6 +213,26 @@ internal sealed class ConvertedPanel
     /// </summary>
     public readonly List<NestedCanvasRecord> AdoptedCanvases = new(2);
 
+    /// <summary>
+    /// THE CANVASES OF THIS WINDOW AS THE GAME LEFT THEM, captured by
+    /// <c>CanvasConversion.PreCaptureGameCameras</c> in the last moment before <c>Convert</c>
+    /// re-parents the window under the float host. Parallel to <see cref="PreCapturedCameras"/>.
+    ///
+    /// <para>WHY IT IS TAKEN THERE AND NOWHERE ELSE. Unity reports a NESTED canvas's
+    /// <c>worldCamera</c> and <c>sortingOrder</c> from its ROOT canvas, and after the re-parent
+    /// that root is the mod's world-space host. Every value read from inside the float is therefore
+    /// the MOD's, which is why ModBuild 424's leak guard fired on 23 of the 24 adoptions in the 425
+    /// log and had to fall back to guessing the game's UI camera. Read before the re-parent, this
+    /// is the game's actual value, and the release hands back an observation instead of a
+    /// guess.</para>
+    /// </summary>
+    public readonly List<Canvas> PreCapturedCanvases = new(4);
+
+    /// <summary>The <c>worldCamera</c> each entry of <see cref="PreCapturedCanvases"/> carried at
+    /// its 2D home — <c>null</c> where the game itself had null, which is an observation and not a
+    /// fallback.</summary>
+    public readonly List<Camera?> PreCapturedCameras = new(4);
+
     /// <summary>Next frame for the periodic nested-canvas sweep (pooled children can bring canvases late).</summary>
     public int CanvasSweepNextFrame;
 

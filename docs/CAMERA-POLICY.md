@@ -335,3 +335,55 @@ reproduce Screen-Space-Camera UI); without it the screen stays mono:
 [WorldUI] FlatScreen quad placed: pos=…, … | head 'GloomhavenVR.HeadCamera' pos=…, fwd=…, mask=…, clear=SolidColor, stereo=Both.
 [Core] Heartbeat #1: frames+600 | rigDriver=ok head=ok … | display=running input=running devices=5 hmd=tracked L=tracked R=tracked
 ```
+
+## §7 Camera OWNERSHIP on game canvases — owner: `WorldUI.CanvasConversion` (ModBuild 426)
+
+**The invariant.** *No canvas the mod does not own may reference a mod-owned camera, at any
+time.* A `ScreenSpaceCamera` canvas is parked as ordinary geometry at its `planeDistance` in
+front of whatever camera it names, so a GAME canvas naming `GloomhavenVR.HeadCamera` is
+head-locked in the eye by construction. That is the left-edge rim the user reported from
+ModBuild 418 on: *"Wenn man schnell hintereinander die Optionstaste drueckt erscheint am linken
+Rand des auges so ein Rand der dem Kopf folgt statt dem Optionsmenu."*
+
+**ModBuild 424's guard was necessary and not sufficient — do not re-derive this.** 424 added
+`CanvasConversion.SafeOriginalWorldCamera`: a recorded "original" `Canvas.worldCamera` may never
+be a value the mod wrote. It fired **23 times** in the 425 hardware log (a naive
+`grep -c '] MODAL ADOPT CAMERA LEAK'` returns 27 — four of those lines only quote the marker),
+and the eye census in the same log still read `EYE CENSUS CANVAS 'UI Map Esc Menu' ROOT …
+mode=ScreenSpaceCamera … cam='GloomhavenVR.HeadCamera' … layer=5 … alpha 0.845`. A guard that
+refuses a bad RECORDED value and leaves the bad LIVE value standing corrects nothing.
+
+**Why it could not work, from the 425 log.** `Convert` re-parents the game window under the
+mod's world-space host and only then adopts its canvases, and Unity reports a nested canvas's
+`worldCamera`/`sortingOrder` from its ROOT — ours. Two independent readings in the log:
+23 of 24 adoptions "leaked", and every one of them reports `sortingOrder=1000`, the host's SEED
+order, not the canvas's own (the census reads the same ESC-menu canvas at `order=1200` once it
+is a root again). The one adoption that did NOT leak is `UI Party Inventory Item Tooltip`, the
+one canvas whose `overrideSorting` the game holds TRUE — i.e. the one that IS its own sorting
+root and therefore reports its own values. `Release` then restored the camera in its
+adopted-canvas loop, which runs BEFORE the re-parent, so the write was discarded while the
+canvas was still nested.
+
+**What is enforced now** (`WorldUI/Conversion/CanvasConversion.4b.CameraOwnership.cs`):
+
+- **Capture before the re-parent** — `PreCaptureGameCameras`, called from `Convert` in the last
+  frame in which the game's own values are readable. The recorded original is an observation,
+  not `FindGameUiCamera`'s guess.
+- **Restore after the re-parent, then read back** — `RestoreAdoptedCameras` runs at the end of
+  `Release`, writes, re-reads, and writes the game's own UI camera a second time if the live
+  value is still ours. Both values are on the log line.
+- **A bounded repair pass** — `TickCameraOwnership` walks the canvases this mod has ever pointed
+  at a mod camera (its own list, capped at 64, 8 entries per frame, no scene sweep) and corrects
+  any that no live panel holds. World-space canvases are skipped: there `worldCamera` is the
+  EVENT camera and the mod binds the head camera on purpose (`WorldTooltips`).
+- **A belt that does not depend on any of that** — while the mod has handed a window back and the
+  GAME reports it CLOSED, the window's own root canvas is held `enabled = false` through a
+  one-for-one ledger and handed back the instant the game reopens it (`UIWindow.IsOpen`), the mod
+  re-converts it, or the module shuts down. Never a timer, never a frame count. The pause menu
+  must always be openable — that is what the lift conditions, and not a timeout, exist for.
+
+**Log lines:** `] MODAL ADOPT CAMERA LEAK … LIVE VALUE AFTER THIS GUARD: '<cam>'`,
+`] CANVAS CAMERA RESTORE (<where>): … live camera BEFORE '<cam>' … AFTER '<cam>' … VERDICT: …`,
+`] CANVAS CAMERA REPAIR #n …`, `] MODAL DARK HOLD LIFTED (n of m taken this session) …`,
+`] MODAL RELEASE OWNERSHIP for '<window>': …` — the last of these says WHICH HALF did the work,
+so a log can state whether the belt is still load-bearing or can be retired.
