@@ -1660,10 +1660,20 @@ internal sealed class DecisionDockSurface : WorldSurface
             return false;
         float scale = PanelLayout.WorldScale;
         Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        Vector3 pos = h.position + fwd * (FloatDistanceMeters * scale);
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-        CanvasConversion.PlaceHost(Panel, pos, rot, scale * FloatScaleFactor);
+        // YAW ONLY (user ruling 2026-09-04: "Das soll generell bei keinem Fenster der Fall sein.
+        // Ausschließlich yaw-achse."). The ruling was reported against the encounter decision window
+        // and generalised by the user to every window; this fallback float is the same family and
+        // built its rotation the same wrong way, from the raw head forward. See HeadFacing.
+        HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+        // POSITION KEPT ON THE RAW GAZE: same argument as FloatingDecisionSurfaces.Place — a docked
+        // decision that falls back to a float is still something the player pokes, and the raw gaze
+        // keeps it centred in the view when he is looking down at the board. Only the rotation is
+        // constrained by the ruling, and only the rotation changes here.
+        Vector3 pos = h.position + h.forward * (FloatDistanceMeters * scale);
+        CanvasConversion.PlaceHost(Panel, pos, facing.Rotation, scale * FloatScaleFactor);
+        HeadFacing.LogPlaced(Name + " (HMD fallback float)", facing, pos,
+            "along the RAW gaze at " + FloatDistanceMeters.ToString("F2") + " m × scale — unchanged by "
+            + "the yaw-only fix, which constrains the rotation only");
         return true;
     }
 

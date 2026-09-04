@@ -344,14 +344,36 @@ internal sealed partial class FlatScreen
             MrBacking.Label(text); // free-floating over the room when MR is already on at start
             VRLayers.Apply(_indicator); // head camera masks include the mod layer (CAMERA-POLICY §2)
             VRLog.Info("WorldUI", "Starting indicator shown (pre-menu scene, FlatScreen gated).");
+            _indicatorFacingLogged = false;
         }
 
         Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        _indicator.transform.SetPositionAndRotation(
-            h.position + fwd * 1.5f,
-            Quaternion.LookRotation(fwd, Vector3.up)); // TMP front faces -Z → toward the head
+        // YAW ONLY (user ruling 2026-09-04: "Das soll generell bei keinem Fenster der Fall sein.
+        // Ausschließlich yaw-achse."). TMP fronts render along −Z, so the yaw-only rotation already
+        // faces the head — this line used to inherit the head's pitch as well, which stood the label
+        // at a slope whenever the player was not looking level. See HeadFacing.
+        HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+        // POSITION KEPT ON THE RAW GAZE, AND THIS ONE IS NOT A JUDGEMENT CALL: the indicator's whole
+        // job is to be visible in a void while the intro plays flat, and it is re-derived every frame
+        // for exactly that reason. On the flattened forward it would slide out of view the moment the
+        // player looked up or down — the one failure this label exists to prevent.
+        Vector3 pos = h.position + h.forward * 1.5f;
+        _indicator.transform.SetPositionAndRotation(pos, facing.Rotation);
+        // ONCE PER INDICATOR, NOT PER FRAME. This method is the per-frame tick; the placement it
+        // performs is continuous, so the proof line is gated to the first frame after the indicator
+        // is built. That is enough to answer "was this label upright?" and cannot flood.
+        if (!_indicatorFacingLogged)
+        {
+            _indicatorFacingLogged = true;
+            HeadFacing.LogPlaced("StartingIndicator", facing, pos,
+                "along the RAW gaze at 1.5 m — a pre-menu label that must stay in view at any head "
+                + "pitch, so it deliberately keeps following the full gaze");
+        }
     }
+
+    /// <summary>One-shot gate for the starting indicator's yaw-only proof line — see
+    /// <see cref="TickStartingIndicator"/>. Cleared when a new indicator is built.</summary>
+    private bool _indicatorFacingLogged;
 
     private void DestroyIndicator()
     {

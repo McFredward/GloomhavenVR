@@ -1776,10 +1776,25 @@ internal sealed class UseBarsSurface
 
         float worldScale = PanelLayout.WorldScale;
         Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-        Vector3 basePos = h.position + fwd * (FloatDistanceMeters * worldScale);
+        // YAW ONLY (user ruling 2026-09-04: "Das soll generell bei keinem Fenster der Fall sein.
+        // Ausschließlich yaw-achse."). This stack built its rotation from the raw head forward, so a
+        // player looking down at the board got a whole column of tipped bars. See HeadFacing.
+        HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+        Quaternion rot = facing.Rotation;
+        // POSITION KEPT ON THE RAW GAZE (the base of the stack), same argument as the other decision
+        // floats: these bars are poked, and the raw gaze keeps the top of the column in the middle of
+        // the view when the player is looking down. Only the rotation changes.
+        Vector3 basePos = h.position + h.forward * (FloatDistanceMeters * worldScale);
+        // THE STACK STAYS COHERENT BECAUSE THE ROTATION IS NOW FLAT. This step vector is derived FROM
+        // the panel rotation on purpose — bar n hangs below bar n−1 in the panels' own frame — and
+        // with the pitch stripped that frame's down IS world down, so upright bars now descend
+        // vertically instead of marching along a tilted gaze line. Deriving it from the rotation
+        // rather than hardcoding Vector3.down keeps the one relationship the stack depends on
+        // (panels and step share a frame) true if the facing rule ever changes again.
         Vector3 down = rot * Vector3.down;
+        HeadFacing.LogPlaced("UseBars (floating stack base)", facing, basePos,
+            "along the RAW gaze at " + FloatDistanceMeters.ToString("F2") + " m × scale; the stack then "
+            + "steps along the panels' own down, which the flattened rotation makes world down");
 
         int index = 0;
         for (int i = 0; i < _docks.Length; i++)

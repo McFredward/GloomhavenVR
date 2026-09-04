@@ -211,10 +211,25 @@ internal abstract class FloatingDecisionSurface : WorldSurface
                 return;
             float scale = PanelLayout.WorldScale;
             Transform h = head.transform;
-            Vector3 fwd = h.forward;
-            Vector3 pos = h.position + fwd * (FloatDistanceMeters * scale);
-            Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-            CanvasConversion.PlaceHost(Panel, pos, rot, scale * FloatScaleFactor);
+            // YAW ONLY (user ruling 2026-09-04). THIS IS THE WINDOW HE REPORTED — the encounter
+            // decision that makes you assign an outcome to a character: "Das Entscheidungsfenster …
+            // dreht sich auch in der pitch achse zum Spieler beim spawn. Das soll generell bei keinem
+            // Fenster der Fall sein. Ausschließlich yaw-achse." The rotation used to be built from
+            // the RAW head forward, so looking down at the board tipped the panel back at the player.
+            // HeadFacing.YawOnly is the single choke point for that rule; see its doc comment.
+            HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+            // POSITION KEPT ON THE RAW GAZE, deliberately. The complaint is that the panel TURNS,
+            // not where it lands, and this is a panel the player POKES: placed along the raw gaze it
+            // sits in the middle of the field of view whatever the head is doing, whereas the
+            // flattened forward would ride at eye height and push it toward the top edge of the view
+            // — or out of it — exactly when the player is looking down at the diorama, which is the
+            // common case here. Changing that is a placement change nobody asked for; the raw head
+            // pitch goes on the log line below so the next round can see what the drop actually was.
+            Vector3 pos = h.position + h.forward * (FloatDistanceMeters * scale);
+            CanvasConversion.PlaceHost(Panel, pos, facing.Rotation, scale * FloatScaleFactor);
+            HeadFacing.LogPlaced(Name, facing, pos,
+                "along the RAW gaze at " + FloatDistanceMeters.ToString("F2") + " m × scale, so a poked "
+                + "decision stays centred in the view (rotation only is constrained by the ruling)");
             _placed = true;
             // BUILT AFTER THE PLACE, NEVER BEFORE: SurfaceGrabBar.Build seeds its frame from the
             // host's CURRENT world pose, so seeding it before the host was placed would put the

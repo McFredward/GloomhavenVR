@@ -91,11 +91,19 @@ internal sealed class DialogSurface
         {
             float scale = PanelLayout.WorldScale;
             Transform h = head.transform;
-            Vector3 fwd = h.forward;
-            Vector3 pos = h.position + fwd * (0.75f * scale);
-            // Canvas front faces -forward: point +Z away from the viewer.
-            Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
-            CanvasConversion.PlaceHost(_panel, pos, rot, scale * 0.7f);
+            // YAW ONLY (user ruling 2026-09-04: "Das soll generell bei keinem Fenster der Fall sein.
+            // Ausschließlich yaw-achse."). Canvas front faces −forward, so the yaw-only rotation
+            // HeadFacing returns already points +Z away from the viewer — the same convention this
+            // line always had, minus the pitch it used to inherit from the raw head forward.
+            HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+            // POSITION KEPT ON THE RAW GAZE: a yes/no box is answered with a poke and belongs in the
+            // middle of the view, which the raw gaze gives at any head pitch. The ruling constrains
+            // the rotation; where the box lands is unchanged.
+            Vector3 pos = h.position + h.forward * (0.75f * scale);
+            CanvasConversion.PlaceHost(_panel, pos, facing.Rotation, scale * 0.7f);
+            HeadFacing.LogPlaced(Name, facing, pos,
+                "along the RAW gaze at 0.75 m × scale — unchanged; only the rotation is constrained "
+                + "by the ruling");
         }
         VRLog.Info("WorldUI", "Confirmation dialog moved to world space (poke yes/no).");
     }

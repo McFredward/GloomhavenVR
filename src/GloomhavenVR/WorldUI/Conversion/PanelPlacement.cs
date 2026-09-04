@@ -147,12 +147,13 @@ internal static class PanelPlacement
         return Quaternion.LookRotation(away, Vector3.up);
     }
 
-    /// <summary>Horizontal unit projection (falls back to world forward when degenerate).</summary>
-    private static Vector3 Flatten(Vector3 v)
-    {
-        v.y = 0f;
-        return v.sqrMagnitude > 1e-4f ? v.normalized : Vector3.forward;
-    }
+    /// <summary>Horizontal unit projection (falls back to world forward when degenerate).
+    ///
+    /// <para>Delegates to <see cref="HeadFacing.Flatten"/> so the yaw-only rule has ONE
+    /// implementation across the WorldUI tree (user ruling 2026-09-04 — see that type). This name is
+    /// kept because it is what this file's own doc comments and callers refer to; the threshold and
+    /// the fallback are byte-for-byte what they always were.</para></summary>
+    private static Vector3 Flatten(Vector3 v) => HeadFacing.Flatten(v);
 }
 
 /// <summary>

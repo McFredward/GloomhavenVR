@@ -21,16 +21,19 @@ internal sealed partial class FlatScreen
 
         float scale = PanelLayout.WorldScale;
         Transform h = head.transform;
-        Vector3 fwd = h.forward;
-        fwd.y = 0f;
-        if (fwd.sqrMagnitude < 1e-4f)
-            fwd = Vector3.forward;
-        fwd.Normalize();
+        // ROUTED THROUGH THE SHARED YAW-ONLY CHOKE POINT (user ruling 2026-09-04). This site was
+        // already correct — it flattened the forward and guarded the degenerate case with its own
+        // copy of the rule — and its BEHAVIOUR is unchanged: same flattened forward for the position,
+        // same yaw-only rotation, same 1e-4 threshold. What changes is that the rule now lives in one
+        // place instead of five, which is the point of the fix: the copy here is exactly the kind
+        // that the surfaces family never made, and so never got right. See HeadFacing.
+        HeadFacing.Facing facing = HeadFacing.YawOnly(h);
+        Vector3 fwd = facing.FlatForward;
 
         float distance = Mathf.Max(0.1f, WorldUIConfig.ScreenDistance.Value);
         Vector3 target = h.position + fwd * (distance * scale);
         // Quad primitive faces -Z (visible from -forward side): +Z away from viewer.
-        Quaternion rot = Quaternion.LookRotation(fwd, Vector3.up);
+        Quaternion rot = facing.Rotation;
 
         float width = WantedQuadWidth(scale);
         Vector3 size = new(width, width / ScreenAspect, 1f);
