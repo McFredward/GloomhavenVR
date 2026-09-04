@@ -414,6 +414,10 @@ internal sealed class MapLocationInteractor
         // city's unlock state and the option locks are all things that change between rooms.
         _capitalTermsLogged.Clear();
         _capitalForced = false;
+        // ModBuild 423 — and so is the next room entitled to its own withheld-click lines: a
+        // requirement is met by playing (a character joins, an item is equipped, a personal quest is
+        // taken), so a marker refused on this visit may well be selectable on the next one.
+        _refusedSelections.Clear();
 
         if (_maskTaken)
         {
@@ -1780,6 +1784,13 @@ internal sealed class MapLocationInteractor
             return;
         }
 
+        // ModBuild 423 — ASK THE GAME BEFORE DISPATCHING A SELECTION IT IS GOING TO REFUSE.
+        if (SelectionWouldBeRefused(loc, out string refusal))
+        {
+            NoteRefusedSelection(loc, source, refusal);
+            return;
+        }
+
         EventSystem? es = EventSystem.current;
         var data = new PointerEventData(es!) { button = PointerEventData.InputButton.Left };
         try
@@ -1788,19 +1799,170 @@ internal sealed class MapLocationInteractor
             // later our own click has changed it and the evidence is gone. See TickClickVerdict.
             ArmClickVerdict(loc);
             ExecuteEvents.Execute(loc.gameObject, data, ExecuteEvents.pointerClickHandler);
-            _selected = loc;   // what a later "press somewhere else" deselects
-            _selectedAt = Time.unscaledTime;
+
+            // ModBuild 423 — ARM THE DESELECT ONLY FOR A SELECTION THE GAME ACTUALLY MADE.
+            //
+            // Until this build `_selected` was armed unconditionally, one line after the dispatch.
+            // But `MapLocation.Select()` sets `m_IsSelected` only when BOTH `IsSelectable()` and the
+            // game's own `m_OnClickAction` say yes (decompiled MapLocation.cs:660-668), and either
+            // can say no. A refused click therefore left this class believing a location was staged
+            // that the game had never selected — and the next "press somewhere else" answered that
+            // belief with <see cref="Deselect"/>, i.e. the game's own `MapLocation.Deselect()`,
+            // which runs `m_OnClickAction(this, active: false)` → `OnDeselectedMapLocation` →
+            // `QuestManager.OnMapLocationQuestSelected(quest, false)` → the quest popup HIDES. A
+            // spurious deselect is not a bookkeeping slip in this room; it is a window closing.
+            //
+            // The test is the game's own public `IsSelected` (MapLocation.cs:187, backed by the
+            // `m_IsSelected` that `Select()` writes), read on the same frame the synchronous
+            // dispatch returns — the game's answer to our click, not a re-derivation of it.
+            bool selected = loc.IsSelected;
+            if (selected)
+            {
+                _selected = loc;   // what a later "press somewhere else" deselects
+                _selectedAt = Time.unscaledTime;
+            }
             VRLog.Info(Scope, $"MAP ROOM location CLICK on '{loc.name}' ({source}) — dispatched as "
                               + "ExecuteEvents.pointerClickHandler, i.e. exactly a left mouse click. "
                               + "MapLocation.OnPointerClick → Select() decides from here (IsSelectable "
                               + "plus the game's own m_OnClickAction); if nothing happened, it refused, "
-                              + "and it would have refused the same click in the flat game.");
+                              + "and it would have refused the same click in the flat game. "
+                              + $"THE GAME'S ANSWER THIS TICK: MapLocation.IsSelected={selected}"
+                              + (selected
+                                  ? " — staged, so a later press somewhere else deselects it through "
+                                    + "the game's own MapLocation.Deselect()."
+                                  : " — REFUSED, so nothing is staged and no deselect is armed. Before "
+                                    + "ModBuild 423 this armed one anyway and the next press elsewhere "
+                                    + "ran a Deselect that closed the quest window."));
         }
         catch (System.Exception ex)
         {
             VRLog.Warn(Scope, $"MAP ROOM location click on '{loc.name}' threw: {ex}");
         }
     }
+
+    /// <summary>
+    /// WOULD THE GAME REFUSE THIS SELECTION? Asked BEFORE the dispatch, using the game's own
+    /// verdict method, and the answer is not a re-derivation of a rule — it is a transcription of
+    /// the one branch that refuses.
+    ///
+    /// <para>USER RULING (2026-09-04), on the "every scenario loadable" test toggle, verbatim:
+    /// <i>"Dieser Cheat soll im Multiplayer völlig deaktiviert werden - man soll also nach wie vor
+    /// dann nicht darauf klicken können."</i> Making the cheat inert online is not the same act as
+    /// making the marker unclickable, and this is the second half.</para>
+    ///
+    /// <para>WHY A GREYED MARKER WAS STILL CLICKABLE AT ALL. The lock mask is PAINT.
+    /// <c>MapLocation.IsSelectable()</c> (decompiled MapLocation.cs:315-329) returns true for ANY
+    /// campaign location carrying a <c>LocationQuest</c>, whatever its requirements say, so the
+    /// greying done by <c>UIQuestMapMarker</c> gates nothing. In the flat game the click is refused
+    /// one level DOWN, inside the click delegate itself —
+    /// <c>MapChoreographer.OnMapLocationSelect</c>, MapChoreographer.cs:1243-1248:</para>
+    ///
+    /// <code>
+    /// RequirementCheckResult r = mapLocation.LocationQuest.CheckRequirements();
+    /// if (!r.IsUnlocked() &amp;&amp; !r.IsOnlyMissingCharacters() &amp;&amp; !ShowAllScenariosMode)
+    /// {
+    ///     Singleton&lt;AdventureMapUIManager&gt;.Instance.DeselectCurrentMapLocation();
+    ///     Singleton&lt;AdventureMapUIManager&gt;.Instance.ShowWarning(r, autoHide: true);
+    ///     return false;
+    /// }
+    /// </code>
+    ///
+    /// <para>AND THAT REFUSAL IS WHAT TEARS THE WINDOW DOWN. <c>DeselectCurrentMapLocation</c>
+    /// (AdventureMapUIManager.cs:387-394) deselects the PREVIOUSLY selected location, which
+    /// re-enters <c>OnMapLocationSelect(prev, active: false)</c> →
+    /// <c>QuestManager.OnMapLocationQuestSelected(quest, false)</c> (QuestManager.cs:142-167) →
+    /// <c>UIQuestPopup.Hide</c> (:342-351) → <c>UIWindow.ChangeActive</c> (UIWindow.cs:742-747),
+    /// which can <c>SetActive(false)</c> the very rect this room has re-parented into a world
+    /// panel. The panel blanks and the float is released — the user's <i>"das Fenster ist komplett
+    /// verschwunden und danach wurde es komisch"</i>, reported three times.</para>
+    ///
+    /// <para>SO THE FIX IS NOT TO SEND THE CLICK. Same three terms, same order, read the same way:
+    /// <c>CheckRequirements()</c> is the GAME's method (and the one the cheat's own postfix acts on,
+    /// so a toggle that is inert online is inert here too, with no second rule to keep in step), and
+    /// <c>ShowAllScenariosMode</c> is the game's own debug flag read live. Nothing about a
+    /// requirement is re-implemented here; only the decision to dispatch is.</para>
+    ///
+    /// <para>WHAT THE PLAYER GETS: the flat game's own nothing. The marker is already painted greyed
+    /// with a lock mask by <c>UIQuestMapMarker</c>, which is the feedback; the alternative was to
+    /// call the game's <c>ShowWarning</c> ourselves, which was rejected — it draws on the
+    /// guildmaster HUD the room deliberately does not draw, so it would have been an invisible
+    /// warning bought with a game-state call from presentation code.</para>
+    ///
+    /// <para>NEVER FAILS CLOSED ON AN UNREADABLE TERM: if anything throws, the answer is "do not
+    /// refuse" and the click goes through exactly as it did in ModBuild 422. An unmeasured rule must
+    /// not become a new way to make a marker dead.</para>
+    /// </summary>
+    private bool SelectionWouldBeRefused(MapLocation loc, out string why)
+    {
+        why = string.Empty;
+        try
+        {
+            MapRuleLibrary.MapState.CQuestState quest = loc.LocationQuest;
+            if (quest == null)
+                return false;   // villages, stores and the capital never reach that branch
+
+            global::MapChoreographer? choreo = MapRoomDriver.Choreographer;
+            if (choreo == null)
+                return false;
+
+            RequirementCheckResult result = quest.CheckRequirements();
+            bool unlocked = result.IsUnlocked();
+            bool onlyMissingCharacters = result.IsOnlyMissingCharacters();
+            bool showAll = choreo.ShowAllScenariosMode;
+            if (unlocked || onlyMissingCharacters || showAll)
+                return false;
+
+            why = $"the game's own CQuestState.CheckRequirements() says IsUnlocked={unlocked}, "
+                  + $"IsOnlyMissingCharacters={onlyMissingCharacters}, and "
+                  + $"MapChoreographer.ShowAllScenariosMode={showAll} "
+                  + $"(online={FFSNetwork.IsOnline})";
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            // NEVER FAIL CLOSED. See the doc above.
+            why = string.Empty;
+            if (_selectionGateWarned)
+                return false;
+            _selectionGateWarned = true;
+            VRLog.Warn(Scope, "MAP ROOM selection gate could not be measured — "
+                              + $"{ex.GetType().Name}: {ex.Message}. CONSEQUENCE: clicks are "
+                              + "dispatched exactly as they were in ModBuild 422, so a LOCKED "
+                              + "scenario becomes clickable again and its refusal can close the quest "
+                              + "window. That is the safe failure for a gate: an unmeasured rule must "
+                              + "never be the reason a marker goes dead. One line per session.");
+            return false;
+        }
+    }
+
+    /// <summary>ONE line per refused marker per map-room visit — a refusal is a level, not an event,
+    /// and a player who keeps poking a locked scenario must not fill the log with it.</summary>
+    private void NoteRefusedSelection(MapLocation loc, string source, string why)
+    {
+        if (!_refusedSelections.Add(loc.name))
+            return;
+        // HW-VERIFY: user ruling 2026-09-04, "man soll also nach wie vor dann nicht darauf klicken
+        // können" — this is the line that says the click was withheld rather than lost.
+        VRLog.Note(Scope, $"MAP ROOM location click on '{loc.name}' ({source}) WITHHELD — the game "
+                          + "would have refused this selection, so nothing was dispatched. "
+                          + $"THE GAME'S OWN VERDICT: {why}. That is exactly the branch at decompiled "
+                          + "MapChoreographer.cs:1243-1248, whose refusal calls "
+                          + "AdventureMapUIManager.DeselectCurrentMapLocation() — and THAT deselects "
+                          + "the PREVIOUSLY selected location, which hides the quest popup this room "
+                          + "has re-parented into a world panel. Dispatching a click the game refuses "
+                          + "is therefore not a no-op in VR; it is how the quest window disappeared "
+                          + "('das Fenster ist komplett verschwunden und danach wurde es komisch'). "
+                          + "THE PLAYER SEES the greyed marker and its lock mask, which is the flat "
+                          + "game's own feedback, and nothing happens — which is the ruling. One line "
+                          + "per marker per map-room visit.");
+    }
+
+    /// <summary>One Warn per session if the gate's terms cannot be read at all.</summary>
+    private bool _selectionGateWarned;
+
+    /// <summary>Markers already reported as withheld this visit. Cleared with the rest of the
+    /// interactor's per-visit state; bounded by the number of locations on the map.</summary>
+    private readonly HashSet<string> _refusedSelections = new();
 }
 
 /// <summary>
