@@ -835,6 +835,11 @@ internal static class MapTravelConfirm
         // must be live before the host's first SelectQuest can reach a client, and WorldUIModule is
         // owned by other lanes. Idempotent. See MapQuestReadyUp for the seam and the log lines.
         MapQuestReadyUp.Install();
+        // ModBuild 423 — the icon row that says WHO has already confirmed, and the read-only observer
+        // that reports what the game did with a press. Installed here for the third time for the same
+        // reason; idempotent through Harmony's own per-type patch bookkeeping. See
+        // MapQuestReadyRoster for the user request and the source citations.
+        VRSession.Harmony?.PatchAll(typeof(MapQuestReadyPress));
         VRLog.Info(Scope, "MAP TRAVEL CONFIRM installed — the single-player 'click the same location "
                           + "twice and go' shortcut is switched off while the 3D map room stands (the "
                           + "game itself switches it off online, so this is its own behaviour and not an "
@@ -888,6 +893,15 @@ internal static class MapTravelConfirm
                                   _parkedIsReadyToggle ? _host : null,
                                   questWindow != null,
                                   _standDown || _parkStandDown);
+        // AND THE ROW OF ICONS ABOVE IT (ModBuild 423). Fed the SAME two references the claim gets,
+        // so the three of them can never disagree about what is parked where. It is ticked LAST
+        // because it hangs off the confirm's placed top edge: reading a pose that has already been
+        // written this frame is what keeps the pair one block instead of two chasing each other.
+        // Offline `_parkedIsReadyToggle` is false, the row is released and MapQuestReadyRoster
+        // .ReservedHeight() returns 0, so the single-player placement is bit-identical to 422.
+        MapQuestReadyRoster.Tick(questWindow,
+                                 _parkedIsReadyToggle ? _parked : null,
+                                 _posed);
     }
 
     /// <summary>The reconciliation proper — see <see cref="Reconcile"/>, which brackets it with the
@@ -1018,6 +1032,7 @@ internal static class MapTravelConfirm
     {
         Unpark("map room teardown");
         MapQuestReadyUp.Reset();
+        MapQuestReadyRoster.Reset();
     }
 
     /// <summary>
@@ -1345,7 +1360,19 @@ internal static class MapTravelConfirm
             + "reported as 'der Button ist nicht im Fenster'. Showing the toggle from here would be "
             + "writing game state from presentation code. IF THIS LINE IS ABSENT and the button is "
             + "still missing, the parking DID happen and the fault is a placement fault - read "
-            + "MAP TRAVEL CONFIRM placement and MODAL CONTROL COVERAGE instead.");
+            + "MAP TRAVEL CONFIRM placement and MODAL CONTROL COVERAGE instead. "
+            // ModBuild 423 — APPENDED, never reworded (a surface checker counts the tokens above).
+            // 422 stated which of ShouldBeVisible's terms was false and then stopped, listing the
+            // three sub-terms of DetermineHostToggleInteractability as PROSE - so the round that
+            // shipped it still had to correlate `Number of players`, the join lifecycle and every
+            // `gained control over` line by hand to find out which one it was. That is the
+            // "name the blocker, not the number" lesson, and this clause EVALUATES them instead.
+            + "WHICH SUB-TERM IS FALSE, EVALUATED HERE AND NOT LEFT AS PROSE: "
+            + MapQuestReadyRoster.DescribeInteractabilityTerms()
+            + " (the three terms of MapChoreographer.DetermineHostToggleInteractability's `flag`, "
+            + "decompiled MapChoreographer.cs:3325, in the order that method writes them; a "
+            + "conjunction has exactly ONE first cause). The player is told the same thing inside "
+            + "the quest card - see MAP QUEST READY CARD, field NOTICE.");
     }
 
     /// <summary>One private bool read as text, or "&lt;not resolvable&gt;" when the field is gone.
@@ -1675,8 +1702,20 @@ internal static class MapTravelConfirm
         }
 
         // THE POSE IS A WINDOW-LOCAL POINT, NOT AN anchoredPosition (ModBuild 196, unchanged).
+        //
+        // ModBuild 423 — ONE TERM ADDED, AND IT IS ZERO IN SINGLE PLAYER. The user asked for the
+        // "wer hat schon bestätigt" icon row ABOVE this button ("Ich will das man die icons der
+        // Spieler sieht die es bereits bestätigt haben über dem Button - so wie im flat game"), and
+        // the space directly above this button is the quest information itself — the measured zero
+        // IS that text's bottom edge. So the row takes the zero and the button moves down by the
+        // row's own height. THE DIALS ARE NOT REINTERPRETED: they still measure from the zero, and
+        // the zero still lands on the TOP of the confirm GROUP, directly under the quest
+        // information. MapQuestReadyRoster.ReservedHeight() is exactly 0 whenever that class is not
+        // holding the row — every offline tick, and every online tick on which the game is not
+        // showing its multiplayer confirm — so nothing about the single-player placement changes.
         Vector2 wantPivot = new(_anchorPivot.x + dials.x * windowHeight,
-                                _anchorPivot.y + dials.y * windowHeight);
+                                _anchorPivot.y + dials.y * windowHeight
+                                    - MapQuestReadyRoster.ReservedHeight());
 
         // ANCHORS ARE READ, NEVER RE-WRITTEN. anchoredPosition means nothing without the anchor it
         // is measured from, so the number that lands on the rect is derived from the anchor the rect
