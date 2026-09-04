@@ -258,7 +258,7 @@ internal static partial class CanvasConversion
             Canvas = nested,
             OriginalOverrideSorting = nested.overrideSorting,
             OriginalSortingOrder = nested.sortingOrder,
-            OriginalWorldCamera = nested.worldCamera,
+            OriginalWorldCamera = SafeOriginalWorldCamera(nested),
             KeepOverrideSorting = overlay,
             OverlaySortingOrder = nested.name == DropdownBlockerName
                 ? DropdownBlockerSortingOrder
@@ -294,6 +294,119 @@ internal static partial class CanvasConversion
               (record.AddedRaycaster != null ? "added" : "existing") +
               ") — inherits host sorting/depth, raycasts merged with the host.");
         return true;
+    }
+
+
+    /// <summary>Running count of adoptions that found our OWN head camera on a game canvas.</summary>
+    private static int _adoptCameraLeaks;
+
+    /// <summary>
+    /// The value to record as a game canvas's ORIGINAL <see cref="Canvas.worldCamera"/> — never one
+    /// the MOD wrote. This is the fix for the left-edge rim (ModBuild 424); it is stated as an
+    /// invariant rather than as a repair of one code path, because it is correct under every
+    /// mechanism that could produce the state.
+    ///
+    /// <para>THE DEFECT. Adoption points a game canvas at the host's camera — in VR that is
+    /// <c>GloomhavenVR.HeadCamera</c> — and <see cref="Release"/> hands
+    /// <see cref="NestedCanvasRecord.OriginalWorldCamera"/> back. If the value CAPTURED here was
+    /// itself written by the mod (two panels holding the same canvas across a fast re-open, an
+    /// adoption that outlived its release, a panel that died with its scene), the hand-back writes
+    /// our head camera onto a canvas the mod no longer owns. That canvas is now a ROOT
+    /// <see cref="RenderMode.ScreenSpaceCamera"/> canvas parked at its <c>planeDistance</c> IN FRONT
+    /// OF THE HMD, on layer 5, which the head camera's mask contains and must keep containing
+    /// (<see cref="Core.VRLayers.GameUiLayer"/>). The moment the game fades the window in flat — a
+    /// second options press interrupting the materialise, exactly the user's reproducer — its
+    /// full-height left-docked panel is drawn into the eye at mid-fade alpha, head-locked. ModBuild
+    /// 423's log carries both halves: the same canvas reads <c>cam=UI Camera</c> on the session's
+    /// first open (frame 2467) and <c>cam=GloomhavenVR.HeadCamera</c> from frame 4140 on, and the
+    /// eye census then measured the panel at rect <c>(0.041,0.000)-(0.274,1.193)</c>, alpha 0.895.</para>
+    ///
+    /// <para>THE RULE. Our head camera is never a value the GAME wrote — nothing game-side can find
+    /// it (it is untagged, so it is not <c>Camera.main</c>, and <c>VRCameraPolicy</c> keeps it out of
+    /// every game camera path). So observing it here PROVES the record would be self-referential
+    /// ([[a-claim-must-not-measure-itself]], [[a-hide-saved-a-foreign-value]]). Prefer the exact
+    /// truth — a live record for the same canvas on another active panel, which is the two-panel
+    /// case — and otherwise the GAME'S OWN UI CAMERA, which is what the 423 log shows this very
+    /// canvas carrying on the session's FIRST open (<c>cam=UI Camera</c>, rendering into
+    /// <c>GloomhavenVR.DesktopScrubSink</c>, i.e. not in the eye). <c>null</c> is only the last
+    /// resort, and deliberately not the first choice: a null camera turns a ScreenSpaceCamera canvas
+    /// into a Screen-Space-OVERLAY one, and the two shipped subsystems that reason about overlays in
+    /// VR DISAGREE about whether the HMD sees them (<c>ModalFallback</c>'s screen-bind says an
+    /// overlay "reaches the desktop mirror and nothing else"; <c>EyeReachCensus</c> says Unity
+    /// composites it after the camera loop and it "lands in ONE eye texture"). Handing a game canvas
+    /// to a state whose visibility the mod cannot state is not a fix — so restore the camera the
+    /// game had, and let null stand only where no game UI camera exists at all.</para>
+    /// </summary>
+    private static Camera? SafeOriginalWorldCamera(Canvas nested)
+    {
+        Camera? observed = nested.worldCamera;
+        Camera? head = Rig.VRRigDriver.HeadCamera;
+        if (head == null || !ReferenceEquals(observed, head))
+            return observed;
+
+        _adoptCameraLeaks++;
+        for (int p = 0; p < Active.Count; p++)
+        {
+            ConvertedPanel other = Active[p];
+            for (int i = 0; i < other.AdoptedCanvases.Count; i++)
+            {
+                NestedCanvasRecord rec = other.AdoptedCanvases[i];
+                if (!ReferenceEquals(rec.Canvas, nested) || ReferenceEquals(rec.OriginalWorldCamera, head))
+                    continue;
+                VRLog.Note("WorldUI", $"MODAL ADOPT CAMERA LEAK: game canvas '{nested.name}' already "
+                    + $"carried OUR head camera '{head.name}' when panel "
+                    + $"'{(other.HostGo != null ? other.HostGo.name : "<dead host>")}' still holds it. "
+                    + "Recording THAT panel's captured original "
+                    + $"'{(rec.OriginalWorldCamera != null ? rec.OriginalWorldCamera.name : "<none>")}' "
+                    + "instead of the value the mod itself wrote, so the release hands the game back "
+                    + $"what the game had. LEAK #{_adoptCameraLeaks} this session."); // HW-VERIFY
+                return rec.OriginalWorldCamera;
+            }
+        }
+
+        Camera? gameUi = FindGameUiCamera(head);
+        VRLog.Note("WorldUI", $"MODAL ADOPT CAMERA LEAK: game canvas '{nested.name}' "
+            + $"(mode={(nested.rootCanvas != null ? nested.rootCanvas.renderMode : nested.renderMode)}, "
+            + $"layer {nested.gameObject.layer}) was found pointing at OUR head camera '{head.name}' "
+            + "with no live panel holding it — a value only the mod ever writes, left behind by an "
+            + "earlier conversion, which parks the canvas in front of the HMD at its planeDistance "
+            + "and makes it follow the head. THIS IS THE LEFT-EDGE RIM; the head camera's mask "
+            + "contains the game UI layer by design and cannot drop it (Core/VRLayers.GameUiLayer). "
+            + $"Recording '{(gameUi != null ? gameUi.name : "<null>")}' as its original instead"
+            + (gameUi != null
+                ? " — the game's own UI camera, which renders into "
+                  + $"'{(gameUi.targetTexture != null ? gameUi.targetTexture.name : "the BACKBUFFER")}'."
+                : " — no game UI camera exists here, so the canvas degrades to Screen-Space-OVERLAY, "
+                  + "which ModalFallback's screen-bind owns.")
+            + $" LEAK #{_adoptCameraLeaks} this session."); // HW-VERIFY
+        return gameUi;
+    }
+
+    /// <summary>
+    /// The GAME's own UI camera — the one whose culling mask is the game UI layer and which the
+    /// game's <c>CanvasManager</c> hands to its screen-space canvases (observed in the 423 log as
+    /// <c>'UI Camera' … mask=0x00000020 → GloomhavenVR.DesktopScrubSink</c>). Identified by the
+    /// game's own "UICamera" TAG first — the same classification <c>FlatScreen.IsUiCamera</c> and
+    /// <c>ModalFallback.FindCompositedUiCamera</c> use — and by that exact mask as the fallback, so
+    /// a retagged build still resolves. Never <paramref name="head"/>, and never a mod-created
+    /// camera (all of ours are named <c>GloomhavenVR.*</c>). Called only on a leak, which is a
+    /// once-per-window-open event at worst, so the camera sweep is not on any hot path.
+    /// </summary>
+    private static Camera? FindGameUiCamera(Camera head)
+    {
+        int count = Core.VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] cams);
+        Camera? byMask = null;
+        for (int i = 0; i < count; i++)
+        {
+            Camera cam = cams[i];
+            if (cam == null || ReferenceEquals(cam, head) || cam.name.StartsWith("GloomhavenVR."))
+                continue;
+            if (cam.CompareTag("UICamera"))
+                return cam;
+            if (byMask == null && cam.cullingMask == Core.VRLayers.GameUiLayerMask)
+                byMask = cam;
+        }
+        return byMask;
     }
 
     // ---- task #4: world-space scroll clipping ----------------------------------------------
