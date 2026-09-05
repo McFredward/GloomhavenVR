@@ -545,6 +545,16 @@ internal static partial class CanvasConversion
     private static readonly Vector4[] MeasureTopRects = new Vector4[MeasureTopCount];
     private static readonly float[] MeasureTopAreas = new float[MeasureTopCount];
     private static int s_lastRejectCulled, s_lastRejectFaint, s_lastRejectEmpty, s_lastRejectClipped;
+
+    /// <summary>ModBuild 449 — how many graphics the EFFECT-QUAD refusal took out of the last
+    /// <see cref="TryMeasureContent"/> pass, the family mask it took them under, and the tallest one,
+    /// for <see cref="DescribeLastMeasure"/>. Kept beside the other reject counters because it IS one:
+    /// the difference is only that this one is the mod's judgement rather than uGUI's, so the line has
+    /// to be able to say it out loud. A count of 0 on a panel that still churns is a reading and not a
+    /// silence — see the ledger's own prose.</summary>
+    private static int s_lastRejectEffect, s_lastEffectMask;
+    private static string s_lastEffectTallest = string.Empty;
+    private static float s_lastEffectTallestPx;
     private static Vector2 s_lastUnionMin, s_lastUnionMax;
     private static bool s_lastFrameClamped;
 
@@ -595,6 +605,50 @@ internal static partial class CanvasConversion
         sb.Append("; rejected ").Append(s_lastRejectCulled).Append(" culled/disabled, ")
           .Append(s_lastRejectFaint).Append(" faint, ").Append(s_lastRejectEmpty)
           .Append(" zero-size, ").Append(s_lastRejectClipped).Append(" clipped out");
+        // ---- ModBuild 449 - THE EFFECT-QUAD LEDGER, AND IT PRINTS THE ZERO. --------------------
+        //
+        // This path had NO transient test at all before 449: ModBuild 201's exclusion lives in
+        // MeasureFixedFitParts, which only fixed-fit panels reach, so `Host rect fit` measured the
+        // game's animated decoration on every window that is not one. Two panels paid for that on
+        // the ModBuild 448 pair and they are the same defect one panel apart:
+        //
+        //   'UI Quest Popup'   512x846 px on the tick before the quest confirm was parked, 512x1021
+        //                      (union bottom -756) on the tick after it, because the parked toggle
+        //                      brought 'Button_FX/UIFX_Wave (1)' with it.
+        //   'Panel_ElementBoard'  60x120 -> 60x84 with union (-30,-30)..(30,30) while the FX are
+        //                      idle, and 60x120 -> 60x120 with union (-242,-53)..(52,48) while
+        //                      'FX/UIFX_Wave (1)' and 'FX/UIFX_Sparks (1)' (106x101 px each) play.
+        //                      The 'wird erstellt' caption is NOT the cause of that swing and the
+        //                      log says so: 'Creating icon/CreatingText' is 199x50 px at y -25..25
+        //                      and 'CreatedText/Text' 284x55 px at y -27..28, both INSIDE the
+        //                      element's own 60 px band; they widen the union to x=-242/-340 and the
+        //                      width is frame-clamped to 60 in every single sample.
+        //
+        // THE ZERO IS PRINTED because "no effect quad moved anything" and "the rule never reached
+        // one" are the two states a next round has to tell apart, and 448 lost a whole build to
+        // exactly that ambiguity.
+        sb.Append("; EFFECT-QUAD LEDGER: ").Append(s_lastRejectEffect)
+          .Append(" animated effect quad(s) refused from THIS measure");
+        if (s_lastEffectMask != 0)
+        {
+            sb.Append(", from ").Append(TransientFamilies.Describe(s_lastEffectMask));
+            if (s_lastEffectTallest.Length > 0)
+            {
+                sb.Append("; the tallest was '").Append(s_lastEffectTallest).Append("' at ")
+                  .Append(s_lastEffectTallestPx.ToString("F0")).Append(" px tall");
+            }
+        }
+        else
+        {
+            sb.Append(" (none seen in this window this pass). A ZERO HERE ON A PANEL WHOSE HEIGHT "
+                      + "STILL SWINGS MEANS THE QUAD IS NOT DECLARED BY ITS UIFX CONTROLLER AND NOT "
+                      + "UNDER A PURE FX CONTAINER EITHER — name what animates it, do not widen a "
+                      + "family");
+        }
+        sb.Append(". Refused content is still DRAWN and the hit rect and capture frame still cover "
+                  + "it — it is only barred from deciding the window's WORLD SIZE, which is the 1:1 "
+                  + "term: two clients sampling one animation at their own phase cannot agree, and "
+                  + "no settle gate can close that because both of them settle");
         // Round 4: live vs authored. On a settled window these two are the same box and the ratio
         // is 1.00 — anything else names a show animation and says which union the fit used.
         sb.Append("; live ")
@@ -689,6 +743,10 @@ internal static partial class CanvasConversion
         float ratioWeight = 0f, ratioSumX = 0f, ratioSumY = 0f;
 
         s_lastRejectCulled = s_lastRejectFaint = s_lastRejectEmpty = s_lastRejectClipped = 0;
+        s_lastRejectEffect = 0;
+        s_lastEffectMask = 0;
+        s_lastEffectTallest = string.Empty;
+        s_lastEffectTallestPx = 0f;
         for (int i = 0; i < MeasureTopCount; i++)
         {
             MeasureTopAreas[i] = 0f;
@@ -698,6 +756,11 @@ internal static partial class CanvasConversion
 
         ClipperMemo.Clear();
         AuthoredOffsetMemo.Clear();
+        // ModBuild 449: this memo now has a second reader on this path, and its documented lifetime
+        // is "cleared at the top of every measure" for the reason its own comment gives — subtrees
+        // are re-parented between passes, so an answer computed against a previous hierarchy is not
+        // an answer.
+        TransientMemo.Clear();
         GraphicScratch.Clear();
         root.GetComponentsInChildren(includeInactive: false, GraphicScratch);
         for (int i = 0; i < GraphicScratch.Count; i++)
@@ -713,6 +776,42 @@ internal static partial class CanvasConversion
             // stepping up and down. The panel must be sized by what the GAME draws.
             if (g.gameObject.name.StartsWith("GloomhavenVR.", System.StringComparison.Ordinal))
                 continue;
+            // ---- ModBuild 449 - AND THE GAME'S OWN BREATHING ART IS THE SAME ARGUMENT. ----------
+            //
+            // The FocusRing paragraph directly above is this rule with a different owner: a graphic
+            // whose extent moves on its own clock cannot size a window, because the size is written
+            // from whichever frame the measure happened to land on. Everything it says about
+            // Panel_InitiativeTrack "stepping up and down" is true of the GAME's UIFX quads too, and
+            // the multiplayer cost is worse than a step: two clients sample the same animation at
+            // their own phase, so the WORLD SIZE, the shared seat and the grab bar all diverge and
+            // no settle gate can close it — both clients settle, on different content.
+            //
+            // SCOPED TO FAMILY 7 ON PURPOSE, AND THAT IS THE WHOLE RISK CONTROL. TransientFamilies
+            // also carries the six hover/tooltip families, and on THIS path they have never been
+            // refused — the ModBuild 201 exclusion lives in MeasureFixedFitParts, which only
+            // fixed-fit panels reach. Refusing them here as well would change the fitted size of
+            // every ordinary window in the mod, including the merchant and the temple whose current
+            // behaviour the user has ACCEPTED. So this asks for one family and takes one family.
+            //
+            // THE IDENTITY IS THE GAME'S OWN and it is asked twice: is this graphic inside a pure
+            // UIFX effect container (ModBuild 448's subtree rule), or is it an Image that a
+            // UIFX_MaterialFX_Control DECLARES as one of its effect quads (449's per-graphic rule,
+            // for the authoring where the controller sits on the widget)? Neither can reach a label,
+            // an icon or anything the game did not itself mark as decoration.
+            int effect = TransientFamilies.OfGraphic(g.transform, root, TransientMemo);
+            if (effect == TransientFamilies.EffectQuadFamily)
+            {
+                s_lastRejectEffect++;
+                s_lastEffectMask |= 1 << effect;
+                RectTransform ert = g.rectTransform;
+                float eh = ert != null ? Mathf.Abs(ert.rect.height) : 0f;
+                if (eh > s_lastEffectTallestPx || s_lastEffectTallest.Length == 0)
+                {
+                    s_lastEffectTallestPx = eh;
+                    s_lastEffectTallest = g.gameObject.name;
+                }
+                continue;
+            }
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax,
                     out Vector2 aMin, out Vector2 aMax))
             {
@@ -3573,9 +3672,15 @@ internal static partial class CanvasConversion
     /// copy of the list. Only the memo stayed here, because its lifetime is this file's (it is cleared
     /// with the clipper and authored-offset memos at the top of every split measure) and the ink walk
     /// has a different cadence entirely. Everything above still describes the answer exactly.</para>
+    ///
+    /// <para>ModBuild 449: <c>OfGraphic</c> rather than <c>Of</c> — the same memoised ancestor
+    /// identity first, and then the game's own per-quad declaration for the authoring where the UIFX
+    /// controller sits on the widget and 448's subtree guard therefore refuses. Strictly additive:
+    /// it is asked only where <c>Of</c> already answered 0. See
+    /// <see cref="TransientFamilies.IsDeclaredEffectQuad"/>.</para>
     /// </summary>
     private static int TransientFamilyOf(Transform? node, Transform root) =>
-        TransientFamilies.Of(node, root, TransientMemo);
+        TransientFamilies.OfGraphic(node, root, TransientMemo);
 
     /// <summary>Per-pass memo of <see cref="TransientFamilyOf"/>, cleared with the clipper and
     /// authored-offset memos at the start of every split measure (subtrees are re-parented between

@@ -540,6 +540,23 @@ internal static class PanelInkBounds
                     if (Draws(graphic) && Intersect(clip, bounds, out Rect visible)
                         && visible.width > 0f && visible.height > 0f)
                     {
+                        // ---- ModBuild 449 - THE HANDLE FOLLOWED AN ANIMATION, NOT THE CONTENT. ---
+                        //
+                        // 448's family 7 is a SUBTREE test guarded so it can never delete a widget's
+                        // own label, and on the map room's quest card that guard refuses: every one
+                        // of this line's own MOUSEOVER LEDGER readings on the 448 pair says `0
+                        // transient graphic(s) refused ... from no hover/tooltip family`, while the
+                        // bar's top edge wandered across y=-743..-801 px on the host and
+                        // y=-468..-794 px on the co-player, each line naming 'UIFX_Wave (1)' as the
+                        // graphic holding it down. Two clients sampling one animation at their own
+                        // phase is a 1:1 breach that no settle gate can close, and it is the user's
+                        // "der handle ist an einer anderen Hoehe als bei mir".
+                        //
+                        // Asked HERE, inside the draws test, and not beside the Self() probe above:
+                        // the walk visits hundreds of nodes and only a few dozen of them paint, so
+                        // the ancestor walk is paid once per DRAWN graphic that 448 already cleared.
+                        if (family == 0 && TransientFamilies.IsDeclaredEffectQuad(t, target))
+                            family = TransientFamilies.EffectQuadFamily;
                         // FAINT FIRST, deliberately: a graphic at effective alpha 0 draws nothing at
                         // all, so saying "it is a full-frame plate" about it would report the weaker
                         // of two true statements and hide the term the next reader needs.

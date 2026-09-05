@@ -907,6 +907,14 @@ internal static class MapTravelConfirm
         // whole body in a catch that unloads the scene and returns to the main menu. See
         // MapQuestReadyUp's block comment.
         MapQuestReadyUp.TickPendingClientPrompt();
+        // AND SECOND (ModBuild 449): if the game has raised NO prompt because the host has not
+        // pressed his own confirm yet, ask for this client's quest confirm at the SELECTION instead.
+        // It runs after the prompt drive on purpose — where a prompt exists, invoking the game's own
+        // registered Action is the more faithful path and this call stands down for that tick.
+        // `QuestConfirmToggle()` is the gate that makes it safe: it is non-null only while the
+        // SINGLETON ready toggle is serving the QUESTS ready-up, so the retirement or city-event
+        // confirm can never be the thing revealed.
+        MapQuestReadyUp.TickClientConfirmReveal(QuestConfirmToggle(), questWindow);
         ReconcileCore(questWindow);
         // AND LAST: re-assert the park claim with the live answer. A LEVEL, not a latch — see
         // ReadyToggleParkClaim. The toggle handed over as the INTENT is resolved without the
@@ -2342,7 +2350,20 @@ internal static class MapTravelConfirm
             // the battle-goal picker's reward rows, which the user accepted the handle following.
             // See TransientFamilies for the identity and for the guard that makes it inert on a
             // controller that owns its own icon.
-            int family = TransientFamilies.Of(rt, sweepRoot, TransientMemo);
+            // ---- ModBuild 449 - 448 SHIPPED ITS OWN FALSIFIER AND IT CAME BACK ZERO. -------------
+            //
+            // The line below still says, in the log the user reads: "A ZERO COUNT ON THE MAP-ROOM
+            // QUEST CARD MEANS THE FIX IS INERT - the controller sits on a node that paints, or owns
+            // its MainIcon, so TransientFamilies refused the family." On the 448 hardware pair it
+            // printed exactly that, on BOTH machines and on every sample: `0 graphic(s) refused from
+            // THIS rect and 0, from no family`, while this rect's RAW union bottom sat at y=-590.50
+            // - below the card - and the clamp saturated it at the card's own bottom edge y=-510.5,
+            // seating the confirm 649 local units under the drawn rewards panel.
+            //
+            // `OfGraphic` keeps 448's subtree identity FIRST and unchanged, and then asks the UIFX
+            // controller about THIS ONE GRAPHIC. That is strictly narrower than the subtree rule and
+            // cannot take a label, so `quest_ueberlap.jpg` cannot come back through it.
+            int family = TransientFamilies.OfGraphic(rt, sweepRoot, TransientMemo);
             if (family != 0)
             {
                 skipped++;
@@ -2552,10 +2573,20 @@ internal static class MapTravelConfirm
               + "THE UIFX EFFECT FAMILY IS THE abstand2.jpg FIX DOING ITS WORK: that is the "
               + "animated 'UIFX_Wave' quad which used to drag this rect's BOTTOM EDGE to the card's "
               + "own bottom edge and hang the confirm button 266 px under the drawn rewards panel. "
-              + "A ZERO COUNT ON THE MAP-ROOM QUEST CARD MEANS THE FIX IS INERT — the controller "
-              + "sits on a node that paints, or owns its MainIcon, so TransientFamilies refused the "
-              + "family; the gap in that case is NOT the wave and this line's RAW-vs-CLAMPED pair "
-              + "names whatever is"
+              + "A ZERO COUNT ON THE MAP-ROOM QUEST CARD STILL MEANS THE FIX IS INERT, AND ON THE "
+              + "ModBuild 448 PAIR IT READ ZERO ON BOTH MACHINES AND EVERY SAMPLE — 448's family 7 "
+              + "is a SUBTREE test whose guard refuses whenever the UIFX controller paints or owns "
+              + "its MainIcon, which is this card's authoring. ModBuild 449 therefore asks the "
+              + "controller about ONE GRAPHIC instead (TransientFamilies.IsDeclaredEffectQuad: is "
+              + "this Image in the controller's own MainIconFX / MainIcon2FX / TextAndSubIconFX / "
+              + "ActivateFX list?), which is strictly narrower and cannot take a label. SO THE "
+              + "FALSIFIER IS NOW SHARPER: a zero count here on ModBuild 449 or later means the wave "
+              + "quad is not in ANY of those four lists either — i.e. it is animated by something "
+              + "that is not this controller — and the next round must NAME its animator rather than "
+              + "widen a family. In that case the gap is not the wave and this line's RAW-vs-CLAMPED "
+              + "pair names whatever is. THE POSITIVE READING: a non-zero count naming the UIFX "
+              + "effect family, with this rect's RAW union bottom coming UP off the card's own bottom "
+              + "edge (it sat at y=-590.50, clamped to y=-510.5, on both machines at 448)"
             : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
         string measuredHow = _anchorValid
             ? $"{_anchorWhy}, {measuredAgeMs:F0} ms ago (re-measured at most every "

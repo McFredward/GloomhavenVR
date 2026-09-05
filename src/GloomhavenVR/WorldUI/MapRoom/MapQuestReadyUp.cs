@@ -734,7 +734,289 @@ internal static class MapQuestReadyUp
         _claimWhy = "nothing is claimed";
         _visibleUnparkedSince = -1f;
         _cannotParkWarned = false;
+        DisarmArrival();
         ReadyToggleParkClaim.Reset();
+    }
+
+    // ---- E: the confirm must arrive with the selection, on EVERY client -------------------------
+    //
+    // USER REPORT (2026-09-05, verbatim): "Der 'Quest wählen button' erscheint für die anderen
+    // Spieler erst, wenn ich auch 'Quest wählen' gedrückt hab. Sobald eine Quest ausgewählt ist soll
+    // der button instant für alle sichtbar sein. Ich glaube daher rührt auch die Divergenz, dass der
+    // handle an einer anderen Höhe ist als bei mir was wieder aufgetreten ist."
+    //
+    // HIS CAUSAL LINK IS RIGHT, AND THE ModBuild 448 PAIR MEASURES BOTH HALVES OF IT. The room's
+    // 'UI Quest Popup' opens on EVERY client the moment the host picks an icon, because the room
+    // mirrors the SELECTION itself (record 20 -> MapLocationInteractor.AdoptSelection performs a real
+    // local click). The CONFIRM inside it does not, because on a client the only thing that makes the
+    // quest ready-up visible is UIMapMultiplayerController.PreviewQuest, and the only thing that
+    // reaches PreviewQuest is the GuildmasterConfirmAction prompt raised from
+    // ProxyHostSelectedLocation — which the game runs from GameActionType.SelectQuest, which the host
+    // sends from ConfirmSelectedLocation, i.e. FROM HIS OWN PRESS OF THAT VERY BUTTON. Read from
+    // source: UIMapMultiplayerController.OnSelectedLocation (:183-186) returns immediately unless
+    // FFSNetwork.IsHost, and AdventureMapUIManager.EnableTravelOptions (:417-420) guards its own
+    // ToggleReadyUpUI on IsHost too. So a client's card stands with no control for as long as the
+    // host takes to decide.
+    //
+    // THE CO-PLAYER'S LOG PUTS A NUMBER ON IT. His room adopted 'Quest_Campaign_069' at frame 10,959
+    // (MAP QUEST READY CLEAR, remote/Player.log:13736 — this class's OWN readiness observer, so the
+    // selection fact was demonstrably present) and his confirm was parked at frame 15,886 (MAP QUEST
+    // READY-UP: client confirm DRIVEN, :21349). 4,927 frames = ~110 s of a card with nothing to press
+    // on it, and the wait is the HOST'S DELIBERATION, so it is unbounded rather than merely long.
+    //
+    // AND THAT IS ALSO HALF THE HANDLE DIVERGENCE. The parked confirm carries an animated
+    // 'Button_FX/UIFX_Wave (1)' quad, and every union in this mod is a function of what is painted:
+    // while one client has the confirm and the other does not, the two measure different content and
+    // the brass handle lands in two different places. (The OTHER half is that the quad is ANIMATED,
+    // so the two disagree even once both have it — that half is fixed in TransientFamilies, and
+    // neither fix subsumes the other.)
+    //
+    // WHAT THIS DOES, AND WHAT IT REFUSES TO DO. It calls the game's own public
+    // ToggleReadyUpUI(show: true, Quests) and DeterminePlayerToggleInteractability() — the last two
+    // statements of the game's own PreviewQuest — ONCE per settled decision, on a CLIENT, while the
+    // quest card is floated and the singleton toggle is already serving the QUESTS ready-up. It sends
+    // nothing, it does not touch PlayersReady, it does not set hostSelectedLocation and it does not
+    // decide whether the toggle is actually shown: UIReadyToggle.ShouldBeVisible is still
+    // `_requestVisible && _interactable && !_allPlayersReady && no blocks`, so where the GAME withholds
+    // its ready-up (a player who controls no mercenary — TERM 3 of
+    // DetermineHostToggleInteractability, which is what the 448 pair's stand-by lines actually name)
+    // this is INERT and the card keeps showing the game's own notice instead. That is the point: the
+    // remedy is to stop hiding a control the game would show, never to show one it would not.
+    //
+    // WHY ONE ATTEMPT PER DECISION AND NOT A LEVEL. ToggleVisibility(show) writes `_requestVisible`
+    // and that flag STICKS — when a later term flips (the host assigns the mercenary) the game's own
+    // SetInteractable calls UpdateVisiblity and the toggle appears with no further help. Re-asserting
+    // every tick would instead re-run ShowCharactersTrackers, RefreshReady and HelpBox.Show forever
+    // and would fight the game the moment it deliberately turns the toggle off
+    // [[dont-win-a-write-war]]. The arming is re-triggered by a CHANGE OF DECISION, which is the same
+    // subject `OnQuestDecisionChanged` above withdraws readiness on.
+
+    /// <summary>How long a settled decision may stand with no visible confirm before the arrival
+    /// instrument says so. One line per decision, so a card that never gets its control is a reading
+    /// and not an absence — see <see cref="TickClientConfirmReveal"/> for why absence alone could not
+    /// be read.</summary>
+    private const float ConfirmStillAbsentSeconds = 8f;
+
+    /// <summary>The decision this class has armed the reveal and the arrival stopwatch for, or null.
+    /// Compared by <c>CLocationState.ID</c> — the same subject the readiness observer uses, so a map
+    /// rebuild that re-creates the same quest as a different object is not a new decision.</summary>
+    private static string? _armedQuest;
+
+    /// <summary>When <see cref="MapLocationInteractor"/> published <see cref="_armedQuest"/>. THE
+    /// FIRST OF THE TWO TIMESTAMPS ON THE ARRIVAL LINE.</summary>
+    private static float _armedAt;
+
+    /// <summary>Has the reveal been attempted for <see cref="_armedQuest"/>? One attempt per
+    /// decision; see the block comment for why this is a latch and not a level.</summary>
+    private static bool _revealAttempted;
+
+    /// <summary>Has the arrival line been printed for <see cref="_armedQuest"/>?</summary>
+    private static bool _arrivalLogged;
+
+    /// <summary>Has the "still absent" line been printed for <see cref="_armedQuest"/>?</summary>
+    private static bool _absenceLogged;
+
+    /// <summary>One Warn per session if the reveal throws — the same rule the drive above follows.
+    /// </summary>
+    private static bool _revealThrewLogged;
+
+    /// <summary>Forget the armed decision. Called from <see cref="Reset"/> and whenever the table
+    /// settles on NO quest, so the next selection is a fresh arming with a fresh stopwatch.</summary>
+    private static void DisarmArrival()
+    {
+        _armedQuest = null;
+        _armedAt = -1f;
+        _revealAttempted = false;
+        _arrivalLogged = false;
+        _absenceLogged = false;
+    }
+
+    /// <summary>
+    /// MAKE THIS CLIENT'S QUEST CONFIRM ARRIVE WITH THE SELECTION, AND TIME IT EITHER WAY.
+    ///
+    /// <para>Called once per tick from <see cref="MapTravelConfirm.Reconcile"/>, immediately after
+    /// <see cref="TickPendingClientPrompt"/> — that ordering is deliberate: if the game HAS raised a
+    /// prompt for this selection, mechanism (A) is the more faithful path (it invokes the game's own
+    /// registered <c>Action</c>) and this one stands down for that tick.</para>
+    ///
+    /// <para><b>THE INSTRUMENT HALF RUNS ON EVERY CLIENT, INCLUDING THE HOST, AND THAT IS THE WHOLE
+    /// FALSIFIER.</b> A line that printed only when the control APPEARS would read identically
+    /// whether this fix works or whether nobody ever selected a quest. So the line carries BOTH
+    /// stamps — when this room settled on the quest, and when this client's confirm became visible —
+    /// and a second line fires at <see cref="ConfirmStillAbsentSeconds"/> when the second stamp never
+    /// comes. On the host the delay is the game's own and should read ~0.0 s; the fix is proved by
+    /// the CO-PLAYER's number falling to the same order, and it is falsified by a co-player line that
+    /// still reads tens of seconds, or by <c>revealedBy=</c> naming this class while the delay stays
+    /// large (the reveal ran and the game refused it — read the stand-by line's first false term).</para>
+    /// </summary>
+    /// <param name="questConfirm">The singleton ready toggle IF it is serving the QUESTS ready-up,
+    /// else null. Resolved by <see cref="MapTravelConfirm"/>, which owns that reflection; a null here
+    /// means the toggle is serving city events, rewards, retirement or town records, and revealing it
+    /// would be a confirm for the wrong question.</param>
+    /// <param name="questWindow">The floated quest card, or null. Without it there is nothing for the
+    /// control to appear inside and the reveal waits.</param>
+    internal static void TickClientConfirmReveal(UIReadyToggle? questConfirm, UIWindow? questWindow)
+    {
+        if (!MapRoomDriver.Active)
+            return;
+
+        if (!MapLocationInteractor.TryGetPublishedDecision(out string? quest, out float selectedAt)
+            || quest == null)
+        {
+            DisarmArrival();
+            return;
+        }
+
+        if (!string.Equals(quest, _armedQuest, StringComparison.Ordinal))
+        {
+            DisarmArrival();
+            _armedQuest = quest;
+            _armedAt = selectedAt;
+        }
+
+        float now = Time.unscaledTime;
+        bool visible = questConfirm != null && questConfirm.IsVisible;
+
+        if (visible)
+        {
+            if (!_arrivalLogged)
+            {
+                _arrivalLogged = true;
+                // HW-VERIFY: the two timestamps that decide whether the confirm arrives with the
+                // selection. Note tier and one line per decision — a deliberate human act.
+                VRLog.Note(Scope, "MAP QUEST CONFIRM ARRIVAL: quest='" + _armedQuest + "' "
+                                  + $"selectedAt={_armedAt:F2} s, confirmVisibleAt={now:F2} s, "
+                                  + $"DELAY={now - _armedAt:F2} s, revealedBy="
+                                  + (_revealAttempted
+                                      ? "THIS ROOM (MapQuestReadyUp.TickClientConfirmReveal drove the "
+                                        + "game's own ToggleReadyUpUI for this selection)"
+                                      : FFSNetwork.IsOnline && FFSNetwork.IsClient
+                                          ? "the GAME (its own prompt or PreviewQuest got there first "
+                                            + "— on a client that means the host had already pressed "
+                                            + "his confirm, which is the ModBuild 448 behaviour)"
+                                          : "the GAME on this HOST (UIMapMultiplayerController"
+                                            + ".OnSelectedLocation shows it at the selection itself, "
+                                            + "so a host delay near 0 is the correct reading and the "
+                                            + "co-player's line is the one that answers the report)")
+                                  + $". online={FFSNetwork.IsOnline}, client={FFSNetwork.IsClient}, "
+                                  + $"card floated={questWindow != null}. BOTH STAMPS ARE THIS "
+                                  + "CLIENT'S OWN Time.unscaledTime and the DELAY is a LOCAL interval "
+                                  + "between two LOCAL events — this room adopting the selection "
+                                  + "(MapLocationInteractor's published decision, written by a local "
+                                  + "click AND by a peer's record-20 edge alike) and this client's "
+                                  + "confirm becoming visible — so it is comparable across two "
+                                  + "machines without a shared clock. WHAT TO READ: the host's delay "
+                                  + "is the game's own and is expected near 0; the CO-PLAYER's is the "
+                                  + "reported defect, which was ~110 s on ModBuild 448 (his room "
+                                  + "adopted Quest_Campaign_069 at frame 10,959 and his confirm was "
+                                  + "parked at frame 15,886). FALSIFIER: a co-player line that still "
+                                  + "reads tens of seconds means this reveal never ran — check "
+                                  + "revealedBy; and a line reading revealedBy=THIS ROOM with a large "
+                                  + "delay means it ran and the GAME refused, in which case MAP TRAVEL "
+                                  + "CONFIRM ONLINE STAND-BY names the first false term and this is "
+                                  + "not the fault.");
+            }
+            return;
+        }
+
+        // ---- not visible: say so once, then try to make it visible ------------------------------
+
+        if (!_absenceLogged && _armedAt >= 0f && now - _armedAt >= ConfirmStillAbsentSeconds)
+        {
+            _absenceLogged = true;
+            // HW-VERIFY: absence is a reading here, not a missing line. Without it a log with no
+            // ARRIVAL line could equally mean "no quest was ever selected".
+            VRLog.Note(Scope, "MAP QUEST CONFIRM ARRIVAL: quest='" + _armedQuest + "' "
+                              + $"selectedAt={_armedAt:F2} s, confirmVisibleAt=<STILL ABSENT after "
+                              + $"{now - _armedAt:F1} s>, revealAttempted={_revealAttempted}, "
+                              + $"toggle serving Quests={questConfirm != null}, card floated="
+                              + $"{questWindow != null}, online={FFSNetwork.IsOnline}, "
+                              + $"client={FFSNetwork.IsClient}. ONE LINE PER DECISION. This is the "
+                              + "state the user reported: a quest card standing with no control in "
+                              + "it. If revealAttempted is TRUE the reveal ran and the GAME is "
+                              + "withholding the toggle — MAP TRAVEL CONFIRM ONLINE STAND-BY carries "
+                              + "UIReadyToggle's four terms and names the first false one, and the "
+                              + "usual answer there is that a player controls no mercenary yet "
+                              + "(TERM 3 of DetermineHostToggleInteractability), which is the game's "
+                              + "own honest refusal and not this room's fault. If it is FALSE, one of "
+                              + "the two gates above never opened and the pair of booleans on this "
+                              + "line says which.");
+        }
+
+        if (_revealAttempted)
+            return;
+        // The host's own game already shows the confirm at the selection itself; there is nothing to
+        // advance and nothing to measure against.
+        if (!FFSNetwork.IsOnline || !FFSNetwork.IsClient)
+            return;
+        // Mechanism (A) owns this selection: driving the game's own registered prompt is the more
+        // faithful path and it lands one tick later. Never both.
+        if (_pendingConfirm != null)
+            return;
+        // Nothing to appear inside yet, and no toggle serving the QUESTS ready-up to appear.
+        if (questWindow == null || questConfirm == null)
+            return;
+        // Past the point of no return the party has committed and the pre-scenario interval is
+        // running — the same refusal OnQuestDecisionChanged makes, for the same reason.
+        if (StoryComposite.PointOfNoReturn)
+            return;
+
+        _revealAttempted = true;
+        try
+        {
+            if (!Singleton<UIMapMultiplayerController>.IsInitialized
+                || !Singleton<MapChoreographer>.IsInitialized)
+            {
+                _revealAttempted = false;   // nothing was attempted, so nothing is spent
+                return;
+            }
+            UIMapMultiplayerController mp = Singleton<UIMapMultiplayerController>.Instance;
+            MapChoreographer choreo = Singleton<MapChoreographer>.Instance;
+            if (mp == null || choreo == null)
+            {
+                _revealAttempted = false;
+                return;
+            }
+
+            // HW-VERIFY: the act itself, named before it happens, one line per decision.
+            VRLog.Note(Scope, "MAP QUEST CONFIRM REVEAL: this CLIENT's quest confirm is being asked "
+                              + $"for at the SELECTION rather than at the host's press. quest='{_armedQuest}', "
+                              + $"selectedAt={_armedAt:F2} s, now={now:F2} s (waited "
+                              + $"{now - _armedAt:F2} s for the game and it did not come). WHAT IS "
+                              + "CALLED: UIMapMultiplayerController.ToggleReadyUpUI(show: true, "
+                              + "EReadyUpToggleStates.Quests) and MapChoreographer"
+                              + ".DeterminePlayerToggleInteractability() — the last two statements of "
+                              + "the game's own PreviewQuest (:667-685), both public, both pure "
+                              + "presentation. NOTHING IS SENT: no game action, no mod wire field, "
+                              + "PlayersReady is not touched, hostSelectedLocation is not set (so the "
+                              + "host's later ProxyHostSelectedLocation still takes its FIRST-TIME "
+                              + "branch and cannot cancel anything), and whether the toggle actually "
+                              + "appears stays the game's decision through "
+                              + "UIReadyToggle.ShouldBeVisible. WHY IT IS SAFE TO PRESS EARLY: this "
+                              + "client's ready-up is the game's own GameActionType.ReadyUpPlayer, "
+                              + "the host validates it, and if the table changes its mind "
+                              + "MAP QUEST READY CLEAR withdraws it again through the same wire "
+                              + "action. EXPECT the game's own 'MP Ready Toggle set to  VISIBLE.' on "
+                              + "one of the next lines, then this room's 'MAP QUEST READY-UP: park "
+                              + "claim SET (Parked)', then MAP QUEST CONFIRM ARRIVAL with the delay.");
+
+            mp.ToggleReadyUpUI(show: true, EReadyUpToggleStates.Quests);
+            choreo.DeterminePlayerToggleInteractability();
+        }
+        catch (Exception e)
+        {
+            if (!_revealThrewLogged)
+            {
+                _revealThrewLogged = true;
+                VRLog.Warn(Scope, "MAP QUEST CONFIRM REVEAL: the game's own ToggleReadyUpUI / "
+                                  + $"DeterminePlayerToggleInteractability THREW ({e.GetType().Name}: "
+                                  + $"{e.Message}). Caught here because this runs from the map room's "
+                                  + "Update tick. CONSEQUENCE: this client's quest confirm does not "
+                                  + "appear early for this selection; the host's own press still "
+                                  + "raises the prompt and mechanism (A) drives it exactly as it did "
+                                  + "before this build. One line per session.\n" + e.StackTrace);
+            }
+        }
     }
 
     // ---- D: the room changed its mind, so this player's readiness stops -------------------------

@@ -3203,7 +3203,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         + $"{_inkTransientLife} over this window's life, from "
         + (_inkTransientMask != 0
             ? TransientFamilies.Describe(_inkTransientMask)
-            : "no hover/tooltip family (none has been seen inside this window yet)")
+            : "no transient family (none has been seen inside this window yet). ON 'UI Quest Popup' "
+              + "THAT ZERO IS THE READING THAT SENT ModBuild 449: on the 448 pair this ledger read 0 "
+              + "on both machines while every NOT ACHIEVED line named the animated 'UIFX_Wave (1)' as "
+              + "the graphic holding the bar down, and the bar's top edge wandered across "
+              + "y=-743…-801 px on the host and y=-468…-794 px on the co-player — two clients "
+              + "sampling ONE animation at their own phase, which is the user's 'der handle ist an "
+              + "einer anderen Höhe als bei mir' and which no settle gate can close. 449 asks the "
+              + "UIFX controller about ONE GRAPHIC (is this Image in its own MainIconFX / MainIcon2FX "
+              + "/ TextAndSubIconFX / ActivateFX list?) instead of about a subtree, so a NON-ZERO "
+              + "count naming the UIFX effect family is that fix working. A zero here on 449 or later "
+              + "means the quad is in none of those four lists, i.e. something other than that "
+              + "controller animates it — NAME THAT ANIMATOR, do not widen a family")
         + $"; {_inkSigTransientChildren} raised mouseover(s) hidden from the generation signature right "
         + $"now and {_inkSigTransientLife} hover episode(s) hidden over this window's life (each of "
         + "which would otherwise have reset the ink envelope twice, once on the mouse-in that raises "

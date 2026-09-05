@@ -234,6 +234,134 @@ internal static class TransientFamilies
         return family;
     }
 
+    /// <summary>
+    /// The family index a DECLARED effect quad is reported under. Deliberately the SAME index the
+    /// subtree rule uses, because it is the same identity seen from the other end: family 7 means
+    /// "this graphic is the game's own decoration", and the two tests differ only in which of the
+    /// two shipped authorings the controller happens to use. One index also means every log line
+    /// that already spells this table out keeps naming it without a second table to remember.
+    /// </summary>
+    internal const int EffectQuadFamily = 7;
+
+    /// <summary>
+    /// <b>ModBuild 449 — THE OTHER AUTHORING, AND IT IS THE ONE THE MAP ROOM'S QUEST CARD USES.</b>
+    ///
+    /// <para>448 added family 7 as a SUBTREE test guarded by <see cref="IsPureEffectContainer"/> and
+    /// wrote its own falsifier into the log line that reads it: <i>"A ZERO COUNT ON THE MAP-ROOM
+    /// QUEST CARD MEANS THE FIX IS INERT — the controller sits on a node that paints, or owns its
+    /// MainIcon, so TransientFamilies refused the family."</i> <b>THAT READING CAME BACK ZERO.</b>
+    /// On the ModBuild 448 hardware pair every instrument that consults this table printed
+    /// <c>0 graphic(s) refused … from no family</c> for <c>'UI Quest Popup'</c> while
+    /// <c>'UIFX_Wave (1)'</c> went on holding all three unions down, on BOTH machines:</para>
+    /// <list type="bullet">
+    /// <item><c>MAP TRAVEL CONFIRM</c>'s info block — RAW union bottom y=-590.50, saturated by the
+    ///   vertical clamp at the card's own bottom edge y=-510.5, seating the confirm 649 local units
+    ///   below the drawn rewards panel. Identical on host and co-player.</item>
+    /// <item>the host-rect fit — 512x846 px on the tick before the confirm was parked, 512x1021 px
+    ///   (union bottom -756) on the tick after it.</item>
+    /// <item><c>GRAB BAR CLEARS THE INK</c> — 14 NOT ACHIEVED lines on the host and 6 on the
+    ///   co-player, every one naming that quad, with the bar's top edge wandering across
+    ///   y=-743…-801 on the host and y=-468…-794 on the co-player as the quad's own animation
+    ///   moved under two independently sampled clocks. THAT WANDER IS THE DIVERGENT HANDLE HEIGHT.</item>
+    /// </list>
+    ///
+    /// <para><b>SO THE GUARD IS RIGHT AND THE QUESTION WAS WRONG.</b> The guard exists so a
+    /// controller that owns its own label cannot have that label deleted from a union, and that is
+    /// still the outcome that cannot be wrong on the user's screen — widening it is what would
+    /// re-break <c>quest_überlap.jpg</c>. But "is this whole SUBTREE decoration" is not the only
+    /// question available. A <c>UIFX_MaterialFX_Control</c> DECLARES its effect quads
+    /// (<c>MainIconFX</c>, <c>MainIcon2FX</c>, <c>TextAndSubIconFX</c>, <c>ActivateFX</c>) in fields
+    /// SEPARATE from the icon it decorates (<c>MainIcon</c>, <c>MainIcon2</c>) and separate from
+    /// everything it does not name at all. So this test asks the controller about ONE GRAPHIC
+    /// instead of about a subtree, and it is therefore <b>strictly narrower</b> than 448's: it can
+    /// only ever refuse an <c>Image</c> the game itself listed as an effect quad — never a label,
+    /// never an icon, never a sibling, never a whole container.</para>
+    ///
+    /// <para><b>ADDITIVE BY CONSTRUCTION.</b> It is consulted only where <see cref="Of"/> and
+    /// <see cref="Self"/> already answered 0, so no graphic that is measured today stops being
+    /// measured except one the controller declares as decoration. In particular
+    /// <c>GloomhavenVR.Panel_ElementBoard</c> — the one other panel whose fit line names a UIFX quad
+    /// — is bit-identical under this test to what 448 already ships for it, because its quads are
+    /// caught by the subtree rule first and never reach here.</para>
+    ///
+    /// <para><b>WHY A WALK AND NOT A PARENT PROBE.</b> The shipped paths put the quad one level under
+    /// the container (<c>'Button_FX/UIFX_Wave (1)'</c>, <c>'FX/UIFX_Wave (1)'</c>,
+    /// <c>'Initiative_Selection_FX/UIFX_Wave'</c>), but WHERE THE CONTROLLER SITS is a prefab fact
+    /// this project cannot read from source — that unknown is exactly what made 448 inert here. So
+    /// the walk asks every ancestor up to, and excluding, the caller's root: the same bound
+    /// <see cref="Of"/> uses, for the same reason, so nothing outside the window can ever answer for
+    /// it. Cost is paid only by graphics the other tests cleared, and it is two
+    /// <c>TryGetComponent</c> calls per ancestor; the membership test itself is a handful of
+    /// reference compares against lists that are one to four entries long in the shipped prefabs.</para>
+    ///
+    /// <para><b>THIS METHOD NEVER WRITES ANYTHING.</b> It reads two component types and four
+    /// serialized lists and returns a bool.</para>
+    /// </summary>
+    /// <param name="node">The graphic's own transform. A node that carries no <c>Graphic</c> cannot
+    /// be an effect quad and exits before the walk.</param>
+    /// <param name="root">The caller's window root; the walk stops below it, never above it.</param>
+    internal static bool IsDeclaredEffectQuad(Transform? node, Transform root)
+    {
+        if (node == null || ReferenceEquals(node, root))
+            return false;
+        if (!node.TryGetComponent(out Graphic graphic))
+            return false;
+
+        Transform? t = node;
+        while (t != null && !ReferenceEquals(t, root))
+        {
+            if (t.TryGetComponent(out UIFX_MaterialFX_Control control)
+                && (Declares(control.MainIconFX, graphic)
+                    || Declares(control.MainIcon2FX, graphic)
+                    || Declares(control.TextAndSubIconFX, graphic)
+                    || Declares(control.ActivateFX, graphic)))
+            {
+                return true;
+            }
+            if (t.TryGetComponent(out UIFX_MaterialFX_AttackModifier mod)
+                && Declares(mod.MainIconFX, graphic))
+            {
+                return true;
+            }
+            t = t.parent;
+        }
+        return false;
+    }
+
+    /// <summary>Is <paramref name="graphic"/> one of the <c>Image</c>s in <paramref name="list"/>?
+    /// Compared by REFERENCE, with a plain index loop: these are serialized fields that are null on a
+    /// prefab which never filled them, and the list's own <c>Contains</c> would need the graphic cast
+    /// to <c>Image</c> first — a cast that would answer "not declared" for a declared TMP quad
+    /// instead of comparing what the game actually stored.</summary>
+    private static bool Declares(List<Image>? list, Graphic graphic)
+    {
+        if (list == null)
+            return false;
+        for (int i = 0; i < list.Count; i++)
+        {
+            if (ReferenceEquals(list[i], graphic))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// <see cref="Of"/>, and then <see cref="IsDeclaredEffectQuad"/> for the node itself — the whole
+    /// question a painted-union walk has to ask about ONE GRAPHIC, in one call.
+    ///
+    /// <para>The order is load-bearing and it is the cheap test first: <see cref="Of"/> is memoised
+    /// across siblings and answers every hover family and every pure FX container, so the ancestor
+    /// walk below runs only for graphics that are genuinely window content as far as 448 is
+    /// concerned.</para>
+    /// </summary>
+    internal static int OfGraphic(Transform? node, Transform root, Dictionary<Transform, int> memo)
+    {
+        int family = Of(node, root, memo);
+        if (family != 0)
+            return family;
+        return IsDeclaredEffectQuad(node, root) ? EffectQuadFamily : 0;
+    }
+
     /// <summary>The families in <paramref name="mask"/>, spelled out for the log — a bitmask in a
     /// hardware log is a number somebody has to decode against a source file that may have moved on
     /// by then.</summary>

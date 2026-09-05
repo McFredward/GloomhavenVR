@@ -1623,6 +1623,35 @@ internal sealed class MapLocationInteractor
         return true;
     }
 
+    /// <summary>
+    /// <b>WHAT THIS ROOM IS DECIDING ON, AND SINCE WHEN</b> — the same published pair
+    /// <see cref="QuestSelectionCleared"/> reasons over, handed to a caller that needs the POSITIVE
+    /// case as a value rather than as prose.
+    ///
+    /// <para>ModBuild 449 adds it for <c>MapQuestReadyUp</c>, which has to answer two questions the
+    /// existing predicate cannot: <i>which</i> quest the table settled on (so a reveal is done once
+    /// per decision and re-armed when the decision changes) and <i>when</i> it settled (so the log
+    /// can state the confirm's arrival delay as a number instead of as "late"). Both writers already
+    /// reach <see cref="PublishDecision"/> — this player's own click and a peer's record-20
+    /// selection edge — so this accessor is the SELECTION FACT AS THE ROOM ALREADY HAS IT and adds
+    /// nothing to any wire.</para>
+    ///
+    /// <para>The timestamp is <c>Time.unscaledTime</c>, i.e. this client's own clock: the delay it
+    /// measures is a LOCAL interval between two LOCAL events (this room adopting the selection, and
+    /// this client's confirm becoming visible), which is exactly the quantity that must go to zero
+    /// and the only one that is comparable across two machines without a shared clock.</para>
+    /// </summary>
+    /// <param name="questId">The <c>CLocationState.ID</c> settled on, or null for "nothing".</param>
+    /// <param name="atUnscaled">When <see cref="PublishDecision"/> last committed.</param>
+    /// <returns>False while the observer has never sampled, in which case neither out value means
+    /// anything — null is a real decision here, so "never sampled" cannot be folded into it.</returns>
+    internal static bool TryGetPublishedDecision(out string? questId, out float atUnscaled)
+    {
+        questId = _publishedDecisionId;
+        atUnscaled = _publishedAt;
+        return _publishedDecisionEver;
+    }
+
     /// <summary>The static mirror of <see cref="_decisionId"/>. See <see cref="PublishDecision"/>
     /// for why it exists and why one interactor per session makes it safe.</summary>
     private static string? _publishedDecisionId;
