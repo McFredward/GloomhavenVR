@@ -46,6 +46,12 @@ internal sealed class RemoteAvatar
     private FingerCurler? _rightCurler;
 
     private readonly RemoteHandFan _handFan;
+
+    /// <summary>This peer's mirrored hand fan. Exposed ONLY so the held-card surface can read the
+    /// map loadout the fan has already resolved for this character instead of resolving its own —
+    /// see <see cref="RemoteHandFan.MapLoadoutSeat"/> for why a second resolve would be a bug and
+    /// not merely a duplicate cost.</summary>
+    internal RemoteHandFan HandFan => _handFan;
     private readonly RemoteControlBoard _controlBoard;
     private readonly RemoteItemFan _itemFan;   // report 5: the peer's equipped-item fan
 

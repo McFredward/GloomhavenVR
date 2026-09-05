@@ -868,6 +868,33 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// backs). Models rather than widgets: the map phase has no <c>AbilityCardUI</c> anywhere.</summary>
     private readonly List<CAbilityCard> _mapBuffer = new(MaxCards);
 
+    /// <summary>
+    /// The card at map-loadout seat <paramref name="seat"/> of THIS peer's loadout, or null when the
+    /// seat cannot be trusted. For the held-card record's map branch
+    /// (<c>NetProtocol.HeldFaceListMapLoadout</c>) — see <see cref="RemoteHeldCardFace"/>.
+    ///
+    /// <para>WHY THE HELD CARD ASKS THE FAN RATHER THAN RESOLVING ITS OWN. Naming the loadout means
+    /// naming a CHARACTER first, and that resolution is a tiered deduction with a cache
+    /// (<see cref="ResolveMapFronts"/> over <c>MapRoomHand.TryResolvePeerLoadout</c>, keyed on the
+    /// peer's record-20 character key and its card count). Two independent runs of it can answer
+    /// with two different characters on the frame a peer switches — and the failure that produces is
+    /// not a missing face, it is the RIGHT card index into the WRONG character's loadout, i.e. a
+    /// confident front showing a card the peer is not holding. One resolve, one answer, and the seat
+    /// is a seat in the very list the fan beside the hand is drawing from.</para>
+    ///
+    /// <para><paramref name="senderLength"/> is the record's length byte and is checked here for the
+    /// same reason every other branch checks it: an index is a name only while both copies of the
+    /// list agree. A disagreement draws a BACK, never a shifted face.</para>
+    /// </summary>
+    internal CAbilityCard? MapLoadoutSeat(int seat, int senderLength)
+    {
+        if (!_mapFronts)
+            return null; // this fan is not currently drawing map faces — nothing to be a seat in
+        if (seat < 0 || seat >= _mapBuffer.Count || _mapBuffer.Count != senderLength)
+            return null;
+        return _mapBuffer[seat];
+    }
+
     /// <summary>Which card id each slab has ALREADY printed on the map path (-1 = none), parallel to
     /// <see cref="_faces"/>. The scenario path gets its dedup for free — <c>RemoteCardArt.ShowFront</c>
     /// keys on the live widget's instance id — but a POOLED borrow manufactures a fresh widget every
@@ -1225,27 +1252,33 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // the same character; when it cannot (no record, unresolvable, secret phase) it hands
             // back the owned character exactly as before.
             //
-            // THE SCENARIO PATH also requires an actual running scenario before touching the game's
-            // hand UI (the clone's widget lifecycle depends on scenario singletons). That term is a
-            // CAPABILITY test for ResolveHandFronts and nothing else — see the map-phase note beside
-            // _mapBuffer for the misreading of it that report 4 (2026-08-22) was about.
-            if (actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor))
+            // ONE CALL DECIDES BOTH "MAY WE?" AND "FROM WHERE?" — RevealGate.HandCardFaces. This
+            // used to be two hand-written branches, `InScenario && ShowRoundCardFronts(actor)` and
+            // `ShowMapPhaseHandFronts`, whose disjointness was an argument in a comment rather than
+            // a property of the code. The argument was correct here and the SAME pair of branches
+            // was wrong one surface over: RemoteHeldCardFace kept only the first of them, so in the
+            // map room a peer's fan showed its fronts while the card in his hand showed only its
+            // back (report item 5a). Branches that "happen to agree today" is how that happens, so
+            // both surfaces now switch on this one call and the disjointness is the enum's rather
+            // than a reader's.
+            //
+            // The scenario branch's InScenario term was never an anti-cheat term — it is a
+            // CAPABILITY test for ResolveHandFronts, whose clone widget lifecycle depends on
+            // scenario singletons — and that distinction now lives in RevealGate, stated once.
+            switch (RevealGate.HandCardFaces(actor))
             {
-                ResolveHandFronts(actor);   // fills _handBuffer with the actor's HAND-pile widgets
-                showFronts = _handBuffer.Count > 0;
-            }
-            else if (RevealGate.ShowMapPhaseHandFronts)
-            {
-                // THE MAP PHASE. Disjoint from the branch above by construction (that one needs
-                // InScenario, this one needs its absence), so no frame can take both and no ordering
-                // between them can leak a scenario hand.
-                ResolveMapFronts(count);
-                mapFronts = _mapBuffer.Count > 0;
-                showFronts = mapFronts;
-            }
-            else
-            {
-                ClearMapFronts();
+                case RevealGate.CardFaceSource.Scenario:
+                    ResolveHandFronts(actor!);  // fills _handBuffer with the actor's HAND-pile widgets
+                    showFronts = _handBuffer.Count > 0;
+                    break;
+                case RevealGate.CardFaceSource.MapLoadout:
+                    ResolveMapFronts(count);
+                    mapFronts = _mapBuffer.Count > 0;
+                    showFronts = mapFronts;
+                    break;
+                default:
+                    ClearMapFronts();
+                    break;
             }
         }
         catch (System.Exception ex)

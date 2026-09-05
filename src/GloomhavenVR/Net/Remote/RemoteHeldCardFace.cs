@@ -74,6 +74,13 @@ internal sealed class RemoteHeldCardFace
     private FullAbilityCard? _face;             // resolved ability face, if any
     private CItem? _item;                       // resolved item, if any
 
+    /// <summary>The resolved MAP-ROOM loadout card, if any. A separate field from
+    /// <see cref="_face"/> because the map room has no <c>FullAbilityCard</c> widget to point at —
+    /// there is no <c>CardsHandManager</c> there — so the face is printed from the model through
+    /// <see cref="RemoteAbilityCardSource.ShowFullFace"/>, the same call the peer's map FAN prints
+    /// its own faces with.</summary>
+    private CAbilityCard? _mapCard;
+
     private bool _loggedShown;
     private byte _loggedCode = 0xFF;
 
@@ -114,26 +121,39 @@ internal sealed class RemoteHeldCardFace
         }
 
         CPlayerActor? actor = null;
-        bool open = false;
+        RevealGate.CardFaceSource source = RevealGate.CardFaceSource.None;
         try
         {
+            // ONE CALL, AND IT ANSWERS BOTH HALVES — may this surface show a front, and from WHICH
+            // source. It used to be `RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor)`,
+            // which is two questions wearing one boolean: the second is the SECRECY rule and is wide
+            // open on the map, the first is a CAPABILITY rule ("can a face be resolved here at all")
+            // that is false in the map room BY DEFINITION. Leaving the capability answer standing as
+            // the secrecy answer is the ModBuild-192 defect RevealGate's own map-phase block is
+            // written about — it was fixed on the hand FAN and never on this surface, so in the map
+            // room a peer's fan showed its fronts while the card in his hand showed only its back
+            // (report item 5a). The two surfaces now switch on the SAME call, so they cannot drift
+            // apart again by one of them being edited.
+            //
+            // The actor stays optional on purpose: there is no CPlayerActor in the map room at all,
+            // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
+            // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            // THE GATE, every frame and in one place: the same pair RemotePileFronts.Tick asks.
-            open = actor != null && RevealGate.InScenario && RevealGate.ShowRoundCardFronts(actor);
+            source = RevealGate.HandCardFaces(actor);
         }
         catch (System.Exception ex)
         {
             VRLog.Warn("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: reveal "
                               + $"gate threw ({ex.Message}) — showing the back.");
-            open = false;
+            source = RevealGate.CardFaceSource.None;
         }
-        if (!open)
+        if (source == RevealGate.CardFaceSource.None)
         {
             Hide();
             return;
         }
 
-        int actorId = NetFigures.StableActorId(actor!);
+        int actorId = NetFigures.StableActorId(actor);
         bool due = code != _resolvedCode || count != _resolvedCount || actorId != _resolvedActor
                    || Time.unscaledTime >= _nextResolveAt;
         if (due)
@@ -144,20 +164,22 @@ internal sealed class RemoteHeldCardFace
             _resolvedActor = actorId;
             _face = null;
             _item = null;
+            _mapCard = null;
             try
             {
-                Resolve(actor!, code, count);
+                Resolve(actor, source, code, count);
             }
             catch (System.Exception ex)
             {
                 _face = null;
                 _item = null;
+                _mapCard = null;
                 VRLog.Warn("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: front "
                                   + $"resolve failed ({ex.Message}) — showing the back.");
             }
         }
 
-        if (_face == null && _item == null)
+        if (_face == null && _item == null && _mapCard == null)
         {
             HideArtKeepResolve();
             return;
@@ -167,7 +189,10 @@ internal sealed class RemoteHeldCardFace
         RemoteCardArt art = EnsureArt();
         bool shown = _item != null
             ? RemoteItemCardSource.ShowFace(art, _item)
-            : art.ShowFront(_face!);
+            : _mapCard != null
+                ? RemoteAbilityCardSource.ShowFullFace(art, null, _mapCard)
+                  != RemoteAbilityCardSource.FacePath.None
+                : art.ShowFront(_face!);
         if (!shown)
         {
             HideArtKeepResolve();
@@ -185,8 +210,14 @@ internal sealed class RemoteHeldCardFace
             VRLog.Note("Net", $"Remote held card FRONT [player {_owner.PlayerId} slot {_slot}]: "
                 + $"showing {Describe(code, count)} — resolved from THIS client's own copy of that "
                 + "host-replicated list, which is exactly as long as the sender said. No card "
-                + "identity crossed the wire; RevealGate.ShowRoundCardFronts is open for "
-                + $"'{Board.CharacterFocus.Describe(actor)}'.");
+                + $"identity crossed the wire; RevealGate.HandCardFaces named {source} as the "
+                + "source"
+                + (source == RevealGate.CardFaceSource.MapLoadout
+                    ? ", i.e. the MAP ROOM — no scenario is running, there is no CPlayerActor here, "
+                      + "and the face comes from the peer's replicated map loadout through the same "
+                      + "list his mirrored fan is drawing (report item 5a: this surface used to show "
+                      + "only a back here while that fan showed fronts)."
+                    : $" for '{Board.CharacterFocus.Describe(actor)}'."));
         }
     }
 
@@ -203,10 +234,29 @@ internal sealed class RemoteHeldCardFace
     /// mirror already resolves its own fronts from, so a filter that drifts in one place is caught
     /// by the count in the other.</para>
     /// </summary>
-    private void Resolve(CPlayerActor actor, byte code, byte count)
+    private void Resolve(CPlayerActor? actor, RevealGate.CardFaceSource source, byte code, byte count)
     {
         byte list = NetProtocol.HeldFaceList(code);
         int at = NetProtocol.HeldFaceIndex(code);
+
+        // THE MAP ROOM. There is no CPlayerActor, no CardsHandManager and no cardsUI here, so the
+        // list is the peer's map LOADOUT and it is asked of the peer's OWN hand fan rather than
+        // re-resolved: RemoteHandFan already resolves that character's loadout for the fan beside
+        // this card (through the record-20 character key), and a second resolve here could answer
+        // with a different character on the frame the peer switches. One resolve, one answer, and
+        // the seat this record names is a seat in the very list the fan is drawing.
+        if (source == RevealGate.CardFaceSource.MapLoadout)
+        {
+            if (list != NetProtocol.HeldFaceListMapLoadout)
+                return; // a scenario list named while no scenario is running — say nothing
+            _mapCard = _owner.HandFan?.MapLoadoutSeat(at, count);
+            return;
+        }
+        if (list == NetProtocol.HeldFaceListMapLoadout)
+            return; // a map list named inside a running scenario — likewise say nothing
+
+        if (actor == null)
+            return;
 
         if (list == NetProtocol.HeldFaceListItems)
         {
@@ -226,6 +276,15 @@ internal sealed class RemoteHeldCardFace
         if (list == NetProtocol.HeldFaceListDiscard || list == NetProtocol.HeldFaceListBurnt)
         {
             CardsGameApi.GetPileWidgets(hand, list == NetProtocol.HeldFaceListBurnt, _pileBuf);
+            // …and then the ARC's own membership filter, so this index space is the pile browse
+            // arc's index space and not a third one beside it (CardsGameApi.PileWidgetIsArcMember).
+            int keptPile = 0;
+            for (int i = 0; i < _pileBuf.Count; i++)
+            {
+                if (CardsGameApi.PileWidgetIsArcMember(_pileBuf[i]))
+                    _pileBuf[keptPile++] = _pileBuf[i];
+            }
+            _pileBuf.RemoveRange(keptPile, _pileBuf.Count - keptPile);
             if (_pileBuf.Count != count || at >= _pileBuf.Count)
             {
                 _pileBuf.Clear();
@@ -242,16 +301,19 @@ internal sealed class RemoteHeldCardFace
         List<AbilityCardUI>? cards = hand.cardsUI;
         if (cards == null)
             return;
-        // RemoteHandFan.ResolveHandFronts' filter, term for term — and the sender's, term for term.
+        // THE SHARED MEMBERSHIP EXPRESSION, not a fourth copy of its terms. This spelled out
+        // `CardType == Hand && fullAbilityCard != null`, which was a copy of the receiver's fan
+        // filter of the day and agreed with NEITHER the owner's own arc nor the sender's sampler —
+        // so the seat this record named and the seat counted to here were two different index
+        // spaces the moment a long-rest placeholder sat in the hand. See CardsGameApi.HandFanMember.
         int n = 0;
         AbilityCardUI? found = null;
         for (int i = 0; i < cards.Count; i++)
         {
-            AbilityCardUI c = cards[i];
-            if (c == null || c.CardType != CardPileType.Hand || c.fullAbilityCard == null)
+            if (!CardsGameApi.HandFanMember(cards[i], actor))
                 continue;
             if (n == at)
-                found = c;
+                found = cards[i];
             n++;
         }
         if (n != count || found == null)
@@ -325,6 +387,7 @@ internal sealed class RemoteHeldCardFace
         _art?.HideFront();
         _face = null;
         _item = null;
+        _mapCard = null;
         _resolvedCode = 0xFF;
         _resolvedCount = 0;
         _resolvedActor = 0;
@@ -365,6 +428,7 @@ internal sealed class RemoteHeldCardFace
             NetProtocol.HeldFaceListDiscard => "discard pile",
             NetProtocol.HeldFaceListBurnt => "burnt pile",
             NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
+            NetProtocol.HeldFaceListMapLoadout => "map-room loadout",
             _ => "list " + list,
         };
         return $"{where} seat {NetProtocol.HeldFaceIndex(code)} of {count}";

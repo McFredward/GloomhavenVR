@@ -19436,10 +19436,34 @@ internal static class NetProtocol
     /// <see cref="ExtIdItemUsable"/> uses.</summary>
     public const byte HeldFaceListItems = 4;
 
-    /// <summary>Largest SOURCE LIST id this build defines. A code byte naming 5..7 is a future
+    /// <summary>SOURCE LIST 5: the owner's MAP-ROOM LOADOUT — the list
+    /// <c>WorldUI.MapRoom.MapRoomHand.ResolveLoadout</c> produces for a <c>CMapCharacter</c>, which
+    /// is the SAME function, over the SAME replicated <c>CMapCharacter.HandAbilityCardIDs</c>, in
+    /// the same initiative order, that a peer's mirrored map fan is built from
+    /// (<c>MapRoomHand.TryResolvePeerLoadout</c> then <c>RemoteHandFan.ResolveMapFronts</c>). WHICH
+    /// character is not guessed here either: record 20 already carries the sender's map character
+    /// key and the peer resolves the list through it.
+    ///
+    /// <para>WHY THIS IS A VALUE, NOT A NEW RECORD AND NOT A NEW BYTE. The code byte's SOURCE-LIST
+    /// field is bits 5..7 — three bits, of which this build used 0..4 and left 5..7 explicitly
+    /// reserved for exactly this ("a code byte naming 5..7 is a future sender's list"). Naming the
+    /// fifth list costs nothing on the wire: the record's two bytes per slot, its length-gated read
+    /// and its additive-TLV skip are all unchanged, and a peer predating this value draws the back
+    /// it drew before. A new record would have bought nothing and cost an id.</para>
+    ///
+    /// <para>WHAT IT FIXES: 2026-09-02 report item 5a — in the map room a peer's FAN showed its card
+    /// fronts while a card he was HOLDING showed only its back. Half of that was the receiver's gate
+    /// (see <c>RevealGate.HandCardFaces</c>); this is the other half. The sender could not name the
+    /// card at all, because <c>LocalRigSampler.SampleHeldCardFaces</c> resolved the owning character
+    /// through <c>Cards.ItemsPile.Current.OwnerActor</c> and there is no items pile — and no
+    /// <c>CPlayerActor</c> at all — in the map room, so the record was omitted outright.</para>
+    /// </summary>
+    public const byte HeldFaceListMapLoadout = 5;
+
+    /// <summary>Largest SOURCE LIST id this build defines. A code byte naming 6..7 is a future
     /// sender's list; the receiver draws a back for it rather than guessing, which is the same
     /// picture a peer predating the record draws.</summary>
-    public const byte HeldFaceListMax = 4;
+    public const byte HeldFaceListMax = 5;
 
     /// <summary>Pack an <see cref="ExtIdHeldCardFace"/> code byte. An out-of-range index or an
     /// unknown list degrades to a value the receiver renders as a BACK — never to a wrapped index

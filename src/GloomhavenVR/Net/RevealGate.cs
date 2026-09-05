@@ -303,6 +303,73 @@ internal static class RevealGate
     /// </summary>
     public static bool ShowMapPhaseHandFronts => InMapPhase;
 
+    /// <summary>
+    /// WHERE A REMOTE PLAYER'S CARD FACES MAY COME FROM RIGHT NOW — the one call every remote
+    /// ability-card surface asks, so that no two of them can answer the secrecy question
+    /// differently.
+    /// </summary>
+    public enum CardFaceSource
+    {
+        /// <summary>No fronts. Either the game's own secret selection window is open for this
+        /// character, or there is no context in which a face could be resolved at all.</summary>
+        None,
+
+        /// <summary>A running scenario: the faces come from that character's live
+        /// <c>AbilityCardUI</c> widgets (<c>CardsHandManager</c>, <c>CardsGameApi.GetPileWidgets</c>).
+        /// </summary>
+        Scenario,
+
+        /// <summary>The map room: there is no <c>CPlayerActor</c> and no <c>CardsHandManager</c>, so
+        /// the faces come from the peer's replicated map LOADOUT
+        /// (<c>MapRoomHand.TryResolvePeerLoadout</c> off <c>CMapCharacter.HandAbilityCardIDs</c>).
+        /// </summary>
+        MapLoadout,
+    }
+
+    /// <summary>
+    /// THE ONE PREDICATE EVERY REMOTE ABILITY-CARD SURFACE ROUTES THROUGH. Answers both halves of
+    /// the question at once — MAY this surface show fronts, and WHICH SOURCE can supply them —
+    /// because those two were the halves that came apart.
+    ///
+    /// <para>WHY THIS EXISTS AS A METHOD RATHER THAN AS A CONVENTION. Every remote card surface used
+    /// to spell its own gate, and every one of them spelled the same thing:
+    /// <c>RevealGate.InScenario &amp;&amp; RevealGate.ShowRoundCardFronts(actor)</c>. That
+    /// conjunction is not one test. <see cref="ShowRoundCardFronts"/> is the SECRECY question and it
+    /// is wide open on the map; <see cref="InScenario"/> is a CAPABILITY question — "can a face be
+    /// resolved here at all", true because the scenario resolve path needs scenario singletons — and
+    /// leaving a capability test standing as the answer to a secrecy question is precisely the
+    /// ModBuild-192 map-room defect this file's own block above is written about.</para>
+    ///
+    /// <para>THAT DEFECT WAS FIXED ONCE, ON ONE SURFACE, AND CAME BACK ON THE NEXT. The hand FAN
+    /// grew a second branch on <see cref="ShowMapPhaseHandFronts"/> and reads correctly on the map.
+    /// The HELD CARD (<c>Net.RemoteHeldCardFace</c>) kept the old conjunction, so in the map room a
+    /// peer's fan showed its fronts while the card in his hand showed only its back — 2026-09-02
+    /// report item 5a, which is the SAME defect one surface over. Two branches that happen to agree
+    /// is what let that happen, so there are no longer two: both surfaces switch on this, and a
+    /// third surface added later cannot drift because there is nothing left for it to drift FROM.
+    /// </para>
+    ///
+    /// <para>The actor is optional because the map phase has none — see
+    /// <see cref="ShowMapPhaseHandFronts"/> for why that is a statement about the game's model and
+    /// not a missing argument. Never throws: any failure answers <see cref="CardFaceSource.None"/>,
+    /// which is the direction this whole file is required to fail in.</para>
+    /// </summary>
+    public static CardFaceSource HandCardFaces(ScenarioRuleLibrary.CPlayerActor? actor)
+    {
+        try
+        {
+            if (InScenario)
+                return actor != null && ShowRoundCardFronts(actor)
+                    ? CardFaceSource.Scenario
+                    : CardFaceSource.None;
+            return ShowMapPhaseHandFronts ? CardFaceSource.MapLoadout : CardFaceSource.None;
+        }
+        catch
+        {
+            return CardFaceSource.None;
+        }
+    }
+
     // ============================================================================================
     //  PER-CHARACTER GOALS — the SECOND secret this game has, and the one the free character focus
     //  put within reach. Researched from the game's OWN code (2026-08-08); the findings and their

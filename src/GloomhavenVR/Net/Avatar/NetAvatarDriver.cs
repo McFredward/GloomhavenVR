@@ -502,6 +502,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             NetProtocol.HeldFaceListDiscard => "discard pile",
             NetProtocol.HeldFaceListBurnt => "burnt pile",
             NetProtocol.HeldFaceListItems => "items (AllItems raw index)",
+            NetProtocol.HeldFaceListMapLoadout => "map-room loadout",
             _ => "list " + list,
         };
         byte at = NetProtocol.HeldFaceIndex(code);
@@ -2966,9 +2967,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + $"slot1 {DescribeHeldFace(faceCode0, faceCount0)}, "
                 + $"slot2 {DescribeHeldFace(faceCode1, faceCount1)} (record 36) — a source-list id "
                 + "plus a POSITION in a list every client already holds, never a card id. Peers draw "
-                + "the front only while RevealGate.ShowRoundCardFronts is open for the character "
+                + "the front only while RevealGate.HandCardFaces names a source for the character "
                 + "this board presents, and only while their own copy of that list is exactly as "
-                + "long as the count above.");
+                + "long as the count above. 'map-room loadout' is the MAP-ROOM list (source id 5, "
+                + "report item 5a): there is no CPlayerActor and no items pile there, so this "
+                + "sampler used to give up and name nothing at all — which is why a card held in "
+                + "the map room could only ever be a back while the fan beside it showed fronts.");
         }
 
         // MOD VERSION (extension-tail record id 3): on EVERY extras packet, deliberately

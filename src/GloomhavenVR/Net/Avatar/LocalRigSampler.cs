@@ -290,8 +290,22 @@ internal static class LocalRigSampler
         if (!left && !right)
             return;
         CPlayerActor? actor = Cards.ItemsPile.Current?.OwnerActor;
+        // NO ACTOR IS NOT "NAMES NOTHING" ANY MORE — IT IS THE MAP ROOM (report item 5a). This used
+        // to return here, and the consequence was that in the map room the record was omitted
+        // outright and a card in a peer's hand could only ever be a back, while the fan beside it
+        // showed its fronts. The premise was sound and the conclusion did not follow: there really
+        // is no CPlayerActor and no ItemsPile in the map room (CMapCharacter.GetActor() reads
+        // ScenarioManager.Scenario, which is null there, and THROWS), but the map room has its own
+        // unit of identity and its own list — the loadout, resolved from the replicated
+        // CMapCharacter and already mirrored on every peer. So the absence of an actor selects a
+        // DIFFERENT SOURCE LIST rather than ending the sample.
         if (actor == null)
+        {
+            NameHeldMapCard(left ? VRHands.Left : VRHands.Right, out code0, out count0);
+            if (left && right)
+                NameHeldMapCard(VRHands.Right, out code1, out count1);
             return;
+        }
         // Slot 1 = the LEFT hand's card when the left hand holds one, otherwise the right's —
         // TrySampleHeldCard's unchanged preference, restated here rather than shared, because the
         // two answers must agree about the SLOT and nothing else about them is common.
@@ -299,6 +313,38 @@ internal static class LocalRigSampler
         // Slot 2 exists only while BOTH hands hold one, and is then the RIGHT hand's.
         if (left && right)
             NameHeldCard(actor, VRHands.Right, out code1, out count1);
+    }
+
+    /// <summary>
+    /// THE MAP-ROOM HALF of <see cref="SampleHeldCardFaces"/>: seat the card <paramref name="hand"/>
+    /// is holding in the local map LOADOUT (<c>NetProtocol.HeldFaceListMapLoadout</c>), or leave the
+    /// code 0.
+    ///
+    /// <para>The seat is resolved by the map room itself
+    /// (<c>WorldUI.MapRoom.MapRoomHand.TryNameLocalLoadoutSeat</c>) rather than re-derived here, for
+    /// the reason every other list in this record is: the index is only a name for a card while both
+    /// machines build the list with the same expression, and the receiver builds it with
+    /// <c>MapRoomHand.ResolveLoadout</c>. WHICH character it is a loadout OF does not have to be
+    /// guessed — record 20 already carries the sender's map character key and the peer resolves the
+    /// list through it (<c>MapRoomHand.TryResolvePeerLoadout</c>).</para>
+    ///
+    /// <para>Everything that cannot be answered exactly — the room is stood down, the card is not one
+    /// of ours, its model is not in the loadout, an index past what five bits can carry — leaves the
+    /// code 0 and draws a BACK, which is the picture this surface had before the record existed.</para>
+    /// </summary>
+    private static void NameHeldMapCard(VRHand? hand, out byte code, out byte count)
+    {
+        code = 0;
+        count = 0;
+        object? held = hand != null && hand.Grabber != null ? hand.Grabber.Held : null;
+        if (held is not Cards.VRCard card || card == null)
+            return;
+        if (!WorldUI.MapRoom.MapRoomHand.TryNameLocalLoadoutSeat(card, out int seat, out int length))
+            return;
+        count = (byte)Mathf.Clamp(length, 0, 255);
+        code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListMapLoadout, seat);
+        if (code == 0)
+            count = 0; // could not be seated in five bits — say nothing rather than half a thing
     }
 
     /// <summary>

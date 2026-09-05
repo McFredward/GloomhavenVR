@@ -223,6 +223,54 @@ internal sealed partial class MapRoomHand
     /// silent-misalignment shape that puts the wrong art on the wrong card.</summary>
     private readonly List<CAbilityCard> _cardModels = new(MaxCards);
 
+    /// <summary>The one live hand — <c>MapRoomDriver</c> holds a single static instance and there is
+    /// exactly one map room. Set in the constructor rather than on engage because the lookup below
+    /// is safe on a stood-down hand by construction: its lists are empty, so it answers "no seat".
+    /// </summary>
+    private static MapRoomHand? s_live;
+
+    internal MapRoomHand() => s_live = this;
+
+    /// <summary>
+    /// WHICH SEAT of the local map LOADOUT is <paramref name="card"/>, for the held-card wire record
+    /// (<c>Net.NetProtocol.HeldFaceListMapLoadout</c>). Returns false — "names nothing" — for every
+    /// case that cannot be answered exactly, which the record renders as a card BACK.
+    ///
+    /// <para>WHY THE SEAT IS RESOLVED THROUGH <see cref="_loadout"/> AND NOT THROUGH
+    /// <see cref="_cards"/>. The index that travels has to be an index into the list the RECEIVER
+    /// holds, and the receiver holds the loadout — <see cref="ResolveLoadout"/> over the peer's
+    /// replicated <c>CMapCharacter</c>, the same function in the same initiative order
+    /// (<see cref="TryResolvePeerLoadout"/>). It does NOT hold our VR fan, whose own list skips any
+    /// card that failed to build; that is the very reason <see cref="_cardModels"/> exists as a
+    /// parallel list rather than as an index, and reusing the fan position here would reintroduce
+    /// the misalignment that note was written to prevent. So the card is mapped to its MODEL through
+    /// the parallel list and the model is then seated in the loadout.</para>
+    ///
+    /// <para>The LENGTH is reported beside it so the receiver can refuse a seat whose list it does
+    /// not have an identical copy of — see the record's own note on why that byte is not padding.
+    /// </para>
+    /// </summary>
+    internal static bool TryNameLocalLoadoutSeat(VRCard? card, out int seat, out int length)
+    {
+        seat = -1;
+        length = 0;
+        MapRoomHand? hand = s_live;
+        if (hand == null || card == null)
+            return false;
+        int built = hand._cards.IndexOf(card);
+        if (built < 0 || built >= hand._cardModels.Count)
+            return false;
+        CAbilityCard model = hand._cardModels[built];
+        if (model == null)
+            return false;
+        length = hand._loadout.Count;
+        seat = hand._loadout.IndexOf(model);
+        if (seat >= 0)
+            return true;
+        length = 0;
+        return false;
+    }
+
     /// <summary>The printed faces, index-aligned with <see cref="_cards"/>. An entry stays null
     /// until the card is first ACTIVE IN THE HIERARCHY — see <see cref="PrintPendingFaces"/> for
     /// why the print is deferred and not done at build time.</summary>
