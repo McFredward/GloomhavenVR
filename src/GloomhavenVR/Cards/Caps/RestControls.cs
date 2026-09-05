@@ -460,10 +460,42 @@ internal sealed class RestControls
     /// Verified: <c>public bool IsImprovedLongResting</c> — CardsHandUI.cs:244 — which dereferences
     /// <c>playerActor</c> as soon as the phase matches, hence the null guard before it. Cheap: one
     /// enum compare outside the selection phase, no allocation.
+    ///
+    /// <para><b>THE LIFE TERM IS A RESTORED QUOTE, NOT A NEW RULE</b> (user report 2026-09-05, item
+    /// 13's tail; routed here by the dead-character lane). The flat UI reaches all three sites above
+    /// only through the hand of a character it is still SHOWING, and the game disables a dead
+    /// character's hand tab outright the moment they fall ("Disabling card hand tab for MindthiefID",
+    /// host <c>Player.log:255544</c>) — so vanilla never offers a rest to a corpse, and never had to
+    /// say so. The mod RE-DERIVES the hand instead (<c>CardsDriver.CurrentHand</c> →
+    /// <c>DecidingHand() ?? ActiveHand()</c>), and that derivation survives the death. That
+    /// divergence is the whole defect: after 'Testo' died, this very class logged
+    /// <c>short=True [canShort=True], long=True [canLong=True], offered=True</c> at
+    /// <c>Player.log:256809</c> and again at <c>:274293</c> — the last state of the session — and
+    /// the wire carried it on as <c>buttons=0x31</c> to every peer's mirrored board. Neither
+    /// availability signal can catch it on its own: <c>CanShortRest</c> reads
+    /// <c>ShortRest.IsInteractable</c>, which is a LATCH the game stops updating rather than clears,
+    /// and <c>CanLongRest</c> is <c>DiscardedAbilityCards.Count &gt; 1</c>, and a corpse keeps its
+    /// discard pile (the mirror read <c>piles d/b/i=2/6/2</c> for the dead character).</para>
+    ///
+    /// <para><b>AND IT IS DELIBERATELY A TERM ON THE HAND THIS TICK ALREADY READS</b>, not a swap to
+    /// the PRESENTED hand. <c>CardsDriver.CurrentHand</c>'s own standing note — "USE IT FOR WHAT IS
+    /// DISPLAYED, NEVER FOR WHAT IS COMMITTED. Every path that can reach a game seam (confirm/undo,
+    /// RESTS, action play, item use, the pick flows) keeps reading CurrentHand()" — names the rests
+    /// explicitly. The rest caps are PRESSABLE and their press runs
+    /// <c>CardsDriver.OnShortRest/LongRestRequested</c> against <c>CurrentHand()</c>; sizing their
+    /// VISIBILITY off the focus-overridden hand instead would light a cap for a watched teammate
+    /// while the press acted on the local character — the wrong-hand class that note exists to
+    /// prevent. One term on the same hand keeps display and commit reading one character.</para>
+    ///
+    /// <para>CONFIRM IS UNTOUCHED, on purpose: it is party-wide whenever nobody is at turn
+    /// (<c>PlayTray.5.Status</c>' attribution clause), and hiding it on a just-killed player's only
+    /// board would deadlock the scenario. This predicate is read by nothing but this class's two
+    /// rest discs.</para>
     /// </summary>
     private static bool RestUiOffered(CardsHandUI hand) =>
         PhaseManager.PhaseType == CPhase.PhaseType.SelectAbilityCardsOrLongRest
         && hand.PlayerActor != null
+        && !hand.PlayerActor.IsDead
         && !hand.IsImprovedLongResting;
 
     internal void TickStatus(CardsHandUI? hand)
@@ -520,6 +552,11 @@ internal sealed class RestControls
         // mod keycap is the sole short-rest control; long rest never had a discrete uGUI widget.
         bool canShort = false, canLong = false, shortSelected = false, longSelected = false;
         bool offered = false;
+        // NAMED SEPARATELY FROM `offered`, for the log line below: "offered=False" alone cannot say
+        // WHICH of the predicate's four terms shut it, and the round that found this defect lost a
+        // build to exactly that ambiguity elsewhere. This is the term, not a second copy of it —
+        // RestUiOffered still owns the decision.
+        bool exhausted = hand != null && hand.PlayerActor != null && hand.PlayerActor.IsDead;
         if (hand != null)
         {
             offered = RestUiOffered(hand);
@@ -550,11 +587,31 @@ internal sealed class RestControls
         {
             _lastShortVisible = shortVisible;
             _lastLongVisible = longVisible;
-            Core.VRLog.Info("Cards", $"Rest buttons visibility: short={shortVisible} " +
+            // RENAMED FROM "Rest buttons visibility:" — the old wording had no ALL-CAPS token to
+            // anchor a grep on, and this line is now the one a hardware round reads. The old string
+            // is left here on purpose so a grep for it in the source still lands on its successor;
+            // .planning/BOARD-BUTTON-OVERHAUL.md quotes it from a ModBuild 291 log and that record
+            // is correct about what THAT build printed.
+            // HW-VERIFY: grep REST CAPS — the two rest discs' visibility with every term that
+            // decided it, on the visibility EDGE only (never per frame). `exhausted=True` with
+            // short=False/long=False is the item-13 tail fixed: a dead character is offered no
+            // rest, and ShortRestShown/LongRestShown below carry that straight into the board-UI
+            // record, so every peer's mirrored board drops the discs in the same frame.
+            // FALSIFIER: `exhausted=True` alongside short=True or long=True means the life term in
+            // RestUiOffered is not reaching this tick — check WHICH hand CardsDriver.CurrentHand
+            // returned, not this class. `exhausted=False` for the whole session after an
+            // "[MessageHandler] ActorDead" naming a player character means the tick never saw the
+            // dead hand at all, and the wire mask must then be read to find who did.
+            Core.VRLog.Note("Cards", $"REST CAPS: short={shortVisible} " +
                                      $"[canShort={canShort}, selected={shortSelected}], long={longVisible} " +
-                                     $"[canLong={canLong}, selected={longSelected}], offered={offered} " +
+                                     $"[canLong={canLong}, selected={longSelected}], offered={offered}, " +
+                                     $"exhausted={exhausted} " +
                                      "— hidden when the game itself offers no rest control: action phase, " +
-                                     "enemy turns, and every start-of-round prompt after selection.");
+                                     "enemy turns, every start-of-round prompt after selection, and a " +
+                                     "character who is DEAD (the game disables their hand tab outright; " +
+                                     "this mod re-derives the hand and used to keep offering the rest " +
+                                     "to a corpse — see RestUiOffered). CONFIRM is deliberately not " +
+                                     "gated on any of this: it is party-wide when nobody is at turn.");
         }
 
         _shortButton?.SetVisible(shortVisible);
