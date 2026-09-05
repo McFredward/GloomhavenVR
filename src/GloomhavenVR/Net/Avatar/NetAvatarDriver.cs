@@ -448,6 +448,21 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private bool _loggedStretch;
     private bool _loggedSecondFigure;
 
+    // HELD PROPS (record 37) — the send-side change detector, one entry per wire slot. Grab/release/
+    // swap are EDGES and pre-empt the cadence; carrying is a MOTION and rides the fast interval,
+    // exactly like the second figure beside it. "…Valid false" = nothing sent yet this session.
+    private bool _sentHeldPropValid;
+    private bool _sentSecondPropValid;
+    private int _lastSentHeldPropId;
+    private int _lastSentSecondPropId;
+    private Vector3 _lastSentHeldPropPos;
+    private Quaternion _lastSentHeldPropRot = Quaternion.identity;
+    private Vector3 _lastSentSecondPropPos;
+    private Quaternion _lastSentSecondPropRot = Quaternion.identity;
+    private int _lastSentHeldPropSize = NetProtocol.HeldStretchCodeNeutral;
+    private int _lastSentSecondPropSize = NetProtocol.HeldStretchCodeNeutral;
+    private bool _loggedHeldProp;
+
     // SECOND HELD CARD (user ruling: "Alles soll synchronisiert werden - auch die Karten in der
     // jeweiligen Hand. Wenn Karten in beiden Haenden sind, soll das auch synchronisiert werden!").
     // The card in the player's OTHER hand rides extension record 10 on THIS packet and gets the
@@ -786,6 +801,18 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentStretchPrimary = NetProtocol.HeldStretchCodeNeutral;   // nor a stale stretch
         _lastSentStretchSecondary = NetProtocol.HeldStretchCodeNeutral; // (record 30)
         _loggedStretch = false;
+        _sentHeldPropValid = false;     // nor a new session's held map items (record 37)
+        _sentSecondPropValid = false;
+        _lastSentHeldPropId = 0;
+        _lastSentSecondPropId = 0;
+        _lastSentHeldPropSize = NetProtocol.HeldStretchCodeNeutral;
+        _lastSentSecondPropSize = NetProtocol.HeldStretchCodeNeutral;
+        _loggedHeldProp = false;
+        // …and every prop a peer was carrying goes back on its hex. NOT optional and NOT symmetric
+        // with the figure teardown one line up: a released figure is re-authored by the game's own
+        // Update, a released prop is re-authored by NOTHING, so a driver teardown mid-hold would
+        // strand a chest in mid-air for the rest of the scenario.
+        NetProps.Clear();
         // Version handshake is session state; badges are reversible game-UI decoration — both
         // must not survive a driver teardown (hot reload / module shutdown).
         VersionGuard.Reset();
@@ -836,6 +863,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             {
                 try { NetFigures.Tick(); }
                 catch (Exception e) { LogPhaseError("NetFigures.Tick", e); }
+                // The prop mirror eases on the same frame, with the same sharpness, behind its own
+                // catch: "mach da keinen Unterschied zwischen Figuren und Props" is a statement
+                // about the picture, and identical cadence plus identical easing is the only way to
+                // get identical motion.
+                try { NetProps.Tick(); }
+                catch (Exception e) { LogPhaseError("NetProps.Tick", e); }
             }
             // Version handshake + VR badges: its OWN phase behind its OWN catch, per the driver's
             // isolation contract — a bug in the mismatch dialog or the badge poll must never
@@ -1478,6 +1511,69 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 || Quaternion.Angle(secondRot, _lastSentSecondRot) > 0.05f);
         bool secondDue = secondMoving && _extrasAccumulator >= fastInterval;
 
+        // HELD PROPS (extension record 37): the map items in the player's hands — a chest, a gold
+        // pile, a loose obstacle. Sampled BEFORE the rate gate so grab and release can pre-empt it,
+        // and converted to the shared anchor frame here (once) so the change test compares the very
+        // bytes that go on the wire — the same shape the second figure above uses, for the same
+        // reasons, because the user's ruling is that there is to be no difference between the two.
+        //
+        // THE SIZE IS SAMPLED WITH THE POSE and quantized here, so the change test compares wire
+        // codes rather than floats: the factor is a FIELD of this record, not a record of its own
+        // (the standing "es syncht voll oder gar nicht" ruling, and record 30's two slots are
+        // figure-aligned and could not have carried it anyway).
+        bool heldProp = NetProps.TrySampleHeldSlot(
+            NetProps.SlotPrimary, out int heldPropId, out Vector3 propWorldPos,
+            out Quaternion propWorldRot, out bool propLeftHand);
+        Vector3 propPos = default;
+        Quaternion propRot = Quaternion.identity;
+        int propSizeCode = NetProtocol.HeldStretchCodeNeutral;
+        if (heldProp)
+        {
+            _anchor.ToAnchor(propWorldPos, propWorldRot, out propPos, out propRot);
+            propSizeCode = NetProtocol.EncodeHeldStretch(NetProps.SampleHeldStretch(NetProps.SlotPrimary));
+        }
+
+        // Sampled UNCONDITIONALLY and narrowed below rather than short-circuited behind
+        // `heldProp`: a && with out-parameters leaves them definitely-unassigned on the false path,
+        // and the narrowing reads better as one place that states every reason slot 2 is dropped.
+        bool secondProp = NetProps.TrySampleHeldSlot(
+            NetProps.SlotSecondary, out int secondPropId, out Vector3 secondPropWorldPos,
+            out Quaternion secondPropWorldRot, out bool secondPropLeftHand) && heldProp;
+        Vector3 secondPropPos = default;
+        Quaternion secondPropRot = Quaternion.identity;
+        int secondPropSizeCode = NetProtocol.HeldStretchCodeNeutral;
+        if (secondProp)
+        {
+            // The reader rejects a pair that agrees on the hand or on the prop, so the sender does
+            // not write one: two slots naming one hand is a state no grab registry can produce, and
+            // emitting it would cost the receiver its whole record rather than one slot.
+            secondProp = secondPropId != heldPropId && secondPropLeftHand != propLeftHand;
+        }
+        if (secondProp)
+        {
+            _anchor.ToAnchor(secondPropWorldPos, secondPropWorldRot, out secondPropPos, out secondPropRot);
+            secondPropSizeCode = NetProtocol.EncodeHeldStretch(NetProps.SampleHeldStretch(NetProps.SlotSecondary));
+        }
+
+        // Grab, release and a different item in that hand are EDGES: they pre-empt the gate outright
+        // so a peer sees the item appear and vanish with the gesture rather than up to 200 ms later.
+        bool propChanged = heldProp != _sentHeldPropValid
+                           || secondProp != _sentSecondPropValid
+                           || (heldProp && heldPropId != _lastSentHeldPropId)
+                           || (secondProp && secondPropId != _lastSentSecondPropId);
+        // Carrying it — or resizing it in the hand — is a MOTION, capped at the rig interval exactly
+        // like a carried second figure, so a 90 Hz hand drag cannot become a 90 Hz packet stream.
+        bool propMoving =
+            (heldProp && _sentHeldPropValid && heldPropId == _lastSentHeldPropId
+             && ((propPos - _lastSentHeldPropPos).sqrMagnitude > 1e-8f
+                 || Quaternion.Angle(propRot, _lastSentHeldPropRot) > 0.05f
+                 || propSizeCode != _lastSentHeldPropSize))
+            || (secondProp && _sentSecondPropValid && secondPropId == _lastSentSecondPropId
+                && ((secondPropPos - _lastSentSecondPropPos).sqrMagnitude > 1e-8f
+                    || Quaternion.Angle(secondPropRot, _lastSentSecondPropRot) > 0.05f
+                    || secondPropSizeCode != _lastSentSecondPropSize));
+        bool propDue = propMoving && _extrasAccumulator >= fastInterval;
+
         // SECOND HELD CARD (extension record 10): the card in the player's OTHER hand, present
         // only while BOTH hands hold one — the rig packet's FlagHeldCard slot keeps carrying the
         // sampler's unchanged left-first pick, so this is deterministically the RIGHT hand's card.
@@ -1723,6 +1819,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             && !maskSizeChanged && !boardStyleChanged && !handScaleChanged
             && !poseDue && !boardUiChanged && !boardSnapDue && !capPressChanged && !highlightDue
             && !secondChanged && !secondDue && !secondCardChanged && !secondCardDue
+            && !propChanged && !propDue
             && !cardGripChanged
             && !stretchDue
             && !tooltipChanged && !slotCardSizeChanged
@@ -2843,6 +2940,63 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         _lastSentSecondPos = secondPos;
         _lastSentSecondRot = secondRot;
 
+        // HELD PROPS (extension record 37): the map items in the player's hands, with the hand,
+        // the pose and the measured held size of each. Written only while a prop is really held, so
+        // an empty-handed player emits the exact bytes previous builds emitted.
+        if (heldProp)
+        {
+            extras.HasHeldProp = true;
+            extras.HeldPropId = heldPropId;
+            extras.HeldPropPose.Position = propPos;
+            extras.HeldPropPose.Rotation = propRot;
+            extras.HeldPropLeftHand = propLeftHand;
+            extras.HeldPropStretchCode = (ushort)propSizeCode;
+            if (secondProp)
+            {
+                extras.HasSecondHeldProp = true;
+                extras.SecondHeldPropId = secondPropId;
+                extras.SecondHeldPropPose.Position = secondPropPos;
+                extras.SecondHeldPropPose.Rotation = secondPropRot;
+                extras.SecondHeldPropLeftHand = secondPropLeftHand;
+                extras.SecondHeldPropStretchCode = (ushort)secondPropSizeCode;
+            }
+        }
+        if (propChanged)
+        {
+            if (heldProp)
+            {
+                VRLog.Info("Net", $"Held prop SENT: prop {heldPropId} in the "
+                    + $"{(propLeftHand ? "LEFT" : "RIGHT")} hand at "
+                    + $"{propSizeCode / 1000f:0.###}x its board size"
+                    + (secondProp
+                        ? $", and prop {secondPropId} in the {(secondPropLeftHand ? "LEFT" : "RIGHT")} "
+                          + $"hand at {secondPropSizeCode / 1000f:0.###}x"
+                        : "")
+                    + $" — extension record 37 ({(secondProp ? 2 : 1) * NetProtocol.HeldPropSlotBytes} B: "
+                    + "hand + stable prop id + pose + held size, per slot). While it moves the extras "
+                    + $"packet rides at {NetProtocol.SendRateHz:0} Hz, the SAME cadence a held figure "
+                    + "gets, so peers see a carried chest move exactly like a carried mini.");
+                _loggedHeldProp = true;
+            }
+            else if (_loggedHeldProp)
+            {
+                _loggedHeldProp = false;
+                VRLog.Info("Net", $"Held prop SENT: released (was prop {_lastSentHeldPropId}) — "
+                    + "record omitted; peers put that item back on its hex themselves, because "
+                    + "nothing in the game ever re-authors a prop's transform.");
+            }
+        }
+        _sentHeldPropValid = heldProp;
+        _sentSecondPropValid = secondProp;
+        _lastSentHeldPropId = heldProp ? heldPropId : 0;
+        _lastSentSecondPropId = secondProp ? secondPropId : 0;
+        _lastSentHeldPropPos = propPos;
+        _lastSentHeldPropRot = propRot;
+        _lastSentSecondPropPos = secondPropPos;
+        _lastSentSecondPropRot = secondPropRot;
+        _lastSentHeldPropSize = propSizeCode;
+        _lastSentSecondPropSize = secondPropSizeCode;
+
         // HELD-FIGURE STRETCH (extension record 30): the manual two-hand resize factors, written
         // only while at least one slot is non-neutral — an unstretched hold and every idle player
         // emit the exact bytes previous builds emitted (the serializer re-checks the same gate).
@@ -3123,6 +3277,33 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                     else
                     {
                         NetFigures.ReleaseRemoteSlot(kv.Key, NetFigures.SlotSecondary);
+                    }
+
+                    // HELD PROPS (extension record 37): the map items in the sender's hands, each
+                    // with its hand, its pose and its measured held size. Absence of the record
+                    // means "no prop held", which is also what every peer predating it transmits,
+                    // so the else branches release. Slot 2 is released independently of slot 1 for
+                    // the same reason the figure slots are: a peer putting down one of two items
+                    // must not lose the other.
+                    if (p.HasHeldProp)
+                    {
+                        NetProps.ApplyRemoteHeld(kv.Key, NetProps.SlotPrimary, p.HeldPropId,
+                                                 p.HeldPropPose.Position, p.HeldPropPose.Rotation,
+                                                 p.HeldPropLeftHand,
+                                                 NetProtocol.DecodeHeldStretch(p.HeldPropStretchCode));
+                        if (p.HasSecondHeldProp)
+                            NetProps.ApplyRemoteHeld(kv.Key, NetProps.SlotSecondary, p.SecondHeldPropId,
+                                                     p.SecondHeldPropPose.Position,
+                                                     p.SecondHeldPropPose.Rotation,
+                                                     p.SecondHeldPropLeftHand,
+                                                     NetProtocol.DecodeHeldStretch(p.SecondHeldPropStretchCode));
+                        else
+                            NetProps.ReleaseRemoteSlot(kv.Key, NetProps.SlotSecondary);
+                    }
+                    else
+                    {
+                        NetProps.ReleaseRemoteSlot(kv.Key, NetProps.SlotPrimary);
+                        NetProps.ReleaseRemoteSlot(kv.Key, NetProps.SlotSecondary);
                     }
 
                     // HELD-FIGURE STRETCH (extension record 30): the holder's manual two-hand
@@ -3433,6 +3614,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 avatar.Destroy();
                 _avatars.Remove(id);
                 NetFigures.ReleaseRemote(id); // drop any figure this peer was holding
+                NetProps.ReleaseRemote(id);   // …and put any map item they carried back on its hex
                 NetPlayerActors.ForgetAvatarFetch(id); // a rejoin gets a fresh attempt budget
                 Board.CharacterFocus.ForgetPeer(id);   // …and their focus outline goes with them
                 _peerEnv.Remove(id);                   // …and they stop being a clock/host candidate
@@ -3453,6 +3635,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             avatar.Destroy();
             _avatars.Remove(playerId);
             NetFigures.ReleaseRemote(playerId);
+            NetProps.ReleaseRemote(playerId);
             NetPlayerActors.ForgetAvatarFetch(playerId);
             Board.CharacterFocus.ForgetPeer(playerId);
         }
@@ -3468,6 +3651,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         {
             kv.Value.Destroy();
             NetFigures.ReleaseRemote(kv.Key);
+            NetProps.ReleaseRemote(kv.Key);
             NetPlayerActors.ForgetAvatarFetch(kv.Key);
         }
         _avatars.Clear();
@@ -3532,6 +3716,22 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                             out Vector3 fp, out Quaternion fr);
             p.SecondFigurePose.Position = fp;
             p.SecondFigurePose.Rotation = fr;
+        }
+        // Both held-prop poses are SHARED-FRAME poses exactly like the held figures', so they
+        // convert here for the same reason: NetProps drives world transforms only.
+        if (p.HasHeldProp)
+        {
+            _anchor.ToWorld(p.HeldPropPose.Position, p.HeldPropPose.Rotation,
+                            out Vector3 pp, out Quaternion pr);
+            p.HeldPropPose.Position = pp;
+            p.HeldPropPose.Rotation = pr;
+        }
+        if (p.HasSecondHeldProp)
+        {
+            _anchor.ToWorld(p.SecondHeldPropPose.Position, p.SecondHeldPropPose.Rotation,
+                            out Vector3 sp2, out Quaternion sr2);
+            p.SecondHeldPropPose.Position = sp2;
+            p.SecondHeldPropPose.Rotation = sr2;
         }
         // The second held card's pose is a SHARED-FRAME pose exactly like the rig packet's held
         // card, so it converts here for the same reason: RemoteAvatar is world-only.

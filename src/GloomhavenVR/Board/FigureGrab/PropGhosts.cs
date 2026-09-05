@@ -26,12 +26,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// there is nothing left that could walk the ghost off its cell — the pose is written once, at
 /// build time. Tick therefore only reconciles membership.</para>
 ///
-/// <para><b>MULTIPLAYER.</b> Local-only in this build, exactly like the prop hold itself. When the
-/// sync lands, the still-held test in <see cref="Tick"/> gains the remote term
-/// (<c>|| NetHeldProps.Owns(prop)</c>) and <see cref="NotifyHeld"/> is called from the receive
-/// side the first frame a peer's hold arrives — the identical shape
-/// <c>Net/NetFigures</c> already uses against <see cref="FigureGhosts"/>. Nothing else changes:
-/// this class never asks WHO holds the prop, only WHETHER it is held.</para>
+/// <para><b>MULTIPLAYER — LANDED 2026-09-05 with extension record 37.</b> The still-held test in
+/// <see cref="Tick"/> carries the remote term (<c>|| NetHeldProps.Owns(prop)</c>) and
+/// <see cref="NotifyHeld"/> is called from the receive side (<c>Net.NetProps.ApplyRemoteHeld</c>)
+/// on the first frame a peer's hold arrives, from the prop's board pose, before anything moves it —
+/// the identical shape and the identical ORDER <c>Net/NetFigures</c> uses against
+/// <see cref="FigureGhosts"/>. Nothing else changed: this class still never asks WHO holds the prop,
+/// only WHETHER it is held, which is exactly why one term was enough.</para>
 /// </summary>
 internal static class PropGhosts
 {
@@ -91,12 +92,38 @@ internal static class PropGhosts
         Scratch.Clear();
         foreach (KeyValuePair<CObjectProp, GameObject> kv in Ghosts)
         {
-            // The remote term goes here when the sync lands: `|| NetHeldProps.Owns(kv.Key)`.
-            if (!HeldProps.Owns(kv.Key) || kv.Value == null)
+            // HELD IS HELD, WHOEVER'S HAND IT IS (2026-09-05). NetHeldProps is the receive-side
+            // membership record for extension record 37, so a ghost stands on the hex for as long as
+            // ANY player is carrying that prop — this class still never asks WHO, only WHETHER.
+            if (!(HeldProps.Owns(kv.Key) || NetHeldProps.Owns(kv.Key)) || kv.Value == null)
                 Scratch.Add(kv.Key);
         }
         for (int i = 0; i < Scratch.Count; i++)
             Destroy(Scratch[i]);
+    }
+
+    /// <summary>
+    /// A REMOTE hold ended: take that prop's ghost down now, without waiting for
+    /// <see cref="Tick"/> to reconcile it.
+    ///
+    /// <para><b>WHY THE RECEIVE SIDE CANNOT RELY ON THE RECONCILE.</b> <see cref="Tick"/> is called
+    /// from <c>PropGrab.Tick</c>, which is called from <c>FigureGrabDriver</c> BELOW the
+    /// <c>[FigureGrab] GrabFigures</c> gate — so a player who has turned figure grabbing off on
+    /// their own machine stops reconciling ghosts entirely. Their own ghosts cannot outlive that,
+    /// because the same gate has already released every local hold; a REMOTE hold is not theirs to
+    /// release and keeps running (it is driven from <c>Net.NetProps.Tick</c>, on the network
+    /// driver's frame), so without this the ghost of a peer's released chest would stand on the
+    /// board for the rest of the scenario. The 1:1 ruling cuts the same way: what a peer is holding
+    /// is not something a local presentation dial gets a vote on.</para>
+    ///
+    /// <para>Refuses while the LOCAL player holds the same prop — the ghost is then theirs and the
+    /// reconcile above owns its lifetime.</para>
+    /// </summary>
+    internal static void NotifyRemoteReleased(CObjectProp? prop)
+    {
+        if (prop == null || HeldProps.Owns(prop))
+            return;
+        Destroy(prop);
     }
 
     /// <summary>Tear down every prop ghost (scenario teardown / module shutdown / feature off).</summary>
