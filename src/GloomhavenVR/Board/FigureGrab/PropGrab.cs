@@ -459,7 +459,18 @@ internal static class PropGrab
                 + $"'{visual.name}' resolved through ObjectCacheService (NOT through an actor — it "
                 + "has none, which is exactly what the ModBuild 335 census measured). RESOLVED "
                 + $"THROUGH {PropVisualLookup.Describe(route)} (ModBuild 367). Collider: "
-                + (built ? "built from its renderer bounds (the prop had none)." : "the prop's own.")
+                // ModBuild 445: `built` is now true for TWO different facts — the prop had no
+                // collider, and the prop had one that is not a usable pick shape — so the clause
+                // asks `ownPresent` which of them it is instead of asserting the first. Saying
+                // "the prop had none" over a gold pile that has one and has it switched off is
+                // exactly the kind of true-and-wrong log line this round was spent on.
+                + (built
+                    ? (ownPresent > 0
+                        ? $"built from its renderer bounds because all {ownPresent} of the prop's "
+                          + "OWN collider(s) are dead pick shapes — see the [Props] DEAD PICK SHAPE "
+                          + "line above for which clause refused them."
+                        : "built from its renderer bounds (the prop had none).")
+                    : "the prop's own.")
                 + " It now carries the figure hover glow, the figure pick radius, the trigger-only "
                 + "grab and a home ghost. Logged once per scenario; the [Props] census line counts "
                 + "the rest."
