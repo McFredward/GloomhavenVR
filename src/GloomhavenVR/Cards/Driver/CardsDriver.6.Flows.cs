@@ -2285,9 +2285,16 @@ internal sealed partial class CardsDriver
                 // move (CCharacterClass.MoveAbilityCardToPile) happens FIRST. Hashing the latch
                 // alone leaves the signature unchanged for the whole widget-lags-model window — so
                 // nothing is marked dirty, no rebuild runs, and the belt that would have dropped the
-                // card (CardLeftTheHand, the same call) never gets to run at all. Asking the model
-                // here means the edge is the MOVE, not the game's later bookkeeping.
-                if (CardLeftTheHand(w))
+                // card never gets to run at all. Asking the model here means the edge is the MOVE,
+                // not the game's later bookkeeping.
+                //
+                // INTEGRATOR NOTE (2026-09-05): this used to call FillHandFan's private
+                // CardLeftTheHand. That belt was folded into the ONE membership expression both
+                // arcs now share (CardsGameApi.HandFanMember, report item 5b) in the same build, so
+                // the watchdog asks that expression directly. The point of the change was that the
+                // executor and the watchdog must not be able to hold two opinions; calling the
+                // shared expression is that point taken one step further, not a substitution.
+                if (!CardsGameApi.HandFanMember(w, w.PlayerActor ?? hand.PlayerActor))
                     continue;
                 int id = w.CardID;
                 unchecked { sum += id; }
