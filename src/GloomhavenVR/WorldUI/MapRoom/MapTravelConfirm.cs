@@ -2206,8 +2206,20 @@ internal static class MapTravelConfirm
     /// unclipped union would decide the information ends hundreds of pixels below the card and drive
     /// the button off the bottom of the world. So a Graphic whose <c>CanvasRenderer</c> uGUI has
     /// already culled is dropped, and every surviving one is intersected with the rect of each
-    /// enabled <c>RectMask2D</c>/<c>Mask</c> between it and the frame. What is measured is what is
-    /// VISIBLE — the same rule CanvasConversion's own host-rect fit applies.</para>
+    /// enabled <c>RectMask2D</c>/<c>Mask</c> between it and the frame.</para>
+    ///
+    /// <para><b>SO IS THE INHERITED ALPHA</b>, and until ModBuild 439 it was not — this paragraph
+    /// used to end "what is measured is what is VISIBLE, the same rule CanvasConversion's own
+    /// host-rect fit applies", which was not true of this sweep and was the survey's row R7. The
+    /// fit, <c>PanelInkBounds</c> and every liveness test multiply <c>color.a</c> by
+    /// <c>CanvasRenderer.GetInheritedAlpha()</c>; this one tested <c>color.a</c> alone, so a
+    /// subtree the game had faded out with a <c>CanvasGroup</c> — which it does on tab switches and
+    /// scroll views — counted in full and dragged the measured bottom edge below the drawn content.
+    /// It now multiplies. THE PARITY IS STILL NOT COMPLETE and is not claimed to be: the floor here
+    /// is <see cref="MinVisibleAlpha"/> (0.02, for the transparent raycast blockers this file
+    /// documents) rather than <c>CanvasConversion.FitMinAlpha</c> (0.05), and this sweep clips to
+    /// uGUI masks where <c>PanelInkBounds</c> deliberately does not. Those two differences are
+    /// argued; the missing multiply was not.</para>
     ///
     /// <para>Corner-based, not rect-based: a child may sit several transforms deep, so its rect is in
     /// ITS parent's space. <c>GetWorldCorners</c> + <c>InverseTransformPoint</c> lands every corner in
@@ -2228,7 +2240,25 @@ internal static class MapTravelConfirm
         for (int i = 0; i < ContentGraphics.Count; i++)
         {
             Graphic g = ContentGraphics[i];
-            if (g == null || !g.enabled || g.color.a <= MinVisibleAlpha)
+            if (g == null || !g.enabled)
+            {
+                skipped++;
+                continue;
+            }
+            // THE INHERITED ALPHA IS PART OF "CAN THE PLAYER SEE THIS" (ModBuild 439, survey row R7).
+            // This sweep used to test g.color.a alone and was the ONLY painted-union instrument in
+            // the mod that did — PanelInkBounds, CanvasConversion's fit and every liveness test
+            // multiply by CanvasRenderer.GetInheritedAlpha(). The missing factor is a CanvasGroup
+            // fade, which the game performs routinely on tab switches and scroll views: a quest-info
+            // subtree faded to zero by a group is invisible to the eye and was FULLY COUNTED here,
+            // dragging the measured bottom edge down and pushing the REISEN button off the drawn
+            // content. That is exactly the defect ModBuild 239 paid for at the other instrument —
+            // "the bar was therefore placed at y=-930, 390 px under a window that ends at y=-540".
+            // The CanvasRenderer is read here rather than at the cull test below because both terms
+            // want it; a Graphic without one cannot report an inherited alpha, so it keeps its own.
+            CanvasRenderer cr = g.canvasRenderer;
+            float effectiveAlpha = cr != null ? g.color.a * cr.GetInheritedAlpha() : g.color.a;
+            if (effectiveAlpha <= MinVisibleAlpha)
             {
                 skipped++;
                 continue;
@@ -2244,9 +2274,8 @@ internal static class MapTravelConfirm
                 skipped++;
                 continue;
             }
-            // uGUI's own verdict first: RectMask2D sets this on a child it has clipped away
+            // uGUI's own verdict next: RectMask2D sets this on a child it has clipped away
             // entirely, so it costs one field read and settles the common case.
-            CanvasRenderer cr = g.canvasRenderer;
             if (cr != null && cr.cull)
             {
                 clipped++;
@@ -2435,7 +2464,12 @@ internal static class MapTravelConfirm
               + $"ZERO OF THE Y DIAL: window-local y = {info.yMin:F1}, i.e. "
               + $"{(info.yMin - win.rect.yMin) * mmPerLocalY:F0} mm above the card's own bottom edge "
               + $"and {(win.rect.yMax - info.yMin) * mmPerLocalY:F0} mm below its top. IT MOVES WITH "
-              + "THE QUEST: a longer information block puts it lower and the button follows"
+              + "THE QUEST: a longer information block puts it lower and the button follows. "
+              + "THE SKIPPED COUNT NOW INCLUDES GROUP-FADED GRAPHICS (ModBuild 439): the "
+              + "transparency term is color.a x CanvasRenderer.GetInheritedAlpha(), so a subtree the "
+              + "game faded out with a CanvasGroup on a tab switch or a scroll view no longer sizes "
+              + "this rect. A jump in this count with no change to the quest is that fade arriving, "
+              + "and before 439 it moved the bottom edge instead"
             : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
         string measuredHow = _anchorValid
             ? $"{_anchorWhy}, {measuredAgeMs:F0} ms ago (re-measured at most every "
