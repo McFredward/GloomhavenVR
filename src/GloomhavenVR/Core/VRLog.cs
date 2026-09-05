@@ -1,4 +1,5 @@
 using BepInEx.Logging;
+using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
@@ -177,5 +178,192 @@ internal static class VRLog
     internal static void Debug(string scope, string message)
     {
         if (Level >= VRLogLevel.Debug) _log?.LogDebug($"[{scope}] {message}");
+    }
+}
+
+
+/// <summary>
+/// A CHANGE-GATED LINE THAT CANNOT GO SILENT — the shared throttle for a periodic census.
+///
+/// <para><b>WHY THIS EXISTS (redundancy survey R42, 2026-09-05).</b> The mod carries 20+ hand-rolled
+/// log rate-limiters in at least four incompatible shapes (a deadline, a seconds delta, a
+/// change-gated signature, a count cap) and <see cref="VRLog"/> offered no throttle at all, so
+/// every new instrument invented one. The shape that actually carries a hazard is the CHANGE-GATED
+/// one, and the hazard has a name in this project's ledger: <i>a held instrument reads as dead</i>.
+/// A line that prints only when its signature changes prints ONCE in the steady state and then
+/// looks exactly like a tick that has stopped — and "the instrument went quiet" is the reading that
+/// has cost this project a build. Of the four change-gated censuses in the tree only
+/// <c>QuestJourneyCurtain</c> carried the heartbeat that answers it, and it had to write the
+/// heartbeat itself.</para>
+///
+/// <para><b>THE THREE GATES, AND WHY THEY ARE ONE OBJECT.</b> A census that is worth writing wants
+/// all three and they interact:</para>
+/// <list type="number">
+///   <item><b>CHANGE</b> — print when the signature moves. What the reader is actually waiting
+///   for.</item>
+///   <item><b>HEARTBEAT</b> — print anyway every <c>heartbeatSeconds</c>, so silence means "the
+///   tick stopped", never "nothing changed". This is the gate the hand-rolled copies kept
+///   forgetting, and it is the reason this type exists rather than a lint.</item>
+///   <item><b>BUDGET</b> — stop after <c>maxLines</c>, so a signature that oscillates cannot flood
+///   a session. Optional; 0 means no cap.</item>
+/// </list>
+///
+/// <para><b>WHAT IT DOES NOT DO, deliberately: the CADENCE.</b> A cadence gate bounds how often the
+/// census is COMPUTED and belongs in front of the walk that builds the signature, where the caller
+/// can see it. Folding it in here would put it after the expensive part and would repeat the defect
+/// fixed in <c>ActorPropBody</c> on 2026-09-05, where a change test returned before its own
+/// deadline was advanced and a 0.5 Hz walk ran at 90 Hz for the rest of the session. The two gates
+/// answer two different questions — the cadence bounds what is WALKED, this bounds what is
+/// PRINTED — and keeping them apart is what makes that hard to get wrong again.</para>
+///
+/// <para><b>THE VERDICT IS PART OF THE LINE.</b> <see cref="Why"/> hands the caller a clause saying
+/// WHICH gate opened and how long the signature has stood, so a heartbeat line is visibly a
+/// heartbeat and not a new event, and the last line before the budget runs out says so instead of
+/// simply being the last one. Append it; that is the whole point of the type over a bare bool.</para>
+///
+/// <para>Not thread-safe and not meant to be: every caller is a Unity main-thread tick.</para>
+/// </summary>
+internal sealed class VRLogThrottle
+{
+    private readonly float _heartbeatSeconds;
+    private readonly int _maxLines;
+
+    private string _key = string.Empty;
+    private long _longKey;
+    private float _now;
+    private bool _everEmitted;
+    private float _lastAt;
+    private int _lines;
+    private int _suppressed;
+    private string _why = string.Empty;
+
+    /// <param name="heartbeatSeconds">Seconds after which an UNCHANGED signature prints anyway.
+    /// Pick it against how long a reader will stare at a log before concluding the tick died — 15 s
+    /// is the value <c>QuestJourneyCurtain</c> arrived at and a reasonable default.</param>
+    /// <param name="maxLines">Cap on lines for the life of this throttle; 0 = uncapped. A capped
+    /// throttle says so on its LAST line rather than simply stopping.</param>
+    internal VRLogThrottle(float heartbeatSeconds, int maxLines = 0)
+    {
+        _heartbeatSeconds = heartbeatSeconds;
+        _maxLines = maxLines;
+    }
+
+    /// <summary>Lines emitted so far.</summary>
+    internal int Emitted => _lines;
+
+    /// <summary>Is the budget spent? Ask it in FRONT of the work that builds the signature: this
+    /// type gates PRINTING, and a census whose lines are all spent should stop paying for the walk
+    /// as well. Always false for an uncapped throttle.</summary>
+    internal bool Exhausted => _maxLines > 0 && _lines >= _maxLines;
+
+    /// <summary>
+    /// Would a heartbeat print RIGHT NOW if the signature had not changed? A read-only probe that
+    /// changes nothing, for a caller whose signature is expensive to BUILD: it can run a cheap
+    /// prefilter (a hash, a count) and skip the formatting entirely when the prefilter says
+    /// "unchanged" AND this says "no heartbeat due". Without it a prefilter in front of this
+    /// throttle would swallow the heartbeat and put back exactly the silence the heartbeat exists
+    /// to prevent.
+    /// </summary>
+    internal bool HeartbeatDue(float now) =>
+        !Exhausted && (!_everEmitted || now - _lastAt >= _heartbeatSeconds);
+
+    /// <summary>
+    /// The clause describing WHY this line is being printed, valid immediately after a
+    /// <see cref="Wants(string,float)"/> that returned true. Append it to the line: it is what
+    /// separates "something changed" from "nothing changed and the tick is alive", and it carries
+    /// how many samples were suppressed in between.
+    /// </summary>
+    internal string Why => _why;
+
+    /// <summary>
+    /// Should this line print? <paramref name="signature"/> is every term whose change is worth a
+    /// line and nothing else — a counter that ticks every sample belongs in the line, not in the
+    /// key, or the change gate degenerates into no gate at all.
+    /// </summary>
+    /// <param name="now">Unscaled time, passed in so the caller's own cadence and this share one
+    /// reading of the clock.</param>
+    internal bool Wants(string signature, float now)
+    {
+        if (Exhausted)
+            return false;
+
+        _now = now;
+        bool changed = !_everEmitted || signature != _key;
+        float held = _everEmitted ? now - _lastAt : 0f;
+        if (!changed && held < _heartbeatSeconds)
+        {
+            _suppressed++;
+            return false;
+        }
+
+        _key = signature;
+        Emit(changed, held);
+        return true;
+    }
+
+    /// <summary>Commit one emission: the verdict clause, the clock, the suppressed count and the
+    /// budget. Shared by both <c>Wants</c> overloads so the two cannot word a verdict differently
+    /// — which is the whole complaint this type answers, one level down.</summary>
+    private void Emit(bool changed, float held)
+    {
+        _why = !_everEmitted
+            ? "first reading"
+            : changed
+                ? $"CHANGED after {held:0.0} s ({_suppressed} unchanged sample(s) since the last line)"
+                : $"UNCHANGED for {held:0.0} s — this is the HEARTBEAT, not a new event; the line is "
+                  + $"here to prove the tick is alive ({_suppressed} sample(s) since the last line)";
+
+        _everEmitted = true;
+        _lastAt = _now;
+        _suppressed = 0;
+        _lines++;
+        if (_maxLines > 0 && _lines >= _maxLines)
+            _why += $". THIS IS THE LAST LINE FROM THIS CENSUS — its budget of {_maxLines} is now "
+                    + "spent, so later silence is the CAP and not the tick";
+    }
+
+    /// <summary>
+    /// Integer-signature overload, for a census that folds its terms into a bit field rather than a
+    /// string. Same three gates, and ALLOCATION-FREE: it compares the long directly instead of
+    /// formatting it, so a caller on a tight cadence pays nothing on a suppressed sample. A single
+    /// throttle should be asked with one KIND of signature; mixing them is a bug the compiler
+    /// cannot see, and the two key stores below are kept apart so a mixed caller degenerates into
+    /// "always changed" rather than into a silent false match.
+    /// </summary>
+    internal bool Wants(long signature, float now)
+    {
+        if (Exhausted)
+            return false;
+
+        _now = now;
+        bool changed = !_everEmitted || signature != _longKey;
+        float held = _everEmitted ? now - _lastAt : 0f;
+        if (!changed && held < _heartbeatSeconds)
+        {
+            _suppressed++;
+            return false;
+        }
+
+        _longKey = signature;
+        Emit(changed, held);
+        return true;
+    }
+
+    /// <summary>Convenience: <see cref="Wants(string,float)"/> against
+    /// <see cref="Time.unscaledTime"/>.</summary>
+    internal bool Wants(string signature) => Wants(signature, Time.unscaledTime);
+
+    /// <summary>Forget everything — a new scenario is a new question, so the budget refills and the
+    /// first line of the next one reads as a first reading rather than as an unchanged
+    /// signature.</summary>
+    internal void Reset()
+    {
+        _key = string.Empty;
+        _longKey = 0;
+        _everEmitted = false;
+        _lastAt = 0f;
+        _lines = 0;
+        _suppressed = 0;
+        _why = string.Empty;
     }
 }

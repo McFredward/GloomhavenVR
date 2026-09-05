@@ -77,6 +77,16 @@ internal static class ActorPropBody
 
     private const float CensusIntervalSeconds = 2f;
 
+    /// <summary>Seconds after which an UNCHANGED census prints anyway.
+    ///
+    /// <para>THE STEADY STATE OF THIS CENSUS IS A CONSTANT SIGNATURE — a settled scenario does not
+    /// gain or lose props — so before 2026-09-05 it printed once and then read exactly like a tick
+    /// that had stopped, which is the [[held-instrument-reads-as-dead]] entry in this project's
+    /// ledger and has cost it a build. 60 s against a 12-line budget is twelve minutes of proof
+    /// that the rule is still running, and the last line says the budget is what silenced it.</para>
+    /// </summary>
+    private const float CensusHeartbeatSeconds = 60f;
+
     /// <summary>How many actors the census NAMES. A count alone says a door and a destructible
     /// boulder were resolved in exactly the same way.</summary>
     private const int NamedSamples = 3;
@@ -104,9 +114,13 @@ internal static class ActorPropBody
 
     private static int _attachedActors;
     private static int _resolved;
-    private static int _censusLogsLeft = CensusLogBudget;
     private static float _nextCensus;
-    private static long _lastCensusSignature = -1;
+
+    /// <summary>The change gate, the heartbeat and the budget for the census line — the shared
+    /// three-gate throttle (redundancy survey R42), NOT the cadence. The cadence stays in
+    /// <see cref="LogCensus"/> in front of the props walk, for the reason written there.</summary>
+    private static readonly VRLogThrottle Census =
+        new(CensusHeartbeatSeconds, CensusLogBudget);
 
     /// <summary>
     /// The visible body of <paramref name="actor"/>, or null when this actor is not an
@@ -902,7 +916,10 @@ internal static class ActorPropBody
     /// </summary>
     internal static void LogCensus()
     {
-        if (_censusLogsLeft <= 0)
+        // BUDGET FIRST, then the cadence, then the walk. Asking the throttle here rather than
+        // after the walk is what keeps a spent census from paying for a props enumeration it can
+        // never print.
+        if (Census.Exhausted)
             return;
         float now = Time.unscaledTime;
         if (now < _nextCensus)
@@ -946,11 +963,15 @@ internal static class ActorPropBody
         //
         // Found by the 2026-09-05 redundancy survey, whose point is exactly this: the sibling
         // cadence 200 lines away writes its deadline first and is correct.
+        //
+        // THE CHANGE TEST, THE HEARTBEAT AND THE BUDGET ARE NOW ONE OBJECT (same survey, R42). This
+        // census used to hand-roll the first and the third and simply not have the second, so in the
+        // steady state — a constant signature, which is a settled scenario — it printed once and
+        // then looked like a stopped tick. VRLogThrottle keeps the cadence OUT on purpose: that gate
+        // bounds what is WALKED and belongs above, where the defect fixed on the same day is visible.
         _nextCensus = now + CensusIntervalSeconds;
-        if (signature == _lastCensusSignature)
+        if (!Census.Wants(signature, now))
             return;
-        _lastCensusSignature = signature;
-        _censusLogsLeft--;
 
         string verdict = _attachedActors == 0
             ? "NO actor on this board is attached to a prop, so this rule changed NOTHING here — "
@@ -974,7 +995,8 @@ internal static class ActorPropBody
             + "(CObjectActor.SetAttachedToProp refuses a prop that is not configured for health), so "
             + "it has no bar, no grab and no body lookup — it is untouched by construction and not "
             + $"by a name test. {_attachedActors} attached-prop actor(s) reached this rule; {verdict} "
-            + $"({_censusLogsLeft} more census lines this scenario; capped and change-gated.)");
+            + $"({CensusLogBudget - Census.Emitted} more census lines this scenario; capped and "
+            + $"change-gated.) WHY THIS LINE IS HERE: {Census.Why}.");
     }
 
     /// <summary>Scenario teardown. Every hold is released first — a body left parented under a
@@ -993,9 +1015,8 @@ internal static class ActorPropBody
         UnresolvedNames.Clear();
         _attachedActors = 0;
         _resolved = 0;
-        _censusLogsLeft = CensusLogBudget;
+        Census.Reset();
         _nextCensus = 0f;
-        _lastCensusSignature = -1;
         _loggedAttach = false;
         LeafCache.Clear();
         _loggedRefusal = false;

@@ -76,8 +76,17 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
 
     private readonly List<CPlayerActor> _pending = new(8);
 
-    // Last logged pending signature, so we only log when the pending/done split actually changes.
-    private string _lastLoggedSignature = string.Empty;
+    /// <summary>The change gate, the heartbeat and the "why am I printing" clause for the split
+    /// line — the shared three-gate throttle (redundancy survey R42, 2026-09-05). It used to be a
+    /// bare <c>signature == _lastLoggedSignature</c> with no heartbeat, so once the split settled
+    /// the line printed once and then read like a tick that had stopped, for a driver that runs
+    /// EVERY FRAME of the card-selection phase. Uncapped: the phase's own end resets it.</summary>
+    private readonly VRLogThrottle _splitLog = new(SplitHeartbeatSeconds);
+
+    /// <summary>Seconds after which an UNCHANGED pending/done split prints again. The phase can
+    /// stand for minutes while a player reads his hand, and this is what separates "nobody has
+    /// committed yet" from "this driver stopped running".</summary>
+    private const float SplitHeartbeatSeconds = 30f;
 
     /// <summary>[Optimize] LeanLogStrings: allocation-free change detector in front of the string
     /// signature (0 = never computed).</summary>
@@ -155,7 +164,7 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
         {
             InitiativeSelectionGlow.ClearAll();
             _pending.Clear();
-            _lastLoggedSignature = string.Empty;
+            _splitLog.Reset();
             _lastLoggedHash = 0; // stale-signature reset: the next live phase re-logs its first split
             return;
         }
@@ -188,6 +197,7 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
         // strings are built only once it says something actually changed. (A hash collision could
         // at worst swallow ONE diagnostic line; the highlight itself is driven by Tick, not by this
         // method, so nothing the player sees depends on it.)
+        float now = Time.unscaledTime;
         if (Core.PerfConfig.LeanStrings)
         {
             int hash = 17;
@@ -202,7 +212,12 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
                     hash = hash * 31 + (_pending.Contains(p) ? 1 : 0);
                 }
             }
-            if (hash == _lastLoggedHash)
+            // …AND THE HEARTBEAT OVERRIDES THE PREFILTER. A cheap change detector in front of a
+            // change gate is correct for cost and wrong for the heartbeat: it would swallow the
+            // very line the heartbeat exists to emit, and the silence would be back. HeartbeatDue
+            // is a read-only probe, so on the overwhelmingly common frame (unchanged, no heartbeat
+            // due) this still costs one compare and builds no strings.
+            if (hash == _lastLoggedHash && !_splitLog.HeartbeatDue(now))
                 return;
             _lastLoggedHash = hash;
         }
@@ -221,12 +236,12 @@ internal sealed class SelectionReadyHighlighter : MonoBehaviour
         }
 
         string signature = pendingNames + "|" + doneNames;
-        if (signature == _lastLoggedSignature)
+        if (!_splitLog.Wants(signature, now))
             return;
-        _lastLoggedSignature = signature;
         VRLog.Info("Board",
             $"[SelectionReady] initiative-bar glow pending=[{(pendingNames.Length == 0 ? "-" : pendingNames.ToString())}] " +
-            $"done=[{(doneNames.Length == 0 ? "-" : doneNames.ToString())}]");
+            $"done=[{(doneNames.Length == 0 ? "-" : doneNames.ToString())}]" +
+            $" ({_splitLog.Why})");
     }
 
     private static string NameOf(CPlayerActor actor)
