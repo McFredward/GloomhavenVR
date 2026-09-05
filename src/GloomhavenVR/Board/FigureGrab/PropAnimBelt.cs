@@ -106,6 +106,54 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// (<c>SpawnPFXOnEnable</c> hands them to <c>ObjectPool.Recycle</c>) and a recycled object may by
 /// then belong to something else entirely.</para>
 ///
+/// <para><b>WHAT IS SUPPRESSED (5), AND IT IS THE FIRST ONE THAT DOES NOT PAINT FROM INSIDE THE
+/// PROP: THE SCREEN-SPACE OCCLUSION REGISTRATION (<c>ObjectOcclusionVolume</c>, 2026-09-06).</b>
+/// ModBuild 448 shipped strands 1-4 and then measured the picture AFTER them, which is the whole
+/// point of <see cref="EmitPostHushVerdict"/>. On both machines the answer was the same: over 358
+/// sampled frames on a held gold pile the animators, outlines, lights and particles were at ZERO
+/// with NON-ZERO pre-counts, not one of 192 material property slots moved — and the user reported
+/// the effect unchanged. That is this file's own written falsifier firing: <i>"the shimmer is then
+/// being painted by something that is NOT under this prop's subtree at all, which is the one place
+/// no instrument in this file can look."</i></para>
+///
+/// <para>So the sixth round looked there. <c>ObjectOcclusionVolume.OnEnable</c> is one line —
+/// <c>TilesOcclusionGenerator.s_Instance.AddObjectRenderer(GetComponent&lt;MeshRenderer&gt;())</c>
+/// — and the generator is a component ON A CAMERA holding a <c>CommandBuffer</c> at
+/// <c>CameraEvent.BeforeGBuffer</c> that draws every registered renderer with a replacement
+/// material into a QUARTER-resolution target, blurs it twice, and publishes it as the GLOBAL
+/// texture <c>_ObjectOcclusion</c> beside <c>_TilesOcclusionMap</c> and <c>_EnableOcclusionMap</c>
+/// (decompiled <c>GH.Runtime/TilesOcclusionGenerator.cs:150-193</c>). Every term in that sentence
+/// is outside the prop: the list is a scene singleton's, the draw is a camera's, and the result
+/// arrives at the shader as GLOBAL state, which no <c>material.Get*</c> read-back can see. It is
+/// not an Animator, a Light, a Projector, a LensFlare, a ParticleSystem, an Outlinable or a
+/// material property — i.e. it is disjoint from every class four rounds of instruments sampled,
+/// and ModBuild 448's own <c>HELD?</c> line had already named "the prop shader's own screen-space
+/// occlusion term" as the next suspect without being able to test it.</para>
+///
+/// <para>WHY IT IS A HAND DEFECT AND NOT A BOARD ONE, which is the term that makes it fit the
+/// report rather than merely fit the code: on its hex the prop's footprint in that map is small
+/// and STILL, so the value sampled back is effectively constant and nobody has ever complained.
+/// In a palm the prop fills a large part of the eye and MOVES every frame, so its own blurred
+/// quarter-resolution silhouette sweeps across it — a soft moving wash with no animator, no lamp,
+/// no particle and no material of its own behind it. That is a "highlighting/Licht-Effekt".</para>
+///
+/// <para>TAKEN THROUGH THE GAME'S OWN LIFECYCLE. The component's <c>enabled</c> flag is what is
+/// written, not the generator's list: <c>OnDisable</c> IS <c>RemoveObjectRenderer</c> and
+/// <c>OnEnable</c> IS <c>AddObjectRenderer</c>, and both set <c>m_RenderersUpdated</c> so the
+/// command buffer is rebuilt. So one ledgered bool is the whole change and the whole undo, no game
+/// state is written, and a volume that was already off is left alone. It shares the
+/// <see cref="Belt.Emitters"/> ledger with strand 3 on purpose — "switch a <c>Behaviour</c> off,
+/// remember what it was, write it back" is ONE restore, and a second copy of it would be a second
+/// place for the next fix to land on only one of.</para>
+///
+/// <para>AND THE INSTRUMENT NOW LOOKS OUTWARD TOO (<see cref="AppendOutward"/>), because a fix
+/// aimed outside the subtree cannot be verified by a census rooted inside it. The post-hush
+/// verdict reports whether this prop is still IN the generator's list, whether the map is still
+/// bound and still REBINDING frame to frame, what <c>_EnableOcclusionMap</c> reads, and every
+/// <c>Light</c> in the SCENE standing near the prop but not under it — the arm that can see a lamp
+/// on the hand or the rig, or a pooled effect parented to the scene and merely positioned to
+/// follow the prop.</para>
+///
 /// <para><b>THE PRE-STATE OF EVERY CLASS IS COUNTED SEPARATELY, AND THAT IS WHAT KEEPS THE NEXT
 /// ROUND ABLE TO ATTRIBUTE.</b> Two new suppressions ship together here, which normally means a
 /// round that cannot say which one worked. It is answerable anyway because
@@ -373,6 +421,14 @@ internal static class PropAnimBelt
         internal int LightsFound, LightsOn0, ProjectorsFound, ProjectorsOn0, FlaresFound, FlaresOn0;
         internal int ParticlesFound, ParticlesPlaying0;
 
+        /// <summary>STRAND 5 — the SCREEN-SPACE OCCLUSION REGISTRATION, and it is the first thing
+        /// this class has ever switched off that does not paint from inside the prop at all.
+        /// <c>ObjectOcclusionVolume.OnEnable</c> hands the prop's own <c>MeshRenderer</c> to
+        /// <c>TilesOcclusionGenerator.s_Instance.AddObjectRenderer</c> — a list on a CAMERA,
+        /// outside every subtree any instrument in this file has ever walked. Found and live
+        /// counts, same attribution rule as the other classes.</summary>
+        internal int OcclusionFound, OcclusionOn0;
+
         /// <summary>How many emitters and particle systems were found in a state this class did
         /// NOT leave them in when <see cref="Restore"/> ran — i.e. somebody else wrote them during
         /// the hold. Zero is the expected reading and a non-zero one is the falsifier for the
@@ -455,6 +511,44 @@ internal static class PropAnimBelt
     private static int _vPartPlayingMax, _vPartAliveMax;
     private static int _vRendDrawMax, _vRendVisMax;
     private static float _vLightIntensityMax;
+
+    // ---- THE OUTWARD ARM: what is painting from OUTSIDE the prop's subtree --------------------
+    //
+    // EVERY INSTRUMENT IN THIS FILE AND IN PropAnimWatch IS ROOTED AT THE PROP, AND THAT IS WHY
+    // FIVE ROUNDS ENDED THE SAME WAY. The post-hush window's own falsifier says it in as many
+    // words: if every pre-count is non-zero and every after-count is zero and the user still sees
+    // the effect, "the shimmer is being painted by something that is NOT under this prop's subtree
+    // at all, which is the one place no instrument in this file can look". ModBuild 448 produced
+    // exactly that reading on both machines. These fields ARE that place.
+    //
+    // They are cheap on purpose. The occlusion arm reads a list the GAME already maintains and two
+    // GLOBAL shader slots — no scene sweep at all. The foreign-emitter arm sweeps the scene TWICE
+    // per verdict (open and close), never per frame, and at most VerdictBudget verdicts print in a
+    // session: this project has paid twice for a FindObjectsOfType on a per-frame path.
+
+    /// <summary>Frames between membership tests against the generator's renderer list. The list is
+    /// scene-sized, so this is deliberately not a per-frame walk.</summary>
+    private const int OcclusionProbeFrames = 15;
+
+    /// <summary>How far outside the held prop's bounds a foreign emitter still counts as "on it",
+    /// in WORLD units. Generous: the point is to name what is near, not to adjudicate it.</summary>
+    private const float ForeignReachWorld = 1.5f;
+
+    /// <summary>Foreign emitters named in the verdict before it stops naming them.</summary>
+    private const int ForeignNameCap = 6;
+
+    private static readonly int IdEnableOcclusionMap = Shader.PropertyToID("_EnableOcclusionMap");
+    private static readonly int IdObjectOcclusion = Shader.PropertyToID("_ObjectOcclusion");
+    private static readonly int IdTilesOcclusionMap = Shader.PropertyToID("_TilesOcclusionMap");
+
+    private static bool _vOccGenSeen;
+    private static int _vOccProbeAt;
+    private static int _vOccListMax, _vOccStillInMax, _vOccMapsBoundMax, _vOccMapRebinds;
+    private static int _vOccMapId;
+    private static float _vOccEnableLo, _vOccEnableHi;
+
+    private static int _vForeignFound, _vForeignNear, _vForeignOn;
+    private static readonly List<string> VForeignNames = new(ForeignNameCap);
 
     /// <summary>
     /// Suppress a prop entering a hand. Idempotent per visual: a re-grab during the release glide
@@ -646,6 +740,37 @@ internal static class PropAnimBelt
         b.LightsFound = TakeEmitters<UnityEngine.Light>(b, go, ref b.LightsOn0);
         b.ProjectorsFound = TakeEmitters<Projector>(b, go, ref b.ProjectorsOn0);
         b.FlaresFound = TakeEmitters<LensFlare>(b, go, ref b.FlaresOn0);
+
+        // ---- STRAND 5: THE SCREEN-SPACE OCCLUSION REGISTRATION ----
+        //
+        // THE ONE PAINTER THAT IS NOT UNDER THE PROP. Five rounds measured the prop's subtree and
+        // the sixth measured it AFTER the hush: over 358 frames on a held gold pile the animators,
+        // outlines, lights and particles were all at zero, no material property moved, and the user
+        // still reported the effect. A census rooted at the prop cannot answer that by construction.
+        //
+        // ObjectOcclusionVolume.OnEnable is `TilesOcclusionGenerator.s_Instance.AddObjectRenderer(
+        // GetComponent<MeshRenderer>())` and OnDisable is the matching Remove. The generator is a
+        // component ON A CAMERA holding a CommandBuffer at CameraEvent.BeforeGBuffer which draws
+        // every registered renderer with m_OcclusionObjectMaterial into a QUARTER-RESOLUTION target,
+        // blurs it twice and publishes it as the GLOBAL texture `_ObjectOcclusion` (plus
+        // `_TilesOcclusionMap` and `_EnableOcclusionMap`). A global shader texture is invisible to
+        // `material.Get*` read-back, it is not a Light, an Animator, a ParticleSystem or an
+        // Outlinable, and it hangs off no object in the prop's hierarchy — so it is dark to every
+        // instrument this file has ever shipped, and it is exactly the "screen-space occlusion term"
+        // the ModBuild 448 HELD? line named as the next suspect and then could not test.
+        //
+        // WHY IT ONLY SHOWS IN A PALM. On its hex the prop's footprint in that map is small and
+        // still, so the term it samples back is effectively constant. In a hand the prop fills a
+        // large part of the eye and MOVES every frame, so its own blurred quarter-res silhouette
+        // sweeps across it — a soft moving wash with no animator, no lamp and no material of its
+        // own. Twenty centimetres from the eye that is the "highlighting/Licht-Effekt".
+        //
+        // TAKEN THROUGH THE GAME'S OWN LIFECYCLE, NOT BY EDITING ITS LIST. Disabling the component
+        // makes OnDisable call RemoveObjectRenderer, which sets m_RenderersUpdated and has the
+        // generator REBUILD its command buffer without this prop; restoring `enabled` runs OnEnable
+        // and puts it back. So the ledger below is the whole of the change and the whole of the
+        // undo, no game state is written, and a prop whose volume was ALREADY off is left alone.
+        b.OcclusionFound = TakeEmitters<ObjectOcclusionVolume>(b, go, ref b.OcclusionOn0);
 
         // ---- STRAND 4: PARTICLE SYSTEMS THAT WERE ACTUALLY PLAYING ----
         //
@@ -965,7 +1090,29 @@ internal static class PropAnimBelt
                   + "the live particles hanging in the air, which is a frozen shimmer rather than "
                   + "an absent one); the ones already stopped are untouched and are never "
                   + "restarted. THE TWO PRE-COUNTS ABOVE ARE THE ATTRIBUTION: a class whose "
-                  + "pre-count is 0 made no writes and cannot be why anything changed either way. ");
+                  + "pre-count is 0 made no writes and cannot be why anything changed either way. ")
+          .Append("SUPPRESSED — SCREEN-SPACE OCCLUSION REGISTRATION (new 2026-09-06, and it is the "
+                  + "FIRST thing this class has ever switched off that does not paint from inside "
+                  + "the prop): ").Append(b.OcclusionFound)
+          .Append(" ObjectOcclusionVolume(s) under the visual of which ").Append(b.OcclusionOn0)
+          .Append(" were ENABLED and are switched off for the hold, each restored to its own "
+                  + "remembered value. ObjectOcclusionVolume.OnEnable hands the prop's MeshRenderer "
+                  + "to TilesOcclusionGenerator.s_Instance.AddObjectRenderer — a list held on a "
+                  + "CAMERA, which draws every entry with m_OcclusionObjectMaterial into a "
+                  + "QUARTER-resolution target inside a CommandBuffer at CameraEvent.BeforeGBuffer, "
+                  + "blurs it twice and publishes it as the GLOBAL texture _ObjectOcclusion. That "
+                  + "is not an Animator, a Light, a ParticleSystem, an Outlinable or a material "
+                  + "property, and it hangs off no object in this prop's hierarchy, so every "
+                  + "instrument this file has shipped in five rounds was structurally blind to it "
+                  + "— and the ModBuild 448 HELD? line named 'the prop shader's own screen-space "
+                  + "occlusion term' as the next suspect without being able to test it. On a hex "
+                  + "the prop's footprint in that map is small and still; in a palm it fills the "
+                  + "eye and MOVES every frame, so its own blurred quarter-res silhouette sweeps "
+                  + "across it — a soft moving wash with no animator and no lamp in it. The "
+                  + "component's own enabled flag is taken rather than the generator's list, "
+                  + "because OnDisable/OnEnable ARE the game's add/remove pair and they set "
+                  + "m_RenderersUpdated so the command buffer is rebuilt; no game state is "
+                  + "written. ");
 
         sb.Append("STILL ALIVE UNDER THIS PROP, AND THIS IS THE PART THE NEXT ROUND NEEDS: ")
           .Append(renderers).Append(" renderer(s) of which ").Append(renderersVisible)
@@ -1085,7 +1232,97 @@ internal static class PropAnimBelt
             VHi[i] = float.MinValue;
         }
 
+        _vOccGenSeen = false;
+        _vOccProbeAt = 0;
+        _vOccListMax = _vOccStillInMax = _vOccMapsBoundMax = _vOccMapRebinds = 0;
+        _vOccMapId = 0;
+        _vOccEnableLo = float.MaxValue;
+        _vOccEnableHi = float.MinValue;
+        SweepForeignEmitters(go);
+
         ResolveVerdictMaterials();
+    }
+
+    /// <summary>
+    /// THE OUTWARD SWEEP — every <c>Light</c> in the SCENE that is not under the held prop and is
+    /// close enough to put light on it. This is the arm no previous round had: a light on the HAND,
+    /// on the rig, or on a POOLED effect object parented to the scene and merely positioned to
+    /// follow the prop is invisible to <c>GetComponentsInChildren</c> by construction, and this
+    /// project's own ruling is that <c>GetComponentIn{Parent,Children}</c> answers "related to an
+    /// X", never "IS an X".
+    ///
+    /// <para>Run TWICE per verdict — once when the window arms and once when it closes — and never
+    /// per frame. <c>FindObjectsOfType</c> on a per-frame path has cost this project two rounds
+    /// and one 12.6 ms frame, and the question here ("what stands near the thing in his palm")
+    /// does not need 90 Hz to be answered.</para>
+    /// </summary>
+    private static void SweepForeignEmitters(GameObject go)
+    {
+        _vForeignFound = _vForeignNear = _vForeignOn = 0;
+        VForeignNames.Clear();
+
+        Transform propT = go.transform;
+        Vector3 centre = propT.position;
+        float reach = ForeignReachWorld;
+
+        // The prop's own drawn extent, so a big prop is not measured from a pivot that may sit off
+        // the mesh entirely. Renderer bounds are world-space and already account for the reparent.
+        var box = new Bounds(centre, Vector3.zero);
+        bool boxed = false;
+        Renderer[] mine = go.GetComponentsInChildren<Renderer>(includeInactive: true);
+        for (int i = 0; i < mine.Length; i++)
+        {
+            Renderer r = mine[i];
+            if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
+                continue;
+            if (!boxed) { box = r.bounds; boxed = true; }
+            else box.Encapsulate(r.bounds);
+        }
+        if (boxed)
+            centre = box.center;
+
+        UnityEngine.Light[] all = Object.FindObjectsOfType<UnityEngine.Light>();
+        _vForeignFound = all.Length;
+        for (int i = 0; i < all.Length; i++)
+        {
+            UnityEngine.Light l = all[i];
+            if (l == null)
+                continue;
+            // FOREIGN means "not under the prop". The prop's own lamps are strand 3's business and
+            // are already counted, named and switched off; counting them again here would make the
+            // one number this arm exists for unreadable.
+            if (l.transform.IsChildOf(propT))
+                continue;
+            float d = boxed
+                ? Mathf.Sqrt(box.SqrDistance(l.transform.position))
+                : Vector3.Distance(centre, l.transform.position);
+            if (d > reach)
+                continue;
+            _vForeignNear++;
+            bool on = l.enabled && l.gameObject.activeInHierarchy && l.intensity > 0f;
+            if (on)
+                _vForeignOn++;
+            if (VForeignNames.Count >= ForeignNameCap)
+                continue;
+            // The PATH, not the name. "Point light (2)" names nothing; what decides this is which
+            // subtree it hangs off — the rig, the hand, an effect root, a pooled object.
+            VForeignNames.Add($"'{Describe(l.transform)}' {l.type}, intensity {l.intensity:0.##}, "
+                              + $"range {l.range:0.##}, {(on ? "ON" : "off")}, {d:0.00} wu away");
+        }
+    }
+
+    /// <summary>Root-down hierarchy path, capped, so a foreign emitter is attributable to the
+    /// system that owns it rather than to a bare object name.</summary>
+    private static string Describe(Transform t)
+    {
+        string path = t.name;
+        Transform? p = t.parent;
+        for (int depth = 0; depth < 4 && p != null; depth++)
+        {
+            path = p.name + "/" + path;
+            p = p.parent;
+        }
+        return path;
     }
 
     /// <summary>Cap an array at <see cref="VerdictObjCap"/>, reporting the population it came
@@ -1299,8 +1536,80 @@ internal static class PropAnimBelt
             }
         }
 
+        SampleOutward();
+
         if (Time.frameCount >= _vEndFrame)
             CloseVerdict(b, "the window ran to its full length with the prop still in the hand");
+    }
+
+    /// <summary>
+    /// One frame of the OUTWARD arm: the screen-space occlusion map, which is published as GLOBAL
+    /// shader state by a CommandBuffer on a camera and is therefore the one painter that no census
+    /// rooted at the prop can reach.
+    ///
+    /// <para>Two readings, and they answer different halves. The MEMBERSHIP reading says whether
+    /// this prop is still being DRAWN INTO the map (strand 5 should have taken it out — a non-zero
+    /// count is that strand failing, out loud). The GLOBAL reading says whether the map is still
+    /// being GENERATED AND BOUND at all while the prop is in the hand, which decides whether the
+    /// prop is still SAMPLING it even after it stopped contributing to it — and those are two
+    /// different fixes.</para>
+    ///
+    /// <para>Membership is tested on a cadence because the generator's list is scene-sized; the
+    /// global reads are three id lookups and are taken every frame.</para>
+    /// </summary>
+    private static void SampleOutward()
+    {
+        float enable = Shader.GetGlobalFloat(IdEnableOcclusionMap);
+        if (enable < _vOccEnableLo) _vOccEnableLo = enable;
+        if (enable > _vOccEnableHi) _vOccEnableHi = enable;
+
+        Texture? objMap = Shader.GetGlobalTexture(IdObjectOcclusion);
+        Texture? tileMap = Shader.GetGlobalTexture(IdTilesOcclusionMap);
+        int bound = (objMap != null ? 1 : 0) + (tileMap != null ? 1 : 0);
+        if (bound > _vOccMapsBoundMax)
+            _vOccMapsBoundMax = bound;
+
+        // A CHANGING TEXTURE IDENTITY IS THE MAP BEING REBUILT. The generator allocates its targets
+        // through GetTemporaryRT inside the command buffer, so a live map re-binds; a frozen id
+        // across the whole window means the buffer is not running and this strand is inert.
+        if (objMap != null)
+        {
+            int id = objMap.GetInstanceID();
+            if (_vOccMapId != 0 && id != _vOccMapId)
+                _vOccMapRebinds++;
+            _vOccMapId = id;
+        }
+
+        if (Time.frameCount < _vOccProbeAt)
+            return;
+        _vOccProbeAt = Time.frameCount + OcclusionProbeFrames;
+
+        TilesOcclusionGenerator? gen = TilesOcclusionGenerator.s_Instance;
+        if (gen == null)
+            return;
+        _vOccGenSeen = true;
+
+        List<MeshRenderer> list = gen.m_ObjectRenderers;
+        if (list == null)
+            return;
+        if (list.Count > _vOccListMax)
+            _vOccListMax = list.Count;
+
+        int stillIn = 0;
+        for (int i = 0; i < _vRenderers.Length; i++)
+        {
+            if (_vRenderers[i] is not MeshRenderer mr || mr == null)
+                continue;
+            for (int k = 0; k < list.Count; k++)
+            {
+                if (!ReferenceEquals(list[k], mr))
+                    continue;
+                stillIn++;
+                break;
+            }
+        }
+        if (stillIn > _vOccStillInMax)
+            _vOccStillInMax = stillIn;
     }
 
     /// <summary>Close and emit the armed window, if <paramref name="b"/> is the belt that armed
@@ -1393,17 +1702,35 @@ internal static class PropAnimBelt
         AppendMovers(sb, "PROPERTIES THAT MOVED AFTER THE HUSH", VMoves, VLo, VHi,
                      _vMatCount * VerdictPropCap, _vMatCount * _vPropCount, VPropName);
 
-        sb.Append(" HOW TO READ THIS, AND WHAT WOULD MEAN THE FIX IS INERT. The fix is WORKING if "
-                  + "lights-lit-on-any-frame is 0 with a non-zero pre-count of enabled lights, "
-                  + "particles-playing is 0 with a non-zero pre-count of playing systems, "
+        AppendOutward(sb, b);
+
+        sb.Append(" HOW TO READ THIS, AND WHAT WOULD MEAN THE FIX IS INERT. The subtree half is "
+                  + "WORKING if lights-lit-on-any-frame is 0 with a non-zero pre-count of enabled "
+                  + "lights, particles-playing is 0 with a non-zero pre-count of playing systems, "
                   + "emitters-enabled is 0, outlines-enabled is 0, animators-enabled is no more "
-                  + "than the rules exception, and no material property moved. The fix is INERT — "
-                  + "and this is the reading that must not be mistaken for success — if EVERY "
-                  + "pre-count is 0: nothing was on, nothing was written, and a shimmer the user "
-                  + "still sees is then being painted by something that is NOT under this prop's "
-                  + "subtree at all, which is the one place no instrument in this file can look. "
-                  + "If instead a property moved or a light kept its intensity climbing, the name "
-                  + "printed above IS the driver and no further search is needed. ")
+                  + "than the rules exception, and no material property moved. ModBuild 448 "
+                  + "produced exactly that reading on BOTH machines and the user still reported "
+                  + "the effect, which is why the OUTWARD section above now exists: every "
+                  + "pre-count was non-zero, so the strands ran, and every after-count was zero, "
+                  + "so the subtree really is dark. THE NEW FIX IS WORKING if occlusion-volumes "
+                  + "found is non-zero, of which a non-zero number were ON before this build "
+                  + "wrote anything, AND still-registered-on-any-frame is 0. THE NEW FIX IS "
+                  + "INERT if occlusion-volumes-found is 0 — this prop kind never registered, so "
+                  + "strand 5 wrote nothing and cannot be why anything changed either way. AND "
+                  + "THIS IS THE READING THAT WOULD MEAN THE PAINTER IS SOMEWHERE EVEN THIS "
+                  + "INSTRUMENT CANNOT SEE, because it is the one that has ended five of the last "
+                  + "five rounds: occlusion volumes found and taken (a real pre-count), "
+                  + "still-registered 0, the occlusion map still BOUND and REBINDING every frame "
+                  + "so the term is live, foreign lights near the prop 0, every subtree class 0 — "
+                  + "and the effect still reported. That combination excludes the prop's subtree, "
+                  + "excludes its contribution to the occlusion map and excludes every lamp within "
+                  + "reach of it, and what is left is a painter with NO Light, NO Renderer under "
+                  + "or beside the prop and NO global slot named here: a replacement-shader or "
+                  + "post pass drawing the whole frame, or a term inside the prop's own shader fed "
+                  + "by global state this line does not read. The next round must then measure the "
+                  + "PICTURE — a per-eye frame difference with the prop held still versus moving — "
+                  + "because at that point every state probe in this repository has been exhausted "
+                  + "and state probes cannot see sampling. ")
           .Append(_verdictsLeft).Append(" more post-hush verdict(s) this session, at most one per prop kind.");
 
         // HW-VERIFY: this line is the round-five deliverable and the falsifier for the ModBuild 445
@@ -1412,6 +1739,74 @@ internal static class PropAnimBelt
         // nothing cannot read as a fix that worked. It must stay at a tier the DEFAULT log level
         // prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("FigureGrab", sb.ToString());
+    }
+
+    /// <summary>
+    /// THE OUTWARD SECTION — the half of the picture that is not under the prop.
+    ///
+    /// <para>Everything above this point is a census rooted at the held prop, and after five
+    /// rounds that shape has been exhausted: on ModBuild 448 it read zero on every class, on both
+    /// machines, while the user reported the effect unchanged. This section reports the two things
+    /// that can paint a held prop from outside it and that no earlier build measured — the game's
+    /// screen-space occlusion map, published as GLOBAL shader state by a CommandBuffer on a camera,
+    /// and every Light in the scene standing near the prop but not under it.</para>
+    /// </summary>
+    private static void AppendOutward(System.Text.StringBuilder sb, Belt b)
+    {
+        sb.Append(" OUTWARD — WHAT IS PAINTING FROM OUTSIDE THE PROP'S SUBTREE, AND NO ROUND HAS "
+                  + "EVER MEASURED THIS AT ALL. SCREEN-SPACE OCCLUSION: ")
+          .Append(b.OcclusionFound).Append(" ObjectOcclusionVolume(s) under the visual, of which ")
+          .Append(b.OcclusionOn0)
+          .Append(" were ENABLED before this build wrote anything (that pre-count is what says "
+                  + "whether this strand had anything to do); at most ").Append(_vOccStillInMax)
+          .Append(" of this prop's MeshRenderer(s) were STILL IN TilesOcclusionGenerator's "
+                  + "m_ObjectRenderers on any sampled frame, and that number must be 0 — a "
+                  + "non-zero reading means the prop is still being drawn into the map it is "
+                  + "sampling. The generator ")
+          .Append(_vOccGenSeen ? "WAS present" : "was NEVER present (s_Instance null — this scene "
+                                                 + "does not run the occlusion pass and the whole strand is inert here)")
+          .Append(", its object list peaked at ").Append(_vOccListMax)
+          .Append(" renderer(s) scene-wide. THE GLOBAL SLOTS IT PUBLISHES, read with "
+                  + "Shader.GetGlobal* because a GLOBAL is invisible to every material read-back "
+                  + "above: _EnableOcclusionMap ranged ");
+        if (_vOccEnableLo > _vOccEnableHi)
+            sb.Append("<never sampled>");
+        else
+            sb.Append(_vOccEnableLo.ToString("0.###")).Append("..").Append(_vOccEnableHi.ToString("0.###"));
+        sb.Append("; ").Append(_vOccMapsBoundMax)
+          .Append(" of the 2 map textures (_ObjectOcclusion, _TilesOcclusionMap) were bound on the "
+                  + "worst frame; _ObjectOcclusion re-bound to a different texture on ")
+          .Append(_vOccMapRebinds)
+          .Append(" frame(s) — a NON-ZERO count there means the command buffer is live and the "
+                  + "map is being regenerated every frame, i.e. the term is switched ON while the "
+                  + "prop is in the hand; a ZERO with a bound map means the buffer is not running "
+                  + "and this whole strand cannot be the painter. ");
+
+        sb.Append("FOREIGN EMITTERS — every Light in the SCENE that is NOT under this prop and "
+                  + "stands within ").Append(ForeignReachWorld.ToString("0.#"))
+          .Append(" wu of its drawn box, swept once when the window armed: ").Append(_vForeignNear)
+          .Append(" near of ").Append(_vForeignFound).Append(" in the scene, ").Append(_vForeignOn)
+          .Append(" of them lit. This is the arm that can see a lamp on the HAND or on the RIG, or "
+                  + "a POOLED effect object parented to the scene and merely positioned to follow "
+                  + "the prop — none of which any GetComponentsInChildren census can reach, and "
+                  + "this project's own ruling is that a containment test answers 'related to an "
+                  + "X', never 'IS an X'. ");
+        if (VForeignNames.Count == 0)
+            sb.Append("NONE were near, so no foreign lamp is on this prop. ");
+        else
+            sb.Append("NAMED BY HIERARCHY PATH (up to ").Append(ForeignNameCap).Append("): ")
+              .Append(string.Join("; ", VForeignNames)).Append(". ");
+
+        sb.Append("PROPERTY CLASSES THIS READ-BACK STILL CANNOT SEE, stated so the next round does "
+                  + "not read a zero as an absence: the table above tracks float/range/colour "
+                  + "only, so VECTOR and TEXTURE properties are untracked — and "
+                  + "CustomObjectPositionToChildMaterials writes the VECTOR _FadeSourcePos into "
+                  + "every child material EVERY FRAME from a moving actor's world position "
+                  + "(decompiled GH.Runtime/CustomObjectPositionToChildMaterials.cs:70-100), which "
+                  + "is a live per-frame material writer on a held prop that would report as "
+                  + "'nothing moved' here. The grab-edge census's feeder count names "
+                  + "ObjectPosToMaterial and PosToMat and does NOT name that type, so a prop "
+                  + "carrying one reads x0 on a line standing next to its own histogram. ");
     }
 
     /// <summary>Name the entries that MOVED, with the range each one covered, capped and with the
@@ -1485,7 +1880,14 @@ internal static class PropAnimBelt
         sb.Append("[Props] HELD-PROP HUSH RESTORE for ").Append(b.Label).Append(" — handed back ")
           .Append(b.Animators.Count).Append(" animator(s), ").Append(b.Outlines.Count)
           .Append(" outline(s), ").Append(b.Emitters.Count)
-          .Append(" emitter(s) (Light/Projector/LensFlare), ").Append(b.Skins.Count)
+          .Append(" emitter(s) (Light/Projector/LensFlare AND, from 2026-09-06, the ")
+          .Append(b.OcclusionFound)
+          .Append(" ObjectOcclusionVolume(s) of strand 5 — they share this ledger deliberately, "
+                  + "because 'switch a Behaviour off, remember what it was, write it back' is one "
+                  + "restore and a second copy of it would be a second place to keep correct; "
+                  + "handing the flag back runs the game's own OnEnable, which re-registers the "
+                  + "renderer with TilesOcclusionGenerator, so the occlusion map contains the prop "
+                  + "again the moment it is on its hex), ").Append(b.Skins.Count)
           .Append(" skinned renderer(s) and restarted ").Append(b.Particles.Count)
           .Append(" particle system(s) this class had stopped, each to the value IT had, object "
                   + "for object, after ").Append(b.Rescans).Append(" mid-hold rescan(s). ")

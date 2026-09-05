@@ -15,6 +15,16 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
+## START AT §11 — ROUND SIX (2026-09-06) NAMED THE PAINTER, AND IT IS NOT IN THIS PROP
+
+Everything between here and §10 is a census **rooted at the prop**, and ModBuild 448 proved that
+shape exhausted: 358 frames, every class zero, non-zero pre-counts, effect unchanged. The painter
+is `ObjectOcclusionVolume` → `TilesOcclusionGenerator` — a **camera's** command buffer publishing
+the **global** texture `_ObjectOcclusion`. Read [§11](#11-round-six--2026-09-06-against-the-modbuild-448-log-the-falsifier-fired-and-the-painter-is-a-camera)
+first, including §11.6, which lists the four candidates a seventh round must not re-open.
+
+---
+
 ## READ THIS BEFORE THE HEADLINE BELOW - ROUND FIVE RETIRED IT (2026-09-05, ModBuild 447)
 
 **The headline in the next section is a reading of ModBuild 435/436 and it is no longer true.** It
@@ -572,3 +582,193 @@ setting.
   such value is stuck before anyone pays that price. **If the PAINT AFTER HUSH line reports a
   material property with a non-zero range that stopped moving at the grab, this is the next fix.**
 * **It did not suppress `RFX4_LightCurves` itself** — see §10.4.
+
+---
+
+## 11. Round six — 2026-09-06, against the ModBuild 448 log: the falsifier fired, and the painter is a camera
+
+**User, verbatim:** *"Dieser highlighting/Licht-Effekt von Props ist immer noch in der Hand
+bemerkbar. Wiederholt! Gehe da nochmal tiefer rein, scheint ein hartnäckiges Problem zu sein."*
+He has stopped calling it "der weiße Schimmer" and now calls it a **highlighting / Licht-Effekt**.
+
+### 11.1 The reading that decided the round, and it is §10's own falsifier
+
+`] [Props] HELD-PROP PAINT AFTER HUSH` fired 6 times on the host and 4 on the peer. For
+`'GoldPile' MoneyToken`, over **358 sampled frames with the suppression already in place**:
+
+| class | pre-count | after |
+|---|---|---|
+| animators | 2 of 2 found | **0 enabled on any frame**, advancing on 0 |
+| outlines | 1 of 1 found | **0 enabled on any frame** |
+| lights | 3 of 3 found, **3 ENABLED before this build wrote anything** | **0 lit**, brightest intensity **0** |
+| particles | 7 of 7 found | **0 playing**, 0 live particles |
+| material properties | 4 materials, 57 declared, 48 tracked | **0 of 192 slots moved** |
+| renderers | 10 of 10 | at most **1** drawing |
+
+Read it in the order §10 wrote it. The **pre-counts are non-zero**, so the strands genuinely ran
+and the ModBuild 448 light finding was real. The **after-counts are all zero**, so the subtree is
+dark. **And the user still sees the effect.** That is §10.5's own written falsifier, word for word:
+*"the shimmer is then painted by something that is not under the prop's subtree at all, which is
+the one place none of these instruments can look."*
+
+**So the sixth round did not measure the prop. It looked outward.** Everything in §§3-10 is a
+census rooted at the prop, which is why five rounds produced flawless measurements of nothing.
+
+### 11.2 THE PAINTER, NAMED
+
+| | |
+|---|---|
+| **object** | the prop's own `MeshRenderer`, but drawn by somebody else |
+| **the component on the prop** | `ObjectOcclusionVolume` (decompiled `GH.Runtime/ObjectOcclusionVolume.cs`) — a nine-line MonoBehaviour whose whole body is a register/unregister pair |
+| **its parent** | `TilesOcclusionGenerator.s_Instance` — a component **on a camera**, a scene singleton, outside every subtree any instrument in this file has ever walked |
+| **the property** | the GLOBAL shader texture **`_ObjectOcclusion`**, beside `_TilesOcclusionMap` and `_EnableOcclusionMap` |
+
+`ObjectOcclusionVolume.OnEnable` is a single statement:
+`TilesOcclusionGenerator.s_Instance.AddObjectRenderer(GetComponent<MeshRenderer>())`.
+`TilesOcclusionGenerator` (decompiled `GH.Runtime/TilesOcclusionGenerator.cs:150-193`) holds a
+`CommandBuffer` at `CameraEvent.BeforeGBuffer` that draws **every registered renderer** with
+`m_OcclusionObjectMaterial` into a **quarter-resolution** target, blurs it twice, and publishes the
+result with `SetGlobalTexture("_ObjectOcclusion", …)`.
+
+**Why every instrument in this file was structurally blind to it.** It is not an `Animator`, a
+`Light`, a `Projector`, a `LensFlare`, a `ParticleSystem`, an `Outlinable` or a material property —
+it is disjoint from every class four rounds of instruments sampled. The list lives on a camera, the
+draw is issued by a command buffer, and the result reaches the shader as **global** state, which
+`material.GetFloat/GetColor` cannot see by construction. This is the same shape as the ModBuild 151
+`Light`-derives-from-`Behaviour` hole, one level further out.
+
+**Why it is a HAND defect and not a board one** — the term that makes it fit the report rather than
+merely fit the code. On its hex the prop's footprint in that map is small and **still**, so the
+value sampled back is effectively constant and nobody has ever complained about it. In a palm the
+prop **fills a large part of the eye and moves every frame**, so its own blurred quarter-resolution
+silhouette sweeps across it: a soft moving wash with no animator, no lamp, no particle and no
+material of its own behind it. Twenty centimetres from the eye that is a "Licht-Effekt".
+
+**It was already named as the next suspect and could not be tested.** ModBuild 448's
+`] [Props] HELD? two frames after the grab` line ends: *"all drawn, no block, and still nothing
+visible means neither, and the next suspect is **the prop shader's own screen-space occlusion
+term**."*
+
+### 11.3 The fix — strand 5, one ledgered bool
+
+`PropAnimBelt.Apply` gains one line beside the other four strands:
+
+```csharp
+b.OcclusionFound = TakeEmitters<ObjectOcclusionVolume>(b, go, ref b.OcclusionOn0);
+```
+
+`ObjectOcclusionVolume` derives from `MonoBehaviour` and therefore from `Behaviour`, so the
+existing generic emitter primitive already gives it the per-object ledger, the pre-count, the
+restore and the foreign-write falsifier at no extra cost.
+
+**Taken through the game's own lifecycle, never by editing its list.** `OnDisable` *is*
+`RemoveObjectRenderer` and `OnEnable` *is* `AddObjectRenderer`, and both set `m_RenderersUpdated`
+so the generator rebuilds its command buffer. One ledgered bool is the whole change and the whole
+undo. No game state is written. A volume already disabled is left alone.
+
+**Restore.** It shares `Belt.Emitters` with strand 3 deliberately — "switch a `Behaviour` off,
+remember what it was, write it back" is ONE restore, and a second copy is a second place for the
+next fix to land on only one of. That also means it inherits §10.5's restore falsifier unchanged:
+`Restore` compares what is there *now* against what this class *left* there before writing the
+remembered value, and `] [Props] HELD-PROP HUSH RESTORE` prints the mismatch count. It reads 0 when
+the restore is exact. This is the guard against the recorded incident where a hide saved a foreign
+mid-animation value and restored garbage over another system's restore.
+
+**Multiplayer.** Nothing new was needed. `NetProps.cs:288` calls `PropAnimBelt.Engage` and
+`NetProps.cs:550` calls `PropAnimBelt.Release` for a REMOTE hold, so the mirrored copy goes through
+the same `Apply`, the same ledger and the same `Restore`. Strand 5 reaches the peer's mirrored prop
+**by construction** — no wire field, no second code path, no per-sub-feature sync setting.
+
+**A held prop is never scenery.** Nothing here touches `Renderer.enabled`, `GameObject.activeSelf`
+or any layer; unregistering from an occlusion map cannot hide anything.
+
+### 11.4 The instrument — and this time it looks OUTWARD
+
+A fix aimed outside the subtree cannot be verified by a census rooted inside it, so the post-hush
+verdict gained an `OUTWARD` section (`PropAnimBelt.AppendOutward`). Two arms:
+
+* **The occlusion arm** — is this prop still IN `TilesOcclusionGenerator.m_ObjectRenderers`
+  (must be 0); is the generator present at all; how big is its list scene-wide; and the GLOBAL
+  slots read with `Shader.GetGlobal*`: `_EnableOcclusionMap`'s range, how many of the two map
+  textures are bound, and **how many frames `_ObjectOcclusion` re-bound to a different texture** —
+  a non-zero count there means the command buffer is live and the term is switched on while the
+  prop is in the hand; a zero means the buffer is not running and this whole strand is inert.
+  It reads a list the game already maintains and three global slots: no scene sweep at all.
+* **The foreign-emitter arm** — every `Light` in the SCENE that is **not** under the prop and
+  stands within 1.5 wu of its drawn box, named by **hierarchy path** rather than by object name.
+  This is the arm that can see a lamp on the HAND or the RIG, or a pooled effect object parented to
+  the scene and merely positioned to follow the prop — none of which a `GetComponentsInChildren`
+  census can reach, because a containment test answers "related to an X", never "IS an X".
+  Swept **twice per verdict** (open and close), never per frame: `FindObjectsOfType` on a per-frame
+  path has already cost this project two rounds and one 12.6 ms frame.
+
+**Grep token:** `] [Props] HELD-PROP PAINT AFTER HUSH`, section `OUTWARD —`.
+
+**The fix is WORKING** if occlusion-volumes-found is non-zero, of which a non-zero number were ON
+before this build wrote anything, **and** still-registered-on-any-frame is **0**.
+
+**The fix is INERT** if occlusion-volumes-found is **0** — this prop kind never registered, so
+strand 5 wrote nothing and cannot be why anything changed either way. (Of the three props in the
+448 log only `GoldPile` carries an `ObjectOcclusionVolume`; `QuestDoll` and `OneHexObstacle` do
+not. So a report that names only the gold pile as fixed is the expected shape of a partial win,
+not a contradiction — and every prop still SAMPLES the global map whether or not it contributes
+to it.)
+
+**THE READING THAT WOULD MEAN THE PAINTER IS SOMEWHERE EVEN THIS INSTRUMENT CANNOT SEE**, because
+it is the one that has ended five of the last five rounds: occlusion volumes found and taken (a
+real pre-count), still-registered 0, the map still **bound and rebinding every frame** so the term
+is live, foreign lights near the prop **0**, every subtree class 0 — **and the effect still
+reported**. That combination excludes the prop's subtree, excludes its contribution to the
+occlusion map and excludes every lamp within reach of it. What is left is a painter with no
+`Light`, no `Renderer` under or beside the prop and no global slot named here: a replacement-shader
+or post pass drawing the whole frame, or a term inside the prop's own shader fed by global state
+this line does not read. **The seventh round must then measure the PICTURE** — a per-eye frame
+difference with the prop held still versus moving — because at that point every state probe in this
+repository has been exhausted, and state probes cannot see sampling.
+
+### 11.5 A second blind spot, proven and NOT fixed
+
+The verdict's material read-back tracks **float/range/colour only**. Two things fall outside it and
+both are now named in the line rather than left to be rediscovered:
+
+* **VECTOR and TEXTURE properties are untracked.**
+  `CustomObjectPositionToChildMaterials.Update` (decompiled `GH.Runtime/…:70-100`) writes the
+  **vector** `_FadeSourcePos` into every child material **every frame** from a moving actor's world
+  position. That is a live per-frame material writer on a held prop that would report as "nothing
+  moved" in every reading taken so far. It is on `OneHexObstacle` (x2 in the 448 histogram).
+* **The grab-edge census's feeder count is narrower than the family it is counting.** It names
+  `ZephyrAnim`, `ObjectPosToMaterial` and `PosToMat` and prints `x0` for all three — on a line
+  whose own MonoBehaviour histogram, twenty words later, names
+  `CustomObjectPositionToChildMaterials x2`. A gate narrower than its choke point.
+
+Neither was fixed this round, deliberately: the occlusion strand is a single suppression with a
+clean pre-count, and shipping two remedies at once is how a round loses the ability to attribute.
+
+### 11.6 Candidates FALSIFIED this round — do not re-open them
+
+* **The mod's own pre-grab glow (`FigureHighlight` / `OverlayPulse`).** The 448 hush histogram
+  names `OverlayPulse x1` under both `GoldPile` and `QuestDoll`, which looks damning: it is this
+  mod's own component and it writes `_mat.color` from a 0.7 Hz sine on `Time.unscaledTime` plus a
+  `_MainTex` scroll — a literal "highlighting/Licht-Effekt". **It is not the painter.**
+  `GrabbableProp.OnGrab` calls `ClearHighlight()` at `:559`, *before* `PropAnimBelt.Engage` at
+  `:593`, and `Object.Destroy` is deferred to end of frame — so the grab-edge census enumerates a
+  component that is already condemned. During the hold neither hand can re-raise it: the holding
+  hand early-outs of `ProximityGrabber.UpdateHighlight` on `Held != null`, the other hand is
+  refused by `GrabbableProp.AllowsHand` (`if (_holder != null) return ReferenceEquals(_holder,
+  hand)`), `WalkInHighlightEdges.TryRelightHighlight` guards `_holder != null` explicitly, and
+  `RayGrabDriver` only ever highlights a `PanelGrabHandle`. **A latent asymmetry worth recording
+  anyway:** `TryRelightHighlight` has the `_holder != null` guard and `OnGrabHighlight` does not.
+  It is currently unreachable; it is one election change away from not being.
+* **`RFX4_ParticleLight`'s pooled lights.** They looked like the archetypal "pooled effect object
+  parented to the scene". They are not: `lights[i].transform.parent = base.transform`
+  (`GH.Runtime/RFX4_ParticleLight.cs:33`) parents them **under** the effect, so they are inside the
+  subtree and strand 3 already counts and switches them off.
+* **The game's outline registry.** `OutlineWrapper.OnEnable` adds the prop's `Outlinable` to
+  `WorldspaceUITools.m_AllOutlinables` — a genuine second, game-owned list outside the subtree that
+  the hush's reasoning never mentioned. It does not matter: `Outlinable.OnDisable` removes the
+  component from the pass's own static list, and the verdict measured **0 outlines enabled on any
+  of 358 frames**.
+* **`TargetStateListener`.** Present on every prop and named in every histogram. It is EPOOutline's
+  internal `OnBecameVisible/OnBecameInvisible` hook and paints nothing.
+* **The "Hovering" layer.** Layer 15, not the layer 8 the `HELD?` line reports; and `ParkLayers`
+  already moves the visual and every collider host to Ignore Raycast for the hold.
