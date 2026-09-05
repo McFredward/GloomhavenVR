@@ -850,6 +850,124 @@ internal static partial class WallSegmentFade
         private Segment? _leftoverFadedNear;
         private float _leftoverFadedGap;
 
+        /// <summary>
+        /// PERF S7 (2026-09-05) — ONE SEGMENT ROW, FLAT, FOR THE NEAREST-WALL ELECTION.
+        ///
+        /// <para>WHAT THE ModBuild 437 LOG SAYS AND WHY IT IS NOT WHAT WE THOUGHT. The
+        /// commit-frame stall was read as "the prepare stage stands down on a room reveal":
+        /// the BUDGET line at ModBuild 437 log line 9938 does report <c>REFUSED 1 cycle</c>
+        /// and <c>DROPPED the prop-unit prewarm on 2 cycle(s)</c> beside a 162.97 ms worst
+        /// commit. The NEXT window falsifies that reading outright — log line 10147 reports
+        /// <c>REFUSED 0</c>, <c>DROPPED 0</c>, "the standing-prop scope was opened by the
+        /// commit itself on 0 cycle(s)" (so the prepare stage DID run) and 77.1 ms moved off
+        /// the commit frame — and its worst commit is 156.45 ms with Mounted at 90.52 ms. A
+        /// warm that ran in full buys 6 ms of a 156 ms frame. The refusal is real and worth
+        /// having, but it is not what separates the two populations.</para>
+        ///
+        /// <para>WHAT ACTUALLY SEPARATES THEM, from the same log. The cheap commits
+        /// (16.85-17.33 ms) and the expensive ones (156.45/162.97 ms) are the SAME code on two
+        /// different boards. At log line 9153 the user ran the "open all doors" cheat
+        /// (<c>DebugMenu.RevealAllRooms()</c> — "6 door(s) were closed before and 0 after; 5
+        /// room(s) were hidden before and 0 after"). Across that line every population term
+        /// steps at once: scene renderers 2754 -> 9000, fade-capable 299 -> 1176, wall-subtree
+        /// renderers 5139 -> 21105, and — the term that matters here — the PER-WALL line goes
+        /// from "10 independently-deciding wall(s), 0 of 0 SPLIT RUN(s) driving 0 piece(s)" to
+        /// "34 …, 3 of 4 SPLIT RUN(s) driving 792 piece(s)". <c>_live.Segments</c> is
+        /// one entry per wall AND per split-run piece, so the table this loop walks went from
+        /// ~10 rows to ~826: EIGHTY-TWO TIMES, against 3.3x on the candidate count. The
+        /// election below runs once per candidate over every row, so its cost is the PRODUCT —
+        /// and that product is the only term in the commit that grew ~270x while the phase
+        /// totals grew ~10x. Mounted is 82.64/90.52 ms of those two commits and was under
+        /// 8 ms on the small board.</para>
+        ///
+        /// <para>WHAT WAS BEING PAID PER (CANDIDATE, SEGMENT) PAIR, and every item is removed
+        /// by this row without moving a decision:</para>
+        /// <list type="bullet">
+        ///   <item><c>seg.DoorRoot != null</c> — <c>DoorRoot</c> is a <see cref="Transform"/>,
+        ///   so this is UnityEngine.Object's overloaded <c>==</c>, i.e. a NATIVE call
+        ///   (<c>CompareBaseObjects</c>) per pair. On the revealed board that is one ICall per
+        ///   candidate per 826 rows.</item>
+        ///   <item><c>homeWall != null</c> — same operator, <see cref="Component"/> this time,
+        ///   also once per pair. It is now asked once the pair has survived the distance prune
+        ///   (<c>homeMatch</c> is read only below that prune, so moving it there cannot change
+        ///   an answer).</item>
+        ///   <item><c>RoomDecisionValid</c> — four bounds-checked <c>List</c> indexer
+        ///   calls, on a value that cannot change during the sweep.</item>
+        ///   <item><c>seg.Bounds.min</c>/<c>.max</c> — <see cref="Bounds"/>.min and .max are
+        ///   PROPERTIES that recompute <c>center -/+ extents</c> and build a
+        ///   <see cref="Vector3"/> on every read; the gap test reads four of them per pair.</item>
+        ///   <item>a <c>Dictionary</c> value enumerator step plus a pointer
+        ///   chase into a heap object for each of five fields — versus a sequential array.</item>
+        /// </list>
+        ///
+        /// <para>WHY THE PICTURE CANNOT CHANGE. Every field cached here is written by a phase
+        /// that runs BEFORE <c>CommitPhase.Mounted</c> and by nothing inside it:
+        /// <c>Bounds</c>/<c>HasBounds</c> by Body, FreeStanding, Gate, PropUnit, Stacked and the
+        /// adoption sweep; <c>RoomIndex</c> by the room association; <c>DoorRoot</c> by
+        /// <c>CommitDoorRoots</c>; <c>Fade</c> only by the per-frame ramp and the reset, never
+        /// by a commit phase. <c>_live.Segments</c> itself cannot be added to or removed from
+        /// during the sweep either — the loop this replaces was a <c>foreach</c> over its
+        /// <c>Values</c> nested inside the candidate loop, which would have thrown on the next
+        /// candidate if it were. The ONE field that IS mutated by the sweep is
+        /// <c>seg.Mounted.Count</c> (adoption fills it), so the saturation test still reads it
+        /// LIVE off <see cref="ElectSeg.Seg"/>. Rows are built in <c>_live.Segments.Values</c>
+        /// order and never re-sorted, and rows without bounds are omitted exactly where the old
+        /// loop <c>continue</c>d on them — so the strict-less-than "first wins" of the
+        /// <c>_leftoverFadedNear</c> diagnostic sees the same sequence. The gap arithmetic is
+        /// the same expression on the same floats (see the float overload of
+        /// <c>HorizontalGap</c>).</para>
+        /// </summary>
+        private struct ElectSeg
+        {
+            /// <summary>The row's segment — needed for the LIVE saturation read, the tie-break
+            /// and every place the loop hands a <c>Segment</c> onward.</summary>
+            public Segment Seg;
+            public float MinX, MaxX, MinZ, MaxZ, MinY, MaxY;
+            /// <summary>Snapshot of <c>seg.Fade</c> — read only by the leftover diagnostic.</summary>
+            public float Fade;
+            /// <summary>Snapshot of <c>_live.RoomFloorY[seg.RoomIndex]</c>, valid only when
+            /// <see cref="Electable"/> (the gate that guarantees the index is in range).</summary>
+            public float RoomFloorY;
+            /// <summary><c>DoorRoot == null</c> AND <c>RoomDecisionValid(RoomIndex)</c>.</summary>
+            public bool Electable;
+        }
+
+        /// <summary>The election rows for THIS commit. Grown, never shrunk; only
+        /// <c>[0.._electCount)</c> is ever read.</summary>
+        private ElectSeg[] _electSegs = new ElectSeg[64];
+        private int _electCount;
+        /// <summary>Rows filled by the PREVIOUS build, so the tail can be blanked when the table
+        /// shrinks and dead segments are not held alive by a stale row.</summary>
+        private int _electCountPrev;
+
+        /// <summary>
+        /// Candidates that reached the nearest-wall election this window, and the
+        /// (candidate, segment) PAIRS they walked between them — the product this row exists to
+        /// price. Printed and reset by <c>AppendCommitPhaseBreakdown</c>, which owns every
+        /// window accumulator on the BUDGET line.
+        ///
+        /// <para>ONE ARRAY, NOT TWO FIELDS, AND FOR A REASON. The pair count is a RUNNING SUM
+        /// (<c>+= _electCount</c> per candidate — incrementing per pair would cost a third of
+        /// what PERF S7 just saved), so the mechanism both reads and writes it while the budget
+        /// line clears it. As two scalars that is a diagnostic holding load-bearing state, which
+        /// scripts/check-instrument-writes.py refuses and the in-repo lesson "A write inside a
+        /// logger" explains. As a window accumulator cleared with <c>Array.Clear</c> it is the
+        /// SAME shape <see cref="_phaseTotalMillis"/> beside it already has, and the reset is a
+        /// bulk clear of a buffer rather than a write to a field somebody reads.</para>
+        /// </summary>
+        private readonly long[] _electWindow = new long[2];
+        private const int ElectWindowPairs = 0;
+        private const int ElectWindowCandidates = 1;
+        /// <summary>The row count of the LAST election index built in this window, i.e. the
+        /// segment-table size the product is multiplied by. Deliberately a plain assignment and
+        /// not a running max: a max would have to READ the field in the mechanism that writes it,
+        /// and the diagnostic that resets it would then be carrying load-bearing state
+        /// (scripts/check-instrument-writes.py, and the in-repo lesson "A write inside a
+        /// logger"). The table is rebuilt to the same size every cycle of a window anyway — the
+        /// number moves only when the board does, which is the event this clause is about.
+        /// </summary>
+        private int _electRowsLast;
+
         /// <summary>Releases logged this rescan/frame as happening ABOVE a wall that is still
         /// faded — the exact defect shape, capped for log hygiene.</summary>
         private int _releaseOverFadedWarns;
@@ -1577,6 +1695,82 @@ internal static partial class WallSegmentFade
         }
 
         /// <summary>
+        /// The SAME horizontal gap, on extents that have already been read out of their
+        /// <see cref="Bounds"/>. Not a new measurement and not an approximation of one: the
+        /// expression is character-for-character the pair overload above with
+        /// <c>a.min.x</c> spelled <c>aMinX</c>, so it returns the identical float for identical
+        /// inputs. It exists because <see cref="Bounds"/>.min and .max are PROPERTIES —
+        /// <c>center - extents</c> / <c>center + extents</c>, a fresh <see cref="Vector3"/>
+        /// each — and the election in <c>CollectWallMountedProps</c> asked for four of them per
+        /// (candidate, segment) pair, on a board where that product is millions.
+        ///
+        /// <para>THE POINT CASE IS THE SAME CALL. A particle candidate is measured by its
+        /// EMITTER (round 13), which is the degenerate rect <c>bMin == bMax == emitter</c>:
+        /// substituting that into this body gives <c>max(aMinX - p.x, p.x - aMaxX)</c>, i.e.
+        /// exactly the point overload. One helper, both callers, no second formula to keep in
+        /// step.</para>
+        /// </summary>
+        private static float HorizontalGap(float aMinX, float aMaxX, float aMinZ, float aMaxZ,
+                                           float bMinX, float bMaxX, float bMinZ, float bMaxZ)
+        {
+            float dx = Mathf.Max(0f, Mathf.Max(aMinX - bMaxX, bMinX - aMaxX));
+            float dz = Mathf.Max(0f, Mathf.Max(aMinZ - bMaxZ, bMinZ - aMaxZ));
+            if (dz == 0f)
+                return dx;
+            if (dx == 0f)
+                return dz;
+            return Mathf.Sqrt(dx * dx + dz * dz);
+        }
+
+        /// <summary>
+        /// Build the flat election rows for this commit — see <see cref="ElectSeg"/> for the
+        /// measurement that motivates them and for the proof that every cached field is frozen
+        /// for the duration of the sweep.
+        ///
+        /// <para>Called ONCE per commit, from <c>CollectWallMountedProps</c>, after the sticky
+        /// and handover loops (which touch only <c>seg.Mounted</c>, the one field NOT cached
+        /// here) and before the candidate sweep. Rows keep <c>_live.Segments.Values</c> order
+        /// and segments without bounds are dropped, which is where the old inner loop's first
+        /// <c>continue</c> stood — so every downstream first-wins tie sees the same sequence in
+        /// the same order.</para>
+        /// </summary>
+        private void BuildMountedElectionIndex()
+        {
+            int cap = _live.Segments.Count;
+            if (_electSegs.Length < cap)
+                _electSegs = new ElectSeg[Mathf.NextPowerOfTwo(Mathf.Max(cap, 64))];
+
+            _electCount = 0;
+            foreach (Segment seg in _live.Segments.Values)
+            {
+                if (!seg.HasBounds)
+                    continue;
+                Vector3 lo = seg.Bounds.min;
+                Vector3 hi = seg.Bounds.max;
+                bool electable = seg.DoorRoot == null && RoomDecisionValid(seg.RoomIndex);
+                ref ElectSeg e = ref _electSegs[_electCount++];
+                e.Seg = seg;
+                e.MinX = lo.x; e.MaxX = hi.x;
+                e.MinZ = lo.z; e.MaxZ = hi.z;
+                e.MinY = lo.y; e.MaxY = hi.y;
+                e.Fade = seg.Fade;
+                // Only meaningful when electable — RoomDecisionValid is precisely the test that
+                // guarantees the index is inside RoomFloorY. Never read otherwise (the per-room
+                // floor gate sits below the electable check in the loop).
+                e.RoomFloorY = electable ? _live.RoomFloorY[seg.RoomIndex] : 0f;
+                e.Electable = electable;
+            }
+
+            // A shrinking table must not keep dead segments alive through a stale row. Only the
+            // tail beyond the rows just written can hold one, and this runs once per commit.
+            if (_electCountPrev > _electCount)
+                System.Array.Clear(_electSegs, _electCount, _electCountPrev - _electCount);
+            _electCountPrev = _electCount;
+
+            _electRowsLast = _electCount;
+        }
+
+        /// <summary>
         /// Re-attach, per rescan, every airborne dressing renderer hugging a wall segment (see the
         /// file header for the rule, the emitter-anchor decision and the light guarantee). Runs
         /// LAST in <c>Rescan</c>: it needs the final segment table, their room association and
@@ -1922,6 +2116,11 @@ internal static partial class WallSegmentFade
             reachMinZ -= reach; reachMaxZ += reach;
             float floorGate = minFloorY + MountedClearanceWU * 0.25f - CensusBoundsSlackWU;
 
+            // PERF S7 — THE SEGMENT TABLE, FLATTENED ONCE INSTEAD OF WALKED PER CANDIDATE.
+            // HERE and not earlier: the sticky and handover loops above rewrite seg.Mounted,
+            // which is the ONE field these rows deliberately do NOT cache. See ElectSeg.
+            BuildMountedElectionIndex();
+
             if (!float.IsInfinity(minFloorY) && !float.IsInfinity(reachMinX))
             {
                 float airborneBar = _mountedAirborneBar;
@@ -2181,26 +2380,55 @@ internal static partial class WallSegmentFade
                     Component? homeWall = belowBar ? null : WallProvenanceOf(c);
                     Segment? bestHome = null;
                     float bestHomeGap = float.PositiveInfinity;
-                    foreach (Segment seg in _live.Segments.Values)
+                    // PERF S7 — THE CANDIDATE'S OWN RECT, READ ONCE. `b.min`/`b.max` are
+                    // Bounds PROPERTIES (center -/+ extents, a fresh Vector3 each), and the gap
+                    // test below asked for four of them on EVERY row. A particle candidate is
+                    // measured by its emitter (round 13), which is the degenerate rect
+                    // min == max == emitter — the same substitution the point overload of
+                    // HorizontalGap makes, so both cases stay one call.
+                    float cMinX, cMaxX, cMinZ, cMaxZ;
+                    if (particles)
                     {
-                        if (!seg.HasBounds)
-                            continue;
-                        float gapAny = particles
-                            ? HorizontalGap(seg.Bounds, emitter)
-                            : HorizontalGap(seg.Bounds, b);
-                        if (seg.Fade >= FoliageHideFade && gapAny < _leftoverFadedGap)
+                        cMinX = cMaxX = emitter.x;
+                        cMinZ = cMaxZ = emitter.z;
+                    }
+                    else
+                    {
+                        Vector3 bLo = b.min, bHi = b.max;
+                        cMinX = bLo.x; cMaxX = bHi.x;
+                        cMinZ = bLo.z; cMaxZ = bHi.z;
+                    }
+                    _electWindow[ElectWindowCandidates]++;
+                    _electWindow[ElectWindowPairs] += _electCount;
+                    for (int si = 0; si < _electCount; si++)
+                    {
+                        ref ElectSeg e = ref _electSegs[si];
+                        float gapAny = HorizontalGap(e.MinX, e.MaxX, e.MinZ, e.MaxZ,
+                                                     cMinX, cMaxX, cMinZ, cMaxZ);
+                        if (e.Fade >= FoliageHideFade && gapAny < _leftoverFadedGap)
                         {
                             _leftoverFadedGap = gapAny;
-                            _leftoverFadedNear = seg;
+                            _leftoverFadedNear = e.Seg;
                         }
-                        if (seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                        // `Electable` IS `seg.DoorRoot == null && RoomDecisionValid(...)`,
+                        // computed once per segment in BuildMountedElectionIndex out of fields no
+                        // commit phase writes after CommitDoorRoots and the room association. The
+                        // DoorRoot half was a UnityEngine.Object null compare — a native call —
+                        // paid once per (candidate, segment) pair until PERF S7.
+                        if (!e.Electable)
                             continue;
                         float gap = gapAny;
                         if (gap < nearestAny)
                             nearestAny = gap;
-                        bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
                         if (belowBar || gap > linkMax)
                             continue;
+                        // PERF S7: `homeMatch` moved BELOW the distance prune, where its first
+                        // reader is. Both uses (the prune ticket just below, and the bestHome
+                        // update at the bottom) are inside this branch already, so no answer
+                        // moves — but `homeWall != null` is another UnityEngine.Object compare
+                        // and was being asked on every row of the table.
+                        Segment seg = e.Seg;
+                        bool homeMatch = homeWall != null && SegmentBelongsToWall(seg, homeWall);
                         // The unrestricted prune is unchanged; a segment is only allowed past it
                         // on the extra ticket that it belongs to this prop's own wall and is the
                         // nearest such so far. So the added work is bounded by the number of
@@ -2212,12 +2440,14 @@ internal static partial class WallSegmentFade
                         // — it has to consult the hoisted provenance bool itself or a wall-built
                         // hanging is discarded here, silently, in the segment loop.
                         if (!wallGenBelowBar
-                            && anchorY < _live.RoomFloorY[seg.RoomIndex] + MountedClearanceWU)
+                            && anchorY < e.RoomFloorY + MountedClearanceWU)
                             continue; // airborne against THIS room's plane, not just the lowest
-                        if (anchorY > seg.Bounds.max.y + MountedLinkMaxAboveTopWU)
+                        if (anchorY > e.MaxY + MountedLinkMaxAboveTopWU)
                             continue; // floats above the wall, not in it
-                        if (topY < seg.Bounds.min.y)
+                        if (topY < e.MinY)
                             continue; // below the wall's span
+                        // LIVE, not cached: adoption fills this list DURING the sweep, so the
+                        // runaway cap has to see the count as it stands (see ElectSeg).
                         if (seg.Mounted.Count >= MountedMaxPerSegment)
                         {
                             cappedBy = seg;

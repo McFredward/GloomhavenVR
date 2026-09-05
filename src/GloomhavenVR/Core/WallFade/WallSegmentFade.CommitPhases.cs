@@ -247,8 +247,56 @@ internal static partial class WallSegmentFade
               .Append("ms in the window between them. Every phase also reports as ")
               .Append("'WallFade.Commit.<name>' in [Perf] STEPS / STEPS TAIL.");
 
+            AppendElectionProduct(sb);
+
             Array.Clear(_phaseWorstMillis, 0, CommitPhaseCount);
             Array.Clear(_phaseTotalMillis, 0, CommitPhaseCount);
+        }
+
+        /// <summary>
+        /// PERF S7 — THE PRODUCT THE Mounted PHASE IS MADE OF, NAMED AS A PRODUCT.
+        ///
+        /// <para>WHY THIS FIELD AND NOT ANOTHER MILLISECOND. The ModBuild 437 log priced the
+        /// commit phase by phase and Mounted came out worst (82.64 ms / 90.52 ms on the two
+        /// expensive commits, under 8 ms on every cheap one) — but a phase total cannot say
+        /// WHICH of the two populations inside it moved. Mounted walks candidates, and for each
+        /// candidate it walks the segment table; between the cheap and the expensive commits the
+        /// candidate count roughly tripled while the segment table went from ~10 rows to ~826
+        /// (10 walls and no split runs, versus 34 walls and 792 split-run pieces on the PER-WALL
+        /// line, after the "open all doors" cheat at log line 9153). Those two hypotheses —
+        /// "more candidates" and "more segments per candidate" — predict a 3x and a ~270x term
+        /// respectively and the phase total is compatible with both. This clause prints the
+        /// product itself, so the next log settles it without another round.</para>
+        ///
+        /// <para>HOW TO READ IT AGAINST THE FIX. PERF S7 did not reduce the PAIR COUNT at all —
+        /// the loop still visits every row — it made each pair cheap (no UnityEngine.Object null
+        /// compare, no RoomDecisionValid, no Bounds property recomputation, no dictionary
+        /// enumerator). So PAIRS/cycle should read the SAME as it would have before, and
+        /// Mounted's worst-single-cycle number should fall while it does. If PAIRS/cycle is
+        /// small (tens of thousands) and Mounted is still ~90 ms, the product is NOT the cost
+        /// and the next lane must look at the per-candidate prologue instead — that is the
+        /// falsifier, and it is the reason the raw count is printed beside the millisecond.</para>
+        /// </summary>
+        private void AppendElectionProduct(System.Text.StringBuilder sb)
+        {
+            int cycles = _cycleCount > 0 ? _cycleCount : 1;
+            sb.Append(" MOUNTED ELECTION (PERF S7 — the product, not a millisecond): ")
+              .Append(_electWindow[ElectWindowCandidates])
+              .Append(" candidate(s) reached the nearest-wall election in this window and walked ")
+              .Append(_electWindow[ElectWindowPairs])
+              .Append(" (candidate, segment) pair(s) between them, over a segment table that ")
+              .Append("held ").Append(_electRowsLast).Append(" row(s) at the last cycle — that row ")
+              .Append("count is one per wall AND one per split-run piece, so it is the term the ")
+              .Append("PER-WALL line's SPLIT RUN(s) drive. Per rescan cycle in this window ")
+              .Append("(committing or skipped alike) that is ~")
+              .Append((_electWindow[ElectWindowPairs] / cycles).ToString())
+              .Append(" pair(s). PERF S7 made each pair cheap and did NOT reduce their number, ")
+              .Append("so this count staying put while Commit.Mounted falls is the fix working; ")
+              .Append("this count being SMALL while Mounted stays ~90ms falsifies the product as ")
+              .Append("the cause and points at the per-candidate prologue instead.");
+
+            Array.Clear(_electWindow, 0, _electWindow.Length);
+            _electRowsLast = 0;
         }
 
         private void AppendPhase(System.Text.StringBuilder sb, int index, ref float namedTotal,
