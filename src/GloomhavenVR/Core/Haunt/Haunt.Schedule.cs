@@ -213,6 +213,11 @@ internal static partial class Haunt
         bool live = Step(H(slot, HcRate), freq) * Step(0.0001f, master) > 0.5f;
 
         float start = per * (StartLo + StartSp * H(slot, HcStart));
+        // ICE HOLDS IT LONGER, and durMul divides a clock-derived phase downstream — the one place
+        // on this path where an element sits under a clock. The whole argument, including why it is
+        // NOT the frequency-scrub class and why it stopped juddering on 2026-09-06 (the element
+        // channel publishes a constant at every column now, see ElementMood's NO ENVIRONMENT EFFECT
+        // MAY BLINK), is written out at the mirrored line in EnvHaunt.cginc's GhvrHauntAtRaw.
         float durMul = (DurLo + DurSp * H(slot, HcDur)) * (1f + 0.35f * ice);
 
         // ---- ON DEMAND. One compare when nothing is forced. The forced run is expressed in the

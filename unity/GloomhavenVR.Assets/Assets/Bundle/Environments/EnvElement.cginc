@@ -16,14 +16,15 @@
 //
 //  THE GROWTH CHANNEL, in one paragraph, because a reader who finds a SECOND
 //  Earth number will otherwise reach for the wrong one. `earth` is Earth's
-//  STRENGTH: it is 1.0 at Strong and it BREATHES 0.28..0.52 every 2.4 s while
-//  Waning, which is the reading a player is meant to get from across the table.
-//  `grow` is Earth's PRESENCE: 1.0 for Strong AND for Waning alike, 0 only when
-//  Earth is Inert, rising over 1 s and withering over 9 s. Everything that
-//  paints with Earth takes `earth`. The GROW-IN OF A CARD — GhvrGrowCard, the
-//  vertex fold that stands the grass up — takes `grow`, and must never take
-//  `earth`: the fold is behind a threshold, so a strength that breathes is not
-//  grass that breathes, it is grass that stands up and lies flat every 2.4 s.
+//  STRENGTH: 1.0 at Strong, 0.40 at Waning, 0.0 at Inert, and — since
+//  2026-09-06 — PERFECTLY STILL AT ALL THREE. It used to breathe 0.28..0.52
+//  every 2.4 s while Waning; that breath is deleted, see NO ENVIRONMENT EFFECT
+//  MAY BLINK below. `grow` is Earth's PRESENCE: 1.0 for Strong AND for Waning
+//  alike, 0 only when Earth is Inert, rising over 1 s and withering over 9 s.
+//  Everything that paints with Earth takes `earth`. The GROW-IN OF A CARD —
+//  GhvrGrowCard, the vertex fold that stands the grass up — takes `grow`, and
+//  must never take `earth`: the fold is behind a threshold, and a threshold is
+//  where any difference in the strength becomes a hard on/off.
 //  That was ModBuild 445's defect, reported from hardware in exactly those words
 //  ("wächst und verschwindet in einem Loop ... als das Element nur halb aktiv
 //  war"). See ElementMood.cs, THE GROWTH CHANNEL, for the curve and for why a

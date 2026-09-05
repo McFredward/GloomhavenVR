@@ -940,7 +940,7 @@ internal static partial class Loc
         // Grafik ▸ Darstellung: the environment's reaction to the element infusions (ELEMENT MOOD,
         // Core/ElementMood.cs). The hint says what the player will SEE, not how it is published.
         ["vr_o_elemmood"] = Pair("Elements affect surroundings", "Elemente wirken auf Umgebung"),
-        ["h_vr_o_elemmood"] = Pair("The surroundings answer the elements on the board: a fresh element reads as fully charged, a waning one slowly breathes so you can see it is about to go out. Off with mixed reality, and only inside a scenario.", "Die Umgebung antwortet auf die Elemente auf dem Brett: ein frisches Element wirkt voll aufgeladen, ein schwindendes atmet langsam, sodass du siehst, dass es gleich erlischt. Bei Mixed Reality aus, und nur im Szenario."),
+        ["h_vr_o_elemmood"] = Pair("The surroundings answer the elements on the board: a fresh element reads as fully charged, a waning one is simply weaker — fewer patches, less of everything — so you can see it is about to go out. Nothing ever blinks or pulses. Off with mixed reality, and only inside a scenario.", "Die Umgebung antwortet auf die Elemente auf dem Brett: ein frisches Element wirkt voll aufgeladen, ein schwindendes ist einfach schwächer — weniger Flecken, weniger von allem — sodass du siehst, dass es gleich erlischt. Nichts blinkt oder pulsiert jemals. Bei Mixed Reality aus, und nur im Szenario."),
         ["vr_o_elemmood_amt"] = Pair("Element effect strength", "Stärke der Elementwirkung"),
         ["h_vr_o_elemmood_amt"] = Pair("How strongly the surroundings answer. 1 is as designed, lower is subtler, 0 is the same as switching it off.", "Wie stark die Umgebung antwortet. 1 ist wie vorgesehen, kleiner ist dezenter, 0 entspricht dem Ausschalten."),
         // Grafik ▸ Darstellung: the creepy easter eggs (HAUNT, Core/Haunt.cs). The hint names the
@@ -999,8 +999,8 @@ internal static partial class Loc
         ["vr_tt_off"] = Pair("{0} — off", "{0} — aus"),
         ["vr_tt_elem_strong"] = Pair("Elements — strong", "Elemente — stark"),
         ["h_vr_tt_elem_strong"] = Pair("Pretends this element is freshly infused: full strength, rock steady. Ramps in over a second and stays on until you press the same row again.", "Tut so, als wäre dieses Element frisch infundiert: volle Stärke, völlig ruhig. Blendet in einer Sekunde ein und bleibt an, bis du dieselbe Zeile erneut drückst."),
-        ["vr_tt_elem_waning"] = Pair("Elements — waning, breathing", "Elemente — schwindend, atmend"),
-        ["h_vr_tt_elem_waning"] = Pair("The state that breathes: about half strength, slowly swelling and ebbing — the one that shows an element is about to go out. Stays on until you press the same row again.", "Der atmende Zustand: etwa halbe Stärke, langsam an- und abschwellend — der zeigt, dass ein Element gleich erlischt. Bleibt an, bis du dieselbe Zeile erneut drückst."),
+        ["vr_tt_elem_waning"] = Pair("Elements — waning, half strength", "Elemente — schwindend, halbe Stärke"),
+        ["h_vr_tt_elem_waning"] = Pair("The half state: about half strength and just as steady as strong — fewer frost patches, dimmer light, less of everything, but nothing moving. It is what shows an element is about to go out. Stays on until you press the same row again.", "Der halbe Zustand: etwa halbe Stärke und genauso ruhig wie stark — weniger Frostflecken, schwächeres Licht, weniger von allem, aber nichts bewegt sich. Er zeigt, dass ein Element gleich erlischt. Bleibt an, bis du dieselbe Zeile erneut drückst."),
         ["vr_tt_fire"] = Pair("Fire", "Feuer"),
         ["vr_tt_ice"] = Pair("Ice", "Eis"),
         ["vr_tt_air"] = Pair("Air", "Luft"),

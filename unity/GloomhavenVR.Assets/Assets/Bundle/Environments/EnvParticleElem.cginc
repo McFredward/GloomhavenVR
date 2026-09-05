@@ -83,9 +83,11 @@ bool GhvrParticleElem (float4 vertex, inout float4 col)
         float g = saturate(dot(_ElemOwn, A) + dot(_ElemOwn2.xy, B));
         if (g <= 0.0) return false;
         // Fade IN with the element as well as switching on: ElementMood ramps
-        // over a second and the waning plateau breathes 0.28..0.52, so a swarm
-        // that snapped to full would throw away the one cue the smoothing exists
-        // to give — that an element is on its way out.
+        // over a second, so a swarm that snapped to full would throw away the
+        // one cue the smoothing exists to give. The waning plateau is a STILL
+        // 0.40 since 2026-09-06 (it used to breathe 0.28..0.52), so what the
+        // player reads at half strength is a thinner swarm and not a pulsing
+        // one — "weniger in der Anzahl", by the user's own ruling.
         col.a *= g;
     }
 

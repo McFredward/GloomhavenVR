@@ -313,6 +313,17 @@ GhvrHaunt GhvrHauntAtRaw (float t, float period, float cards)
     h.start  = per * (GHVR_HAUNT_STARTLO
                       + GHVR_HAUNT_STARTSP * GhvrHauntH(h.slot, GHVR_HC_START));
     // ICE HOLDS IT LONGER — the room is frozen, and so is whatever is in it.
+    //
+    // AND THIS IS THE ONE PLACE IN THE BUNDLE WHERE AN ELEMENT DIVIDES A CLOCK-DERIVED PHASE:
+    // durMul stretches the envelope, and GhvrHauntEnvelope below computes phase = (sIn - start)
+    // divided by the stretched duration. It is NOT the project's frequency-scrub class — the
+    // numerator is `sIn`, bounded to ONE slot period, so the worst error is 0.35 of a phase and
+    // never the hundreds of cycles an unbounded _Time.y would give. It was nevertheless a real
+    // juddering source while the element channel breathed at Waning: e.ice swung 0.28..0.52 every
+    // 2.4 s, so a running Ice event walked forward and backward through its own curve. Since
+    // 2026-09-06 ElementMood publishes a CONSTANT at every column (NO ENVIRONMENT EFFECT MAY BLINK,
+    // ElementMood.cs), so durMul is piecewise constant, the phase advances at one rate, and what is
+    // left is an event that simply lasts longer while Ice is up. Reviewed and deliberately kept.
     h.durMul = (GHVR_HAUNT_DURLO + GHVR_HAUNT_DURSP * GhvrHauntH(h.slot, GHVR_HC_DUR))
                * (1.0 + 0.35 * e.ice);
     h.varA = GhvrHauntH(h.slot, GHVR_HC_VARA);

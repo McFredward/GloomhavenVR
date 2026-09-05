@@ -59,6 +59,10 @@ internal static class Program
             // Source lint, not a packet: a bundled shader looked up with a bare Shader.Find
             // resolves to null with the bundle open, and has silently cost two builds.
             BundledShaderVectors.Run(t, repoRoot);
+            // Same shape again: a source lint for an invariant that a doc-block sentence failed to
+            // hold. The element channel may publish no periodic term at any strength — the third
+            // hardware round on that defect is what bought this file.
+            ElementSteadyVectors.Run(t, repoRoot);
             // Same reason, different unobservable: a card face that is a few millimetres too small
             // for its body reads as "looks a bit off" from inside a headset and as nothing at all
             // from outside one. Report 12 (2026-08-15).

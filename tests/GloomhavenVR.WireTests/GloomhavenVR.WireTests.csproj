@@ -282,6 +282,15 @@
          links no mod source at all — it reads src/ and unity/ as TEXT, because the property being
          checked is a property of the text and the compiled form cannot show it. -->
     <Compile Include="BundledShaderVectors.cs" />
+    <!-- ANOTHER SOURCE LINT, and on this list because a doc-block sentence has already failed
+         to hold this invariant once. The element channel may publish NO periodic term at any
+         strength: "Die Umgebungseffekte sollen genau wie beim 'vollen' sein - nur weniger in
+         der Anzahl oder weniger intensiv - aber niemals blinkend" (user, hardware, 2026-09-06).
+         A waning plateau that breathed cost ModBuild 445 (the grass) and ModBuild 448 (the ice);
+         the second one happened because 445's fix wrote the exemption down instead of gating it.
+         Links no mod source: it reads ElementMood.cs as TEXT, comments and string literals
+         stripped, because the file quotes the deleted defect in its own commentary. -->
+    <Compile Include="ElementSteadyVectors.cs" />
     <!-- A SOURCE LINT plus a millimetre vector, on this list for the same reason: how far a card's
          printed face reaches across its body is observed ONLY by eye, from inside a headset, and
          a face a few millimetres too small reads as "looks a bit off" rather than as a failure.

@@ -910,8 +910,9 @@ Shader "GloomhavenVR/EnvFlame"
                     // the same fire turned down.
                     //
                     // sqrt, not the gate itself, and the first bake is why: with
-                    // a linear gate the waning plateau (0.40, breathing
-                    // 0.28..0.52) came out at 40% of the fire's energy and the
+                    // a linear gate the waning plateau (a still 0.40 since
+                    // 2026-09-06; it breathed 0.28..0.52 when this was written)
+                    // came out at 40% of the fire's energy and the
                     // previews of it showed a room with a few embers in it. A
                     // waning infusion is still an infusion and the user has to
                     // see it burning. sqrt(0.40) = 0.63 is a fire on its way out;

@@ -229,11 +229,22 @@ float GhvrGrowA (float field, float grain, float place)
 /// the first bake is why: linear in cover, a Waning element (ElementMood's 0.40
 /// plateau) left the threshold at 0.83 while the affinity's mean is 0.55 and its
 /// spread 0.18 — measured coverage 0.5%, i.e. an element the player is watching
-/// fade would simply be gone, and the breath that is supposed to make it "live"
-/// would be a breath of nothing. c*(2-c) puts 0.40 at 0.64 of the travel, so a
-/// waning frost sits at a real, visibly moving fringe, and Strong is untouched
+/// fade would simply be gone. c*(2-c) puts 0.40 at 0.64 of the travel, so a
+/// waning frost sits at a real, visible fringe, and Strong is untouched
 /// (c = 1 maps to 1). It is also the right SHAPE for growth: fast to establish,
 /// slow to fill.
+///
+/// AND THE EASE IS NOW WHERE "FEWER, NOT BLINKING" IS PAID FOR. Since 2026-09-06
+/// ElementMood publishes a STILL 0.40 at Waning (it used to breathe 0.28..0.52
+/// on a 2.4 s sine, and through this very ease that swept T across 0.72..0.84 —
+/// the whole width of a frontier only 0.12 wide, coherently over the entire
+/// room, every 2.4 s. That was the ICE the user reported blinking). With a still
+/// cover, T is a still 0.766 against Strong's 0.600, which on an affinity of
+/// mean 0.55 / spread 0.18 is roughly a THIRD of the coverage: a waning element
+/// gives FEWER PATCHES OF FROST, in exactly the same places, and never a pulse.
+/// That is "nur weniger in der Anzahl oder weniger intensiv - aber niemals
+/// blinkend", verbatim, and it costs no extra code because it falls out of the
+/// threshold this function already is.
 float GhvrGrow (float A, float cover, float creep)
 {
     float c = saturate(cover);
@@ -286,14 +297,33 @@ float2 GhvrWave2 (float2 v)
 
 /// "Animiert": the frontier creeps even while the element holds still.
 ///
-/// The element's own published value already breathes while it WANES (0.28-0.52
-/// on a 2.4 s cycle, ElementMood), so a waning frost visibly advances and
-/// retreats without any help. At STRONG it is pinned at 1.0 and would be a
-/// still picture, which is the one state a player looks at longest. So the
+/// The element's published value is a CONSTANT at every strength (1.00 / 0.40 /
+/// 0.00, ElementMood — this doc used to say it breathed at Waning, and that
+/// breath was the defect). So without this term a frost frontier would be a
+/// still picture at every strength, which is not what was asked for. The
 /// threshold gets a slow travelling wobble: two waves crossing the room, worth
 /// +-0.062 of coverage together. On a frontier 0.18 wide that moves the edge by
 /// a few centimetres either way — ice creaking outward and back, never a
 /// pulsing tint.
+///
+/// WHY THIS SURVIVED THE 2026-09-06 NO-BLINKING RULING while the waning breath
+/// did not, because the two look alike from a distance and are not:
+///  * IT IS THE THING THE USER ASKED FOR. ModBuild 142, verbatim: "Beim Eis
+///    würde ich gerne Frost auf dem Boden wachsen sehen ... nicht komplett
+///    flächendeckend aber animiert und immersiv." The frontier moving IS the
+///    "animiert".
+///  * IT IS IDENTICAL AT EVERY STRENGTH. Its rates are literals; the element
+///    touches only its amplitude, through `creep * c` in GhvrGrow. The ruling
+///    is that half must look like full apart from count and intensity — this
+///    term is the same term at both, so removing it would break the sentence
+///    it is meant to satisfy. The breath was the opposite: a motion that
+///    existed ONLY at half.
+///  * IT IS SPATIAL AND SLOW. ~20 s and ~37 s, travelling across the room, so
+///    no two places are in phase and the total coverage does not pulse. The
+///    breath was 2.4 s and perfectly coherent everywhere at once.
+/// It does NOT drive GhvrGrowCard — a card fold is binary and a frontier that
+/// moves both ways is a blade standing up and lying flat. That is ModBuild 445
+/// and it stays fixed; see the block on GhvrGrowCard at the bottom of this file.
 ///
 /// `t` MUST be the shared clock (_Time.y + _GhvrTimeOfs): EnvElement rule 3.
 /// `q` is GhvrGrowQ's coordinate, i.e. cells; at the default density the two
@@ -1229,9 +1259,25 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp,
 ///
 ///  So `g` here is now a pure function of POSITION and of a cover that only
 ///  changes when the game's element board does. The grass rises once, holds
-///  exactly still, and comes down only when Earth is gone. THE FROST PATH IS
-///  UNTOUCHED — GhvrGrow, GhvrGrown and GhvrGrowCreep are exactly as they were,
-///  and the pixels still creep.
+///  exactly still, and comes down only when Earth is gone.
+///
+///  ---- AND THE LAST SENTENCE OF THIS BLOCK WAS WRONG, ModBuild 449 ----
+///  It used to read: "THE FROST PATH IS UNTOUCHED — GhvrGrow, GhvrGrown and
+///  GhvrGrowCreep are exactly as they were, and the pixels still creep." The
+///  exemption was argued on the grounds that a breathing frontier is right for a
+///  PIXEL effect and wrong only for GEOMETRY. The user then reported the SAME
+///  loop on the ice — i.e. on the pixel effect the exemption was written for —
+///  and ruled it out everywhere: "Ich will so ein Blinken generell nicht. Die
+///  Umgebungseffekte sollen genau wie beim 'vollen' sein - nur weniger in der
+///  Anzahl oder weniger intensiv - aber niemals blinkend."
+///
+///  Clock (1) is therefore gone from the CHANNEL as well and not merely from
+///  this fold: ElementMood publishes a still 0.40 at Waning, so every consumer
+///  of `earth` — frost, glow, flames, particles, the haunt schedule, the sound
+///  beds — is a constant at a constant strength. Clock (2), GhvrGrowCreep, is
+///  still not passed in here and IS still on the frost; the argument for that
+///  split is now written out in full at GhvrGrowCreep itself, because "it is
+///  fine for the pixels" is exactly the sentence that had to be retracted once.
 /// ---------------------------------------------------------------------------
 float GhvrGrowCard (float3 q, float cover)
 {

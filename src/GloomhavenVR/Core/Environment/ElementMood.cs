@@ -113,28 +113,86 @@ namespace GloomhavenVR.Core;
 /// (<c>InfusionElementUI.SetState</c> plays <c>changeToStrongElementAudioItem</c> on the transition
 /// into Strong, GH.Runtime/InfusionElementUI.cs:120-134), so it is the one that must read as "fully
 /// charged".</item>
-/// <item><c>Waning</c> → a plateau of <b>0.40</b> that BREATHES: 0.40 ± 0.12, i.e. 0.28…0.52 on a
-/// 2.4 s sine. The breath is the point — it is what lets a player see from across the table that an
-/// element is on its way out without reading the HUD, and it is unmistakably different from Strong,
-/// which does not move at all. <b>REJECTED: a monotone decay across the waning round.</b> Nothing
-/// tells this code when the round ends — <c>EndRound</c> (:122) is event-driven, not timed, so a
-/// decay ramp would have to guess a duration and would then either finish early (showing 0 while
-/// the element is still usable) or be cut off mid-fall.</item>
+/// <item><c>Waning</c> → a plateau of <b>0.40</b>, ROCK STEADY TOO. Until 2026-09-06 this plateau
+/// BREATHED (0.40 ± 0.12 on a 2.4 s sine) and that breath was the defect this file's second
+/// hardware round is about — see NO ENVIRONMENT EFFECT MAY BLINK below. The reading a player gets
+/// from across the table is now the NUMBER: 0.40 against Strong's 1.00 is a 2.5x difference in
+/// every effect the channel drives, which is "weniger intensiv" in the user's own words and is
+/// visible at a glance without anything moving. <b>REJECTED: a monotone decay across the waning
+/// round.</b> Nothing tells this code when the round ends — <c>EndRound</c> (:122) is event-driven,
+/// not timed, so a decay ramp would have to guess a duration and would then either finish early
+/// (showing 0 while the element is still usable) or be cut off mid-fall. <b>REJECTED: making Waning
+/// carry PRESENCE like the growth channel does</b> (i.e. publishing 1.00 for Waning as well). It
+/// would obey the no-blinking ruling and throw away the other half of the sentence: the user asked
+/// for half strength to be "weniger in der Anzahl oder weniger intensiv", so the two states must
+/// still differ — just not in time.</item>
 /// <item><c>Inert</c> → <b>0.00</b>.</item>
 /// <item>Every transition RAMPS over <see cref="RampSeconds"/> = <b>1.0 s</b> on a smoothstep, from
 /// whatever the intensity happened to be at the moment of the change — so a Strong→Waning→Inert
-/// chain never pops and never restarts from the wrong value.</item>
+/// chain never pops and never restarts from the wrong value. This is the ONE motion left in the
+/// channel and it is a ONE-SHOT: it is triggered by the game's board changing, it finishes, and it
+/// does not come back until the board moves again.</item>
 /// </list>
+///
+/// <para><b>NO ENVIRONMENT EFFECT MAY BLINK — the standing ruling this channel is built around
+/// (2026-09-06).</b> USER, on hardware, verbatim: "Auch das Eis blinkt in nem Loop wenn es nur zur
+/// Hälfte aktiv ist. Ich hatte die 'Hälften' nie getestet daher ist mir das nie aufgefallen. Ich
+/// will so ein Blinken generell nicht. Die Umgebungseffekte sollen genau wie beim 'vollen' sein -
+/// nur weniger in der Anzahl oder weniger intensiv - aber niemals blinkend."</para>
+///
+/// <para>The last sentence is a RULE and not a bug report about ice: <b>a half-active element
+/// differs from a full one in COUNT or in AMPLITUDE, never in TIME.</b> Ice is simply what he
+/// happened to be looking at.</para>
+///
+/// <para><b>THE MECHANISM, and why it could only be fixed here.</b> The waning plateau was the ONLY
+/// term anywhere on the element→environment path that was a function of the clock AT ONE STRENGTH
+/// AND NOT AT THE OTHERS. Strong published a constant 1.00 and Inert a constant 0.00; Waning
+/// published <c>0.40 + 0.12·sin(2π·clock/2.4)</c>. Everything downstream inherited it, and the
+/// consumers that inherited it WORST are the ones built on a THRESHOLD, where a smooth ±0.12 on the
+/// input is a hard on/off on the output:
+/// <list type="bullet">
+/// <item>the frost frontier (<c>GhvrGrow</c>, EnvGrowth.cginc) — through its ease, the breath swept
+/// the coverage threshold 0.72…0.84 across a frontier only 0.12 wide, i.e. the WHOLE frontier width,
+/// coherently over the entire room, every 2.4 s. That is the ice the user watched;</item>
+/// <item>the haunt schedule (<c>GhvrHauntAtRaw</c> / <see cref="Haunt"/>'s C# mirror) — Dark and
+/// Light bend <c>freq</c>, which a <c>step()</c> turns into whether a slot fires at all, so a
+/// half-active Dark flipped apparitions on and off on the same 2.4 s;</item>
+/// <item>the element sound beds (<c>EnvSound.TickBeds</c>) — the bed level tracks the published
+/// value fast enough to follow it, so a half-active Air or Fire was audibly swelling and ebbing.</item>
+/// </list>
+/// A remedy at any one of those would have been a remedy for one of them. The term is here, so the
+/// fix is here, and it is a deletion.</para>
+///
+/// <para><b>THE EVIDENCE, from the shipped log and with no new instrument</b> (ModBuild 448,
+/// <c>] [Core] ELEMENT MOOD:</c>, host and peer). Ice went Waning at shared clock 2819.28 s. At
+/// 3169.61 s — 350 s later, three hundred ramps after the transition, with the board perfectly
+/// still — the host printed <c>Ice=Waning now 0.29</c>; at 3190.30 s it printed <c>Ice=…now 0.52</c>.
+/// The same number, 0.23 apart, with nothing in the game having changed. The peer, on its own
+/// machine, printed 0.52 at 3190.29 s — identical, which is the shared clock working exactly as
+/// designed and is why BOTH players saw the same blink rather than only one of them.</para>
+///
+/// <para><b>WHAT WAS DELIBERATELY NOT CHANGED, because it is not this defect.</b> The art carries
+/// its own clocks — the candle flicker, <c>GhvrEmberBreath</c>, <c>GhvrWind</c>, the spark sine,
+/// <c>GhvrGrowCreep</c>'s slow travelling frost frontier (the user's own ModBuild 142 request,
+/// "animiert und immersiv"). Every one of them runs IDENTICALLY at Strong, at Waning and at every
+/// value in between; an element scales their amplitude and never their rate (the project's
+/// frequency-scrub rule, EnvGrowth.cginc). They are what the full-strength picture is made of, and
+/// the ruling says half must look like full — so removing them would break the sentence it is meant
+/// to satisfy. What the ruling forbids is a term that is periodic BECAUSE the element is half, and
+/// after this round there is not one.</para>
 ///
 /// <para><b>THE GROWTH CHANNEL, and why a second curve rather than a second reading of the first
 /// one (2026-09-05).</b> USER, on hardware: "Das Gras im Wald, das wegen dem Element aufgetaucht
 /// ist, wächst und verschwindet in einem Loop statt einmal zu wachsen und dann konstant da zu sein!
 /// Wieso das? Das soll nicht sein. Es ist aufgefallen als das Element nur halb aktiv war."</para>
 ///
-/// <para>"Nur halb aktiv" names the state exactly: it is the WANING PLATEAU, and the breath above is
-/// the loop. The breath is right for a PIXEL effect — a frost frontier that advances and retreats a
-/// few centimetres is a surface being taken and given back, and that is the reading the plateau was
-/// tuned for and accepted on. It is wrong for GEOMETRY. Earth's only remaining effect on a surface
+/// <para>"Nur halb aktiv" names the state exactly: it is the WANING PLATEAU, and the breath THE
+/// PLATEAU CARRIED AT THE TIME was the loop. That round argued the breath was right for a PIXEL
+/// effect — a frost frontier that advances and retreats a few centimetres is a surface being taken
+/// and given back — and wrong only for GEOMETRY. THE NEXT ROUND FALSIFIED THAT ARGUMENT: the user
+/// reported the same loop on the ICE, i.e. on the pixel effect the exemption was written for, and
+/// ruled the breath out everywhere. The paragraph is kept as the record of a half-fix. Earth's only
+/// remaining effect on a surface
 /// is <c>GhvrGrowCard</c> (EnvGrowth.cginc), a VERTEX FOLD that collapses a grass card onto its own
 /// base edge; the fold is driven through a THRESHOLD, so a card is either standing or has zero area.
 /// Sweeping that threshold with a 2.4 s sine does not make the grass breathe, it makes each blade
@@ -147,7 +205,10 @@ namespace GloomhavenVR.Core;
 /// <c>_GhvrElemGrow</c> is 1 while Earth is up AT ALL — Strong and Waning are the same number, and
 /// that identity is the fix: nothing the element does between "charged" and "about to go" can move a
 /// blade of grass. Only Inert is 0. The six intensities are untouched, so the frost path, the glow,
-/// the flames and the particles all keep the breath they were tuned with.</para>
+/// the flames and the particles all kept the breath they were tuned with. THAT LAST CLAUSE IS WHAT
+/// CAME BACK: the frost is one of those, and it is what the user saw next. The breath is gone from
+/// the six as well now, and this channel's identity argument — Strong and Waning are the same
+/// number — is unchanged and is still the reason the grass cannot move.</para>
 ///
 /// <para><b>WHAT HAPPENS WHEN EARTH GOES INERT, which is a choice and not a default.</b> Grass that
 /// never dies is wrong: a scenario would accumulate vegetation nobody can explain and the room would
@@ -155,9 +216,9 @@ namespace GloomhavenVR.Core;
 /// same fault as the loop — a plant is not a HUD chip and may not answer at HUD speed. So the third
 /// thing: the growth channel RISES over <see cref="RampSeconds"/>, exactly as it does today (the
 /// grow-in is the one thing about Earth the user has never objected to, and this preserves it to the
-/// number), and FALLS over <see cref="WitherSeconds"/> — nine seconds, nearly four times the breath
-/// period the complaint is about, so a wither can never be mistaken for the loop even by someone who
-/// walks in on the middle of one. It is one-way while Earth stands: within a single presence episode
+/// number), and FALLS over <see cref="WitherSeconds"/> — nine seconds, and a ONE-SHOT rather than a
+/// cycle: it runs once, reaches 0 and stops, so it can never be mistaken for a loop even by someone
+/// who walks in on the middle of one. It is one-way while Earth stands: within a single presence episode
 /// the channel rises to 1 and then does not move at all.</para>
 ///
 /// <para><b>AND WHY THAT IS STILL BIT-IDENTICAL BETWEEN CLIENTS — the part a true ratchet would have
@@ -189,18 +250,26 @@ namespace GloomhavenVR.Core;
 /// anchors <c>since[i]</c> when its own poll first sees the change. That skew is bounded by one
 /// frame of polling plus whatever the game's own replication costs, i.e. a few percent of a 1 s
 /// ramp.</item>
-/// <item>The waning BREATH is an ABSOLUTE-PHASE function of the clock (<c>sin(2π·clock/period)</c>).
-/// The offset does NOT cancel there, and this is the whole reason the shared clock is used: on
-/// <c>Time.time</c> two players would watch the same waning element breathe in opposite phase.</item>
+/// <item>THERE IS NO LONGER A SECOND KIND. The waning BREATH used to be an ABSOLUTE-PHASE function
+/// of the clock (<c>sin(2π·clock/period)</c>), the offset did NOT cancel there, and that was the
+/// whole reason the shared clock was used. With the breath deleted every remaining use of the clock
+/// in this file is a DIFFERENCE (<c>clock − Since[i]</c>, <c>clock − _growSince</c>), so the offset
+/// cancels everywhere and the published channel no longer has a phase for two clients to disagree
+/// about at all. The shared clock stays, because the ramp anchors must come from the same monotone
+/// base as the evaluation — but the failure mode this item was written to prevent is now structurally
+/// impossible rather than merely avoided.</item>
 /// </list></para>
 ///
 /// <para><b>THE DEGRADATION, STATED RATHER THAN HIDDEN.</b> The environment clock is only actually
 /// SHARED while the style is <c>Cellar</c> or <c>SwampNight</c>: <c>SkyAlternative.WireStyleCode</c>
 /// (SkyAlternative.cs:1785) reports 0 for <c>Default</c>, for <c>OffBlack</c> and under mixed
 /// reality, and with nothing to agree about the offset stays 0 — so on those styles
-/// <c>EnvClockSeconds</c> is just <c>Time.timeSinceLevelLoad</c>, a per-client clock, and the
-/// breath phase is per-client. That costs nothing today (those styles draw no mod environment for
-/// the art to breathe on) and it costs nothing tomorrow either, because it is the same clock the
+/// <c>EnvClockSeconds</c> is just <c>Time.timeSinceLevelLoad</c>, a per-client clock. THAT USED TO
+/// COST SOMETHING AND NO LONGER DOES: while the plateau breathed, its phase was per-client on those
+/// styles, and since this channel deliberately KEEPS SENSING UNDER MIXED REALITY (see below) two
+/// players in passthrough watched the same waning element breathe out of phase — a 1:1 breach with
+/// no wire message that could have fixed it. With the breath gone the six carry no phase at all, and
+/// what is left costs nothing on those styles either, because it is the same clock the
 /// rest of the environment already runs on: whatever the art lane animates will be exactly as
 /// shared as the candle flicker and the rat beside it, no more and no less.</para>
 ///
@@ -243,25 +312,25 @@ internal static class ElementMood
     /// environment has visibly answered before the player has finished reading the HUD chip.</summary>
     private const float RampSeconds = 1.0f;
 
-    /// <summary>Waning sits at this, well under Strong's 1.0 — the gap is the READING, not a
-    /// dimming: a glance must separate "charged" from "about to go".</summary>
+    /// <summary>Waning sits at this, well under Strong's 1.0, AND IT DOES NOT MOVE — the gap is the
+    /// whole READING, and since 2026-09-06 it is the only difference a half-active element is allowed
+    /// to have (see NO ENVIRONMENT EFFECT MAY BLINK in the class doc). A glance must separate
+    /// "charged" from "about to go", and it does that on the number, never on a motion.</summary>
     private const float WaningPlateau = 0.40f;
 
-    /// <summary>Half-depth of the waning breath (0.40 ± 0.12 → 0.28…0.52). Big enough to be a
-    /// motion rather than a shimmer, small enough that waning never brushes Strong.</summary>
-    private const float WaningEbbAmplitude = 0.12f;
-
-    /// <summary>Breath period in shared-clock seconds. Slow — this is a "running out" signal, not
-    /// an alarm.</summary>
-    private const float WaningEbbPeriodSeconds = 2.4f;
+    /// <summary>The span the steadiness probe looks forward over, in shared-clock seconds. It is the
+    /// PERIOD OF THE BREATH THIS RULING DELETED, kept as a live number with exactly one consumer —
+    /// <see cref="TimeDrift"/> — rather than as a comment, because its whole job is to be the window
+    /// in which a re-introduced 2.4 s oscillation would show up as a non-zero drift in the hardware
+    /// line. Anything periodic at or under this period cannot hide inside it.</summary>
+    private const float ProbeSpanSeconds = 2.4f;
 
     /// <summary>How long the growth channel takes to fall to 0 once Earth is Inert, in shared-clock
     /// seconds. It is deliberately NOT <see cref="RampSeconds"/>: the grow-in may answer at the speed
     /// of the HUD because a player who has just infused Earth is looking for an answer, but a plant
     /// going away at that speed is the "pops away" fault, which reads as a glitch rather than as an
-    /// end. Nine seconds is also nearly four times <see cref="WaningEbbPeriodSeconds"/>, i.e. four
-    /// times the period of the loop this channel was created to remove — so a wither seen halfway
-    /// through can never be mistaken for the defect coming back.</summary>
+    /// end. It is also a ONE-SHOT and not a cycle: it runs once, reaches 0 and stops, which is what
+    /// keeps it on the right side of the no-blinking ruling.</summary>
     private const float WitherSeconds = 9.0f;
 
     /// <summary>Below this, a component change is not worth a uniform write. Two orders under the
@@ -301,9 +370,11 @@ internal static class ElementMood
             "Let the 3D environment react to the ELEMENT INFUSIONS on the board (fire, ice, air, "
             + "earth, light, dark). ON publishes the live element state to the environment's "
             + "materials, so the surroundings can answer the elements that are currently up — a "
-            + "freshly infused element reads as fully charged, a waning one slowly breathes so you "
-            + "can see it is about to go out without reading the element strip, and the response "
-            + "fades in and out over about a second instead of popping. OFF removes the reaction "
+            + "freshly infused element reads as fully charged and a waning one is visibly weaker — "
+            + "fewer frost patches, dimmer light, less of everything — so you can see it is about to "
+            + "go out without reading the element strip. Nothing blinks or pulses at any strength: "
+            + "the response fades in and out over about a second when the board changes and then "
+            + "holds perfectly still. OFF removes the reaction "
             + "completely and costs nothing at all: one value is published once to switch every "
             + "effect off and then nothing is read or written per frame. Purely local presentation "
             + "— it changes NOTHING about the game state and adds NO network traffic, because the "
@@ -380,7 +451,8 @@ internal static class ElementMood
     // carry, and it reverses them for a reason rather than a preference:
     //
     //   * "dauerhaft an" ends the timed hold. The old expiry was eight seconds — sized so a tester
-    //     could see the Waning plateau breathe one and a half times — which is right for "show me
+    //     could see the Waning plateau breathe one and a half times, back when it breathed at all —
+    //     which is right for "show me
     //     this once" and wrong for "leave it standing while I look at something else". Judging how
     //     two elements sit together cannot be done in eight seconds, and re-pressing a button every
     //     eight seconds is not a test, it is a metronome. There is now NO expiry at all: the only
@@ -488,7 +560,8 @@ internal static class ElementMood
     /// invisible and why.</para>
     /// </summary>
     /// <param name="element">Element index, 0..5 in the game's own EElement order.</param>
-    /// <param name="waning">true = the breathing Waning plateau, false = Strong.</param>
+    /// <param name="waning">true = the Waning plateau, false = Strong. Both are still numbers now —
+    /// see NO ENVIRONMENT EFFECT MAY BLINK in the class doc.</param>
     internal static bool Force(int element, bool waning)
     {
         if (!_bound)
@@ -673,6 +746,23 @@ internal static class ElementMood
     /// <c>RemoteElementStrip.Refresh</c> uses it. -1 = nothing observed yet.</summary>
     private static int _signature = -1;
 
+    /// <summary>The signature the last SETTLED line was printed for — a second detector beside
+    /// <see cref="_signature"/>, and it has to be its own field: the edge line fires the instant the
+    /// board moves, when every element is mid-ramp and therefore legitimately time-varying, which is
+    /// the one state in which the steadiness reading would be meaningless. -1 = nothing yet.</summary>
+    private static int _steadySignature = -1;
+
+    /// <summary>Six bits: element <c>i</c> has been observed in the Waning column at least once
+    /// while the channel was live. THE FALSIFIER FIELD — see <see cref="LogSteady"/>. It survives a
+    /// stand-down on purpose, because the question it answers ("was the half state ever reached in
+    /// this session?") is about the session and not about one scenario.</summary>
+    private static int _halfSeenMask;
+
+    /// <summary>How many settled lines have been printed. Change-gated lines look DEAD when their
+    /// reason is constant, so the line carries its own ordinal and a reader can tell "nothing has
+    /// changed since #4" from "the instrument stopped".</summary>
+    private static int _steadyLines;
+
     /// <summary>The last vectors actually written, so a write happens only on a real change.</summary>
     private static Vector4 _lastA;
     private static Vector4 _lastB;
@@ -711,6 +801,83 @@ internal static class ElementMood
         if (element < 0 || element >= Count || !_live)
             return 0f;
         return Value[element] * Mathf.Max(0f, ResponseStrength.Value);
+    }
+
+    // ---- the curve, as one function ---------------------------------------------------------------
+
+    /// <summary>
+    /// WHAT A COLUMN IS WORTH. A PURE FUNCTION OF THE COLUMN AND OF NOTHING ELSE — no clock, no
+    /// phase, no history — and that signature is the fix of 2026-09-06 rather than an implementation
+    /// detail. Strong is 1.00, Waning is <see cref="WaningPlateau"/>, Inert is 0.00, for ALL SIX
+    /// ELEMENTS, forever.
+    ///
+    /// <para>Waning used to return <c>0.40 + 0.12*sin(2*pi*clock/2.4)</c>. USER, on hardware
+    /// (verbatim): "Auch das Eis blinkt in nem Loop wenn es nur zur Hälfte aktiv ist. ... Ich will so
+    /// ein Blinken generell nicht. Die Umgebungseffekte sollen genau wie beim 'vollen' sein - nur
+    /// weniger in der Anzahl oder weniger intensiv - aber niemals blinkend." A half-active element
+    /// may differ from a full one in COUNT or in AMPLITUDE and never in TIME, and this method is the
+    /// one place the channel could have carried a time term at all.</para>
+    /// </summary>
+    private static float TargetFor(ElementInfusionBoardManager.EColumn column) => column switch
+    {
+        ElementInfusionBoardManager.EColumn.Strong => 1f,
+        ElementInfusionBoardManager.EColumn.Waning => WaningPlateau,
+        _ => 0f,
+    };
+
+    /// <summary>
+    /// One element's published intensity at an ARBITRARY shared-clock instant. The per-frame
+    /// smoothing calls it with `now`; <see cref="TimeDrift"/> calls it with `now + k` to measure
+    /// whether the curve moves on its own.
+    ///
+    /// <para><b>ONE CODE PATH ON PURPOSE.</b> The instrument that proves "nothing here is
+    /// time-varying" must evaluate the very function the shaders are fed, or it is an assertion
+    /// wearing a measurement's clothes: a future edit that put a clock back into the target would
+    /// then be invisible to the line whose whole job is to catch it. So there is exactly one
+    /// evaluator and both callers use it.</para>
+    ///
+    /// <para>Closed form rather than a per-frame MoveTowards: the intensity is a pure function of
+    /// (from, target, elapsed), so it is frame-rate independent by construction and two clients that
+    /// anchored at the same shared-clock time agree exactly, with no accumulated integration error to
+    /// drift apart.</para>
+    /// </summary>
+    private static float ValueAt(int i, float clock)
+    {
+        float t = RampSeconds > 0f ? Mathf.Clamp01((clock - Since[i]) / RampSeconds) : 1f;
+        t = t * t * (3f - 2f * t);                     // smoothstep — no corner at either end
+        return Mathf.Clamp01(Mathf.Lerp(From[i], TargetFor(Column[i]), t));
+    }
+
+    /// <summary>
+    /// HOW MUCH THIS ELEMENT'S PUBLISHED VALUE WOULD MOVE OVER THE NEXT <see cref="ProbeSpanSeconds"/>
+    /// SECONDS IF THE GAME'S BOARD NEVER CHANGED. This is the field that makes the ruling checkable
+    /// from a Player.log instead of from someone staring at ice: 0.000 means the channel is a
+    /// constant at this strength, i.e. nothing downstream can be periodic because of the element.
+    ///
+    /// <para>It is a MEASUREMENT and not a claim. It re-runs <see cref="ValueAt"/> — the shipped
+    /// evaluator — at five instants a fifth of the deleted breath's period apart, which is a Nyquist
+    /// margin of 2.5x against that exact waveform and against anything faster expressed at that
+    /// amplitude. If a future edit puts any oscillation back into the target, this reads non-zero on
+    /// the first settled line and names the element.</para>
+    ///
+    /// <para>THE ONE HONEST NON-ZERO is a transition still in flight: within <see cref="RampSeconds"/>
+    /// of a column change the value is legitimately travelling, so the reading is the ramp's
+    /// remaining distance. The caller only ever prints this from a SETTLED state (see
+    /// <see cref="LogSteady"/>), so a non-zero reading on that line is a defect and nothing else.</para>
+    /// </summary>
+    private static float TimeDrift(int i, float clock)
+    {
+        float lo = ValueAt(i, clock);
+        float hi = lo;
+        for (int k = 1; k <= 5; k++)
+        {
+            float v = ValueAt(i, clock + ProbeSpanSeconds * (k / 5f));
+            if (v < lo)
+                lo = v;
+            if (v > hi)
+                hi = v;
+        }
+        return hi - lo;
     }
 
     // ---- per-frame driver -------------------------------------------------------------------------
@@ -837,14 +1004,21 @@ internal static class ElementMood
             // forced column exactly like a sensed one. So a latch ramps IN like a real infusion and,
             // when it is released, ramps OUT like a real one, with no second code path to keep in
             // step. THAT IS ALSO WHY MIXTURES NEEDED NO OTHER CHANGE: this loop already ran six
-            // times, the breath is one shared phase read once per frame outside it, and the peak is a
-            // max over all six — so six latched elements smooth, breathe and publish exactly as six
-            // real infusions would. The only edit the request needed here was `== _forceIndex`
-            // becoming a per-element flag.
+            // times and the peak is a max over all six — so six latched elements smooth and publish
+            // exactly as six real infusions would. The only edit the request needed here was
+            // `== _forceIndex` becoming a per-element flag.
             if (ForceLatched[i])
                 column = ForceColumn[i];
 
             signature = signature * 3 + (int)column;
+
+            // THE FALSIFIER'S BOOKKEEPING. A Waning column IS the "nur zur Hälfte aktiv" state the
+            // ruling is about, so the census is taken here, where the column is known and before any
+            // smoothing can round it away. Without it a clean hardware line would be unreadable: it
+            // would say the same thing in a session that proved the fix and in a session that never
+            // reached the half state at all.
+            if (column == ElementInfusionBoardManager.EColumn.Waning)
+                _halfSeenMask |= 1 << i;
 
             if (column != Column[i] || !_live)
             {
@@ -868,25 +1042,15 @@ internal static class ElementMood
         }
 
         // ---- SMOOTH -----------------------------------------------------------------------------
-        float waning = WaningPlateau
-                       + WaningEbbAmplitude * Mathf.Sin(clock * (2f * Mathf.PI / WaningEbbPeriodSeconds));
+        // THE LINE THAT USED TO SIT HERE WAS THE DEFECT, and it is worth naming rather than merely
+        // deleting: `waning = WaningPlateau + WaningEbbAmplitude * sin(clock * 2pi / 2.4)`. It made
+        // the PUBLISHED CHANNEL a function of the clock at exactly one strength — half — which is
+        // the one difference the user has now ruled out. There is no target function of the clock
+        // any more; see ValueAt.
         float peak = 0f;
         for (int i = 0; i < Count; i++)
         {
-            float target = Column[i] switch
-            {
-                ElementInfusionBoardManager.EColumn.Strong => 1f,
-                ElementInfusionBoardManager.EColumn.Waning => waning,
-                _ => 0f,
-            };
-
-            // Closed form rather than a per-frame MoveTowards: the intensity is a pure function of
-            // (from, target, elapsed), so it is frame-rate independent by construction and two
-            // clients that anchored at the same shared-clock time agree exactly, with no
-            // accumulated integration error to drift apart.
-            float t = RampSeconds > 0f ? Mathf.Clamp01((clock - Since[i]) / RampSeconds) : 1f;
-            t = t * t * (3f - 2f * t);                 // smoothstep — no corner at either end
-            float v = Mathf.Clamp01(Mathf.Lerp(From[i], target, t));
+            float v = ValueAt(i, clock);
             Value[i] = v;
             if (v > peak)
                 peak = v;
@@ -928,7 +1092,7 @@ internal static class ElementMood
         // THE ONE HARDWARE READING. Gated on EARTH'S COLUMN, not on the presence bool: the state the
         // complaint came from is Strong -> Waning, at which presence does not change and the grow-in
         // must be seen HOLDING. So the line fires on a few transitions per scenario, and each one
-        // prints the breathing intensity beside the held grow-in.
+        // prints the published intensity beside the held grow-in.
         int earthColumn = (int)Column[(int)ElementInfusionBoardManager.EElement.Earth];
         if (earthColumn != _growLoggedColumn)
         {
@@ -955,6 +1119,32 @@ internal static class ElementMood
         if (changed && signature != _signature)
             LogEdge(signature, master, clock);
         _signature = signature;
+
+        // THE SETTLED READING — the one line the no-blinking ruling is checked from. It fires ONE
+        // ramp after each edge rather than on the edge itself, because on the edge every element is
+        // legitimately travelling and a steadiness measurement taken there would read non-zero for a
+        // correct build. Two lines per board change, a handful per scenario.
+        //
+        // Gated on the SIX only, deliberately: the growth channel's wither is nine seconds long, so
+        // including it would suppress this line for nine seconds after every Earth expiry — and the
+        // wither is a ONE-SHOT that the line reports rather than something the ruling forbids.
+        if (signature != _steadySignature && Settled(clock))
+        {
+            _steadySignature = signature;
+            LogSteady(clock, master);
+        }
+    }
+
+    /// <summary>Has every one of the six finished its transition ramp at this instant? The settled
+    /// state is the only one in which "does this value move on its own?" has a meaningful answer.</summary>
+    private static bool Settled(float clock)
+    {
+        for (int i = 0; i < Count; i++)
+        {
+            if (clock - Since[i] < RampSeconds)
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -995,6 +1185,11 @@ internal static class ElementMood
         _live = false;
         _zeroed = true;
         _signature = -1;
+        // ...and the settled line re-baselines with it, so the next live scenario states its
+        // steadiness afresh instead of staying silent because it happens to open on the same board.
+        // _halfSeenMask and _steadyLines are NOT cleared: they are the session's census, and a
+        // falsifier that reset every time the player looked at the map would answer nothing.
+        _steadySignature = -1;
         for (int i = 0; i < Count; i++)
         {
             Column[i] = ElementInfusionBoardManager.EColumn.Inert;
@@ -1088,7 +1283,7 @@ internal static class ElementMood
     /// shipped build's Player.log, which is where the defect was reported from.
     ///
     /// <para>WHAT IT DECIDES. The complaint is that the grass loops while Earth is "nur halb aktiv",
-    /// i.e. Waning. So the line prints, at every change of EARTH'S column: the column, the breathing
+    /// i.e. Waning. So the line prints, at every change of EARTH'S column: the column, the
     /// intensity that column produces, and the grow-in. The fix is confirmed by ONE relation across
     /// two consecutive lines — Earth going Strong -> Waning must change the intensity and must NOT
     /// change the grow-in, which must read 1.00 in both. A grow-in that tracks the intensity is the
@@ -1099,21 +1294,134 @@ internal static class ElementMood
     {
         var column = Column[(int)ElementInfusionBoardManager.EElement.Earth];
         float earth = Value[(int)ElementInfusionBoardManager.EElement.Earth];
-        // HW-VERIFY: the grow-in beside the breathing intensity it must no longer follow. Two
-        // consecutive lines across Strong -> Waning are the whole test.
+        // HW-VERIFY: the grow-in beside the intensity it must not follow. Two consecutive lines
+        // across Strong -> Waning are the whole test.
         VRLog.Note("Core", "EARTH GROWTH: Earth is now " + column
                    + ", published intensity " + earth.ToString("F2")
-                   + " which BREATHES " + (WaningPlateau - WaningEbbAmplitude).ToString("F2") + ".."
-                   + (WaningPlateau + WaningEbbAmplitude).ToString("F2") + " every "
-                   + WaningEbbPeriodSeconds.ToString("F1") + "s while Waning, and grow-in "
+                   + " which since 2026-09-06 is a CONSTANT at every column — 1.00 Strong, "
+                   + WaningPlateau.ToString("F2") + " Waning, 0.00 Inert, no breath at any of them "
+                   + "(see ELEMENT STEADY) — and grow-in "
                    + _grow.ToString("F2") + " heading for " + (_growPresent ? "1.00" : "0.00")
                    + ". THE GRASS FOLLOWS THE GROW-IN AND NOTHING ELSE: Strong and Waning are the "
-                   + "same grow-in, so the breath cannot move a blade; it rises over "
+                   + "same grow-in, so no change between the two can move a blade; it rises over "
                    + RampSeconds.ToString("F1") + "s once, holds while Earth stands, and withers "
                    + "over " + WitherSeconds.ToString("F1") + "s only when Earth goes Inert. "
                    + "Shared clock " + clock.ToString("F2") + "s, master "
                    + Mathf.Max(0f, ResponseStrength.Value).ToString("F2")
                    + ", zero wire: the element board is the game's own replicated state.");
+    }
+
+    /// <summary>
+    /// THE STEADINESS LINE — the instrument the 2026-09-06 ruling is checked from, and the reason
+    /// nobody has to sit and watch ice again.
+    ///
+    /// <para>USER, verbatim: "Auch das Eis blinkt in nem Loop wenn es nur zur Hälfte aktiv ist. ...
+    /// Ich will so ein Blinken generell nicht. Die Umgebungseffekte sollen genau wie beim 'vollen'
+    /// sein - nur weniger in der Anzahl oder weniger intensiv - aber niemals blinkend."</para>
+    ///
+    /// <para><b>WHAT IT PRINTS, per element:</b> the column (the state), the published strength, and
+    /// DRIFT — how far that strength would move over the next <see cref="ProbeSpanSeconds"/> seconds
+    /// if the game's board never changed. The third field is the one that decides the item, and it is
+    /// measured rather than asserted: <see cref="TimeDrift"/> re-runs the shipped evaluator
+    /// (<see cref="ValueAt"/>) at five future instants, so a clock put back into the curve by a
+    /// future edit reads non-zero here and names the element. EVERY DRIFT MUST BE 0.000. The line is
+    /// only ever emitted from a settled state (see <see cref="Settled"/>), so there is no honest
+    /// non-zero reading on it.</para>
+    ///
+    /// <para><b>THE FALSIFIER, and it is a field and not a hope.</b> A green line means nothing at
+    /// all if the half state was never reached — which is exactly how this defect survived: the user
+    /// says he "hatte die 'Hälften' nie getestet". So the line also carries HALF-ACTIVE SO FAR, the
+    /// census of which elements have been seen Waning this session. If it reads "none", the drift
+    /// readings are all from Strong and Inert and the run proves NOTHING about the ruling — the
+    /// tester has to put an element into Waning (the Erweitert page's Waning row does it for any of
+    /// the six) and look again. Silence is not success either: no line at all means the channel never
+    /// went live — no scenario, mixed reality, or 'EnvironmentResponse' off — and again says nothing.</para>
+    ///
+    /// <para>Change-gated on the board signature, so it does not repeat while nothing moves; the
+    /// ordinal is in the line because a change-gated instrument with a constant reason is
+    /// indistinguishable from a dead one.</para>
+    /// </summary>
+    private static void LogSteady(float clock, float master)
+    {
+        _steadyLines++;
+
+        var sb = new StringBuilder(480);
+        sb.Append("ELEMENT STEADY #").Append(_steadyLines).Append(": ");
+        float worst = 0f;
+        int worstElement = -1;
+        for (int i = 0; i < Count; i++)
+        {
+            float drift = TimeDrift(i, clock);
+            if (drift > worst)
+            {
+                worst = drift;
+                worstElement = i;
+            }
+            if (i > 0)
+                sb.Append("  ");
+            sb.Append((ElementInfusionBoardManager.EElement)i).Append('=').Append(Column[i])
+              .Append(' ').Append(Value[i].ToString("F2"))
+              .Append(" drift ").Append(drift.ToString("F3"));
+        }
+
+        sb.Append(" | ").Append(worst <= 0f
+                                   ? "NO DRIVEN TERM IS TIME-VARYING AT ANY STRENGTH"
+                                   : "TIME-VARYING AT "
+                                     + (worstElement >= 0
+                                            ? ((ElementInfusionBoardManager.EElement)worstElement).ToString()
+                                            : "an element") + " BY " + worst.ToString("F3")
+                                     + " — THE NO-BLINKING RULING IS BROKEN")
+          .Append(", measured over the next ").Append(ProbeSpanSeconds.ToString("F1"))
+          .Append("s by re-running the shipped curve at five future instants, from a settled board");
+
+        // HALF-ACTIVE SO FAR — the falsifier. See the doc block: a clean drift reading taken in a
+        // session that never reached Waning is not evidence, and this field is what stops it being
+        // read as evidence.
+        sb.Append(" | HALF-ACTIVE SO FAR: ");
+        if (_halfSeenMask == 0)
+        {
+            sb.Append("none — no element has been Waning in this session yet, so the readings above "
+                      + "are from Strong and Inert only and prove NOTHING about the half state. Put "
+                      + "one element on the Erweitert page's Waning row and read the next line");
+        }
+        else
+        {
+            bool first = true;
+            for (int i = 0; i < Count; i++)
+            {
+                if ((_halfSeenMask & (1 << i)) == 0)
+                    continue;
+                if (!first)
+                    sb.Append(", ");
+                first = false;
+                sb.Append((ElementInfusionBoardManager.EElement)i);
+            }
+            sb.Append(" have been Waning at least once, so a 0.000 above is real evidence for them");
+        }
+
+        sb.Append(" | THE RULE: a half-active element differs from a full one in AMPLITUDE only — "
+                  + "Strong publishes 1.00 and Waning publishes ")
+          .Append(WaningPlateau.ToString("F2"))
+          .Append(", both perfectly still. Fewer or weaker, never in time. The only motion left in "
+                  + "this channel is the one-shot ")
+          .Append(RampSeconds.ToString("F1"))
+          .Append("s transition ramp, which ends, and Earth's one-shot ")
+          .Append(WitherSeconds.ToString("F1")).Append("s wither");
+
+        sb.Append(" | grow-in ").Append(_grow.ToString("F2"))
+          .Append(_growPresent
+                      ? ", Earth is up and it is HELD: presence only, the same number for Strong and Waning"
+                      : ", Earth inert: withering once to 0 and stopping");
+
+        sb.Append(" | master ").Append(master.ToString("F2"))
+          .Append(", shared clock ").Append(clock.ToString("F2")).Append("s, sig ")
+          .Append(_steadySignature)
+          .Append(". Change-gated on the board, so nothing after this line until the board moves.");
+
+        // HW-VERIFY: per element the state, the strength, and whether ANY driven term is
+        // time-varying at that strength. Every drift must read 0.000; HALF-ACTIVE SO FAR says
+        // whether the reading is evidence at all.
+        VRLog.Note("Core", sb.ToString());
     }
 
     private static void LogEdge(int signature, float master, float clock)
@@ -1161,19 +1469,21 @@ internal static class ElementMood
           .Append(", shared clock ").Append(clock.ToString("F2")).Append('s');
         sb.Append(" | published as ").Append(ElemAName).Append("=(Fire,Ice,Air,Earth) ")
           .Append(ElemBName).Append("=(Light,Dark,Master,Peak); transitions ramp over ")
-          .Append(RampSeconds.ToString("F1")).Append("s, Waning breathes ")
-          .Append((WaningPlateau - WaningEbbAmplitude).ToString("F2")).Append("..")
-          .Append((WaningPlateau + WaningEbbAmplitude).ToString("F2")).Append(" every ")
-          .Append(WaningEbbPeriodSeconds.ToString("F1")).Append("s on the shared environment clock.");
+          .Append(RampSeconds.ToString("F1"))
+          .Append("s and then HOLD — Strong is 1.00, Waning is ")
+          .Append(WaningPlateau.ToString("F2"))
+          .Append(" and Inert is 0.00, all three perfectly still. Nothing on this channel is a "
+                  + "function of the clock at one strength and not at another; see ELEMENT STEADY "
+                  + "for the measured drift.");
         // THE GROWTH CHANNEL, on the same line as the values it is derived from — because the whole
         // question a reader brings to this line after 2026-09-05 is "did the grass move when it
-        // should not have?", and that is answered by seeing Earth's column, Earth's breathing
+        // should not have?", and that is answered by seeing Earth's column, Earth's published
         // intensity and the grow-in side by side: the grow-in must read 1.00 for BOTH Strong and
         // Waning and must never take a value in between while Earth stands.
         sb.Append(" | ").Append(ElemGrowName).Append(" ").Append(_grow.ToString("F2"))
           .Append(_growPresent
-                      ? " -> 1.00, Earth is up: Strong and Waning are the SAME grow-in, so the "
-                        + "waning breath cannot move a blade"
+                      ? " -> 1.00, Earth is up: Strong and Waning are the SAME grow-in, so no "
+                        + "difference between the two can move a blade"
                       : " -> 0.00, Earth inert: withering")
           .Append(", rises over ").Append(RampSeconds.ToString("F1"))
           .Append("s and withers over ").Append(WitherSeconds.ToString("F1"))
@@ -1190,8 +1500,9 @@ internal static class ElementMood
     private static string TargetLabel(ElementInfusionBoardManager.EColumn column) => column switch
     {
         ElementInfusionBoardManager.EColumn.Strong => "1.00",
-        ElementInfusionBoardManager.EColumn.Waning =>
-            WaningPlateau.ToString("F2") + "+-" + WaningEbbAmplitude.ToString("F2"),
+        // NO "+-" ANY MORE, and its absence is the fix in one glyph: the plus-minus was the breath,
+        // and a Waning element now heads for one number and stays on it.
+        ElementInfusionBoardManager.EColumn.Waning => WaningPlateau.ToString("F2"),
         _ => "0.00",
     };
 }
