@@ -150,6 +150,11 @@ internal sealed class CardFace
     private Vector2 _origAnchoredPos;
     private bool _origActive;
     private bool _origLock;
+    /// <summary>The widget's pile at ADOPT time — the snapshot's expiry date. See
+    /// <see cref="Restore"/>: a card that changed pile under us (a burn is exactly that) invalidates
+    /// the captured VISIBILITY, because the game hid the face when it moved the card and our replay
+    /// would show it again.</summary>
+    private CardPileType _origCardType;
 
     private float _fitScale = 1f;
     // Host size the fit scale was last computed against — the host canvas is resized
@@ -198,6 +203,7 @@ internal sealed class CardFace
         _origAnchoredPos = face.anchoredPosition;
         _origActive = face.gameObject.activeSelf;
         _origLock = owner.LockFullCard;
+        _origCardType = owner.CardType; // the snapshot's expiry date — see Restore
 
         owner.LockFullCard = true;
 
@@ -1809,10 +1815,34 @@ internal sealed class CardFace
         if (_origParent == null)
             return;
 
+        // A SNAPSHOT IS ONLY VALID WHILE THE WORLD IT WAS TAKEN IN STILL HOLDS (user 2026-09-04, the
+        // burned card that came back after a character switch). Everything below is a REPLAY of the
+        // state this face had when we borrowed it, and two terms of it are statements about the
+        // GAME's own current bookkeeping rather than about the face's geometry: whether the full
+        // card is SHOWN, and where it sits among its siblings.
+        //
+        // THE ONE CASE THAT INVALIDATES THEM is the card LEAVING THE HAND FOR A PILE while we hold
+        // its face — a damage burn is exactly that. The game hides the full card as it moves the
+        // card (AbilityCardUI.SetMode → ToggleFullCard(active: false), AbilityCardUI.cs:921-930)
+        // and re-sorts the list the sibling index pointed into, so replaying our pre-burn capture
+        // puts a burned card's face back, shown, where it no longer belongs. That is the mod
+        // writing a stale value over the game's own current answer, which is the one thing a
+        // restore must never do. Narrow ON PURPOSE: every other pile change (a card played into a
+        // round slot, a browse card handed back) leaves the capture describing a state the game
+        // still recognises, and widening this would trade a real fix for a per-card log storm.
+        //
+        // The parent and the geometry ARE still replayed even here: the face must never be left
+        // under our host (it would be destroyed with the VR card), and the anchors/pose are
+        // properties of the face itself, not of the pile it sits in.
+        bool leftHandForAPile = owner != null && _origCardType == CardPileType.Hand
+                                && (owner.CardType == CardPileType.Discarded
+                                    || owner.CardType == CardPileType.Lost
+                                    || owner.CardType == CardPileType.Permalost);
         try
         {
             face.SetParent(_origParent, worldPositionStays: false);
-            face.SetSiblingIndex(_origSibling);
+            if (!leftHandForAPile)
+                face.SetSiblingIndex(_origSibling);
             face.anchorMin = _origAnchorMin;
             face.anchorMax = _origAnchorMax;
             face.pivot = _origPivot;
@@ -1820,7 +1850,24 @@ internal sealed class CardFace
             face.localPosition = _origLocalPos;
             face.localRotation = _origLocalRot;
             face.localScale = _origLocalScale;
-            face.gameObject.SetActive(_origActive);
+            // HIDDEN is the safe direction and the game's own default: every non-preview SetMode
+            // hides the full card, so handing it back hidden can only ever cost a frame before the
+            // game shows it again — while handing back a stale SHOWN would put a burned card's face
+            // back into the 2D hand until something else happened to refresh it.
+            face.gameObject.SetActive(!leftHandForAPile && _origActive);
+            if (leftHandForAPile)
+            {
+                // HW-VERIFY: the stale-snapshot seam (user 2026-09-04). This line means the game
+                // moved the card between our adopt and our hand-back — the window in which replaying
+                // the snapshot would have re-shown a card the game had already burned or discarded.
+                VRLog.Note("Cards", $"CardFace.Restore: '{owner!.name}' changed pile under us — it was " +
+                                    $"{_origCardType} when we borrowed its face and the game now calls it " +
+                                    $"{owner.CardType}. The captured parent, anchors and pose are replayed as " +
+                                    "always, but the captured VISIBILITY and sibling order are NOT: those " +
+                                    "describe a hand the card has left, so the face goes back HIDDEN and the " +
+                                    "game re-shows it when it wants to. Replaying them is how a burned card's " +
+                                    "face got put back where it no longer belongs.");
+            }
         }
         catch (System.Exception ex)
         {
