@@ -1356,32 +1356,82 @@ internal sealed partial class CardsDriver
     ///
     /// <para>USER RULING 2026-08-08: "Die Verbrannt-Piles und Abgeworfen-Piles sollen jederzeit EGAL
     /// wer gerade dran ist öffenbar sein und die Karten sollen auch nehmbar sein um sie anzugucken,
-    /// das darf nicht blockieren." So there is NO turn key, NO phase whitelist and NO "is it your
-    /// character" test here, and there must never be one again: a pile is public, readable
-    /// information (vanilla lets anyone open ANY player's full card overview from the initiative
-    /// track). Exactly two refusals survive, and both are OWNERSHIP-OF-THE-WIDGETS refusals rather
-    /// than permission refusals:</para>
+    /// das darf nicht blockieren." RE-STATED AND WIDENED 2026-09-05, after a multiplayer hardware
+    /// test: "Man soll die Kartenfächer (Items, verbrannt und abgeworfen) IMMER anschauen können.
+    /// Aktuell kann man die Fächer nicht öffnen, wenn eine Entscheidung getroffen werden muss (zB
+    /// wegen Schaden), das ist aber wichtig für die Entscheidung." So there is NO turn key, NO phase
+    /// whitelist and NO "is it your character" test here, and there must never be one again: a pile
+    /// is public, readable information (vanilla lets anyone open ANY player's full card overview
+    /// from the initiative track).</para>
+    ///
+    /// <para>WHAT WENT WRONG, and it went wrong in TWO independent ways at once. The pick-flow
+    /// refusal below used to be <c>!readOnly &amp;&amp; IsPickMode(mode)</c> — a MODE test with no
+    /// pile term and no liveness term — and the co-player's log shows what that costs: with the
+    /// take-damage decision open he poked the BURNT stack eleven times and got eleven
+    /// "PILE BROWSE REFUSED: Burnt — a modal pick flow owns the pile widgets right now
+    /// (mode=LoseCard)". Both halves of that sentence were wrong for his state.</para>
+    ///
     /// <list type="number">
-    /// <item>A live modal PICK flow of the character the GAME drives (<see cref="IsPickMode"/>):
-    ///   those flows re-purpose the very <c>AbilityCardUI</c> widgets of the discard pile as the
-    ///   pick fan (<c>CardHandMode.LoseCard</c> on <c>CardPileType.Discarded</c>), so an arc
-    ///   borrowing them at the same time would fight the pick for one visual per card. A READ-ONLY
-    ///   focus view is exempt for the same reason <c>Rebuild</c> forces its <c>pick</c> false: the
-    ///   watched character's <c>CardsHandUI.currentMode</c> is a stale leftover of its own last
-    ///   decision and owns nothing here.</item>
-    /// <item>A real modal dialog (<see cref="VRMode.ModalUI"/>) — it owns the scene and the input.</item>
+    /// <item>NO PILE TERM. A pick flow does not borrow "the piles", it borrows the widgets the
+    ///   GAME marked selectable, and which pile those come from is a per-flow parameter, not a
+    ///   property of the mode: <c>TakeDamagePanel</c> alone drives <c>CardHandMode.LoseCard</c>
+    ///   with <c>selectableCardType</c> = <c>Hand</c> (burn one available card, :538),
+    ///   <c>Discarded</c> (burn two discarded, :575) and <c>Any</c> (full-hand preview, :520). So a
+    ///   burn-from-HAND pick borrows nothing at all from the burnt pile, and the mode alone can
+    ///   never say otherwise.</item>
+    /// <item>NO LIVENESS TERM. <c>CardsHandUI.currentMode</c> is STICKY — the same stale-mode trap
+    ///   this file already documents for <c>CardsSelection</c> and <c>ActionSelection</c>.
+    ///   <c>TakeDamagePanel.HideCardPreview</c> ends a preview with
+    ///   <c>CardsHandManager.Hide()</c>, and <c>Hide</c> (CardsHandManager.cs:899) deactivates the
+    ///   hand objects without touching <c>currentMode</c>. It therefore reads <c>LoseCard</c> long
+    ///   after any pick is over, and a mode-only gate refuses on a flow that is not running.</item>
+    /// </list>
+    ///
+    /// <para>SO THE REFUSAL NOW ASKS THE OWNERSHIP QUESTION IT ALWAYS MEANT TO ASK, of the ONE
+    /// authority that can answer it: <see cref="PickOwnsPileVisuals"/> counts how many of THIS
+    /// pile's cards the pick fan and the drop field are actually holding right now. That set is
+    /// live (Rebuild refills <c>_fanBuffer</c> before <see cref="UpdateBrowser"/> runs), it is
+    /// per-pile by construction, and it is empty whenever the mode is a stale leftover — one
+    /// classifier, both surfaces, exactly like <see cref="BoardOwnsCardVisual"/>.</para>
+    ///
+    /// <para>Two refusals survive, and both are OWNERSHIP-OF-THE-WIDGETS refusals rather than
+    /// permission refusals:</para>
+    /// <list type="number">
+    /// <item>A live modal PICK flow that is holding EVERY card of THIS pile in its own fan/drop
+    ///   field. A card has exactly one visual (the face is the game's own <c>FullAbilityCard</c>
+    ///   rect re-parented onto the VR card, <c>VRCardFactory.GetOrCreate</c> is 1:1 with the
+    ///   widget), so an arc cannot show a card the pick is already showing. This is not "you may
+    ///   not look": every one of those cards is laid out in front of the player AS the pick fan,
+    ///   which is why refusing costs the player nothing. A PARTIAL overlap does NOT refuse — the
+    ///   arc opens and <see cref="UpdateBrowser"/> simply leaves the borrowed ones out, the same
+    ///   way it already leaves out a played/active/slotted card. A READ-ONLY focus view is exempt
+    ///   for the same reason <c>Rebuild</c> forces its <c>pick</c> false: the watched character's
+    ///   <c>currentMode</c> is a stale leftover of its own last decision and owns nothing here.</item>
+    /// <item>A real modal dialog (<see cref="VRMode.ModalUI"/>) — it owns the scene and the input.
+    ///   Note that a take-damage decision is NOT one: the co-player's refusals named the pick
+    ///   reason, so <c>VRMode</c> was not <c>ModalUI</c> while that panel was up.</item>
     /// </list>
     /// </summary>
+    /// <param name="kind">WHICH pile the browse is about. The term the gate never had: without it
+    /// every pick mode refused every pile, including piles the live flow borrows nothing from.</param>
+    /// <param name="hand">The hand whose pile is being browsed — the FOCUS-RESOLVED one, the same
+    /// hand the arc will read its widgets from, so the gate and the fill can never disagree.</param>
     /// <param name="readOnly">True while the presented character is a FOCUS override, i.e. one the
     /// game is not driving. Passed in rather than read off <c>CharacterFocus.ReadOnlyView</c>
     /// because that flag is latched by the edge-driven rebuild: the open path needs the LIVE
     /// answer, the rebuild path already holds this rebuild's freshly latched one.</param>
-    private static bool BrowseAllowed(CardHandMode mode, bool readOnly, out string? refusal)
+    private bool BrowseAllowed(PileKind kind, CardsHandUI? hand, CardHandMode mode, bool readOnly,
+                               out string? refusal)
     {
-        if (!readOnly && IsPickMode(mode))
+        if (!readOnly && IsPickMode(mode)
+            && PickOwnsPileVisuals(kind, hand, out int owned, out int inPile)
+            && owned >= inPile)
         {
-            refusal = $"a modal pick flow owns the pile widgets right now (mode={mode}) — the same " +
-                      "cards are the pick fan, and one card has exactly one visual";
+            refusal = $"the live pick flow is already showing ALL {inPile} card(s) of this pile as its " +
+                      $"own fan/drop field (mode={mode}), and a card has exactly one visual — so the " +
+                      "arc has nothing left to add that is not already laid out in front of you. " +
+                      "This is the only surviving pick refusal: a pick that borrows a DIFFERENT " +
+                      "pile, or only SOME of this one, no longer refuses anything";
             return false;
         }
         if (VRModeStateMachine.CurrentMode == VRMode.ModalUI)
@@ -1391,6 +1441,59 @@ internal sealed partial class CardsDriver
         }
         refusal = null;
         return true;
+    }
+
+    /// <summary>Widget scratch for <see cref="PickOwnsPileVisuals"/>. Its OWN buffer rather than
+    /// <c>_pileWidgetBuffer</c>: that one belongs to <see cref="UpdateBrowser"/>'s fill, which runs
+    /// immediately after the gate asked this question, and the open path asks it from outside
+    /// Rebuild entirely.</summary>
+    private readonly List<AbilityCardUI> _pileGateBuffer = new(16);
+
+    /// <summary>
+    /// HOW MANY OF THIS PILE'S CARDS IS THE LIVE PICK FLOW HOLDING? The pile term
+    /// <see cref="BrowseAllowed"/> never had, answered from the mod's own record of what the pick
+    /// is showing rather than from the mode: <c>_fanBuffer</c> (the cards Rebuild put in the pick
+    /// fan — in a pick mode that is exactly the widgets the game marked selectable, Rebuild's
+    /// <c>eligible</c> test) and <c>_fieldCards</c> (the drop-field occupants).
+    ///
+    /// <para>WHY THAT SET AND NOT THE GAME'S <c>selectableCardTypes</c>. The take-damage panel's
+    /// full-hand preview passes <c>CardPileType.Any</c> (TakeDamagePanel.cs:520), which marks every
+    /// non-supply widget selectable — so the game's own pile list answers "all of them" for a state
+    /// in which nothing is being picked. <c>_fanBuffer</c> answers with what is PHYSICALLY on the
+    /// board, which is the only thing an arc can collide with.</para>
+    ///
+    /// <para>FRESHNESS. Rebuild clears and refills <c>_fanBuffer</c> before it calls
+    /// <see cref="UpdateBrowser"/>, so the rebuild path reads this rebuild's value; the open path
+    /// reads the last rebuild's, which is the same staleness <see cref="BoardOwnsCardVisual"/> is
+    /// documented to rely on and is re-checked on the very next rebuild.</para>
+    ///
+    /// <para>Read-only: no game state is read beyond the pile widget list, none is written, nothing
+    /// goes on the wire.</para>
+    /// </summary>
+    /// <param name="owned">Cards of this pile whose one visual the pick fan / drop field holds.</param>
+    /// <param name="inPile">Cards the pile has at all (long-rest placeholders are not cards).</param>
+    private bool PickOwnsPileVisuals(PileKind kind, CardsHandUI? hand, out int owned, out int inPile)
+    {
+        owned = 0;
+        inPile = 0;
+        if (hand == null || kind == PileKind.Items)
+            return false; // the items fan owns no AbilityCardUI widget — it cannot collide with a pick
+        CardsGameApi.GetPileWidgets(hand, kind == PileKind.Burnt, _pileGateBuffer);
+        for (int i = 0; i < _pileGateBuffer.Count; i++)
+        {
+            AbilityCardUI widget = _pileGateBuffer[i];
+            if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
+                continue;
+            inPile++;
+            // No VR card yet ⇒ nothing on the board can be holding its visual: the pick fan only
+            // ever contains cards it adopted through AdoptedCard, which creates them.
+            VRCard? card = _factory.Find(widget);
+            if (card == null)
+                continue;
+            if (_fanBuffer.Contains(card) || _fieldCards.Contains(card))
+                owned++;
+        }
+        return owned > 0;
     }
 
     /// <summary>
@@ -1541,11 +1644,23 @@ internal sealed partial class CardsDriver
         // edge-driven rebuild: a poke landing in the frame between the focus click and its rebuild
         // would otherwise be judged against the PREVIOUS view's answer. Same definition, live.
         bool readOnly = !ReferenceEquals(presentedHand, gameHand);
-        if (!BrowseAllowed(mode, readOnly, out string? refusal))
+        if (!BrowseAllowed(kind, presentedHand, mode, readOnly, out string? refusal))
         {
-            VRLog.Info("Cards", $"PILE BROWSE REFUSED: {kind} — {refusal} (trigger: {trigger}).");
+            // HW-VERIFY: the anchored line for "the burnt/discard fan would not open during a
+            // decision". A refusal here now has to name a pile the pick is holding IN FULL; a
+            // refusal naming a pile the pick borrows nothing from would mean PickOwnsPileVisuals
+            // is reading the wrong set.
+            VRLog.Note("Cards", $"PILE BROWSE REFUSED: {kind} — {refusal} (trigger: {trigger}).");
             return;
         }
+        // ONE PILE FAN AT A TIME, AND ONLY ONCE THIS ONE IS ACTUALLY OPENING. The eviction used to
+        // sit in PileViewer.DispatchPoke, i.e. BEFORE this gate ran, so a refused discard/burnt poke
+        // still tore the item fan down and gave nothing back — which is how the co-player's log
+        // reads ("ITEM FAN CLOSE — trigger: discard/burnt stack poked (Discard)" followed by a
+        // PILE BROWSE REFUSED). Moving it here makes a refusal cost the player nothing.
+        if (_piles.ItemsBrowseOpen)
+            _piles.CloseItemsBrowse($"{kind} browse arc opening — one pile fan at a time (both fans " +
+                                    "share the board-top anchor, so they would draw through each other)");
         _browseHand = presentedHand;
         _browseMode = mode;
         // Requirement 5 (emerge): pass the pile stack's world position so the arc's cards
@@ -1556,12 +1671,19 @@ internal sealed partial class CardsDriver
         // Fresh fan → fresh borrow ledger (the -1 sentinel makes the first refresh always log).
         _browseBorrowed = -1;
         _browseLeftOnBoard = 0;
-        VRLog.Info("Cards", $"PILE BROWSE OPEN: {kind} of " +
+        // HW-VERIFY: the positive half of "die Fächer müssen IMMER aufgehen". One line per
+        // deliberate stack poke — bounded by the player's hands, never per frame. A poke that
+        // produces NEITHER this line nor a REFUSED line means the poke never reached the driver,
+        // which is a different defect from the gate.
+        VRLog.Note("Cards", $"PILE BROWSE OPEN: {kind} of " +
                             $"'{Board.CharacterFocus.Describe(presentedHand.PlayerActor)}' " +
                             $"(mode={mode}, focusView={readOnly}) — " +
                             $"trigger: {trigger}. The pile is openable in EVERY phase and for EVERY " +
                             "character the board can present — whose turn it is has no say (user " +
-                            "ruling 2026-08-08); it follows a focus switch instead of closing.");
+                            "ruling 2026-08-08); it follows a focus switch instead of closing. A " +
+                            "mode= naming a pick flow here is EXPECTED and correct: the mode alone " +
+                            "no longer refuses anything — only a pick flow physically holding " +
+                            "EVERY card of THIS pile does.");
         _dirty = true; // content fills in Rebuild.UpdateBrowser
     }
 
@@ -1625,7 +1747,9 @@ internal sealed partial class CardsDriver
     {
         if (!_browser.IsOpen)
             return;
-        VRLog.Info("Cards", $"PILE BROWSE CLOSE: {_browser.Kind} — trigger: {reason}.");
+        // HW-VERIFY: the other half of the same question — a fan that opened and then vanished
+        // reads here, with the reason verbatim. One line per close, and a close needs an open.
+        VRLog.Note("Cards", $"PILE BROWSE CLOSE: {_browser.Kind} — trigger: {reason}.");
         _browseHand = null;
         ClearBrowseHover();
         // Requirement 2 (collapse-into-stack for discard/burnt): before the browser closes + the
@@ -1811,7 +1935,8 @@ internal sealed partial class CardsDriver
         if (!_browser.IsOpen)
             return;
         // ReadOnlyView is exact here: this rebuild's own ResolveHand latched it a few lines ago.
-        if (!BrowseAllowed(mode, Board.CharacterFocus.ReadOnlyView, out string? refusal))
+        if (!BrowseAllowed(_browser.Kind ?? PileKind.Discard, hand, mode,
+                           Board.CharacterFocus.ReadOnlyView, out string? refusal))
         {
             CloseBrowser(refusal!);
             return;
@@ -1871,7 +1996,14 @@ internal sealed partial class CardsDriver
             // animation and lay it in the fan (a browse opened mid-flight was exactly that), and it
             // would also make the arc disagree with the stack label, which now defers those same
             // cards (CardsDriver.PendingPileArrivals). One classifier, both surfaces.
-            if (BoardOwnsCardVisual(card) || CardEnRouteToPile(card))
+            // …AND A CARD THE LIVE PICK FLOW IS SHOWING IS NOT THE FAN'S EITHER. This is the
+            // clause that lets BrowseAllowed stop refusing on a PARTIAL overlap: a pick that
+            // borrows only some of this pile (or a different pile entirely) no longer costs the
+            // player the whole fan — the arc opens and quietly leaves the borrowed cards where the
+            // pick has them. _fieldCards is already covered by BoardOwnsCardVisual; the pick FAN
+            // was the one board zone the browse filter never knew about, which is why the mode gate
+            // had to stand in for it with a blanket refusal.
+            if (BoardOwnsCardVisual(card) || CardEnRouteToPile(card) || _fanBuffer.Contains(card))
             {
                 leftOnBoard++;
                 continue;

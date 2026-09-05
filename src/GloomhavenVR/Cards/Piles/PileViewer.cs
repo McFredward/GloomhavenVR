@@ -774,8 +774,12 @@ internal sealed class PileViewer
     /// <summary>
     /// Route a stack poke: the ITEMS stack opens its own item browse (self-contained,
     /// needs no CardsDriver wiring); discard/burnt raise <see cref="PokeToggled"/> for
-    /// CardsDriver to open the ability-card browse as before. Poking discard/burnt also
-    /// dismisses any open item browse so only one pile fan is up at a time.
+    /// CardsDriver to open the ability-card browse as before. Only one pile fan is up at a time —
+    /// both anchor at the same board-top spot and would draw through each other — but the EVICTION
+    /// of the other fan happens where the new one is known to be opening, never on the way past: an
+    /// items poke evicts only when the inventory is non-empty, and a discard/burnt poke evicts from
+    /// <c>CardsDriver.OpenBrowser</c> after its gate has passed. A refused poke must never cost the
+    /// player the fan they already had (user 2026-09-05: the fans must ALWAYS be viewable).
     /// </summary>
     internal void DispatchPoke(PileKind kind, VRHand hand)
     {
@@ -791,12 +795,23 @@ internal sealed class PileViewer
             }
             if (_hand != null)
             {
-                ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
+                // EVICT ONLY FOR A FAN THAT WILL ACTUALLY OPEN. ItemsPile.Open refuses an EMPTY
+                // inventory ("Da 0 Gegenstände da waren soll es auch gar nicht möglich sein den
+                // Fächer zu öffnen"), so poking a 0-item stack used to tear the ability browser
+                // down and open nothing in its place — the player lost the fan they had and got a
+                // refusal. Asking the same count the refusal asks keeps the two in step.
+                if (_itemsBrowse.Count(_hand) > 0)
+                    ItemsOpening?.Invoke(); // close the ability browser first — one pile fan at a time
                 _itemsBrowse.TogglePoke(_hand, hand);
             }
             return;
         }
-        _itemsBrowse.Close($"discard/burnt stack poked ({kind}) — one pile fan at a time");
+        // THE DISCARD/BURNT DIRECTION EVICTS FROM CardsDriver.OpenBrowser, NOT HERE. It used to
+        // close the item fan on the way past, before CardsDriver.BrowseAllowed had even been asked,
+        // so a refused discard/burnt poke cost the player the item fan and gave nothing back — the
+        // co-player's log reads exactly that ("ITEM FAN CLOSE — trigger: discard/burnt stack poked
+        // (Discard)" next to eleven PILE BROWSE REFUSED lines). Same rule, one pile fan at a time;
+        // it is now applied at the moment the arc actually opens.
         PokeToggled?.Invoke(kind, hand);
     }
 
