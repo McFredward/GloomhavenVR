@@ -211,6 +211,27 @@ internal static class PeerBoardFadeTuning
 /// <see cref="MaxSamples"/> points over the whole map. Outside a scenario (menus, the void) the
 /// registry is empty, the sample list is empty, and every board's coverage is 0 — nothing
 /// fades, which is the correct answer where there is no play field.</para>
+///
+/// <para><b>ONLY DISCOVERED ROOMS ARE PART OF THE DENOMINATOR</b> (user ruling 2026-09:
+/// <i>"Boards sollen NICHT transparent werden wenn sie nur unaufgedeckte/unentdeckte Tiles
+/// verdecken, sondern nur bei bereits aufgedeckten Tiles."</i>). Until then this loop applied no
+/// reveal filter at all, so a room still standing in its fog-of-war <c>Preview</c> stand-in
+/// contributed sample points exactly like a room the player can see into — and with the two
+/// active tiles of the shipped hardware capture, ONE unrevealed room was half the denominator.
+/// The host's log shows what that cost: <c>9/18</c> blocked, <c>raw 0.500</c>, against an
+/// <c>OnFraction</c> bar of 0.12. The board was being asked to get out of the way of fog.</para>
+///
+/// <para>The test is <see cref="SceneRegistry.IsTileDiscovered"/> — the game's own
+/// <c>visibility == Visibility.All</c> comparison, shared with <c>UnseenTileOrder</c> so the two
+/// subsystems cannot come to disagree about which rooms exist. It also brings this metric into
+/// line with the WALL see-through, which has always had the rule by construction (its play area
+/// is the game's revealed-room renderer list).</para>
+///
+/// <para>THE DEGENERATE CASE IS THE CORRECT ANSWER, and it is not new: with every tile
+/// undiscovered the sample list is empty, every board's coverage is 0 and nothing fades. There
+/// is nothing worth seeing through a board for. The census line below is what tells a hardware
+/// capture "filtered" apart from "no map": it names the ACTIVE tile count, the DISCOVERED count
+/// and how many were skipped as undiscovered.</para>
 /// </summary>
 internal static class PeerBoardPlayArea
 {
@@ -263,7 +284,7 @@ internal static class PeerBoardPlayArea
     private static int _frame = -1;
     private static float _nextRescan;
     private static float _nextVisibility;
-    private static int _loggedSamples = -1;
+    private static int _loggedCensus = int.MinValue;
 
     /// <summary>How many play-field samples exist at all (0 = no map: nothing may fade).</summary>
     internal static int Count => Samples.Count;
@@ -296,10 +317,25 @@ internal static class PeerBoardPlayArea
         Samples.Clear();
         TileScratch.Clear();
         SceneRegistry.MapTiles.Collect(TileScratch);
+        int active = TileScratch.Count;
+        // THE REVEAL FILTER (user ruling 2026-09 — see the class header). An undiscovered room is
+        // fog: nothing on it is worth seeing, so a board that hides only fog is not in the way and
+        // must not fade. Dropping the tiles here rather than skipping them in the grid loop is
+        // deliberate — the per-tile budget below divides MaxSamples by the tile COUNT, so leaving
+        // an undiscovered tile in the list would keep stealing a ninth of the budget from the
+        // rooms that do count.
+        for (int i = TileScratch.Count - 1; i >= 0; i--)
+        {
+            if (!SceneRegistry.IsTileDiscovered(TileScratch[i]))
+                TileScratch.RemoveAt(i);
+        }
         int tiles = TileScratch.Count;
         if (tiles == 0)
         {
-            LogCensusIfChanged(0);
+            // No map, or a map whose every room is still fog. Both mean the same thing to every
+            // board on this client — coverage 0, nothing fades — and the census line tells them
+            // apart for the next capture.
+            LogCensusIfChanged(0, active, tiles);
             return;
         }
 
@@ -332,7 +368,7 @@ internal static class PeerBoardPlayArea
                 }
             }
         }
-        LogCensusIfChanged(Samples.Count);
+        LogCensusIfChanged(Samples.Count, active, tiles);
     }
 
     private static void UpdateVisibility(Camera head)
@@ -351,18 +387,37 @@ internal static class PeerBoardPlayArea
         }
     }
 
-    /// <summary>One line per real change of the grid census — the evidence that the metric has a
-    /// denominator at all. A "0 sample(s)" line is the reading that explains a board which never
-    /// fades: no map tiles were registered, so nothing could be judged.</summary>
-    private static void LogCensusIfChanged(int count)
+    /// <summary>
+    /// One line per real change of the grid census — the evidence that the metric has a
+    /// denominator at all, and the ONE line that tells "the reveal filter removed everything"
+    /// apart from "no map is loaded". Those two produce the identical downstream behaviour
+    /// (coverage 0 for every board, nothing fades), so without the two tile counts a capture
+    /// cannot say which of them happened.
+    ///
+    /// <para><c>Note</c> and not <c>Info</c>, with the marker: a co-player runs at the shipped
+    /// default level, where an <c>Info</c> line is not printed at all — and this line is the
+    /// first thing "the peer's board still does not fade" has to be read against. It is gated on
+    /// a real change of the (samples, active, discovered) triple, so a session in one room writes
+    /// it once.</para>
+    /// </summary>
+    private static void LogCensusIfChanged(int count, int active, int discovered)
     {
-        if (count == _loggedSamples)
+        int signature = (count * 397 + active) * 397 + discovered;
+        if (signature == _loggedCensus)
             return;
-        _loggedSamples = count;
-        VRLog.Info("Net", $"Peer-board see-through: play-field grid rebuilt — {count} sample " +
-                          $"point(s) over {TileScratch.Count} active map tile(s). This is the " +
-                          "denominator every peer board's coverage fraction is measured against; " +
-                          "0 means no map is loaded and no board can ever be judged occluding.");
+        _loggedCensus = signature;
+        int skipped = active - discovered;
+        // HW-VERIFY
+        VRLog.Note("Net", $"Peer-board see-through: play-field grid rebuilt — {count} sample " +
+                          $"point(s) over {discovered} DISCOVERED map tile(s); {skipped} of the " +
+                          $"{active} active tile(s) were skipped as UNDISCOVERED (still showing " +
+                          "the fog-of-war Preview stand-in, so nothing on them is worth seeing " +
+                          "and a board that hides only them is not in anybody's way). This is " +
+                          "the denominator every peer board's coverage fraction is measured " +
+                          "against: 0 sample points means no board on this client can ever be " +
+                          "judged occluding — read the two tile counts to see whether that is " +
+                          "because no map is loaded (0 active) or because the whole map is still " +
+                          "fog (0 discovered).");
     }
 }
 

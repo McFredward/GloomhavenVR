@@ -676,6 +676,17 @@ internal static class UnseenTileOrder
             ProceduralMapTile tile = TileScratch[t];
             if (tile == null)
                 continue;
+            // THE SHARED "IS THIS ROOM DISCOVERED" PREDICATE (2026-09). This driver's own test —
+            // an ACTIVE 'Generated Content/Preview' node — is a CONSEQUENCE of the tile's
+            // `visibility` field (ProceduralMapTile.ApplyVisibility -> ShowContent sets that node
+            // active exactly for Preview/PreviewWithDoors), so asking the field FIRST cannot
+            // change the node set: a tile at Visibility.All has an inactive Preview node and was
+            // already rejected by the activeInHierarchy test below. What it does buy is that this
+            // subsystem and the peer-board see-through now read ONE definition of "discovered"
+            // (SceneRegistry.IsTileDiscovered) instead of two that agree today, plus a skipped
+            // FindPreviewNode walk per revealed tile.
+            if (SceneRegistry.IsTileDiscovered(tile))
+                continue;
             Transform? preview = FindPreviewNode(tile.transform);
             if (preview != null && preview.gameObject.activeInHierarchy)
                 NodeScratch.Add(preview);

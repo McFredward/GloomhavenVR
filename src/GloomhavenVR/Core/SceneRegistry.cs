@@ -66,6 +66,54 @@ internal static class SceneRegistry
     /// material-loader watchdog read these.</summary>
     internal static readonly ComponentRegistry<ProceduralMapTile> MapTiles = new();
 
+    /// <summary>
+    /// "HAS THIS ROOM BEEN DISCOVERED?" — ONE DEFINITION, for every subsystem that reads
+    /// <see cref="MapTiles"/> (user ruling 2026-09: <i>"Boards sollen NICHT transparent werden
+    /// wenn sie nur unaufgedeckte/unentdeckte Tiles verdecken, sondern nur bei bereits
+    /// aufgedeckten Tiles."</i>).
+    ///
+    /// <para><b>WHY THIS FIELD IS THE AUTHORITY AND NOT A STRUCTURAL PROXY.</b> Three tests were
+    /// available and they are not equals — they form a chain, and this is its head:</para>
+    /// <list type="number">
+    /// <item><c>ProceduralMapTile.visibility</c> (this). A public field on the component the
+    ///   callers already hold. <c>RoomVisibilityTracker.ShowMaptile</c> writes exactly
+    ///   <c>All</c> when the room is revealed and <c>Preview</c> when it is not (decompiled
+    ///   GH.Runtime, lines 32-39); the level editor writes <c>All</c>/<c>Hidden</c>. And the GAME
+    ///   ITSELF already uses this comparison as its own "is this room discovered" test —
+    ///   <c>ProceduralScenario</c> line 620, <c>mapTiles[j].visibility ==
+    ///   ProceduralMapTile.Visibility.All</c>, to pick the ambience room. Reusing the game's own
+    ///   expression is the strongest form of "the same set" this mod can have.</item>
+    /// <item><c>RoomVisibilityTracker.IsVisible()</c>. Correct, and it also excludes DESTROYED
+    ///   rooms — but it is a <c>GetComponent</c> plus a four-deep client-tile chain per tile per
+    ///   call, it is what WRITES (1) rather than something that agrees with it, and a room whose
+    ///   visibility was overridden by the level editor disagrees with it.</item>
+    /// <item>The ACTIVE <c>Generated Content/Preview</c> child (<c>UnseenTileOrder</c>'s own
+    ///   test). This is a CONSEQUENCE of (1), one level downstream:
+    ///   <c>ProceduralMapTile.ApplyVisibility</c> -> <c>ShowContent</c> sets that node active
+    ///   exactly when <c>visibility</c> is <c>Preview</c>/<c>PreviewWithDoors</c>. It is also
+    ///   strictly weaker: a tile whose content has not been generated yet has NO 'Generated
+    ///   Content' node at all, and the structural test then reports it as discovered — which is
+    ///   the wrong answer in the safe-looking direction.</item>
+    /// </list>
+    ///
+    /// <para>A prior recon recommended (3) as the shared predicate. It is (1): (3) is a shadow of
+    /// this field, and the shadow has a blind spot this field does not.</para>
+    ///
+    /// <para>THE WALL SEE-THROUGH ALREADY HAS THIS RULE, one level up and by construction, which
+    /// is why it needs no call here: its play area is
+    /// <c>TilesOcclusionGenerator.m_RoomRenderers</c>, and the game only appends a volume's
+    /// renderers once <c>TilesOcclusionVolume.IsVisible()</c> — i.e. <c>CMap.Revealed</c> — is
+    /// true (decompiled <c>TilesOcclusionGenerator.UpdateAwaitingVolumes</c>). An undiscovered
+    /// room never enters its room registry and can never contribute a floor sample. The board
+    /// fade walked <see cref="MapTiles"/> instead, which is every ACTIVE tile whatever its
+    /// visibility, and that is the asymmetry this predicate closes.</para>
+    ///
+    /// <para>Null-tolerant (a destroyed tile is not a discovered room), and free: one enum
+    /// compare on a field the caller's loop already has in hand.</para>
+    /// </summary>
+    internal static bool IsTileDiscovered(ProceduralMapTile? tile) =>
+        tile != null && tile.visibility == ProceduralMapTile.Visibility.All;
+
     private static bool _installed;
 
     /// <summary>
