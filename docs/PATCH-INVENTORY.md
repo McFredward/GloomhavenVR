@@ -46,8 +46,8 @@ runtime, which is why a runtime audit could never do this job (see
 | `HexHighlightFix.HexSelect_ProjectorMaterialAdjustment_Patch`<br/><sub>src/GloomhavenVR/Board/HexHighlightFix.cs:545</sub> | `HexSelect_Control.ProjectorMaterialAdjustment()` *(private)* | postfix | `BoardModule`:106 |
 | `AllCardsViewerBlock`<br/><sub>src/GloomhavenVR/Board/Patches/AllCardsViewerBlock.cs:115</sub> | `CardsHandManager.ToggleViewAllCards(CPlayerActor, bool)` | prefix | `BoardModule`:141 |
 | &nbsp; | `CardsHandUI.ToggleFullCardsPreview(bool, bool)` | prefix | &nbsp; |
-| `InitiativeTrack_ShowMonsterClasses_ArmSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:397</sub> | `InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards()` | postfix | `BoardModule`:155 |
-| `InitiativeTrack_Update_TickSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:417</sub> | `InitiativeTrack.Update()` *(private)* | postfix | `BoardModule`:156 |
+| `InitiativeTrack_ShowMonsterClasses_ArmSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:421</sub> | `InitiativeTrack.ShowMonsterClassesForSelectingRoundAbilityCards()` | postfix | `BoardModule`:155 |
+| `InitiativeTrack_Update_TickSkip`<br/><sub>src/GloomhavenVR/Board/Patches/EnemyInfoPhaseSkip.cs:441</sub> | `InitiativeTrack.Update()` *(private)* | postfix | `BoardModule`:156 |
 | `HexHoverClear`<br/><sub>src/GloomhavenVR/Board/Patches/HexHoverClear.cs:135</sub> | `WorldspaceStarHexDisplay.Update()` | postfix | `BoardModule`:100 |
 | `HoverPickPatch`<br/><sub>src/GloomhavenVR/Board/Patches/HoverPickPatch.cs:161</sub> | `HoverRegisterer.Update()` *(private)* | prefix | `BoardModule`:96 |
 | `MF_FindInteractableAtMousePosition_Patch`<br/><sub>src/GloomhavenVR/Board/Patches/PickingPatches.cs:42</sub> | `MF.FindInteractableAtMousePosition()` | prefix | `BoardModule`:86 |
@@ -120,10 +120,10 @@ runtime, which is why a runtime audit could never do this job (see
 
 | Patch class | Target | Kind | Registered by |
 |---|---|---|---|
-| `ClientButtonLocker_TryLockButton_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:524</sub> | `ClientButtonLocker.TryLockButton()` *(private)* | prefix | `NetModule`:247 |
-| `UIEventPanel_ContinueEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:539</sub> | `UIEventPanel.ContinueEvent()` *(private)* | prefix | `NetModule`:248 |
-| `UIEventPanel_CompleteEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:563</sub> | `UIEventPanel.CompleteEvent()` *(private)* | prefix | `NetModule`:249 |
-| `UIEventPanel_ClientContinueRoadEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:593</sub> | `UIEventPanel.ClientContinueRoadEvent()` | prefix | `NetModule`:250 |
+| `ClientButtonLocker_TryLockButton_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:497</sub> | `ClientButtonLocker.TryLockButton()` *(private)* | prefix | `NetModule`:247 |
+| `UIEventPanel_ContinueEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:512</sub> | `UIEventPanel.ContinueEvent()` *(private)* | prefix | `NetModule`:248 |
+| `UIEventPanel_CompleteEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:536</sub> | `UIEventPanel.CompleteEvent()` *(private)* | prefix | `NetModule`:249 |
+| `UIEventPanel_ClientContinueRoadEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:566</sub> | `UIEventPanel.ClientContinueRoadEvent()` | prefix | `NetModule`:250 |
 | &nbsp; | `UIEventPanel.ClientContinueRoadEvent()` | finalizer | &nbsp; |
 
 ## Rig

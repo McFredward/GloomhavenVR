@@ -433,7 +433,71 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 447;
+    public const ushort ModBuild = 448;
+    // Build 448: the second big multiplayer round — sixteen reported items plus one new request,
+    // fourteen lanes. THE THEME, and it is the same one three rounds running: SIX of these defects
+    // were held in place by an INSTRUMENT that was structurally incapable of seeing the cause.
+    //   * THE HELD-PROP SHIMMER is a LIGHT, and this project already had that written down. Five
+    //     rounds hunted an animator, a material and a renderer; `Light` derives from Behaviour, not
+    //     MonoBehaviour, so the component census could not NAME it, and PropAnimWatch tracks 20 of
+    //     Amp_Char_Shader's 57 properties — the same shader, and the same cap class, that cost
+    //     ModBuild 151 a build. "Not one tracked slot moved" was never evidence. RFX4_LightCurves
+    //     writes intensity off Time.time every frame; 2 lights under a held BearTrap, 3 under a
+    //     GoldPile. The whole Behaviour-derived emitter class is now hushed for the hold, on the
+    //     mirrored copy too — and the record's claim that "a peer does not render a held prop at
+    //     all" was FALSE, which is the only reason the peer's copy is covered.
+    //   * THE TORCH THAT SURVIVED A PEER'S FADE is one unmeasured constant. WallFadesMaxKeys was
+    //     24 against a measured 41-44 faded walls, on a comment reading "a scene rarely fades more
+    //     walls simultaneously". Keys sort ascending and the first 24 are sent, so the SAME 40 %
+    //     never faded for a peer, all scenario. It is not an asset class, it is a KEY class: which
+    //     objects fall off is a hash accident. Cap 63; record 17 payload 97 -> 253 B.
+    //     And the 2282 LATCH WARN lines were the instrument, not the system: a synced fade is held
+    //     by the TEAMMATE's coverage, so every one of them tripped a test built for local latches.
+    //     Zero real local latches in the whole session.
+    //   * THE QUEST WINDOW's 1:1 breach and its gap are ONE animated FX quad painting 245-299 px
+    //     below the frame, with an extent that moves on its own clock: host 512x1021, peer 512x779
+    //     for the same shared open. Both clients settled correctly — on DIFFERENT CONTENT. The
+    //     grab-bar instrument had named the graphic in all 14 of its failure lines since 447.
+    //   * THE UN-FADE POP was sized on the wrong surface in 445. A render settles it: the settled
+    //     clone differs from the shipped material on 0 of 600000 pixels. The slab does not move;
+    //     what steps is everything drawn after it, carrying the same driven alpha, so the step IS
+    //     the alpha at which ZWrite returns. 445 read the slab's 3 % residual and moved the band UP
+    //     to 0.97. It moves DOWN to 0.55/0.40 — half the magnitude, inside motion on both sides.
+    //   * THE TRAP TOOLTIP is the game's own drop rule: a runtime trap is allowed onto a hex already
+    //     holding a decoration, and every prop sits on the hover layer, so two coincident colliders
+    //     alternate at frame rate under a trembling laser (2-6 frames per flip, +14 dispatches in
+    //     one 0.25 s window). The card's drift also re-seeded every frame from a dock another
+    //     component rewrites in Update — a settle that can never converge, all 62 re-engagements of
+    //     the session inside that one hover.
+    //   * THE PEER'S BURN carried no card at all: record 12/24/29's flight packs a FROM nibble, a
+    //     TO nibble and a sequence. A back slab has no face to show and none to burn, so "he sees
+    //     the wrong card" and "he sees no fire" are one missing fact. No wire field was needed — the
+    //     game commits a burned card to LostAbilityCards BEFORE the artwork starts, and this client
+    //     already walks that list to draw the peer's burnt fan. The in-source argument that a card
+    //     in flight "is in no list" is true of a DISCARD and false of a BURN.
+    //   * AND THE SHORT-REST CARD WAS NEVER IN "NO LIST" EITHER — we were the churn. Two lanes and
+    //     the integrator all read a wire pile count going 8 -> 7 as the card leaving the discard
+    //     pile. That count is the RENDERED stack label, which nets off pending arrivals, and our own
+    //     short-rest flow makes the sacrifice a pending arrival. The peer's log said so in one line:
+    //     "the model already lists discard=8 ... but 1 discard card(s) are still ON THEIR WAY".
+    //     Record 39 seats it in the discard arc: 4 B payload, worst case 1726 -> 1732.
+    // ALSO: the X is back on the five map-room destinations (decided by consequence, not by the
+    // game's ESC verdict — that derived net is now a three-time offender); the destination caps stay
+    // pressable under a quest selection, delivered through the game's own public Select() instead of
+    // a write war with the bar it removes; the map-room mode now actually EXITS at the point of no
+    // return (the sweep always fired, the dispatch landed on an inactive bar and reported success);
+    // a dead character's board carries no cards in any of eleven populations, and offers no rest;
+    // the control boards cull their back faces (the "fragmented mesh" that justified Cull Off was
+    // replaced in ModBuild 271 — measured: 0 inward-wound triangles, 86/6/10 px of difference);
+    // the remote card front fills its body (a 6 % inset its own doc comment had named as a debt);
+    // the peer's hand fan no longer falls to backs when its owner plucks a card; a round recess
+    // refuses compaction rather than drawing the wrong card's face; the element strip mirrors the
+    // owner's "wird erstellt" composition instead of one raw untinted sprite; and any player may now
+    // end the enemy-info reveal, the host still the only writer.
+    // Wire: TWO terms moved. Record 17 grew (24 -> 63 keys) and record 39 is new (4 B). Documented
+    // worst case 1570 -> 1726 -> 1732; MaxSize 1900 -> 2100. Both optional, both stepped over by
+    // length on an older peer.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 447: three hardware items, and TWO of them were a measurement that was right about the
     // wrong question.
     //   * THE GRAB BAR sized itself from the INK UNION — what a window actually paints. For the
