@@ -416,9 +416,41 @@ internal static partial class ModalFallback
 
     // ---- window gathering helpers (allocation-free) -------------------------------------
 
+    /// <summary>
+    /// Enrol a POLLED window (the story box, the two level-message groups, the ID-less scenario
+    /// dialogPopup) into <c>OpenWindows</c> — the set that means "the game windows the VR layer is
+    /// presenting this tick".
+    ///
+    /// <para><b>IT ASKS THE REFUSAL TABLE, AS OF ModBuild 439 (survey row R39).</b> One policy had
+    /// three implementations and this was the one that did not implement it: the ENROLLED
+    /// normalisation loop (<c>ModalFallback.4.Tick.cs</c>) and the CATCH-ALL
+    /// (<c>ModalFallback.10.CatchAll.cs</c>) both <c>continue</c> on
+    /// <c>FloatRefusalTable.Refuses</c> before adding, and this path added unconditionally. That is
+    /// already written down as a live diagnosis in a shipped log line —
+    /// <c>QuestJourneyCurtain</c>'s "of the three paths into ModalFallback.OpenWindows … the POLL
+    /// and GROUP path never asks at all".</para>
+    ///
+    /// <para><b>WHY IT MATTERS RATHER THAN BEING TIDINESS.</b> The convert loop does not re-ask the
+    /// table — it trusts membership, deliberately ("the per-window test is the same one the release
+    /// loop above uses, so the two can never disagree about a window") — while the release loop's
+    /// ModBuild 235 clause DOES take a refused float down. A refused window arriving through this
+    /// path would therefore be floated on one tick and released on the next, for as long as it
+    /// stayed open: a convert/release oscillation, which is the failure shape this file has already
+    /// paid two builds for.</para>
+    ///
+    /// <para><b>IT IS INERT AGAINST TODAY'S ROWS</b> — the same thing the enrolled loop's own
+    /// comment says about itself. The identity rows are component tests that none of these four
+    /// windows carries, and the two interval rows cannot reach them: the curtain's set is FROZEN
+    /// from the windows floated at its edge and its honesty clause requires the story box or the
+    /// loadout screen to be floating for it to stand at all, and the journey row's subject is a
+    /// single named instance. So no shipped behaviour changes; what changes is that a future row
+    /// means the same thing on all three paths.</para>
+    /// </summary>
     private static void AddPollWindow(UIWindow? window)
     {
         if (window == null || ContainsWindow(OpenWindows, window))
+            return;
+        if (FloatRefusalTable.Refuses(window))
             return;
         OpenWindows.Add(window);
     }

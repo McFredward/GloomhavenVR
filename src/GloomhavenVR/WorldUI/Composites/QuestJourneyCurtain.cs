@@ -747,7 +747,12 @@ internal static class QuestJourneyCurtain
                           + "release loop's ModBuild 235 refusal clause at "
                           + "ModalFallback.4.Tick.cs:2690. Grep FLOAT WITHDRAWN and FLOAT RELEASED ON "
                           + "REFUSAL for this window's name: their ABSENCE with Refuses=True is the "
-                          + "whole diagnosis and it points at that clause.");
+                          + "whole diagnosis and it points at that clause. "
+                          + "CORRECTION (ModBuild 439): the POLL and GROUP path DOES ask now — "
+                          + "AddPollWindow gained the same refusal clause the other two paths carry, "
+                          + "so all three agree. The sentence above is kept verbatim because it is "
+                          + "what the shipped builds behaved like; read it as history and take the "
+                          + "release loop's clause as the remaining backstop.");
     }
 
     // ---- ModBuild 243: the falsifier that can FAIL ---------------------------------------------
