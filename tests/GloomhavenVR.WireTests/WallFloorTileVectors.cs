@@ -1,3 +1,5 @@
+using System;
+using System.Diagnostics;
 using GloomhavenVR.Core;
 
 namespace GloomhavenVR.WireTests;
@@ -178,6 +180,196 @@ internal static class WallFloorTileVectors
                    new WallFloorTile.Plate(0.00f, 0.00f, 0.00f, 0.00f), FloorY, out why),
                "a zero-extent AABB is not a floor tile: " + why);
 
+        // ---- "never fades" must mean "always visible", not merely "never written" ---------------
+        //
+        // THE SECOND PHOTOGRAPH is .planning/debug/boden_tiles_ausgeblendet.jpg (user, 2026-09-05:
+        // "Die Bodentiles faden nicht mehr mit den Wänden sehr gut. Allerdings sind jetzt zwei
+        // Boden tiles unter den ersten Türen dauerhaft ausgeblendet"). ModBuild 430 made all four
+        // write primitives REFUSE a floor renderer but restituted ONCE PER RENDERER PER SCENE and
+        // restored unconditionally, so the one shot was spent on the first commit that saw the
+        // tile — healthy or not — and a tile faded afterwards had nothing left to rescue it.
+        //
+        // The ModBuild-430 log names the two tiles and the channel on ONE line:
+        //   SHOW EDGE: 61 piece(s) became visible again … 2 of them NOT as authored …
+        //     'CR_EXT_Stone_Floor_01_Half_02' [cutoff] at fade 0.41: its prop unit 'HexDoor(Clone)'
+        //     returned IN PIECES … ; 'CR_TC_Floor_Basic_Half_02' [cutoff] at fade 0.41: …
+        // while the FLOOR NEVER FADES line of that same window reads "REFUSED 19 … HANDED BACK to
+        // solid 0" and names both of them as protected floor tiles. Refused AND invisible.
+        //
+        // So the rescue latch is now the PICTURE, and this is the arithmetic behind it.
+
+        // THE DEFECT ITSELF. A door half stuck in the cutoff channel: DriveProp ramps
+        // Lerp(BaseCutoff, FoliageCutoffEnd = 1.2, fade), so an authored 0.50 at fade 0.41 reads
+        // back 0.79 off the block. That must be a rescue.
+        t.Case("floor/audit-the-two-tiles-under-the-door");
+        var stuck = new WallFloorTile.Appearance(
+            heldDisabled: false, wearingSwapCopies: false, hasBlock: true, nativeRamp: false,
+            authoredAlpha: float.NaN, blockAlpha: float.NaN,
+            authoredCutoff: 0.50f, blockCutoff: 0.787f,
+            authoredDissolve: float.NaN, blockDissolve: float.NaN);
+        t.True(WallFloorTile.ChannelOf(stuck) == WallFloorTile.Channel.Cutoff,
+               "CR_EXT_Stone_Floor_01_Half_02 / CR_TC_Floor_Basic_Half_02 at [cutoff] fade 0.41 "
+               + "are not as authored and must be rescued");
+        t.True(WallFloorTile.DescribeChannel(stuck, WallFloorTile.Channel.Cutoff).Contains("0.79"),
+               "and the census line carries the NUMBER that decided it, not just the channel: "
+               + WallFloorTile.DescribeChannel(stuck, WallFloorTile.Channel.Cutoff));
+
+        // THE CHURN TRAP, and the reason the audit reads VALUES and never block PRESENCE.
+        // DriveProp(p, 0f) is the write that puts a piece back to authored, and it leaves a
+        // property block behind carrying the authored numbers. If "has a block" were the test,
+        // every solid floor tile would be rescued on every commit — ~30 RestoreProp calls a
+        // minute into the ownership-churn tripwire, which is exactly the failure the ModBuild-430
+        // one-shot existed to prevent and which this round may not re-create.
+        t.Case("floor/audit-authored-block-is-not-a-fade");
+        var authoredBlock = new WallFloorTile.Appearance(
+            false, false, hasBlock: true, nativeRamp: false,
+            authoredAlpha: 1.00f, blockAlpha: 1.00f,
+            authoredCutoff: 0.50f, blockCutoff: 0.50f,
+            authoredDissolve: 0.00f, blockDissolve: 0.00f);
+        t.True(WallFloorTile.ChannelOf(authoredBlock) == WallFloorTile.Channel.AsAuthored,
+               "a block carrying the AUTHORED values is authored — DriveProp(p, 0f) writes one, "
+               + "and rescuing it every commit would be the churn the one-shot was guarding");
+
+        // No block at all: drawn with the material's own values, nothing to do.
+        t.Case("floor/audit-no-block-is-authored");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, hasBlock: false, nativeRamp: false,
+                   float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN))
+               == WallFloorTile.Channel.AsAuthored,
+               "a floor renderer with no property block is drawing as authored");
+
+        // AN ABSENT CHANNEL IS NOT A CHANNEL AT ZERO. GetFloat on an id a block never set returns
+        // 0, and 0 is a plausible fade value — so a piece with a colour channel and NO cutoff
+        // channel must not read as "cutoff 0.00 against authored 0.00" or, worse, as faded.
+        t.Case("floor/audit-absent-channel-never-fires");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, hasBlock: true, nativeRamp: false,
+                   authoredAlpha: 1.00f, blockAlpha: 1.00f,
+                   authoredCutoff: float.NaN, blockCutoff: float.NaN,
+                   authoredDissolve: float.NaN, blockDissolve: float.NaN))
+               == WallFloorTile.Channel.AsAuthored,
+               "NaN on both sides of a channel the piece does not have can never read as faded");
+
+        // THE ORDER OF THE TERMS. A renderer we hold disabled is invisible whatever its block
+        // says, and a renderer wearing our swap copies is not as authored whatever its numbers
+        // say — both outrank the block, and disabled outranks the swap.
+        t.Case("floor/audit-outright-hides-come-first");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   heldDisabled: true, wearingSwapCopies: true, hasBlock: true, nativeRamp: false,
+                   1f, 1f, 0.5f, 0.5f, 0f, 0f)) == WallFloorTile.Channel.Enabled,
+               "held disabled outranks everything: the block is irrelevant to a renderer that "
+               + "is not drawn at all");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   heldDisabled: false, wearingSwapCopies: true, hasBlock: false, nativeRamp: false,
+                   1f, 1f, 0.5f, 0.5f, 0f, 0f)) == WallFloorTile.Channel.SwapCopies,
+               "a piece wearing our dissolve-swap copies is not as authored even with a clean "
+               + "block — it is one property block away from gone");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   heldDisabled: false, wearingSwapCopies: false, hasBlock: true, nativeRamp: true,
+                   float.NaN, float.NaN, float.NaN, float.NaN, float.NaN, float.NaN))
+               == WallFloorTile.Channel.NativeRamp,
+               "a native ramp's block IS the fade (_ToggleWallFade + occlusion map), so there is "
+               + "nothing to compare and nothing to keep");
+
+        // THE THREE BLOCK CHANNELS, each in the direction its ramp actually writes.
+        t.Case("floor/audit-block-channels-and-their-directions");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   authoredAlpha: 1.00f, blockAlpha: 0.30f,
+                   authoredCutoff: float.NaN, blockCutoff: float.NaN,
+                   authoredDissolve: float.NaN, blockDissolve: float.NaN))
+               == WallFloorTile.Channel.ColourAlpha,
+               "colour alpha goes DOWN with fade (c.a *= 1 - fade)");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   float.NaN, float.NaN, 0.35f, 1.20f, float.NaN, float.NaN))
+               == WallFloorTile.Channel.Cutoff,
+               "the clip value goes UP with fade (Lerp(BaseCutoff, 1.2, fade))");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   float.NaN, float.NaN, float.NaN, float.NaN, 0.20f, 1.00f))
+               == WallFloorTile.Channel.DissolveControl,
+               "the Amp dissolve control sweeps toward 1 (Lerp(BaseDissolveControl, 1, fade))");
+        // …and either way, because BaseDissolveControl is read off the material and a piece whose
+        // authored control is above the ramp's end would move DOWN.
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   float.NaN, float.NaN, float.NaN, float.NaN, 0.80f, 0.20f))
+               == WallFloorTile.Channel.DissolveControl,
+               "the dissolve term is symmetric — it is a difference, not a threshold");
+
+        // A FLOOR TILE MADE BRIGHTER IS NOT A FADE. The rescue exists to make an invisible tile
+        // visible, and only that; a block that pushes alpha UP or the clip value DOWN is
+        // somebody else's business and must not start a write.
+        t.Case("floor/audit-only-the-fading-direction-counts");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   authoredAlpha: 0.50f, blockAlpha: 1.00f,
+                   authoredCutoff: 0.60f, blockCutoff: 0.10f,
+                   authoredDissolve: float.NaN, blockDissolve: float.NaN))
+               == WallFloorTile.Channel.AsAuthored,
+               "more alpha and less clipping than authored is not a piece being hidden");
+
+        // THE TOLERANCE. A float that has been through a property block round-trip must not read
+        // as faded, or a solid tile starts a rescue every commit — churn again, by rounding.
+        t.Case("floor/audit-epsilon");
+        t.True(WallFloorTile.ChannelOf(new WallFloorTile.Appearance(
+                   false, false, true, false,
+                   1.000f, 0.995f, 0.500f, 0.505f, 0.000f, 0.005f))
+               == WallFloorTile.Channel.AsAuthored,
+               "half a hundredth off in every channel is a round-trip, not a fade");
+        t.True(WallFloorTile.AuthoredEpsilon == 0.01f, "AuthoredEpsilon 0.01");
+
+        // ---- COST, MEASURED — the arithmetic half -----------------------------------------------
+        // The standing rule here is that a claimed performance property is measured, not asserted.
+        // The audit's cost splits in two and only one half can be measured off a headset:
+        //
+        //   * THE ARITHMETIC (this case). ChannelOf over a struct of ten fields, on the population
+        //     the ModBuild-430 log actually reports — its FLOOR NEVER FADES lines name at most 21
+        //     distinct floor renderers in a window, so 32 is already generous.
+        //   * THE UNITY READS (not here). One HashSet lookup, one `renderer.enabled`, one
+        //     `HasPropertyBlock()` per floor renderer, plus a `GetPropertyBlock` only for a piece
+        //     that HAS a block and a channel of ours to compare it against. Those are engine calls
+        //     with no CI stand-in, so the shipped instrument times the whole sweep with
+        //     Stopwatch.GetTimestamp and prints "the last sweep took N µs and the worst of the
+        //     session M µs" on the FLOOR NEVER FADES line. That number is the hardware answer;
+        //     this one is its floor.
+        //
+        // The sweep runs ONCE PER COMMIT (~2 s) inside the existing CommitPhase.Figures bucket,
+        // never on the per-frame write path.
+        t.Case("floor/audit-cost-at-logged-population");
+        const int Population = 32;
+        var pop = new WallFloorTile.Appearance[Population];
+        for (int i = 0; i < Population; i++)
+        {
+            // The common case by a wide margin, and the one the cost has to be cheap in: a floor
+            // tile that is perfectly fine, carrying the authored block DriveProp(p, 0f) leaves.
+            pop[i] = new WallFloorTile.Appearance(
+                false, false, hasBlock: true, nativeRamp: false,
+                1.00f, 1.00f, 0.50f, 0.50f, 0.00f, 0.00f);
+        }
+        double perSweepUs = TimeAudit(pop);
+        Console.WriteLine(
+            $"      floor audit cost: {perSweepUs:F2} µs of arithmetic per sweep over "
+            + $"{Population} floor renderer(s) — the widest population the ModBuild-430 log "
+            + "reports is 21 in a window. One sweep per commit (~2 s), inside the existing "
+            + "CommitPhase.Figures bucket. THIS IS A DESKTOP CI BOX AND ONLY THE ARITHMETIC: the "
+            + "Unity reads beside it are timed on hardware by the µs field appended to the FLOOR "
+            + "NEVER FADES line.");
+        t.True(perSweepUs < 100.0,
+               $"the audit's arithmetic must be nowhere near a frame (measured {perSweepUs:F2} µs "
+               + $"per sweep over {Population} renderers)");
+        // …and the timing is not measuring an early-out: the not-as-authored path is the longer
+        // one and must be timed too, or "fast because it stops looking" would pass.
+        for (int i = 0; i < Population; i++)
+        {
+            pop[i] = new WallFloorTile.Appearance(
+                false, false, true, false, 1.00f, 1.00f, 0.50f, 0.787f, 0.00f, 0.00f);
+        }
+        t.True(WallFloorTile.ChannelOf(pop[0]) == WallFloorTile.Channel.Cutoff,
+               "the cost case's second population really is the stuck one");
+        t.True(TimeAudit(pop) < 100.0, "…and judging it costs the same order");
+
         // ---- the constants are the shipped ones -------------------------------------------------
         // The six shape constants are the whole rule. Pinned so a "tidy the numbers" pass has to
         // come through this file and read why each one is what it is.
@@ -190,5 +382,27 @@ internal static class WallFloorTileVectors
         t.True(WallFloorTile.PlateMaxSpanWU == WallStandingProp.MaxSpanWU,
                "the room-sized cap is the SAME number as the standing-prop rule's, and must stay "
                + "the same number — they guard against the same catastrophe");
+    }
+
+    /// <summary>Microseconds of ChannelOf arithmetic per sweep over one population. Reps chosen so
+    /// the loop dominates the clock's resolution rather than the other way round.</summary>
+    private static double TimeAudit(WallFloorTile.Appearance[] pop)
+    {
+        const int Reps = 2000;
+        // Warm: the first call through a struct-taking static is JIT, not cost.
+        for (int i = 0; i < pop.Length; i++)
+            WallFloorTile.ChannelOf(pop[i]);
+        var sw = Stopwatch.StartNew();
+        int sink = 0;
+        for (int r = 0; r < Reps; r++)
+        {
+            for (int i = 0; i < pop.Length; i++)
+                sink += (int)WallFloorTile.ChannelOf(pop[i]);
+        }
+        sw.Stop();
+        // Read the sink so the loop cannot be optimised away entirely.
+        if (sink == int.MinValue)
+            Console.WriteLine("unreachable");
+        return sw.Elapsed.TotalMilliseconds * 1000.0 / Reps;
     }
 }

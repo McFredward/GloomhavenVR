@@ -234,4 +234,165 @@ internal static class WallFloorTile
             _ => shape + " — NOT FLOOR",
         };
     }
+
+    // ---- "never fades" must mean "always visible", not merely "never written" -------------------
+
+    /// <summary>
+    /// WHICH CHANNEL A FLOOR RENDERER IS BEING HELD FADED IN — and <see cref="Channel.AsAuthored"/>
+    /// is the only answer the ruling allows.
+    ///
+    /// <para><b>WHY THE RULE NEEDED A SECOND HALF</b> (user, 2026-09-05,
+    /// <c>.planning/debug/boden_tiles_ausgeblendet.jpg</c>: <i>"Allerdings sind jetzt zwei Boden
+    /// tiles unter den ersten Türen dauerhaft ausgeblendet"</i>). ModBuild 430 made all four write
+    /// primitives REFUSE a floor renderer, and A REFUSAL IS NOT A RESTORATION: a tile that had
+    /// already been driven into a faded state is then refused forever, so nothing will ever write
+    /// it back to solid either. The ModBuild-430 log carries the proof in one line — SHOW EDGE
+    /// reads <c>'CR_EXT_Stone_Floor_01_Half_02' [cutoff] at fade 0.41: its prop unit
+    /// 'HexDoor(Clone)' returned IN PIECES</c> and the same for <c>'CR_TC_Floor_Basic_Half_02'</c>,
+    /// two floor halves under ONE door carrying a non-zero <c>_Cutoff</c> in their property block,
+    /// while the FLOOR NEVER FADES line of that same window reads <c>HANDED BACK to solid 0</c>.
+    /// Both of them are ALSO named on that line as protected floor tiles. Refused and invisible at
+    /// the same time is the whole defect.</para>
+    ///
+    /// <para>So "never fades" now means "is, and stays, at its authored appearance", which is a
+    /// question about the PICTURE and not about the ledger. Every term below is read off the
+    /// renderer and its property block by the caller — the ModBuild-252 lesson, and the rule the
+    /// SHOW EDGE audit beside it is already written to.</para>
+    /// </summary>
+    internal enum Channel : byte
+    {
+        /// <summary>Drawn exactly as the artist shipped it. The only acceptable state, and the
+        /// one in which the sweep must write NOTHING — see the churn argument in
+        /// <c>WallSegmentFade.Floor.cs</c>.</summary>
+        AsAuthored,
+        /// <summary>This driver's enable ledger says WE wrote <c>enabled = false</c>. (A renderer
+        /// the GAME switched off is not in the ledger and is never named here — the mod does not
+        /// turn on what it did not turn off.)</summary>
+        Enabled,
+        /// <summary>Wearing our dissolve-SWAP copies instead of its authored materials — the
+        /// piece is one property block away from gone even at fade 0.</summary>
+        SwapCopies,
+        /// <summary>Carrying the game's own masonry ramp block (<c>_ToggleWallFade</c> and an
+        /// occlusion map the authored state never has), written by <c>DriveNativeProp</c>.</summary>
+        NativeRamp,
+        /// <summary>Its colour channel's ALPHA is under the authored alpha.</summary>
+        ColourAlpha,
+        /// <summary>Its clip value is over the authored one — the channel the two tiles under the
+        /// door were found stuck in, at fade 0.41.</summary>
+        Cutoff,
+        /// <summary>Its Amp dissolve control has been swept off the authored value.</summary>
+        DissolveControl,
+    }
+
+    /// <summary>How far a channel may sit off its authored value and still count as authored.
+    /// The fade ramps this subsystem writes are continuous, so any real hold is far outside this;
+    /// the tolerance exists only so float round-trips through a property block cannot make a
+    /// solid piece look faded and start a rescue every commit — which WOULD be churn.</summary>
+    internal const float AuthoredEpsilon = 0.01f;
+
+    /// <summary>
+    /// One floor renderer's APPEARANCE, reduced to the terms the audit turns on. Unity-free for
+    /// the same reason the rest of this file is: the verdict is only ever seen by eye, from inside
+    /// a headset, so the arithmetic is pinned by golden vectors instead.
+    ///
+    /// <para>A channel the piece does not HAVE is passed as <c>NaN</c> on both sides, and NaN
+    /// compares false against everything — so an absent channel can never read as faded. That is
+    /// deliberate and it is pinned: <c>GetFloat</c> on an id a block never set returns 0, and 0 is
+    /// a perfectly plausible fade value, so "the piece has no such channel" and "the piece has
+    /// that channel at 0" must not be the same input.</para>
+    /// </summary>
+    internal readonly struct Appearance
+    {
+        internal Appearance(
+            bool heldDisabled, bool wearingSwapCopies, bool hasBlock, bool nativeRamp,
+            float authoredAlpha, float blockAlpha,
+            float authoredCutoff, float blockCutoff,
+            float authoredDissolve, float blockDissolve)
+        {
+            HeldDisabled = heldDisabled;
+            WearingSwapCopies = wearingSwapCopies;
+            HasBlock = hasBlock;
+            NativeRamp = nativeRamp;
+            AuthoredAlpha = authoredAlpha;
+            BlockAlpha = blockAlpha;
+            AuthoredCutoff = authoredCutoff;
+            BlockCutoff = blockCutoff;
+            AuthoredDissolve = authoredDissolve;
+            BlockDissolve = blockDissolve;
+        }
+
+        /// <summary>The mod's OWN enable ledger says we wrote <c>enabled = false</c>. Never
+        /// <c>!renderer.enabled</c>: that cannot tell our hide from the game's.</summary>
+        internal bool HeldDisabled { get; }
+
+        /// <summary>The renderer is wearing swap copies this driver installed.</summary>
+        internal bool WearingSwapCopies { get; }
+
+        /// <summary>The renderer carries a property block at all. False ends the audit: a piece
+        /// with no block is drawn with its material's authored values.</summary>
+        internal bool HasBlock { get; }
+
+        /// <summary>The piece is driven by the game's masonry ramp rather than a channel of its
+        /// own, so the block itself is the fade and there is no authored value to compare.</summary>
+        internal bool NativeRamp { get; }
+
+        internal float AuthoredAlpha { get; }
+        internal float BlockAlpha { get; }
+        internal float AuthoredCutoff { get; }
+        internal float BlockCutoff { get; }
+        internal float AuthoredDissolve { get; }
+        internal float BlockDissolve { get; }
+    }
+
+    /// <summary>
+    /// IS THIS FLOOR RENDERER VISIBLE AS AUTHORED, AND IF NOT, IN WHICH CHANNEL IS IT STUCK?
+    ///
+    /// <para>The order is the order of the enum and it is not arbitrary: the two terms that hide a
+    /// renderer OUTRIGHT come first (a disabled renderer's block is irrelevant, and a piece
+    /// wearing our copies is not as authored whatever its numbers say), then the block is read.
+    /// Direction matters and each one is the direction its ramp actually writes — alpha goes DOWN
+    /// (<c>c.a *= 1 - fade</c>), the clip value goes UP (<c>Lerp(BaseCutoff, 1.2, fade)</c>), the
+    /// dissolve control moves either way (<c>Lerp(BaseDissolveControl, 1, fade)</c>).</para>
+    /// </summary>
+    internal static Channel ChannelOf(in Appearance a)
+    {
+        if (a.HeldDisabled)
+            return Channel.Enabled;
+        if (a.WearingSwapCopies)
+            return Channel.SwapCopies;
+        if (!a.HasBlock)
+            return Channel.AsAuthored;
+        // A native ramp's block IS the fade: DriveNativeProp writes _ToggleWallFade = 1 and an
+        // occlusion map, neither of which the authored state ever carries. There is nothing to
+        // compare, and there is nothing to keep.
+        if (a.NativeRamp)
+            return Channel.NativeRamp;
+        if (a.BlockAlpha < a.AuthoredAlpha - AuthoredEpsilon)
+            return Channel.ColourAlpha;
+        if (a.BlockCutoff > a.AuthoredCutoff + AuthoredEpsilon)
+            return Channel.Cutoff;
+        float d = a.BlockDissolve - a.AuthoredDissolve;
+        if (d > AuthoredEpsilon || d < -AuthoredEpsilon)
+            return Channel.DissolveControl;
+        return Channel.AsAuthored;
+    }
+
+    /// <summary>The channel's name and the number that decided it, for the FLOOR NEVER FADES
+    /// line. Built only for the capped rows that line prints — same reason
+    /// <see cref="Judge"/> is split from <see cref="Describe"/>.</summary>
+    internal static string DescribeChannel(in Appearance a, Channel c) => c switch
+    {
+        Channel.AsAuthored => "as authored",
+        Channel.Enabled => "[enable] this driver holds renderer.enabled = false",
+        Channel.SwapCopies => "[swap] wearing our dissolve-swap copies, not its authored materials",
+        Channel.NativeRamp => "[native ramp] carrying the game's masonry fade block "
+                              + "(_ToggleWallFade + occlusion map), which the authored state never has",
+        Channel.ColourAlpha => $"[colour] block alpha {a.BlockAlpha:0.00} under the authored "
+                               + $"{a.AuthoredAlpha:0.00}",
+        Channel.Cutoff => $"[cutoff] block _Cutoff {a.BlockCutoff:0.00} over the authored "
+                          + $"{a.AuthoredCutoff:0.00}",
+        Channel.DissolveControl => $"[dissolve] block control {a.BlockDissolve:0.00} off the "
+                                   + $"authored {a.AuthoredDissolve:0.00}",
+        _ => "unclassified",
+    };
 }
