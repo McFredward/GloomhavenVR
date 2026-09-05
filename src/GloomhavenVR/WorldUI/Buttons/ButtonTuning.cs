@@ -1,6 +1,7 @@
 using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using UnityEngine;
+using static GloomhavenVR.Core.ModuleConfig;
 
 namespace GloomhavenVR.WorldUI;
 
@@ -556,8 +557,12 @@ internal static class ButtonTuning
                                float defR, float defG, float defB) => new(
         Clamped(r, defR, 0f, 1f), Clamped(g, defG, 0f, 1f), Clamped(b, defB, 0f, 1f), 1f);
 
-    private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
-        entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
+    // Clamped() moved to Core.ModuleConfig on 2026-09-05 (redundancy survey R31): this file held
+    // one of three byte-identical private copies, and only one of the three carried the warning
+    // about what its fallback argument is. It is imported by the `using static` at the top of
+    // the file, so the call sites and their fallback literals above are unchanged, character for
+    // character — the point of the row is that ONE implementation cannot drift, not that the
+    // three copies happen to agree today.
 
     // ---- [ButtonAnim] live accessors (safe before Bind — fall back to the authored feel) --------
 

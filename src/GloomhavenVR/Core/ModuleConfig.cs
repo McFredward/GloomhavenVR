@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using BepInEx;
 using BepInEx.Configuration;
+using UnityEngine;
 
 namespace GloomhavenVR.Core;
 
@@ -96,4 +97,24 @@ internal static class ModuleConfig
         lock (Gate)
             return Files.ToArray();
     }
+
+    /// <summary>
+    /// Read a float entry that may not have been bound yet, clamped into the band its consumer can
+    /// actually use. Three files held a byte-identical private copy of this before 2026-09-05
+    /// (WallSegmentFade, ButtonTuning, PeerBoardFade — redundancy survey R31), and only one of the
+    /// three carried the warning below.
+    ///
+    /// <para><b>THE NUMBER PASSED AS <paramref name="fallback"/> IS THE PRE-BIND FALLBACK, NOT THE
+    /// SHIPPED DEFAULT.</b> It is returned only on the frames before <c>Bind()</c> has run; once the
+    /// entry exists, what comes back is the value the player has, or the shipped <c>Defaults.*</c>
+    /// the entry was bound with. Confusing the two has cost this project two rounds, twice, and what
+    /// it produces is a second invisible set of values that appears only before Bind. Every call
+    /// site keeps its own fallback literal and its own doc saying what that number means THERE;
+    /// consolidating the helper deliberately changed not one of them.</para>
+    ///
+    /// <para>The clamp is on the READ and not on the entry, so a hand-edited cfg outside the band is
+    /// corrected on every read rather than rewritten on disk — the player's file stays his.</para>
+    /// </summary>
+    internal static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
+        entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
 }

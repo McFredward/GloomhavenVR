@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using BepInEx.Configuration;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+using static GloomhavenVR.Core.ModuleConfig;
 
 namespace GloomhavenVR.Core;
 
@@ -718,8 +719,12 @@ internal static class WallFadeTuning
     /// together.</para></summary>
     internal static float SliceBudget => Clamped(SliceBudgetMillis, 1.5f, 0.25f, 8f);
 
-    private static float Clamped(ConfigEntry<float>? entry, float fallback, float min, float max) =>
-        entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
+    // Clamped() moved to Core.ModuleConfig on 2026-09-05 (redundancy survey R31): this file held
+    // one of three byte-identical private copies, and only one of the three carried the warning
+    // about what its fallback argument is. It is imported by the `using static` at the top of
+    // the file, so the call sites and their fallback literals above are unchanged, character for
+    // character — the point of the row is that ONE implementation cannot drift, not that the
+    // three copies happen to agree today.
 }
 
 /// <summary>
