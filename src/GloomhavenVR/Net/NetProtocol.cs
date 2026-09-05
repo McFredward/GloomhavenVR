@@ -416,7 +416,31 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 437;
+    public const ushort ModBuild = 438;
+    // Build 438: THE MENU WEARS THE GAME'S OWN PANEL ONLY WHERE SOMETHING IS READ, FOLGEN AND
+    // FIXIERT ARE ONE MECHANISM FOR BOTH PANELS, AND THE 160 ms COMMIT WAS A PRODUCT.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
+    //
+    // TWO OF THE THREE ARE CORRECTIONS OF THINGS 437 GOT WRONG, and both were wrong in the same
+    // way — a term was inferred where it could have been read.
+    //   * The options rows were called opaque because their Image colour has alpha 1. A colour
+    //     alpha is a MULTIPLIER on the sprite; the sprite is 'Panel_Divider', 512x10 texels, a
+    //     rule under a heading. 437 then put a slab behind the whole pane to compensate for a
+    //     surface that was never drawing. The dimensions had been in every log for months
+    //     (MainMenuLogoSwap's census prints sprite rects) and nothing cross-referenced it.
+    //   * I told the user the 160 ms commits were the prepare stage standing down on a room
+    //     reveal. THE LOG FALSIFIES THAT: the window at line 10147 refused 0, dropped 0 and
+    //     still committed at 156.45 ms. The refusal is worth ~6 ms of 156. What actually moves
+    //     is the segment TABLE — opening all doors takes it from ~10 rows to ~826 (82x) — and
+    //     Mounted is the only phase whose cost is a PRODUCT over it (28x, against 4x linear for
+    //     WallCache).
+    //
+    // NOTHING CROSSES THE WIRE. The follow/pin unification is the one to check twice and it was:
+    // the compiled board was decompiled before and after, and the entire PlayTray diff is 176
+    // lines of extraction with no constant, expression or transform-write order changed inside
+    // any method; configKeys 410 -> 410, harmonyPatches 137 -> 137. The remote mirror reads
+    // RemoteAvatar.TrayPinned from !CardsConfig.TrayFollow, untouched, and board poses travel in
+    // world space, preserved statement for statement.
     // Build 437: THE COMBAT LOG STOPS BEING ITS OWN KIND OF WINDOW, THE VR MENU GETS THE
     // OPAQUE GROUND EVERY OTHER MENU KEEPS, THE EVERYDAY PAGES LOSE 16 POWER-USER ROWS, AND
     // THE FADE DECISION STOPS RE-DECIDING ITSELF 90 TIMES A SECOND.
