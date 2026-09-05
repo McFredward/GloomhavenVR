@@ -320,6 +320,12 @@ internal sealed class MapLocationInteractor
         // and the choreographer animates locations in and out) — see MapIconHoverPads.Tick.
         _pads.Tick(MapRoomDriver.ParchmentRenderer);
 
+        // DELIBERATELY ABOVE THE EMPTY-SET RETURN BELOW. A map whose locations have all just been
+        // destroyed is exactly the state a travel or a city<->world switch passes through, and the
+        // readiness question ("is this table still deciding on the quest I readied for?") has to be
+        // asked in that state too - it is the one the settle window exists to answer.
+        TickQuestDecision();
+
         if (_locations.Count == 0)
         {
             SetHover(null, "no map locations in the scene");
@@ -1302,6 +1308,7 @@ internal sealed class MapLocationInteractor
     {
         MapLocation? sel = _selected;
         _selected = null;
+        _selectedDecisionId = null;
         if (sel == null)
             return;
         try
@@ -1336,6 +1343,176 @@ internal sealed class MapLocationInteractor
 
     /// <summary>How long after a selection the quest popup is allowed to still be absent.</summary>
     private const float SelectionGraceSeconds = 1.0f;
+
+    // ---- "is this table still deciding on the quest I readied for?" -------------------------
+
+    /// <summary>
+    /// THE ROOM'S QUEST DECISION CHANGED, SO EVERY PLAYER'S READINESS MUST STOP.
+    ///
+    /// <para>USER REPORT (multiplayer hardware test, verbatim): <i>"Wenn ich 'bereit' gedrückt habe
+    /// in einem Questfenster, aber dann ein anderes Symbol angeklickt wird (von mir oder einem
+    /// Mitspieler), bleibt meine Bereitschaft bestehen, das darf nicht sein. Sie muss dann aufhören
+    /// bei jedem User, weil ja gar nicht mehr für die selbe Quest entschieden wird."</i></para>
+    ///
+    /// <para><b>THE GAME'S BUG, READ FROM SOURCE AND NOT INFERRED.</b> Readiness is not mod state:
+    /// it is the game's own <c>UIReadyToggle.PlayersReady</c> (decompiled UIReadyToggle.cs:131),
+    /// kept in step across peers by the game's own <c>GameActionType.ReadyUpPlayer</c> (:643-676).
+    /// Exactly two things ever take a player OUT of that list — <c>UnreadyPlayer</c> (:740-788) and
+    /// <c>Reset()</c> (:485-503) — and for the quest ready-up <c>Reset</c> is wired ONLY into the
+    /// <c>onAllPlayersReady</c> callback (MapChoreographer.cs:3143-3147 and :3587-3591), i.e. it
+    /// fires when EVERYBODY is ready and never when the choice changes.</para>
+    ///
+    /// <para>WHAT THE GAME DOES INSTEAD IS A COSMETIC CLEAR, AND IT IS WORSE THAN DOING NOTHING.
+    /// On the HOST a click on a different icon does reach a re-init:
+    /// <c>AdventureMapUIManager.OnSelectedMapLocation</c> (:340-360) -> <c>OnSelectedLocation</c>
+    /// (UIMapMultiplayerController.cs:183-206) -> <c>MapChoreographer.InitReadyToggle(Quests)</c>
+    /// -> <c>UIReadyToggle.Initialize</c> (:452-482). But <c>Initialize</c> sets
+    /// <c>_allPlayersReady = false</c> and <c>SetIsOnWithoutNotify(false)</c> and NEVER TOUCHES
+    /// <c>PlayersReady</c>. So the host stays in the ready list with his local <c>ToggledOn</c>
+    /// falsified — and both of the game's own would-be rescue paths
+    /// (<c>DetermineHostToggleInteractability</c>, MapChoreographer.cs:3331-3337, and
+    /// <c>ProxyHostCancelledSelectedLocation</c>, UIMapMultiplayerController.cs:746-757) are
+    /// guarded on exactly that <c>ToggledOn</c> flag, so the cosmetic clear DISARMS them.
+    /// On a CLIENT nothing happens at all: <c>OnSelectedLocation</c> returns on
+    /// <c>!FFSNetwork.IsHost</c>, and <c>OnDeselectedQuest</c> (:287-294) only hides UI.
+    /// <b>That is why the test below is PlayersReady membership and never <c>ToggledOn</c>.</b></para>
+    ///
+    /// <para>WHY THIS CLASS OBSERVES IT. <see cref="_selected"/> is the ONE place the room's
+    /// pre-commit selection lives, and BOTH triggers the report names already write it: this
+    /// player's own click (<see cref="Dispatch"/>) and a peer's record-20 selection edge
+    /// (<see cref="AdoptSelection"/>, driven from <c>Net.RemoteMapRoom.ResolveSelection</c>). One
+    /// observer over that field therefore covers both without either caller knowing about
+    /// readiness. The remedy itself is NOT here: see
+    /// <c>MapQuestReadyUp.OnQuestDecisionChanged</c>, which owns every ready-up term and sends only
+    /// this client's OWN un-ready through the game's own wire action.</para>
+    ///
+    /// <para><b>THE EDGE IS DERIVED FROM IDENTITY, NEVER FROM A REBUILD COUNT.</b>
+    /// <c>MapChoreographer.InitMap</c> destroys and respawns every <c>MapLocation</c> on a quest
+    /// unlock, a city&lt;-&gt;world switch and a travel animation, so object identity is not the
+    /// decision's identity: the same quest comes back as a different object, and
+    /// <see cref="AdoptSelection"/> re-adopting it runs a real <c>Deselect</c> + click pair. The
+    /// subject compared here is <see cref="DecisionIdOf"/> — <c>CLocationState.ID</c>, the string
+    /// the GAME itself puts on its own wire for <c>GameActionType.SelectQuest</c> — so a
+    /// re-selection of the same quest, on the same object or on a fresh one, is not a change of
+    /// decision and produces nothing.</para>
+    ///
+    /// <para><b>AND THE TWO EDGES ARE NOT SYMMETRIC.</b> A change to a DIFFERENT named quest is
+    /// unambiguous and fires at once. A change to NOTHING is not: a deselection is also what a map
+    /// rebuild, a quest-window teardown and the travel transition each look like for a few frames,
+    /// and <see cref="AdoptSelection"/>'s own drop-then-click passes through it. So the null edge
+    /// must hold still for <see cref="DecisionSettleSeconds"/> before it counts. This is the mirror
+    /// of <see cref="SelectionGraceSeconds"/>'s rule one level up: that one says the absence of a
+    /// thing that has not arrived yet is not its departure; this one says a departure immediately
+    /// followed by a return was a rebuild, not a decision.</para>
+    /// </summary>
+    private void TickQuestDecision()
+    {
+        string? now = _selectedDecisionId;
+
+        // FIRST SIGHT IS NOT AN EDGE — the same rule RemoteMapRoom's own selection stamp uses.
+        // Whatever is selected when this interactor comes up was selected before this observer
+        // existed, and adopting it silently is what stops a room engage from clearing readiness.
+        if (!_decisionEver)
+        {
+            _decisionEver = true;
+            _decisionId = now;
+            _decisionNullSince = -1f;
+            return;
+        }
+
+        if (string.Equals(now, _decisionId, System.StringComparison.Ordinal))
+        {
+            _decisionNullSince = -1f;
+            return;
+        }
+
+        if (now == null)
+        {
+            if (_decisionNullSince < 0f)
+            {
+                _decisionNullSince = Time.unscaledTime;
+                return;
+            }
+            if (Time.unscaledTime - _decisionNullSince < DecisionSettleSeconds)
+                return;
+        }
+
+        string? had = _decisionId;
+        _decisionId = now;
+        _decisionNullSince = -1f;
+        MapQuestReadyUp.OnQuestDecisionChanged(had, now);
+    }
+
+    /// <summary>
+    /// THE DECISION'S IDENTITY: <c>MapLocation.Location.ID</c>, the <c>CLocationState</c> id.
+    ///
+    /// <para>That string is the identity the GAME puts on its own wire — the host sends
+    /// <c>new LocationToken(location.Location.ID)</c> for <c>GameActionType.SelectQuest</c> and the
+    /// receiver resolves it with <c>SingleOrDefault(x =&gt; x.Location.ID == locationId)</c>
+    /// (MapChoreographer.ProxySelectedLocation, :3378-3386) — so its stability across a map rebuild
+    /// and across two machines is load-bearing for the UNMODDED game and not an assumption made
+    /// here. It is the same subject <c>Net.RemoteMapRoom.KeyOf</c> hashes for record 20, deliberately.</para>
+    ///
+    /// <para>READ AT THE MOMENT OF SELECTION, NOT LATER. A <c>MapLocation</c> that a rebuild has
+    /// destroyed is a Unity-null whose managed fields may still answer; rather than depend on what
+    /// a destroyed object reports, the id is taken on the frame the game confirmed the click and
+    /// kept as a plain string.</para>
+    ///
+    /// <para>AN UNREADABLE ID IS A SENTINEL, NOT A NULL, AND THAT DIRECTION IS CHOSEN. Returning
+    /// null there would read as "nothing is selected" and could clear a readiness nobody withdrew;
+    /// returning one shared sentinel can only make two unreadable locations look like one quest,
+    /// i.e. a clear that is MISSED. A missed clear is the fault the user already reported and can
+    /// report again; a spurious one cancels a quest start the party had agreed on.</para>
+    /// </summary>
+    private static string? DecisionIdOf(MapLocation? loc)
+    {
+        if (loc == null)
+            return null;
+        try
+        {
+            MapRuleLibrary.MapState.CLocationState? state = loc.Location;
+            string? id = state != null ? state.ID : null;
+            return string.IsNullOrEmpty(id) ? "<unreadable-location-id>" : id;
+        }
+        catch (System.Exception)
+        {
+            return "<unreadable-location-id>";
+        }
+    }
+
+    /// <summary>The <see cref="DecisionIdOf"/> of <see cref="_selected"/>, written with it.</summary>
+    private string? _selectedDecisionId;
+
+    /// <summary>
+    /// What the readiness observer believes this table is deciding on, and whether it has ever
+    /// sampled at all (null is a real value here, so the flag cannot be folded into it).
+    ///
+    /// <para>DELIBERATELY NOT RESET BY <see cref="Release"/>, unlike the per-room instrument state
+    /// beside it. This driver holds ONE interactor for the whole session
+    /// (<c>MapRoomDriver.Locations</c>), and <see cref="_selected"/> and
+    /// <see cref="_selectedDecisionId"/> already survive a stand-down together — so clearing only
+    /// the observer's copy would turn the first tick of the NEXT visit into a first sight and
+    /// silently adopt whatever is staged, which is the one case where a change of decision could go
+    /// unnoticed. Riding with the selection keeps the pair consistent by construction.</para>
+    /// </summary>
+    private string? _decisionId;
+
+    private bool _decisionEver;
+
+    /// <summary>When the decision first read as "nothing", or negative while it names a quest.</summary>
+    private float _decisionNullSince = -1f;
+
+    /// <summary>
+    /// How long a deselection must hold before it counts as a change of decision, seconds.
+    ///
+    /// <para>It has to outlast the gap between a map rebuild dropping the selection and the same
+    /// quest being re-selected or re-adopted onto the fresh locations — <see cref="Rescan"/> runs on
+    /// <see cref="RescanIntervalFrames"/> and a peer's edge arrives on the net cadence after that —
+    /// and it has to be short enough that a player who genuinely presses the map to abandon a quest
+    /// sees his icon go out at once. It bounds ONLY the null edge; a change to a different named
+    /// quest never waits.</para>
+    /// </summary>
+    private const float DecisionSettleSeconds = 1.0f;
 
     /// <summary>Drop the hover only if <paramref name="loc"/> is the one currently held.</summary>
     internal void ClearHoverIf(MapLocation loc, string why)
@@ -1861,6 +2038,10 @@ internal sealed class MapLocationInteractor
             {
                 _selected = loc;   // what a later "press somewhere else" deselects
                 _selectedAt = Time.unscaledTime;
+                // The DECISION's identity, captured HERE and never re-derived from the object
+                // later - see DecisionIdOf for why reading it back off a rebuilt map is not the
+                // same question.
+                _selectedDecisionId = DecisionIdOf(loc);
             }
             VRLog.Info(Scope, $"MAP ROOM location CLICK on '{loc.name}' ({source}) — dispatched as "
                               + "ExecuteEvents.pointerClickHandler, i.e. exactly a left mouse click. "

@@ -1,4 +1,7 @@
 using System;
+using System.Collections;     // ICollection / IEnumerable over a list whose element type is Bolt's
+using System.Reflection;
+using FFSNet;                 // FFSNetwork.IsOnline — a plain static bool, no Bolt type in its signature
 using GloomhavenVR.Core;
 using HarmonyLib;
 using MapRuleLibrary.MapState;
@@ -733,6 +736,260 @@ internal static class MapQuestReadyUp
         _cannotParkWarned = false;
         ReadyToggleParkClaim.Reset();
     }
+
+    // ---- D: the room changed its mind, so this player's readiness stops -------------------------
+
+    /// <summary>
+    /// THE QUEST BEING DECIDED CHANGED — WITHDRAW THIS CLIENT'S OWN READINESS, AND NOBODY ELSE'S.
+    ///
+    /// <para>USER REPORT (multiplayer hardware test, verbatim): <i>"Wenn ich 'bereit' gedrückt habe
+    /// in einem Questfenster, aber dann ein anderes Symbol angeklickt wird (von mir oder einem
+    /// Mitspieler), bleibt meine Bereitschaft bestehen, das darf nicht sein. Sie muss dann aufhören
+    /// bei jedem User, weil ja gar nicht mehr für die selbe Quest entschieden wird."</i></para>
+    ///
+    /// <para>Called by <see cref="MapLocationInteractor.TickQuestDecision"/> — see that method for
+    /// the fault, for why both triggers (a local click and a peer's record-20 edge) reach one
+    /// observer, and for why the edge is derived from <c>CLocationState.ID</c> rather than from
+    /// object identity or a rebuild count. This half owns only the question "and what does that
+    /// mean for the ready-up?".</para>
+    ///
+    /// <para><b>EACH CLIENT WITHDRAWS ITSELF. NO CLIENT MAY WRITE <c>PlayersReady</c> FOR ANYBODY,
+    /// INCLUDING ITSELF.</b> That list is host-replicated: <c>ReadyUpPlayer</c> / <c>UnreadyPlayer</c>
+    /// mutate it only on the host or on a VALIDATED action, and the peers are kept in step by the
+    /// game's own <c>GameActionType.ReadyUpPlayer</c> / <c>UnreadyPlayer</c>
+    /// (decompiled UIReadyToggle.cs:643-676 and :740-788). A local <c>PlayersReady.Clear()</c> would
+    /// be a client inventing host state, i.e. a desync. So the remedy is the game's OWN un-ready
+    /// wire action, sent by each client for itself. Everybody sees the selection edge — record 20 is
+    /// mod-owned and delivered to every peer — so "everyone stops being ready" is reached by N
+    /// independent local decisions and NO new wire field.</para>
+    ///
+    /// <para><b>THE GUARD AT UIReadyToggle.cs:618 CAN SWALLOW THIS CALL, AND THAT IS WHY THE
+    /// TWO-ARGUMENT OVERLOAD IS USED.</b> <c>ReadyUp</c> opens with</para>
+    /// <code>
+    /// if (!FFSNetwork.IsOnline
+    ///     || (PlayersReady.Count >= (readyUpType == Participant ? Participants : AllPlayers).Count
+    ///         &amp;&amp; !(!toggledOn &amp;&amp; autoValidateUnreadying)))
+    ///     return;
+    /// </code>
+    /// <para>so a plain <c>ReadyUp(false)</c> RETURNS SILENTLY exactly when the ready set is already
+    /// full — which is the state this report is most about, every participant ready for quest A and
+    /// somebody then clicking quest B. Passing <c>autoValidateUnreadying: true</c> makes the
+    /// <c>!(!toggledOn &amp;&amp; autoValidateUnreadying)</c> term false and lets the un-ready
+    /// through. The flag is needed at the FAR end too: it travels as the action's
+    /// <c>SupplementaryDataBoolean</c> (:759) and the host's <c>UnreadyPlayer</c> has a second
+    /// refusal for a full ready set that is guarded on <c>!autoValidateAction</c> (:762). This is
+    /// not a trick: it is the game's own idiom for "the situation changed under you", used at
+    /// sixteen call sites including <c>DetermineHostToggleInteractability</c>
+    /// (MapChoreographer.cs:3335), <c>DetermineClientToggleInteractability</c> (:3368) and
+    /// <c>ProxyHostCancelledSelectedLocation</c> (UIMapMultiplayerController.cs:753) — that last one
+    /// being this very situation when the HOST CONFIRMS a different quest.</para>
+    ///
+    /// <para><b>THE MEMBERSHIP TEST IS <c>PlayersReady</c>, NEVER <c>ToggledOn</c>.</b>
+    /// <c>ToggledOn</c> is the local <c>_isOn</c> flag, and on the host
+    /// <c>UIReadyToggle.Initialize</c> (:452-482) has already falsified it for this very edge while
+    /// leaving <c>PlayersReady</c> intact — which is what disarms the game's own two rescue paths.
+    /// A remedy that read the same flag would inherit the same blindness.</para>
+    ///
+    /// <para><b>REFUSED PAST THE POINT OF NO RETURN.</b> <see cref="StoryComposite.PointOfNoReturn"/>
+    /// is the union of two facts (StoryComposite.cs:917): the story CURTAIN stands — the game has
+    /// hidden the rest of its own UI for a message chain, <c>MapStoryController.isVisibleOtherUI</c>
+    /// — or the LOADOUT screen is open (<c>UILoadoutManager.IsOpen</c>) while the 3D map room
+    /// stands. Both mean the party has committed and the pre-scenario interval is running; the
+    /// user's own words for it are <i>"Zu diesem Zeitpunkt ist der 'Point of Return' schon
+    /// überschritten"</i>. It is a pure read of presentation state that closes nothing, and past it
+    /// a stray map-icon edge must not be able to pull a player back out of a quest that is already
+    /// starting.</para>
+    /// </summary>
+    /// <param name="fromQuest">The <c>CLocationState.ID</c> the table was deciding on, or null.</param>
+    /// <param name="toQuest">The one it is deciding on now, or null for "nothing".</param>
+    internal static void OnQuestDecisionChanged(string? fromQuest, string? toQuest)
+    {
+        try
+        {
+            string from = fromQuest ?? "<nothing>";
+            string to = toQuest ?? "<nothing>";
+
+            UIReadyToggle? toggle = Singleton<UIReadyToggle>.IsInitialized
+                ? Singleton<UIReadyToggle>.Instance
+                : null;
+            bool online = FFSNetwork.IsOnline;
+            bool serving = toggle != null && toggle.readyUpToggleState == EReadyUpToggleStates.Quests;
+            bool committed = StoryComposite.PointOfNoReturn;
+            bool wasReady = serving && toggle != null && IsMeInPlayersReady(toggle);
+
+            // ---- the two states in which there is no ready-up to speak of at all ----------------
+            //
+            // DEBUG TIER ON PURPOSE, AND THIS IS A CADENCE DECISION RATHER THAN A TIDINESS ONE.
+            // Offline, and online-but-serving-some-other-ready-up, are the ORDINARY states of the
+            // map room: a single-player session changes its selected icon dozens of times and none
+            // of those changes has any readiness to withdraw. A Note-tier line here would print for
+            // every one of them in a SHIPPED log, which is exactly the flood ModBuild 331 removed.
+            // The line the hardware round reads is the one below, and it is emitted for every
+            // decision change that happens while the QUEST ready-up is the one on the table —
+            // including the ones where nothing had to be done, so "it never fired" and "it fired
+            // and found nothing to clear" stay distinguishable.
+            if (!online || toggle == null || !serving)
+            {
+                VRLog.Info(Scope, $"MAP QUEST READY CLEAR not applicable: the table's decision moved "
+                                  + $"from '{from}' to '{to}', but "
+                                  + (!online
+                                      ? "this session is not online (FFSNetwork.IsOnline=false), and "
+                                        + "UIReadyToggle.ReadyUp returns on that same term as its "
+                                        + "very first clause"
+                                      : toggle == null
+                                          ? "there is no UIReadyToggle singleton in the scene at all"
+                                          : "the singleton ready toggle is serving "
+                                            + $"readyUpToggleState={toggle.readyUpToggleState}, not "
+                                            + "Quests — it is reused for city events, rewards, "
+                                            + "retirement, town records and the loadout, and a "
+                                            + "map-icon click has no bearing on those")
+                                  + ". Nothing was sent and nothing was read.");
+                return;
+            }
+
+            string verdict;
+            if (committed)
+            {
+                verdict = "REFUSED: StoryComposite.PointOfNoReturn is true (the story curtain stands "
+                          + "or the loadout screen is open) — the party has already committed and "
+                          + "the pre-scenario interval is running, so a map-icon edge must not pull "
+                          + "anyone back out of a quest that is starting";
+            }
+            else if (!wasReady)
+            {
+                verdict = "NOTHING TO DO: this client is NOT in the game's UIReadyToggle.PlayersReady "
+                          + $"(count {ReadyCount(toggle)}), so it had nothing to withdraw. Either it "
+                          + "never pressed, or the game's own path already took it out "
+                          + "(UnreadyPlayer, or Reset when everybody readied)";
+            }
+            else
+            {
+                // THE ONLY WRITE THIS FILE MAKES, AND IT IS THE GAME'S OWN PUBLIC ENTRY POINT.
+                // ReadyUp -> UnreadyPlayer -> Synchronizer.SendGameAction(GameActionType.
+                // UnreadyPlayer) for THIS player only. No mod wire field, no PlayersReady write, and
+                // nothing said about any other peer: each of them observes the same selection edge
+                // and makes the same decision for itself.
+                toggle.ReadyUp(toggledOn: false, autoValidateUnreadying: true);
+                bool stillReady = IsMeInPlayersReady(toggle);
+                verdict = "UN-READY SENT: this client was in PlayersReady, so it called the game's "
+                          + "own UIReadyToggle.ReadyUp(toggledOn: false, autoValidateUnreadying: "
+                          + "true) for ITSELF — the same call the game makes at "
+                          + "UIMapMultiplayerController.cs:753 when the host cancels a selected "
+                          + "quest. autoValidateUnreadying is what stops the early return at "
+                          + "UIReadyToggle.cs:618 from swallowing it once every participant is "
+                          + $"ready. THE GAME REPORTS BACK: PlayersReady.Count={ReadyCount(toggle)}, "
+                          + $"this client still in it={stillReady}, ToggledOn={toggle.ToggledOn}"
+                          + (stillReady
+                              ? ". STILL IN THE LIST: on a CLIENT that is expected for a frame — the "
+                                + "removal is the host's, arriving back as the validated "
+                                + "GameActionType.UnreadyPlayer; if it never clears, the host "
+                                + "refused it"
+                              : "");
+            }
+
+            // HW-VERIFY: the user must be able to see from the shipped log alone that his readiness
+            // was cleared when the table changed its mind. One line per DECISION CHANGE — a
+            // deliberate human act, not a cadence.
+            VRLog.Note(Scope, $"MAP QUEST READY CLEAR: the quest this table is deciding on changed "
+                              + $"from '{from}' to '{to}' (CLocationState.ID, the same string the "
+                              + "game puts in a LocationToken for SelectQuest). This client was in "
+                              + $"UIReadyToggle.PlayersReady={wasReady}. {verdict}. WHY THIS EXISTS: "
+                              + "the game clears readiness ONLY when everybody is ready "
+                              + "(UIReadyToggle.Reset via onAllPlayersReady); a change of quest "
+                              + "leaves PlayersReady untouched and merely falsifies the local "
+                              + "ToggledOn flag, which then disarms the game's own rescue paths. "
+                              + "Every peer sees this same selection edge and withdraws ITSELF; no "
+                              + "client ever writes PlayersReady for anybody.");
+        }
+        catch (Exception ex)
+        {
+            VRLog.Warn(Scope, $"MAP QUEST READY CLEAR threw and the readiness was left alone: {ex}");
+        }
+    }
+
+    /// <summary>
+    /// Is THIS machine's player in the game's ready list?
+    ///
+    /// <para>Compared by <c>PlayerID</c>, which is how the game's own <c>ReadyUpPlayer</c> and
+    /// <c>UnreadyPlayer</c> compare it (UIReadyToggle.cs:637 and :742): a <c>NetworkPlayer</c>
+    /// reference can be re-created across a reconnect while the id is the identity that travels.</para>
+    ///
+    /// <para><b>WHY REFLECTION AND NOT <c>PlayerRegistry.MyPlayer</c> DIRECTLY.</b> Naming
+    /// <c>NetworkPlayer</c> as a TYPE in this assembly is a compile error — it derives from Photon
+    /// Bolt's <c>EntityBehaviour&lt;&gt;</c> and <c>bolt.dll</c> is deliberately not referenced, so
+    /// the compiler cannot bind its members (CS0012). Reading the property's VALUE as <c>object</c>
+    /// and the id off it by name never asks for the base type. <c>MapQuestReadyRoster</c> resolves
+    /// the same registry the same way and for the same reason; only the members differ.</para>
+    /// </summary>
+    private static bool IsMeInPlayersReady(UIReadyToggle toggle)
+    {
+        try
+        {
+            EnsureReadyReflection();
+            object? me = _myPlayer?.GetValue(null);
+            if (me == null || _playerId == null)
+                return false;
+            if (_playerId.GetValue(me) is not int myId)
+                return false;
+            if (_playersReady?.GetValue(toggle) is not IEnumerable ready)
+                return false;
+            foreach (object? entry in ready)
+            {
+                if (entry != null && _playerId.GetValue(entry) is int id && id == myId)
+                    return true;
+            }
+            return false;
+        }
+        catch (Exception)
+        {
+            // No registry yet is a real state, not an error; treating it as "not ready" can only
+            // withhold a withdrawal, never invent one.
+            return false;
+        }
+    }
+
+    /// <summary>The ready list's size for the log line, or -1 when it cannot be read.</summary>
+    private static int ReadyCount(UIReadyToggle toggle)
+    {
+        try
+        {
+            EnsureReadyReflection();
+            return _playersReady?.GetValue(toggle) is ICollection ready ? ready.Count : -1;
+        }
+        catch (Exception)
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>Resolve the three Bolt-tainted members once. Every failure is silent and leaves the
+    /// readiness question answering "not ready", which withholds a withdrawal rather than inventing
+    /// one — and the HW-VERIFY line prints the resulting count of -1, so a failure is readable.</summary>
+    private static void EnsureReadyReflection()
+    {
+        if (_readyReflectionResolved)
+            return;
+        _readyReflectionResolved = true;
+        try
+        {
+            Type? registry = AccessTools.TypeByName("FFSNet.PlayerRegistry");
+            if (registry != null)
+                _myPlayer = AccessTools.Property(registry, "MyPlayer");
+            Type? player = AccessTools.TypeByName("FFSNet.NetworkPlayer");
+            if (player != null)
+                _playerId = AccessTools.Property(player, "PlayerID");
+            _playersReady = AccessTools.Property(typeof(UIReadyToggle), "PlayersReady");
+        }
+        catch (Exception)
+        {
+            // A missing registry is a real state offline; every caller handles the nulls.
+        }
+    }
+
+    private static bool _readyReflectionResolved;
+    private static PropertyInfo? _myPlayer;      // static NetworkPlayer PlayerRegistry.MyPlayer
+    private static PropertyInfo? _playerId;      // int NetworkPlayer.PlayerID
+    private static PropertyInfo? _playersReady;  // List<NetworkPlayer> UIReadyToggle.PlayersReady
 
     /// <summary>The parked object's own <c>anchoredPosition</c>, for the claim line. Read rather than
     /// remembered, so the number on the line is what the rect is actually carrying.</summary>
