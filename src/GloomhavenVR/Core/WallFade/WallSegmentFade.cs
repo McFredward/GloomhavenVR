@@ -6193,8 +6193,11 @@ internal static partial class WallSegmentFade
         /// itself disabled (unless WE hid them), fade-capable renderers (tracked as segments),
         /// already-owned siblings (one owner per renderer), GROUND-ish renderers (AABB top
         /// within the ground band of the room's anchored floor plane — floor never fades, in
-        /// any attachment type), and renderers under live game logic (ProceduralWall = cache
-        /// territory, ActorBehaviour = characters, TileBehaviour = worldspace tile UI/logic).
+        /// any attachment type), renderers under live game logic (ProceduralWall = cache
+        /// territory, ActorBehaviour = characters, TileBehaviour = worldspace tile UI/logic), and
+        /// — ModBuild 429 — anything under a <c>UnityGameEditorDoorProp</c>: this was the only
+        /// hiding lane in the mod with no door term of any kind, and a door's picture is the
+        /// game's (user ruling 2026-09-05).
         /// Runs after room association + ground strip because the ground exclusion needs the
         /// room plane; segments without a trusted plane attach nothing (they are fail-safe
         /// solid anyway). Leavers are restored exactly like foliage leavers.
@@ -6255,6 +6258,37 @@ internal static partial class WallSegmentFade
                             if (c.GetComponentInParent<ProceduralWall>() != null
                                 || c.GetComponentInParent<ActorBehaviour>() != null
                                 || c.GetComponentInParent<TileBehaviour>() != null)
+                                continue;
+                            // A DOOR PROP'S CONTENT IS NEVER ADOPTED (ModBuild 429, user ruling
+                            // 2026-09-05: "Bitte entferne jegliche workarounds die du eingebaut
+                            // hattest mit dem deaktivieren und setze wieder voll auf die Logik des
+                            // Spiels bei allen Türen").
+                            //
+                            // This was the one renderer-hiding lane in the mod with no door term at
+                            // all. The seg.DoorRoot test above refuses a segment that HUGS a door
+                            // prop (within DoorwayLinkMaxXZ), which is a test on the SEGMENT; it
+                            // says nothing about a renderer this pass adopts through FindAssetRoot
+                            // from a wall segment standing further off. Every other lane in this
+                            // subsystem refuses a door by ClassifyDoorway/IsDoorwayAssembly
+                            // (FreeStanding, Hanging), by IsArchProtected (Stacked, Mounted,
+                            // Inside), or by the Animator term inside IsFigureOrActorRenderer —
+                            // and this pass hand-rolls three of that predicate's terms and omits
+                            // the Animator one, which is exactly the term a door leaf relies on.
+                            //
+                            // What it could do to an adopted leaf is the whole of ApplySiblings:
+                            // swap its authored materials for masonry-fade copies, drive _Cutoff /
+                            // _Toggle_Dissolve / _InvisibilityControl to invisible, and finally
+                            // HideByEnable it at eff >= FoliageHideFade. "It can only make the leaf
+                            // invisible, never immobile" stopped being a defence the moment
+                            // invisibility became the complaint.
+                            //
+                            // The ancestor walk is MaterialLoaderHeal's, verbatim (that file's own
+                            // door skips, which have never been in doubt), so the two files cannot
+                            // disagree about what is inside a door prop. It covers Door_Left,
+                            // Door_Right, Door_Light_Back, Door_Light_Front and every nested
+                            // Apparance placement root under the prop. Cost: one ancestor walk per
+                            // candidate on a list already bounded to MaxAssetRootRenderers.
+                            if (c.GetComponentInParent<UnityGameEditorDoorProp>() != null)
                                 continue;
                             _siblingOwned.Add(c);
                             seg.Siblings.Add(c);

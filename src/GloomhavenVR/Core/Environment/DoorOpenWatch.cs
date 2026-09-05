@@ -69,30 +69,31 @@ namespace GloomhavenVR.Core;
 /// renderer still enabled and unmoved says the clip hides nothing and the hide lives elsewhere; a
 /// sample that shows the animator REPLACED names the rebuild.</para>
 ///
-/// <para><b>THE CAUSE, AND WHY THE REMEDIES ABOVE ARE A STAND-IN (ModBuild 428, user ruling
-/// 2026-09-05: <i>"Ich will eigentlich, dass hier wieder das vanilla base game für die Türen
-/// verantwortlich ist und du einfach das wirkliche Problem fixed"</i>).</b> He is right. The
-/// game's ENTIRE door-open behaviour is one call — <c>Choreographer.OpenDoor</c> plays the state
-/// "Open" on the door's animator and does nothing else. The ModBuild 426 hardware log shows that
-/// state machine RUNNING (state 'Open', normalizedTime 9.28 on a 0.87 s non-looping clip with 0
-/// events, hasBoundPlayables true, playableGraph valid, one SMB on the whole controller and it
-/// only writes <c>animator.speed</c>) while NOT ONE transform under the animator moves. In Unity
-/// that leaves exactly two families, and this build addresses both:</para>
-/// <list type="number">
-///   <item><b>(A) NOTHING BINDS</b> — the clip's curve paths do not resolve on this placement.
-///   <c>DOOR OPEN CLIP SAMPLE</c> (ModBuild 427) runs the clip against the live hierarchy and
-///   says so directly.</item>
-///   <item><b>(B) THE WRITE IS SUPPRESSED OR UNDONE.</b> Unity has exactly one built-in
-///   transform-write suppression — <c>cullingMode == CullUpdateTransforms</c> while none of the
-///   animator's renderers is visible, with the state machine still advancing — and the alternative
-///   is a per-frame writer putting the pose back. Neither was measurable before: every probe up to
-///   ModBuild 427 read the pose ONCE PER FRAME, in <c>Update</c>, i.e. BEFORE Unity's animation
-///   phase, so a write that is undone before the next frame is bit-identical in every sample it
-///   takes. <c>DOOR OPEN PHASES</c> reads the same transforms THREE times in the same frame
-///   (Update / LateUpdate / end of frame) and names which interval moved the door and which put it
-///   back; the <c>isVisible</c> census folded into <c>DOOR OPEN FRAMES</c> says whether the culling
-///   suppression could have applied at all.</item>
-/// </list>
+/// <para><b>THE CAUSE, AS FAR AS IT IS MEASURED (ModBuild 429).</b> The game's ENTIRE
+/// door-open behaviour is one call — <c>Choreographer.OpenDoor</c> plays the state "Open" on the
+/// door's animator and does nothing else. Two families were open after ModBuild 426: (A) the
+/// clip's curve paths do not resolve on this placement, or (B) the write is suppressed or undone.
+/// <c>DOOR OPEN CLIP SAMPLE</c> (ModBuild 427) closed (A): on all six doors of the ModBuild 428
+/// hardware log the clip <c>Door_02_Open</c> moves the same four transforms — <c>Door_Left</c>,
+/// <c>Door_Right</c>, <c>Door_Light_Back</c>, <c>Door_Light_Front</c> — so the paths resolve on
+/// every kit that ships. What is left is WHEN, and the ModBuild 428 log answers that too, against
+/// the instrument's own verdict: the four doors whose <c>DOOR OPEN PHASES</c> line read
+/// "THE ANIMATOR NEVER WRITES" were in state <b>Idle</b> (clip <c>Door_02_Idle</c>, 1.00 s) at the
+/// rules flip AND still in Idle at the +1 s sample, and only reached "Open" between +1 s and +3 s.
+/// The probe window was 1.5 s. It measured the IDLE clip and reported an animator that never
+/// writes — a flawless measurement of the wrong state. Hence <see cref="Watch.ProbeMinSeconds"/>
+/// and <see cref="Watch.ProbeMaxSeconds"/>: the window now stays open until the "Open" state has
+/// actually run, and both lines print WHICH STATES the window covered, so the verdict can never
+/// again be read off a state nobody asked about.</para>
+///
+/// <para><b>NO PICTURE IS STOOD IN FOR (user ruling, 2026-09-05): <i>"Bitte entferne jegliche
+/// workarounds die du eingebaut hattest mit dem deaktivieren und setze wieder voll auf die Logik
+/// des Spiels bei allen Türen."</i></b> ModBuild 416-428 carried a stand-in that switched off the
+/// door leaf when it had not moved a second after the open. It is gone: nothing in this file
+/// writes <c>Renderer.enabled</c> or <c>SetActive</c> on door content, ever. What remains is the
+/// game's own machinery (the two remedies above, which only replay calls the game itself makes)
+/// plus the belt below, which restores an assumption the flat game was written under. The door's
+/// picture is the GAME's from here on, right or wrong, and the instrument says which.</para>
 ///
 /// <para><b>THE BELT — <c>[Compat] DoorAnimateOffscreen</c>, ON by default.</b> It adds no
 /// behaviour; it puts back an assumption the flat game was written under. That game's camera looks
@@ -109,9 +110,11 @@ namespace GloomhavenVR.Core;
 /// with the <c>GetComponentsInChildren</c> overload that SKIPS INACTIVE objects, so which of the
 /// two answers moves with the room's visibility state. The game writes <c>cullingMode</c> in
 /// exactly zero places (decompiled tree, 0 hits), so there is nobody to fight for it.
-/// If that was the suppressor, the GAME opens its own doors again from this build on and
-/// <see cref="Watch.HideStuckLeaf"/> stops firing by itself, because it only fires on a leaf that
-/// has not moved. That is the outcome to look for; the stand-in is not to be extended.</para>
+/// It demonstrably worked: the user saw a door's open animation for the first time on ModBuild
+/// 428 (<i>"Außerdem haben die Türen eine Animation beim aufgehen, das konnte ich jetzt sehen.
+/// Das will ich auch sehen!"</i>), so the belt stays ON by default. It is not a workaround — it
+/// puts back the vanilla precondition, it writes one enum per door animator, and every replaced
+/// value is given back.</para>
 ///
 /// <para><b>NO GAME STATE IS WRITTEN.</b> <c>Animator.Play</c> and <c>Animator.speed</c> are
 /// presentation on this client's own copy of the door; the rules state is only read. MULTIPLAYER:
@@ -188,9 +191,6 @@ internal static class DoorOpenWatch
         /// <summary>The animator instance id as it stood at the flip, so a line can say whether the
         /// instance it is describing IS that one rather than only that something changed once.</summary>
         public int AnimatorIdAtFlip;
-        /// <summary>How many hides were VOIDED by a rebuild on this door. Non-zero on a
-        /// DOOR LEAF HIDDEN BY THE MOD line means that line is a RE-hide against fresh content.</summary>
-        public int HideVoids;
         public int Reasserts;
         public float LastReassert;
         public bool NoOpenState;
@@ -200,36 +200,19 @@ internal static class DoorOpenWatch
         public bool DissolveReasserted;
         public int SampleStage;
         public float NextSample;
+        /// <summary>The renderer instance ids under the animator handle at the flip, with their
+        /// count and centroid — read by <see cref="Watch.AppendLeafCensus"/> to say how many of
+        /// them the game has destroyed since. NOTHING is written to any of them: this watch owns
+        /// no renderer's <c>enabled</c> bit at all (ModBuild 429, user ruling 2026-09-05).</summary>
         public readonly List<int> LeafIds = new(16);
-        public readonly List<Renderer> LeafRefs = new(16);
-        public readonly List<Vector3> LeafPos0 = new(16);
-        public readonly List<Vector3> LeafScale0 = new(16);
         public int LeafCount;
         public Vector3 LeafCenter;
-        /// <summary>Renderers THIS watch switched off through the enable ledger because the game's
-        /// open left them standing (ModBuild 416 ruling). Restored when the door reads closed again,
-        /// on a scenario change and on uninstall.</summary>
-        public readonly List<Renderer> HiddenByMod = new(16);
-        public bool LeafHidden;
-        // ---- THE MEASURED MOVABLE-LEAF SET (ModBuild 427). Which renderers under the animator
-        // handle are LEAF and which are ARCHITECTURE is MEASURED once per animator instance and
-        // never inferred from the hierarchy. See MeasureLeafSet.
-        /// <summary>The measurement has run against the CURRENT animator instance.</summary>
-        public bool LeafSetMeasured;
-        /// <summary>The renderers the measurement calls leaf — the only ones this watch may hide.</summary>
-        public readonly List<Renderer> HideSet = new(8);
-        /// <summary>The renderers the measurement refused as ARCHITECTURE (doorway masonry).</summary>
-        public readonly List<Renderer> ArchExcluded = new(4);
-        /// <summary>Which route decided <see cref="HideSet"/> — clip sample or wall-shader fallback.</summary>
-        public string HideRoute = string.Empty;
-        /// <summary>Why every member of <see cref="ArchExcluded"/> was refused, by name and shader.</summary>
-        public string ArchReason = string.Empty;
-        /// <summary>The "nothing here may be hidden" line has been printed for this instance.</summary>
-        public bool NoLeafLogged;
-        /// <summary>The animator instance was REPLACED, so <see cref="LeafPos0"/>/<see cref="LeafScale0"/>
-        /// describe renderers that no longer exist and the "unmoved since the flip" test cannot read.
-        /// Consumed once by the hide, which re-captures the baseline against the new content.</summary>
-        public bool LeafBaselineStale;
+        /// <summary>The clip sample (<see cref="Watch.SampleOpenClip"/>) has run against the
+        /// CURRENT animator instance. Once per instance, and it is a measurement, not a remedy.</summary>
+        public bool ClipSampled;
+        /// <summary>The animator instance id the clip sample ran on, so the CLIP SAMPLE line can
+        /// say whether the transforms it names are the ones the frame probe measured.</summary>
+        public int ClipSampleAnimatorId;
         // ---- the per-frame probe over the first 0.6 s after the flip (ModBuild 416; widened in
         // ModBuild 427 from ONE renderer's transform to EVERY transform under the animator)
         public bool ProbeArmed;
@@ -290,6 +273,38 @@ internal static class DoorOpenWatch
         // clip runs.
         public readonly List<Renderer> ProbeR = new(16);
         public int VisMin, VisMax, VisZeroFrames, VisFrames;
+        // ---- WHICH STATE THE WINDOW ACTUALLY COVERED (ModBuild 429). The ModBuild 428 window was
+        // a flat 1.5 s from the rules flip, and on four of the six hardware doors the animator was
+        // still in 'Idle' (clip Door_02_Idle, 1.00 s) for the whole of it — 'Open' was entered
+        // between the +1 s and the +3 s sample. The probe therefore measured the IDLE clip and its
+        // READING said "THE ANIMATOR NEVER WRITES": a flawless measurement of the wrong stage. So
+        // the window now waits for 'Open' (see Watch.ProbeMaxSeconds) and every line prints which
+        // states it covered — for the two working doors as much as the four failing ones. A term
+        // that reads the same on both sides is not the cause, and saying so in the line is worth
+        // as much as finding the one that differs.
+        public int StateHash0, StateHashLast, StateChanges;
+        public bool SawOpen;
+        /// <summary>Seconds after the flip that 'Open' was first seen, or -1 while never seen.</summary>
+        public float OpenSeenAfter;
+        public int OpenFrames;
+        public float OpenNtFirst, OpenNtLast;
+        public int ActiveFrames, EnabledFrames;
+        public float SpeedMin, SpeedMax;
+        public float Weight0Min, Weight0Max;
+        public int LayerCount;
+        public AnimatorUpdateMode UpdateModeLast;
+        public bool RootMotionLast;
+        /// <summary>The clip on layer 0 at the first and the last sampled frame, and the weight
+        /// band it played at. A clip playing at weight 0 writes nothing and advances normally,
+        /// which from the outside looks exactly like a clip that binds nothing.</summary>
+        public AnimationClip? Clip0, ClipLast;
+        public float ClipWeightMin, ClipWeightMax;
+        /// <summary>The animator instance the window ran on, and how long the window actually
+        /// lasted — no longer the constant the line used to print.</summary>
+        public int ProbeAnimatorId;
+        public float ProbeSpan;
+        /// <summary>The hard deadline. <see cref="ProbeUntil"/> is now only the MINIMUM.</summary>
+        public float ProbeHardUntil;
         // ---- THE BELT (ModBuild 428): AlwaysAnimate on the game's own door animator, and the
         // value it replaced. Restored on a scenario change, on uninstall, when the animator
         // instance is replaced and the moment the dial goes off.
@@ -377,19 +392,14 @@ internal static class DoorOpenWatch
         private readonly List<bool> _measureActiveA = new(64);
         private readonly List<bool> _measureMoved = new(64);
         private readonly List<AnimationClip> _clipScratch = new(8);
+        /// <summary>The List overload of <c>Animator.GetCurrentAnimatorClipInfo</c> fills this
+        /// one; the array overload allocates a fresh array on every call and the probe reads it
+        /// once per frame per open door.</summary>
+        private readonly List<AnimatorClipInfo> _clipInfoScratch = new(4);
         /// <summary>The belt's own animator scratch — the walk runs while nothing else is live,
         /// but a shared list would still be a trap the day it does not.</summary>
         private readonly List<Animator> _beltScratch = new(8);
-        private readonly List<Material> _matScratch = new(8);
-        private readonly HashSet<Transform> _movedSet = new();
-        private readonly List<Renderer> _movableLeaves = new(16);
-        private readonly StringBuilder _archSb = new(256);
         private readonly StringBuilder _clipSb = new(768);
-        /// <summary>Cached <c>Shader.name</c> per Shader object. <c>Shader.name</c> allocates a
-        /// managed string on every read; the name is immutable, so one entry answers for good.
-        /// The same cache the wall system keeps for the identical expression
-        /// (<c>name.Contains("WallFade")</c>, WallSegmentFade.cs ShaderFadeName).</summary>
-        private readonly Dictionary<Shader, string> _shaderNames = new(16);
         private ScenarioState? _state;
         private float _nextTick;
         private System.Action? _tick;
@@ -407,8 +417,9 @@ internal static class DoorOpenWatch
 
         private void OnDestroy()
         {
-            try { RestoreAllHidden("watch destroyed"); }
-            catch { /* scene teardown already took the renderers */ }
+            // NOTHING is owed on the renderer side any more: this watch switched off its last
+            // renderer in ModBuild 428 and owns no `enabled` bit from ModBuild 429 on (user
+            // ruling 2026-09-05). The belt IS owed back — one cullingMode enum per door animator.
             try { RestoreAllBelts("watch destroyed"); }
             catch { /* the animators went with the scene */ }
         }
@@ -462,7 +473,7 @@ internal static class DoorOpenWatch
             }
             float now = Time.unscaledTime;
             if (_probing > 0)
-                SampleFrameProbes(now); // every frame while a window is open — ProbeSeconds per open
+                SampleFrameProbes(now); // every frame while a window is open, ProbeMaxSeconds at worst
             if (now < _nextTick)
                 return;
             _nextTick = now + TickSeconds;
@@ -472,8 +483,7 @@ internal static class DoorOpenWatch
             catch { /* rule library not ready */ }
             if (!ReferenceEquals(state, _state))
             {
-                RestoreAllHidden("scenario changed"); // nothing we hid may outlive its scenario
-                RestoreAllBelts("scenario changed");  // ...and nothing we wrote on an animator either
+                RestoreAllBelts("scenario changed"); // nothing we wrote on an animator may outlive its scenario
                 foreach (KeyValuePair<int, Entry> kv in _entries)
                     CloseProbeSilently(kv.Value); // ...and no probe window may outlive its entry
                 _entries.Clear(); // a new scenario: every door is a new door
@@ -571,11 +581,10 @@ internal static class DoorOpenWatch
             }
             if (!open)
             {
-                if (e.WasOpen)
-                {
-                    e.WasOpen = false; // a scenario restart closes doors again — start over on the next open
-                    RestoreHidden(e, "the door reads closed again");
-                }
+                // A scenario restart closes doors again — start over on the next open. Nothing is
+                // owed here any more: until ModBuild 428 this branch also restored the renderers
+                // the mod had switched off, and the mod switches nothing off from ModBuild 429.
+                e.WasOpen = false;
                 return; // the belt was already asserted above — it does not need an open door
             }
 
@@ -598,8 +607,24 @@ internal static class DoorOpenWatch
                 }
             }
 
-            if (!e.LeafHidden)
-                HideStuckLeaf(e, a, now);
+            // The leaf baseline the census reports against. It is captured at the flip, but a
+            // door whose content had not been placed yet has an empty one — HideStuckLeaf used to
+            // re-capture it here on its way past, and that write outlives the method.
+            if (e.LeafCount == 0 && a != null)
+                CaptureLeaf(e);
+
+            // THE CLIP SAMPLE — once per animator instance, and only ONCE THE PHASE WINDOW HAS
+            // CLOSED. SampleAnimation WRITES the live hierarchy and writes the recorded original
+            // back field by field; running it while the three-phase probe is open would have the
+            // instrument measuring its own writes. It answered its question (the clip binds on
+            // every kit that ships) but it is the only reading that names the clip and its curve
+            // paths against a REBUILT placement, so it still runs once per instance.
+            if (!e.ClipSampled && !e.ProbeArmed && a != null && now - e.OpenedAt >= ClipSampleAfterSeconds)
+            {
+                e.ClipSampled = true;
+                e.ClipSampleAnimatorId = e.AnimatorId;
+                SampleOpenClip(e, a);
+            }
 
             if (!e.OpenAtFirstSight && e.SampleStage < SampleAt.Length && now >= e.NextSample)
             {
@@ -955,263 +980,7 @@ internal static class DoorOpenWatch
 
         // ---------------------------------------------------------------- the outcome
 
-        /// <summary>
-        /// SHIP THE OUTCOME (user ruling, ModBuild 416), WITHOUT TAKING THE ARCHITECTURE WITH IT
-        /// (the ModBuild 427 regression fix; user report 2026-09-05, türrahmen.jpg: an unnatural
-        /// GAP in the door frame after a door opens).
-        ///
-        /// <para><b>WHAT WENT WRONG.</b> ModBuild 416 hid EVERY renderer under the door's animator
-        /// handle and its own log line asserted "Only the leaf assembly is touched — the arch and
-        /// frame are not under the animator." That was measured on exactly one door kit
-        /// (<c>CV_Door_Narrow_02</c>, ModBuild 415) and is false on two of the three that ship. The
-        /// ModBuild 426 hardware log (LogOutput.log; 6 doors hidden, 3 of them de-framed):</para>
-        /// <list type="bullet">
-        ///   <item><c>CR_ST_Door_02</c> → <c>CR_ST_Door_01_Frame</c> (3 materials, one of them
-        ///   <c>EN_CR_DoorWay_010</c> on shader <c>Amp_Basic_WallFade</c>), <c>_Left</c>,
-        ///   <c>_Right</c> (1 material each, <c>Amp_Basic_N_MRAO</c>);</item>
-        ///   <item><c>CR_Dungeon_DOORS_PR</c> → <c>CR_Dungeon_DOORS_Frame</c> (2 materials, one of
-        ///   them <c>CR_TC_WallProps_01_MAT</c> on <c>Amp_Basic_WallFade</c>), <c>_Left</c>, <c>_Right</c>;</item>
-        ///   <item><c>CR_INT_Stone_Doorway_01_DOORS</c> → two leaves and no frame — unaffected.</item>
-        /// </list>
-        /// <para>So on two kits the hide switched off a renderer carrying the game's own WALL
-        /// shader. That renderer is doorway masonry, not a door leaf, and its absence is the gap in
-        /// the photograph.</para>
-        ///
-        /// <para><b>THE NEW RULE — a leaf is MEASURED, never inferred from the hierarchy.</b> See
-        /// <see cref="MeasureLeafSet"/>: route (a) asks the game's own verb what moves
-        /// (<c>AnimationClip.SampleAnimation</c> against the live hierarchy at t=0 and t=length,
-        /// with the recorded original state written back field by field), and route (b), which is
-        /// what a hierarchy whose clip moves nothing falls back to, takes the renderers under the
-        /// animator MINUS every renderer whose shared materials carry a <c>WallFade</c> shader. If
-        /// neither route can name a leaf, NOTHING is hidden and the line says why: a door left
-        /// standing is a known cosmetic complaint, a hole in the architecture is worse, and that
-        /// trade is never taken the other way.</para>
-        ///
-        /// <para><b>THE GATE IS UNCHANGED.</b> A member of the measured leaf set still has to be
-        /// standing one second after the rules opened the door (or after the state has run two
-        /// loops) — enabled, active, unmoved (&lt; 0.01 wu) and unscaled (&lt; 1 %) — before
-        /// anything is switched off, and everything goes THROUGH THE ENABLE LEDGER
-        /// (<see cref="WallSegmentFade.HideByEnableExternal"/>) so the healer and every wall-fade
-        /// restore treat it as a deliberate mod hide. Restored through the ledger when the door
-        /// reads closed again, on a scenario change and on uninstall. Presentation only; MP-safe
-        /// (a local picture on this client's own copy of the door).</para>
-        /// </summary>
-        private void HideStuckLeaf(Entry e, Animator? a, float now)
-        {
-            float grace = e.OpenAtFirstSight ? FirstSightGraceSeconds : 1.0f;
-            bool loopsDone = false;
-            if (a != null && a.isActiveAndEnabled)
-            {
-                try
-                {
-                    AnimatorStateInfo st = a.GetCurrentAnimatorStateInfo(0);
-                    loopsDone = st.IsName("Open") && st.normalizedTime >= 2f;
-                }
-                catch { /* controller mid-swap */ }
-            }
-            if (now - e.OpenedAt < grace && !loopsDone)
-                return;
-            if (e.LeafBaselineStale && a != null)
-            {
-                e.LeafBaselineStale = false;
-                CaptureLeaf(e); // a rebuilt assembly: re-baseline (this also re-arms the measurement)
-            }
-            if (e.LeafRefs.Count == 0)
-            {
-                if (a != null)
-                    CaptureLeaf(e); // the content arrived after the flip — measure from now on
-                return;
-            }
-
-            // WHAT IS A LEAF HERE — measured once per animator instance, BEFORE anything is judged
-            // stuck. The ModBuild 416 order ran the stuck test over every renderer under the handle,
-            // so the FRAME's zero motion was itself part of the evidence for hiding the frame.
-            if (!e.LeafSetMeasured)
-                MeasureLeafSet(e, a);
-            if (e.HideSet.Count == 0)
-            {
-                if (!e.NoLeafLogged)
-                {
-                    e.NoLeafLogged = true;
-                    LogNothingToHide(e, a, now);
-                }
-                return;
-            }
-
-            int stuck = 0;
-            _sb.Clear();
-            for (int i = 0; i < e.HideSet.Count; i++)
-            {
-                Renderer r = e.HideSet[i];
-                if (r == null || !r.enabled || !r.gameObject.activeInHierarchy)
-                    continue;
-                int at = e.LeafRefs.IndexOf(r);
-                if (at < 0)
-                    continue; // measured as a leaf but not captured at the flip — no baseline to judge
-                float moved = (r.transform.position - e.LeafPos0[at]).magnitude;
-                Vector3 s0 = e.LeafScale0[at], s1 = r.transform.lossyScale;
-                float scaleDev = Mathf.Max(RelDev(s0.x, s1.x), Mathf.Max(RelDev(s0.y, s1.y), RelDev(s0.z, s1.z)));
-                if (moved >= 0.01f || scaleDev >= 0.01f)
-                    continue; // the game IS moving it — not stuck, leave it alone
-                stuck++;
-                if (stuck <= 4)
-                    _sb.Append(stuck == 1 ? "" : ", ").Append('\'').Append(r.name).Append("' (moved ")
-                       .Append(moved.ToString("0.000")).Append(" wu, scale dev ")
-                       .Append((scaleDev * 100f).ToString("0.0")).Append(" %)");
-            }
-            if (stuck == 0)
-                return;
-            string stuckNames = _sb.ToString();
-
-            // Hide ONLY the measured leaf set. Nothing else under the handle is touched.
-            int hidden = 0;
-            _sb.Clear();
-            foreach (Renderer r in e.HideSet)
-            {
-                if (r == null)
-                    continue;
-                if (WallSegmentFade.HideByEnableExternal(r))
-                {
-                    hidden++;
-                    e.HiddenByMod.Add(r);
-                    if (hidden <= 6)
-                        _sb.Append(hidden == 1 ? "" : ", ").Append('\'').Append(r.name).Append('\'');
-                }
-            }
-            e.LeafHidden = true;
-            LogLeafHidden(e, stuckNames, hidden, _sb.ToString(), loopsDone, now);
-        }
-
-        // ------------------------------------------------- what is a leaf, MEASURED (ModBuild 427)
-
-        /// <summary>
-        /// Fill <see cref="Entry.HideSet"/> and <see cref="Entry.ArchExcluded"/> for the current
-        /// animator instance. Two routes, in this order, and the safety direction is always "hide
-        /// less": route (a) asks the clip itself what it moves; route (b) — the fallback for a
-        /// hierarchy whose clip binds nothing — takes everything under the handle MINUS what
-        /// carries the game's wall shader. Neither route may ever ADD a renderer the other refused.
-        /// </summary>
-        private void MeasureLeafSet(Entry e, Animator? a)
-        {
-            e.LeafSetMeasured = true;
-            e.HideSet.Clear();
-            e.ArchExcluded.Clear();
-            e.ArchReason = string.Empty;
-
-            if (a == null)
-            {
-                FilterArchitecture(e, e.LeafRefs);
-                e.HideRoute = "the WALL-SHADER FALLBACK over the renderers captured at the flip "
-                            + "(there is no animator to sample right now)";
-                return;
-            }
-
-            // ROUTE (a) — the game's own verb. SampleMovableLeaves fills _movableLeaves and prints
-            // the DOOR OPEN CLIP SAMPLE line, which is also the instrument the open ModBuild 413-415
-            // question ("does the clip bind anything on this hierarchy at all?") is decided by.
-            bool ran = SampleMovableLeaves(e, a);
-            if (ran && _movableLeaves.Count > 0)
-            {
-                FilterArchitecture(e, _movableLeaves);
-                e.HideRoute = "the CLIP SAMPLE (AnimationClip.SampleAnimation at t=0 and t=length "
-                            + "named the transforms the clip moves), with the wall-shader test as a belt";
-                _movableLeaves.Clear();
-                return;
-            }
-            _movableLeaves.Clear();
-
-            // ROUTE (b) — the clip moved nothing. Everything under the handle, minus architecture.
-            _measureRenderers.Clear();
-            try { a.GetComponentsInChildren(includeInactive: true, _measureRenderers); }
-            catch { _measureRenderers.Clear(); }
-            FilterArchitecture(e, _measureRenderers.Count > 0 ? _measureRenderers : e.LeafRefs);
-            _measureRenderers.Clear();
-            e.HideRoute = ran
-                ? "the WALL-SHADER FALLBACK (the clip sample moved not one transform on this hierarchy)"
-                : "the WALL-SHADER FALLBACK (the clip sample could not run on this hierarchy)";
-        }
-
-        /// <summary>Split <paramref name="candidates"/> into <see cref="Entry.HideSet"/> and
-        /// <see cref="Entry.ArchExcluded"/>, and record WHY each exclusion happened.</summary>
-        private void FilterArchitecture(Entry e, List<Renderer> candidates)
-        {
-            _archSb.Clear();
-            foreach (Renderer r in candidates)
-            {
-                if (r == null)
-                    continue;
-                string? why = ArchitectureVerdict(r);
-                if (why == null)
-                {
-                    if (!e.HideSet.Contains(r))
-                        e.HideSet.Add(r);
-                    continue;
-                }
-                if (e.ArchExcluded.Contains(r))
-                    continue;
-                e.ArchExcluded.Add(r);
-                _archSb.Append(_archSb.Length == 0 ? "" : ", ").Append('\'').Append(r.name)
-                       .Append("' (").Append(why).Append(')');
-            }
-            e.ArchReason = _archSb.ToString();
-            _archSb.Clear();
-        }
-
-        /// <summary>
-        /// Is this renderer ARCHITECTURE — doorway masonry rather than a door leaf? MEASURED, never
-        /// named: the discriminator is the game's own wall shader <c>Amp_Basic_WallFade</c>, which
-        /// separates frame from leaf cleanly on all three shipped door kits (every leaf in the
-        /// ModBuild 426 log carries exactly one <c>Amp_Basic_N_MRAO</c> material and never the wall
-        /// shader; both frames carry a wall-shader material beside their leaf material). Null when
-        /// the renderer is not architecture; otherwise the reason, for the log line.
-        /// <para>The belt is <see cref="WallSegmentFade.DescribeHold"/> — the existing, cheap,
-        /// already-public read-only query. A renderer some wall-fade lane already owns is content
-        /// that subsystem is driving, and this watch must not switch it off underneath it. The one
-        /// hold that does NOT disqualify is <c>hid-by-enable</c>, which is this watch's own ledger
-        /// entry from a previous open.</para>
-        /// </summary>
-        private string? ArchitectureVerdict(Renderer r)
-        {
-            try
-            {
-                _matScratch.Clear();
-                r.GetSharedMaterials(_matScratch);
-                foreach (Material m in _matScratch)
-                {
-                    if (m == null)
-                        continue;
-                    Shader sh = m.shader;
-                    if (sh == null)
-                        continue;
-                    string shaderName = ShaderNameOf(sh);
-                    if (shaderName.Contains("WallFade"))
-                    {
-                        string mat = m.name;
-                        _matScratch.Clear();
-                        return "shader '" + shaderName + "' on material '" + mat + "'";
-                    }
-                }
-                _matScratch.Clear();
-            }
-            catch { _matScratch.Clear(); }
-            string? hold = null;
-            try { hold = WallSegmentFade.DescribeHold(r); }
-            catch { /* wall system mid-teardown */ }
-            if (hold != null && hold != "hid-by-enable")
-                return "the wall system already holds it as " + hold;
-            return null;
-        }
-
-        /// <summary>See <see cref="_shaderNames"/>.</summary>
-        private string ShaderNameOf(Shader sh)
-        {
-            if (!_shaderNames.TryGetValue(sh, out string? n))
-            {
-                n = sh.name ?? string.Empty;
-                _shaderNames[sh] = n;
-            }
-            return n;
-        }
+        // ------------------------------------------------- what the clip moves, MEASURED
 
         /// <summary>
         /// ROUTE (a) — ASK THE CLIP WHAT IT MOVES.
@@ -1228,13 +997,13 @@ internal static class DoorOpenWatch
         /// <para>The recorded ORIGINAL state is written back field by field afterwards — never by
         /// re-sampling at 0, which is a different value from whatever the graph had put there.</para>
         ///
-        /// <para>Returns true when the sampling actually ran, whatever it found;
-        /// <see cref="_movableLeaves"/> then holds every renderer at or below a moved transform
-        /// plus every renderer whose own <c>enabled</c> bit the clip flips.</para>
+        /// <para>IT IS A MEASUREMENT AND NOTHING ELSE (ModBuild 429). Until ModBuild 428 its
+        /// result also chose which renderers the mod's own hide stand-in was allowed to switch
+        /// off; that stand-in is gone and nothing consumes the movable SET any more. The line it
+        /// prints is the whole product.</para>
         /// </summary>
-        private bool SampleMovableLeaves(Entry e, Animator a)
+        private void SampleOpenClip(Entry e, Animator a)
         {
-            _movableLeaves.Clear();
             RuntimeAnimatorController? rac = null;
             try { rac = a.runtimeAnimatorController; }
             catch { /* mid-swap */ }
@@ -1242,7 +1011,7 @@ internal static class DoorOpenWatch
             {
                 LogClipSample(e, a, "none", "none", 0, 0, 0, 0f, 0f, false, string.Empty,
                               "there is no runtime animator controller on the handle", 0);
-                return false;
+                return;
             }
 
             // ---- pick the clips: the live 'Open' state's own clip, else every 'Open'-named clip
@@ -1298,7 +1067,7 @@ internal static class DoorOpenWatch
             {
                 LogClipSample(e, a, "none", "none", 0, 0, 0, 0f, 0f, false, string.Empty,
                               "the controller carries no clips at all", 0);
-                return false;
+                return;
             }
 
             // ---- snapshot the ORIGINAL state of everything under the handle
@@ -1319,7 +1088,7 @@ internal static class DoorOpenWatch
                 _clipScratch.Clear();
                 LogClipSample(e, a, "none", "none", 0, 0, 0, 0f, 0f, false, string.Empty,
                               "no transform under the handle could be read", 0);
-                return false;
+                return;
             }
             _measurePos0.Clear(); _measureRot0.Clear(); _measureScale0.Clear(); _measureActive0.Clear();
             _measurePosA.Clear(); _measureRotA.Clear(); _measureScaleA.Clear(); _measureActiveA.Clear();
@@ -1426,12 +1195,12 @@ internal static class DoorOpenWatch
                 _measureRenderers.Clear();
                 LogClipSample(e, a, clipNames, "none", covered, 0, 0, 0f, 0f, false, string.Empty,
                               "every SampleAnimation call threw — " + how, rendererCount);
-                return false;
+                return;
             }
 
-            // ---- the movable set: every renderer at or below a moved transform, plus every
-            // renderer whose own enabled bit the clip flips.
-            _movedSet.Clear();
+            // ---- WHAT THE CLIP MOVES, named. Until ModBuild 428 this loop also built the set
+            // of renderers the hide stand-in was allowed to switch off; the stand-in is gone, so
+            // the names and the counts ARE the product.
             int named = 0;
             for (int i = 0; i < _measureT.Count; i++)
             {
@@ -1441,7 +1210,6 @@ internal static class DoorOpenWatch
                 if (t == null)
                     continue;
                 movedCount++;
-                _movedSet.Add(t);
                 if (named < 6)
                 {
                     named++;
@@ -1466,19 +1234,15 @@ internal static class DoorOpenWatch
                         _clipSb.Append(namedFlip == 1 ? "" : ", ").Append('\'').Append(r.name).Append('\'');
                     }
                 }
-                if (flipped || IsUnderMovedTransform(r.transform, a.transform))
-                    _movableLeaves.Add(r);
             }
             string flipNames = _clipSb.Length == 0 ? "none" : _clipSb.ToString();
             _clipSb.Clear();
-            _movedSet.Clear();
             _clipScratch.Clear();
             _measureT.Clear();
             _measureRenderers.Clear();
 
             LogClipSample(e, a, clipNames, movedNames, covered, movedCount, flippedCount,
                           maxPos, maxRot, true, flipNames, how, rendererCount);
-            return true;
         }
 
         /// <summary>Write the recorded original TRS / activeSelf / renderer-enabled back. Only
@@ -1517,164 +1281,7 @@ internal static class DoorOpenWatch
             }
         }
 
-        /// <summary>Is <paramref name="t"/> at or below one of the transforms the clip moves? The
-        /// walk stops at the animator handle; door subtrees are three or four levels deep.</summary>
-        private bool IsUnderMovedTransform(Transform t, Transform handle)
-        {
-            for (Transform? n = t; n != null; n = n.parent)
-            {
-                if (_movedSet.Contains(n))
-                    return true;
-                if (n == handle)
-                    return false;
-            }
-            return false;
-        }
-
-        private static float RelDev(float a, float b)
-        {
-            float d = Mathf.Abs(a) > 1e-5f ? Mathf.Abs(a) : 1e-5f;
-            return Mathf.Abs(a - b) / d;
-        }
-
-        private void RestoreHidden(Entry e, string why)
-        {
-            if (e.HiddenByMod.Count == 0)
-            {
-                e.LeafHidden = false;
-                return;
-            }
-            int shown = 0;
-            foreach (Renderer r in e.HiddenByMod)
-            {
-                if (r == null)
-                    continue;
-                WallSegmentFade.ShowIfWeHidExternal(r);
-                shown++;
-            }
-            VRLog.Info(Name, $"DoorOpenWatch: restored {shown} renderer(s) of the MEASURED leaf set on "
-                           + $"'{e.RootName}' — {why}. The set was decided by {(e.HideRoute.Length == 0 ? "no route (nothing was measured)" : e.HideRoute)}; "
-                           + $"{e.ArchExcluded.Count} renderer(s) under the same animator handle were never touched "
-                           + $"because they were measured as architecture"
-                           + (e.ArchReason.Length == 0 ? "" : $": {e.ArchReason}") + ".");
-            e.HiddenByMod.Clear();
-            e.LeafHidden = false;
-        }
-
-        /// <summary>
-        /// A rebuild makes the previous hide VOID, not merely stale: the renderers it switched off
-        /// are gone with the hierarchy that held them, and the fresh leaf standing in their place
-        /// has never been decided about. So anything from the old set that is still ALIVE is handed
-        /// back through the enable ledger first — the ledger must never keep an orphan entry for a
-        /// door this watch has stopped tracking — the set is dropped, and <c>LeafHidden</c> is
-        /// cleared so <see cref="Watch.HideStuckLeaf"/> may measure and decide again.
-        /// <para>Deliberately NOT <see cref="RestoreHidden"/>: that method's log line says the
-        /// renderers were restored, which would be false for every dead reference, and it is the
-        /// line the "door reads closed again" path owns.</para>
-        /// </summary>
-        private void VoidHideOnRebuild(Entry e)
-        {
-            int handedBack = 0, dead = 0;
-            for (int i = 0; i < e.HiddenByMod.Count; i++)
-            {
-                Renderer r = e.HiddenByMod[i];
-                if (r == null)
-                {
-                    dead++;
-                    continue; // destroyed with the old content — nothing is owed to it
-                }
-                try { WallSegmentFade.ShowIfWeHidExternal(r); handedBack++; }
-                catch { /* the ledger is mid-teardown — the renderer is going anyway */ }
-            }
-            e.HiddenByMod.Clear();
-            bool wasHidden = e.LeafHidden;
-            e.LeafHidden = false;
-            if (!wasHidden && handedBack == 0 && dead == 0)
-                return; // nothing had been hidden on this door yet
-            e.HideVoids++;
-            VRLog.Info(Name, $"DoorOpenWatch: the hide on '{e.RootName}' is VOID — the animator "
-                             + $"instance was replaced (rebuild #{e.Rebuilds}), so the {handedBack + dead} "
-                             + $"renderer(s) it had switched off are not the door any more: {handedBack} "
-                             + $"still alive and handed back to the enable ledger, {dead} destroyed with "
-                             + "the old content. The watch will re-measure what is leaf here and decide "
-                             + "again against the NEW hierarchy.");
-        }
-
-        private void RestoreAllHidden(string why)
-        {
-            foreach (KeyValuePair<int, Entry> kv in _entries)
-                RestoreHidden(kv.Value, why);
-        }
-
-        private void LogLeafHidden(Entry e, string stuckNames, int hidden, string hiddenNames, bool loopsDone, float now)
-        {
-            _sb.Clear();
-            _sb.Append("DOOR LEAF HIDDEN BY THE MOD '").Append(e.RootName).Append("': ").Append(hidden)
-               .Append(" renderer(s) of the MEASURED leaf set switched off through the enable ledger — ")
-               .Append(hiddenNames).Append(". ROUTE: the set was decided by ").Append(e.HideRoute)
-               .Append(". EXCLUDED AS ARCHITECTURE (under the same animator handle, NOT touched): ")
-               .Append(e.ArchExcluded.Count).Append(e.ArchReason.Length == 0 ? "" : " — " + e.ArchReason)
-               .Append(". REASON: the rules opened this door ")
-               .Append((now - e.OpenedAt).ToString("0.0")).Append(" s ago")
-               .Append(loopsDone ? " and the 'Open' state has run >= 2 loops" : "")
-               .Append(", and the leaf renderer(s) captured at the flip were still enabled, active, unmoved and "
-                     + "unscaled: ").Append(stuckNames)
-               .Append(". The flat game does not show an opened door's leaf; three rounds (ModBuild 413/414/415) "
-                     + "found no mod rule on it, no disable, no dissolve and no motion, so the picture is made "
-                     + "to match the flat game here regardless of the cause the DOOR OPEN FRAMES line is still "
-                     + "hunting. Restored if the door ever reads closed again, on a scenario change and on uninstall. "
-                     + "WHAT IS A LEAF IS MEASURED, NOT ASSUMED: ModBuild 416 hid every renderer under the animator "
-                     + "handle on the claim that the arch and frame are not under it, and that claim held on exactly "
-                     + "one of the three shipped door kits — on CR_ST_Door_02 and CR_Dungeon_DOORS_PR the frame IS "
-                     + "under the handle and carries the game's own wall shader Amp_Basic_WallFade, which is the gap "
-                     + "in türrahmen.jpg. Anything the routes could not prove is a leaf is left standing on purpose.")
-               // APPENDED, ModBuild 428 (the token above is unchanged). Before this build a hide
-               // could only ever happen ONCE per door: LeafHidden was never cleared on a rebuild,
-               // and Step gates the hide on it. So a line saying a leaf was hidden could never be
-               // followed by a second one on the same door however many times Apparance re-placed
-               // the content — the second, third and fourth leaf simply stood there, unhidden and
-               // unreported. Now it can be, and this clause says which kind of hide this is.
-               .Append(" REBUILDS: the animator instance under this door has been replaced ")
-               .Append(e.RebuildsSinceOpen).Append(" time(s) since this open and ").Append(e.Rebuilds)
-               .Append(" time(s) since the watch first saw the door; ")
-               .Append(e.HideVoids == 0
-                       ? "this is the FIRST hide on this door and no previous hide has been voided."
-                       : "this is a RE-HIDE — " + e.HideVoids + " earlier hide(s) on this door were "
-                         + "VOIDED by a rebuild (their renderers were handed back to the enable "
-                         + "ledger or destroyed with the old content, see the 'hide … is VOID' "
-                         + "record). A re-hide is a finding in itself: Apparance destroyed and "
-                         + "re-placed this door's content AFTER the rules opened it, so the fresh "
-                         + "leaf is born CLOSED and the game's one deferred replay was spent long "
-                         + "ago. If this count keeps climbing, hunt the rebuild, not the leaf.");
-            // HW-VERIFY: the user's outcome — an opened door's leaf is gone AND its frame is not; this
-            // line names what went, which route decided it, and what was refused as architecture.
-            VRLog.Note(Name, _sb.ToString());
-        }
-
-        /// <summary>The SAFETY DIRECTION, made loud: neither route could name a leaf here, so this
-        /// watch hides nothing at all on this door. A door left standing is a known cosmetic
-        /// complaint; a hole in the architecture is worse.</summary>
-        private void LogNothingToHide(Entry e, Animator? a, float now)
-        {
-            _sb.Clear();
-            _sb.Append("DOOR LEAF NOT HIDDEN '").Append(e.RootName)
-               .Append("': the rules opened this door ").Append((now - e.OpenedAt).ToString("0.0"))
-               .Append(" s ago and NOTHING under the animator '")
-               .Append(a != null ? a.gameObject.name : "<none>")
-               .Append("' could be proved to be a door leaf, so the mod switched off nothing. ROUTE: ")
-               .Append(e.HideRoute.Length == 0 ? "no route ran" : e.HideRoute)
-               .Append(". EVERY renderer under the handle was measured as architecture (")
-               .Append(e.ArchExcluded.Count).Append("): ")
-               .Append(e.ArchReason.Length == 0 ? "no reason recorded" : e.ArchReason)
-               .Append(". The leaf may therefore still be standing in the picture — that is the "
-                     + "deliberate trade (ModBuild 427): a door left standing is a cosmetic complaint, "
-                     + "a hole in the doorway masonry is the türrahmen.jpg regression, and this watch "
-                     + "never takes that trade the other way round.");
-            // HW-VERIFY: a door this build deliberately leaves alone — the counterpart of the hide line.
-            VRLog.Note(Name, _sb.ToString());
-        }
-
-        /// <summary>The ROUTE (a) instrument. See <see cref="SampleMovableLeaves"/>.</summary>
+        /// <summary>The clip instrument. See <see cref="SampleOpenClip"/>.</summary>
         private void LogClipSample(Entry e, Animator a, string clipNames, string movedNames, int covered,
                                    int movedCount, int flippedCount, float maxPos, float maxRot,
                                    bool ran, string flipNames, string how, int rendererCount)
@@ -1690,7 +1297,25 @@ internal static class DoorOpenWatch
                .Append(" transform(s): ").Append(movedNames)
                .Append("; largest local delta between the two samples: pos ").Append(maxPos.ToString("0.0000"))
                .Append(" wu, rot ").Append(maxRot.ToString("0.00")).Append(" deg. RENDERER FLAGS FLIPPED BY THE CLIP: ")
-               .Append(flippedCount).Append(flippedCount > 0 ? " — " + flipNames : "").Append(". READING: ");
+               .Append(flippedCount).Append(flippedCount > 0 ? " — " + flipNames : "")
+               // APPENDED, ModBuild 429: are the transforms named above the ones the frame probe
+               // measured, or a different placement with the same names? Both walks come off the
+               // animator, so equal instance ids settle it and unequal ids name a rebuild between
+               // the two readings.
+               .Append(". ANIMATOR INSTANCE ").Append(e.ClipSampleAnimatorId)
+               .Append("; the DOOR OPEN FRAMES window on this door ran on instance ")
+               .Append(e.ProbeAnimatorId).Append(" over ").Append(e.ProbeCovered)
+               .Append(" transform(s) — ")
+               .Append(e.ProbeAnimatorId == 0
+                       ? "no window ran on this door (it was already open at first sight), so the two "
+                         + "readings cannot be compared"
+                       : e.ProbeAnimatorId == e.ClipSampleAnimatorId
+                         ? "the SAME instance, so the transforms named here ARE the ones the probe "
+                           + "measured and 'the clip moves them' and 'the probe saw them stand still' "
+                           + "are statements about the same objects"
+                         : "a DIFFERENT instance: the placement was rebuilt between the window and "
+                           + "this sample, and the two readings are about different objects")
+               .Append(". READING: ");
             if (!ran)
                 _sb.Append("the sample DID NOT RUN, so it proves neither side of the ModBuild 413-415 question — ")
                    .Append(how).Append(". The hide falls back to the wall-shader route.");
@@ -1720,8 +1345,33 @@ internal static class DoorOpenWatch
         /// <summary>MODBUILD 428: 0.6 s covered two thirds of the 0.87 s <c>Door_02_Open</c> clip,
         /// so the window could close while the clip was still running and the phase deltas would
         /// have been read off a partial open. 1.5 s covers the clip with room either side, and the
-        /// window is still one and a half seconds per door open in a whole scenario.</summary>
-        private const float ProbeSeconds = 1.5f;
+        /// window is still one and a half seconds per door open in a whole scenario.
+        /// <para>MODBUILD 429 — AND 1.5 s FROM THE FLIP WAS THE WRONG WINDOW ANYWAY. A door's
+        /// rules state flips before its animator enters "Open": on four of the six doors in the
+        /// ModBuild 428 hardware log the animator was in <c>Idle</c> (clip <c>Door_02_Idle</c>,
+        /// 1.00 s) at the flip AND at the +1 s sample, and reached "Open" between +1 s and +3 s —
+        /// after this window had closed. Those four printed "THE ANIMATOR NEVER WRITES", which was
+        /// a correct measurement of the idle clip and said nothing whatever about the open clip.
+        /// So this is now only the MINIMUM: the window stays open until the "Open" state has been
+        /// seen and its clip has run past the end, or until <see cref="ProbeMaxSeconds"/>.</para></summary>
+        private const float ProbeMinSeconds = 1.5f;
+
+        /// <summary>The hard deadline, measured from the flip. A door that never enters "Open"
+        /// must not hold a per-frame window and an end-of-frame coroutine open for the rest of the
+        /// scenario, and a window that ran this long is itself the finding — the line says so.
+        /// Twelve seconds is past the +8 s sample, so the window and the samples cover the same
+        /// story.</summary>
+        private const float ProbeMaxSeconds = 12f;
+
+        /// <summary>How far past the end of the "Open" clip the window keeps sampling before it
+        /// closes early. A fifth of a clip beyond the end is enough to catch a writer that puts
+        /// the pose back once the clip has finished.</summary>
+        private const float OpenDoneNormalizedTime = 1.2f;
+
+        /// <summary>How long after the flip the clip sample may run. It WRITES the hierarchy and
+        /// writes the recorded original back, so it must never overlap the phase window; the gate
+        /// in <see cref="Step"/> also waits for <c>ProbeArmed</c> to clear.</summary>
+        private const float ClipSampleAfterSeconds = 1.0f;
 
         /// <summary>Open a 0.6 s per-frame window on the door's animator: the root-motion deltas it
         /// PRODUCES each frame against what EVERY transform under the animator actually DOES. The two
@@ -1744,8 +1394,30 @@ internal static class DoorOpenWatch
                 return;
             e.ProbeArmed = true;
             e.ProbeFirst = true;
-            e.ProbeUntil = now + ProbeSeconds;
+            e.ProbeUntil = now + ProbeMinSeconds;
+            e.ProbeHardUntil = now + ProbeMaxSeconds;
+            e.ProbeAnimatorId = e.AnimatorId;
+            e.ProbeSpan = 0f;
             e.ProbeFrames = 0;
+            // The state census (ModBuild 429). A window that never covers the 'Open' state cannot
+            // say anything about the open clip, and until this build it said the opposite.
+            e.StateHash0 = e.StateHashLast = 0;
+            e.StateChanges = 0;
+            e.SawOpen = false;
+            e.OpenSeenAfter = -1f;
+            e.OpenFrames = 0;
+            e.OpenNtFirst = e.OpenNtLast = -1f;
+            e.ActiveFrames = e.EnabledFrames = 0;
+            e.SpeedMin = float.MaxValue;
+            e.SpeedMax = float.MinValue;
+            e.Weight0Min = float.MaxValue;
+            e.Weight0Max = float.MinValue;
+            e.LayerCount = 0;
+            e.UpdateModeLast = AnimatorUpdateMode.Normal;
+            e.RootMotionLast = false;
+            e.Clip0 = e.ClipLast = null;
+            e.ClipWeightMin = float.MaxValue;
+            e.ClipWeightMax = float.MinValue;
             e.DeltaPosMin = float.MaxValue;
             e.DeltaPosMax = 0f;
             e.DeltaRotMax = 0f;
@@ -1844,9 +1516,16 @@ internal static class DoorOpenWatch
                 if (!e.ProbeArmed)
                     continue;
                 Animator? a = e.Animator;
-                if (a == null || now > e.ProbeUntil)
+                // MODBUILD 429: the window closes on the STATE, not on a stopwatch alone. It runs
+                // at least ProbeMinSeconds, then until the 'Open' state has run past the end of
+                // its clip, and never past ProbeMaxSeconds. A door that never enters 'Open' now
+                // says so on its own line instead of having its idle clip reported as an animator
+                // that never writes.
+                bool openDone = e.SawOpen && e.OpenNtLast >= OpenDoneNormalizedTime;
+                if (a == null || now >= e.ProbeHardUntil || (now > e.ProbeUntil && openDone))
                 {
                     e.ProbeArmed = false;
+                    e.ProbeSpan = Mathf.Max(0f, now - e.OpenedAt);
                     _probing--;
                     LogOpenFrames(e, a == null);
                     LogOpenPhases(e, a == null);
@@ -1911,9 +1590,55 @@ internal static class DoorOpenWatch
                     }
                     if (a.IsInTransition(0))
                         e.Transitions++;
-                    float nt = a.GetCurrentAnimatorStateInfo(0).normalizedTime;
+                    AnimatorStateInfo pst = a.GetCurrentAnimatorStateInfo(0);
+                    float nt = pst.normalizedTime;
                     if (e.NtFirst < 0f) e.NtFirst = nt;
                     e.NtLast = nt;
+                    // ---- THE STATE CENSUS (ModBuild 429). Every field is recorded for EVERY
+                    // door, working and failing alike: a term that reads the same on both sides is
+                    // not the cause, and the line has to be able to say that.
+                    int hash = pst.shortNameHash;
+                    if (e.StateHash0 == 0) e.StateHash0 = hash;
+                    if (e.StateHashLast != 0 && hash != e.StateHashLast) e.StateChanges++;
+                    e.StateHashLast = hash;
+                    if (pst.IsName("Open"))
+                    {
+                        if (!e.SawOpen)
+                        {
+                            e.SawOpen = true;
+                            e.OpenSeenAfter = Mathf.Max(0f, now - e.OpenedAt);
+                            e.OpenNtFirst = nt;
+                        }
+                        e.OpenFrames++;
+                        e.OpenNtLast = nt;
+                    }
+                    if (a.gameObject.activeInHierarchy) e.ActiveFrames++;
+                    if (a.enabled) e.EnabledFrames++;
+                    float sp = a.speed;
+                    if (sp < e.SpeedMin) e.SpeedMin = sp;
+                    if (sp > e.SpeedMax) e.SpeedMax = sp;
+                    float w0 = a.GetLayerWeight(0);
+                    if (w0 < e.Weight0Min) e.Weight0Min = w0;
+                    if (w0 > e.Weight0Max) e.Weight0Max = w0;
+                    e.LayerCount = a.layerCount;
+                    e.UpdateModeLast = a.updateMode;
+                    e.RootMotionLast = a.applyRootMotion;
+                    // The List overload — the array overload allocates once per call, and this
+                    // runs every frame per open door. A clip playing at WEIGHT 0 advances
+                    // normally and writes nothing, which is indistinguishable from the outside
+                    // from a clip that binds nothing.
+                    _clipInfoScratch.Clear();
+                    a.GetCurrentAnimatorClipInfo(0, _clipInfoScratch);
+                    if (_clipInfoScratch.Count > 0)
+                    {
+                        AnimationClip? pc = _clipInfoScratch[0].clip;
+                        float pw = _clipInfoScratch[0].weight;
+                        if (e.Clip0 == null) e.Clip0 = pc;
+                        e.ClipLast = pc;
+                        if (pw < e.ClipWeightMin) e.ClipWeightMin = pw;
+                        if (pw > e.ClipWeightMax) e.ClipWeightMax = pw;
+                    }
+                    _clipInfoScratch.Clear();
                     int cc = a.GetCurrentAnimatorClipInfoCount(0);
                     if (cc < e.ClipCountMin) e.ClipCountMin = cc;
                     if (cc > e.ClipCountMax) e.ClipCountMax = cc;
@@ -2045,7 +1770,7 @@ internal static class DoorOpenWatch
         {
             _sb.Clear();
             _sb.Append("DOOR OPEN FRAMES '").Append(e.RootName).Append("': ").Append(e.ProbeFrames)
-               .Append(" frame(s) sampled over the first ").Append(ProbeSeconds.ToString("0.0"))
+               .Append(" frame(s) sampled over the first ").Append(e.ProbeSpan.ToString("0.0"))
                .Append(" s after the flip").Append(animatorLost ? " (animator LOST mid-window)" : "")
                .Append(" — root motion PRODUCED per frame: deltaPosition min ")
                .Append(e.DeltaPosMin == float.MaxValue ? "n/a" : e.DeltaPosMin.ToString("0.0000"))
@@ -2076,8 +1801,9 @@ internal static class DoorOpenWatch
                .Append(" max ").Append(e.VisMax).Append(", frames with ZERO visible ")
                .Append(e.VisZeroFrames).Append(" of ").Append(e.VisFrames)
                .Append("; cullingMode ").Append(CullingModeOf(e))
-               .Append(", belt ").Append(BeltEnabled ? "ON" : "OFF")
-               .Append(". READING: ");
+               .Append(", belt ").Append(BeltEnabled ? "ON" : "OFF");
+            AppendStateCoverage(e);
+            _sb.Append(". READING: ");
             bool produced = e.DeltaPosMax > 1e-4f || e.DeltaRotMax > 0.01f;
             bool rootMoved = e.RootPosDevMax > 1e-4f || e.RootRotDevMax > 0.01f || e.RootScaleDevMax > 1e-4f;
             bool leafMoved = e.AnyPosDevMax > 1e-4f || e.AnyRotDevMax > 0.01f || e.AnyScaleDevMax > 1e-4f;
@@ -2109,6 +1835,7 @@ internal static class DoorOpenWatch
                          + "DOOR OPEN PHASES measures that, and the isVisible census on this line "
                          + "says whether cullingMode CullUpdateTransforms could have withheld the "
                          + "write at all.");
+            AppendStateCaveat(e);
             // HW-VERIFY: the one line that decides 'produced and discarded' vs 'binds nothing'.
             VRLog.Note(Name, _sb.ToString());
         }
@@ -2125,7 +1852,7 @@ internal static class DoorOpenWatch
             _sb.Clear();
             _sb.Append("DOOR OPEN PHASES '").Append(e.RootName).Append("': ").Append(e.ProbeCovered)
                .Append(" transform(s) under the animator read THREE times in the SAME frame over "
-                     + "the first ").Append(ProbeSeconds.ToString("0.0")).Append(" s after the flip")
+                     + "the first ").Append(e.ProbeSpan.ToString("0.0")).Append(" s after the flip")
                .Append(animatorLost ? " (animator LOST mid-window)" : "")
                .Append(" — Update (before Unity's animation phase) / LateUpdate (after it) / end of "
                      + "frame (after rendering); frames sampled U ").Append(e.PhaseFramesU)
@@ -2139,8 +1866,9 @@ internal static class DoorOpenWatch
             _sb.Append("; and the Update-phase drift across the WHOLE window (does it STAY): pos ")
                .Append(e.AnyPosDevMax.ToString("0.0000")).Append(" wu, rot ")
                .Append(e.AnyRotDevMax.ToString("0.00")).Append(" deg, scale ")
-               .Append(e.AnyScaleDevMax.ToString("0.0000"))
-               .Append(". READING: ");
+               .Append(e.AnyScaleDevMax.ToString("0.0000"));
+            AppendStateCoverage(e);
+            _sb.Append(". READING: ");
 
             bool stays = e.AnyPosDevMax > 1e-4f || e.AnyRotDevMax > 0.01f || e.AnyScaleDevMax > 1e-4f;
             if (e.PhaseFramesL == 0 || e.PhaseFramesE == 0)
@@ -2151,6 +1879,27 @@ internal static class DoorOpenWatch
                          + "WaitForEndOfFrame coroutine on it; a zero for either means the watch was "
                          + "disabled or the coroutine never resumed, NOT that the door held still. "
                          + "Nothing below this point may be read off this window.");
+            }
+            else if (!e.SawOpen)
+            {
+                // MODBUILD 429. This branch is NEW and it is the one four of the six ModBuild 428
+                // doors should have printed. They printed "THE ANIMATOR NEVER WRITES" instead,
+                // which was a true statement about the state the window covered (Idle) and a false
+                // one about the question being asked.
+                _sb.Append("THE WINDOW NEVER SAW THE 'Open' STATE — the animator stayed out of "
+                         + "'Open' for the whole window (states covered are named above; ")
+                   .Append(e.StateChanges).Append(" state change(s) over ")
+                   .Append(e.ProbeSpan.ToString("0.0")).Append(" s, hard deadline ")
+                   .Append(ProbeMaxSeconds.ToString("0")).Append(" s). NOTHING here is a statement "
+                         + "about the open clip: every delta above was measured against whatever "
+                         + "state WAS running, and a state whose clip holds the closed pose writes "
+                         + "zeroes exactly like an animator that binds nothing. This is the shape "
+                         + "the ModBuild 428 log had on four of six doors — Idle at the flip, Idle "
+                         + "at +1 s, 'Open' only between +1 s and +3 s — and the window was 1.5 s. "
+                         + "If this line appears with the window at its hard deadline, the door's "
+                         + "rules state opened and the game never played 'Open' on THIS animator "
+                         + "within twelve seconds: hunt the gap between Choreographer.OpenDoor and "
+                         + "the animator, not the animator itself.");
             }
             else if (e.UL.Moved && !stays)
             {
@@ -2171,10 +1920,11 @@ internal static class DoorOpenWatch
             else if (e.UL.Moved)
             {
                 _sb.Append("THE DOOR IS ANIMATING AND THE MOVE STAYS — the animation phase writes and "
-                         + "nothing takes it back. The clip binds, the vanilla open is working, and "
-                         + "the mod's HideStuckLeaf stand-in must stop firing on this door (it only "
-                         + "fires on a leaf that has not moved). If the leaf still LOOKS wrong from "
-                         + "here it is a pose question, not a binding question.");
+                         + "nothing takes it back. The clip binds and the vanilla open is working on "
+                         + "this door. From ModBuild 429 there is no mod stand-in behind it: this "
+                         + "watch switches nothing off, so what is on screen here is the GAME's own "
+                         + "picture. If the leaf still LOOKS wrong from here it is a pose question, "
+                         + "not a binding question.");
             }
             else if (e.LE.Moved || e.EU.Moved)
             {
@@ -2196,9 +1946,71 @@ internal static class DoorOpenWatch
                          + "AlwaysAnimate, the culling explanation is dead and only the binding is "
                          + "left.");
             }
+            AppendStateCaveat(e);
             // HW-VERIFY: this is the line that decides family (A) 'binds nothing' against family
             // (B) 'the write is undone' — the whole point of the round.
             VRLog.Note(Name, _sb.ToString());
+        }
+
+        /// <summary>
+        /// WHICH STATE THE WINDOW COVERED, and every animator term that can make a running state
+        /// write nothing (ModBuild 429). Appended to BOTH probe lines and printed for every door,
+        /// the two that animated as much as the four that did not: the comparison that decides
+        /// this is working-two against failing-four, so a field that reads the same on both sides
+        /// has to be visible on both sides to be ruled out.
+        /// <para>The terms, and what each one would prove: <c>speed</c> 0 = a latched SMB (the
+        /// existing UNLATCH remedy); layer 0 <c>weight</c> 0 or clip <c>weight</c> 0 = a clip that
+        /// advances normally and writes nothing, which is bit-identical from the outside to a clip
+        /// that binds nothing; <c>active</c>/<c>enabled</c> frames short of the frame count = a
+        /// subtree that was switched off for part of the window (the ModBuild 428 belt lines read
+        /// <c>active False</c> at belt time and the census read <c>active True</c> a moment later,
+        /// and this resolves that disagreement per frame); <c>updateMode</c> and
+        /// <c>applyRootMotion</c> for completeness, both expected identical on all six.</para>
+        /// </summary>
+        private void AppendStateCoverage(Entry e)
+        {
+            _sb.Append("; STATE COVERAGE: ").Append(e.StateChanges)
+               .Append(" state change(s), first hash ").Append(e.StateHash0)
+               .Append(", last hash ").Append(e.StateHashLast).Append("; 'Open' ")
+               .Append(e.SawOpen
+                       ? "first seen " + e.OpenSeenAfter.ToString("0.00") + " s after the flip"
+                       : "NEVER SEEN in this window")
+               .Append(", frames in 'Open' ").Append(e.OpenFrames).Append(" of ").Append(e.ProbeFrames)
+               .Append(", its normalizedTime ")
+               .Append(e.OpenNtFirst < 0f ? "n/a" : e.OpenNtFirst.ToString("0.00")).Append(" -> ")
+               .Append(e.OpenNtLast < 0f ? "n/a" : e.OpenNtLast.ToString("0.00"))
+               .Append("; animator active ").Append(e.ActiveFrames).Append(" of ").Append(e.ProbeFrames)
+               .Append(" frame(s), enabled ").Append(e.EnabledFrames)
+               .Append("; speed ").Append(e.SpeedMin == float.MaxValue ? "n/a" : e.SpeedMin.ToString("0.00"))
+               .Append("..").Append(e.SpeedMax == float.MinValue ? "n/a" : e.SpeedMax.ToString("0.00"))
+               .Append("; layerCount ").Append(e.LayerCount).Append(", layer 0 weight ")
+               .Append(e.Weight0Min == float.MaxValue ? "n/a" : e.Weight0Min.ToString("0.00"))
+               .Append("..").Append(e.Weight0Max == float.MinValue ? "n/a" : e.Weight0Max.ToString("0.00"))
+               .Append("; updateMode ").Append(e.UpdateModeLast)
+               .Append(", applyRootMotion ").Append(e.RootMotionLast)
+               .Append("; layer 0 clip '").Append(e.Clip0 != null ? e.Clip0.name : "none")
+               .Append("' -> '").Append(e.ClipLast != null ? e.ClipLast.name : "none")
+               .Append("', its weight ")
+               .Append(e.ClipWeightMin == float.MaxValue ? "n/a" : e.ClipWeightMin.ToString("0.00"))
+               .Append("..").Append(e.ClipWeightMax == float.MinValue ? "n/a" : e.ClipWeightMax.ToString("0.00"))
+               .Append("; window ran on animator instance ").Append(e.ProbeAnimatorId)
+               .Append(" (the clip sample that follows runs on the instance it names, so the two "
+                     + "lines describe the same objects only when those ids match)");
+        }
+
+        /// <summary>The one sentence that stops every verdict on these two lines from being read
+        /// as a statement about the OPEN clip when the window never covered it. Appended last, so
+        /// it is the final clause of the line whatever the verdict above it was.</summary>
+        private void AppendStateCaveat(Entry e)
+        {
+            if (e.SawOpen)
+                return;
+            _sb.Append(" CAVEAT: THE 'Open' STATE WAS NEVER COVERED by this window, so nothing on "
+                     + "this line — not the deltas, not the phase pairs, not the isVisible census "
+                     + "and not the verdict above — says anything about the door's open clip. It "
+                     + "describes the state that WAS running. This is exactly how ModBuild 428 "
+                     + "reported four doors as animators that never write: they were in Idle for "
+                     + "the whole 1.5 s window and entered 'Open' after it closed.");
         }
 
         /// <summary>One phase pair's three maxima and the transform that produced each.</summary>
@@ -2267,30 +2079,14 @@ internal static class DoorOpenWatch
                 {
                     e.Rebuilds++;          // the leaf assembly was re-instantiated under us
                     e.RebuildsSinceOpen++;
-                    e.LeafBaselineStale = true; // ... so the flip's per-renderer baseline is gone with it
-                    // THE REBUILD LATCH (fixed here). Everything below re-measured what is leaf and
-                    // what is architecture against the NEW hierarchy — but LeafHidden and
-                    // HiddenByMod were left standing, and Step gates the hide on
-                    // `if (!e.LeafHidden)`. So after one Apparance rebuild the watch could never
-                    // hide the fresh, visible leaf again, and HiddenByMod kept references to
-                    // renderers that no longer exist for RestoreHidden to walk. Apparance destroys
-                    // and re-places door content freely (bounds/transform changes, a subtree going
-                    // inactive->active, the engine's detail focus, a variant re-pick), so this is
-                    // not a hypothetical path.
-                    VoidHideOnRebuild(e);
                 }
                 e.AnimatorId = id;
                 e.InstanceSeenAt = now;
                 e.ObservedOpen = false;
                 e.DissolveReasserted = false;
-                // A new leaf assembly is a new hierarchy: what is leaf and what is architecture has
-                // to be measured again before anything may be switched off under it.
-                e.LeafSetMeasured = false;
-                e.NoLeafLogged = false;
-                e.HideSet.Clear();
-                e.ArchExcluded.Clear();
-                e.ArchReason = string.Empty;
-                e.HideRoute = string.Empty;
+                // A new leaf assembly is a new hierarchy, with its own curve paths: the clip
+                // sample is asked again. Nothing is written to it and nothing is decided by it.
+                e.ClipSampled = false;
             }
             e.Animator = a;
         }
@@ -2467,9 +2263,9 @@ internal static class DoorOpenWatch
                      + "constantly. EVERY animator with a controller under the prop is belted, not "
                      + "just the one MF resolves: a door prop carries two animated subtrees and MF "
                      + "searches with the overload that skips INACTIVE ones, so which one it returns "
-                     + "moves with the room's visibility. If this is the cause, the game opens its "
-                     + "own doors from this build on and the mod's HideStuckLeaf stand-in stops "
-                     + "firing by itself. Every replaced value is restored on a scenario change and "
+                     + "moves with the room's visibility. This IS at least part of the cause: on "
+                     + "ModBuild 428, with this belt on, the user saw a door's open animation for "
+                     + "the first time. Every replaced value is restored on a scenario change and "
                      + "on uninstall; [Compat] DoorAnimateOffscreen turns it off live.");
             // HW-VERIFY: the candidate FIX's own line — a build where this never prints has not
             // tested the belt, whatever the door did.
@@ -2479,17 +2275,8 @@ internal static class DoorOpenWatch
         private void CaptureLeaf(Entry e)
         {
             e.LeafIds.Clear();
-            e.LeafRefs.Clear();
-            e.LeafPos0.Clear();
-            e.LeafScale0.Clear();
             e.LeafCount = 0;
             e.LeafCenter = Vector3.zero;
-            e.LeafSetMeasured = false; // a fresh capture — re-measure what is leaf here
-            e.NoLeafLogged = false;
-            e.HideSet.Clear();
-            e.ArchExcluded.Clear();
-            e.ArchReason = string.Empty;
-            e.HideRoute = string.Empty;
             Animator? a = e.Animator;
             if (a == null)
                 return;
@@ -2501,9 +2288,6 @@ internal static class DoorOpenWatch
                 if (r == null)
                     continue;
                 e.LeafIds.Add(r.GetInstanceID());
-                e.LeafRefs.Add(r);
-                e.LeafPos0.Add(r.transform.position);
-                e.LeafScale0.Add(r.transform.lossyScale);
                 sum += r.transform.position;
             }
             e.LeafCount = e.LeafIds.Count;
@@ -2659,7 +2443,6 @@ internal static class DoorOpenWatch
                      : ", NOT the instance from the flip")
                .Append("; replaced ").Append(e.RebuildsSinceOpen).Append(" time(s) since this open, ")
                .Append(e.Rebuilds).Append(" time(s) since the watch first saw this door")
-               .Append(e.HideVoids > 0 ? ", " + e.HideVoids + " hide(s) voided by a rebuild" : "")
                .Append("): state ").Append(stateName).Append(" (hash ").Append(hash)
                .Append(") normalizedTime ").Append(nt.ToString("0.00"))
                .Append(inTransition ? " in transition" : "")
@@ -2728,8 +2511,9 @@ internal static class DoorOpenWatch
             Animator? a = e.Animator;
             int total = 0, gameDisabled = 0, modHeld = 0, stillEnabled = 0, destroyed = 0;
             float moved = 0f;
-            int named = 0;
+            int named = 0, namedOff = 0;
             var names = new StringBuilder(160);
+            var offNames = new StringBuilder(160);
             if (a != null)
             {
                 _rendererScratch.Clear();
@@ -2750,7 +2534,19 @@ internal static class DoorOpenWatch
                     if (hold != null)
                         modHeld++;
                     if (!enabledNow)
+                    {
                         gameDisabled++;
+                        // APPENDED, ModBuild 429. Until this build the census named the holds only
+                        // on renderers that were still ON, so a door whose leaf read "game-disabled
+                        // 4, mod holds a rule on 4" never said WHICH lane held the four that were
+                        // off — and that count is the one question the user's ruling turns on.
+                        if (hold != null && namedOff < 4)
+                        {
+                            namedOff++;
+                            offNames.Append(offNames.Length == 0 ? "" : ", ").Append('\'')
+                                    .Append(r.name).Append("' [mod: ").Append(hold).Append(']');
+                        }
+                    }
                     else
                     {
                         stillEnabled++;
@@ -2777,6 +2573,14 @@ internal static class DoorOpenWatch
                .Append(", mod holds a rule on ").Append(modHeld)
                .Append(", still enabled ").Append(stillEnabled)
                .Append(stillEnabled > 0 ? " — " + names : "")
+               // APPENDED, ModBuild 429: WHICH mod lane holds a renderer that is currently OFF.
+               // From this build this watch holds NONE of them (it switches nothing off any more),
+               // so every tag printed here names a DIFFERENT subsystem writing door content — the
+               // exact thing the user's ruling of 2026-09-05 says must not happen.
+               .Append("; of the ").Append(gameDisabled)
+               .Append(" that are off or inactive, the mod holds a rule on ").Append(namedOff == 0 ? "none" : offNames.ToString())
+               .Append(" (this watch holds none of them from ModBuild 429 on, so a tag here names "
+                     + "another subsystem)")
                .Append("; leaf centre moved ").Append(moved.ToString("0.00")).Append(" wu since the flip.");
         }
 
