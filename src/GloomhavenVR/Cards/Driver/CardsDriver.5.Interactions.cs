@@ -1539,11 +1539,59 @@ internal sealed partial class CardsDriver
         if (changed)
         {
             bool swap = _shortRestPresented != null;
-            VRLog.Info("Cards", $"Short rest: {(swap ? "REDREW —" : "presenting")} sacrificed card " +
-                                $"'{CardsGameApi.CardName(widget)}' in the left slot " +
-                                "(display-only; burn/redraw commits via the docked choice).");
+            LogShortRestSacrifice(hand, lost, widget, swap);
             _shortRestPresented = lost;
         }
+    }
+
+    /// <summary>
+    /// THE ONE LINE THAT STATES BOTH PICTURES OF THE SHORT-REST SACRIFICE — grep
+    /// <c>SHORT REST SACRIFICE</c>.
+    ///
+    /// <para><b>WHY IT NAMES THE PEER'S PICTURE TOO.</b> User report 2026-09-05, item 15, verbatim:
+    /// "Bei einer kurzen Rast soll es sichtbar sein welche Karte dort liegt - ich sehe nur die
+    /// Rückseite." Answering that from logs used to need TWO of them read side by side — this
+    /// client's "presenting sacrificed card 'X'" and the watcher's "round-card faces=anon-back", one
+    /// of which is a 2 kB board line. Both terms that decide the watcher's picture are facts THIS
+    /// client can evaluate about ITSELF, so it states them rather than leaving them to be
+    /// correlated:</para>
+    /// <list type="number">
+    /// <item>THE REVEAL GATE — <see cref="Net.RevealGate.PeersSeeOurCardFronts"/>, which is
+    /// <c>!(online &amp;&amp; IsSecretSelectionPhase)</c>. Every short rest happens inside
+    /// <c>SelectAbilityCardsOrLongRest</c> (<c>CardsHandUI.UpdateShortRest</c> only shows the button
+    /// in that phase), so online this is ALWAYS false here and peers draw backs by rule.</item>
+    /// <item>THE IDENTITY — a watcher names a card in a recess only out of the replicated
+    /// <c>CCharacterClass.RoundAbilityCards</c> (<c>RemoteControlBoard.OrderRoundCards</c>). The
+    /// sacrifice is a DISCARDED card chosen by this client's own RNG draw, so it is in no
+    /// replicated list and no wire record carries its key — a watcher could not name it even with
+    /// the gate wide open. That is why the line prints both: fixing one alone changes nothing.</item>
+    /// </list>
+    ///
+    /// <para>Change-gated by its caller (present / redraw-swap only), so a short rest costs one or
+    /// two lines. PURE: it latches nothing, so retiring it can break nothing.</para>
+    /// </summary>
+    private static void LogShortRestSacrifice(CardsHandUI hand, CAbilityCard lost,
+                                              AbilityCardUI widget, bool swap)
+    {
+        bool online = FFSNetwork.IsOnline;
+        bool peersSeeFronts = Net.RevealGate.PeersSeeOurCardFronts;
+        bool named = CardsGameApi.IsInRound(hand, lost);
+        // HW-VERIFY: grep SHORT REST SACRIFICE — the card this player is deciding about, the face
+        // THEY see, and the face every watcher draws for the same recess, with the term that
+        // decided it. FALSIFIER: a line reading `peers draw: FRONT` while a watcher's screenshot
+        // still shows the lattice back means the defect is downstream of both terms named here
+        // (RemoteControlBoard.SeatSlots / RemoteBoardCard), not in the gate or the identity.
+        VRLog.Note("Cards", $"SHORT REST SACRIFICE: {(swap ? "REDREW —" : "presenting")} " +
+            $"'{CardsGameApi.CardName(widget)}' in the LEFT recess, FRONT up, display-only " +
+            "(burn/redraw commits via the docked choice). " +
+            $"peers draw: {(online ? (peersSeeFronts && named ? "FRONT" : "ANONYMOUS BACK") : "n/a (offline)")}" +
+            $" — RevealGate.PeersSeeOurCardFronts={peersSeeFronts} (false ⇒ backs by rule: every " +
+            "short rest runs inside the secret SelectAbilityCardsOrLongRest window), " +
+            $"identity replicated={named} (false ⇒ the card is a DISCARDED one drawn by this " +
+            "client's own RNG, so it is in no RoundAbilityCards list a watcher can read and no " +
+            "wire record carries its key — a watcher draws 'anon-back' whatever the gate says). " +
+            "Read against the watcher's own '[Net] Remote board content … round-card faces=' for " +
+            "the same moment; BOTH terms must move before a peer can see this card.");
     }
 
     /// <summary>

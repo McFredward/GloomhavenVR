@@ -221,6 +221,11 @@ internal sealed class RemoteDialogOptions
     /// is never active: a layout group does not run on an inactive object, and activating this one
     /// is exactly what must not happen (see the class doc). The arithmetic is a row of rectangles;
     /// the group's own spacing is read from the game.</para>
+    ///
+    /// <para>THAT PARAGRAPH WAS TRUE OF THE BUTTONS AND FALSE OF THEIR CAPTIONS. The label rect is
+    /// layout-driven too and nobody wrote it, so every wording wrapped one glyph per line on a
+    /// peer's board (user report 2026-09-05 item 16). See <see cref="LayoutCaption"/>, which writes
+    /// it out of the very numbers measured here.</para>
     /// </summary>
     private void Build(GameObject prefab, string[] lines, int n)
     {
@@ -238,6 +243,8 @@ internal sealed class RemoteDialogOptions
         var widths = new float[n];
         var labels = new TMP_Text?[n];
         var rects = new RectTransform[n];
+        var preferred = new float[n];
+        var insets = new float[n];
         float height = 0f;
         float gap = 0f;
         float total = 0f;
@@ -266,7 +273,9 @@ internal sealed class RemoteDialogOptions
             float authoredH = rect.rect.height;
             if (authoredH > 0f && height <= 0f)
                 height = authoredH;
-            widths[_buttons.Count] = FitWidth(authoredW, rect, label);
+            widths[_buttons.Count] = FitWidth(authoredW, rect, label,
+                                              out preferred[_buttons.Count],
+                                              out insets[_buttons.Count]);
             labels[_buttons.Count] = label;
             rects[_buttons.Count] = rect;
             _buttons.Add(button);
@@ -305,19 +314,132 @@ internal sealed class RemoteDialogOptions
         row.sizeDelta = new Vector2(total, height);
         _holder.sizeDelta = row.sizeDelta;
 
+        // THE CAPTION BOX, WRITTEN RATHER THAN LAID OUT — see LayoutCaption for the defect.
+        var caption = new System.Text.StringBuilder(160);
+        for (int i = 0; i < built; i++)
+        {
+            if (caption.Length > 0)
+                caption.Append("; ");
+            LayoutCaption(labels[i], widths[i], height, preferred[i], insets[i], i, caption);
+        }
+
         _row = row;
         _builtFor = new string[built];
         for (int i = 0; i < built; i++)
             _builtFor[i] = lines[i];
 
-        VRLog.Info("Net", $"Remote dialog options: built {built} button(s) from THIS client's own " +
-                          $"DialogPopup.optionButtonPrefab — widths from the game's own " +
-                          $"LayoutUtility where the prefab provides one (else the stated " +
-                          $"reconstruction), fitted to the owner's wordings, " +
+        // HW-VERIFY: grep DIALOG OPTION CAPTION — one line per prompt (the row is change-gated on
+        // the wordings), naming per option the plate width, the caption RECT width, the font size
+        // and the line count. A collapse is then a NUMBER next round instead of a screenshot.
+        // FALSIFIER: `lines=1` on every option here while the headset still shows one glyph per
+        // line means this write did not reach the clone — look at RemoteWidgetMirror (Neutralize /
+        // Pair.Apply's rect half), not here. `capW≈0` means the write itself did not take.
+        VRLog.Note("Net", $"DIALOG OPTION CAPTION: {built} button(s) built from THIS client's own " +
+                          $"DialogPopup.optionButtonPrefab — [{caption}] — " +
                           $"gap {gap:F1} read from the game's own HorizontalLayoutGroup, row " +
-                          $"{total:F0}x{height:F0} canvas units. The prefab copies live under a " +
-                          "permanently INACTIVE holder, so no Awake ran on any of them; the mirror " +
-                          "clones this row and strips it again. Nothing here is ever shown.");
+                          $"{total:F0}x{height:F0} canvas units. plateW is the button, capW the " +
+                          "caption rect this builder WRITES onto it (the prefab's own label rect is " +
+                          "layout-DRIVEN and no layout runs under this permanently inactive holder, " +
+                          "so it arrives collapsed); need is the wording's unconstrained preferred " +
+                          "width. lines>1 with capW≥need is a wrap this builder did not ask for. " +
+                          "The prefab copies live under a permanently INACTIVE holder, so no Awake " +
+                          "ran on any of them; the mirror clones this row and strips it again. " +
+                          "Nothing here is ever shown.");
+    }
+
+    /// <summary>
+    /// SIZE THE CAPTION'S OWN RECT, because nothing else will.
+    ///
+    /// <para><b>THE DEFECT THIS RETIRES</b> — user report 2026-09-05, item 16, verbatim: "Bei der
+    /// kurzen Rast im remote board ist was mit den buttons schief gelaufen"
+    /// (<c>kaputter_text_kurze_rast.jpg</c>). The screenshot shows the two short-rest option
+    /// wordings rendered as single columns of letters, ONE GLYPH PER LINE, hanging off the bottom
+    /// edge of the peer's board. The plates themselves were the right shape (host log, ModBuild 447:
+    /// "Remote dialog options: built 2 button(s) … row 660x42 canvas units"), so the buttons were
+    /// fitted correctly and only their CAPTIONS collapsed.</para>
+    ///
+    /// <para><b>WHY.</b> A <c>DialogPopup</c> option button letters itself through a layout: the
+    /// game's own <c>HorizontalLayoutGroup</c> + <c>ContentSizeFitter</c> drive the label's
+    /// RectTransform at runtime. A DRIVEN rect is not authored, so what the prefab asset carries for
+    /// it is whatever was last serialized — for this prefab, a box far narrower than any wording.
+    /// This class builds its copies under a permanently INACTIVE holder (it must: an active frame
+    /// here would run <c>Awake</c> on <c>InputButton</c> and register it with the game's singletons),
+    /// and <b>uGUI runs no layout on an inactive object</b> — neither when the copy is made nor ever
+    /// after, because <see cref="RemoteWidgetMirror"/> then strips the layout components off the
+    /// clone. So the label kept the collapsed prefab rect and TMP, doing exactly what it is told,
+    /// wrapped after every glyph. The BUTTON rect escaped because this builder already writes it.</para>
+    ///
+    /// <para>THE FIX IS THE SAME SENTENCE APPLIED ONE LEVEL DOWN: the caption rect is WRITTEN here,
+    /// from numbers this class already has, instead of being waited on. Nothing is asked of the
+    /// layout engine, so nothing depends on an activation that must never happen.</para>
+    ///
+    /// <para><b>WHAT IS WRITTEN, AND WHY IT IS 1:1.</b> The game's own option button is content-fitted
+    /// around a SINGLE line (that is what the fitter does), so the mirrored one is too:
+    /// word-wrapping OFF, and the box at least as wide as the wording's unconstrained preferred
+    /// width. <see cref="FitWidth"/> already sized the PLATE to that same preferred width plus the
+    /// prefab's own label inset, so <c>plateW − 2·inset ≥ need</c> holds by construction and the
+    /// line lands inside the plate with the artist's padding on both sides. The <c>Max</c> against
+    /// <paramref name="need"/> is the guard for the other direction — a pinned label whose stored
+    /// offsets are not a real inset would otherwise hand back a box narrower than the text.</para>
+    ///
+    /// <para><b>NEVER TRUNCATE.</b> <c>overflowMode</c> is <c>Overflow</c>, the standing ruling from
+    /// the ModBuild 281 "AUSWAHL BEEN" report: a caption that overhangs by a millimetre is a
+    /// cosmetic complaint that can be seen and reported; a caption cut mid-word means something
+    /// else. See <c>Core.TmpFit</c>, which owns the same ruling for the mod's own 3D labels — this
+    /// is a uGUI rect on a game prefab and cannot use that helper, but it must not disagree with it.</para>
+    ///
+    /// <para>Appends this option's measured numbers to <paramref name="report"/> for the caller's
+    /// one HW-VERIFY line. Wrapped whole: a measurement that throws must cost the numbers, never
+    /// the row — a row that failed to build is a peer with no visible decision at all.</para>
+    /// </summary>
+    private static void LayoutCaption(TMP_Text? label, float plateW, float plateH,
+                                      float need, float inset, int index,
+                                      System.Text.StringBuilder report)
+    {
+        if (label == null || label.rectTransform == null)
+        {
+            report.Append($"#{index} plateW {plateW:F0}: NO CAPTION (the prefab's button carries no " +
+                          "TMP text — nothing to size)");
+            return;
+        }
+        float capW = Mathf.Max(need, plateW - 2f * Mathf.Max(0f, inset));
+        float capH = plateH > 0f ? plateH : label.rectTransform.rect.height;
+        try
+        {
+            RectTransform rect = label.rectTransform;
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(capW, capH);
+            rect.anchoredPosition = Vector2.zero;
+            rect.localRotation = Quaternion.identity;
+            rect.localScale = Vector3.one;
+            label.alignment = TextAlignmentOptions.Center;
+            label.enableWordWrapping = false;   // the game's own option button is one fitted line
+            label.overflowMode = TextOverflowModes.Overflow; // never cut — see the remarks
+        }
+        catch (System.Exception e)
+        {
+            report.Append($"#{index} plateW {plateW:F0}: SIZING THREW {e.GetType().Name} " +
+                          $"({e.Message}) — the caption keeps the prefab's own rect");
+            return;
+        }
+
+        // MEASURED, NOT ASSUMED: the line count comes from TMP after a forced mesh update, so the
+        // instrument reports what was drawn rather than what was intended. A readback that cannot
+        // run (no font asset resolved yet) says so instead of printing a confident 1.
+        string lines;
+        try
+        {
+            label.ForceMeshUpdate();
+            lines = label.textInfo != null ? label.textInfo.lineCount.ToString() : "n/a";
+        }
+        catch (System.Exception e)
+        {
+            lines = $"n/a ({e.GetType().Name})";
+        }
+        report.Append($"#{index} plateW {plateW:F0}, capW {capW:F0} (need {need:F0}, prefab inset " +
+                      $"{inset:F0}), font {label.fontSize:F1}, lines={lines}, " +
+                      $"\"{label.text}\"");
     }
 
     /// <summary>
@@ -336,8 +458,37 @@ internal sealed class RemoteDialogOptions
     /// one-word option keeps the shape the artist drew. It is close, not exact, and the difference
     /// is a few pixels of padding — worth naming rather than leaving for someone to measure.</para>
     /// </summary>
-    private static float FitWidth(float authoredWidth, RectTransform rect, TMP_Text? label)
+    /// <param name="need">OUT: the wording's own unconstrained preferred width, or 0 when it could
+    /// not be measured. <see cref="LayoutCaption"/> uses it as the FLOOR for the caption box, so the
+    /// two cannot disagree about how wide the text is; the caller prints it.</param>
+    /// <param name="inset">OUT: the prefab's own horizontal label inset (0 when the label is not
+    /// stretch-anchored, or when there is no label). Handed on for the same reason.</param>
+    private static float FitWidth(float authoredWidth, RectTransform rect, TMP_Text? label,
+                                  out float need, out float inset)
     {
+        need = 0f;
+        inset = 0f;
+        // The label's own inset inside the button, measured off the prefab: for a stretch-anchored
+        // label that is its left+right offsets, which is exactly the padding the artist authored.
+        // Resolved BEFORE the layout branch below returns, because the caption box needs it either
+        // way — it used to be computed only on the reconstruction path.
+        if (label != null && label.rectTransform != null)
+        {
+            Vector2 min = label.rectTransform.offsetMin;
+            Vector2 max = label.rectTransform.offsetMax;
+            inset = Mathf.Max(0f, min.x) + Mathf.Max(0f, -max.x);
+        }
+        if (label != null)
+        {
+            try
+            {
+                need = label.GetPreferredValues(label.text).x;
+            }
+            catch (System.Exception)
+            {
+                need = 0f;
+            }
+        }
         try
         {
             float byLayout = LayoutUtility.GetPreferredWidth(rect);
@@ -348,27 +499,9 @@ internal sealed class RemoteDialogOptions
         {
             // No usable layout element on this prefab — fall through to the reconstruction.
         }
-        if (label == null)
+        if (label == null || !(need > 0f))
             return authoredWidth > 0f ? authoredWidth : 120f;
-        float preferred;
-        try
-        {
-            preferred = label.GetPreferredValues(label.text).x;
-        }
-        catch (System.Exception)
-        {
-            return authoredWidth > 0f ? authoredWidth : 120f;
-        }
-        // The label's own inset inside the button, measured off the prefab: for a stretch-anchored
-        // label that is its left+right offsets, which is exactly the padding the artist authored.
-        float inset = 0f;
-        if (label.rectTransform != null)
-        {
-            Vector2 min = label.rectTransform.offsetMin;
-            Vector2 max = label.rectTransform.offsetMax;
-            inset = Mathf.Max(0f, min.x) + Mathf.Max(0f, -max.x);
-        }
-        float fitted = preferred + inset * 2f;
+        float fitted = need + inset * 2f;
         return Mathf.Max(authoredWidth, fitted);
     }
 
