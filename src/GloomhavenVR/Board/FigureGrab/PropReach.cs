@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using GloomhavenVR.Hands.Interact;
 using ScenarioRuleLibrary;
 using UnityEngine;
 
@@ -116,6 +117,19 @@ internal static class PropReach
         /// <summary>The spanning box a previous scan built for this same visual, found again after
         /// a registry re-key. See the reuse note in <see cref="Resolve"/>.</summary>
         SpanReused,
+
+        /// <summary>ModBuild 445, AND THIS IS THE GOLD-PILE ROUTE. The prop HAS an authored
+        /// collider and it is not a usable pick shape — switched off, on a deactivated object, or
+        /// a non-convex mesh — so a renderer-bounds box was built to stand in for it. Distinct
+        /// from <see cref="BoundsBox"/> on purpose: "the prop had none" and "the prop had one and
+        /// it was dead" are different facts about the game's content, and the census has to be
+        /// able to tell them apart.</summary>
+        BoundsOverUnusable,
+
+        /// <summary>The renderer-bounds box a previous scan built for this same visual, found
+        /// again by name after a registry re-key. Single-hex twin of
+        /// <see cref="SpanReused"/>.</summary>
+        BoundsReused,
     }
 
     /// <summary>The covered hexes' world positions, refilled per call. One shared scratch list
@@ -328,17 +342,142 @@ internal static class PropReach
         return SingleHex(visual, own, out route);
     }
 
-    /// <summary>The pre-existing two lines, kept in one place so both call sites in
-    /// <see cref="Resolve"/> are provably the same expression.</summary>
+    /// <summary>
+    /// The single-hex answer, kept in one place so both call sites in <see cref="Resolve"/> are
+    /// provably the same expression.
+    ///
+    /// <para><b>ModBuild 445 — "has a collider" was never the question; "has a USABLE PICK SHAPE"
+    /// is.</b> This method used to read <c>if (own != null) return own;</c>. An enemy-drop gold
+    /// pile has an authored collider that is present and SWITCHED OFF, so it took the
+    /// <see cref="Route.PropsOwn"/> branch and registered a shape for which
+    /// <c>Collider.ClosestPoint</c> is degenerate — it hands back the query point, i.e. every
+    /// reach test in the mod read that pile at exactly 0 mm no matter where the hand was. The
+    /// consequences were the whole 2026-09-05 round: the pile could never be highlighted or
+    /// grabbed (<c>ProximityGrabber</c> skipped it on precisely this test, which is how we know
+    /// the collider is off), and the figure-resize gesture was dead board-wide because its
+    /// prop-beats-shell veto believed that zero. See
+    /// <see cref="Hands.Interact.VRInteractables.IsUsablePickShape"/>.</para>
+    ///
+    /// <para><b>A prop whose own collider IS usable is untouched.</b> That is every prop that
+    /// worked yesterday: the predicate is true for it, the first branch returns the identical
+    /// reference, and the pick radius those props are tuned against is measured from the same
+    /// shape it always was. Nothing is widened for them.</para>
+    ///
+    /// <para><b>The stand-in is the box this file already knew how to build.</b>
+    /// <c>BuildPropCollider</c>'s renderer-bounds trigger on Ignore Raycast — the branch a prop
+    /// with no collider at all has always taken. It is looked up by NAME first, for exactly the
+    /// reason the multi-hex path documents: a registry re-key drops and re-adds every entry over
+    /// the same GameObjects inside one frame, and building a second box each time would litter the
+    /// prop with holders. Before this build that lookup was accidental — the built box was itself
+    /// a child collider, so the next scan's <c>GetComponentInChildren</c> found it and called it
+    /// "the prop's own". <see cref="OwnPickShape"/> now skips holders deliberately, so the route
+    /// the log prints is honest, and this by-name lookup is what replaces the accident.</para>
+    /// </summary>
     private static Collider? SingleHex(GameObject visual, Collider? own, out Route route)
     {
-        if (own != null)
+        bool hadOwn = own != null;
+        if (VRInteractables.IsUsablePickShape(own))
         {
             route = Route.PropsOwn;
             return own;
         }
-        route = Route.BoundsBox;
+
+        // Direct children only — the same reasoning the multi-hex reuse lookup carries: the holder
+        // is parented straight onto the visual, and a deep search could adopt something that
+        // merely shares the name.
+        Transform existing = visual.transform.Find(ReachHolderName);
+        Collider? reused = existing != null ? existing.GetComponent<Collider>() : null;
+        if (VRInteractables.IsUsablePickShape(reused))
+        {
+            route = hadOwn ? Route.BoundsOverUnusable : Route.BoundsReused;
+            return reused;
+        }
+
+        route = hadOwn ? Route.BoundsOverUnusable : Route.BoundsBox;
         return FigureGrabDriver.BuildPropCollider(visual);
+    }
+
+    /// <summary>
+    /// THE PROP'S OWN PICK SHAPE — the first collider in the prop's subtree that a reach test may
+    /// actually believe, or null.
+    ///
+    /// <para>Replaces the bare <c>visual.GetComponentInChildren&lt;Collider&gt;()</c> that
+    /// <c>PropGrab.Scan</c> used to run. Two differences, both deliberate:</para>
+    /// <list type="number">
+    ///   <item><b>It skips colliders that are not usable pick shapes and keeps looking.</b> A prop
+    ///   whose FIRST collider is switched off but which carries a live one elsewhere in its
+    ///   subtree now registers the live one instead of a degenerate zero. For every prop whose
+    ///   first collider is fine — which is every prop that worked before this build — the answer
+    ///   is the identical reference the old expression returned.</item>
+    ///   <item><b>It skips our own <see cref="ReachHolderName"/> holders</b>, so "the prop's own
+    ///   collider" means the prop's, and a box a previous scan built is reported by
+    ///   <see cref="SingleHex"/> as reuse rather than as content. The holder is still found and
+    ///   still reused — one line further down, by name.</item>
+    /// </list>
+    /// <para><c>includeInactive: true</c> so the walk can SEE a collider parked on a deactivated
+    /// object; it is then refused by the predicate like any other unusable shape, and
+    /// <paramref name="present"/> counts it. Reading that population is the point: "this prop has
+    /// no collider" and "this prop has one and it is dead" are different findings about the game's
+    /// content, and the registration log has to be able to say which.</para>
+    /// </summary>
+    /// <param name="visual">The prop's GameObject.</param>
+    /// <param name="present">How many colliders the prop's subtree carries at all, our own holders
+    /// excluded — log only.</param>
+    /// <param name="usable">How many of those are usable pick shapes — log only.</param>
+    internal static Collider? OwnPickShape(GameObject visual, out int present, out int usable)
+    {
+        present = 0;
+        usable = 0;
+        Collider? first = null;
+        Collider[] all = visual.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            Collider c = all[i];
+            if (c == null || c.gameObject.name == ReachHolderName)
+                continue;
+            present++;
+            if (!VRInteractables.IsUsablePickShape(c))
+                continue;
+            usable++;
+            if (first == null)
+                first = c;
+        }
+        return first;
+    }
+
+    /// <summary>
+    /// The <c>[Props]</c> census's PICKSHAPE column: <c>usable/present</c> over the prop's own
+    /// colliders, our holders excluded.
+    ///
+    /// <para>It replaces a <c>collider=yes|no</c> column that was true and useless. A gold pile
+    /// reads <c>0/1</c> — it HAS a collider and none of them may be believed — which is the whole
+    /// 2026-09-05 defect stated in three characters, on the line that was already being printed.
+    /// A healthy prop reads <c>1/1</c> or better, and a prop that genuinely has none reads
+    /// <c>0/0</c>, which is a different fact and takes a different remedy (the renderer-bounds box
+    /// this file has always built for it).</para>
+    /// </summary>
+    internal static string DescribeCensus(GameObject? visual)
+    {
+        if (visual == null)
+            return "n/a";
+        OwnPickShape(visual, out int present, out int usable);
+        return $"{usable}/{present}";
+    }
+
+    /// <summary>One clause naming why the prop's own collider was refused, for the registration
+    /// log — the FIRST one found, since a prop carrying several dead shapes is dead for one reason
+    /// in practice. Empty string when the prop has no colliders of its own at all.</summary>
+    internal static string DescribeOwnRefusal(GameObject visual)
+    {
+        Collider[] all = visual.GetComponentsInChildren<Collider>(true);
+        for (int i = 0; i < all.Length; i++)
+        {
+            Collider c = all[i];
+            if (c == null || c.gameObject.name == ReachHolderName)
+                continue;
+            return VRInteractables.DescribePickShape(c);
+        }
+        return string.Empty;
     }
 
     /// <summary>
@@ -456,6 +595,11 @@ internal static class PropReach
                 return "the prop's own collider, unchanged (single-hex)";
             case Route.BoundsBox:
                 return "a box over its renderer bounds (the prop had no collider; single-hex)";
+            case Route.BoundsOverUnusable:
+                return "a box over its renderer bounds STANDING IN FOR THE PROP'S OWN COLLIDER, "
+                       + "which is present but is not a usable pick shape (single-hex)";
+            case Route.BoundsReused:
+                return "the renderer-bounds box an earlier scan built for this visual (single-hex)";
             case Route.SpanBuilt:
                 return "a NEW spanning trigger box over every hex it stands on";
             case Route.SpanReused:

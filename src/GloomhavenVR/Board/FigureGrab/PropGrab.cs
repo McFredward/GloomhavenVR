@@ -246,6 +246,8 @@ internal static class PropGrab
                 ReleaseAll();
             _lastPropCount = -1;
             _pendingResolve = 0;
+            _unusableOwnShapes = 0;
+            _unusableLogsLeft = UnusableLogBudget;
             // A NEW board is a new cache population: the InstanceName index and the re-key counter
             // are per scenario, and a stale index would answer for a prop that no longer exists.
             PropVisualLookup.Reset();
@@ -406,7 +408,31 @@ internal static class PropGrab
             // the single-hex answer IS: PropReach.Resolve hands it straight back for every prop
             // that stands on one hex, so those props keep the shape their pick radius was tuned
             // against, unchanged and unwidened.
-            Collider? own = visual.GetComponentInChildren<Collider>();
+            // ---- THE PROP'S OWN PICK SHAPE, AND THE MODBUILD 445 CORRECTION -------------------
+            //
+            // This line used to be `visual.GetComponentInChildren<Collider>()` — the first collider
+            // in the subtree, whatever state it was in. That is the gold-pile defect in one
+            // expression: an enemy-drop MoneyToken carries an authored collider that is present and
+            // SWITCHED OFF, `GetComponentInChildren` happily returned it, and the registry then
+            // measured every hand against a shape whose `ClosestPoint` hands back the query point.
+            // The pile therefore read as 0 mm from both hands everywhere on the board, forever.
+            //
+            // WHAT THAT COST, because it was two user-visible features and not one:
+            //   * the pile could never be highlighted or picked up — ProximityGrabber.UpdateHighlight
+            //     skips a disabled collider BEFORE any distance test (it always knew this), so the
+            //     entry existed, was counted as grabbable by our own census, and was invisible to
+            //     the election that actually elects;
+            //   * figure resizing died board-wide — FigureStretch's "a prop under the hand beats the
+            //     resize shell" veto consumed that same zero through PropGrab.NearestInReach and
+            //     refused every capture, on both machines, for a whole session.
+            // Both halves are one fact, and the fact is that PropGrab did not ask the question
+            // ProximityGrabber has been asking all along. It asks it now, in one shared place:
+            // VRInteractables.IsUsablePickShape.
+            //
+            // `own` is null when the prop has no BELIEVABLE shape of its own, which is exactly the
+            // condition BuildPropCollider was always the answer to — so the fix needs no new
+            // machinery, only the right question. PropReach.SingleHex builds (or reuses) the box.
+            Collider? own = PropReach.OwnPickShape(visual, out int ownPresent, out int ownUsable);
             bool built = own == null;
             Collider? collider = PropReach.Resolve(visual, prop, own,
                 out PropReach.Route reachRoute, out int reachHexes, out string reachHexSource);
@@ -415,6 +441,9 @@ internal static class PropGrab
                 _pendingResolve++;
                 continue;
             }
+
+            if (ownPresent > 0 && ownUsable == 0)
+                NoteUnusableOwnShape(visual, prop, reachRoute, ownPresent);
 
             var grabbable = new GrabbableProp(prop, visual, collider);
             VRInteractables.RegisterGrabbable(grabbable, collider);
@@ -442,6 +471,56 @@ internal static class PropGrab
                 + "REACHHEXES column says whether that landed, per prop.");
         }
 
+    }
+
+    /// <summary>How many props this scenario registered a stand-in box because every collider
+    /// they own is unusable — read by the <c>[Props]</c> census so one number says whether the
+    /// 2026-09-05 gold-pile class is present on this board at all.</summary>
+    internal static int UnusableOwnShapes => _unusableOwnShapes;
+
+    private static int _unusableOwnShapes;
+
+    /// <summary>Lines per scenario for the report below. Two: a board can hold a dozen gold piles
+    /// and they all fail for the same reason, so the first line answers the question completely
+    /// and the census counter carries the rest.</summary>
+    private const int UnusableLogBudget = 2;
+
+    private static int _unusableLogsLeft = UnusableLogBudget;
+
+    /// <summary>
+    /// A PROP WHOSE EVERY OWN COLLIDER IS A DEAD PICK SHAPE — named, once, with its cause.
+    ///
+    /// <para>This is the instrument the 2026-09-05 round did not have. Both hardware logs carried
+    /// the SYMPTOM in abundance (<c>'GoldPile' MoneyToken at 0 mm</c>, hundreds of times, beside a
+    /// second distance on the same line that moved continuously) and nothing anywhere said WHY a
+    /// surface distance would be pinned at zero. It reads the state at the moment of registration,
+    /// which is the moment the decision is made, and it names the clause that decided it.</para>
+    /// </summary>
+    private static void NoteUnusableOwnShape(GameObject visual, CObjectProp prop,
+                                             PropReach.Route route, int ownPresent)
+    {
+        _unusableOwnShapes++;
+        if (_unusableLogsLeft <= 0)
+            return;
+        _unusableLogsLeft--;
+        string label = $"'{(prop != null ? prop.PrefabName : "?")}' {(prop != null ? prop.ObjectType.ToString() : "?")}";
+        // HW-VERIFY: this line is the falsifier for the 2026-09-05 gold-pile diagnosis — it prints
+        // only when a prop's own colliders are ALL unusable, so its presence proves the class
+        // exists on this board and its absence proves the cause was something else. It must stay
+        // at a tier the DEFAULT log level prints (Note/Alert/Error); scripts/check-hw-verify.py
+        // enforces it.
+        VRLog.Note("FigureGrab",
+            $"[Props] DEAD PICK SHAPE: {label} (visual '{visual.name}') carries {ownPresent} "
+            + "collider(s) of its own and NOT ONE of them is a shape a reach test may believe — "
+            + $"{PropReach.DescribeOwnRefusal(visual)}. That matters because every proximity test "
+            + "in this mod is Vector3.Distance(point, collider.ClosestPoint(point)), and Unity's "
+            + "ClosestPoint returns THE QUERY POINT for a collider like this: the prop would read "
+            + "as 0 mm from both hands at every position on the board. Registering it that way is "
+            + "what killed gold-pile highlighting AND the figure-resize gesture on 2026-09-05 — "
+            + "the resize veto asks 'is a prop nearer than the shell?' and a permanent zero "
+            + $"answers yes forever. It is therefore NOT registered: {PropReach.Describe(route)}. "
+            + $"({_unusableLogsLeft} more of these lines this scenario; the [Props] census keeps "
+            + "counting them after that.)");
     }
 
     private static void Drop(CObjectProp prop)

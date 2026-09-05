@@ -878,7 +878,14 @@ internal sealed class FigureGrabDriver : MonoBehaviour
                 _censusProps.Add($"'{prop.InstanceName}' {prop.ObjectType} type={prop.GetType().Name}"
                     + $" visual={(visual != null ? "'" + visual.name + "'" : "NOT IN ObjectCacheService")}"
                     + $" via={PropVisualLookup.Describe(route)}"
-                    + $" collider={(visual != null && visual.GetComponentInChildren<Collider>() != null ? "yes" : "no")}"
+                    // PICKSHAPE, not "collider" (ModBuild 445). This column read `collider=yes` for
+                    // an enemy-drop gold pile all through the 2026-09-05 round, and it was TRUE and
+                    // USELESS: the pile has a collider and the collider is switched off, which is a
+                    // shape whose ClosestPoint hands back the query point. "Does it have one" was
+                    // never the question the hands ask; "may a reach test believe it" is. The two
+                    // counts are separated so `1/0` — one collider, none usable — names the defect
+                    // on its own line without a screenshot.
+                    + $" PICKSHAPE={PropReach.DescribeCensus(visual)}"
                     + $" actorBehaviour={(visual != null && ActorBehaviour.GetActorBehaviour(visual) != null ? "yes" : "NO")}"
                     + $" hasHealth={(prop.PropHealthDetails != null && prop.PropHealthDetails.HasHealth ? "yes" : "NO")}"
                     + $" disallowMoveOrDestroy={(prop.OverrideDisallowDestroyAndMove ? "YES" : "no")}"
@@ -898,6 +905,12 @@ internal sealed class FigureGrabDriver : MonoBehaviour
             + $"GrabProps={(FigureGrabConfig.GrabPropsEnabled ? "on" : "OFF")}. "
             + $"PropGrab registry: {PropGrab.Registered} prop(s) grabbable, {PropGrab.Pending} still "
             + $"unresolved; {HeldProps.Count} in hand, {PropGhosts.Count} home ghost(s). "
+            + $"DEAD PICK SHAPES stood in for this scenario (ModBuild 445): {PropGrab.UnusableOwnShapes} "
+            + "— props that own at least one collider and not one usable one, so a renderer-bounds "
+            + "box was registered instead of a shape whose ClosestPoint would read 0 mm everywhere. "
+            + "A non-zero count here is the 2026-09-05 gold-pile class and the per-prop PICKSHAPE "
+            + "column names which props; a zero with gold piles still unreachable means the cause "
+            + "is NOT the collider and the search moves elsewhere. "
             + $"Prop cache RE-KEYS this scenario: {PropVisualLookup.RekeyedThisScenario} "
             + "(a non-zero count means the game's own GetPropObject would MISS for every prop from "
             + "here on, because its dictionary is keyed by object identity and the scenario state "

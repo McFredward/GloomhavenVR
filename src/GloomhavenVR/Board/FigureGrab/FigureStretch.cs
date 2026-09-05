@@ -322,11 +322,39 @@ internal static class FigureStretch
         // mini's centre and a prop hover ending "29 mm real from the palm … DISTANCE is not what
         // ended this hover". A gesture already running is never interrupted by this (that branch
         // returned above); to resize over a prop, move the free hand out of the prop's pick volume.
+        // ---- MODBUILD 445: THE VETO GETS A FLOOR, AND THE FLOOR IS THE OTHER NUMBER ------------
+        //
+        // The 404 rule above is right and stays. What it lacked was any notion of how much nearer
+        // the prop is: `rival != null` alone hands one distance an absolute veto over a whole
+        // gesture, and on 2026-09-05 a single degenerate distance used it to disable figure
+        // resizing for both players for an entire session. The instrument had already printed the
+        // falsifier on the same line — "'GoldPile' MoneyToken at 0 mm vs shell 79…11 mm", one term
+        // pinned while the other moved 66 mm — and nobody read the two numbers against each other
+        // for a whole round. So the comparison is now made in the CODE, not left to a reader.
+        //
+        // THE RULE: the prop must actually be NEARER TO THIS HAND than the surface of the object
+        // the other hand is holding. Both terms are real metres from the same pinch point to a
+        // surface, so they are directly comparable, and this is exactly the sentence the 404 commit
+        // wrote in prose — "the hand is physically AT A PROP". Its own motivating measurement
+        // survives untouched: the 396 log has a prop hover at 29 mm against a shell at 470-523 mm,
+        // which still refuses the capture by a factor of sixteen.
+        //
+        // WHY THIS IS A FLOOR AND NOT A SECOND GUESS. The root cause is fixed one layer down —
+        // GrabbableProp.InReachOf no longer believes a dead pick shape, so a gold pile can never
+        // report 0 mm again. This test is what makes the FAILURE MODE non-catastrophic if some
+        // other prop ever reports a distance it should not: a bad rival distance now costs the
+        // gesture only where that prop genuinely reads nearer than the mini, instead of everywhere.
+        // A guard is only as good as the measurement it consumes, and this one no longer consumes
+        // just the one.
         GrabbableProp? rival = PropGrab.NearestInReach(hand, out float rivalReal);
-        if (rival != null)
+        bool rivalWins = rival != null && rivalReal < surfaceReal;
+        if (rival != null && !rivalWins)
+            StretchCaptureWatch.NoteVetoOverruled(hand.Side, target.Label, surfaceReal,
+                rival.Label, rivalReal);
+        if (rivalWins)
         {
             StretchCaptureWatch.NoteCaptureRefused(hand.Side, target.Label, surfaceReal,
-                rival.Label, rivalReal, FigureGrabConfig.PickRadiusRealMeters);
+                rival!.Label, rivalReal, FigureGrabConfig.PickRadiusRealMeters);
             if (wasCaptured) StretchCaptureWatch.NoteReleased(hand.Side);
             return;
         }

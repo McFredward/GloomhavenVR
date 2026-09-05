@@ -577,7 +577,11 @@ internal sealed class ProximityGrabber
         for (int i = 0; i < entries.Count; i++)
         {
             Collider collider = entries[i].Collider;
-            if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
+            // ONE shared predicate (ModBuild 445, VRInteractables.IsUsablePickShape): a collider that
+            // is off, inactive or a non-convex mesh makes ClosestPoint hand back the query point,
+            // i.e. 0 mm everywhere. This test used to be written out inline here and in two more
+            // places in this file, and NOT written at all on the prop side of the same election.
+            if (!VRInteractables.IsUsablePickShape(collider))
                 continue;
             IGrabbable target = entries[i].Target;
             if (!target.GrabWithGrip || !target.CanGrab)
@@ -783,7 +787,11 @@ internal sealed class ProximityGrabber
         for (int i = 0; i < entries.Count; i++)
         {
             Collider collider = entries[i].Collider;
-            if (collider == null || !collider.enabled || !collider.gameObject.activeInHierarchy)
+            // ONE shared predicate (ModBuild 445, VRInteractables.IsUsablePickShape): a collider that
+            // is off, inactive or a non-convex mesh makes ClosestPoint hand back the query point,
+            // i.e. 0 mm everywhere. This test used to be written out inline here and in two more
+            // places in this file, and NOT written at all on the prop side of the same election.
+            if (!VRInteractables.IsUsablePickShape(collider))
                 continue;
             float dist = Vector3.Distance(palm, collider.ClosestPoint(palm));
             if (dist > reach || dist >= nearest)
@@ -792,7 +800,15 @@ internal sealed class ProximityGrabber
             if (!target.CanGrab)
             {
                 nearest = dist;
-                reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' has CanGrab=false";
+                // NAME THE CLAUSE, not the conjunction (ModBuild 445). This line used to stop at
+                // "CanGrab=false", which is four possible causes wearing one word; the 2026-09-05
+                // logs carried it 1x on the host and 4x on the remote and it settled nothing.
+                string why = target is IGrabRefusalNarrator narrator
+                    ? narrator.DescribeGrabRefusal() ?? "it says it CAN be grabbed, so the two "
+                      + "tests disagreed inside one frame (a race, not a policy)"
+                    : "this target cannot say which clause of its CanGrab is false";
+                reason = $"nearest in-reach grabbable '{DescribeGrabbable(target)}' has "
+                         + $"CanGrab=false because {why}";
             }
             else if (target is IGrabbableHandFilter filter && !filter.AllowsHand(_hand))
             {
@@ -876,12 +892,15 @@ internal sealed class ProximityGrabber
                     currentBlocker = "its collider was destroyed";
                 continue;
             }
-            if (!collider.enabled || !collider.gameObject.activeInHierarchy)
+            // ONE shared predicate (ModBuild 445) — see VRInteractables.IsUsablePickShape. It adds
+            // the non-convex MeshCollider case this loop did not test for, and it is now the SAME
+            // question the prop registry and GrabbableProp.InReachOf ask, which is the whole point:
+            // this loop was right about disabled colliders for a year while the prop side read the
+            // degenerate 0 mm they produce as a perfect hit.
+            if (!VRInteractables.IsUsablePickShape(collider))
             {
                 if (isCurrent)
-                    currentBlocker = collider.enabled
-                        ? "its object was deactivated (re-parked to a pool, or hidden)"
-                        : "its collider was switched off";
+                    currentBlocker = VRInteractables.DescribePickShape(collider);
                 continue;
             }
 

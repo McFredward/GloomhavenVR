@@ -85,6 +85,72 @@ internal static class VRInteractables
         }
     }
 
+    /// <summary>
+    /// IS THIS COLLIDER A USABLE PICK SHAPE — i.e. may a reach test believe the number
+    /// <c>Collider.ClosestPoint</c> hands back for it?
+    ///
+    /// <para><b>Why the question has to be asked at all.</b> Every proximity test in this mod is
+    /// <c>Vector3.Distance(point, collider.ClosestPoint(point))</c>. That expression has three
+    /// inputs whose failure looks identical to a perfect hit: Unity's <c>ClosestPoint</c> returns
+    /// THE QUERY POINT ITSELF — i.e. a distance of exactly zero, at every point in the world — for
+    /// a collider that is disabled, for one whose GameObject is inactive, and for a non-convex
+    /// <c>MeshCollider</c> (which additionally logs an error). A caller that does not ask this
+    /// question therefore reads such a collider as touching the hand no matter where the hand is,
+    /// and every rule downstream of that distance silently inverts.</para>
+    ///
+    /// <para><b>This is not hypothetical, it is the 2026-09-05 defect.</b> Two hardware logs, one
+    /// per machine, carried hundreds of lines reading <c>'GoldPile' MoneyToken at 0 mm vs shell
+    /// 77…72…67…61…58…53…48…44…40…36…32…28…23…19…15…11 mm</c> — one surface distance pinned at
+    /// zero while the hand demonstrably travelled 66 mm past a second surface measured on the same
+    /// line. An enemy-drop gold pile registers with a collider that is present but switched off,
+    /// so <c>ClosestPoint</c> was degenerate for it from the moment it was registered. It cost
+    /// two user-visible features at once: the pile could never be highlighted or picked up
+    /// (<see cref="ProximityGrabber.UpdateHighlight"/> skipped it, correctly, on exactly this
+    /// test), and the figure-resize gesture was disabled board-wide, because its "a prop under the
+    /// hand beats the resize shell" veto consumed that zero and fired everywhere forever.</para>
+    ///
+    /// <para><b>So the predicate lives here, once.</b> <see cref="ProximityGrabber"/> already knew
+    /// all of this and asked it inline in three places; <c>GrabbableProp</c> and <c>PropGrab</c>
+    /// did not, and that DISAGREEMENT between two halves of the same election was the defect. One
+    /// name, asked at registration and at every read, is what keeps them from drifting apart
+    /// again.</para>
+    ///
+    /// <para>Pure, allocation-free, no scene query — safe on the per-frame election path.</para>
+    /// </summary>
+    internal static bool IsUsablePickShape(Collider? collider)
+    {
+        if (collider == null)
+            return false;
+        if (!collider.enabled || !collider.gameObject.activeInHierarchy)
+            return false;
+        // A non-convex MeshCollider has no ClosestPoint: Unity logs "Cannot cast a ray/query
+        // against a non-convex MeshCollider" and returns the query point. Game content may be any
+        // collider type, so the shape is asked as well as the switch.
+        if (collider is MeshCollider mesh && !mesh.convex)
+            return false;
+        return true;
+    }
+
+    /// <summary>
+    /// One clause naming WHY <see cref="IsUsablePickShape"/> said no — for log lines, so a refused
+    /// candidate reports its own cause instead of being argued about. Never branched on.
+    /// </summary>
+    internal static string DescribePickShape(Collider? collider)
+    {
+        if (collider == null)
+            return "its collider was destroyed";
+        if (!collider.enabled)
+            return "its collider is switched off (Collider.enabled=false), so ClosestPoint would "
+                   + "hand back the query point and read as 0 mm everywhere";
+        if (!collider.gameObject.activeInHierarchy)
+            return "its object is deactivated (re-parked to a pool, or hidden), so ClosestPoint "
+                   + "would hand back the query point and read as 0 mm everywhere";
+        if (collider is MeshCollider mesh && !mesh.convex)
+            return "its collider is a non-convex MeshCollider, which has no ClosestPoint at all — "
+                   + "Unity logs an error and hands back the query point";
+        return "it is a usable pick shape";
+    }
+
     /// <summary>Drop entries whose colliders were destroyed (called opportunistically by interactors).</summary>
     internal static void Prune()
     {
@@ -105,6 +171,27 @@ internal static class VRInteractables
         Pokeables.Clear();
         Grabbables.Clear();
     }
+}
+
+/// <summary>
+/// Optional companion to <see cref="IGrabbable"/> (additive, ModBuild 445): a target that can
+/// EXPLAIN its own <c>CanGrab=false</c>.
+///
+/// <para><b>Why it exists.</b> <c>ProximityGrabber.LogNoCandidateRefusal</c> printed
+/// <c>nearest in-reach grabbable 'GrabbableProp' has CanGrab=false</c> — true, throttled,
+/// tier-correct, and it answered nothing: <c>CanGrab</c> is a conjunction of four clauses and the
+/// line named none of them. Deciding which one had fired cost a round of arguing from adjacent
+/// counters. A target that implements this hands the grabber the clause instead.</para>
+///
+/// <para>Log only. Nothing branches on the string, and a target that does not implement this
+/// interface keeps exactly the message it had.</para>
+/// </summary>
+internal interface IGrabRefusalNarrator
+{
+    /// <summary>Which clause of this target's <c>CanGrab</c> is false right now, as one short
+    /// phrase, or null when it is in fact true (a race between the grabber's test and this call).
+    /// Must be pure and allocation-light: it is called from a throttled log path only.</summary>
+    string? DescribeGrabRefusal();
 }
 
 /// <summary>

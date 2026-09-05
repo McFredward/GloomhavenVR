@@ -117,6 +117,14 @@ internal static class StretchCaptureWatch
         public string LastRefusalProp = string.Empty;
         public float LastRefusalMm;
         public float LastRefusalShellMm;
+
+        /// <summary>ModBuild 445: a prop WAS in reach and the capture went ahead anyway, because
+        /// the shell was the nearer of the two surfaces. The other side of the floor, counted so
+        /// the census can say the floor is doing something rather than merely existing.</summary>
+        public int Overruled;
+        public string LastOverruledProp = string.Empty;
+        public float LastOverruledMm;
+        public float LastOverruledShellMm;
     }
 
     private static readonly HandWatch[] Hands = { new HandWatch(), new HandWatch() };
@@ -131,6 +139,7 @@ internal static class StretchCaptureWatch
     private static int _sessionEpisodes;
     private static int _sessionRefusals;
     private static int _sessionVetoes;
+    private static int _sessionOverruled;
 
     /// <summary>Drop everything (driver teardown, config-gate release). The BUDGETS are not reset:
     /// they are a per-session flood guard, not per-scenario state.</summary>
@@ -243,13 +252,46 @@ internal static class StretchCaptureWatch
         VRLog.Note("FigureGrab",
             $"STRETCH CAPTURE REFUSED — {side} hand: the pinch point is {rivalReal * 1000f:F0} mm real "
             + $"inside {rivalLabel}'s own {pickReal * 1000f:F0} mm pick volume, while the other hand's "
-            + $"{targetLabel} capture shell reads {surfaceReal * 1000f:F0} mm. THE PICK BEATS THE SHELL: "
-            + "the hand is physically AT A PROP, so the resize capture stands down and the prop keeps "
-            + "its highlight and its grab. The resize gesture is unchanged everywhere else and an "
-            + "already-running gesture is never interrupted by this — to start one over a prop, move "
-            + "the free hand out of that prop's pick volume ([FigureGrab] PickRadiusMillimeters) or "
-            + $"move the held object away from it. ({_refusalLogsLeft} more refusal lines this session; "
-            + "the census below keeps counting them after that.)");
+            + $"{targetLabel} capture shell reads {surfaceReal * 1000f:F0} mm. THE PICK BEATS THE SHELL "
+            + $"BECAUSE THE PROP IS THE NEARER SURFACE — {rivalReal * 1000f:F0} mm < "
+            + $"{surfaceReal * 1000f:F0} mm, by {(surfaceReal - rivalReal) * 1000f:F0} mm — so the "
+            + "hand is physically AT A PROP, the resize capture stands down, and the prop keeps its "
+            + "highlight and its grab. THAT COMPARISON IS NEW IN ModBuild 445 AND IT IS THE POINT: "
+            + "until this build the veto fired on the mere EXISTENCE of a prop in reach, so one prop "
+            + "reporting a wrong distance disabled the whole gesture. On 2026-09-05 exactly that "
+            + "happened — an enemy-drop gold pile registered a switched-off collider, whose "
+            + "ClosestPoint hands back the query point, so it reported 0 mm from every hand position "
+            + "on the board and this line printed ~800 times per machine with 'gestures started 0' "
+            + "beside it. If you are reading a fresh log and the two numbers above are CLOSE, this "
+            + "refusal is real; if the prop reads exactly 0 mm again while the shell number moves, "
+            + "the prop's pick shape is dead and the [Props] DEAD PICK SHAPE line will name it. "
+            + "The resize gesture is unchanged everywhere else and an already-running gesture is "
+            + "never interrupted by this — to start one over a prop, move the free hand out of that "
+            + "prop's pick volume ([FigureGrab] PickRadiusMillimeters) or move the held object away "
+            + $"from it. ({_refusalLogsLeft} more refusal lines this session; the census below keeps "
+            + "counting them after that.)");
+    }
+
+    /// <summary>
+    /// THE FLOOR HELD: a grabbable prop was in reach of this hand and the capture went ahead
+    /// anyway, because the other hand's held object is the NEARER surface.
+    ///
+    /// <para>Counted rather than logged per occurrence — this is the healthy case and it happens
+    /// on every frame a player resizes a mini over a crowded board. What it buys is the census
+    /// column: a build where the floor is doing nothing at all reads <c>overruled 0</c>, and a
+    /// build where a prop is again reporting a distance it should not reads a large overruled
+    /// count with the prop named. Both are answers; before ModBuild 445 there was no way to ask.
+    /// </para>
+    /// </summary>
+    internal static void NoteVetoOverruled(HandSide side, string targetLabel, float surfaceReal,
+                                           string rivalLabel, float rivalReal)
+    {
+        HandWatch w = Hands[(int)side];
+        w.Overruled++;
+        _sessionOverruled++;
+        w.LastOverruledProp = rivalLabel;
+        w.LastOverruledMm = rivalReal * 1000f;
+        w.LastOverruledShellMm = surfaceReal * 1000f;
     }
 
     /// <summary>A prop answered <c>AllowsHand=false</c> because this hand is captured. Records the
@@ -338,7 +380,15 @@ internal static class StretchCaptureWatch
             $"STRETCH CAPTURE census (last {CensusSeconds:F0}s) — "
             + Row("Left", l) + "; " + Row("Right", r)
             + $". Session totals: {_sessionEpisodes} capture episode(s), {_sessionRefusals} refused "
-            + $"by a prop pick, {_sessionVetoes} prop veto call(s). READING THE ZEROES: ticks 0 means "
+            + $"by a prop pick, {_sessionOverruled} prop pick(s) overruled by a nearer shell, "
+            + $"{_sessionVetoes} prop veto call(s). READING THE TWO PICK COLUMNS (ModBuild 445): "
+            + "'refused' and 'overruled' are the two outcomes of ONE comparison — is the prop or "
+            + "the held object the nearer surface to this hand. Both large is a player working "
+            + "over a crowded board and is healthy. Refused large with 'gestures started 0' is the "
+            + "2026-09-05 failure exactly: one prop reporting a distance it should not, vetoing "
+            + "every capture; cross-check it against the [Props] DEAD PICK SHAPE line, which names "
+            + "any prop registered with a collider whose ClosestPoint cannot be believed. "
+            + "READING THE ZEROES: ticks 0 means "
             + "the gesture tick ran but this hand had no pose; 'with a target' 0 means no hand was "
             + "holding anything to resize, so the capture rule had nothing to test; captured 0 with "
             + "a non-zero 'with a target' means THE RULE RAN AND NO HAND WAS EVER CAPTURED. This "
@@ -357,6 +407,12 @@ internal static class StretchCaptureWatch
                ? $"(last: {w.LastRefusalProp} at {w.LastRefusalMm:F0} mm vs shell "
                  + $"{w.LastRefusalShellMm:F0} mm)"
                : "(none)")
+           + $", prop pick OVERRULED (the shell was nearer, so the capture went ahead) "
+           + $"{w.Overruled}× "
+           + (w.Overruled > 0
+               ? $"(last: {w.LastOverruledProp} at {w.LastOverruledMm:F0} mm vs shell "
+                 + $"{w.LastOverruledShellMm:F0} mm)"
+               : "(none)")
            + $", prop veto calls {w.Vetoes}";
 
     private static void Reset(HandWatch w)
@@ -366,6 +422,7 @@ internal static class StretchCaptureWatch
         w.Episodes = w.Captured ? 1 : 0;   // an episode still open is still one episode
         w.EpisodeFrames = 0;
         w.Refusals = 0;
+        w.Overruled = 0;
         w.Vetoes = 0;
         w.GesturesStarted = 0;
     }

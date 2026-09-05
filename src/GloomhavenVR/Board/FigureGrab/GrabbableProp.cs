@@ -115,7 +115,7 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <c>CObjectProp.PropGuid</c>.</para>
 /// </summary>
 internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
-                                      IWalkInHighlightTarget
+                                      IWalkInHighlightTarget, IGrabRefusalNarrator
 {
     /// <summary>Unity's built-in Ignore Raycast layer. Parked here for the duration of a hold; see
     /// the class doc for why the game's own <c>"Hovering"</c> layer cannot stay.</summary>
@@ -283,8 +283,43 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
                 return false;
             // The remote grab-lock goes here when the sync lands: `if (NetHeldProps.Owns(_prop))
             // return false;` — the same shape FigureGrabbable uses against NetHeldFigures.
-            return _visual != null && _collider != null;
+            //
+            // IsUsablePickShape rather than `_collider != null` (ModBuild 445): a collider that is
+            // switched off or on a deactivated object is not merely useless here, it is ACTIVELY
+            // WRONG — ClosestPoint hands back the query point for it, so every distance measured
+            // against it is zero. The ProximityGrabber has always refused such an entry before it
+            // ever reached this property; saying so here too means the two halves of one election
+            // cannot disagree, which is exactly how the gold pile stayed registered-and-unreachable
+            // for a whole round. See VRInteractables.IsUsablePickShape.
+            return _visual != null && VRInteractables.IsUsablePickShape(_collider);
         }
+    }
+
+    /// <summary>
+    /// WHICH CLAUSE OF <see cref="CanGrab"/> IS FALSE — for the grabber's throttled refusal line
+    /// only (<see cref="IGrabRefusalNarrator"/>). Nothing branches on it.
+    ///
+    /// <para>The 2026-09-05 logs carried <c>nearest in-reach grabbable 'GrabbableProp' has
+    /// CanGrab=false</c> once on the host and four times on the remote, while the same log said
+    /// <c>GrabProps=on</c> and <c>0 in hand</c> — so the line named a four-clause conjunction and
+    /// ruled out none of them. The clauses are asked here in the SAME ORDER the property asks
+    /// them, so the phrase can never name a clause the property did not stop at.</para>
+    /// </summary>
+    public string? DescribeGrabRefusal()
+    {
+        if (!FigureGrabConfig.GrabPropsEnabled)
+            return "the [FigureGrab] GrabProps dial is off";
+        if (_holder != null)
+            return $"it is already held by the {_holder.Side} hand";
+        if (_visual == null)
+            return "its visual GameObject has been destroyed under the registry — the prop was "
+                   + "re-instantiated (the Apparance rebuild-on-move path) between the per-frame "
+                   + "prune that would have dropped this entry and this read, so the entry is one "
+                   + "frame stale and will be dropped on the next tick";
+        if (!VRInteractables.IsUsablePickShape(_collider))
+            return "the collider it registered is not a usable pick shape — "
+                   + VRInteractables.DescribePickShape(_collider);
+        return null;
     }
 
     /// <summary>False → props obey the shared trigger, exactly like figures and cards. The
@@ -314,7 +349,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     {
         if (_holder != null)
             return ReferenceEquals(_holder, hand); // the holder keeps its hold; nobody else joins
-        if (_collider == null || hand == null)
+        // ModBuild 445 — not `_collider == null`. A dead pick shape answers ClosestPoint with the
+        // query point, so the distance test below would admit this prop from anywhere on the board.
+        // See VRInteractables.IsUsablePickShape and the gold-pile account on PropReach.SingleHex.
+        if (hand == null || !VRInteractables.IsUsablePickShape(_collider))
             return false;
 
         // THE STRETCH VETO, and this is the only place a prop can publish one (ModBuild 362). A
@@ -360,7 +398,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     internal bool InReachOf(VRHand hand, out float realMetres)
     {
         realMetres = float.PositiveInfinity;
-        if (_holder != null || _collider == null || hand == null)
+        // ModBuild 445, AND THIS ONE LINE IS WHY FIGURE RESIZING DIED FOR BOTH PLAYERS. The test
+        // used to be `_collider == null`. FigureStretch.TickHand refuses to capture a hand whenever
+        // PropGrab.NearestInReach returns anything, and NearestInReach is a walk over this method;
+        // an enemy-drop gold pile registered with a switched-off collider answers ClosestPoint with
+        // the query point, i.e. 0.0 m, i.e. IN REACH, at every position of every hand on the board.
+        // The veto therefore fired permanently and st.Captured was never set, so hand.TriggerDown
+        // was never even consulted: "gestures started 0" on both machines, no exception anywhere.
+        // Asking whether the shape may be BELIEVED, before believing it, is the whole fix.
+        if (_holder != null || hand == null || !VRInteractables.IsUsablePickShape(_collider))
             return false;
         float scale = Mathf.Max(hand.WorldScale, 1e-4f);
         Vector3 pinch = hand.Rig.GrabAnchor.TransformPoint(PropHeldPose.HeldOffsetFor(hand.Side));
