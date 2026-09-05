@@ -176,7 +176,21 @@ internal static class DoorOpenWatch
         public float NextAnimatorResolve;
         /// <summary>The CURRENT animator instance has been observed in the 'Open' state.</summary>
         public bool ObservedOpen;
-        public bool Rebuilt;
+        /// <summary>How many times the animator instance under this door has been REPLACED since
+        /// the watch first saw it. This was a write-once <c>bool Rebuilt</c>, which meant every
+        /// line printed after the first rebuild read "REPLACED since the open" for the rest of the
+        /// scenario whether or not the CURRENT instance was the one from the flip — a field that
+        /// tells the truth once and then lies.</summary>
+        public int Rebuilds;
+        /// <summary>...and how many of those replacements happened since THIS open. Reset at the
+        /// flip, so the number beside a DOOR OPENED sample is about the open it is sampling.</summary>
+        public int RebuildsSinceOpen;
+        /// <summary>The animator instance id as it stood at the flip, so a line can say whether the
+        /// instance it is describing IS that one rather than only that something changed once.</summary>
+        public int AnimatorIdAtFlip;
+        /// <summary>How many hides were VOIDED by a rebuild on this door. Non-zero on a
+        /// DOOR LEAF HIDDEN BY THE MOD line means that line is a RE-hide against fresh content.</summary>
+        public int HideVoids;
         public int Reasserts;
         public float LastReassert;
         public bool NoOpenState;
@@ -529,6 +543,8 @@ internal static class DoorOpenWatch
                     e.OpenAtFirstSight = true;
                     e.OpenedAt = now;
                     ResolveAnimator(e, now, force: true);
+                    e.AnimatorIdAtFlip = e.AnimatorId; // the instance this open is about
+                    e.RebuildsSinceOpen = 0;
                     CaptureLeaf(e);
                 }
                 return;
@@ -545,6 +561,8 @@ internal static class DoorOpenWatch
                 e.SampleStage = 0;
                 e.NextSample = now + SampleAt[0];
                 ResolveAnimator(e, now, force: true);
+                e.AnimatorIdAtFlip = e.AnimatorId; // the instance this open is about
+                e.RebuildsSinceOpen = 0;
                 ApplyBelt(e, now, force: true); // a rebuilt subtree must not wait out the cadence
                 CaptureLeaf(e);
                 ArmFrameProbe(e, now);
@@ -1543,6 +1561,45 @@ internal static class DoorOpenWatch
             e.LeafHidden = false;
         }
 
+        /// <summary>
+        /// A rebuild makes the previous hide VOID, not merely stale: the renderers it switched off
+        /// are gone with the hierarchy that held them, and the fresh leaf standing in their place
+        /// has never been decided about. So anything from the old set that is still ALIVE is handed
+        /// back through the enable ledger first — the ledger must never keep an orphan entry for a
+        /// door this watch has stopped tracking — the set is dropped, and <c>LeafHidden</c> is
+        /// cleared so <see cref="Watch.HideStuckLeaf"/> may measure and decide again.
+        /// <para>Deliberately NOT <see cref="RestoreHidden"/>: that method's log line says the
+        /// renderers were restored, which would be false for every dead reference, and it is the
+        /// line the "door reads closed again" path owns.</para>
+        /// </summary>
+        private void VoidHideOnRebuild(Entry e)
+        {
+            int handedBack = 0, dead = 0;
+            for (int i = 0; i < e.HiddenByMod.Count; i++)
+            {
+                Renderer r = e.HiddenByMod[i];
+                if (r == null)
+                {
+                    dead++;
+                    continue; // destroyed with the old content — nothing is owed to it
+                }
+                try { WallSegmentFade.ShowIfWeHidExternal(r); handedBack++; }
+                catch { /* the ledger is mid-teardown — the renderer is going anyway */ }
+            }
+            e.HiddenByMod.Clear();
+            bool wasHidden = e.LeafHidden;
+            e.LeafHidden = false;
+            if (!wasHidden && handedBack == 0 && dead == 0)
+                return; // nothing had been hidden on this door yet
+            e.HideVoids++;
+            VRLog.Info(Name, $"DoorOpenWatch: the hide on '{e.RootName}' is VOID — the animator "
+                             + $"instance was replaced (rebuild #{e.Rebuilds}), so the {handedBack + dead} "
+                             + $"renderer(s) it had switched off are not the door any more: {handedBack} "
+                             + $"still alive and handed back to the enable ledger, {dead} destroyed with "
+                             + "the old content. The watch will re-measure what is leaf here and decide "
+                             + "again against the NEW hierarchy.");
+        }
+
         private void RestoreAllHidden(string why)
         {
             foreach (KeyValuePair<int, Entry> kv in _entries)
@@ -1570,7 +1627,25 @@ internal static class DoorOpenWatch
                      + "handle on the claim that the arch and frame are not under it, and that claim held on exactly "
                      + "one of the three shipped door kits — on CR_ST_Door_02 and CR_Dungeon_DOORS_PR the frame IS "
                      + "under the handle and carries the game's own wall shader Amp_Basic_WallFade, which is the gap "
-                     + "in türrahmen.jpg. Anything the routes could not prove is a leaf is left standing on purpose.");
+                     + "in türrahmen.jpg. Anything the routes could not prove is a leaf is left standing on purpose.")
+               // APPENDED, ModBuild 428 (the token above is unchanged). Before this build a hide
+               // could only ever happen ONCE per door: LeafHidden was never cleared on a rebuild,
+               // and Step gates the hide on it. So a line saying a leaf was hidden could never be
+               // followed by a second one on the same door however many times Apparance re-placed
+               // the content — the second, third and fourth leaf simply stood there, unhidden and
+               // unreported. Now it can be, and this clause says which kind of hide this is.
+               .Append(" REBUILDS: the animator instance under this door has been replaced ")
+               .Append(e.RebuildsSinceOpen).Append(" time(s) since this open and ").Append(e.Rebuilds)
+               .Append(" time(s) since the watch first saw the door; ")
+               .Append(e.HideVoids == 0
+                       ? "this is the FIRST hide on this door and no previous hide has been voided."
+                       : "this is a RE-HIDE — " + e.HideVoids + " earlier hide(s) on this door were "
+                         + "VOIDED by a rebuild (their renderers were handed back to the enable "
+                         + "ledger or destroyed with the old content, see the 'hide … is VOID' "
+                         + "record). A re-hide is a finding in itself: Apparance destroyed and "
+                         + "re-placed this door's content AFTER the rules opened it, so the fresh "
+                         + "leaf is born CLOSED and the game's one deferred replay was spent long "
+                         + "ago. If this count keeps climbing, hunt the rebuild, not the leaf.");
             // HW-VERIFY: the user's outcome — an opened door's leaf is gone AND its frame is not; this
             // line names what went, which route decided it, and what was refused as architecture.
             VRLog.Note(Name, _sb.ToString());
@@ -2190,8 +2265,19 @@ internal static class DoorOpenWatch
             {
                 if (e.AnimatorId != 0)
                 {
-                    e.Rebuilt = true; // the leaf assembly was re-instantiated under us
+                    e.Rebuilds++;          // the leaf assembly was re-instantiated under us
+                    e.RebuildsSinceOpen++;
                     e.LeafBaselineStale = true; // ... so the flip's per-renderer baseline is gone with it
+                    // THE REBUILD LATCH (fixed here). Everything below re-measured what is leaf and
+                    // what is architecture against the NEW hierarchy — but LeafHidden and
+                    // HiddenByMod were left standing, and Step gates the hide on
+                    // `if (!e.LeafHidden)`. So after one Apparance rebuild the watch could never
+                    // hide the fresh, visible leaf again, and HiddenByMod kept references to
+                    // renderers that no longer exist for RestoreHidden to walk. Apparance destroys
+                    // and re-places door content freely (bounds/transform changes, a subtree going
+                    // inactive->active, the engine's detail focus, a variant re-pick), so this is
+                    // not a hypothetical path.
+                    VoidHideOnRebuild(e);
                 }
                 e.AnimatorId = id;
                 e.InstanceSeenAt = now;
@@ -2478,8 +2564,11 @@ internal static class DoorOpenWatch
                .Append("' (controller '").Append(ControllerName(a)).Append("') was in state hash ")
                .Append(st.shortNameHash).Append(" at normalizedTime ").Append(st.normalizedTime.ToString("0.00"))
                .Append(", never seen in 'Open' on this instance — instance ")
-               .Append(e.Rebuilt ? "REPLACED since the open (the leaf assembly was re-instantiated: an Apparance rebuild of the door's HexDoor content)"
-                                 : "unchanged since the open (the game's one deferred replay never landed)")
+               .Append(e.AnimatorIdAtFlip != 0 && e.AnimatorId != e.AnimatorIdAtFlip
+                       ? "REPLACED since the open (the leaf assembly was re-instantiated: an Apparance rebuild of the door's HexDoor content)"
+                       : "unchanged since the open (the game's one deferred replay never landed)")
+               .Append(" [replaced ").Append(e.RebuildsSinceOpen).Append(" time(s) since this open, ")
+               .Append(e.Rebuilds).Append(" since first sight]")
                .Append(". The mod replayed the game's own call, MF.GameObjectAnimatorPlay(root, \"Open\") — "
                      + "Choreographer.OpenDoor's PlacementCompleteAction path — and it returned ")
                .Append(played ? "true" : "FALSE (no 'Open' state on layer 0, or no controller)")
@@ -2561,7 +2650,16 @@ internal static class DoorOpenWatch
             catch { /* TimeManager not up */ }
             _sb.Append("Animator '").Append(a.gameObject.name).Append("' (controller '")
                .Append(ControllerName(a)).Append("', instance ").Append(e.AnimatorId)
-               .Append(e.Rebuilt ? " REPLACED since the open" : " unchanged since the open")
+               // APPENDED, ModBuild 428: this clause was `Rebuilt ? " REPLACED since the open" :
+               // " unchanged since the open"` off a write-once bool, so from the first rebuild on
+               // it read REPLACED forever — including on an instance that WAS the one from the
+               // flip. It now compares the ids and carries both counts.
+               .Append(e.AnimatorIdAtFlip == 0 ? ", no flip instance recorded"
+                     : e.AnimatorId == e.AnimatorIdAtFlip ? ", the SAME instance as at the flip"
+                     : ", NOT the instance from the flip")
+               .Append("; replaced ").Append(e.RebuildsSinceOpen).Append(" time(s) since this open, ")
+               .Append(e.Rebuilds).Append(" time(s) since the watch first saw this door")
+               .Append(e.HideVoids > 0 ? ", " + e.HideVoids + " hide(s) voided by a rebuild" : "")
                .Append("): state ").Append(stateName).Append(" (hash ").Append(hash)
                .Append(") normalizedTime ").Append(nt.ToString("0.00"))
                .Append(inTransition ? " in transition" : "")
