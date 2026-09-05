@@ -15,6 +15,30 @@ suppression shipped in `src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs` and i
 
 ---
 
+## READ THIS BEFORE THE HEADLINE BELOW - ROUND FIVE RETIRED IT (2026-09-05, ModBuild 447)
+
+**The headline in the next section is a reading of ModBuild 435/436 and it is no longer true.** It
+says the prop's animator was idle in BOTH windows. On ModBuild 447 the same instrument, same
+anchor, says the opposite for the trap:
+
+```
+'Trap_BearTrap_PR'  clipRate hand=n/a/s home=0.202/s
+                    anyLayerRate home=0.201/s
+                    advancing hand=0/655  home=359/360
+                    layerCount hand=0     home=1
+```
+
+Read it in order. The prop runs a **continuous, looping ~5 s clip while it stands on its hex** -
+359 of 360 home frames advancing - and in the hand it is **stopped dead**, which is the ModBuild
+445 hush doing exactly what it was written to do. (`hand=n/a` is not a missing measurement: a
+disabled `Animator` reports `layerCount 0`, so there is no layer to read a rate off.)
+
+So the record now reads: **the animator strand WORKS, and the shimmer is not the animator.** The
+rest of sections 3-5 is still the correct account of how four rounds got there; only the "nothing
+was animating in either window" verdict is superseded. Section 10 is round five.
+
+---
+
 ## THE HEADLINE, AND IT IS THE WHOLE POINT OF THIS FILE
 
 **FOUR ROUNDS HAVE MEASURED A WINDOW THAT NEVER CONTAINED THE FLASH.**
@@ -382,3 +406,169 @@ One further correction, to this round's own plan: the smallest suppression was p
 `Outlinable.OutlineParameters.Enabled = false`. That field has nine game-side writers and covers
 only one of three parameter blocks; `Outlinable.enabled` has zero game-side writers and covers all
 three. See §6.
+
+---
+
+## 10. Round 5 — 2026-09-05 (against ModBuild 447): the hush fired, the shimmer stayed, and the sweep was typed too narrowly
+
+> **(12)** "Die Spiel-Highlighting Animation von Fallen und Truhen (dieser weisse Schimmer) ist
+> immer noch **auch auf dem Asset sichtbar wenn es in der Hand ist**. Das soll nicht der Fall sein."
+
+### 10.1 What the log actually says, and it is three separate findings
+
+Anchors: `] [Props] HELD-PROP ANIMATION HUSH` and `] [Props] HELD-PROP ANIMATION A/B`, both logs
+of the ModBuild 447 two-player session (`bffe5e884`).
+
+**(a) The hush ran, on both machines.** Host and co-player both print, for `'BearTrap' Trap`:
+`1 animator switched off`, `1 EPOOutline.Outlinable under the visual, 1 switched off`. So the
+suppression is not gated out, not inert on its own terms, and not asymmetric between the two
+clients. It silenced what it aimed at and the defect stood — the shape this project already has
+written down twice ("a fix passed its own green readings and changed nothing").
+
+**(b) The animator strand is effective and is NOT the shimmer.** See the banner at the top of this
+file: `advancing home=359/360` vs `hand=0/655`. The clip really does run on the hex and really is
+stopped in the hand.
+
+**(c) `Outlinable.enabled = false` is genuinely effective too, so the outline is not the shimmer
+either.** Verified against the decompiled component rather than assumed:
+`Outlinable.OnDisable` does `outlinables.Remove(this)` (the static `HashSet` the outline pass
+walks, `Outlinable.cs:82, 269-272`), and `UpdateVisibility`'s first test is
+`if (!enabled) { outlinables.Remove(this); return; }` (`:236-245`) — so a disabled `Outlinable`
+can never be re-added by a visibility event either. Candidate #1 of §5b is dead.
+
+### 10.2 Both instruments were truncated, in different ways, and both truncations are old news here
+
+**`PropAnimWatch`'s material read-back tracks 20 of 57 properties.** Its own population clause:
+`material(s) 1/1 on shader 'Amp_Char_Shader'; shader propert(y/ies) 57 declared, 20
+float/range/colour tracked` (`MatPropCap = 20`). **ModBuild 151 already lost a build to this, on
+this exact shader**: *"the census that was supposed to catch all this had a cap of 24 properties,
+while `Amp_Char_Shader` declares exactly 24 interesting ones — so every dump was truncated
+precisely where `_MOD_TINT` would have appeared."* Therefore **"not one of the tracked slots moved"
+was never evidence that no material property moved**, in either window, in any of the four rounds.
+
+*(A correction to §5a while we are here: blind spot (3), "a write through `.material` is invisible
+to a `sharedMaterial` read-back", is **false**. `Renderer.material` stores the clone it creates
+back into the renderer, so `sharedMaterial(s)` afterwards returns the clone. The real blind spot
+was the property cap sitting next to it.)*
+
+**The hush census's own histogram is `GetComponentsInChildren<MonoBehaviour>()`, and `Light`
+derives from `Behaviour`, not from `MonoBehaviour`.** So the histogram is structurally incapable of
+naming a light; a light appears only as the bare `N light(s)` count at the end of the line. That
+count is not zero:
+
+| prop (host, 447) | lights | particle systems | in the histogram |
+|---|---|---|---|
+| `'BearTrap' Trap` | **2** | 8 (0 playing at the grab) | `RFX4_LightCurves x2`, `LevelUseParticles x2`, `SFXOnEnable x2`, `ParticleSystem_OnEnable_Default x2` |
+| `'GoldPile' MoneyToken` | **3** | 7 | `RFX4_LightCurves x3`, `SFXOnEnable x2` |
+
+**This project has paid for that exact hole once already,** ModBuild 151: *"A LIVE POINT LIGHT
+INSIDE THE CREATURE. 'LivingSpirit_Light (1)', Point, intensity 20.00, range 1.0 m, parented in the
+prefab — a lamp centimetres from its own face. `Strip`'s sweep is
+`GetComponentsInChildren<MonoBehaviour>()` and **Light derives from Behaviour, not MonoBehaviour**,
+so the sweep walked past it structurally."* The sentence describes `PropAnimBelt` before this
+build, word for word.
+
+### 10.3 The identification
+
+**The shimmer is not painted by a material property and it has no renderer of its own. It is a
+`Light`, and the thing animating it is `RFX4_LightCurves`.**
+
+`RFX4_LightCurves.Update` (decompiled `:30-49`) writes
+`lightSource.intensity = LightCurve.Evaluate((Time.time - startTime) / GraphTimeMultiplier) *
+GraphIntensityMultiplier` **every frame**, and when its serialized `IsLoop` is set it re-seeds
+`startTime` and runs for ever. There is one such component per light on both censused props. That
+mechanism is:
+
+* invisible to an **animator** verdict — it is not an animator, and it needs none;
+* invisible to a **material property** read-back — it writes no material property;
+* invisible to a **renderer/visibility** census — a `Light` is not a `Renderer`;
+* invisible to the **MonoBehaviour histogram** — a `Light` is not a `MonoBehaviour`;
+* driven by **`Time.time`**, so immune to every Chronos/clock candidate §3 killed;
+* and untouched by every suppression shipped up to and including ModBuild 445.
+
+It also explains why the report is about the **hand** and never about the board: a lamp that is
+unremarkable on a prop lying on a hex a metre and a half away is a lamp twenty centimetres from the
+eye once the player picks the prop up. Nothing about the light changes; the solid angle it
+occupies in the player's view changes by a factor of fifty.
+
+### 10.4 What shipped
+
+`src/GloomhavenVR/Board/FigureGrab/PropAnimBelt.cs`, three additions:
+
+| | written | restored |
+|---|---|---|
+| **NEW — every `Behaviour`-derived emitter**: `Light`, `Projector`, `LensFlare` | `enabled = false` | yes, per object, to its exact prior value |
+| **NEW — particle systems that were PLAYING** | `Stop(withChildren, StopEmittingAndClear)` | `Play` on those same ones, and only if still a child of the visual |
+| unchanged | `Animator.enabled`, `Outlinable.enabled`, `SkinnedMeshRenderer.updateWhenOffscreen` | unchanged |
+
+The emitter class is taken **whole** rather than by naming `Light` alone: the type boundary IS the
+defect, and naming one more type by hand is how the next one gets missed.
+
+`RFX4_LightCurves` is deliberately **not** the component switched off. Disabling the *writer*
+freezes the intensity at whatever the curve last wrote — a pinned shimmer rather than an absent
+one. Disabling the *light* removes the picture whoever writes the number, and on release the light
+returns at whatever value the curve has meanwhile reached, which is exactly the value the game
+would have had. Own the final value; do not win a write war.
+
+Particles are stopped-and-**cleared**, never paused: a paused system leaves its live particles
+hanging in the air, which is a frozen shimmer. Systems that were already stopped are never touched
+and never restarted, and each one is re-checked at the landing for still being a child of the
+visual — these objects are pooled through `ObjectPool.Recycle` (`SpawnPFXOnEnable`), so a reference
+taken at the grab can by the landing name an object recycled into a different effect.
+
+**Two suppressions ship in one round and they are still attributable**, because the census now
+prints the PRE-STATE per class: `N Light(s) of which M were ENABLED`, `K particle system(s) of
+which J were PLAYING`. A class whose pre-count is zero made no writes and cannot be why anything
+changed in either direction.
+
+### 10.5 The new instruments, and the falsifier that matters
+
+**`] [Props] HELD-PROP PAINT AFTER HUSH`** — a 360-frame window opened *after* the hush has written
+everything it writes, at most one per prop kind, three per session. It reports, per class, what is
+still enabled / still playing / still moving, plus:
+
+* the material property table **read whole** (cap 64, declared count printed beside it) off
+  `sharedMaterials` — every slot of every renderer, not just the first;
+* every light's intensity **sampled whether or not the lamp is on**, so a curve still writing a
+  rising number into a disabled light is visible: that is the reading that says the writer
+  survived the suppression;
+* the max simultaneous playing particle systems and live particle count.
+
+**The falsifier is stated in the line itself.** The fix is *working* if the enabled/playing counts
+are 0 **with non-zero pre-counts**. The fix is **inert** — and this is the reading that must not be
+mistaken for success — if **every pre-count is 0**: nothing was on, nothing was written, and a
+shimmer the user still sees is then painted by something that is not under the prop's subtree at
+all, which is the one place none of these instruments can look.
+
+**`] [Props] HELD-PROP HUSH RESTORE`** — what came back, and its own falsifier. `Restore` compares
+what is there *now* against what this class *left* there before writing the remembered value, and
+prints three counts that are all expected to read 0: emitters found re-enabled by somebody else
+during the hold, particle systems no longer children of the prop, objects destroyed under the
+ledger. Any of them above 0 says the prop did not come back exactly as the game left it. This is
+the guard against the recorded incident where a hide saved a foreign mid-animation value and
+restored garbage over another system's restore.
+
+### 10.6 Multiplayer — and a correction to §8
+
+§8 and the class header both said *"a peer does not render a held prop at all"*. **That is wrong.**
+`NetProps` mirrors another player's held prop into their hand (`] [Props] HELD-PROP MIRROR`, 108
+lines on the host and 135 on the co-player in the 447 session) and it calls `PropAnimBelt.Engage`
+at `NetProps.cs:288` and `PropAnimBelt.Release` at `NetProps.cs:550` — the same ledger, the same
+`Tick`. That is what makes this 1:1 **by construction**: every suppression added to `Apply` reaches
+the mirrored copy through the same call, so a shimmer removed from the prop in my hand is removed
+from the prop the peer sees in my hand. No wire field, no second code path, no per-sub-feature sync
+setting.
+
+### 10.7 What round five did NOT do, and why
+
+* **It did not re-measure the animator or its 20 material slots.** §7 said not to and it was right.
+* **It did not touch `Renderer.enabled` or `GameObject.activeSelf`.** A held prop is never
+  scenery and must never be hidden; nothing here can hide one.
+* **It did not add `Animator.WriteDefaultValues()` before the disable.** Disabling an `Animator`
+  *pins* every property it was animating at its grab-instant value rather than clearing it, which
+  is a live alternative explanation for "still visible". `WriteDefaultValues` would return them to
+  the authored defaults — but it also snaps the rig to its bind pose, which is a visible change the
+  user did not ask for, and the property table read whole by the new verdict will say whether any
+  such value is stuck before anyone pays that price. **If the PAINT AFTER HUSH line reports a
+  material property with a non-zero range that stopped moving at the grab, this is the next fix.**
+* **It did not suppress `RFX4_LightCurves` itself** — see §10.4.
