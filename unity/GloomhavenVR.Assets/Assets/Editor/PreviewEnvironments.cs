@@ -1039,7 +1039,52 @@ namespace GloomhavenVR
             ("fall", new Vector4(1, 1, 1, 1), new Vector4(1, 1, 1, 1)),
             ("moff", new Vector4(1, 1, 1, 1), new Vector4(1, 1, 0, 1)),
             ("live0", Vector4.zero, new Vector4(0, 0, 1, 0)),
+            // ---- THE WANING BREATH, AS TWO STILLS (2026-09-05) --------------
+            // USER: "Das Gras im Wald, das wegen dem Element aufgetaucht ist,
+            // waechst und verschwindet in einem Loop statt einmal zu wachsen und
+            // dann konstant da zu sein! ... Es ist aufgefallen als das Element
+            // nur halb aktiv war."
+            //
+            // `earthW` above is the PLATEAU, and a plateau cannot show a breath —
+            // the table's own comment says so and leaves the judgement to the
+            // hardware round. That is exactly how a 2.4 s oscillation of the
+            // GRASS survived every preview series: no two frames in the set ever
+            // differed by the breath alone.
+            //
+            // These two are the breath's EXTREMES, i.e. the pair of phases 1.2 s
+            // apart (half of the 2.4 s period, so sin flips sign) at the phase
+            // where the swing is largest: ElementMood's 0.40 +- 0.12. Rendered at
+            // one fixed clock, the ONLY thing that differs between them is the
+            // published Earth intensity, so any difference in the picture is the
+            // element strength moving the art and nothing else.
+            ("earthWlo", new Vector4(0, 0, 0, 0.28f), new Vector4(0, 0, 1, 0.28f)),
+            ("earthWhi", new Vector4(0, 0, 0, 0.52f), new Vector4(0, 0, 1, 0.52f)),
         };
+
+        /// <summary>
+        /// THE ONE WRITER of the element channel in this harness — the same
+        /// one-writer discipline <c>Core/Environment/ElementMood.cs</c> states for
+        /// the runtime, and here for a sharper reason: the channel is now THREE
+        /// globals, not two, and a site that set the first two and forgot the
+        /// third would render a room whose grass belongs to the PREVIOUS mood in
+        /// the loop. (Globals are sticky; the fire series and the map table both
+        /// run after the element series.)
+        ///
+        /// <para><c>_GhvrElemGrow</c> is EARTH'S GROW-IN, and the rule below is
+        /// ElementMood's rule for a SETTLED state, quoted: the growth channel
+        /// carries Earth's PRESENCE, not its strength, so Strong and Waning are
+        /// both 1 and only Inert is 0. Every row of the tables here is a settled
+        /// state (nothing is mid-ramp in a still), so presence is exactly
+        /// <c>a.w &gt; 0</c>. It is NOT pre-multiplied by the master, for the same
+        /// reason none of the six is: the shader owes exactly one multiply, and
+        /// `moff` — the acceptance frame — has to be able to prove it.</para>
+        /// </summary>
+        internal static void SetMood(Vector4 a, Vector4 b)
+        {
+            Shader.SetGlobalVector("_GhvrElemA", a);
+            Shader.SetGlobalVector("_GhvrElemB", b);
+            Shader.SetGlobalFloat("_GhvrElemGrow", a.w > 0f ? 1f : 0f);
+        }
 
         // Four frames per room, chosen for what they contain rather than for
         // coverage: a lit corner (the candles / the moonlit clearing edge), the
@@ -1917,8 +1962,7 @@ namespace GloomhavenVR
                 // bookcase beside it is what puts light on the wax, and it is also
                 // the state the report is about: every term at this site belongs to
                 // a shelf that is on fire.
-                Shader.SetGlobalVector("_GhvrElemA", new Vector4(1f, 0f, 0f, 0f));
-                Shader.SetGlobalVector("_GhvrElemB", new Vector4(0f, 0f, 1f, 1f));
+                SetMood(new Vector4(1f, 0f, 0f, 0f), new Vector4(0f, 0f, 1f, 1f));
                 Shader.SetGlobalVector("_GhvrHaunt", new Vector4(1f, 1f, 0f, 0f));
                 Shader.SetGlobalFloat("_GhvrTimeOfs",
                     EnvRoomBuilder.HauntPreviewClock(5, 6, 0.001f, 26f, 0.001f, phase));
@@ -2304,8 +2348,7 @@ namespace GloomhavenVR
                 // with the previous round's — which is the point of a review set.
                 Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
                 Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
-                Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                SetMood(Vector4.zero, Vector4.zero);
                 Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 foreach (var (name, pos, euler, skyOnly, fov) in Views)
                     if (WantView(name) && !name.StartsWith("Haunt", StringComparison.Ordinal))
@@ -2402,12 +2445,10 @@ namespace GloomhavenVR
                         Shader.SetGlobalFloat("_GhvrTimeOfs", hold);
                         foreach (var (tag, ea, eb) in HauntMoods)
                         {
-                            Shader.SetGlobalVector("_GhvrElemA", ea);
-                            Shader.SetGlobalVector("_GhvrElemB", eb);
+                            SetMood(ea, eb);
                             Shoot(v.name, v.pos, v.euler, v.skyOnly, v.fov, "_" + tag);
                         }
-                        Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                        Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                        SetMood(Vector4.zero, Vector4.zero);
                     }
 
                     // ---- and the ON-DEMAND channel, photographed rather than
@@ -2481,8 +2522,7 @@ namespace GloomhavenVR
                     void FireSeries(string[] vns, float[] phases, string tagPrefix,
                                     Vector4 ea, Vector4 eb)
                     {
-                        Shader.SetGlobalVector("_GhvrElemA", ea);
-                        Shader.SetGlobalVector("_GhvrElemB", eb);
+                        SetMood(ea, eb);
                         foreach (var vn in vns)
                         {
                             var v = Array.Find(Views, x => x.name == vn);
@@ -2571,8 +2611,7 @@ namespace GloomhavenVR
                                                 + "'HauntShelfRide' view and it is gone.");
                         if (WantView(v.name))
                         {
-                            Shader.SetGlobalVector("_GhvrElemA", fireA);
-                            Shader.SetGlobalVector("_GhvrElemB", fireB);
+                            SetMood(fireA, fireB);
                             // dial 1.0, i.e. every scheduled slot fires — a real
                             // shipped setting, not a debug mode, exactly as the
                             // haunt series uses it.
@@ -2637,8 +2676,7 @@ namespace GloomhavenVR
                     // fault, reproduced.
                     if (cellar) ShelfNearApproach(inst, cam, tex, Shoot, StepEmitters);
 
-                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    SetMood(Vector4.zero, Vector4.zero);
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                     // ...and put the emitters back where the rest of the harness
                     // expects to find them, so that the element series after this
@@ -2659,11 +2697,35 @@ namespace GloomhavenVR
                     // systematically under-report the effect. 3.7 s is not a
                     // round number on purpose: it is not a period or a half
                     // period of anything in either room.
-                    Shader.SetGlobalFloat("_GhvrTimeOfs", 3.7f);
+                    //
+                    // ENV_PREVIEW_ELEMCLOCK overrides it, and that knob is the
+                    // instrument for a whole class of question this harness could
+                    // not previously ask: "does this picture MOVE while the
+                    // element holds still?". Two frames at one mood and two
+                    // clocks answer it, and nothing else in the set does — every
+                    // other element frame is shot at one instant, so a slow
+                    // animation of the ELEMENT ART is invisible to all of them.
+                    // The tag filter is its partner: without it the pair costs a
+                    // full 22-mood sweep of the room.
+                    string elemClock = Environment.GetEnvironmentVariable("ENV_PREVIEW_ELEMCLOCK");
+                    float elemT = 3.7f;
+                    if (!string.IsNullOrEmpty(elemClock)
+                        && !float.TryParse(elemClock, System.Globalization.NumberStyles.Float,
+                                           System.Globalization.CultureInfo.InvariantCulture, out elemT))
+                        throw new Exception($"ENV_PREVIEW_ELEMCLOCK='{elemClock}' is not a number.");
+                    string elemTags = Environment.GetEnvironmentVariable("ENV_PREVIEW_ELEMTAGS");
+                    var wantTags = string.IsNullOrEmpty(elemTags)
+                        ? null
+                        : new List<string>(elemTags.Split(','));
+                    if (wantTags != null)
+                        foreach (var wt in wantTags)
+                            if (Array.FindIndex(ElementMoods, m => m.tag == wt) < 0)
+                                throw new Exception($"ENV_PREVIEW_ELEMTAGS names an unknown mood '{wt}'.");
+                    Shader.SetGlobalFloat("_GhvrTimeOfs", elemT);
                     foreach (var (tag, ea, eb) in ElementMoods)
                     {
-                        Shader.SetGlobalVector("_GhvrElemA", ea);
-                        Shader.SetGlobalVector("_GhvrElemB", eb);
+                        if (wantTags != null && !wantTags.Contains(tag)) continue;
+                        SetMood(ea, eb);
                         foreach (var vn in elemViews)
                         {
                             var v = Array.Find(Views, x => x.name == vn);
@@ -2676,8 +2738,7 @@ namespace GloomhavenVR
                     // same instant. This is the frame the 'moff' and 'live0'
                     // shots above are compared against, pixel for pixel: three
                     // identical images are the whole zero-state proof.
-                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    SetMood(Vector4.zero, Vector4.zero);
                     foreach (var vn in elemViews)
                     {
                         var v = Array.Find(Views, x => x.name == vn);
@@ -2848,8 +2909,7 @@ namespace GloomhavenVR
                 // no room at all. The indoor pass at the end is the cellar case.
                 Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
                 Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
-                Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                SetMood(Vector4.zero, Vector4.zero);
                 Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 Shader.SetGlobalFloat("_GhvrIndoor", 0f);
                 foreach (var s in stations)
@@ -2870,8 +2930,7 @@ namespace GloomhavenVR
                     {
                         int i = Array.FindIndex(ElementMoods, m => m.tag == tag);
                         if (i < 0) throw new Exception($"MapTableMoods names an unknown mood '{tag}'.");
-                        Shader.SetGlobalVector("_GhvrElemA", ElementMoods[i].a);
-                        Shader.SetGlobalVector("_GhvrElemB", ElementMoods[i].b);
+                        SetMood(ElementMoods[i].a, ElementMoods[i].b);
                         foreach (var vn in MapTableElementViews)
                         {
                             var s = Array.Find(stations, x => x.name == vn);
@@ -2882,8 +2941,7 @@ namespace GloomhavenVR
                     }
                     // ...and the SAME frames at the same instant with the channel
                     // unset: the baseline `moff` and `live0` are compared against.
-                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    SetMood(Vector4.zero, Vector4.zero);
                     foreach (var vn in MapTableElementViews)
                     {
                         var s = Array.Find(stations, x => x.name == vn);
@@ -2904,16 +2962,14 @@ namespace GloomhavenVR
                     foreach (var tag in new[] { "lightS", "darkS" })
                     {
                         int i = Array.FindIndex(ElementMoods, m => m.tag == tag);
-                        Shader.SetGlobalVector("_GhvrElemA", ElementMoods[i].a);
-                        Shader.SetGlobalVector("_GhvrElemB", ElementMoods[i].b);
+                        SetMood(ElementMoods[i].a, ElementMoods[i].b);
                         foreach (var vn in new[] { "Wide", "Top" })
                         {
                             var s = Array.Find(stations, x => x.name == vn);
                             if (wantView(vn)) Shoot(vn, s.pos, s.at, s.fov, "_i" + tag);
                         }
                     }
-                    Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-                    Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+                    SetMood(Vector4.zero, Vector4.zero);
                     Shader.SetGlobalFloat("_GhvrIndoor", 0f);
                     Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
                 }
@@ -3139,8 +3195,7 @@ namespace GloomhavenVR
             Shader.SetGlobalFloat("_GhvrIndoor", 0f);
             Shader.SetGlobalVector("_GhvrHaunt", Vector4.zero);
             Shader.SetGlobalVector("_GhvrHauntForce", Vector4.zero);
-            Shader.SetGlobalVector("_GhvrElemA", Vector4.zero);
-            Shader.SetGlobalVector("_GhvrElemB", Vector4.zero);
+            EnvironmentsPreview.SetMood(Vector4.zero, Vector4.zero);
             Shader.SetGlobalFloat("_GhvrTimeOfs", 0f);
 
             var camGo = new GameObject("CloudSignCam");
