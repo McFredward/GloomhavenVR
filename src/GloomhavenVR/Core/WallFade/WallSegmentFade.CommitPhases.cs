@@ -487,33 +487,93 @@ internal static partial class WallSegmentFade
         // arrives with its own falsifier attached and says CONSISTENT or INCONSISTENT in the
         // same sentence as its answer.
 
+        // ---- ModBuild 440: THE ROWS ARE KEYED BY INSTANCE ID, NOT BY INDEX ------------------
+        //
+        // WHY THE 439 VERSION COULD NOT RUN IN THE CASE IT WAS BUILT FOR. It keyed the banked
+        // rows by their INDEX in the snapshot array, and guarded that with a refusal whenever the
+        // array had been re-swept - correct, because FindObjectsOfType does not specify its
+        // order. But all three SIGNATURE DELTA lines in the ModBuild 439 log read
+        //   ARITHMETIC: COMPOUND - more than one row moved
+        //   ROW CENSUS: NOT COMPARABLE - the snapshot was re-swept (banked 8989 row(s) taken
+        //               at 54.8s, live 9001 row(s) taken at 170.4s)
+        // and that pairing is not bad luck, it is structural: a SWEEP is what admits several new
+        // rows at once, so a compound delta and a re-sweep arrive TOGETHER. The instrument built
+        // for the compound case was excluded from it by construction.
+        //
+        // THE FIX IS IN THE DIAGNOSIS. The renderer's INSTANCE ID is already in the fold - it is
+        // the outer term of every row hash and it is how instance -14798 was decoded in 439 - and
+        // it is stable across sweeps by construction. Keying on it makes the diff ORDER-FREE: a
+        // set difference names which ids ENTERED and which LEFT even when the population size
+        // changed, and it degrades gracefully, naming some rows when it cannot name all.
+        //
+        // THE CROSS-CHECK GETS STRONGER, WHICH IS THE POINT. With index keys the check said "the
+        // rows I diffed reproduce the deltas"; with id keys the diff is over two SETS, so
+        // reproducing both the sum AND the xor is a proof that the named set IS the symmetric
+        // difference - the sum alone can be defeated by a compensating pair and the xor alone by
+        // a repeated one, and neither failure survives both. The honest refusals are kept: no
+        // banked census yet, and an id-less hole, both still say so rather than guess.
+        //
+        // COST, stated rather than assumed. Four arrays over ~9,000 rows on each side: the term
+        // (ulong, 72 KB), the instance id (int, 36 KB), the folded flag (bool, 9 KB) and, banked
+        // only, the name (a REFERENCE the census already owns, 72 KB on 64-bit). That is ~350 KB
+        // of long-lived arrays, allocated once and grown by doubling, against a subsystem that
+        // already holds a 9,000-entry Renderer snapshot and a 9,000-entry RendererFact table.
+        // The per-cycle work is one extra int store per row; the diff builds one Dictionary of
+        // ~9,000 int keys, and it runs ONLY on a refusal that also passes the BUDGET throttle,
+        // i.e. at most once every five seconds, on a frame that is committing anyway. It reports
+        // its own cost under 'WallFade.SigDelta'.
+
         /// <summary>This cycle's per-row contribution to the scene half, index for index with
         /// <c>_facts</c>. Written by <see cref="RecordSceneFactRow"/> from <c>ClassifySlice</c>,
         /// which visits every index exactly once per cycle in ascending order.</summary>
         private ulong[] _sigRow = Array.Empty<ulong>();
+
+        /// <summary>The renderer's instance id for that row - the KEY the diff runs on, and the
+        /// one fact about a row that survives a re-sweep. Taken from the same
+        /// <c>GetInstanceID()</c> call the fold already makes, so it costs no interop.
+        ///
+        /// <para>A row whose renderer DIED keeps the id it had: the snapshot array is not
+        /// rebuilt between sweeps, so index i is the same object, and carrying the id forward is
+        /// what lets the census say WHICH renderer was destroyed instead of only that one was.
+        /// The array is cleared when the snapshot is re-swept, so a row that died before it was
+        /// ever classified reads 0 = unknown rather than inheriting a stranger's id.</para>
+        /// </summary>
+        private int[] _sigRowId = Array.Empty<int>();
 
         /// <summary>Whether that row's term actually ENTERED the fold. False for the ModBuild
         /// 439 mod-owned exemption, whose term is computed (so this census can still report it)
         /// and deliberately not accumulated.</summary>
         private bool[] _sigRowFolded = Array.Empty<bool>();
 
-        /// <summary>The same two arrays as the commit consumed them, plus each row's name — the
-        /// only way to name a renderer that has since been DESTROYED, for the same reason
+        /// <summary>The same three arrays as the commit consumed them, plus each row's name -
+        /// the only way to name a renderer that has since been DESTROYED, for the same reason
         /// <c>RendererFact.Name</c> exists.</summary>
         private ulong[] _sigBankRow = Array.Empty<ulong>();
+        private int[] _sigBankId = Array.Empty<int>();
         private bool[] _sigBankFolded = Array.Empty<bool>();
         private string?[] _sigBankName = Array.Empty<string?>();
         private int _sigBankCount;
 
-        /// <summary>WHEN the snapshot the bank was taken over was swept. Row indices are only
-        /// comparable while the snapshot ARRAY is the same one — a fresh
-        /// FindObjectsOfType&lt;Renderer&gt; returns an array in unspecified order, so diffing
-        /// row i against row i across a sweep would compare two different renderers and produce
-        /// a confident wrong answer ("a ratio with two populations"). The timestamp is banked
-        /// rather than the array itself: holding the array would keep a scene's worth of
-        /// renderer wrappers alive across the gap, which is exactly what ClearSurveyState
-        /// exists to avoid.</summary>
+        /// <summary>WHEN the snapshot the bank was taken over was swept. Since ModBuild 440 this
+        /// is REPORTED and no longer GATES: the diff is keyed on instance ids, so a re-sweep
+        /// changes the row ORDER and the row COUNT and changes nothing about the answer. It is
+        /// still printed because "the bank is two minutes and three sweeps old" is a fact a
+        /// reader needs when judging a large ENTERED count.</summary>
         private float _sigBankSweptAt = float.NegativeInfinity;
+
+        /// <summary>The snapshot generation this cycle's row ids belong to, so
+        /// <see cref="ResetSceneFactRows"/> can drop stale ids exactly when the array underneath
+        /// them was replaced.</summary>
+        private float _sigRowsSweptAt = float.NegativeInfinity;
+
+        /// <summary>Banked rows whose renderer had already died with no id ever recorded - they
+        /// fold the per-hole term and cannot be keyed, so they are counted and their arithmetic
+        /// is carried explicitly instead of being silently dropped from the cross-check.</summary>
+        private int _sigBankUnkeyedHoles;
+
+        /// <summary>The id -&gt; banked row index map the diff runs on. Cleared and refilled,
+        /// never rebuilt, so it allocates once and then reuses its capacity.</summary>
+        private readonly System.Collections.Generic.Dictionary<int, int> _sigDiffMap = new(16384);
 
         private bool _sigBankValid;
 
@@ -537,9 +597,12 @@ internal static partial class WallSegmentFade
         private int _sigDeltaRefusals;
         private int _sigDeltaUnexplained;
 
-        /// <summary>Highest row count this cycle has touched, so the bank copies exactly what
-        /// the fold wrote even if <c>_factCount</c> and the arrays disagree.</summary>
-        private const int SigDeltaNamedRowCap = 12;
+        /// <summary>How many movers the line names, split by class. Only a FOLDED mover can have
+        /// refused the skip, so it gets the bulk of the budget; the two exempt slots exist so a
+        /// non-zero exempt count is never unfalsifiable from the log alone. Everything past a cap
+        /// is counted and the elision is stated.</summary>
+        private const int SigDeltaNamedFoldedCap = 10;
+        private const int SigDeltaNamedExemptCap = 2;
 
         /// <summary>Drop the per-cycle row state. Called from <c>ResetSceneFactSignature</c>, so
         /// the counters below are always this cycle's and never two cycles blended.</summary>
@@ -547,20 +610,36 @@ internal static partial class WallSegmentFade
         {
             _sceneFoldedRows = 0;
             _sceneExemptRows = 0;
+            // A FRESH SWEEP REPLACES THE ARRAY, so row i now holds a different renderer. The
+            // carry-forward that lets a dead row keep its id (see _sigRowId) must not reach
+            // across that boundary, or a renderer that died before its first classify would be
+            // reported under the id of whatever stood at that index in the previous snapshot -
+            // a name, confidently wrong, which is the one output this instrument may not have.
+            if (_sigRowsSweptAt != _snapshotTakenAt)
+            {
+                _sigRowsSweptAt = _snapshotTakenAt;
+                Array.Clear(_sigRowId, 0, _sigRowId.Length);
+            }
         }
 
         /// <summary>Record one census row's contribution. Two array writes; no interop, no
         /// branch on configuration — an instrument that is only banked when it is switched on
         /// is the inverse of this project's "gated remedy never ran" entry, and this one is
         /// small enough that it never needs a gate.</summary>
-        private void RecordSceneFactRow(int index, ulong contribution, bool folded)
+        /// <param name="instanceId">The renderer's instance id, or 0 for a snapshot HOLE - a
+        /// row whose renderer has been destroyed has no id to ask for, so the row keeps the one
+        /// it was last recorded with (see <see cref="_sigRowId"/>).</param>
+        private void RecordSceneFactRow(int index, int instanceId, ulong contribution, bool folded)
         {
             if (_sigRow.Length <= index)
             {
                 int want = Mathf.NextPowerOfTwo(index + 1);
                 Array.Resize(ref _sigRow, want);
+                Array.Resize(ref _sigRowId, want);
                 Array.Resize(ref _sigRowFolded, want);
             }
+            if (instanceId != 0)
+                _sigRowId[index] = instanceId;
             _sigRow[index] = contribution;
             _sigRowFolded[index] = folded;
             if (folded)
@@ -584,13 +663,20 @@ internal static partial class WallSegmentFade
                 {
                     int want = Mathf.NextPowerOfTwo(Mathf.Max(n, 256));
                     Array.Resize(ref _sigBankRow, want);
+                    Array.Resize(ref _sigBankId, want);
                     Array.Resize(ref _sigBankFolded, want);
                     Array.Resize(ref _sigBankName, want);
                 }
                 Array.Copy(_sigRow, _sigBankRow, n);
+                Array.Copy(_sigRowId, _sigBankId, n);
                 Array.Copy(_sigRowFolded, _sigBankFolded, n);
+                _sigBankUnkeyedHoles = 0;
                 for (int i = 0; i < n; i++)
+                {
                     _sigBankName[i] = _facts[i].Name;
+                    if (_sigBankId[i] == 0)
+                        _sigBankUnkeyedHoles++;
+                }
                 _sigBankCount = n;
                 _sigBankSweptAt = _snapshotTakenAt;
                 _sigBankValid = true;
@@ -683,10 +769,26 @@ internal static partial class WallSegmentFade
             }
         }
 
-        /// <summary>The half that names renderers: the banked rows, diffed.</summary>
+        /// <summary>
+        /// The half that names renderers: the two row sets, diffed BY INSTANCE ID.
+        ///
+        /// <para>ORDER-FREE BY CONSTRUCTION (ModBuild 440). The banked ids go into a map, the
+        /// live rows are walked against it, and whatever is left in the map LEFT the snapshot.
+        /// Nothing here reads a row index as an identity, so a fresh
+        /// <c>FindObjectsOfType&lt;Renderer&gt;</c> between the commit and this refusal — the
+        /// case that silenced the 439 version in all three of its outputs — changes only the
+        /// order and the count.</para>
+        ///
+        /// <para>WHAT IT STILL REFUSES TO ANSWER. A row whose renderer died before it was ever
+        /// classified has no id (see <see cref="_sigRowId"/>); such rows are COUNTED on both
+        /// sides, their per-hole terms are carried into the cross-check explicitly, and they are
+        /// never matched to each other or named. That is the only place this census can be out
+        /// of information, and it says so rather than pairing two unknowns.</para>
+        /// </summary>
         private void AppendSigDeltaRows(System.Text.StringBuilder sb)
         {
-            sb.Append(" ROW CENSUS: ");
+            sb.Append(" ROW CENSUS (ModBuild 440 — keyed by INSTANCE ID, so a re-swept snapshot "
+                    + "no longer silences it): ");
             if (!_sigBankValid)
             {
                 sb.Append("no commit has banked one yet, so there is no baseline — this is the ")
@@ -694,66 +796,111 @@ internal static partial class WallSegmentFade
                   .Append("empty diff that would read as 'nothing changed'.");
                 return;
             }
-            if (_sigBankSweptAt != _snapshotTakenAt || _sigBankCount != _factCount)
-            {
-                _sigDeltaUnexplained++;
-                sb.Append("NOT COMPARABLE — the snapshot was re-swept since the table in force ")
-                  .Append("was built (banked ").Append(_sigBankCount).Append(" row(s) taken at ")
-                  .Append(_sigBankSweptAt.ToString("F1")).Append("s, live ").Append(_factCount)
-                  .Append(" row(s) taken at ").Append(_snapshotTakenAt.ToString("F1"))
-                  .Append("s). FindObjectsOfType does not specify its order, so row i is not the ")
-                  .Append("same renderer on both sides and a diff here would be a confident ")
-                  .Append("wrong answer. The ARITHMETIC above still stands: it is order-free.");
-                return;
-            }
 
-            int changed = 0, changedFolded = 0, changedExempt = 0, named = 0;
-            ulong sumCheck = 0, xorCheck = 0;
-            var rows = new System.Text.StringBuilder(512);
+            _sigDiffMap.Clear();
             for (int i = 0; i < _sigBankCount; i++)
             {
-                ulong before = _sigBankRow[i];
-                ulong after = _sigRow[i];
-                if (before == after && _sigBankFolded[i] == _sigRowFolded[i])
-                    continue;
-                changed++;
-                bool folded = _sigBankFolded[i] || _sigRowFolded[i];
-                if (folded)
-                {
-                    changedFolded++;
-                    unchecked
-                    {
-                        sumCheck += (_sigRowFolded[i] ? after : 0UL)
-                                  - (_sigBankFolded[i] ? before : 0UL);
-                        xorCheck ^= (_sigRowFolded[i] ? after : 0UL)
-                                  ^ (_sigBankFolded[i] ? before : 0UL);
-                    }
-                }
-                else
-                {
-                    changedExempt++;
-                }
-                if (named >= SigDeltaNamedRowCap)
-                    continue;
-                named++;
-                if (named > 1)
-                    rows.Append("; ");
-                AppendSigDeltaRow(rows, i, before, after, folded);
+                int id = _sigBankId[i];
+                if (id != 0)
+                    _sigDiffMap[id] = i;
             }
 
-            sb.Append(changed).Append(" of ").Append(_sigBankCount)
-              .Append(" census row(s) moved since the table in force was built — ")
-              .Append(changedFolded).Append(" of them FOLDED (these, and only these, are what ")
-              .Append("refused the skip) and ").Append(changedExempt)
-              .Append(" EXEMPT (ModBuild 439's mod-owned exemption: computed, reported, and ")
+            int entered = 0, left = 0, changedRows = 0;
+            int foldedMovers = 0, exemptMovers = 0, liveUnkeyedHoles = 0;
+            // TWO CAPS, NOT ONE. Naming the first twelve movers in ROW ORDER is naming an
+            // arbitrary twelve: only the FOLDED ones can have refused the skip, and an exempt
+            // mover that arrived at a low index would push the answer off the end of the list.
+            // The exempt slots are kept and small on purpose — a non-zero exempt count with no
+            // name would leave the ModBuild 439 exemption unfalsifiable from the log alone.
+            int namedFolded = 0, namedExempt = 0;
+            ulong sumCheck = 0, xorCheck = 0;
+            var rows = new System.Text.StringBuilder(768);
+
+            for (int i = 0; i < _factCount && i < _sigRow.Length; i++)
+            {
+                int id = _sigRowId[i];
+                ulong after = _sigRow[i];
+                bool afterFolded = _sigRowFolded[i];
+                if (id == 0)
+                {
+                    liveUnkeyedHoles++;
+                    continue; // an unkeyable hole: counted, carried arithmetically, never named
+                }
+                if (_sigDiffMap.TryGetValue(id, out int bi))
+                {
+                    _sigDiffMap.Remove(id); // matched — whatever survives the walk LEFT
+                    ulong before = _sigBankRow[bi];
+                    bool beforeFolded = _sigBankFolded[bi];
+                    if (before == after && beforeFolded == afterFolded)
+                        continue;
+                    changedRows++;
+                    bool changedFolded = beforeFolded || afterFolded;
+                    Account(ref sumCheck, ref xorCheck, before, beforeFolded, after, afterFolded,
+                            ref foldedMovers, ref exemptMovers);
+                    if (TakeNameSlot(changedFolded, ref namedFolded, ref namedExempt, rows))
+                        AppendSigDeltaChangedRow(rows, i, bi, before, after, changedFolded);
+                    continue;
+                }
+                entered++;
+                Account(ref sumCheck, ref xorCheck, 0UL, false, after, afterFolded,
+                        ref foldedMovers, ref exemptMovers);
+                if (TakeNameSlot(afterFolded, ref namedFolded, ref namedExempt, rows))
+                {
+                    AppendSigDeltaEndpointRow(rows, "ENTERED", _facts[i].Name, id, after,
+                                              afterFolded);
+                }
+            }
+
+            foreach (System.Collections.Generic.KeyValuePair<int, int> kv in _sigDiffMap)
+            {
+                int bi = kv.Value;
+                left++;
+                ulong before = _sigBankRow[bi];
+                bool beforeFolded = _sigBankFolded[bi];
+                Account(ref sumCheck, ref xorCheck, before, beforeFolded, 0UL, false,
+                        ref foldedMovers, ref exemptMovers);
+                if (TakeNameSlot(beforeFolded, ref namedFolded, ref namedExempt, rows))
+                {
+                    AppendSigDeltaEndpointRow(rows, "LEFT", _sigBankName[bi], kv.Key, before,
+                                              beforeFolded);
+                }
+            }
+
+            // The unkeyable holes on both sides fold the per-hole term, which is a constant: k of
+            // them contribute k x DeadRow to the sum, and DeadRow to the xor iff k is odd. Both
+            // are carried here so the cross-check below stays an equality and not an
+            // approximation — a census whose arithmetic "nearly" reproduces the fold is one this
+            // project has no use for.
+            WallSigDelta.HoleCorrection(liveUnkeyedHoles, _sigBankUnkeyedHoles,
+                                        out ulong holeSum, out ulong holeXor);
+            unchecked
+            {
+                sumCheck += holeSum;
+                xorCheck ^= holeXor;
+            }
+
+            int movers = entered + left + changedRows;
+            int named = namedFolded + namedExempt;
+            sb.Append(movers).Append(" row(s) moved between the ").Append(_sigBankCount)
+              .Append(" banked (swept at ").Append(_sigBankSweptAt.ToString("F1"))
+              .Append("s) and the ").Append(_factCount).Append(" live (swept at ")
+              .Append(_snapshotTakenAt.ToString("F1")).Append("s) — ").Append(entered)
+              .Append(" ENTERED, ").Append(left).Append(" LEFT, ").Append(changedRows)
+              .Append(" CHANGED IN PLACE. ").Append(foldedMovers)
+              .Append(" of them are FOLDED (these, and only these, are what refused the skip) ")
+              .Append("and ").Append(exemptMovers)
+              .Append(" are EXEMPT (ModBuild 439's mod-owned exemption: computed, reported, and ")
               .Append("deliberately not accumulated). This cycle folded ").Append(_sceneFoldedRows)
-              .Append(" row(s) and exempted ").Append(_sceneExemptRows).Append(". ");
+              .Append(" row(s) and exempted ").Append(_sceneExemptRows).Append("; ")
+              .Append(liveUnkeyedHoles).Append(" live and ").Append(_sigBankUnkeyedHoles)
+              .Append(" banked row(s) are holes with no recorded id and are counted, never ")
+              .Append("named. ");
             if (named > 0)
             {
-                sb.Append("ROWS (").Append(named).Append(" named, ").Append(changed - named)
+                sb.Append("ROWS (").Append(named).Append(" named, ").Append(movers - named)
                   .Append(" more counted above but not listed): ").Append(rows).Append(". ");
             }
-            if (changedFolded == 0)
+            if (foldedMovers == 0)
             {
                 _sigDeltaUnexplained++;
                 sb.Append("NO FOLDED ROW MOVED AT ALL, which cannot refuse this term — either ")
@@ -764,9 +911,14 @@ internal static partial class WallSegmentFade
             {
                 bool ok = sumCheck == _sceneFactSigSum - _committedSceneSum
                        && xorCheck == (_sceneFactSigXor ^ _committedSceneXor);
+                if (!ok)
+                    _sigDeltaUnexplained++;
                 sb.Append(ok
-                    ? "CROSS-CHECK PASSES: the folded rows named above reproduce the sum AND xor "
-                      + "deltas exactly, so this census explains the very number that refused."
+                    ? "CROSS-CHECK PASSES: the folded rows above reproduce the sum AND the xor "
+                      + "delta exactly. Over an ID-KEYED set diff that is a proof and not a "
+                      + "plausible story — the sum alone can be defeated by a compensating pair "
+                      + "and the xor alone by a repeated one, so an exact match on both says the "
+                      + "named set IS the symmetric difference the signature saw."
                     : "CROSS-CHECK FAILS: the folded rows do NOT reproduce the deltas (rows give "
                       + sumCheck.ToString("X16") + "/" + xorCheck.ToString("X16")
                       + ", the fold moved by "
@@ -774,13 +926,67 @@ internal static partial class WallSegmentFade
                       + (_sceneFactSigXor ^ _committedSceneXor).ToString("X16")
                       + ") — THIS INSTRUMENT IS LYING AND MUST BE FIXED BEFORE IT IS READ.");
             }
+            _sigDiffMap.Clear(); // never hold a scene's worth of keys to the next cycle
         }
 
-        private void AppendSigDeltaRow(System.Text.StringBuilder sb, int index,
-                                       ulong before, ulong after, bool folded)
+        /// <summary>One row's contribution to the cross-check and to the folded/exempt tally.
+        /// A term that was not folded contributes NOTHING to the arithmetic, which is exactly
+        /// what the exemption means, and the row is tallied as exempt instead.</summary>
+        private static void Account(ref ulong sumCheck, ref ulong xorCheck,
+                                    ulong before, bool beforeFolded,
+                                    ulong after, bool afterFolded,
+                                    ref int foldedMovers, ref int exemptMovers)
         {
-            string name = _facts[index].Name ?? _sigBankName[index] ?? "<unnamed>";
-            sb.Append('\'').Append(name).Append('\'');
+            if (beforeFolded || afterFolded)
+            {
+                foldedMovers++;
+                unchecked
+                {
+                    ulong a = afterFolded ? after : 0UL;
+                    ulong b = beforeFolded ? before : 0UL;
+                    sumCheck += a - b;
+                    xorCheck ^= a ^ b;
+                }
+            }
+            else
+            {
+                exemptMovers++;
+            }
+        }
+
+        /// <summary>Claim one of the two naming budgets and write the separator if it does.
+        /// Returns false when this mover's class is full — the caller then counts it and says so
+        /// in the elision figure, because a truncated list that does not admit it is how "X never
+        /// appears" once became a whole wrong conclusion.</summary>
+        private static bool TakeNameSlot(bool folded, ref int namedFolded, ref int namedExempt,
+                                         System.Text.StringBuilder rows)
+        {
+            if (folded)
+            {
+                if (namedFolded >= SigDeltaNamedFoldedCap)
+                    return false;
+                namedFolded++;
+            }
+            else
+            {
+                if (namedExempt >= SigDeltaNamedExemptCap)
+                    return false;
+                namedExempt++;
+            }
+            if (namedFolded + namedExempt > 1)
+                rows.Append("; ");
+            return true;
+        }
+
+        /// <summary>A renderer present on BOTH sides whose term moved — the case the whole
+        /// exercise is about, because it is what an <c>activeInHierarchy</c> flip looks like.
+        /// </summary>
+        private void AppendSigDeltaChangedRow(System.Text.StringBuilder sb, int liveIndex,
+                                              int bankIndex, ulong before, ulong after,
+                                              bool folded)
+        {
+            string name = _facts[liveIndex].Name ?? _sigBankName[bankIndex] ?? "<unnamed>";
+            sb.Append('\'').Append(name).Append("' #").Append(_sigRowId[liveIndex]);
             if (after == WallSigDelta.DeadRow)
             {
                 sb.Append(" WAS DESTROYED (its snapshot row went null)");
@@ -789,25 +995,39 @@ internal static partial class WallSegmentFade
             {
                 sb.Append(" refilled a row that had been a dead hole");
             }
-            else if (WallSigDelta.TryDecodeRow(before, out int idB, out int bitsB)
-                     && WallSigDelta.TryDecodeRow(after, out int idA, out int bitsA))
+            else
             {
-                if (idB == idA)
+                int bitDelta = WallSigDelta.BitDeltaOf(before, after);
+                if (bitDelta >= 0
+                    && WallSigDelta.TryDecodeRow(before, out _, out int bitsB)
+                    && WallSigDelta.TryDecodeRow(after, out _, out int bitsA))
                 {
-                    sb.Append(" #").Append(idA).Append(' ').Append(bitsB).Append("->").Append(bitsA)
-                      .Append(" (").Append(WallSigDelta.Names(bitsB ^ bitsA)).Append(" moved)");
+                    sb.Append(' ').Append(bitsB).Append("->").Append(bitsA).Append(" (")
+                      .Append(WallSigDelta.Names(bitDelta)).Append(" moved)");
                 }
                 else
                 {
-                    sb.Append(" — row now holds a DIFFERENT renderer (#").Append(idB)
-                      .Append(" -> #").Append(idA).Append(')');
+                    sb.Append(" term moved but did not invert (").Append(before.ToString("X16"))
+                      .Append("->").Append(after.ToString("X16"))
+                      .Append(") — the fold and this decoder disagree, believe neither");
                 }
             }
-            else
-            {
-                sb.Append(" — term did not invert (").Append(before.ToString("X16")).Append("->")
-                  .Append(after.ToString("X16")).Append(')');
-            }
+            sb.Append(folded ? " [FOLDED]" : " [EXEMPT]");
+        }
+
+        /// <summary>A renderer on ONE side only: it entered the snapshot or it left it. The bits
+        /// come out of the term itself, so the line says what KIND of renderer arrived even when
+        /// the name is missing.</summary>
+        private static void AppendSigDeltaEndpointRow(System.Text.StringBuilder sb, string what,
+                                                      string? name, int id, ulong term,
+                                                      bool folded)
+        {
+            sb.Append('\'').Append(name ?? "<unnamed>").Append("' #").Append(id).Append(' ')
+              .Append(what);
+            if (term == WallSigDelta.DeadRow)
+                sb.Append(" (as a dead hole)");
+            else if (WallSigDelta.TryDecodeRow(term, out _, out int bits))
+                sb.Append(" with bits ").Append(bits).Append(" = ").Append(WallSigDelta.Names(bits));
             sb.Append(folded ? " [FOLDED]" : " [EXEMPT]");
         }
 
@@ -816,10 +1036,12 @@ internal static partial class WallSegmentFade
         /// never woven into an existing sentence.</summary>
         private void AppendSigDeltaClause(System.Text.StringBuilder sb)
         {
-            sb.Append(" SIGNATURE DELTA (ModBuild 439): ").Append(_sigDeltaRefusals)
+            sb.Append(" SIGNATURE DELTA (ModBuild 439, id-keyed since 440): ")
+              .Append(_sigDeltaRefusals)
               .Append(" scene-signature refusal(s) this window, ").Append(_sigDeltaUnexplained)
-              .Append(" of which the ROW CENSUS could not explain (re-swept snapshot, or no ")
-              .Append("folded row moved). Each refusal is one ~155ms commit the player feels as ")
+              .Append(" of which the ROW CENSUS could not explain (no folded row moved, or its ")
+              .Append("cross-check failed — a re-swept snapshot is no longer one of the ways, ")
+              .Append("which is the whole of ModBuild 440). Each refusal is one ~155ms commit the player feels as ")
               .Append("a hitch with nothing on screen to explain it; the 'SIGNATURE DELTA' line ")
               .Append("names the renderer behind it and prints at the DEFAULT log tier. This ")
               .Append("cycle folded ").Append(_sceneFoldedRows).Append(" census row(s) and ")

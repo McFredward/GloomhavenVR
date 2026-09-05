@@ -199,6 +199,27 @@ internal static class WallSigDelta
         sb.Append(name);
     }
 
+    /// <summary>
+    /// The arithmetic of the rows a set diff CANNOT key: snapshot holes whose renderer died
+    /// before it was ever classified, so no instance id was ever recorded for them.
+    ///
+    /// <para>They all fold the same constant, so k of them contribute <c>k * DeadRow</c> to the
+    /// sum and — because xor is its own inverse — <c>DeadRow</c> to the xor exactly when k is
+    /// odd. Carrying that explicitly is what keeps the row census's cross-check an EQUALITY
+    /// rather than an approximation: a census whose arithmetic nearly reproduces the fold proves
+    /// nothing at all. Extracted here rather than inlined so the parity term, which is the half
+    /// that is easy to get backwards, is driven in CI.</para>
+    /// </summary>
+    internal static void HoleCorrection(int liveHoles, int bankedHoles,
+                                        out ulong sumDelta, out ulong xorDelta)
+    {
+        unchecked
+        {
+            sumDelta = (ulong)(long)(liveHoles - bankedHoles) * DeadRow;
+            xorDelta = ((liveHoles ^ bankedHoles) & 1) != 0 ? DeadRow : 0UL;
+        }
+    }
+
     /// <summary>What kind of single event a scene-signature delta is, when it is a single event
     /// at all. See <see cref="Classify"/>.</summary>
     internal enum DeltaKind

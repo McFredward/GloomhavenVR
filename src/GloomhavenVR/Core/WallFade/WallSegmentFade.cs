@@ -4912,7 +4912,12 @@ internal static partial class WallSegmentFade
                     // ModBuild 439: the delta decoder's row bank, index for index with _facts.
                     // A hole is recorded as the term it folds, so a destroyed renderer shows up
                     // in the census as a destroyed renderer. See WallSegmentFade.CommitPhases.cs.
-                    RecordSceneFactRow(i, DeadRendererSigTerm, folded: true);
+                    // ModBuild 440: with NO instance id — the renderer is gone and cannot be
+                    // asked for one. The row keeps the id it was last recorded with, which is
+                    // how the census names WHICH renderer died; a row that has never had one
+                    // (destroyed between the sweep and its first classify) stays unkeyed and is
+                    // counted rather than guessed at.
+                    RecordSceneFactRow(i, 0, DeadRendererSigTerm, folded: true);
                     continue;
                 }
                 bool cold = _classifyCold || !ReferenceEquals(f.R, r);
@@ -5047,7 +5052,10 @@ internal static partial class WallSegmentFade
                 // EXEMPT rows that are not mod-owned, or a session in which a wall stays solid
                 // while that line's exempt count is the only thing moving.
                 bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);
-                RecordSceneFactRow(i, sceneRow, folded: !modExempt);
+                // ModBuild 440: the instance id goes into the row bank too. It costs no
+                // interop — it is the very value `ident` was folded from one line above — and it
+                // is what makes the census's diff order-free across a fresh sweep.
+                RecordSceneFactRow(i, r.GetInstanceID(), sceneRow, folded: !modExempt);
                 if (modExempt)
                     continue;
                 FoldSceneFact(sceneRow);

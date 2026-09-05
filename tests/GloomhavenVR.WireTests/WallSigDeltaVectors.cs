@@ -163,6 +163,33 @@ internal static class WallSigDeltaVectors
                 + "names one of them would be the confident wrong answer this file exists to "
                 + "prevent");
 
+        // ---- THE UNKEYABLE HOLES' ARITHMETIC (ModBuild 440) -------------------------------
+        // The id-keyed row census cannot pair two holes that never had an id, so it carries
+        // their contribution as a closed form instead. The PARITY term is the half that is easy
+        // to get backwards, and getting it backwards would turn every CROSS-CHECK PASSES into a
+        // CROSS-CHECK FAILS on exactly the sessions where a renderer died mid-sweep — i.e. it
+        // would indict the census for the scene's behaviour. Driven over both parities and the
+        // null input here rather than discovered on hardware.
+        t.Case("sigdelta/hole-correction");
+        WallSigDelta.HoleCorrection(0, 0, out ulong hs, out ulong hx);
+        t.Equal(0UL, hs, "no holes on either side contributes nothing to the sum");
+        t.Equal(0UL, hx, "and nothing to the xor");
+        WallSigDelta.HoleCorrection(3, 3, out hs, out hx);
+        t.Equal(0UL, hs, "an equal count on both sides cancels in the sum");
+        t.Equal(0UL, hx, "and cancels in the xor, because the parities match");
+        WallSigDelta.HoleCorrection(1, 0, out hs, out hx);
+        t.Equal(WallSigDelta.DeadRow, hs, "one hole gained adds exactly one per-hole term");
+        t.Equal(WallSigDelta.DeadRow, hx, "and flips the xor by it, the parity having changed");
+        WallSigDelta.HoleCorrection(0, 1, out hs, out hx);
+        t.Equal(unchecked(0UL - WallSigDelta.DeadRow), hs,
+                "one hole LOST subtracts it — the sum term is signed and the live side leads");
+        t.Equal(WallSigDelta.DeadRow, hx, "and the xor is direction-free, as xor is");
+        WallSigDelta.HoleCorrection(4, 2, out hs, out hx);
+        t.Equal(unchecked(2UL * WallSigDelta.DeadRow), hs, "two holes gained add two terms");
+        t.Equal(0UL, hx,
+                "and move the xor by NOTHING — 4 and 2 have the same parity, which is the term "
+                + "that is easy to get backwards and the reason this vector exists");
+
         // ---- THE NAMES ARE THE NAMES -----------------------------------------------------
         t.Case("sigdelta/names");
         t.Equal("mesh+mountable+MOD-OWNED+activeInHierarchy", WallSigDelta.Names(LogBitsActive),
