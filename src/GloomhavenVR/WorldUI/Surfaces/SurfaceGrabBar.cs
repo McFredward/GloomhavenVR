@@ -123,8 +123,10 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// <summary>Draw-order offset for the rod's three renderers: it must paint OVER its own panel.</summary>
     private const int BarOrderOffset = GrabBarLayout.BarOrderOffset;
 
-    /// <summary>Below this the release re-face writes nothing (and says nothing).</summary>
-    private const float ReFaceEpsilonDeg = 0.5f;
+    /// <summary>Below this the release re-face writes nothing (and says nothing).
+    /// <see cref="WindowReFacePolicy.ReFaceEpsilonDeg"/> rather than a local 0.5f: this file and
+    /// <c>GrabbableModal</c> each declared the same constant under the same name.</summary>
+    private const float ReFaceEpsilonDeg = WindowReFacePolicy.ReFaceEpsilonDeg;
 
     /// <summary>Pose delta that counts as "this panel is moving" for
     /// <see cref="ConvertedPanel.GuardHostMoving"/> — the same 5 mm epsilon GrabbableModal uses.</summary>
@@ -491,10 +493,26 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
     /// off its frame origin travelled two thirds of a metre on a 44° re-face) cannot arise here.
     /// It is stated rather than assumed because it is a property of how the frame is SEATED, and
     /// the day a surface seats it somewhere else this comment is the thing that is wrong.</para>
+    ///
+    /// <para><b>AND IT IS THE PLAYER'S DIAL THAT DECIDES WHETHER IT HAPPENS AT ALL</b> (ModBuild
+    /// 439, survey row R1). This class was written twelve days after <c>[WorldUI] WindowFacing</c>
+    /// landed and re-faced UNCONDITIONALLY, so a player who had set the dial to <i>Nie</i> kept his
+    /// modal windows at the angle he let go at and watched every floating decision panel snap round
+    /// anyway — against a description that promises <i>"das bisherige Verhalten aller Fenster"</i>.
+    /// The verdict now comes from <see cref="WindowReFacePolicy"/>, the same policy
+    /// <c>GrabbableModal</c> asks, so there is one answer per release instead of one per file. A
+    /// decision panel is never a shared window (see the MULTIPLAYER paragraph on the class), so the
+    /// first gate is passed a constant <c>false</c> rather than a stub.</para>
     /// </summary>
     void IPanelGrabOwner.OnGrabFinished()
     {
         if (_frame == null)
+            return;
+        if (!WindowReFacePolicy.WantsReFaceOnRelease(
+                shared: false,
+                laserGrab: _handle != null && _handle.LastGrabWasLaser,
+                kind: "SURFACE WINDOW",
+                logName: _logName))
             return;
         Camera? head = CanvasConversion.WorldCamera;
         if (head == null)

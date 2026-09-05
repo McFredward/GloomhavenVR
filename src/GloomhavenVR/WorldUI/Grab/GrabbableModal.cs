@@ -835,23 +835,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     //
     // ── 2026-08-22: THAT PARAGRAPH IS NOW THE "Always" MODE, NOT THE RULE ────────────────────────
     //
-    // TWO SEPARATE USER STATEMENTS BOUND IT, and they are gated in that order below.
-    //
-    // (7b) A SHARED WINDOW NEVER RE-FACES, ON ANY CLIENT, AND THIS IS NOT CONFIGURABLE. Verbatim:
-    //      "Da es ein Fenster für alle ist, sollen diese Fenster nach dem Greifen auch nicht die
-    //      Orientierung nach dem Spieler ändern, wie es die anderen Fenster tun." … "Das gilt wie
-    //      gesagt nur für die lokalen Fenster, Remote-Fenster (blau) sollen das gar nicht haben."
-    //      The rotation on a window that belongs to everybody is a shared fact: correcting it toward
-    //      the person who last moved it turns it AWAY from everyone else. And it is worse than
-    //      cosmetic on the SENDER — the pose that record 19/21 published is corrected locally one
-    //      frame later, so the two clients no longer agree about a pose that is supposed to be 1:1.
-    //      This gate therefore sits FIRST and outranks the dial.
-    //
-    // (8) FOR LOCAL WINDOWS IT IS A THREE-WAY SETTING, [WorldUI] WindowFacing (see WindowFaceMode
-    //     for the request verbatim and why the axis is the grab MODALITY): LaserOnly (the user's own
-    //     default), Always, Never. The modality comes from PanelGrabHandle.LastGrabWasLaser, which
-    //     is latched from the grabber's own identity at the gesture start — never guessed from how
-    //     far away the hand was.
+    // TWO SEPARATE USER STATEMENTS BOUND IT — a shared window never re-faces on any client and that
+    // is not configurable (7b), and for local windows the three-way [WorldUI] WindowFacing dial
+    // decides (8). BOTH GATES, THEIR VERBATIM RULINGS AND THEIR ORDER NOW LIVE IN ONE PLACE:
+    // WindowReFacePolicy (WorldUI/Grab/WindowReFacePolicy.cs), which this owner, SurfaceGrabBar and
+    // every future re-face owner consult. They were written out here and only here, and a second
+    // re-face site shipped in ModBuild 428 without reading the dial at all — the survey's row R1.
+    // The policy is shared; the PIVOT ARITHMETIC below is not, and deliberately so: this owner turns
+    // about the ink union's centre for the reason the paragraph above spends a build explaining,
+    // and a surface turns about its frame origin because that IS its drawn centre.
     //
     // WHAT IS NOT TOUCHED: this is a ONE-SHOT ON RELEASE in every mode. Nothing here makes a window
     // follow the head, and the standing project rule that nothing re-orients with head movement is
@@ -935,59 +927,26 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                               "old frame-origin behaviour also got right.");
     }
 
-    /// <summary>Below this the released panel already faces the player — no snap, no log.</summary>
-    private const float ReFaceEpsilonDeg = 0.5f;
+    /// <summary>Below this the released panel already faces the player — no snap, no log.
+    /// <see cref="WindowReFacePolicy.ReFaceEpsilonDeg"/> rather than a local 0.5f: this file and
+    /// <c>SurfaceGrabBar</c> each declared the same constant under the same name, which is the
+    /// copy-by-value the policy class was extracted to end.</summary>
+    private const float ReFaceEpsilonDeg = WindowReFacePolicy.ReFaceEpsilonDeg;
 
     /// <summary>
-    /// Does THIS release re-derive the facing? The two gates of the block above, in order:
-    /// the non-negotiable shared-window rule first, the player's dial second.
-    ///
-    /// <para>Logged once per refused release rather than silently, because "my window did not turn"
-    /// and "my window turned" are the same complaint from opposite directions and the log has to say
-    /// which rule decided it — the shared-window rule reads identically to the Never mode from the
-    /// outside, and confusing the two would send the next round looking at the wrong file.</para>
+    /// Does THIS release re-derive the facing? Both gates — the non-negotiable shared-window rule
+    /// first, the player's <c>[WorldUI] WindowFacing</c> dial second — now live in
+    /// <see cref="WindowReFacePolicy"/>, which every re-face owner in the mod consults. The gates,
+    /// their user rulings and the reason each refusal is logged rather than silent are written out
+    /// there, once. THE VERDICT IS UNCHANGED for a modal window: the same two tests in the same
+    /// order over the same two inputs, and the refusal wordings are byte-identical.
     /// </summary>
     private bool WantsReFaceOnRelease()
-    {
-        if (_shared)
-        {
-            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move and NOT re-faced " +
-                                  "— it is a SHARED (blue-bar) window, whose orientation belongs to " +
-                                  "the whole room. Turning it toward the player who moved it would " +
-                                  "turn it away from everyone else, and it would silently disagree " +
-                                  "with the pose this client just published on the wire. This is the " +
-                                  "user's own rule ('Remote-Fenster (blau) sollen das gar nicht " +
-                                  "haben') and it is NOT what [WorldUI] WindowFacing configures.");
-            return false;
-        }
-
-        WindowFaceMode mode = WorldUIConfig.WindowFacing != null
-            ? WorldUIConfig.WindowFacing.Value
-            : Defaults.WindowFacing;   // a release before Bind completed (scene load): ship the default
-        if (mode == WindowFaceMode.Always)
-            return true;
-        if (mode == WindowFaceMode.Never)
-        {
-            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a move and NOT re-faced " +
-                                  "— [WorldUI] WindowFacing is Never, so a released window keeps " +
-                                  "exactly the orientation it was let go at.");
-            return false;
-        }
-
-        // LaserOnly (default). A laser carry translates only — PanelGrabHandle's laser branch writes
-        // position and returns — so the window arrives still facing the way it used to and would be
-        // read edge-on; that is the case the snap exists for. A HAND carry has already yawed the
-        // window with the wrist for the whole drag, so the player aimed it themselves.
-        bool laser = _handle != null && _handle.LastGrabWasLaser;
-        if (!laser)
-            VRLog.Info("WorldUI", $"MODAL WINDOW: '{_logName}' released after a HAND move and NOT " +
-                                  "re-faced — [WorldUI] WindowFacing is LaserOnly (the default): a " +
-                                  "hand carry yaws the window with your wrist for the whole drag, so " +
-                                  "the orientation you let go at is the one you aimed. A LASER drag " +
-                                  "on the same window still snaps round, because that carry never " +
-                                  "rotates it at all.");
-        return laser;
-    }
+        => WindowReFacePolicy.WantsReFaceOnRelease(
+               _shared,
+               _handle != null && _handle.LastGrabWasLaser,
+               "MODAL WINDOW",
+               _logName);
 
     // ---- per-frame follow -------------------------------------------------------------------
 

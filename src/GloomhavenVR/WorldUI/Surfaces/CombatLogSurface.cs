@@ -511,8 +511,28 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     {
         // Test #20: release snaps the panel upright — zero roll/pitch, yaw toward
         // the head at THIS moment — then the pose stays frozen (no re-facing).
+        //
+        // WHETHER THAT SNAP HAPPENS AT ALL IS THE PLAYER'S DIAL (ModBuild 439, survey row R1).
+        // [WorldUI] WindowFacing had exactly one reader — GrabbableModal — so a player who set it
+        // to "Nie" kept his modal windows at the angle he let go at and watched the combat log snap
+        // round anyway, against a description that promises "das bisherige Verhalten aller Fenster".
+        // WindowReFacePolicy is that one answer, asked by every owner that re-faces on release.
+        //
+        // TEST #20 IS UNTOUCHED AND STILL BINDING. It rules against a PER-TICK billboard, which
+        // nothing here does; the dial governs only this ONE SHOT on release. The two are separate
+        // decisions and confusing them would re-open a defect the user photographed. A refused
+        // re-face leaves the panel level (the carry is PanelCarryMode.Level) at the yaw he let go
+        // at — the same thing a refused modal or surface re-face leaves behind.
+        //
+        // PERSISTLAYOUT IS OUTSIDE THE GATE, deliberately: the panel MOVED, and where it now is has
+        // to survive the session whichever way the facing question was answered.
         Camera? head = CanvasConversion.WorldCamera;
-        if (head != null)
+        if (head != null
+            && WindowReFacePolicy.WantsReFaceOnRelease(
+                   shared: false,
+                   laserGrab: _handle != null && _handle.LastGrabWasLaser,
+                   kind: "COMBAT LOG WINDOW",
+                   logName: "Combat log"))
             FaceHead(head);
         PersistLayout();
     }
