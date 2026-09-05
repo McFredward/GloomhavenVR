@@ -40,6 +40,11 @@ internal static class Program
             HauntFigureVectors.Run(t);
             HeldSizeVectors.Run(t);
             HeldSizeVectors.RunBounds(t);
+            // Record 37 — a map item in a peer's hand. Driven byte by byte because its slot count
+            // is its LENGTH, because every one of its rejections is silent by design, and because a
+            // prop moved out of the world by a bad packet never comes back: unlike a figure,
+            // nothing in the game re-authors a prop's transform.
+            HeldPropVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

@@ -990,20 +990,27 @@ internal static class MapSyncVectors
         t.Equal(NetProtocol.SharedWindowKindEncounter, NetProtocol.SharedWindowKindMax,
                 "and the encounter is the largest kind this build can name, so a kind 4 from a newer "
                 + "sender is stepped over by its own computed length");
-        t.Equal(1800, PresenceSerializer.MaxSize,
+        t.Equal(1900, PresenceSerializer.MaxSize,
                 "MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
                 + "its), and the margin at 1600 would have been 170 — thinner than the largest "
                 + "single record (257, board tuning) and therefore a violation of the rule that "
                 + "every new record keeps a margin of at least one record's worth. The selection "
-                + "edge then took record 20 from 8 to 13 and the worst case to 1435, which needs "
-                + "no raise: the margin is still 365");
-        t.True(PresenceSerializer.MaxSize - 1467 >= 257,
+                + "edge then took record 20 from 8 to 13 and the worst case to 1435, which needed "
+                + "no raise. RAISED AGAIN 1800 -> 1900 on 2026-09-05 by the HELD-PROP record (37): "
+                + "its worst case is 56 bytes (two 27-byte slots plus a TLV header), and the margin "
+                + "at 1800 would have been 230 - under the 257-byte board-tuning record and "
+                + "therefore the same violation again. The SHARED GAZE byte landed in the same "
+                + "round and cost one more, so the documented sum went 1513 -> 1570, not 1569; the "
+                + "two lanes computed against the same base without seeing each other. This "
+                + "constant sizes ONE local send buffer and appears in no packet, header or "
+                + "contract, so every raise is invisible to every peer including older builds");
+        t.True(PresenceSerializer.MaxSize - 1570 >= 257,
                "the margin is larger than the largest single record, which is the stated rule and "
-               + "the reason the earlier raises happened. ModBuild 231 moved the worst case 1435 -> "
-               + "1466 (record 21's payload 63 -> 94 for the encounter's entry) and the margin 365 "
-               + "-> 334; the SHARED GAZE round then moved it 1466 -> 1467 for record 20's one new "
-               + "byte, leaving 333 — still comfortably over the 257-byte board-tuning record, so "
-               + "MaxSize stays at 1800 and no peer's parser sees a different ceiling");
+               + "the reason all four raises happened. ModBuild 231 moved the worst case 1435 -> "
+               + "1466 (record 21's payload 63 -> 94 for the encounter's entry); the pick-banner "
+               + "cap and records 35/36 took it to 1513; the shared-gaze byte and the held-prop "
+               + "record together took it to 1570, which is the number this assertion is measured "
+               + "against - a margin of 330 at MaxSize 1900");
     }
 }

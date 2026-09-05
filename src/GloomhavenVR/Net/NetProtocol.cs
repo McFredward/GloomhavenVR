@@ -17499,6 +17499,105 @@ internal static class NetProtocol
     public const int HeldStretchRecordBytes = 4;
 
     /// <summary>
+    /// Extension record id: THE MAP ITEMS IN THE SENDER'S HANDS — a chest, a gold pile, an obstacle
+    /// or any other liftable prop, with its hand, its pose and its held size. One to two SLOTS of
+    /// <see cref="HeldPropSlotBytes"/> bytes each, in the sender's grab order:
+    /// <c>[u8 hand flags][u32 propId LE][20 B pose][u16 held-size code LE]</c>.
+    ///
+    /// <para>THE DEFECT IT FIXES (user, 2026-09-05, verbatim): <i>"Das Aufnehmen der Props wird im
+    /// Multiplayer nicht synchronisiert, sie sollen wie die Figuren vollständig synchronisiert
+    /// werden mit allem drum und dran (mach da keinen Unterschied zwischen Figuren und Props!)."</i>
+    /// A prop hold was local-only from ModBuild 338 through 444: the grabber lifted a chest, left a
+    /// ghost on its hex and resized it in the hand, and every peer saw the chest standing on the
+    /// board, untouched. This record is the whole difference.</para>
+    ///
+    /// <para><b>WHY A NEW RECORD AND NOT <see cref="ExtIdSecondFigure"/>.</b> A held prop is not a
+    /// held figure and must not share that record's slot space: a player holding a chest in one hand
+    /// and a mini in the other would then have two different things competing for one pair of slots,
+    /// and the loser would flicker between them at packet cadence. The two families are also keyed
+    /// differently — a figure is an <c>ActorBehaviour</c> and a prop has none at all (CMap.cs:502
+    /// only attaches a <c>CObjectActor</c> to a prop with HEALTH), which is exactly why
+    /// <c>Board.FigureGrab.HeldProps</c> is a second registry rather than an entry in
+    /// <c>HeldFigures</c>. Two populations, two id spaces, two records.</para>
+    ///
+    /// <para><b>WHY BOTH SLOTS LIVE HERE AND NOT ONE IN THE RIG PACKET.</b> The figure family is
+    /// split — slot 0 rides the rig packet's <see cref="FlagHeldFigure"/> block and slot 1 rides
+    /// record 8 — only because that rig block already existed and its flag byte is now full (bits
+    /// 0..7, up to <see cref="FlagHeldCard"/>). There is no prop block in the rig packet and no bit
+    /// left to announce one, so both prop slots ride the self-describing TLV tail, which costs no
+    /// bit at all. The consequence is a GAIN: both hands are stated in ONE record, so the reader can
+    /// reject a contradictory pair (two props claiming the same hand, or one prop claiming both
+    /// slots) instead of driving two chests into one palm — the same rejection
+    /// <see cref="SecondFigureLeftBit"/> exists for, done once for both slots rather than with a
+    /// second "and the other one is over there" bit.</para>
+    ///
+    /// <para><b>THE LENGTH IS THE SLOT COUNT</b>, exactly as in records 20 and 36: 27 bytes = the
+    /// sender holds ONE prop, 54 = one in each hand. Slot 2 cannot ride alone — the slots are grab
+    /// order (<c>HeldProps.TryGetSlot</c>), so slot 1 is occupied whenever slot 2 is — and a reader
+    /// takes only what the length carries, so a two-handed sender degrades to its first prop on a
+    /// receiver that stops at 27 rather than reading the next record's bytes as a pose.</para>
+    ///
+    /// <para><b>THE ID IS THE FNV-1a-32 HASH OF <c>CObjectProp.PropGuid</c></b> — the exact analogue
+    /// of <c>NetFigures.StableActorId</c> over <c>CActor.ActorGuid</c>, and it is a REPLICATED
+    /// identity rather than a local one: the guid is drawn from the scenario's own seeded GUID RNG
+    /// (CObjectProp.cs:331), survives the copy constructor (:122) and serialization (:219, :248),
+    /// and the game's own cross-client state comparison names props by it
+    /// (<c>ScenarioState.LogMismatch</c>, "Prop GUID"). Deliberately NOT an index into
+    /// <c>ScenarioState.Props</c>: that is a list ORDER, not an identity, and this project has a
+    /// recorded bug class for exactly that substitution. Deliberately not the raw 36-character guid
+    /// either — four bytes match the established id space and the wire has no room for prose.</para>
+    ///
+    /// <para><b>THE HELD SIZE IS A FIELD OF THIS RECORD, NOT A SECOND RECORD</b>, and that is the
+    /// standing ruling rather than a convenience ("es syncht voll oder gar nicht"). Record 30
+    /// (<see cref="ExtIdHeldStretch"/>) cannot serve: its two u16s are slot-aligned with the two
+    /// FIGURE slots, so a prop factor written there would overwrite a mini's. The code is the same
+    /// quantization record 30 uses — <see cref="EncodeHeldStretch"/> /
+    /// <see cref="DecodeHeldStretch"/>, milli-factors with the same fail-closed envelope — so there
+    /// is one held-size codec in the mod and the golden vectors that drive it cover both families.
+    /// The NUMBER is the same measured quantity too: the prop's rendered size as a multiple of its
+    /// OWN board-home size, measured off the transform the holder is looking at, never a
+    /// reconstruction of latch × zoom × gesture. The 2026-08-15 three-log desync is the whole
+    /// argument for that, and it is quoted in full at record 30.</para>
+    ///
+    /// <para><b>ABSENCE MEANS "NOTHING IN THE HANDS".</b> The record is written only while a prop is
+    /// really held, so an idle player — and every build before this one — emits the exact bytes the
+    /// previous build emitted, and an older peer steps over the record by its length. A receiver
+    /// that stops seeing it hands the prop back: unlike a figure, whose position the game re-authors
+    /// every frame, NOTHING re-places a prop, so the receive side restores the home pose itself
+    /// (<c>Net.NetProps.RestoreHome</c>) rather than letting the game do it.</para>
+    ///
+    /// <para>POSE RATE: this record joins the extras packet's motion gate exactly as the second
+    /// figure does, so while a prop is CARRIED the whole extras packet is promoted to
+    /// <see cref="SendRateHz"/> and its pose arrives at the same cadence, and is eased with the same
+    /// <see cref="InterpolationSharpness"/>, as a held mini's. Same sample density plus the same
+    /// easing is identical motion by construction — "mach da keinen Unterschied".</para>
+    ///
+    /// <para>RECORD-ID CLAIM, RE-ENUMERATED 2026-09-05 AT THE MOMENT OF WRITING, because the note in
+    /// <c>HeldProps</c> that specified this record had already been wrong once about this very
+    /// number (it said 35; ModBuild 356 had since shipped 35 and 36). Ids 1..36 are ALL in use on
+    /// this build — 36 = <see cref="ExtIdHeldCardFace"/> is the highest — so this record takes
+    /// <b>37</b>, and 38+ are free. An id outside a reader's declared range kills the WHOLE record
+    /// rather than one field, so the next claimant enumerates again and does not trust this
+    /// sentence either.</para>
+    /// </summary>
+    public const byte ExtIdHeldProp = 37;
+
+    /// <summary>Held-prop slot, hand byte bit 0: this prop rides the sender's LEFT hand (clear =
+    /// right). Per SLOT, unlike <see cref="SecondFigureLeftBit"/>, whose partner bit exists only
+    /// because the first figure's hand had nowhere else to live.</summary>
+    public const byte HeldPropLeftBit = 1 << 0;
+
+    /// <summary>Every DEFINED bit of a held-prop hand byte. Masked on write AND on read so an
+    /// undefined bit can never be pre-claimed by garbage — the same discipline as
+    /// <see cref="SecondFigureHandMask"/>.</summary>
+    public const byte HeldPropHandMask = 0x01;
+
+    /// <summary>Payload length of ONE held-prop slot: 1 hand byte + 4 prop id + 20 pose + 2
+    /// held-size code. The record carries one or two of these and nothing else, so its length
+    /// divided by this IS the number of props in the sender's hands.</summary>
+    public const int HeldPropSlotBytes = 27;
+
+    /// <summary>
     /// Extension record: THE SHARED ENVIRONMENT CLOCK — <c>[style][u32 clockMillis LE]</c>.
     ///
     /// <para>USER REQUEST (verbatim): "Mond und Lichtstrahlen sollen im Multiplayer (falls beide

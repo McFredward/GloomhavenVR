@@ -305,6 +305,58 @@ internal struct PresenceState
     public ushort HeldStretchSecondaryCode;
 
     /// <summary>
+    /// True when the sender is carrying a MAP ITEM — a chest, a gold pile, a loose obstacle, a
+    /// quest item — and this packet names it (extension record
+    /// <see cref="NetProtocol.ExtIdHeldProp"/>, slot 1). Absent ⇒ the sender's hands are empty of
+    /// props, which is also exactly what every build before this record transmits, so an idle
+    /// packet is byte-identical to the previous build's.
+    ///
+    /// <para>Unlike the figure family, BOTH prop slots live in this one record: there is no prop
+    /// block in the rig packet and no flag bit left to announce one. See the record doc for why
+    /// that is a gain rather than a compromise — it is what lets the reader reject a contradictory
+    /// pair of hands.</para>
+    /// </summary>
+    public bool HasHeldProp;
+
+    /// <summary>Stable cross-client id of the prop in slot 1 — FNV-1a-32 of
+    /// <c>CObjectProp.PropGuid</c> (<c>Net.NetProps.StablePropId</c>), never a
+    /// <c>ScenarioState.Props</c> index. 0 is "none" and is rejected on read.</summary>
+    public int HeldPropId;
+
+    /// <summary>Shared-frame pose of the prop in slot 1 (meaningful only when
+    /// <see cref="HasHeldProp"/>). Same encoding as every other pose on this wire.</summary>
+    public RigPose HeldPropPose;
+
+    /// <summary>True when slot 1's prop rides the sender's LEFT hand
+    /// (<see cref="NetProtocol.HeldPropLeftBit"/>).</summary>
+    public bool HeldPropLeftHand;
+
+    /// <summary>Slot 1's HELD SIZE as a milli-factor of the prop's own board-home size — record
+    /// 30's codec (<see cref="NetProtocol.EncodeHeldStretch"/>), so the mod has one held-size
+    /// quantizer rather than two. Sanitized on read: an out-of-envelope code fails closed to
+    /// <see cref="NetProtocol.HeldStretchCodeNeutral"/>, i.e. to board size, never to an extreme.
+    /// </summary>
+    public ushort HeldPropStretchCode;
+
+    /// <summary>True when the sender is carrying a map item in their OTHER hand as well and this
+    /// packet names it (record 37, slot 2 — the 54-byte form). Slot 2 never rides alone: the slots
+    /// are grab order, so slot 1 is occupied whenever slot 2 is.</summary>
+    public bool HasSecondHeldProp;
+
+    /// <summary>Stable id of the prop in slot 2 (see <see cref="HeldPropId"/>).</summary>
+    public int SecondHeldPropId;
+
+    /// <summary>Shared-frame pose of the prop in slot 2.</summary>
+    public RigPose SecondHeldPropPose;
+
+    /// <summary>True when slot 2's prop rides the sender's LEFT hand.</summary>
+    public bool SecondHeldPropLeftHand;
+
+    /// <summary>Slot 2's held size, encoded and sanitized exactly like
+    /// <see cref="HeldPropStretchCode"/>.</summary>
+    public ushort SecondHeldPropStretchCode;
+
+    /// <summary>
     /// True when this packet carries the SHARED ENVIRONMENT CLOCK (extension record
     /// <see cref="NetProtocol.ExtIdEnvClock"/>): the sender's environment style and the reading of
     /// the clock every <c>_Time</c>-driven effect of that environment runs on. Written ONLY while a
@@ -1359,6 +1411,12 @@ internal struct SharedWindowEntry
 ///                        sender's head. Written only while a bit is set, so a player who never
 ///                        uses the gesture emits the exact bytes the previous build did, see
 ///                        NetProtocol.ExtIdHeldCardGrip)
+///                        37 HELD PROPS ([hand][u32 propId LE][pose 20][u16 size LE] per SLOT,
+///                        27 bytes for the item in one hand and 54 while both hands carry one -
+///                        read by LENGTH, like records 20 and 36. The id is FNV-1a-32 of
+///                        CObjectProp.PropGuid and the size is record 30's milli-factor codec.
+///                        Written only while a prop is really held, so an idle packet is
+///                        byte-identical to the previous build's, see NetProtocol.ExtIdHeldProp)
 ///
 /// The four additive blocks are written and read in FLAG-BIT ORDER (ghost, item fan, card FX, pile
 /// browse). That single rule is what lets independently developed extensions share one packet: each
@@ -1417,14 +1475,25 @@ internal static class PresenceSerializer
     /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248)
     /// + 4 (PER-ITEM USABLE MASK: 2 + <c>NetProtocol.ItemUsableRecordBytes</c> 2)
     /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
-    /// = 1514.
+    /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
+    /// = 1570.
     ///
-    /// <para>1513 → 1514 on the SHARED GAZE round: record 20 grew ONE byte, the host's quantised
-    /// decision about where the party is looking, so a shared window spawns in front of the players
-    /// and in the SAME place for all of them (user item 17, 2026-09-03: "es wäre trotzdem gut wenn
-    /// es im Sichtbereich der Spieler spawnt"). <see cref="MaxSize"/> is UNCHANGED at 1800 — the
-    /// margin is 286 bytes, still more than the largest single record (257, board tuning), so the
-    /// rule below is satisfied without a raise.</para>
+    /// <para>1513 -> 1570 in ONE round (2026-09-05), by TWO independent records, and the arithmetic
+    /// is written out because each lane computed it against the same 1513 base without seeing the
+    /// other: the SHARED GAZE byte took record 20 from 15 to 16 (+1, so 1514), and the HELD-PROP
+    /// record (37) added its worst case of 56 bytes, <c>[id][len]</c> plus two 27-byte slots
+    /// (1570). The gaze byte is the host's quantised decision about where the party is looking, so
+    /// a shared window spawns in front of the players and in the SAME place for all of them (user
+    /// item 17); the held-prop record is a map item in a hand, with its hand, its pose and its size
+    /// (user item 19, "mach da keinen Unterschied zwischen Figuren und Props").</para>
+    ///
+    /// <para><b><see cref="MaxSize"/> was raised 1800 -> 1900</b> for the held-prop record: the
+    /// margin at 1800 would have been 230 bytes, thinner than the largest single record (257, board
+    /// tuning) and therefore a violation of the rule below. The raise restores a margin of 330. The
+    /// gaze byte alone would NOT have needed a raise (margin 286). Same reasoning as the three
+    /// earlier raises, and invisible to every peer including older builds: this sizes ONE local send
+    /// buffer and appears in no packet, no header and no contract - what actually goes out is the
+    /// byte count each writer returns.</para>
     ///
     /// <para>1449 → 1513 on 2026-09-03: the PICK BANNER cap went 96 → 160 B because 96 was
     /// silently deleting the end of the German placard sentence (user item 12 of the
@@ -1542,7 +1611,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 1800;
+    public const int MaxSize = 1900;
 
     // ---- write --------------------------------------------------------------------------
 
@@ -1671,6 +1740,12 @@ internal static class PresenceSerializer
                           // it follows, and it is what keeps every packet of every player who is
                           // not holding a card byte-identical to the previous build's.
                           || (state.HasHeldCardFace && HeldFacePayload(in state) > 0)
+                          // A held-prop record whose first slot names nothing says nothing, so
+                          // it must not open the tail either — the same rule the held-card face
+                          // record above it follows, and it is what keeps every packet of every
+                          // player who is not carrying a map item byte-identical to the previous
+                          // build's.
+                          || (state.HasHeldProp && HeldPropPayload(in state) > 0)
                           // STORY WINDOW SYNC (19): same rule as the test-force record — the
                           // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
                           // sets this flag only while a story box is really up here or the single
@@ -2650,10 +2725,79 @@ internal static class PresenceSerializer
                     }
                     records++;
                 }
+                int heldPropBytes = HeldPropPayload(in state);
+                if (state.HasHeldProp && heldPropBytes > 0
+                    && i + 2 + heldPropBytes <= buffer.Length)
+                {
+                    // HELD PROPS (37): [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, 27
+                    // bytes for one hand and 54 while both carry an item — read by LENGTH, exactly
+                    // like records 20 and 36. The hand byte is MASKED on write as well as on read
+                    // so an undefined bit can never be pre-claimed by a future build's garbage.
+                    //
+                    // The second slot is written only when it really names a prop, so the common
+                    // one-handed case costs 29 bytes and not 56; and when the FIRST slot names none
+                    // the record is omitted entirely (HeldPropPayload returns 0, and the tail gate
+                    // above uses the same test), which is what keeps every packet of every player
+                    // whose hands are empty byte-identical to the previous build's.
+                    buffer[i++] = NetProtocol.ExtIdHeldProp;
+                    buffer[i++] = (byte)heldPropBytes;
+                    buffer[i++] = (byte)((state.HeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
+                                         & NetProtocol.HeldPropHandMask);
+                    AvatarSerializer.WriteI32(buffer, ref i, state.HeldPropId);
+                    AvatarSerializer.WritePoseShared(buffer, ref i, in state.HeldPropPose);
+                    buffer[i++] = (byte)(state.HeldPropStretchCode & 0xFF);
+                    buffer[i++] = (byte)(state.HeldPropStretchCode >> 8);
+                    if (heldPropBytes >= 2 * NetProtocol.HeldPropSlotBytes)
+                    {
+                        buffer[i++] = (byte)((state.SecondHeldPropLeftHand ? NetProtocol.HeldPropLeftBit : 0)
+                                             & NetProtocol.HeldPropHandMask);
+                        AvatarSerializer.WriteI32(buffer, ref i, state.SecondHeldPropId);
+                        AvatarSerializer.WritePoseShared(buffer, ref i, in state.SecondHeldPropPose);
+                        buffer[i++] = (byte)(state.SecondHeldPropStretchCode & 0xFF);
+                        buffer[i++] = (byte)(state.SecondHeldPropStretchCode >> 8);
+                    }
+                    records++;
+                }
                 buffer[countAt] = records;
             }
         }
         return i;
+    }
+
+    /// <summary>Is this pose's POSITION a real point? A NaN or infinite coordinate would move a
+    /// board object out of the world, and for a prop that is permanent: nothing in the game ever
+    /// re-authors a prop's transform, so there is no next frame in which it comes back. The same
+    /// guard record 8 carries, promoted to a named predicate because record 37 asks it twice.
+    /// </summary>
+    private static bool FinitePos(in RigPose pose)
+    {
+        Vector3 v = pose.Position;
+        return !float.IsNaN(v.x) && !float.IsInfinity(v.x)
+               && !float.IsNaN(v.y) && !float.IsInfinity(v.y)
+               && !float.IsNaN(v.z) && !float.IsInfinity(v.z);
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdHeldProp"/> would occupy for
+    /// <paramref name="state"/> — 0 when the sender's hands hold no map item (the record is then
+    /// omitted entirely and cannot open the extension tail, so a player carrying nothing emits the
+    /// previous build's bytes), one <c>HeldPropSlotBytes</c> while ONE hand carries something, and
+    /// twice that while both do.
+    ///
+    /// <para>SLOT 2 CANNOT RIDE ALONE, and that is a property of the slots rather than a
+    /// simplification here: the slots are GRAB ORDER (<c>Board.FigureGrab.HeldProps.TryGetSlot</c>),
+    /// so slot 1 is occupied whenever slot 2 is. A slot naming prop id 0 names nothing — 0 is
+    /// "none" everywhere on this wire — and a second slot that contradicts the first (the same hand,
+    /// or the same prop) is dropped by the READER rather than here, because the sender must not be
+    /// the only thing standing between a peer and a malformed packet.</para>
+    /// </summary>
+    private static int HeldPropPayload(in PresenceState state)
+    {
+        if (state.HeldPropId == 0)
+            return 0;
+        return state.HasSecondHeldProp && state.SecondHeldPropId != 0
+            ? 2 * NetProtocol.HeldPropSlotBytes
+            : NetProtocol.HeldPropSlotBytes;
     }
 
     /// <summary>
@@ -3292,6 +3436,75 @@ internal static class PresenceSerializer
                             state.SecondFigurePose = secondPose;
                             state.SecondFigureLeftHand = secondLeft;
                             state.PrimaryFigureLeftHand = primaryLeft;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdHeldProp
+                             && len >= NetProtocol.HeldPropSlotBytes)
+                    {
+                        // HELD PROPS: [hand][u32 propId LE][pose 20][u16 size LE] per SLOT, read by
+                        // LENGTH. Slot 2 is read ONLY from a record long enough to carry it, so a
+                        // two-handed sender degrades to its first item on a receiver that stops at
+                        // 27 rather than reading the next record's bytes as a pose.
+                        //
+                        // WHAT IS VALIDATED, and each of them is a way a peer's board could
+                        // otherwise end up with a prop somewhere it never was:
+                        //   * prop id 0 is "none" everywhere in this system, so it can never
+                        //     identify a prop. A zero FIRST slot drops the whole record.
+                        //   * a NaN/infinite position would fling a real board prop out of the
+                        //     world — and unlike a figure, NOTHING would ever put it back, because
+                        //     the game re-authors a figure's transform every frame and never a
+                        //     prop's. So this guard is strictly more load-bearing here than it is
+                        //     on record 8, where it already earns its place.
+                        //   * the two slots must name DIFFERENT props and DIFFERENT hands. A hand
+                        //     holds one object and an object rides one hand, so an agreeing pair is
+                        //     something no local grab can produce and a stale or corrupt record can;
+                        //     the second slot is dropped and the first stands, which is exactly the
+                        //     one-handed picture.
+                        //   * each size code is sanitized independently and FAIL-CLOSED TO NEUTRAL,
+                        //     the rule record 30 established: an out-of-envelope code renders the
+                        //     item at BOARD size, never at 65x or at nothing.
+                        // A rejected record reads as "no prop held", i.e. exactly what a peer
+                        // predating this build renders. Never a half-applied hold.
+                        byte hand0 = (byte)(buffer[i] & NetProtocol.HeldPropHandMask);
+                        bool left0 = (hand0 & NetProtocol.HeldPropLeftBit) != 0;
+                        int j = i + 1;
+                        int propId0 = AvatarSerializer.ReadI32(buffer, ref j);
+                        AvatarSerializer.ReadPoseShared(buffer, ref j, out RigPose pose0);
+                        ushort size0 = (ushort)(buffer[j] | (buffer[j + 1] << 8));
+                        if (size0 < NetProtocol.HeldStretchCodeMin
+                            || size0 > NetProtocol.HeldStretchCodeMax)
+                            size0 = (ushort)NetProtocol.HeldStretchCodeNeutral;
+
+                        if (propId0 != 0 && FinitePos(in pose0))
+                        {
+                            state.HasHeldProp = true;
+                            state.HeldPropId = propId0;
+                            state.HeldPropPose = pose0;
+                            state.HeldPropLeftHand = left0;
+                            state.HeldPropStretchCode = size0;
+
+                            if (len >= 2 * NetProtocol.HeldPropSlotBytes)
+                            {
+                                int k = i + NetProtocol.HeldPropSlotBytes;
+                                byte hand1 = (byte)(buffer[k] & NetProtocol.HeldPropHandMask);
+                                bool left1 = (hand1 & NetProtocol.HeldPropLeftBit) != 0;
+                                k++;
+                                int propId1 = AvatarSerializer.ReadI32(buffer, ref k);
+                                AvatarSerializer.ReadPoseShared(buffer, ref k, out RigPose pose1);
+                                ushort size1 = (ushort)(buffer[k] | (buffer[k + 1] << 8));
+                                if (size1 < NetProtocol.HeldStretchCodeMin
+                                    || size1 > NetProtocol.HeldStretchCodeMax)
+                                    size1 = (ushort)NetProtocol.HeldStretchCodeNeutral;
+                                if (propId1 != 0 && propId1 != propId0 && left1 != left0
+                                    && FinitePos(in pose1))
+                                {
+                                    state.HasSecondHeldProp = true;
+                                    state.SecondHeldPropId = propId1;
+                                    state.SecondHeldPropPose = pose1;
+                                    state.SecondHeldPropLeftHand = left1;
+                                    state.SecondHeldPropStretchCode = size1;
+                                }
+                            }
                         }
                     }
                     else if (id == NetProtocol.ExtIdHeldStretch
