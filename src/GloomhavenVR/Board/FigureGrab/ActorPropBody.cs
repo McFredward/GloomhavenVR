@@ -930,9 +930,25 @@ internal static class ActorPropBody
 
         long signature = ((long)healthProps << 40) ^ ((long)plainDoors << 28)
                          ^ ((long)_attachedActors << 16) ^ ((long)_resolved << 4);
+        // THE DEADLINE ADVANCES BEFORE THE CHANGE TEST, AND UNTIL 2026-09-05 IT DID NOT — so in
+        // the steady state (an unchanged signature, which is every frame of a settled scenario)
+        // this method returned WITHOUT ever moving _nextCensus, the time gate above stayed open
+        // for the rest of the session, and the props walk that builds the signature ran at the
+        // frame rate instead of at 0.5 Hz. Nothing printed, so nothing pointed at it: the log
+        // line is change-gated and the change had already happened.
+        //
+        // THE TWO GATES ANSWER TWO DIFFERENT QUESTIONS and this is the ordering that keeps them
+        // apart: the CADENCE bounds how often the scenario's prop list is WALKED, and it must be
+        // paid whatever the walk finds; the SIGNATURE bounds how often the result is PRINTED. A
+        // change is therefore reported up to CensusIntervalSeconds (2 s) after it happens rather
+        // than on the next frame, which is what a 0.5 Hz census means and what its own doc above
+        // already claims it is.
+        //
+        // Found by the 2026-09-05 redundancy survey, whose point is exactly this: the sibling
+        // cadence 200 lines away writes its deadline first and is correct.
+        _nextCensus = now + CensusIntervalSeconds;
         if (signature == _lastCensusSignature)
             return;
-        _nextCensus = now + CensusIntervalSeconds;
         _lastCensusSignature = signature;
         _censusLogsLeft--;
 
