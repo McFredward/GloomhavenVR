@@ -608,9 +608,18 @@ internal static class AutoLod
     private static void AppendLodGroupClause(StringBuilder sb)
     {
         LODGroup[] groups;
+        int enabledGroups;
         try
         {
-            groups = UnityEngine.Object.FindObjectsOfType<LODGroup>();
+            // THE SWEEP IS LodGroupCensus'S SINCE 2026-09-05 (redundancy survey R43). The [Perf]
+            // GFX line asks the same question with the same API on a different cadence, and until
+            // now this one reported only the ACTIVE count while that one reported active AND
+            // enabled — so a log carrying both showed two numbers with nothing saying they were two
+            // sweeps of two populations taken at two moments. The sentence below is unchanged; the
+            // enabled count and the population rule are APPENDED to it.
+            LodGroupCensus.Result lod = LodGroupCensus.Sweep();
+            groups = lod.Groups;
+            enabledGroups = lod.Enabled;
         }
         catch (Exception e)
         {
@@ -620,6 +629,8 @@ internal static class AutoLod
 
         sb.Append(" | THE LEVEL IS UNITY'S, NOT AutomaticLOD'S: ").Append(groups.Length)
           .Append(" LODGroup(s) active");
+        sb.Append(", ").Append(enabledGroups).Append(" of them enabled");
+        LodGroupCensus.AppendPopulationRule(sb, "[Optimize] AutomaticLOD", PerfConfig.LodSweepSeconds);
         if (groups.Length == 0)
         {
             sb.Append(" — NONE, so QualitySettings.lodBias and maximumLODLevel are inert here and "

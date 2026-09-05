@@ -1401,21 +1401,22 @@ internal static class PerfSceneProfile
     {
         try
         {
-            LODGroup[] groups = UnityEngine.Object.FindObjectsOfType<LODGroup>();
-            int enabled = 0;
-            for (int i = 0; i < groups.Length; i++)
-            {
-                if (groups[i] != null && groups[i].enabled)
-                    enabled++;
-            }
-            sb.Append(" | LOD groups: ").Append(groups.Length).Append(" active, ").Append(enabled)
+            // THE SWEEP IS LodGroupCensus'S SINCE 2026-09-05 (redundancy survey R43). AutoLod asks
+            // the same question with the same API on a different cadence and counted only the
+            // ACTIVE half; the two lines then sat in one log with nothing to say which number was
+            // fresher or whether they were even the same measurement — and they were not. The
+            // sentence below is this line's own and is unchanged; only the counting moved, and the
+            // population rule is now stated in the line the way the SCENE line above already does.
+            LodGroupCensus.Result lod = LodGroupCensus.Sweep();
+            sb.Append(" | LOD groups: ").Append(lod.Active).Append(" active, ").Append(lod.Enabled)
               .Append(" enabled");
-            if (groups.Length == 0)
+            if (lod.Active == 0)
             {
                 sb.Append(" — NONE, so lodBias and maximumLODLevel above are inert here and there "
                           + "is no LOD lever to pull. Distance-based reduction would have to come "
                           + "from Camera.layerCullDistances instead");
             }
+            LodGroupCensus.AppendPopulationRule(sb, "[Perf] GFX", PerfConfig.SummaryIntervalClamped);
         }
         catch (Exception e)
         {

@@ -208,6 +208,15 @@ internal static class PerfConfig
     internal static bool AutomaticLodIdleSkipOn =>
         AutomaticLodIdleSkip == null || AutomaticLodIdleSkip.Value;
 
+    /// <summary>[Perf] SummaryIntervalSeconds, clamped — the cadence of the FRAME/STEPS/SPLIT/GFX
+    /// block. Promoted out of PerfMonitor on 2026-09-05: it was a bare Mathf.Clamp at the one place
+    /// that consumed it, and a second consumer (the LOD census, which has to NAME its own cadence
+    /// so two LOD counts in one log are readable) would otherwise have hand-copied the band.</summary>
+    internal static float SummaryIntervalClamped =>
+        SummaryIntervalSeconds == null
+            ? Defaults.SummaryIntervalSeconds
+            : Mathf.Clamp(SummaryIntervalSeconds.Value, 5f, 600f);
+
     /// <summary>[Optimize] AutomaticLodSweepSeconds, clamped to a cadence that cannot become the cost.</summary>
     internal static float LodSweepSeconds =>
         AutomaticLodSweepSeconds == null

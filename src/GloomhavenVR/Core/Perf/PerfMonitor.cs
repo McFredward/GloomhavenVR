@@ -552,7 +552,7 @@ internal static class PerfMonitor
         _depth = 0;
 
         // --- periodic summary -----------------------------------------------------------------
-        float interval = Mathf.Clamp(PerfConfig.SummaryIntervalSeconds.Value, 5f, 600f);
+        float interval = PerfConfig.SummaryIntervalClamped;
         if (now - _windowStart >= interval)
         {
             LogSummary(now - _windowStart);
