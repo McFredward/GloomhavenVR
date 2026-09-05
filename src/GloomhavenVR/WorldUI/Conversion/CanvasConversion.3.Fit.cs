@@ -5573,6 +5573,37 @@ internal static partial class CanvasConversion
         internal bool SignatureValid;
 
         internal int SignatureEdges;
+
+        /// <summary>ModBuild 440 — THE MOD'S OWN CHROME ON THIS HOST, in the host rect's own local
+        /// px: the union of every raycast target under a mod-owned subtree parked on the host
+        /// (today the close X's plate and its <c>HitPlane</c>, and a transient's full-window dismiss
+        /// catcher). Measured by <see cref="TryMeasureChrome"/>, which is a geometric walk and NOT
+        /// the drawn-content walk — the content walk skips mod art by name and starts at the GAME's
+        /// fit root, so no chrome has ever been able to reach the hit rect through it.</summary>
+        internal Rect Chrome;
+
+        internal bool ChromeValid;
+
+        /// <summary>Raycast targets that went into <see cref="Chrome"/>.</summary>
+        internal int ChromeParts;
+
+        /// <summary>Path of the first chrome graphic unioned — names WHICH piece is holding the
+        /// rect open, so a reader never has to guess which of the two shapes it is.</summary>
+        internal string ChromeOwner = string.Empty;
+
+        /// <summary>The chrome floor actually pushed an edge of the committed rect back out, i.e.
+        /// without it the beam would pass straight through that piece of chrome.</summary>
+        internal bool ChromeHeld;
+
+        /// <summary>Commits over this window's life on which the floor bit. A count that stays 0 on
+        /// a window whose X is reachable means the narrowing never reached the plate in the first
+        /// place, which is the normal reading for an INK-seated X.</summary>
+        internal int ChromeHolds;
+
+        /// <summary>Last reported chrome verdict, so the Note line prints on a TRANSITION rather
+        /// than on every commit: 0 = not reported yet, 1 = no chrome, 2 = chrome inside the rect on
+        /// its own, 3 = the floor held it open, 4 = chrome still OUTSIDE the committed rect.</summary>
+        internal int ChromeVerdict;
     }
 
     /// <summary>ModBuild 242 — margin left around the drawn content when the interactive area is
@@ -5611,6 +5642,14 @@ internal static partial class CanvasConversion
     /// produces a wrong number once and then never again reproducibly.</summary>
     private static readonly List<Graphic> HitGraphicScratch = new(64);
 
+    /// <summary>Scratch for <see cref="TryMeasureChrome"/> — a separate buffer for the same reason
+    /// <see cref="HitGraphicScratch"/> is separate from <c>GraphicScratch</c>: the chrome walk and
+    /// the content walk run in the same <see cref="TickHitRect"/> call.</summary>
+    private static readonly List<Graphic> ChromeGraphicScratch = new(8);
+
+    /// <summary>Scratch for <c>RectTransform.GetWorldCorners</c> in the chrome walk.</summary>
+    private static readonly Vector3[] ChromeCornerScratch = new Vector3[4];
+
     /// <summary>Once-per-session guard for the never-throw warning below.</summary>
     private static bool s_hitRectFaultLogged;
 
@@ -5627,6 +5666,16 @@ internal static partial class CanvasConversion
     ///
     /// <para>Never throws, never allocates, never writes: a dictionary probe and a Unity-null
     /// check. Safe to call from an Update/LateUpdate hot path once per canvas per frame.</para>
+    ///
+    /// <para><b>THE CONTRACT, RESTATED, BECAUSE IT HAS MOVED TWICE SINCE THIS COMMENT WAS WRITTEN
+    /// AND THE PARAGRAPHS ABOVE STILL DESCRIBE THE FIRST VERSION.</b> It was <c>Content ∪ Host</c>,
+    /// i.e. never narrower than the frame. ModBuild 242 gave up the frame floor (the narrowing; see
+    /// <see cref="TickHitRect"/>). ModBuild 440 puts a DIFFERENT floor under it: the rect always
+    /// contains the mod-owned interactive chrome parked on the host (<see cref="TryMeasureChrome"/>),
+    /// because the narrowing was measuring what the GAME draws and was therefore free to cut over
+    /// the mod's own close button — which is exactly what it did on the combat log for three
+    /// rounds. Today's contract in one line: <c>(Content ∪ Host, optionally narrowed to the padded
+    /// content) ∪ ModChrome</c>, bounded by <see cref="MaxHitExpansion"/>.</para>
     /// </summary>
     internal static bool TryGetHitRect(Canvas? canvas, out Rect hit)
     {
@@ -5902,6 +5951,73 @@ internal static partial class CanvasConversion
             }
             union = live;
 
+            // ---- ModBuild 440: THE NARROWING MAY NEVER CUT OVER THE WINDOW'S OWN CHROME ---------
+            //
+            // User report, verbatim (2026-09-05), and he had already found the cause himself: "Der
+            // X-Button beim Kampflog hat immer noch Probleme und ich denke ich hab herausgefunden
+            // wieso: Wenn man den Kampflog berührt oder drüberhovered wird er nach oben hinweg
+            // größer — scheinbar auch der Bereich in dem der Laser collidet, dann kann ich das X gut
+            // drücken — wenn der Kampflog wieder kleiner geworden ist geht der Laser durch das X
+            // hindurch. Der ganze Fensterbereich vom Kampflog kann dauerhaft colliden um das Problem
+            // zu lösen."
+            //
+            // THE ARITHMETIC, OUT OF HIS OWN ModBuild 439 LOG, and it is this block that produced it.
+            // 'GloomhavenVR.Panel_CombatLog' has a 569x291 px host rect (y -146..146). The close X is
+            // seated on the FRAME path (CombatLogSurface.SyncCloseX), so its plate's top-right corner
+            // is (xMax-7, yMax-7) and, with pivot (1,1), the plate occupies y 105..139 — INSIDE the
+            // frame by construction. The committed hit rect alternates between two states in that log:
+            //   line 10414  DRAWN CONTENT 569x291 -> HIT RECT 569x291 [y -146..146]   (hovered)
+            //   line 10472  DRAWN CONTENT 569x114 -> HIT RECT 569x178 [y -146..32]    (at rest)
+            // The second one is this narrowing, and its top edge is 73 px BELOW the bottom of the
+            // plate. TryIntersect tests that rectangle and nothing else, so at rest the beam does not
+            // stop on this window at all — "geht der Laser durch das X hindurch", exactly.
+            //
+            // WHAT MAKES THE TWO STATES ALTERNATE IS THE GAME, NOT THE MOD: CombatLogHandler is an
+            // IPointerEnterHandler whose OnPointerEnter calls ExpandLog() and whose OnPointerExit
+            // calls MinimizeLog(), tweening combatLogWindow.anchorMax.y between minimizeToPercent
+            // (0.5) and 1 over expandAnimationTime. The window really is half-height at rest and
+            // full-height while pointed at, the drawn content really does halve, and the interactive
+            // area faithfully followed it down over the mod's own button. His observation is the
+            // mechanism.
+            //
+            // THE FIX IS A FLOOR, NOT A LARGER INSET. An inset big enough to swallow the plate would
+            // be a magic number that breaks the moment the plate's size or a window's margin moves,
+            // and it would say nothing about the next piece of chrome parked against a window edge.
+            // The rule instead is the one his remedy generalises to: the rectangle a pointer is
+            // tested against is the window's own extent PLUS the mod-owned chrome seated on it. The
+            // content walk cannot express that (TryMeasureChrome's doc says why), so the chrome is
+            // measured separately and unioned in AFTER the narrowing — which is the only place it can
+            // matter, because every piece of chrome is already inside the host rect the union starts
+            // from.
+            //
+            // WHAT THIS DOES NOT DO. It never reaches past the host rect (the chrome is seated inside
+            // it, and MaxHitExpansion below still bounds anything that is not), so it cannot extend
+            // over a neighbouring panel and cannot make this window shadow anything it did not
+            // already shadow before ModBuild 242. It takes back only the strip between the narrowed
+            // edge and the mod's own button. The narrowing itself is untouched and still bites on
+            // every edge no chrome stands on — the options window, which is the window his ModBuild
+            // 242 "unsichtbare Collider" report was about, has its X on the INK and is unaffected.
+            if (TryMeasureChrome(panel, out Rect chrome, out int chromeParts, out string chromeOwner))
+            {
+                entry.Chrome = chrome;
+                entry.ChromeValid = true;
+                entry.ChromeParts = chromeParts;
+                entry.ChromeOwner = chromeOwner;
+                Rect withChrome = Union(union, chrome);
+                entry.ChromeHeld = withChrome.xMin < union.xMin - 0.5f
+                                   || withChrome.xMax > union.xMax + 0.5f
+                                   || withChrome.yMin < union.yMin - 0.5f
+                                   || withChrome.yMax > union.yMax + 0.5f;
+                union = withChrome;
+            }
+            else
+            {
+                entry.ChromeValid = false;
+                entry.ChromeParts = 0;
+                entry.ChromeOwner = string.Empty;
+                entry.ChromeHeld = false;
+            }
+
             // THE SAFETY BOUND (see MaxHitExpansion). Host-centred, edge by edge, so a clamp gives
             // away as much of the overspill as the bound allows instead of dropping all of it.
             float padX = host.width * (MaxHitExpansion - 1f) * 0.5f;
@@ -5915,6 +6031,62 @@ internal static partial class CanvasConversion
             Rect hit = Rect.MinMaxRect(xMin, yMin, xMax, yMax);
             if (hit.width < 1f || hit.height < 1f)
                 hit = host;
+
+            // ModBuild 440 — THE FALSIFIER FOR THE CHROME FLOOR, AND IT IS EVALUATED BEFORE THE
+            // DIRTY CHECK ON PURPOSE. A rect that has SETTLED with the mod's own button outside it
+            // is the exact failure this round exists to catch, and a check placed after the early
+            // return below would be the one thing a settled defect can never print. It is gated on
+            // the VERDICT and not on the rect, so a steady state costs one comparison and one line
+            // for its whole life; a state that keeps flipping reads AS flipping.
+            int chromeVerdict;
+            if (!entry.ChromeValid)
+                chromeVerdict = 1;
+            else if (hit.xMin > entry.Chrome.xMin + 0.5f || hit.xMax < entry.Chrome.xMax - 0.5f
+                     || hit.yMin > entry.Chrome.yMin + 0.5f || hit.yMax < entry.Chrome.yMax - 0.5f)
+                chromeVerdict = 4;
+            else
+                chromeVerdict = entry.ChromeHeld ? 3 : 2;
+            if (chromeVerdict != entry.ChromeVerdict)
+            {
+                entry.ChromeVerdict = chromeVerdict;
+                if (chromeVerdict == 3)
+                    entry.ChromeHolds++;
+                if (chromeVerdict != 1)
+                {
+                    // HW-VERIFY
+                    VRLog.Note("WorldUI",
+                        $"HIT RECT CHROME FLOOR '{panel.HostGo.name}': {entry.ChromeParts} mod-owned "
+                        + $"raycast target(s) on this host, first '{entry.ChromeOwner}', spanning "
+                        + $"x {entry.Chrome.xMin:F0}..{entry.Chrome.xMax:F0} and "
+                        + $"y {entry.Chrome.yMin:F0}..{entry.Chrome.yMax:F0} px; the committed hit "
+                        + $"rect is x {hit.xMin:F0}..{hit.xMax:F0} and y {hit.yMin:F0}..{hit.yMax:F0} "
+                        + $"px (host x {host.xMin:F0}..{host.xMax:F0}, y {host.yMin:F0}..{host.yMax:F0}); "
+                        + $"floor held open {entry.ChromeHolds} time(s) this window's life. VERDICT: "
+                        + (chromeVerdict == 4
+                            ? "THE CHROME IS OUTSIDE THE COMMITTED RECT — RayUguiDriver.TryIntersect "
+                              + "tests that rect and nothing else, so the beam passes straight "
+                              + "through this window's own close X and does not even stop on the "
+                              + "panel. THIS IS THE ModBuild 439 DEFECT STILL LIVE. Only two things "
+                              + "can produce it now: the MaxHitExpansion clamp cut the union back "
+                              + "(the HIT RECT line for this window says CLAMPED), or the chrome is "
+                              + "seated outside the host rect, which PlaceAgainstInk clamps against "
+                              + "and therefore should be impossible"
+                            : chromeVerdict == 3
+                                ? "the floor is DOING WORK — the drawn-content narrowing had pulled "
+                                  + "the interactive area in over this chrome and the floor pushed "
+                                  + "that edge back out. This is the reading the combat log is "
+                                  + "expected to produce at rest, where the game's own "
+                                  + "CombatLogHandler.MinimizeLog halves the drawn content while the "
+                                  + "close X stays at the frame's corner"
+                                : "the chrome is inside the committed rect on its own and the floor "
+                                  + "changed nothing — the reading for every window whose X is "
+                                  + "seated against the INK, and the reading the combat log gives "
+                                  + "while the player is hovering it and the game has expanded it")
+                        + ". A window that prints this line ONCE and never again has settled in that "
+                        + "state; silence after it is the instrument agreeing with itself, not the "
+                        + "instrument stopping.");
+                }
+            }
 
             // Dirty check — the same relative tolerance the content fit uses for its own no-op.
             float tolX = Mathf.Max(Mathf.Max(host.width, hit.width) * FitChangeFraction, 1f);
@@ -6074,6 +6246,107 @@ internal static partial class CanvasConversion
         Mathf.Max(a.xMax, b.xMax), Mathf.Max(a.yMax, b.yMax));
 
     /// <summary>
+    /// <b>THE WINDOW'S OWN CHROME, WHICH THE CONTENT WALK CANNOT SEE BY CONSTRUCTION</b> — the
+    /// union of every raycast target under a MOD-OWNED subtree parked directly on
+    /// <paramref name="panel"/>'s host, in the host rect's own local px.
+    ///
+    /// <para><b>WHY A SECOND WALK EXISTS AT ALL.</b> <see cref="TryMeasureDrawnUnion"/> answers
+    /// "what does the GAME draw": it starts at <c>ResolveFitRoot</c> — the conversion target, i.e.
+    /// the game window — and it skips every graphic whose name carries the <c>GloomhavenVR.</c>
+    /// prefix, because mod cue art breathes and must never size a window. Both of those rules are
+    /// right and neither is being changed. Their consequence is that the mod's own close X is
+    /// invisible to the one measurement that decides where the laser may land, and no amount of
+    /// tuning the content walk can fix that: the plate is not content and it is not the game's.</para>
+    ///
+    /// <para><b>WHAT COUNTS AS CHROME, and it is the ownership test the host-destroy guard already
+    /// uses</b> (<c>FindGameContent</c>): a direct child of the host carrying a SEALED
+    /// <see cref="ModOwnedContent"/> marker, or — the documented fallback for subtrees parked from
+    /// files that still name rather than mark — a name starting with <c>ModOwnedPrefix</c>. A
+    /// TRANSPARENT dock (<c>MayHoldGameContent</c>) is deliberately NOT chrome: it holds the game's
+    /// own window, which the content walk already measures, and treating it as chrome would union
+    /// the game's tree twice under a name that promises the opposite.</para>
+    ///
+    /// <para><b>AND ONLY WHAT A POINTER CAN ACTUALLY HIT.</b> The union takes graphics with
+    /// <c>raycastTarget</c> true and <c>isActiveAndEnabled</c> — never the decorative half. That is
+    /// what keeps the supersample display quad (<c>GloomhavenVR.PanelSS_*</c>, a full-panel
+    /// <c>RawImage</c> with <c>raycastTarget=false</c>) and every breathing focus/selection ring out
+    /// of the rectangle the beam is judged against. The two shapes that DO qualify today are the
+    /// close X's plate + <c>HitPlane</c> and a transient window's full-host dismiss catcher, and
+    /// both of them are surfaces a press is SUPPOSED to land on.</para>
+    ///
+    /// <para>COST: <c>host.childCount</c> is a handful, only the mod-owned ones are descended, and
+    /// those subtrees are 2-4 nodes. Runs on the same 30-frame staggered cadence as the content
+    /// walk it sits beside.</para>
+    ///
+    /// <para>False when this host carries no interactive chrome at all, which is most windows — the
+    /// caller then commits exactly the rect it would have committed before this method existed.</para>
+    /// </summary>
+    private static bool TryMeasureChrome(ConvertedPanel panel, out Rect chrome, out int parts,
+        out string owner)
+    {
+        chrome = default;
+        parts = 0;
+        owner = string.Empty;
+        RectTransform? host = panel.HostRect;
+        if (host == null)
+            return false;
+
+        Vector2 min = new(float.MaxValue, float.MaxValue);
+        Vector2 max = new(float.MinValue, float.MinValue);
+        int children = host.childCount;
+        for (int i = 0; i < children; i++)
+        {
+            Transform child = host.GetChild(i);
+            if (child == null || !child.gameObject.activeInHierarchy)
+                continue;
+            // The ownership question, asked exactly as FindGameContent asks it: marker first, name
+            // second. A transparent dock is skipped — see the doc above.
+            if (child.TryGetComponent(out ModOwnedContent owned))
+            {
+                if (owned.MayHoldGameContent)
+                    continue;
+            }
+            else if (!child.name.StartsWith(ModOwnedPrefix, System.StringComparison.Ordinal))
+            {
+                continue; // the game's own window subtree; the content walk owns it
+            }
+
+            ChromeGraphicScratch.Clear();
+            child.GetComponentsInChildren(includeInactive: false, ChromeGraphicScratch);
+            for (int g = 0; g < ChromeGraphicScratch.Count; g++)
+            {
+                Graphic graphic = ChromeGraphicScratch[g];
+                if (graphic == null || !graphic.raycastTarget || !graphic.isActiveAndEnabled)
+                    continue;
+                RectTransform r = graphic.rectTransform;
+                if (r == null)
+                    continue;
+                // World corners -> host-local, which is the space every other rect in this file is
+                // in. Going through world space rather than assuming the child sits at the host's
+                // own scale and rotation is what makes this correct for a piece of chrome that
+                // rides its own nested canvas, as the close X's HitPlane does.
+                r.GetWorldCorners(ChromeCornerScratch);
+                for (int c = 0; c < 4; c++)
+                {
+                    Vector3 local = host.InverseTransformPoint(ChromeCornerScratch[c]);
+                    var corner = new Vector2(local.x, local.y);
+                    min = Vector2.Min(min, corner);
+                    max = Vector2.Max(max, corner);
+                }
+                parts++;
+                if (owner.Length == 0)
+                    owner = child.name + "/" + graphic.name;
+            }
+        }
+        ChromeGraphicScratch.Clear();
+
+        if (parts == 0)
+            return false;
+        chrome = Rect.MinMaxRect(min.x, min.y, max.x, max.y);
+        return chrome.width >= 1f && chrome.height >= 1f;
+    }
+
+    /// <summary>
     /// World units per REAL (tracking-space) metre — the diorama scale on the rig root. Returns 0
     /// when there is no rig yet, and the caller then prints "rig scale unknown" instead of a
     /// millimetre figure derived from a guess: mixing world units and metres without naming which
@@ -6195,6 +6468,20 @@ internal static partial class CanvasConversion
                   + "larger than this path will follow, so the region beyond the hit rect stays "
                   + "unclickable; raise MaxHitExpansion if the window genuinely draws that far out. "
                 : string.Empty)
+            // APPENDED, ModBuild 440 — the chrome floor's own terms on the line that carries the
+            // rect, so the two never have to be read from two places. The standalone
+            // HIT RECT CHROME FLOOR line above is the default-tier verdict; this is the arithmetic.
+            + (entry.ChromeValid
+                ? $"MOD CHROME ON THIS HOST: {entry.ChromeParts} raycast target(s), first "
+                  + $"'{entry.ChromeOwner}', spanning x {entry.Chrome.xMin:F0}..{entry.Chrome.xMax:F0} "
+                  + $"and y {entry.Chrome.yMin:F0}..{entry.Chrome.yMax:F0} px — the hit rect is "
+                  + "floored to contain it, so the narrowing can never cut over this window's own "
+                  + "close X"
+                  + (entry.ChromeHeld
+                      ? " and ON THIS COMMIT IT DID: the floor pushed an edge back out. "
+                      : ". ")
+                : "MOD CHROME ON THIS HOST: none interactive — the floor had nothing to hold and "
+                  + "this rect is what the content walk alone produced. ")
             + realSize + ". HOW TO READ THIS LINE: the HIT RECT is the rectangle "
             + "RayUguiDriver.TryIntersect tests the aim ray against — a laser lands on this window "
             + "if and only if it crosses this rectangle, and nowhere else. 'LARGER = the host rect' "

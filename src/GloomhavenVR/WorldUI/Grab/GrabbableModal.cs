@@ -3113,7 +3113,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             && committed.width > 0f && committed.height > 0f)
         {
             hit = committed;
-            hitSource = "CanvasConversion.TryGetHitRect (Content ∪ Host, the fit's own commit)";
+            // APPENDED, ModBuild 440 (never reworded): the parenthesis was written when the commit
+            // really was Content ∪ Host. It has had a narrowing under it since ModBuild 242 and a
+            // mod-chrome floor since 440, and a reader taking this line at its word would conclude
+            // the rect cannot be smaller than the frame — which is the belief that cost round 2.
+            hitSource = "CanvasConversion.TryGetHitRect (Content ∪ Host, the fit's own commit)"
+                        + " — and since ModBuild 242 that union may also be NARROWED to the padded"
+                        + " drawn content, then floored back out to contain the mod's own chrome"
+                        + " (ModBuild 440); grep HIT RECT CHROME FLOOR for which of the two decided"
+                        + " this rectangle";
         }
 
         string x = !_closeXPlaced

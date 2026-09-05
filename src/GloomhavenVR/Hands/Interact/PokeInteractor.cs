@@ -446,6 +446,27 @@ internal sealed class PokeInteractor
                 continue; // far behind the canvas — ignore
 
             // Inside the canvas rect?
+            //
+            // THE HOST RECT, NOT THE HIT RECT, AND THE DIFFERENCE IS DELIBERATE (ModBuild 440).
+            // The far ray asks a different question here: RayUguiDriver.HitRectOf goes through
+            // CanvasConversion.TryGetHitRect, which follows content drawn OUTSIDE the frame and,
+            // since ModBuild 242, may also be narrowed INSIDE it. This test is the raw frame.
+            //
+            // WHY THAT IS NOT THIS ROUND'S DEFECT, stated as arithmetic rather than as a hope. The
+            // ModBuild 439 report ("wenn der Kampflog wieder kleiner geworden ist geht der Laser
+            // durch das X hindurch") is the NARROWING reaching over the mod's close X, and the
+            // plate cannot be outside THIS rectangle: ModalCloseButton.PlaceAgainstInk clamps the
+            // plate's pivot corner to (hostRect.max - InsetPx) and the plate pivots at (1,1), so it
+            // extends inward from that corner and is inside the host rect by construction, on both
+            // axes, on every window. The fingertip could always reach the X; the beam could not.
+            //
+            // WHAT THE DIVERGENCE DOES STILL COST, so the next round does not have to re-derive it:
+            // a fingertip cannot reach content the window draws OUTSIDE its own frame, which the
+            // laser can (his ModBuild 439 log has 'GloomhavenVR.Panel_InitiativeTrack' drawing
+            // 931x263 px past a 621x175 frame). Nobody has reported it — every such widget has been
+            // within the frame or out of arm's reach — and closing it means growing what a
+            // fingertip claims, which is a change that needs its own report to justify. Whoever
+            // takes it should take BOTH tests through one accessor rather than adding a third rect.
             var rect = (RectTransform)t;
             Vector3 local = t.InverseTransformPoint(tip);
             if (!rect.rect.Contains(new Vector2(local.x, local.y)))

@@ -772,6 +772,20 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// window's own top-right corner, which is exactly where this panel's own X sat before today.
     /// It is also right on the merits here: <see cref="OnConverted"/> pins this host at the game's
     /// full window layout, so the frame IS the picture rather than a mostly-empty margin.</para>
+    ///
+    /// <para><b>ModBuild 440 — "THE FRAME IS THE PICTURE" IS TRUE OF THE LAYOUT AND WAS FALSE OF
+    /// WHAT THE WINDOW DRAWS, WHICH IS WHY THE X WAS UNREACHABLE FOR THREE ROUNDS.</b> The game's
+    /// own <c>CombatLogHandler</c> implements <c>IPointerEnterHandler</c>/<c>IPointerExitHandler</c>:
+    /// <c>OnPointerEnter</c> runs <c>ExpandLog()</c> and <c>OnPointerExit</c> runs
+    /// <c>MinimizeLog()</c>, tweening its inner <c>combatLogWindow.anchorMax.y</c> between
+    /// <c>minimizeToPercent</c> (0.5) and 1 over <c>expandAnimationTime</c>. The HOST rect never
+    /// moves — this method's premise holds — but the DRAWN content halves, and
+    /// <c>CanvasConversion</c>'s hit rect follows drawn content. His ModBuild 439 log has both
+    /// states on this panel: <c>DRAWN CONTENT 569x291 -> HIT RECT 569x291 [y -146..146]</c> hovered,
+    /// <c>DRAWN CONTENT 569x114 -> HIT RECT 569x178 [y -146..32]</c> at rest, against a plate that
+    /// occupies y 105..139. That is the whole of <i>"wenn der Kampflog wieder kleiner geworden ist
+    /// geht der Laser durch das X hindurch"</i>, and it is fixed where the rect is committed
+    /// (<c>TickHitRect</c>'s chrome floor), not here: this panel's placement was never wrong.</para>
     /// </summary>
     private void SyncCloseX(Rect rect)
     {

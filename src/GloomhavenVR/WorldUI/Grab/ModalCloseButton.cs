@@ -137,6 +137,26 @@ internal static class ModalCloseButton
     ///
     /// <para>The constant is deleted rather than set to zero: a frozen literal with no consumer is
     /// a thing the next round has to re-derive. The number was 4 px.</para>
+    ///
+    /// <para><b>ROUND 3 (ModBuild 440) — THE NUDGE WAS ONE OF TWO TERMS, AND THIS INSET IS NOT THE
+    /// OTHER ONE.</b> User, 2026-09-05, verbatim, having diagnosed it himself: <i>"Wenn man den
+    /// Kampflog berührt oder drüberhovered wird er nach oben hinweg größer — scheinbar auch der
+    /// Bereich in dem der Laser collidet, dann kann ich das X gut drücken — wenn der Kampflog wieder
+    /// kleiner geworden ist geht der Laser durch das X hindurch."</i> The residue is NOT an angle
+    /// and NOT this margin: the plate is inside the host rect on both axes by construction (see the
+    /// clamp in <see cref="PlaceAgainstInk"/>, and the pivot is (1,1), so the corner point IS the
+    /// plate's top-right corner and the plate extends INWARD from it). What moved was the rectangle
+    /// the beam is tested against. <c>CanvasConversion</c>'s hit rect has been allowed to shrink
+    /// below the frame since ModBuild 242, it is measured from what the GAME draws, and the game's
+    /// own <c>CombatLogHandler</c> is an <c>IPointerEnterHandler</c> that halves the combat log's
+    /// drawn height whenever the pointer leaves it — so at rest the interactive area's top edge sat
+    /// 73 px BELOW the bottom of this plate, and the beam did not stop on the panel at all.</para>
+    ///
+    /// <para>THE FIX IS NOT IN THIS FILE and deliberately not a larger inset, which would be a magic
+    /// number outliving the next change to either. <c>CanvasConversion.3.Fit.cs</c>'s
+    /// <c>TickHitRect</c> now floors the committed rect to contain the mod-owned chrome parked on
+    /// the host — this plate and its <c>HitPlane</c> among them — so the narrowing can never cut
+    /// over a button this file put there. Grep <c>HIT RECT CHROME FLOOR</c>.</para>
     /// </summary>
     private const float InsetPx = 7f;
 
