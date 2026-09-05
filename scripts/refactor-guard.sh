@@ -193,6 +193,22 @@ classify() {
 
 case "${1:-check}" in
     baseline)
+        # A FRESH WORKTREE'S BASELINE IS A SYMLINK INTO THE MAIN CHECKOUT, and writing THROUGH it
+        # would re-baseline every other worktree at once. scripts/worktree-setup.sh links
+        # .guard/baseline and .guard/baseline.rev on purpose, so that `check` works in a new
+        # worktree instead of aborting with "no baseline" — but a link that is fine to READ is not
+        # fine to WRITE: five lanes ran in parallel on 2026-09-05 and any one of them taking a
+        # baseline would have moved the reference under the other four, silently, with the damage
+        # only visible as a `check` that suddenly reports nothing. This is the same hazard class as
+        # the shared git stash, and the remedy is the same: break the shared link before writing,
+        # so a baseline taken here is LOCAL to here. Nothing is lost — the main checkout keeps its
+        # own, and this worktree simply stops borrowing it the moment it has one of its own.
+        for shared in "$BASE" "$GUARD/baseline.rev"; do
+            if [[ -L "$shared" ]]; then
+                echo "note: $(basename "$shared") was linked from the main checkout; unlinking so this baseline stays local" >&2
+                rm -f "$shared"
+            fi
+        done
         snapshot "$BASE"
         echo "baseline: $(find "$BASE" -name '*.cs' | wc -l) types from $(git -C "$ROOT" rev-parse --short HEAD)"
         git -C "$ROOT" rev-parse HEAD > "$GUARD/baseline.rev"
