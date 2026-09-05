@@ -657,6 +657,19 @@ namespace GloomhavenVR
             lit.renderQueue = 3000;
             bool litIsReal = live.HasProperty("_FadeAlpha");
 
+            // (D) THE SETTLED CLONE — what PeerBoardFade actually hands back from, since ModBuild
+            // 445 put the clone into the ORIGINAL material's depth state (ZWrite and cull) while it
+            // is still installed. THIS, not C, is the frame BEFORE the restore, and the diff below
+            // is therefore the whole of the release step for the slab in isolation. C stays because
+            // it is the frame before the restore on any build older than 445 and it sizes what the
+            // settle buys: C is the unsettled clone, so C-minus-D is the depth term by subtraction.
+            var settled = new Material(live) { name = live.name + "_settled" };
+            if (settled.HasProperty("_SrcBlend")) settled.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            if (settled.HasProperty("_DstBlend")) settled.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            if (settled.HasProperty("_ZWrite") && live.HasProperty("_ZWrite")) settled.SetFloat("_ZWrite", live.GetFloat("_ZWrite"));
+            if (settled.HasProperty("_Cull") && live.HasProperty("_Cull")) settled.SetFloat("_Cull", live.GetFloat("_Cull"));
+            settled.renderQueue = 3000;
+
             // (B) THE UNLIT SWAP — the SwapShader recipe: a different shader carrying _MainTex and
             // the tint across, and nothing else.
             Shader overlay = Shader.Find("GloomhavenVR/Overlay") ?? Shader.Find("Sprites/Default");
@@ -689,6 +702,7 @@ namespace GloomhavenVR
 
             Texture2D a = With(live);
             Texture2D c = With(lit);
+            Texture2D d = With(settled);
             Texture2D b = unlit != null ? With(unlit) : null;
 
             Color[] pa = a.GetPixels();
@@ -723,16 +737,24 @@ namespace GloomhavenVR
                     File.WriteAllBytes(Path.Combine(outDir, outFile), other.EncodeToPNG());
             }
 
-            Report(litIsReal ? "C lit-clone (BoardLit kept, blend flipped)"
+            Report(litIsReal ? "C lit-clone UNSETTLED (BoardLit kept, blend flipped, ZWrite off, "
+                               + "Cull Back) — the frame before the restore on any build older than "
+                               + "ModBuild 445"
                              : "C lit-clone — NO _FadeAlpha ON THIS MATERIAL, so this is the OLD "
                                + "BoardLit and the flip did nothing; treat C as a control, not a result",
                    c, $"{style}_fade_litclone.png");
+            Report("D lit-clone SETTLED (blend flipped, the ORIGINAL's ZWrite and cull, queue 3000) "
+                   + "— the actual frame before the restore. This is the number the 'un-fade plops' "
+                   + "report is judged against for the slab IN ISOLATION: near zero means the slab's "
+                   + "own pixels do not move at the release and whatever the user is seeing is what "
+                   + "the depth write hides BEHIND the slab, which this station cannot render",
+                   d, $"{style}_fade_settled.png");
             Report("B unlit-swap (GloomhavenVR/Overlay)", b, $"{style}_fade_unlitswap.png");
             File.WriteAllBytes(Path.Combine(outDir, $"{style}_fade_shipped.png"), a.EncodeToPNG());
 
-            Object.DestroyImmediate(a); Object.DestroyImmediate(c);
+            Object.DestroyImmediate(a); Object.DestroyImmediate(c); Object.DestroyImmediate(d);
             if (b != null) Object.DestroyImmediate(b);
-            Object.DestroyImmediate(lit);
+            Object.DestroyImmediate(lit); Object.DestroyImmediate(settled);
             if (unlit != null) Object.DestroyImmediate(unlit);
         }
 

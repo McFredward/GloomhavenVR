@@ -588,18 +588,45 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private const float SolidAlpha = 0.999f;
 
     /// <summary>
-    /// Driven alpha at which an installed clone is put back into its ORIGINAL depth state while it
-    /// is still installed — the fade-in's "plop" repair (user item 10). See
-    /// <see cref="SettleDepthState"/> for the whole argument; the number is where the residual
-    /// blend is 3 % of the pixel, i.e. below anything the eye can attribute to a step.
+    /// Driven alpha at or above which an installed clone carries its ORIGINAL depth state.
+    ///
+    /// <para><b>IT WAS 0.97, AND THAT IS THE PART OF THE ModBuild 445 REPAIR THAT DID NOT WORK.</b>
+    /// 445 was right that the discontinuity is the depth write and not the opacity, and its own
+    /// instrument proves the mechanism ran: every RELEASED line in the 447 capture reads
+    /// <c>all N clone(s) had already been put back into their ORIGINAL depth state</c>. The user
+    /// reported the plop again anyway, and the reason is arithmetic 445 did not do. A depth write
+    /// coming back does not change the slab — it hides everything drawn AFTER the slab that is
+    /// physically behind it, which is the board's own content, riding <c>sortingOrder >= 100</c>
+    /// precisely so it draws over the slab. That content is faded by the SAME alpha, so the size of
+    /// the step is the alpha at which the depth state moves. At 0.97 the step was 97 % of that
+    /// content, with 0.03 of ramp — about 30 ms — left to bury it. 445 moved the step 30 ms earlier
+    /// and called it buried; it is not buried, because 3 % of remaining opacity carries no motion.
+    /// </para>
+    ///
+    /// <para><b>THE STEP IS IRREDUCIBLE, SO PUT IT WHERE IT IS SMALLEST AND LEAST TERMINAL — WHICH
+    /// IS THIS FILE'S OWN EXISTING RULE, APPLIED TO THE OTHER IRREDUCIBLE STEP.</b> The cull
+    /// fail-safe band in <see cref="Apply"/> already says it in words: place the one unavoidable
+    /// step "EARLY on the fade-out and LATE on the fade-in, i.e. inside the moving picture on both
+    /// sides rather than at the end of one of them". The depth band was the one place that rule was
+    /// not followed. At 0.55/0.40 the step is 40–55 % instead of 97 %, it lands with roughly half
+    /// the alpha range and a third of a second of ramp still to run on BOTH sides, and — the term
+    /// that actually settles the report — the material restore at
+    /// <see cref="SolidAlpha"/> is preceded by 0.45 of alpha in the original depth state rather
+    /// than by 0.03.</para>
+    ///
+    /// <para>ZWRITE CANNOT SIMPLY STAY ON FOR THE WHOLE RAMP, and that is why this is a band and
+    /// not a deletion: a slab that writes depth at 25 % opacity depth-rejects every TRANSPARENT
+    /// thing behind it, and the transparent things behind a peer's board are the hex decals and
+    /// figure glows on the play field — the exact pixels this feature exists to uncover. The band's
+    /// low bar is what hands those back.</para>
     /// </summary>
-    private const float SettleAlpha = 0.97f;
+    private const float SettleAlpha = 0.55f;
 
-    /// <summary>Driven alpha below which a settled clone goes back to its FADE depth state. A
-    /// Schmitt band under <see cref="SettleAlpha"/>, so a ramp that reverses just short of solid —
-    /// the peer nudges their board and the decision flips back — cannot strobe the depth state at
-    /// the frame rate.</summary>
-    private const float UnsettleAlpha = 0.94f;
+    /// <summary>Driven alpha below which a settled clone goes back to its FADE depth state — it
+    /// yields its depth write so the play field's own transparent overlays are visible through the
+    /// faded board. A Schmitt band under <see cref="SettleAlpha"/>, so a ramp that reverses inside
+    /// the band cannot strobe the depth state at the frame rate.</summary>
+    private const float UnsettleAlpha = 0.40f;
 
     /// <summary>Driven alpha below which a renderer that could NOT be given an alpha-capable clone
     /// is hidden outright (the fail-safe family — see <see cref="Apply"/>). Paired with
@@ -686,8 +713,8 @@ internal sealed class PeerBoardFade : MonoBehaviour
         /// no clone are the original material itself and are never destroyed.</summary>
         public Material[]? Installed;
         /// <summary>True while the installed clones carry the ORIGINAL depth state (ZWrite and
-        /// cull mode) rather than the fade one — the last stretch of a fade-in. See
-        /// <see cref="SettleDepthState"/>.</summary>
+        /// cull mode) rather than the fade one — the whole top half of the ramp, in both
+        /// directions. See <see cref="SettleDepthState"/>.</summary>
         public bool Settled;
         /// <summary>True while this renderer is hidden by the CULL FAIL-SAFE: no alpha-capable
         /// shader could be installed on it at all, so "fading" it means hiding it. Held as state
@@ -1511,10 +1538,24 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// alpha, so taking it away early trades a render-state step for an opacity step of the whole
     /// remaining ramp. Instead the clone, which we own outright, is put back into its ORIGINAL
     /// depth state at <see cref="SettleAlpha"/> while it is still installed (see
-    /// <see cref="SettleDepthState"/>). From there the board renders with correct depth and a 3 %
-    /// residual blend for the last quarter-second of the ramp, and the material restore at
-    /// <see cref="SolidAlpha"/> becomes a no-op in every observable term: same shader, same depth
-    /// state, same cull, and <c>SrcAlpha/OneMinusSrcAlpha</c> at alpha 1 is <c>One/Zero</c>.</para>
+    /// <see cref="SettleDepthState"/>), and the material restore at <see cref="SolidAlpha"/>
+    /// becomes a no-op in every observable term: same shader, same depth state, same cull, and
+    /// <c>SrcAlpha/OneMinusSrcAlpha</c> at alpha 1 is <c>One/Zero</c>.</para>
+    ///
+    /// <para><b>AND THE BAND WAS PUT IN THE WRONG PLACE, WHICH IS WHY HE REPORTED IT AGAIN</b>
+    /// (2026-09-05: <i>"Das Ploppen wenn die Transparenz aus geht, ist immer noch der Fall"</i>).
+    /// 445 set the band at 0.97/0.94 and argued the residual blend there was 3 % of the pixel, "i.e.
+    /// below anything the eye can attribute to a step". That sizes the wrong quantity: the slab's
+    /// own pixels do not move when ZWrite returns, the CONTENT BEHIND IT disappears, and that
+    /// content is at the driven alpha — 0.97 — not at 3 %. The band is 0.55/0.40 now, which halves
+    /// the magnitude and, more importantly, puts the step in the middle of a moving ramp on both
+    /// sides instead of 30 ms from its end. This is the rule the fail-safe band two paragraphs
+    /// below has always followed; the depth band was the one place it was not applied. The other
+    /// half of the same user sentence — <i>"alle Controll boards sollen gar keine back-faces
+    /// haben"</i> — removes the cull term from this list entirely, because the board material now
+    /// ships <c>Cull Back</c> and there is nothing for the settle to hand back.
+    /// <see cref="LogReleaseStep"/> prints all five terms on the release frame so the next round
+    /// reads which of them moved rather than inferring it from this paragraph.</para>
     /// </summary>
     private void Apply(float alpha)
     {
@@ -1557,9 +1598,11 @@ internal sealed class PeerBoardFade : MonoBehaviour
                 r.forceRenderingOff = off;
             if (off || !blendable)
                 continue;
-            // THE TWO-STEP RESTORE (user item 10 — see this method's own header). Only the clone's
-            // depth state moves here; its blend state, its shader and its alpha are untouched, so a
-            // ramp that reverses simply crosses back over the band.
+            // THE DEPTH BAND (user item 10, and the 2026-09-05 repeat of it — see this method's
+            // own header). Only the clone's depth state moves here; its blend state, its shader and
+            // its alpha are untouched, so a ramp that reverses simply crosses back over the band.
+            // The band sits at 0.55/0.40 and NOT near solid: the step's magnitude is the alpha at
+            // which it lands, so putting it at 0.97 made it a 97 % step with 30 ms of ramp left.
             if (s.Installed != null)
             {
                 if (!s.Settled && alpha >= SettleAlpha)
@@ -1650,28 +1693,31 @@ internal sealed class PeerBoardFade : MonoBehaviour
         {
             int cloned = 0;
             int settled = 0;
+            var step = default(ReleaseStep);
             for (int i = 0; i < _surfaces.Count; i++)
             {
                 if (_surfaces[i].Installed != null)
                     cloned++;
                 if (_surfaces[i].Settled)
                     settled++;
+                step.Measure(_surfaces[i]);
                 Restore(_surfaces[i]);
             }
             _engaged = false;
+            LogReleaseStep(in step, cloned, settled);
             LogDelivery("RELEASED", cloned == 0
                 ? "no renderer on this board needed a clone at all — every material already blends, "
                   + "so the delivery was nothing but property-block alpha and there was never a "
                   + "render-state step to remove"
                 : settled == cloned
-                    ? $"all {cloned} clone(s) had already been put back into their ORIGINAL depth "
-                      + "state at alpha 0.97, so this restore handed back a surface that was "
-                      + "already drawing exactly as the solid one does — no ZWrite step, no cull "
-                      + "step, and the blend it did hand back is the identity at alpha 1"
-                    : $"only {settled} of {cloned} clone(s) had reached the depth settle, so this "
-                      + "restore ALSO handed back ZWrite in one frame for the rest — that is the "
-                      + "fade-in step user item 10 is about, and a board reading like this after "
-                      + "an un-fade is the one that still plops",
+                    ? $"all {cloned} clone(s) were already carrying their ORIGINAL depth state when "
+                      + $"the ramp reached alpha {SettleAlpha:0.00}, so this restore handed back a "
+                      + "surface that had been drawing exactly as the solid one does for the whole "
+                      + "top half of the ramp — read RELEASE STEP for what actually moved"
+                    : $"only {settled} of {cloned} clone(s) were carrying their original depth "
+                      + "state, so this restore ALSO handed back ZWrite in one frame for the rest — "
+                      + "that is the fade-in step user item 10 is about, and a board reading like "
+                      + "this after an un-fade is the one that still plops",
                 settled);
         }
         else
@@ -1755,31 +1801,50 @@ internal sealed class PeerBoardFade : MonoBehaviour
     }
 
     /// <summary>
-    /// THE TWO-STEP RESTORE'S FIRST STEP, and the whole of the user item 10 repair (read
-    /// <see cref="Apply"/>'s header for why this is the term that matters and the release
-    /// threshold is not).
+    /// WHERE THE ONE IRREDUCIBLE RENDER-STATE STEP OF A FADE IS ALLOWED TO LAND — the user item 10
+    /// repair, corrected on 2026-09-05 after he reported the plop again (read <see cref="Apply"/>'s
+    /// header for why this is the term that matters and the release threshold is not, and
+    /// <see cref="SettleAlpha"/> for why the band moved from 0.97/0.94 down to 0.55/0.40).
     ///
     /// <para>The clones on this renderer are OURS — nothing else in the process holds a reference
     /// to them — so their depth state can be moved without touching a shared asset, without
     /// re-cloning and without a frame in which the renderer has no material. At
     /// <see cref="SettleAlpha"/> they are put back onto the ORIGINAL material's ZWrite and cull
     /// mode, read from the array this class kept verbatim in <see cref="Surface.Original"/>. The
-    /// board then draws for the last stretch of the fade-in exactly as it will draw when it is
+    /// board then draws for the whole top half of the ramp exactly as it will draw when it is
     /// solid — correct depth, correct back-face rule, its own content occluded where the slab is
-    /// in front of it — with a 3 % residual blend that no eye attributes to anything. The material
-    /// restore that follows is then observably a no-op.</para>
+    /// in front of it. The material restore that follows is then observably a no-op, and it is
+    /// preceded by 0.45 of alpha in that state rather than by 0.03.</para>
+    ///
+    /// <para><b>WHAT THE STEP ACTUALLY IS, because 445 sized it wrong.</b> A depth write coming
+    /// back does not change the slab's own pixels at all — it hides everything drawn AFTER the slab
+    /// that is physically behind it. On a control board that is the board's own content, riding
+    /// <c>sortingOrder >= 100</c> so it draws over the slab, and that content is carrying the SAME
+    /// driven alpha. So the step's magnitude IS the alpha at which this method runs, and putting it
+    /// at 0.97 made it a 97 % change of that content with 30 ms of ramp left behind it. The band's
+    /// job is not to make the step small enough to miss; it is to make it land where the picture is
+    /// still moving on both sides, which is this file's own stated rule for the cull fail-safe.</para>
     ///
     /// <para><b>WHAT IS DELIBERATELY NOT SETTLED: the blend state and the render queue.</b> The
-    /// blend must stay <c>SrcAlpha/OneMinusSrcAlpha</c> or the last 3 % would not be drawn at all —
-    /// and at alpha 1 that blend IS <c>One/Zero</c>, so there is nothing to hand back. The queue
-    /// stays at <see cref="SwapRenderQueue"/> because moving a still-blending surface into the
-    /// OPAQUE queue puts it in a front-to-back pass where the background behind it may not have
-    /// been drawn yet: the residual 3 % would composite against whatever the frame was cleared to.
-    /// Kept in the transparent queue WITH depth writes, it composites against the finished opaque
-    /// image, which is right. The queue's own step at the final restore is then invisible, because
-    /// by that point the surface is opaque and writes depth either way.</para>
+    /// blend must stay <c>SrcAlpha/OneMinusSrcAlpha</c> or the residual would not be drawn at all —
+    /// and at alpha 1 that blend IS <c>One/Zero</c> in every channel, so there is nothing to hand
+    /// back. The queue stays at <see cref="SwapRenderQueue"/> because moving a still-blending
+    /// surface into the OPAQUE queue puts it in a front-to-back pass where the background behind it
+    /// may not have been drawn yet: the residual would composite against whatever the frame was
+    /// cleared to. Kept in the transparent queue WITH depth writes, it composites against the
+    /// finished opaque image, which is right. The queue's own step at the final restore is then
+    /// invisible, because by that point the surface is opaque and writes depth either way — and
+    /// that "either way" is now guaranteed by half the ramp rather than by the last three per cent.
+    /// Both terms are printed by <see cref="LogReleaseStep"/> so they can be RULED OUT from a
+    /// reading instead of from this paragraph.</para>
     ///
-    /// <para>Reversible, and it has to be: a board that starts fading out again from 0.98 crosses
+    /// <para>CULL IS NOW A NO-OP ON BOTH SIDES and is kept only for old bundles and for the
+    /// unlit-swap recipe: the board material ships <c>Cull Back</c> since 2026-09-05
+    /// (<c>VRCardFactory.EnforceSingleSided</c> enforces it on whatever bundle is loaded), so
+    /// <see cref="ForceSingleSided"/> finds nothing to force and the hand-back below writes Back
+    /// over Back.</para>
+    ///
+    /// <para>Reversible, and it has to be: a board that starts fading out again from 0.6 crosses
     /// <see cref="UnsettleAlpha"/> and gets its fade depth state back, which is why this takes a
     /// direction rather than being a one-way finish.</para>
     /// </summary>
@@ -1859,10 +1924,10 @@ internal sealed class PeerBoardFade : MonoBehaviour
     ///   back, i.e. one board arriving in two instalments. <c>BundleShaders</c> loads the asset out
     ///   of the open bundle by path, so it does not depend on anything else having asked first.</item>
     /// <item>CULLING. <c>Sprites/Default</c> is <c>Cull Off</c> and <c>ZWrite Off</c>, hard-coded.
-    ///   Every board material also ships <c>_Cull = 0</c> (<c>BuildBoard.cs:218</c>, a leftover from
-    ///   the pre-rebuild AI shells — the current mesh is watertight, 0 inward-wound faces, and
-    ///   <c>PreviewBoard.CullBackCheck</c> measured Cull Back vs Cull Off at 84 / 5 / 6 differing
-    ///   pixels out of 840,000). On an OPAQUE board that is invisible, because the near face wins
+    ///   Every board material USED TO ship <c>_Cull = 0</c> as well (a leftover from the pre-rebuild
+    ///   AI shells); since 2026-09-05 <c>BuildBoard.cs</c> bakes <c>Cull Back</c> and
+    ///   <c>VRCardFactory.EnforceSingleSided</c> enforces it on whatever bundle is loaded, so this
+    ///   paragraph now only describes the fallback shader. On an OPAQUE board that is invisible, because the near face wins
     ///   the depth test. On a FADING one it is the whole of user item 4b: with no back-face culling
     ///   and no depth write, the board's own interior and its back plate composite through the front
     ///   for the entire ramp — "wenn man reinschaut muss man nicht das innere sehen koennen" — and
@@ -1951,12 +2016,17 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <para>The board mesh is a watertight, outward-wound solid with a real exterior back plate —
     /// measured, not assumed: <c>gen_winding.py</c> reports 0 inward-wound faces and positive signed
     /// volume on all three styles, and <c>BOARD-CONTRACT.md</c> requires 0 hole loops and 0
-    /// non-manifold edges. So no mesh change and no culling change is needed for the board as it is
-    /// DRAWN. What reveals the interior is that the material says <c>_Cull = 0</c> — vestigial,
-    /// inherited from the pre-rebuild photogrammetry shells that really did have holes — and that a
-    /// transparent surface has no depth test to hide the far side behind the near one. Forcing Back
-    /// on the CLONE fixes exactly the state in which it is visible and touches no shared asset, no
-    /// bundle input and nothing the local board draws.</para>
+    /// non-manifold edges. So no mesh change is needed for the board as it is DRAWN. What used to
+    /// reveal the interior is that the material said <c>_Cull = 0</c> — vestigial, inherited from
+    /// the pre-rebuild photogrammetry shells that really did have holes — and that a transparent
+    /// surface has no depth test to hide the far side behind the near one.</para>
+    ///
+    /// <para>THE ORIGINAL IS SINGLE-SIDED NOW TOO (2026-09-05, the user's <i>"alle Controll boards
+    /// sollen gar keine back-faces haben"</i>), so on a current bundle this method finds nothing to
+    /// force and cull cannot change at any point of a fade — which also deletes one of the two
+    /// render-state flips <see cref="SettleDepthState"/> used to make in the same frame. It is kept
+    /// because the fallback swap target (<c>Sprites/Default</c>) is hard-coded <c>Cull Off</c> and
+    /// because a board whose material somehow arrives two-sided must still not show its inside.</para>
     ///
     /// <para>Only <c>Off</c> is corrected. A clone whose original already culls Front is a
     /// deliberate inside-out surface and stays one.</para>
@@ -2039,6 +2109,123 @@ internal sealed class PeerBoardFade : MonoBehaviour
 
     // ------------------------------------------------------------------------ diagnostics ------
 
+    /// <summary>
+    /// THE RENDER STATE ON BOTH SIDES OF THE RELEASE INSTANT, read off the two materials rather
+    /// than derived from the flags that decided them.
+    ///
+    /// <para>WHY IT HAD TO EXIST. Two rounds have now been spent on "the un-fade still pops", and
+    /// both of them INFERRED the step from the code: 445 enumerated three render-state terms from
+    /// <c>MakeTransparentClone</c> and argued two of them invisible. Nothing in the log could
+    /// contradict that enumeration, because nothing in the log contained a render state. Every
+    /// term below is read from <c>Material</c> A (the clone, i.e. the frame BEFORE the restore) and
+    /// <c>Material</c> B (the original, i.e. the frame AFTER it), on the release frame, so the next
+    /// round reads a step instead of arguing one.</para>
+    /// </summary>
+    private struct ReleaseStep
+    {
+        public int Clones;
+        public int ZWriteDiff;
+        public int CullDiff;
+        public int BlendDiff;
+        public int QueueDiff;
+        public int ShaderDiff;
+        /// <summary>The first differing pair, in words, so a non-zero count above names something.</summary>
+        public string? Worst;
+
+        public void Measure(Surface s)
+        {
+            Material[]? installed = s.Installed;
+            Material[]? original = s.Original;
+            if (installed == null || original == null)
+                return;
+            for (int i = 0; i < installed.Length && i < original.Length; i++)
+            {
+                Material a = installed[i], b = original[i];
+                if (a == null || b == null || ReferenceEquals(a, b))
+                    continue;
+                Clones++;
+                if (a.shader != b.shader)
+                {
+                    ShaderDiff++;
+                    Worst ??= $"shader '{a.shader.name}' -> '{b.shader.name}' on '{b.name}'";
+                }
+                if (a.renderQueue != b.renderQueue)
+                {
+                    QueueDiff++;
+                    Worst ??= $"queue {a.renderQueue} -> {b.renderQueue} on '{b.name}'";
+                }
+                if (Differs(a, b, ZWriteId))
+                {
+                    ZWriteDiff++;
+                    Worst ??= $"ZWrite {Read(a, ZWriteId):0} -> {Read(b, ZWriteId):0} on '{b.name}'";
+                }
+                if (Differs(a, b, CullId))
+                {
+                    CullDiff++;
+                    Worst ??= $"cull {Read(a, CullId):0} -> {Read(b, CullId):0} on '{b.name}'";
+                }
+                if (Differs(a, b, SrcBlendId) || Differs(a, b, DstBlendId))
+                {
+                    BlendDiff++;
+                    Worst ??= $"blend {Read(a, SrcBlendId):0}/{Read(a, DstBlendId):0} -> " +
+                              $"{Read(b, SrcBlendId):0}/{Read(b, DstBlendId):0} on '{b.name}'";
+                }
+            }
+        }
+
+        private static float Read(Material m, int id) => m.HasProperty(id) ? m.GetFloat(id) : -1f;
+
+        private static bool Differs(Material a, Material b, int id) =>
+            (a.HasProperty(id) || b.HasProperty(id))
+            && !Mathf.Approximately(Read(a, id), Read(b, id));
+    }
+
+    /// <summary>
+    /// ONE line on the frame the clones come off, naming every render-state term that MOVED and
+    /// every one that did not. This is the line a repeat of <i>"das Ploppen wenn die Transparenz
+    /// aus geht"</i> is judged against, and it is deliberately a MEASUREMENT of both sides rather
+    /// than a restatement of the decision that produced them.
+    ///
+    /// <para><b>HOW TO READ IT.</b> <c>ZWrite 0</c> and <c>cull 0</c> are the answer: the depth
+    /// band (<see cref="SettleAlpha"/>/<see cref="UnsettleAlpha"/>) has had the clone in its
+    /// original depth state since alpha 0.55, and the board material now ships <c>Cull Back</c>
+    /// (<c>VRCardFactory.EnforceSingleSided</c>), so neither can move here. <c>blend</c> and
+    /// <c>queue</c> are EXPECTED to be non-zero and are the two terms this class deliberately does
+    /// not settle — <c>SrcAlpha/OneMinusSrcAlpha</c> at alpha 1 is <c>One/Zero</c> in every
+    /// channel, and a queue change on a surface that is already writing depth reorders nothing —
+    /// so they are printed to be RULED OUT, not to be fixed. <c>shader</c> non-zero means the
+    /// unlit-swap recipe is in play and the bundle is older than ModBuild 351; that one IS a
+    /// visible step and the census line says how many renderers it covers.</para>
+    ///
+    /// <para><b>THE FALSIFIER, stated so silence cannot be read as success.</b> In a session where
+    /// no peer board ever fades, this line NEVER APPEARS — no engage, no release, nothing to
+    /// measure. Absence therefore proves nothing about the pop. The line that says the subsystem
+    /// was alive at all is <c>see-through census</c> (printed on the first census of every board,
+    /// faded or not); the line that says a transition happened is <c>see-through delivery</c>. So
+    /// the only reading that means "the fix holds" is: census present, delivery RELEASED present,
+    /// and this line present with <c>ZWrite 0, cull 0, shader 0</c>. Census present with no
+    /// RELEASED means the board never fell far enough to fade, and the item is untested.</para>
+    /// </summary>
+    private void LogReleaseStep(in ReleaseStep step, int cloned, int settled)
+    {
+        if (step.Clones == 0)
+            return;
+        // HW-VERIFY
+        VRLog.Note("Net", $"Peer board [{_playerId}] RELEASE STEP at alpha {_drivenAlpha:0.000}: " +
+            $"{step.Clones} clone/original material pair(s) compared on the release frame — " +
+            $"ZWrite {step.ZWriteDiff}, cull {step.CullDiff}, shader {step.ShaderDiff}, " +
+            $"blend {step.BlendDiff}, queue {step.QueueDiff} differing; " +
+            $"{settled} of {cloned} clone(s) were in their ORIGINAL depth state" +
+            (step.Worst == null ? "" : $"; first difference: {step.Worst}") + ". THE FRAME BEFORE " +
+            "is the clone's state, THE FRAME AFTER is the original's, both read off the materials " +
+            "here rather than off the flags that set them. ZWrite, cull and shader must all read " +
+            "0: the depth band settles at alpha 0.55 with half the ramp still to run, the board " +
+            "material is Cull Back on both sides, and a lit-clone keeps its shader. blend and " +
+            "queue are EXPECTED non-zero and are not defects — SrcAlpha/OneMinusSrcAlpha at " +
+            "alpha 1 is One/Zero, and a queue move on a surface that already writes depth " +
+            "reorders nothing. PURELY LOCAL: nothing here touched the owner's board or the wire.");
+    }
+
     /// <summary>How many driven surfaces currently carry a clone that has been put back into its
     /// ORIGINAL depth state (<see cref="SettleDepthState"/>). Diagnostic only.</summary>
     private int SettledCount()
@@ -2067,11 +2254,13 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// <list type="bullet">
     /// <item>ENGAGED / RELEASED come in pairs. A RELEASED with no ENGAGED before it is a board
     ///   that was handed back without ever having been taken.</item>
-    /// <item>RELEASED reports how many clones had reached the DEPTH SETTLE
-    ///   (<see cref="SettleDepthState"/>). That is the user item 10 repair, and it is the number to
-    ///   read first against a repeat of "es ploppt einfach auf": a release with 0 settled clones on
-    ///   a board that has any is a release the ramp got to before the settle did, and the
-    ///   one-frame ZWrite hand-back is still in the picture.</item>
+    /// <item>RELEASED reports how many clones were carrying their ORIGINAL depth state
+    ///   (<see cref="SettleDepthState"/>). A release with 0 of them on a board that has clones is a
+    ///   release the ramp got to before the depth band did, and the one-frame ZWrite hand-back is
+    ///   still in the picture. THIS COUNT IS NOT THE ANSWER ON ITS OWN, and the 447 capture is why:
+    ///   every RELEASED line in it read "all N", the repair had run on every release, and the user
+    ///   reported the plop again — a flag saying the depth state was handed back EARLY says nothing
+    ///   about how early. <see cref="LogReleaseStep"/> is the line that measures it.</item>
     /// <item>RESET names its cause in words — the mode dial, a lost head camera, the board root
     ///   being deactivated by the [Net] gate, a destroy — and says whether the board got there over
     ///   the ramp or instantly. The two instant ones are structural (a deactivated or destroyed

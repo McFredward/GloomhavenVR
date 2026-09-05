@@ -165,6 +165,7 @@ internal sealed class VRCardFactory
         if (prefab != null)
         {
             VRLog.Info("Cards", $"Control board '{board}' → '{selectedPath}' loaded from bundle.");
+            EnforceSingleSided(prefab, selectedPath);
             return prefab;
         }
 
@@ -175,6 +176,7 @@ internal sealed class VRCardFactory
             {
                 VRLog.Info("Cards", $"Control board '{board}' ('{selectedPath}') not in bundle — " +
                                     $"fell back to Oak ('{OakTrayPath}').");
+                EnforceSingleSided(prefab, OakTrayPath);
                 return prefab;
             }
         }
@@ -220,8 +222,95 @@ internal sealed class VRCardFactory
         GameObject? prefab = bundle.LoadAsset<GameObject>(TrayPrefabPath(board));
         if (prefab == null && TrayPrefabPath(board) != OakTrayPath)
             prefab = bundle.LoadAsset<GameObject>(OakTrayPath);
+        // The peer's board is the SAME asset drawn by the SAME material, and the 1:1 rule says what
+        // a peer sees of another player's board must match what that player sees of their own. The
+        // rule is applied on every path that reaches the prefab, not only the local one.
+        EnforceSingleSided(prefab, TrayPrefabPath(board));
         return prefab;
     }
+
+    /// <summary>Board materials this process has already corrected — keyed by material instance id,
+    /// because the three styles share nothing and a session may load two of them.</summary>
+    private static readonly HashSet<int> CulledBoardMaterials = new();
+    /// <summary>Tray prefab paths already reported. ONE line per STYLE, not one per session and
+    /// not one per load: the prefab is fetched again on every board rebuild and on every remote
+    /// board that appears, so a per-load line would be spam; but a per-session latch would hide a
+    /// second style that arrives with a different cull mode, which is exactly the reading this line
+    /// exists to give. Three paths exist, so this is bounded at three lines.</summary>
+    private static readonly HashSet<string> LoggedBoardCullPaths = new();
+
+    /// <summary>
+    /// A CONTROL BOARD HAS NO BACK FACES (user, 2026-09-05: <i>"alle Controll boards sollen gar
+    /// keine back-faces haben"</i>). <c>GloomhavenVR/BoardLit</c> defaults to <c>Cull Back</c>;
+    /// <c>BuildBoard.cs</c> overrode it to <c>Cull Off</c> for a photogrammetry mesh with 1288–1639
+    /// hole loops, and that mesh was replaced by authored, watertight geometry in the ModBuild 271
+    /// rebuild. <c>BuildBoard.cs</c> now bakes <c>Cull Back</c> — but that is a BUNDLE input and a
+    /// DLL-only drop does not carry it, so the same rule is applied here to whatever bundle is
+    /// actually loaded. Against a re-baked bundle this finds nothing to do and says so.
+    ///
+    /// <para>MEASURED BEFORE IT WAS WRITTEN, on the shipped FBXes and the shipped bundle:
+    /// <c>gen_winding.py</c> reports 0 inward-wound faces and positive, recalc-invariant signed
+    /// volume on all three styles, and <c>PreviewBoard.CullBackCheck</c> puts the whole Cull Back /
+    /// Cull Off difference at 86 / 6 / 10 px of 840 000, sitting as two strokes on an edge-on rim
+    /// wall rather than anywhere a hole could be. So this removes back-face overdraw and reveals
+    /// nothing.</para>
+    ///
+    /// <para>IT IS A WRITE TO A BUNDLE MATERIAL, AND THAT IS DELIBERATE AND SAFE. The material is
+    /// ours, it is loaded once per process, and every board instance shares it — which is exactly
+    /// the "ALL control boards" the user asked for, local and peer alike, in one write. It is NOT a
+    /// <c>sharedMaterials</c> write on a renderer: <c>PeerBoardFade</c>'s private clones are
+    /// untouched by it, and because the clone's depth settle hands back the ORIGINAL's cull mode,
+    /// correcting the original also removes cull from the set of things a fade can change.
+    /// Idempotent, and only <c>Off</c> is corrected — a material deliberately culling Front stays
+    /// inside out.</para>
+    /// </summary>
+    private static void EnforceSingleSided(GameObject? prefab, string path)
+    {
+        if (prefab == null)
+            return;
+        int corrected = 0, already = 0;
+        foreach (Renderer r in prefab.GetComponentsInChildren<Renderer>(true))
+        {
+            if (r == null)
+                continue;
+            foreach (Material? m in r.sharedMaterials)
+            {
+                if (m == null || !m.HasProperty(CullPropertyId))
+                    continue;
+                if (!CulledBoardMaterials.Add(m.GetInstanceID()))
+                    continue;
+                if (Mathf.Approximately(m.GetFloat(CullPropertyId), (float)UnityEngine.Rendering.CullMode.Off))
+                {
+                    m.SetFloat(CullPropertyId, (float)UnityEngine.Rendering.CullMode.Back);
+                    corrected++;
+                }
+                else
+                {
+                    already++;
+                }
+            }
+        }
+        if (corrected == 0 && already == 0)
+            return;
+        if (!LoggedBoardCullPaths.Add(path))
+            return;
+        // HW-VERIFY
+        VRLog.Note("Cards", $"BOARD CULL: '{path}' — {corrected} board material(s) were Cull Off " +
+            $"and are now Cull Back, {already} already single-sided. A control board draws NO back " +
+            "faces from here on, local and peer alike, in every state including mid-fade. The " +
+            "Cull Off it used to ship was a workaround for the pre-rebuild photogrammetry shells " +
+            "(1288-1639 hole loops), and the mesh it was written for no longer exists: gen_winding " +
+            "reports 0 inward-wound faces and positive signed volume on all three authored boards, " +
+            "and PreviewBoard.CullBackCheck puts the entire Cull Back / Cull Off difference at " +
+            "86 / 6 / 10 px of 840 000, on an edge-on rim wall. A 'corrected' count above zero " +
+            "means the loaded BUNDLE still bakes Cull Off and this DLL is doing the work; zero " +
+            "corrected with a non-zero 'already' means the re-baked bundle arrived and this call " +
+            "is now a no-op. THE FALSIFIER: if this line is absent from a session in which a " +
+            "control board was on screen, the enforcement never ran on the path that built it — " +
+            "look for a fourth loader of the tray prefab, not for a board that is somehow exempt.");
+    }
+
+    private static readonly int CullPropertyId = Shader.PropertyToID("_Cull");
 
     private GameObject? LoadPrefab(string[] candidates)
     {

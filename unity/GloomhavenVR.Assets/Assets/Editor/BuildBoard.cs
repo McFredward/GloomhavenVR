@@ -206,16 +206,41 @@ namespace GloomhavenVR
                 Debug.LogWarning($"[GloomhavenVR] No metallic/roughness pack at '{board.Mrs}' — this board "
                                  + "keeps BoardLit's zero specular and will read as a painted dielectric.");
             }
-            // WATERTIGHT FIX — render the board double-sided (Cull Off). The AI board mesh is
-            // fragmented (1064 shells, 20 268 non-manifold edges), so with the default Back
-            // culling its many small holes reveal the CULLED interior and, in MR passthrough,
-            // the bright green background shows through (offscreen render: ~140 see-through px
-            // across 5 POVs). Every hole here has a wall behind it, so Cull Off — with BoardLit's
-            // VFACE two-sided lighting flipping the normal so that inner wall is lit, not black —
-            // fills every hole with board surface instead of background (verified: 0 see-through
-            // px, all 5 POVs). Purely a render-state change: the mesh, the six anchors, the
-            // recessed functional face and the MeshCollider the mod raycasts are all untouched.
-            mat.SetFloat("_Cull", 0f); // 0 = CullMode.Off
+            // NO BACK FACES ON A CONTROL BOARD (user, 2026-09-05: "alle Controll boards sollen gar
+            // keine back-faces haben"). BoardLit's own default is Cull Back; this line used to
+            // override it to Off, and THE MESH IT WAS WRITTEN FOR NO LONGER EXISTS.
+            //
+            // WHAT IT SAID, VERBATIM, AND WHY IT WAS RIGHT AT THE TIME: "the AI board mesh is
+            // fragmented (1064 shells, 20 268 non-manifold edges), so with the default Back culling
+            // its many small holes reveal the CULLED interior and, in MR passthrough, the bright
+            // green background shows through (~140 see-through px across 5 POVs)". That mesh was a
+            // decimated photogrammetry shell. The ModBuild 271 rebuild replaced all three boards
+            // with authored geometry under BOARD-CONTRACT.md, which REQUIRES "watertight: 0 hole
+            // loops, 0 non-manifold edges, 0 loose verts". There is no hole left for a back face to
+            // show through, so the workaround has outlived its cause and has been costing two-sided
+            // overdraw on a 0.64 m object that fills a large part of both eyes ever since.
+            //
+            // MEASURED ON THE SHIPPED FBXes AND THE SHIPPED BUNDLE, not asserted:
+            //   * gen_winding.py (2026-09-05, current FBXes): INWARD-WOUND 0 faces on all three
+            //     styles (7361 / 8879 / 11252 faces), flipped area 0.0 mm^2, signed volume
+            //     5153.8 / 4570.8 / 5260.1 cm^3 and unchanged by recalc — "outward already". A
+            //     closed shell whose every face is wound outward loses NOTHING to Cull Back.
+            //   * PreviewBoard.CullBackCheck (same run, both POVs): Cull Back differs from Cull Off
+            //     on 86 / 6 / 10 px out of 840 000 (oak / steel / bronze), and oak_flat_culldiff.png
+            //     shows them as two short strokes on the LEFT RIM — a wall seen exactly edge-on,
+            //     where which side wins is a sub-pixel rasteriser tie. Not a hole, not a silhouette.
+            //
+            // IT ALSO REMOVES A TERM FROM THE PEER-BOARD FADE. Net/Board/PeerBoardFade.cs forces its
+            // private clone single-sided for the ramp and hands the ORIGINAL's cull mode back when
+            // the clone settles; while the original said Off, that hand-back re-introduced the
+            // interior on one frame near the top of the ramp. With the original at Back the fade's
+            // ForceSingleSided is a no-op and cull cannot change in any state of a fade.
+            //
+            // Purely a render-state change: the mesh, the seven anchors, the recessed functional
+            // face and the MeshCollider the mod raycasts are all untouched. THIS IS A BUNDLE INPUT —
+            // a DLL-only drop does not carry it, which is why VRCardFactory.EnforceSingleSided
+            // applies the same rule to whatever bundle is actually loaded.
+            mat.SetFloat("_Cull", 2f); // 2 = CullMode.Back
             AssetDatabase.CreateAsset(mat, board.Mat);
             AssetDatabase.SaveAssets();
             Debug.Log($"[GloomhavenVR] Material built: albedo={(albedo ? albedo.name : "none")}, "
