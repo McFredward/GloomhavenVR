@@ -26,11 +26,19 @@
 //      invisible at yaw 0 and at pitch 0 — i.e. in exactly the state anyone would eyeball it in —
 //      so it is driven at a pitch and a yaw that are both far from zero.
 //
-//   3. THE FIXED POINTS, which are the whole explanation for the report. The mirror's visible cost
-//      is set by the YAW alone, and it vanishes at 0° and at ±180°. A figure pose tuned near a
-//      fixed point looks identical in both hands while a map-item pose tuned at the shipped −133°
-//      swings ~94°, with not one line of code differing between them. If that ever stopped being
-//      true, the explanation handed to the user would be wrong.
+//   3. THE SWING IS THE YAW, DOUBLED. The mirror's visible cost is set by the YAW alone and equals
+//      wrap(2*yaw): it vanishes at 0° and at ±180° and is widest near ±90°. The FIXED-POINT story
+//      that once lived here — "his figure yaw happens to sit where the mirror is invisible" — is
+//      DEAD, killed by the ModBuild 434 log, which printed a 94° figure swing beside a user who is
+//      happy with the figures. What is true is that 2*(−133°) wraps to 94° and 2*(−89°) wraps to
+//      178°: the same defect, twice the size, about a near-vertical axis. A miniature spun 94°
+//      about its standing axis is still a miniature standing up; a chest spun 178° shows its back.
+//
+//   3b. THE ANCHOR PAIR IS A MIRROR PAIR, read out of the shipped prefabs. The raw left<->right
+//      Anchor_Grab angle reads 0.021°/1.998°/11.401° on the Glove/Plate/Arcane sets and the 11.4°
+//      has been mistaken for an authoring fault. It is not one: the left quaternion is exactly
+//      (-x, y, z, -w) of the right on all three, which IS conjugation by diag(-1, 1, 1). The
+//      residual against that conjugate is ~0 everywhere, so the anchor is not a second cause.
 //
 //   4. THE SWITCH, AND WHICH OF THE TWO POSES IT PICKS. [FigureGrab] PropHeldSameInBothHands on
 //      must give both hands the pose the LEFT hand already shows — the one he tuned and accepted —
@@ -38,11 +46,19 @@
 //      look self-consistent in a headset; only one of them means he never has to re-enter a dial.
 //      There is no runtime symptom that separates them, so it is nailed down here.
 //
+//   5. THE OFFSET DOES NOT FOLLOW THE SWITCH, AND IT USED TO. The offset is written to
+//      t.localPosition in ANCHOR space, which HeldPoseMirror.UprightBase never cancels, so its flip
+//      is unconditionally right. While PropHeldSameInBothHands reached it, turning the switch ON
+//      moved a right-hand item from +0.051 m to -0.051 m in anchor X — 10.2 cm to the pinky side of
+//      the palm. The one key that fixed the reported rotation broke the position in the same click,
+//      and nothing but this file would have caught it before hardware.
+//
 // WHY THE EULER CONVERSION IS LOCAL, and why that is honest rather than a mirrored
 // re-implementation. `Quaternion.Euler` is one of the few members of UnityEngine.CoreModule that
 // is NOT managed — it is an ECall into the engine (`Internal_FromEulerRad`) and throws a
 // SecurityException outside a Unity process, so `HeldPoseMirror.Upright` cannot be called from
-// here at all. What CAN be called is everything the mirror actually decides: `Sign`, `Angle` and
+// here at all. What CAN be called is everything the mirror actually decides: `RotationSign`,
+// `OffsetSign`, `Angle`, `UprightBase`, `MirrorResidualDegrees` and
 // `Offset` are driven as the real shipped functions, and the rotation blocks feed their REAL
 // output into a local half-angle conversion, so the sign logic under test is never re-implemented
 // — only the trig is. Quaternion multiplication, `Quaternion.Angle`, `Vector3.Angle` and
@@ -86,6 +102,8 @@ internal static class HeldPoseMirrorVectors
         SwingIsSetByYawAlone(t);
         TheSwitchNeedsNoArithmetic(t);
         OneDefinitionForBothPaths(t, repoRoot);
+        AnchorPairsAreMirrorConjugate(t, repoRoot);
+        TheUprightBaseCancelsTheAnchor(t, repoRoot);
     }
 
     // -------------------------------------------------------------------------------------------
@@ -193,8 +211,8 @@ internal static class HeldPoseMirrorVectors
     {
         t.Case("mirror/offset-flips-x-only");
 
-        Vector3 right = HeldPoseMirror.Offset(left: false, bothHandsAlike: false, PropSide, PropUp, PropForward);
-        Vector3 left = HeldPoseMirror.Offset(left: true, bothHandsAlike: false, PropSide, PropUp, PropForward);
+        Vector3 right = HeldPoseMirror.Offset(left: false, PropSide, PropUp, PropForward);
+        Vector3 left = HeldPoseMirror.Offset(left: true, PropSide, PropUp, PropForward);
 
         t.True(Mathf.Abs(right.x - PropSide) < VectorEpsilon,
                "the RIGHT hand is the hand the dials are authored for — it takes the value as written");
@@ -304,18 +322,28 @@ internal static class HeldPoseMirrorVectors
                "and it is deliberately NOT the authored (right-hand) form — handing both hands "
                + "that would show him the picture he reported, in both hands");
 
-        t.Case("mirror/the-offset-follows-the-same-switch");
-        Vector3 offRight = HeldPoseMirror.Offset(left: false, bothHandsAlike: true,
-                                                 PropSide, PropUp, PropForward);
-        Vector3 offLeft = HeldPoseMirror.Offset(left: true, bothHandsAlike: true,
-                                                PropSide, PropUp, PropForward);
-        Vector3 leftUnderMirror = HeldPoseMirror.Offset(left: true, bothHandsAlike: false,
-                                                        PropSide, PropUp, PropForward);
-        t.True((offRight - offLeft).sqrMagnitude < VectorEpsilon * VectorEpsilon,
-               "the offset follows the same switch as the rotation — one key, never a half-mirror");
-        t.True((offRight - leftUnderMirror).sqrMagnitude < VectorEpsilon * VectorEpsilon,
-               "…and lands on the LEFT hand's offset too, so the item sits in the same PLACE in "
-               + "both hands and not merely at the same angle");
+        // THE OFFSET DOES NOT FOLLOW THE SWITCH, AND THIS BLOCK USED TO ASSERT THAT IT DID
+        // (2026-09-05, round 2). The old assertion was wrong for a reason no runtime symptom in a
+        // headset would have separated from the reported one: the offset is written to
+        // t.localPosition, in ANCHOR space, and HeldPoseMirror.UprightBase never touches it — so
+        // unlike the rotation the anchor does NOT cancel out of it, the anchor's ±X really is the
+        // anatomically opposite direction on the two hands, and the flip is right on every setting.
+        // While the switch reached it, turning the switch ON moved a right-hand item from
+        // +0.051 m to −0.051 m in anchor X, 10.2 cm across the palm to the pinky side. The key that
+        // fixed the reported rotation broke the position in the same click.
+        t.Case("mirror/the-offset-never-follows-the-switch");
+        Vector3 offRight = HeldPoseMirror.Offset(left: false, PropSide, PropUp, PropForward);
+        Vector3 offLeft = HeldPoseMirror.Offset(left: true, PropSide, PropUp, PropForward);
+        t.True(Mathf.Abs(offRight.x - PropSide) < VectorEpsilon,
+               "the RIGHT hand keeps the authored lateral offset whatever the switch says — the "
+               + "switch is a ROTATION mode and the offset lives in a frame the mirror is "
+               + "unconditionally right in");
+        t.True(Mathf.Abs(offLeft.x + PropSide) < VectorEpsilon,
+               "…and the LEFT hand keeps the negated one, so the item stays on the thumb side of "
+               + "BOTH palms on either setting");
+        t.True((offRight - offLeft).sqrMagnitude > VectorEpsilon,
+               "…which means the two hands' offsets stay DIFFERENT: collapsing them was the "
+               + "10.2 cm jump across the palm the old design shipped");
 
         // THE FLAT PALM POSE. Pitch-only, so the switch cannot rotate anything there; the offset
         // above is the whole of its effect. Worth an assertion because a reader of the key's
@@ -329,13 +357,13 @@ internal static class HeldPoseMirrorVectors
                < AngleEpsilon,
                "the flat palm pose is pitch-only, so the switch cannot rotate it — it is the same "
                + "rotation the upright pose gives at yaw 0 and roll 0, on either hand");
-        // …and the offset half, which IS moved, and is therefore the whole of the switch's effect
-        // in that pose. The magnitude is stated so a silently-zeroed PropHeldOffsetSide could not
-        // make this pass.
-        t.True(Mathf.Abs(offRight.x - PropSide) > VectorEpsilon
-               && Mathf.Abs(offRight.x + PropSide) < VectorEpsilon,
-               "…while the sideways offset does move — with PropHeldUpright off the switch changes "
-               + "the offset and nothing else, which is what the key's description promises");
+        // …and the offset half, which is NOT moved either, so in the flat palm pose the switch
+        // does nothing whatsoever. That is what the key's description now promises, and it is the
+        // half that changed this round: the offset used to be the switch's entire effect there.
+        // The magnitude is stated so a silently-zeroed PropHeldOffsetSide could not make it pass.
+        t.True(Mathf.Abs(offRight.x - PropSide) < VectorEpsilon && Mathf.Abs(PropSide) > VectorEpsilon,
+               "…and the sideways offset does not move either — with PropHeldUpright off the "
+               + "switch changes NOTHING, which is what the key's description promises");
     }
 
     // -------------------------------------------------------------------------------------------
@@ -396,6 +424,21 @@ internal static class HeldPoseMirrorVectors
                + "switchable by a key he did not ask for");
         t.True(props.Contains("PropHeldSameInBothHands"),
                "and the map items' switch is bound where its eight siblings are");
+
+        // THE SHIPPED DEFAULT, asserted against Defaults/ and not against a Clamped() fallback —
+        // on this project that distinction has cost a round of its own. ModBuild 434 shipped this
+        // key OFF and the hardware log came back "PropHeldSameInBothHands = False" beside the
+        // unchanged complaint: a remedy the player has to find is not a remedy. 435 ships it ON, so
+        // a player who changes nothing gets a map item held the same way in both hands.
+        t.Case("mirror/the-switch-ships-on");
+        string defaults = ReadOrEmpty(Path.Combine(
+            repoRoot, "src", "GloomhavenVR", "Defaults", "Defaults.Board.cs"));
+        t.True(Regex.IsMatch(defaults, @"PropHeldSameInBothHands\s*=\s*true\s*;"),
+               "Defaults.PropHeldSameInBothHands ships TRUE — both hands hold a map item the way "
+               + "the LEFT hand held it, with no dial re-entered and no setting to find");
+        t.True(Regex.IsMatch(defaults, @"PropHeldRotYaw\s*=\s*-133f\s*;"),
+               "…and PropHeldRotYaw's shipped default is untouched at -133: the switch changes "
+               + "which FORM both hands take, never the number anyone has tuned");
     }
 
     /// <summary>
@@ -406,6 +449,174 @@ internal static class HeldPoseMirrorVectors
     /// reports the defect. That is a mistake this repo has already paid for and has a note about:
     /// a token quoted in its own explanation counts itself.
     /// </summary>
+
+    // -------------------------------------------------------------------------------------------
+    //  8. THE ANCHOR PAIR IS A MIRROR PAIR — read out of the shipped prefabs, not asserted in prose.
+    // -------------------------------------------------------------------------------------------
+    //
+    // The 2026-09-05 round arrived carrying a suspected SECOND cause: "Anchor_Grab differs
+    // left<->right by 11.40° on the Arcane hand set (Plate 1.998°, Glove 0.021°), and the mirror
+    // assumes those frames are mirror-conjugate." Those three numbers are real and they are NOT an
+    // asymmetry. Quaternion.Angle(left, right) measures how far apart the two frames are, and two
+    // frames that are correct MIRROR IMAGES of each other are only equal when the axis happens to
+    // lie in the mirror plane — which is exactly what the Glove's does (w = 0, x = 0: a 180° turn
+    // about an in-plane axis is its own mirror image, hence 0.021° of float noise). The Plate and
+    // Arcane anchors are cocked progressively further OUT of that plane, so their mirrors sit
+    // progressively further away. The number that would actually show a broken pair is the residual
+    // against the true conjugate, and it is ~0 on all three.
+    //
+    // Read straight out of the .prefab YAML rather than from a copied literal: the whole point is
+    // that the assertion fails if someone re-authors a hand set, which a literal could not see. If
+    // the prefabs are not reachable (a source drop without the unity/ tree) the case reports that
+    // and does not pretend to have measured anything — a missing file must never read as a pass.
+    private static void AnchorPairsAreMirrorConjugate(Harness t, string repoRoot)
+    {
+        t.Case("mirror/anchor-pairs-are-mirror-conjugate");
+
+        string dir = Path.Combine(repoRoot, "unity", "GloomhavenVR.Assets",
+                                  "Assets", "Bundle", "Hands");
+        string[] sets = { "VRHand", "VRHandPlate", "VRHandArcane" };
+        int measured = 0;
+
+        foreach (string set in sets)
+        {
+            Quaternion? l = AnchorGrabRotation(Path.Combine(dir, set + "_L.prefab"));
+            Quaternion? r = AnchorGrabRotation(Path.Combine(dir, set + "_R.prefab"));
+            if (l == null || r == null)
+                continue;
+
+            measured++;
+            float residual = HeldPoseMirror.MirrorResidualDegrees(l.Value, r.Value);
+            t.True(residual < 0.05f,
+                   set + ": the LEFT Anchor_Grab is the diag(-1,1,1) conjugate of the RIGHT one — "
+                   + "residual " + residual.ToString("0.####") + "°, so the anchors are a correct "
+                   + "mirror pair and are NOT a second cause of the handedness report");
+        }
+
+        t.True(measured == sets.Length,
+               "all three shipped hand sets were actually read (" + measured + " of "
+               + sets.Length + ") — a prefab that cannot be found must not read as a pass");
+    }
+
+    /// <summary>The Anchor_Grab GameObject's local rotation out of a Unity .prefab YAML, or null
+    /// when the file or the object is not there. Deliberately a small hand parse and not a YAML
+    /// library: the only thing wanted is one m_LocalRotation on the one Transform whose
+    /// m_GameObject is the object named Anchor_Grab.</summary>
+    private static Quaternion? AnchorGrabRotation(string path)
+    {
+        if (!File.Exists(path))
+            return null;
+
+        string text = File.ReadAllText(path);
+        // Documents are "--- !u!<class> &<fileID>"; a GameObject is class 1, a Transform class 4.
+        string[] docs = Regex.Split(text, @"^--- !u!(\d+) &(\d+)\s*$", RegexOptions.Multiline);
+
+        string? anchorId = null;
+        for (int i = 1; i + 2 < docs.Length + 1 && i + 2 <= docs.Length; i += 3)
+        {
+            if (docs[i] == "1" && Regex.IsMatch(docs[i + 2], @"^\s*m_Name:\s*Anchor_Grab\s*$",
+                                                RegexOptions.Multiline))
+            {
+                anchorId = docs[i + 1];
+                break;
+            }
+        }
+        if (anchorId == null)
+            return null;
+
+        for (int i = 1; i + 2 <= docs.Length; i += 3)
+        {
+            if (docs[i] != "4"
+                || !Regex.IsMatch(docs[i + 2], @"m_GameObject:\s*\{fileID:\s*" + anchorId + @"\}"))
+                continue;
+
+            Match m = Regex.Match(docs[i + 2],
+                @"m_LocalRotation:\s*\{x:\s*(\S+?),\s*y:\s*(\S+?),\s*z:\s*(\S+?),\s*w:\s*(\S+?)\}");
+            if (!m.Success)
+                return null;
+            return new Quaternion(Num(m.Groups[1].Value), Num(m.Groups[2].Value),
+                                  Num(m.Groups[3].Value), Num(m.Groups[4].Value));
+        }
+        return null;
+    }
+
+    private static float Num(string s)
+        => float.Parse(s, System.Globalization.CultureInfo.InvariantCulture);
+
+    // -------------------------------------------------------------------------------------------
+    //  9. THE UPRIGHT-AT-GRAB BASE CANCELS THE ANCHOR — the term that decides the whole report.
+    // -------------------------------------------------------------------------------------------
+    //
+    // HeldPoseMirror's justification for negating the yaw and the roll is written entirely in
+    // ANCHOR space, and it is correct there. The shipped pose is not applied in anchor space:
+    // [FigureGrab] HeldUprightAtGrab and PropHeldUprightAtGrab both ship TRUE, and they compose the
+    // held rotation against Inverse(anchor.rotation) * W. The anchor therefore cancels out of the
+    // product exactly, leaving world = W * held with W a pure world-Y yaw and no handedness in it —
+    // so the mirror has nothing left to cancel and survives as a wrap(2*yaw) spin between the
+    // hands. That cancellation is the load-bearing step of the explanation handed to the user, and
+    // it is asserted two ways: as arithmetic on real quaternions, and as a source lint on the shape
+    // that produces it, because Quaternion.LookRotation is an engine ECall and cannot run here.
+    private static void TheUprightBaseCancelsTheAnchor(Harness t, string repoRoot)
+    {
+        t.Case("mirror/upright-at-grab-cancels-the-anchor");
+
+        // An arbitrary, deliberately non-trivial anchor rotation and an arbitrary world yaw, both
+        // written as raw quaternion literals so no Euler/LookRotation ECall is needed.
+        Quaternion anchor = Normalized(new Quaternion(0.2f, -0.5f, 0.31f, 0.78f));
+        Quaternion world = Normalized(new Quaternion(0f, 0.38268f, 0f, 0.92388f)); // 45° about +Y
+        Quaternion held = Normalized(new Quaternion(-0.11f, 0.62f, 0.05f, 0.77f));
+
+        // Quaternion.Inverse is an engine ECall like Quaternion.Euler, so the inverse is taken
+        // locally — for a UNIT quaternion it is exactly the conjugate, and all three above are
+        // normalized. Nothing about the cancellation under test is re-implemented by that: the
+        // multiplication, and therefore the cancellation itself, is Unity's own managed operator.
+        Quaternion uprightBase = Conjugate(anchor) * world;
+        Quaternion composed = anchor * (uprightBase * held);
+
+        t.True(Quaternion.Angle(composed, world * held) < AngleEpsilon,
+               "with upright-at-grab ON the anchor cancels out of the final world pose exactly — "
+               + "anchor * (Inverse(anchor) * W) * held IS W * held, so the mirror lands in a frame "
+               + "with no handedness in it and its whole justification is gone");
+
+        // The negative half: with the option OFF the base is identity and the anchor stays in, so
+        // the mirror is applied in the frame it is actually justified in.
+        t.True(Quaternion.Angle(anchor * (Quaternion.identity * held), world * held) > 1f,
+               "…and with it OFF the pose really does ride the anchor, which is the frame the "
+               + "reflection is correct in — the two modes are not cosmetically different");
+
+        t.Case("mirror/upright-base-still-has-the-cancelling-shape");
+        string mirror = ReadOrEmpty(Path.Combine(
+            repoRoot, "src", "GloomhavenVR", "Board", "FigureGrab", "HeldPoseMirror.cs"));
+        t.True(Regex.IsMatch(mirror,
+                   @"return\s+Quaternion\.Inverse\(anchorRotation\)\s*\*\s*Quaternion\.LookRotation\("),
+               "HeldPoseMirror.UprightBase still returns Inverse(anchorRotation) * LookRotation(...) "
+               + "— the exact shape whose cancellation the arithmetic above depends on");
+        t.True(Regex.IsMatch(mirror, @"if\s*\(!uprightAtGrab\)\s*\r?\n\s*return Quaternion\.identity;"),
+               "…and still returns identity when the option is off, so the anchor stays in the "
+               + "product and the reflection keeps the frame it is justified in");
+
+        t.Case("mirror/both-grab-paths-read-the-shared-upright-base");
+        string dir = Path.Combine(repoRoot, "src", "GloomhavenVR", "Board", "FigureGrab");
+        string fig = ReadOrEmpty(Path.Combine(dir, "FigureGrabbable.cs"));
+        string prop = ReadOrEmpty(Path.Combine(dir, "GrabbableProp.cs"));
+        t.True(fig.Contains("HeldPoseMirror.UprightBase") && prop.Contains("HeldPoseMirror.UprightBase"),
+               "both grab paths call the shared UprightBase — it was twelve character-identical "
+               + "lines in each file until 2026-09-05, and it is the term the report turned on");
+        t.True(!Regex.IsMatch(fig, @"Quaternion\.LookRotation\(flat")
+               && !Regex.IsMatch(prop, @"Quaternion\.LookRotation\(flat"),
+               "…and neither of them has grown its own copy back");
+    }
+
+    /// <summary>The inverse of a UNIT quaternion. <c>Quaternion.Inverse</c> is an ECall and throws
+    /// outside a Unity process, exactly like <c>Quaternion.Euler</c>.</summary>
+    private static Quaternion Conjugate(Quaternion q) => new(-q.x, -q.y, -q.z, q.w);
+
+    private static Quaternion Normalized(Quaternion q)
+    {
+        float n = Mathf.Sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+        return new Quaternion(q.x / n, q.y / n, q.z / n, q.w / n);
+    }
+
     private static string ReadOrEmpty(string path)
     {
         if (!File.Exists(path))

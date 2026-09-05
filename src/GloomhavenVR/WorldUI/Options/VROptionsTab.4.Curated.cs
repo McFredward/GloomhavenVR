@@ -1009,6 +1009,12 @@ internal static partial class VROptionsTab
                         // typing its key name is the standing complaint this menu exists to answer.
                         // Not on the figures' heading either — it is the map items' answer alone,
                         // and the figures deliberately keep the mirror.
+                        //
+                        // THIS ROUND: the key now ships ON. ModBuild 434 shipped it OFF and the hardware
+                        // log came back "PropHeldSameInBothHands = False" beside the unchanged
+                        // complaint — the row was here and he still did not turn it on, which is
+                        // the standing lesson about a remedy that costs the player a search. The
+                        // row stays so the OLD behaviour remains one click away.
                         new("FigureGrab", "PropHeldSameInBothHands", "",
                             "Map item: same in both hands", "Map-Item: in beiden Händen gleich"),
                     },

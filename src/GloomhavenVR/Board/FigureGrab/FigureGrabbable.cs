@@ -698,6 +698,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // invisible to a sample taken on the grab frame itself.
         _holdPictureDue = ActorPropBody.IsHeld(_actor);
 
+        // THE HANDEDNESS LINE, from the FIGURE path (2026-09-05, round 2). The same emitter the map
+        // items use — HeldPoseReport — so "the two paths share the code" is a thing the log shows
+        // rather than a thing a comment claims, and so a DESTRUCTIBLE OBSTACLE (which comes through
+        // here, via ActorPropBody.Hold, and is therefore NOT on the [FigureGrab] PropHeld* dials)
+        // says so on its own grab instead of being asked about.
+        HeldPoseReport.EmitForFigure(hand.Side, Label, anchor, _holdPictureDue);
+
         // Dock the SAME stat window shown on laser mouse-over next to the held figure.
         GameObject anchorGo = _actor.m_AnimatedGameObject != null ? _actor.m_AnimatedGameObject : root;
         StatPanelSurface.ShowHeldFigure(anchorGo.transform, Character, hand.Side);
@@ -754,20 +761,13 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// <para>MULTIPLAYER: nothing extra is needed. The held figure's WORLD rotation is what goes on
     /// the wire (Net.NetFigures), so a peer sees whatever this produces, exactly.</para>
     /// </summary>
+    /// <remarks>THE BODY LIVES IN <see cref="HeldPoseMirror.UprightBase"/> (2026-09-05). It was
+    /// twelve lines here and twelve character-identical lines in <c>GrabbableProp</c>, differing
+    /// only in which config bool they read — the sixth copied expression the handedness round
+    /// found, and the one that turned out to decide the whole report.</remarks>
     private static Quaternion CaptureUprightBase(Transform anchor)
-    {
-        if (!FigureGrabConfig.HeldUprightAtGrab.Value)
-            return Quaternion.identity;
-
-        Vector3 flat = Vector3.ProjectOnPlane(anchor.forward, Vector3.up);
-        if (flat.sqrMagnitude < 1e-6f)
-            flat = Vector3.ProjectOnPlane(anchor.up, Vector3.up);
-        if (flat.sqrMagnitude < 1e-6f)
-            flat = Vector3.forward;
-
-        Quaternion world = Quaternion.LookRotation(flat.normalized, Vector3.up);
-        return Quaternion.Inverse(anchor.rotation) * world;
-    }
+        => HeldPoseMirror.UprightBase(
+            FigureGrabConfig.HeldUprightAtGrab.Value, anchor.forward, anchor.up, anchor.rotation);
 
     private Quaternion _uprightBase = Quaternion.identity;
 
@@ -797,9 +797,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // (mirror-correct); legacy mode lays it flat (tilt only, mirror-invariant). _uprightBase is
         // identity unless the grab captured a world-upright start, so the tuned angles stay OFFSETS
         // either way — from "standing up" with the option on, from the hand with it off.
-        t.localRotation = _uprightBase * (FigureGrabConfig.HeldUpright.Value
-            ? FigureGrabConfig.HeldUprightRotation(side)
-            : FigureGrabConfig.HeldPalmRotation());
+        t.localRotation = _uprightBase * FigureGrabConfig.HeldRotationFor(side, FigureGrabConfig.HeldUpright.Value);
 
         // SIZE — the value LATCHED at the grab (see _heldLocalScale for the report, the root cause
         // and the rejected alternatives): the latch is the board world size at the grab instant, so

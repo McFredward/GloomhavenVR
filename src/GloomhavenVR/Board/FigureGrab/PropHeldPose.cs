@@ -21,11 +21,14 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// well cannot read the other well, and there was no dial that could say so. These eight keys
 /// are the figures' eight EFFECTIVE dials, mirrored one for one, on their own axis.</para>
 ///
-/// <para><b>NOTHING MOVES ON FIRST RUN.</b> Every default below is the figure value the mod
-/// SHIPS — read out of <c>Defaults/Defaults.Board.cs</c>, never off a <c>Clamped(...)</c> call,
-/// which on this project is a pre-bind fallback and not a shipped default. So the first build
-/// with these keys holds a chest exactly where ModBuild 349 held it, and only a deliberate edit
-/// moves it.</para>
+/// <para><b>NOTHING MOVES ON FIRST RUN — TRUE OF THE EIGHT, NO LONGER TRUE OF THE NINTH.</b>
+/// Every one of the eight defaults below is the figure value the mod SHIPS — read out of
+/// <c>Defaults/Defaults.Board.cs</c>, never off a <c>Clamped(...)</c> call, which on this project
+/// is a pre-bind fallback and not a shipped default. So the first build with those keys holds a
+/// chest exactly where ModBuild 349 held it, and only a deliberate edit moves them.
+/// <see cref="SameInBothHands"/> is the exception and says so in its own remarks: it was flipped
+/// to TRUE and it DOES move the picture, deliberately, because shipping the remedy switched off
+/// meant the user never found it.</para>
 ///
 /// <para><b>ONE MIRROR, NOT A SMALLER ONE.</b> The figures' pose is nine config keys per hand
 /// style (<c>{Glove,Plate,Arcane}HeldOffset{Side,Up,Forward}</c> +
@@ -39,11 +42,12 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///
 /// <para><b>AND ONE KEY THE FIGURES DO NOT HAVE</b> (2026-09-05, the handedness round):
 /// <see cref="SameInBothHands"/> decides whether the item is held the SAME WAY in both hands or as
-/// a mirror image between them.
-/// It is not part of the one-for-one mirror above and deliberately has no figure twin — the
-/// figures' hold was tuned round after round with the reflection in the picture and the user has
-/// accepted it ("bei den Figuren passt es"), so the figure call sites pass a literal
-/// <c>true</c>.</para>
+/// a mirror image between them. It is not part of the one-for-one mirror above and deliberately has
+/// no figure twin — the figures' hold was tuned round after round with the reflection in the
+/// picture and the user has accepted it ("bei den Figuren passt es"), so the figure call sites pass
+/// a literal <c>false</c> (mirror kept) while the map items ship it ON. That literal is the ONE
+/// number that differs between the two paths; the code behind it is one expression in
+/// <see cref="HeldPoseMirror"/> that both of them call.</para>
 ///
 /// <para><b>LIVE-TUNABLE, with no hook of its own.</b> A held prop's pose is re-asserted every
 /// frame by <c>GrabbableProp.TickHeld</c> → <c>ApplyHeldPose</c> (that re-assert is why a
@@ -106,25 +110,39 @@ internal static class PropHeldPose
     /// eingestellt, dass es für die linke Hand passt; wenn ich es dann mit der rechten Hand nehme,
     /// ist es verdreht — warum klappt das bei den Figuren, aber Props nicht?"</i></para>
     ///
-    /// <para><b>THE ANSWER, AND WHY IT IS A SWITCH AND NOT A FIX.</b> It does not work differently
-    /// for the figures. The prop path and the figure path apply the SAME mirror, and it is exact —
-    /// see <see cref="HeldPoseMirror"/>, which is now the one place either of them computes it.
-    /// What the mirror costs is set by the YAW alone: it reflects the held object's FACING and
-    /// leaves its up axis in the palm untouched, so at yaw 0° or ±180° the two hands are identical
-    /// and at the shipped −133° they present the object's front 94° apart. The figures' hold sits
-    /// where it does because it was tuned round after round WITH that reflection in the picture;
-    /// the map items' has not been. So the honest question is not "which path is broken" but
-    /// "should this object be mirrored at all", and that is about how the player holds their two
-    /// hands, which no amount of source reading decides.</para>
+    /// <para><b>THE ANSWER (2026-09-05, second round — the first one was wrong about WHERE).</b>
+    /// It does not work differently for the figures, and the mirror itself is exact: the shipped
+    /// left and right <c>Anchor_Grab</c> frames really are mirror-conjugate, measured off all three
+    /// prefab pairs (see <see cref="HeldPoseMirror"/>). What was wrong is the FRAME the mirror
+    /// lands in. <c>[FigureGrab] PropHeldUprightAtGrab</c> ships ON, and it composes the held
+    /// rotation against <c>Inverse(anchor.rotation) * W</c> — so the anchor cancels out of the final
+    /// world pose exactly, leaving <c>world = W * held</c> with <c>W</c> a pure world-Y yaw taken
+    /// from where the hand was pointing. There is no handedness left in that frame for the mirror to
+    /// cancel, so the mirror survives as itself: the two hands present the item <c>wrap(2·yaw)</c>
+    /// apart in the world.</para>
     ///
-    /// <para><b>SHIPPED FALSE = TODAY, BIT FOR BIT.</b> Nothing moves on first run: false is the
-    /// mirror, which is what every build since ModBuild 349 has done. Turned ON, both hands take
-    /// the MIRRORED form — so the hand the report was written about does not move at all and the
-    /// other one comes to meet it. It is the RIGHT hand that changes, and that is deliberate: the
-    /// player reaching for this switch is the player who tuned the pose while watching the hand the
-    /// dials are NOT authored for, so the picture he has already accepted is the mirrored one. See
-    /// <see cref="HeldPoseMirror.Sign"/>. He needs no arithmetic and his three dials keep both
-    /// their numbers and their meaning on either setting.</para>
+    /// <para><b>AND THAT IS WHY THE FIGURES SURVIVE IT.</b> Not because their yaw sits at a fixed
+    /// point — the ModBuild 434 log killed that theory by printing a 94° figure swing beside a happy
+    /// user. <c>wrap(2·−133°) = 94°</c> for the figures and <c>wrap(2·−89°) = 178°</c> for the map
+    /// items at the user's own re-tuned value: the same defect, twice the size, about a near-vertical
+    /// axis. A miniature spun 94° about its standing axis is still a miniature standing up in your
+    /// palm; a chest or a token spun 178° shows you its BACK. The object decides whether the artefact
+    /// reads as "turned" or as "verdreht"; the code never differed.</para>
+    ///
+    /// <para><b>SHIPPED TRUE, AND WHAT THAT DOES TO A TUNED CFG.</b> The user's
+    /// <c>PropHeldRotYaw = −89</c> is untouched and still reads −89 in his file. With this key ON
+    /// both hands apply <c>+89</c> — which is exactly what his LEFT hand applies today, i.e. the
+    /// picture he tuned and accepted ("so eingestellt, dass es für die linke Hand passt"). His RIGHT
+    /// hand comes over to match it and <c>mirrorSwing</c> goes to 0°. He re-enters nothing. Turning
+    /// the key OFF restores the mirror exactly as ModBuild 349-434 held it. See
+    /// <see cref="HeldPoseMirror.RotationSign"/> for why "identical" is the mirrored form and not the
+    /// authored one.</para>
+    ///
+    /// <para><b>IT NO LONGER TOUCHES THE OFFSET, AND IT USED TO.</b> Until this round the same
+    /// switch reached <c>HeldPoseMirror.Offset</c>, so turning it ON also moved a right-hand item
+    /// from +0.051 m to −0.051 m in anchor X — 10.2 cm to the pinky side of the palm. The offset is
+    /// written in ANCHOR space, which <c>UprightBase</c> never cancels, so its flip is right on every
+    /// setting and now follows nothing. See <see cref="HeldOffsetFor"/>.</para>
     ///
     /// <para><b>THE NAME IS THE PICTURE, NOT THE TRANSFORM.</b> It was called PropHeldMirrorHands
     /// for exactly one build and renamed the same day, because "mirror off" became a lie the moment
@@ -133,8 +151,10 @@ internal static class PropHeldPose
     /// each hand holds it as the mirror image of the other. No cfg anyone has tuned is orphaned by
     /// the rename — the key had never been in a build a player ran.</para>
     ///
-    /// <para><b>IN THE FLAT PALM POSE</b> (<see cref="Upright"/> off) this switch moves the OFFSET
-    /// and nothing else: that pose is pitch-only, and a pitch is mirror-invariant.</para>
+    /// <para><b>IN THE FLAT PALM POSE</b> (<see cref="Upright"/> off) this switch does NOTHING at
+    /// all: that pose is pitch-only and a pitch is mirror-invariant, and the offset stopped
+    /// following the switch this round. It used to move the offset, which is the paragraph
+    /// above.</para>
     ///
     /// <para>LIVE like the other eight (the per-frame re-assert in <c>GrabbableProp.TickHeld</c>
     /// re-poses whatever is already in the hand), and MULTIPLAYER-inert for the same reason they
@@ -158,6 +178,13 @@ internal static class PropHeldPose
             + "Glove/Plate/Arcane key still owns those. Ships at the figures' shipped value, so "
             + "nothing moves until you change it. LIVE: a prop already in your hand re-poses on "
             + "the next frame.";
+
+        // The ninth key is not one of the eight and must not claim to be: it has no figure twin to
+        // ship at the value of, and unlike them it DOES change the picture on first run.
+        const string ninthTail =
+            " Applies to MAP ITEMS only (chests, gold piles, quest items, resources, traps and "
+            + "destructible obstacles) and never to the figures, which keep the mirror. LIVE: a "
+            + "prop already in your hand re-poses on the next frame.";
 
         OffsetSide = config.Bind(
             "FigureGrab", "PropHeldOffsetSide", Defaults.PropHeldOffsetSide,
@@ -200,14 +227,16 @@ internal static class PropHeldPose
             + "hand." + tail);
         SameInBothHands = config.Bind(
             "FigureGrab", "PropHeldSameInBothHands", Defaults.PropHeldSameInBothHands,
-            "Hold a MAP ITEM THE SAME WAY IN BOTH HANDS. OFF (the default, and how every build so "
-            + "far has held it): each hand holds the item as the MIRROR IMAGE of the other — "
-            + "right when you bring both hands up the same way, and a visible turn when you do "
-            + "not. ON: both hands hold it identically, the way your LEFT hand holds it now. "
-            + "Nothing has to be re-entered — PropHeldRotYaw, PropHeldRotRoll and "
-            + "PropHeldOffsetSide keep their numbers and their meaning on either setting; it is "
-            + "the RIGHT hand that comes over to match the left. (In the flat palm pose, with "
-            + "PropHeldUpright off, this moves the sideways offset and nothing else.)" + tail);
+            "Hold a MAP ITEM THE SAME WAY IN BOTH HANDS. ON (the default): "
+            + "both hands hold it identically, the way your LEFT hand held it before. Nothing has "
+            + "to be re-entered — PropHeldRotYaw, PropHeldRotRoll and PropHeldOffsetSide keep "
+            + "their numbers and their meaning on either setting; it is the RIGHT hand that comes "
+            + "over to match the left. OFF (how ModBuild 349-434 held it): each hand holds the "
+            + "item as the MIRROR IMAGE of the other, which reproduces the hold only when you "
+            + "bring both hands up as mirror images of each other — reach for the same hex with "
+            + "either hand, as you actually do, and it is a visible turn of twice the yaw "
+            + "instead. (In the flat palm pose, with PropHeldUpright off, this does nothing: that "
+            + "pose is pitch-only and a pitch is the same in both hands.)" + ninthTail);
     }
 
     // ---- the accessors, shaped exactly like FigureGrabConfig's -----------------------------
@@ -238,21 +267,29 @@ internal static class PropHeldPose
 
     /// <summary>Hold the item identically in both hands (both take the MIRRORED form), or mirror
     /// it between them, which is what ships. See <see cref="SameInBothHands"/> for the report this
-    /// answers and <see cref="HeldPoseMirror.Sign"/> for why "identical" is the mirrored form and
+    /// answers and <see cref="HeldPoseMirror.RotationSign"/> for why "identical" is the mirrored form and
     /// not the authored one.</summary>
     internal static bool Alike => Val(SameInBothHands, Defaults.PropHeldSameInBothHands);
 
     /// <summary>
     /// The GrabAnchor-local held offset for one hand. The tuned values are canonical for the RIGHT
     /// hand; the LEFT is the MIRROR IMAGE across the hand frame's left-right (X) axis, so only the
-    /// lateral component flips sign. The hand rig frame is NOT mirrored between hands (mesh
-    /// mirrored, frame shared), so without this flip the same local X puts the item on the same
-    /// frame-side of both hands, which is anatomically opposite. Identical in shape and in reason
-    /// to <c>FigureGrabConfig.HeldOffsetFor</c>.
+    /// lateral component flips sign. Identical in shape and in reason to
+    /// <c>FigureGrabConfig.HeldOffsetFor</c>.
+    ///
+    /// <para><b>IT DOES NOT FOLLOW <see cref="SameInBothHands"/>, AND IT USED TO</b> (2026-09-05).
+    /// The offset is written to <c>t.localPosition</c>, in ANCHOR space, which
+    /// <c>HeldPoseMirror.UprightBase</c> never touches — so unlike the rotation the anchor does not
+    /// cancel out of it and the anchor's ±X really is the anatomically opposite direction on the
+    /// two hands (measured from the shipped prefabs; see <c>HeldPoseMirror</c>). The flip is
+    /// therefore right on every setting. While the switch reached it, turning the switch ON moved a
+    /// right-hand item from +0.051 m to −0.051 m in anchor X — 10.2 cm to the pinky side of the
+    /// palm — so the one key that fixed the reported rotation broke the position in the same
+    /// click.</para>
     /// </summary>
     internal static Vector3 HeldOffsetFor(HandSide side)
         => HeldPoseMirror.Offset(
-            side == HandSide.Left, Alike,
+            side == HandSide.Left,
             Val(OffsetSide, Defaults.PropHeldOffsetSide),
             Val(OffsetUp, Defaults.PropHeldOffsetUp),
             Val(OffsetForward, Defaults.PropHeldOffsetForward));
@@ -284,4 +321,11 @@ internal static class PropHeldPose
     /// <see cref="HeldUpright"/> into a switch that does nothing, which is a mistake the figure
     /// path already made once.</summary>
     internal static Quaternion HeldPalmRotation() => HeldPoseMirror.Palm(Pitch);
+
+    /// <summary>The held rotation for one hand in EITHER pose — <see cref="HeldPoseMirror.Rotation"/>
+    /// with the map items' dials substituted. The figures' twin is
+    /// <c>FigureGrabConfig.HeldRotationFor</c>; both are one line onto the same shared
+    /// expression.</summary>
+    internal static Quaternion HeldRotationFor(HandSide side, bool upright)
+        => HeldPoseMirror.Rotation(side == HandSide.Left, Alike, upright, Pitch, Yaw, Roll);
 }

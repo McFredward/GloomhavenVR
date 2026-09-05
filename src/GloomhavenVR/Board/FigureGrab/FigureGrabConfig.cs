@@ -400,12 +400,15 @@ internal static class FigureGrabConfig
     /// <remarks>
     /// The flip itself is <see cref="HeldPoseMirror"/> — ONE definition, shared with the map
     /// items' <see cref="PropHeldPose"/>, since the 2026-09-05 handedness round found the two paths carrying the same
-    /// five expressions written twice. <c>bothHandsAlike: false</c> is passed as a LITERAL and not as a
-    /// dial: the figures' hold is what the user has already tuned and accepted ("bei den Figuren
-    /// passt es"), so this call site is bit-identical to what it was.
+    /// five expressions written twice. The OFFSET flip carries no mode argument at all on either
+    /// path: it is applied in anchor space, where the reflection is unconditionally right, and the
+    /// map items' <c>PropHeldSameInBothHands</c> used to reach it and move a right-hand item 10.2 cm
+    /// across the palm. Only the ROTATION takes a mode, and the figures pass a literal
+    /// <c>false</c> — the figures' hold is what the user has already tuned and accepted ("bei den
+    /// Figuren passt es"), so every figure call site is bit-identical to what it was.
     /// </remarks>
     internal static Vector3 HeldOffsetFor(HandSide side)
-        => HeldPoseMirror.Offset(side == HandSide.Left, bothHandsAlike: false,
+        => HeldPoseMirror.Offset(side == HandSide.Left,
                                  ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
 
     /// <summary>
@@ -457,6 +460,13 @@ internal static class FigureGrabConfig
     internal static Quaternion HeldUprightRotation(HandSide side)
         => HeldPoseMirror.Upright(side == HandSide.Left, bothHandsAlike: false,
                                   ActiveHeldTilt, ActiveHeldFaceYaw, ActiveHeldRoll);
+
+    /// <summary>The held rotation for one hand in EITHER pose — <see cref="HeldPoseMirror.Rotation"/>
+    /// with the figures' dials substituted, so the "upright or flat palm" ternary is written once
+    /// for both paths rather than at each of the four sites that used to spell it.</summary>
+    internal static Quaternion HeldRotationFor(HandSide side, bool upright)
+        => HeldPoseMirror.Rotation(side == HandSide.Left, bothHandsAlike: false, upright,
+                                   ActiveHeldTilt, ActiveHeldFaceYaw, ActiveHeldRoll);
 
     /// <summary>
     /// The palm pose: tilt only, as it always was.

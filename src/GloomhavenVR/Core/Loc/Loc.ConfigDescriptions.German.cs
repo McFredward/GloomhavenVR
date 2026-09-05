@@ -3251,15 +3251,19 @@ internal static partial class Loc
                 + "Winkel du gegriffen hast. Wird EINMAL erfasst; danach reitet es normal auf der Hand. "
                 + "Gilt NUR für Map-Items, nie für Figuren.",
             ["FigureGrab/PropHeldSameInBothHands"] =
-                "Hält ein MAP-ITEM IN BEIDEN HÄNDEN GLEICH. AUS (Standard, und so hat es jeder "
-                + "bisherige Build gehalten): jede Hand hält das Item als SPIEGELBILD der anderen — "
-                + "richtig, wenn du beide Hände gleich hochnimmst, und eine sichtbare Drehung, wenn "
-                + "nicht. AN: beide Hände halten es identisch, und zwar so, wie deine LINKE Hand es "
-                + "jetzt hält. Du musst nichts neu eintragen — PropHeldRotYaw, PropHeldRotRoll und "
+                "Hält ein MAP-ITEM IN BEIDEN HÄNDEN GLEICH. AN (Standard): beide "
+                + "Hände halten es identisch, und zwar so, wie deine LINKE Hand es vorher hielt. Du "
+                + "musst nichts neu eintragen — PropHeldRotYaw, PropHeldRotRoll und "
                 + "PropHeldOffsetSide behalten auf beiden Einstellungen ihre Zahlen und ihre "
-                + "Bedeutung; es ist die RECHTE Hand, die zur linken herüberkommt. (In der flachen "
-                + "Handflächen-Haltung, also mit ausgeschaltetem PropHeldUpright, verschiebt das nur "
-                + "den seitlichen Versatz und sonst nichts.) Gilt NUR für Map-Items, nie für Figuren.",
+                + "Bedeutung; es ist die RECHTE Hand, die zur linken herüberkommt. AUS (so hielten "
+                + "es ModBuild 349-434): jede Hand hält das Item als SPIEGELBILD der anderen — das "
+                + "gibt den Griff aber nur dann richtig wieder, wenn du beide Hände spiegelbildlich "
+                + "hochnimmst. Greifst du mit beiden Händen nach demselben Hex, wie man es "
+                + "tatsächlich tut, ist es stattdessen eine sichtbare Drehung um das Doppelte der "
+                + "Gierung. (In der flachen Handflächen-Haltung, also mit ausgeschaltetem "
+                + "PropHeldUpright, bewirkt das gar nichts: diese Haltung nimmt nur die Neigung, und "
+                + "eine Neigung ist in beiden Händen dieselbe.) Gilt NUR für Map-Items, nie für "
+                + "Figuren.",
             ["FigureGrab/*HeldRollDegrees"] =
                 "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
                 + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "

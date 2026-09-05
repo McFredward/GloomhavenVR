@@ -63,12 +63,22 @@ internal static partial class Defaults
     internal const bool PropHeldUpright = true;             // => [FigureGrab] PropHeldUpright
     internal const bool PropHeldUprightAtGrab = true;       // => [FigureGrab] PropHeldUprightAtGrab
     // The NINTH key, and the only one with no figure twin (2026-09-05, the handedness round).
-    // FALSE is exactly what the eight above already did, so this row moves nothing: false IS the
-    // mirror every build since ModBuild 349 has applied, and true is the new choice — both hands
-    // holding the item the way the LEFT hand holds it today, which needs no dial re-entered. See
-    // PropHeldPose.SameInBothHands for the report ("...wenn ich es dann mit der rechten Hand
-    // nehme, ist es verdreht") and for why the answer is a switch rather than a correction.
-    internal const bool PropHeldSameInBothHands = false;    // => [FigureGrab] PropHeldSameInBothHands
+    //
+    // FLIPPED false -> true THIS ROUND, AND THIS ROW DOES MOVE THE PICTURE. It shipped false
+    // in 434 and the hardware log came back "[FigureGrab] PropHeldSameInBothHands = False" beside
+    // the same complaint: the remedy was a setting the user never found, which on this project is
+    // not a fix. True is now the shipped answer and no dial has to be re-entered to reach it — both
+    // hands take the form the LEFT hand already had, so a tuned PropHeldRotYaw of -89 keeps its
+    // number AND keeps rendering the picture it was tuned to render; the RIGHT hand is what moves.
+    // False restores the ModBuild 349-434 mirror exactly.
+    //
+    // WHY true IS THE CORRECT DEFAULT AND NOT A TASTE. PropHeldUprightAtGrab (above) composes the
+    // held rotation against Inverse(anchor.rotation) * W, so the anchor cancels out of the world
+    // pose and the mirror lands in a frame with no handedness in it; what survives is a spin of
+    // wrap(2*yaw) between the hands. See HeldPoseMirror for the derivation and the prefab
+    // measurement, and PropHeldPose.SameInBothHands for the report ("...wenn ich es dann mit der
+    // rechten Hand nehme, ist es verdreht").
+    internal const bool PropHeldSameInBothHands = true;     // => [FigureGrab] PropHeldSameInBothHands
 
     // ---- Board/HexHighlightFix.cs --------------------------------------------------
     // [HexHighlight] SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame /
