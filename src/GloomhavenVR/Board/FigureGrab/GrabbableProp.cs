@@ -281,8 +281,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         {
             if (!FigureGrabConfig.GrabPropsEnabled || _holder != null)
                 return false;
-            // The remote grab-lock goes here when the sync lands: `if (NetHeldProps.Owns(_prop))
-            // return false;` — the same shape FigureGrabbable uses against NetHeldFigures.
+            // MP GRAB-LOCK (record 37). A map item a REMOTE player is holding behaves as if it
+            // were not there for the local grab — proximity and laser both consult CanGrab — until
+            // they release it. This is FigureGrabbable.CanGrab's NetHeldFigures term, on a prop,
+            // and it is asked by the prop's STABLE ID rather than by reference on purpose: a state
+            // sync replaces every CObjectProp instance on the board (the 2026-09-03 "eighteen props
+            // unliftable" account on PropVisualLookup), so a reference-keyed remote set would go
+            // silently empty MID-HOLD, on the very machine watching the hold.
+            if (NetHeldProps.Owns(_prop))
+                return false;
             //
             // IsUsablePickShape rather than `_collider != null` (ModBuild 445): a collider that is
             // switched off or on a deactivated object is not merely useless here, it is ACTIVELY
@@ -349,6 +356,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     {
         if (_holder != null)
             return ReferenceEquals(_holder, hand); // the holder keeps its hold; nobody else joins
+        // ...and a map item a PEER is holding is not a candidate either, so it never GLOWS under a
+        // hand that cannot take it. CanGrab alone would refuse the grab and still leave the hover
+        // highlight on, which reads as "the game ignored my grip". FigureGrabbable.AllowsHand
+        // carries the same term against NetHeldFigures; a prop may not differ from a figure here
+        // (user ruling, item 19: "mach da keinen Unterschied zwischen Figuren und Props").
+        if (NetHeldProps.Owns(_prop))
+            return false;
         // ModBuild 445 — not `_collider == null`. A dead pick shape answers ClosestPoint with the
         // query point, so the distance test below would admit this prop from anywhere on the board.
         // See VRInteractables.IsUsablePickShape and the gold-pile account on PropReach.SingleHex.
@@ -497,8 +511,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         if (_visual == null || _holder != null)
             return false;
         // The same three nulls OnGrabHighlight passes: a prop has no animated root and no
-        // selection-ring subtree. The remote grab-lock goes here alongside the one in
-        // AllowsHand when the prop sync lands.
+        // selection-ring subtree. The remote grab-lock is NOT repeated here: AllowsHand already
+        // refuses a peer-held prop, and this method is only reached for a prop that survived that
+        // election, so a second copy of the test would be a second place to keep it correct.
         return _highlight.Apply(_visual, null, null, Label, out overlay);
     }
 
