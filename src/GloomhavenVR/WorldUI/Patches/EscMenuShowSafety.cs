@@ -116,7 +116,8 @@ internal static class EscMenuShowSafety
         if (_degraded)
             return;
         _degraded = true;
-        VRLog.Warn("EscMenuShowSafety",
+        // HW-VERIFY
+        VRLog.Alert("EscMenuShowSafety",
             $"disabled — {reason}. A throw inside the pause menu's own OnShow/OnHide can once " +
             "again abandon UIWindow.EvaluateAndTransitionToVisualState before it sets " +
             "m_CurrentVisualState, which leaves the options menu permanently unopenable.");
@@ -124,10 +125,18 @@ internal static class EscMenuShowSafety
 
     /// <summary>
     /// Record and report ONE swallowed exception. The first occurrence of each
-    /// (method, exception type) pair is logged at Warn WITH the full stack — a swallowed
+    /// (method, exception type) pair is logged WITH the full stack — a swallowed
     /// throw must never be silent, because the swallow is a symptom report, not a fix.
     /// Repeats for the same pair are summarised at most once per <see cref="RepeatSeconds"/>,
     /// so a per-frame storm cannot flood the log.
+    ///
+    /// <para><b>AT THE ALERT TIER, NOT Warn (ModBuild 439, survey item B3).</b> The sentence above
+    /// was written when Warn printed. ModBuild 331 re-decided what each severity MEANS —
+    /// <c>VRLog.Warn</c> and <c>VRLog.Info</c> both gate on <c>Level >= VRLogLevel.Debug</c>, so at
+    /// the shipped default these lines printed NOTHING and the doc's own requirement was false for
+    /// eight builds. The consequence being reported is the pause menu becoming permanently
+    /// unopenable, which is a standing user ruling and therefore player-facing: the documented
+    /// definition of <c>Alert</c>. The wordings are untouched; only the tier moved.</para>
     /// </summary>
     internal static void Report(string method, Exception ex, string consequence)
     {
@@ -136,7 +145,8 @@ internal static class EscMenuShowSafety
         {
             s = new Swallow { Count = 1, LastLog = UnityEngine.Time.unscaledTime };
             Swallows[key] = s;
-            VRLog.Warn("WorldUI",
+            // HW-VERIFY
+            VRLog.Alert("WorldUI",
                 $"ESC MENU SHOW SAFETY: the game's own {method} threw {ex.GetType().Name} " +
                 $"({ex.Message}) and the exception was SWALLOWED. {consequence} Without this " +
                 "guard the throw would escape UnityEvent.Invoke, abandon " +
@@ -151,7 +161,8 @@ internal static class EscMenuShowSafety
         if (now - s.LastLog < RepeatSeconds)
             return;
         s.LastLog = now;
-        VRLog.Warn("WorldUI",
+        // HW-VERIFY
+        VRLog.Alert("WorldUI",
             $"ESC MENU SHOW SAFETY: {method} is still throwing {ex.GetType().Name} " +
             $"({s.Count} time(s) so far) — still swallowed, the menu still opens.");
     }
