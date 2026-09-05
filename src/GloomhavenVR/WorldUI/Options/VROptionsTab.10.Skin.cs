@@ -219,7 +219,12 @@ internal static partial class VROptionsTab
     /// own doc — and three copies of it could only ever drift into three different feels.
     /// Unity's own default is 0.1 s; this is deliberately a shade faster.
     /// </summary>
-    internal const float HoverTintFadeSeconds = 0.08f;
+    /// <summary>MOVED to <see cref="GloomhavenVR.WorldUI.UguiTintFeel.HoverTintFadeSeconds"/> (2026-09-05).
+    /// Two lanes closed the same row from opposite ends on the same day: one named the feel
+    /// here, one named it in a neutral home because a close button on EVERY window may not
+    /// depend on the settings screen — the dependency would point backwards. The neutral home
+    /// wins; this alias exists so the two Options call sites keep reading one definition.</summary>
+    internal const float HoverTintFadeSeconds = GloomhavenVR.WorldUI.UguiTintFeel.HoverTintFadeSeconds;
 
     /// <summary>Sample the game's own row plate once, off the captured toggle template.</summary>
     private static void SampleRowPlate(GameObject? toggleTemplate)

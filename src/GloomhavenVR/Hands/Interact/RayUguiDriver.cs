@@ -261,12 +261,26 @@ internal sealed class RayUguiDriver
             // Press-ownership evidence (user round 2, item fan vs initiative portraits; board
             // 2026-08-04): a TRIGGER press this frame that would have gone to a panel BEHIND
             // the fan/board is fully consumed here — no hover was raised above, and without a
-            // press no pointer-up/click can follow on release. Info (not Debug) on purpose:
-            // BepInEx's default disk config drops Debug, and this line is the attribution the
-            // next hardware log needs. Unthrottled but edge-only (one line per suppressed
-            // press, not per frame).
+            // press no pointer-up/click can follow on release. Unthrottled but edge-only (one
+            // line per suppressed press, not per frame).
+            //
+            // NOTE TIER, AND THE COMMENT THIS REPLACES WAS A STALE CLAIM RATHER THAN A CHOICE. It
+            // read "Info (not Debug) on purpose: BepInEx's default disk config drops Debug, and
+            // this line is the attribution the next hardware log needs." That was true when it was
+            // written and stopped being true at the tier reshuffle: VRLog.Info maps to
+            // VRLogLevel.Debug, and the shipped Level is VRLogLevel.Info — so the line has been
+            // invisible on every default-tier hardware log since, i.e. absent from exactly the
+            // capture its own comment says it exists for. A line that argues for its own tier is
+            // the one place that argument has to be re-checked when the tiers move.
+            //
+            // IT IS THE FALSIFIER FOR A WHOLE CLASS OF REPORT — "I aimed at it and nothing
+            // happened". With this line, a press that never reached a panel says so and names what
+            // owned it; without it, "the button does not work" and "something stood in front of
+            // the button" are the same observation. The 2026-09-05 X-button report took a full
+            // round to diagnose for exactly that reason.
             if (solidOccluded != null && _hand.TriggerDown)
-                Core.VRLog.Info("Interact", $"{_hand.Side} trigger PRESS on uGUI panel '{solidOccluded.name}' " +
+                // HW-VERIFY
+                Core.VRLog.Note("Interact", $"{_hand.Side} trigger PRESS on uGUI panel '{solidOccluded.name}' " +
                                             $"SUPPRESSED — {(_hand.Ray.SolidOccluderIsBoard ? "the control board" : "the raised card fan")} " +
                                             $"owns this press (solid surface at {_hand.Ray.SolidOccluderDistance:F2} m" +
                                             $"{(!_hand.Ray.SolidOccluderIsBoard && _hand.Ray.FanOccluderHeld ? ", pull-jerk hold" : "")}); " +

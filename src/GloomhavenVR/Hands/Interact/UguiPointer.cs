@@ -346,7 +346,15 @@ internal sealed class UguiPointer
             return;
         bool padInList = _lastPokePadRank >= 0;
         string runner = _lastPokeRunnerUp != null ? _lastPokeRunnerUp.name : "<none>";
-        string key = handler.name + ' ' + padInList + ' ' + runner;
+        // THE SEPARATOR IS SPELLED '\u0000' AND MUST STAY SPELLED THAT WAY. Written as a raw
+        // '\0' it puts an actual NUL BYTE in the source file, which makes the whole file `data`
+        // rather than `text`: `file` says so, and GNU grep then treats it as binary and prints
+        // NOTHING without -a. Every grep-based lint, census and instrument under scripts/ was
+        // therefore silently skipping this file — not failing on it, skipping it, which is the
+        // worse of the two. Found by the 2026-09-05 redundancy survey, whose author noticed the
+        // file never appeared in any result. The escape compiles to the same char; only the
+        // bytes on disk differ.
+        string key = handler.name + '\u0000' + padInList + '\u0000' + runner;
         if (key == s_lastPokePickKey)
             return;
         s_lastPokePickKey = key;
