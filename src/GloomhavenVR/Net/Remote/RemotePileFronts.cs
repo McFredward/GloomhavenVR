@@ -41,7 +41,12 @@ namespace GloomhavenVR.Net;
 ///   1. RESOLUTION runs on the board-content cadence (<see cref="RemoteBoardContent.RefreshSeconds"/>,
 ///      4 Hz by default), plus immediately on a real edge (slab count, pile kind, or the reveal gate
 ///      flipping). In between, the per-frame call is a clock compare and a walk of
-///      <see cref="RemoteCardArt.MaintainMipBake"/>, which itself early-returns on its own 1 s cadence.
+///      <see cref="RemoteCardArt.MaintainMipBake"/>, whose mip-bake and driver-resolution halves both
+///      early-return on their own 1 s cadences. The ONE thing it does per frame is re-ask the
+///      face-hosting verdict against the owning peer board's live composite state — a reference
+///      compare, a bool read and a change-gated mesh assignment — which has to run at the frame rate
+///      because a ~0.6 s see-through ramp read at 1 Hz would hand a peer's card its depth stamp back
+///      somewhere in the middle of the NEXT episode (see RemoteCardArt.MaintainBodyFaceHosting).
 ///   2. CLONING is change-gated inside <see cref="RemoteCardArt"/> on a per-slot key — the live
 ///      widget's instance id for an ability card, the item INSTANCE for an item card. A fan whose
 ///      contents have not changed rebuilds nothing at all, so the steady state of three peers with

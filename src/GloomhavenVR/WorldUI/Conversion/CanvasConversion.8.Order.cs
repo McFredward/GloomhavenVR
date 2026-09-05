@@ -136,9 +136,11 @@ internal static partial class CanvasConversion
     /// canvas draws and resolves against panels by real depth, per pixel, whatever the orders say.
     /// THE ONE EXCEPTION, NAMED SO IT IS NOT REDISCOVERED: a card body wearing the FACE-HOSTED mesh
     /// (<c>Cards.CardMesh.SetBodyFaceHosted</c>) has had its front fan removed and stamps NOTHING
-    /// over its own face, so a panel behind it wins by order after all. That is granted only to a
-    /// slab in a peer board's fade set (<c>Net.PeerBoardFade.BelongsToAFadeSet</c>) — never to a
-    /// local card, which is the population this exemption was written about. The
+    /// over its own face, so a panel behind it wins by order after all. That is granted only while a
+    /// slab's peer board is ACTUALLY compositing below solid
+    /// (<c>Net.PeerBoardFade.DriverFor(...).CompositingBelowSolid</c>) — never to a local card, which
+    /// is the population this exemption was written about, and (since ModBuild 449) no longer to a
+    /// peer's card on a SOLID board either: that was the 2026-09-05 report's item 7. The
     /// <c>CARD BODY DEPTH STAMP</c> log line reads a real body back and says which of the two a
     /// given card is.
     /// </summary>

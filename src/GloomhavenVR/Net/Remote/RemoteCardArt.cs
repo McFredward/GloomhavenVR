@@ -124,6 +124,31 @@ internal sealed class RemoteCardArt
     /// rect that may be mid-relayout. Zero until a print has been fitted.</summary>
     private Vector2 _printedLocalMeters;
 
+    /// <summary>The card body's front box in SLAB-LOCAL metres, from the last measurement. Held
+    /// beside <see cref="_printedLocalMeters"/> only so the per-frame verdict and its log can quote
+    /// both numbers without re-measuring a mesh that has not changed.</summary>
+    private Vector2 _bodyFrontBox;
+
+    /// <summary>Does the print cover the body's front face? The SLOW term of the face-hosting
+    /// verdict: it can only change when a new print is fitted, so it is measured on the cadence and
+    /// cached for the per-frame re-ask.</summary>
+    private bool _bodyCovers;
+
+    /// <summary>The <c>PeerBoardFade</c> driver that composites this slab, or null for a local
+    /// surface (and for a peer surface whose board has not been built yet). Resolving it is the
+    /// expensive half of the verdict — a parent walk plus a scan of the follower registry — and it
+    /// can only change on events the 1 s cadence already exists for, so it is cached here and only
+    /// its live <c>CompositingBelowSolid</c> state is read per frame.</summary>
+    private PeerBoardFade? _fadeDriver;
+
+    /// <summary>The REGISTERED follower root this slab hangs under, or null when it is parented
+    /// beneath the peer board itself. Held beside <see cref="_fadeDriver"/> because a follower's
+    /// membership is conditional — a <c>WhileOverBoard</c> hand fan is in the fade set only while
+    /// its owner holds it over the board — and the per-frame verdict has to ask
+    /// <c>PeerBoardFade.IsFollowing</c> about THIS root rather than assume the driver composites
+    /// everything it has ever been handed.</summary>
+    private Transform? _fadeFollowerRoot;
+
     /// <summary>Unscaled time of the next cadenced re-run of the face-hosting verdict. See
     /// <see cref="MaintainBodyFaceHosting"/> for why the verdict cannot be a one-shot.</summary>
     private float _nextFaceHostRecheck;
@@ -143,6 +168,20 @@ internal sealed class RemoteCardArt
     private static bool _loggedFaceHosted;
     private static bool _loggedFaceHostRefused;
     private static bool _loggedFaceHostNeverFades;
+
+    /// <summary>
+    /// Last SEE-THROUGH/SOLID state the MIRRORED SURFACE DEPTH line reported, PER PEER BOARD (keyed
+    /// by the driver's instance id).
+    ///
+    /// <para>The line writes on the EDGE rather than once per session, because the whole point of it
+    /// is that a peer's card must END every fade episode back in the SOLID, depth-stamping state — a
+    /// one-shot could only ever prove it entered one of the two. Keyed per BOARD and not held in a
+    /// single static bool because two peers whose boards are in OPPOSITE states would make one
+    /// shared latch flip on every card, every frame: a two-value cap over a two-population reading
+    /// is exactly the flood the "a cap that goes silent" note is about. Per board it is two lines
+    /// per fade episode, no matter how many cards ride it.</para>
+    /// </summary>
+    private static readonly Dictionary<int, bool> MirrorDepthReported = new(4);
 
     /// <summary>
     /// The peer half of the local cards' zero-aliased-frame fix (see <see cref="Cards.CardArtWatch"/>).
@@ -925,10 +964,24 @@ internal sealed class RemoteCardArt
     ///
     /// <para>The bleed exists only while something composites the surface at an alpha below 1, and
     /// the only thing that does that to a card is <c>Net/Board/PeerBoardFade</c>. So the fan is
-    /// dropped only where that can happen, asked as
-    /// <c>PeerBoardFade.BelongsToAFadeSet(_slab)</c> — the driver's own registry, not a list of class
-    /// names. A local card belongs to no fade set, keeps its fan, and stamps the depth it stamped
-    /// before any of this existed.</para>
+    /// dropped only while that IS happening, asked as
+    /// <c>PeerBoardFade.DriverFor(_slab)?.CompositingBelowSolid</c> — the driver's own registry and
+    /// the driver's own live state, not a list of class names. A local card has no driver, keeps its
+    /// fan, and stamps the depth it stamped before any of this existed — AND SO DOES A PEER'S CARD
+    /// ON A SOLID BOARD, which is what item 7 of the 2026-09-05 report asked for.</para>
+    ///
+    /// <para>WHAT CHANGED IN ModBuild 449, AND WHY 446'S ANSWER WAS ONE STEP SHORT. 446 fed the
+    /// switch a CAPABILITY — <c>PeerBoardFade.BelongsToAFadeSet</c>, "can this surface ever fade?" —
+    /// and stated its price openly: "a peer's printed card does not stamp depth while their board is
+    /// still solid, which is a surface nowhere near the viewer's own hands". The second half of that
+    /// sentence is the assumption that failed. In room-scale VR the viewer walks up to a peer's
+    /// board, reaches across it and holds their own card over it; the hardware screenshots
+    /// remote-fächer-tiefenproblem1..3 show the viewer's ghost hand and forearm drawn straight
+    /// THROUGH a peer's item fan, a peer's hand fan and a card held over a peer's board — the exact
+    /// picture 446 removed from the map-room hand, still standing on every mirrored surface. A
+    /// capability test is not a policy. The switch now reads the live composite state, so a peer's
+    /// card is face-hosted for the ~0.6 s its board is actually see-through and carries the same
+    /// depth-stamping front fan a local card carries for all the rest of the time.</para>
     /// </summary>
     private void ApplyBodyFaceHosting(Vector2 printedLocalMeters)
     {
@@ -936,6 +989,9 @@ internal sealed class RemoteCardArt
         // one moment it was true (the final pose write in FitClone) instead of re-deriving it from
         // a rect that may be mid-relayout.
         _printedLocalMeters = printedLocalMeters;
+        _bodyCovers = false;
+        _fadeDriver = null;
+        _fadeFollowerRoot = null;
 
         // A slab with no REGISTERED card body under it — a board slot, a control-board panel, whose
         // backing is a single quad with no front fan to drop — answers false here and drops out of
@@ -945,8 +1001,9 @@ internal sealed class RemoteCardArt
             || !CardMesh.TryMeasureBodyFrontBox(_slab, out Vector2 measured))
             return;
 
-        bool covers = printedLocalMeters.x >= measured.x * RequiredBodyCoverage
+        _bodyCovers = printedLocalMeters.x >= measured.x * RequiredBodyCoverage
                       && printedLocalMeters.y >= measured.y * RequiredBodyCoverage;
+        _bodyFrontBox = measured;
 
         // SECOND TERM, AND IT IS THE ONE THE FIRST VERSION OF THIS CORRECTION WAS MISSING (hardware
         // report, 2026-09: "Die Geisterhand und die Characterinfo am Handgelenk ist durch die Karten
@@ -956,15 +1013,43 @@ internal sealed class RemoteCardArt
         // body stamps nothing into the depth buffer over its own face. Everything that was being
         // rejected BY that stamp then comes through the card: the ghost hand (renderQueue 3100,
         // ZWrite off, ZTest LEqual — Hands/HandGhost) and the wrist HUD (a world-space canvas, whose
-        // unity_GUIZTestMode is LEqual) both did, on every card of the map-room hand.
+        // unity_GUIZTestMode is LEqual).
         //
-        // The bleed only exists while something composites this surface at an alpha below 1, and the
-        // only thing in the mod that does that to a card is PeerBoardFade. So the fan is dropped
-        // only where that can happen. A LOCAL card — the scenario hand, the map-room hand, the
-        // player's own item chips — belongs to no fade set, keeps its fan, and goes on stamping the
-        // depth it stamped before this correction existed.
-        bool canFade = PeerBoardFade.BelongsToAFadeSet(_slab);
-        bool hosted = covers && canFade;
+        // THE DRIVER IS RESOLVED HERE, ON THE SLOW CADENCE, AND ITS STATE IS READ PER FRAME BELOW.
+        // Resolution is the expensive half (a parent walk plus a scan of the follower registry) and
+        // it can only change when a fan registers with PeerBoardFade.Follow or a peer's board is
+        // (re)built — the same rare events the 1 s re-ask already exists for. The live alpha is the
+        // cheap half and has to be read at the frame rate, because a 0.6 s ramp read at 1 Hz would
+        // hand the bleed back for most of it.
+        _fadeDriver = PeerBoardFade.DriverFor(_slab, out _fadeFollowerRoot);
+        EvaluateBodyFaceHosting();
+    }
+
+    /// <summary>
+    /// The cheap half of the face-hosting verdict: one reference compare and one bool read against
+    /// terms <see cref="ApplyBodyFaceHosting"/> has already measured. Safe to call every frame, and
+    /// it must be — the term that moves is a peer board's LIVE composite state.
+    /// </summary>
+    private void EvaluateBodyFaceHosting()
+    {
+        Vector2 printedLocalMeters = _printedLocalMeters;
+        Vector2 measured = _bodyFrontBox;
+        bool covers = _bodyCovers;
+        // A driver that was destroyed under us compares equal to null through Unity's operator, and
+        // the next cadenced re-resolve will pick up its replacement. Until then: no driver means
+        // nothing composites this slab, which is the SAFE answer — keep the fan, stamp the depth.
+        bool canFade = _fadeDriver != null;
+        // BOTH TERMS, AND THE SECOND ONE IS NOT REDUNDANT. A WhileOverBoard follower — the peer's
+        // hand fan and its placard — is REGISTERED for the whole session but composited only while
+        // its owner holds it over the board. Asking only "is the driver below solid" would drop the
+        // front fan of a fully opaque hand fan held away from a fading board: a fresh copy of the
+        // defect this change removes, on the one surface the report named twice. The membership term
+        // is only reached while the board is actually fading, so it costs nothing in the steady
+        // state; a slab parented under the board root itself has no follower root and is
+        // unconditionally in the census.
+        bool seeThrough = canFade && _fadeDriver!.CompositingBelowSolid
+                          && (_fadeFollowerRoot == null || _fadeDriver.IsFollowing(_fadeFollowerRoot));
+        bool hosted = covers && seeThrough;
 
         // The MESH switch is change-gated; the VERDICT below is not gated on it. A refusal never
         // moves the switch (the body already has its front fan), so gating the log on the switch
@@ -972,6 +1057,47 @@ internal sealed class RemoteCardArt
         // carries the bleed would never have been printed.
         if (hosted != _bodyFaceHosted && CardMesh.SetBodyFaceHosted(_slab, hosted) > 0)
             _bodyFaceHosted = hosted;
+
+        // THE MIRRORED-SURFACE READING (item 7 of the 2026-09-05 report). One token for every
+        // mirrored surface whose depth the report is about, printed once per VERDICT CLASS so a fan
+        // of twelve chips writes one line and a class that never occurs writes none. It states the
+        // three terms that decide whether this card occludes the viewer's own hand, in the same
+        // words the LOCAL card's CARD BODY DEPTH STAMP states them, so the two can be compared in
+        // one grep next round.
+        int driverKey = canFade ? _fadeDriver!.GetInstanceID() : 0;
+        if (covers && canFade
+            && (!MirrorDepthReported.TryGetValue(driverKey, out bool wasSeeThrough)
+                || wasSeeThrough != seeThrough))
+        {
+            MirrorDepthReported[driverKey] = seeThrough;
+            // HW-VERIFY
+            VRLog.Note("Net", "MIRRORED SURFACE DEPTH: peer fan card on slab "
+                + $"'{_slab.name}' — its peer board is "
+                + (seeThrough ? "SEE-THROUGH" : "SOLID")
+                + $", so the printed face ({printedLocalMeters.x * 1000f:F1}x"
+                + $"{printedLocalMeters.y * 1000f:F1} mm over a body of {measured.x * 1000f:F1}x"
+                + $"{measured.y * 1000f:F1} mm) is "
+                + (seeThrough
+                    ? "FACE-HOSTED: the front fan is dropped, this card STAMPS NO DEPTH over its own "
+                      + "face, and the viewer's ghost hand (renderQueue 3100, ZWrite off, ZTest "
+                      + "LEqual) and wrist HUD (a world-space canvas at LEqual) are free to draw "
+                      + "through it. Correct while the board is see-through — a transparent card "
+                      + "must not occlude — and it is the state the card must LEAVE the moment the "
+                      + "ramp finishes."
+                    : "carrying its FRONT FAN: this card STAMPS DEPTH over its own face exactly like "
+                      + "the viewer's own hand cards do, and rejects the ghost hand and the wrist "
+                      + "HUD standing behind it. THIS IS THE FIX for item 7 (remote-fächer-"
+                      + "tiefenproblem1..3): until ModBuild 448 a peer's card was face-hosted for as "
+                      + "long as it BELONGED to a fade set, i.e. for ever, so it never stamped depth "
+                      + "at all.")
+                + " FALSIFIER: with no peer board on screen this line does not appear at all — a "
+                + "local card resolves NO driver and takes the CARD FACE HOSTING NOT NEEDED HERE "
+                + "branch instead, so silence here means 'no peer fan was printed', never 'the fix "
+                + "worked'. Read it against ] [Cards] CARD BODY DEPTH STAMP, which must show 85 "
+                + "FRONT FAN triangles (259-triangle body) or 8 (28-triangle chip) whenever the "
+                + "SOLID half of this line is the last one printed.");
+        }
+
         if (covers && !canFade && !_loggedFaceHostNeverFades)
         {
             _loggedFaceHostNeverFades = true;
@@ -979,8 +1105,8 @@ internal sealed class RemoteCardArt
             VRLog.Note("Net", "CARD FACE HOSTING NOT NEEDED HERE: the printed face on slab "
                 + $"'{_slab.name}' does cover its card body "
                 + $"({printedLocalMeters.x * 1000f:F1}x{printedLocalMeters.y * 1000f:F1} mm over "
-                + $"{measured.x * 1000f:F1}x{measured.y * 1000f:F1} mm), but this slab belongs to NO "
-                + "peer board's fade set, so nothing will ever composite it at an alpha below 1 and "
+                + $"{measured.x * 1000f:F1}x{measured.y * 1000f:F1} mm), but no PeerBoardFade driver "
+                + "composites this slab, so nothing will ever composite it at an alpha below 1 and "
                 + "the front/back bleed this correction exists for cannot happen on it. The front "
                 + "fan is therefore KEPT — which matters, because that fan is the card's only "
                 + "depth-writing front surface: the print in front of it is a uGUI canvas and uGUI "
@@ -1008,8 +1134,13 @@ internal sealed class RemoteCardArt
                 + "to move. THE PRICE, STATED: the dropped fan was also this body's only depth-writing front "
                 + "surface (the print is a uGUI canvas and uGUI draws ZWrite Off), so while it is hosted this "
                 + "card stamps no depth over its own face and does not reject a transparent surface behind "
-                + "it. That is why hosting is granted ONLY to a slab in a peer board's fade set: a peer's "
-                + "board is not somewhere the viewer's own ghost hand or wrist HUD ever stands.");
+                + "it. THAT PRICE IS NOW PAID ONLY WHILE IT BUYS SOMETHING (ModBuild 449): hosting is "
+                + "granted while the owning board is ACTUALLY compositing below solid, not for as long as "
+                + "the slab BELONGS to a fade set. 446 made it a membership test on the premise that a "
+                + "peer's board 'is nowhere near the viewer's own hands' — and the 2026-09-05 screenshots "
+                + "remote-fächer-tiefenproblem1..3 show the viewer's ghost hand and forearm straight "
+                + "through a peer's item fan, hand fan and held card. A see-through card must not occlude; "
+                + "a solid one must, and now does.");
         }
         else if (!covers && !_loggedFaceHostRefused)
         {
@@ -1045,6 +1176,16 @@ internal sealed class RemoteCardArt
     /// <para>It costs nothing to be wrong about the cadence: the mesh switch inside
     /// <see cref="ApplyBodyFaceHosting"/> is change-gated, so a verdict that has not moved writes
     /// nothing at all.</para>
+    ///
+    /// <para>THE CADENCE IS NOW SPLIT, AND THE FAST HALF IS THE WHOLE OF ITEM 7 (ModBuild 449). The
+    /// verdict's second term stopped being a membership — "can this ever fade?" — and became the
+    /// owning board's LIVE composite state, which moves over a ~0.6 s ramp. Re-asked once a second
+    /// it would hand a peer's card its depth stamp back somewhere in the middle of the next episode
+    /// instead of at its end, i.e. it would ship the fix with a lag long enough to be the defect
+    /// again. So <see cref="EvaluateBodyFaceHosting"/> — one reference compare, one bool read and a
+    /// change-gated mesh assignment against terms already measured — runs on EVERY call, and only
+    /// the two expensive terms (measuring the print against the body, resolving the driver) stay on
+    /// the 1 s cadence.</para>
     /// </summary>
     private void MaintainBodyFaceHosting()
     {
@@ -1052,7 +1193,10 @@ internal sealed class RemoteCardArt
             return;
         float now = Time.unscaledTime;
         if (now < _nextFaceHostRecheck)
+        {
+            EvaluateBodyFaceHosting();
             return;
+        }
         _nextFaceHostRecheck = now + FaceHostRecheckInterval;
         ApplyBodyFaceHosting(_printedLocalMeters);
     }
@@ -1066,6 +1210,9 @@ internal sealed class RemoteCardArt
         // MaintainBodyFaceHosting must stand down with it — otherwise a hidden front would go on
         // asking a verdict about a measurement that stopped being true.
         _printedLocalMeters = Vector2.zero;
+        _bodyCovers = false;
+        _fadeDriver = null;
+        _fadeFollowerRoot = null;
         if (!_bodyFaceHosted)
             return;
         CardMesh.SetBodyFaceHosted(_slab, false);

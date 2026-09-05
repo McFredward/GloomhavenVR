@@ -858,6 +858,40 @@ internal sealed class EnemyRevealSurface
         if (_clearance.Lifted)
             desiredPos = rig != null ? rig.InverseTransformPoint(desiredWorld) : desiredWorld;
 
+        // THE MIRRORED-SURFACE READING (item 13 of the 2026-09-05 report), sharing its token with
+        // the peer fan card's in Net/Remote/RemoteCardArt so both halves of "the mirrored surface
+        // has a depth problem the local one does not" come back in one grep. Edge-gated on WHICH
+        // KIND of board bound the plant, not one-shot: a session in which a peer board never binds
+        // and a session in which it binds every time have to be distinguishable, and a single
+        // latched line cannot tell them apart.
+        //
+        // AND A RATE FLOOR UNDER THE EDGE, because the edge is head-driven: which board binds is
+        // decided per frame from the viewer's sight line, so a player sweeping their head across two
+        // boards would otherwise alternate the two classes at the frame rate. The floor bounds the
+        // line at one per ClearanceLogSeconds while leaving every DISTINCT class reachable — the
+        // reading this exists to produce is "a peer's board CAN bind", which one line proves.
+        int clearanceClass = !_clearance.HasBoard ? 0 : _clearance.OwnBoard ? 1 : 2;
+        float logNow = Time.unscaledTime;
+        if (clearanceClass != _loggedClearanceClass && logNow >= _nextClearanceLog)
+        {
+            _loggedClearanceClass = clearanceClass;
+            _nextClearanceLog = logNow + ClearanceLogSeconds;
+            // HW-VERIFY
+            VRLog.Note("WorldUI", "MIRRORED SURFACE DEPTH: enemy reveal panel — "
+                + _clearance.Describe()
+                + " Until ModBuild 448 the occluder set of this clearance floor was the single "
+                + "expression PlayTray.Current, so ONLY the viewer's own board could ever bind and a "
+                + "plant that landed inside a PEER's board was never lifted out of it (the report's "
+                + "\"mit der Tiefe der Gegnerinfo beim remote board stimmt auch was nicht ... beim "
+                + "eigenen board ist alles wie es sein sollte\"). Every shown board is now solved "
+                + "with the SAME sight-line math, and the largest lift wins. FALSIFIER: with no peer "
+                + "board on screen this line reads \"the binding board was the viewer's OWN control "
+                + "board\" — which is what it ALWAYS said before the fix — so only a line naming a "
+                + "PEER's board proves the new occluder is reachable at all; and \"no control board "
+                + "in the scene\" means the reveal was planted with nothing to clear, which is "
+                + "neither a pass nor a fail.");
+        }
+
         int poseVersion = Rig.VRRigDriver.RigPoseVersion;
         if (!_placed || poseVersion != _facedPoseVersion)
         {
@@ -937,10 +971,11 @@ internal sealed class EnemyRevealSurface
     /// </summary>
     private readonly struct BoardClearance
     {
-        public BoardClearance(bool hasBoard, bool lifted, bool capped, float topEdgeY,
+        public BoardClearance(bool hasBoard, bool ownBoard, bool lifted, bool capped, float topEdgeY,
             float bottomY, float lift, float gapAtBoard, float gapBefore)
         {
             HasBoard = hasBoard;
+            OwnBoard = ownBoard;
             Lifted = lifted;
             Capped = capped;
             TopEdgeY = topEdgeY;
@@ -952,6 +987,11 @@ internal sealed class EnemyRevealSurface
 
         /// <summary>A live, visible control board was found (else there is nothing to clear).</summary>
         public readonly bool HasBoard;
+
+        /// <summary>The BINDING board was the viewer's OWN control board rather than a peer's. The
+        /// whole of item 13 is that a peer's board used not to be able to bind at all, so this is
+        /// the field that says whether the fix is doing anything on a given plant.</summary>
+        public readonly bool OwnBoard;
 
         /// <summary>The target was actually raised out of the board.</summary>
         public readonly bool Lifted;
@@ -976,8 +1016,10 @@ internal sealed class EnemyRevealSurface
 
         /// <summary>Compact log phrase (both the vertical gap and the sight-line gap).</summary>
         public string Describe() => !HasBoard
-            ? "no control board in the scene (menu / tray hidden) — pure gaze plant, nothing to clear."
-            : $"board top edge world Y {TopEdgeY:F2} m, panel bottom Y {BottomY:F2} m → " +
+            ? "no control board in the scene (menu / tray hidden, and no peer board shown) — pure "
+              + "gaze plant, nothing to clear."
+            : $"the binding board was the {(OwnBoard ? "viewer's OWN" : "PEER's")} control board; " +
+              $"board top edge world Y {TopEdgeY:F2} m, panel bottom Y {BottomY:F2} m → " +
               $"{(BottomY - TopEdgeY):F2} m above the edge in world Y, sight-line gap AT THE BOARD " +
               $"{GapAtBoard:F2} m" +
               (Lifted ? $" (raw gaze pose was {GapBefore:F2} m — INSIDE the board — raised {Lift:F2} m)"
@@ -987,6 +1029,20 @@ internal sealed class EnemyRevealSurface
 
     /// <summary>Last clearance evaluation (spawn log + per-second diagnostic).</summary>
     private BoardClearance _clearance;
+
+    /// <summary>Which KIND of board last bound the clearance floor — 0 none, 1 the viewer's own,
+    /// 2 a peer's — so the MIRRORED SURFACE DEPTH line writes on the transition instead of once per
+    /// session. Seeded -1 so the first evaluation of a session always reports.</summary>
+    private int _loggedClearanceClass = -1;
+
+    /// <summary>Unscaled time before which the MIRRORED SURFACE DEPTH line stays quiet however the
+    /// binding board changes. The class edge alone is not a cap: which board binds is re-decided
+    /// every frame from the viewer's sight line, so two boards either side of a sweeping gaze would
+    /// alternate the classes at the frame rate.</summary>
+    private float _nextClearanceLog;
+
+    /// <summary>Minimum seconds between two MIRRORED SURFACE DEPTH lines from this surface.</summary>
+    private const float ClearanceLogSeconds = 5f;
 
     /// <summary>
     /// CONTROL-BOARD CLEARANCE FLOOR (item 12 — see the constants block for the full root cause).
@@ -1006,15 +1062,77 @@ internal sealed class EnemyRevealSurface
     /// on the tray's LIVE root, so any board scale, tilt, position, board style, and both FOLLOW
     /// (rig-parented) and PINNED (world-parented) tray modes are handled with no special cases; if
     /// there is no board at all, nothing is clamped.
+    ///
+    /// <para>EVERY BOARD, NOT ONLY THE VIEWER'S OWN (2026-09-05 report, item 13: "mit der Tiefe der
+    /// Gegnerinfo beim remote board stimmt auch was nicht ... beim eigenen board ist alles wie es
+    /// sein sollte"). Until ModBuild 448 the occluder set here was the single expression
+    /// <c>PlayTray.Current</c>, so the floor knew the viewer's own control board and was blind to
+    /// every PEER's — and a peer's board is the same object, in the same room, at the same height,
+    /// with the same power to swallow a plant. It is the same defect item 12 fixed, on the boards
+    /// item 12 could not see. Note that there is NO remote enemy-reveal surface to fix instead: the
+    /// reveal is game state and every client renders its OWN, so the peer's board is an occluder
+    /// standing in front of a LOCAL panel, not a mirrored panel of its own.</para>
+    ///
+    /// <para>WHY ONE PASS OVER THE BOARDS IS ENOUGH, and why the order they come in cannot matter.
+    /// Each board is solved by swinging the panel UP around the head, which raises the ELEVATION of
+    /// the head→(panel bottom edge) sight ray. A ray's height at a horizontal distance d is
+    /// <c>headY + d·tan(elevation)</c>, monotone increasing in the elevation for every d &gt; 0 — so a
+    /// lift taken for one board can only increase the gap over every other board, never reduce it.
+    /// The boards are therefore independent constraints on one scalar and the maximum wins by
+    /// construction, whichever order they are applied in.</para>
+    ///
+    /// <para>Peer roots come from <c>Net.PeerBoardFade.CollectShownBoardRoots</c> — the fade driver
+    /// is the one class that is handed every peer board root, so this needs no second registry — and
+    /// each is measured with the SAME <see cref="PlayTray.MeasureBoardLocalExtents"/> the local tray
+    /// is measured with, exactly as <c>Net/Remote/RemoteBoardTooltip</c> already does.</para>
     /// </summary>
     private static BoardClearance ApplyBoardClearance(Vector3 headWorld, ref Vector3 posWorld,
         float panelHalfHeight)
     {
         PlayTray? tray = PlayTray.Current;
-        Transform? root = tray != null && tray.IsVisible ? tray.Root : null;
-        if (root == null)
-            return default; // menu / tray hidden / Cards module off — nothing to clear
+        Transform? own = tray != null && tray.IsVisible ? tray.Root : null;
 
+        BoardRootScratch.Clear();
+        if (own != null)
+            BoardRootScratch.Add(own);
+        int ownCount = BoardRootScratch.Count;
+        Net.PeerBoardFade.CollectShownBoardRoots(BoardRootScratch);
+        if (BoardRootScratch.Count == 0)
+            return default; // menu / tray hidden / Cards module off and no peer board — nothing to clear
+
+        // The reported verdict is the BINDING one: the board that produced the largest lift, or —
+        // when nothing had to be lifted — the tightest gap, because that is the board that came
+        // closest to swallowing the panel and the one a next-round reading has to be judged against.
+        BoardClearance binding = default;
+        for (int i = 0; i < BoardRootScratch.Count; i++)
+        {
+            BoardClearance c = ClearOneBoard(headWorld, ref posWorld, panelHalfHeight,
+                BoardRootScratch[i], isOwnBoard: i < ownCount);
+            if (!binding.HasBoard
+                || c.Lift > binding.Lift
+                || (Mathf.Approximately(c.Lift, binding.Lift) && c.GapAtBoard < binding.GapAtBoard))
+            {
+                binding = c;
+            }
+        }
+        BoardRootScratch.Clear();
+        return binding;
+    }
+
+    /// <summary>Reused scan buffer for <see cref="ApplyBoardClearance"/>: the local tray root first
+    /// (0 or 1 entries), then every shown peer board root. Static because a plant is never
+    /// re-entrant and this must not allocate per frame.</summary>
+    private static readonly List<Transform> BoardRootScratch = new(4);
+
+    /// <summary>
+    /// The clearance solve for ONE control board — the whole of the original
+    /// <see cref="ApplyBoardClearance"/> body, unchanged term for term, extracted so the viewer's
+    /// own board and every peer's go through the SAME machinery instead of one of them getting a
+    /// second copy of it.
+    /// </summary>
+    private static BoardClearance ClearOneBoard(Vector3 headWorld, ref Vector3 posWorld,
+        float panelHalfHeight, Transform root, bool isOwnBoard)
+    {
         PlayTray.MeasureBoardLocalExtents(root, out float topLocalY, out float halfLocalX);
         Vector3 topEdge = root.TransformPoint(new Vector3(0f, topLocalY, 0f));
         float halfWidthWorld = halfLocalX * Mathf.Max(Mathf.Abs(root.lossyScale.x), 1e-4f);
@@ -1037,7 +1155,7 @@ internal sealed class EnemyRevealSurface
             // Degenerate: the panel is straight above/below the head — no horizontal sight line to
             // solve, and the board cannot be "in front of" it in any meaningful sense.
             float plainGap = bottomY - topEdge.y;
-            return new BoardClearance(true, false, false, topEdge.y, bottomY, 0f, plainGap, plainGap);
+            return new BoardClearance(true, isOwnBoard, false, false, topEdge.y, bottomY, 0f, plainGap, plainGap);
         }
         Vector3 bearing = toPanelH / dP;
 
@@ -1054,7 +1172,7 @@ internal sealed class EnemyRevealSurface
         // slightly early, never late, and the player is square to the board whenever this matters.)
         bool inLine = dT > 1e-3f && dT < dP && lateral <= halfWidthWorld + margin;
         if (!inLine || gap >= margin)
-            return new BoardClearance(true, false, false, topEdge.y, bottomY, 0f, gap, gap);
+            return new BoardClearance(true, isOwnBoard, false, false, topEdge.y, bottomY, 0f, gap, gap);
 
         // RAISE BY ELEVATION, NOT BY Y (this is what keeps the fix comfortable): the panel is
         // swung UP around the head along its own bearing, so its DISTANCE — hence its apparent
@@ -1084,13 +1202,13 @@ internal sealed class EnemyRevealSurface
         bool capped = neededPhi > capPhi;
         float phi = Mathf.Clamp(neededPhi, currentPhi, Mathf.Max(currentPhi, capPhi));
         if (phi <= currentPhi + 1e-5f)
-            return new BoardClearance(true, false, capped, topEdge.y, bottomY, 0f, gap, gap); // cap left nothing to do
+            return new BoardClearance(true, isOwnBoard, false, capped, topEdge.y, bottomY, 0f, gap, gap); // cap left nothing to do
 
         float rawY = posWorld.y;
         posWorld = headWorld + bearing * (d * Mathf.Cos(phi)) + Vector3.up * (d * Mathf.Sin(phi));
         bottomY = posWorld.y - panelHalfHeight;
         float newDp = Mathf.Max(d * Mathf.Cos(phi), 1e-3f);
-        return new BoardClearance(true, true, capped, topEdge.y, bottomY, posWorld.y - rawY,
+        return new BoardClearance(true, isOwnBoard, true, capped, topEdge.y, bottomY, posWorld.y - rawY,
             SightGapAtBoard(headWorld.y, bottomY, newDp, dT, topEdge.y), gap);
     }
 

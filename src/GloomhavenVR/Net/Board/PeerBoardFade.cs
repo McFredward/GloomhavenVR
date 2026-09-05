@@ -790,7 +790,56 @@ internal sealed class PeerBoardFade : MonoBehaviour
             return null;
         PeerBoardFadeTuning.Bind();
         PeerBoardFade? existing = boardRoot.gameObject.GetComponent<PeerBoardFade>();
-        return existing != null ? existing : boardRoot.gameObject.AddComponent<PeerBoardFade>();
+        if (existing != null)
+            return existing;
+        var added = boardRoot.gameObject.AddComponent<PeerBoardFade>();
+        // Registered HERE and not in Awake/OnEnable: Attach is the one seam that is handed the
+        // board root, and a board root that is built inactive (the [Net] RemoteBoards gate) would
+        // never run either callback — yet it is still a peer board that exists and that the
+        // consumers below have to be able to enumerate.
+        Live.Add(added);
+        return added;
+    }
+
+    /// <summary>
+    /// Every peer board this process currently carries a driver for, in build order. One entry per
+    /// peer control board, added by <see cref="Attach"/> and removed by <see cref="OnDestroy"/>;
+    /// entries may be inactive (a board parked by the RemoteBoards gate) and callers that care must
+    /// say so. This is the only enumeration of peer board ROOTS in the mod — the driver is the one
+    /// class that is handed each of them — so nothing needs a second registry beside it.
+    /// </summary>
+    private static readonly List<PeerBoardFade> Live = new(4);
+
+    /// <summary>
+    /// Append the ROOT transform of every peer control board that is currently shown.
+    ///
+    /// <para>WHO ASKS. <c>WorldUI.Surfaces.EnemyRevealSurface</c>'s board-clearance floor, which
+    /// swings a new enemy-info plant up until the player's sight line to its bottom edge clears the
+    /// top edge of every control board between them. Until 2026-09 that floor asked
+    /// <c>PlayTray.Current</c> and nothing else, so it knew the viewer's OWN board and was blind to
+    /// every peer's — which is precisely the hardware report "mit der Tiefe der Gegnerinfo beim
+    /// remote board stimmt auch was nicht ... beim eigenen board ist alles wie es sein sollte".</para>
+    ///
+    /// <para>Shown, not merely built: a board the RemoteBoards gate has parked inactive draws
+    /// nothing and can occlude nothing, and lifting a panel out of an invisible board would be an
+    /// unexplained jump. The caller appends rather than receives a list so the scan allocates
+    /// nothing per plant.</para>
+    /// </summary>
+    internal static void CollectShownBoardRoots(List<Transform> into)
+    {
+        if (into == null)
+            return;
+        for (int i = Live.Count - 1; i >= 0; i--)
+        {
+            PeerBoardFade d = Live[i];
+            if (d == null)
+            {
+                Live.RemoveAt(i); // destroyed without OnDestroy (scene teardown)
+                continue;
+            }
+            if (d.gameObject.activeInHierarchy)
+                into.Add(d.transform);
+        }
     }
 
     /// <summary>The owning peer, for the diagnostic line only. Handed in from the board's own
@@ -948,26 +997,60 @@ internal sealed class PeerBoardFade : MonoBehaviour
     }
 
     /// <summary>
-    /// Is <paramref name="t"/> part of SOME peer board's fade set — i.e. can a
-    /// <see cref="PeerBoardFade"/> driver ever composite it at an alpha below 1?
+    /// Is this driver compositing its set at an alpha below solid RIGHT NOW — or about to be?
+    ///
+    /// <para>THE BAR IS THIS CLASS'S OWN <see cref="SolidAlpha"/>, NOT A BARE 1, AND THAT IS THE
+    /// LOAD-BEARING PART. The four existing self-checks in this file ask
+    /// <c>_engaged || _drivenAlpha &lt; 1f</c>, which is the right question for "is there anything
+    /// left to hand back". It is the WRONG bar for a consumer that has to agree with what the
+    /// surfaces are actually WEARING: <see cref="Apply"/> calls <see cref="Release"/> — restoring
+    /// every original material, so the board is back in its opaque, depth-writing state — the
+    /// moment alpha reaches <see cref="SolidAlpha"/> (0.999). A consumer holding out for 1f would
+    /// spend those frames believing the board is still see-through, which for the face-hosting
+    /// switch means a card's front fan is still dropped after its material has stopped
+    /// compensating: the exact hole this predicate exists to close, several frames wide, once per
+    /// fade episode. Reading the driver's OWN threshold makes the two agree by construction rather
+    /// than through two constants somebody has to keep equal.</para>
+    ///
+    /// <para><see cref="_engaged"/> is the first arm because it is the authority on whether the
+    /// clone materials are INSTALLED, which is the physical fact a consumer cares about; the alpha
+    /// arm covers the ramp on either side of it. And the ramp reaches its target exactly rather
+    /// than approaching it — <c>OcclusionFade.Ramp</c> snaps within <c>FadeSnapEpsilon</c> — so
+    /// neither arm can park a consumer just below its threshold for ever.</para>
+    /// </summary>
+    internal bool CompositingBelowSolid => _engaged || _drivenAlpha < SolidAlpha;
+
+    /// <summary>
+    /// Which <see cref="PeerBoardFade"/> driver — if any — composites <paramref name="t"/>.
     ///
     /// <para>WHAT THE QUESTION IS FOR. It is the second term of the card-body FACE-HOSTING switch
     /// (<c>Cards.CardMesh.SetBodyFaceHosted</c>, decided in <c>Net/Remote/RemoteCardArt</c>). That
     /// switch drops a card body's FRONT FAN while a printed face stands in front of it, which kills
     /// the front/back bleed a fading board turns that fan into — and which ALSO removes the card's
     /// only depth-writing front surface, because the print is a uGUI canvas and uGUI writes no
-    /// depth. On a surface that never fades there is no bleed to kill and the depth stamp is pure
-    /// loss (hardware report, 2026-09: the ghost hand and the wrist HUD showing straight through the
-    /// map-room hand's cards). So the switch has to know which surfaces can fade. This answers
-    /// exactly that and nothing else.</para>
+    /// depth. So the switch has to find the driver that can composite the slab, and then ask it
+    /// whether it is doing so (<see cref="CompositingBelowSolid"/>).</para>
     ///
-    /// <para>IT IS A MEMBERSHIP QUESTION, NOT A STATE ONE, ON PURPOSE. It asks whether the surface
-    /// BELONGS to a fade set, not whether that set is faded this instant. A body whose mesh followed
-    /// the live alpha would swap its front fan twice per fade episode, on every card — and this
-    /// driver's own <see cref="Follow"/> note already records why a membership that can strobe is
-    /// worse than a membership that is slightly generous. The generous answer costs a peer's printed
-    /// card its depth stamp while their board is still solid, which is a surface nowhere near the
-    /// viewer's own hands; the exact one would cost a mesh swap on every ramp edge for ever.</para>
+    /// <para>IT USED TO BE A MEMBERSHIP QUESTION AND THAT WAS THE 2026-09 DEFECT. Until ModBuild 448
+    /// this was <c>BelongsToAFadeSet</c>, a CAPABILITY test — "can this surface ever fade?" — and its
+    /// answer was fed straight to the switch, so a peer's card dropped its front fan the moment it
+    /// joined a fade set and never got it back. The comment that justified the substitution said the
+    /// price was "a peer's printed card does not stamp depth while their board is still solid, which
+    /// is a surface nowhere near the viewer's own hands". THAT PREMISE IS FALSE and the hardware
+    /// report falsified it three times over (remote-fächer-tiefenproblem1..3): in room-scale VR the
+    /// viewer walks up to a peer's board, reaches across it, and holds their own card over it, so
+    /// the viewer's own ghost hand (renderQueue 3100, ZWrite off, ZTest LEqual) and wrist HUD (a
+    /// world-space canvas at LEqual) stand exactly where a peer's fan cards are and came straight
+    /// through them — the same picture 446 fixed for the map-room hand, on the mirrored surfaces.
+    /// A capability test is not a policy: the bleed exists only while the surface is ACTUALLY being
+    /// composited below 1, so that is what the switch now asks.</para>
+    ///
+    /// <para>THE ANTI-STROBE OBJECTION, ANSWERED. The old comment feared "a mesh swap on every ramp
+    /// edge for ever". The edge count is two per fade EPISODE per card, not two per frame: the
+    /// ramp is monotone within an episode and the episodes themselves are already debounced by this
+    /// driver's Schmitt trigger and dwell. The swap is change-gated, serves a CACHED mesh
+    /// (<c>CardMesh</c>'s face-hosted variant cache), and writes one <c>sharedMesh</c> reference —
+    /// against a peer's card permanently losing the depth stamp its local twin keeps.</para>
     ///
     /// <para>TWO POPULATIONS, BOTH READ OFF THIS DRIVER'S OWN BOOKKEEPING rather than off a list of
     /// class names somebody has to keep current: anything under a transform that CARRIES a driver
@@ -976,21 +1059,30 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// and its placard). A <see cref="FollowRule.WhileOverBoard"/> root counts whatever its owner's
     /// hand is doing right now, for the same anti-strobe reason.</para>
     ///
-    /// <para>False for every LOCAL surface — the player's own scenario hand, the map-room hand, the
+    /// <para>Null for every LOCAL surface — the player's own scenario hand, the map-room hand, the
     /// item chips on their own board — because none of them is a peer's board and none of them is
     /// registered here. That is the whole point: those keep their front fan and go on stamping the
-    /// depth that rejects the ghost hand and the wrist HUD standing behind them.</para>
+    /// depth that rejects the ghost hand and the wrist HUD standing behind them. A peer's card on a
+    /// SOLID board now answers the same way, which is the fix.</para>
     /// </summary>
-    internal static bool BelongsToAFadeSet(Transform? t)
+    /// <param name="t">The surface to resolve.</param>
+    /// <param name="followerRoot">The REGISTERED follower root <paramref name="t"/> hangs under, or
+    /// null when it is simply parented beneath the board itself. A follower root's membership is
+    /// conditional — a <see cref="FollowRule.WhileOverBoard"/> fan its owner has taken away from the
+    /// board is registered but NOT composited — so a caller that needs the live state has to hand
+    /// this back to <see cref="IsFollowing"/> rather than assume registration means membership.</param>
+    internal static PeerBoardFade? DriverFor(Transform? t, out Transform? followerRoot)
     {
+        followerRoot = null;
         if (t == null)
-            return false;
+            return null;
         // Under a board root: the driver's own surface census is GetComponentsInChildren on the
         // transform it sits on, so "carries a driver somewhere up my parent chain" is precisely
         // "that driver's census would find me". Inactive included — a fan parked inactive is still
         // a member of the set it rejoins the moment it is shown.
-        if (t.GetComponentInParent<PeerBoardFade>(includeInactive: true) != null)
-            return true;
+        PeerBoardFade? own = t.GetComponentInParent<PeerBoardFade>(includeInactive: true);
+        if (own != null)
+            return own;
         foreach (KeyValuePair<int, List<FollowerEntry>> byPlayer in FollowerRoots)
         {
             List<FollowerEntry> list = byPlayer.Value;
@@ -998,10 +1090,58 @@ internal sealed class PeerBoardFade : MonoBehaviour
             {
                 Transform root = list[i].Root;
                 if (root != null && t.IsChildOf(root))
-                    return true;
+                {
+                    followerRoot = root;
+                    return DriverOf(byPlayer.Key);
+                }
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// Is <paramref name="followerRoot"/> in this driver's CURRENT fade set — i.e. did the last
+    /// census admit it?
+    ///
+    /// <para>WHY REGISTRATION IS NOT ENOUGH, AND WHY THIS EXISTS. A
+    /// <see cref="FollowRule.WhileOverBoard"/> root — the peer's hand fan and its placard — is
+    /// registered for the whole session but composited only while its owner is actually holding it
+    /// over the board (<see cref="RefreshSurfaces"/>'s <c>OverBoard</c> test, frozen while
+    /// <see cref="_engaged"/>). A consumer that read only <see cref="CompositingBelowSolid"/> would
+    /// therefore treat a hand fan held AWAY from a fading board as see-through when the driver is
+    /// writing nothing to it at all — and for the face-hosting switch that means dropping the depth
+    /// stamp of a fully opaque card for no benefit whatever, which is a fresh copy of the very
+    /// defect this round is removing.</para>
+    ///
+    /// <para>Reference compares over the census's own admitted list, never a transform walk: the
+    /// caller has already resolved WHICH registered root its surface hangs under, and that answer
+    /// can only change when the surface is rebuilt.</para>
+    /// </summary>
+    internal bool IsFollowing(Transform? followerRoot)
+    {
+        if (followerRoot == null)
+            return false;
+        for (int i = 0; i < _followers.Count; i++)
+        {
+            if (ReferenceEquals(_followers[i], followerRoot))
+                return true;
+        }
         return false;
+    }
+
+    /// <summary>The live driver for one peer, or null while their board has not been built (or has
+    /// been torn down) yet. A follower root registered ahead of its board therefore resolves to NO
+    /// driver — and that is the SAFE direction for every consumer here: "not compositing" means the
+    /// card keeps its front fan and goes on stamping depth, which is what a local card does.</summary>
+    private static PeerBoardFade? DriverOf(int playerId)
+    {
+        for (int i = 0; i < Live.Count; i++)
+        {
+            PeerBoardFade d = Live[i];
+            if (d != null && d._playerId == playerId)
+                return d;
+        }
+        return null;
     }
 
     private void LateUpdate()
@@ -1110,7 +1250,11 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private void OnDisable() => ResetToSolid("the board root was deactivated (the [Net] " +
                                              "RemoteBoards gate shut, or the board is rebuilding)");
 
-    private void OnDestroy() => ResetToSolid("the board was destroyed");
+    private void OnDestroy()
+    {
+        Live.Remove(this);
+        ResetToSolid("the board was destroyed");
+    }
 
     /// <summary>
     /// Hand the board back over the SAME exponential ramp a normal un-fade uses, then reset. The
