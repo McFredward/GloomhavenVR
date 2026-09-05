@@ -154,7 +154,44 @@ internal static class HandsConfig
     /// <summary>Do the hands push scenery cloth (curtains, hangings) out of the way?
     /// See <see cref="SceneClothHands"/>.</summary>
     public static ConfigEntry<bool> HandsDisturbScenery = null!;
+
+    /// <summary>
+    /// How THICK the hand is to scenery cloth, in REAL MILLIMETRES AT THE HAND — the one number
+    /// that decides how strongly a reach disturbs a curtain, because the probe is a conic capsule
+    /// and this is its wide end.
+    ///
+    /// <para>The fingertip end is not a second dial: it keeps the authored 10-of-35 share of this
+    /// one, so the taper survives every setting. The ATTACH reach follows too, never falling below
+    /// three times the sphere, because a gate that sits behind the thing it gates arms only once
+    /// the hand is already inside the fabric.</para>
+    /// </summary>
+    public static ConfigEntry<float> SceneryClothHandRadiusMillimeters = null!;
+
     public static ConfigEntry<bool> HandsDisturbVfx = null!;
+
+    /// <summary>The scenery-cloth hand sphere as REAL METRES AT THE HAND — the same unit and the
+    /// same reasoning as <c>FigureGrabConfig.ClothHandReachRealMeters</c>. Clamped rather than
+    /// trusted; the number inside <c>Clamp</c> is the PRE-BIND fallback and the shipped default
+    /// lives in <c>Defaults.SceneryClothHandRadiusMillimeters</c>.</summary>
+    internal static float SceneryClothHandRadiusRealMeters
+    {
+        get
+        {
+            float mm = SceneryClothHandRadiusMillimeters != null
+                ? SceneryClothHandRadiusMillimeters.Value
+                : Defaults.SceneryClothHandRadiusMillimeters;
+            return Mathf.Clamp(mm, SceneryClothHandRadiusMinMm, SceneryClothHandRadiusMaxMm)
+                   * 0.001f;
+        }
+    }
+
+    /// <summary>Below this the sphere is thinner than a finger and slides between the fabric's
+    /// simulated vertices without displacing any of them.</summary>
+    internal const float SceneryClothHandRadiusMinMm = 10f;
+
+    /// <summary>Above this the hand is a beach ball: a whole banner is swept aside from half a
+    /// metre away and the reaction stops reading as a touch.</summary>
+    internal const float SceneryClothHandRadiusMaxMm = 120f;
 
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
@@ -423,6 +460,19 @@ internal static class HandsConfig
             "their own copy of the room and nothing can desync. Off: the scenery hangs still, " +
             "exactly as before. (A held figure's cape is a separate switch, [FigureGrab] " +
             "ClothFollowsFreeHand.)");
+        SceneryClothHandRadiusMillimeters = config.Bind(
+            "Hands", "SceneryClothHandRadiusMillimeters",
+            Defaults.SceneryClothHandRadiusMillimeters,
+            new ConfigDescription(
+                "How THICK your hand is to a curtain, in real MILLIMETRES AT YOUR HAND - the one " +
+                "number that decides how strongly a reach pushes the fabric. Bigger sweeps more " +
+                "cloth aside from further in; smaller slips between the folds. The fingertip end " +
+                "of the hand keeps its share of this, so the taper from palm to finger never " +
+                "changes shape, and the distance at which the hand starts colliding follows it " +
+                "too. Real millimetres at your hand, the same unit as the grab radius, so zooming " +
+                "the board never changes the feel. Ignored while HandsDisturbScenery is off.",
+                new AcceptableValueRange<float>(SceneryClothHandRadiusMinMm,
+                                                SceneryClothHandRadiusMaxMm)));
         HandsDisturbVfx = config.Bind(
             "Hands", "HandsDisturbVfx", Defaults.HandsDisturbVfx,
             "Put a hand in the smoke and the smoke goes ROUND it. The scenario's own effects - " +

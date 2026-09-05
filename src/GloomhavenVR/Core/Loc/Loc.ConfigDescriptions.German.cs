@@ -2811,6 +2811,15 @@ internal static partial class Loc
                 + "Raums, und nichts kann auseinanderlaufen. Aus: Die Umgebung hängt still wie bisher. "
                 + "(Der Umhang einer gehaltenen Figur ist ein eigener Schalter, [FigureGrab] "
                 + "ClothFollowsFreeHand.)",
+            ["Hands/SceneryClothHandRadiusMillimeters"] =
+                "Wie DICK deine Hand für einen Vorhang ist, in echten MILLIMETERN AN DEINER HAND — "
+                + "die eine Zahl, die bestimmt, wie kräftig ein Griff den Stoff wegschiebt. Größer "
+                + "schiebt mehr Stoff aus größerer Entfernung zur Seite, kleiner gleitet zwischen "
+                + "den Falten hindurch. Das Fingerende der Hand behält seinen Anteil daran, die "
+                + "Verjüngung von Handfläche zu Fingerspitze ändert also nie ihre Form, und die "
+                + "Entfernung, ab der die Hand überhaupt zu kollidieren beginnt, zieht mit. Echte "
+                + "Millimeter an deiner Hand, dieselbe Einheit wie der Greifradius, sodass Zoomen "
+                + "das Gefühl nie verändert. Wird ignoriert, solange HandsDisturbScenery aus ist.",
             ["Hands/GhostHandOnHeldCard"] =
                 "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
                 + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "
