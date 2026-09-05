@@ -1247,6 +1247,29 @@ internal sealed partial class PlayTray
         private static readonly Color FollowPinAccent = new(0.58f, 0.46f, 0.26f);
 
         /// <summary>
+        /// <b>HOW FAR A BEAM MAY REACH A KEYCAP OF THIS FAMILY</b>, real metres before the rig's
+        /// world scale — the reach that travels WITH the control, so that a cap built by
+        /// <see cref="CreateFollowPin"/> is pressable from the same distance wherever it is bolted.
+        ///
+        /// <para><b>R12, and why the board's number is the reference.</b> ModBuild 438 unified what
+        /// the two FOLGEN/FIXIERT pins ARE; it did not unify how they are REACHED. The board's own
+        /// scan (<c>CardsDriver.UpdateBoardLaser</c>) budgets this 3 m, arm's length at a table the
+        /// player is standing at; the combat log's pin scan
+        /// (<c>CombatLogSurface.TickCapLaser</c>) budgeted 20 m, which it had copied from
+        /// <c>MapButtonRail</c>'s TABLE caps — where 20 m is right, because a map table is looked
+        /// at from across the room, and where it therefore says nothing about a pin. The visible
+        /// result was two identical-looking controls with different reach: step back 4 m from the
+        /// table and the combat log's pin was still pressable while the pin 20 cm away on the board
+        /// was not. The considered number wins, and it now lives on the class that BUILDS the
+        /// control rather than at each scan.</para>
+        ///
+        /// <para>It is a REACH, not a veto: both scans still clamp further by their own occluder
+        /// terms (the board additionally by <c>Ray.FanOccluderDistance</c>), which is a statement
+        /// about what stands in front of the cap and not about the cap.</para>
+        /// </summary>
+        internal const float CapLaserReachMeters = 3f;
+
+        /// <summary>
         /// <b>THE FIXIERT/FOLGEN KEYCAP — ONE CONSTRUCTION, EVERY OWNER.</b> The control board's
         /// dashboard toggle (<c>PlayTray.CreateDashboardButtons</c>) and the combat log's pin
         /// (<c>CombatLogSurface</c>) are the same control doing the same job on two different pieces

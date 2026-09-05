@@ -1367,7 +1367,11 @@ internal sealed partial class CardsDriver
         var ray = new Ray(pick.Origin, pick.Direction);
         // Clamped by the fan occluder (see the block above): board geometry behind an open fan's
         // card is not reachable, so the scan simply never looks past it.
-        float maxDist = Mathf.Min(3f * dom.WorldScale, occluderSlack);
+        // The keycap family's own reach, published by the class that builds the caps
+        // (PlayTray.BoardButton.CapLaserReachMeters) so that the SAME control reached from a
+        // different piece of furniture is reached from the same distance — R12. It was a bare
+        // inline 3f here and a bare 20f at the combat log's pin.
+        float maxDist = Mathf.Min(PlayTray.BoardButton.CapLaserReachMeters * dom.WorldScale, occluderSlack);
 
         IPokeable? best = null;
         Vector3 bestPoint = default;

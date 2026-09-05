@@ -192,6 +192,26 @@ MIRRORS=(
   # the diagnostic back into the thing it was built to replace: a line reporting a state it
   # cannot see. That happened once already (2026-07-28) and this is why it cannot again.
   "graphics-jobs session handshake (env var name) : Preload/Patcher.cs:SessionStateVariable Core/Startup/OpenXRBootstrap.cs:SessionGraphicsJobsVariable"
+
+  # THE TWO BEAM TERMS (R28, added 2026-09-05). Neither was in any lint group, and the audit's
+  # reading of the cost is exact: retune the reach in one place and it changes for four of six
+  # controls. They are NOT merged into one constant, for this file's own standing reason — each
+  # site's doc comment says what the number means THERE, and the layering is worth keeping — but
+  # they must then be tuned together, which is exactly what a group is for.
+  #
+  # TWO SITES HAD TO BE NAMED BEFORE THEY COULD BE LINTED AT ALL, and that is the cheapest half of
+  # the whole row: MapButtonRail carried the reach as a bare inline `20f` inside TickLaser, and had
+  # no epsilon at all because it had no occluder veto to apply one to (see R4). An inline literal
+  # is not merely unlinted, it is INVISIBLE: a grep for the constant name returns nothing, so the
+  # site appears in no census of the term and no reader of the other five ever learns it exists.
+  #
+  # WHO IS DELIBERATELY NOT IN THE REACH GROUP. CombatLogSurface.MaxCapLaserMeters was a sixth 20 m
+  # copy and left on 2026-09-05 (R12): it is a KEYCAP's reach and not the beam's, and it now reads
+  # PlayTray.BoardButton.CapLaserReachMeters — a real shared constant, which needs no lint.
+  # FlatScreen.6.Pointer.cs:68 holds an inline 0.005f that belongs in the epsilon group; it is not
+  # here only because naming it is an edit to a file this round does not own.
+  "beam reach, real metres at rig scale 1 : Hands/Interact/RayInteractor.cs:MaxDistanceMeters Hands/Interact/RayUguiDriver.cs:MaxDistanceMeters Hands/Interact/RayGrabDriver.cs:MaxDistanceMeters WorldUI/MapRoom/MapLocationInteractor.cs:MaxPickMeters WorldUI/MapRoom/MapButtonRail.cs:MaxCapLaserMeters"
+  "beam occlusion epsilon, real metres at rig scale 1 : Hands/Interact/RayInteractor.cs:FanOcclusionEpsilonMeters Hands/Interact/RayUguiDriver.cs:OcclusionEpsilonMeters Hands/Interact/RayGrabDriver.cs:OcclusionEpsilonMeters Cards/Driver/CardsDriver.3.Laser.cs:FanOcclusionSlackMeters WorldUI/MapRoom/MapButtonRail.cs:SolidOccluderEpsilonMeters"
 )
 
 fail=0

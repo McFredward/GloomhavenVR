@@ -1502,9 +1502,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         return window == null ? -1 : (window.IsOpen ? 1 : 0);
     }
 
-    /// <summary>How far the beam may reach a combat-log cap, in real meters before diorama scale —
-    /// the same budget <c>MapButtonRail.TickLaser</c> gives its table caps.</summary>
-    private const float MaxCapLaserMeters = 20f;
+    /// <summary>How far the beam may reach this panel's pin, in real metres before diorama scale.
+    ///
+    /// <para><b>R12 (2026-09-05): it is the KEYCAP FAMILY'S reach now, not this panel's number.</b>
+    /// It was 20 m, copied from <c>MapButtonRail.TickLaser</c> — where 20 m is right because a map
+    /// TABLE is looked at from across the room, and where it therefore said nothing about a pin.
+    /// ModBuild 438 made this cap the control board's own control
+    /// (<c>PlayTray.BoardButton.CreateFollowPin</c>); the reach travels with it, so two
+    /// identical-looking pins are now pressable from the same distance. Before this, stepping 4 m
+    /// back from the table left this pin live while the visually identical one 20 cm away on the
+    /// board had already gone out of range.</para></summary>
+    private const float MaxCapLaserMeters = PlayTray.BoardButton.CapLaserReachMeters;
 
     /// <summary>Shared with <c>RayUguiDriver</c>'s occlusion epsilon: a surface coplanar with (or
     /// proud of) its own occluder must not sit in that occluder's shadow.</summary>
