@@ -390,7 +390,17 @@ internal static class CardMesh
     /// lands AFTER cards were built (cold cache, live capture) swaps every live body to the
     /// punched-out mesh in one step — the same "swap when learned" progressive behaviour the
     /// silhouette materials have always had. Pruned of destroyed filters on every pass.</summary>
-    private static readonly List<(MeshFilter Filter, CardBodyKind Kind, float W, float H)> _bodies = new();
+    private static readonly List<(MeshFilter Filter, CardBodyKind Kind, float W, float H, bool FaceHosted)> _bodies = new();
+
+    /// <summary>
+    /// FACE-HOSTED variant of a body mesh, keyed on the body mesh it was derived from. See
+    /// <see cref="FaceHostedVariant"/> for what it is and <see cref="SetBodyFaceHosted"/> for who
+    /// asks for it. Keyed on the Mesh OBJECT rather than on (kind, w, h) because both body caches
+    /// (<see cref="_bodyCache"/> rounded, <see cref="_shapedCache"/> punched-out) feed it and a
+    /// body swaps from the first to the second the moment a footprint lands — one key space that
+    /// cannot confuse the two shapes for one size.
+    /// </summary>
+    private static readonly Dictionary<Mesh, Mesh> _faceHostedCache = new();
 
     /// <summary>
     /// Attach a card BODY mesh to <paramref name="mf"/>: the punched-out contour mesh when this
@@ -407,19 +417,206 @@ internal static class CardMesh
         // Same choke-point rule as the material factories: the persisted mask must be loaded
         // before the first body exists, so a warm launch is born punched-out with no transition.
         EnsureSilhouetteCacheLoaded(kind);
-        mf.sharedMesh = BodyMesh(kind, width, height);
-        if (kind == CardBodyKind.Neutral)
-            return;
+        // RE-ATTACH IS IDEMPOTENT AND CARRIES THE FACE-HOSTED SWITCH. AttachBody is called again on
+        // a LIVE filter whenever a surface re-cuts its slabs in place — Net/Remote/RemoteItemFan's
+        // EnsureCardHeight does exactly that when the Item footprint lands mid-session and the chip
+        // box changes, and Net/Remote/RemoteHeldCardFace's EnsureBody does it on every ability<->item
+        // swap. A second registration for the same filter would both duplicate the entry and quietly
+        // reset the switch, putting the front fan back underneath a card face that is still printing.
+        bool faceHosted = false;
         for (int i = _bodies.Count - 1; i >= 0; i--)
         {
-            if (_bodies[i].Filter == null)
+            MeshFilter existing = _bodies[i].Filter;
+            if (existing == null)
+            {
                 _bodies.RemoveAt(i);
+                continue;
+            }
+            if (existing != mf)
+                continue;
+            faceHosted = _bodies[i].FaceHosted;
+            _bodies.RemoveAt(i);
         }
-        _bodies.Add((mf, kind, width, height));
+        mf.sharedMesh = BodyMesh(kind, width, height, faceHosted);
+        // The Neutral legacy kind is registered too — it used to be skipped, back when this list
+        // existed only to serve the punched-out swap that Neutral never takes, and ReshapeBodies
+        // still filters it out by kind, so that behaviour is unchanged. It is registered because the
+        // list is now ALSO the identity register that answers "is this transform a card body?" for
+        // SetBodyFaceHosted, and a Neutral-kind slab hosting a real card face has exactly the same
+        // front/back bleed to correct as an Ability one.
+        _bodies.Add((mf, kind, width, height, faceHosted));
     }
+
+    /// <summary>
+    /// Declare that the card body (or bodies) under <paramref name="slabRoot"/> is showing a REAL
+    /// CARD FACE painted by a separate surface in front of it — a <c>Net/Remote/RemoteCardArt</c>
+    /// world-space canvas — and that that face covers the body's front face edge to edge.
+    ///
+    /// <para>WHAT IT CORRECTS. A card body carries two submeshes: submesh 0 is the FRONT fan plus the
+    /// rim wall, submesh 1 is the back fan. The remote surfaces give BOTH slots the card-BACK
+    /// material on purpose (a peer's card identity is never on the wire, so their slab shows the back
+    /// on both faces). When a face canvas is up, submesh 0's front fan is a second, coincident
+    /// surface 0.6 mm behind a picture of the same card. While everything is opaque that costs
+    /// nothing — the canvas is opaque, sits in front and wins the depth test. Once
+    /// <c>Net/Board/PeerBoardFade</c> makes a peer's board see-through it costs the whole picture:
+    /// alpha blending is not occlusion, so at uniform alpha a the rear surface still contributes
+    /// a(1−a) of the composite, peaking at 25 % halfway down the ramp, and what it is showing is the
+    /// card back's gold diamond lattice (hardware report, 2026-09: a peer's ITEM card fronts carrying
+    /// the back's lattice, but only once their board went transparent).</para>
+    ///
+    /// <para>WHY THE CORRECTION IS HERE. The fade driver is a correct generic per-renderer
+    /// uniform-alpha writer and has no way to learn that two of its surfaces are a front/back pair
+    /// sharing 0.6 mm. That knowledge is card-side, so it is applied card-side.</para>
+    ///
+    /// <para>WHY IT IS A MESH SWAP AND NOT A MATERIAL SWAP. The fade driver installs private
+    /// alpha-capable material CLONES on renderers whose materials cannot blend as authored (a
+    /// Standard material in _Mode = Opaque is exactly that), it remembers the array it replaced, and
+    /// its install is latched — so anyone writing <c>sharedMaterials</c> while a board is faded would
+    /// destroy those clones and snap the card back to opaque for the rest of the ramp. It never
+    /// touches a MeshFilter. Serving a variant mesh whose submesh 0 has the front fan removed — rim
+    /// wall kept, submesh 1 kept, material array untouched at length 2, mesh bounds untouched so the
+    /// fade's own occluder box is unchanged — therefore cannot race it.</para>
+    ///
+    /// <para>THE CALLER MUST HAVE MEASURED THE COVERAGE. Removing the front fan is invisible while
+    /// opaque only where the printed face really does cover the body's front face; over an uncovered
+    /// border it would read as a see-through hole, because the back fan behind it is wound away from
+    /// the viewer and is back-face culled. <c>RemoteCardArt</c> measures its printed rect against
+    /// <see cref="TryMeasureBodyFrontBox"/> before ever calling this with true. Returns the number of
+    /// bodies whose mesh was re-served.</para>
+    /// </summary>
+    internal static int SetBodyFaceHosted(Transform? slabRoot, bool hosted)
+    {
+        if (slabRoot == null)
+            return 0;
+        int changed = 0;
+        for (int i = _bodies.Count - 1; i >= 0; i--)
+        {
+            (MeshFilter filter, CardBodyKind kind, float w, float h, bool was) = _bodies[i];
+            if (filter == null)
+            {
+                _bodies.RemoveAt(i);
+                continue;
+            }
+            // IDENTITY, not containment: only a MeshFilter that came through AttachBody is a card
+            // body, so this can never adopt something else hanging off the same slab (the face canvas
+            // itself, a borrow collider, a usable-frame quad, a glow quad).
+            if (was == hosted || !filter.transform.IsChildOf(slabRoot))
+                continue;
+            _bodies[i] = (filter, kind, w, h, hosted);
+            filter.sharedMesh = BodyMesh(kind, w, h, hosted);
+            changed++;
+        }
+        return changed;
+    }
+
+    /// <summary>
+    /// The card box of the body under <paramref name="slabRoot"/>, in <paramref name="slabRoot"/>'s
+    /// OWN local metres — the rectangle a face canvas parented to that same transform has to cover
+    /// before <see cref="SetBodyFaceHosted"/> is safe. Both body builders pin the mesh bounds to the
+    /// full card box (the box-metrics invariant) rather than to the punched-out contour, so this is
+    /// the conservative envelope: a print that covers this covers every triangle that is drawn.
+    /// False when no registered card body hangs off <paramref name="slabRoot"/>.
+    /// </summary>
+    internal static bool TryMeasureBodyFrontBox(Transform? slabRoot, out Vector2 box)
+    {
+        box = Vector2.zero;
+        if (slabRoot == null)
+            return false;
+        for (int i = _bodies.Count - 1; i >= 0; i--)
+        {
+            MeshFilter filter = _bodies[i].Filter;
+            if (filter == null)
+            {
+                _bodies.RemoveAt(i);
+                continue;
+            }
+            Mesh? mesh = filter.sharedMesh;
+            if (mesh == null || !filter.transform.IsChildOf(slabRoot))
+                continue;
+            Vector3 size = mesh.bounds.size;
+            // Rotation- and scale-safe, and deliberately measured in the SLAB's frame rather than the
+            // body's: the body may carry a non-uniform squash of its own (the hand and browse fans
+            // both fit their slab to the printed rect that way), and the slab is the frame the face
+            // canvas is posed in, so it is the only frame in which the two numbers are comparable.
+            Matrix4x4 m = slabRoot.worldToLocalMatrix * filter.transform.localToWorldMatrix;
+            box = new Vector2(m.MultiplyVector(new Vector3(size.x, 0f, 0f)).magnitude,
+                              m.MultiplyVector(new Vector3(0f, size.y, 0f)).magnitude);
+            return box.x > 0f && box.y > 0f;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Build (once per body mesh, then cached) the FACE-HOSTED twin of <paramref name="body"/>: the
+    /// same vertices, normals, UVs and pinned bounds, with the FRONT FAN triangles dropped out of
+    /// submesh 0 and everything else — the rim wall in submesh 0, the whole back fan in submesh 1 —
+    /// kept verbatim. Submesh COUNT stays 2, so every material array in the codebase still fits it
+    /// and no call site has to learn that this exists.
+    ///
+    /// <para>The RIM is deliberately kept. It is the card's visible edge, it is drawn AROUND the
+    /// printed face rather than behind it, and dropping it would change the opaque look — which is
+    /// the one thing this variant must not do.</para>
+    ///
+    /// <para>A front-fan triangle is identified by its NORMALS, not by an index range: both builders
+    /// (<see cref="Build"/> for the rounded slab, <c>CardContour.BuildBody</c> for the punched-out
+    /// one) give every front-fan vertex the normal <see cref="Vector3.back"/> and every rim vertex an
+    /// outward normal lying in the XY plane (z = 0), so the test cannot confuse the two and does not
+    /// depend on either builder's vertex layout.</para>
+    ///
+    /// <para>Degrades to <paramref name="body"/> itself if the mesh carries no normals, or if the
+    /// filter would keep everything or drop everything — returning the ORIGINAL keeps today's look,
+    /// which is the standing "degrade to what shipped, never to a wrong shape" rule.</para>
+    /// </summary>
+    private static Mesh FaceHostedVariant(Mesh body)
+    {
+        if (_faceHostedCache.TryGetValue(body, out Mesh cached) && cached != null)
+            return cached;
+
+        Vector3[] normals = body.normals;
+        int[] frontRim = body.GetTriangles(0);
+        if (normals.Length == 0 || frontRim.Length == 0)
+            return body;
+
+        var rim = new List<int>(frontRim.Length);
+        for (int t = 0; t + 2 < frontRim.Length; t += 3)
+        {
+            int a = frontRim[t], b = frontRim[t + 1], c = frontRim[t + 2];
+            if (FacesViewer(normals, a) && FacesViewer(normals, b) && FacesViewer(normals, c))
+                continue; // a front-fan triangle: the printed face is drawing this pixel instead
+            rim.Add(a); rim.Add(b); rim.Add(c);
+        }
+        if (rim.Count == 0 || rim.Count == frontRim.Length)
+            return body;
+
+        var variant = new Mesh { name = body.name + ".FaceHosted" };
+        variant.vertices = body.vertices;
+        variant.normals = normals;
+        variant.uv = body.uv;
+        variant.subMeshCount = 2;
+        variant.SetTriangles(rim, 0);
+        variant.SetTriangles(body.GetTriangles(1), 1);
+        // BOX-METRICS INVARIANT, exactly as the punched-out builder states it: keep the source mesh's
+        // bounds, so everything that measures this body — the coverage test above, the peer board's
+        // own occluder box, furniture metrics — sees the envelope it saw before. Assigned AFTER
+        // SetTriangles, which recalculates them.
+        variant.bounds = body.bounds;
+        _faceHostedCache[body] = variant;
+        return variant;
+    }
+
+    /// <summary>Does the vertex at <paramref name="index"/> carry the front fan's viewer-facing
+    /// normal (−Z)? Rim vertices carry an outward normal with z = 0 and can never answer true.</summary>
+    private static bool FacesViewer(Vector3[] normals, int index) =>
+        index >= 0 && index < normals.Length && normals[index].z <= -0.999f;
 
     /// <summary>The body mesh for one kind+size: punched-out when the contour is known, else the
     /// rounded-rect slab (cold start / refused derivation — the standing degrade rule).</summary>
+    private static Mesh BodyMesh(CardBodyKind kind, float width, float height, bool faceHosted)
+    {
+        Mesh body = BodyMesh(kind, width, height);
+        return faceHosted ? FaceHostedVariant(body) : body;
+    }
+
     private static Mesh BodyMesh(CardBodyKind kind, float width, float height)
     {
         Vector2[]? contour = kind == CardBodyKind.Neutral ? null : ContourFor(kind);
@@ -494,7 +691,7 @@ internal static class CardMesh
         int reshaped = 0;
         for (int i = _bodies.Count - 1; i >= 0; i--)
         {
-            (MeshFilter filter, CardBodyKind k, float w, float h) = _bodies[i];
+            (MeshFilter filter, CardBodyKind k, float w, float h, bool faceHosted) = _bodies[i];
             if (filter == null)
             {
                 _bodies.RemoveAt(i);
@@ -502,7 +699,10 @@ internal static class CardMesh
             }
             if (k != kind)
                 continue;
-            filter.sharedMesh = BodyMesh(kind, w, h);
+            // Re-served through the SAME switch the body is already wearing: a slab that is showing a
+            // real card face when the footprint lands must come out of this swap still face-hosted, or
+            // the front fan it had dropped would silently come back underneath the print.
+            filter.sharedMesh = BodyMesh(kind, w, h, faceHosted);
             reshaped++;
         }
         if (reshaped > 0)
