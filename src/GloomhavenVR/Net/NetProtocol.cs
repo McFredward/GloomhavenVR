@@ -416,7 +416,44 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 439;
+    public const ushort ModBuild = 440;
+    // Build 440: THE GAME MINIMISES THE COMBAT LOG WHEN THE POINTER LEAVES, AND OUR LASER RECT
+    // FOLLOWED IT OVER OUR OWN CLOSE BUTTON.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
+    //
+    // THE USER FOUND IT, and the report is the diagnosis: "wenn man den Kampflog beruehrt oder
+    // drueberhovered wird er nach oben hinweg groesser - scheinbar auch der Bereich in dem der
+    // Laser collidet ... wenn der Kampflog wieder kleiner geworden ist geht der Laser durch das X
+    // hindurch."
+    //
+    // THE CAUSE IS THE GAME'S, and it is in the decompile: GH.Runtime/CombatLogHandler implements
+    // IPointerEnter/ExitHandler and LeanTweens combatLogWindow.anchorMax.y between
+    // minimizeToPercent = 0.5f and 1f. The HOST rect never moves; the DRAWN CONTENT halves. Our
+    // laser rect (CanvasConversion.TryGetHitRect) is a union of host and drawn content that
+    // ModBuild 242 taught to NARROW to the drawn content + 64 px, so at rest the interactive area
+    // ends at y=32 while the close plate sits at y=105..139 -- 73 px of nothing between the top of
+    // what the beam can hit and the bottom of the button. TryIntersect returns false and the beam
+    // does not stop on the panel at all: "kollidiert nicht", his words, and exactly what he
+    // photographed by hovering.
+    //
+    // THE FIX IS HIS: the rect is floored to contain the mod-owned interactive chrome parked on the
+    // host. Never past the host rect, so it cannot reach over a neighbour, and the narrowing still
+    // bites on every edge no chrome stands on -- the options window whose "unsichtbare Collider"
+    // report created that narrowing seats its X on the INK, so the floor is a no-op there.
+    //
+    // TWO CORRECTIONS TO WHAT I TOLD HIM. (1) I said ~10 px of the 34x34 hit plane sticks out past
+    // the host corner. Wrong: the plate pivots at (1,1) and extends INWARD, so it is inside the
+    // host rect by 7 px on every window -- which is also why the FINGERTIP could always reach it
+    // (PokeInteractor tests the raw host rect) and only the beam could not. (2) ModBuild 439's
+    // ViewerNudgePx retirement was a real second term with the same symptom, and it was not this.
+    //
+    // AND THE ONE INSTRUMENT THAT WOULD HAVE ANSWERED THIS IN ONE LINE HAS NEVER RUN ON THIS PANEL:
+    // "MODAL CLOSE X ON THE INK" prints the laser target rect beside the X's corner, and it is
+    // emitted only from GrabbableModal.ReportBarPlacement -- the combat log uses SurfaceGrabBar and
+    // has no GrabbableModal, so that grep returns 0 on this panel and 8 on the options window.
+    // Three rounds on a panel the relevant instrument was structurally blind to. The new
+    // "HIT RECT CHROME FLOOR" line is emitted by the hit-rect owner and therefore covers every
+    // converted panel, surfaces included.
     // Build 439: THE 45-POINT REDUNDANCY SURVEY, CLOSED — AND THE "RANDOM" HITCH WAS ONE OF OUR
     // OWN RENDERERS TOGGLING ITSELF.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
