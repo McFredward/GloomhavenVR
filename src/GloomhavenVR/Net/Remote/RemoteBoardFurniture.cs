@@ -465,6 +465,15 @@ internal sealed class RemoteBoardFurniture
     private static readonly Color UndoColor = new(0.44f, 0.31f, 0.20f);    // worn leather
     /// <summary>PINNED (accented) FOLLOW/PIN cap — the <c>_accentColor</c> the local
     /// <c>PlayTray.BuildDashboardControls</c> hands its pin button (aged brass).</summary>
+    /// <remarks>THE ONE STILL-COPIED HALF OF THE FOLLOW/PIN CONTROL. The owner's own declaration
+    /// (<c>PlayTray.BoardButton.FollowPinAccent</c>) says of itself "One literal for every
+    /// follow/pin toggle in the mod" — a claim this line falsifies, and has falsified since the
+    /// 2026-09-05 round unified the two LOCAL pins and left the peer's as a third. It cannot be
+    /// CALLED, the way <see cref="PinIdleColor"/> is: that field is <c>private</c> on a nested type
+    /// inside <c>Cards/Tray</c>. And it cannot be LINTED either — it is a <c>Color</c>, and
+    /// <c>scripts/check-mirrors.sh</c> is a float/string extractor, a limit this file's palette note
+    /// already concedes. Promoting the owner's field to <c>internal</c> is a one-line change and is
+    /// the whole fix; everything else about this control now reads one definition.</remarks>
     private static readonly Color PinAccentColor = new(0.58f, 0.46f, 0.26f);
 
     /// <summary>FOLLOW (idle) FOLLOW/PIN cap — the colour every ENABLED, un-accented keycap rests
@@ -1210,8 +1219,8 @@ internal sealed class RemoteBoardFurniture
         }
 
         // FOLLOW/PIN toggle: built in the FOLLOW (idle) look, then driven from the owner's synced
-        // state every refresh (SetPinned) — label AND cap colour, exactly like their own cap.
-        // Built in the FOLLOW look, which is also the FOLGEN symbol (two footprints); SetPinned
+        // state every refresh (ApplyFollowPinState) — label AND cap colour, exactly like their own cap.
+        // Built in the FOLLOW look, which is also the FOLGEN symbol (two footprints); ApplyFollowPinState
         // swaps BOTH the colour and the symbol to the anchor the moment the owner's pinned bit
         // arrives, from the one read, exactly as the owner's own toggle does.
         _pin = InertCap.Square(_root, "FollowToggle", PinMount + tuning.PinOffset,
@@ -1229,7 +1238,7 @@ internal sealed class RemoteBoardFurniture
         // …and the word for it, cut into the board above the toggle. Seated off the SAME mount the
         // cap is (PinMount + the owner's tuned PinOffset) and lifted by the shared
         // BoardEngraving.PinCaptionLiftY, so it tracks the owner's dial the way the cap does.
-        // SetPinned writes its text on the first refresh, from the owner's synced pinned bit.
+        // ApplyFollowPinState writes its text on the first refresh, from the owner's synced pinned bit.
         //
         // AND ITS DEPTH IS THE OWNER'S ARITHMETIC, WRITTEN OUT. This caption hangs off the board
         // ROOT rather than off an anchor, and BoardEngraving.Create overwrites Z in its PARENT's
@@ -1859,7 +1868,11 @@ internal sealed class RemoteBoardFurniture
         // cap while it follows their rig — the same label/colour pair their own BoardButton wears
         // (PlayTray: SetLabel(follow/pinned) + SetState(accent: !TrayFollow)). A sender that
         // predates the bit reads as FOLLOW, which is the look every previous build already drew.
-        SetPinned(owner.TrayPinned);
+        //
+        // THE WIRE STILL CARRIES "PINNED" AND THE CONTROL STILL MEANS "FOLLOW". This negation is
+        // that translation, made once, at the one seam where it belongs — see ApplyFollowPinState,
+        // which now has the owner's name and the owner's argument sense.
+        ApplyFollowPinState(!owner.TrayPinned);
 
         // ---- item-use USE cap -----------------------------------------------------------------
         // SYNCED: the USE cap is its own wire bit (it exists on the owner's board only while a
@@ -1989,31 +2002,69 @@ internal sealed class RemoteBoardFurniture
     /// <summary>Last applied FOLLOW/PIN state (null = nothing written yet, so the first pass
     /// always states it). Change-gated because both writes it drives — a TMP label and three
     /// material colours — are exactly the per-tick churn that must not run per frame; this setter
-    /// is on the <see cref="TickWire"/> path, so the gate is what keeps it free.</summary>
-    private bool? _shownPinned;
+    /// is on the <see cref="TickWire"/> path, so the gate is what keeps it free.
+    ///
+    /// <para>IT HOLDS <c>follow</c>, NOT <c>pinned</c>. See <see cref="ApplyFollowPinState"/> for
+    /// why the sense flipped.</para></summary>
+    private bool? _shownFollow;
 
-    /// <summary>Apply the owner's tray anchor mode to the inert FOLLOW/PIN cap: the local board's
-    /// own label pair (<c>Loc.Mod("follow")</c> / <c>Loc.Mod("pinned")</c>) and its own colour pair
-    /// (idle parchment / accent brass). See the call site in <see cref="Refresh"/>.</summary>
-    private void SetPinned(bool pinned)
+    /// <summary>
+    /// THE WORD a follow/pin control wears in the state <paramref name="follow"/> — one read of one
+    /// bool, so a cap can never show an anchor while its own caption says FOLGEN. The owner's
+    /// <c>PlayTray.BoardButton.ApplyFollowPinState</c> resolves it from the same two keys.
+    /// </summary>
+    private static string FollowPinWord(bool follow) => follow ? Loc.Mod("follow") : Loc.Mod("pinned");
+
+    /// <summary>THE ENGRAVED SYMBOL for the same state — two footprints while following, an anchor
+    /// while pinned; the cell of the keycap atlas the cap's face samples.</summary>
+    private static Cards.CapRole FollowPinRole(bool follow)
+        => follow ? Cards.CapRole.FixedFollow : Cards.CapRole.FixedPinned;
+
+    /// <summary>
+    /// Apply the owner's tray anchor mode to the inert FOLLOW/PIN cap — the accent, the word, the
+    /// engraved symbol and the board caption beside it, all from ONE read of ONE bool.
+    ///
+    /// <para><b>THE NAME AND THE ARGUMENT SENSE ARE THE OWNER'S.</b> This method was
+    /// <c>SetPinned(bool pinned)</c> against
+    /// <c>PlayTray.BoardButton.ApplyFollowPinState(BoardButton, bool follow)</c> — the same state
+    /// crossing the wire and then being read INVERTED on the two sides of it, with every ternary
+    /// here spelled the other way round from the ternary it mirrors. Two spellings of one bool is
+    /// how a reader comparing the two files convinces himself a sign is wrong, and how the next
+    /// edit makes it wrong. The wire is untouched: <c>RemoteAvatar.TrayPinned</c> still carries the
+    /// PINNED bit exactly as before (record byte 1 bit 2) and the caller negates it here, at the
+    /// one seam where the wire's vocabulary becomes the control's.</para>
+    ///
+    /// <para><b>THE ONE PIECE STILL COPIED.</b> <see cref="PinAccentColor"/> re-declares
+    /// <c>PlayTray.BoardButton.FollowPinAccent</c>, whose own doc comment claims to be "one literal
+    /// for every follow/pin toggle in the mod" and is not — this is the third. It cannot be called:
+    /// that field is <c>private</c> on a nested type, and it is a <c>Color</c>, which
+    /// <c>scripts/check-mirrors.sh</c> (a float/string extractor) cannot lint either. Promoting it
+    /// to <c>internal</c> is a one-line change on the owner's side and is all this needs.</para>
+    /// </summary>
+    /// <param name="follow">TRUE = FOLGEN (their board follows their rig), FALSE = FIXIERT (world
+    /// anchored) — the owner's own sense, term for term.</param>
+    private void ApplyFollowPinState(bool follow)
     {
-        if (_shownPinned == pinned)
+        if (_shownFollow == follow)
             return;
-        _shownPinned = pinned;
-        // BOTH HALVES OF THE STATE, FROM ONE READ, exactly as the owner's RefreshFollowEngraving
-        // does it: the SYMBOL on the cap (an anchor while pinned, two footprints while following)
-        // and the WORD cut into the board beside it. The cap's own string is still written even
-        // when its renderer is off — it is what a bundle without the keycap atlas falls back to,
-        // and it is what this board's diagnostic line reports.
-        _pin.SetLabel(pinned ? Loc.Mod("pinned") : Loc.Mod("follow"));
-        _pin.SetCapRole(pinned ? Cards.CapRole.FixedPinned : Cards.CapRole.FixedFollow);
+        _shownFollow = follow;
+        // BOTH HALVES OF THE STATE, FROM ONE READ, exactly as the owner's ApplyFollowPinState and
+        // RefreshFollowEngraving do it: the SYMBOL on the cap (two footprints while following, an
+        // anchor while pinned) and the WORD cut into the board beside it. The cap's own string is
+        // still written even when its renderer is off — it is what a bundle without the keycap
+        // atlas falls back to, and it is what this board's diagnostic line reports.
+        string word = FollowPinWord(follow);
+        _pin.SetLabel(word);
+        _pin.SetCapRole(FollowPinRole(follow));
         if (_pinEngraving != null)
         {
-            Cards.BoardEngraving.SetText(_pinEngraving,
-                (pinned ? Loc.Mod("pinned") : Loc.Mod("follow")).ToUpperInvariant());
+            Cards.BoardEngraving.SetText(_pinEngraving, word.ToUpperInvariant());
             Cards.BoardEngraving.Restyle(_pinEngraving, _style);
         }
-        _pin.SetTint(pinned ? PinAccentColor : PinIdleColor(_style));
+        // ACCENTED IS THE PINNED STATE — the owner writes `SetState(true, accent: !follow)` and
+        // this is that same expression, against this layer's own tint path (an InertCap is not a
+        // BoardButton and has no state ladder to run).
+        _pin.SetTint(follow ? PinIdleColor(_style) : PinAccentColor);
     }
 
     /// <summary>
@@ -2080,7 +2131,7 @@ internal sealed class RemoteBoardFurniture
     /// on them in the whole mod is a constant — <c>(enabled, !accent)</c> for UNDO,
     /// <c>(enabled, accent)</c> for USE — so their look is a BUILD fact and is applied by the
     /// constructor for zero bits. The FOLLOW/PIN cap's accent is byte 1 bit 2 and is applied by
-    /// <see cref="SetPinned"/>, where it has ridden since the pinned bit shipped.</para>
+    /// <see cref="ApplyFollowPinState"/>, where it has ridden since the pinned bit shipped.</para>
     ///
     /// <para>A sender without the byte (<c>HasCapStates</c> false) leaves every cap exactly where
     /// the constructor put it.</para>
@@ -2279,7 +2330,7 @@ internal sealed class RemoteBoardFurniture
     /// flags the owner's own renderer obeys.
     ///
     /// The FOLLOW/PIN toggle left that list earlier: its label and accent are SYNCED (board-UI
-    /// record byte 1 bit 2) and applied in <see cref="SetPinned"/>, so this method only seeds the
+    /// record byte 1 bit 2) and applied in <see cref="ApplyFollowPinState"/>, so this method only seeds the
     /// wording. Calling <c>[Cards] TrayFollow</c> "a private VR preference" was the mistake — it is
     /// a labelled two-state control on a board the user requires to read 1:1 like its owner's.
     /// The CONFIRM and SKIP wordings left the list the same way (user report 2026-08-04: "mein
@@ -2300,11 +2351,12 @@ internal sealed class RemoteBoardFurniture
         _appliedUseWire = null;
         _use.SetLabel(Loc.Mod("item_use_area").ToUpperInvariant());
         ApplyItemUseCaption(); // the caption is language-dependent too, and the gate above re-arms
-        // FOLLOW/PIN is SYNCED state now (see SetPinned), so a language switch must re-state the
-        // CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so the next
-        // refresh re-applies it in the new language.
-        _pin.SetLabel(_shownPinned == true ? Loc.Mod("pinned") : Loc.Mod("follow"));
-        _shownPinned = null;
+        // FOLLOW/PIN is SYNCED state now (see ApplyFollowPinState), so a language switch must
+        // re-state the CURRENT mode's word, not the FOLLOW one — and must re-arm the change gate so
+        // the next refresh re-applies it in the new language. Through the same FollowPinWord the
+        // state ladder uses, so the reseed and the applied state cannot resolve two different words.
+        _pin.SetLabel(FollowPinWord(_shownFollow != false));
+        _shownFollow = null;
         // GUI_SKIP_MOVEMENT is the key SkipButton.Start() seeds its own label from; the live
         // button swaps in GUI_SKIP_ABILITY / GUI_SKIP_ATTACK per situation — that live wording
         // rides wire record 13 now (SetCapLabels overrides this seed whenever it is present).
