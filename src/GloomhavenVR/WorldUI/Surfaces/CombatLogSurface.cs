@@ -39,12 +39,32 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// FOLLOW/PINNED: the CONTROL BOARD'S OWN dashboard keycap
 /// (<c>PlayTray.BoardButton.CreateFollowPin</c> — same dials, same aged brass,
 /// same engraved state symbol) next to the bar flips [WorldUI]
-/// CombatLogFollowSeat. PINNED (default since test #20) freezes the world pose;
-/// like the tray, a pinned WORLD pose does not survive sessions — on each
-/// conversion the panel first places from the persisted offsets (head-relative
-/// fallback pose when no table anchor exists yet), then freezes. FOLLOW
-/// re-derives the POSITION from the persisted offsets every tick (moves with
-/// recenters/diorama like every panel) but never the rotation.
+/// CombatLogFollowSeat — and since 2026-09-05 it also runs THE CONTROL BOARD'S OWN
+/// MECHANISM (<see cref="FollowPinAnchor"/>), because the words meant two
+/// different things on the two objects. User ruling, verbatim: "Beim Kampflog
+/// funktioniert das 'Folgen' nicht genau gleich wie es bei dem Controlboard der
+/// Fall ist. Wieso nicht? Es soll hier am besten den selben Code nutzen und sich
+/// genauso verhalten was fixiert und folgen genau bedeutet."
+///
+/// <para>WHAT THEY MEAN NOW, ON BOTH OBJECTS. FOLGEN re-parents the frame onto the
+/// rig-space anchor and stops: the rig transform carries it, so it keeps the pose
+/// the player gave it relative to their play space and it scales with the diorama.
+/// FIXIERT re-parents it onto a world-static holder whose scale is the rig's
+/// FROZEN AT PIN TIME, so a pinned panel is completely unaffected by a world-grab
+/// zoom (position AND size), and it is carried through a tracking-origin change
+/// (recentre / rig rebuild) by its rig-relative pose so a pin can never be
+/// stranded at the old seat. Toggling either way MOVES NOTHING — the re-parent
+/// preserves the world pose, which is the board's item-4 rule.</para>
+///
+/// <para>WHAT IT USED TO MEAN HERE, i.e. the answer to his "wieso nicht": FOLLOW
+/// re-derived <c>anchor + yaw * (offset * worldScale)</c> from three persisted keys
+/// on EVERY TICK, so it followed the TABLE rather than the player and toggling into
+/// it teleported the panel to its config offsets; PINNED froze the world POSITION
+/// but re-read the diorama scale into the holder every tick, so a pinned panel
+/// still swelled with the world-grab zoom. Both are gone. A pinned WORLD pose still
+/// does not survive a session (the tray rule): each conversion seats the panel ONCE
+/// from the persisted offsets, healed into the forward view, and the anchor owns it
+/// from there.</para>
 ///
 /// CLOSE: the SHARED X (<see cref="ModalCloseButton"/>) on the host canvas, the
 /// same muted plate and brass cross every floated window wears, running THIS
@@ -60,13 +80,16 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// whose scan returns immediately when the tray is hidden, so a combat log standing
 /// on its own had a close cross the laser could not press.
 ///
-/// TRANSFORM LAYOUT: holder (identity pose, localScale = diorama WorldScale)
+/// TRANSFORM LAYOUT: anchor (the rig root while FOLGEN, the world-static pin
+/// holder at its frozen rig scale while FIXIERT — <see cref="FollowPinAnchor"/>)
 /// → frame (grab root at the BAR CENTER; localScale = user size factor 0.5–2)
-/// → bar/pin visuals. The frame's lossyScale is therefore WorldScale × factor —
-/// exactly the scale the converted host is placed with, so bar and panel resize
-/// and diorama-scale together, and the grab core's 0.5–2 localScale clamp keeps
-/// its meaning (the tray's _pinRoot trick). The game-owned host is pose-followed,
-/// never re-parented (mount-seam reversibility rule).
+/// → bar/pin visuals. The frame's lossyScale is therefore the anchor's scale ×
+/// factor — exactly the scale the converted host is placed with, so bar and panel
+/// resize together, and the grab core's 0.5–2 localScale clamp keeps its meaning
+/// (the tray's _pinRoot trick, now literally the tray's code). Until 2026-09-05
+/// this was a private identity-pose holder re-reading the live diorama scale every
+/// tick, which is why a FIXIERT panel used to zoom with the world. The game-owned
+/// host is pose-followed, never re-parented (mount-seam reversibility rule).
 /// </summary>
 internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 {
@@ -269,8 +292,21 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// </summary>
     protected override bool Flatten2D => true;
 
-    private Transform? _holder;   // identity pose, carries the diorama scale
-    private Transform? _frame;    // grab root at the bar center; localScale = user factor
+    /// <summary>
+    /// THE FOLGEN/FIXIERT MECHANISM, WHICH IS THE CONTROL BOARD'S AND IS NO LONGER RE-INVENTED HERE
+    /// (2026-09-05). See <see cref="FollowPinAnchor"/> for what the two words mean and why this
+    /// panel's own answer was a different one. Named holder object so a hierarchy dump says which
+    /// pin it is.
+    /// </summary>
+    private readonly FollowPinAnchor _anchor = new("GloomhavenVR.CombatLogPin", dontDestroyOnLoad: false);
+
+    /// <summary>The mod-owned frame: the grab root AT THE BAR CENTRE, localScale = the user's 0.5x-2x
+    /// size factor, PARENTED by <see cref="_anchor"/> — under the rig root while FOLGEN, under the
+    /// world-static pin holder while FIXIERT. Its parent therefore carries the diorama scale in both
+    /// modes, exactly as the separate identity-pose holder it replaced did, which is what keeps the
+    /// grab core's 0.5x-2x localScale clamp and <see cref="SyncBar"/>'s frame-local metres meaning
+    /// what they meant.</summary>
+    private Transform? _frame;
 
     /// <summary>The drawn rod — shaft plus two end knobs, ONE material — exactly the object every
     /// floated window's handle is. It replaced a stretched <c>PrimitiveType.Cube</c>.</summary>
@@ -310,7 +346,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private bool _pinLaserHovered;
 
     private bool _placedFromConfig;
-    private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
+    /// <summary>RigPoseVersion the orientation was derived at — and, since the two modes were
+    /// unified, the version the HEAL was last adjudicated at. Both questions are "has the tracking
+    /// origin moved since we last looked at this panel", so they are one field on purpose.</summary>
+    private int _facedPoseVersion = -1;
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _locHooked;            // subscribed to Loc.OnChanged (live language following)
 
@@ -326,6 +365,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     // ---- HW-VERIFY bookkeeping ---------------------------------------------------------------
     private int _ticks;                 // UNCONDITIONAL liveness: "never ran" vs "ran and did nothing"
+    /// <summary>Tracking-origin carries this pin has actually taken (recentre / rig rebuild). Zero
+    /// across a session with recentres in it means the FIXIERT pin is not being carried, which is
+    /// the one way a pinned panel can strand at the old seat.</summary>
+    private int _pinCarryCount;
     private int _verifyLines;
     private int _verifySuppressed;
     private int _lastVerdict = int.MinValue;
@@ -418,7 +461,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     Transform? IPanelGrabOwner.GrabRoot => _frame;
     bool IPanelGrabOwner.GrabVisible =>
-        Panel != null && _holder != null && _holder.gameObject.activeInHierarchy;
+        Panel != null && _frame != null && _frame.gameObject.activeInHierarchy;
     // No billboard anymore (test #20) — the carry yaws like the tray. Level in the plain WORLD
     // frame (identity): panels are outside the item-11 board-leveling contract.
     PanelCarryMode IPanelGrabOwner.CarryMode => PanelCarryMode.Level;
@@ -460,8 +503,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             // missing. A hover that survives its own control is the [[gate-outliving-its-edge]]
             // shape: the cap would stay lit and pressed-looking with nothing behind it.
             ClearCapLaserHover();
-            if (_holder != null && _holder.gameObject.activeSelf)
-                _holder.gameObject.SetActive(false);
+            if (_frame != null && _frame.gameObject.activeSelf)
+                _frame.gameObject.SetActive(false);
         }
         LogVerdict();
     }
@@ -474,10 +517,15 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             Loc.OnChanged -= ApplyLocalisedText;
             _locHooked = false;
         }
-        if (_holder != null)
-            Object.Destroy(_holder.gameObject);
-        _holder = null;
+        if (_frame != null)
+            Object.Destroy(_frame.gameObject);
         _frame = null;
+        // The world-static pin holder is the frame's PARENT while FIXIERT, so destroying the frame
+        // leaves it behind as an empty stray unless it goes too. ResetCarry drops the rig-relative
+        // offset with it: the next frame is a different object and must not be carried by an offset
+        // measured against the one that is gone.
+        _anchor.DestroyHolder(immediate: false);
+        _anchor.ResetCarry();
         _bar = null;
         _barTween?.Release();   // leaves the LateUpdate tick list; the rod it presented is gone
         _barTween = null;
@@ -495,6 +543,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _heightSettle.Reset();
         _placedFromConfig = false;
         _facedPoseVersion = -1;
+        _pinCarryCount = 0;
         _healLogged = false;
         _entryCount = -1;
         _lastChildCount = -1;
@@ -519,31 +568,41 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             return;
 
         EnsureFrame();
-        if (_holder == null || _frame == null)
+        if (_frame == null)
             return;
 
         float worldScale = PanelLayout.WorldScale;
-        _holder.localScale = Vector3.one * worldScale;
-        if (!_holder.gameObject.activeSelf)
-            _holder.gameObject.SetActive(true);
+        if (!_frame.gameObject.activeSelf)
+            _frame.gameObject.SetActive(true);
 
         bool grabbed = _handle != null && _handle.IsGrabbed;
 
-        // A SHOW (settings toggle / X-recover) always drops the panel in view in front of the
-        // head and persists that pose — regardless of FOLLOW/PINNED and any stale offsets — so
-        // the toggle can never appear to do nothing (item 1).
+        // ------------------------------------------------------------------ THE SEAT (events only)
+        //
+        // FOLGEN AND FIXIERT BOTH SEAT THE PANEL EXACTLY ONCE AND THEN LEAVE IT ALONE, which is the
+        // whole of the 2026-09-05 ruling ("Es soll hier am besten den selben Code nutzen und sich
+        // genauso verhalten was fixiert und folgen genau bedeutet"). Until today FOLLOW re-derived
+        // `anchor + yaw * offset * worldScale` on EVERY TICK, so it followed the TABLE, and toggling
+        // into it teleported the panel to its config offsets — the exact move the control board's
+        // ApplyFollowMode refuses to make in writing. What carries the panel afterwards is the
+        // shared anchor (rig-parented while FOLGEN, world-pinned while FIXIERT), never this method.
         if (_respawnRequested && !grabbed)
         {
+            // A SHOW (settings toggle / X-recover) always drops the panel in view in front of the
+            // head and persists that pose — regardless of FOLLOW/PINNED and any stale offsets — so
+            // the toggle can never appear to do nothing (item 1).
             _respawnRequested = false;
+            ReseatIntoLiveFrame();
             PlaceInView(head);
             _placedFromConfig = true;
             _facedPoseVersion = Rig.VRRigDriver.RigPoseVersion;
         }
-        else if (!grabbed && (WorldUIConfig.CombatLogFollow.Value || !_placedFromConfig))
+        else if (!grabbed && !_placedFromConfig)
         {
-            // FOLLOW: re-derive from the persisted offsets every tick (world-anchored
-            // like every panel — the seat yaw is cached in PanelLayout). PINNED
-            // (default): derive ONCE per conversion, then the world pose stays frozen.
+            // FIRST SEAT OF THIS CONVERSION, in BOTH modes: derive from the persisted offsets
+            // (a pinned WORLD pose does not survive a session — the tray rule), heal it into the
+            // forward FOV, face the head once. From here on the anchor owns the pose.
+            ReseatIntoLiveFrame();
             Vector3 offset = new(
                 WorldUIConfig.CombatLogRight.Value,
                 WorldUIConfig.CombatLogUp.Value,
@@ -557,20 +616,9 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             bool healed = PanelPlacement.ClampIntoView(head, worldScale, ref candidate,
                 out Quaternion facing);
             _frame.position = candidate;
-            _frame.localScale = Vector3.one
-                                * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
-
-            // Test #20: NO per-tick billboard — the constant head re-facing read as
-            // the content shifting with head motion. Orientation derives at EVENTS
-            // only: once per conversion, when the seat yaw re-derives (rig rebuild/
-            // recenter — RigPoseVersion bumps there and nowhere else), and when a heal
-            // relocated the panel (a legitimate re-place, not a per-tick re-face).
-            int poseVersion = Rig.VRRigDriver.RigPoseVersion;
-            if (!_placedFromConfig || poseVersion != _facedPoseVersion || healed)
-            {
-                _frame.rotation = facing;
-                _facedPoseVersion = poseVersion;
-            }
+            _frame.rotation = facing;
+            _facedPoseVersion = Rig.VRRigDriver.RigPoseVersion;
+            _placedFromConfig = true;
             if (healed)
             {
                 PersistLayout();
@@ -585,45 +633,41 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             {
                 _healLogged = false;
             }
-            _placedFromConfig = true;
         }
-        else if (!grabbed && !WorldUIConfig.CombatLogFollow.Value)
+        else if (!grabbed)
         {
-            // PINNED + already placed: stay FROZEN in the world (world-static rule), BUT if a
-            // recenter / Mixed-Reality toggle (pose version bump) left the frozen pose outside
-            // the new forward view, heal the EXISTING world pose in — item 2. Idempotent in
-            // view, so a deliberately-pinned visible panel is never disturbed; only checked
-            // once per pose version, never per tick.
-            int poseVersion = Rig.VRRigDriver.RigPoseVersion;
-            if (poseVersion != _facedPoseVersion)
-            {
-                _facedPoseVersion = poseVersion;
-                Vector3 pos = _frame.position;
-                if (PanelPlacement.ClampIntoView(head, worldScale, ref pos, out Quaternion facing))
-                {
-                    _frame.position = pos;
-                    _frame.rotation = facing;
-                    PersistLayout();
-                    if (!_healLogged)
-                    {
-                        _healLogged = true;
-                        VRLog.Info("WorldUI", "Combat log (PINNED) was stranded out of view by a " +
-                                              "recenter/MR toggle — healed back into the forward view.");
-                    }
-                }
-                else
-                {
-                    _healLogged = false;
-                }
-            }
+            TickAnchorHousekeeping(head, worldScale);
         }
+
+        // THE SIZE FACTOR IS THE PLAYER'S DIAL, NOT AN AUTOMATIC SOURCE. Asserted in both modes
+        // (until today only the per-tick FOLLOW branch wrote it, so the options slider was dead on
+        // a PINNED panel), change-gated so a frozen panel takes no write on a tick that changes
+        // nothing. It is a LOCAL scale under a parent that carries the diorama scale, so it keeps
+        // meaning 0.5x-2x of the panel's own size in either frame — the pin holder's whole job.
+        if (!grabbed)
+        {
+            float factor = Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
+            if (!Mathf.Approximately(_frame.localScale.x, factor))
+                _frame.localScale = Vector3.one * factor;
+        }
+
+        // …and only NOW is the mode applied, in the pose the seat above just produced: the shared
+        // re-parent preserves the world pose, so seating first and pinning second is the same order
+        // PlayTray.PlaceAtHead uses and for the same reason.
+        ApplyAnchorMode();
 
         Rect rect = Panel.HostRect.rect; // pinned to the full window layout (OnConverted)
         if (rect.width < 1f || rect.height < 1f)
             return;
 
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
-        float hostScale = worldScale * _frame.localScale.x;
+        // THE FRAME'S OWN WORLD SCALE, read rather than recomposed. It used to be
+        // `worldScale * _frame.localScale.x`, which was the same number only while the frame's
+        // parent was a holder held at the LIVE diorama scale. A FIXIERT frame now hangs under a
+        // holder frozen at pin time, so the live diorama scale is no longer its parent's — and a
+        // pinned panel whose host kept resizing with the world zoom would be exactly the "world zoom
+        // zooms the pinned control board too" defect the board's holder freeze exists to prevent.
+        float hostScale = _frame.lossyScale.x;
 
         SyncBar(rect, metersPerPixel);
 
@@ -786,7 +830,144 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _frame.rotation = rot;
         _frame.localScale = Vector3.one * Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f);
         _healLogged = false;
+        // Re-author the pin against THIS pose and the CURRENT tracking origin. Without both halves
+        // the next origin change would carry the panel by an offset measured before this deliberate
+        // re-seat and quietly undo it — the same pair of lines the board's arrival seat guard runs
+        // for the same reason. A no-op while FOLGEN (nothing is pinned).
+        _anchor.ReauthorOrigin();
+        _anchor.RecacheRigLocal(_frame);
         PersistLayout();
+    }
+
+    /// <summary>
+    /// The rig-space anchor this panel follows while FOLGEN: the rig root itself, which is the very
+    /// transform <see cref="PanelLayout.WorldScale"/> reads its diorama scale off, so the frame's
+    /// parent scale and every other panel's scale term are the same number by construction. (The
+    /// control board uses the HANDS root instead — a child of this one at identity local scale —
+    /// because a board without hands has nothing to be docked to; a combat log routinely stands on
+    /// its own with the hands down, so it anchors one level up.)
+    /// </summary>
+    private static Transform? RigAnchor => Rig.VRRigDriver.RigRoot;
+
+    /// <summary>
+    /// Put the frame back into the LIVE rig frame before a fresh seat is written into it, and drop
+    /// any holder frozen at an older rig scale.
+    ///
+    /// <para><b>THIS IS THE ORDER THE CONTROL BOARD USES AND IT IS LOAD-BEARING, NOT TIDINESS.</b>
+    /// <c>PlayTray.EnsureBuilt</c> parents the fresh board onto the rig anchor with
+    /// <c>worldPositionStays: false</c> and only then does <c>PlaceAtHead</c> write the pose and the
+    /// size, so the board's localScale is ALWAYS authored in a frame that carries the diorama scale.
+    /// Writing it at the world root instead and pinning afterwards would be a
+    /// <c>worldPositionStays: true</c> re-parent onto a scaled holder, and Unity solves the local
+    /// scale to hold the WORLD size across that — i.e. it would silently divide the player's 0.5x-2x
+    /// size dial by the diorama scale and PersistLayout would then write that quotient back into
+    /// [WorldUI] CombatLogScale.</para>
+    ///
+    /// <para>Dropping the holder here is the second half: a seat derived from the persisted offsets
+    /// is expressed in the LIVE diorama scale, so the pin frozen beside it has to be the live one
+    /// too. Without it a hide/show inside a scenario the player had zoomed would put the panel at a
+    /// freshly-derived place in a stale size. The frame has already left the holder on the line
+    /// above, so destroying it cannot take the panel with it.</para>
+    /// </summary>
+    private void ReseatIntoLiveFrame()
+    {
+        Transform? rigAnchor = RigAnchor;
+        if (_frame == null || rigAnchor == null)
+            return;
+        if (_frame.parent != rigAnchor)
+            _frame.SetParent(rigAnchor, worldPositionStays: false);
+        _anchor.DestroyHolder(immediate: false);
+    }
+
+    /// <summary>
+    /// Put the frame into the frame its FOLGEN/FIXIERT setting asks for, through the control board's
+    /// own mechanism. Idempotent and allocation-free: on the overwhelming majority of ticks both
+    /// terms already hold and it returns after two reference compares, which is why it can sit on
+    /// the per-frame path at all. The guard is not an optimisation only — <see cref="FollowPinAnchor.Apply"/>
+    /// writes the pin holder's scale from the LIVE rig, and calling it every tick on a pinned panel
+    /// would be the live holder rescale the board's watchdog forbids in a comment block with no code
+    /// under it.
+    /// </summary>
+    private void ApplyAnchorMode()
+    {
+        if (_frame == null)
+            return;
+        bool follow = WorldUIConfig.CombatLogFollow.Value;
+        Transform? rigAnchor = RigAnchor;
+        bool settled = follow
+            ? rigAnchor != null && _frame.parent == rigAnchor && _anchor.Holder == null
+            : _anchor.Holder != null && _frame.parent == _anchor.Holder;
+        if (settled)
+            return;
+        _anchor.Apply(_frame, follow, rigAnchor);
+    }
+
+    /// <summary>
+    /// What keeps a SEATED panel where the player put it, in both modes — the two jobs the control
+    /// board's <c>SyncPinHolder</c> plus arrival guard do for the board:
+    ///
+    /// <list type="number">
+    /// <item><b>The tracking-origin carry (FIXIERT only).</b> A pin is raw world space and a
+    /// recentre teleports the rig without moving the world, which would strand the panel at the old
+    /// seat. Shared with the board, down to the rig-relative cache. FOLGEN needs nothing: it is
+    /// rig-parented, so it carries itself.</item>
+    /// <item><b>The heal into view (BOTH modes).</b> A recenter or a Mixed-Reality toggle can still
+    /// leave the panel outside the new forward view — the carry preserves the player-relative pose,
+    /// which is right, but an MR toggle changes what "in view" means. Checked once per
+    /// <see cref="Rig.VRRigDriver.RigPoseVersion"/>, never per tick, and idempotent inside the cone,
+    /// so a deliberately placed visible panel is never disturbed.</item>
+    /// </list>
+    ///
+    /// <para>THERE IS NO RE-FACE ON A POSE-VERSION BUMP ANY MORE, and nothing lost it. It existed
+    /// because the old FOLLOW derived its POSITION from the cached seat yaw, so a re-derived seat had
+    /// to be re-faced to match. Both modes now carry their orientation with the player — rig-parented
+    /// or rig-relative-carried — so a recentred panel already faces him, and re-facing would be a
+    /// write on a frozen object with nothing to correct. Orientation still derives at events only
+    /// (test #20): the first seat, a grab release, and a heal that actually relocated the panel.</para>
+    /// </summary>
+    private void TickAnchorHousekeeping(Camera head, float worldScale)
+    {
+        if (_frame == null)
+            return;
+        bool follow = WorldUIConfig.CombatLogFollow.Value;
+
+        FollowPinAnchor.Carry carry = _anchor.TickCarry(_frame, follow);
+        if (carry.Carried)
+            _pinCarryCount++;
+        if (carry.Carried)
+            VRLog.Info("WorldUI", "Combat log (PINNED) carried through a tracking-origin change " +
+                                  $"(rig pose version {carry.FromVersion} → {carry.ToVersion}: rig " +
+                                  $"rebuild or recentre): {carry.From} → {carry.To}. A world-space " +
+                                  "pin would have been stranded at the old seat.");
+
+        int poseVersion = Rig.VRRigDriver.RigPoseVersion;
+        if (poseVersion == _facedPoseVersion)
+            return;
+        _facedPoseVersion = poseVersion;
+        Vector3 pos = _frame.position;
+        if (PanelPlacement.ClampIntoView(head, worldScale, ref pos, out Quaternion facing))
+        {
+            _frame.position = pos;
+            _frame.rotation = facing;
+            PersistLayout();
+            if (!_healLogged)
+            {
+                _healLogged = true;
+                VRLog.Info("WorldUI", follow
+                    ? "Combat log was out of view (stale/MR-toggled pose) " +
+                      "— healed back into the forward field of view."
+                    : "Combat log (PINNED) was stranded out of view by a " +
+                      "recenter/MR toggle — healed back into the forward view.");
+            }
+            // The heal MOVED a pinned panel in world space, so the pin has to be re-authored
+            // against this pose or the next origin change would carry it by the offset measured
+            // before the correction and quietly undo it (the board's arrival-guard lesson).
+            _anchor.RecacheRigLocal(_frame);
+        }
+        else
+        {
+            _healLogged = false;
+        }
     }
 
     /// <summary>
@@ -814,10 +995,15 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// </summary>
     private void EnsureFrame()
     {
-        if (_holder != null && _frame != null)
+        if (_frame != null)
             return;
 
-        _frame = null;
+        // A REBUILT FRAME HAS NO POSE, so the seat must run again. This matters more than it did:
+        // while FOLGEN the frame hangs off the rig root, so a rig teardown takes it with it (the
+        // control board loses its root to exactly the same event and re-places for the same reason).
+        // Without this line the new frame would keep the old one's "already placed" verdict and sit
+        // at the world origin forever.
+        _placedFromConfig = false;
         _bar = null;
         _barTween?.Release();
         _barTween = null;
@@ -831,12 +1017,14 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _emptyNoteRenderer = null;
         ClearCapLaserHover();
 
-        var holderGo = new GameObject("GloomhavenVR.CombatLogPanel");
-        _holder = holderGo.transform;
-
-        var frameGo = new GameObject("Frame");
+        // ONE OBJECT WHERE THERE USED TO BE TWO. The old inner "Frame" hung under a private
+        // identity-pose holder that carried the diorama scale; the holder's job is now the SHARED
+        // anchor's (the rig root while FOLGEN, the pin holder while FIXIERT), so the frame is the
+        // top mod-owned object and _anchor.Apply switches its parent. The transform CONTRACT is
+        // unchanged — the frame's parent carries the diorama scale, the frame's own localScale is
+        // the user's size factor — which is why nothing downstream of it had to move.
+        var frameGo = new GameObject("GloomhavenVR.CombatLogPanel");
         _frame = frameGo.transform;
-        _frame.SetParent(_holder, worldPositionStays: false);
 
         // THE NORMAL WINDOW ROD, and the frame origin IS its centre (this panel grows UP from its
         // handle, which is why the rod sits at the frame's own origin rather than one gap below a
@@ -920,7 +1108,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
         // Render-only mod layer — grabs and pokes go through the registries. AFTER the rod exists,
         // because it walks the tree it is given.
-        VRLayers.Apply(holderGo);
+        VRLayers.Apply(frameGo);
         VRLog.Info("WorldUI", "Combat log frame built (grab bar + FOLLOW/PINNED pin; " +
                               "world-static placement, orientation derived at events only). "
                               + "Since 2026-09-05 the bar is the SHARED window rod and the pin is the "
@@ -937,7 +1125,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // rod hanging at the world origin with no window on it. That is the leeres_fenster.jpg shape
         // exactly, and one SetActive is the whole guard: Place activates the holder on the same tick
         // it positions it, and Tick() switches it back off whenever the panel goes down.
-        holderGo.SetActive(false);
+        frameGo.SetActive(false);
     }
 
     /// <summary>
@@ -949,9 +1137,12 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// <see cref="GrabBarLayout.Solve"/>'s third argument is the scale its fixed metre constants
     /// must be expressed in to land in the FRAME's units. <c>GrabbableModal</c> and
     /// <c>SurfaceGrabBar</c> hold their holders at identity and therefore pass the live diorama
-    /// scale; this holder CARRIES the diorama scale (<c>_holder.localScale = WorldScale</c>, the
-    /// transform-layout contract at the top of this file), so a frame-local 1 is already a scaled
-    /// metre and passing the scale again would apply it twice.</para>
+    /// scale; this frame's PARENT carries the diorama scale (the rig root while FOLGEN, the pin
+    /// holder while FIXIERT — the transform-layout contract at the top of this file), so a
+    /// frame-local 1 is already a scaled metre and passing the scale again would apply it twice.
+    /// While FIXIERT that parent scale is the one FROZEN at pin time, which is the point: the rod
+    /// keeps the physical size the player pinned it at instead of swelling with a world-grab zoom,
+    /// the same way the pinned control board does.</para>
     ///
     /// <para>THE CHANGE GATE IS GONE and nothing lost it: it used to be a hand-rolled 5 mm
     /// dead-band on the bar width alone. <see cref="BarSizeSettle"/> now owns "has this window
@@ -968,7 +1159,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         // the same rod. A change made while the panel is down is adopted at once.
         bool onScreen = Panel != null && Panel.IsAlive && !Panel.RenderHidden
                         && !Panel.OwnerRenderHidden
-                        && _holder != null && _holder.gameObject.activeInHierarchy;
+                        && _frame != null && _frame.gameObject.activeInHierarchy;
         float panelHeight = _heightSettle.Apply(rect.height * metersPerPixel, onScreen, "Combat log");
         float sourceWidth = _widthSettle.Apply(rect.width * metersPerPixel, onScreen, "Combat log");
         GrabBarLayout.Rod rod = GrabBarLayout.Solve(sourceWidth, panelHeight, worldScale: 1f);
@@ -1001,6 +1192,12 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     {
         bool follow = !WorldUIConfig.CombatLogFollow.Value;
         WorldUIConfig.CombatLogFollow.Value = follow; // BepInEx persists on set
+        // THE PANEL DOES NOT MOVE. The shared re-parent preserves the world pose in both directions
+        // — this is the control board's item-4 rule ("toggling INTO follow must NOT zap the tray to
+        // the head-relative config pose"), which this panel used to break by re-deriving from its
+        // config offsets on the very next tick. Applied here rather than left to Place() so the
+        // switch lands on the press, in the same frame the cap's symbol flips.
+        ApplyAnchorMode();
         if (!follow)
             PersistLayout(); // freeze: next scenario re-derives the pin from these offsets
         ApplyPinVisual();
@@ -1152,6 +1349,18 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         bool rodTextured = rod && _bar!.Textured;
         bool closeX = _closePlate != null;
 
+        // THE ANCHOR FRAME, AS THREE MORE INDEPENDENT BITS (2026-09-05, the FOLGEN/FIXIERT
+        // unification). The mode itself was never in this gate, so a toggle printed no line at all
+        // and the FOLLOW/PINNED word in `placed=` below could only be read off a verdict some
+        // UNRELATED term happened to move. It is here now together with the two facts that say
+        // whether the mode was actually CARRIED OUT: is there a pin holder, and is the frame really
+        // hanging off the rig anchor. Those three are the whole difference between "the config says
+        // FOLGEN" and "this panel follows the way the board does".
+        bool follow = WorldUIConfig.CombatLogFollow.Value;
+        Transform? rigAnchor = RigAnchor;
+        bool pinHolder = _anchor.Holder != null;
+        bool onRig = built && rigAnchor != null && _frame!.parent == rigAnchor;
+
         // Allocation-free change gate: nothing is composed until a verdict actually moved.
         int verdict = (_gateWasOpen ? 1 : 0)
                       | (_sessionVisible ? 1 << 1 : 0)
@@ -1164,7 +1373,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
                       | (rod ? 1 << 10 : 0)
                       | (rodTextured ? 1 << 11 : 0)
                       | (_pin != null ? 1 << 12 : 0)
-                      | (closeX ? 1 << 13 : 0);
+                      | (closeX ? 1 << 13 : 0)
+                      | (follow ? 1 << 14 : 0)
+                      | (pinHolder ? 1 << 15 : 0)
+                      | (onRig ? 1 << 16 : 0);
         if (verdict == _lastVerdict)
             return;
         _lastVerdict = verdict;
@@ -1208,6 +1420,15 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             + $"chrome=[bar={(!rod ? "NONE" : rodTextured ? "shared rod (wood strip)" : "shared rod (FALLBACK BRASS — the strip did not decode)")}"
             + $", pin={(_pin != null ? "control-board dashboard cap" : "MISSING")}"
             + $", closeX={(closeX ? "shared ModalCloseButton plate on the host canvas" : "NOT FOUND on the host — no X on this panel")}]. "
+            // THE FIELD THE FOLGEN/FIXIERT ROUND IS DECIDED ON. Appended, never folded into an
+            // existing field: it says which FRAME the panel is actually in, not which mode the
+            // config asks for, and the two disagreeing IS the defect. A healthy FOLGEN reads
+            // parent='rig anchor' with holder=none; a healthy FIXIERT reads parent='pin holder'
+            // with a frozen scale that does NOT track the live diorama scale beside it.
+            + $"anchor=[mode={(follow ? "FOLGEN (rig-anchored)" : "FIXIERT (world-pinned)")}"
+            + $", parent={(!built ? "no frame" : onRig ? "rig anchor" : pinHolder && _frame!.parent == _anchor.Holder ? "pin holder" : _frame!.parent == null ? "NONE (world root — the mode has not been applied yet)" : $"UNEXPECTED '{_frame!.parent.name}'")}"
+            + $", holderScale={(pinHolder ? _anchor.Holder!.localScale.x.ToString("F4") : "n/a (following)")}"
+            + $", liveDiorama={PanelLayout.WorldScale:F4}, carriedThroughRecentres={_pinCarryCount}]. "
             + "HOW TO READ IT: 'ticks' is unconditional — a log with NO line at all means this "
             + "surface is not being ticked, while a large tick count with built=NO means it ran "
             + "and refused, and the refusing term is whichever of gate/visible reads shut/False. "
@@ -1220,7 +1441,16 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             + "fail to appear. chrome names the three shared pieces this panel wears; every entry "
             + "in it should read 'shared'/'control-board' on a healthy build, and a closeX of "
             + "NOT FOUND with converted=yes means ModalCloseButton.Attach did not run or threw "
-            + "(its own MODAL CLOSE lines say which).");
+            + "(its own MODAL CLOSE lines say which). anchor decides the FOLGEN/FIXIERT round: "
+            + "mode=FOLGEN with parent='rig anchor' and holder=n/a is a panel that follows the way "
+            + "the control board does; mode=FIXIERT with parent='pin holder' and a holderScale that "
+            + "STAYS PUT while liveDiorama moves under a world-grab zoom is a panel that is pinned "
+            + "the way the board is. parent=NONE or UNEXPECTED means the mode was never applied — "
+            + "look for a Place() that returned before ApplyAnchorMode. A holderScale that TRACKS "
+            + "liveDiorama across two lines is the pre-2026-09-05 defect back (a pinned panel "
+            + "riding the zoom). carriedThroughRecentres counts the tracking-origin carries; it "
+            + "must be non-zero on any FIXIERT session with a B+Y recenter in it, and a stranded "
+            + "pinned panel with a count of 0 means the carry never ran.");
     }
 
     /// <summary>The game's own window state. Its own options hold a DisabledCombatLog switch that

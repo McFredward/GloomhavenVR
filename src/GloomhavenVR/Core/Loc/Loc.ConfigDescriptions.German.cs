@@ -2625,12 +2625,16 @@ internal static partial class Loc
                 + "sich nie: sie gehören allen im Raum, ein Nachdrehen zu dir würde sie von den anderen "
                 + "wegdrehen und der Position widersprechen, die dieser Rechner gerade gesendet hat.",
             ["WorldUI/CombatLogFollowSeat"] =
-                "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). False (FIXIERT, "
-                + "Standard): die Tafel steht STATISCH IN DER WELT — bei Szenariobeginn einmal aus den "
-                + "gespeicherten Versätzen platziert, dann eingefroren, bis sie gegriffen wird. True (FOLGEN): "
-                + "sie leitet ihren Platz neu aus Tischanker + Sitzdrehung ab (bewegt sich mit Neuzentrieren "
-                + "und Diorama wie andere Welt-Tafeln; die Ausrichtung wird weiter nur beim Neuzentrieren "
-                + "abgeleitet, nie pro Frame). Ersetzt CombatLogFollow aus Test #19: dessen Folgen-Standard "
+                "Ankermodus der Kampflog-Tafel (der FOLGEN/FIXIERT-Pin schaltet um). GENAU DIE BEIDEN "
+                + "WÖRTER WIE AM CONTROLBOARD, seit 2026-09-05 mit demselben Code (FollowPinAnchor). "
+                + "False (FIXIERT, Standard): die Tafel steht STATISCH IN DER WELT, dort verankert in der Größe, in der "
+                + "du sie fixiert hast — Welt-Zoom bewegt und skaliert sie nicht — und ein Neuzentrieren "
+                + "nimmt sie mit, damit eine fixierte Tafel nie am alten Sitz zurückbleibt. True (FOLGEN): "
+                + "die Tafel hängt am Rig, behält also ihren Platz relativ zu dir und skaliert mit dem "
+                + "Diorama. Das Umschalten BEWEGT DIE TAFEL NIE, in keine Richtung. Eine fixierte "
+                + "WELT-Pose überlebt keine Sitzung: jedes Szenario setzt die Tafel einmal aus den "
+                + "gespeicherten Versätzen, ins Blickfeld geholt. Die Ausrichtung wird nur bei Ereignissen "
+                + "abgeleitet, nie pro Frame. Ersetzt CombatLogFollow aus Test #19: dessen Folgen-Standard "
                 + "plus Gier-Billboard pro Tick wirkte, als liefe die Tafel dem Kopf nach (Test #20).",
             ["WorldUI/CombatLogForward"] =
                 "Versatz der Kampflog-Tafel vom Tischanker in Sitz-Vorwärtsrichtung, echte Meter (Standard = "

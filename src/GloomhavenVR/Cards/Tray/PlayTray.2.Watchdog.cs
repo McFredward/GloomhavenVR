@@ -74,11 +74,14 @@ internal sealed partial class PlayTray
     // zurückholen" (CardsDriver.RequestBoardRecall → _recallBoard), which is a deliberate action
     // and therefore always allowed — but note it has NO button wired to it yet, so today the
     // non-finite verdict is in practice the only automatic recovery left.
-    /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the PINNED world pose was authored under.
-    /// The version bumps ONLY on a rig (re)build or a deliberate recentre — i.e. exactly the
-    /// tracking-origin changes that move the player without moving the world — so a mismatch means
-    /// the pinned pose was authored against a DIFFERENT origin and must be carried along.</summary>
-    private int _pinPoseVersion = -1;
+    // THE PINNED POSE'S ORIGIN VERSION AND ITS RIG-RELATIVE CACHE NOW LIVE IN FollowPinAnchor.
+    // <see cref="VRRigDriver.RigPoseVersion"/> bumps ONLY on a rig (re)build or a deliberate
+    // recentre — i.e. exactly the tracking-origin changes that move the player without moving the
+    // world — so a mismatch means the pinned pose was authored against a DIFFERENT origin and must
+    // be carried along. That is the same sentence for the combat log's pin, which is why the three
+    // fields it used to take (_pinPoseVersion, _rigLocalPinPos/Rot) moved into the shared anchor
+    // rather than being copied into a second surface. The board still owns the three things around
+    // them that are its own: the freeze-sentinel announcement, the issue-C move label, and the log.
 
     /// <summary>Pending SANCTIONED-move label from <see cref="SyncPinHolder"/>, null when it wrote
     /// nothing. The pin housekeeping legitimately changes the board's PARENT-LOCAL pose (the holder
@@ -228,7 +231,7 @@ internal sealed partial class PlayTray
             SetVisible(true); // a recovery must never leave the board hidden
         // Re-author the pinned world pose against the CURRENT tracking origin so the next
         // recentre carries it instead of stranding it again.
-        _pinPoseVersion = VRRigDriver.RigPoseVersion;
+        _anchor.ReauthorOrigin();
         VRLog.Info("Cards", $"CONTROL BOARD RECOVERED — {why}. Was at {before}, re-homed to " +
                             $"{_root.position} in front of the player. The board must never be " +
                             "unreachable; report this line with the surrounding log.");
@@ -255,33 +258,21 @@ internal sealed partial class PlayTray
     /// </summary>
     private void SyncPinHolder()
     {
-        int version = VRRigDriver.RigPoseVersion;
-        if (_root == null || CardsConfig.TrayFollow.Value || _pinRoot == null)
+        // (2) tracking-origin change — carry the pinned board with the rig. THE CARRY IS THE SHARED
+        // MECHANISM (FollowPinAnchor.TickCarry): same rig-relative cache, same finite guard, same
+        // early-out for FOLLOW (rig-parented, so the problem is structurally impossible there). Only
+        // the WORDS below are the board's own, because a log string that named "the control board"
+        // from inside shared code would be a lie on the combat log's pin.
+        FollowPinAnchor.Carry carry = _anchor.TickCarry(_root, CardsConfig.TrayFollow.Value);
+        if (carry.Carried)
         {
-            // FOLLOW mode is rig-parented: both problems are structurally impossible there.
-            _pinPoseVersion = version;
-            return;
+            _pinHousekeepingMove = "pin carried through a tracking-origin change";
+            NotePinnedWrite("tracking-origin carry (SyncPinHolder — rig rebuild/recentre)");
+            VRLog.Info("Cards", $"Control board (PINNED) carried through a tracking-origin change " +
+                                $"(rig pose version {carry.FromVersion} → {carry.ToVersion}: rig rebuild or " +
+                                $"recentre): {carry.From} → {carry.To}. A world-space pin would have been " +
+                                "stranded at the old seat.");
         }
-
-        Transform? rig = VRRigDriver.RigRoot;
-        // (2) tracking-origin change — carry the pinned board with the rig.
-        if (rig != null && _pinPoseVersion >= 0 && _pinPoseVersion != version && _rigLocalPinValid)
-        {
-            Vector3 pos = rig.TransformPoint(_rigLocalPinPos);
-            Quaternion rot = rig.rotation * _rigLocalPinRot;
-            if (IsFinite(pos))
-            {
-                Vector3 before = _root.position;
-                _root.SetPositionAndRotation(pos, rot);
-                _pinHousekeepingMove = "pin carried through a tracking-origin change";
-                NotePinnedWrite("tracking-origin carry (SyncPinHolder — rig rebuild/recentre)");
-                VRLog.Info("Cards", $"Control board (PINNED) carried through a tracking-origin change " +
-                                    $"(rig pose version {_pinPoseVersion} → {version}: rig rebuild or " +
-                                    $"recentre): {before} → {pos}. A world-space pin would have been " +
-                                    "stranded at the old seat.");
-            }
-        }
-        _pinPoseVersion = version;
 
         // (1) NO live holder rescale. DO NOT DELETE THIS COMMENT BLOCK BECAUSE IT HAS NO CODE
         // UNDER IT — the absence of code IS the invariant, and the block is the only thing that
@@ -313,23 +304,10 @@ internal sealed partial class PlayTray
         // to a third of its size on his hardware. Do not "simplify" the restore back into
         // ApplyFollowMode: that is the bug.
 
-        // Re-cache the rig-relative pin pose every frame the origin is stable, so the NEXT
-        // origin change has a fresh, correct offset to carry the board by.
-        if (rig != null)
-        {
-            _rigLocalPinPos = rig.InverseTransformPoint(_root.position);
-            _rigLocalPinRot = Quaternion.Inverse(rig.rotation) * _root.rotation;
-            _rigLocalPinValid = IsFinite(_rigLocalPinPos);
-        }
-        else
-        {
-            _rigLocalPinValid = false;
-        }
+        // The rig-relative pin pose is re-cached every frame the origin is stable — by the shared
+        // TickCarry call above, which owns that cache now, so the NEXT origin change has a fresh,
+        // correct offset to carry the board by.
     }
-
-    private Vector3 _rigLocalPinPos;
-    private Quaternion _rigLocalPinRot = Quaternion.identity;
-    private bool _rigLocalPinValid;
 
     // ------------------------------------------------------------- PINNED FREEZE SENTINEL --
     //
@@ -1670,14 +1648,8 @@ internal sealed partial class PlayTray
         // Re-author the pin against the CURRENT origin, and re-cache the rig-relative pose from the
         // NEW world pose. Without the second half, the next origin change would carry the board by
         // an offset measured before this correction and quietly undo it.
-        _pinPoseVersion = VRRigDriver.RigPoseVersion;
-        Transform? rig = VRRigDriver.RigRoot;
-        if (rig != null)
-        {
-            _rigLocalPinPos = rig.InverseTransformPoint(_root.position);
-            _rigLocalPinRot = Quaternion.Inverse(rig.rotation) * _root.rotation;
-            _rigLocalPinValid = IsFinite(_rigLocalPinPos);
-        }
+        _anchor.ReauthorOrigin();
+        _anchor.RecacheRigLocal(_root);
         if (_wantVisible)
             SetVisible(true); // a correction must never leave the board hidden
         VRLog.Info("Cards", $"Control board re-seated beside the player by the ARRIVAL SEAT GUARD " +

@@ -955,13 +955,17 @@ internal static class WorldUIConfig
 
         CombatLogFollow = _file.Bind("WorldUI", "CombatLogFollowSeat", Defaults.CombatLogFollowSeat,
             "Combat log panel anchor mode (the panel's own FOLLOW/PINNED pin button flips " +
-            "this). False (PINNED, default): the panel is STATIC IN THE WORLD — placed once " +
-            "from the persisted offsets on scenario entry, then frozen until grabbed. " +
-            "True (FOLLOW): the panel re-derives its place from the table anchor + seat " +
-            "yaw (moves with recenters and the diorama like the other world panels; " +
-            "orientation still only re-derives on recenter, never per frame). Replaces " +
-            "the test-#19 'CombatLogFollow' key: its follow default plus the per-tick " +
-            "yaw billboard read as the panel tracking the head (test #20).");
+            "this). THE SAME TWO WORDS AS THE CONTROL BOARD'S, running the same code " +
+            "(FollowPinAnchor) since 2026-09-05. False (PINNED, default): the panel is " +
+            "STATIC IN THE WORLD, bolted there at the size it was pinned at — a world-grab zoom does " +
+            "not move or resize it — and it is carried along by a recenter so a pin can " +
+            "never be stranded at the old seat. True (FOLLOW): the panel hangs off the rig, " +
+            "so it keeps its place relative to you and scales with the diorama. Flipping " +
+            "the pin NEVER MOVES the panel, in either direction. A pinned WORLD pose does " +
+            "not survive a session: each scenario seats the panel once from the persisted " +
+            "offsets, healed into view. Orientation is derived at events only, never per " +
+            "frame. Replaces the test-#19 'CombatLogFollow' key: its follow default plus " +
+            "the per-tick yaw billboard read as the panel tracking the head (test #20).");
         CombatLogForward = _file.Bind("WorldUI", "CombatLogForward", Defaults.CombatLogForward,
             "Combat log panel offset from the table anchor along the seat forward, real " +
             "meters (default = the old arc slot: azimuth 56° at 1.10 m). Persisted " +

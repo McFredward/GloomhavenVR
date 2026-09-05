@@ -1414,8 +1414,27 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         VRLog.Info("Cards", $"Tray anchor mode → {(follow ? "FOLLOW (rig-anchored)" : "PINNED (world-anchored)")}.");
     }
 
-    /// <summary>World-anchor holder while pinned (carries the rig scale — see ApplyFollowMode).</summary>
-    private Transform? _pinRoot;
+    /// <summary>
+    /// THE FOLGEN/FIXIERT MECHANISM, WHICH IS NO LONGER THIS CLASS'S OWN (2026-09-05).
+    ///
+    /// <para>USER RULING, verbatim: <i>"Beim Kampflog funktioniert das 'Folgen' nicht genau gleich
+    /// wie es bei dem Controlboard der Fall ist. Wieso nicht? Es soll hier am besten den selben Code
+    /// nutzen und sich genauso verhalten was fixiert und folgen genau bedeutet."</i></para>
+    ///
+    /// <para>The board's answer was the right one and is now the SHARED one: the holder object, the
+    /// world-pose-preserving re-parent either way, the rig-scale mirroring that keeps localScale's
+    /// 0.5x-2x meaning, and the tracking-origin carry all live in <see cref="FollowPinAnchor"/> and
+    /// the combat log's pin calls the same lines. Nothing about the board's behaviour moved with
+    /// them — the branch bodies below are the same statements in the same order, and the two numbers
+    /// that decide a board's size (the pin holder's frozen scale and the root's own localScale) are
+    /// still written by exactly the writers that wrote them before.</para>
+    /// </summary>
+    private readonly FollowPinAnchor _anchor = new("GloomhavenVR.TrayPin", dontDestroyOnLoad: true);
+
+    /// <summary>World-anchor holder while pinned (carries the rig scale — see ApplyFollowMode).
+    /// Owned by <see cref="_anchor"/>; read here by the board-switch capture/restore and the
+    /// pin housekeeping, which compare it BY REFERENCE.</summary>
+    private Transform? _pinRoot => _anchor.Holder;
 
     /// <summary>
     /// The ONE place the "TrayPin" holder object is created, so its identity (hideFlags,
@@ -1426,17 +1445,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// CAPTURED one (PlayTray.TryRestoreCapturedPinFrame). Folding the scale in here is how the two
     /// cases got confused in the first place.
     /// </summary>
-    private Transform EnsurePinRoot()
-    {
-        if (_pinRoot == null)
-        {
-            _pinRoot = new GameObject("GloomhavenVR.TrayPin").transform;
-            _pinRoot.gameObject.hideFlags = HideFlags.HideAndDontSave;
-            Object.DontDestroyOnLoad(_pinRoot.gameObject);
-        }
-        _pinRoot.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
-        return _pinRoot;
-    }
+    private Transform EnsurePinRoot() => _anchor.EnsureHolder();
 
     /// <summary>
     /// Apply [Cards] TrayFollow to the live tray (test #15).
@@ -1452,10 +1461,17 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     {
         if (_root == null)
             return;
+        // THE RE-PARENT IS THE SHARED MECHANISM (FollowPinAnchor.Apply) — the same call the combat
+        // log's pin makes, statement for statement: FOLGEN re-homes under the rig anchor and drops
+        // the holder, FIXIERT bakes the live rig scale into the holder and re-homes under it, both
+        // with worldPositionStays so the board keeps its EXACT current world pose either way. The
+        // measurement block in PlayTray.3.Pose.cs about the 3.224× shrink is about the scale this
+        // call writes at PIN time, which is correct here and only here; the board-switch path
+        // re-establishes the holder from the CAPTURED scale first (TryRestoreCapturedPinFrame),
+        // which leaves the parent guard inside Apply already satisfied so it writes nothing.
+        bool pinned = _anchor.Apply(_root, CardsConfig.TrayFollow.Value, _anchorParent);
         if (CardsConfig.TrayFollow.Value)
         {
-            if (_anchorParent != null && _root.parent != _anchorParent)
-                _root.SetParent(_anchorParent, worldPositionStays: true);
             // Item 4: toggling INTO follow must NOT zap the tray to the head-relative
             // config pose. The re-parent above already preserved the tray's current
             // world pose; leave it there and just mark it placed so TickPlacement
@@ -1466,28 +1482,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                 PlaceAtHead();
             else
                 _placed = true; // keep the current pose (explicit: no re-seat on toggle)
-            if (_pinRoot != null)
-            {
-                Object.Destroy(_pinRoot.gameObject);
-                _pinRoot = null;
-            }
         }
-        else
+        else if (pinned)
         {
-            Transform pin = EnsurePinRoot();
-            // THE LIVE RIG SCALE, WHICH IS CORRECT HERE AND ONLY HERE. This is a board being
-            // PINNED — the player is fixing it in the world at the size they are currently seeing
-            // it, so the frame to bake is the one they are standing in. It is NOT correct for a
-            // board SWITCH, where the outgoing board's holder already carries the (possibly very
-            // different) rig scale the player pinned at, and re-deriving it from the rig alive at
-            // switch time shrank the board 3.224× on his hardware. That path therefore does not come
-            // through here at all — PlayTray.TryRestoreCapturedPinFrame re-establishes the holder
-            // from the CAPTURED scale first, which leaves the guard below already satisfied so this
-            // branch is skipped. See the measurement block in PlayTray.3.Pose.cs.
-            Transform? scaleRef = _root.parent != null ? _root.parent : _anchorParent;
-            pin.localScale = Vector3.one * (scaleRef != null ? scaleRef.lossyScale.x : 1f);
-            if (_root.parent != pin)
-                _root.SetParent(pin, worldPositionStays: true);
             // Freeze-sentinel announcement: engaging the pin is world-pose-preserving
             // (worldPositionStays), but the re-parent under the scaled holder can leave
             // float-noise-sized deltas — name it so it never reads as an unknown writer.
@@ -1519,11 +1516,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             Object.DestroyImmediate(_root.gameObject);
             _root = null;
         }
-        if (_pinRoot != null)
-        {
-            Object.DestroyImmediate(_pinRoot.gameObject);
-            _pinRoot = null;
-        }
+        _anchor.DestroyHolder(immediate: true);
         _slots = new Transform?[2];
         _slotHighlights[0] = _slotHighlights[1] = null; // children of _root, destroyed with it
         _highlightedSlot = -1;
@@ -1575,8 +1568,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // Pin bookkeeping: the PlayTray INSTANCE outlives its root (board switch / rebuild), so
         // stale pin state would otherwise be applied to the next root. (The lost-board dwell
         // timer that used to be reset here is gone with the automatic recall.)
-        _pinPoseVersion = -1;
-        _rigLocalPinValid = false;
+        _anchor.ResetCarry();
         _pinHousekeepingMove = null;
         _pinFreezeValid = false;   // freeze sentinel: never diff a new root against the old one's pose
         _pinFreezeSource = null;
