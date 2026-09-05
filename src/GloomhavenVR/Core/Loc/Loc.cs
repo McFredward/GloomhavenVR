@@ -1407,6 +1407,27 @@ internal static partial class Loc
         // "Bretter", not "Boards" (2026-08 naming pass, audit 05 §3): everywhere else in the
         // German menu the object is a Brett; the one Denglisch holdout is gone.
         ["remote_boards"] = Pair("Player boards", "Mitspieler-Bretter"),
+        // THE THREE VALUES OF [PeerBoardFade] Mode — "Boards vor dem Spielfeld" ▸ Zusammen spielen.
+        // They exist for the reason boardmove_* above exist: the entry is a C# enum, so the generic
+        // Choice row labelled the dropdown with the raw member names Off/Transparent/Hidden — in
+        // English, in a German menu, on a row a player is meant to choose from. The MEMBER NAMES ARE
+        // NOT TOUCHED and must not be: they are the strings BepInEx has already written into every
+        // installed dev.gloomhavenvr.boardfade.cfg, and VROptionsTab.8.Dependencies compares against
+        // "Off" by name. Only what the panel prints changes.
+        //
+        // "PERMANENT SICHTBAR" RATHER THAN THE BARE "Off" IS A USER REQUEST, verbatim: "Die
+        // Board-Transparenz Option im Dropdown 'Off' sollte 'Permanent' heißen stattdessen." He is
+        // right about what the value DOES — Off is the one setting under which a peer's board never
+        // yields, so it stands there permanently. The word is his; "sichtbar" is added because the
+        // three values are read as completions of the row's own title ("Boards vor dem Spielfeld:
+        // …"), and a bare "Permanent" in that slot reads as "permanently TRANSPARENT", which is the
+        // opposite behaviour. One adjective removes the ambiguity without inventing a new word.
+        ["peerboardfade_off"] = Pair("Permanently visible", "Permanent sichtbar"),
+        // "Durchsichtig" / "See-through", not "Transparent": the mod already names this exact
+        // behaviour on the walls ("Wände durchsichtig" / wall_see_through), and one behaviour should
+        // not have two words in one menu.
+        ["peerboardfade_transparent"] = Pair("See-through", "Durchsichtig"),
+        ["peerboardfade_hidden"] = Pair("Hidden", "Ausgeblendet"),
         // Settings audit 2026-07: the remote-board mode is a purely LOCAL rendering choice that only
         // has anything to render while other players are in the session. Saying so on the panel is
         // what keeps it from reading as a dead control in single player.

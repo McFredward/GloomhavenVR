@@ -1508,8 +1508,17 @@ internal static partial class VROptionsTab
         // is meant to choose from. It is a user-facing choice of three named behaviours, which is
         // exactly what this table is for.
         || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
-            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal));
-    // A SIXTH STOOD HERE — the graphics preset ([RenderQuality] QualityPreset), a bounded int that
+            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal))
+        // THE SIXTH, and the third instance of one defect: [PeerBoardFade] Mode is an enum, so the
+        // generic Choice row labelled its dropdown "Off / Transparent / Hidden" — the raw C# member
+        // names, in both languages, on a CURATED everyday row (Avatar & Mehrspieler ▸ Zusammen
+        // spielen). The user found it from the wrong end: "Die Board-Transparenz Option im Dropdown
+        // 'Off' sollte 'Permanent' heißen stattdessen." He is reading a German menu and being shown
+        // a programmer's identifier — the same complaint the two branches above answer.
+        || (string.Equals(item.Section, "PeerBoardFade", StringComparison.Ordinal)
+            && string.Equals(item.Key, "Mode", StringComparison.Ordinal));
+    // ONE MORE STOOD HERE (it was the sixth branch until the peer-board row above took that place)
+    // — the graphics preset ([RenderQuality] QualityPreset), a bounded int that
     // needed a hand-built dropdown because the generic ladder would have drawn five named looks as
     // five unnamed positions on a drag bar. IT IS GONE with the offering itself (user ruling
     // 2026-09-05: "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
@@ -1590,6 +1599,31 @@ internal static partial class VROptionsTab
             BuildPresetRow(parent, item, caption, hintKey, facingNames,
                            (int)WorldUIConfig.WindowFacing.Value,
                            index => WorldUIConfig.WindowFacing.Value = (WindowFaceMode)index);
+            return true;
+        }
+
+        // WHAT A MITSPIELER'S BOARD DOES WHILE IT STANDS IN FRONT OF THE PLAY FIELD — three named
+        // behaviours, so a dropdown that reads in the player's language instead of the generic
+        // Choice row's raw member names ("Off / Transparent / Hidden", identical in both languages
+        // until this branch). The index maps 1:1 onto PeerBoardFadeMode (Off=0/Transparent=1/
+        // Hidden=2, declared with those explicit values at the enum).
+        //
+        // WRITTEN THROUGH item.Entry.BoxedValue RATHER THAN PeerBoardFadeTuning.FadeMode, which is
+        // what the branches above do with their own typed entries: that field is NULLABLE (the
+        // section binds only once NetModule.BindConfig has run) and reaching this branch already
+        // proves the catalog holds the BOUND entry — item.Entry IS PeerBoardFadeTuning.FadeMode.
+        // Going through the item removes a null check that could only ever be dead code.
+        if (string.Equals(item.Section, "PeerBoardFade", StringComparison.Ordinal))
+        {
+            string[] fadeNames =
+            {
+                Loc.Mod("peerboardfade_off"),
+                Loc.Mod("peerboardfade_transparent"),
+                Loc.Mod("peerboardfade_hidden"),
+            };
+            int currentMode = item.Entry.BoxedValue is Net.PeerBoardFadeMode mode ? (int)mode : 0;
+            BuildPresetRow(parent, item, caption, hintKey, fadeNames, currentMode,
+                           index => item.Entry.BoxedValue = (Net.PeerBoardFadeMode)index);
             return true;
         }
 

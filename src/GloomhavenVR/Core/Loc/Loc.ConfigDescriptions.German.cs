@@ -792,18 +792,27 @@ internal static partial class Loc
             // ModBuild 222 und hatte deutsche NAMEN, aber keinen einzigen deutschen Hilfetext.
             // Ihre Modus-Zeile ist seither kuratiert (Avatar & Mehrspieler ▸ Zusammen spielen),
             // die fünf Schwellen stehen unter Erweitert ▸ Mehrspieler.
+            // DIE DREI WERTE HEISSEN IM MENÜ SEIT ModBuild 445 ANDERS ALS IM CFG, und dieser Text
+            // nennt seither die MENÜ-Namen: Die Zeile hat eine eigene Dropdown-Zeile bekommen
+            // (VROptionsTab.TryBuildSpecialRow, Loc.cs peerboardfade_*), weil sie vorher die rohen
+            // C#-Membernamen zeigte. Die Membernamen (Off/Transparent/Hidden) bleiben unverändert —
+            // sie stehen in jeder bereits installierten dev.gloomhavenvr.boardfade.cfg —, und wer
+            // die Datei von Hand editiert, findet sie in der englischen Beschreibung am Bind-Ort.
             ["PeerBoardFade/Mode"] =
                 "Was das Kontrollbrett eines MITSPIELERS tut, solange es zwischen dir und dem "
-                + "Spielfeld steht. Off = bisheriges Verhalten (es wird nichts gemessen und nichts "
-                + "geschrieben). Transparent = es blendet auf die Rest-Deckkraft ab, solange es einen "
-                + "Teil des Bretts verdeckt, das du gerade ansiehst. Hidden = es verschwindet, "
-                + "solange es das tut. REIN LOKAL: Der Besitzer und alle anderen sehen sein Brett "
+                + "Spielfeld steht. Permanent sichtbar = bisheriges Verhalten (es wird nichts "
+                + "gemessen und nichts geschrieben; in der cfg: Off). Durchsichtig = es blendet auf "
+                + "die Rest-Deckkraft ab, solange es einen "
+                + "Teil des Bretts verdeckt, das du gerade ansiehst (cfg: Transparent). "
+                + "Ausgeblendet = es verschwindet, "
+                + "solange es das tut (cfg: Hidden). REIN LOKAL: Der Besitzer und alle anderen sehen sein Brett "
                 + "genau wie bisher, und es geht nichts über die Leitung. Wirkt UNTER [Net] "
                 + "RemoteBoards: Es kann ein Brett nur unsichtbarer machen, nie sichtbarer. Dein "
                 + "eigenes Brett ist nie betroffen.",
             ["PeerBoardFade/OccludedAlpha"] =
-                "Rest-Deckkraft eines verdeckenden Mitspieler-Bretts im Modus Transparent: 0 = "
-                + "unsichtbar (wie Hidden), 1 = massiv (wie Off). Live änderbar; begrenzt auf 0-0.95.",
+                "Rest-Deckkraft eines verdeckenden Mitspieler-Bretts im Modus „Durchsichtig“: 0 = "
+                + "unsichtbar (wie „Ausgeblendet“), 1 = massiv (wie „Permanent sichtbar“). Live "
+                + "änderbar; begrenzt auf 0-0.95.",
             ["PeerBoardFade/OnFraction"] =
                 "Ein Mitspieler-Brett weicht, sobald es mindestens diesen (EMA-geglätteten) Anteil "
                 + "der gerade IN DEINEM SICHTFELD liegenden Spielfeld-Stichproben verdeckt — 0.12 = "
