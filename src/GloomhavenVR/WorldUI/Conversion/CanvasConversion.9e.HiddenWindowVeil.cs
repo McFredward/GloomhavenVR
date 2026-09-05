@@ -203,9 +203,15 @@ internal static partial class CanvasConversion
 
     /// <summary>
     /// THE ALPHA A RENDERER HAD BEFORE THE VEIL TOOK IT, or <paramref name="own"/> when it is not
-    /// veiled. For the one other mod writer of <c>CanvasRenderer.SetAlpha</c> — the materialise
+    /// veiled. For the OTHER mod writers of <c>CanvasRenderer.SetAlpha</c> — the materialise
     /// runner captures its <c>orig</c> through this, so a dissolve that starts over a veiled
     /// renderer neither captures the veil's zero nor restores it as the window's own value.
+    ///
+    /// <para>"the one other" is what this said until ModBuild 439, and there were three: the
+    /// sub-view seat veil (9g, <c>PreSeatVeilAlpha</c>, joined at 434) and the pre-Start flash veil
+    /// (9d, <c>PreFlashVeilAlpha</c>, joined at 439 — survey item B5). All three are now asked, in
+    /// one chain, by <c>WindowMaterialiseRunner.CollectElements</c>. A count in a doc comment is a
+    /// claim like any other and this one went stale twice.</para>
     /// </summary>
     internal static float PreVeilAlpha(CanvasRenderer cr, float own)
     {

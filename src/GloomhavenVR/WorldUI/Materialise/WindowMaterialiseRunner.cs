@@ -356,8 +356,16 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             // picker's subtree, which is inside this host and which an appear can start over — so
             // asking only the hidden-window veil would capture that zero and dissolve the picker IN
             // to nothing. Both are asked; a renderer no veil holds falls back to the channel itself.
-            _origAlpha.Add(CanvasConversion.PreSeatVeilAlpha(cr,
-                CanvasConversion.PreVeilAlpha(cr, cr.GetAlpha())));
+            // ModBuild 439 (survey item B5): AND THROUGH THE THIRD. The pre-Start flash veil
+            // (CanvasConversion.9d) parks this same channel at 0 for the frames between a pooled
+            // window's activation and its Start(), and it was the one veil outside this chain —
+            // 9e and 9g exported their pre-veil value and were asked, 9d exported nothing and
+            // nobody asked it. Reachability is narrow (an appear normally begins later), so this
+            // closes a hazard rather than a demonstrated defect — but it is the same shape, the
+            // same cost and the same cure as the two that were closed after being seen.
+            _origAlpha.Add(CanvasConversion.PreFlashVeilAlpha(cr,
+                CanvasConversion.PreSeatVeilAlpha(cr,
+                    CanvasConversion.PreVeilAlpha(cr, cr.GetAlpha()))));
 
             var rt = cr.transform as RectTransform;
             for (int k = 0; k < WindowMaterialiseField.Samples; k++)

@@ -308,6 +308,14 @@ internal static partial class CanvasConversion
     /// <summary>Live veils. Never larger than <see cref="FlashVeilMaxWindows"/>.</summary>
     private static readonly List<FlashVeilEntry> FlashVeils = new(4);
 
+    /// <summary>
+    /// EVERY RENDERER THIS VEIL IS CURRENTLY HOLDING, and the alpha it held. The per-entry
+    /// <c>Held</c>/<c>HeldAlpha</c> lists are the restore record; this is the same information keyed
+    /// for LOOKUP, so <see cref="PreFlashVeilAlpha"/> answers in O(1) instead of scanning every
+    /// entry's list on every renderer of every materialise.
+    /// </summary>
+    private static readonly Dictionary<CanvasRenderer, float> FlashVeilHolds = new(256);
+
     /// <summary>Entries returned to <see cref="FlashVeils"/> after a lift, so a burst of veils
     /// does not allocate a new entry (and a new held-list) every time. Single-threaded ticks.</summary>
     private static readonly List<FlashVeilEntry> FlashVeilPool = new(4);
@@ -671,6 +679,11 @@ internal static partial class CanvasConversion
         {
             e = FlashVeilPool[FlashVeilPool.Count - 1];
             FlashVeilPool.RemoveAt(FlashVeilPool.Count - 1);
+            // A pooled entry has already been lifted, so its renderers are out of FlashVeilHolds —
+            // except one that had been DESTROYED by then, which the lift loop skips. Dropping them
+            // here keeps the lookup map from carrying a dead key for the rest of the session.
+            for (int k = 0; k < e.Held.Count; k++)
+                FlashVeilHolds.Remove(e.Held[k]);
             e.Held.Clear();
             e.HeldAlpha.Clear();
         }
@@ -700,6 +713,32 @@ internal static partial class CanvasConversion
         s_flashVeilSuppressed++;
         s_flashVeilRenderers += held;
         ReportFlashVeil(e.Name, overdue: false);
+    }
+
+    /// <summary>
+    /// THE ALPHA A RENDERER HAD BEFORE THE PRE-START FLASH VEIL TOOK IT, or <paramref name="own"/>
+    /// when this veil is not holding it. The exact counterpart of <c>PreVeilAlpha</c> (the
+    /// hidden-window veil, 9e) and <c>PreSeatVeilAlpha</c> (the sub-view seat veil, 9g).
+    ///
+    /// <para><b>WHY IT EXISTS (ModBuild 439, survey item B5).</b> There are FOUR mod writers of
+    /// <c>CanvasRenderer.SetAlpha</c> and the reconciliation chain had three of them in it: 9e and
+    /// 9g exported their pre-veil value and <c>WindowMaterialiseRunner.CollectElements</c> asked
+    /// both; this part exported nothing and nobody asked it. A materialise appear that started
+    /// while this veil held a subtree at 0 would therefore capture <c>orig = 0</c> and RESTORE 0 in
+    /// <c>Finish</c> — a window alive, interactive and invisible, which is the same defect ModBuild
+    /// 405 and 434 each paid a build for at the other two veils.</para>
+    ///
+    /// <para><b>REACHABILITY IS NARROW AND THIS IS A HAZARD, NOT A DEMONSTRATED DEFECT.</b> This
+    /// veil holds only the frames between a pooled window's activation and its <c>Start()</c>, and
+    /// an appear normally begins later. It is closed anyway for the reason the survey gives: the
+    /// other two were closed AFTER they were seen on hardware, and the third has the same shape,
+    /// the same cost and the same cure.</para>
+    /// </summary>
+    internal static float PreFlashVeilAlpha(CanvasRenderer cr, float own)
+    {
+        if (cr != null && FlashVeilHolds.TryGetValue(cr, out float held))
+            return held;
+        return own;
     }
 
     /// <summary>
@@ -745,6 +784,7 @@ internal static partial class CanvasConversion
             cr.SetAlpha(0f);
             e.Held.Add(cr);
             e.HeldAlpha.Add(alpha);
+            FlashVeilHolds[cr] = alpha;
             taken++;
         }
         FlashVeilScratch.Clear();
@@ -769,6 +809,7 @@ internal static partial class CanvasConversion
             CanvasRenderer cr = e.Held[i];
             if (cr == null)
                 continue;
+            FlashVeilHolds.Remove(cr);
             if (cr.cull)
                 cr.cull = false;
             if (cr.GetAlpha() <= 0f)
