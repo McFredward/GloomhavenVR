@@ -1781,6 +1781,19 @@ internal static partial class WallSegmentFade
         /// <c>WallSegmentFade.cs</c>), not a fresh scene sweep.</remarks>
         private void CollectWallMountedProps()
         {
+            // ModBuild 439 — THE PHASE IS SLICED BEFORE IT IS OPTIMISED. Commit.Mounted is one
+            // scope around eleven passes over three different populations, and the 438 round's
+            // own falsifier says the cost is NOT the (candidate, segment) product it was
+            // flattened for. The stamp chain below names the stage instead of the phase; see
+            // WallSegmentFade.CommitPhases.cs for what each answer would mean.
+            float mstamp = BeginMountedStages();
+            // THE BODY IS DELIBERATELY NOT RE-INDENTED under this try. Shifting 1,200 lines by
+            // four columns would turn a reviewable instrument into a whole-method rewrite that
+            // no reader could diff and that would collide with every other lane touching this
+            // file. The try/finally exists only so a throwing stage still leaves the window
+            // arithmetic consistent — the same reason RescanCore wraps its own phases.
+            try
+            {
             _mountedOwned.Clear();
             _attachmentOwned.Clear();
             _mountedCensus.Clear();
@@ -1883,16 +1896,19 @@ internal static partial class WallSegmentFade
             // Shared corner pieces (round 7) are spoken for too — never sconce dressing,
             // and the orphan guard must not release them while their neighbors are faded.
             RegisterCornerOwnership();
+            mstamp = MountedMark(MountedStage.Ownership, mstamp);
 
             // UNIT AFFINITY (ModBuild 258) — built HERE, from the final segment table, because
             // the prop-unit pass has already run (CommitPhase.PropUnits precedes .Mounted) and
             // seg.Renderers is therefore the authoritative "who owns this unit's wall half".
             BuildMountedUnitHomes();
+            mstamp = MountedMark(MountedStage.UnitHomes, mstamp);
             // ModBuild 391: built in the same breath and from the same table. It must exist before
             // the sticky-carry loop below, because the FIRST thing the wrong-wall rule has to do is
             // unstick a prop the old distance election bound to a neighbour — a rule that only ran
             // at adoption time would never reach a sconce that is already held.
             BuildMountedWallHomes();
+            mstamp = MountedMark(MountedStage.WallHomes, mstamp);
 
             // PARK THE PREVIOUS LISTS FIRST, IN A LOOP OF THEIR OWN. This used to share the sticky
             // loop below, and it cannot any more: the ModBuild-258 handover writes into ANOTHER
@@ -1905,6 +1921,7 @@ internal static partial class WallSegmentFade
                 seg.PrevMounted.AddRange(seg.Mounted);
                 seg.Mounted.Clear();
             }
+            mstamp = MountedMark(MountedStage.Park, mstamp);
 
             // STICKY OWNERSHIP: a segment that is mid-fade or held faded keeps every prop it
             // already owns — releasing one while its wall is gone is exactly the blink the first
@@ -2058,6 +2075,7 @@ internal static partial class WallSegmentFade
                     if (s != null) _attachmentOwned[s] = new OwnerRef(seg, "asset sibling");
                 }
             }
+            mstamp = MountedMark(MountedStage.Sticky, mstamp);
 
             // Cheap pre-filter for "airborne": the LOWEST tile-anchored floor plane in the scene.
             // Rooms without an anchor are fail-safe solid anyway (their walls never fade).
@@ -2120,6 +2138,7 @@ internal static partial class WallSegmentFade
             // HERE and not earlier: the sticky and handover loops above rewrite seg.Mounted,
             // which is the ONE field these rows deliberately do NOT cache. See ElectSeg.
             BuildMountedElectionIndex();
+            mstamp = MountedMark(MountedStage.ElectionIndex, mstamp);
 
             if (!float.IsInfinity(minFloorY) && !float.IsInfinity(reachMinX))
             {
@@ -2147,6 +2166,7 @@ internal static partial class WallSegmentFade
                             && f.Anchor.z >= reachMinZ && f.Anchor.z <= reachMaxZ;
                     if (!inReach)
                         continue;
+                    _mountedInReach++; // ModBuild 439 — the prologue's denominator
                     Renderer c = f.R!;
                     if (_mountedOwned.Contains(c))
                     {
@@ -2260,6 +2280,7 @@ internal static partial class WallSegmentFade
                     // a particle system by its EMITTER — its bounds enclose the live particles and
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
+                    _mountedPastStructural++; // ModBuild 439 — past every structural reject
                     Bounds b = c.bounds;
                     // PERF S6 (2026-09-05) — THE EMITTER POSITION IS READ ONCE. `c.transform`
                     // is a native property get and `.position` is another, and the pair was
@@ -2400,6 +2421,10 @@ internal static partial class WallSegmentFade
                     }
                     _electWindow[ElectWindowCandidates]++;
                     _electWindow[ElectWindowPairs] += _electCount;
+                    // ModBuild 439 — the walk PERF S7 made cheap, timed apart from the prologue
+                    // that surrounds it. Two clock reads per candidate; the 438 log's worst
+                    // window had 51 of them.
+                    float electT0 = MountedClockMillis();
                     for (int si = 0; si < _electCount; si++)
                     {
                         ref ElectSeg e = ref _electSegs[si];
@@ -2468,6 +2493,7 @@ internal static partial class WallSegmentFade
                             bestHome = seg;
                         }
                     }
+                    MountedMark(MountedStage.ElectionWalk, electT0);
                     // UNIT AFFINITY (ModBuild 258) — HIERARCHY OVERRULES THE NEAREST-WALL SEARCH.
                     // The search above is a distance test between AABBs and it put the icy wall
                     // light's torch emitters on 'Wall 1' while the ice meshes of the SAME prop
@@ -2806,6 +2832,7 @@ internal static partial class WallSegmentFade
                     }
                 }
             }
+            mstamp = MountedMark(MountedStage.Sweep, mstamp);
 
             // FREE-STANDING RIDERS (ModBuild 406, third commit — kristalle_faden.jpg): the
             // election above never binds a candidate under the airborne bar, and a crystal on the
@@ -2817,6 +2844,7 @@ internal static partial class WallSegmentFade
             // neither the election above nor the foliage lane could take it. Same slot, same
             // reason: before the leavers loop.
             CollectHangingPlants(minFloorY);
+            mstamp = MountedMark(MountedStage.Riders, mstamp);
 
             // Leavers: restore anything this segment held that it no longer owns.
             foreach (Segment seg in _live.Segments.Values)
@@ -2917,7 +2945,9 @@ internal static partial class WallSegmentFade
             // inside the sweep: the sweep's per-candidate segment walk skips every prop that is
             // already adopted or carried sticky, i.e. almost all of them in the steady state.
             // GEOMETRY here, FADES live at the applier — see _live.MountedUnion.
+            mstamp = MountedMark(MountedStage.Leavers, mstamp);
             BuildMountedUnionOverlaps();
+            mstamp = MountedMark(MountedStage.Union, mstamp);
 
             // Apparance streams the dressing in over several rescans, so the scenario's first
             // heartbeat would report a half-built table forever: re-log whenever the attached set
@@ -2966,6 +2996,15 @@ internal static partial class WallSegmentFade
             // the two alarms above do — it is the whole of this round and must not be a clause
             // inside a line about something else.
             LogMountedUnion();
+            MountedMark(MountedStage.Census, mstamp);
+            }
+            finally
+            {
+                // In a finally for the reason EndCommitPhases is: a stage that throws must still
+                // leave the window arithmetic consistent, and a diagnostic that lies after an
+                // exception is worse than none.
+                EndMountedStages();
+            }
         }
 
         /// <summary>

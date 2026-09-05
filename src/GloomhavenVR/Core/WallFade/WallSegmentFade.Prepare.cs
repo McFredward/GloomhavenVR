@@ -652,6 +652,9 @@ internal static partial class WallSegmentFade
             _narrowSceneSigXor = FnvOffset;
             _figureSetSigSum = FnvOffset;
             _figureSetSigXor = FnvOffset;
+            // ModBuild 439: the delta decoder's per-cycle row counters, reset with the
+            // accumulators they describe so the two can never be a cycle apart.
+            ResetSceneFactRows();
         }
 
         /// <summary>Accumulate one renderer's self-contained hash into the scene half.</summary>
@@ -870,7 +873,12 @@ internal static partial class WallSegmentFade
         /// one.</summary>
         private void FinishSurveySignature()
         {
-            _surveySig = FoldSig(_surveySig, _factCount);
+            // ModBuild 439: the FOLDED row count, not the raw census total. _factCount counts
+            // the mod-owned rows the scene half now exempts, so folding it here would re-admit
+            // exactly the churn that exemption removes — through the OTHER signature, where no
+            // instrument would have named it. The cross-check is unchanged in kind: it is still
+            // "does the wall half agree with what the scene half actually hashed".
+            _surveySig = FoldSig(_surveySig, _sceneFoldedRows);
             _surveySig = FoldSig(_surveySig, _factWallFade.Count);
             _surveySig = FoldSig(_surveySig, _factWater.Count);
         }
@@ -1060,6 +1068,12 @@ internal static partial class WallSegmentFade
             _committedWallSig = _surveySig;
             _committedSigValid = true;
             BankFactCensus();
+            // ModBuild 439 — the row bank, taken at the SAME instant and from the SAME arrays,
+            // for the reason this method's own comment gives about BankFactCensus: a baseline
+            // taken at any other moment compares two different populations. Two array copies
+            // and one name loop, priced under 'WallFade.SigBank'. See
+            // WallSegmentFade.CommitPhases.cs.
+            BankSceneSignatureRows();
             _skipRun = 0;
             _lastCommitAt = now;
             _cycleCommitted++;
@@ -1366,6 +1380,10 @@ internal static partial class WallSegmentFade
                 // is answered here rather than deferred to another round. Throttled and measured
                 // — see LogSignatureCulprits.
                 LogSignatureCulprits(now);
+                // ModBuild 439 — the answer the 438 round could not print, at the DEFAULT log
+                // tier and throttled to the BUDGET cadence. Appended beside the census call it
+                // does not replace: that one is config-gated and off, this one is not.
+                NoteSceneSignatureDelta(now);
                 return false;
             }
             if (_surveySig != _committedWallSig)

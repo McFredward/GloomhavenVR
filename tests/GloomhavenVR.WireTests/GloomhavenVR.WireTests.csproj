@@ -352,6 +352,19 @@
     <Compile Include="WallSignatureCulpritVectors.cs" />
   </ItemGroup>
 
+  <!-- ModBuild 439, and here for the same reason one paragraph up, sharpened by arithmetic.
+       WallSigDelta.cs runs the scene signature's fold BACKWARDS: its entire claim rests on
+       FnvPrime having a multiplicative inverse modulo 2^64, which is the kind of maths that
+       compiles, runs, and is off by a factor without anything looking wrong. The vectors assert
+       the inverse against the prime instead of trusting it, drive the round trip over all 256
+       bit patterns and over NEGATIVE instance ids (Unity issues those, and a sign-extension slip
+       would surface on nothing else), and pin four hashes taken verbatim out of the user's
+       ModBuild 438 Player.log — the ones that name the mod-owned renderer this round exempts. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallSigDelta.cs" Link="core\WallSigDelta.cs" />
+    <Compile Include="WallSigDeltaVectors.cs" />
+  </ItemGroup>
+
   <!-- Not a wire file, and here for the WallSegmentFadeCulprits reason at its sharpest. This one
        decides whether it is SAFE to slice the ~95 ms wall-table commit over sixty frames — the
        change the user asked for in as many words ("Ich will aber eigentlich gar keine spürbaren

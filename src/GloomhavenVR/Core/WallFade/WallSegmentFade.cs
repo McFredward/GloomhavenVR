@@ -4909,6 +4909,10 @@ internal static partial class WallSegmentFade
                     FoldSceneFact(DeadRendererSigTerm);
                     FoldNarrowSceneFact(DeadRendererSigTerm);
                     FoldFigureSetFact(DeadRendererSigTerm);
+                    // ModBuild 439: the delta decoder's row bank, index for index with _facts.
+                    // A hole is recorded as the term it folds, so a destroyed renderer shows up
+                    // in the census as a destroyed renderer. See WallSegmentFade.CommitPhases.cs.
+                    RecordSceneFactRow(i, DeadRendererSigTerm, folded: true);
                     continue;
                 }
                 bool cold = _classifyCold || !ReferenceEquals(f.R, r);
@@ -4983,7 +4987,70 @@ internal static partial class WallSegmentFade
                          | (f.WaterSurface ? 64 : 0)
                          | (r.gameObject.activeInHierarchy ? 128 : 0);
                 ulong ident = FoldSig(FnvOffset, r.GetInstanceID());
-                FoldSceneFact(FoldSig(ident, bits));
+                ulong sceneRow = FoldSig(ident, bits);
+
+                // ================================================================================
+                // ModBuild 439 — THE MOD-OWNED EXEMPTION, AND WHY IT CANNOT CHANGE THE PICTURE.
+                // ================================================================================
+                //
+                // WHAT THE HARDWARE SAID, decoded and not guessed. In the ModBuild 438 log the
+                // late "random" stalls are all one term (WHY A CYCLE COMMITTED past line 11147:
+                // 0/0/0/0/0, 2 scene signature moved, 0 wall, 0 ceiling, 0 drift). Six of that
+                // log's twenty-five distinct scene-signature deltas decode to a SINGLE event —
+                // FnvPrime is odd, so the fold inverts (see WallSigDelta) — and every one of the
+                // six names the same renderer: instance id -14798, with verdict bits 141
+                // (mesh+mountable+MOD+active) on the cycles it entered the snapshot and 13
+                // (mesh+mountable+MOD, no active) on the cycles it left, plus one delta that is
+                // exactly -128 x FnvPrime, i.e. one renderer's activeInHierarchy and nothing
+                // else. One of OUR OWN visuals, switching itself on and off, was buying the
+                // player a ~155 ms table rebuild every time it did. "We were the churn", for the
+                // third time in this project's ledger.
+                //
+                // WHY EXEMPTING IT IS PROVABLE RATHER THAN PLAUSIBLE — the argument the FIGURE
+                // narrowing beside it could NOT make, which is why that one is still behind a
+                // dial. f.Mod is fixed for a renderer's lifetime (the mod LAYER and the
+                // 'GloomhavenVR.' name prefix are both stamped at creation — see RendererFact),
+                // so unlike f.Figure it cannot go stale under a reparent. And every consumer of
+                // this table rejects it before reading anything else:
+                //
+                //   WallSegmentFade.Blockade.cs:287      `f.Mesh == null || f.Mod`
+                //   WallSegmentFade.FreeStanding.cs:278  `... || f.Mod || ...`   (and :954)
+                //   WallSegmentFade.Hanging.cs:166       `... || f.Mod || ...`
+                //   WallSegmentFade.Stacked.cs:1249      `f.Mesh == null || f.Mod`
+                //   WallSegmentFade.Mounted.cs:2131      `f.R == null || f.Mod`
+                //   _factWater (this method, below)      built under `!f.Mod`
+                //
+                // THE ONE MOD-BLIND CONSUMER IS _factWallFade, and it is the reason this is a
+                // CONJUNCTION and not `f.Mod` alone. Its membership test is
+                // `f.Mesh != null && f.WallFadeShader`, with no mod filter, and
+                // AdoptShaderMatchedWalls really does walk it. So a mod-owned renderer that
+                // would enter that index keeps its FULL term, identity and all eight bits, and
+                // nothing about it changes. Everything else the mod owns folds into nothing.
+                //
+                // WHY THE PICTURE CANNOT CHANGE, said as the rulings require. Nothing here
+                // touches a fade decision, a segment table, an eligibility rule or an applier:
+                // the ONLY thing that moves is which renderers are allowed to force a REBUILD of
+                // a table whose contents they can never appear in. Floor tiles still never fade;
+                // light shafts, arches and doorway content still never fade; ivy still fades with
+                // its wall; a held prop is still never scenery. A game renderer's every bit is
+                // still folded exactly as before, the staleness ceiling still forces a commit
+                // after MaxSkippedCyclesInARow skips, and the drift probe still measures the
+                // geometry underneath.
+                //
+                // ALL THREE HALVES OR NONE. The narrowed and figure-set accumulators are shadows
+                // of this one and CommitWouldChangeNothing warns loudly when they disagree in a
+                // way the fold makes impossible. Exempting a row from the full half alone would
+                // fire that warning on every mod toggle — a correct alarm about a real
+                // inconsistency I would have introduced.
+                //
+                // FALSIFIED BY: the ModBuild 439 'SIGNATURE DELTA' line (default tier) reporting
+                // EXEMPT rows that are not mod-owned, or a session in which a wall stays solid
+                // while that line's exempt count is the only thing moving.
+                bool modExempt = f.Mod && !(f.Mesh != null && f.WallFadeShader);
+                RecordSceneFactRow(i, sceneRow, folded: !modExempt);
+                if (modExempt)
+                    continue;
+                FoldSceneFact(sceneRow);
 
                 // ================================================================================
                 // ModBuild 279, OPTION A — THE NARROWED SIGNATURE, COMPUTED IN SHADOW.

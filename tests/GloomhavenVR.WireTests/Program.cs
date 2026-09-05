@@ -97,6 +97,13 @@ internal static class Program
             // permanently solid (säulen.jpg, the report from the other side).
             WallFloorTileVectors.Run(t);
             WallSignatureCulpritVectors.Run(t);
+            // ModBuild 439 — THE DECODER THAT NAMES THE RENDERER BEHIND A "RANDOM" HITCH. The
+            // user accepts a stall when a door opens and does not accept the ones long after it
+            // ("diese Hänger lange danach die einfach 'random' auftreten sind störend"), and in
+            // his ModBuild 438 log every one of the late commits is the scene-signature term
+            // with nothing shipped able to say which renderer moved it. This inverts the fold to
+            // answer that, so its arithmetic is driven against the log's own hashes here.
+            WallSigDeltaVectors.Run(t);
             // WHOSE GEOMETRY GETS THE HOVER GLOW — the miniature's body or the furniture hanging
             // off it. The report it answers ("der Boss-Drache hat immer noch KEIN Highlighting")
             // took from ModBuild 293 to ModBuild 342, and every build in between compiled clean,
