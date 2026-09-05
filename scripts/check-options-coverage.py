@@ -8,7 +8,7 @@ that the topic tree above it exists to empty. He tested ModBuild 340 and reporte
 "Weiterhin finde ich den offset für die healthbar nicht". The feature was delivered and
 unreachable, and nothing in the build said so.
 
-Nothing here judges taste. It checks five things a machine can decide, each of which has already
+Nothing here judges taste. It checks six things a machine can decide, each of which has already
 cost this project a round:
 
   1. ADVERTISED BUT ABSENT. Every (Section, Key) named in `VROptionsTab.4.Curated.cs`,
@@ -43,6 +43,28 @@ cost this project a round:
      NAME_DIFFERS_ON_PURPOSE with the reason. This does NOT merge the two tables: the everyday
      caption is allowed to be shorter than the browser's descriptive name — it just has to be a
      DECISION rather than an accident.
+  6. A ROW WHOSE VALUES ARE C# IDENTIFIERS. Checks 3 and 5 look at the row's NAME. Nothing looked
+     at what its DROPDOWN SAYS, and for an enum-typed entry that is a programmer's string:
+     `ConfigCatalog.Classify` maps `t.IsEnum` to `ConfigKind.Choice`, and `BuildChoiceRow` labels
+     each option with `choices[i].ToString()` — the raw member name, identical in both languages.
+     `[Cards] BoardMoveMode` and `[WorldUI] WindowFacing` each needed a hand-built row to escape
+     it ("the raw member names … English, in a German menu, on a row a player is meant to choose
+     from", VROptionsTab.4.Curated.cs), and `[PeerBoardFade] Mode` was found the same way a third
+     time — by the user, reading "Off" in a German menu ("Die Board-Transparenz Option im Dropdown
+     'Off' sollte 'Permanent' heißen stattdessen"). Two hand-written fixes and no gate is how a
+     defect class gets fixed three times. So: every OFFERED config entry whose type is one of the
+     mod's enums must be built by a localizing row — a `HasSpecialRow` branch or a
+     `HasVariantTiles` strip — or be named in ENUM_LABELS_NOT_LOCALIZED. Same shape as
+     KNOWN_ORPHANS: the set is frozen at the state the rule was written against, so the gate is on
+     the DELTA and the next enum dropdown cannot ship English into the German menu unnoticed.
+
+     NOT COVERED, deliberately: the OTHER way a row gets identifier-shaped options, an
+     `AcceptableValueList` or a `ConfigCatalog.CuratedChoices` set over strings ("auto"/"vdxr",
+     "tilt"/"always", "window"/"screen"). Those values are what the player's .cfg must literally
+     contain and what the code compares against, so the label and the stored value are the same
+     object today; separating them is a design change per entry, not a missing translation. The
+     five affected keys are listed at ENUM_LABELS_NOT_LOCALIZED's foot so the size of that class
+     is written down rather than merely unmeasured.
 
 WHAT IS NOT CHECKED, AND WHY. "Every key is reachable" is not checked because it is TRUE BY
 CONSTRUCTION and checking it would be checking the wrong thing: Erweitert is the catalog's own
@@ -176,6 +198,38 @@ def enum_members():
     return found
 
 
+def interp_subs(body, enums):
+    """Placeholder resolution, file-local: loop variables over an enum or a string array.
+
+    Extracted so check 6's census resolves `$"RestButtonShape_{board}"` exactly the way check 1's
+    key surface does — the two disagreeing about which keys exist is the one way check 6 could
+    accuse a key nothing binds."""
+    subs = {}
+    for _type, var in FOREACH_ENUM.findall(body):
+        enum_name = re.search(
+            r'foreach\s*\(\s*\w+\s+' + re.escape(var) + r'\s+in\s+(?:System\.)?Enum\.GetValues\s*\(\s*typeof\s*\(\s*(\w+)',
+            body)
+        if enum_name and enum_name.group(1) in enums:
+            subs[var] = enums[enum_name.group(1)]
+    arrays = {name: [v.strip().strip('"') for v in vals.split(",") if v.strip()]
+              for name, vals in STR_ARRAY.findall(body)}
+    for var, arr in ELEM_ASSIGN.findall(body):
+        if arr in arrays:
+            subs[var] = arrays[arr]
+    return subs
+
+
+def expand_template(template, subs):
+    """`RestButtonShape_{board}` -> ['RestButtonShape_Oak', …], or None when unresolvable."""
+    holes = HOLE.findall(template)
+    if len(holes) != 1:
+        return None
+    inner = re.sub(r'^\(\s*int\s*\)\s*', '', holes[0][1:-1].strip())
+    if inner not in subs:
+        return None
+    return [template.replace(holes[0], value) for value in subs[inner]]
+
+
 def key_surface():
     """(literal keys, wildcard patterns per section, per-section counts)."""
     enums = enum_members()
@@ -199,29 +253,14 @@ def key_surface():
             for key in re.findall(r'=\s*B[i]nd\s*(?:<[^>()]*>)?\s*\(\s*"(\w+)"\s*,', body):
                 keys.add((section, key))
 
-        # Placeholder resolution, file-local: loop variables over an enum or a string array.
-        subs = {}
-        for _type, var in FOREACH_ENUM.findall(body):
-            enum_name = re.search(
-                r'foreach\s*\(\s*\w+\s+' + re.escape(var) + r'\s+in\s+(?:System\.)?Enum\.GetValues\s*\(\s*typeof\s*\(\s*(\w+)',
-                body)
-            if enum_name and enum_name.group(1) in enums:
-                subs[var] = enums[enum_name.group(1)]
-        arrays = {name: [v.strip().strip('"') for v in vals.split(",") if v.strip()]
-                  for name, vals in STR_ARRAY.findall(body)}
-        for var, arr in ELEM_ASSIGN.findall(body):
-            if arr in arrays:
-                subs[var] = arrays[arr]
+        subs = interp_subs(body, enums)
 
         for section, template in BIND_INTERP.findall(body):
-            holes = HOLE.findall(template)
-            if len(holes) == 1:
-                inner = holes[0][1:-1].strip()
-                inner = re.sub(r'^\(\s*int\s*\)\s*', '', inner)
-                if inner in subs:
-                    for value in subs[inner]:
-                        keys.add((section, template.replace(holes[0], value)))
-                    continue
+            expanded = expand_template(template, subs)
+            if expanded is not None:
+                for key in expanded:
+                    keys.add((section, key))
+                continue
             # Unresolved: keep it as a wildcard so a curated key that matches is never
             # called missing. A checker that guesses "absent" here would fail the build on
             # correct code, which is how a checker gets switched off.
@@ -326,6 +365,95 @@ def tree_refs(boards):
             else:
                 refs.append((os.path.basename(path), section, key))
     return refs
+
+
+# ============================================================================================
+#  2b. Which offered rows are edited by a dropdown full of C# identifiers (check 6)
+#
+#  The entry's TYPE is not visible at the bind site — every default in this mod comes from
+#  `Defaults.*`, so `.Bind("PeerBoardFade", "Mode", Defaults.PeerBoardFade_Mode, …)` says nothing
+#  about the enum. The FIELD DECLARATION does: `ConfigEntry<PeerBoardFadeMode>? FadeMode`. So the
+#  census is a two-step join inside each file — declaration name -> enum type, then assignment of
+#  that name from a `.Bind(…)` -> (section, key). Both halves are file-local, which is what makes
+#  a regex honest here: the mod binds every entry in the same file that declares it.
+# ============================================================================================
+
+# `ConfigEntry<Foo> Name`, `ConfigEntry<Foo>? Name`, `ConfigEntry<Foo>[] Name` (the per-board
+# families are arrays). `[\w.]+` keeps a qualified type (`Hands.HandStyle`); only its last
+# segment is matched against the enum census.
+ENTRY_DECL = re.compile(r'ConfigEntry<\s*([\w.]+)\s*>\s*(?:\[\s*\])?\s*\??\s*(\w+)\s*(?:=|;|\))')
+# `Name = <anything>.Bind("Sec", "Key"` / `Name[i] = _file.Bind("Sec", $"Key_{board}"`. DOTALL,
+# because the multi-line call is the common shape (Plugin.cs binds LogLevel over four lines).
+ASSIGN_BIND = re.compile(
+    r'\b(\w+)\s*(?:\[[^\]]*\])?\s*=\s*(?:[\w.]+\s*\.\s*)?B[i]nd\s*(?:<[^>()]*>)?\s*\(\s*'
+    r'"([^"]*)"\s*,\s*(\$?)"([^"]*)"', re.S)
+# The two localizing row tables, both written as chains of
+# `string.Equals(item.Section, "X", …) && string.Equals(item.Key, "Y", …)`.
+LOCALIZED_ROW = re.compile(r'item\.(Section|Key)\s*,\s*"([^"]*)"')
+NOT_OFFERED_ENTRY = re.compile(r'\[\s*"([^"/]+)/([^"]+)"\s*\]\s*=')
+
+
+def enum_typed_keys():
+    """{(section, key): enum name} for every config entry whose stored type is a mod enum."""
+    enums = enum_members()
+    found = {}
+    for path in cs_files():
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            body = strip_comments(fh.read())
+        if "ConfigEntry<" not in body:
+            continue
+
+        declared = {}
+        for type_name, field in ENTRY_DECL.findall(body):
+            leaf = type_name.rsplit(".", 1)[-1]
+            if leaf in enums:
+                declared[field] = leaf
+        if not declared:
+            continue
+
+        subs = interp_subs(body, enums)
+        for field, section, interp, template in ASSIGN_BIND.findall(body):
+            if field not in declared or not section:
+                continue
+            for key in (expand_template(template, subs) or []) if interp else [template]:
+                if key:
+                    found[(section, key)] = declared[field]
+    return found
+
+
+def localized_rows():
+    """(Section, Key) pairs that VROptionsTab / VariantTiles build with a translated control."""
+    pairs = set()
+    for path, marker in ((CURATED_FILE, "bool HasSpecialRow"),
+                         (os.path.join(OPTIONS, "VariantTiles.cs"), "bool HasVariantTiles")):
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            body = strip_comments(fh.read())
+        at = body.find(marker)
+        if at < 0:
+            continue
+        table = body[at:body.find(";", at)]
+        section = None
+        for which, value in LOCALIZED_ROW.findall(table):
+            if which == "Section":
+                section = value
+            elif section is not None:
+                pairs.add((section, value))
+                section = None
+    return pairs
+
+
+def not_offered():
+    """(Section, Key) the catalog withholds from the menu entirely (ConfigCatalog.NotOffered)."""
+    path = os.path.join(OPTIONS, "ConfigCatalog.cs")
+    with open(path, encoding="utf-8") as fh:
+        body = strip_comments(fh.read())
+    at = body.find("NotOffered = new(")
+    if at < 0:
+        return set()
+    return {(m.group(1), m.group(2))
+            for m in NOT_OFFERED_ENTRY.finditer(body[at:body.find("};", at)])}
 
 
 def loc_ids():
@@ -569,6 +697,57 @@ KNOWN_ORPHANS = {
     ("WorldUI", "WindowMaterialiseVanishSeconds"),
 }
 
+# An OFFERED enum-typed entry whose dropdown still shows the raw C# member names. The rule this
+# relaxes is check 6 above.
+#
+# FROZEN AT ModBuild 445, THE SAME WAY KNOWN_ORPHANS IS FROZEN, and for the same reason: applied
+# cold the rule fires nine times, and writing nine translations in one sitting means choosing nine
+# player-facing vocabularies at the moment of least knowledge about each. The gate is on the DELTA
+# — a NEW enum-typed setting must arrive with a localizing row or with a line here. THE LIST MAY
+# ONLY SHRINK.
+#
+# TO FIX ONE: add a `HasSpecialRow` branch with a `BuildPresetRow` over Loc ids (the pattern is
+# three branches deep in VROptionsTab.4.Curated.cs now), then delete its line here.
+ENUM_LABELS_NOT_LOCALIZED = {
+    # Oak / Steel / Bronze on a CURATED everyday row ("Kontrollbrett"), and the localized names it
+    # should be using ALREADY EXIST: ControlBoards was written as "the reference implementation for
+    # a USER-FACING style choice in this codebase (count / clamp / DISPLAY NAME)" and its own doc
+    # says "a user-facing control must show a LOCALIZED NAME, not the raw C# enum member". The row
+    # simply never asked. Closest thing to a free fix in this set.
+    ("Cards", "Board"): "the localized names exist (ControlBoards.DisplayName); the row never asks",
+    # Round / Square, six rows (two groups × three boards) under Erweitert ▸ Brett. The two Loc ids
+    # ARE ALREADY WRITTEN and unused — Loc.cs carries ["round"] = ("Round","Rund") and ["square"] =
+    # ("Square","Eckig") with no consumer in the mod. Six rows, one branch, two existing ids.
+    ("Cards", "GenericButtonShape_Oak"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    ("Cards", "GenericButtonShape_Steel"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    ("Cards", "GenericButtonShape_Bronze"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    ("Cards", "RestButtonShape_Oak"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    ("Cards", "RestButtonShape_Steel"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    ("Cards", "RestButtonShape_Bronze"): "Round/Square — Loc ids 'round'/'square' exist unused",
+    # Off / ActionPhaseOnly / Always on a CURATED everyday row ("Mitspieler-Bretter"), and the worst
+    # of the nine on its own terms: "ActionPhaseOnly" is not even English prose, it is a member name
+    # with the middle word capitalized, offered to a player as one of three things to pick.
+    ("Net", "RemoteBoards"): "Off/ActionPhaseOnly/Always — a curated everyday row, the same defect "
+                             "class the user reported for [PeerBoardFade] Mode",
+    # Off / Error / Warning / Info / Debug — the one entry in this set with an argument for staying
+    # as it is: it names LOG TIERS that appear verbatim in Player.log, and a player who reads that
+    # file to report a bug is better served by the row and the file agreeing. Not an approval, a
+    # reason to decide it deliberately rather than by default.
+    ("General", "LogLevel"): "log tiers appear verbatim in Player.log; translating the row would "
+                             "disagree with the file it configures — decide, do not default",
+}
+
+# THE ADJACENT CLASS, measured and written down rather than left unmeasured (see check 6's
+# docstring for why it is not gated). These rows are Choice rows whose options are STRINGS the
+# player's .cfg must literally contain, so the label and the stored value are one object:
+#   [Core] RuntimePriority   auto / default / vdxr / steamvr / oculus
+#   [Hands] PrimaryHand      Right / Left
+#   [WorldUI] ModalStyle     window / screen
+#   [Cards] RevealMode       tilt / always
+#   [Cards] Fan*/Card* sounds  five game audio METHOD NAMES (deliberately raw — see CuratedChoices)
+# Giving any of them a translated label means adding an index map between what is shown and what is
+# stored, which is a design change per entry rather than a missing string.
+
 
 # ============================================================================================
 #  4. The checks
@@ -647,6 +826,32 @@ def main():
             f"name, both doors. Align the two, or name the pair in NAME_DIFFERS_ON_PURPOSE "
             f"with the reason the everyday caption is deliberately different.")
 
+    # ---- 6. a row whose values are C# identifiers --------------------------------------------
+    enum_typed = enum_typed_keys()
+    localized = localized_rows()
+    withheld = not_offered()
+    raw_enum_rows = []
+    for (section, key), enum_name in sorted(enum_typed.items()):
+        if (section, key) in localized or (section, key) in withheld:
+            continue
+        raw_enum_rows.append((section, key, enum_name))
+        if (section, key) in ENUM_LABELS_NOT_LOCALIZED:
+            continue
+        members = " / ".join(enum_members().get(enum_name, [])) or "its members"
+        failures.append(
+            f"RAW ENUM NAMES IN A DROPDOWN: [{section}] {key} is a {enum_name}, so "
+            f"ConfigCatalog.Classify makes it a Choice and BuildChoiceRow labels its options "
+            f"'{members}' — the C# member names, identical in English and German. Give it a "
+            f"HasSpecialRow branch with a BuildPresetRow over Loc ids (VROptionsTab.4.Curated.cs "
+            f"has three), or name it in ENUM_LABELS_NOT_LOCALIZED with the reason it may stay a "
+            f"programmer's string.")
+    stale = sorted(set(ENUM_LABELS_NOT_LOCALIZED) - {(s, k) for s, k, _e in raw_enum_rows})
+    for section, key in stale:
+        failures.append(
+            f"ENUM_LABELS_NOT_LOCALIZED IS STALE: [{section}] {key} is listed as showing raw "
+            f"member names, but it now has a localizing row (or is no longer offered). Delete the "
+            f"line — the list may only shrink, and a stale entry hides the next real one.")
+
     # ---- 4. a split family -------------------------------------------------------------------
     curated_pairs = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
     families = {}
@@ -691,6 +896,12 @@ def main():
               f"deliberately different: {len(NAME_DIFFERS_ON_PURPOSE)}")
         print(f"deliberate second doors: {len(DUPLICATE_ALLOWED)}   "
               f"known family orphans (frozen backlog): {len(KNOWN_ORPHANS)}")
+        print(f"enum-typed rows: {len(enum_typed)}   localized by a hand-built row: "
+              f"{len(enum_typed) - len(raw_enum_rows) - len(withheld & set(enum_typed))}   "
+              f"still raw member names (frozen backlog): {len(raw_enum_rows)}")
+        for section, key, enum_name in raw_enum_rows:
+            print(f"      [{section}] {key} ({enum_name}) — "
+                  f"{ENUM_LABELS_NOT_LOCALIZED.get((section, key), '?')}")
         print()
         for cat, ck, sections, total in cats:
             print(f"  {cat}  ({ck}) — {total} row(s)")
@@ -709,7 +920,9 @@ def main():
     print("options coverage: every curated and topic-tree key exists, every caption resolves, "
           f"{two_names} row(s) named on both doors agree, "
           f"{len(DUPLICATE_ALLOWED)} deliberate second door(s), "
-          f"{len(KNOWN_ORPHANS)} known family orphan(s) in the frozen backlog, no NEW split family.")
+          f"{len(KNOWN_ORPHANS)} known family orphan(s) in the frozen backlog, no NEW split "
+          f"family, {len(raw_enum_rows)} enum row(s) still labelled with raw member names "
+          f"(frozen) and no new one.")
     return 0
 
 
