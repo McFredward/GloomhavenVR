@@ -142,6 +142,57 @@ internal static partial class CanvasConversion
     // and its seat landing, over that sub-view's own subtree and not the window's. No allocation
     // on any path: both scratch buffers are reused. [[findobjectsoftype-is-the-default-suspect]]
 
+    // ==========================================================================================
+    // WHAT THE ModBuild 434 LOG SAID ABOUT ALL OF THE ABOVE — 2026-09-05, THE THIRD REPORT
+    // ==========================================================================================
+    //
+    // Everything above this line is the ModBuild 434 record and it is left standing, because the
+    // OBJECT it names is right: he is watching 'UI Battle Goal Picker Window' inside the character
+    // screen, and the writer is this repo's own fixed-fit sub-view seat. What was wrong was the
+    // EVENT this part waits on, and the 434 session states it in four places that agree:
+    //
+    //   :4636  WINDOW LOCAL VIEWPORT FIT on 'Container' (inside 'Panel_Modal_New Party display') —
+    //          the picker's own group measured at x -615..-103, y -75..453 authored px, i.e. its
+    //          centre is at y = +189. THE PICKER IS ALREADY DRAWING HERE.
+    //   :4665  FIXED FIT … STABLE — "PLACEMENT: no sub-view open, nothing to place", on the very
+    //          next fit pass. The fit cannot SEE what is already on the glass, because the game's
+    //          show fade still has it under FitMinAlpha.
+    //   :4707  FIXED FIT … APPLIED — "1 open sub-view(s)"; "wrote sub-view 'UI Battle Goal Picker
+    //          Window' … shifted by 14,-191 px". Centre y goes +189 -> 0. That is 201 mm of drop at
+    //          the 1.050 mm per authored px the same line prints, and the line ABOVE it is
+    //          "uGUI hover ENTER: 'UI Battle Goal Picker Slot (1)'" — his laser was already on it.
+    //   :4707  and, on that same pass, "SUB-VIEW BURST STATE: 0 burst(s) armed … the set never
+    //          changed while this window was up".
+    //
+    // So the fit went from "no sub-view open" to "one open sub-view" and the OPEN-SET SIGNATURE the
+    // burst and this veil both key on never moved. Two populations, one name: the signature counted
+    // `activeInHierarchy`, the fit counted DRAWN INK, and UIWindow hides by tweening a CanvasGroup
+    // rather than by SetActive [[a-hierarchy-path-is-not-membership]]. The 434 veil's own single
+    // hold proves the same thing from the other side: it fired ONCE, at frames 6150-6180, over 642
+    // renderers, for a set it could not name ('none'), and lifted on a seat of 0,0 px — 25 seconds
+    // and one whole window-dormancy before the picker he was watching ever opened.
+    //
+    // AND ITS "YES" WAS A CLAIM ABOUT ITSELF. "DID THE FIRST VISIBLE FRAME … CARRY ITS FINAL SEAT?
+    // YES" was derived from "this hold was lifted by the seat and not by the backstop" — a fact
+    // about this file's bookkeeping, printed as a fact about the picture, in a session where the
+    // picture did the opposite [[instruments-measured-the-bookkeeping]]. The seat watch below
+    // replaces that inference with a measurement of the element's own centre.
+    //
+    // THE THREE CORRECTIONS ModBuild 435 MAKES, and each is necessary on its own:
+    //
+    //   1. THE MEMBERSHIP GAINS A SHOWN TERM (part 9c, SubViewIsShown; applied identically in
+    //      CollectActiveSubViews, SubViewOpenSetSignature and CollectSubViewSeatVeilMembers so the
+    //      three stay one population). A root the game has hidden is not open. This is what makes
+    //      the burst arm and this veil rise ON the frame the picker is shown, and it is also what
+    //      removes the 850 ms / 642-renderer hold the 434 session paid for nothing.
+    //   2. THE SETTLED BRANCH MAY NO LONGER STAMP A SEAT IT COULD NOT MEASURE (3.Fit.cs). "I cannot
+    //      see it yet" was being recorded as "it is seated", which lifted this veil across the
+    //      game's show fade and then latched it down for the rest of the window's life. That is the
+    //      release condition being satisfied by the ABSENCE of its own subject
+    //      [[a-claim-must-not-measure-itself]].
+    //   3. A SEAT CLAIM LAPSES WHEN THE SET EMPTIES, so a re-opened sub-view is judged by a
+    //      measurement of itself and not of the previous open.
+
     /// <summary>
     /// Frames a seat veil may stand before it is released anyway. DERIVED, not chosen: it is the
     /// worst case of the ORDINARY (un-bursted) fit cadence for a sub-view seat — up to
@@ -239,7 +290,19 @@ internal static partial class CanvasConversion
     {
         if (!TryGetLiveFixedFit(panel, out FixedFitState fx))
             return;
+        int signature = ServiceSubViewSeatVeil(panel, fx);
+        // ALWAYS, and after the veil has decided this frame — the watch must read the veil state
+        // that will be in force when this frame renders, and it must run on the frames the veil
+        // returns early on too, or its own silence would mean two different things.
+        TickSubViewSeatWatch(panel, fx, signature);
+    }
 
+    /// <summary>The veil half of the per-frame service. Returns the open-set signature it decided
+    /// on, so the watch beside it reads the same number rather than computing its own — one
+    /// question, one answer [[two-fans-one-name]]. Returns 0 when the fit is not running, which is
+    /// the same thing the watch does with a closed set: nothing open, nothing to follow.</summary>
+    private static int ServiceSubViewSeatVeil(ConvertedPanel panel, FixedFitState fx)
+    {
         // A FIT THAT IS NO LONGER RUNNING CANNOT PRODUCE THE RELEASE CONDITION, so nothing may be
         // held waiting for it. Checked before anything else: a hold whose releaser has stopped is
         // the shape of every latch this project has paid for. [[gated-remedy-never-ran]]
@@ -247,7 +310,7 @@ internal static partial class CanvasConversion
         {
             if (fx.SeatVeilActive)
                 LiftSubViewSeatVeil(panel, fx, overdue: false, silent: true);
-            return;
+            return 0;
         }
 
         int signature = SubViewOpenSetSignature(panel);
@@ -260,7 +323,19 @@ internal static partial class CanvasConversion
         {
             if (fx.SeatVeilActive)
                 LiftSubViewSeatVeil(panel, fx, overdue: false, silent: false);
-            return;
+            // ModBuild 435: A SEAT CLAIM IS ABOUT THE SET THAT IS OPEN, so it LAPSES when the set
+            // empties. Without this, closing and re-opening the same sub-view carries the previous
+            // episode's "seated" verdict — the signature is the same number, because it is built
+            // from the same instance ids — and the second open would be judged by a measurement
+            // taken during the first. The claim is cheap to re-earn (the settle burst re-arms on
+            // the same edge) and it must be re-earned, because a verdict that outlives its subject
+            // is how a stale answer comes to stand for a live one. [[audit-is-a-snapshot]]
+            if (signature == 0)
+            {
+                fx.SeatedValid = false;
+                fx.SeatVeilGaveUpValid = false;
+            }
+            return signature;
         }
 
         // THE SET CHANGED WHILE A VEIL STOOD. Hand back exactly what this veil holds and raise a
@@ -275,7 +350,7 @@ internal static partial class CanvasConversion
             // An open set the backstop already released once is never veiled again: a window whose
             // seat can never be solved must not strobe between held and shown.
             if (fx.SeatVeilGaveUpValid && fx.SeatVeilGaveUpSignature == signature)
-                return;
+                return signature;
             fx.SeatVeilActive = true;
             fx.SeatVeilSignature = signature;
             fx.SeatVeilStartFrame = Time.frameCount;
@@ -291,6 +366,251 @@ internal static partial class CanvasConversion
             fx.SeatVeilGaveUpValid = true;
             LiftSubViewSeatVeil(panel, fx, overdue: true, silent: false);
         }
+        return signature;
+    }
+
+    // ==============================================================================================
+    // THE SEAT WATCH (ModBuild 435) — MEASURE THE PICTURE, NOT THIS PART'S OWN BOOKKEEPING
+    // ==============================================================================================
+    //
+    // The ModBuild 434 report answered "DID THE FIRST VISIBLE FRAME OF THE SUB-VIEW CARRY ITS FINAL
+    // SEAT?" with YES — and it derived that YES from one fact about itself: the hold had been lifted
+    // by the seat rather than by the backstop. In the same session the fixed fit then wrote
+    // "sub-view 'UI Battle Goal Picker Window' … shifted by 14,-191 px" with the player's laser
+    // already hovering 'UI Battle Goal Picker Slot (1)', i.e. the answer was NO and the instrument
+    // could not tell. An instrument that reads its own state can only ever agree with itself
+    // [[instruments-measured-the-bookkeeping]], [[a-claim-must-not-measure-itself]].
+    //
+    // So this watch reads the ELEMENT. One number, sampled every frame while a sub-view is open:
+    // the root's centre IN ITS PARENT'S LOCAL FRAME. Not anchoredPosition — that runs to each
+    // rect's OWN pivot and two rects' anchoredPositions are not in a common frame, a mistake this
+    // project has already paid three builds for [[anchoredposition-is-not-a-frame]]. Two samples
+    // are kept: the centre on the FIRST FRAME THE PLAYER COULD SEE IT (not withheld by the veil,
+    // and above the fit's own FitMinAlpha visibility floor, read off the ancestors' CanvasGroup
+    // product which this veil's alpha writes provably do not touch), and the centre on the frame
+    // the seat exists. Their difference IS the pop, in px and in mm, and it is a measurement of the
+    // picture rather than a claim about a hold.
+    //
+    // COST: while a sub-view is open, one Transform read, one Rect read and one GetInheritedAlpha
+    // per frame. Zero while no sub-view is open — which is every frame of every other window and
+    // most frames of this one. No allocation on any path; the one search (a CanvasRenderer to read
+    // the inherited alpha from) is paid once per episode. [[findobjectsoftype-is-the-default-suspect]]
+
+    /// <summary>
+    /// Follow the open sub-view for the length of one EPISODE — one open set, from the frame the
+    /// game shows it to the frame its seat exists or the set changes — and report what the eye got.
+    /// </summary>
+    private static void TickSubViewSeatWatch(ConvertedPanel panel, FixedFitState fx, int signature)
+    {
+        // THE SET LEFT. Close the episode and say what happened, including when nothing happened:
+        // a report that is only written on the bad outcome cannot distinguish a good outcome from
+        // an instrument that never ran. [[a-held-instrument-reads-as-dead]]
+        if (fx.WatchActive && signature != fx.WatchSignature)
+        {
+            ReportSubViewSeatWatch(panel, fx, closedUnseated: !fx.WatchSeated);
+            fx.WatchActive = false;
+            fx.WatchRoot = null;
+            fx.WatchAlphaProbe = null;
+        }
+        if (signature == 0)
+            return;
+
+        if (!fx.WatchActive)
+        {
+            CollectSubViewSeatVeilMembers(panel);
+            int members = SeatVeilMembers.Count;
+            // The LAST member of the game's own serialized order, which is BattleGoalWindow — the
+            // element of this report. The member count rides on the line, so a reading taken while
+            // two views were open is never mistaken for one about a single view.
+            Transform? root = members > 0 ? SeatVeilMembers[members - 1] : null;
+            SeatVeilMembers.Clear();
+            if (root == null)
+                return;
+            fx.WatchActive = true;
+            fx.WatchSignature = signature;
+            fx.WatchRoot = root;
+            fx.WatchName = root.name;
+            fx.WatchMembers = members;
+            fx.WatchAlphaProbe = root.GetComponentInChildren<CanvasRenderer>(true);
+            fx.WatchStartFrame = Time.frameCount;
+            fx.WatchStartTime = Time.unscaledTime;
+            fx.WatchDrawn = false;
+            fx.WatchSeated = false;
+            fx.WatchFirstDrawFrame = 0;
+            fx.WatchFirstDrawTime = 0f;
+            fx.WatchFirstDrawCentre = Vector2.zero;
+            fx.WatchSeatFrame = 0;
+            fx.WatchSeatTime = 0f;
+            fx.WatchSeatCentre = Vector2.zero;
+            fx.WatchEpisodes++;
+        }
+
+        Transform? watched = fx.WatchRoot;
+        if (watched == null)
+        {
+            // Destroyed under the watch. Close it without a claim rather than reporting a centre
+            // nothing can be read off any more.
+            fx.WatchActive = false;
+            fx.WatchAlphaProbe = null;
+            return;
+        }
+
+        Vector2 centre = SubViewParentLocalCentre(watched);
+
+        // COULD THE PLAYER SEE IT ON THIS FRAME? Two terms and both are necessary: our own veil
+        // (which zeroes the renderers) and the game's own show fade (which drives the ancestors'
+        // CanvasGroup and is what the fit's visibility verdict reads).
+        float inherited = fx.WatchAlphaProbe != null ? fx.WatchAlphaProbe.GetInheritedAlpha() : 1f;
+        if (!fx.WatchDrawn && !fx.SeatVeilActive && inherited >= FitMinAlpha)
+        {
+            fx.WatchDrawn = true;
+            fx.WatchFirstDrawFrame = Time.frameCount;
+            fx.WatchFirstDrawTime = Time.unscaledTime;
+            fx.WatchFirstDrawCentre = centre;
+        }
+
+        if (!fx.WatchSeated && fx.SeatedValid && fx.SeatedSignature == signature)
+        {
+            fx.WatchSeated = true;
+            fx.WatchSeatFrame = Time.frameCount;
+            fx.WatchSeatTime = Time.unscaledTime;
+            fx.WatchSeatCentre = centre;
+            if (!fx.WatchDrawn)
+                fx.WatchEpisodesClean++;
+            else
+            {
+                int drop = Mathf.RoundToInt(Mathf.Abs(centre.y - fx.WatchFirstDrawCentre.y));
+                if (drop > fx.WatchWorstDropPx)
+                    fx.WatchWorstDropPx = drop;
+            }
+            ReportSubViewSeatWatch(panel, fx, closedUnseated: false);
+        }
+    }
+
+    /// <summary>
+    /// THE CENTRE OF A SUB-VIEW ROOT IN ITS PARENT'S LOCAL FRAME, which is the only frame in which
+    /// two samples of it taken on different frames are comparable.
+    ///
+    /// <para><c>localPosition</c> is the rect's pivot expressed in the parent; <c>rect.center</c> is
+    /// the offset from that pivot to the rect's middle, in the rect's OWN units, so it is scaled by
+    /// the rect's own <c>localScale</c> before it is added. <c>anchoredPosition</c> is deliberately
+    /// not used: it runs to each rect's own pivot and to its own anchor, so two rects' — or one
+    /// rect's, across a re-anchor — anchored positions are not in a common frame.
+    /// [[anchoredposition-is-not-a-frame]]</para>
+    /// </summary>
+    private static Vector2 SubViewParentLocalCentre(Transform t)
+    {
+        Vector3 lp = t.localPosition;
+        if (t is RectTransform rt)
+        {
+            Rect r = rt.rect;
+            Vector3 ls = rt.localScale;
+            return new Vector2(lp.x + r.center.x * ls.x, lp.y + r.center.y * ls.y);
+        }
+        return new Vector2(lp.x, lp.y);
+    }
+
+    /// <summary>
+    /// ONE LINE PER DISTINCT OUTCOME, and the outcome is a measured distance rather than a verdict
+    /// this part reached about itself.
+    ///
+    /// <para>Writes nothing any non-diagnostic reads: the only field it touches is its own
+    /// change gate. [[a-write-inside-a-logger]]</para>
+    /// </summary>
+    private static void ReportSubViewSeatWatch(ConvertedPanel panel, FixedFitState fx,
+        bool closedUnseated)
+    {
+        int dropPx = fx.WatchDrawn && fx.WatchSeated
+            ? Mathf.RoundToInt(fx.WatchSeatCentre.y - fx.WatchFirstDrawCentre.y)
+            : 0;
+        int outcome = (closedUnseated ? -1 : 1) * (Mathf.Abs(dropPx) + (fx.WatchDrawn ? 2 : 1) * 100003);
+        if (outcome == fx.WatchLastReported)
+            return;
+        fx.WatchLastReported = outcome;
+
+        string window = panel.HostGo != null ? panel.HostGo.name : "?";
+        // The window's own authored px -> mm, exactly as the FIXED FIT line derives it, times the
+        // parent-to-host ratio the fit itself uses to write this root's anchoredPosition — so a
+        // number quoted here is in the same units as the seat the fit prints.
+        float rig = RigUnitsPerMetre();
+        float unit = panel.HostGo != null ? panel.HostGo.transform.lossyScale.x : 0f;
+        float mmPerHostPx = rig > 0f && unit > 0f ? unit / rig * 1000f : 0f;
+        float perParent = 1f;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            if (ReferenceEquals(fx.Views[i].View, fx.WatchRoot))
+            {
+                perParent = Mathf.Max(fx.Views[i].HostPerParent, 1e-4f);
+                break;
+            }
+        }
+        int dropHostPx = Mathf.RoundToInt(dropPx * perParent);
+        int sideDriftPx = fx.WatchDrawn && fx.WatchSeated
+            ? Mathf.RoundToInt((fx.WatchSeatCentre.x - fx.WatchFirstDrawCentre.x) * perParent)
+            : 0;
+        int frames = fx.WatchSeated && fx.WatchDrawn
+            ? Mathf.Max(0, fx.WatchSeatFrame - fx.WatchFirstDrawFrame)
+            : 0;
+        int millis = fx.WatchSeated && fx.WatchDrawn
+            ? Mathf.RoundToInt((fx.WatchSeatTime - fx.WatchFirstDrawTime) * 1000f)
+            : 0;
+
+        // HW-VERIFY: THIS is the line that decides the 2026-09-05 report, third round. Read the
+        // sentence that starts "DID THE FIRST VISIBLE FRAME" — it is a YES or a NO and the number
+        // behind it was measured on the element, not inferred from a hold.
+        VRLog.Note("WorldUI", $"SUB-VIEW SEAT WATCH '{window}': THE ELEMENT is '{fx.WatchName}' "
+            + $"({fx.WatchMembers} sub-view(s) open in this episode; the fit's own widest-measured "
+            + $"name for the same set is '{fx.ViewName}' — if those two disagree, this reading is "
+            + "about a different object than the FIXED FIT line beside it and that disagreement is "
+            + "the finding). "
+            + "CENTRE, in the root's PARENT-LOCAL frame (localPosition + rect.center * localScale, "
+            + "never anchoredPosition): "
+            + (fx.WatchDrawn
+                ? $"AT FIRST DRAW {fx.WatchFirstDrawCentre.x:F0},{fx.WatchFirstDrawCentre.y:F0} px "
+                  + $"on frame {fx.WatchFirstDrawFrame}"
+                : "AT FIRST DRAW — none, no frame of this sub-view ever reached the eye during this "
+                  + "episode")
+            + "; "
+            + (fx.WatchSeated
+                ? $"AT SETTLE {fx.WatchSeatCentre.x:F0},{fx.WatchSeatCentre.y:F0} px on frame "
+                  + $"{fx.WatchSeatFrame}"
+                : "AT SETTLE — none, the set changed before a seat existed for it")
+            + $". THE DELTA: {dropPx} px vertical in the parent's frame = {dropHostPx} px in the "
+            + $"window's authored px (x moved {sideDriftPx} px)"
+            + (mmPerHostPx > 0f
+                ? $" = {dropHostPx * mmPerHostPx:F0} mm at {mmPerHostPx:F3} mm per authored px"
+                : " (no mm — the rig scale was unreadable this frame)")
+            + $", over {frames} frame(s) = {millis} ms. "
+            + "WHAT WROTE IT: the fixed fit's sub-view seat, CanvasConversion.3.Fit.cs "
+            + "ApplyFixedFitCore — it is the only writer of this root's anchoredPosition in this "
+            + $"mod, and the FIXED FIT line beside this one states the shift it wrote as "
+            + $"{fx.ViewShift.x:F0},{fx.ViewShift.y:F0} px. "
+            + "DID THE FIRST VISIBLE FRAME OF THE SUB-VIEW CARRY ITS FINAL POSITION? "
+            + (closedUnseated
+                ? "UNDECIDED — this episode ended with no seat written for it at all, so there is "
+                  + "no final position to compare against. If the sub-view was DRAWN during it, the "
+                  + "player saw whatever pose the game gave it; grep SUB-VIEW SEAT VEIL on this "
+                  + "window for whether the hold was released by a backstop"
+                : !fx.WatchDrawn
+                    ? "YES, AND BY CONSTRUCTION — the subtree was withheld from the frame the game "
+                      + "showed it until the frame its seat existed, so the delta above is 0 px "
+                      + "because there was no first visible frame before the seat. This is the "
+                      + "reading this round exists to produce"
+                    : dropPx == 0 && sideDriftPx == 0
+                        ? "YES, AND MEASURED — it was visible before the seat landed, and the seat "
+                          + "moved it by nothing. Nothing to correct on this path"
+                        : $"NO — it was drawn at one place and moved {dropHostPx} px "
+                          + $"({(dropHostPx < 0 ? "DOWN" : "UP")}) {millis} ms later, in full view. "
+                          + "THIS IS THE FAILING READING and it is the 2026-09-05 report, measured")
+            + $". SESSION: {fx.WatchEpisodes} episode(s) watched, {fx.WatchEpisodesClean} of them "
+            + $"with no frame drawn before the seat, worst measured drop {fx.WatchWorstDropPx} px. "
+            + "THE EPISODE COUNT IS THE LIVENESS FIELD: a session in which the character screen "
+            + "opened a sub-view and this number is 0 means the watch never ran, which is a "
+            + "different fact from a session in which it ran and found nothing to correct. "
+            + $"SEAT STAMP DECLINED so far: {fx.SeatUnseen} (ModBuild 435 — passes on which the fit "
+            + "refused to call an open-but-not-yet-measurable sub-view 'seated'; before this build "
+            + "every one of them lifted the veil onto an un-seated sub-view and that is what the "
+            + "434 session did, once, 25 s before the picker he was watching ever opened).");
     }
 
     /// <summary>
@@ -433,7 +753,8 @@ internal static partial class CanvasConversion
     /// <summary>
     /// The open sub-view roots of the current set, collected with EXACTLY the membership test
     /// <see cref="SubViewOpenSetSignature"/> and <c>CollectActiveSubViews</c> use — the game's own
-    /// serialized references, active in the hierarchy, strict descendants of the conversion target.
+    /// serialized references, active in the hierarchy, SHOWN by the game (<see cref="SubViewIsShown"/>,
+    /// ModBuild 435), strict descendants of the conversion target.
     /// A root nested inside another is NOT dropped here on purpose: this is a hide, not a placement,
     /// and hiding an inner root twice costs nothing while missing one would show it.
     /// </summary>
@@ -475,6 +796,8 @@ internal static partial class CanvasConversion
             return;
         Transform t = c.transform;
         if (ReferenceEquals(t, panel.Target) || !c.gameObject.activeInHierarchy)
+            return;
+        if (!SubViewIsShown(c)) // ModBuild 435 — the same SHOWN term the signature and the fit use
             return;
         if (FixedFitLevelsUp(t, panel.Target) <= 0)
             return;

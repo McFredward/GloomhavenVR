@@ -1,15 +1,18 @@
+using System.Collections.Generic;
 using GloomhavenVR.Core;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI;
 
 // CanvasConversion part 9c (THE SUB-VIEW SETTLE BURST — the character screen's tab change).
 // A NEW part file for the reason parts 6, 8 and 9b give: the refactor guard tracks the partial
 // class's member and static-initializer order, and the filename sort ('.9.' < '.9b.' < '.9c.')
-// appends this part AFTER every existing one, so nothing existing moves. No static field
-// declared here carries an initializer — the whole of this part's state lives on the existing
-// per-panel FixedFitState, so no static constructor entry is added and the initializer order the
-// guard tracks is untouched.
+// appends this part AFTER every existing one, so nothing existing moves. This part declares
+// exactly ONE static field with an initializer (SubViewWindows, added in ModBuild 435), and it is
+// a self-contained cache that neither reads nor is read by a static of any other part — so the
+// only property check-partial-order.py enforces, that no part's static initializer depends on a
+// later part's, still holds. Everything else in this part lives on the per-panel FixedFitState.
 
 internal static partial class CanvasConversion
 {
@@ -286,7 +289,8 @@ internal static partial class CanvasConversion
     /// <summary>One member of <see cref="SubViewOpenSetSignature"/>: order-independent (XOR of
     /// instance IDs) plus a count, so "the picker alone" and "the picker plus the perks view" are
     /// different numbers. Same membership test as <c>AddSubViewCandidate</c> — active in the
-    /// hierarchy AND a strict descendant of the conversion target.</summary>
+    /// hierarchy, SHOWN by the game (see <see cref="SubViewIsShown"/>) AND a strict descendant of
+    /// the conversion target.</summary>
     private static void MixOpenSubView(ConvertedPanel panel, Component? c,
         ref int signature, ref int members)
     {
@@ -295,11 +299,91 @@ internal static partial class CanvasConversion
         Transform t = c.transform;
         if (ReferenceEquals(t, panel.Target) || !c.gameObject.activeInHierarchy)
             return;
+        if (!SubViewIsShown(c))
+            return;
         if (FixedFitLevelsUp(t, panel.Target) <= 0)
             return;
         signature ^= t.GetInstanceID();
         members++;
     }
+
+    /// <summary>
+    /// THE MEMBERSHIP TERM ModBuild 435 ADDED, AND THE ONE THE ModBuild 434 LOG SAYS WAS MISSING.
+    ///
+    /// <para><b>`activeInHierarchy` is not "the game is showing this".</b> <c>UIWindow</c> hides by
+    /// tweening its <c>CanvasGroup</c> alpha to zero and only calls <c>SetActive(false)</c> when the
+    /// per-window <c>m_DisableOnZeroAlpha</c> flag is authored on
+    /// (<c>decompiled/GH.Runtime/UnityEngine.UI/UIWindow.cs</c>, <c>ChangeActive</c>), and for the
+    /// character screen's sub-views it is not: the ModBuild 434 session held <b>642</b> renderers
+    /// under "open" roots on the same frames the fit reported "no sub-view open, nothing to place".
+    /// Those two readings are both correct and they are about different populations
+    /// [[a-hierarchy-path-is-not-membership]], and the whole 2026-09-05 defect lives in the gap:
+    /// the signature was already at its final value before the picker drew a single pixel, so the
+    /// settle burst recorded "the set never changed" on the very pass that re-seated it, and the
+    /// seat veil had already been told the set was seated.</para>
+    ///
+    /// <para><c>UIWindow.IsOpen</c> is <c>m_CurrentVisualState == Shown</c>, and
+    /// <c>EvaluateAndTransitionToVisualState</c> assigns that state BEFORE it starts the alpha tween
+    /// — so it is true from the frame <c>Show()</c> is called and strictly EARLIER than the first
+    /// frame anything under the root can be seen. That is the correct polarity for a veil and for a
+    /// burst: both must be armed before the first drawn frame, never after it
+    /// [[open-is-not-drawing]].</para>
+    ///
+    /// <para><b>IT MAY ONLY EXCLUDE ON POSITIVE EVIDENCE OF HIDDEN, and that is why the test is a
+    /// disjunction and not just <c>IsOpen</c>.</b> Of the six roots only two are certainly driven
+    /// through <c>UIWindow.Show()</c>; a root that a tab shows by <c>SetActive</c> while still
+    /// carrying a <c>UIWindow</c> would read <c>IsOpen == false</c> forever, and a bare
+    /// <c>IsOpen</c> test would then quietly stop the fixed fit from seating that tab at all — a
+    /// remedy for one view that breaks four. So a root is excluded ONLY when its window says
+    /// Hidden AND its <c>CanvasGroup</c> is at zero alpha (<c>UIWindow.IsVisible</c>;
+    /// <c>[RequireComponent(typeof(CanvasGroup))]</c> makes that group always present). Nothing the
+    /// player can see can ever fail this test — the excluded population is exactly the invisible
+    /// one, which is the 642 renderers the ModBuild 434 veil held for 850 ms for nothing.</para>
+    ///
+    /// <para>NO UIWindow ⇒ TRUE, i.e. the historic answer. A root that carries no window component
+    /// has no earlier edge to offer and falls back to `activeInHierarchy` alone, exactly as every
+    /// build before this one behaved. A capability that is absent must never read as a refusal
+    /// [[capability-test-is-not-a-policy]].</para>
+    ///
+    /// <para>THREE CALLERS AND NOT FIVE, DELIBERATELY. The three that must agree on "which
+    /// sub-views are open" take this term — <c>CollectActiveSubViews</c> (what the fit places),
+    /// <see cref="SubViewOpenSetSignature"/> (what the burst and the seat veil key on) and
+    /// <c>CollectSubViewSeatVeilMembers</c> (what the veil withholds). The two that enumerate the
+    /// same six references for a DIFFERENT question keep the old test on purpose:
+    /// <c>PanelInkBounds</c> and <c>PanelSupersample</c> ask "what may draw into this capture
+    /// frame", and a sub-view mid-fade draws — narrowing their answer would clip it. Two
+    /// questions, two tests [[two-fans-one-name]].</para>
+    ///
+    /// <para>Reads game state and writes none. The <c>GetComponent</c> is paid ONCE per root for
+    /// the life of the process: <see cref="SubViewWindows"/> caches the answer including the
+    /// "there is none" answer, keyed on the root's own instance id, so the per-frame cost is one
+    /// dictionary lookup per root and no allocation.</para>
+    /// </summary>
+    private static bool SubViewIsShown(Component c)
+    {
+        int id = c.gameObject.GetInstanceID();
+        if (!SubViewWindows.TryGetValue(id, out UIWindow? win))
+        {
+            win = c.GetComponent<UIWindow>();
+            SubViewWindows[id] = win;
+        }
+        // Unity's overloaded == : a DESTROYED window compares equal to null while still being a
+        // perfectly good cache value, and in that state it can answer for nothing.
+        if (win == null)
+            return true;
+        // IsOpen is the EARLY edge (the visual state is assigned before the fade starts) and
+        // IsVisible is the LATE one (any non-zero group alpha, so a fade-out stays a member until
+        // it is actually gone). Either one is enough; only both being false is evidence of hidden.
+        return win.IsOpen || win.IsVisible;
+    }
+
+    /// <summary>
+    /// The <c>UIWindow</c> on each sub-view root, or null when that root carries none — the null is
+    /// CACHED as an answer rather than retried, which is what keeps this a dictionary lookup instead
+    /// of a per-frame <c>GetComponent</c>. Keyed by the root GameObject's instance id, so a
+    /// destroyed-and-respawned root is a different key and cannot inherit a stale window.
+    /// </summary>
+    private static readonly Dictionary<int, UIWindow?> SubViewWindows = new(8);
 
     /// <summary>
     /// Arm and drive the settle burst. Called from <c>TickFit</c> immediately BEFORE its
@@ -344,6 +428,22 @@ internal static partial class CanvasConversion
             fx.BurstChecksLeft = SubViewBurstMaxChecks;
             fx.BurstNextCheckFrame = Time.frameCount;
         }
+
+        // ModBuild 435: A HELD SUB-VIEW IS STILL ARRIVING, AND THE BURST'S BUDGET IS SHORTER THAN
+        // ITS ARRIVAL. The burst arms on the frame the game SHOWS a sub-view (part 9c's membership
+        // now carries UIWindow.IsOpen, which flips before the fade starts) and spends
+        // SubViewBurstMaxChecks x SubViewBurstCheckIntervalFrames = 12 frames. The game's own show
+        // fade can be longer than that, and for every frame of it MeasureFixedFitParts sees zero
+        // graphics above FitMinAlpha — so the whole budget can be spent on frames that cannot
+        // answer, and the seat then waits out the 30-frame cadence with the seat veil holding.
+        // Keeping the close spacing alive for exactly as long as the HOLD lasts costs one measure
+        // every three frames and is bounded by the veil's own backstop rather than by a number
+        // chosen here; it does not extend a burst on a window that is not being held, because
+        // SeatVeilActive is false on every frame of every other window and on most frames of this
+        // one. This shortens the thing the player waits through, which is the only reason the hold
+        // is acceptable at all.
+        if (fx.SeatVeilActive && fx.BurstChecksLeft <= 0)
+            fx.BurstChecksLeft = 1;
 
         // THE OBSERVATION HALF ABOVE RUNS BEFORE THE FIRST FIT; THE FORCING HALF BELOW DOES NOT,
         // AND THE SPLIT IS ModBuild 434's WHOLE CORRECTION (user report 2026-09-05, the battle-goal

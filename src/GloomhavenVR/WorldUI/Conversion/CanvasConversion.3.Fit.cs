@@ -2496,6 +2496,67 @@ internal static partial class CanvasConversion
         /// channel every LateUpdate of an appear, and the value it left is the one a lift must hand
         /// back rather than overwrite. [[a-hide-saved-a-foreign-value]]</summary>
         internal int SeatVeilLearned;
+
+        // ---- ModBuild 435: the SEAT-STAMP REFUSAL, and the SEAT WATCH — see part 9g ----------
+        //
+        // Appended at the END for the reason the two blocks above give: the refactor guard tracks
+        // member order and nothing that already existed may move. One instance-field initializer
+        // (WatchName), matching ViewName's; check-partial-order.py is about STATIC initialiser
+        // order across parts and this adds nothing to it.
+
+        /// <summary>How many times the SETTLED branch DECLINED to stamp a seat because a sub-view
+        /// was open by the game's own reckoning and the measurement could not see it yet (the
+        /// show fade). Printed on the FIXED FIT line so "the branch was never reached" and "it was
+        /// reached and it declined" can never read alike. [[a-held-instrument-reads-as-dead]]</summary>
+        internal int SeatUnseen;
+
+        /// <summary>The open set the watch is following, and whether it is following one. One
+        /// EPISODE = one open set, from the frame the game shows it to the frame its seat exists
+        /// or the set changes.</summary>
+        internal int WatchSignature;
+        internal bool WatchActive;
+
+        /// <summary>The element being watched: the last member of the open set (the display's own
+        /// serialized order puts the battle-goal picker last), its name, and one CanvasRenderer
+        /// under it used ONLY to read <c>GetInheritedAlpha()</c> — the ancestors' CanvasGroup
+        /// product, which the seat veil's own alpha writes provably do not touch.</summary>
+        internal Transform? WatchRoot;
+        internal string WatchName = "none";
+        internal CanvasRenderer? WatchAlphaProbe;
+        internal int WatchMembers;
+
+        /// <summary>The frame and unscaled time the episode opened.</summary>
+        internal int WatchStartFrame;
+        internal float WatchStartTime;
+
+        /// <summary>THE FIRST FRAME THE PLAYER COULD SEE IT — not veiled by us AND above the fit's
+        /// own visibility floor — with the element's centre in its PARENT'S local frame at that
+        /// moment. <c>WatchDrawn</c> false at the end of an episode is the GOOD reading: nothing
+        /// of it ever reached the eye before its seat existed.</summary>
+        internal bool WatchDrawn;
+        internal int WatchFirstDrawFrame;
+        internal float WatchFirstDrawTime;
+        internal Vector2 WatchFirstDrawCentre;
+
+        /// <summary>THE FRAME THE SEAT EXISTED, and the same centre re-read there. The difference
+        /// of the two centres IS the pop, measured on the picture rather than asserted from this
+        /// veil's own bookkeeping. [[instruments-measured-the-bookkeeping]]</summary>
+        internal bool WatchSeated;
+        internal int WatchSeatFrame;
+        internal float WatchSeatTime;
+        internal Vector2 WatchSeatCentre;
+
+        /// <summary>Session totals: episodes opened, episodes in which no frame of the sub-view was
+        /// ever drawn before its seat existed, and the worst measured drop in parent-local px.
+        /// <c>WatchEpisodes</c> is the UNCONDITIONAL liveness field: zero of them in a session that
+        /// opened the character screen means this watch never ran, which is a different fact from
+        /// "it ran and found nothing to correct".</summary>
+        internal int WatchEpisodes;
+        internal int WatchEpisodesClean;
+        internal int WatchWorstDropPx;
+
+        /// <summary>The last outcome printed, so an identical one stays quiet.</summary>
+        internal int WatchLastReported;
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -2780,8 +2841,30 @@ internal static partial class CanvasConversion
             // already placed and re-measured, and the ModBuild 201 write-war concession (which
             // clears viewWrong on purpose) — and in every one of them the correct answer to "may
             // this be drawn now?" is yes.
-            fx.SeatedSignature = SubViewOpenSetSignature(panel);
-            fx.SeatedValid = true;
+            //
+            // ModBuild 435: AND THERE IS A FOURTH WAY TO REACH HERE THAT IS NOT A SEAT AT ALL, and
+            // it is the whole 2026-09-05 defect. `viewWrong` is also false when `havePlacement` is
+            // false, i.e. when SolveSubViewPlacement found ZERO measurable members — which is what
+            // an open sub-view looks like for the length of the game's own show fade, because
+            // MeasureFixedFitParts drops every graphic below FitMinAlpha and the fit then reports
+            // "no sub-view open, nothing to place". Stamping SeatedValid there answers "is it
+            // seated?" with "I cannot see it yet", the veil lifts on that answer and never rises
+            // again for this set, and the real seat lands ~60 frames later ON SCREEN. That is
+            // exactly the shape of [[a-claim-must-not-measure-itself]]: the release condition was
+            // being satisfied by the ABSENCE of the thing it waits for. So the stamp now requires
+            // either a set that is genuinely empty (nothing to hold) or a measurement that actually
+            // had members. `SeatUnseen` counts the refusals and the FIXED FIT line prints it, so
+            // "the fit never reached this branch" and "it reached it and declined" cannot look alike.
+            int openNow = SubViewOpenSetSignature(panel);
+            if (openNow == 0 || havePlacement)
+            {
+                fx.SeatedSignature = openNow;
+                fx.SeatedValid = true;
+            }
+            else
+            {
+                fx.SeatUnseen++;
+            }
             panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
             // Part 9c: nothing left to write, so a settle burst in flight has done its job
             // and stops here rather than spending its remaining checks on a window that has
@@ -3038,6 +3121,14 @@ internal static partial class CanvasConversion
             return;
         Transform t = c.transform;
         if (ReferenceEquals(t, panel.Target) || !c.gameObject.activeInHierarchy)
+            return;
+        // ModBuild 435: the SHOWN term, and it must be the same one the signature uses or this
+        // collector and the veil that waits on it are two populations again (part 9c,
+        // SubViewIsShown, carries the whole argument). It removes nothing this fit could measure:
+        // a root the game has hidden draws no graphic that passes the visibility verdict below, so
+        // MeasureFixedFitParts already dropped it — this only makes "the set is empty" and "the
+        // signature is 0" the same statement instead of two that disagree for a second.
+        if (!SubViewIsShown(c))
             return;
         if (FixedFitLevelsUp(t, panel.Target) <= 0)
             return; // not inside the window we are fitting
@@ -3899,6 +3990,19 @@ internal static partial class CanvasConversion
             + ". The burst counts CHANGES of the open set, so zero bursts with a valid baseline "
             + "means the set never changed while this window was up — read the COLUMN OVERSPILL "
             + "line for the flash instead, which is measured every pass and needs no event. "
+            // ModBuild 435 — THE TWO NUMBERS THAT SAY WHETHER THIS ROUND'S CORRECTION IS ALIVE, and
+            // they ride here because this line is guaranteed to appear in any session that opens the
+            // character screen. SEAT STAMP DECLINED counts the passes on which the SETTLED branch
+            // refused to call an unmeasurable open set "seated" — the exact hole the 434 log fell
+            // through. SEAT WATCH counts episodes, and a zero there in a session with a sub-view
+            // open means the watch never ran rather than that it found nothing.
+            + $"SEAT STAMP DECLINED: {fx.SeatUnseen} pass(es) — each one is a pass on which the game "
+            + "had a sub-view open, the measurement could not see it yet (its show fade), and this "
+            + "fit therefore did NOT tell the seat veil it was seated. Before ModBuild 435 every one "
+            + "of these stamped a seat and lifted the veil onto an un-seated sub-view. "
+            + $"SEAT WATCH: {fx.WatchEpisodes} episode(s), {fx.WatchEpisodesClean} of them with no "
+            + $"frame of the sub-view drawn before its seat existed, worst measured drop "
+            + $"{fx.WatchWorstDropPx} px. "
             + DescribeHiddenWindowVeil(panel) + ".");
     }
 
