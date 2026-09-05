@@ -46,9 +46,10 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// player, not about the geometry: it reproduces the hold when the two hands are posed
 /// symmetrically (both palms toward the face, the way a mini is brought up to be read) and it
 /// swings the object when they are not (both hands reaching the same way across the board, the way
-/// a chest is picked up). That cannot be derived, so <c>mirrored</c> is a caller's
-/// decision and every entry point takes it. Passing <c>false</c> makes both hands use the authored
-/// numbers verbatim, which is "the other hand looks like the one I tuned".</para>
+/// a chest is picked up). That cannot be derived, so <c>bothHandsAlike</c> is a caller's decision
+/// and every entry point takes it. Passing <c>true</c> gives BOTH hands the mirrored form — see
+/// <see cref="Sign"/> for why that one and not the authored one — so the item sits identically in
+/// the two hands and no dial has to be re-entered to get there.</para>
 ///
 /// <para><b>NO UNITY COMPONENTS, NO <c>HandSide</c>.</b> Every entry point takes a plain
 /// <c>bool left</c> rather than the enum, so this file depends on nothing but
@@ -59,21 +60,34 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// </summary>
 internal static class HeldPoseMirror
 {
-    /// <summary>+1 for the hand the dials are authored for (the RIGHT one), −1 for the other hand
-    /// while <paramref name="mirrored"/> is on, and +1 for both hands while it is off.</summary>
-    internal static float Sign(bool left, bool mirrored) => left && mirrored ? -1f : 1f;
+    /// <summary>
+    /// WHICH OF THE TWO FORMS THIS HAND TAKES: +1 is the pose as authored (the dials are canonical
+    /// for the RIGHT hand), −1 is its mirror image.
+    ///
+    /// <para>Mirroring, each hand takes its own form. With <paramref name="bothHandsAlike"/> on,
+    /// BOTH hands take the MIRRORED form — deliberately that one and not the authored one. The
+    /// player who needs this setting is the player who tuned the pose while watching the hand the
+    /// dials are NOT authored for and found the other hand twisted (that is the whole report), so
+    /// the pose he has already looked at and accepted IS the mirrored form. Handing both hands the
+    /// authored form instead would give him the picture he rejected in both hands and ask him to
+    /// negate three dials to get back. This way the switch alone is the answer and his three
+    /// numbers keep their values and their meaning on either setting — at the cost, stated in the
+    /// key's own description, that it is the RIGHT hand that moves when he flips it.</para>
+    /// </summary>
+    internal static float Sign(bool left, bool bothHandsAlike)
+        => left || bothHandsAlike ? -1f : 1f;
 
     /// <summary>The GrabAnchor-local held offset. Only the LATERAL component is a mirror term:
     /// out-of-palm (Y) and toward-the-fingertips (Z) lie in the mirror plane and are the same
     /// number on both hands.</summary>
-    internal static Vector3 Offset(bool left, bool mirrored, float side, float up, float forward)
-        => new(Sign(left, mirrored) * side, up, forward);
+    internal static Vector3 Offset(bool left, bool bothHandsAlike, float side, float up, float forward)
+        => new(Sign(left, bothHandsAlike) * side, up, forward);
 
     /// <summary>One mirrored ANGLE — the yaw and the roll, which are rotations about axes the
     /// reflection reverses. Never call it for the pitch: that is a rotation about the mirror axis
     /// and is mirror-INVARIANT, so negating it would tip the two hands opposite ways.</summary>
-    internal static float Angle(bool left, bool mirrored, float degrees)
-        => Sign(left, mirrored) * degrees;
+    internal static float Angle(bool left, bool bothHandsAlike, float degrees)
+        => Sign(left, bothHandsAlike) * degrees;
 
     /// <summary>
     /// The upright pinch pose as a FIXED anchor-local rotation.
@@ -83,12 +97,13 @@ internal static class HeldPoseMirror
     /// and would TIP an already-pitched object instead of spinning it. The yaw goes FIRST, in the
     /// object's own frame, and the pitch/roll ride on top.</para>
     /// </summary>
-    internal static Quaternion Upright(bool left, bool mirrored, float pitch, float yaw, float roll)
-        => Quaternion.Euler(pitch, 0f, Angle(left, mirrored, roll))
-           * Quaternion.Euler(0f, Angle(left, mirrored, yaw), 0f);
+    internal static Quaternion Upright(bool left, bool bothHandsAlike, float pitch, float yaw, float roll)
+        => Quaternion.Euler(pitch, 0f, Angle(left, bothHandsAlike, roll))
+           * Quaternion.Euler(0f, Angle(left, bothHandsAlike, yaw), 0f);
 
     /// <summary>The flat palm pose: pitch only, and therefore the same rotation on both hands
-    /// whatever <c>mirrored</c> says — a pitch is mirror-invariant. It deliberately does NOT take
+    /// whatever <c>bothHandsAlike</c> says — a pitch is mirror-invariant, so in the flat pose the
+    /// switch moves the OFFSET and nothing else. It deliberately does NOT take
     /// the yaw and the roll; giving it all three makes the two poses identical and turns the
     /// upright switch into a switch that does nothing, which the figure path did once.</summary>
     internal static Quaternion Palm(float pitch) => Quaternion.Euler(pitch, 0f, 0f);

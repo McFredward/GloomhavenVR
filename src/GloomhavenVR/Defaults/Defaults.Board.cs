@@ -63,11 +63,12 @@ internal static partial class Defaults
     internal const bool PropHeldUpright = true;             // => [FigureGrab] PropHeldUpright
     internal const bool PropHeldUprightAtGrab = true;       // => [FigureGrab] PropHeldUprightAtGrab
     // The NINTH key, and the only one with no figure twin (2026-09-05, the handedness round).
-    // TRUE is exactly what the eight above already did, so this row moves nothing: it names the
-    // mirror the prop path has applied since ModBuild 349 and lets it be switched off. See
-    // PropHeldPose.MirrorHands for the report ("...wenn ich es dann mit der rechten Hand nehme,
-    // ist es verdreht") and for why the answer is a switch rather than a correction.
-    internal const bool PropHeldMirrorHands = true;         // => [FigureGrab] PropHeldMirrorHands
+    // FALSE is exactly what the eight above already did, so this row moves nothing: false IS the
+    // mirror every build since ModBuild 349 has applied, and true is the new choice — both hands
+    // holding the item the way the LEFT hand holds it today, which needs no dial re-entered. See
+    // PropHeldPose.SameInBothHands for the report ("...wenn ich es dann mit der rechten Hand
+    // nehme, ist es verdreht") and for why the answer is a switch rather than a correction.
+    internal const bool PropHeldSameInBothHands = false;    // => [FigureGrab] PropHeldSameInBothHands
 
     // ---- Board/HexHighlightFix.cs --------------------------------------------------
     // [HexHighlight] SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame /

@@ -32,9 +32,11 @@
 //      swings ~94°, with not one line of code differing between them. If that ever stopped being
 //      true, the explanation handed to the user would be wrong.
 //
-//   4. THE SWITCH. [FigureGrab] PropHeldMirrorHands off must be EXACTLY "both hands take the
-//      authored numbers", including that the RIGHT hand does not move at all — the promise the
-//      key's own description makes to a user who has already tuned one hand.
+//   4. THE SWITCH, AND WHICH OF THE TWO POSES IT PICKS. [FigureGrab] PropHeldSameInBothHands on
+//      must give both hands the pose the LEFT hand already shows — the one he tuned and accepted —
+//      and NOT the authored (right-hand) form. Both designs are "identical in both hands" and both
+//      look self-consistent in a headset; only one of them means he never has to re-enter a dial.
+//      There is no runtime symptom that separates them, so it is nailed down here.
 //
 // WHY THE EULER CONVERSION IS LOCAL, and why that is honest rather than a mirrored
 // re-implementation. `Quaternion.Euler` is one of the few members of UnityEngine.CoreModule that
@@ -82,7 +84,7 @@ internal static class HeldPoseMirrorVectors
         OffsetFlipsOnlySideways(t);
         CompositionOrderIsYawFirst(t);
         SwingIsSetByYawAlone(t);
-        SwitchedOffMeansAuthored(t);
+        TheSwitchNeedsNoArithmetic(t);
         OneDefinitionForBothPaths(t, repoRoot);
     }
 
@@ -109,9 +111,9 @@ internal static class HeldPoseMirrorVectors
 
     /// <summary><c>HeldPoseMirror.Upright</c> with the engine's euler conversion swapped for the
     /// managed one. The SIGNS are the shipped function's; only the trig is local.</summary>
-    private static Quaternion Upright(bool left, bool mirrored, float pitch, float yaw, float roll)
-        => Euler(pitch, 0f, HeldPoseMirror.Angle(left, mirrored, roll))
-           * Euler(0f, HeldPoseMirror.Angle(left, mirrored, yaw), 0f);
+    private static Quaternion Upright(bool left, bool bothHandsAlike, float pitch, float yaw, float roll)
+        => Euler(pitch, 0f, HeldPoseMirror.Angle(left, bothHandsAlike, roll))
+           * Euler(0f, HeldPoseMirror.Angle(left, bothHandsAlike, yaw), 0f);
 
     /// <summary><c>HeldPoseMirror.Palm</c>, likewise.</summary>
     private static Quaternion Palm(float pitch) => Euler(pitch, 0f, 0f);
@@ -133,8 +135,8 @@ internal static class HeldPoseMirrorVectors
                      (-40f, 61f, -12f),
                  })
         {
-            Quaternion right = Upright(left: false, mirrored: true, pitch, yaw, roll);
-            Quaternion mirrored = Upright(left: true, mirrored: true, pitch, yaw, roll);
+            Quaternion right = Upright(left: false, bothHandsAlike: false, pitch, yaw, roll);
+            Quaternion mirrored = Upright(left: true, bothHandsAlike: false, pitch, yaw, roll);
 
             // A rotation's mirror image maps the reflected source axis to the reflected image axis.
             // Checking all three basis vectors pins the whole rotation with no quaternion sign
@@ -169,8 +171,8 @@ internal static class HeldPoseMirrorVectors
         // Pitch alone (yaw and roll zero) is a rotation about the mirror axis itself, so the two
         // hands must receive the IDENTICAL rotation. Negating it here is the classic wrong fix and
         // would tip a held object toward the face in one hand and away in the other.
-        Quaternion right = Upright(left: false, mirrored: true, PropPitch, 0f, 0f);
-        Quaternion left = Upright(left: true, mirrored: true, PropPitch, 0f, 0f);
+        Quaternion right = Upright(left: false, bothHandsAlike: false, PropPitch, 0f, 0f);
+        Quaternion left = Upright(left: true, bothHandsAlike: false, PropPitch, 0f, 0f);
         t.True(Quaternion.Angle(right, left) < AngleEpsilon,
                "with only a pitch dialled in, both hands get the same rotation — a pitch is a "
                + "rotation about the mirror axis and is mirror-invariant");
@@ -179,7 +181,7 @@ internal static class HeldPoseMirrorVectors
         // whatever the mirror says. Stated as its own assertion because the palm pose takes no
         // side at all and that has to stay a deliberate property, not an oversight.
         t.True(Quaternion.Angle(Palm(PropPitch),
-                                Upright(left: false, mirrored: true, PropPitch, 0f, 0f))
+                                Upright(left: false, bothHandsAlike: false, PropPitch, 0f, 0f))
                < AngleEpsilon,
                "the flat palm pose is the upright pose with yaw and roll at zero");
     }
@@ -191,8 +193,8 @@ internal static class HeldPoseMirrorVectors
     {
         t.Case("mirror/offset-flips-x-only");
 
-        Vector3 right = HeldPoseMirror.Offset(left: false, mirrored: true, PropSide, PropUp, PropForward);
-        Vector3 left = HeldPoseMirror.Offset(left: true, mirrored: true, PropSide, PropUp, PropForward);
+        Vector3 right = HeldPoseMirror.Offset(left: false, bothHandsAlike: false, PropSide, PropUp, PropForward);
+        Vector3 left = HeldPoseMirror.Offset(left: true, bothHandsAlike: false, PropSide, PropUp, PropForward);
 
         t.True(Mathf.Abs(right.x - PropSide) < VectorEpsilon,
                "the RIGHT hand is the hand the dials are authored for — it takes the value as written");
@@ -216,8 +218,8 @@ internal static class HeldPoseMirrorVectors
         // Quaternion.Euler(pitch, yaw, roll) composes Ry*Rx*Rz and therefore yaws LAST, about the
         // hand's up axis, which moves the item's up axis as soon as it is pitched. That is the
         // difference this asserts, and at pitch 18° it is worth several degrees.
-        Quaternion spun = Upright(left: false, mirrored: true, PropPitch, PropYaw, PropRoll);
-        Quaternion unspun = Upright(left: false, mirrored: true, PropPitch, 0f, PropRoll);
+        Quaternion spun = Upright(left: false, bothHandsAlike: false, PropPitch, PropYaw, PropRoll);
+        Quaternion unspun = Upright(left: false, bothHandsAlike: false, PropPitch, 0f, PropRoll);
         t.True(Vector3.Angle(spun * Vector3.up, unspun * Vector3.up) < AngleEpsilon,
                "the yaw is a pure SPIN: it leaves the item's own up axis exactly where the pitch "
                + "and the roll put it");
@@ -261,57 +263,84 @@ internal static class HeldPoseMirrorVectors
     /// <summary>The angle between the pose one hand gets and the pose the other gets — the
     /// <c>mirrorSwing</c> the grab-time HANDEDNESS line prints.</summary>
     private static float Swing(float pitch, float yaw, float roll)
-        => Quaternion.Angle(Upright(left: false, mirrored: true, pitch, yaw, roll),
-                            Upright(left: true, mirrored: true, pitch, yaw, roll));
+        => Quaternion.Angle(Upright(left: false, bothHandsAlike: false, pitch, yaw, roll),
+                            Upright(left: true, bothHandsAlike: false, pitch, yaw, roll));
 
     // -------------------------------------------------------------------------------------------
-    //  6. THE SWITCH — off means "both hands take the authored numbers", right hand unmoved.
+    //  6. THE SWITCH — on means "both hands get the pose the LEFT hand already shows", and the
+    //     user has to do NO arithmetic to see it.
     // -------------------------------------------------------------------------------------------
-    private static void SwitchedOffMeansAuthored(Harness t)
+    //
+    // This is the block that pins the promise made to the player rather than a property of the
+    // geometry. [FigureGrab] PropHeldSameInBothHands ON must reproduce, on BOTH hands, exactly the
+    // picture his LEFT hand shows with the switch off — with PropHeldRotYaw, PropHeldRotRoll and
+    // PropHeldOffsetSide untouched. An earlier draft of this feature handed both hands the AUTHORED
+    // form instead, which is equally "identical in both hands" and was wrong for him: it would have
+    // shown him, in both hands, the pose he had already rejected, and asked him to negate three
+    // dials to get back to the one he wanted. There is no runtime symptom that separates the two
+    // designs — both look self-consistent — so it is nailed down here.
+    private static void TheSwitchNeedsNoArithmetic(Harness t)
     {
-        t.Case("mirror/switched-off-is-the-authored-pose-on-both-hands");
+        t.Case("mirror/same-in-both-hands-is-the-left-hand-pose");
 
-        Quaternion authored = Upright(left: false, mirrored: true,
-                                                     PropPitch, PropYaw, PropRoll);
+        // The pose he tuned and accepted: what the LEFT hand shows under the mirror.
+        Quaternion tunedOnLeft = Upright(left: true, bothHandsAlike: false,
+                                         PropPitch, PropYaw, PropRoll);
 
-        // THE PROMISE THE KEY'S DESCRIPTION MAKES, both halves of it.
-        t.True(Quaternion.Angle(Upright(left: false, mirrored: false,
-                                                       PropPitch, PropYaw, PropRoll), authored)
-               < AngleEpsilon,
-               "with PropHeldMirrorHands OFF the RIGHT hand does not move at all — it is the hand "
-               + "the dials are authored for either way");
-        t.True(Quaternion.Angle(Upright(left: true, mirrored: false,
-                                                       PropPitch, PropYaw, PropRoll), authored)
-               < AngleEpsilon,
-               "…and the LEFT hand becomes identical to it");
+        t.True(Quaternion.Angle(Upright(left: true, bothHandsAlike: true,
+                                        PropPitch, PropYaw, PropRoll), tunedOnLeft) < AngleEpsilon,
+               "with PropHeldSameInBothHands ON the LEFT hand does not move at all — it is already "
+               + "showing the pose he tuned, and the switch must not disturb it");
+        t.True(Quaternion.Angle(Upright(left: false, bothHandsAlike: true,
+                                        PropPitch, PropYaw, PropRoll), tunedOnLeft) < AngleEpsilon,
+               "…and the RIGHT hand comes over to match it: both hands now hold the item exactly "
+               + "the way his left hand held it, with not one dial re-entered");
 
-        Vector3 offRight = HeldPoseMirror.Offset(left: false, mirrored: false, PropSide, PropUp, PropForward);
-        Vector3 offLeft = HeldPoseMirror.Offset(left: true, mirrored: false, PropSide, PropUp, PropForward);
-        t.True((offRight - offLeft).sqrMagnitude < VectorEpsilon * VectorEpsilon
-               && Mathf.Abs(offRight.x - PropSide) < VectorEpsilon,
-               "the offset follows the switch with the rotation — one key, not a half-mirror");
+        // The negative half, and the reason the block exists: it must NOT be the authored form.
+        Quaternion authored = Upright(left: false, bothHandsAlike: false,
+                                      PropPitch, PropYaw, PropRoll);
+        t.True(Quaternion.Angle(Upright(left: false, bothHandsAlike: true,
+                                        PropPitch, PropYaw, PropRoll), authored) > 1f,
+               "and it is deliberately NOT the authored (right-hand) form — handing both hands "
+               + "that would show him the picture he reported, in both hands");
 
-        // AND THE ARITHMETIC THE DESCRIPTION HANDS A USER WHO TUNED THE *LEFT* HAND: negate the
-        // three mirror terms once, and both hands land where his left hand was.
-        t.Case("mirror/negating-the-three-terms-reproduces-a-left-hand-tuning");
-        Quaternion tunedOnLeft = Upright(left: true, mirrored: true,
-                                                        PropPitch, PropYaw, PropRoll);
-        Quaternion bothAfterNegating = Upright(left: false, mirrored: false,
-                                                              PropPitch, -PropYaw, -PropRoll);
-        t.True(Quaternion.Angle(tunedOnLeft, bothAfterNegating) < AngleEpsilon,
-               "negating PropHeldRotYaw and PropHeldRotRoll with the mirror off gives both hands "
-               + "exactly the pose the LEFT hand had with the mirror on");
-        Vector3 sideAfterNegating = HeldPoseMirror.Offset(left: false, mirrored: false,
-                                                          -PropSide, PropUp, PropForward);
-        Vector3 leftUnderMirror = HeldPoseMirror.Offset(left: true, mirrored: true,
+        t.Case("mirror/the-offset-follows-the-same-switch");
+        Vector3 offRight = HeldPoseMirror.Offset(left: false, bothHandsAlike: true,
+                                                 PropSide, PropUp, PropForward);
+        Vector3 offLeft = HeldPoseMirror.Offset(left: true, bothHandsAlike: true,
+                                                PropSide, PropUp, PropForward);
+        Vector3 leftUnderMirror = HeldPoseMirror.Offset(left: true, bothHandsAlike: false,
                                                         PropSide, PropUp, PropForward);
-        t.True((sideAfterNegating - leftUnderMirror).sqrMagnitude < VectorEpsilon * VectorEpsilon,
-               "…and negating PropHeldOffsetSide does the same for the position");
+        t.True((offRight - offLeft).sqrMagnitude < VectorEpsilon * VectorEpsilon,
+               "the offset follows the same switch as the rotation — one key, never a half-mirror");
+        t.True((offRight - leftUnderMirror).sqrMagnitude < VectorEpsilon * VectorEpsilon,
+               "…and lands on the LEFT hand's offset too, so the item sits in the same PLACE in "
+               + "both hands and not merely at the same angle");
+
+        // THE FLAT PALM POSE. Pitch-only, so the switch cannot rotate anything there; the offset
+        // above is the whole of its effect. Worth an assertion because a reader of the key's
+        // description is told exactly that.
+        t.Case("mirror/palm-pose-rotation-is-untouched-by-the-switch");
+        // The rotation half: the palm pose takes no side and no switch, so all four combinations
+        // are one rotation. Asserted against the UPRIGHT pose's own hand-to-hand difference so the
+        // case cannot pass by both sides being trivially equal to each other and to nothing.
+        t.True(Quaternion.Angle(Palm(PropPitch),
+                                Upright(left: true, bothHandsAlike: true, PropPitch, 0f, 0f))
+               < AngleEpsilon,
+               "the flat palm pose is pitch-only, so the switch cannot rotate it — it is the same "
+               + "rotation the upright pose gives at yaw 0 and roll 0, on either hand");
+        // …and the offset half, which IS moved, and is therefore the whole of the switch's effect
+        // in that pose. The magnitude is stated so a silently-zeroed PropHeldOffsetSide could not
+        // make this pass.
+        t.True(Mathf.Abs(offRight.x - PropSide) > VectorEpsilon
+               && Mathf.Abs(offRight.x + PropSide) < VectorEpsilon,
+               "…while the sideways offset does move — with PropHeldUpright off the switch changes "
+               + "the offset and nothing else, which is what the key's description promises");
     }
 
     // -------------------------------------------------------------------------------------------
     //  7. ONE DEFINITION, BOTH PATHS — a source lint, and the only assertion here that can see the
-    //     thing the the 2026-09-05 handedness round round was actually about.
+    //     thing the 2026-09-05 handedness round was actually about.
     // -------------------------------------------------------------------------------------------
     //
     // The report was "why does the mirror work for the figures and not for the props", and the
@@ -354,14 +383,18 @@ internal static class HeldPoseMirrorVectors
                "both paths really do call the shared definition");
 
         t.Case("mirror/the-figures-keep-the-mirror-unconditionally");
-        // The other half of the the 2026-09-05 handedness round ruling, and the one that protects a tuning the user
-        // has already accepted: the map items got a switch, the figures did not. If a dial ever
-        // appears at the figure call sites, his figure hold has become changeable by a key he did
-        // not ask for.
-        t.True(Regex.Matches(figures, @"HeldPoseMirror\.\w+\([^;]*mirrored:\s*true").Count >= 4,
-               "every figure call site passes mirrored: true as a LITERAL, so the figures' hold is "
-               + "bit-identical to what it was before the mirror was shared");
-        t.True(props.Contains("PropHeldMirrorHands"),
+        // The other half of the 2026-09-05 handedness round's ruling, and the one that protects a
+        // tuning the user has already accepted: the map items got a switch, the figures did not. If
+        // a dial ever appears at the figure call sites, his figure hold has become changeable by a
+        // key he did not ask for.
+        t.True(Regex.Matches(figures, @"HeldPoseMirror\.\w+\([^;]*bothHandsAlike:\s*false").Count >= 4,
+               "every figure call site passes bothHandsAlike: false as a LITERAL, so the figures "
+               + "stay mirrored and their hold is bit-identical to what it was before the mirror "
+               + "was shared");
+        t.True(!Regex.IsMatch(figures, @"bothHandsAlike:\s*(?!false\b)[A-Za-z_]"),
+               "…and never a variable or a config read: the figures' hold must not become "
+               + "switchable by a key he did not ask for");
+        t.True(props.Contains("PropHeldSameInBothHands"),
                "and the map items' switch is bound where its eight siblings are");
     }
 

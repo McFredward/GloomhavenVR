@@ -562,8 +562,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         // HW-VERIFY: the line that answers "why the figures and not the props". It must stay at a
         // tier the DEFAULT log level prints (Note/Alert/Error) — scripts/check-hw-verify.py.
         VRLog.Note("FigureGrab",
-            $"[Props] HANDEDNESS {side} hand — [FigureGrab] PropHeldMirrorHands="
-            + $"{PropHeldPose.Mirrored} (the figures are always mirrored; there is no figure key). "
+            $"[Props] HANDEDNESS {side} hand — [FigureGrab] PropHeldSameInBothHands="
+            + $"{PropHeldPose.Alike} (on = both hands take the mirrored form, so the item sits the "
+            + "same way in each; the figures are always mirrored and have no such key). "
             + $"MAP ITEM: applied rot {FmtSigned(propThis)}° in the hand's own frame, from authored "
             + $"pitch={PropHeldPose.Pitch:0.#}° yaw={PropHeldPose.Yaw:0.#}° roll={PropHeldPose.Roll:0.#}° "
             + $"(this hand takes yaw={PropHeldPose.YawFor(side):0.#}° roll={PropHeldPose.RollFor(side):0.#}°), "
@@ -577,7 +578,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + $"mirrorSwing={Quaternion.Angle(figThis, figOther):0.#}°. "
             + "Both swings come from ONE shared mirror (HeldPoseMirror): it flips the yaw, the roll "
             + "and the sideways offset and leaves the pitch alone, so the swing is set by the tuned "
-            + "YAW and by nothing else — 0° at yaw 0 or ±180, widest near ±90.");
+            + "YAW and by nothing else — 0° at yaw 0 or ±180, widest near ±90. A map-item "
+            + "mirrorSwing of 0° with PropHeldSameInBothHands on is the switch working, not the "
+            + "dial being at a fixed point; the FIGURE swing beside it is the one that says which.");
     }
 
     private static string Fmt(Quaternion q)

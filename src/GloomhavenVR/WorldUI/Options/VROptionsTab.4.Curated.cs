@@ -992,11 +992,15 @@ internal static partial class VROptionsTab
                             "Map item: hold upright", "Map-Item: aufrecht halten"),
                         new("FigureGrab", "PropHeldUprightAtGrab", "",
                             "Map item: upright on grab", "Map-Item: aufrecht greifen"),
-                        // the 2026-09-05 handedness round — the NINTH row, and the one the "linke oder rechte Hand"
-                        // report is about. It belongs on this heading and not on the figures'
-                        // because it is the map items' answer alone; the figures keep the mirror.
-                        new("FigureGrab", "PropHeldMirrorHands", "",
-                            "Map item: mirror between hands", "Map-Item: zwischen den Händen spiegeln"),
+                        // The 2026-09-05 handedness round — the NINTH row, and the one the "linke
+                        // oder rechte Hand" report is about. It sits on THIS heading, beside the
+                        // eight pose dials the player was already turning when he hit the problem,
+                        // and not in the raw catalog: a dial he asked for that can only be found by
+                        // typing its key name is the standing complaint this menu exists to answer.
+                        // Not on the figures' heading either — it is the map items' answer alone,
+                        // and the figures deliberately keep the mirror.
+                        new("FigureGrab", "PropHeldSameInBothHands", "",
+                            "Map item: same in both hands", "Map-Item: in beiden Händen gleich"),
                     },
                 },
                 new()

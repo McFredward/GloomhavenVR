@@ -400,12 +400,12 @@ internal static class FigureGrabConfig
     /// <remarks>
     /// The flip itself is <see cref="HeldPoseMirror"/> — ONE definition, shared with the map
     /// items' <see cref="PropHeldPose"/>, since the 2026-09-05 handedness round found the two paths carrying the same
-    /// five expressions written twice. <c>mirrored: true</c> is passed as a LITERAL and not as a
+    /// five expressions written twice. <c>bothHandsAlike: false</c> is passed as a LITERAL and not as a
     /// dial: the figures' hold is what the user has already tuned and accepted ("bei den Figuren
     /// passt es"), so this call site is bit-identical to what it was.
     /// </remarks>
     internal static Vector3 HeldOffsetFor(HandSide side)
-        => HeldPoseMirror.Offset(side == HandSide.Left, mirrored: true,
+        => HeldPoseMirror.Offset(side == HandSide.Left, bothHandsAlike: false,
                                  ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
 
     /// <summary>
@@ -415,7 +415,7 @@ internal static class FigureGrabConfig
     /// the tuned RIGHT-hand yaw. (Roll is always 0 here, so only the yaw needs the flip.)
     /// </summary>
     internal static float HeldFaceYawFor(HandSide side)
-        => HeldPoseMirror.Angle(side == HandSide.Left, mirrored: true, ActiveHeldFaceYaw);
+        => HeldPoseMirror.Angle(side == HandSide.Left, bothHandsAlike: false, ActiveHeldFaceYaw);
 
     /// <summary>
     /// Held ROLL for one hand — the third rotation axis, so a mini has the same freedom in the
@@ -427,7 +427,7 @@ internal static class FigureGrabConfig
     /// about the mirror axis itself.)</para>
     /// </summary>
     internal static float HeldRollFor(HandSide side)
-        => HeldPoseMirror.Angle(side == HandSide.Left, mirrored: true, ActiveHeldRoll);
+        => HeldPoseMirror.Angle(side == HandSide.Left, bothHandsAlike: false, ActiveHeldRoll);
 
     /// <summary>
     /// Issue A — the upright held orientation as a FIXED CONSTANT rotation RELATIVE TO THE
@@ -455,7 +455,7 @@ internal static class FigureGrabConfig
     /// mini's axis; tilted, it is still a pure spin, just seen tipped.
     /// </remarks>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => HeldPoseMirror.Upright(side == HandSide.Left, mirrored: true,
+        => HeldPoseMirror.Upright(side == HandSide.Left, bothHandsAlike: false,
                                   ActiveHeldTilt, ActiveHeldFaceYaw, ActiveHeldRoll);
 
     /// <summary>

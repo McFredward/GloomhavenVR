@@ -357,7 +357,7 @@ internal static partial class Loc
             ["FigureGrab/PropHeldRotRoll"] = Pair("Map item: roll (°)", "Map-Item: Rollen (°)"),
             ["FigureGrab/PropHeldUpright"] = Pair("Map item: hold upright", "Map-Item: aufrecht halten"),
             ["FigureGrab/PropHeldUprightAtGrab"] = Pair("Map item: upright on grab", "Map-Item: aufrecht greifen"),
-            ["FigureGrab/PropHeldMirrorHands"] = Pair("Map item: mirror between hands", "Map-Item: zwischen den Händen spiegeln"),
+            ["FigureGrab/PropHeldSameInBothHands"] = Pair("Map item: same in both hands", "Map-Item: in beiden Händen gleich"),
 
             // ---- [Cards] — fan, held cards, control board -----------------------------------
             ["Cards/DevFakeHand"] = Pair("Debug: test cards (n)", "Debug: Testkarten (n)"),
