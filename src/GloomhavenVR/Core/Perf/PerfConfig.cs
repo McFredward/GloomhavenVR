@@ -170,7 +170,10 @@ internal static class PerfConfig
     internal static float FanRelayoutInterval =>
         FanRelayoutMinInterval == null ? 0f : Mathf.Clamp(FanRelayoutMinInterval.Value, 0f, 0.2f);
 
-    /// <summary>[Optimize] WallFadeEvalInterval, defaulting to 0 (every frame) while unbound.</summary>
+    /// <summary>[Optimize] WallFadeEvalInterval, defaulting to 0 while unbound — which is the
+    /// SENTINEL "not set", not a cadence: the caller
+    /// (<c>WallFadeTuning.EffectiveEvalIntervalSeconds</c>) answers
+    /// <c>Defaults.EvalCadenceWhenUnsetSeconds</c> when both doors read 0.</summary>
     internal static float WallFadeInterval =>
         WallFadeEvalInterval == null ? 0f : Mathf.Clamp(WallFadeEvalInterval.Value, 0f, 0.25f);
 
@@ -558,7 +561,9 @@ internal static class PerfConfig
             new AcceptableValueRange<float>(0f, 0.2f)));
         WallFadeEvalInterval = _file.Bind("Optimize", "WallFadeEvalInterval", Defaults.WallFadeEvalInterval, new ConfigDescription(
             "Minimum seconds between two wall see-through VISIBILITY evaluations (the per-segment "
-            + "sample sweep). 0 = every frame, today's behaviour. The evaluation already feeds a "
+            + "sample sweep). 0 = not set here; since ModBuild 437 two zeros (this one and "
+            + "[WallFade] EvalIntervalSeconds) mean the shipped 0.05 s cadence rather than "
+            + "every frame. The evaluation already feeds a "
             + "Schmitt trigger with second-scale dwell hysteresis, so sampling it at e.g. 0.05 "
             + "(20 Hz) cannot change which walls fade — it only stops re-deciding a decision that is "
             + "deliberately slow. Inert unless [Compat] WallFade is on. "

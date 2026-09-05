@@ -207,7 +207,9 @@ internal static partial class Loc
                 + "Herausziehen und das Aufklappen bauen immer sofort neu auf.",
             ["Optimize/WallFadeEvalInterval"] =
                 "Mindestabstand in Sekunden zwischen zwei SICHTBARKEITS-Auswertungen der Wand-Durchsicht (der "
-                + "Abtastdurchlauf pro Segment). 0 = jeden Frame, heutiges Verhalten. Die Auswertung speist "
+                + "Abtastdurchlauf pro Segment). 0 = hier nicht gesetzt; seit ModBuild 437 bedeuten zwei "
+                + "Nullen (diese und [WallFade] EvalIntervalSeconds) die ausgelieferten 0,05 s statt jeden "
+                + "Frame. Die Auswertung speist "
                 + "ohnehin einen Schmitt-Trigger mit Verweilhysterese im Sekundenbereich, deshalb kann eine "
                 + "Abtastung mit z. B. 0.05 (20 Hz) nicht ändern, welche Wände ausblenden — sie hört nur auf, "
                 + "eine bewusst träge Entscheidung ständig neu zu treffen. Ohne Wirkung, solange [Compat] "
@@ -678,8 +680,10 @@ internal static partial class Loc
             ["WallFade/EvalIntervalSeconds"] =
                 "Wie oft der Mod PRÜFT, ob eine Wand den Boden verdeckt, auf den du gerade schaust "
                 + "— die Hälfte, die in jedem Einzelbild läuft: Sie projiziert die Bodenpunkte "
-                + "jedes Raums durch deine Kopfkamera und misst jede Wand dagegen neu. 0 = in "
-                + "jedem einzelnen Bild, so wie bisher ausgeliefert. Das ist die Abtastrate im "
+                + "jedes Raums durch deine Kopfkamera und misst jede Wand dagegen neu. 0 = hier "
+                + "nicht gesetzt, was seit ModBuild 437 die ausgelieferte Taktung von 0,05 s "
+                + "(20 Hz) bedeutet und nicht mehr 'in jedem einzelnen Bild'. Wer jedes Bild "
+                + "zurueckwill, traegt hier ein Einzelbild oder weniger ein (0,01). Das ist die Abtastrate im "
                 + "wörtlichen Sinn; sie ist NICHT die Ursache der kurzen Hänger (das ist "
                 + "'Wandtabelle neu aufbauen' darüber), sondern eine kleine, dauerhafte Last in "
                 + "jedem Bild. SIE ZU ERHÖHEN IST BIS ZU EINEM PUNKT UNBEDENKLICH, UND DER PUNKT "
@@ -696,7 +700,8 @@ internal static partial class Loc
                 + "Zehntel Sekunde, was innerhalb der Ausblend-Animation selbst liegt und nicht "
                 + "zu sehen ist. STEHT HIER 0, gilt "
                 + "weiterhin das ältere [Optimize] WallFadeEvalInterval aus "
-                + "dev.gloomhavenvr.perf.cfg; jeder Wert über 0 hat hier Vorrang. Live änderbar; "
+                + "dev.gloomhavenvr.perf.cfg; steht das ebenfalls auf 0, gelten die "
+                + "ausgelieferten 0,05 s. Jeder Wert über 0 hat hier Vorrang. Live änderbar; "
                 + "begrenzt auf 0.00-0.25.",
             ["WallFade/WalkInSuspendSampling"] =
                 "Solange du IM Spielfeld stehst (siehe 'Im Spielfeld: alle Wände massiv'), gar "

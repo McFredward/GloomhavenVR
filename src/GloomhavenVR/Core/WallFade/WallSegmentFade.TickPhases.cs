@@ -410,6 +410,29 @@ internal static partial class WallSegmentFade
               .Append("so a large pair count beside a small fetch count is the CAP working, not a ")
               .Append("dead counter.");
 
+            // ModBuild 437 — WHICH CADENCE IS IN FORCE, printed because the change that made it
+            // interesting lives in a SENTINEL rather than in a value: both dials still read 0
+            // and 0 no longer means "every frame". Without this clause a reader comparing two
+            // logs would see the SplitRuns/Decide timed-frame counts fall and have no line
+            // saying whether that was the new cadence, the walk-in suspension, or a dial
+            // somebody typed. It reads the same property the gate reads, so it cannot describe
+            // a cadence the gate is not using.
+            float cadence = WallFadeTuning.EffectiveEvalIntervalSeconds;
+            string cadenceSource =
+                WallFadeTuning.EvalIntervalSeconds > 0f ? "[WallFade] EvalIntervalSeconds"
+                : PerfConfig.WallFadeInterval > 0f ? "[Optimize] WallFadeEvalInterval"
+                : "the shipped default, both dials at 0";
+            sb.Append(" DECISION CADENCE: ").Append(cadence.ToString("F3"))
+              .Append("s between two fade decisions, from ").Append(cadenceSource)
+              .Append(". THIS IS THE DIVISOR FOR THE TWO BIGGEST PHASES ABOVE: SplitRuns and ")
+              .Append("Decide are entered only on a tick the gate opens, so their 'timed ")
+              .Append("frame(s)' count — not their ms/frame — is what moves when this number ")
+              .Append("changes, and a count equal to the tick count means the gate opened every ")
+              .Append("frame (a cadence at or below one display frame, or the walk-in ")
+              .Append("suspension holding, or a value somebody typed). Up to ModBuild 436 two ")
+              .Append("zeros meant every frame; since 437 they mean the shipped 0.050s, which ")
+              .Append("is a behaviour change no cfg file records because no cfg VALUE moved.");
+
             sb.Append(" THIS INSTRUMENT COST ")
               .Append(((float)(_tickInstrumentTicks * msPerTick)).ToString("F2"))
               .Append("ms in the window (the per-frame fold, measured — not the scopes ")

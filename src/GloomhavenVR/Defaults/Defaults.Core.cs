@@ -277,6 +277,30 @@ internal static partial class Defaults
     // whatever a returning tester already has in his perf.cfg. The measured recommendation and
     // its derivation live in .planning/perf/FINDINGS.md; the number is a human's to choose.
     internal const float EvalIntervalSeconds = 0f;           // => [WallFade] EvalIntervalSeconds
+    // ModBuild 437 — THE CADENCE THAT APPLIES WHEN NEITHER DIAL IS SET, and it is a new
+    // constant rather than a new default for the two above BECAUSE A DEFAULT WOULD NOT HAVE
+    // REACHED HIM. BepInEx writes every bound key into the cfg on first run and then keeps
+    // what the file says: his dev.gloomhavenvr.wallfade.cfg already carries
+    // 'EvalIntervalSeconds = 0' and his perf.cfg 'WallFadeEvalInterval = 0', so raising
+    // Defaults.EvalIntervalSeconds would have shipped a number that every existing install
+    // overrides back to 0 — a fix that runs only on a machine nobody is testing on. The
+    // sentinel is what had to move: 0 has always meant "not set HERE" (see
+    // WallFadeTuning.EffectiveEvalIntervalSeconds), and now that both doors read "not set"
+    // the answer is this number instead of "every frame".
+    //
+    // 0.05 s = 20 Hz, and it is the user's own decision, taken on the measurement rather than
+    // on a description (2026-09-05, offered with the cost and the price in one sentence and
+    // answered "Auf 20 Hz stellen"): WallFade.Late cost 4.786 ms of an 11.11 ms frame budget
+    // on EVERY frame of his large scenario, of which SplitRuns 2.03 + Decide 1.83 are the
+    // decision this cadence gates. The bound it may not cross is the 0.20 s fade-in dwell —
+    // at 0.05 four checks in a row must still agree before a wall goes transparent, and the
+    // start of a fade moves by at most 45 ms, which is inside the fade's own animation.
+    //
+    // EVERY FRAME IS STILL REACHABLE and the description says so: any value at or below one
+    // display frame (0.01 at 90 Hz) makes the gate open on every tick, because the gate is a
+    // 'now >= next' compare and not a frame counter. That is why this could be done without
+    // taking a control away from anyone.
+    internal const float EvalCadenceWhenUnsetSeconds = 0.05f;
     // ModBuild 278 — the walk-in suspension (user request 2026-08-25: "In dem Modus in dem man
     // IM dem Level ist, kann das 'Abtasten' komplett deaktiviert werden so lange man in dem
     // Modus ist um hier auch Performance zu sparen."). Shipped ON: it IS the requested feature,

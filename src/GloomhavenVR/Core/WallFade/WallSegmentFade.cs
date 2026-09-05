@@ -251,8 +251,10 @@ internal static class WallFadeTuning
             Defaults.EvalIntervalSeconds,
             "How often the mod CHECKS whether a wall is hiding the floor you are looking at — "
             + "the per-frame half: it projects every room's floor samples through your head "
-            + "camera and re-measures every wall against them. 0 = every single frame, which is "
-            + "what has shipped so far. This is the cadence 'wie oft gecheckt wird ob eine Wand "
+            + "camera and re-measures every wall against them. 0 = not set here, which since "
+            + "ModBuild 437 means the shipped cadence of 0.05 s (20 Hz) rather than every single "
+            + "frame; to get every frame back, set this to one display frame or less (0.01). "
+            + "This is the cadence 'wie oft gecheckt wird ob eine Wand "
             + "etwas verdeckt' in the literal sense; it is NOT what causes the short hitches "
             + "(that is RescanIntervalSeconds above), it is a small steady cost paid on every "
             + "frame forever. RAISING IT IS SAFE UP TO A POINT AND THE POINT IS KNOWN: the "
@@ -266,8 +268,9 @@ internal static class WallFadeTuning
             + "0.05 (20 Hz) still needs four checks in a row to agree before a wall goes "
             + "transparent and delays that by at most a tenth of a second, which is inside the "
             + "fade animation's own smear and cannot be seen. IF THIS IS 0, the older "
-            + "[Optimize] WallFadeEvalInterval in dev.gloomhavenvr.perf.cfg still applies; any "
-            + "non-zero value here overrides it. Live; clamped 0.00-0.25.");
+            + "[Optimize] WallFadeEvalInterval in dev.gloomhavenvr.perf.cfg still applies, and "
+            + "if that is 0 too the shipped 0.05 s applies; any non-zero value here overrides "
+            + "both. Live; clamped 0.00-0.25.");
         WalkInSuspendSampling = config.Bind("WallFade", "WalkInSuspendSampling",
             Defaults.WalkInSuspendSampling,
             "While you are standing INSIDE the play field (see 'Im Spielfeld: alle Wände "
@@ -599,7 +602,9 @@ internal static class WallFadeTuning
     /// ModBuild 278 — seconds between two fade DECISIONS. The number inside Clamped() is only the
     /// PRE-BIND fallback; the shipped default is <c>Defaults.EvalIntervalSeconds</c>.
     ///
-    /// <para>0 HERE MEANS "NOT SET HERE", NOT "EVERY FRAME" — see
+    /// <para>0 HERE MEANS "NOT SET HERE", NOT "EVERY FRAME" — and since ModBuild 437 that
+    /// distinction decides a number rather than a fall-through: two zeros now answer
+    /// <see cref="Defaults.EvalCadenceWhenUnsetSeconds"/> (0.05 s = 20 Hz). See
     /// <see cref="EffectiveEvalIntervalSeconds"/>. The distinction exists so that surfacing this
     /// dial cannot silently discard a value a tester already typed into
     /// <c>[Optimize] WallFadeEvalInterval</c>, which is the only door this cadence had before
@@ -633,7 +638,15 @@ internal static class WallFadeTuning
         get
         {
             float own = EvalIntervalSeconds;
-            return own > 0f ? own : PerfConfig.WallFadeInterval;
+            if (own > 0f)
+                return own;
+            // ModBuild 437 — the SECOND door, then the shipped cadence. Both dials at 0 means
+            // "nobody has chosen", which since this build answers 0.05 s (20 Hz) rather than
+            // "every frame"; see Defaults.EvalCadenceWhenUnsetSeconds for the measurement, the
+            // user ruling and why the change had to land on the SENTINEL and not on either
+            // default (his cfg already carries both zeros, so a default could not reach him).
+            float legacy = PerfConfig.WallFadeInterval;
+            return legacy > 0f ? legacy : Defaults.EvalCadenceWhenUnsetSeconds;
         }
     }
 
@@ -2206,8 +2219,12 @@ internal static partial class WallSegmentFade
             // hysteresis (see the thresholds below) — so sampling it at 20 Hz instead of 90 Hz
             // cannot change which walls fade, only when within a fraction of the dwell.
             //
-            // DEFAULT 0 = every frame = today's behaviour; the [Perf] STEPS line's "WallFade.Late"
-            // entry is what decides whether raising it is worth anything on real hardware.
+            // DEFAULT 0 = "not set here". Up to ModBuild 436 two zeros meant EVERY FRAME; since
+            // 437 they mean Defaults.EvalCadenceWhenUnsetSeconds (0.05 s = 20 Hz), on the user's
+            // ruling and on this measurement: WallFade.Late 4.786 ms/frame against an 11.11 ms
+            // budget, of which SplitRuns 2.03 + Decide 1.83 are what this gate skips. The
+            // [Perf] STEPS line's "WallFade.Late" entry is what says whether it worked, and the
+            // BUDGET line's DECISION CADENCE clause is what says which number is in force.
             //
             // ModBuild 278 — THE DIAL MOVED HOUSE AND KEPT ITS OLD DOOR. The cadence now also
             // reads [WallFade] EvalIntervalSeconds, which is where a player will actually look

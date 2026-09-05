@@ -416,7 +416,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 436;
+    public const ushort ModBuild = 437;
+    // Build 437: THE COMBAT LOG STOPS BEING ITS OWN KIND OF WINDOW, THE VR MENU GETS THE
+    // OPAQUE GROUND EVERY OTHER MENU KEEPS, THE EVERYDAY PAGES LOSE 16 POWER-USER ROWS, AND
+    // THE FADE DECISION STOPS RE-DECIDING ITSELF 90 TIMES A SECOND.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
+    //
+    // NOTHING HERE CROSSES THE WIRE, and that is a claim about four separate lanes: the combat
+    // log's chrome is local presentation over a local BepInEx key; the options skin and the
+    // curation touch only which rows a local menu draws; and the wall-fade work is a cost
+    // reduction whose own commit message states why each step is verdict-preserving. The peer
+    // fade path (Net/Board/PeerBoardFade.cs) reads the SAME cadence property this build
+    // changed, so the one thing that could have desynced — two players deciding a wall
+    // differently — is exactly the thing that cannot, because both ends run the same rule at
+    // the same new cadence and the fade is re-derived per client anyway.
+    //
+    // THE CADENCE CHANGE IS THE ONE TO READ TWICE. It does not move a cfg VALUE; it moves what
+    // the value 0 MEANS (Defaults.EvalCadenceWhenUnsetSeconds). That was forced: BepInEx keeps
+    // whatever a cfg already says, and every existing install carries [WallFade]
+    // EvalIntervalSeconds = 0 and [Optimize] WallFadeEvalInterval = 0 — so a raised DEFAULT
+    // would have shipped a fix that runs on no tester's machine. The user approved 20 Hz on the
+    // measurement (WallFade.Late 4.786 ms/frame against an 11.11 ms budget). Every frame stays
+    // reachable by typing 0.01, and the BUDGET line's new DECISION CADENCE clause names which
+    // number is in force and where it came from.
     // Build 339: A DIAL FOR THE BAR HEIGHT, APPLIED LAST ON PURPOSE.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,543,759 bytes. NO WIRE FIELD.
     //
