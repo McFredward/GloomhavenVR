@@ -1133,7 +1133,11 @@ internal sealed partial class PlayTray
                                 $"({CardsConfig.BoardMoveMode.Value}); SIZE NOT WRITTEN — the grab was a " +
                                 $"carry, localScale {grabStart:F3} → {live:F3} is within float noise, so " +
                                 $"TrayScale stays {CardsConfig.TrayScale.Value:F2}× and " +
-                                $"BoardScale_{board} stays {boardScale:F5}.");
+                                $"BoardScale_{board} stays {boardScale:F5}. " +
+                                $"BoardApparentWidth_{board} stays " +
+                                $"{CardsConfig.BoardApparentWidthMeters(board).Value * 100f:F1} cm " +
+                                "for the same reason — a carry authors no size, so it must not " +
+                                "re-author one.");
             return;
         }
 
@@ -1164,6 +1168,17 @@ internal sealed partial class PlayTray
         // the eye.
         float trayScale = Mathf.Clamp(live / boardScale, CardsConfig.TrayScaleMin, CardsConfig.TrayScaleMax);
         CardsConfig.TrayScale.Value = trayScale;
+        // AND THE SAME SIZE IN THE UNIT HE SAW IT IN (2026-09-05 size report — the block above
+        // PlayTray.TrySolveBoardScale carries the measurement). TrayScale above is a localScale,
+        // a WORLD-frame number whose apparent meaning depends on the parent-chain ÷ rig-scale
+        // ratio in force when it is next USED; the clamp on the line above then makes that worse,
+        // because a size dialled at a deep FIXIERT zoom needs a localScale the band cannot hold
+        // and the stored value silently becomes the band's edge. The APPARENT width has neither
+        // problem: the two-hand gesture window already bounds it to BoardMin/BoardMaxWidthMeters,
+        // so it always stores losslessly, and it is the quantity a later placement can re-solve
+        // into whatever localScale means that same size at the zoom he spawns at. Written under
+        // exactly this branch's guard, so a CARRY can never re-author it.
+        float authoredWidth = RecordAuthoredApparentWidth(board);
         float reproduced = trayScale * boardScale;
         if (Mathf.Abs(reproduced - live) > 1e-4f * Mathf.Max(1f, live))
         {
@@ -1188,6 +1203,15 @@ internal sealed partial class PlayTray
                             $"right {CardsConfig.TrayRight.Value:F2} m, down {CardsConfig.TrayDown.Value:F2} m, " +
                             $"yaw {CardsConfig.TrayYaw.Value:F0}°, pitch {CardsConfig.TrayPitch.Value:F0}° " +
                             $"({CardsConfig.BoardMoveMode.Value}), scale {CardsConfig.TrayScale.Value:F2}× " +
-                            $"(RESIZED: localScale {grabStart:F3} → {live:F3}).");
+                            $"(RESIZED: localScale {grabStart:F3} → {live:F3})." +
+                            (authoredWidth >= 0f
+                                ? $" BoardApparentWidth_{board} = {authoredWidth * 100f:F1} cm — the " +
+                                  "size you just made it, stored as what it LOOKS like, which is " +
+                                  "what a later placement re-creates at whatever zoom you spawn at."
+                                : $" BoardApparentWidth_{board} NOT written — no apparent measure " +
+                                  "was available this frame (no rig or a degenerate transform), so " +
+                                  "the recorded width is left at its previous value rather than " +
+                                  "zeroed: a missing measure is not evidence that you never sized " +
+                                  "it."));
     }
 }

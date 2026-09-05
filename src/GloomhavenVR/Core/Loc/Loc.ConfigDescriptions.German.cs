@@ -1841,6 +1841,26 @@ internal static partial class Loc
                 + "Brille — was die Wache bewegt, hättest du dir also wirklich erst durch Umdrehen "
                 + "suchen müssen. Der Startplatz selbst liegt bei rund 58° und wird davon nie "
                 + "angefasst.",
+            ["Cards/SpawnBoardWidthDegrees"] =
+                "Wie GROSS das Kontrollbrett ist, wenn ein Szenario es neben dir absetzt — "
+                + "angegeben als der Winkel, den es von deinem Standpunkt aus einnimmt, also als "
+                + "Größe in der einzigen Einheit, die bei jedem Zoomfaktor dasselbe bedeutet. Das "
+                + "Brett steht am Startplatz darüber; dieser Winkel und dieser Abstand ergeben "
+                + "zusammen seine Breite: bei den voreingestellten 0,53 m Abstand und 0,32 m "
+                + "Tiefe sind 44° ein Brett, das 50 cm breit aussieht. Rückst du den Startplatz "
+                + "weiter weg, wächst das Brett mit — es sieht also gleich groß aus. Angewendet "
+                + "wird der Wert nur, wenn das Brett für ein Szenario GESETZT wird, und nur "
+                + "solange du es nicht selbst mit dem Zwei-Hand-Griff skaliert hast: hast du das "
+                + "getan, wird deine eigene Größe behalten und bei jedem Zoomfaktor, mit dem du "
+                + "spawnst, wieder genauso hergestellt.",
+            ["Cards/BoardApparentWidth_*"] =
+                "Wie BREIT dieses Brett zuletzt AUSSAH, in echten Metern, als du es mit dem "
+                + "Zwei-Hand-Griff skaliert hast. 0 = noch nie. Wird von der Geste geschrieben, "
+                + "nie von Hand — genau dieser Wert sorgt dafür, dass ein Szenario das Brett in "
+                + "der Größe zurückstellt, die du ihm gegeben hast, statt in einer Zahl, die "
+                + "diese Größe nur bei dem Zoomfaktor bedeutete, bei dem du gerade standest. "
+                + "TrayScale und BoardScale bleiben unangetastet und tun weiterhin alles, was sie "
+                + "vorher taten.",
             ["Cards/GameCardParticles"] =
                 "Den EIGENEN Partikeleffekt des Spiels für Karten (die Funken-/Rauchwolke "
                 + "\"CardSmoke\") zulassen. Standardmäßig AUS: Er ist für die bildschirmgroße 2D-Karte "

@@ -98,6 +98,7 @@ EXEMPT = {
     ("Cards", "TrayYaw"): ("DERIVED", "seats the board; the resulting pose is synced"),
     ("Cards", "TrayPitch"): ("DERIVED", "seats the board; the resulting pose is synced"),
     ("Cards", "TrayScale"): ("DERIVED", "seats the board; the resulting SCALE is synced"),
+    ("Cards", "BoardApparentWidth_{board}"): ("DERIVED", "the same size as TrayScale, recorded in the unit it was SEEN in (apparent metres) instead of as a localScale; it seats the board and the resulting SCALE is synced"),
     ("Cards", "TrayFollow"): ("DERIVED", "an anchor MODE; the pin cap's label rides record 13 and the pose rides the board transform"),
     ("Cards", "BoardMoveMode"): ("DERIVED", "its own bind says it: local cosmetics only, peers see the resulting board pose"),
     # ("Cards", "SlotCardFill") is GONE with its dial (retired 2026-08-11). It was DERIVED because
@@ -148,6 +149,7 @@ EXEMPT = {
     ("Cards", "SpawnDownMeters"): ("COMFORT", "as SpawnLeftOfHead"),
     ("Cards", "SpawnMaxReachMeters"): ("COMFORT", "the bounds the ARRIVAL SEAT GUARD accepts for THEIR own board beside THEIR own head; the corrected pose itself rides the board extras like every other pose"),
     ("Cards", "SpawnMaxBearingDegrees"): ("COMFORT", "as SpawnMaxReachMeters"),
+    ("Cards", "SpawnBoardWidthDegrees"): ("DERIVED", "the arrival SIZE recipe for their own board; like TrayScale it seats the board and the resulting SCALE rides the synced board transform"),
     ("Cards", "RevealMode"): ("COMFORT", "WHEN their fan opens; the open/closed STATE itself is synced"),
     ("Cards", "RevealEnterDegrees"): ("COMFORT", "as RevealMode"),
     ("Cards", "RevealExitDegrees"): ("COMFORT", "as RevealMode"),

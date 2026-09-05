@@ -1715,13 +1715,22 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
 
         _root.position = pos;
         _root.rotation = ComputeBoardRotation(flatForward, board);
-        _root.localScale = Vector3.one * ComputeBoardScale(board);
+        // THE SIZE IS SOLVED IN THE FRAME IT IS SEEN IN (2026-09-05 report — the block above
+        // TrySolveBoardScale in PlayTray.2.Watchdog.cs carries the whole measurement). This used
+        // to be `ComputeBoardScale(board)` written straight in, i.e. a stored localScale replayed
+        // whatever the zoom, which is how a size dialled at a deep FIXIERT zoom came back as
+        // 138.9 cm of a 140 cm window. The solve is bit-identical to the old line whenever the
+        // apparent measure is unavailable, and the log line below names which of the three
+        // answers was in force.
+        bool sizeSolved = TrySolveBoardScale(board, out float appliedScale, out string sizeSource,
+                                             out float targetApparent);
+        _root.localScale = Vector3.one * appliedScale;
         NotePinnedWrite("head-relative placement (PlaceAtHead — first seat/recall/recovery)");
         _placed = true;
         _everPlaced = true;
         VRLog.Info("Cards", $"Control board placed ({board}: tilt {CardsConfig.BoardTilt(board).Value}°, " +
                             $"yaw {CardsConfig.TrayYaw.Value + CardsConfig.BoardYaw(board).Value:F0}°, " +
-                            $"scale {ComputeBoardScale(board):F2}×)" +
+                            $"scale {appliedScale:F2}×)" +
                             (firstSeat
                                 ? $" — FIRST SEAT: fixed spot beside the head on the LEFT ({offset.x:F2} m " +
                                   $"side, {offset.z:F2} m forward, {-offset.y:F2} m down), not the saved " +
@@ -1739,7 +1748,71 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         if (!CardsConfig.TrayFollow.Value && _root.parent != _pinRoot)
             ApplyFollowMode();
 
+        // AFTER the re-parent on purpose: ApplyFollowMode bakes the CURRENT parent's lossy scale
+        // into the pin holder and re-parents with worldPositionStays, so the board's world size —
+        // and therefore its apparent size — is identical either side of it. Reading here means the
+        // line reports the pose and size the player is actually left with rather than an
+        // intermediate one, which is the "measured the wrong stage" shape this project has paid
+        // for before.
+        LogArrivalSize(board, appliedScale, sizeSource, targetApparent, sizeSolved,
+                       levelDelta.magnitude, scale, firstSeat);
+
         LogBoardFaceDiagnostics(); // ITEM 2 ground truth in the final placed pose (once per board)
+    }
+
+    /// <summary>
+    /// The line the 2026-09-05 SIZE report is decided on, split out of <see cref="PlaceAtHead"/>
+    /// so the log call does not sit inside a method a reader (or scripts/check-hw-verify.py) would
+    /// take for per-frame chatter — a placement is an event, not a frame.
+    ///
+    /// <para>Every quantity that can disagree with another is printed in BOTH units, because this
+    /// project has already shipped a bound named …Meters clamped against a world-unit product at
+    /// ×198 rig scale: the size appears as apparent centimetres AND world metres, the head
+    /// distance as real metres AND world units, and the two conversion factors (the parent chain
+    /// the placement authored against, and the live rig scale) stand beside them so the arithmetic
+    /// is checkable from the log alone.</para>
+    /// </summary>
+    private void LogArrivalSize(ControlBoard board, float appliedScale, string sizeSource,
+                                float targetApparent, bool sizeSolved,
+                                float outWorld, float parentScale, bool firstSeat)
+    {
+        if (_root == null)
+            return;
+        _boardSizeSolveCount++;
+        Transform? rig = VRRigDriver.RigRoot;
+        float rigScale = rig != null ? Mathf.Max(1e-4f, rig.lossyScale.x) : 1f;
+        bool haveMeasure = TryGetApparentWidthPerScaleUnit(out float perUnit, out float parent, out _);
+        float apparent = haveMeasure ? perUnit * _root.localScale.x : 0f;
+        // HW-VERIFY: THE LINE THAT DECIDES THE 2026-09-05 SIZE REPORT ("Das Board spawnt jetzt viel
+        // zu groß! Es soll eine normale angemessene Größe haben, die zum aktuellen Zoomfaktor
+        // passt, mit dem man spawned."). It fires on EVERY placement, including the ones that
+        // change nothing, and carries an unconditional solve counter — so "the solver never ran"
+        // (no line at all) and "it ran and took the carried-over product" are different readings.
+        // If a hardware round still reports a board that spawns too big, read WHERE IT CAME FROM:
+        // the player's own recorded width, the seat-derived arrival solve, or a carried-over
+        // config product, each of which needs a different fix.
+        VRLog.Note("Cards", $"BOARD ARRIVAL SIZE: solve #{_boardSizeSolveCount} this session, " +
+                            $"{board}, {(firstSeat ? "FIRST SEAT" : "saved layout")}. Own localScale " +
+                            $"{_root.localScale.x:F3} (solved {appliedScale:F3}; the config product " +
+                            $"ClampedTrayScale × BoardScale_{board} is " +
+                            $"{ComputeBoardScale(board):F3}). " +
+                            (haveMeasure
+                                ? $"Size {apparent * 100f:F1} cm APPARENT = {apparent * rigScale:F3} " +
+                                  $"m-world, in an {MinWidthMeters * 100f:F0}–{MaxWidthMeters * 100f:F0} " +
+                                  $"cm apparent window; per unit {perUnit * 100f:F2} cm (parent " +
+                                  $"×{parent:F2} ÷ rig ×{rigScale:F2}). "
+                                : "Size measure UNAVAILABLE this frame (no rig or a degenerate " +
+                                  "transform), so nothing here can be converted between units. ") +
+                            $"Solved against rig ×{rigScale:F2}. Head distance " +
+                            $"{outWorld / Mathf.Max(parentScale, 1e-4f):F2} m / {outWorld:F2} world " +
+                            $"units (the seat is authored in real metres and multiplied by the " +
+                            $"parent chain ×{parentScale:F2}). THE SIZE IN FORCE CAME FROM " +
+                            $"{sizeSource}" +
+                            (sizeSolved
+                                ? $", target {targetApparent * 100f:F1} cm apparent."
+                                : ".") +
+                            " [Cards] TrayScale and BoardScale_" + board + " are untouched by this " +
+                            "and still mean what they always did.");
     }
 
     /// <summary>

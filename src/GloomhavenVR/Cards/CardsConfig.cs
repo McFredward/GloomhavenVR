@@ -167,6 +167,16 @@ internal static class CardsConfig
     internal static ConfigEntry<float> SpawnMaxReachMeters = null!;
     internal static ConfigEntry<float> SpawnMaxBearingDegrees = null!;
 
+    /// <summary>How wide the control board LOOKS at the first seat, as the angle it subtends from
+    /// the head, degrees. The comfort number behind <c>PlayTray.TrySolveArrivalBoardScale</c> — see
+    /// <see cref="SeatBoardWidthMeters"/> for the arithmetic that turns it into a width.</summary>
+    internal static ConfigEntry<float> SpawnBoardWidthDegrees = null!;
+
+    /// <summary>Per-board: the APPARENT width in real metres the two-hand resize last authored,
+    /// or 0 when it never has. The rig-neutral twin of the grab-written <see cref="TrayScale"/> —
+    /// see the bind for why a localScale alone could not answer "how big did he make it".</summary>
+    private static readonly ConfigEntry<float>[] _boardApparentWidth = new ConfigEntry<float>[3];
+
     // [Cards] SlotCardFill is GONE (retired 2026-08-11). It scaled a slotted card up to fill the
     // physical recess, but the blinking slot overlays took their size from a code literal, so the
     // card that landed was 6.6 % wider than the overlay that had just marked the spot and there was
@@ -1113,6 +1123,18 @@ internal static class CardsConfig
                 "moves really was something you would have had to turn around and look for; the " +
                 "starting spot itself is about 58 deg off forward and is never touched by it.",
                 new AcceptableValueRange<float>(30f, 180f)));
+        SpawnBoardWidthDegrees = _file.Bind("Cards", "SpawnBoardWidthDegrees", Defaults.SpawnBoardWidthDegrees,
+            new ConfigDescription(
+                "How BIG the control board is when a scenario seats it beside you, given as the " +
+                "angle it covers from where you are standing - so it is a size in the only unit " +
+                "that means the same thing at every zoom level. The board is placed at the " +
+                "starting spot above, and this angle plus that distance decide its width: at the " +
+                "default 0.53 m out and 0.32 m down, 44 deg is a board that looks 50 cm wide. " +
+                "Move the starting spot further away and the board grows with it, so it keeps " +
+                "looking the same size. It is only ever applied when the board is SEATED for a " +
+                "scenario and only when you have not sized it yourself with the two-handed grab - " +
+                "once you have, your own size is kept and re-created at whatever zoom you spawn at.",
+                new AcceptableValueRange<float>(15f, 90f)));
         GameCardParticles = _file.Bind("Cards", "GameCardParticles", Defaults.GameCardParticles,
             "Let the GAME's own card particle effect (the CardSmoke spark/smoke plume) play. OFF by " +
             "default: it is authored for the full-size 2D card, so on the table-sized board it " +
@@ -1332,6 +1354,16 @@ internal static class CardsConfig
                 "the table — the ~0.4 table-ratio default felt a touch small on first spawn, so the " +
                 "board opens slightly larger (0.5). Resize any time with the two-handed grab gesture " +
                 "(writes TrayScale); this is the per-board seed on top of that.");
+            _boardApparentWidth[i] = _file.Bind("Cards", $"BoardApparentWidth_{board}",
+                Defaults.BoardApparentWidth_ByBoard[i],
+                new ConfigDescription(
+                    $"[{board}] how wide this board LOOKED, in real metres, the last time you " +
+                    "resized it with the two-handed grab. 0 = you never have. Written by the " +
+                    "gesture, never by hand - it is what lets a scenario put the board back at " +
+                    "the size you gave it instead of at a number that meant that size only at " +
+                    $"the zoom you were standing at. TrayScale/BoardScale_{board} are untouched " +
+                    "and still do everything they did.",
+                    new AcceptableValueRange<float>(0f, 4f)));
             _assetOffset[i] = _file.Bind("Cards", $"AssetOffset_{board}", BoardDefaults.AssetOffset[i],
                 $"[{board}] position offset of the BOARD MESH ALONE, board-local meters. The six " +
                 "anchors (card slots, rest tokens, Confirm/Undo) and everything docked to them " +
@@ -1928,6 +1960,35 @@ internal static class CardsConfig
     internal static Vector3 SpawnSeatOffset => new(
         -Mathf.Abs(SpawnSideMeters.Value), -SpawnDownMeters.Value, SpawnForwardMeters.Value);
 
+    /// <summary>
+    /// How far the head is from the FIRST SEAT, real metres — the straight-line distance to
+    /// <see cref="SpawnSeatOffset"/>, so it moves with the three Spawn…Meters dials and with
+    /// nothing else. Floored well above zero: a seat dialled onto the head itself would otherwise
+    /// divide the arrival size by nothing.
+    /// </summary>
+    internal static float SeatDistanceMeters => Mathf.Max(0.05f, SpawnSeatOffset.magnitude);
+
+    /// <summary>
+    /// THE ARRIVAL SIZE, DERIVED. The board is seated a known distance from the head, so the only
+    /// size statement that survives a zoom is an ANGULAR one: a board of apparent width w at
+    /// distance d covers 2·atan(w/2d), so the width that covers
+    /// <see cref="SpawnBoardWidthDegrees"/> is w = 2·d·tan(θ/2). Both terms are already the
+    /// player's: d is his own Spawn{Side,Forward,Down}Meters seat, read verbatim and never moved,
+    /// and θ is his own comfort dial. In REAL (apparent) metres, which is the unit
+    /// BoardMin/BoardMaxWidthMeters are written in, so the caller can clamp one against the other
+    /// without a conversion. At the shipped seat and angle this is 50.0 cm.
+    /// </summary>
+    internal static float SeatBoardWidthMeters
+    {
+        get
+        {
+            float degrees = SpawnBoardWidthDegrees != null
+                ? SpawnBoardWidthDegrees.Value
+                : Defaults.SpawnBoardWidthDegrees;
+            return 2f * SeatDistanceMeters * Mathf.Tan(0.5f * degrees * Mathf.Deg2Rad);
+        }
+    }
+
     // ---- Per-board resolver accessors (Part A) ----
     // Return the ConfigEntry so callers can both READ (.Value) and WRITE (.Value = …, which
     // BepInEx persists and fires SettingChanged on — the debug menu's live-apply hook).
@@ -1999,6 +2060,9 @@ internal static class CardsConfig
     internal static ConfigEntry<float> AssetRoll(ControlBoard b) => _assetRoll[(int)b];
     internal static ConfigEntry<float> BoardYaw(ControlBoard b) => _boardYaw[(int)b];
     internal static ConfigEntry<float> BoardScale(ControlBoard b) => _boardScale[(int)b];
+
+    /// <inheritdoc cref="_boardApparentWidth"/>
+    internal static ConfigEntry<float> BoardApparentWidthMeters(ControlBoard b) => _boardApparentWidth[(int)b];
     internal static ConfigEntry<Vector3> BoardPosOffset(ControlBoard b) => _boardPosOffset[(int)b];
 
     // ---- Round-2 group spacing / shape / Active / Piles resolvers ----

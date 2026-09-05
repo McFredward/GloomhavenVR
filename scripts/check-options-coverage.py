@@ -367,6 +367,14 @@ KNOWN_ORPHANS = {
     ("Cards", "BoardPosOffset_Bronze"),
     ("Cards", "BoardPosOffset_Oak"),
     ("Cards", "BoardPosOffset_Steel"),
+    # Grab-written state, not a dial — the same reason TrayYaw/TrayPitch/TrayForward/TrayDown/
+    # TrayRight are one level deeper, and BoardApparentWidth_{board} is the size half of exactly
+    # that set: the two-hand resize writes it (PlayTray.RecordAuthoredApparentWidth), nothing else
+    # may, and the row a player looks for when he wants to CHANGE the size is
+    # [Cards] SpawnBoardWidthDegrees, which is curated beside the other two arrival rows.
+    ("Cards", "BoardApparentWidth_Bronze"),
+    ("Cards", "BoardApparentWidth_Oak"),
+    ("Cards", "BoardApparentWidth_Steel"),
     ("Cards", "BoardScaleDefault04Applied"),
     ("Cards", "BoardScale_Bronze"),
     ("Cards", "BoardScale_Oak"),

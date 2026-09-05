@@ -398,6 +398,27 @@ internal sealed partial class PlayTray
     /// that means what the anchor line's defect verdict has always claimed to mean.</summary>
     private int _pinUnknownMoveCount;
 
+    /// <summary>
+    /// SANCTIONED WRITES THE SENTINEL WAS BLIND FOR, and the last one's name. A writer announces
+    /// itself through <see cref="NotePinnedWrite"/>, but the sentinel only runs from
+    /// <see cref="TickLostWatchdog"/> BELOW its `!_wantVisible || !_placed` early-out, so the one
+    /// write it can never adjudicate is the FIRST PLACEMENT of a scenario — the tray is still
+    /// hidden and unplaced at the moment PlaceAtHead announces itself, the announcement is then
+    /// consumed by the first pass with no baseline to compare against, and the move goes into
+    /// neither tally.
+    ///
+    /// <para>That is the ModBuild 434 log's line 930 exactly: the BOARD ANCHOR line measured
+    /// 8469.27 mm-world and a ×2.17060 rescale on the same frame the sentinel reported "no move at
+    /// all", and the two instruments were BOTH right — one samples above that early-out and the
+    /// other below it. The anchor line then reached its last branch and called a legitimate first
+    /// placement a defect. Counting the blind announcement separately (rather than folding it into
+    /// <see cref="_pinSanctionedMoveCount"/>, which means "announced AND observed to move" and
+    /// must keep meaning that) lets the anchor line name the writer without either instrument
+    /// claiming to have seen something it could not.</para>
+    /// </summary>
+    private int _pinBlindAnnouncementCount;
+    private string? _pinBlindAnnouncementLast;
+
     /// <summary>Per-frame world-pose diff of a PINNED tray — see the sentinel block above.</summary>
     private void TickPinnedFreezeSentinel()
     {
@@ -462,6 +483,16 @@ internal sealed partial class PlayTray
                                             "itself; report this line with the surrounding log]: " + detail);
                 }
             }
+        }
+        else if (source != null)
+        {
+            // A WRITER ANNOUNCED ITSELF AND THERE WAS NOTHING TO COMPARE IT AGAINST — see
+            // _pinBlindAnnouncementCount. No verdict is possible here (whether the pose actually
+            // changed is exactly what a baseline would have told us), so this is recorded as what
+            // it is: a named writer, unadjudicated. The anchor line reads it only when its OWN
+            // measurement says the board moved, which is the term the sentinel is missing.
+            _pinBlindAnnouncementCount++;
+            _pinBlindAnnouncementLast = source;
         }
 
         _pinFreezePos = pos;
@@ -859,6 +890,7 @@ internal sealed partial class PlayTray
         // observations rather than announcements).
         int sanctionedSince = _pinSanctionedMoveCount - _loggedAnchorSanctionedCount;
         int unknownSince = _pinUnknownMoveCount - _loggedAnchorUnknownCount;
+        int blindSince = _pinBlindAnnouncementCount - _loggedAnchorBlindCount;
         if (!moved && now < _nextAnchorLog)
             return;
         _nextAnchorLog = now + 5f;
@@ -987,6 +1019,24 @@ internal sealed partial class PlayTray
                       + "between two differently-fine instruments, not a writer. The invariant "
                       + "holds.";
         }
+        else if (blindSince > 0)
+        {
+            // NAMED, BUT UNADJUDICATED. The sentinel does not run while the tray is hidden or its
+            // placement is still deferred (TickLostWatchdog's own early-out), which is precisely
+            // the state a scenario's FIRST PLACEMENT happens in — so the writer announced itself
+            // into a pass with no baseline. That is not "nothing was detected": the announcement
+            // names the writer, this line's own two samples measure the move, and between them
+            // the change is fully accounted for. It is deliberately NOT the defect wording.
+            verdict = "FIXIERT, NOT HELD, AND IT MOVED — EXPECTED, BUT THE SENTINEL WAS BLIND FOR "
+                      + $"IT: {blindSince} sanctioned write(s) announced themselves while it had "
+                      + "no baseline to compare against (the tray was hidden or its placement was "
+                      + "still deferred, i.e. the state a scenario's first placement happens in), "
+                      + $"most recently [{_pinBlindAnnouncementLast}]. The writer is NAMED, the "
+                      + "move is this line's own measurement, and there will be no PINNED tray "
+                      + "transform WRITE line to grep because the sentinel could not adjudicate "
+                      + "it. Grep BOARD ARRIVAL SIZE at this timestamp for what the size was "
+                      + "solved from.";
+        }
         else
         {
             // A REAL MOVE THAT NOTHING SAW. Distinct from a convicted writer and worth its own
@@ -1006,6 +1056,7 @@ internal sealed partial class PlayTray
         _loggedAnchorPushCount = _sizePushCount;
         _loggedAnchorSanctionedCount = _pinSanctionedMoveCount;
         _loggedAnchorUnknownCount = _pinUnknownMoveCount;
+        _loggedAnchorBlindCount = _pinBlindAnnouncementCount;
 
         VRLog.Info("Cards", $"BOARD ANCHOR: world pos {worldPos}, world scale {worldScale:F3} " +
                             $"(own localScale {_root.localScale.x:F3}) against rig ×{rigScale:F2}. " +
@@ -1036,6 +1087,10 @@ internal sealed partial class PlayTray
     /// <summary>Value of <see cref="_sizePushCount"/> the last BOARD ANCHOR line reported, so the
     /// next one can state how many pushes happened between the two samples.</summary>
     private int _loggedAnchorPushCount;
+
+    /// <summary>Value of <see cref="_pinBlindAnnouncementCount"/> the last BOARD ANCHOR line
+    /// reported — the same delta discipline as the two counters above it.</summary>
+    private int _loggedAnchorBlindCount;
 
     /// <summary>
     /// The tray's apparent width (PLAYER metres — the frame <c>[Cards] BoardMinWidthMeters</c> /
@@ -1134,6 +1189,137 @@ internal sealed partial class PlayTray
 
         perUnit = BoardHalfWidthLocal * 2f * parent / divisor;
         return perUnit > 1e-6f && !float.IsInfinity(perUnit);
+    }
+
+    // ------------------------------------------------------- ARRIVAL SIZE (2026-09-05 report) --
+    //
+    // THE REPORT (user, verbatim): "Das Board spawnt jetzt viel zu gross! Es soll eine normale
+    // angemessene Groesse haben, die zum aktuellen Zoomfaktor passt, mit dem man spawned."
+    //
+    // WHAT THE HARDWARE LOG SAYS, AND IT IS NOT THE ARRIVAL SEAT GUARD. In the ModBuild 434 log
+    // the guard gave three verdicts and made ZERO corrections ("BESIDE THE PLAYER - nothing to
+    // correct", lines 931/1363/1455), and ReseatBesidePlayer restores the live localScale over
+    // whatever PlaceAtHead re-derived anyway. The writer is PlaceAtHead's ordinary first
+    // placement, at line 920: "Control board placed (Steel: ... scale 2.17x) - FIRST SEAT". It
+    // solved against ComputeBoardScale = ClampedTrayScale x BoardScale_Steel, and the log names
+    // both terms four lines later: "the storable band TrayScale 0.25-4 x BoardScale_Steel
+    // 0.54265 = 0.136-2.171" - i.e. TrayScale was sitting at its MAXIMUM, 4, and the product
+    // 2.17060 is the band's own upper end. The BOARD ANCHOR line measured exactly that jump
+    // (x2.17060, localScale 1.000 -> 2.171) and 138.9 cm apparent in an 18-140 cm window: the
+    // board spawned at 99.2 % of the largest size it is allowed to be.
+    //
+    // WHY TrayScale WAS PINNED AT 4. It is written by PersistPoseToConfig as
+    // `live localScale / BoardScale`, CLAMPED to the storable band. A localScale is a WORLD-frame
+    // number: what it looks like depends on the parent chain divided by the live rig scale at the
+    // moment it is used. A size dialled in FIXIERT after a deep zoom needs localScale 5-40 (the
+    // ModBuild 351 measurement quoted in LogResizeWindow), the band tops out at 2.171, so the
+    // clamp fires and the file keeps a number that means 138.9 cm the next time the two frames
+    // agree. PersistPoseToConfig has always SAID so in its own HW-VERIFY line ("the size that
+    // holds your 18-140 cm window there is a WORLD size and rides the rig, while this band does
+    // not"); this is that cost, arriving.
+    //
+    // THE FIX IS THE UNIT, and it is the user's own sentence: a size must be stated in the frame
+    // it is SEEN in. So the board's size at a placement is solved as an APPARENT WIDTH in real
+    // metres and only then divided by the live apparent-per-unit to get a localScale - the same
+    // measure ClampApparentSize and the two-hand gesture window already share, so all three agree
+    // by construction. Two sources feed it, in this order:
+    //
+    //   1. HIS OWN SIZE, when he has authored one. [Cards] BoardApparentWidth_{board} is written
+    //      by the two-hand resize in apparent metres, which is LOSSLESS: the gesture window
+    //      already bounds it to BoardMin/BoardMaxWidthMeters, so unlike TrayScale it can never be
+    //      clamped into meaning something else. Re-solved against the LIVE per-unit, so it comes
+    //      back looking the size he made it at whatever zoom he spawns at.
+    //   2. THE SEAT-DERIVED DEFAULT otherwise, CardsConfig.SeatBoardWidthMeters - the width that
+    //      subtends [Cards] SpawnBoardWidthDegrees at the distance the first seat already puts the
+    //      board at. It reads Spawn{Side,Forward,Down}Meters VERBATIM and moves nothing.
+    //
+    // A CONFIG WRITTEN BY AN OLDER BUILD HAS NO RECORDED APPARENT WIDTH, so it takes (2) - which
+    // is the whole of this report, because 2.171 is exactly such a value and there is no way to
+    // convert it: the clamp destroyed the information, it did not merely re-frame it. The first
+    // resize after this build records the width and (1) takes over for good.
+    //
+    // WHAT IS DELIBERATELY NOT TOUCHED. TrayScale and BoardScale_{board} are still written by the
+    // gesture exactly as before and still mean exactly what they meant, so the settings window's
+    // own size range, LogResizeWindow's storable-band line and PersistPoseToConfig's
+    // "outside what the config can store" verdict are all unmoved.
+    //
+    // AND ONE ASYMMETRY, STATED RATHER THAN DISCOVERED LATER. ReapplyOrientation's PINNED branch
+    // still writes ComputeBoardScale verbatim: that path exists to show the player the dial he is
+    // dragging RIGHT NOW (BoardScale_{board} from the debug menu, TrayScale from the settings
+    // window), and routing it through the solve would make those dials inert. Its FOLLOW branch
+    // re-places through PlaceAtHead — pre-existing structure, unchanged — so in FOLLOW mode a
+    // settings live-apply takes the solve like any other placement. The consequence, in the only
+    // terms that matter on hardware: with a recorded apparent width, dragging the size dial moves
+    // the FIXIERT board immediately and the next placement puts it back at the recorded width;
+    // the way to change the size for good is the two-hand gesture, which is what records it.
+
+    /// <summary>
+    /// The board's own localScale for a placement, solved so the board LOOKS the intended size at
+    /// the zoom the player is standing at. See the block above. <paramref name="sizeSource"/> is
+    /// the field the hardware round is decided on: which of the three answers was in force.
+    /// False when no apparent measure exists this frame (no rig, degenerate transform) - the
+    /// caller then falls back to <c>ComputeBoardScale</c>, which is what every build before this
+    /// one did unconditionally, and <paramref name="localScale"/> already holds it.
+    /// </summary>
+    private bool TrySolveBoardScale(ControlBoard board, out float localScale,
+                                    out string sizeSource, out float targetApparent)
+    {
+        localScale = ComputeBoardScale(board);
+        targetApparent = 0f;
+        sizeSource = "A CARRIED-OVER config product (no apparent measure this frame, so this is "
+                     + "the pre-2026-09-05 behaviour verbatim)";
+        if (!TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out _))
+            return false;
+
+        BepInEx.Configuration.ConfigEntry<float>? authoredEntry = CardsConfig.BoardApparentWidthMeters(board);
+        float authored = authoredEntry != null ? authoredEntry.Value : 0f;
+        bool ownSetting = authored > 1e-3f;
+        float wanted = ownSetting ? authored : CardsConfig.SeatBoardWidthMeters;
+        targetApparent = Mathf.Clamp(wanted, MinWidthMeters, MaxWidthMeters);
+        localScale = targetApparent / perUnit;
+        sizeSource = ownSetting
+            ? $"THE PLAYER'S OWN SETTING ([Cards] BoardApparentWidth_{board} = "
+              + $"{authored * 100f:F1} cm, the width the two-hand resize last authored, re-solved "
+              + "against this zoom's per-unit)"
+            : $"AN ARRIVAL SOLVE (seat-derived: {SeatWidthDegrees:F0}deg at "
+              + $"{CardsConfig.SeatDistanceMeters:F2} m = "
+              + $"{CardsConfig.SeatBoardWidthMeters * 100f:F1} cm apparent; "
+              + $"[Cards] BoardApparentWidth_{board} is 0, i.e. no size of his is on record)";
+        return true;
+    }
+
+    /// <summary>The arrival-size comfort dial, with the shipped default as the pre-bind
+    /// fallback so a placement that somehow runs before the config is bound still reports the
+    /// number it actually used.</summary>
+    private static float SeatWidthDegrees => CardsConfig.SpawnBoardWidthDegrees != null
+        ? CardsConfig.SpawnBoardWidthDegrees.Value
+        : Defaults.SpawnBoardWidthDegrees;
+
+    /// <summary>Placement size solves this session - the liveness field on the BOARD ARRIVAL SIZE
+    /// line, so "the solver never ran" and "it ran and chose the carried-over product" are
+    /// different readings rather than the same absent line.</summary>
+    private int _boardSizeSolveCount;
+
+    /// <summary>
+    /// Record the apparent width a real two-hand RESIZE just authored, in the unit the player saw
+    /// it in. Called from <see cref="PersistPoseToConfig"/> beside the TrayScale write and under
+    /// exactly the same "this was a resize, not a carry" guard, so a carry can never re-author a
+    /// size he did not set. Returns the width written, or -1 when there was no apparent measure to
+    /// take (the stored value is then left alone rather than zeroed - a missing measure is not
+    /// evidence that he never sized it).
+    /// </summary>
+    private float RecordAuthoredApparentWidth(ControlBoard board)
+    {
+        if (_root == null || !TryGetApparentWidthPerScaleUnit(out float perUnit, out _, out _))
+            return -1f;
+        BepInEx.Configuration.ConfigEntry<float>? entry = CardsConfig.BoardApparentWidthMeters(board);
+        if (entry == null)
+            return -1f;
+        float apparent = perUnit * _root.localScale.x;
+        if (!(apparent > 1e-4f) || float.IsInfinity(apparent))
+            return -1f;
+        entry.Value = Mathf.Clamp(apparent, 0f, 4f); // the entry's own storage range
+        return entry.Value;
     }
 
     // ------------------------------------------------------------- ARRIVAL SEAT GUARD --

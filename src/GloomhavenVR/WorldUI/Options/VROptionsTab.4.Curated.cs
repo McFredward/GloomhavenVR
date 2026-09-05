@@ -917,6 +917,16 @@ internal static partial class VROptionsTab
                         // ("Board at spawn: max reach (m)" / "max angle (°)") already say it.
                         new("Cards", "SpawnMaxReachMeters", ""),
                         new("Cards", "SpawnMaxBearingDegrees", ""),
+                        // …and, from the 2026-09-05 SIZE report ("Das Board spawnt jetzt viel zu
+                        // groß! Es soll eine normale angemessene Größe haben, die zum aktuellen
+                        // Zoomfaktor passt, mit dem man spawned."), how BIG it is when it is put
+                        // there. It belongs beside the two bounds above and not with the three
+                        // metre offsets under Erweitert for exactly their reason: those say where
+                        // the board starts, this says what it looks like when it gets there, and
+                        // a size the player has just called wrong is the first row he will look
+                        // for. Empty caption key — the config display name ("Board at spawn: size
+                        // (° wide)") already says it.
+                        new("Cards", "SpawnBoardWidthDegrees", ""),
                     },
                 },
                 new()

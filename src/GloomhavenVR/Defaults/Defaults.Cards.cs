@@ -258,6 +258,19 @@ internal static partial class Defaults
     internal const float SpawnDownMeters = 0.32f;                                                     // => [Cards] SpawnDownMeters
     internal const float SpawnMaxReachMeters = 1.0f;                                                  // => [Cards] SpawnMaxReachMeters
     internal const float SpawnMaxBearingDegrees = 100f;                                               // => [Cards] SpawnMaxBearingDegrees
+    // 44 DEGREES IS DERIVED, NOT PICKED, and the derivation is the whole of the 2026-09-05 size
+    // report. The first seat sits d = |(SpawnSideMeters, SpawnDownMeters, SpawnForwardMeters)| =
+    // |(0.45, 0.32, 0.28)| = 0.6191 m from the head, so an apparent width w subtends
+    // 2*atan(w/2 / d). The shipped default size is TrayScale 1.42826 x BoardScale 0.54265 =
+    // localScale 0.77494, and one localScale unit is the board's own 0.64 m of width, so that
+    // default LOOKS 49.6 cm wide -> 43.7 degrees. Rounded to 44, which re-creates it as
+    // 2 * 0.6191 * tan(22 deg) = 50.0 cm, i.e. 0.9 % from the number this project already ships.
+    // The user's own hand-dialled size in the ModBuild 434 log settled at 52.3 cm apparent
+    // (localScale 0.817 at 64.00 cm per unit), which is 45.8 degrees - the same size to the eye.
+    // Widen it and the board grows WITH the seat: the angle is what stays constant when
+    // SpawnSideMeters/SpawnForwardMeters/SpawnDownMeters move, which is why the comfort number is
+    // an angle rather than a width.
+    internal const float SpawnBoardWidthDegrees = 44f;                                                // => [Cards] SpawnBoardWidthDegrees
     internal const bool GameCardParticles = false;                                                    // => [Cards] GameCardParticles
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint
@@ -284,6 +297,15 @@ internal static partial class Defaults
     internal const float BoardScale_Oak = 0.54265f;                                                   // => [Cards] BoardScale_Oak
     internal const float BoardScale_Steel = 0.54265f;                                                 // => [Cards] BoardScale_Steel
     internal const float BoardScale_Bronze = 0.54265f;                                                // => [Cards] BoardScale_Bronze
+    // 0 = "you have never sized this board with the two-hand gesture on a build that could record
+    // what you SAW". A stored localScale is a world-frame number whose apparent meaning depends on
+    // the parent chain / rig-scale ratio in force when it was written, which is how a size dialled
+    // at a deep FIXIERT zoom came back as 138.9 cm of the 140 cm window on the next spawn. The
+    // apparent width does not have that problem and the two-hand window already bounds it to
+    // BoardMin/BoardMaxWidthMeters, so it always stores losslessly.
+    internal const float BoardApparentWidth_Oak = 0f;                                                 // => [Cards] BoardApparentWidth_Oak
+    internal const float BoardApparentWidth_Steel = 0f;                                               // => [Cards] BoardApparentWidth_Steel
+    internal const float BoardApparentWidth_Bronze = 0f;                                              // => [Cards] BoardApparentWidth_Bronze
     internal static readonly Vector3 AssetRotation_Oak = new Vector3(0f, 0f, 0f);                     // => [Cards] AssetRotation_Oak  (legacy: read once as the seed for its successor)
     internal static readonly Vector3 AssetRotation_Steel = new Vector3(0f, 0f, 0f);                   // => [Cards] AssetRotation_Steel  (legacy: read once as the seed for its successor)
     internal static readonly Vector3 AssetRotation_Bronze = new Vector3(0f, 0f, 0f);                  // => [Cards] AssetRotation_Bronze  (legacy: read once as the seed for its successor)
@@ -399,6 +421,7 @@ internal static partial class Defaults
     internal static readonly float[] BoardPitchMax_ByBoard = { BoardPitchMax_Oak, BoardPitchMax_Steel, BoardPitchMax_Bronze };
     internal static readonly float[] BoardYaw_ByBoard = { BoardYaw_Oak, BoardYaw_Steel, BoardYaw_Bronze };
     internal static readonly float[] BoardScale_ByBoard = { BoardScale_Oak, BoardScale_Steel, BoardScale_Bronze };
+    internal static readonly float[] BoardApparentWidth_ByBoard = { BoardApparentWidth_Oak, BoardApparentWidth_Steel, BoardApparentWidth_Bronze };
     internal static readonly Vector3[] AssetRotation_ByBoard = { AssetRotation_Oak, AssetRotation_Steel, AssetRotation_Bronze };
     internal static readonly float[] AssetYawDegrees_ByBoard = { AssetYawDegrees_Oak, AssetYawDegrees_Steel, AssetYawDegrees_Bronze };
     internal static readonly float[] AssetRollDegrees_ByBoard = { AssetRollDegrees_Oak, AssetRollDegrees_Steel, AssetRollDegrees_Bronze };
