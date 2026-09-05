@@ -201,6 +201,31 @@ internal static class RemoteStorySync
 
     private static int _lastLoggedPage = int.MinValue;
     private static uint _lastLoggedKey;
+
+    /// <summary>
+    /// THE DIALOG KEY WHOSE LAST PAGE HAS ALREADY BEEN DRIVEN THROUGH HERE. Record 19 carries the
+    /// same defect record 21 was found to carry, from the same root, and the fix is deliberately the
+    /// same shape so a reader who has understood one has understood both.
+    ///
+    /// <para><c>UICharacterStoryBox.ShowLine</c> past the last page <c>Hide()</c>s WITHOUT writing
+    /// <c>currentDialogIndex</c> (UICharacterStoryBox.cs:172-177), so nothing about the local state
+    /// changes and the same terminal target is recomputed on the next frame, and the next, for as
+    /// long as a peer's <c>Finished</c> record lingers. What the repeats cost here is different from
+    /// record 21's — this chain ends in <c>StoryController.ShowNext</c> (StoryController.cs:107-141),
+    /// not in <c>MapChoreographer</c>, so there is no <c>NullReferenceException</c> — but it is not
+    /// nothing: <c>ShowNext</c> <c>Dequeue()</c>s <c>m_PendingMessages</c> unconditionally at its
+    /// first statement, so a repeat while a further message is queued DISCARDS a message nobody
+    /// read; it re-enters <c>ToNonMenuPreviousState</c> every frame; and in a scenario it re-issues
+    /// <c>ActionProcessor.SetState(ProcessFreely, StartOfRound)</c> every frame.</para>
+    /// </summary>
+    private static uint _consumedKey;
+
+    /// <inheritdoc cref="_consumedKey"/>
+    private static bool _consumed;
+
+    /// <summary>Whether the refusal has already been reported for <see cref="_consumedKey"/>. The
+    /// refusal is re-decided every frame; the line reporting it is printed once.</summary>
+    private static bool _consumedLogged;
     private static string _lastIgnoreReason = string.Empty;
     private static float _nextIgnoreLogAt;
 
@@ -228,6 +253,9 @@ internal static class RemoteStorySync
         _followedStampValid = false;
         _lastLoggedPage = int.MinValue;
         _lastLoggedKey = 0;
+        _consumedKey = 0u;
+        _consumed = false;
+        _consumedLogged = false;
         _lastIgnoreReason = string.Empty;
         _nextIgnoreLogAt = 0f;
     }
@@ -302,6 +330,24 @@ internal static class RemoteStorySync
         if (sc == null || sc.window == null || !sc.IsVisible)
             return null;
         return sc.dialogBox;
+    }
+
+    /// <summary>
+    /// Whether the story window is still LOGICALLY open, as opposed to still drawn.
+    ///
+    /// <para>Deliberately not the same test as <see cref="Box"/>'s. That one accepts
+    /// <c>IsVisible</c> — canvas alpha above zero — so the pose half keeps working through the close
+    /// fade. This one is <c>IsOpen</c>, i.e. <c>m_CurrentVisualState == Shown</c> (UIWindow.cs:317),
+    /// which <c>Hide()</c> assigns synchronously before the tween starts (:524-548). It is therefore
+    /// the only field that reads "this box's close chain has already run" on the frame it ran, which
+    /// is exactly the state in which a page must not be driven.</para>
+    /// </summary>
+    private static bool StoryWindowOpen()
+    {
+        if (!Singleton<StoryController>.IsInitialized)
+            return false;
+        StoryController sc = Singleton<StoryController>.Instance;
+        return sc != null && sc.window != null && sc.window.IsOpen;
     }
 
     // ---- send side --------------------------------------------------------------------------
@@ -611,6 +657,38 @@ internal static class RemoteStorySync
         int localPage = box.currentDialogIndex;
         int localCount = box.dialogs?.Count ?? 0;
 
+        // THE TERMINAL LATCH, RELEASED BEFORE IT IS READ. A different dialog, or the same dialog
+        // re-opened — which the game marks by resetting currentDialogIndex to −1 in
+        // UICharacterStoryBox.Show (:117-124) — is a new subject, and a latch that outlived its
+        // subject would switch this whole feature off for the rest of the session.
+        if (_consumed && (_consumedKey != key || localPage < 0))
+        {
+            _consumed = false;
+            _consumedLogged = false;
+        }
+        if (_consumed)
+        {
+            if (!_consumedLogged)
+            {
+                _consumedLogged = true;
+                // HW-VERIFY: the once-per-dialog proof that record 19 applies a terminal page ONCE.
+                // It prints on the frame after the last page was driven through and then never again
+                // for that dialog, so a session with N shared scenario dialogs carries at most N.
+                VRLog.Note("Net", "Story window record 19 — the last page of dialog key "
+                                  + $"0x{key:X8} has already been driven through on this client, so "
+                                  + "the peer's lingering FINISHED record is refused rather than "
+                                  + "re-applied. It has to be refused: ShowLine past the last page "
+                                  + "Hide()s WITHOUT writing currentDialogIndex "
+                                  + "(UICharacterStoryBox.cs:172-177), so the identical target is "
+                                  + "recomputed every frame, and each repeat re-runs "
+                                  + "StoryController.ShowNext — which Dequeue()s m_PendingMessages "
+                                  + "at its first statement and would silently throw away a queued "
+                                  + "message nobody has read. The latch is released by a different "
+                                  + "dialog key or by the box re-opening, never by a timer.");
+            }
+            return;
+        }
+
         int remotePage = -1;
         bool remoteFinished = false;
         int furthestPeer = 0;
@@ -664,6 +742,33 @@ internal static class RemoteStorySync
             return;
         }
 
+        bool terminal = target >= localCount;
+
+        // THE BELT, and it covers the case the latch cannot: the player AT THIS MACHINE clicked his
+        // own copy through. Then the first terminal ShowLine we would issue is already the SECOND
+        // close of that box — the latch never armed, because we never drove anything. A window whose
+        // close chain the game has already run is not a window whose page may be advanced.
+        if (terminal && !StoryWindowOpen())
+        {
+            NoteIgnored($"the last page of dialog key 0x{key:X8} is wanted, but this client's story "
+                        + "window is already closing (UIWindow.IsOpen false while the fade still "
+                        + "runs) — the box was clicked through here, so driving it again would run "
+                        + "StoryController's close chain a second time");
+            _consumedKey = key;
+            _consumed = true;
+            _consumedLogged = true;
+            return;
+        }
+
+        if (terminal)
+        {
+            // ARMED BEFORE THE CALL, NOT AFTER: ShowLine runs the game's whole close chain
+            // synchronously inside itself.
+            _consumedKey = key;
+            _consumed = true;
+            _consumedLogged = false;
+        }
+
         string who = remoteFinished
             ? $"player {finishedPeer} clicked THROUGH the end"
             : $"player {furthestPeer} advanced to page {remotePage}";
@@ -679,13 +784,15 @@ internal static class RemoteStorySync
         // (StoryController.cs:122-141). Nothing of ours is sent; the idle client unlocks itself.
         box.ShowLine(target);
 
-        bool terminal = target >= localCount;
         VRLog.Info("Net", $"Story window APPLIED: '{ModalFallback.StoryWindowLogName}' " +
                           $"(dialog key 0x{key:X8}, {localCount} page(s) here) moved from page " +
                           $"{localPage} to {target}{(terminal ? " (past the last page → the box closes)" : "")} " +
                           $"— {who}. Record 19 carries the ABSOLUTE page, so two players clicking at " +
-                          "once both publish the same number and no page is skipped; re-applying it " +
-                          $"is a no-op (ResolveStoryPage returns −1 for anything at or below {target}). " +
+                          "once both publish the same number and no page is skipped. A MID-MESSAGE " +
+                          "page IS idempotent — ResolveStoryPage returns −1 for anything at or below " +
+                          $"{target}, because ShowLine wrote currentDialogIndex. A TERMINAL page is " +
+                          "NOT: that path Hide()s without writing the index, so it is the latch " +
+                          "above and not arithmetic that makes it happen once. " +
                           (terminal
                               ? "This client now runs the game's OWN ShowLine → Hide → OnFinishShow → " +
                                 "ShowNext chain, which is what releases ActionProcessor.LockProcessingAction " +

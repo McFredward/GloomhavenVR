@@ -269,6 +269,47 @@ internal static class RemoteMapStory
     private static string _lastNote = string.Empty;
     private static float _nextNoteAt;
 
+    // ---- the terminal-page latch ---------------------------------------------------------------
+
+    /// <summary>
+    /// THE CONTENT KEY WHOSE LAST PAGE HAS ALREADY BEEN DRIVEN THROUGH HERE. Until ModBuild 445 the
+    /// comment beside <c>box.ShowLine(target)</c> claimed that "re-applying it is a no-op". It is
+    /// not, and the host paid for that sentence with an "Ein Fehler ist aufgetreten" box.
+    ///
+    /// <para>WHY A TERMINAL PAGE IS NOT IDEMPOTENT, read out of the game's own source rather than
+    /// inferred: <c>UICharacterStoryBox.ShowLine</c> (UICharacterStoryBox.cs:172-192) returns through
+    /// <c>Hide()</c> when <c>dialogIndex &gt;= dialogs.Count</c> and NEVER writes
+    /// <c>currentDialogIndex</c> on that path. So next frame the local page reads the same value, the
+    /// peer entry still carries <c>Finished</c> for the whole of <see cref="PeerStaleSeconds"/>, the
+    /// pure resolver returns the same terminal target, and we call <c>Hide()</c> again. <c>Hide()</c>
+    /// (:250-265) invokes <c>onFinish</c> and does not clear it, so every repeat runs the game's
+    /// entire close chain a second, third and seventeenth time:
+    /// <c>MapStoryController.OnFinishShow</c> (MapStoryController.cs:174-183) → <c>ShowNext</c>
+    /// (:87-103) → <c>m_AllMessagesShownDelegate</c> →
+    /// <c>MapChoreographer.FinishedShowingIntroTravelMessages</c> (MapChoreographer.cs:1846-1863) →
+    /// <c>CompleteMoveCallback</c> (:2159-2194). That callback dereferences
+    /// <c>MovingToLocation</c> as its second statement and NULLS it at :2178, so every invocation
+    /// after the first throws a <c>NullReferenceException</c> that the game catches into
+    /// <c>ERROR_MAP_CHOREOGRAPHER_00010</c> — the error box the HOST saw the moment the co-player
+    /// clicked the story forward, while the co-player saw nothing at all, because a sender never
+    /// applies its own record.</para>
+    ///
+    /// <para>THE LATCH IS KEYED ON THE MESSAGE, NEVER ON A TIMER, so it cannot expire into the same
+    /// defect. It is released when a different content key arrives, and when the box reports
+    /// <c>currentDialogIndex &lt; 0</c> — which is exactly what <c>UICharacterStoryBox.Show</c>
+    /// writes (:117-124) as it re-opens the box, so even the SAME text shown a second time is driven
+    /// again.</para>
+    /// </summary>
+    private static uint _storyConsumedKey;
+
+    /// <inheritdoc cref="_storyConsumedKey"/>
+    private static bool _storyConsumed;
+
+    /// <summary>Whether the refusal has already been reported for <see cref="_storyConsumedKey"/>.
+    /// The refusal is re-decided every frame; the line that reports it may be printed once, or it
+    /// re-creates the flood it exists to prove is gone.</summary>
+    private static bool _storyConsumedLogged;
+
     // ---- what the standing falsifier reports, all of it recorded where it happens ---------------
 
     private static int _storyPublishedFrame = int.MinValue;
@@ -320,6 +361,9 @@ internal static class RemoteMapStory
         _sentEncounterOpen = false;
         _lastNote = string.Empty;
         _nextNoteAt = 0f;
+        _storyConsumedKey = 0u;
+        _storyConsumed = false;
+        _storyConsumedLogged = false;
         _storyPublishedFrame = int.MinValue;
         _storyPublishedStamp = 0;
         _storyPublishedMoving = false;
@@ -386,6 +430,25 @@ internal static class RemoteMapStory
         if (!mc.window.IsOpen && !mc.window.IsVisible)
             return null;
         return mc.dialogBox;
+    }
+
+    /// <summary>
+    /// Whether the map story window is still LOGICALLY open, as opposed to still drawn.
+    ///
+    /// <para>Deliberately not the same test as <see cref="MapBox"/>'s. That one accepts
+    /// <c>IsOpen || IsVisible</c> so a pose keeps being published and applied through the close
+    /// fade. This one is <c>IsOpen</c> alone: <c>UIWindow.IsOpen</c> is
+    /// <c>m_CurrentVisualState == Shown</c> (UIWindow.cs:317) and <c>Hide()</c> writes that state
+    /// synchronously, before the alpha tween begins (:524-548), so it is the only field that says
+    /// "the game has already run this box's close chain" on the very frame it happened. Advancing a
+    /// page into a window in that state runs the chain again.</para>
+    /// </summary>
+    private static bool MapStoryWindowOpen()
+    {
+        if (!Singleton<MapStoryController>.IsInitialized)
+            return false;
+        MapStoryController mc = Singleton<MapStoryController>.Instance;
+        return mc != null && mc.window != null && mc.window.IsOpen;
     }
 
     /// <summary>The FLOATED quest-confirm popup, or null. Asked of the float set rather than of the
@@ -1253,6 +1316,41 @@ internal static class RemoteMapStory
         int localPage = box.currentDialogIndex;
         int localCount = box.dialogs?.Count ?? 0;
 
+        // THE TERMINAL LATCH, RELEASED BEFORE IT IS READ. A different message, or the same message
+        // re-opened — which the game marks by resetting currentDialogIndex to −1 in
+        // UICharacterStoryBox.Show (:117-124) — is a new subject, and a latch that outlived its
+        // subject would silently switch this whole feature off for the rest of the session.
+        if (_storyConsumed && (_storyConsumedKey != key || localPage < 0))
+        {
+            _storyConsumed = false;
+            _storyConsumedLogged = false;
+        }
+        if (_storyConsumed)
+        {
+            if (!_storyConsumedLogged)
+            {
+                _storyConsumedLogged = true;
+                // HW-VERIFY: the once-per-message proof that the terminal page is applied ONCE. It
+                // prints on the frame after the last page was driven through and then never again
+                // for that message, so a session with N closed shared map messages carries at most
+                // N of these lines. Seventeen of anything here would mean the latch is not holding.
+                VRLog.Note(Scope, "MAP ROOM record 21 — the last page of message key "
+                                  + $"0x{key:X8} has already been driven through on this client, so "
+                                  + "the peer's lingering FINISHED record is being refused rather "
+                                  + "than re-applied. It has to be refused: ShowLine past the last "
+                                  + "page runs Hide() WITHOUT writing currentDialogIndex "
+                                  + "(UICharacterStoryBox.cs:172-177), so the same target is "
+                                  + "recomputed every frame, and each repeat re-runs the game's "
+                                  + "close chain down to MapChoreographer.CompleteMoveCallback, "
+                                  + "which dereferences a MovingToLocation it nulled itself the "
+                                  + "first time — that NullReferenceException is the "
+                                  + "'Ein Fehler ist aufgetreten' box the host saw. The latch is "
+                                  + "released by a different content key or by the box re-opening, "
+                                  + "never by a timer.");
+            }
+            return;
+        }
+
         int remotePage = -1;
         bool remoteFinished = false;
         int furthestPeer = 0;
@@ -1305,6 +1403,41 @@ internal static class RemoteMapStory
         // LevelMessagesUIHandler. The guard that matters is the one above (currentDialogIndex < 0
         // means the box has not painted its first line), and that one is honoured.
 
+        bool terminal = target >= localCount;
+
+        // THE BELT, and it covers a case the latch above cannot: the player AT THIS MACHINE clicked
+        // his own copy through. Then the first terminal ShowLine we would issue is already the
+        // SECOND close of that box, and it throws exactly as a repeat of our own would — the latch
+        // never armed because we never drove anything. A window the game has already told to close
+        // is not a window whose page may be advanced.
+        //
+        // UIWindow.IsOpen is `m_CurrentVisualState == Shown` (UIWindow.cs:317) and Hide() assigns
+        // that state SYNCHRONOUSLY, before the alpha tween starts (:524-548) — so it is false from
+        // the instant the close chain runs, while MapBox() deliberately keeps returning the box for
+        // the length of the fade (IsOpen || IsVisible). This is the one place that difference is the
+        // whole answer, and it is why the test is IsOpen alone and never IsVisible.
+        if (terminal && !MapStoryWindowOpen())
+        {
+            Note($"the last page of message key 0x{key:X8} is wanted, but this client's map story "
+                 + "window is already closing (UIWindow.IsOpen false, the fade still running) — the "
+                 + "box was clicked through here, so driving it again would run the game's close "
+                 + "chain a second time and throw inside CompleteMoveCallback");
+            _storyConsumedKey = key;
+            _storyConsumed = true;
+            _storyConsumedLogged = true;
+            return;
+        }
+
+        if (terminal)
+        {
+            // ARMED BEFORE THE CALL, NOT AFTER. ShowLine runs the game's whole close chain
+            // synchronously inside itself, and anything in that chain that reached back into this
+            // resolver would find the latch already down.
+            _storyConsumedKey = key;
+            _storyConsumed = true;
+            _storyConsumedLogged = false;
+        }
+
         string who = remoteFinished
             ? $"player {finishedPeer} clicked THROUGH the end"
             : $"player {furthestPeer} advanced to page {remotePage}";
@@ -1320,14 +1453,18 @@ internal static class RemoteMapStory
         // ActionProcessor proceed. Nothing of ours is sent and nothing of the game is written.
         box.ShowLine(target);
 
-        bool terminal = target >= localCount;
         VRLog.Info(Scope, $"MAP ROOM story APPLIED (record 21, kind MapStory): message key "
                           + $"0x{key:X8}, {localCount} page(s) here, moved from page {localPage} to "
                           + $"{target}{(terminal ? " (past the last page → the box closes)" : "")} — "
                           + $"{who}. The record carries the ABSOLUTE page, so two players clicking "
-                          + "at once both publish the same number and no page is skipped; "
-                          + "re-applying it is a no-op. THIS IS A DIFFERENT CONTROLLER FROM RECORD "
-                          + "19's: MapStoryController, which record 19 has never been able to see."
+                          + "at once both publish the same number and no page is skipped. A "
+                          + "MID-MESSAGE page IS idempotent — ResolveStoryPage returns −1 for "
+                          + "anything at or below the local page, because ShowLine wrote "
+                          + "currentDialogIndex. A TERMINAL page is NOT, and never was: that path "
+                          + "Hide()s without writing the index, so it is the latch above and not "
+                          + "arithmetic that makes it happen once. THIS IS A DIFFERENT CONTROLLER "
+                          + "FROM RECORD 19's: MapStoryController, which record 19 has never been "
+                          + "able to see."
                           + (terminal
                               ? " This client now runs the game's OWN ShowLine → Hide → OnFinishShow "
                                 + "→ ShowNext chain. For the Gloomhaven intro that also matters "
