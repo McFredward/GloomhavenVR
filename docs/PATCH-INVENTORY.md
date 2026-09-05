@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**91 patch classes, 147 patched methods.**
+**95 patch classes, 152 patched methods.**
 
 ## Board
 
@@ -115,6 +115,16 @@ runtime, which is why a runtime audit could never do this job (see
 | `UnityGameEditorDoorProp_Start_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:272</sub> | `UnityGameEditorDoorProp.Start()` *(private)* | postfix | `SceneRegistry`:123 |
 | `ProceduralTileObserver_OnEnable_RegisterPatch`<br/><sub>src/GloomhavenVR/Core/SceneRegistry.cs:288</sub> | `ProceduralTileObserver.OnEnable()` *(private)* | postfix | `SceneRegistry`:138 |
 | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch`<br/><sub>src/GloomhavenVR/Core/Water/WaterTerrainVR.cs:3362</sub> | `ProceduralBase.NotifyContentPlacementComplete()` | postfix | `WaterTerrainVR`:284 |
+
+## Net
+
+| Patch class | Target | Kind | Registered by |
+|---|---|---|---|
+| `ClientButtonLocker_TryLockButton_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:524</sub> | `ClientButtonLocker.TryLockButton()` *(private)* | prefix | `NetModule`:228 |
+| `UIEventPanel_ContinueEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:539</sub> | `UIEventPanel.ContinueEvent()` *(private)* | prefix | `NetModule`:229 |
+| `UIEventPanel_CompleteEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:563</sub> | `UIEventPanel.CompleteEvent()` *(private)* | prefix | `NetModule`:230 |
+| `UIEventPanel_ClientContinueRoadEvent_Patch`<br/><sub>src/GloomhavenVR/Net/EncounterChoice.cs:593</sub> | `UIEventPanel.ClientContinueRoadEvent()` | prefix | `NetModule`:231 |
+| &nbsp; | `UIEventPanel.ClientContinueRoadEvent()` | finalizer | &nbsp; |
 
 ## Rig
 
@@ -221,6 +231,7 @@ runtime, which is why a runtime audit could never do this job (see
 | `src/GloomhavenVR/Core/Events/VREventsModule.cs` | `Choreographer_ProcessMessage_Patch`, `Choreographer_SetChoreographerState_Patch`, `UIManager_ToggleLockUI_Patch`, `UIWindow_Transition_Patch` |
 | `src/GloomhavenVR/Core/SceneRegistry.cs` | `ProceduralTileObserver_OnEnable_RegisterPatch`, `TilesOcclusionVolume_Start_RegisterPatch`, `UnityGameEditorDoorProp_Start_RegisterPatch` |
 | `src/GloomhavenVR/Core/Water/WaterTerrainVR.cs` | `ProceduralBase_NotifyContentPlacementComplete_WaterPatch` |
+| `src/GloomhavenVR/Net/NetModule.cs` | `ClientButtonLocker_TryLockButton_Patch`, `UIEventPanel_ClientContinueRoadEvent_Patch`, `UIEventPanel_CompleteEvent_Patch`, `UIEventPanel_ContinueEvent_Patch` |
 | `src/GloomhavenVR/Rig/RigModule.cs` | `CameraController_LateUpdate_Patch`, `CameraController_RefreshFocusPosition_Patch` |
 | `src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs` | `ClientQuestPromptSeam` |
 | `src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs` | `MapQuestReadyPress`, `TravelDrivePatches`, `TravelShortcutGate` |

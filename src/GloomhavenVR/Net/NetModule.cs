@@ -218,6 +218,18 @@ internal sealed class NetModule : IVRModule
         _transport = new FfsNetTransport(VRSession.Harmony);
         _transport.Install();
 
+        // ANY PLAYER MAY ANSWER AN ENCOUNTER (user request 2026-09-05) — see EncounterChoice for
+        // the whole argument, including why the client's press travels on the game's SIDE-ACTION
+        // channel and not as a queued GameAction. Registered HERE, behind the same [Net] Enabled
+        // switch as the transport, on purpose: the client's unlock is gated on having SEEN the
+        // host's mod packets (VersionGuard.IsModdedPeer), which only exist while that transport
+        // runs. So a host with Net off simply never advertises, no client unlocks, and the feature
+        // is absent rather than half-present — which is the failure mode that would matter.
+        VRSession.Harmony.PatchAll(typeof(ClientButtonLocker_TryLockButton_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIEventPanel_ContinueEvent_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIEventPanel_CompleteEvent_Patch));
+        VRSession.Harmony.PatchAll(typeof(UIEventPanel_ClientContinueRoadEvent_Patch));
+
         _driverGo = new GameObject("GloomhavenVR.NetAvatarDriver");
         Object.DontDestroyOnLoad(_driverGo);
         _driverGo.hideFlags = HideFlags.HideAndDontSave;
