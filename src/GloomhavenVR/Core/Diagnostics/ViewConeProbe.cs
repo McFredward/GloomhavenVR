@@ -354,8 +354,24 @@ internal static class ViewConeProbe
                       + "SkyAlternative strips every collider under both environment branches at "
                       + "spawn and a physics fan would report NO HIT inside a forest.");
 
+        // THE WATCHDOG BRANCH IS THE ONLY ONE A DEFAULT LOG CARRIES, AND UNTIL 2026-09-05 IT WAS
+        // NOT. VRLog.Warn and VRLog.Info gate IDENTICALLY on Level >= VRLogLevel.Debug (VRLog.cs,
+        // the ModBuild 331 mapping): the two branches differed in the BepInEx severity glyph and
+        // in nothing about whether the line appears. So at the shipped LogLevel = Info the
+        // watchdog fired, spent one of its four MaxWatchdogReports, and printed nothing — for the
+        // fault this class's own doc says "was true for 19,853 consecutive frames of his log with
+        // nothing anywhere saying so". The escalation existed and was inert.
+        //
+        // VRLog.Alert, not VRLog.Note: a far plane that does not cover the environment is a hard
+        // background-coloured wall cutting through whatever straddles it, which is a thing the
+        // PLAYER sees and can act on (it is a graphics-preset / environment-budget fault), and
+        // that is the documented definition of Alert. The ARMED branch stays at Info — it is the
+        // one-shot self-report of a healthy activation and nobody is waiting on it.
         if (watchdog)
-            VRLog.Warn("Core", Report.ToString());
+            // HW-VERIFY: the far-plane watchdog's verdict. Its ABSENCE from a log in which the
+            // player reports a sliced table or a black wall is now evidence: this line survives
+            // the default level, so silence means the far plane covered the budget every frame.
+            VRLog.Alert("Core", Report.ToString());
         else
             VRLog.Info("Core", Report.ToString());
     }
