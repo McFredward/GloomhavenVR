@@ -250,8 +250,16 @@ internal static class VfxFlow
     /// <summary>A particle this many REAL metres across is a puff or a tongue of flame, not a
     /// speck. Ten centimetres is about half a palm: below it, a single particle is not something
     /// you can see the shape of, which is exactly when the mote treatment (drag it into the wake)
-    /// reads better than the smoke treatment (wrap it around the hand).</summary>
-    private const float BulkDiameterMetres = 0.10f;
+    /// reads better than the smoke treatment (wrap it around the hand).
+    ///
+    /// <para>INTERNAL RATHER THAN PRIVATE SINCE ModBuild 432, and only for a reader. It is THE ONE
+    /// BOUNDARY THE RIG SCALE CAN MOVE AN EFFECT ACROSS — every other term in
+    /// <see cref="Classify"/> is scale-free — so <c>SceneVfxHands</c> prints, per effect, the rig
+    /// scale at which that effect would cross it. That division needs this number, and a second
+    /// copy of it written down at the log site is exactly the mirrored constant
+    /// scripts/check-mirrors.sh exists to hunt: the log would go on quoting 0.10 after somebody
+    /// moved the line.</para></summary>
+    internal const float BulkDiameterMetres = 0.10f;
 
     /// <summary>A BIG particle that lives less than this is a flame tongue; longer, and it is
     /// smoke. Flame effects run at roughly a second per particle and smoke at several, so 1.8 s
@@ -263,9 +271,16 @@ internal static class VfxFlow
     /// <param name="ps">The system to measure.</param>
     /// <param name="onFigure">Whether an <c>ActorBehaviour</c> owns it (already computed by the
     /// registry sweep; passed in rather than re-derived per call).</param>
-    /// <param name="wuPerRealMetre">The live rig scale. 1 before a hand has ever ticked, which
-    /// affects only <see cref="VfxTraits.DiameterMetres"/> and self-corrects on the next scan.
-    /// </param>
+    /// <param name="wuPerRealMetre">The live rig scale, and the caller guarantees it came from a
+    /// TRACKED HAND rather than from a seed — <c>SceneVfxHands.Rescan</c> refuses to classify at
+    /// all until one has reported (see its <c>_rigScaleSampled</c> guard), because at a scale of 1
+    /// every particle reads its raw world size and the whole room lands above the bulk line at
+    /// once. It affects only <see cref="VfxTraits.DiameterMetres"/>, but that is the term the
+    /// Smoke/Flame/Motes boundary is drawn on, and the scale is the player's LIVE ZOOM rather than
+    /// a property of the room: it walked from 23.49 to 2.14 world units per real metre inside the
+    /// ModBuild 431 session. A verdict is therefore only true of the scale it was taken at, which
+    /// is why the caller re-runs this for every held system when the scale drifts and prints the
+    /// scale on every verdict it logs.</param>
     internal static VfxTraits Measure(ParticleSystem ps, bool onFigure, float wuPerRealMetre)
     {
         ParticleSystem.MainModule main = ps.main;

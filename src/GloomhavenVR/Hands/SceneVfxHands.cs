@@ -101,6 +101,24 @@ namespace GloomhavenVR.Hands;
 ///   drawn bounds, and a room fog's bounds CONTAIN the hand, so its distance is 0.0 and it wins
 ///   every comparison against a torch ten centimetres away. See <see cref="EmitterTieWeight"/>: the
 ///   cap of six is not the defect and is not raised.</item>
+///   <item><b>AND A FOURTH, FOUND WHILE PROVING THE FIRST THREE: THE VERDICT DEPENDED ON THE
+///   ZOOM.</b> Exactly one of the classifier's six terms knows about the room — the particle's
+///   diameter in REAL metres, an authored world size divided by the rig scale, tested against
+///   <see cref="VfxFlow.BulkDiameterMetres"/>. And the rig scale is not a property of the room: it
+///   is the player's LIVE ZOOM, and the ModBuild 431 census walks it from 23.49 down to 2.14 world
+///   units per real metre inside one session. Five assets in that log therefore carry two
+///   different verdicts — 'distort' is Motes at 23.49 and Flame at 3.72, 'Fog (3)' is Flame at
+///   3.72 and Motes at 8.46, 'ElemGust' and 'ElemEmbers' and 'HexHighlight(Clone)' each swap
+///   between Motes and Smoke — and each pair recovers the SAME authored world size to within
+///   0.9 %, which is what proves it is the zoom rather than two instances of different size. The
+///   registry always re-measured on its one-second cadence, so an unheld system was never stale;
+///   what was stale is the class a hand STAMPED into <see cref="_flowClass"/> at adoption and the
+///   ceiling in <see cref="_driftCap"/> beside it, both held untouched for as long as the hand
+///   held on. Both are now re-derived whenever the scale drifts past
+///   <see cref="ReclassifyScaleRatio"/>, and a verdict that moves says so with the scale on both
+///   sides. Re-classifying is the correct answer rather than a compromise: "is a single particle
+///   big enough to see the shape of" is a question about the player's eye, and its honest answer
+///   changes when the player zooms.</item>
 /// </list>
 ///
 /// <para>THE GROUNDWORK WAS ALREADY THERE. Unity's particle systems carry a COLLISION MODULE that
@@ -388,6 +406,40 @@ internal static class SceneVfxHands
     /// population would do the same thing by a different route.</summary>
     private const float CensusFloorSeconds = 30f;
 
+    /// <summary>HOW FAR THE RIG SCALE MAY DRIFT BEFORE EVERY HELD SYSTEM IS RE-CLASSIFIED, as a
+    /// ratio either way. Ten per cent.
+    ///
+    /// <para><b>THE DEFECT, AND IT IS MEASURED RATHER THAN SUSPECTED.</b> Exactly one of the
+    /// classifier's six terms depends on the room: <c>DiameterMetres</c>, which is an authored
+    /// world size divided by the live rig scale, tested against
+    /// <c>VfxFlow.BulkDiameterMetres</c> = 0.10 real m. THE RIG SCALE IS A LIVE PLAYER-DRIVEN
+    /// ZOOM — WorldGrab pivots on the hand midpoint — and the ModBuild 431 census walks it from
+    /// 23.49 down to 2.14 wu per real metre inside one session: 23.49, 15.49, 7.42, 3.72, 8.46,
+    /// 3.32, 7.16, 2.14. So the same asset lands on both sides of the bulk line depending on
+    /// nothing about the effect. Five assets in that log do, and each pair recovers the SAME
+    /// authored world size to within 0.9 %, which is what proves it is the zoom and not two
+    /// different instances: 'distort' Motes 0.043 m at 23.49 and Flame 0.269 m at 3.72 (1.010 and
+    /// 1.001 world units); 'Fog (3)' Flame 0.215 at 3.72 and Motes 0.095 at 8.46 (0.800, 0.804);
+    /// 'ElemGust' Motes 0.036 at 23.49 and Smoke 0.256 at 3.32 (0.846, 0.850); 'ElemEmbers' Motes
+    /// 0.049 at 23.49 and Smoke 0.542 at 2.14 (1.151, 1.160); 'HexHighlight(Clone)' Motes 0.043 at
+    /// 23.49 and Smoke 0.269 at 3.72 (1.010, 1.001).</para>
+    ///
+    /// <para><b>THE NUMBER IS DERIVED FROM THE CLASSIFIER'S OWN BOUNDARY, NOT FROM THE SCALE.</b>
+    /// A scale drift of a ratio r multiplies every measured diameter by 1/r, so a verdict can only
+    /// be stale for a system whose diameter is within a factor r of the 0.10 m bulk line. At r =
+    /// 1.10 that band is 0.091 m to 0.110 m — nine millimetres wide, around a line ten centimetres
+    /// from zero. A system inside that band is genuinely marginal and either verdict is
+    /// defensible; a system anywhere else cannot be misclassified by a drift this small. An epsilon
+    /// on the scale would have said nothing about any of that, which is the whole reason this
+    /// constant is expressed against the boundary.</para>
+    ///
+    /// <para>THE COST IS BOUNDED BY THE CAP, NOT BY THE ZOOM. A re-classification walks the held
+    /// systems, of which there are at most twelve (two hands, six each), and a continuous zoom from
+    /// 23.49 to 2.14 crosses this threshold about twenty-five times in total. Twenty-five walks of
+    /// twelve systems over a whole zoom gesture is not a per-frame path and is not measured as one.
+    /// </para></summary>
+    private const float ReclassifyScaleRatio = 1.10f;
+
     // HOW A PARTICLE THAT ACTUALLY TOUCHES THE HAND BEHAVES. Not how the effect reacts — that is
     // the force fields — but what happens in the one case the fields cannot cover: a particle on
     // a trajectory straight through the palm. ModBuild 430 shipped bounce 0.35 / dampen 0.45 /
@@ -509,6 +561,27 @@ internal static class SceneVfxHands
     /// BEFORE the sweep in <see cref="Tick"/> rather than after, so the sweep never classifies
     /// against a scale from a different frame.</summary>
     private static float _rigScale = 1f;
+
+    /// <summary>Has a TRACKED HAND ever reported a scale into <see cref="_rigScale"/>? The sweep
+    /// refuses to classify until it has — see <see cref="Rescan"/>.
+    ///
+    /// <para>THIS GUARD CANNOT FIRE TODAY AND IS NOT DECORATION. <see cref="Tick"/> returns through
+    /// <c>Clear()</c> before it reaches the sampling line whenever neither hand is tracked, and it
+    /// samples before calling <see cref="Rescan"/> — so the 1.0 seed above is, as things stand,
+    /// unreachable, and every one of the 33 verdicts in the ModBuild 431 log was taken at a real
+    /// measured scale (23.49 down to 2.14). The flag exists so that stays true under a refactor
+    /// that moves either line, because the failure it would cause is silent: a sweep at scale 1.0
+    /// reads every particle as its raw world size, which puts the whole room above the 0.10 m bulk
+    /// line at once and gives every effect in the game the Flame or Smoke profile. A guard whose
+    /// premise is currently true is still the thing that notices when it stops being.</para>
+    /// </summary>
+    private static bool _rigScaleSampled;
+
+    /// <summary>The scale <see cref="_flowClass"/> and <see cref="_driftCap"/> were last decided
+    /// at, for the drift test in <see cref="RefreshScaleGeneration"/>. Seeded NaN so the first
+    /// sample is a change by definition rather than by comparison against a made-up number.
+    /// </summary>
+    private static float _classifiedAtScale = float.NaN;
 
     private static bool _loggedFirstAdopt;
 
@@ -658,7 +731,18 @@ internal static class SceneVfxHands
             _rigScale = Mathf.Max(left.WorldScale, 1e-4f);
         else if (right != null && right.IsTracked)
             _rigScale = Mathf.Max(right.WorldScale, 1e-4f);
+        _rigScaleSampled = true;
         RefreshFeelGeneration();
+        // A HELD SYSTEM'S VERDICT IS THE ONE THAT CAN GO STALE, and it goes stale against the ZOOM.
+        // The registry re-measures the whole adoptable population every second at the live scale
+        // already, so an UNHELD system's class has always followed the room; what never moved is
+        // the class stamped into _flowClass on the frame a hand took hold, and the ceiling in
+        // _driftCap beside it, both of which carry a scale-dependent diameter. See
+        // ReclassifyScaleRatio for the five assets in the ModBuild 431 log that straddle the bulk
+        // line on the zoom alone. This runs BEFORE the sweep and before either hand ticks, so a
+        // system re-classified this frame is adopted, driven and listed under its new class in the
+        // same frame rather than one behind.
+        RefreshScaleGeneration();
         bool scanned = Rescan();
         Left.Tick(left);
         Right.Tick(right);
@@ -707,12 +791,19 @@ internal static class SceneVfxHands
         _feelGeneration = 0;
         _feelBounce = float.NaN;
         _rigScale = 1f;
+        // BOTH OF THESE GO BACK WITH THE SCALE, and the pairing is the point: _rigScale returning
+        // to its 1.0 seed without _rigScaleSampled returning to false would leave the guard
+        // believing a hand had reported that 1.0, which is the one reading it exists to refuse.
+        _rigScaleSampled = false;
+        _classifiedAtScale = float.NaN;
         _nextScanAt = 0f;
         _loggedFirstAdopt = false;
+        _noScaleNamed = false;
         _tooDense.Clear();
         _gameOwned.Clear();
         _gameForces.Clear();
         _flowNamed.Clear();
+        _reclassified.Clear();
         _adoptedAt.Clear();
         _scansRun = 0;
         _scansSinceLine = 0;
@@ -835,6 +926,128 @@ internal static class SceneVfxHands
         c.dampen = p.Dampen;
         c.lifetimeLoss = p.LifetimeLoss;
     }
+
+    /// <summary>Re-classify every HELD system when the rig scale has drifted past
+    /// <see cref="ReclassifyScaleRatio"/>. One float compare a frame in the common case.
+    ///
+    /// <para>WHY THE HELD SET AND NOT THE REGISTRY: the registry is rebuilt from scratch once a
+    /// second and re-measures at the live scale as it goes, so an unheld system's verdict has never
+    /// been able to go stale. What goes stale is the pair a hand STAMPS at adoption —
+    /// <see cref="_flowClass"/>, which chooses the force profile, and <see cref="_driftCap"/>,
+    /// whose numerator is a scale-dependent diameter — and those persist untouched for as long as
+    /// the hand holds on, across any amount of zooming.</para>
+    ///
+    /// <para>THE CEILING IS REFRESHED EVEN WHEN THE CLASS DOES NOT MOVE, and that is not an
+    /// oversight to tidy later. A particle that has doubled in real metres has doubled its own
+    /// drift allowance without changing class at all, so a system whose verdict is stable still
+    /// carries a ceiling computed for a room it is no longer in.</para></summary>
+    private static void RefreshScaleGeneration()
+    {
+        // The NaN seed makes the first sample a change, which is what it is. `!=` and the ordered
+        // comparisons below are all false against NaN, so this needs no separate "first time" flag
+        // — the same trick RefreshFeelGeneration uses, for the same reason.
+        if (_rigScale <= _classifiedAtScale * ReclassifyScaleRatio
+            && _rigScale >= _classifiedAtScale / ReclassifyScaleRatio)
+            return;
+        float was = _classifiedAtScale;
+        _classifiedAtScale = _rigScale;
+        if (_original.Count == 0 || float.IsNaN(was))
+            return;   // nothing is held, so there is no stamped verdict to go stale
+        ReclassifyHeld(was);
+    }
+
+    /// <summary>Re-measure and re-decide every held system at the current scale. Walks
+    /// <see cref="_original"/>, which holds at most twelve entries, and writes only into other
+    /// dictionaries — so the enumerator is never invalidated.</summary>
+    private static void ReclassifyHeld(float wasScale)
+    {
+        float driftCap = HandsConfig.HandsVfxDriftMetersSafe();
+        foreach (KeyValuePair<ParticleSystem, Captured> pair in _original)
+        {
+            ParticleSystem ps = pair.Key;
+            if (ps == null || !_flowClass.TryGetValue(ps, out VfxFlowClass was))
+                continue;
+            bool onFigure = ps.GetComponentInParent<ActorBehaviour>() != null;
+            VfxTraits traits = VfxFlow.Measure(ps, onFigure, _rigScale);
+            VfxFlowClass now = VfxFlow.Classify(in traits, out string term);
+            // ALWAYS, class change or not — see the method doc above.
+            _driftCap[ps] = VfxFlow.SpeedCapRealPerSecond(in traits, VfxFlowProfile.Of(now),
+                                                          driftCap);
+            if (now == was)
+                continue;
+            _flowClass[ps] = now;
+            // The collision backstop's dampen and lifetime loss are PER CLASS, and ApplyFeel
+            // early-outs on a generation match — so a system whose class moved has to be made to
+            // look stale or it would keep the previous class's two numbers for as long as it is
+            // held. The influence list needs no such nudge: its signature already carries the
+            // class, so SyncInfluences rebuilds it on the same frame.
+            _feelAt.Remove(ps);
+            NoteReclassified(ps, was, now, term, in traits, wasScale);
+        }
+    }
+
+    /// <summary>A verdict that MOVED says so, with the scale on both sides. This project lost six
+    /// builds to a number that changed under it without a line, and a classification that silently
+    /// swaps an effect's force profile mid-session is the same shape of defect.</summary>
+    private static void NoteReclassified(ParticleSystem ps, VfxFlowClass was, VfxFlowClass now,
+                                         string term, in VfxTraits traits, float wasScale)
+    {
+        // Keyed on the TRANSITION, not the name: a player zooming in and back out would otherwise
+        // print a line per crossing for the rest of the session. There are five classes, so this
+        // set is bounded at twenty entries per effect name and in practice at one or two.
+        if (!_reclassified.Add(ps.name + "|" + was + ">" + now))
+            return;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Hands", $"Hands disturb VFX: '{ps.name}' IS NO LONGER {was} — it is now {now}, "
+            + $"because {term}. THE EFFECT DID NOT CHANGE; THE ROOM DID. This verdict was decided "
+            + $"at a rig scale of {wasScale:F2} world units per real metre and has been re-decided "
+            + $"at {_rigScale:F2}, a factor of {(_rigScale / Mathf.Max(wasScale, 1e-4f)):0.##}. "
+            + "The rig scale is the live zoom, so exactly one of the six classification terms moves "
+            + "with it: the particle's diameter in REAL metres, which is an authored world size "
+            + $"divided by that scale and now reads {traits.DiameterMetres:F3} m (it was about "
+            + $"{(traits.DiameterMetres * _rigScale / Mathf.Max(wasScale, 1e-4f)):F3} m before). "
+            + "Everything else about this effect — its lifetime, how far it travels in its own "
+            + "widths, its simulation space, whether a figure owns it — is scale-free and did not "
+            + "move. RE-CLASSIFYING IS THE CORRECT ANSWER AND NOT A COMPROMISE: 'is a single "
+            + "particle big enough to see the shape of' is a question about what the player's eye "
+            + "is being shown, and the honest answer to it changes when the player zooms. What was "
+            + "wrong before ModBuild 432 was that a hand STAMPED the answer at the moment it took "
+            + "hold and never looked again, so the same asset carried two different force profiles "
+            + "in one session with nothing anywhere saying so. The new force profile and the "
+            + "re-derived drift ceiling are both in force from this frame; the influence list was "
+            + "rebuilt with them. If a re-classification lands somewhere you can SEE it — an effect "
+            + "visibly changing how it answers your hand as you zoom — the term to argue with is "
+            + "the threshold this fired on and it is derived on SceneVfxHands.ReclassifyScaleRatio.");
+    }
+
+    /// <summary>The sweep refused to classify because no tracked hand had reported a scale yet.
+    /// Named once: see <see cref="_rigScaleSampled"/> for why this cannot currently happen and why
+    /// it is still worth a line if it ever does.</summary>
+    private static void NoteNoScaleYet()
+    {
+        if (_noScaleNamed)
+            return;
+        _noScaleNamed = true;
+        // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
+        // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
+        VRLog.Note("Hands", "Hands disturb VFX: the registry sweep RAN WITHOUT A RIG SCALE and "
+            + "classified nothing. No tracked hand had reported one, so the only scale available "
+            + "was the 1.0 seed — and at 1.0 every particle measures its raw world size, which puts "
+            + $"the entire room above the {VfxFlow.BulkDiameterMetres:0.##} real-metre bulk line "
+            + "at once and would hand every "
+            + "effect in the game the Flame or Smoke profile. The registry is therefore left EMPTY "
+            + "for this scan, which is the safe state and not a degraded one: nothing is adopted, "
+            + "no collision module is touched, no influence list names a hand field, and every "
+            + "force field stays at zero in all seven of its terms, so effects behave exactly as "
+            + "the unmodded game draws them. IF YOU ARE READING THIS LINE, SOMETHING MOVED: as "
+            + "shipped, Tick returns before it reaches the sweep whenever neither hand is tracked "
+            + "and samples the scale before calling it, so this is unreachable. Reported once.");
+    }
+
+    private static bool _noScaleNamed;
+
+    private static readonly HashSet<string> _reclassified = new(8, StringComparer.Ordinal);
 
     /// <summary>Bump the feel generation when the live bounce dial has actually moved. One float
     /// compare a frame; every held system then re-reads its three fields exactly once.</summary>
@@ -1038,7 +1251,16 @@ internal static class SceneVfxHands
             + $"{e.Traits.DiameterMetres:F3} real m across, gravity multiplier "
             + $"{e.Traits.GravityModifier:F2}, simulation space "
             + $"{(e.Traits.LocalSpace ? "Local" : "World/Custom")}, on a figure: "
-            + $"{(e.Traits.OnFigure ? "yes" : "no")} ({VfxFlow.Thresholds()}). It therefore gets "
+            + $"{(e.Traits.OnFigure ? "yes" : "no")} ({VfxFlow.Thresholds()}). MEASURED AT A RIG "
+            + $"SCALE OF {_rigScale:F2} WORLD UNITS PER REAL METRE, which matters to exactly one of "
+            + "those six terms and therefore has to be printed beside them: the diameter is an "
+            + "authored world size divided by that number, and the rig scale is the live zoom. "
+            + $"This particle's authored size is {(e.Traits.DiameterMetres * _rigScale):F3} world "
+            + $"units, so it crosses the {VfxFlow.BulkDiameterMetres:0.##} real-metre bulk line "
+            + $"at a rig scale of "
+            + $"{(e.Traits.DiameterMetres * _rigScale / VfxFlow.BulkDiameterMetres):0.##} — zoom "
+            + $"past that and this "
+            + "verdict is re-decided, and a line saying so is printed. It therefore gets "
             + $"drag {p.Drag:0.##}, vortex {p.Vortex:0.##}, rotation attraction {p.Attract:0.##}, "
             + $"push {p.Push:0.##} m/s2 at full hand speed, outward {p.Repel:0.##} m/s2, field "
             + $"radius x{p.Radius:0.##}, collision dampen {p.Dampen:0.##} and lifetime loss "
@@ -1165,6 +1387,17 @@ internal static class SceneVfxHands
         if (now < _nextScanAt)
             return false;
         _nextScanAt = now + CadenceGuard(RescanSeconds);
+        // NO CLASSIFICATION WITHOUT A REAL SCALE. See _rigScaleSampled. Returning here leaves the
+        // registry EMPTY, and an empty registry is the safe state rather than an unbounded one: a
+        // system that is not in it is never a selection candidate, so it is never adopted, never
+        // named on an influence list, and never has its collision module touched — and every force
+        // field a hand carries is left at Idle(), which is zero in all seven force terms. An effect
+        // the hand is standing in simply behaves exactly as the unmodded game draws it.
+        if (!_rigScaleSampled)
+        {
+            NoteNoScaleYet();
+            return false;
+        }
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         ParticleSystem[] found = UnityEngine.Object.FindObjectsOfType<ParticleSystem>();
