@@ -1415,7 +1415,7 @@ internal sealed class MapLocationInteractor
         if (!_decisionEver)
         {
             _decisionEver = true;
-            _decisionId = now;
+            PublishDecision(now, bySettle: false);
             _decisionNullSince = -1f;
             return;
         }
@@ -1438,7 +1438,7 @@ internal sealed class MapLocationInteractor
         }
 
         string? had = _decisionId;
-        _decisionId = now;
+        PublishDecision(now, bySettle: true);
         _decisionNullSince = -1f;
         MapQuestReadyUp.OnQuestDecisionChanged(had, now);
     }
@@ -1513,6 +1513,133 @@ internal sealed class MapLocationInteractor
     /// quest never waits.</para>
     /// </summary>
     private const float DecisionSettleSeconds = 1.0f;
+
+    /// <summary>
+    /// WRITE THE COMMITTED DECISION IN BOTH PLACES AT ONCE — the instance field the observer
+    /// compares against, and the STATIC mirror a window rule outside this class reads.
+    ///
+    /// <para>One helper rather than two assignments beside each other, because the two values
+    /// disagreeing is precisely the failure that would matter: the mirror is what
+    /// <c>ModalFallback.StickinessSpentByClearedQuestSelection</c> gives a floated quest window up
+    /// on, and a mirror that lagged the field by one commit would release a window for a decision
+    /// that has already come back. Both writes to <see cref="_decisionId"/> go through here, and
+    /// there are only those two — first sight and the settled edge.</para>
+    ///
+    /// <para><b>A STATIC MIRROR OF AN INSTANCE FIELD IS SAFE HERE FOR THE SAME REASON THE FIELD
+    /// SURVIVES A STAND-DOWN.</b> <c>MapRoomDriver</c> holds ONE interactor for the whole session
+    /// (<c>MapRoomDriver.Locations</c>), so there is never a second writer to disagree with; and
+    /// the reader gates on <c>MapRoomDriver.Active</c>, so the value cannot speak for a room that
+    /// is not standing.</para>
+    /// </summary>
+    /// <param name="id">The decision the observer is committing to.</param>
+    /// <param name="bySettle">Did this value come through the observer's EDGE — a change to another
+    /// named quest, or a null that held for <see cref="DecisionSettleSeconds"/> — rather than from
+    /// FIRST SIGHT? It is carried purely so the verdict below cannot claim a settle that never
+    /// happened; first sight adopts whatever was staged before this observer existed, which is a
+    /// reading and not an edge.</param>
+    private void PublishDecision(string? id, bool bySettle)
+    {
+        _decisionId = id;
+        _publishedDecisionId = id;
+        _publishedDecisionEver = true;
+        _publishedBySettle = bySettle;
+        _publishedAt = Time.unscaledTime;
+    }
+
+    /// <summary>
+    /// <b>HAS THE TABLE SETTLED ON DECIDING NOTHING?</b> — the one fact a window whose whole reason
+    /// to exist is the selection needs, published from the observer that already owns the timing.
+    ///
+    /// <para>USER REPORT (2026-09-05), verbatim: <i>"Wenn man einmal eine Quest ausgewählt hat,
+    /// verschwindet dieses Fenster nie wieder, auch wenn man zur Seite klickt, so dass nichts
+    /// ausgewählt ist. Aktuell verschwindet dann nur der Button. Das soll so nicht sein — das
+    /// Quest-Fenster soll komplett verschwinden, wenn keine Quest aktiv ausgewählt ist."</i> The
+    /// ModBuild 446 log is the whole story in four lines: the game hid 'UI Quest Popup'
+    /// (Player.log:6420), the mod deselected the icon the trigger was pressed away from (:6423),
+    /// this observer duly fired with <c>to='&lt;nothing&gt;'</c> (:6435) — and the float STOOD,
+    /// un-written-to, for the remaining 66.7 s until the rig tore down (:6920, :6931). The button
+    /// he means is the game's own 'Travel Options' bar, which <c>MapTravelConfirm</c> parks INSIDE
+    /// that window (:6395) and which the game switches off by itself when nothing is selected — so
+    /// the window was left standing with its one actionable control gone.</para>
+    ///
+    /// <para><b>WHY THIS FACT AND NOT THE GAME'S SELECTION FLAG ALONE.</b> The consumer needs a
+    /// deselection that has HELD. A raw <c>UIQuestPopupManager.selectedQuest == null</c> is also
+    /// what a map rebuild, a quest-window teardown and the travel transition each look like for a
+    /// few frames — and <see cref="AdoptSelection"/>'s own drop-then-click passes straight through
+    /// it. Releasing on the raw state would release and re-float the same window, and each cycle
+    /// costs a <c>FloatChurn</c> count that session-suppresses the window's NAME after four
+    /// (ModalFallback.10.CatchAll). <see cref="TickQuestDecision"/> already solves exactly that
+    /// with an asymmetric edge, so this is ITS verdict rather than a second timing rule: a change
+    /// to a different named quest is committed at once, a change to NOTHING only after
+    /// <see cref="DecisionSettleSeconds"/>.</para>
+    ///
+    /// <para><b>AND IT COVERS A PEER'S CHANGE BY CONSTRUCTION</b>, because the subject is
+    /// <see cref="_selectedDecisionId"/> and BOTH writers already reach it: this player's own click
+    /// (<see cref="Dispatch"/>) and a peer's record-20 selection edge (<see cref="AdoptSelection"/>,
+    /// driven from <c>Net.RemoteMapRoom.ResolveSelection</c>, which passes null for "nothing is
+    /// selected anywhere"). A RE-selection of the same quest is not a change at all: the identity
+    /// compared is <see cref="DecisionIdOf"/>, the <c>CLocationState.ID</c> the game itself puts on
+    /// its own wire for <c>GameActionType.SelectQuest</c>, so the same quest coming back on a
+    /// freshly respawned <c>MapLocation</c> never reaches this verdict.</para>
+    ///
+    /// <para>ROOM-GATED. <c>MapRoomDriver.Active</c> is required, so this can never answer for a
+    /// session that has left the room — the interactor's decision state deliberately survives a
+    /// stand-down (see <see cref="_decisionId"/>) and would otherwise speak for the room that is
+    /// gone.</para>
+    /// </summary>
+    /// <param name="why">Prose for the caller's log line, in every branch including the refusals.</param>
+    internal static bool QuestSelectionCleared(out string why)
+    {
+        if (!MapRoomDriver.Active)
+        {
+            why = "the 3D map room is not standing, so this room has no quest decision to speak of";
+            return false;
+        }
+        if (!_publishedDecisionEver)
+        {
+            why = "MapLocationInteractor has not sampled the table's decision even once yet, so "
+                  + "there is no settled verdict to act on";
+            return false;
+        }
+        if (_publishedDecisionId != null)
+        {
+            why = $"the table is deciding on quest '{_publishedDecisionId}' (CLocationState.ID), so "
+                  + "a window that views that selection still has its subject";
+            return false;
+        }
+        why = "the table is deciding on NO quest — "
+              + (_publishedBySettle
+                  ? "MapLocationInteractor's observer committed the null EDGE "
+                    + $"{Time.unscaledTime - _publishedAt:F1} s ago, after it had held for the full "
+                    + $"{DecisionSettleSeconds:F1} s settle that separates a real deselection from "
+                    + "the frames a map rebuild, a quest-window teardown and the travel transition "
+                    + "each spend looking like one. Both writers reach it: this player's own click "
+                    + "and a peer's record-20 selection edge"
+                  : "and this is the observer's FIRST SIGHT rather than an edge, so no settle was "
+                    + $"spent on it ({Time.unscaledTime - _publishedAt:F1} s ago). That is honest "
+                    + "rather than convenient: first sight adopts whatever was staged before the "
+                    + "observer existed, and with nothing staged there was never a selection for a "
+                    + "float to be a view of");
+        return true;
+    }
+
+    /// <summary>The static mirror of <see cref="_decisionId"/>. See <see cref="PublishDecision"/>
+    /// for why it exists and why one interactor per session makes it safe.</summary>
+    private static string? _publishedDecisionId;
+
+    /// <summary>Has <see cref="PublishDecision"/> ever run? Null is a real value for the id, so the
+    /// "never sampled" state cannot be folded into it — the same reason
+    /// <see cref="_decisionEver"/> exists beside <see cref="_decisionId"/>.</summary>
+    private static bool _publishedDecisionEver;
+
+    /// <summary>Did the published value arrive through the observer's settled EDGE, or from FIRST
+    /// SIGHT? A verdict claiming a settle it never spent is the kind of log line this project has
+    /// paid for, so the two are kept apart rather than worded as one.</summary>
+    private static bool _publishedBySettle;
+
+    /// <summary>When <see cref="PublishDecision"/> last committed, for the verdict's prose only.
+    /// Never a term of the decision — the settle is spent BEFORE the commit, not after it.</summary>
+    private static float _publishedAt;
 
     /// <summary>Drop the hover only if <paramref name="loc"/> is the one currently held.</summary>
     internal void ClearHoverIf(MapLocation loc, string why)

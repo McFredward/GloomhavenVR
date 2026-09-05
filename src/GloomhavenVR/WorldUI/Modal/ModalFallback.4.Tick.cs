@@ -356,6 +356,126 @@ internal static partial class ModalFallback
             ClassifyMandatoryDecision(wp.Window, out why));
     }
 
+    /// <summary>
+    /// ModBuild 447 — <b>IS THIS FLOAT'S STICKINESS SPENT BECAUSE THE SELECTION IT IS A VIEW OF HAS
+    /// GONE?</b> The second, and different, reason a map-room float can stop being wanted.
+    ///
+    /// <para>USER REPORT (2026-09-05), verbatim: <i>"Wenn man einmal eine Quest ausgewählt hat,
+    /// verschwindet dieses Fenster nie wieder, auch wenn man zur Seite klickt, so dass nichts
+    /// ausgewählt ist. Aktuell verschwindet dann nur der Button. Das soll so nicht sein — das
+    /// Quest-Fenster soll komplett verschwinden, wenn keine Quest aktiv ausgewählt ist."</i></para>
+    ///
+    /// <para><b>THIS IS A REGRESSION OF 2026-09-05'S OWN NARROWING, AND THE ModBuild 446 LOG NAMES
+    /// IT IN FOUR LINES.</b> Until that day the quest window WAS released — by
+    /// <see cref="StickinessSpentByAnsweredDecision"/>, but only because that predicate asked the
+    /// UNION, whose last term is the derived net <c>escapeKeyAction == None</c>, which the quest
+    /// window carries and so do the merchant and the temple. Narrowing it to the four IDENTITY
+    /// terms was right for the merchant and the temple (they are the 2026-09-03 report) and left
+    /// the quest window with NO release path at all. Counted in the pre-narrowing log
+    /// (.planning/debug/remote/Player.log, ModBuild 444): <c>MANDATORY DECISION ANSWERED</c> fired
+    /// 8x for 'UI Quest Popup'. In the ModBuild 446 log it fires ZERO times for anything, and the
+    /// quest window's whole life is readable: the game hid it (Player.log:6420), the deselect ran
+    /// (:6423), the decision observer committed the null edge (:6435) — and then nothing, until
+    /// ":6920 released (module shutdown)" 66.7 s later, with "POSE WATCH … NO WRITES in 5966
+    /// sampled frame(s) over 66.7 s" beside it. The button he means is the game's own
+    /// 'Travel Options' bar, which <c>MapTravelConfirm</c> parks INSIDE that window (:6395) and
+    /// which the game switches off by itself when nothing is selected — so what was left standing
+    /// was the window with its one actionable control already gone.</para>
+    ///
+    /// <para><b>THE TWO WINDOWS DIFFER BY SOMETHING REAL, NOT BY <c>escapeKeyAction</c>.</b> A
+    /// merchant or a temple is a DESTINATION: the player opened it, it is about itself, and it is
+    /// his until he closes it — which is exactly why the flat game's single-window discipline
+    /// hiding it must not end it. A quest popup is a VIEW OF A SELECTION: the game opens it
+    /// <i>because</i> a quest is selected (<c>UIQuestPopupManager.ShowQuest</c>,
+    /// UIQuestPopupManager.cs:35-43) and it has no subject once the selection is gone
+    /// (<c>Hide</c> :136-144 and <c>HideAll</c> :146-152 clear <c>selectedQuest</c> in the same
+    /// breath as hiding it). So the honest term is not "did the game hide it" but "is there still a
+    /// selection for it to be a view of" — and this predicate says so in those words instead of
+    /// borrowing a fact about the ESC key. Widening
+    /// <see cref="StickinessSpentByAnsweredDecision"/> again would have re-broken the merchant and
+    /// the temple one build after they were fixed.</para>
+    ///
+    /// <para><b>THE IDENTITY IS <c>UIQuestPopup</c> ON THE WINDOW'S OWN GAMEOBJECT</b> — the same
+    /// discipline every IDENTITY term in <see cref="MandatoryDecisionTerm"/> uses, and the reason
+    /// this is NOT a fifth member of that enum: it answers a different question, so it is a
+    /// different predicate rather than a widening of that one. (Enrolling it there would also cost
+    /// the window its close X and redirect the escape chord — ModBuild 381 and 384 — which nobody
+    /// asked for.) The class is <c>[RequireComponent(typeof(UIWindow))]</c> (decompiled
+    /// UIQuestPopup.cs:16-17), so the component and the window are the same object by the game's
+    /// own construction: no containment test, no name match. It catches BOTH of the manager's
+    /// popups, <c>selectedQuestPopup</c> and <c>multiplayerQuestPopup</c>
+    /// (UIQuestPopupManager.cs:9,15), which is correct — both are views of a selection, one of this
+    /// table's and one the host made. It cannot catch the quest LOG, whose subtree is
+    /// <c>UIQuestLogGroup</c>/<c>UIQuestLogSlot</c> and which is deliberately PERMANENT in this
+    /// room (ModBuild 194: <i>"Auch das Fenster mit den Quests … sollen nicht schließbar sein"</i>),
+    /// nor the hover preview <c>UIQuestPreviewPopup</c>, which is never sticky at all
+    /// (<c>IsMapRoomHoverCard</c>).</para>
+    ///
+    /// <para><b>THE TIMING IS BORROWED WHOLE, NOT REINVENTED.</b>
+    /// <c>MapLocationInteractor.QuestSelectionCleared</c> is the SETTLED verdict of the very
+    /// observer ModBuild 445 added for the quest ready-up — a change to a different named quest
+    /// commits at once, a change to NOTHING only after a 1.0 s settle — because a bare deselection
+    /// is also what a map rebuild, a quest-window teardown and the travel transition each look like
+    /// for a few frames. Releasing on the raw state would release and re-float the same window, and
+    /// four such cycles session-suppress its NAME through the catch-all's churn fuse
+    /// (ModalFallback.10.CatchAll, <c>ChurnMaxFloats</c> 3). That observer also sees a PEER's
+    /// change by construction: both this player's click and a peer's record-20 selection edge
+    /// write the field it watches, and a re-selection of the same quest is not a change because the
+    /// subject compared is the <c>CLocationState.ID</c> the game itself puts on its own wire.</para>
+    ///
+    /// <para><b>THE GAME-SIDE HIDE IS STILL REQUIRED</b> (<c>!IsOpen</c>), and it is what closes the
+    /// race at the other end: between a click on an icon and the interactor recording the selection
+    /// there is a gap in which the settled decision still reads "nothing", and throughout it the
+    /// game has the popup OPEN — so the float can never be taken away from under a player who has
+    /// just opened it.</para>
+    ///
+    /// <para><b>NOTHING IS WRITTEN TO THE GAME</b>, exactly as for the sibling predicate: the window
+    /// has already been hidden by the game itself, <c>UserClosing</c> stays false, so no
+    /// <c>Hide</c>, no <c>Escape</c>, no <c>CanvasGroup</c> write and nothing on the wire. It goes
+    /// out through the ORDINARY release loop — the one path that runs
+    /// <c>WindowMaterialise.PlayOut</c>, so the window dissolves rather than popping away — and the
+    /// 'Travel Options' the mod parked inside it ride the window home and are unparked by
+    /// <c>MapTravelConfirm.Reconcile(null)</c> on the next map-room tick, because
+    /// <see cref="FloatedWindowWithId"/> stops naming a float the moment it leaves
+    /// <c>Converted</c>.</para>
+    ///
+    /// <para><paramref name="why"/> receives the whole argument in prose, in EVERY branch including
+    /// the refusals, so the caller's line can say why it did nothing as readily as why it acted.
+    /// </para>
+    /// </summary>
+    private static bool StickinessSpentByClearedQuestSelection(WindowPanel wp, out string why)
+    {
+        why = string.Empty;
+        // The cheap terms first, in the same order and for the same reason as the sibling: a sticky
+        // float whose game window is CLOSED is a rare state, so it gates the GetComponent.
+        if (wp.Window == null || !wp.Sticky || wp.Window.IsOpen)
+            return false;
+        if (wp.Window.GetComponent<UIQuestPopup>() == null)
+            return false;
+        if (!MapRoom.MapLocationInteractor.QuestSelectionCleared(out string cleared))
+        {
+            why = cleared;
+            return false;
+        }
+        why = "this window IS a UIQuestPopup — a VIEW OF THE MAP'S QUEST SELECTION, opened by "
+              + "UIQuestPopupManager.ShowQuest because a quest was selected and carrying no subject "
+              + $"of its own once that selection is gone — and {cleared}";
+        return true;
+    }
+
+    /// <summary>
+    /// Was the table's quest decision already settled on nothing on the PREVIOUS tick? The one bit
+    /// that turns <c>MapLocationInteractor.QuestSelectionCleared</c>'s level-triggered verdict into
+    /// the EDGE the HW-VERIFY line speaks on.
+    ///
+    /// <para>It gates a LOG LINE and never a release: the release itself stays level-triggered, so
+    /// a window the game hides seconds after the selection settled is still given up when it is
+    /// hidden rather than needing an edge it has already missed. Nothing resets it explicitly and
+    /// nothing needs to — the verdict answers false whenever the map room is not standing, so
+    /// leaving the room clears it on the next tick by level.</para>
+    /// </summary>
+    private static bool _questSelectionWasClear;
+
     private static void OnWindow(WindowVisibilityEvent e)
     {
         // Test #10: EVERY window transition is logged at Debug — a lock caused by a
@@ -2832,6 +2952,18 @@ internal static partial class ModalFallback
         //    number (ModalFallback.Release in the MODAL TICK BREAKDOWN) and is additionally printed
         //    per-window-walk by its own MODAL LIVENESS CENSUS line.
         TickWindowLiveness();
+        // ModBuild 447 — THE QUEST-SELECTION CLEARING EDGE, SAMPLED ONCE FOR THE WHOLE LOOP.
+        // Sampled here rather than per float so every float in this tick is judged against ONE
+        // reading of the table's decision, and so the HW-VERIFY line below can speak once per
+        // clearing rather than once per window. The edge is what makes the NO-OP case readable: a
+        // clearing that released nothing still prints, so "the rule never fired" and "the rule
+        // fired and had nothing to release" can never be confused for each other.
+        bool questSelectionClear = MapRoom.MapLocationInteractor.QuestSelectionCleared(out string questClearWhy);
+        bool questSelectionClearEdge = questSelectionClear && !_questSelectionWasClear;
+        _questSelectionWasClear = questSelectionClear;
+        string questViewReleased = string.Empty;
+        string questViewWhy = string.Empty;
+
         // 1. Release conversions whose window closed/died or that are no longer wanted.
         for (int i = Converted.Count - 1; i >= 0; i--)
         {
@@ -2960,9 +3092,18 @@ internal static partial class ModalFallback
             // stood here is DELETED rather than joined by a second one — the term it was defending
             // against no longer reaches this method. See StickinessSpentByAnsweredDecision.
             bool answeredMandatory = StickinessSpentByAnsweredDecision(wp, out string mandatoryWhy);
+            // ModBuild 447 — THE SECOND REASON A MAP-ROOM FLOAT'S STICKINESS CAN BE SPENT, and it
+            // is a DIFFERENT QUESTION rather than a wider version of the one above. See
+            // StickinessSpentByClearedQuestSelection: a merchant is a DESTINATION the player owns
+            // until he closes it, and 2026-09-05 fixed his report that those were being torn down;
+            // the quest window is a VIEW OF A SELECTION and has no subject at all once the
+            // selection clears, which is the report of the day after. Kept as its own predicate,
+            // its own boolean and its own log line so neither can quietly start answering for the
+            // other — which is exactly how the first one went wrong.
+            bool selectionGone = StickinessSpentByClearedQuestSelection(wp, out string selectionWhy);
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
                              && (ContainsWindow(OpenWindows, wp.Window!)
-                                 || (wp.Sticky && !answeredMandatory)
+                                 || (wp.Sticky && !answeredMandatory && !selectionGone)
                                  || ScriptedLevelMessageActive(wp.Window));
             if (answeredMandatory && !stillOpen)
                 // HW-VERIFY
@@ -2985,6 +3126,13 @@ internal static partial class ModalFallback
                                       + "it two lines after the mod's own options-key sweep had called "
                                       + "UIWindow.Hide() on this very window. Read the MODAL CLOSE and "
                                       + "OPTIONS KEY lines above it for the actor.");
+            if (selectionGone && !stillOpen)
+            {
+                questViewReleased = questViewReleased.Length == 0
+                    ? $"'{wp.Window!.name}' (ID {wp.Window.ID})"
+                    : questViewReleased + $"; '{wp.Window!.name}' (ID {wp.Window.ID})";
+                questViewWhy = selectionWhy;
+            }
             if (refused && alive)
                 VRLog.Info("WorldUI", $"FLOAT RELEASED ON REFUSAL: '{wp.Window!.name}' (ID " +
                                       $"{wp.Window.ID}) — " +
@@ -3048,6 +3196,7 @@ internal static partial class ModalFallback
                 : wp.EmptyReleasePending ? "the empty-window rule (EmptyReleasePending)"
                 : refused ? "FLOAT RELEASED ON REFUSAL (the refusal table / story curtain)"
                 : answeredMandatory ? "MANDATORY DECISION ANSWERED (closed by the game)"
+                : selectionGone ? "QUEST SELECTION CLEARED (a view whose subject is gone)"
                 : "the game closed it (left OpenWindows, not sticky, no scripted message)");
             Converted.RemoveAt(i);
             string name = wp.Window != null ? wp.Window.name : "<destroyed>";
@@ -3141,6 +3290,57 @@ internal static partial class ModalFallback
                                       $"(open={wp.Window != null && wp.Window.IsOpen}, " +
                                       $"convertWanted={convertWanted}).");
             }
+        }
+
+        // ModBuild 447 — WHAT THE CLEARED SELECTION COST, IN ONE LINE, INCLUDING WHEN IT COST
+        // NOTHING. Printed on the clearing EDGE (so a clearing that found nothing to release is
+        // still on the record) and on any tick that actually released one (so a window the game
+        // hides SECONDS after the selection settled is reported when it goes, not when the edge
+        // passed). Note tier: this is a deliberate human act — the player clicking away from a
+        // quest — and never a cadence, so it cannot flood a shipped log.
+        if (questSelectionClearEdge || questViewReleased.Length > 0)
+        {
+            int stillFloated = 0;
+            string standing = string.Empty;
+            for (int i = 0; i < Converted.Count; i++)
+            {
+                WindowPanel other = Converted[i];
+                if (other.Window == null || other.Window.GetComponent<UIQuestPopup>() == null)
+                    continue;
+                stillFloated++;
+                standing = (standing.Length == 0 ? "" : standing + "; ")
+                           + $"'{other.Window.name}' (ID {other.Window.ID}, the game reports it "
+                           + $"OPEN={other.Window.IsOpen}, sticky={other.Sticky})";
+            }
+            // HW-VERIFY
+            VRLog.Note("WorldUI", "QUEST SELECTION CLEARED — "
+                                  + (questViewReleased.Length > 0
+                                      ? $"RELEASED {questViewReleased}. The float went out through "
+                                        + "the ORDINARY release path, which is the one that runs the "
+                                        + "materialise vanish, so the window dissolves rather than "
+                                        + "popping away; the game's own 'Travel Options' bar, which "
+                                        + "MapTravelConfirm parks inside this window, rides the "
+                                        + "window home and is unparked by Reconcile(null) on the "
+                                        + "next map-room tick. NOTHING WAS WRITTEN TO THE GAME: the "
+                                        + "window was already hidden by the game itself, UserClosing "
+                                        + "is not set, no Hide, no Escape, nothing on the wire. THE "
+                                        + $"TERM THAT MATCHED: {questViewWhy}."
+                                      : "NOTHING WAS RELEASED, and that is a real outcome rather "
+                                        + "than a rule that did not run. THE VERDICT THIS TICK: "
+                                        + $"{questClearWhy}.")
+                                  + " STILL FLOATED after this tick: "
+                                  + (stillFloated == 0
+                                      ? "no UIQuestPopup window is floated at all"
+                                      : standing
+                                        + " — a quest view is only given up once the GAME has "
+                                        + "closed it (IsOpen false), so one reported OPEN here is a "
+                                        + "window the game still wants on the screen and the mod "
+                                        + "must not take away")
+                                  + ". USER REPORT (2026-09-05): \"das Quest-Fenster soll komplett "
+                                  + "verschwinden, wenn keine Quest aktiv ausgewählt ist\" — before "
+                                  + "ModBuild 447 only the parked button went and the window stood "
+                                  + "until the rig tore down (ModBuild 446 Player.log:6420 hidden, "
+                                  + ":6435 the decision cleared, :6920 released at shutdown).");
         }
 
         // 1b. SLOT RELEASE (map room): every window that just left the float set gives its arc slot
