@@ -73,7 +73,12 @@ internal static class PeerBoardFadeTuning
         // lose the user's tuning at the next re-base. The values are unchanged.
         FadeMode = config.Bind("PeerBoardFade", "Mode", Defaults.PeerBoardFade_Mode,
             "What a MITSPIELER's control board does while it stands between you and the play " +
-            "field. Off = today's behaviour (nothing is measured or written). Transparent = it " +
+            "field. THE MENU DOES NOT SHOW THESE MEMBER NAMES — the values are drawn as " +
+            "'Permanently visible' / 'See-through' / 'Hidden' (DE: 'Permanent sichtbar' / " +
+            "'Durchsichtig' / 'Ausgeblendet'); the tokens named here are what the cfg FILE " +
+            "stores, and they are deliberately unchanged so an installed cfg keeps parsing. " +
+            "Off = the board is never made see-through, i.e. it stays permanently visible " +
+            "(nothing is measured or written). Transparent = it " +
             "fades to OccludedAlpha while it hides part of the board you are looking at. Hidden " +
             "= it disappears for as long as it does. PURELY LOCAL: the owner and every other " +
             "player still see their board exactly as before, and nothing goes on the wire. " +
@@ -81,7 +86,8 @@ internal static class PeerBoardFadeTuning
             "mode already draws LESS visible, never more. Your OWN board is never affected.");
         OccludedAlpha = config.Bind("PeerBoardFade", "OccludedAlpha", Defaults.PeerBoardOccludedAlpha,
             "Residual opacity of an occluding peer board in Transparent mode: 0 = invisible " +
-            "(same as Hidden), 1 = solid (same as Off). Live; clamped 0-0.95.");
+            "(same as the 'Hidden' value), 1 = solid (same as the 'Permanently visible' " +
+            "value, cfg token Off). Live; clamped 0-0.95.");
         OnFraction = config.Bind("PeerBoardFade", "OnFraction", Defaults.PeerBoardOnFraction,
             "A peer board yields when it hides at least this (EMA-smoothed) fraction of the " +
             "play-field sample points currently IN YOUR VIEW — 0.12 = the board covers an " +
