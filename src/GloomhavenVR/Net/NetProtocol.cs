@@ -416,7 +416,29 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 444;
+    public const ushort ModBuild = 445;
+    // Build 445: THE BIG MULTIPLAYER TEST — twenty reported items, fifteen lanes, one build. FULL
+    // INSTALL: the bundle moved (74,943,671 bytes) for the grass fix, so this is DLL *and* bundle.
+    // TWO NEW WIRE FIELDS, both optional and both backward-compatible by length:
+    //   * record 20 grew ONE byte + one flag bit — the host's quantised decision about where the
+    //     party is looking, so a shared window spawns in front of the players and in the SAME place
+    //     for all of them. Absent = today's fixed table axis, bit for bit.
+    //   * record 37 is NEW — a map item in a hand, with its hand, its pose and its size, two slots
+    //     of 27 bytes. Props now sync exactly like figures, by user ruling ("mach da keinen
+    //     Unterschied zwischen Figuren und Props"). PresenceSerializer.MaxSize 1800 -> 1900; the
+    //     documented worst case 1513 -> 1570 (BOTH new fields, computed together at integration —
+    //     the two lanes each measured against the same 1513 base without seeing the other).
+    // THE FINDING OF THE ROUND, because it explains two reports at once: a gold pile was registered
+    // with a DISABLED collider, and Unity's ClosestPoint hands back the query point for one of
+    // those — so the pile read at 0 mm forever. That is why gold could not be picked up, AND why
+    // figure scaling was dead for both players all session: the ModBuild-404 veto refuses the
+    // resize whenever a prop is nearer than the figure, and a permanent 0 mm is always nearer.
+    // 1161 refusals on the host, 784 on the remote, zero gestures started. One shared
+    // "is this a believable pick shape?" test now, asked by BOTH halves of the election.
+    // THE OTHER THEME, and it cost this round more than any single bug: FOUR defects were invisible
+    // because the line that named them was at Debug tier, which a shipped build does not print. The
+    // gold tooltip has been logging "<untitled>" — the defect naming itself — since test #18. Every
+    // answer-bearing line touched this round is Note or above with a // HW-VERIFY marker.
     // Build 444: our own figure-glow clones read as SCENERY. f.Mod tests the mod layer or the
     // "GloomhavenVR." prefix; FigureGrab stamps "VR" and builds with a bare new GameObject, which
     // starts on layer 0 — so every creation and destruction of a hover glow bought the player a
