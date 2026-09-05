@@ -64,6 +64,49 @@ internal static class VRLayers
     /// <summary>Culling-mask bit for <see cref="GameUiLayer"/>.</summary>
     internal const int GameUiLayerMask = 1 << GameUiLayer;
 
+    /// <summary>
+    /// THE OTHER WAY THIS MOD MARKS ITS OWN OBJECTS, and it has to live beside the layer
+    /// because until ModBuild 443 nothing knew there were two.
+    ///
+    /// <para><b>THE MEASUREMENT THAT FORCED IT.</b> The ModBuild 442 row census names four
+    /// <c>'VROverlay'</c> renderers ENTERING the wall-fade census with <c>bits 128 =
+    /// activeInHierarchy</c> — no MOD bit — and later LEAVING as dead holes, all folded, each
+    /// one refusing a skip and buying a ~110 ms table rebuild. They are OURS:
+    /// <c>Board/FigureGrab/FigureHighlight.cs</c> and <c>FigureOverlay.cs</c> create them with
+    /// <c>new GameObject("VROverlay")</c> for the figure hover glow, which ModBuild 439 extended
+    /// to props, so more of them are made and destroyed than before. They carry neither
+    /// <see cref="ModLayer"/> (a bare <c>new GameObject</c> starts on layer 0 and
+    /// <c>SetParent</c> does not change it) nor the <c>GloomhavenVR.</c> prefix that
+    /// <c>CanvasConversion</c> uses and that <c>WallSegmentFade.IsModObject</c> tests for. The
+    /// mod had two naming conventions and the "is this ours?" test knew one of them.</para>
+    ///
+    /// <para><b>WHY A TWO-LETTER PREFIX IS ACCEPTABLE, measured rather than asserted.</b> Every
+    /// name beginning with these two letters in the ModBuild 442 session — a four-minute capture
+    /// over a fully revealed board with monsters, ~9,000 renderers per census — is one of ours:
+    /// <c>VROverlay</c>, <c>VRCard_ABILITY_CARD_*</c>, <c>VRHand_Right</c>,
+    /// <c>VRHandArcane_L/R_mesh</c>. Zero game renderers matched.
+    /// <c>FigureHighlight</c> already relies on the same prefix and states the tileset's own
+    /// families beside it (<c>HE_</c>, <c>MO_</c>, <c>WP_</c>, <c>C_*_JNT</c>, <c>Base</c>,
+    /// <c>Actor(Clone)</c>).</para>
+    ///
+    /// <para><b>THE FAILURE DIRECTION, said plainly.</b> A GAME renderer named <c>VR…</c> would
+    /// be read as the mod's own: excluded from every wall-fade adoption lane, so if it hung on a
+    /// wall it would be left standing when that wall faded. That is visible, it is the class the
+    /// LEFTOVER audit exists to catch, and it names the renderer. FALSIFIED BY: a <c>VR</c>-
+    /// prefixed name in that audit, or in the mounted census, that this mod did not create.</para>
+    ///
+    /// <para>ONE DEFINITION. <c>FigureHighlight.ModOwnedPrefix</c> and
+    /// <c>FigureOverlay.StripModOwned</c> point here rather than repeating the literal — three
+    /// copies of one convention is the ModBuild 442 defect in a different costume.</para>
+    /// </summary>
+    internal const string ModOwnedNamePrefix = "VR";
+
+    /// <summary>The prefix <c>CanvasConversion</c> and every mod-created scene object outside
+    /// FigureGrab use. Kept beside <see cref="ModOwnedNamePrefix"/> so the two conventions are
+    /// visible in one place; it is a strict special case of it, which is why the shorter test
+    /// subsumes both.</summary>
+    internal const string ModOwnedQualifiedPrefix = "GloomhavenVR.";
+
     private const int FallbackLayer = GameUiLayer; // built-in "UI"
 
     private static int _modLayer = -1;

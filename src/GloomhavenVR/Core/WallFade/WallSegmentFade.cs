@@ -4906,9 +4906,40 @@ internal static partial class WallSegmentFade
                     // ModBuild 279: into ALL THREE accumulators — a hole is a hole under every
                     // reading of the signature, and a term that moved one but not another would
                     // read as a narrowing effect when it is nothing of the kind.
-                    FoldSceneFact(DeadRendererSigTerm);
-                    FoldNarrowSceneFact(DeadRendererSigTerm);
-                    FoldFigureSetFact(DeadRendererSigTerm);
+                    // ================================================================
+                    // ModBuild 443 — A MOD-OWNED RENDERER THAT DIES IS STILL MOD-OWNED.
+                    // ================================================================
+                    //
+                    // WHAT THE ModBuild 442 LOG CAUGHT, in the row census's own words: four
+                    // 'VROverlay' rows LEFT as dead holes and all four were FOLDED, on the
+                    // same line where 'GloomhavenVR.Laser_Right' LEFT and was correctly
+                    // EXEMPT. VROverlay is OURS (Board/FigureGrab/FigureHighlight.cs and
+                    // FigureOverlay.cs — the figure hover glow, which ModBuild 439 extended
+                    // to props, so more of them are created and destroyed than before), and
+                    // four of the ten folded rows in that one cycle were the mod's own
+                    // overlays dying.
+                    //
+                    // WHY THE 439 EXEMPTION MISSED THEM. Its term is f.Mod, and f.Mod is
+                    // `r.gameObject.layer == VRLayers.ModLayer` — a property of a LIVE
+                    // object. Here r is null. There is nothing left to ask, so the hole
+                    // folded unconditionally and a renderer that would have been exempt one
+                    // frame earlier moved the signature by dying.
+                    //
+                    // THE ANSWER IS THE ONE THE ROW BANK ALREADY MAKES AVAILABLE: the row
+                    // remembers whether its last live occupant was exempt, the same way it
+                    // remembers that occupant's instance id, and it is cleared on a fresh
+                    // sweep so the memory can never cross to a different renderer. See
+                    // SceneRowWasExemptWhenAlive for why exempting the DEATH is safe by a
+                    // strictly shorter argument than exempting the life, and for why the one
+                    // mod row that is NOT exempt (a wall-fade-shader mesh, which really is
+                    // read out of _factWallFade) keeps folding when it dies.
+                    bool holeExempt = SceneRowWasExemptWhenAlive(i);
+                    if (!holeExempt)
+                    {
+                        FoldSceneFact(DeadRendererSigTerm);
+                        FoldNarrowSceneFact(DeadRendererSigTerm);
+                        FoldFigureSetFact(DeadRendererSigTerm);
+                    }
                     // ModBuild 439: the delta decoder's row bank, index for index with _facts.
                     // A hole is recorded as the term it folds, so a destroyed renderer shows up
                     // in the census as a destroyed renderer. See WallSegmentFade.CommitPhases.cs.
@@ -4917,7 +4948,8 @@ internal static partial class WallSegmentFade
                     // how the census names WHICH renderer died; a row that has never had one
                     // (destroyed between the sweep and its first classify) stays unkeyed and is
                     // counted rather than guessed at.
-                    RecordSceneFactRow(i, 0, DeadRendererSigTerm, folded: true);
+                    RecordSceneFactRow(i, 0, DeadRendererSigTerm, exempt: holeExempt,
+                                       figure: false);
                     continue;
                 }
                 bool cold = _classifyCold || !ReferenceEquals(f.R, r);
@@ -5055,7 +5087,8 @@ internal static partial class WallSegmentFade
                 // ModBuild 440: the instance id goes into the row bank too. It costs no
                 // interop — it is the very value `ident` was folded from one line above — and it
                 // is what makes the census's diff order-free across a fresh sweep.
-                RecordSceneFactRow(i, r.GetInstanceID(), sceneRow, folded: !modExempt);
+                RecordSceneFactRow(i, r.GetInstanceID(), sceneRow, exempt: modExempt,
+                                   figure: f.Figure);
                 if (modExempt)
                     continue;
                 FoldSceneFact(sceneRow);
@@ -5179,9 +5212,11 @@ internal static partial class WallSegmentFade
             f.Name = n; // ModBuild 278 — see RendererFact.Name; the string is already allocated
             // IsModObject, verbatim: the mod layer OR the repo-convention name prefix (hardware
             // round 3 — the MR sky backing 'GloomhavenVR.MrBacking' leaked into the near-miss
-            // census through the layer-only test).
+            // census through the layer-only test). ModBuild 443 adds FigureGrab's own prefix,
+            // which this test had never known about and which the mod's figure-glow clones are
+            // the only users of in a scene — see VRLayers.ModOwnedNamePrefix and IsModObject.
             f.Mod = r.gameObject.layer == VRLayers.ModLayer
-                || n.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
+                || n.StartsWith(VRLayers.ModOwnedNamePrefix, StringComparison.Ordinal);
             // The authored water name family, consulted — as before — only when the shader
             // family already said no. See WallSegmentFade.Water.cs.
             f.WaterSurface = water || IsWaterNameFamily(n);
@@ -7131,7 +7166,15 @@ internal static partial class WallSegmentFade
         /// second, layer-independent test.</summary>
         private static bool IsModObject(Renderer r) =>
             r.gameObject.layer == VRLayers.ModLayer
-            || r.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal);
+            // ModBuild 443 — THE THIRD SIGNAL, and it is the SECOND CONVENTION rather than a
+            // widening. 'GloomhavenVR.' is what CanvasConversion stamps; FigureGrab stamps 'VR'
+            // (VROverlay, VRFigureHighlight, VRFigureGhost, VR_FigureReach, VRGhostDepth) and
+            // this test knew nothing about it, so the mod's own figure-glow clones read as
+            // SCENERY. See VRLayers.ModOwnedNamePrefix for the ModBuild 442 rows that measured
+            // it, for the zero false positives across that session's ~9,000 renderers, and for
+            // the failure direction. The qualified prefix is a strict special case of the short
+            // one, so one test covers both.
+            || r.name.StartsWith(VRLayers.ModOwnedNamePrefix, StringComparison.Ordinal);
 
         /// <summary>
         /// FIGURES ARE NEVER TOUCHED — round-7 ruling, same severity as the Lights rule

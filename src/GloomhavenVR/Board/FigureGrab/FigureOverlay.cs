@@ -822,7 +822,9 @@ internal static class FigureOverlay
             Transform child = root.GetChild(i);
             if (child == null)
                 continue;
-            if (child.name.StartsWith("VR", StringComparison.Ordinal))
+            // ModBuild 443: the same one definition FigureHighlight now points at — this was the
+            // third copy of the literal. Same value, so nothing here changes.
+            if (child.name.StartsWith(Core.VRLayers.ModOwnedNamePrefix, StringComparison.Ordinal))
             {
                 child.gameObject.SetActive(false); // instant off; the Destroy itself is deferred
                 Object.Destroy(child.gameObject);

@@ -965,19 +965,41 @@ internal static partial class WallSegmentFade
         /// SAME shape <see cref="_phaseTotalMillis"/> beside it already has, and the reset is a
         /// bulk clear of a buffer rather than a write to a field somebody reads.</para>
         /// </summary>
-        private readonly long[] _electWindow = new long[6];
-        private const int ElectWindowPairs = 0;
-        private const int ElectWindowCandidates = 1;
+        /// <summary>
+        /// The slots of <see cref="_electWindow"/>. ModBuild 443 — AN ENUM WITH A SENTINEL,
+        /// because this was six hand-written <c>const int</c>s beside a hand-written
+        /// <c>new long[6]</c>, which is the ModBuild 442 defect one file over: two things that
+        /// must agree, maintained separately, where the disagreement is an
+        /// <c>IndexOutOfRangeException</c> on a path no test walks — and in this subsystem a
+        /// throw inside the commit aborts <c>RescanCore</c> and stops every wall in the game
+        /// from fading. The length now comes from the list itself.
+        /// </summary>
+        private enum ElectWindow
+        {
+            Pairs = 0,
+            Candidates,
+            HangingPairs,
+            HangingCandidates,
+            UnionPairs,
+            UnionCandidates,
+
+            /// <summary>SENTINEL, ALWAYS LAST — see the type summary.</summary>
+            Count,
+        }
+
+        private readonly long[] _electWindow = new long[(int)ElectWindow.Count];
+        private const int ElectWindowPairs = (int)ElectWindow.Pairs;
+        private const int ElectWindowCandidates = (int)ElectWindow.Candidates;
         // ModBuild 440 — the SAME product, in the two lanes that never got PERF S7's flattening.
         // The ModBuild 439 stage slice put 40-54 ms in Riders and 19-20 ms in Union against 12 ms
         // in the whole sweep, and both of those walk _live.Segments.Values ONCE PER CANDIDATE
         // with a UnityEngine.Object null compare on the row. Their pair counts are printed for
         // the reason the election's is: a flattening that does not reduce the COUNT and does not
         // move the MILLISECOND either has been falsified by its own instrument.
-        private const int HangingWindowPairs = 2;
-        private const int HangingWindowCandidates = 3;
-        private const int UnionWindowPairs = 4;
-        private const int UnionWindowCandidates = 5;
+        private const int HangingWindowPairs = (int)ElectWindow.HangingPairs;
+        private const int HangingWindowCandidates = (int)ElectWindow.HangingCandidates;
+        private const int UnionWindowPairs = (int)ElectWindow.UnionPairs;
+        private const int UnionWindowCandidates = (int)ElectWindow.UnionCandidates;
         /// <summary>The row count of the LAST election index built in this window, i.e. the
         /// segment-table size the product is multiplied by. Deliberately a plain assignment and
         /// not a running max: a max would have to READ the field in the mechanism that writes it,

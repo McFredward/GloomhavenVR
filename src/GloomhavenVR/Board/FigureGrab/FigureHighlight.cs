@@ -147,7 +147,11 @@ internal sealed partial class FigureHighlight
     /// the game ships under an actor starts with these two letters (they are <c>HE_</c>, <c>MO_</c>,
     /// <c>WP_</c>, <c>C_*_JNT</c>, <c>Base</c>, <c>Actor(Clone)</c>).
     /// </summary>
-    private const string ModOwnedPrefix = "VR";
+    /// <summary>ModBuild 443: ONE definition, in Core/VRLayers.cs beside the mod LAYER, because
+    /// the wall-fade census needs the same answer and had a different one — see
+    /// <c>VRLayers.ModOwnedNamePrefix</c> for the four VROverlay rows that cost ~110 ms each.
+    /// Same value, so nothing here changes.</summary>
+    private const string ModOwnedPrefix = Core.VRLayers.ModOwnedNamePrefix;
 
     private static readonly List<Renderer> Scratch = new(32);
 

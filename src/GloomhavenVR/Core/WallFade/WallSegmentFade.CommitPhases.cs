@@ -111,13 +111,49 @@ internal static partial class WallSegmentFade
         /// expressed in the NAME, because PerfMonitor's ranking is flat.</summary>
         private static readonly string[] CommitPhaseScopeNames = BuildCommitPhaseScopeNames();
 
+        /// <summary>ModBuild 443: index-guarded, and deliberately. This runs in a STATIC
+        /// INITIALISER, so a name list one entry short would throw inside the type constructor
+        /// and take the whole class down with a TypeInitializationException that names no phase
+        /// — the ModBuild 442 failure mode with a worse stack. A placeholder here turns that
+        /// into a wrong label, and <see cref="CheckCommitPhaseNames"/> then says so out loud on
+        /// the first BUDGET line.</summary>
         private static string[] BuildCommitPhaseScopeNames()
         {
             var names = new string[CommitPhaseCount];
             for (int i = 0; i < CommitPhaseCount; i++)
-                names[i] = "WallFade.Commit." + CommitPhaseNames[i];
+            {
+                names[i] = "WallFade.Commit."
+                         + (i < CommitPhaseNames.Length ? CommitPhaseNames[i] : "Phase" + i);
+            }
             return names;
         }
+
+        private static bool _commitPhaseNamesChecked;
+
+        /// <summary>The sibling of the MOUNTED STAGES name check, for the same reason: this list
+        /// and the enum beside it are two hand-ordered lists of one thing, and ModBuild 441
+        /// shipped the other one merely REORDERED — correct numbers under wrong names, with
+        /// nothing to notice. Checked once, at a tier the default log prints.</summary>
+        private static void CheckCommitPhaseNames()
+        {
+            if (_commitPhaseNamesChecked)
+                return;
+            _commitPhaseNamesChecked = true;
+            if (CommitPhaseNames.Length == CommitPhaseCount)
+                return;
+            // HW-VERIFY
+            VRLog.Alert(Name, "COMMIT PHASES name list is " + CommitPhaseNames.Length
+                              + " entry(s) against " + CommitPhaseCount + " phase(s) — the "
+                              + "breakdown and every 'WallFade.Commit.*' step name are "
+                              + "MISLABELLED from the first mismatch on. Add the name beside the "
+                              + "enum member, in enum order.");
+        }
+
+        /// <summary>One phase's label, never an out-of-range index — see
+        /// <see cref="CheckCommitPhaseNames"/>, which is what says the label is wrong.</summary>
+        private static string CommitPhaseLabel(int index) =>
+            index >= 0 && index < CommitPhaseNames.Length ? CommitPhaseNames[index]
+                                                          : "Phase" + index;
 
         /// <summary>Worst SINGLE-CYCLE cost of each phase since the last BUDGET line (ms).</summary>
         private readonly float[] _phaseWorstMillis = new float[CommitPhaseCount];
@@ -190,7 +226,7 @@ internal static partial class WallSegmentFade
         /// statement that no commit completed. Never a constant: a change-gated reason string
         /// prints once and then reads as a dead instrument.</summary>
         private string WorstCommitPhaseName =>
-            _cycleWorstCommitPhase >= 0 ? CommitPhaseNames[_cycleWorstCommitPhase] : "none yet";
+            _cycleWorstCommitPhase >= 0 ? CommitPhaseLabel(_cycleWorstCommitPhase) : "none yet";
 
         /// <summary>Open a measured phase. Use as <c>using (Phase(CommitPhase.X))</c> — the
         /// struct is disposed by the compiler without boxing.</summary>
@@ -213,8 +249,15 @@ internal static partial class WallSegmentFade
             internal CommitPhaseScope(FadeDriver driver, int index)
             {
                 _driver = driver;
-                _index = index;
-                _measure = PerfMonitor.Scope(CommitPhaseScopeNames[index]);
+                // ModBuild 443 — range-guarded for the reason MountedMark is: a throw in here
+                // aborts RescanCore and stops every wall in the game from fading. An index
+                // outside the arrays costs this phase its measurement and nothing else.
+                bool ok = (uint)index < (uint)CommitPhaseCount;
+                if (!ok)
+                    NoteStageIndexOutOfRange("COMMIT PHASES", index, CommitPhaseCount);
+                _index = ok ? index : -1;
+                _measure = PerfMonitor.Scope(ok ? CommitPhaseScopeNames[index]
+                                                : "WallFade.Commit.<out-of-range>");
                 _startMillis = (float)RescanClock.Elapsed.TotalMilliseconds;
             }
 
@@ -222,7 +265,8 @@ internal static partial class WallSegmentFade
             {
                 float ms = (float)RescanClock.Elapsed.TotalMilliseconds - _startMillis;
                 _measure.Dispose();
-                _driver._phaseCycleMillis[_index] += ms;
+                if (_index >= 0)
+                    _driver._phaseCycleMillis[_index] += ms;
             }
         }
 
@@ -246,6 +290,7 @@ internal static partial class WallSegmentFade
                 else if (c < 0 || w > _phaseWorstMillis[c]) { c = i; }
             }
 
+            CheckCommitPhaseNames();
             sb.Append(" COMMIT PHASES (worst single cycle, then window total): ");
             float named = 0f;
             AppendPhase(sb, a, ref named, first: true);
@@ -450,15 +495,48 @@ internal static partial class WallSegmentFade
             return MountedClockMillis();
         }
 
-        /// <summary>Close one stage and open the next: adds the elapsed time to
+        /// <summary>
+        /// Close one stage and open the next: adds the elapsed time to
         /// <paramref name="stage"/> and returns the new stamp. A chain of these costs one clock
         /// read per boundary and cannot double-count, because each call's return IS the next
-        /// call's start.</summary>
+        /// call's start.
+        ///
+        /// <para><b>ModBuild 443 — RANGE-GUARDED, AND THIS IS THE LESSON OF 442 RATHER THAN A
+        /// STYLE PREFERENCE.</b> The sentinel now makes the array the right LENGTH, which is the
+        /// cause 442 fixed. This is about the CONSEQUENCE: the throw happened inside
+        /// <c>CollectWallMountedProps</c>, it aborted <c>RescanCore</c>, the segment table was
+        /// never rebuilt, and NO WALL IN THE GAME FADED. An instrument may cost a microsecond and
+        /// it may print a wrong number, but it must never be able to stop the subsystem it is
+        /// measuring. Out of range now loses one stage's milliseconds and says so once.</para>
+        /// </summary>
         private float MountedMark(MountedStage stage, float since)
         {
             float now = MountedClockMillis();
-            _mountedStageCycle[(int)stage] += now - since;
+            int i = (int)stage;
+            if ((uint)i < (uint)MountedStageCount)
+                _mountedStageCycle[i] += now - since;
+            else
+                NoteStageIndexOutOfRange("MOUNTED STAGES", i, MountedStageCount);
             return now;
+        }
+
+        private static bool _stageIndexAlerted;
+
+        /// <summary>Say once, at a tier the default log prints, that a phase index was outside
+        /// its array — the shape that cost ModBuild 441 an entire build's worth of wall
+        /// fading.</summary>
+        private static void NoteStageIndexOutOfRange(string which, int index, int count)
+        {
+            if (_stageIndexAlerted)
+                return;
+            _stageIndexAlerted = true;
+            // HW-VERIFY
+            VRLog.Alert(Name, which + " was handed index " + index + " against " + count
+                              + " slot(s). The measurement for that stage is LOST and the "
+                              + "breakdown below undercounts, but the rescan is not aborted — "
+                              + "which is the whole point of the guard (ModBuild 441 threw here "
+                              + "and no wall in the game faded). Add the stage to the enum, the "
+                              + "name list and nothing else: the arrays size themselves.");
         }
 
         /// <summary>Fold this commit's stages into the window accumulators. In a
@@ -624,17 +702,43 @@ internal static partial class WallSegmentFade
         /// </summary>
         private int[] _sigRowId = Array.Empty<int>();
 
-        /// <summary>Whether that row's term actually ENTERED the fold. False for the ModBuild
-        /// 439 mod-owned exemption, whose term is computed (so this census can still report it)
-        /// and deliberately not accumulated.</summary>
-        private bool[] _sigRowFolded = Array.Empty<bool>();
+        // ---- ModBuild 443: ONE FLAGS BYTE PER ROW, AND ITS CLEARED STATE IS THE SAFE ONE ----
+        //
+        // TWO FACTS ABOUT A ROW BESIDES ITS TERM, AND THEY GO IN ONE ARRAY. ModBuild 442 was a
+        // hand-kept length beside a growing list, and the general shape of that defect is TWO
+        // THINGS THAT MUST AGREE, MAINTAINED SEPARATELY. Three parallel bool arrays over 9,000
+        // rows would be the same shape, so the flags live in one byte written at exactly one
+        // site (RecordSceneFactRow).
+        //
+        // AND THE POLARITY IS CHOSEN, NOT INHERITED. Both bits are stored as the EXCEPTIONAL
+        // answer, so a cleared array — which is what a fresh sweep leaves behind, and what a row
+        // that died before it was ever classified reads — means "folded, and not a figure": the
+        // conservative answer in both cases. A bit stored the other way round would make an
+        // uninitialised row silently exempt itself from the signature, which is a wrong SKIP,
+        // and a wrong skip is a segment table that never gets rebuilt.
+
+        /// <summary>The row was EXEMPT from the fold (ModBuild 439's mod-owned exemption). Its
+        /// term is still computed and recorded so the census can report it; it is simply not
+        /// accumulated. Cleared = folded.</summary>
+        private const byte SigRowExempt = 1;
+
+        /// <summary>The row's renderer was <c>RendererFact.Figure</c> — a renderer the round-7
+        /// ruling puts beyond every adoption lane's reach. Recorded for ONE question, asked by
+        /// the coordinator against the ModBuild 442 log and answered in AppendSigDeltaRows:
+        /// whether the renderers that move this signature are figures at all. Cleared = not a
+        /// figure, which understates rather than overstates.</summary>
+        private const byte SigRowFigure = 2;
+
+        /// <summary>Per-row flags, index for index with <see cref="_sigRow"/>. See
+        /// <see cref="SigRowExempt"/> / <see cref="SigRowFigure"/>.</summary>
+        private byte[] _sigRowFlags = Array.Empty<byte>();
 
         /// <summary>The same three arrays as the commit consumed them, plus each row's name -
         /// the only way to name a renderer that has since been DESTROYED, for the same reason
         /// <c>RendererFact.Name</c> exists.</summary>
         private ulong[] _sigBankRow = Array.Empty<ulong>();
         private int[] _sigBankId = Array.Empty<int>();
-        private bool[] _sigBankFolded = Array.Empty<bool>();
+        private byte[] _sigBankFlags = Array.Empty<byte>();
         private string?[] _sigBankName = Array.Empty<string?>();
         private int _sigBankCount;
 
@@ -703,6 +807,11 @@ internal static partial class WallSegmentFade
             {
                 _sigRowsSweptAt = _snapshotTakenAt;
                 Array.Clear(_sigRowId, 0, _sigRowId.Length);
+                // ModBuild 443: and the flags, for the same reason and with the same direction of
+                // failure. A carried EXEMPT bit from the previous snapshot's occupant of row i
+                // would exempt a GAME renderer from the signature — a wrong skip, which is a
+                // segment table that never gets rebuilt. Cleared means folded.
+                Array.Clear(_sigRowFlags, 0, _sigRowFlags.Length);
             }
         }
 
@@ -710,26 +819,73 @@ internal static partial class WallSegmentFade
         /// branch on configuration — an instrument that is only banked when it is switched on
         /// is the inverse of this project's "gated remedy never ran" entry, and this one is
         /// small enough that it never needs a gate.</summary>
+        /// <summary>
+        /// Was the renderer that last occupied this census row EXEMPT from the fold?
+        ///
+        /// <para><b>ModBuild 443 — THE DEATH CASE, WHICH THE 439 EXEMPTION DID NOT COVER.</b>
+        /// <c>f.Mod</c> is <c>r.gameObject.layer == VRLayers.ModLayer</c>: a property of a LIVE
+        /// object. A row whose renderer has been DESTROYED is a hole, so at the moment the
+        /// exemption would be evaluated there is nothing left to ask — and until this build the
+        /// hole folded the per-hole term unconditionally. A mod-owned renderer that DIED
+        /// therefore moved the signature even though the identical renderer would have been
+        /// exempt while alive.</para>
+        ///
+        /// <para><b>THE ModBuild 442 LOG NAMES THE COST.</b> Its row census reads: four
+        /// <c>'VROverlay'</c> rows LEFT as dead holes, all four FOLDED, on the same line where
+        /// <c>'GloomhavenVR.Laser_Right'</c> LEFT and was correctly EXEMPT. VROverlay is OURS —
+        /// <c>Board/FigureGrab/FigureHighlight.cs</c> and <c>FigureOverlay.cs</c> create it for
+        /// the figure hover glow, which ModBuild 439 extended to props, so more of them are made
+        /// and destroyed than before. Four of the ten folded rows in that cycle were the mod's
+        /// own overlays dying.</para>
+        ///
+        /// <para><b>WHY EXEMPTING THE DEATH IS SAFER THAN EXEMPTING THE LIFE, not merely as
+        /// safe.</b> The 439 argument was that every consumer of the fact table rejects
+        /// <c>f.Mod</c> before reading anything else. A DEAD row is rejected one term EARLIER
+        /// still, by <c>f.R == null</c>, in every one of those consumers without exception. So a
+        /// mod-owned renderer's death cannot change the commit's output by an even shorter
+        /// argument than its life could not.</para>
+        ///
+        /// <para><b>AND IT IS NOT WIDENED TO THE ONE MOD ROW THAT IS NOT EXEMPT.</b> The 439
+        /// exemption is a conjunction: a mod-owned renderer that would enter
+        /// <c>_factWallFade</c> (<c>f.Mesh != null &amp;&amp; f.WallFadeShader</c>) keeps its
+        /// full term, because that index really is read without a mod filter. Such a row was
+        /// recorded FOLDED while alive, so this returns false for it and its death still folds —
+        /// which is correct, because a dead row leaves <c>_factWallFade</c> and that changes
+        /// <c>AdoptShaderMatchedWalls</c>'s input.</para>
+        ///
+        /// <para>Out of range, or a row that has never been recorded, returns FALSE = fold. That
+        /// is the conservative direction and it is the same one the cleared flags array gives.
+        /// </para>
+        /// </summary>
+        private bool SceneRowWasExemptWhenAlive(int index) =>
+            index >= 0 && index < _sigRowFlags.Length
+            && (_sigRowFlags[index] & SigRowExempt) != 0;
+
         /// <param name="instanceId">The renderer's instance id, or 0 for a snapshot HOLE - a
         /// row whose renderer has been destroyed has no id to ask for, so the row keeps the one
         /// it was last recorded with (see <see cref="_sigRowId"/>).</param>
-        private void RecordSceneFactRow(int index, int instanceId, ulong contribution, bool folded)
+        /// <param name="exempt">The row was NOT accumulated into the fold. Stored as the
+        /// exceptional answer on purpose — see the flags block above.</param>
+        /// <param name="figure">The row's renderer was <c>RendererFact.Figure</c>.</param>
+        private void RecordSceneFactRow(int index, int instanceId, ulong contribution,
+                                        bool exempt, bool figure)
         {
             if (_sigRow.Length <= index)
             {
                 int want = Mathf.NextPowerOfTwo(index + 1);
                 Array.Resize(ref _sigRow, want);
                 Array.Resize(ref _sigRowId, want);
-                Array.Resize(ref _sigRowFolded, want);
+                Array.Resize(ref _sigRowFlags, want);
             }
             if (instanceId != 0)
                 _sigRowId[index] = instanceId;
             _sigRow[index] = contribution;
-            _sigRowFolded[index] = folded;
-            if (folded)
-                _sceneFoldedRows++;
-            else
+            _sigRowFlags[index] = (byte)((exempt ? SigRowExempt : 0)
+                                       | (figure ? SigRowFigure : 0));
+            if (exempt)
                 _sceneExemptRows++;
+            else
+                _sceneFoldedRows++;
         }
 
         /// <summary>Bank the rows the committed table was built from, at the same instant and
@@ -748,12 +904,12 @@ internal static partial class WallSegmentFade
                     int want = Mathf.NextPowerOfTwo(Mathf.Max(n, 256));
                     Array.Resize(ref _sigBankRow, want);
                     Array.Resize(ref _sigBankId, want);
-                    Array.Resize(ref _sigBankFolded, want);
+                    Array.Resize(ref _sigBankFlags, want);
                     Array.Resize(ref _sigBankName, want);
                 }
                 Array.Copy(_sigRow, _sigBankRow, n);
                 Array.Copy(_sigRowId, _sigBankId, n);
-                Array.Copy(_sigRowFolded, _sigBankFolded, n);
+                Array.Copy(_sigRowFlags, _sigBankFlags, n);
                 _sigBankUnkeyedHoles = 0;
                 for (int i = 0; i < n; i++)
                 {
@@ -897,6 +1053,11 @@ internal static partial class WallSegmentFade
             // The exempt slots are kept and small on purpose — a non-zero exempt count with no
             // name would leave the ModBuild 439 exemption unfalsifiable from the log alone.
             int namedFolded = 0, namedExempt = 0;
+            // ModBuild 443 — THE FIGURE QUESTION, ANSWERED AS A COUNT RATHER THAN ARGUED. See
+            // the clause this feeds for what a zero here does and does not prove. Accumulated as
+            // the BIT (SigRowFigure == 2), so it is divided by that bit on the way out rather
+            // than branched on the way in.
+            int figureMovers = 0;
             ulong sumCheck = 0, xorCheck = 0;
             var rows = new System.Text.StringBuilder(768);
 
@@ -904,7 +1065,8 @@ internal static partial class WallSegmentFade
             {
                 int id = _sigRowId[i];
                 ulong after = _sigRow[i];
-                bool afterFolded = _sigRowFolded[i];
+                byte afterFlags = _sigRowFlags[i];
+                bool afterFolded = (afterFlags & SigRowExempt) == 0;
                 if (id == 0)
                 {
                     liveUnkeyedHoles++;
@@ -914,24 +1076,30 @@ internal static partial class WallSegmentFade
                 {
                     _sigDiffMap.Remove(id); // matched — whatever survives the walk LEFT
                     ulong before = _sigBankRow[bi];
-                    bool beforeFolded = _sigBankFolded[bi];
+                    byte beforeFlags = _sigBankFlags[bi];
+                    bool beforeFolded = (beforeFlags & SigRowExempt) == 0;
                     if (before == after && beforeFolded == afterFolded)
                         continue;
                     changedRows++;
                     bool changedFolded = beforeFolded || afterFolded;
+                    figureMovers += (beforeFlags | afterFlags) & SigRowFigure;
                     Account(ref sumCheck, ref xorCheck, before, beforeFolded, after, afterFolded,
                             ref foldedMovers, ref exemptMovers);
                     if (TakeNameSlot(changedFolded, ref namedFolded, ref namedExempt, rows))
-                        AppendSigDeltaChangedRow(rows, i, bi, before, after, changedFolded);
+                    {
+                        AppendSigDeltaChangedRow(rows, i, bi, before, after, changedFolded,
+                                                 (byte)(beforeFlags | afterFlags));
+                    }
                     continue;
                 }
                 entered++;
+                figureMovers += afterFlags & SigRowFigure;
                 Account(ref sumCheck, ref xorCheck, 0UL, false, after, afterFolded,
                         ref foldedMovers, ref exemptMovers);
                 if (TakeNameSlot(afterFolded, ref namedFolded, ref namedExempt, rows))
                 {
                     AppendSigDeltaEndpointRow(rows, "ENTERED", _facts[i].Name, id, after,
-                                              afterFolded);
+                                              afterFolded, afterFlags);
                 }
             }
 
@@ -940,13 +1108,15 @@ internal static partial class WallSegmentFade
                 int bi = kv.Value;
                 left++;
                 ulong before = _sigBankRow[bi];
-                bool beforeFolded = _sigBankFolded[bi];
+                byte beforeFlags = _sigBankFlags[bi];
+                bool beforeFolded = (beforeFlags & SigRowExempt) == 0;
+                figureMovers += beforeFlags & SigRowFigure;
                 Account(ref sumCheck, ref xorCheck, before, beforeFolded, 0UL, false,
                         ref foldedMovers, ref exemptMovers);
                 if (TakeNameSlot(beforeFolded, ref namedFolded, ref namedExempt, rows))
                 {
                     AppendSigDeltaEndpointRow(rows, "LEFT", _sigBankName[bi], kv.Key, before,
-                                              beforeFolded);
+                                              beforeFolded, beforeFlags);
                 }
             }
 
@@ -979,6 +1149,30 @@ internal static partial class WallSegmentFade
               .Append(liveUnkeyedHoles).Append(" live and ").Append(_sigBankUnkeyedHoles)
               .Append(" banked row(s) are holes with no recorded id and are counted, never ")
               .Append("named. ");
+            // ModBuild 443 — THE FIGURE QUESTION, AND WHAT ITS TWO ANSWERS MEAN. The coordinator
+            // read the ModBuild 442 log's FIGURE EXEMPTION clause — "0 cycle(s) this window moved
+            // the FULL scene signature but NOT the narrowed one", in all 35 windows — and asked
+            // whether the monster's renderers are simply not f.Figure. THE COUNTER IS NOT
+            // MEASURING THAT, and the source settles it without a hardware round: the narrowed
+            // half is FoldSig(ident, NarrowedBits(bits, figure)) — it replaces the
+            // activeInHierarchy BIT and still folds IDENTITY. So a row that ENTERS or LEAVES the
+            // snapshot moves the narrowed half too, whatever its figure verdict is, and the
+            // narrowing is structurally incapable of removing a SPAWN or a DESPAWN. It can only
+            // ever remove an activeInHierarchy flip of a renderer that is present on both sides.
+            // The 442 log's movers are 6 ENTERED and 5 LEFT with 0 CHANGED IN PLACE, so a zero
+            // yield there is the counter being right about a class of event outside its reach —
+            // not evidence about figures. THIS number is the evidence about figures: it is the
+            // f.Figure verdict of the movers themselves, recorded per row.
+            sb.Append("FIGURE VERDICT OF THE MOVERS (ModBuild 443): ")
+              .Append(figureMovers / SigRowFigure).Append(" of the ").Append(movers)
+              .Append(" were RendererFact.Figure. Read it against the FIGURE EXEMPTION clause on ")
+              .Append("this line and NOT as a substitute for it: that clause counts cycles the ")
+              .Append("narrowing would have skipped, and the narrowing still folds IDENTITY, so ")
+              .Append("it can never remove a spawn or a despawn — only an activeInHierarchy flip ")
+              .Append("of a renderer present on both sides. A high count here with ENTERED/LEFT ")
+              .Append("movers means the figure narrowing cannot help with this session's churn; ")
+              .Append("a ZERO count means the round-7 figure test does not see these renderers ")
+              .Append("at all, which is a finding about the test and not about the scene. ");
             if (named > 0)
             {
                 sb.Append("ROWS (").Append(named).Append(" named, ").Append(movers - named)
@@ -1067,7 +1261,7 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void AppendSigDeltaChangedRow(System.Text.StringBuilder sb, int liveIndex,
                                               int bankIndex, ulong before, ulong after,
-                                              bool folded)
+                                              bool folded, byte flags)
         {
             string name = _facts[liveIndex].Name ?? _sigBankName[bankIndex] ?? "<unnamed>";
             sb.Append('\'').Append(name).Append("' #").Append(_sigRowId[liveIndex]);
@@ -1097,6 +1291,8 @@ internal static partial class WallSegmentFade
                 }
             }
             sb.Append(folded ? " [FOLDED]" : " [EXEMPT]");
+            if ((flags & SigRowFigure) != 0)
+                sb.Append("[FIGURE]");
         }
 
         /// <summary>A renderer on ONE side only: it entered the snapshot or it left it. The bits
@@ -1104,7 +1300,7 @@ internal static partial class WallSegmentFade
         /// the name is missing.</summary>
         private static void AppendSigDeltaEndpointRow(System.Text.StringBuilder sb, string what,
                                                       string? name, int id, ulong term,
-                                                      bool folded)
+                                                      bool folded, byte flags)
         {
             sb.Append('\'').Append(name ?? "<unnamed>").Append("' #").Append(id).Append(' ')
               .Append(what);
@@ -1113,6 +1309,8 @@ internal static partial class WallSegmentFade
             else if (WallSigDelta.TryDecodeRow(term, out _, out int bits))
                 sb.Append(" with bits ").Append(bits).Append(" = ").Append(WallSigDelta.Names(bits));
             sb.Append(folded ? " [FOLDED]" : " [EXEMPT]");
+            if ((flags & SigRowFigure) != 0)
+                sb.Append("[FIGURE]");
         }
 
         /// <summary>The BUDGET line's own clause for this instrument, so the window totals are
@@ -1143,7 +1341,7 @@ internal static partial class WallSegmentFade
             if (!first)
                 sb.Append(", ");
             namedTotal += _phaseTotalMillis[index];
-            sb.Append(CommitPhaseNames[index]).Append(' ')
+            sb.Append(CommitPhaseLabel(index)).Append(' ')
               .Append(_phaseWorstMillis[index].ToString("F2")).Append("ms worst / ")
               .Append(_phaseTotalMillis[index].ToString("F1")).Append("ms total");
         }
