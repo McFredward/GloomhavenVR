@@ -637,11 +637,16 @@ internal sealed class HandGhost
                             + "against every other transparent surface by sortingLayer, then "
                             + "sortingOrder, then queue — and the hand's sortingOrder is rewritten "
                             + "every frame from its eye distance onto the converted-panel ladder "
-                            + "(lift " + GhostPanelLift + "). Card faces are unaffected either way: "
-                            + "a card's backing slab is depth-writing AlphaTest geometry in the "
-                            + "opaque tier, so it has already stamped its footprint and rejects the "
-                            + "hand behind it per pixel whatever the orders say. The GHOST HAND "
-                            + "ORDER line carries the rank this hand actually got.");
+                            + "(lift " + GhostPanelLift + "). A card in front of the hand is supposed "
+                            + "to be unaffected by any of those orders, because its backing slab is "
+                            + "depth-writing AlphaTest geometry in the opaque tier and has already "
+                            + "stamped its footprint before this pass runs — but that is a claim "
+                            + "ABOUT THE CARD, not about this material, and this line cannot check "
+                            + "it. The CARD BODY DEPTH STAMP line (Cards) is the one that reads a "
+                            + "real card body back and says whether it still stamps; if the hand is "
+                            + "showing through a card, read that line first, because a body wearing "
+                            + "the face-hosted mesh has no front fan and stamps nothing. The GHOST "
+                            + "HAND ORDER line carries the rank this hand actually got.");
     }
 
     /// <summary>

@@ -574,6 +574,13 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
             CardMesh.CreateBackMaterial(CardBodyKind.Ability),
         };
         renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+        // THE DEPTH STAMP, MEASURED RATHER THAN ASSERTED. This is the first moment a real hand card's
+        // body has both its mesh and its materials, so it is the first moment the claim two other
+        // features rest on — "a card's backing slab is depth-writing AlphaTest geometry in the opaque
+        // tier", which is how the ghost hand (Hands/HandGhost) and the wrist HUD stay hidden behind a
+        // card — can be read off the object instead of restated. Change-gated inside, so this costs
+        // one string compare per card after the first.
+        CardMesh.ReportBodyDepthStamp(backing.GetComponent<MeshFilter>(), "local card backing built");
         return backing.transform;
     }
 

@@ -505,9 +505,146 @@ internal static class CardMesh
             _bodies[i] = (filter, kind, w, h, hosted);
             filter.sharedMesh = BodyMesh(kind, w, h, hosted);
             changed++;
+            // A swap that takes the front fan away takes the card's depth stamp with it, so the
+            // reading has to be re-taken here and not only where the body was built.
+            ReportBodyDepthStamp(filter, hosted ? "face-hosted swap" : "front fan handed back");
         }
         return changed;
     }
+
+    /// <summary>
+    /// WHAT A CARD BODY ACTUALLY IS, at the depth buffer: shader, render queue, ZWrite, cutout mode,
+    /// submesh layout, and how many FRONT-FAN triangles the mesh it is wearing still has.
+    ///
+    /// <para>WHY THIS EXISTS AS AN INSTRUMENT. Two features are documented as being kept behind a
+    /// card by that card's depth stamp — the ghost hand (<c>Hands/HandGhost</c>: "a card's backing
+    /// slab is depth-writing AlphaTest geometry in the opaque tier, so it has already stamped its
+    /// footprint and rejects the hand behind it per pixel") and the wrist HUD (a world-space uGUI
+    /// canvas at <c>unity_GUIZTestMode</c> = LEqual). Both sentences were ASSERTED and nothing in
+    /// any log measured them. When <see cref="SetBodyFaceHosted"/> started serving bodies a mesh with
+    /// the front fan removed, the premise became false on ten cards at once and the log said nothing
+    /// — the ghost hand's own line went on stating the old premise as fact. This is the reading that
+    /// makes it falsifiable: if the ghost hand or the wrist HUD is visible through a card, this line
+    /// says in one look whether the card stopped stamping depth and which of the four ways it did.
+    /// </para>
+    ///
+    /// <para>CHANGE-GATED ON THE WHOLE SIGNATURE, not one-shot: a body that is re-served a different
+    /// mesh (the punched-out upgrade, a face-hosted swap and back) is a NEW state and must print. A
+    /// constant state prints once and then costs one string compare.</para>
+    /// </summary>
+    internal static void ReportBodyDepthStamp(MeshFilter? filter, string occasion)
+    {
+        if (filter == null)
+            return;
+        Mesh? mesh = filter.sharedMesh;
+        var renderer = filter.GetComponent<Renderer>();
+        if (mesh == null || renderer == null)
+            return;
+
+        // sharedMaterial, not sharedMaterials: slot 0 is the front+rim material and the array
+        // accessor would allocate a fresh Material[] on every call, including the overwhelmingly
+        // common one where the signature has not moved and nothing is printed.
+        Material? front = renderer.sharedMaterial;
+        string shader = front == null ? "(no material in slot 0)"
+            : front.shader != null ? front.shader.name : "(null shader)";
+        int queue = front == null ? -1 : front.renderQueue;
+        string zwrite = front != null && front.HasProperty(ZWritePropertyId)
+            ? ((int)front.GetFloat(ZWritePropertyId) != 0 ? "on" : "OFF")
+            : "baked into the pass";
+        string mode = front != null && front.HasProperty(ModePropertyId)
+            ? $"_Mode {front.GetFloat(ModePropertyId):0}"
+            : "no _Mode";
+        string cutoff = front != null && front.HasProperty(CutoffPropertyId)
+            ? $", _Cutoff {front.GetFloat(CutoffPropertyId):0.00}"
+            : string.Empty;
+
+        int frontFan = CountFrontFanTriangles(mesh);
+        // GetSubMesh reads the descriptor; GetTriangles(0) would copy the whole index buffer out on
+        // every call just to divide its length by three.
+        int submesh0 = mesh.subMeshCount > 0 ? mesh.GetSubMesh(0).indexCount / 3 : 0;
+
+        string signature = $"{shader}|{queue}|{zwrite}|{mode}{cutoff}|{mesh.subMeshCount}|{submesh0}|{frontFan}";
+        if (signature == s_lastDepthStampSignature)
+            return;
+        s_lastDepthStampSignature = signature;
+
+        // A card stamps depth over its own FACE only if all three hold at once: the front fan is
+        // present, the material writes depth, and it is drawn before the transparents that have to
+        // be rejected by it. Anything at 3000 or above is in the transparent tier and is sorted
+        // against the ghost hand rather than occluding it.
+        bool stamps = frontFan > 0 && zwrite != "OFF" && IsOpaqueTier(queue);
+        // HW-VERIFY
+        VRLog.Note("Cards", $"CARD BODY DEPTH STAMP ({occasion}): the front/rim material is {shader} "
+            + $"at renderQueue {queue}, ZWrite {zwrite}, {mode}{cutoff}; the mesh '{mesh.name}' carries "
+            + $"{mesh.subMeshCount} submesh(es), {submesh0} triangle(s) in submesh 0, of which "
+            + $"{frontFan} are FRONT FAN (viewer-facing, normal −Z) and the rest are the rim wall. "
+            + (stamps
+                ? "SO THIS CARD DOES STAMP DEPTH over its own face: it is opaque-tier depth-writing "
+                  + "geometry, it has already written its footprint by the time the transparent tier "
+                  + "runs, and every ZTest-LEqual surface behind it is rejected per pixel — which is "
+                  + "exactly what keeps the ghost hand (renderQueue 3100, ZWrite off) and the wrist "
+                  + "HUD (a world-space canvas at LEqual) from showing through the card."
+                : "SO THIS CARD STAMPS NO DEPTH over its own face, and anything behind it that tests "
+                  + "depth will be VISIBLE THROUGH IT — the ghost hand and the wrist HUD "
+                  + "first, because they are the two transparent surfaces that live where the cards "
+                  + "are. Read the three numbers to see which way it failed: 0 front-fan triangles "
+                  + "means the body is wearing the FACE-HOSTED mesh (CardMesh.SetBodyFaceHosted, "
+                  + "granted only to a slab in a peer board's fade set); ZWrite OFF means the "
+                  + "material stopped writing depth; a queue of 3000 or more means the body left the "
+                  + "opaque tier and is now merely sorted against the things it used to occlude."));
+    }
+
+    /// <summary>Is this queue in the opaque tier, i.e. drawn before every transparent surface that
+    /// has to be depth-rejected by it? Unity's Transparent tier starts at 3000; AlphaTest sits at
+    /// 2450 and Geometry at 2000, and both are opaque for this purpose.</summary>
+    private static bool IsOpaqueTier(int queue) => queue >= 0 && queue < 3000;
+
+    /// <summary>Front-fan triangle count per body mesh. CACHED because every body mesh in the
+    /// process is one of a handful of SHARED cache entries (<see cref="BodyMesh(CardBodyKind, float,
+    /// float)"/> and its face-hosted twin), and the count is a property of the mesh, not of the card
+    /// wearing it — so a ten-card fan rebuild reads it once and then answers from a dictionary
+    /// instead of pulling a normals array out of the mesh ten times.</summary>
+    private static readonly Dictionary<Mesh, int> _frontFanCounts = new();
+
+    /// <summary>Front-fan triangles in submesh 0 — the same NORMAL test
+    /// <see cref="FaceHostedVariant"/> filters on, so the two can never disagree about what a front
+    /// fan is. A mesh with no normals answers 0 and is reported as such rather than guessed at.</summary>
+    private static int CountFrontFanTriangles(Mesh mesh)
+    {
+        if (_frontFanCounts.TryGetValue(mesh, out int known))
+            return known;
+        int counted = CountFrontFanTrianglesUncached(mesh);
+        _frontFanCounts[mesh] = counted;
+        return counted;
+    }
+
+    private static int CountFrontFanTrianglesUncached(Mesh mesh)
+    {
+        if (mesh.subMeshCount == 0)
+            return 0;
+        Vector3[] normals = mesh.normals;
+        if (normals.Length == 0)
+            return 0;
+        int[] tris = mesh.GetTriangles(0);
+        int n = 0;
+        for (int t = 0; t + 2 < tris.Length; t += 3)
+        {
+            if (FacesViewer(normals, tris[t]) && FacesViewer(normals, tris[t + 1])
+                && FacesViewer(normals, tris[t + 2]))
+            {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /// <summary>The last depth-stamp signature printed. See <see cref="ReportBodyDepthStamp"/> for
+    /// why the gate is the whole signature and not a one-shot bool.</summary>
+    private static string s_lastDepthStampSignature = string.Empty;
+
+    private static readonly int ZWritePropertyId = Shader.PropertyToID("_ZWrite");
+    private static readonly int ModePropertyId = Shader.PropertyToID("_Mode");
+    private static readonly int CutoffPropertyId = Shader.PropertyToID("_Cutoff");
 
     /// <summary>
     /// The card box of the body under <paramref name="slabRoot"/>, in <paramref name="slabRoot"/>'s
