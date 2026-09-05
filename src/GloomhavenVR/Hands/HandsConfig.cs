@@ -437,7 +437,11 @@ internal static class HandsConfig
             "triggered by your hand. Purely local and purely cosmetic: particles have never been " +
             "networked, so every player stirs their own copy of the room and nothing can desync. " +
             "Costs a little frame time while a hand is actually inside an effect (particle " +
-            "collision is tested per particle), and never anything when it is not. Off: effects " +
+            "collision is tested per particle), and never anything when it is not. A DENSE " +
+            "effect - a big spell wash, a thousand embers - is no longer skipped for costing too " +
+            "much: it is collided at a cheaper quality that resolves the whole cloud against a " +
+            "cached set of tests instead of testing every speck, so the effects most worth " +
+            "reaching into are the ones that used to be dropped. Off: effects " +
             "pass through your hands, exactly as before.");
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", Defaults.GhostHandStrength,

@@ -2793,7 +2793,12 @@ internal static partial class Loc
                 + "rein kosmetisch: Partikel waren noch nie im Netzwerk, jeder Spieler verwirbelt "
                 + "also seine eigene Kopie des Raums, und nichts kann auseinanderlaufen. Kostet "
                 + "etwas Bildzeit, solange eine Hand wirklich in einem Effekt steckt (Partikel"
-                + "kollision wird pro Partikel geprüft), und sonst gar nichts. Aus: Effekte gehen "
+                + "kollision wird pro Partikel geprüft), und sonst gar nichts. Ein DICHTER Effekt "
+                + "— ein großer Zauberschwall, tausend Funken — wird nicht mehr übersprungen, "
+                + "weil er zu teuer wäre: er wird mit einer günstigeren Qualität berechnet, die "
+                + "die ganze Wolke gegen einen zwischengespeicherten Satz Tests auflöst statt "
+                + "jedes einzelne Körnchen zu prüfen. Genau die Effekte, in die man am liebsten "
+                + "hineinfasst, waren vorher die, die weggelassen wurden. Aus: Effekte gehen "
                 + "durch deine Hände hindurch, wie bisher. (Hebst du eine Figur hoch, "
                 + "kommt ihre Aura mit — genau dorthin, wo deine andere Hand ist.)",
             ["Hands/HandsDisturbScenery"] =
