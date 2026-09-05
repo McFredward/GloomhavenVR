@@ -405,7 +405,12 @@ internal static class ModalCloseButton
         colors.normalColor = new Color(0.9f, 0.9f, 0.9f, 1f);
         colors.highlightedColor = new Color(1.05f, 1.05f, 1.05f, 1f);
         colors.pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);
-        colors.fadeDuration = 0.08f;
+        // ONE PIECE OF FEEL, NOT THREE LITERALS (ModBuild 439, survey row R20). This was a
+        // hand-written 0.08f, and so were VROptionsTab's rows and VariantTiles' tiles — three files
+        // that must answer a hover at the same rate or the close X reads as a different kind of
+        // object from the row beside it. The constant lives in a neutral place both may reference:
+        // the options menu is a CONSUMER of this feel and must not own it.
+        colors.fadeDuration = UguiTintFeel.HoverTintFadeSeconds;
         button.colors = colors;
         button.onClick.AddListener(() =>
         {

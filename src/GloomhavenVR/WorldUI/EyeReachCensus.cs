@@ -458,7 +458,11 @@ internal static class EyeReachCensus
             + $"mode={VRModeStateMachine.CurrentMode}, room={VRModeStateMachine.TableInFrontOfPlayer}, "
             + $"flat screen {(FlatScreen.ScreenVisible ? "SHOWN" : "HIDDEN")}. THE PICTURE THIS IS RANKED "
             + "AGAINST: a full-height, left-anchored, translucent dark band whose right edge sits at ~0.23 "
-            + "of the frame width, in ONE eye.");
+            + "of the frame width, in ONE eye. CAMERA POPULATION BELOW = FindObjectsOfType<Camera>(true), "
+            + "i.e. INCLUDING cameras that are disabled right now, deliberately — the question here is "
+            + "what COULD have painted the rim. The WorldUI 'Camera inventory' line counts "
+            + "Camera.GetAllCameras (enabled only) and will therefore report FEWER cameras; the two are "
+            + "not in conflict and never were (survey row R25).");
 
         for (int i = 0; i < camLines.Count; i++)
             VRLog.Note("WorldUI", camLines[i]);
@@ -712,12 +716,18 @@ internal static class EyeReachCensus
                 // the direct test of the user's "aus dem linken augenwinkel".
                 VRLog.Note("WorldUI", rendererLines[i]);
             }
+            // "active" in the first term is the RAW array length from FindObjectsOfType(true) — it
+            // counts renderers whose `enabled` is false, and the SECOND term is the enabled count.
+            // The word is kept because a shipped log string is never reworded; the appended clause is
+            // what makes the population unambiguous (survey row R25).
             VRLog.Note("WorldUI", $"EYE CENSUS RENDERER SUMMARY {renderers.Length} active renderer(s), "
                 + $"{renderersExamined} enabled, {rejectedByMask} excluded by the head camera's culling mask "
                 + $"0x{head.cullingMask:X8}, {rejectedByAngularSize} rejected by the angular-size prefilter "
                 + "(their bounding sphere cannot subtend the frame height from here — a necessary condition, "
                 + $"safety factor {AngularSizeSafety:F1}), {tallRenderers} full-height, {rendererRows} MATCHING "
-                + "the picture.");
+                + "the picture. READ THE FIRST NUMBER AS 'FOUND': it is FindObjectsOfType<Renderer>(true)'s "
+                + "raw count and INCLUDES renderers whose own `enabled` is false; the 'enabled' term beside "
+                + "it is the population that could draw anything at all.");
 
             // What is glued to the head. Anything that follows the head is very likely parented here, and
             // this is the cheapest place to see it whole.

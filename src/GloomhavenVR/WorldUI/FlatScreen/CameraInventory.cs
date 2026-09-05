@@ -70,7 +70,19 @@ internal static class CameraInventory
         int count = VRCameraPolicy.GetAllCamerasNonAlloc(out Camera[] all);
         Camera? head = Rig.VRRigDriver.HeadCamera;
         int captured = 0;
-        VRLog.Info("WorldUI", $"Camera inventory after scene '{_sceneName}' ({count} active):");
+        // ONE CENSUS, ONE STATED POPULATION (ModBuild 439, survey row R25). This inventory and
+        // EyeReachCensus's EYE CENSUS CAM rows both answer "which cameras are there" and count
+        // DIFFERENT populations on purpose — this one Camera.GetAllCameras (ENABLED only, because it
+        // is about what is painting the flat screen right now), that one
+        // FindObjectsOfType<Camera>(true) (INCLUDING disabled, because it is about what COULD have
+        // painted a rim). Neither said so, and they are never both visible at the default log level,
+        // so raising this one to Debug used to put two disagreeing counts of "the cameras" in one
+        // log with nothing anywhere saying why. Each line now carries its own rule, which is the
+        // house style PerfSceneProfile's SCENE line already uses.
+        VRLog.Info("WorldUI", $"Camera inventory after scene '{_sceneName}' ({count} active):"
+                              + " POPULATION = Camera.GetAllCameras, i.e. ENABLED cameras only —"
+                              + " a camera the game has switched off is not listed here and IS listed"
+                              + " by the EYE CENSUS CAM rows, which count a deliberately wider set.");
         for (int i = 0; i < count; i++)
         {
             Camera cam = all[i];

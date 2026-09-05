@@ -593,10 +593,23 @@ internal static partial class PanelSupersample
     /// layout. Cheap: it is two passes per release, not per frame.</summary>
     private const int ReleaseSecondRepairFrames = 12;
 
-    /// <summary>The per-frame budget a 90 Hz headset gives, in milliseconds. Used ONLY as the
+    /// <summary>The per-frame budget THIS HEADSET gives, in milliseconds. Used ONLY as the
     /// threshold the motion/still frame-time instrument reports against, so "N of M motion frames
-    /// were over budget" is a statement with a stated bar rather than an adjective.</summary>
-    private const float FrameBudgetMs = 1000f / 90f;
+    /// were over budget" is a statement with a stated bar rather than an adjective.
+    ///
+    /// <para><b>ModBuild 439 (survey row R16): <c>PerfMonitor.BudgetMilliseconds</c>, not a
+    /// hardcoded <c>1000f / 90f</c>.</b> It was a const, so on a rig running at 72, 80 or 120 Hz —
+    /// or half-rate — this instrument and <c>[Perf] SUMMARY</c> printed two "over budget" counts in
+    /// the same log that could not agree, and the rule broken is <c>PerfConfig</c>'s own: "budget =
+    /// 1 / actual refresh rate, read from the XR display — not a hardcoded 72/90 Hz". At 90 Hz the
+    /// number is unchanged, which is what makes an unchanged reading on a 90 Hz session
+    /// evidence.</para>
+    ///
+    /// <para>The REPORT WINDOW is deliberately still this class's own 10 s and not PerfMonitor's
+    /// tunable one: the line states its window in its own text, so a reader is never misled by the
+    /// difference, and coupling the cadence would have made a shipped log string
+    /// ("this 10 s window") false the moment anyone tuned the interval.</para></summary>
+    private static float FrameBudgetMs => Core.PerfMonitor.BudgetMilliseconds;
 
     /// <summary>Hard ceiling on how many GLYPH lookups one content-integrity scan may make, across
     /// every text component of one panel. The party window carries ~2700 transforms; an unbounded
@@ -625,7 +638,7 @@ internal static partial class PanelSupersample
     /// v-sync jitter around 11.11 ms and below two whole frames, so it counts a miss and not a
     /// wobble. Reported with the comparison count and the worst value on the same line.
     /// </summary>
-    private const float DroppedFrameMs = FrameBudgetMs * 1.5f;
+    private static float DroppedFrameMs => FrameBudgetMs * 1.5f;
 
     // ---- THE OVER-PAINT CENSUS (ModBuild 203) --------------------------------------------------
     // The whole argument is on Entry.OverPaintCovered and on MeasureOverPaint; these are its dials.

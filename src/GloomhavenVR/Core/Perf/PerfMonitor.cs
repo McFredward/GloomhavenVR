@@ -180,6 +180,38 @@ internal static class PerfMonitor
     private static float _budgetSeconds = 1f / 90f;
     private static float _budgetResolvedAt = float.NegativeInfinity;
 
+    /// <summary>
+    /// <b>THE DISPLAY'S FRAME BUDGET, FOR EVERY OTHER INSTRUMENT IN THE MOD</b> — one over the
+    /// refresh rate this headset is ACTUALLY running at, re-resolved from the XR display and never
+    /// a hardcoded 72/90 Hz. Exposed at ModBuild 439 (survey row R16) because a second frame-budget
+    /// instrument had grown beside this one with <c>1000f / 90f</c> written into it: on this user's
+    /// rig (Quest 3 / Virtual Desktop at 72, 80, 90 or 120 Hz, and the runtime can lock to half
+    /// rate) one log carried two "over budget" counts that disagreed by construction. This file's
+    /// own rule is the one that was broken — <c>PerfConfig</c>: "budget = 1 / actual refresh rate,
+    /// read from the XR display — <b>not a hardcoded 72/90 Hz</b>".
+    ///
+    /// <para>Before the first resolve it is the 90 Hz seed above, which is also what the hardcoded
+    /// copy always was — so nothing reads worse than it did.</para>
+    /// </summary>
+    internal static float BudgetSeconds => _budgetSeconds;
+
+    /// <summary>Milliseconds form of <see cref="BudgetSeconds"/>, for instruments that report in ms.</summary>
+    internal static float BudgetMilliseconds => _budgetSeconds * 1000f;
+
+    /// <summary>
+    /// The summary window this monitor is actually using — <c>[Perf] SummaryIntervalSeconds</c>
+    /// through its own 5..600 s clamp, so a second instrument that wants to report over the same
+    /// window cannot disagree with this one about how long the window is (survey row R16).
+    /// </summary>
+    /// <para><b>IT DELEGATES, AND THAT IS THE POINT OF THE ROW IT CAME FROM.</b> Two lanes hoisted
+    /// this same clamp out of the same statement on the same day — one onto
+    /// <c>PerfConfig.SummaryIntervalClamped</c>, beside the entry it clamps, and one here, where
+    /// the consumers that needed a public reader are. Both were right about the defect and keeping
+    /// both would have re-created it one level up: two accessors, two pairs of bounds, free to
+    /// drift the moment somebody widens the range in one place. The bounds live with the config
+    /// entry; this stays as the reader the monitor's consumers already name.</para>
+    internal static float SummaryIntervalSeconds => PerfConfig.SummaryIntervalClamped;
+
     // ---- GPU counter, sampled per frame ---------------------------------------------------------
 
     /// <summary>

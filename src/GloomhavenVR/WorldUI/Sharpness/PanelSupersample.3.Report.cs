@@ -1004,7 +1004,14 @@ internal static partial class PanelSupersample
           .Append(" layer sweep(s) while moving at ").Append(motionSweep.ToString("F2"))
           .Append(" ms each (cadence ").Append(MovingSweepIntervalFrames).Append(" frame(s)) and ")
           .Append(e.StillSweeps).Append(" while still at ").Append(stillSweep.ToString("F2"))
-          .Append(" ms each (cadence ").Append(SweepIntervalFrames).Append(" frame(s)).");
+          .Append(" ms each (cadence ").Append(SweepIntervalFrames).Append(" frame(s)). ")
+          .Append("THE THRESHOLD ABOVE IS THE LIVE DISPLAY BUDGET (PerfMonitor.BudgetMilliseconds, ")
+          .Append("one over the refresh rate read from the XR display) and NOT a fixed 90 Hz frame ")
+          .Append("since ModBuild 439 — the '= one 90 Hz frame' phrase is retained wording and reads ")
+          .Append("correctly only on a 90 Hz session, while the NUMBER beside it is always this ")
+          .Append("headset's real budget. It therefore agrees with [Perf] SUMMARY's own over-budget ")
+          .Append("count term for term; the WINDOW still differs (10 s here, [Perf] ")
+          .Append("SummaryIntervalSeconds there) and each line states its own.");
     }
 
     /// <summary>

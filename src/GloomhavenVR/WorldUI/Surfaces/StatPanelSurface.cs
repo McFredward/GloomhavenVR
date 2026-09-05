@@ -87,6 +87,15 @@ internal sealed class StatPanelSurface
     /// </summary>
     private const int StatPanelSortingOrder = ModalFallback.ModalHostSortingOrder;
 
+    // ---- THE HOVER-PANEL ANTI-CHURN WATCH BELOW IS MIRRORED IN PropInfoSurface (survey row R37).
+    //
+    // ReleaseDelaySeconds, ChurnWindowSeconds, ChurnWarnCount, the `Watch` class, `DetachWatch`,
+    // `CountConversion` and `ScheduleRelease` still diff to ZERO against
+    // WorldUI/Surfaces/PropInfoSurface.cs. The 2026-08 review ruled AGAINST merging them — the
+    // constants are per-surface tunables and a shared core would take all three as arguments — and
+    // recommended this cross-reference instead. Retune one and decide deliberately whether the other
+    // follows; that file's block carries the same note and the full argument.
+
     /// <summary>Hide→release hysteresis (unscaled seconds) — absorbs show/hide flicker.</summary>
     private const float ReleaseDelaySeconds = 0.3f;
 

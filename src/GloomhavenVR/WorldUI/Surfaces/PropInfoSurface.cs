@@ -53,6 +53,27 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class PropInfoSurface
 {
+    // ---- THE HOVER-PANEL ANTI-CHURN WATCH IS SHARED IN SHAPE WITH StatPanelSurface, AND THAT IS
+    //      A DECISION, NOT AN OVERSIGHT (survey row R37; the 2026-08 review ruled on it).
+    //
+    // The three constants below, the `Watch` class, `DetachWatch`, `CountConversion` and
+    // `ScheduleRelease` are ~60 lines that still diff to ZERO against
+    // WorldUI/Surfaces/StatPanelSurface.cs. The review considered merging them and ruled AGAINST it:
+    // the constants are PER-SURFACE TUNABLES — a stat panel and a prop info panel are hovered
+    // differently and are allowed to want different hysteresis — and a shared core would have to
+    // take all three as arguments, which is two call sites with the same three numbers rather than
+    // one implementation. What it recommended instead was the zero-risk half: a cross-reference at
+    // each duplicated member, so that whoever retunes one is told the other exists. That
+    // recommendation was never carried out and this block is it.
+    //
+    // IF YOU CHANGE ANY OF THE SIX BELOW, READ StatPanelSurface's counterpart FIRST and decide
+    // DELIBERATELY whether it follows. They are equal today by history, not by contract.
+    //
+    // THE REST OF THE PAIR HAS ALREADY CONSOLIDATED, and well: this class CALLS
+    // StatPanelSurface.TryComputeHeldPose, .SignFor, .StripLogicComponents and .BuildStaticCopy
+    // rather than carrying its own — the direct answer to the "props rewritten from scratch"
+    // complaint. What is left duplicated is exactly the tunable half.
+
     /// <summary>Hide→release hysteresis (unscaled seconds) — absorbs show/hide flicker.</summary>
     private const float ReleaseDelaySeconds = 0.3f;
 
