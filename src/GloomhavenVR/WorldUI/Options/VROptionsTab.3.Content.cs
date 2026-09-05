@@ -97,24 +97,26 @@ internal static partial class VROptionsTab
             return;
 
         ConfigCatalog.EnsureFresh();
-        // The window's own ground, re-asserted on every show (idempotent — see
-        // VROptionsTab.10.Skin.cs). It runs before a single row exists because the pane is
-        // re-parented and re-shown by machinery this file does not own, and a ground that exists
-        // only if one particular call ran is a ground that is sometimes missing.
+        // ModBuild 437's full-pane ground is taken OFF here, on every show (idempotent — see
+        // VROptionsTab.10.Skin.cs). It was "einfarbig" and "zu groß" and the user rejected it; the
+        // backing is per-row now, on the rectangular elements that carry text. The removal runs on
+        // every show for the same reason its predecessor was asserted on every show: the pane is
+        // re-parented and re-shown by machinery this file does not own, and a removal that only
+        // happens if one particular call ran is a removal that sometimes did not.
         //
         // NEVER-EMPTY GUARD: Rebuild's own TickGuard catches by ABORTING the rest of the callback,
         // so an unguarded throw this early would cost the whole list rather than the decoration.
-        // A window with no ground is the reported defect; a window with no rows is the standing
-        // ruling, and decoration may never outrank content.
+        // A window wearing a ground nobody wanted is a complaint; a window with no rows is the
+        // standing ruling, and decoration may never outrank content.
         try
         {
-            EnsureOpaqueGround();
+            RemoveLegacyGround();
         }
         catch (Exception e)
         {
-            VRLog.Warn("WorldUI", $"VR options tab: the window ground could not be built ({e.Message}) "
-                                  + "— the menu opens as it did before, translucent over whatever is "
-                                  + "behind it.");
+            VRLog.Warn("WorldUI", $"VR options tab: the ModBuild 437 window ground could not be "
+                                  + $"removed ({e.Message}) — the menu opens as that build shipped "
+                                  + "it, with one opaque plate behind the whole pane.");
         }
         ClearRows();
         HideForeignContent();
@@ -613,11 +615,14 @@ internal static partial class VROptionsTab
             Transform child = holder.GetChild(i);
             if (ReferenceEquals(child, content) || !child.gameObject.activeSelf)
                 continue;
-            // OUR OWN GROUND IS NOT FOREIGN. On a donor with no scroll view the content root is a
-            // direct child of the pane, so this sweep's holder IS the pane — and the ground plate
-            // added by EnsureOpaqueGround would be swept off as a donor leftover on the very same
-            // rebuild that created it. Matched by name because that is the only handle a sweep over
-            // a holder it did not build can have.
+            // THE MOD'S OWN GROUND IS NOT FOREIGN — kept although the plate is no longer built. On
+            // a donor with no scroll view the content root is a direct child of the pane, so this
+            // sweep's holder IS the pane, and this row is what stopped ModBuild 437's ground being
+            // swept off as a donor leftover on the very rebuild that created it. RemoveLegacyGround
+            // destroys the plate immediately, so on a fresh session nothing matches; a plate left
+            // behind by a hot-reloaded assembly must be DESTROYED by that method rather than merely
+            // deactivated here, which is why the skip stays. Matched by name because that is the
+            // only handle a sweep over a holder it did not build can have.
             if (string.Equals(child.name, GroundName, StringComparison.Ordinal))
                 continue;
             child.gameObject.SetActive(false);

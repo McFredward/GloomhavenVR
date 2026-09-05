@@ -1047,6 +1047,13 @@ internal static partial class Loc
         // caption says EVERYTHING rather than naming the two channels — a tester who has latched
         // three elements and an apparition must not have to work out which rows they left lit.
         ["vr_tt_stop"] = Pair("Switch all test triggers off", "Alle Test-Auslöser ausschalten"),
+        // THE CAPTION ON AN ACTION ROW'S BUTTON (user, 2026-09-05: "Es sollten schon richtige
+        // rechteckige Buttons sein"). It is deliberately a bare verb and not the action's name:
+        // the row's own left-hand caption already says WHAT is being done — "Kampflog-Fenster
+        // öffnen", "Jedes Szenario ladbar: AN" — and repeating it on the button is how the
+        // previous face ended up filling the whole row, which is the complaint before this one.
+        // One key for every action row, because every action row's button is the same button.
+        ["vr_o_action_go"] = Pair("Run", "Ausführen"),
         // Grafik ▸ Monitor (ruling 11 — the label is the user's own wording)
         ["vr_o_mirroreye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
         // ---- Umgebung & Ton ▸ Kampagnenkarte -------------------------------------------------

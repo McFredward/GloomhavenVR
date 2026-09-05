@@ -235,7 +235,13 @@ internal static partial class VROptionsTab
         frame.color = Color.white; // the ColorBlock below carries the real colour; see RepaintTile
         frame.raycastTarget = true;
 
+        // THE TILE'S PLATE WEARS THE GAME'S PANEL ART. It was a sprite-less quad — a flat fill,
+        // which is exactly the "langweilig einfarbig" the 2026-09-05 report objects to. The tint is
+        // unchanged (it is the plate's judged colour); only the surface under it is now the game's
+        // own, harvested and MEASURED in VROptionsTab.10.Skin.cs. A harvest that found nothing
+        // leaves the plate sprite-less, i.e. exactly as it shipped.
         var plate = MakeTileChild<Image>(tileRect, "Plate", TileBorder, TileBorder);
+        SkinAsPanel(plate);
         plate.color = TilePlate;
         plate.raycastTarget = false;
 

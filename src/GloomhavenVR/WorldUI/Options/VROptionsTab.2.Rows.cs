@@ -188,6 +188,11 @@ internal static partial class VROptionsTab
             + $"slider={Describe(sliderRow)}; stepper arrow sprite "
             + (_arrowSprite != null ? $"'{_arrowSprite.name}'" : "NOT FOUND (steppers will be plain)") + ".");
 
+        // THE GAME'S OWN SURFACES, harvested once and measured rather than named. This has to run
+        // after _categoryTemplate is stamped (the button face comes off it) and before the probe,
+        // which prints what it decided. See VROptionsTab.10.Skin.cs.
+        HarvestMenuSkin(host);
+
         ProbeMenuSkin(host);
     }
 
@@ -767,17 +772,17 @@ internal static partial class VROptionsTab
         if (plate != null)
         {
             ColorBlock colors = button.colors;
-            // RESTING STATE DERIVED, NOT PICKED. The first plate (black at 30%) "vanished on the
-            // window's own dark ground"; the warm bronze that replaced it went out at alpha 0.50,
-            // which is the same defect one shade further on — a translucent plate over a ground
-            // that changes (a lit scenario, the map room, another window) is legible only
-            // sometimes, by construction, and "manchmal … nicht zu erkennen" is exactly what the
-            // user reported. ActionPlateRest samples the surface the GAME paints under a settings
-            // row and forces full alpha; the hover and press golds keep their hue — they are the
-            // feedback that makes a row feel like a button — and lose only their transparency.
+            // ALL THREE STATES FROM THE GAME'S OWN BUTTON, and no longer from the row. The 437
+            // version sampled the row Background's colour, which was a different graphic while the
+            // row was transparent; SkinRowPlate now paints the row with that very colour, so
+            // deriving the button from it would put a near-black button on a near-black backing
+            // with no visible edge — a button with no boundary is not a "richtiger rechteckiger
+            // Button". ActionPlateRest/Hot/Down read the ColorBlock of this window's own
+            // UIMainMenuOption tabs instead, all forced opaque; the menu's golds remain as the
+            // fallback for a game update that moves the tabs. See VROptionsTab.10.Skin.cs.
             colors.normalColor = ActionPlateRest();
-            colors.highlightedColor = ActionPlateHover;
-            colors.pressedColor = ActionPlatePress;
+            colors.highlightedColor = ActionPlateHot();
+            colors.pressedColor = ActionPlateDown();
             colors.selectedColor = colors.normalColor;
             colors.fadeDuration = 0.08f;
             button.colors = colors;
@@ -787,30 +792,36 @@ internal static partial class VROptionsTab
     }
 
     /// <summary>
-    /// The action row's PLATE: a compact pressable face seated in the row's own option column,
-    /// where every other row in this window puts its control.
+    /// The action row's BUTTON: a real rectangle filling the row's own option column, where every
+    /// other row in this window puts its control, wearing the game's own button face and carrying a
+    /// caption.
     ///
-    /// <para><b>THE DEFECT IT REPLACES</b> (user, 2026-09-05, verbatim): <i>"der Button um den
-    /// Kampflog zu spawnen, bitte nicht das ganze Feld ausfüllen, das sieht nicht gut aus."</i> The
-    /// old face was an Image anchored 0..1 over the whole row with a 4 px inset — a slab the width
-    /// of the list, with the caption stretched across it. Nothing else in this menu looks like
-    /// that, which is the entire complaint.</para>
+    /// <para><b>THE DEFECT IT REPLACES</b> (user, 2026-09-05, verbatim): <i>"Ich mag die neuen
+    /// Buttons nicht. Es sollten schon richtige rechteckige Buttons sein."</i> — the correction to
+    /// the round before it, which had answered <i>"der Button um den Kampflog zu spawnen, bitte
+    /// nicht das ganze Feld ausfüllen"</i>.</para>
     ///
-    /// <para><b>THE GEOMETRY IS COPIED, NOT CHOSEN.</b> The column already holds the donor's own
-    /// control, and that control's rect IS the answer to "where does a control sit on these rows" —
-    /// the same rect the toggle switch, the slider and the dropdown of every other row occupy. So
-    /// its anchors, offsets, pivot and size are read off it and handed to the plate before the
-    /// column is cleared. No inset, no width and no margin is invented here; a menu whose control
-    /// column is re-authored in a game update moves this plate with it.</para>
+    /// <para><b>AND IT WAS A GEOMETRY BUG, NOT A TASTE ONE.</b> The previous version COPIED the
+    /// authored rect of the option column's first child and called that "where a control sits". On
+    /// the toggle template that first child is the toggle SWITCH — a small square. So the button
+    /// came out with a checkbox's footprint, and the harvested dropdown arrow that was centred in
+    /// it made it read as a tiny icon tile rather than a button. Both complaints, one cause.</para>
+    ///
+    /// <para><b>SO IT FILLS THE COLUMN INSTEAD.</b> The option column is the seat the sliders and
+    /// dropdowns of every other row occupy, and those are wide — which is what makes this a
+    /// rectangle. The only numbers here are the column inset (a fraction of the column's own height,
+    /// so a row re-authored in a game update carries the button with it) and, on the path where
+    /// there is no column at all, the right-hand third of the row.</para>
     ///
     /// <para>The old contents go with <c>DestroyImmediate</c> for the reason
     /// <see cref="PlaceControl"/> records: <c>Destroy</c> defers to end of frame, so a doomed
     /// switch is still the first thing a later search in this same build finds.</para>
     ///
-    /// <para>WITHOUT A TEMPLATE there is no column to copy, so the plate takes the right-hand third
-    /// of the row at 70% of its height — the only fractions in this method, and they exist solely
-    /// for the path where the game gave us nothing to measure. That path already costs the native
-    /// hover and sound; it may also cost an exactly matched column.</para>
+    /// <para><b>A CAPTION, NOT A GLYPH.</b> The arrow was the menu's "there is more this way"
+    /// symbol borrowed from the steppers, and on a one-shot action it says nothing. The button says
+    /// what it does; the ROW's caption on the left still says what it does it to, which is the
+    /// arrangement every other row in this menu already uses. The label never takes raycasts — the
+    /// plate under it is the button's target graphic.</para>
     ///
     /// <para>Returns null only if the row has no rect to build into, in which case the caller's
     /// Button simply has no target graphic and the row still works as a pressable caption — the
@@ -819,18 +830,10 @@ internal static partial class VROptionsTab
     private static Image? BuildActionPlate(GameObject row, Transform? option)
     {
         Transform seatParent;
-        // The authored control rect, when the column has one to give.
-        RectGeometry? donor = null;
 
         if (option != null)
         {
             option.gameObject.SetActive(true);
-            // FIRST child, not last: it is the one the game draws the control with. Read before
-            // anything is destroyed, because a rect read off a destroyed object is Unity's
-            // fake-null and reads as zeros without throwing.
-            if (option.childCount > 0 && option.GetChild(0) is RectTransform authored)
-                donor = new RectGeometry(authored);
-
             for (int i = option.childCount - 1; i >= 0; i--)
                 UnityEngine.Object.DestroyImmediate(option.GetChild(i).gameObject);
             seatParent = option;
@@ -846,14 +849,11 @@ internal static partial class VROptionsTab
         plateRect.localScale = Vector3.one;
         plateRect.localRotation = Quaternion.identity;
 
-        if (donor is { } authoredSeat)
+        if (option != null)
         {
-            authoredSeat.ApplyTo(plateRect);
-        }
-        else if (option != null)
-        {
-            // The column exists but held nothing measurable: fill it, inset from the row's height
-            // so the plate reads as a control on a row rather than as the row itself.
+            // FILL THE COLUMN. Inset from the row's height so the button reads as a control ON a
+            // row rather than as the row itself, and full width so it is a rectangle rather than
+            // the switch-sized square the copied donor rect used to produce.
             plateRect.anchorMin = new Vector2(0f, ActionPlateColumnInset);
             plateRect.anchorMax = new Vector2(1f, 1f - ActionPlateColumnInset);
             plateRect.offsetMin = Vector2.zero;
@@ -870,33 +870,39 @@ internal static partial class VROptionsTab
         var plate = plateGo.AddComponent<Image>();
         PaintActionPlate(plate);
 
-        // The menu's own "this does something" symbol, harvested off the game's dropdown for the
-        // steppers and reused here rather than a text glyph — the arrow characters do not exist in
-        // the font this menu uses, which is what made the first stepper read as empty boxes.
-        // Proportional insets and preserveAspect, so it is centred and square whatever size the
-        // copied column rect turns out to be.
-        if (_arrowSprite != null)
-        {
-            var glyphGo = new GameObject("Glyph", typeof(RectTransform));
-            var glyphRect = (RectTransform)glyphGo.transform;
-            glyphRect.SetParent(plateRect, worldPositionStays: false);
-            glyphRect.anchorMin = new Vector2(0.32f, 0.22f);
-            glyphRect.anchorMax = new Vector2(0.68f, 0.78f);
-            glyphRect.offsetMin = Vector2.zero;
-            glyphRect.offsetMax = Vector2.zero;
-            glyphRect.localScale = Vector3.one;
-            var glyph = glyphGo.AddComponent<Image>();
-            glyph.sprite = _arrowSprite;
-            glyph.preserveAspect = true;
-            glyph.raycastTarget = false;
-            glyph.color = NativeButtonSkin.LabelColor;
-        }
+        var labelGo = new GameObject("Label", typeof(RectTransform));
+        var labelRect = (RectTransform)labelGo.transform;
+        labelRect.SetParent(plateRect, worldPositionStays: false);
+        labelRect.anchorMin = Vector2.zero;
+        labelRect.anchorMax = Vector2.one;
+        labelRect.offsetMin = new Vector2(ActionLabelPad, 0f);
+        labelRect.offsetMax = new Vector2(-ActionLabelPad, 0f);
+        labelRect.localScale = Vector3.one;
+        var label = labelGo.AddComponent<TextMeshProUGUI>();
+        NativeButtonSkin.ApplyFont(label);
+        label.text = Loc.Mod("vr_o_action_go");
+        label.alignment = TextAlignmentOptions.Center;
+        label.color = NativeButtonSkin.LabelColor;
+        label.enableWordWrapping = false;
+        // Same no-ellipsis ruling this pane runs everywhere: shrink the glyphs, never cut the word.
+        label.enableAutoSizing = true;
+        label.fontSizeMax = _titleStyle != null ? _titleStyle.Value.size : ActionLabelSize;
+        label.fontSizeMin = label.fontSizeMax * CaptionMinScale;
+        label.raycastTarget = false;
 
         return plate;
     }
 
-    /// <summary>How far an action plate is inset from the top and bottom of its column, as a
-    /// fraction of the column's height — used only when there is no authored control rect to copy.</summary>
+    /// <summary>Horizontal padding between an action button's edge and its caption, in row units.</summary>
+    private const float ActionLabelPad = 8f;
+
+    /// <summary>Caption size for an action button when no donor row style was ever sampled.</summary>
+    private const float ActionLabelSize = 22f;
+
+    /// <summary>How far an action button is inset from the top and bottom of its column, as a
+    /// fraction of the column's height. It is what keeps the button reading as a control ON a row
+    /// rather than as the row itself; the width is the column's, which is what makes it a
+    /// rectangle.</summary>
     private const float ActionPlateColumnInset = 0.15f;
 
     /// <summary>Left edge of the fallback plate, as a fraction of the ROW — no option column
@@ -905,38 +911,6 @@ internal static partial class VROptionsTab
 
     /// <summary>Right edge of the fallback plate, as a fraction of the row.</summary>
     private const float ActionPlateFallbackRight = 0.97f;
-
-    /// <summary>
-    /// A rect's placement, read off one object and written onto another — all five fields together,
-    /// because anchors, pivot, offset and size are only meaningful as a set and carrying them one
-    /// at a time is how one of them gets left behind.
-    /// </summary>
-    private readonly struct RectGeometry
-    {
-        private readonly Vector2 _anchorMin;
-        private readonly Vector2 _anchorMax;
-        private readonly Vector2 _pivot;
-        private readonly Vector2 _anchoredPosition;
-        private readonly Vector2 _sizeDelta;
-
-        internal RectGeometry(RectTransform source)
-        {
-            _anchorMin = source.anchorMin;
-            _anchorMax = source.anchorMax;
-            _pivot = source.pivot;
-            _anchoredPosition = source.anchoredPosition;
-            _sizeDelta = source.sizeDelta;
-        }
-
-        internal void ApplyTo(RectTransform target)
-        {
-            target.anchorMin = _anchorMin;
-            target.anchorMax = _anchorMax;
-            target.pivot = _pivot;
-            target.anchoredPosition = _anchoredPosition;
-            target.sizeDelta = _sizeDelta;
-        }
-    }
 
     /// <summary>
     /// Make the whole row raycastable again after the full-row plate stopped being the thing that
@@ -1865,6 +1839,24 @@ internal static partial class VROptionsTab
         else
         {
             ApplyOptionCaption(title);
+        }
+
+        // THE ROW IS THE RECTANGULAR ELEMENT THAT CARRIES THE TEXT, so this is where the backing
+        // goes — and the ONLY place it goes (user, 2026-09-05: "mach nur da einen Hintergrund rein
+        // in den rechteckigen Elementen wo man etwas lesen muss"). Every row in this menu comes
+        // through here, so one call backs the settings rows, the headings and the notes alike, and
+        // nothing outside a row is touched. See VROptionsTab.10.Skin.cs.
+        //
+        // NEVER-EMPTY GUARD: decoration may not cost a row. A throw here would abort the row that is
+        // being built and, through Rebuild's TickGuard, the rest of the page with it.
+        try
+        {
+            SkinRowPlate(row);
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options tab: could not back a row ({e.Message}) — the row is "
+                                  + "built and readable, it just has no plate behind it.");
         }
 
         Rows.Add(row);
