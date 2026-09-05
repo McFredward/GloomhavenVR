@@ -117,10 +117,11 @@ internal static partial class VROptionsTab
                         new BoardRef("WorldUI", "CombatLogRight", perBoard: false),
                         new BoardRef("WorldUI", "CombatLogUp", perBoard: false),
                         new BoardRef("WorldUI", "CombatLogScale", perBoard: false),
-                        // [WorldUI] CombatLogUserClosed is GONE from the catalog (settings audit
-                        // 2026-08-22): it was never a setting, it is the mod remembering that the
-                        // player closed the combat log. Naming it here would make Lookup warn on
-                        // every menu build.
+                        // [WorldUI] CombatLogUserClosed left the catalog on 2026-08-22 ("it was
+                        // never a setting, it is the mod remembering that the player closed the
+                        // combat log") and the KEY ITSELF is gone since 2026-09-05: it was a
+                        // persisted latch whose only clearer had already been deleted, so it held
+                        // the panel shut for good. Visibility is session state now.
                     },
                 },
             },

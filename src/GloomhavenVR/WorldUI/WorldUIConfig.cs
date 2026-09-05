@@ -99,12 +99,25 @@ internal static class WorldUIConfig
     // generic board keycap on the board's own third recess now (user: "Ich möchte daher, dass die
     // Button-Gruppe der 'Überspringen Buttons' komplett verschwindet"). It follows the board like
     // its two siblings and has no switch of its own, exactly as Confirm and Undo never had one.
+    //
+    // AND [WorldUI] CombatLogUserClosed IS GONE (2026-09-05), for a third reason again: it was
+    // never a setting, it was PERSISTED RUNTIME STATE, and it outlived the only writer that could
+    // clear it. Commit 9a6db78c deleted the old settings panel and with it the single
+    // `SetUserVisible(v, "settings")` call; the Defaults refactor then shipped the key defaulting
+    // to TRUE (the tester's live value at the time) where the original bind said false. The two
+    // together made `CombatLog && !CombatLogUserClosed` false forever, which is the user's report
+    // "auch wenn ich ihn in den Einstellungen einschalte" exactly. There is no persisted latch any
+    // more: visibility is session state owned by CombatLogSurface, and the worst a wrong session
+    // state can cost is one press of 'Kampflog jetzt einblenden'. A stale cfg line is an inert
+    // BepInEx orphan and drops on the next save, so the old value cannot resurrect the deadlock.
 
     /// <summary>The module's config file (for late binders like FlatScreenStereo). Valid after <see cref="Bind"/>.</summary>
     internal static ConfigFile FileHandle => _file!;
 
     // ---- surfaces (each individually toggleable) ---------------------------------------
-    internal static ConfigEntry<bool> CombatLog = null!;
+    /// <summary>START-UP PREFERENCE: should the combat log panel be up when a scenario begins?
+    /// (Bound key still "CombatLog" so an existing cfg value survives — see Defaults.)</summary>
+    internal static ConfigEntry<bool> CombatLogAtStart = null!;
     internal static ConfigEntry<bool> Dialogs = null!;
     internal static ConfigEntry<bool> DecisionDock = null!;
     internal static ConfigEntry<bool> TrayNativeControls = null!;
@@ -496,9 +509,6 @@ internal static class WorldUIConfig
     /// <summary>Combat log size multiplier (two-hand resize; clamped 0.5–2).</summary>
     internal static ConfigEntry<float> CombatLogScale = null!;
 
-    /// <summary>User hid the combat log via its X button / settings toggle — do not auto-appear.</summary>
-    internal static ConfigEntry<bool> CombatLogUserClosed = null!;
-
     /// <summary>Modal fallback style: "window" (float only the dialog window) | "screen" (full flat screen).</summary>
     internal static ConfigEntry<string> ModalStyle = null!;
 
@@ -569,10 +579,16 @@ internal static class WorldUIConfig
         // the turn order, the element infusions, the scenario goal, the monster stat block, the
         // hover info for doors/chests/traps and the round's monster ability cards were all
         // switchable into invisibility. See the tombstone at the top of this file.
-        CombatLog = _file.Bind("WorldUI", "CombatLog", Defaults.CombatLog,
-            "Combat log as a world-space panel at the table's far side. Kept switchable on " +
-            "purpose: the log is a HISTORY of things that already happened and the flat game " +
-            "lets you close it too, so hiding it costs no state you need to play.");
+        // THE KEY IS THE SAME AND ITS MEANING IS NARROWER (user, 2026-09-05). It used to be the
+        // feature master and half of a two-term visibility gate whose other half latched shut for
+        // good; it is now the START-UP PREFERENCE and nothing else, so it can no longer be the
+        // reason a log is missing mid-scenario. Showing and hiding during play are the options
+        // button 'Kampflog jetzt einblenden' and the panel's own X, and neither writes this key.
+        CombatLogAtStart = _file.Bind("WorldUI", "CombatLog", Defaults.CombatLogAtStart,
+            "Spawn the combat log panel when a scenario begins. This is a PREFERENCE about the " +
+            "START of a scenario, not a master switch: whatever it says, the VR options row " +
+            "'Kampflog jetzt einblenden' brings the panel up at any time, and the panel's own X " +
+            "closes it again. Off = it simply is not there until you ask for it.");
         Dialogs = _file.Bind("WorldUI", "Dialogs", Defaults.Dialogs,
             "Confirmation dialogs as world-space modals in front of the HMD (poke yes/no). " +
             "Off = the generic modal fallback floats the SAME window instead (ModalFallback " +
@@ -962,12 +978,6 @@ internal static class WorldUIConfig
             new ConfigDescription(
                 "Combat log panel size multiplier (two-hand grab resize; clamped 0.5-2).",
                 new AcceptableValueRange<float>(0.5f, 2f)));
-        CombatLogUserClosed = _file.Bind("WorldUI", "CombatLogUserClosed", Defaults.CombatLogUserClosed,
-            "The user hid the combat log via its top-right X button (or the in-VR settings " +
-            "'Kampflog anzeigen' toggle). While true the panel releases back to its 2D home and " +
-            "does NOT auto-reappear in a scenario; the settings toggle clears it and re-shows the " +
-            "panel. Kept separate from [WorldUI] CombatLog (the feature master) so re-showing " +
-            "never disturbs the feature toggle or the persisted layout.");
         PanelsFollowView = _file.Bind("WorldUI", "PanelsFollowView", Defaults.PanelsFollowView,
             "LEGACY (pre-test-#8) behavior: the world panels (initiative track, element " +
             "board, combat log, objectives, button cluster) re-derive their placement from " +

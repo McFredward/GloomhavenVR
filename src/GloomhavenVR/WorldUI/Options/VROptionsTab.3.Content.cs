@@ -143,17 +143,25 @@ internal static partial class VROptionsTab
             for (int i = 0; i < section.Entries.Length; i++)
             {
                 CuratedEntry entry = section.Entries[i];
+                // An ACTION row has no ConfigEntry, so there is nothing to look up and nothing to
+                // filter on: it draws whenever its section draws. _sectionItems stays the CONFIG
+                // rows only — it is what VariantNote reads, and an action has no variant.
+                if (entry.IsAction)
+                {
+                    _sectionEntries.Add(entry);
+                    continue;
+                }
                 ConfigCatalog.ConfigItem? item = Lookup(entry.Section, entry.Key);
                 if (item == null || !IsRowVisible(item))
                     continue;
                 _sectionItems.Add(item);
                 _sectionEntries.Add(entry);
             }
-            if (_sectionItems.Count == 0)
+            if (_sectionEntries.Count == 0)
                 continue;
 
             BuildHeader(ContentRoot, section.Label);
-            string? note = VariantNote(_sectionItems);
+            string? note = _sectionItems.Count > 0 ? VariantNote(_sectionItems) : null;
             if (note != null)
                 BuildNote(ContentRoot, note);
             // No copy-from-variant rows here, deliberately: bulk-copying a whole tuning block is
@@ -161,8 +169,23 @@ internal static partial class VROptionsTab
             // rows still appear). In a curated tab it sat between two everyday choices and
             // overwrote a dozen settings on one press.
 
-            for (int i = 0; i < _sectionItems.Count; i++)
-                rows += BuildItem(_sectionItems[i], _sectionEntries[i].Caption, _sectionEntries[i].HintKey);
+            // _sectionEntries is the DRAW ORDER (config rows and action rows interleaved as the
+            // list declares them); _sectionItems is the config subset, consumed in step.
+            int configIndex = 0;
+            for (int i = 0; i < _sectionEntries.Count; i++)
+            {
+                CuratedEntry entry = _sectionEntries[i];
+                if (entry.IsAction)
+                {
+                    // asAction: the settings-row path, i.e. the whole row is the button. The tab
+                    // template carries a Toggle, which on a one-shot action reads as a checkbox
+                    // the player is supposed to tick — the exact confusion this row replaces.
+                    BuildLinkRow(ContentRoot, entry.Caption, entry.OnPress!, asAction: true);
+                    rows++;
+                    continue;
+                }
+                rows += BuildItem(_sectionItems[configIndex++], entry.Caption, entry.HintKey);
+            }
         }
         _sectionItems.Clear();
         _sectionEntries.Clear();

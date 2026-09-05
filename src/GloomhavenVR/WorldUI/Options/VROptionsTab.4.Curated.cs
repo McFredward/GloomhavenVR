@@ -43,6 +43,23 @@ internal static partial class VROptionsTab
         internal readonly string En;
         internal readonly string De;
 
+        /// <summary>
+        /// Non-null on an ACTION row: a row that DOES something once instead of editing a
+        /// ConfigEntry. It has no <see cref="Section"/>/<see cref="Key"/> at all and is therefore
+        /// invisible to <c>Lookup</c>, to <c>ConfigCatalog</c> and to
+        /// <c>scripts/check-options-coverage.py</c> — which is correct: there is no setting behind
+        /// it to be advertised, curated twice, or split from a family.
+        ///
+        /// <para><b>WHY AN EVERYDAY TAB GETS ONE AT ALL.</b> The action rows this menu already had
+        /// (the variant copies, the test triggers, the cheats) all live under Erweitert, and the
+        /// reason was always the same — they are power moves. This one is the opposite: the user
+        /// asked for it in exactly these terms (2026-09-05, "einfach nur ein Button 'Spawn
+        /// Kampflog' oder so"), and it belongs beside the preference it complements, on the page
+        /// where a player looks for the combat log. Filing it under Erweitert would be the
+        /// "a setting that cannot be found" mistake with an action instead of a dial.</para>
+        /// </summary>
+        internal readonly System.Action? OnPress;
+
         internal CuratedEntry(string section, string key, string captionKey)
             : this(section, key, captionKey, string.Empty, string.Empty)
         {
@@ -55,7 +72,25 @@ internal static partial class VROptionsTab
             CaptionKey = captionKey;
             En = en;
             De = de;
+            OnPress = null;
         }
+
+        private CuratedEntry(string en, string de, System.Action onPress)
+        {
+            Section = string.Empty;
+            Key = string.Empty;
+            CaptionKey = string.Empty;
+            En = en;
+            De = de;
+            OnPress = onPress;
+        }
+
+        /// <summary>An action row: caption in both languages, and what pressing it does.</summary>
+        internal static CuratedEntry Press(string en, string de, System.Action onPress) =>
+            new(en, de, onPress);
+
+        /// <summary>True for a row with no ConfigEntry behind it — see <see cref="OnPress"/>.</summary>
+        internal bool IsAction => OnPress != null;
 
         /// <summary>
         /// The row's label. A local <see cref="En"/>/<see cref="De"/> pair wins over the Loc key,
@@ -1182,6 +1217,16 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_panels",
                     Entries = new CuratedEntry[]
                     {
+                        // THE COMBAT LOG IS ONE ACTION AND ONE PREFERENCE, in that order, right
+                        // here — the page a player opens when he wants the combat log (user,
+                        // 2026-09-05: "einfach nur ein Button 'Spawn Kampflog' oder so … Es soll
+                        // aber eine weitere Einstellung geben, die angibt, ob der Kampflog zu
+                        // Beginn spawnen soll oder nicht"). The BUTTON is first because it is what
+                        // he is here for; the preference under it answers the other question. The
+                        // old single toggle that tried to be both is what shipped a log nobody
+                        // could summon — see CombatLogSurface's show/hide seam.
+                        CuratedEntry.Press("Spawn combat log now", "Kampflog jetzt einblenden",
+                                           Surfaces.CombatLogSurface.SpawnFromOptions),
                         new("WorldUI", "CombatLog", "show_combat_log"),
                         new("WorldUI", "WristHud", "vr_o_wristhud"),
                         new("WorldUI", "Dialogs", "vr_o_dialogs"),

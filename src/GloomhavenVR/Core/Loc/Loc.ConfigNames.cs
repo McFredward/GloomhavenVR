@@ -704,7 +704,11 @@ internal static partial class Loc
 
             // ---- [WorldUI] — panels, screen, input ------------------------------------------
             // 2026-08 naming pass: "Physische Oberfläche" was opaque and unrelated to the EN name.
-            ["WorldUI/CombatLog"] = Pair("Show combat log", "Kampflog anzeigen"),
+            // The key kept its name and lost its old job (2026-09-05): it decides the START, not
+            // visibility. The display name has to say so, or the row reads as the master switch it
+            // is no longer and the player presses it expecting a window.
+            ["WorldUI/CombatLog"] = Pair("Show combat log at scenario start",
+                                         "Kampflog beim Szenariostart einblenden"),
             ["WorldUI/Dialogs"] = Pair("Dialogs in VR", "Dialoge in VR"),
             ["WorldUI/DecisionDock"] = Pair("Decision dock", "Entscheidungsleiste"),
             ["WorldUI/TrayNativeControls"] = Pair("Real buttons on board", "Echte Tasten am Brett"),
@@ -755,7 +759,6 @@ internal static partial class Loc
             ["WorldUI/CombatLogRight"] = Pair("Combat log: right (m)", "Kampflog: rechts (m)"),
             ["WorldUI/CombatLogUp"] = Pair("Combat log: height (m)", "Kampflog: Höhe (m)"),
             ["WorldUI/CombatLogScale"] = Pair("Combat log: size", "Kampflog: Größe"),
-            ["WorldUI/CombatLogUserClosed"] = Pair("Combat log closed by you", "Kampflog vom Nutzer zu"),
             ["WorldUI/PanelsFollowView"] = Pair("Panels follow view (old)", "Tafeln folgen Blick"),
             ["WorldUI/HexHintFollowView"] = Pair("Hex hint follows view", "Feld-Hinweis folgt Blick"),
             ["WorldUI/HexHintDistance"] = Pair("Hex hint: distance", "Feld-Hinweis: Abstand"),

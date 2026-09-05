@@ -2326,7 +2326,11 @@ internal static partial class Loc
                 + "und völlig unempfindlich gegen Kopfzittern; höher = der Fächer präsentiert die angeschaute "
                 + "Karte schneller. 8 erreicht ~90 % einer Kopfdrehung in ~0.3 s.",
             // ---- [WorldUI] ----
-            ["WorldUI/CombatLog"] = "Kampflog als Welt-Tafel an der gegenüberliegenden Tischseite.",
+            ["WorldUI/CombatLog"] =
+                "Kampflog-Tafel beim Szenariostart einblenden. Das ist eine Einstellung über den "
+                + "ANFANG eines Szenarios, kein Hauptschalter: unabhängig davon holt die Zeile "
+                + "\"Kampflog jetzt einblenden\" die Tafel jederzeit hervor, und das X oben rechts an "
+                + "der Tafel schließt sie wieder. Aus = sie ist einfach nicht da, bis du sie holst.",
             ["WorldUI/Dialogs"] = "Bestätigungsdialoge als Welt-Modale vor dem HMD (Ja/Nein antippen).",
             ["WorldUI/DecisionDock"] =
                 "Entscheidungs-/Bestätigungsabfragen im Szenario (die Verbrennen-Wahl beim Schadennehmen, der "
@@ -2654,13 +2658,6 @@ internal static partial class Loc
                 + "gespeichert).",
             ["WorldUI/CombatLogScale"] =
                 "Größenfaktor der Kampflog-Tafel (Skalieren mit zwei Händen; begrenzt auf 0.5-2).",
-            ["WorldUI/CombatLogUserClosed"] =
-                "Der Spieler hat das Kampflog über den X-Knopf oben rechts (oder den Schalter \"Kampflog "
-                + "anzeigen\" in den VR-Einstellungen) ausgeblendet. Solange true, kehrt die Tafel an ihren "
-                + "2D-Platz zurück und erscheint im Szenario NICHT von selbst wieder; der Einstellungs-Schalter "
-                + "löscht den Wert und zeigt die Tafel erneut. Bewusst getrennt von [WorldUI] CombatLog (dem "
-                + "Hauptschalter der Funktion), damit das Wiederanzeigen weder den Funktionsschalter noch das "
-                + "gespeicherte Layout stört.",
             ["WorldUI/PanelsFollowView"] =
                 "VERALTETES Verhalten (vor Test #8): die Welt-Tafeln (Initiativleiste, Elementtafel, "
                 + "Kampflog, Aufgaben, Zugleiste) leiten ihre Platzierung in jedem Frame neu aus der aktuellen "

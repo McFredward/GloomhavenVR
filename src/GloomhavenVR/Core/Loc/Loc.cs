@@ -1156,7 +1156,11 @@ internal static partial class Loc
         ["h_vr_o_autorestart"] = Pair("Restarts the game by itself the one time the setting above needs it.", "Startet das Spiel einmal selbst neu, wenn die Einstellung darüber es braucht."),
         ["h_mixed_reality"] = Pair("Clears the sky to one colour so your room can show through it.", "Färbt den Himmel einfarbig, damit dein Zimmer durchscheinen kann."),
         ["h_key_color"] = Pair("The colour your headset replaces with the room. Black keeps it simply dark.", "Die Farbe, die dein Headset durch das Zimmer ersetzt. Schwarz lässt es einfach dunkel."),
-        ["h_show_combat_log"] = Pair("A floating panel listing what just happened.", "Eine schwebende Tafel mit dem, was gerade passiert ist."),
+        ["h_show_combat_log"] = Pair(
+            "Whether the floating log panel is up when a scenario begins. You can summon it "
+            + "at any time with the row above, and close it with its X.",
+            "Ob die schwebende Log-Tafel beim Szenariostart da ist. Mit der Zeile darüber holst "
+            + "du sie jederzeit hervor, mit ihrem X schließt du sie wieder."),
         // The hint now carries what the two removed bound-dials used to claim to configure: the
         // bars follow the table zoom only inside a fixed band, so this one number is the whole size.
         ["h_vr_o_barsize"] = Pair("How large the bars are in front of your eyes. 1.0 is the size they have always had, and it holds however far you zoom the table.", "Wie groß die Balken vor deinen Augen sind. 1.0 ist die Größe, die sie immer hatten — und sie bleibt es, wie weit du den Tisch auch zoomst."),
@@ -1257,7 +1261,17 @@ internal static partial class Loc
             "Walls that fade for a teammate also fade for you — same animation as your own.",
             "Wände, die bei einem Mitspieler ausgeblendet sind, verschwinden auch bei dir — mit derselben Animation wie deine eigenen."),
 
-        ["show_combat_log"] = Pair("Show combat log", "Kampflog anzeigen"),
+        // The curated row for [WorldUI] CombatLog. It names the START of a scenario since
+        // 2026-09-05 — the key stopped being a master switch, and a caption that still said
+        // "anzeigen" would promise a window the row does not open.
+        ["show_combat_log"] = Pair("Show combat log at scenario start",
+                                   "Kampflog beim Szenariostart einblenden"),
+        // The empty-state sentence on the combat-log panel itself ("Es darf niemals leere
+        // Fenster geben"): a log summoned in round 1 has nothing in it yet, and a blank
+        // rectangle the player just conjured into the room reads as broken.
+        ["combatlog_empty"] = Pair(
+            "Combat log — nothing has happened yet.\nEverything this scenario does appears here.",
+            "Kampflog — noch ist nichts passiert.\nWas im Szenario geschieht, erscheint hier."),
         // Size dial for the mouseover info panels ("2 Gold", "Geschlossene Tür", …) — the German
         // wording mirrors the user's own term ("Infotafeln"), the English one names them as the
         // hover info cards they are.

@@ -117,7 +117,14 @@ internal static partial class Defaults
     // ButtonCluster (the [WorldUI] master switch over the turn-flow cap group) went with the
     // group itself — see the [RoundButtons] tombstone above. The skip cap it gated is a
     // generic board keycap now and follows the board.
-    internal const bool CombatLog = true;                    // => [WorldUI] CombatLog
+    // THE KEY IS STILL "CombatLog"; WHAT IT MEANS CHANGED (user, 2026-09-05: "Es soll aber eine
+    // weitere Einstellung geben, die angibt, ob der Kampflog zu Beginn spawnen soll oder nicht").
+    // It is the START-UP PREFERENCE now, not a master switch — so an existing cfg line keeps a
+    // sensible meaning instead of being orphaned: "on" used to mean "the log is a thing I want"
+    // and now means "have it up when a scenario begins", which is the same answer to the same
+    // intent. Showing and hiding it DURING play is the options button and the panel's X, and
+    // neither writes this.
+    internal const bool CombatLogAtStart = true;             // => [WorldUI] CombatLog
     internal const bool Dialogs = true;                      // => [WorldUI] Dialogs
     internal const bool DecisionDock = true;                 // => [WorldUI] DecisionDock
     internal const bool TrayNativeControls = true;           // => [WorldUI] TrayNativeControls
@@ -270,7 +277,12 @@ internal static partial class Defaults
     internal const float CombatLogRight = 0.941762f;         // => [WorldUI] CombatLogRight
     internal const float CombatLogUp = 0.458258f;            // => [WorldUI] CombatLogUp
     internal const float CombatLogScale = 0.67339f;          // => [WorldUI] CombatLogScale
-    internal const bool CombatLogUserClosed = true;          // => [WorldUI] CombatLogUserClosed
+    // [WorldUI] CombatLogUserClosed IS GONE (2026-09-05). It was a PERSISTED latch that only
+    // CombatLogSurface.SetUserVisible(true, …) could clear, and commit 9a6db78c deleted that
+    // call site with the old settings panel — while THIS line, written by the Defaults refactor
+    // from a tuned live cfg, shipped it defaulting to TRUE where the original bind had said
+    // false. Together: the combat log could never be shown again, by anything. Visibility is
+    // session state in CombatLogSurface now and nothing persists it. Leave the tombstone.
     internal const bool PanelsFollowView = false;            // => [WorldUI] PanelsFollowView  (legacy: read once as the seed for its successor)
     internal const bool HexHintFollowView = true;            // => [WorldUI] HexHintFollowView
     internal const float HexHintDistance = 0.6f;             // => [WorldUI] HexHintDistance

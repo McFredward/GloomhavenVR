@@ -488,10 +488,12 @@ internal static class ConfigCatalog
         ["Comfort/SavedScaleMultiplier"] = "an OUTPUT, not a setting: written automatically after "
             + "every two-grip scale gesture, so a menu edit is overwritten by the next pinch and "
             + "only shows at all on a rig rebuild — a control that visibly does nothing",
-        ["WorldUI/CombatLogUserClosed"] = "runtime state of the combat log's own X button; the "
-            + "curated row 'Kampflog anzeigen' ([WorldUI] CombatLog) already owns that decision, "
-            + "and two rows for one thing — one of them named after the player's last click — is "
-            + "how a log that is on reads as off",
+        // ["WorldUI/CombatLogUserClosed"] stood here and the KEY ITSELF IS GONE (2026-09-05).
+        // Withholding it from the menu was right and not enough: it was still BOUND, still
+        // persisted, and it had already latched the combat log shut for good because the only
+        // writer that could clear it had been deleted with the old settings panel. A row nobody
+        // can see is not a safe home for state nobody can reset. See the tombstone in
+        // WorldUIConfig and the seam doc in CombatLogSurface.
 
         // ---- 2. Kill switches for the mod and the VR bootstrap ---------------------------------
         // All read once at plugin Awake / XR bootstrap (IsStartupOnly says so by name), so the

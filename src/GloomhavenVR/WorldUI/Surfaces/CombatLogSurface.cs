@@ -2,6 +2,7 @@ using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using UnityEngine;
+using UnityEngine.UI;
 
 namespace GloomhavenVR.WorldUI.Surfaces;
 
@@ -65,55 +66,166 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private const float ZoneWidthFraction = 0.62f;
 
     public override string Name => "CombatLog";
-    // The user-closed flag (X button / settings toggle) hides the panel WITHOUT touching
-    // the feature master, so re-showing keeps the persisted layout (item 6).
-    protected override bool ConfigEnabled => UserVisible;
+    // ONE ACTION AND ONE PREFERENCE, never one toggle doing both jobs — see the
+    // SHOW/HIDE seam below for what this used to be and why it could not work.
+    protected override bool ConfigEnabled => _sessionVisible;
 
-    // ---- show/hide seam (item 6) -----------------------------------------------------------
+    // ---- show/hide seam ---------------------------------------------------------------------
 
-    /// <summary>Effective visibility: feature master ON and the user has not closed it.</summary>
-    internal static bool UserVisible =>
-        WorldUIConfig.CombatLog.Value && !WorldUIConfig.CombatLogUserClosed.Value;
+    /// <summary>
+    /// <b>THE DEFECT THIS SEAM WAS REBUILT AROUND (user, 2026-09-05, verbatim): "Der Kampflog wird
+    /// als Fenster nicht mehr angezeigt. Er taucht einfach gar nicht mehr auf, auch wenn ich ihn in
+    /// den Einstellungen einschalte."</b>
+    ///
+    /// <para>The old seam was <c>ConfigEnabled =&gt; [WorldUI] CombatLog &amp;&amp;
+    /// ![WorldUI] CombatLogUserClosed</c>, and the second term was a PERSISTED latch that only
+    /// <c>SetUserVisible(true, …)</c> could clear. Two independent commits then killed it, and
+    /// either one alone was enough:</para>
+    /// <list type="number">
+    /// <item><b>9a6db78c</b> ("remove the old VR settings panel and everything that fed it",
+    /// 2026-07-30) deleted the ONLY call site that ever passed <c>true</c> —
+    /// <c>v =&gt; CombatLogSurface.SetUserVisible(v, "settings")</c>. Its replacement, the curated
+    /// row in the game's own options window, writes the <c>[WorldUI] CombatLog</c> ConfigEntry
+    /// directly and has never touched the latch. From that commit on the latch could go true and
+    /// never false, and the X button — the only remaining writer — is on a panel that is not
+    /// there to press.</item>
+    /// <item><b>c5d6bbc9</b> ("every shipped default now lives on one annotated line in
+    /// Defaults/") promoted the tester's LIVE value into the shipped default:
+    /// <c>Defaults.CombatLogUserClosed = true</c>, where the original bind had said
+    /// <c>false</c>. So every config that had never pressed the (already deleted) toggle started
+    /// latched CLOSED. That is the <i>a refactor promoted an A/B value</i> shape exactly.</item>
+    /// </list>
+    ///
+    /// <para><b>WHAT THE ModBuild 435 LOG PROVES.</b> In one session the mod logged
+    /// <c>Converted 'InitiativeTrack'</c>, <c>Converted 'ElementBoard'</c> and
+    /// <c>Converted 'Objectives'</c> three times each (three scenario entries) and
+    /// <c>Converted 'CombatLog'</c> ZERO times — <c>CanvasConversion.Convert</c> logs that line
+    /// unconditionally and the tester was running the debug tier, so its absence is not a tier
+    /// artefact. At the same three moments the mod's own OPTIONS KEY census listed
+    /// <c>'CombatLog'</c> among the OPEN game windows. The target existed and was open the whole
+    /// time; the surface's gate never once asked for it. Nothing was hidden, mis-placed or
+    /// mis-drawn — it was never built.</para>
+    ///
+    /// <para><b>THE SHAPE THAT REPLACES IT.</b> A persisted latch that outlives the only thing
+    /// able to clear it is a trap, so there is no persisted latch any more.
+    /// <c>[WorldUI] CombatLogUserClosed</c> is UNBOUND (a stale cfg line is an inert BepInEx
+    /// orphan and drops on the next save). Visibility is SESSION state — one bool, no file — and
+    /// exactly two things write it: the start-up preference <c>[WorldUI] CombatLog</c> at each
+    /// scenario entry, and the player, live, via the "Kampflog jetzt einblenden" options button
+    /// or the panel's own X. The worst a wrong session state can now cost is one button press.
+    /// </para>
+    ///
+    /// <para><b>MULTIPLAYER: NO WIRE FIELD, AND NOT BECAUSE IT WAS FORGOTTEN.</b> The combat log
+    /// panel is this client's own presentation of a window the game gives every client
+    /// independently: <c>CombatLogHandler</c> is a local singleton fed by the same rule messages
+    /// every peer already receives, so there is no shared value here to agree on. The bool this
+    /// seam writes decides whether THIS headset sees a panel, exactly like the wrist HUD or the
+    /// loading spinner, and it drives no game call — the X and the spawn button both end in
+    /// <c>CanvasConversion.Convert/Release</c> on mod-owned objects. Putting it on the wire would
+    /// mean one player's X closing another player's log, which is the opposite of what a local
+    /// window is for, and there is no "sync this sub-feature" dial because there is nothing to
+    /// sync. The panel's POSE is local for the same reason: it rides the persisted
+    /// <c>[WorldUI] CombatLog*</c> offsets, which are per-installation tuning.</para>
+    /// </summary>
+    private static bool _sessionVisible;
+
+    /// <summary>
+    /// True once the player has spoken for THIS scenario (spawn button or X). While it stands the
+    /// scenario-entry seed does not overrule the choice; the gate's FALLING edge clears it, so the
+    /// next scenario starts from the preference again. It is also what makes a press from the map
+    /// room ("show it when I get there") survive into the scenario that follows.
+    /// </summary>
+    private static bool _manualOverride;
+
+    /// <summary>Previous state of the conversion gate — the edge detector for the two rules above.</summary>
+    private static bool _gateWasOpen;
+
+    /// <summary>What last made the panel visible, for the HW-VERIFY line. Never a decision input.</summary>
+    private static string _shownBy = "nothing yet";
 
     // Change-dedup for the show/hide log. Nullable so the FIRST action always logs — a
     // plain bool seeded false silently swallowed an initial hide (the panel is shown by
     // default), which read as the toggle doing nothing.
     private static bool? _loggedVisible;
 
-    // Set by every SHOW (settings toggle / X-recover): the next Place() ignores the (possibly
-    // stale or grabbed-away) persisted pose and drops the panel in front of the head, then
-    // persists THAT — so "Kampflog anzeigen" always brings the log back into view, and an
-    // X-close is always recoverable to where the user is looking. Static because SetUserVisible
-    // is static (the settings toggle has no surface reference); consumed once, in Place().
+    // Set by every SHOW (spawn button / start-up spawn / X-recover): the next Place() ignores the
+    // (possibly stale or grabbed-away) persisted pose and drops the panel in front of the head,
+    // then persists THAT — so a spawn always brings the log INTO VIEW, and an X-close is always
+    // recoverable to where the user is looking. Static because the writers are static (the options
+    // button has no surface reference); consumed once, in Place().
     private static bool _respawnRequested;
 
     /// <summary>
-    /// Show/hide the combat log from the X close button or the settings 'Kampflog anzeigen'
-    /// toggle. SHOW clears the user-closed flag (and re-arms the feature master) AND requests a
-    /// respawn so the next tick reconverts and re-places the panel in view in front of the head
-    /// (never a stale/out-of-view persisted pose — the reason a re-show read as "nothing
-    /// happened"). HIDE sets the persisted flag so it does not auto-reappear; the surface
-    /// releases the conversion back to its 2D home like a normal hide. Change-deduped.
+    /// The options row <b>"Kampflog jetzt einblenden"</b> — the ACTION half of the 2026-09-05
+    /// request ("ich möchte nicht, dass das ein Einschalten ist, sondern einfach nur ein Button
+    /// 'Spawn Kampflog' oder so"). It spawns the panel in front of the head and marks the choice
+    /// as the player's, so the scenario-entry seed will not undo it.
+    ///
+    /// <para>Pressing it outside a scenario is not a no-op and not an error: the gate is shut, so
+    /// nothing can be converted yet, but <see cref="_manualOverride"/> carries the request across
+    /// the gate's next rising edge and the log comes up with the scenario.</para>
+    ///
+    /// <para>THIS IS NOT REACHABLE THROUGH THE OPTIONS KEY. The key opens and closes the pause
+    /// menu and touches no other window (standing ruling); this row is a row INSIDE the mod's
+    /// settings tab, pressed by hand like every other row there.</para>
+    /// </summary>
+    internal static void SpawnFromOptions() => SetUserVisible(true, "spawn button");
+
+    /// <summary>
+    /// Show/hide the combat log for THIS SESSION. Writes no ConfigEntry: the start-up preference
+    /// <c>[WorldUI] CombatLog</c> is the player's answer to a different question ("should it be up
+    /// when a scenario begins?") and a live show/hide may not silently re-answer it. SHOW requests
+    /// a respawn so the next tick converts and places the panel in view in front of the head
+    /// (never a stale/out-of-view persisted pose). HIDE releases the conversion back to its 2D
+    /// home. Change-deduped.
     /// </summary>
     internal static void SetUserVisible(bool visible, string source)
     {
+        _sessionVisible = visible;
+        _manualOverride = true;
         if (visible)
         {
-            WorldUIConfig.CombatLog.Value = true;            // BepInEx persists on set
-            WorldUIConfig.CombatLogUserClosed.Value = false;
-            _respawnRequested = true;                        // bring it back into view (item 1)
-        }
-        else
-        {
-            WorldUIConfig.CombatLogUserClosed.Value = true;
+            _shownBy = source;
+            _respawnRequested = true;                        // bring it back into view
         }
         if (_loggedVisible != visible)
         {
             _loggedVisible = visible;
             VRLog.Info("WorldUI", visible
-                ? $"Combat log shown ({source}) — reconverting and re-placing in front of the head."
-                : $"Combat log hidden ({source}) — released to its 2D home, will not auto-reappear.");
+                ? $"Combat log shown ({source}) — converting and placing in front of the head."
+                : $"Combat log hidden ({source}) — released to its 2D home; "
+                  + "'Kampflog jetzt einblenden' in the VR options brings it back.");
         }
+    }
+
+    /// <summary>
+    /// SCENARIO ENTRY APPLIES THE START-UP PREFERENCE, and nothing else does.
+    ///
+    /// <para>Run at the top of <see cref="Tick"/>, i.e. BEFORE the base class reads
+    /// <see cref="ConfigEnabled"/>, so the seed and the conversion it implies land in the same
+    /// tick rather than one apart.</para>
+    /// </summary>
+    private void UpdateSessionVisibility()
+    {
+        bool gate = WorldUIConfig.ConversionActive && Choreographer.s_Choreographer != null;
+        if (gate && !_gateWasOpen && !_manualOverride)
+            SeedFromPreference();
+        else if (!gate && _gateWasOpen)
+            _manualOverride = false;     // the next scenario starts from the preference again
+        _gateWasOpen = gate;
+    }
+
+    /// <summary>Scenario entry with no live choice standing: the preference decides.</summary>
+    private void SeedFromPreference()
+    {
+        bool atStart = WorldUIConfig.CombatLogAtStart.Value;
+        _sessionVisible = atStart;
+        _shownBy = atStart ? "start-up preference" : "nothing yet";
+        _respawnRequested = atStart;
+        _loggedVisible = null;           // a new scenario always logs its first verdict
+        VRLog.Info("WorldUI", "Combat log start-up preference applied at scenario entry: "
+                              + $"[WorldUI] CombatLog = {atStart} → "
+                              + (atStart ? "spawning." : "not spawned (use the options button)."));
     }
 
     /// <summary>
@@ -144,6 +256,22 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     private bool _healLogged;           // change-dedup for the out-of-view heal log
     private bool _locHooked;            // subscribed to Loc.OnChanged (live language following)
 
+    // ---- empty state ("Es darf niemals leere Fenster geben") ----------------------------------
+    private TMPro.TextMeshPro? _emptyNote;
+    private Transform? _emptyAnchor;
+    private ScrollRect? _scroll;        // the game's log list, captured once per conversion
+    private int _entryCount = -1;       // visible log rows; -1 = not measured yet
+    private int _lastChildCount = -1;   // cheap change trigger for the recount
+    private float _nextEntryScan;
+    private float _fittedNoteWidth = -1f;
+    private MeshRenderer? _emptyNoteRenderer;
+
+    // ---- HW-VERIFY bookkeeping ---------------------------------------------------------------
+    private int _ticks;                 // UNCONDITIONAL liveness: "never ran" vs "ran and did nothing"
+    private int _verifyLines;
+    private int _verifySuppressed;
+    private int _lastVerdict = int.MinValue;
+
     protected override RectTransform? FindTarget() =>
         Singleton<CombatLogHandler>.IsInitialized
             ? Singleton<CombatLogHandler>.Instance.transform as RectTransform
@@ -162,6 +290,15 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     {
         if (Panel != null && !Panel.FitFrameDegenerate)
             Panel.FitEnabled = false;
+        // The game's own log list, captured ONCE per conversion (the per-tick recount below reads
+        // only childCount off it). Missing is a legitimate answer — the empty note then keeps its
+        // last verdict rather than guessing, and the HW-VERIFY line reports entries as unknown.
+        _scroll = Panel != null && Panel.HostRect != null
+            ? Panel.HostRect.GetComponentInChildren<ScrollRect>(true)
+            : null;
+        _entryCount = -1;
+        _lastChildCount = -1;
+        _nextEntryScan = 0f;
     }
 
     // ---- IPanelGrabOwner -------------------------------------------------------------------
@@ -193,6 +330,8 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     public override void Tick()
     {
+        _ticks++;                       // liveness, counted before anything can return early
+        UpdateSessionVisibility();      // BEFORE base.Tick() reads ConfigEnabled
         base.Tick();
         // Gate closed / scene unloaded: the frame hides with the panel (it must not
         // float alone in the world), and the next conversion re-derives the pose
@@ -200,6 +339,9 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (Panel == null)
         {
             _placedFromConfig = false;
+            _scroll = null;
+            _entryCount = -1;
+            _lastChildCount = -1;
             // The beam hover is dropped HERE and not only in TickCapLaser, because Place() — where
             // the scan lives — returns before it whenever the panel is down or the table anchor is
             // missing. A hover that survives its own control is the [[gate-outliving-its-edge]]
@@ -208,6 +350,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             if (_holder != null && _holder.gameObject.activeSelf)
                 _holder.gameObject.SetActive(false);
         }
+        LogVerdict();
     }
 
     public override void Shutdown()
@@ -215,7 +358,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         base.Shutdown();
         if (_locHooked)
         {
-            Loc.OnChanged -= ApplyPinVisual;
+            Loc.OnChanged -= ApplyLocalisedText;
             _locHooked = false;
         }
         if (_holder != null)
@@ -229,12 +372,25 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pinAnchor = null;
         _close = null;
         _closeAnchor = null;
+        _emptyNote = null;
+        _emptyAnchor = null;
+        _emptyNoteRenderer = null;
+        _scroll = null;
         ClearCapLaserHover();
         _builtBarWidth = -1f;
         _placedFromConfig = false;
         _facedPoseVersion = -1;
         _healLogged = false;
+        _entryCount = -1;
+        _lastChildCount = -1;
         _respawnRequested = false;
+        // Session visibility dies with the session, deliberately: the next run starts from the
+        // start-up preference, which is the whole point of retiring the persisted latch.
+        _sessionVisible = false;
+        _manualOverride = false;
+        _gateWasOpen = false;
+        _loggedVisible = null;
+        _shownBy = "nothing yet";
     }
 
     // ---- placement (every tick while converted) ----------------------------------------------
@@ -372,7 +528,108 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             _closeAnchor.localPosition = new Vector3(halfWidth - inset, topEdge - inset, -0.004f);
         }
 
+        TickEmptyNote(rect, metersPerPixel);
         TickCapLaser();
+    }
+
+    // ---- empty state --------------------------------------------------------------------------
+
+    /// <summary>
+    /// <b>"ES DARF NIEMALS LEERE FENSTER GEBEN" (standing constraint).</b> A window you can now
+    /// summon on demand can be summoned at any moment — including round 1 of a scenario, before
+    /// anything has happened, when the game's own log list holds exactly nothing. The game's flat
+    /// UI can afford that (there the log is a strip that has always been there); a panel that the
+    /// player just conjured into the room and that comes up as a blank rectangle reads as broken.
+    ///
+    /// <para>So the panel says what it is and what will fill it, in the player's language, and the
+    /// note disappears the instant the first entry lands. It is mod-owned world text parked over
+    /// the CENTRE of the host rect in the frame's own local metres — the same frame-local
+    /// convention the X corner uses, so it scales with the diorama and the user's size factor
+    /// without a second placement rule.</para>
+    ///
+    /// <para>THE COUNT IS CHANGE-GATED, NOT PER-FRAME. <c>childCount</c> is one integer read; the
+    /// loop over the children only runs when that number moved or once a second (a FILTER change
+    /// re-uses the same pooled objects via SetActive and moves no count, so the cadence is what
+    /// catches it). No allocation on either path.</para>
+    /// </summary>
+    private void TickEmptyNote(Rect rect, float metersPerPixel)
+    {
+        RectTransform? content = _scroll != null ? _scroll.content : null;
+        if (content != null)
+        {
+            int children = content.childCount;
+            if (children != _lastChildCount || Time.unscaledTime >= _nextEntryScan)
+            {
+                _lastChildCount = children;
+                _nextEntryScan = Time.unscaledTime + 1f;
+                int visible = 0;
+                for (int i = 0; i < children; i++)
+                {
+                    Transform child = content.GetChild(i);
+                    // A CombatLogText, active, is one visible ROW. The component test is not
+                    // decoration: a layout spacer or any other permanent child of the content
+                    // root would make "childCount > 0" mean "not empty" for a log that has
+                    // nothing in it, and the note would then never appear on the one panel it
+                    // exists for. UpdateLogs recycles filtered-out rows and SetActive(true)s the
+                    // ones that come back, so activeSelf is the game's own visible/not verdict.
+                    if (child != null && child.gameObject.activeSelf
+                        && child.GetComponent<CombatLogText>() != null)
+                        visible++;
+                }
+                _entryCount = visible;
+            }
+        }
+
+        // Unknown (no ScrollRect found) is NOT empty: a note over a panel that may well be full is
+        // worse than no note, and the HW-VERIFY line reports the unknown so it can be fixed.
+        bool empty = _entryCount == 0;
+        if (_emptyNote == null || _emptyAnchor == null)
+            return;
+        if (_emptyNote.gameObject.activeSelf != empty)
+            _emptyNote.gameObject.SetActive(empty);
+        if (!empty)
+            return;
+        _emptyAnchor.localPosition = new Vector3(
+            0f, BarGapMeters + rect.height * metersPerPixel * 0.5f, -0.004f);
+
+        // DRAW IT OVER THE PANEL, NOT UNDER IT. A converted host is a world-space uGUI canvas that
+        // writes no depth and rides a sortingOrder ladder rewritten every frame from its measured
+        // eye distance (CanvasConversion.8.Order); a plain mod renderer sits at sortingOrder 0 and
+        // would be painted BEFORE it — i.e. invisible behind the very panel it annotates, at any z
+        // offset. One above the panel's live order is the same term the furniture pass writes, so
+        // the note tracks the ladder instead of fighting it. Change-gated.
+        if (_emptyNoteRenderer != null && Panel != null && Panel.HostCanvas != null)
+        {
+            int want = Panel.HostCanvas.sortingOrder + 1;
+            if (_emptyNoteRenderer.sortingOrder != want)
+                _emptyNoteRenderer.sortingOrder = want;
+        }
+
+        // Fit into the panel's own width, change-gated on that width (the host rect is pinned by
+        // OnConverted, so in practice this runs once per conversion).
+        float boxWidth = rect.width * metersPerPixel * 0.84f;
+        if (Mathf.Abs(boxWidth - _fittedNoteWidth) > 0.002f)
+        {
+            _fittedNoteWidth = boxWidth;
+            TmpFit.Fit(_emptyNote, boxWidth, rect.height * metersPerPixel * 0.6f,
+                maxFontSize: 0.05f, wrap: true);
+        }
+    }
+
+    /// <summary>Re-state every mod-owned string on this panel after a live language change.</summary>
+    private void ApplyLocalisedText()
+    {
+        ApplyPinVisual();
+        ApplyEmptyNoteText();
+    }
+
+    /// <summary>The empty-state sentence, in the player's language. Re-fits on the next tick.</summary>
+    private void ApplyEmptyNoteText()
+    {
+        if (_emptyNote == null)
+            return;
+        _emptyNote.text = Loc.Mod("combatlog_empty");
+        _fittedNoteWidth = -1f;     // a new string needs a new fit
     }
 
     /// <summary>
@@ -433,6 +690,9 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _pinAnchor = null;
         _close = null;
         _closeAnchor = null;
+        _emptyNote = null;
+        _emptyAnchor = null;
+        _emptyNoteRenderer = null;
         ClearCapLaserHover();
         _builtBarWidth = -1f;
 
@@ -467,24 +727,41 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             new Color(0.75f, 0.55f, 0.2f), Loc.Mod("follow"), TogglePin);
         ApplyPinVisual();
 
-        // Live language following: the FOLLOW/PINNED pin label is set at events only, so
-        // re-apply it whenever the game language changes (subscribe once; Shutdown detaches).
+        // Live language following: the FOLLOW/PINNED pin label and the empty-state note are set at
+        // events only, so re-apply them whenever the game language changes (subscribe once;
+        // Shutdown detaches).
         if (!_locHooked)
         {
             _locHooked = true;
-            Loc.OnChanged += ApplyPinVisual;
+            Loc.OnChanged += ApplyLocalisedText;
         }
 
-        // X close button at the panel's TOP-RIGHT corner (item 6): same BoardButton
-        // vocabulary as the pin. Hides the log (releases the conversion to 2D) and
-        // persists the user-closed flag so it does not auto-reappear; re-spawn via the
-        // settings 'Kampflog anzeigen' toggle. The anchor pose is set every tick in
-        // Place() (the corner rides the live host rect). Accent = the tray's warm red.
+        // X close button at the panel's TOP-RIGHT corner: same BoardButton vocabulary as the pin.
+        // It ENDS THE WINDOW — the conversion is released back to its 2D home on the very next
+        // tick, which is the visible confirmation an exit control owes the press. The log stays
+        // gone until the player asks for it again ("Kampflog jetzt einblenden" in the VR options)
+        // or the next scenario starts with the start-up preference on. Nothing about the press is
+        // persisted, so a mis-press costs one press to undo. Accent = the tray's warm red.
         _closeAnchor = new GameObject("CloseButton").transform;
         _closeAnchor.SetParent(_frame, worldPositionStays: false);
         _close = PlayTray.BoardButton.Create(_closeAnchor, new Vector2(0.05f, 0.05f),
             new Color(0.72f, 0.28f, 0.24f), "X", () => SetUserVisible(false, "X button"));
         _close.SetState(true, accent: true);
+
+        // The empty-state note (see TickEmptyNote). Built here so it shares the frame's lifetime
+        // and its scale; parked inactive — Place() decides, once the entry count is known.
+        _emptyAnchor = new GameObject("EmptyNote").transform;
+        _emptyAnchor.SetParent(_frame, worldPositionStays: false);
+        var noteGo = new GameObject("Label");
+        noteGo.transform.SetParent(_emptyAnchor, worldPositionStays: false);
+        _emptyNote = noteGo.AddComponent<TMPro.TextMeshPro>();
+        _emptyNoteRenderer = noteGo.GetComponent<MeshRenderer>();
+        _emptyNote.alignment = TMPro.TextAlignmentOptions.Center;
+        _emptyNote.color = new Color(0.86f, 0.82f, 0.70f);
+        NativeButtonSkin.ApplyFont(_emptyNote);
+        NativeButtonSkin.StyleWorldReadableLabel(_emptyNote);
+        ApplyEmptyNoteText();
+        noteGo.SetActive(false);
 
         // Render-only mod layer — grabs and pokes go through the registries.
         VRLayers.Apply(holderGo);
@@ -616,6 +893,113 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             hand.Ray.SuppressFarClick();
             hit.Press(hand, $"combat-log laser ({hand.Side})");
         }
+    }
+
+    // ---- the round's instrument ---------------------------------------------------------------
+
+    /// <summary>Cached every second: -1 unknown / 0 closed / 1 open on the game's own UIWindow.</summary>
+    private int _gameWindowOpen = -1;
+    private float _nextWindowPoll;
+
+    /// <summary>Normal lines before the cap; past it every 100th further change still prints.</summary>
+    private const int VerifyLineCap = 20;
+
+    /// <summary>
+    /// ONE LINE THAT DECIDES THE NEXT ROUND, printed on every VERDICT CHANGE (a gate edge, a
+    /// button, an X, the first entry landing) and never per frame.
+    ///
+    /// <para>THE DEFECT IT WAS WRITTEN AGAINST WAS PURE SILENCE. The ModBuild 435 log holds no
+    /// combat-log line of any kind, and silence had four candidate meanings that no field
+    /// separated: never built, built and never shown, shown and immediately hidden, or shown
+    /// where the player could not see it. Every one of those is now a named field.</para>
+    ///
+    /// <para><b>ticks IS UNCONDITIONAL LIVENESS AND IS WHY THE LINE IS TRUSTWORTHY.</b> It is
+    /// incremented at the top of <see cref="Tick"/> before any early return, so a printed line
+    /// always says how many times this surface has run. A log with NO line at all means the
+    /// surface object is not being ticked (a module-registration defect); a line with a large
+    /// tick count and <c>built=no</c> means it ran and refused — the two failure modes that
+    /// looked identical last round.</para>
+    /// </summary>
+    private void LogVerdict()
+    {
+        if (Time.unscaledTime >= _nextWindowPoll)
+        {
+            _nextWindowPoll = Time.unscaledTime + 1f;
+            _gameWindowOpen = ReadGameWindowState();
+        }
+
+        bool built = _frame != null;
+        bool converted = Panel != null;
+        bool target = Singleton<CombatLogHandler>.IsInitialized;
+        int content = _entryCount < 0 ? -1 : (_entryCount == 0 ? 0 : 1);
+
+        // Allocation-free change gate: nothing is composed until a verdict actually moved.
+        int verdict = (_gateWasOpen ? 1 : 0)
+                      | (_sessionVisible ? 1 << 1 : 0)
+                      | (_manualOverride ? 1 << 2 : 0)
+                      | (built ? 1 << 3 : 0)
+                      | (converted ? 1 << 4 : 0)
+                      | (target ? 1 << 5 : 0)
+                      | ((_gameWindowOpen + 1) << 6)
+                      | ((content + 1) << 8);
+        if (verdict == _lastVerdict)
+            return;
+        _lastVerdict = verdict;
+
+        if (_verifyLines >= VerifyLineCap)
+        {
+            _verifySuppressed++;
+            if (_verifySuppressed % 100 != 0)
+                return;                  // capped, but NEVER silent — see the suppressed field
+        }
+        _verifyLines++;
+
+        Camera? head = CanvasConversion.WorldCamera;
+        string where = "not placed";
+        if (built && _frame != null)
+        {
+            Vector3 p = _frame.position;
+            float dist = head != null ? Vector3.Distance(p, head.transform.position) : -1f;
+            where = $"({p.x:F2},{p.y:F2},{p.z:F2}) {(dist >= 0f ? $"{dist:F2} m from the head" : "head unknown")}"
+                    + $", {(WorldUIConfig.CombatLogFollow.Value ? "FOLLOW" : "PINNED")}"
+                    + $", size {Mathf.Clamp(WorldUIConfig.CombatLogScale.Value, 0.5f, 2f):F2}x";
+        }
+
+        // HW-VERIFY: was the combat log surface BUILT, was it SHOWN, by WHAT, WHERE, and did it
+        // have CONTENT — the four meanings last round's silence could not tell apart.
+        VRLog.Note("WorldUI", $"COMBAT LOG VERDICT #{_verifyLines} (ticks={_ticks}, "
+            + $"suppressed={_verifySuppressed}): gate={(_gateWasOpen ? "OPEN" : "shut")} "
+            + $"target={(target ? "CombatLogHandler present" : "ABSENT")} "
+            + $"gameWindow={(_gameWindowOpen < 0 ? "unknown" : _gameWindowOpen == 1 ? "OPEN" : "CLOSED (the game's own combat-log setting)")} "
+            + $"visible={_sessionVisible} shownBy='{_shownBy}' "
+            + $"playerChose={_manualOverride} startupPref=[WorldUI] CombatLog={WorldUIConfig.CombatLogAtStart.Value} "
+            + $"built={(built ? "yes" : "NO")} converted={(converted ? "yes" : "NO")} "
+            + $"placed={where} entries={(_entryCount < 0 ? "unknown" : _entryCount.ToString())} "
+            + $"emptyNote={(content == 0 ? "SHOWN" : content < 0 ? "not decidable" : "hidden")}. "
+            + "HOW TO READ IT: 'ticks' is unconditional — a log with NO line at all means this "
+            + "surface is not being ticked, while a large tick count with built=NO means it ran "
+            + "and refused, and the refusing term is whichever of gate/visible reads shut/False. "
+            + "built=yes converted=NO with target present means the conversion itself failed "
+            + "(look for the 'Converted' line's absence). converted=yes with a placed distance "
+            + "far outside arm's reach is the 'shown where he cannot see it' case. entries=0 with "
+            + "emptyNote=SHOWN is the correct picture for a log summoned before anything happened "
+            + "— and an entries count that is NEVER 0 on a visibly empty panel means the content "
+            + "root holds a permanent non-CombatLogText child, which is the one way the note can "
+            + "fail to appear.");
+    }
+
+    /// <summary>The game's own window state. Its own options hold a DisabledCombatLog switch that
+    /// hides this window independently of anything the mod does — a closed window with the mod's
+    /// gate open is that, and it is the one cause this surface cannot fix from here.</summary>
+    private static int ReadGameWindowState()
+    {
+        if (!Singleton<CombatLogHandler>.IsInitialized)
+            return -1;
+        CombatLogHandler handler = Singleton<CombatLogHandler>.Instance;
+        if (handler == null)
+            return -1;
+        var window = handler.GetComponent<UnityEngine.UI.UIWindow>();
+        return window == null ? -1 : (window.IsOpen ? 1 : 0);
     }
 
     /// <summary>How far the beam may reach a combat-log cap, in real meters before diorama scale —

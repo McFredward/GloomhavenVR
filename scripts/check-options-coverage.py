@@ -449,7 +449,9 @@ KNOWN_ORPHANS = {
     ("WorldUI", "CombatLogRight"),
     ("WorldUI", "CombatLogScale"),
     ("WorldUI", "CombatLogUp"),
-    ("WorldUI", "CombatLogUserClosed"),
+    # ("WorldUI", "CombatLogUserClosed") was here and the KEY IS GONE (2026-09-05) — it was a
+    # persisted latch, not a setting, and it held the combat log shut for good once the only
+    # writer that could clear it was deleted. This is what shrinking the backlog looks like.
     ("WorldUI", "HexHintDistance"),
     ("WorldUI", "HexHintDrop"),
     ("WorldUI", "HexHintSide"),
