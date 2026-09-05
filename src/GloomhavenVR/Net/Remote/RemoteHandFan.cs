@@ -828,6 +828,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// <summary>Reused scratch buffer for the remote actor's HAND-pile card widgets (no per-frame alloc).</summary>
     private readonly List<AbilityCardUI> _handBuffer = new(MaxCards);
 
+    /// <summary>Set on the frames the length belt above refuses the fronts, to (this client's model
+    /// count, the owner's wire count). Null whenever the belt did not fire. It exists ONLY so the
+    /// BACKS line can name the blocker rather than list the candidates — see the log block.</summary>
+    private (int Model, int Wire)? _countBelt;
+
     // ---- THE MAP PHASE (report 4, 2026-08-22) -------------------------------------------------
     //
     // "Handkarten sind nicht sichtbar im Multiplayer im Map-Bereich. Das soll nicht sein, die
@@ -1253,38 +1258,43 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             VRLog.Warn("Net", $"RemoteHandFan front gate errored ({ex.Message}) — showing backs.");
         }
 
-        // A LENGTH DISAGREEMENT MEANS THIS CLIENT'S MODEL IS BEHIND — SHOW BACKS (ModBuild 351,
-        // hardware MP report item 10: "Die gerade verbrannte Karte ist beim Test auf dem Handfächer
-        // zu sehen direkt nachdem der Mitspieler sie verbrannt hat").
+        // A LENGTH DISAGREEMENT MEANS THE TWO SIDES ARE NOT LOOKING AT THE SAME HAND — SHOW BACKS
+        // (ModBuild 351, hardware MP report item 10: "Die gerade verbrannte Karte ist beim Test auf
+        // dem Handfaecher zu sehen direkt nachdem der Mitspieler sie verbrannt hat").
         //
         // The slab COUNT below is the owner's, off the wire and timely. The FACES are this client's
-        // OWN model, and on an observer that model lags a whole choreographer turn — the very defect
-        // the pile counts were moved onto the wire for (see RemoteControlBoard's note on the model
-        // read). The loop then zips the two POSITIONALLY with nothing but a bounds check, so once
-        // the owner burns a card mid-hand every face after it is drawn one place out AND the burned
-        // card keeps being drawn.
+        // OWN model, and on an observer that model lags a whole choreographer turn. The loop then
+        // zips the two POSITIONALLY with nothing but a bounds check, so once the owner burns a card
+        // mid-hand every face after it is drawn one place out AND the burned card keeps being drawn.
+        // A back is wrong in a way the player can read as "not loaded yet"; a SHIFTED FRONT is wrong
+        // in a way he cannot read at all, and he would act on it.
         //
-        // The two lengths disagreeing is the observable proof of exactly that lag, so it is the
-        // right term to gate on. A back is wrong in a way the player can read as "not loaded yet";
-        // a SHIFTED FRONT is wrong in a way he cannot read at all, and he would act on it. This is
-        // a stopgap, not the fix: the fix is for the hand fan's MEMBERSHIP to travel the way the
-        // pile counts already do, after which the zip can be by identity and this can go.
+        // WHAT CHANGED, AND WHY THIS LINE IS NOW A BELT RATHER THAN THE ONLY THING HOLDING IT UP.
+        // The note that stood here said "this is a stopgap, not the fix: the fix is for the hand
+        // fan's MEMBERSHIP to travel the way the pile counts already do, after which the zip can be
+        // by identity and this can go." That framing was wrong about the cost and wrong about the
+        // defect. The membership does not have to TRAVEL — every term of it is host-replicated model
+        // state this client already holds in full. What was actually wrong is that the two sides
+        // computed it with two different expressions, and the pair had drifted: the owner's arc drops
+        // the LONG REST placeholder, this buffer did not, and that placeholder sits in cardsUI with
+        // CardPileType.Hand (CardsHandUI.cs:1309). So the counts differed by one PERMANENTLY, this
+        // line refused every front for the entire session, and report item 5b reads as "no fronts in
+        // the fan" with the gate wide open. Two 100 MB logs contain no "FRONTS - content=HAND" line
+        // at all while every sibling surface on the same RevealGate opened normally — which is the
+        // signature of shut arithmetic, not a shut gate.
         //
-        // RECORD 36 DOES NOT RETIRE IT, AND THAT WAS CHECKED RATHER THAN ASSUMED (ModBuild 352).
-        // The held-card FACE record (NetProtocol.ExtIdHeldCardFace) makes an index into this very
-        // list safe — it carries the sender's list LENGTH beside the index and the receiver refuses
-        // the front unless its own copy matches — so it is tempting to read it as "the identity zip
-        // is now possible". It is not, and the difference is a quantifier: record 36 names ONE
-        // POSITION, the card in a hand. This zip needs the whole MEMBERSHIP, N entries, to know
-        // that slab i is card i. A record that answers "which one is in the fist" cannot answer
-        // "which N are in the fan", and its length byte is a CONSISTENCY TEST, not a membership
-        // list — the very test this line already performs, from the other side.
-        //
-        // What WOULD retire this is a per-card membership record (N seats, one per slab), which is
-        // a different record with a different cost profile: it rides on every packet of every
-        // player with an open fan, where record 36 rides only while somebody is physically holding
-        // a card. That is a decision about the wire's steady-state size and it is not this round's.
-        if (showFronts && !mapFronts && _handBuffer.Count != count)
+        // Both sides now call ONE expression (CardsGameApi.HandFanMember), so this compares two
+        // computations of the same definition instead of two definitions. It stays, because what it
+        // is really testing is MODEL LAG — this client's copy of the peer's hand being a
+        // choreographer turn behind theirs — and no shared filter can remove that. It should now be
+        // a transient around a burn or a play, and if it is not, the log line below says so.
+        // Latched for the BACKS log line below, which otherwise cannot tell the player WHICH of the
+        // three reasons shut the fan — the very ambiguity that let item 5b read as a reveal-gate
+        // problem for a whole round of hardware testing.
+        _countBelt = showFronts && !mapFronts && _handBuffer.Count != count
+            ? (Model: _handBuffer.Count, Wire: count)
+            : ((int Model, int Wire)?)null;
+        if (_countBelt != null)
             showFronts = false;
 
         // Which buffer this frame's faces come from, latched for the borrow — a borrow must read the
@@ -1414,13 +1424,38 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             }
             else
             {
-                VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
-                    + "content=HAND, gate: RevealGate.ShowRoundCardFronts(actor)=false (the game's "
-                    + "own secret SelectAbilityCardsOrLongRest phase) or no hand widget resolved."
-                    + (RevealGate.InScenario
-                        ? string.Empty
-                        : " OFF-SCENARIO, so the MAP-PHASE path is the one that answered: "
-                          + _mapVerdict + "."));
+                if (_countBelt != null)
+                {
+                    // HW-VERIFY: this line decides report item 5b. The reveal gate was OPEN and the
+                    // fronts were refused by ARITHMETIC — so it must name the two numbers, at a tier
+                    // a shipped log prints, or the next round measures the gate again and finds
+                    // nothing. A burn or a play may flash it for a second while this client's copy
+                    // of the peer's hand catches up. A line that STANDS is the real defect: the two
+                    // sides have drifted apart on what counts as a hand card again.
+                    VRLog.Note("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
+                        + $"content=HAND, and the reveal gate was OPEN. The fronts were refused by "
+                        + $"the LENGTH BELT: this client resolves {_countBelt.Value.Model} hand "
+                        + $"card(s) for that character while the owner's own fan reports "
+                        + $"{_countBelt.Value.Wire} slab(s) on the wire. Slab i is only a name for "
+                        + "card i while those two agree, so a front here would be the wrong card's "
+                        + "face — a back is the safe direction. Both sides compute membership from "
+                        + "the one shared expression (CardsGameApi.HandFanMember), so a BRIEF "
+                        + "disagreement around a burn or a played card is this client's copy of the "
+                        + "peer's hand lagging a choreographer turn and will clear itself. A "
+                        + "disagreement that STANDS means the two sides have drifted apart on what "
+                        + "counts as a hand card, which is the defect this belt exists to make "
+                        + "visible rather than to hide.");
+                }
+                else
+                {
+                    VRLog.Info("Net", $"Remote hand fan faces [player {_owner.PlayerId}]: BACKS — "
+                        + "content=HAND, gate: RevealGate.ShowRoundCardFronts(actor)=false (the game's "
+                        + "own secret SelectAbilityCardsOrLongRest phase) or no hand widget resolved."
+                        + (RevealGate.InScenario
+                            ? string.Empty
+                            : " OFF-SCENARIO, so the MAP-PHASE path is the one that answered: "
+                              + _mapVerdict + "."));
+                }
             }
         }
     }
@@ -1530,11 +1565,23 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         List<AbilityCardUI> cards = hand.cardsUI; // publicized private field
         if (cards == null)
             return;
+        // THE OWNER'S OWN MEMBERSHIP TEST, THE SAME EXPRESSION — see CardsGameApi.HandFanMember.
+        // This used to be a local `CardType == Hand && fullAbilityCard != null`, which is not the
+        // filter the owner's arc is built with, and the gap was not a subtlety: the LONG REST
+        // placeholder lives in cardsUI with CardType Hand (CardsHandUI.cs:1309), so this buffer
+        // counted one card MORE than the owner's fan holds — permanently — and the equality below
+        // could never be true. Two full hardware logs contain no "FRONTS — content=HAND" line at
+        // all while every sibling surface on the same RevealGate opened normally, which is what a
+        // shut ARITHMETIC looks like rather than a shut gate (report item 5b).
+        //
+        // fullAbilityCard is no longer a membership term and that is deliberate: it is what a face is
+        // DRAWN from, not what makes a card a member. A seat whose widget has none draws a BACK and
+        // leaves every other seat correct, which is strictly better than dropping the seat and
+        // shifting the rest.
         for (int i = 0; i < cards.Count && _handBuffer.Count < MaxCards; i++)
         {
-            AbilityCardUI c = cards[i];
-            if (c != null && c.CardType == CardPileType.Hand && c.fullAbilityCard != null)
-                _handBuffer.Add(c);
+            if (CardsGameApi.HandFanMember(cards[i], actor))
+                _handBuffer.Add(cards[i]);
         }
     }
 

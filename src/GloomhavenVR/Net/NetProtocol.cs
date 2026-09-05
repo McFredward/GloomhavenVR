@@ -19403,10 +19403,22 @@ internal static class NetProtocol
     public const byte HeldFaceListNone = 0;
 
     /// <summary>SOURCE LIST 1: the owner's open ability HAND FAN —
-    /// <c>CardsHandManager.Instance.GetHand(actor).cardsUI</c> filtered to
-    /// <c>CardPileType.Hand</c> with a non-null <c>fullAbilityCard</c>, which is EXACTLY the filter
-    /// <c>RemoteHandFan.ResolveHandFronts</c> already applies on the receiver. The two must stay one
-    /// expression or the index names a different seat on each machine.</summary>
+    /// <c>CardsHandManager.Instance.GetHand(actor).cardsUI</c> filtered by
+    /// <c>Cards.CardsGameApi.HandFanMember</c>, which is now literally the same call the owner's own
+    /// arc (<c>CardsDriver.FillHandFan</c>) and the receiver's rebuild
+    /// (<c>RemoteHandFan.ResolveHandFronts</c>) are built from.
+    ///
+    /// <para>IT USED TO BE A DESCRIPTION RATHER THAN A CALL — "filtered to <c>CardPileType.Hand</c>
+    /// with a non-null <c>fullAbilityCard</c>" — restated in three places with the warning that they
+    /// must stay one expression. They did not: the owner's arc also dropped the LONG REST
+    /// placeholder, which sits in <c>cardsUI</c> with <c>CardPileType.Hand</c>
+    /// (CardsHandUI.cs:1309), so the seat this record named and the seat the receiver counted to
+    /// were different index spaces whenever a hand held one. A warning that two copies must agree is
+    /// not a mechanism; the call is.</para>
+    ///
+    /// <para><c>fullAbilityCard</c> is no longer part of the space. It is what a face is DRAWN from,
+    /// not what makes a card a member of the hand, and a seat whose widget has none now draws a BACK
+    /// instead of vanishing and shifting every seat behind it.</para></summary>
     public const byte HeldFaceListHand = 1;
 
     /// <summary>SOURCE LIST 2: the owner's DISCARD pile —

@@ -313,6 +313,118 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// WHY A CARD IS NOT ON THE HAND FAN ANY MORE — the RULES MODEL's answer, asked of
+    /// <c>CCharacterClass</c>'s own lists rather than of the widget's <c>CardType</c> field.
+    ///
+    /// <para>The widget field is the game's answer and it is correct, but it is a UI field written
+    /// when the game re-runs <c>CardsHandUI.UpdateCards</c>, while the authoritative move
+    /// (<c>CCharacterClass.MoveAbilityCardToPile</c>) happens first. Between the two the model says
+    /// LOST and the widget still says HAND — the window a just-burned card used to stay visible in
+    /// (2026-09-02 report, item 10).</para>
+    /// </summary>
+    internal enum HandExit
+    {
+        /// <summary>The model agrees with the widget: it is a hand card. Also the answer when the
+        /// model cannot be asked at all, so an unreadable class shows its cards rather than blanking
+        /// a live hand — the direction the whole fan is required to fail in.</summary>
+        InHand,
+
+        /// <summary><c>RoundAbilityCards</c> / <c>ExtraTurnCards</c> — a board slot owns it.</summary>
+        Round,
+
+        /// <summary><c>DiscardedAbilityCards</c>.</summary>
+        Discarded,
+
+        /// <summary><c>LostAbilityCards</c> — a burn.</summary>
+        Lost,
+
+        /// <summary><c>PermanentlyLostAbilityCards</c>.</summary>
+        PermanentlyLost,
+
+        /// <summary><c>ActivatedCards</c> — the active column owns it.</summary>
+        Activated,
+    }
+
+    /// <summary>
+    /// Ask the model where <paramref name="widget"/>'s card actually is. Read-only, exception-safe,
+    /// and it fails to <see cref="HandExit.InHand"/> on every unreadable case (no model card, no
+    /// owner, a half-torn class, a consumed supply card that is in none of the lists) — failing
+    /// towards SHOWING is the standing rule for this fan.
+    /// </summary>
+    internal static HandExit ClassifyHandExit(AbilityCardUI? widget, CPlayerActor? owner)
+    {
+        CAbilityCard? ac = widget != null ? widget.AbilityCard : null;
+        if (ac == null || owner == null)
+            return HandExit.InHand;
+        try
+        {
+            CCharacterClass klass = owner.CharacterClass;
+            if (klass.HandAbilityCards.Contains(ac))
+                return HandExit.InHand;
+            if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
+                return HandExit.Round;
+            if (klass.DiscardedAbilityCards.Contains(ac))
+                return HandExit.Discarded;
+            if (klass.LostAbilityCards.Contains(ac))
+                return HandExit.Lost;
+            if (klass.PermanentlyLostAbilityCards.Contains(ac))
+                return HandExit.PermanentlyLost;
+            if (klass.ActivatedCards.Contains(ac))
+                return HandExit.Activated;
+            return HandExit.InHand; // in none of them: a consumed supply card, or a torn actor
+        }
+        catch (System.Exception)
+        {
+            return HandExit.InHand;
+        }
+    }
+
+    /// <summary>
+    /// THE HAND FAN'S MEMBERSHIP TEST — is this <c>cardsUI</c> entry one of the cards the owner's VR
+    /// hand fan holds? Exactly this predicate decides the fan's SIZE, and that size is what travels.
+    ///
+    /// <para>IT IS A WIRE CONTRACT WITH THREE PARTIES, which is why it is one expression and not
+    /// three that happen to agree:
+    /// <list type="bullet">
+    ///   <item>THE OWNER builds the arc with it (<c>CardsDriver.FillHandFan</c>), and the resulting
+    ///         <c>CardFan.Count</c> is the hand-fan COUNT in the rig packet.</item>
+    ///   <item>A PEER rebuilds the same membership from its own copy of the host-replicated model
+    ///         (<c>Net.RemoteHandFan.ResolveHandFronts</c>) and refuses every front unless its own
+    ///         count equals the one off the wire.</item>
+    ///   <item>THE HELD-CARD RECORD (<c>NetProtocol.ExtIdHeldCardFace</c>, list id
+    ///         <c>HeldFaceListHand</c>) names a SEAT in this same list, so its index space IS this
+    ///         predicate. A term that differs by one entry does not merely mis-count — it points the
+    ///         held-card front at somebody else's card.</item>
+    /// </list></para>
+    ///
+    /// <para>THE TERM THAT WAS MISSING ON THE PEER, and it is worth naming because it explains a
+    /// symptom that looked like a gate: the LONG REST placeholder. It lives in <c>cardsUI</c> like
+    /// any other widget, and <c>CardsHandUI.UpdateCards</c> sets its type to
+    /// <c>CardPileType.Hand</c> whenever the rest is not selected (CardsHandUI.cs:1309). The owner's
+    /// fan has always dropped it (<c>IsLongRest</c>); the peer's rebuild tested only
+    /// <c>CardType == Hand</c>, so it counted one card MORE than the owner's fan held — permanently,
+    /// not transiently. The equality behind the peer's front gate could therefore never hold, and in
+    /// two full hardware logs the hand fan's "FRONTS" line does not appear once while every sibling
+    /// surface on the same RevealGate opened normally. The gate was open the whole time; this
+    /// arithmetic was shut.</para>
+    ///
+    /// <para><c>fullAbilityCard</c> IS DELIBERATELY NOT A TERM. It is what a peer DRAWS a face from,
+    /// not what makes a card a member of the hand — a widget without one is still a card in the
+    /// owner's fan and still occupies a seat. Making it a membership term would either drop a real
+    /// card off the owner's own arc (a 1:1 breach on the owner's side, to fix one on the peer's) or
+    /// leave the two index spaces different again. A peer that cannot draw a seat draws a BACK for
+    /// it and keeps every other seat correct, which is this project's standing direction.</para>
+    /// </summary>
+    internal static bool HandFanMember(AbilityCardUI? widget, CPlayerActor? owner)
+    {
+        if (widget == null || widget.CardType != CardPileType.Hand || widget.IsLongRest)
+            return false;
+        if (widget.AbilityCard == null)
+            return false;
+        return ClassifyHandExit(widget, owner) == HandExit.InHand;
+    }
+
+    /// <summary>
     /// How many cards the current modal pick actually expects — the game's
     /// authoritative <c>maxCardsSelected</c> (private <c>CardsHandManager</c> field
     /// CardsHandManager.cs:107, set from the <c>Show(..., maxCardsSelected, ...)</c>

@@ -1459,14 +1459,21 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < _widgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _widgetBuffer[i];
-            if (widget == null || widget.AbilityCard == null || widget.IsLongRest)
+            // THE HAND FAN'S MEMBERSHIP TEST, AND IT IS A WIRE CONTRACT — the count this loop
+            // produces is what a peer is told the fan holds, and it is also the index space the
+            // held-card record names a seat in. It is therefore ONE shared expression
+            // (CardsGameApi.HandFanMember), not a stack of ifs a peer has to re-derive; the peer
+            // re-deriving it and getting the long-rest term wrong is report item 5b. The item-10
+            // model belt is folded into it (CardsGameApi.ClassifyHandExit), so "the card left the
+            // hand" is still the model's answer and still cannot disagree with the fly-to-pile
+            // classifier — CardLeftTheHand below now only DESCRIBES that verdict for the log.
+            if (!CardsGameApi.HandFanMember(widget, widget.PlayerActor
+                                                    ?? (_boundHand != null ? _boundHand.PlayerActor : null)))
+            {
+                if (widget != null && widget.CardType == CardPileType.Hand && !widget.IsLongRest)
+                    NoteCardLeftTheHand(widget);
                 continue;
-            if (widget.CardType != CardPileType.Hand)
-                continue;
-            // ITEM 10 BELT (user 2026-09-02: a just-burned card was still on the hand fan —
-            // "das darf unter keinen Umständen der Fall sein"). See CardLeftTheHand.
-            if (CardLeftTheHand(widget))
-                continue;
+            }
             VRCard? already = _factory.Find(widget);
             if (already != null && _halfBuffer.Contains(already))
                 continue;
@@ -1476,7 +1483,7 @@ internal sealed partial class CardsDriver
 
     /// <summary>Change-dedup for the model-belt diagnostic: one line per (card, destination), not
     /// one per rebuild while the widget stays behind.</summary>
-    private readonly Dictionary<int, RoundCardExit> _loggedStaleHandCard = new(8);
+    private readonly Dictionary<int, CardsGameApi.HandExit> _loggedStaleHandCard = new(8);
 
     /// <summary>
     /// ITEM 10, THE BELT: does the RULES MODEL already say this card has left the hand, whatever
@@ -1504,39 +1511,15 @@ internal sealed partial class CardsDriver
     /// remaining sub-frame window, and it costs a handful of list <c>Contains</c> calls per hand
     /// card per rebuild (rebuilds are edge-driven, not per-frame).</para>
     /// </summary>
-    private bool CardLeftTheHand(AbilityCardUI widget)
+    private void NoteCardLeftTheHand(AbilityCardUI widget)
     {
-        CAbilityCard? ac = widget.AbilityCard;
-        CPlayerActor? owner = widget.PlayerActor ?? (_boundHand != null ? _boundHand.PlayerActor : null);
-        if (ac == null || owner == null)
-            return false; // the model cannot be asked — show it (fail towards visible)
-
-        RoundCardExit exit;
-        try
-        {
-            CCharacterClass klass = owner.CharacterClass;
-            if (klass.HandAbilityCards.Contains(ac))
-                return false; // the model agrees with the widget: it is a hand card
-            if (klass.RoundAbilityCards.Contains(ac) || klass.ExtraTurnCards.Contains(ac))
-                exit = RoundCardExit.StillRound;
-            else if (klass.DiscardedAbilityCards.Contains(ac))
-                exit = RoundCardExit.Discarded;
-            else if (klass.LostAbilityCards.Contains(ac))
-                exit = RoundCardExit.Lost;
-            else if (klass.PermanentlyLostAbilityCards.Contains(ac))
-                exit = RoundCardExit.PermanentlyLost;
-            else if (klass.ActivatedCards.Contains(ac))
-                exit = RoundCardExit.Activated;
-            else
-                return false; // OffModel — a consumed supply card, or a torn actor. Show it.
-        }
-        catch (System.Exception)
-        {
-            return false; // a half-torn class answers "show it", never "hide the hand"
-        }
+        CardsGameApi.HandExit exit = CardsGameApi.ClassifyHandExit(
+            widget, widget.PlayerActor ?? (_boundHand != null ? _boundHand.PlayerActor : null));
+        if (exit == CardsGameApi.HandExit.InHand)
+            return; // the model agrees with the widget — nothing was kept off the fan
 
         int id = widget.CardID;
-        if (!_loggedStaleHandCard.TryGetValue(id, out RoundCardExit was) || was != exit)
+        if (!_loggedStaleHandCard.TryGetValue(id, out CardsGameApi.HandExit was) || was != exit)
         {
             _loggedStaleHandCard[id] = exit;
             // HW-VERIFY: item 10. If this line appears, the widget's CardType still said Hand while
@@ -1545,9 +1528,11 @@ internal sealed partial class CardsDriver
             VRLog.Note("Cards", $"Hand fan: card {id} ('{widget.name}') KEPT OFF the fan by the model " +
                                 $"belt — CCharacterClass.{ModelListName(exit)} holds it while the " +
                                 "widget's CardType still reads Hand. This is the sub-frame window a " +
-                                "just-burned card used to stay visible in (item 10, 2026-09-02).");
+                                "just-burned card used to stay visible in (item 10, 2026-09-02). A " +
+                                "peer's mirrored fan applies the SAME belt off its own copy of that " +
+                                "model (CardsGameApi.HandFanMember), so the two arcs agree on the " +
+                                "card's absence rather than disagreeing about the fan's size.");
         }
-        return true;
     }
 
     private VRCard AdoptedCard(AbilityCardUI widget)
@@ -2083,6 +2068,20 @@ internal sealed partial class CardsDriver
         RoundCardExit.Hand => "HandAbilityCards",
         RoundCardExit.OffModel => "no CCharacterClass list (supply card consumed / actor gone)",
         _ => "no readable model",
+    };
+
+    /// <summary>The same list name for the SHARED hand-fan classifier
+    /// (<see cref="CardsGameApi.HandExit"/>), which is the one the mirrored fan on a peer applies
+    /// too. Two enums rather than one because <see cref="RoundCardExit"/> also answers "did this
+    /// card FLY anywhere", a question the membership test has no opinion on.</summary>
+    private static string ModelListName(CardsGameApi.HandExit exit) => exit switch
+    {
+        CardsGameApi.HandExit.Round => "RoundAbilityCards/ExtraTurnCards",
+        CardsGameApi.HandExit.Discarded => "DiscardedAbilityCards",
+        CardsGameApi.HandExit.Lost => "LostAbilityCards",
+        CardsGameApi.HandExit.PermanentlyLost => "PermanentlyLostAbilityCards",
+        CardsGameApi.HandExit.Activated => "ActivatedCards",
+        _ => "HandAbilityCards",
     };
 
     /// <summary>

@@ -384,13 +384,18 @@ internal static class LocalRigSampler
         System.Collections.Generic.List<AbilityCardUI>? all2 = gameHand.cardsUI;
         if (all2 == null)
             return;
-        // RemoteHandFan.ResolveHandFronts' filter, term for term.
+        // THE HAND FAN'S MEMBERSHIP TEST — the SAME EXPRESSION the owner's own arc and a peer's
+        // mirrored arc are built from (Cards.CardsGameApi.HandFanMember), not a third copy of its
+        // terms. This used to spell out `CardType == Hand && fullAbilityCard != null`, which agreed
+        // with the receiver of the day and with NEITHER the owner's fan nor the receiver after it
+        // was corrected — so the seat this record named and the seat the peer counted to were two
+        // different index spaces the moment a long-rest placeholder sat in the hand.
         int seat = -1;
         int n = 0;
         for (int i = 0; i < all2.Count; i++)
         {
             AbilityCardUI c = all2[i];
-            if (c == null || c.CardType != CardPileType.Hand || c.fullAbilityCard == null)
+            if (!Cards.CardsGameApi.HandFanMember(c, actor))
                 continue;
             if (ReferenceEquals(c, widget))
                 seat = n;
