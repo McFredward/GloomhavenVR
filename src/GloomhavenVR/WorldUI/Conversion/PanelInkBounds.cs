@@ -100,7 +100,16 @@ namespace GloomhavenVR.WorldUI;
 /// from this union. NOTHING ABOUT THIS WALK CHANGED, and that is deliberate: the union is still the
 /// bar's VERTICAL answer and still the "does this window draw anything at all" verdict, both of
 /// which need the plate gone. But a future round that widens, narrows or deletes the plate test is
-/// now moving handles as well as counters, and must read <c>SolveSpan</c> before it does.</para></item>
+/// now moving handles as well as counters, and must read <c>SolveSpan</c> before it does.</para>
+/// <para><b>ModBuild 449 — AND THE PLATE'S BOTTOM EDGE IS MEASURED, because 447's sentence above
+/// ("the union is still the bar's VERTICAL answer") was true of the host and false of the peer.</b>
+/// The plate test is a GREATER-OR-EQUAL on both axes, so a plate may be LARGER than the frame; a 16:9
+/// artwork stretched to the width of a 2580x1080 canvas is 1451 px tall and hangs 371 px below a
+/// 1080 px frame. The union then answers "the lowest thing drawn is at the frame's own bottom" and
+/// the rod is seated one gap under that — in the middle of the picture. <see cref="Ink.PlateBottom"/>
+/// is that edge, kept OUT of <see cref="Ink.Rect"/> (the X, the badge and the re-face pivot all ride
+/// that rectangle and none of them wanted a backdrop in it) and read by the rod's vertical seat
+/// alone.</para></item>
 /// <item><b>EMPTY TEXT.</b> <c>PanelSupersample.Draws</c> is permissive by design — enabled, active,
 /// alpha above zero, not culled — and that is right for a CAPTURE FRAME, which must never crop. It is
 /// wrong here: a <c>TMP_Text</c> with an empty string passes every one of those tests and contributes
@@ -333,6 +342,39 @@ internal static class PanelInkBounds
         /// FRAME instead of from <see cref="Rect"/>. See the class comment's ModBuild 447
         /// block.</summary>
         internal int Plates;
+
+        /// <summary>
+        /// ModBuild 449 — <b>THE LOWEST EDGE ANY FULL-FRAME PLATE REACHES</b>, in the same
+        /// host-local px as <see cref="Rect"/>, or <c>float.PositiveInfinity</c> when this walk saw
+        /// no plate at all. It is deliberately NOT folded into <see cref="Rect"/>: the union's
+        /// contract is "a tight box around what the window draws OTHER than its backdrop", and the
+        /// close X, the badge and the re-face pivot are all seated off that box. This is one extra
+        /// number for the one consumer that must not ignore a plate — the grab bar's VERTICAL seat.
+        ///
+        /// <para><b>WHY IT HAD TO EXIST</b> (2026-09-05, item 15, the co-player's merchant). The
+        /// plate exclusion was written against the belief, stated in as many words on
+        /// <c>GrabbableModal.SyncBar</c>, that "a full-frame plate cannot change this number anyway —
+        /// its bottom edge IS hostRect.yMin". That is true only while the plate's aspect matches the
+        /// frame's. On the co-player's 2580x1080 canvas the merchant's 16:9 shopkeeper artwork is
+        /// stretched to the frame's WIDTH and so stands 1451 px tall against a 1080 px frame, hanging
+        /// <c>371 px BELOW it</c> (the fit's own reading for the same window and tick:
+        /// <c>DRAWN CONTENT 2597x1451 px at (8,-186) [y -911..540]</c>, against the host's
+        /// <c>1937x1080 px at (8,0) [y -540..540]</c>). The union reported its bottom at the frame's
+        /// -540, the rod was seated one gap under that at -574, and 337 px of merchant were still
+        /// drawn below it — the bar in the middle of the picture, on the peer only. The plate test
+        /// is a GREATER-OR-EQUAL test on both axes, so a plate is allowed to be BIGGER than the frame
+        /// and this field is the only thing that notices.</para>
+        ///
+        /// <para>A plate whose bottom is at or above <c>hostRect.yMin</c> — every plate on a canvas
+        /// whose aspect matches the art, which is every plate the host client ever measured — leaves
+        /// every consumer of this field bit-identical, because they all take a <c>Min</c> against
+        /// <c>hostRect.yMin</c> anyway.</para>
+        /// </summary>
+        internal float PlateBottom;
+
+        /// <summary>The plate that set <see cref="PlateBottom"/>. Empty when there was none.</summary>
+        internal string PlateBottomName;
+
         internal int EmptyText;
         internal int ModChrome;
         /// <summary>Bit per index of <see cref="ChromeNames"/> refused on this walk. The count alone
@@ -396,6 +438,11 @@ internal static class PanelInkBounds
     {
         ink = default;
         ink.BottomName = string.Empty;
+        // NOT ZERO. `default` leaves this at 0, which is a host-local y INSIDE every centred frame
+        // and would read as "a plate ends at the window's middle" on every window that has no plate
+        // at all. The identity for a Min is the infinity.
+        ink.PlateBottom = float.PositiveInfinity;
+        ink.PlateBottomName = string.Empty;
         try
         {
             return MeasureCore(panel, ref ink);
@@ -514,6 +561,15 @@ internal static class PanelInkBounds
                         else if (plateTestUsable && visible.width >= plateW && visible.height >= plateH)
                         {
                             ink.Plates++;
+                            // ModBuild 449 — THE PLATE STILL CONTRIBUTES NOTHING TO THE UNION, and
+                            // one number beside it. See Ink.PlateBottom for the co-player's merchant
+                            // that made a plate's bottom edge worth measuring; the HORIZONTAL
+                            // exclusion, which is what the union exists for, is untouched.
+                            if (visible.yMin < ink.PlateBottom)
+                            {
+                                ink.PlateBottom = visible.yMin;
+                                ink.PlateBottomName = t.name;
+                            }
                         }
                         else if (IsEmptyText(graphic))
                         {

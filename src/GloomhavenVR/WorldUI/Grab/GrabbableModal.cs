@@ -446,6 +446,32 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// not inherit this one's.</para>
     /// </summary>
     private bool _inkFullFrame;
+
+    /// <summary>
+    /// ModBuild 449 — <b>THE COMMITTED BOTTOM EDGE OF THIS WINDOW'S FULL-FRAME PLATE</b>, in the
+    /// host's own authored px, or <c>float.PositiveInfinity</c> when it paints none. It rides
+    /// exactly the gates <see cref="_inkRect"/> rides — monotone DOWNWARD inside a generation, and
+    /// only a confirmed release may lift it — for the same reason <see cref="_inkFullFrame"/> does:
+    /// it moves the rod, and a term that moves the rod may not flip on one frame's walk.
+    ///
+    /// <para><b>THE ONE CONSUMER IS THE ROD'S VERTICAL SEAT</b>, and the whole argument (the
+    /// co-player's merchant, the 16:9 plate stretched across an ultrawide frame, the 371 px of
+    /// picture that hung below the union's own bottom) is on
+    /// <see cref="PanelInkBounds.Ink.PlateBottom"/>. The close X, the badge, the re-face pivot and
+    /// <c>GrabBarLayout.SolveSpan</c>'s horizontal answer all read <see cref="_inkRect"/> and are
+    /// untouched by it.</para>
+    ///
+    /// <para><b>IT IS AN INFINITY, NOT A ZERO,</b> and every read of it is a <c>Min</c> against
+    /// <c>hostRect.yMin</c>, so a window with no plate and a window whose plate ends at its own
+    /// frame — which is every plate the host client measured all round — are bit-identical to what
+    /// shipped in ModBuild 448.</para>
+    /// </summary>
+    private float _inkPlateBottom = float.PositiveInfinity;
+
+    /// <summary>The plate that set <see cref="_inkPlateBottom"/>, for the falsifier line. Empty when
+    /// this window paints no plate.</summary>
+    private string _inkPlateBottomName = string.Empty;
+
     private int _inkGraphics;
     private int _inkPlates;
     private int _inkEmptyText;
@@ -2029,18 +2055,30 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // pivot-centred host, so a window whose ink stays inside its frame is unchanged; the Min
             // is what keeps the bar from ever RISING into the frame when the ink is short.
             //
-            // ModBuild 447 — THIS TERM IS STILL THE UNION'S, AND ONLY THE UNION'S. The horizontal
-            // rule above may now answer with the frame; this one may not, and the reason is the
-            // window that wrote it: 'New Party display' draws a Rewards row at host-local y=-913
-            // against a frame that ends at -540, and a bar placed on the frame lands on top of it
-            // (quest_überlap.jpg, ModBuild 236). A full-frame plate cannot change this number
+            // ModBuild 447 — THIS TERM IS STILL THE UNION'S, not the frame's. The horizontal rule
+            // above may now answer with the frame; this one may not, and the reason is the window
+            // that wrote it: 'New Party display' draws a Rewards row at host-local y=-913 against a
+            // frame that ends at -540, and a bar placed on the frame lands on top of it
+            // (quest_überlap.jpg, ModBuild 236).
+            //
+            // ModBuild 449 — AND THE PLATE'S OWN BOTTOM IS THE THIRD TERM, because 447's last
+            // sentence here was WRONG. It read: "A full-frame plate cannot change this number
             // anyway — its bottom edge IS hostRect.yMin, which the Min already covers — so the two
-            // rules cannot fight over it.
+            // rules cannot fight over it." That is a property of a plate whose aspect matches its
+            // frame, not of a plate. The plate test is a GREATER-OR-EQUAL on both axes, so on the
+            // co-player's 2580x1080 canvas the merchant's 16:9 shopkeeper artwork is stretched to
+            // the frame's WIDTH, stands 1451 px tall and hangs 371 px BELOW a 1080 px frame — the
+            // fit measured it as DRAWN CONTENT 2597x1451 px at (8,-186), y -911..540, on the same
+            // tick this union reported its bottom at -540 and this line seated the rod at -574.
+            // 337 px of merchant were still drawn under the handle: item 15, "der Greifbalken mitten
+            // im Händlerbild ... das tritt bei mir (Host) nicht auf", and the reason it did not
+            // happen on the host is that his 1920x1080 canvas is the artwork's own aspect, so his
+            // plate ends exactly at hostRect.yMin and this Min changes nothing for him.
             //
             // POSITION IS UNGATED, and that is deliberate — see BarSizeSettle. A handle that lags
             // its own window hangs off the side of it, which is a worse artefact than the one the
             // settle rule was built for and is not the one that was reported.
-            y = Mathf.Min(hostRect.yMin, _inkRect.yMin) * unit - gap;
+            y = Mathf.Min(Mathf.Min(hostRect.yMin, _inkRect.yMin), _inkPlateBottom) * unit - gap;
         }
         // CENTRED WHERE SolveSpan SAYS: on the frame for a window that paints its whole frame, on
         // the ink for a window whose frame is transparent around what it draws. Zero in both of the
@@ -2820,6 +2858,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // no plate either, and leaving the verdict standing would hand the NEXT content to
             // arrive in this holder a frame-wide rod it never earned.
             _inkFullFrame = false;
+            // ModBuild 449 — and the plate floor with it, for the same reason: a window that draws
+            // nothing has no backdrop hanging below its frame either, and the NEXT content to arrive
+            // in this holder must not inherit a floor measured against the last one's artwork.
+            _inkPlateBottom = float.PositiveInfinity;
+            _inkPlateBottomName = string.Empty;
             _inkGenSeeded = false;
             _inkPendingValid = false;
             _inkReleaseValid = false;
@@ -2894,6 +2937,15 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // proven shrink — see the assignment there.
         bool fullFrame = ink.Plates > 0 || (_inkValid && _inkGenSeeded && _inkFullFrame);
 
+        // ModBuild 449 — AND SO DOES THE PLATE'S BOTTOM EDGE, term for term with the verdict above
+        // and with the rectangle's own yMin: monotone DOWNWARD inside the generation, so a plate
+        // momentarily missed by one walk cannot snap the rod back up into the picture and down
+        // again. The release branch below overwrites it with the raw reading for the same reason it
+        // overwrites the verdict — a release IS the proven shrink.
+        float plateBottom = ink.PlateBottom;
+        if (_inkValid && _inkGenSeeded && _inkPlateBottom < plateBottom)
+            plateBottom = _inkPlateBottom;
+
         // ---- THE RELEASE SIDE. Whole policy on the InkSettleFrames block; this is its mechanism.
         bool released = false;
         if (settling || !_inkValid || !_inkGenSeeded || !SameRect(grown, _inkRect))
@@ -2929,6 +2981,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                 // samples against the dead band), so it is the one path allowed to say "the plate is
                 // gone" — the monotone term above is bypassed here exactly as it is for the rect.
                 fullFrame = ink.Plates > 0;
+                plateBottom = ink.PlateBottom;   // ModBuild 449 — same path, same reason
             }
             else
             {
@@ -2957,7 +3010,16 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // three lines down would take every such sample. It is also what puts the verdict through
         // the repeat gate, so a plate that appears once outside the settle burst has to appear twice
         // before the handle jumps.
-        bool moved = !_inkValid || !SameRect(grown, _inkRect) || fullFrame != _inkFullFrame;
+        // ModBuild 449 — THE PLATE FLOOR IS PART OF "MOVED" for exactly the reason the full-frame
+        // verdict is: it moves the rod on its own, with no change to the union's rectangle at all.
+        // A merchant whose artwork finishes loading after its item list has settled would otherwise
+        // be a placement nothing ever commits. The 0.5 px dead band is the one SameRect uses; two
+        // infinities compare equal, so a window that never paints a plate never trips this term.
+        bool plateFloorMoved = !(Mathf.Abs(plateBottom - _inkPlateBottom) <= 0.5f)
+                               && !(float.IsPositiveInfinity(plateBottom)
+                                    && float.IsPositiveInfinity(_inkPlateBottom));
+        bool moved = !_inkValid || !SameRect(grown, _inkRect) || fullFrame != _inkFullFrame
+                     || plateFloorMoved;
         // The census fields always describe the LATEST sample; only the rectangle is the envelope.
         _inkGraphics = ink.Graphics;
         _inkPlates = ink.Plates;
@@ -3072,6 +3134,18 @@ internal sealed class GrabbableModal : IPanelGrabOwner
 
         _inkRect = grown;
         _inkFullFrame = fullFrame;
+        // ModBuild 449 — commit the plate floor beside the verdict it belongs to. The NAME follows
+        // the number: whichever plate owns the COMMITTED edge is the one the falsifier must quote,
+        // and a committed floor of infinity has no plate to name. Mathf.Approximately is deliberately
+        // not used here — Abs(inf - inf) is NaN and every comparison against it is false, so it would
+        // report "the floor moved" on every sample of a window that has no plate at all.
+        bool sampleOwnsFloor = !float.IsPositiveInfinity(ink.PlateBottom)
+                               && Mathf.Abs(plateBottom - ink.PlateBottom) <= 0.5f;
+        if (float.IsPositiveInfinity(plateBottom))
+            _inkPlateBottomName = string.Empty;
+        else if (sampleOwnsFloor || _inkPlateBottomName.Length == 0)
+            _inkPlateBottomName = ink.PlateBottomName;
+        _inkPlateBottom = plateBottom;
         _inkValid = true;
         _inkGenSeeded = true;
         _inkConfirmRun = 0; // the episode committed; the next one starts with a full budget
@@ -3264,6 +3338,103 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + "failure and nothing else's.");
     }
 
+    /// <summary>
+    /// ModBuild 449 — <b>ONE GREP ACROSS TWO LOGS SETTLES ITEM 15.</b> The round that shipped
+    /// ModBuild 447 left the merchant's handle right on the host and in the middle of the picture on
+    /// the co-player, and the first hypotheses about why were all about the PLATE COUNT — that the
+    /// peer measured a different number of plates, that its artwork had not loaded when the census
+    /// ran, that its window arrived through a different fit path. Every one of them was wrong: both
+    /// clients read <c>2 full-frame plate(s)</c>, both took the FRAME branch, and both printed
+    /// <c>CONFIRMED</c>. The term that differed was one neither instrument reported — how far BELOW
+    /// its own frame the excluded plate hangs — and it differed because the two players' canvases
+    /// have different aspect ratios.
+    ///
+    /// <para><b>WHAT THE LINE SAYS, AND THE FALSIFIER.</b> The plate count, the branch
+    /// <c>GrabBarLayout.SolveSpan</c> took, the three candidate bottoms (frame, ink union, plate) and
+    /// which of them the rod was actually seated under — in one place, on every client.
+    /// <list type="bullet">
+    /// <item><c>PLATE FLOOR: none</c> — this window paints no full-frame plate. That is the CORRECT
+    /// reading for <c>New Party display</c>, whose 328 px column inside a 1988 px transparent frame
+    /// legitimately gets a narrow bar taken from the UNION. A narrow bar on a line reading
+    /// <c>none</c> is ModBuild 447's rule working, NOT this defect, and must never be "fixed".</item>
+    /// <item><c>PLATE FLOOR: level with the frame</c> — a plate whose aspect matches its canvas.
+    /// This is every plate the HOST client measured on 2026-09-05, and on it this whole build is
+    /// arithmetically a no-op: the seat, the judged gap and the rod's y are bit-for-bit ModBuild
+    /// 448's.</item>
+    /// <item><c>PLATE FLOOR: N px BELOW the frame</c> with <c>SEAT: the PLATE</c> — the defect's own
+    /// shape, repaired. The peer's merchant would have read 371 px on ModBuild 448 with the rod
+    /// seated on the FRAME, which is the whole bug in one clause.</item>
+    /// </list>
+    /// <para><b>THE THIRD WINDOW, NAMED IN ADVANCE BECAUSE IT MOVES ON BOTH CLIENTS.</b> The two
+    /// windows the user reported (<c>UI Shop Item Window</c>, <c>UI Temple Window</c>) overflow on
+    /// the PEER only, so the fix is invisible on the host there. <c>UI Loadout Window</c> is
+    /// different: its <c>Holder/Paper</c> is the same 16:9-scaled-to-width shape and it overflows on
+    /// BOTH clients — the ModBuild 448 fit measured its content as <c>2461x1385 px at (0,0)</c>
+    /// (y -692..692) against a 1920x1080 frame on the host and <c>2580x1451 px</c> (y -726..726)
+    /// against 2580x1080 on the peer, while its ink union bottomed out at -591 and -549. So its rod
+    /// drops about 101 px (63 mm) on the host and 177 px (82 mm) on the peer, which is the SAME
+    /// defect at a smaller amplitude and was never reported. THIS LINE IS HOW THAT IS AUDITED rather
+    /// than assumed: if the loadout's own <c>PLATE FLOOR</c> reads <c>level with the frame</c>, the
+    /// -692 was set by something other than a plate and nothing moved there at all.</para>
+    ///
+    /// THE FIX IS INERT if a peer line still reads a non-zero overhang while <c>SEAT: the FRAME</c>
+    /// or <c>SEAT: the INK</c> — the floor was measured and the seat ignored it. THE ROUND PROVED
+    /// NOTHING if every client reads <c>level with the frame</c> or <c>none</c>, which would mean the
+    /// co-player's canvas aspect changed; the frame's own size is on this line so that can be told
+    /// apart from a fix that worked.</para>
+    /// </summary>
+    private void ReportPlateFloor(Rect hostRect, float barTopPx)
+    {
+        bool hasPlate = !float.IsPositiveInfinity(_inkPlateBottom);
+        float overhang = hasPlate ? hostRect.yMin - _inkPlateBottom : 0f;
+        string floor = !hasPlate
+            ? "PLATE FLOOR: none (this window paints no full-frame plate, so the union is its whole "
+              + "vertical answer — the correct reading for a transparent frame around a column, and a "
+              + "narrow bar beside it is ModBuild 447's rule, not a defect)"
+            : overhang <= 0.5f
+                ? $"PLATE FLOOR: level with the frame ('{_inkPlateBottomName}' bottoms out at "
+                  + $"y={_inkPlateBottom:F0} px against the frame's y={hostRect.yMin:F0} px), so every "
+                  + "term of ModBuild 449 is arithmetically a no-op on this window"
+                : $"PLATE FLOOR: {overhang:F0} px BELOW the frame ('{_inkPlateBottomName}' bottoms out "
+                  + $"at y={_inkPlateBottom:F0} px against the frame's y={hostRect.yMin:F0} px) — the "
+                  + "plate is BIGGER than the window it backs, which is what an aspect-preserving "
+                  + "artwork does on a canvas that is not the artwork's own aspect";
+
+        float frameBottom = hostRect.yMin;
+        float inkBottom = _inkValid ? _inkRect.yMin : float.PositiveInfinity;
+        float seat = Mathf.Min(Mathf.Min(frameBottom, inkBottom), _inkPlateBottom);
+        string seatName = seat >= frameBottom - 0.5f
+            ? "the FRAME"
+            : hasPlate && seat >= _inkPlateBottom - 0.5f ? "the PLATE" : "the INK";
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"GRAB BAR PLATE FLOOR for '{_logName}': {_inkPlates} full-frame plate(s) on the latest "
+            + "walk, committed verdict "
+            + (_inkFullFrame ? "PAINTS ITS FRAME" : "does NOT paint its frame")
+            + ", so the rod's WIDTH and CENTRE came from "
+            + (_inkFullFrame ? "the FRAME" : "the UNION")
+            + $"; {floor}; THE THREE CANDIDATE BOTTOMS in this window's own authored px — frame "
+            + $"y={frameBottom:F0}, ink union "
+            + (_inkValid ? $"y={inkBottom:F0}" : "NOT MEASURED")
+            + ", plate " + (hasPlate ? $"y={_inkPlateBottom:F0}" : "none")
+            + $" — SEAT: {seatName} at y={seat:F0} px, and the rod's top edge landed at "
+            + $"y={barTopPx:F0} px; the frame is {hostRect.width:F0}x{hostRect.height:F0} px (aspect "
+            + $"{hostRect.width / Mathf.Max(hostRect.height, 1e-3f):F2}), which is the term that "
+            + "differs between two players and the reason this line prints it. HOW TO READ IT. ONE "
+            + "GREP OVER BOTH CLIENTS' LOGS: same window name, compare the SEAT clause. Item 15 "
+            + "(2026-09-05, 'der Greifbalken mitten im Haendlerbild ... das tritt bei mir (Host) "
+            + "nicht auf') was TWO clients agreeing on the plate COUNT and disagreeing on the plate's "
+            + "EXTENT — the host's 1920x1080 frame is the shopkeeper artwork's own 16:9, so his plate "
+            + "ends at his frame; the peer's 2580x1080 frame is not, so the same artwork stretched to "
+            + "his width stands 1451 px tall and hung 371 px below it, with the rod seated one gap "
+            + "under the FRAME and 337 px of merchant still drawn beneath it. FALSIFIER: a line "
+            + "reading 'PLATE FLOOR: none' is a window with no backdrop at all ('New Party display'), "
+            + "and its short bar is CORRECT — never read that as this defect. A line reading a "
+            + "non-zero overhang with SEAT anything but 'the PLATE' is this fix measured and then "
+            + "ignored, which is the one reading that means it is inert.");
+    }
+
     private void ReportBarPlacement(Rect hostRect, float unit, float barWidth, float thickness,
                                     float intendedTopGapPx, float mmPerPx, GrabBarLayout.Span span)
     {
@@ -3310,6 +3481,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         _inkReportsSuppressed = 0;
         string frame = $"the HOST RECT for comparison spans x {hostRect.xMin:F0}..{hostRect.xMax:F0} "
                        + $"and y {hostRect.yMin:F0}..{hostRect.yMax:F0}, {hostRect.width:F0}x{hostRect.height:F0} px";
+        ReportPlateFloor(hostRect, barTopPx);
 
         if (fallback || !_inkValid)
         {
@@ -3364,12 +3536,28 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                           + "resized; the centre does not and is written straight through)";
 
         // THE GAP, both ways. See this method's own comment for which of the two is judged and why.
+        //
+        // ModBuild 449 — THE JUDGED TERM IS THE DROP BELOW THE WINDOW'S OWN PAINTED BOTTOM, which is
+        // the frame's yMin for every window that does not hang a backdrop below its frame and is
+        // therefore bit-identical to ModBuild 448 on every window in both of that round's logs
+        // EXCEPT the two the fix is about. It has to move with the seat: SyncBar now seats the rod
+        // under a plate that overflows the frame, and a term still measuring the drop from the FRAME
+        // would print THE GAP IS LARGER THAN INTENDED for exactly the windows this build repaired
+        // ([[instrument-shipped-and-lying]]). The ink's own overflow is deliberately NOT in this
+        // term — 'UI Quest Popup' fails it today because its content hangs below its frame, and that
+        // reading belongs to the lane that owns that window, unchanged.
         float gapToInkPx = inkBottom - barTopPx;
-        float dropBelowFramePx = hostRect.yMin - barTopPx;
-        bool gapWithinIntent = dropBelowFramePx <= intendedTopGapPx + InkReleaseDeadBandPx;
+        float paintedBottomPx = Mathf.Min(hostRect.yMin, _inkPlateBottom);
+        float dropBelowPaintedPx = paintedBottomPx - barTopPx;
+        bool gapWithinIntent = dropBelowPaintedPx <= intendedTopGapPx + InkReleaseDeadBandPx;
         string gaps =
             $"THE GAP: to the ink {gapToInkPx:F0} px = {gapToInkPx * mmPerPx:F0} mm, "
-            + $"below the window's own frame {dropBelowFramePx:F0} px = {dropBelowFramePx * mmPerPx:F0} mm, "
+            + $"below the window's own painted bottom (y={paintedBottomPx:F0} px, "
+            + (float.IsPositiveInfinity(_inkPlateBottom) || _inkPlateBottom >= hostRect.yMin
+                ? "the FRAME — this window hangs no plate below it"
+                : $"the PLATE '{_inkPlateBottomName}', which overflows the frame's "
+                  + $"y={hostRect.yMin:F0} px by {hostRect.yMin - _inkPlateBottom:F0} px")
+            + $") {dropBelowPaintedPx:F0} px = {dropBelowPaintedPx * mmPerPx:F0} mm, "
             + $"against an INTENDED {intendedTopGapPx:F0} px = {intendedTopGapPx * mmPerPx:F0} mm "
             + $"(BarGapMeters {BarGapMeters:F3} m to the bar's centre, less half its thickness, x the "
             + $"short-panel proportion, at {mmPerPx:F3} mm per authored px on the live rig)";
@@ -3397,6 +3585,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + $"all in the window's own authored px; the LOWEST drawn graphic '{_inkBottomName}' ends at "
             + $"y={inkBottom:F0} px; the ink union spans x {_inkRect.xMin:F0}..{_inkRect.xMax:F0} "
             + $"(width {_inkRect.width:F0} px, centre {inkCentre:F0}) and y {inkBottom:F0}..{_inkRect.yMax:F0}; "
+            + (float.IsPositiveInfinity(_inkPlateBottom)
+                ? "this window paints NO full-frame plate, so the union is the whole vertical answer"
+                : $"the FULL-FRAME PLATE '{_inkPlateBottomName}' reaches down to y={_inkPlateBottom:F0} px")
+            + "; "
             + $"{spanTerm}; {gaps}; {frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} "
             + $"of that generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} "
             + $"growth(s) deferred by the repeat gate and {_inkReleases} release(s) committed over this "
@@ -3450,8 +3642,13 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                   + "same line, so it can only fail if a SECOND owner is writing the rod's target — "
                   + "grep the rod's tween source clause for who"
                 : $"THE GAP IS LARGER THAN INTENDED — the handle's top edge hangs "
-                  + $"{dropBelowFramePx:F0} px = {dropBelowFramePx * mmPerPx:F0} mm below the window's "
-                  + $"own bottom edge y={hostRect.yMin:F0} px, which is {dropBelowFramePx / Mathf.Max(intendedTopGapPx, 1e-3f):F1}x "
+                  + $"{dropBelowPaintedPx:F0} px = {dropBelowPaintedPx * mmPerPx:F0} mm below the window's "
+                  + $"own PAINTED bottom edge y={paintedBottomPx:F0} px "
+                  + (float.IsPositiveInfinity(_inkPlateBottom) || _inkPlateBottom >= hostRect.yMin
+                      ? $"(the frame's own y={hostRect.yMin:F0} px — no plate hangs below it)"
+                      : $"(the PLATE '{_inkPlateBottomName}', {hostRect.yMin - _inkPlateBottom:F0} px "
+                        + $"below the frame's own y={hostRect.yMin:F0} px)")
+                  + $", which is {dropBelowPaintedPx / Mathf.Max(intendedTopGapPx, 1e-3f):F1}x "
                   + $"the intended {intendedTopGapPx:F0} px = {intendedTopGapPx * mmPerPx:F0} mm. THIS IS "
                   + "THE USER'S 'zu grosser Abstand' COMPLAINT AS ONE NUMBER, and it is held down by the "
                   + $"graphic named as the lowest above, '{_inkBottomName}' at y={inkBottom:F0} px. TWO "
@@ -3503,6 +3700,8 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // again from scratch rather than inherit a union taken against the old host rect.
         _inkValid = false;
         _inkFullFrame = false;   // ModBuild 447 — the frame it was a verdict about is gone too
+        _inkPlateBottom = float.PositiveInfinity;   // ModBuild 449 — and the floor under it
+        _inkPlateBottomName = string.Empty;
         _inkGenSeeded = false;
         _inkPendingValid = false;
         _inkReleaseValid = false;

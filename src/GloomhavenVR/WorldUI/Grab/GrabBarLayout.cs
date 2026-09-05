@@ -173,9 +173,19 @@ internal static class GrabBarLayout
     /// disagreed.</para>
     ///
     /// <para><b>WHAT THIS RULE MUST NOT BE ASKED.</b> It answers the HORIZONTAL question only. How
-    /// far DOWN the bar hangs stays the ink union's answer and nothing here touches it: a plate's
-    /// bottom edge IS the frame's bottom edge, so a plate can never lift a bar off content the bar
-    /// was moved to clear (<c>quest_überlap.jpg</c>, ModBuild 236). Nor does it decide whether a
+    /// far DOWN the bar hangs is <c>GrabbableModal.SyncBar</c>'s and nothing here touches it — but
+    /// the reason given for that separation in ModBuild 447 was FALSE and cost the co-player a round.
+    /// It read: "a plate's bottom edge IS the frame's bottom edge, so a plate can never lift a bar
+    /// off content the bar was moved to clear (<c>quest_überlap.jpg</c>, ModBuild 236)". The plate
+    /// test is a GREATER-OR-EQUAL on both axes, so a plate may be BIGGER than its frame; an
+    /// aspect-preserving artwork on a canvas that is not the artwork's aspect always is. On the
+    /// co-player's 2580x1080 canvas <c>UI Shop Item Window/ShopKeeper_Art</c> hangs 371 px below the
+    /// frame (the fit names it in as many words: <i>FURTHEST OUTSIDE the frame:
+    /// 'UI Shop Item Window/ShopKeeper_Art' by 371 px</i>) and the rod, seated one gap under the
+    /// FRAME, sat in the middle of the merchant. ModBuild 449 gave the vertical seat its own term,
+    /// <c>PanelInkBounds.Ink.PlateBottom</c>; the two rules still cannot fight over it, because the
+    /// vertical one takes a <c>Min</c> and can only ever push the rod further DOWN. Nor does this
+    /// rule decide whether a
     /// window has content at all — that verdict is the plate-EXCLUDING graphic count, which is why
     /// the exclusion stays exactly where it is: a window painting nothing but its own backdrop is an
     /// empty window and still loses its handle ("Wenn kein Fenster inhalt hat soll neben der
