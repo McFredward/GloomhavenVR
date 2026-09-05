@@ -362,6 +362,42 @@ internal sealed partial class PlayTray
         _pinFreezeSource = _pinFreezeSource == null ? source : _pinFreezeSource + " + " + source;
     }
 
+    /// <summary>
+    /// The sentinel's POSITION epsilon in world units, in PLAYER-perceivable terms: the parent
+    /// chain (the pin holder carries the diorama scale) converts tray metres to world units, so
+    /// 2 mm of perceived motion is 0.002 x that. Hoisted out of the sentinel because
+    /// <see cref="TickBoardAnchorDiagnostics"/> has to adjudicate against the SAME number — its
+    /// own "did it move" test is a flat 1e-4 world units, which is finer, and the gap between the
+    /// two is the difference between "a writer nobody saw" and "float noise". Two copies of this
+    /// number would be exactly the mirrored constant scripts/check-mirrors.sh exists to hunt.
+    /// </summary>
+    /// <summary>The sentinel's world-SCALE epsilon, relative (0.2 % — one clamp frame in the
+    /// 2026-08-07 log moved it ~1 %, comfortably above; float noise stays below). Hoisted for the
+    /// same reason as the position one: <see cref="TickBoardAnchorDiagnostics"/> adjudicates
+    /// "float noise between two differently-fine instruments" against BOTH terms, and it has to be
+    /// the sentinel's own numbers rather than a second copy of them.</summary>
+    private const float PinFreezeScaleEpsilon = 0.002f;
+
+    private float PinFreezePosEpsilon(float worldScale)
+    {
+        float local = _root != null ? _root.localScale.x : 1f;
+        float unit = Mathf.Max(worldScale / Mathf.Max(local, 1e-4f), 1e-4f);
+        return 0.002f * unit;
+    }
+
+    /// <summary>
+    /// Sanctioned PINNED world-pose writes the freeze sentinel has ACTUALLY OBSERVED this session
+    /// (announced by <see cref="NotePinnedWrite"/> and followed by a real pose change), and the
+    /// writer named by the most recent one. Read by <see cref="TickBoardAnchorDiagnostics"/> as a
+    /// delta since its own last line, exactly the way <see cref="_sizePushCount"/> already is.
+    /// </summary>
+    private int _pinSanctionedMoveCount;
+    private string? _pinSanctionedMoveLast;
+
+    /// <summary>Observed PINNED pose changes with NO writer announcing itself. This is the count
+    /// that means what the anchor line's defect verdict has always claimed to mean.</summary>
+    private int _pinUnknownMoveCount;
+
     /// <summary>Per-frame world-pose diff of a PINNED tray — see the sentinel block above.</summary>
     private void TickPinnedFreezeSentinel()
     {
@@ -379,18 +415,37 @@ internal sealed partial class PlayTray
 
         if (_pinFreezeValid && IsFinite(pos))
         {
-            // Epsilons in PLAYER-perceivable terms: the parent chain (the pin holder carries the
-            // diorama scale) converts tray metres to world units, so 2 mm of perceived motion is
-            // 0.002 × that in world units. Scale compares relatively (0.2 % — one clamp frame in
-            // the 2026-08-07 log moved it ~1 %, comfortably above; float noise stays below).
-            float unit = Mathf.Max(worldScale / Mathf.Max(_root.localScale.x, 1e-4f), 1e-4f);
-            float posEps = 0.002f * unit;
+            // Epsilons in PLAYER-perceivable terms; both now live beside each other as
+            // PinFreezePosEpsilon / PinFreezeScaleEpsilon, because TickBoardAnchorDiagnostics has
+            // to adjudicate against these exact numbers and a second copy of them would be the
+            // mirrored constant scripts/check-mirrors.sh exists to hunt. The rotation term stays
+            // inline: nothing else compares against it.
+            float posEps = PinFreezePosEpsilon(worldScale);
             bool moved = (pos - _pinFreezePos).sqrMagnitude > posEps * posEps
                          || Quaternion.Angle(rot, _pinFreezeRot) > 0.25f
                          || Mathf.Abs(worldScale - _pinFreezeWorldScale)
-                            > 0.002f * Mathf.Max(_pinFreezeWorldScale, 1e-4f);
+                            > PinFreezeScaleEpsilon * Mathf.Max(_pinFreezeWorldScale, 1e-4f);
             if (moved)
             {
+                // TALLY BEFORE THE THROTTLE, and tally what was OBSERVED rather than what was
+                // announced. An announcement (NotePinnedWrite) is a claim that a writer is about
+                // to write; several of them are world-pose-PRESERVING by construction
+                // (ApplyFollowMode's re-parent), so counting announcements would let a write that
+                // moved nothing "explain" a different move in the same window. What is counted
+                // here is the conjunction the sentinel is already computing every frame: the pose
+                // really changed AND a writer had named itself. The counters are deliberately
+                // outside the log throttle — five of the seven pin carries in the 2026-09-05
+                // hardware log were suppressed by it, and a term that goes silent under load is
+                // exactly how an instrument starts agreeing with a broken build.
+                if (source != null)
+                {
+                    _pinSanctionedMoveCount++;
+                    _pinSanctionedMoveLast = source;
+                }
+                else
+                {
+                    _pinUnknownMoveCount++;
+                }
                 float now = Time.unscaledTime;
                 if (now >= _nextPinFreezeLog) // an unknown per-frame writer must not flood the log
                 {
@@ -720,6 +775,26 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
+    /// The BOARD ANCHOR line's defect wording, BYTE FOR BYTE what it has always been — the grep
+    /// token every earlier hardware round was read with, and still the loudest thing this line can
+    /// say, because an unexplained move on a FIXIERT board really is a defect.
+    ///
+    /// <para>WHAT CHANGED (2026-09-05) IS WHEN IT IS REACHED, not what it says. It used to be the
+    /// else-branch of the SIZE PUSH alone, so it fired on every sanctioned pin carry: 8 times in
+    /// that day's hardware log, every one of them legitimate — and from the arrival-seat guard
+    /// onwards it would have fired on every arrival correction too, i.e. the instrument would have
+    /// accused the fix of being the bug, in the same log, four lines under the line that explains
+    /// the fix. An instrument that asserts a cause it cannot observe is a shape this project has
+    /// paid for repeatedly. It now asks the freeze sentinel, which DOES observe it, and keeps this
+    /// verdict only when nothing accounts for the move.</para>
+    /// </summary>
+    private const string DefectVerdict =
+        "FIXIERT, NOT HELD, AND IT MOVED WITH NO PUSH — this is a defect. Something "
+        + "wrote the board's world transform. The ruling is 'keinerlei Abhängigkeit "
+        + "zum Spieler, fix in der Welt' outside the two Randfälle; grep the PINNED "
+        + "tray transform WRITE line at this timestamp, it names the writer.";
+
+    /// <summary>
     /// THE BOARD ANCHOR LINE, and it reports the invariant the user actually stated rather than the
     /// one four builds guessed at. User, 2026-08-18, verbatim: <i>"Fixiert heißt FIX. Keinerlei
     /// Abhängigkeit zum Spieler mehr, sondern fix in der Welt."</i>
@@ -741,6 +816,21 @@ internal sealed partial class PlayTray
     /// LINE next to the world-scale delta, and both units of the size with the window in each, so
     /// the next log answers "did the exception fire, and was that the thing that moved it" without
     /// a second grep and without the eye.</para>
+    ///
+    /// <para>2026-09-05 — "NO PUSH FIRED" WAS NEVER THE SAME QUESTION AS "NOTHING WROTE IT", and
+    /// treating it as one made this line accuse eight legitimate pin carries of being a defect in
+    /// one session. The push is only ONE of the sanctioned writers; the others move the board's
+    /// world POSITION rather than its scale — the tracking-origin carry
+    /// (<see cref="SyncPinHolder"/>), the arrival-seat correction
+    /// (<see cref="TickArrivalSeatGuard"/>), the first placement, the lost-board recovery, a
+    /// settings live-apply, a board-switch pose restore — and every one of them announces itself
+    /// through <see cref="NotePinnedWrite"/>. The line no longer INFERS a writer from the absence
+    /// of a push: it asks <see cref="TickPinnedFreezeSentinel"/>, which runs every frame and
+    /// already measures the one thing that matters, namely whether an announcement was followed by
+    /// a real pose change. Four outcomes are now distinguishable where two used to print the same
+    /// sentence: convicted / explained / float noise / a real move nothing detected. The defect
+    /// wording itself (<see cref="DefectVerdict"/>) is unchanged and still fires for the first and
+    /// last of those.</para>
     /// </summary>
     private void TickBoardAnchorDiagnostics()
     {
@@ -763,6 +853,12 @@ internal sealed partial class PlayTray
         // is a WRITER, and unless the push accounts for it the line says so in those words.
         bool moved = haveBaseline && (posDelta > 1e-4f || Mathf.Abs(scaleRatio - 1f) > ScaleNoiseEpsilon);
         int pushesSince = _sizePushCount - _loggedAnchorPushCount;
+        // …and the same shape for the two things the FREEZE SENTINEL observed since the last line:
+        // moves a writer announced itself for, and moves nobody announced. Deltas, not totals, so
+        // the verdict below is about THIS window (see the sentinel's own tally for why they are
+        // observations rather than announcements).
+        int sanctionedSince = _pinSanctionedMoveCount - _loggedAnchorSanctionedCount;
+        int unknownSince = _pinUnknownMoveCount - _loggedAnchorUnknownCount;
         if (!moved && now < _nextAnchorLog)
             return;
         _nextAnchorLog = now + 5f;
@@ -796,34 +892,127 @@ internal sealed partial class PlayTray
         string pushes = pushesSince > 0
             ? $"PUSH FIRED {pushesSince}× since the last line (total {_sizePushCount})"
             : "push did not fire since the last line";
-        string verdict = follow
-            ? "FOLGEN — the board hangs off the player and is SUPPOSED to move with them."
-            : held
-                ? "FIXIERT, HELD — the hand is carrying it, so a change here is the player's own."
-                : moved
-                    ? pushesSince > 0
-                        ? "FIXIERT, NOT HELD, AND THE SIZE MOVED — EXPECTED: this is the 2026-08-25 "
-                          + "exception. A bound walked into the board and pushed it; the world POSITION "
-                          + "must still be zero-delta, and the board must NOT come back down when the "
-                          + "player reverses. Grep BOARD SIZE PUSHED at this timestamp for which bound."
-                        : "FIXIERT, NOT HELD, AND IT MOVED WITH NO PUSH — this is a defect. Something "
-                          + "wrote the board's world transform. The ruling is 'keinerlei Abhängigkeit "
-                          + "zum Spieler, fix in der Welt' outside the two Randfälle; grep the PINNED "
-                          + "tray transform WRITE line at this timestamp, it names the writer."
-                    : "FIXIERT, NOT HELD — world pose and world scale are FROZEN, which is the "
+        // WHO MOVED IT, in the same "since the last line" frame as the push term. The sentinel
+        // runs every frame with a coarser position epsilon than this line's own 1e-4 (see
+        // PinFreezePosEpsilon), so a delta below that band is float noise rather than a writer
+        // nobody saw — the verdict below tells those two apart instead of calling both a defect.
+        float sentinelEps = PinFreezePosEpsilon(worldScale);
+        // BOTH TERMS, because this line trips on either: its own thresholds (1e-4 world units,
+        // ScaleNoiseEpsilon = 5e-4 relative) are FINER than the sentinel's on both axes, so a
+        // delta that lands between the two pairs is a difference of instruments and not a writer.
+        // Testing only position would print a sentence about position for a scale-only case.
+        bool belowSentinelBand = posDelta <= sentinelEps
+                                 && Mathf.Abs(scaleRatio - 1f) <= PinFreezeScaleEpsilon;
+        string writers = unknownSince > 0
+            ? $"the freeze sentinel observed {unknownSince} move(s) with NO writer announcing itself"
+              + (sanctionedSince > 0 ? $" and {sanctionedSince} sanctioned one(s)" : "")
+            : sanctionedSince > 0
+                ? $"the freeze sentinel observed {sanctionedSince} SANCTIONED move(s), most recently "
+                  + $"[{_pinSanctionedMoveLast}]"
+                : $"the freeze sentinel observed no move at all (its bands are "
+                  + $"{sentinelEps * 1000f:F2} mm-world and {PinFreezeScaleEpsilon * 100f:F1} % of "
+                  + $"scale, against this line's 0.10 mm-world and {ScaleNoiseEpsilon * 100f:F2} %)";
+        // THE DEFECT WORDING IS UNCHANGED, BYTE FOR BYTE, and it is still the loudest thing this
+        // line can say — the grep token every earlier hardware round was read with survives, and
+        // an unexplained move on a FIXIERT board really is a defect. What changed (2026-09-05) is
+        // WHEN it is reached. It used to be the else-branch of the SIZE PUSH alone, so it fired on
+        // every sanctioned pin carry: 8 times in that day's log, every one of them legitimate, and
+        // from this build on it would also have fired on every arrival-seat correction — i.e. the
+        // instrument would have accused the fix of being the bug, in the same log, four lines under
+        // the line that explains the fix. An instrument that asserts a cause it cannot observe is
+        // the shape this project has paid for repeatedly. It now asks the sentinel, which DOES
+        // observe it, and only keeps this verdict when nothing accounts for the move.
+        // THE BRANCH ORDER IS THE VERDICT, so it is written as statements rather than as a
+        // five-deep conditional expression: this used to be a two-way ternary and the whole point
+        // of the change is that a reader can see, at a glance, which explanation outranks which.
+        //   1. an unannounced writer was CONVICTED      -> the defect verdict, now with evidence
+        //   2. the apparent-size push fired             -> the 2026-08-25 exception (unchanged)
+        //   3. a sanctioned writer announced and moved  -> EXPECTED, and the writer is named
+        //   4. the delta is under the sentinel's band   -> float noise between two instruments
+        //   5. it really moved and nothing saw it       -> a DIFFERENT defect, and it says so
+        string verdict;
+        if (follow)
+        {
+            verdict = "FOLGEN — the board hangs off the player and is SUPPOSED to move with them.";
+        }
+        else if (held)
+        {
+            verdict = "FIXIERT, HELD — the hand is carrying it, so a change here is the player's own.";
+        }
+        else if (!moved)
+        {
+            verdict = "FIXIERT, NOT HELD — world pose and world scale are FROZEN, which is the "
                       + "invariant. The rig scale beside them is free to move and normally has.";
+        }
+        else if (unknownSince > 0)
+        {
+            // AN UNANNOUNCED WRITER WAS CONVICTED. The original verdict, unchanged, plus the count
+            // that now stands behind it — this is no longer inferred from the absence of a push, it
+            // is what the per-frame sentinel actually saw.
+            verdict = DefectVerdict + $" The sentinel CONVICTED {unknownSince} unannounced "
+                      + "write(s) in this window, so that claim is now an observation rather than "
+                      + "an inference from 'no push fired'.";
+        }
+        else if (pushesSince > 0)
+        {
+            verdict = "FIXIERT, NOT HELD, AND THE SIZE MOVED — EXPECTED: this is the 2026-08-25 "
+                      + "exception. A bound walked into the board and pushed it; the world POSITION "
+                      + "must still be zero-delta, and the board must NOT come back down when the "
+                      + "player reverses. Grep BOARD SIZE PUSHED at this timestamp for which bound.";
+        }
+        else if (sanctionedSince > 0)
+        {
+            // EXPLAINED. The pin carry through a tracking-origin change, the arrival-seat
+            // correction, the first placement, the lost-board recovery, a settings live-apply, a
+            // board-switch pose restore — every one announces itself through NotePinnedWrite, and
+            // the sentinel saw the announcement land on a real move. Naming the writer is the
+            // point: "explained" and "not detected" are different readings and used to print the
+            // same sentence.
+            verdict = "FIXIERT, NOT HELD, AND IT MOVED — EXPECTED: a SANCTIONED writer accounts "
+                      + $"for it ({sanctionedSince} observed move(s) in this window, most recently "
+                      + $"[{_pinSanctionedMoveLast}]). The freeze sentinel saw the writer announce "
+                      + "itself and then saw the pose change, so this is the mod moving its own "
+                      + "furniture on purpose, not a leftover writer. Grep the PINNED tray "
+                      + "transform WRITE line at this timestamp for the full before/after.";
+        }
+        else if (belowSentinelBand)
+        {
+            // Under the sentinel's own noise band. Not a writer and not a defect: the two epsilons
+            // differ on purpose (this line is the finer of the two) and saying so beats a defect
+            // verdict on half a millimetre.
+            verdict = "FIXIERT, NOT HELD — the world pose and size both moved by less than the "
+                      + $"freeze sentinel's own bands ({sentinelEps * 1000f:F2} mm-world and "
+                      + $"{PinFreezeScaleEpsilon * 100f:F1} % of scale, against this line's "
+                      + $"0.10 mm-world and {ScaleNoiseEpsilon * 100f:F2} %), so it is float noise "
+                      + "between two differently-fine instruments, not a writer. The invariant "
+                      + "holds.";
+        }
+        else
+        {
+            // A REAL MOVE THAT NOTHING SAW. Distinct from a convicted writer and worth its own
+            // words: the per-frame sentinel should have caught this and did not, so the change
+            // happened somewhere it cannot look.
+            verdict = DefectVerdict + " NOTHING WAS DETECTED WRITING IT: the per-frame freeze "
+                      + "sentinel observed neither a sanctioned nor an unannounced move in this "
+                      + "window, so the change happened where it cannot look — while the tray was "
+                      + "hidden, or across a rebuild that dropped its baseline. That is a DIFFERENT "
+                      + "defect from a convicted writer and there will be no PINNED tray transform "
+                      + "WRITE line to grep.";
+        }
 
         _anchorLogPos = worldPos;
         _anchorLogScale = worldScale;
         _anchorLogValid = true;
         _loggedAnchorPushCount = _sizePushCount;
+        _loggedAnchorSanctionedCount = _pinSanctionedMoveCount;
+        _loggedAnchorUnknownCount = _pinUnknownMoveCount;
 
         VRLog.Info("Cards", $"BOARD ANCHOR: world pos {worldPos}, world scale {worldScale:F3} " +
                             $"(own localScale {_root.localScale.x:F3}) against rig ×{rigScale:F2}. " +
                             (haveBaseline
                                 ? $"Since the last line: Δ world pos {posDelta * 1000f:F2} mm-world, " +
-                                  $"world scale ×{scaleRatio:F5}, {pushes}. "
-                                : $"first sample, {pushes}. ") +
+                                  $"world scale ×{scaleRatio:F5}, {pushes}; {writers}. "
+                                : $"first sample, {pushes}; {writers}. ") +
                             $"{sizes}. {verdict} " +
                             "The board's PERCEIVED size is deliberately NOT frozen between the " +
                             "bounds: a pinned board is world geometry, so zooming changes how big it " +
@@ -836,6 +1025,13 @@ internal sealed partial class PlayTray
     private float _anchorLogScale;
     private bool _anchorLogValid;
     private float _nextAnchorLog;
+
+    /// <summary>Values of <see cref="_pinSanctionedMoveCount"/> and
+    /// <see cref="_pinUnknownMoveCount"/> the last BOARD ANCHOR line reported, so the next one
+    /// states what the freeze sentinel observed BETWEEN the two samples rather than since boot —
+    /// the same delta discipline the push count below already uses.</summary>
+    private int _loggedAnchorSanctionedCount;
+    private int _loggedAnchorUnknownCount;
 
     /// <summary>Value of <see cref="_sizePushCount"/> the last BOARD ANCHOR line reported, so the
     /// next one can state how many pushes happened between the two samples.</summary>
