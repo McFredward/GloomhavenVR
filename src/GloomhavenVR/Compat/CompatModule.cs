@@ -91,10 +91,15 @@ internal sealed class CompatModule : IVRModule
         // single symbol of it. PlayerRegistry.StartWaitingForPlayers opens the wait window and
         // CLEARS PlayersFinishedLoading one statement later, so a peer's NotifyLoadingFinished
         // that arrives before the local window opens is discarded and never re-sent, and
-        // SceneController.WaitForPlayers then spins forever. Repairing it means writing game
-        // network state, which this project forbids, so this class only OBSERVES — from the game's
-        // own ordered log stream, because a per-frame probe cannot see two edges in one frame.
-        // The full mechanism, the 2026-09-05 timings and the escape route are in its header.
+        // SceneController.WaitForPlayers then spins forever. The watch reads the game's own ordered
+        // log stream rather than its state, because a per-frame probe cannot see two edges in one
+        // frame — and that seam also lands it INSIDE StartWaitingForPlayers, between the flag write
+        // that logs and the Clear() one statement later, which is the only moment the doomed
+        // entries are readable. It then hands them back to the game's own NotifyLoadingFinished.
+        // THAT WRITE IS AN APPROVED, NARROW EXCEPTION to "presentation only, never write game
+        // state": it restores a fact the game established and then discarded, never invents one,
+        // and still patches nothing and imposes no time limit. The full mechanism, the 2026-09-05
+        // timings, the idempotence argument and the escape route are in its header.
         ScenarioEntryWatch.Install();
 
         // The GAME's own card particles are authored for its full-size 2D card and spray across

@@ -44,12 +44,19 @@ namespace GloomhavenVR.Compat;
 /// the client dequeued <c>EnterScenario</c> ~1.76 s after receiving it, and the client's
 /// <c>Processing SideAction</c> line sits NINE lines above its own <c>WaitForOtherPlayers</c> flip.</para>
 ///
-/// <para><b>WHY THIS CLASS ONLY WATCHES.</b> Repairing it means writing
-/// <c>PlayerRegistry.PlayersFinishedLoading</c> — game network state, which this project forbids
-/// the mod from touching. So nothing here writes anything: no Harmony patch, no game field, no
-/// behaviour change, and deliberately NO time limit that gives up on a wait (the user's standing
-/// ruling is <i>"Ich will gar keine Zeitlimits dieser Art."</i>). An instrument may observe a long
-/// wait; a guard may not silently abandon one.</para>
+/// <para><b>THIS CLASS ALSO REPAIRS IT, AND THAT IS AN EXPLICIT EXCEPTION.</b> Re-delivery means
+/// writing <c>PlayerRegistry.PlayersFinishedLoading</c> — game network state, which this project
+/// otherwise forbids. The user was asked and approved it for this one repair, on one condition
+/// that is also the boundary this code holds: <b>we are not inventing a fact, we are restoring one
+/// the game itself established and then discarded through its own race.</b> So the only thing ever
+/// handed back is a <c>NetworkPlayer</c> reference the GAME put in that list, and the game puts one
+/// there only from a <c>NotifyLoadingFinished</c> a peer really sent. Nothing is constructed,
+/// resolved by id, or inferred from a peer's silence; the LOCAL player is never restored, because
+/// this client's own readiness is a fact only its own load path may assert. Still NO Harmony patch
+/// on anything, and still NO time limit — the repair fires on the ORDERING, in the frame it is
+/// detected (<i>"Ich will gar keine Zeitlimits dieser Art."</i>). See
+/// <see cref="RestoreDiscardedNotifications"/> for the idempotence argument and
+/// <see cref="SnapshotDoomed"/>'s call site for why a wrong assumption yields inaction.</para>
 ///
 /// <para><b>WHY IT READS THE LOG STREAM AND NOT THE STATE.</b> A per-frame state probe cannot see
 /// this defect at all. The side action is processed on Bolt's event pump and the flag is flipped by
@@ -67,9 +74,17 @@ namespace GloomhavenVR.Compat;
 ///   were therefore just discarded. A non-zero count there IS the deadlock, named at the instant
 ///   it is created rather than after the player has waited.</item>
 /// <item><b>WAIT CLOSED</b> — the healthy edge, with how long it took.</item>
+/// <item><b>REPAIR</b> / <b>REPAIR FAILED</b> — which participant was restored, how many of how
+///   many the roster then held, and (on the close) whether the loading screen actually came down.</item>
 /// <item><b>STILL WAITING</b> — past a plain observation bound, naming the participants that are
-///   NOT in <c>PlayersFinishedLoading</c> and what the player can do about it. Observation only.</item>
+///   NOT in <c>PlayersFinishedLoading</c> and what the player can do about it. If the repair fired
+///   and the client is STILL waiting, this line says so in those words — a repair that ran and did
+///   not release must never read as silence.</item>
 /// </list>
+///
+/// <para><b>THE ESCAPE ROUTE STAYS.</b> Everything <see cref="Escape"/> says about the host leaving
+/// and about the mod's options button is still printed on every failure line. A repair that works
+/// is not a reason to delete the way out.</para>
 /// </summary>
 internal static class ScenarioEntryWatch
 {
@@ -133,6 +148,36 @@ internal static class ScenarioEntryWatch
     /// observation cadence, never on the per-frame path.</summary>
     private static readonly List<string> Missing = [];
 
+    /// <summary>The game's <c>NetworkPlayer</c> references read out of <c>PlayersFinishedLoading</c>
+    /// in the instant before the game clears it — held as <see cref="object"/> because the type
+    /// derives from a Bolt type this project does not reference. Filled ONLY from the log callback
+    /// on a window-opening edge, consumed ONLY by the next <c>Tick</c>, and emptied either way.</summary>
+    private static readonly List<object> Doomed = [];
+
+    /// <summary>How the repair went for the CURRENT window. One window, one attempt.</summary>
+    private enum RepairState
+    {
+        /// <summary>Nothing was discarded, or the repair has not run yet.</summary>
+        None,
+        /// <summary>At least one entry was put back.</summary>
+        Restored,
+        /// <summary>Entries were discarded but none could be put back — the loud failure.</summary>
+        Failed
+    }
+
+    private static RepairState _repairState;
+    private static int _restoredCount;
+    private static int _restoreDropped;
+    private static string _restoredNames = string.Empty;
+    private static string _restoreFailure = string.Empty;
+
+    /// <summary>The game's own "the curtain came down" edge (SceneController.cs:1123), counted so a
+    /// repair can report whether the loading screen ACTUALLY lifted afterwards rather than only
+    /// that a list got longer.</summary>
+    private const string LoadingScreenDownToken = "Disabling loading screen.";
+    private static int _screenDownSeen;
+    private static int _screenDownAtOpen;
+
     // ---- lifecycle -----------------------------------------------------------------------------
 
     internal static void Install()
@@ -164,8 +209,12 @@ internal static class ScenarioEntryWatch
             + "closes, and — the defect this exists for — any peer 'finished loading' "
             + "notification that arrived BEFORE the window opened and was therefore discarded by "
             + "the game's own PlayersFinishedLoading.Clear(). One such notification is a "
-            + "permanent hang: nothing re-sends it. Grep 'SCENARIO ENTRY'. This watch WRITES "
-            + "NOTHING and imposes no time limit — it only says what is true.");
+            + "permanent hang: nothing re-sends it, so this watch hands it back — to the game's "
+            + "OWN PlayerRegistry.NotifyLoadingFinished, with the very reference the game had "
+            + "discarded. That single write is an approved exception to 'never write game state': "
+            + "it restores a fact the game established, never invents one, and is refused for this "
+            + "client's own player. Grep 'SCENARIO ENTRY'. No Harmony patch, no time limit and no "
+            + "deadline anywhere in it — the repair fires on the ordering, not on a clock.");
     }
 
     internal static void Uninstall()
@@ -185,7 +234,15 @@ internal static class ScenarioEntryWatch
         _pendingOpen = _pendingClose = 0;
         _discarded = _inWindow = 0;
         _loudLines = 0;
+        _repairState = RepairState.None;
+        _restoredCount = _restoreDropped = 0;
+        _restoredNames = _restoreFailure = string.Empty;
+        _screenDownSeen = _screenDownAtOpen = 0;
         Missing.Clear();
+        // Nothing restored needs undoing: every entry handed back was one the game itself had put
+        // in that list, and the list is the game's own transient loading bookkeeping, cleared by
+        // PlayerRegistry on the next window either way.
+        Doomed.Clear();
     }
 
     // ---- the observation ------------------------------------------------------------------------
@@ -242,6 +299,27 @@ internal static class ScenarioEntryWatch
             _emitting = true;
             try { ReportOpened(discarded); }
             finally { _emitting = false; }
+
+            // THE REPAIR RUNS HERE, from Update — never from the log callback. Inside the callback
+            // we sit BEFORE PlayerRegistry's own Clear(), so anything handed back there would be
+            // wiped one statement later by the very call we are observing. By this point the
+            // Clear() has run (it is in the same synchronous call stack that produced the log
+            // line), so what we put back stays. There is no timer here and no deadline: the repair
+            // fires on the ORDERING the watch already proved, in the same frame it detects it.
+            int doomed = Doomed.Count;
+            if (doomed > 0)
+            {
+                int restored = RestoreDiscardedNotifications();
+                Doomed.Clear();
+                _repairState = restored > 0 ? RepairState.Restored : RepairState.Failed;
+                _emitting = true;
+                try { ReportRepair(doomed, restored); }
+                finally { _emitting = false; }
+            }
+            else
+            {
+                Doomed.Clear();
+            }
         }
 
         if (_pendingClose > 0)
@@ -303,6 +381,12 @@ internal static class ScenarioEntryWatch
                 return;
             }
 
+            if (condition.IndexOf(LoadingScreenDownToken, StringComparison.Ordinal) >= 0)
+            {
+                _screenDownSeen++;
+                return;
+            }
+
             if (condition.IndexOf(FlagToken, StringComparison.Ordinal) < 0)
                 return;
 
@@ -314,10 +398,29 @@ internal static class ScenarioEntryWatch
             _edges++;
             if (open)
             {
+                // THE ONLY MOMENT THE DOOMED ENTRIES ARE READABLE, and the whole repair hangs on
+                // it. StartWaitingForPlayers (PlayerRegistry.cs:377-392) runs
+                //     WaitForOtherPlayers = true;      // <- the setter logs, so WE ARE HERE
+                //     PlayersFinishedLoading.Clear();  // <- has NOT run yet
+                // and Application.logMessageReceived is dispatched synchronously on the main
+                // thread, so this callback sits BETWEEN those two statements with nothing else in
+                // between. What the list holds right now is exactly what the game is about to
+                // throw away — the game's own NetworkPlayer references, put there by its own
+                // NotifyLoadingFinished from a side action a peer really sent. We copy the
+                // references out; we never construct, look up or infer a player.
+                //
+                // IF THAT ORDERING IS EVER WRONG the list reads EMPTY and the repair simply never
+                // fires. Every way this assumption can break — the Clear() moving ahead of the
+                // log, Unity dispatching the callback late, the token changing — lands on
+                // "do nothing", never on "release the wait". That one-directional failure is why
+                // this seam was chosen over a patch.
+                SnapshotDoomed();
                 _openedAt = Time.realtimeSinceStartup;
                 _nextReportAt = _openedAt + FirstReportSeconds;
                 _loudLines = 0;
                 _inWindow = 0;
+                _repairState = RepairState.None;
+                _screenDownAtOpen = _screenDownSeen;
                 _pendingOpen = 1;
             }
             else
@@ -373,11 +476,53 @@ internal static class ScenarioEntryWatch
             + "(SceneController.cs:2572-2581). " + roster + " " + Escape() + " " + liveness);
     }
 
+    /// <summary>Pure text; <see cref="Tick"/> owns every field it reads.</summary>
+    private static void ReportRepair(int doomed, int restored)
+    {
+        if (restored > 0)
+        {
+            // HW-VERIFY: the repair fired. If the client STILL sits on the waiting-for-players
+            // screen after this line, the re-delivery is not sufficient and the next line to read
+            // is SCENARIO ENTRY STILL WAITING, which will say so in those words.
+            VRLog.Note(Scope, $"SCENARIO ENTRY REPAIR: restored {restored} of {doomed} discarded "
+                + $"notification(s) — {_restoredNames}. {Roster()} Each one was handed back to the "
+                + "game's own PlayerRegistry.NotifyLoadingFinished with the SAME NetworkPlayer "
+                + "reference the game itself had put in the list, so this restores a fact the game "
+                + "established and then discarded through its own race — it does not invent one. "
+                + (_restoreDropped > 0
+                    ? $"{_restoreDropped} entr(y/ies) were deliberately NOT restored (this client's "
+                      + "own player, or no longer a participant); withholding one can only make "
+                      + "the wait longer, never shorter. "
+                    : string.Empty)
+                + "Watch for the window to CLOSE next. " + Liveness());
+            return;
+        }
+
+        VRLog.Alert(Scope, $"SCENARIO ENTRY REPAIR FAILED: {doomed} notification(s) were discarded "
+            + "and NONE could be put back"
+            + (_restoreFailure.Length > 0 ? $" — {_restoreFailure}." : ".")
+            + (_restoreDropped > 0
+                ? $" {_restoreDropped} were withheld on purpose (this client's own player, or no "
+                  + "longer a participant)."
+                : string.Empty)
+            + " THIS CLIENT IS NOW IN THE 2026-09-05 DEADLOCK WITH NO REMEDY LEFT. " + Roster()
+            + " " + Escape() + " " + Liveness());
+    }
+
     private static void ReportClosed(float held, int counted)
     {
         VRLog.Note(Scope, "SCENARIO ENTRY: the loading handshake window CLOSED after "
             + $"{held:F1}s — every participant was accounted for. {counted} peer "
-            + "notification(s) arrived while it was open and counted. " + Liveness());
+            + "notification(s) arrived while it was open and counted."
+            + (_repairState == RepairState.Restored
+                ? $" THE REPAIR IS WHAT RELEASED IT: {_restoredCount} restored notification(s) "
+                  + "carried this window, and the game's loading screen came down "
+                  + (_screenDownSeen > _screenDownAtOpen
+                      ? "as well — the curtain lifted, which is the outcome the player actually sees."
+                      : "NOT YET, so the list is satisfied but the screen is still up: read the "
+                        + "next lines rather than calling this fixed.")
+                : string.Empty)
+            + " " + Liveness());
     }
 
     private static void ReportStillWaiting(int sequence, float held)
@@ -388,13 +533,25 @@ internal static class ScenarioEntryWatch
             + $"held the multiplayer loading handshake open for {held:F0}s. THE TERM THAT IS "
             + $"NOT SATISFIED: {missing} The wait is released only by "
             + "Participants.Count <= PlayersFinishedLoading.Count, and nothing re-sends a "
-            + $"notification that was already consumed. {_discarded} notification(s) were "
-            + "discarded before this window opened"
-            + (_discarded > 0
-                ? " — that is the known lost-message race and this wait cannot end on its own."
-                : ", so the peer has genuinely not reported in yet; a slow load still ends "
-                  + "normally.")
-            + " " + Escape()
+            + "notification that was already consumed. "
+            + _repairState switch
+            {
+                // The worst outcome this feature can produce: the repair ran, the roster was
+                // satisfied, and the player is STILL looking at the curtain. It must never read as
+                // silence, so it gets its own sentence and its own tier.
+                RepairState.Restored =>
+                    $"THE REPAIR ALREADY FIRED THIS WINDOW and put {_restoredCount} notification(s) "
+                    + "back, and the wait did NOT end — so re-delivery is not the whole story and "
+                    + "something else is holding this client. That is a NEW finding, not the known "
+                    + "race. ",
+                RepairState.Failed =>
+                    "The repair fired and could restore nothing, so this is the known lost-message "
+                    + "race with no remedy left. ",
+                _ =>
+                    "No notification was discarded before this window opened, so the peer has "
+                    + "genuinely not reported in yet; a slow load still ends normally. "
+            }
+            + Escape()
             + " This line is an OBSERVATION on a cadence and changes nothing — no deadline is "
             + "imposed on the wait. It slows to one line every "
             + $"{SlowRepeatSeconds:F0}s after {LoudLinesBeforeSlowing} of them and never stops. "
@@ -438,6 +595,8 @@ internal static class ScenarioEntryWatch
     // ORDERING of the two log tokens — is unaffected either way.
 
     private static bool _reflected;
+    private static System.Reflection.PropertyInfo? _myPlayerProp;
+    private static System.Reflection.MethodInfo? _notifyMethod;
     private static System.Reflection.PropertyInfo? _participantsProp;
     private static System.Reflection.FieldInfo? _finishedField;
     private static System.Reflection.FieldInfo? _allPlayersField;
@@ -453,6 +612,8 @@ internal static class ScenarioEntryWatch
         {
             Type registry = typeof(PlayerRegistry);
             _participantsProp = registry.GetProperty("Participants");
+            _myPlayerProp = registry.GetProperty("MyPlayer");
+            _notifyMethod = registry.GetMethod("NotifyLoadingFinished");
             _finishedField = registry.GetField("PlayersFinishedLoading");
             _allPlayersField = registry.GetField("AllPlayers");
 
@@ -470,6 +631,111 @@ internal static class ScenarioEntryWatch
     }
 
     private static System.Collections.IList? ListOf(object? source) => source as System.Collections.IList;
+
+    /// <summary>
+    /// Copy the references out of <c>PlayersFinishedLoading</c> in the instant before the game
+    /// clears it. Called ONLY from the log callback on a window-opening edge — see the long note at
+    /// that call site for why this is the only moment they exist and why a wrong assumption here
+    /// yields an empty list rather than a false one.
+    /// </summary>
+    private static void SnapshotDoomed()
+    {
+        Doomed.Clear();
+        try
+        {
+            Reflect();
+            System.Collections.IList? finished = ListOf(_finishedField?.GetValue(null));
+            if (finished == null)
+                return;
+            foreach (object? entry in finished)
+                if (entry != null)
+                    Doomed.Add(entry);
+        }
+        catch (Exception e)
+        {
+            Doomed.Clear();
+            _lastCallbackError = "snapshot " + e.GetType().Name + ": " + e.Message;
+        }
+    }
+
+    /// <summary>
+    /// THE REPAIR. Puts back the notifications the game established and then discarded through its
+    /// own race, by handing each doomed reference to the game's OWN entry point,
+    /// <c>PlayerRegistry.NotifyLoadingFinished(NetworkPlayer)</c> (PlayerRegistry.cs:399-406).
+    ///
+    /// <para>WHAT IT WILL AND WILL NOT DO. It restores only a reference the GAME ITSELF put in
+    /// <c>PlayersFinishedLoading</c>, which the game does only from a <c>NotifyLoadingFinished</c>
+    /// action a peer really sent. It never constructs a player, never resolves one by id, never
+    /// treats silence as readiness, and never restores the LOCAL player — this client's own
+    /// readiness is a fact only this client's own load path may assert, and it adds itself through
+    /// that path anyway. An entry that is no longer a participant, or no longer in
+    /// <c>AllPlayers</c>, is dropped and counted rather than restored.</para>
+    ///
+    /// <para>IDEMPOTENCE, three independent ways. (1) <see cref="Doomed"/> is filled only on a
+    /// window-opening edge and emptied here unconditionally, so one window can produce at most one
+    /// attempt — <see cref="_repairState"/> then records that it ran. (2) The game's own
+    /// <c>NotifyLoadingFinished</c> body is <c>if (!PlayersFinishedLoading.Contains(player))
+    /// Add(player)</c>, so a second call for the same reference is a no-op — which is also what
+    /// makes racing the game's own late delivery harmless: whichever arrives second does nothing.
+    /// (3) The list holds object references and the entries we pass back are the very same
+    /// references, so <c>Contains</c> matches by identity and cannot be defeated by a re-created
+    /// player object.</para>
+    ///
+    /// <para>Returns the number restored; the names and the drop count are left in fields for the
+    /// report that follows.</para>
+    /// </summary>
+    private static int RestoreDiscardedNotifications()
+    {
+        _restoredCount = 0;
+        _restoreDropped = 0;
+        _restoredNames = string.Empty;
+        _restoreFailure = string.Empty;
+
+        try
+        {
+            Reflect();
+            if (_notifyMethod == null)
+            {
+                _restoreFailure = "PlayerRegistry.NotifyLoadingFinished could not be resolved, so "
+                    + "nothing could be handed back";
+                return 0;
+            }
+
+            object? me = _myPlayerProp?.GetValue(null);
+            System.Collections.IList? participants = ListOf(_participantsProp?.GetValue(null));
+            var sb = new StringBuilder();
+            var one = new object[1];
+
+            foreach (object entry in Doomed)
+            {
+                if (me != null && ReferenceEquals(entry, me))
+                {
+                    _restoreDropped++;
+                    continue; // never assert our own readiness
+                }
+                if (participants != null && !participants.Contains(entry))
+                {
+                    _restoreDropped++;
+                    continue; // not a participant now: restoring it would inflate the release test
+                }
+
+                one[0] = entry;
+                _notifyMethod.Invoke(null, one);
+                _restoredCount++;
+                if (sb.Length > 0)
+                    sb.Append(", ");
+                sb.Append(Describe(entry));
+            }
+
+            _restoredNames = sb.ToString();
+            return _restoredCount;
+        }
+        catch (Exception e)
+        {
+            _restoreFailure = e.GetType().Name + ": " + e.Message;
+            return _restoredCount;
+        }
+    }
 
     /// <summary>Counts only — allocates, so it is called from an edge or the cadence, never Tick.</summary>
     private static string Roster()
@@ -553,7 +819,9 @@ internal static class ScenarioEntryWatch
             ? $" lastCallbackError={_lastCallbackError};"
             : string.Empty;
         return $"[watch: ticks={_ticks}, handshake edges seen={_edges}, peer notifications "
-            + $"seen={_notifies}, window {(_waitOpen ? "OPEN" : "closed")};{err} reading the "
-            + "game's own log stream, writing nothing]";
+            + $"seen={_notifies}, window {(_waitOpen ? "OPEN" : "closed")}, repair "
+            + (_repairState == RepairState.Restored ? "RESTORED " + _restoredCount
+                : _repairState == RepairState.Failed ? "FAILED" : "not needed")
+            + $";{err} reading the game's own log stream]";
     }
 }
