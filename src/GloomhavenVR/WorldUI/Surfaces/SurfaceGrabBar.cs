@@ -111,33 +111,17 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class SurfaceGrabBar : IPanelGrabOwner
 {
-    // ---- geometry: every constant below is GrabbableModal's, by value and by name, so the two
-    //      handles read as one piece of furniture. See GrabbableModal.SyncBar for the derivations.
-    /// <summary>Gap from the panel's bottom edge to the bar CENTRE (frame-local, scale-1 metres).</summary>
-    private const float BarGapMeters = 0.03f;
-
+    // ---- geometry: every constant below USED TO BE declared here, copied by value and by name from
+    //      GrabbableModal so the two handles would read as one piece of furniture. Copying is what
+    //      made them one, and copying is also what would have let them drift — so the whole set,
+    //      and the eight lines of derivation both files spent on it, now lives in one place
+    //      (WorldUI.GrabBarLayout) that this class, GrabbableModal and CombatLogSurface all call.
+    //      Nothing about the shipped numbers moved.
     /// <summary>The rod's nominal radius — the design sheet's value, shared with every other bar.</summary>
-    private const float BarRadius = GrabBarMesh.DefaultRadius;
-
-    /// <summary>Drawn bar length as a fraction of the panel width.</summary>
-    private const float BarWidthFraction = 0.55f;
-
-    /// <summary>Palm grab zone width as a fraction of the panel width — wider than the drawn rod,
-    /// because a palm grab is a generous gesture and the laser has its own capsule.</summary>
-    private const float ZoneWidthFraction = 0.62f;
-
-    /// <summary>Floor on the drawn length. Below this the rod is shorter than its own two caps and
-    /// the laser capsule degenerates; GrabBarVisual.SetLength documents the arithmetic.</summary>
-    private const float MinBarWidth = 0.06f;
-
-    /// <summary>Floor on the short-panel proportion, so a small panel still has a grabbable rod.</summary>
-    private const float MinBarProportion = 0.5f;
-
-    /// <summary>Panel height at which the bar is drawn at full proportion.</summary>
-    private const float BarFullSizePanelHeightMeters = 0.30f;
+    private const float BarRadius = GrabBarLayout.BarRadius;
 
     /// <summary>Draw-order offset for the rod's three renderers: it must paint OVER its own panel.</summary>
-    private const int BarOrderOffset = 4;
+    private const int BarOrderOffset = GrabBarLayout.BarOrderOffset;
 
     /// <summary>Below this the release re-face writes nothing (and says nothing).</summary>
     private const float ReFaceEpsilonDeg = 0.5f;
@@ -436,28 +420,22 @@ internal sealed class SurfaceGrabBar : IPanelGrabOwner
         float panelHeight = _heightSettle.Apply(rect.height * unit / Mathf.Max(worldScale, 1e-4f),
                                                 onScreen, _logName);
         float sourceWidth = _widthSettle.Apply(rect.width * unit, onScreen, _logName);
-        float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
-                                       MinBarProportion, 1f);
-        float gap = BarGapMeters * proportion * worldScale;
-        // A ROD TAKES A UNIFORM SCALE AND NOTHING ELSE — stretching along its axis would smear the
-        // domed caps into ellipsoids, which is the whole reason GrabBarVisual exists. The two
-        // factors that a stretched cube used to carry in its localScale become a uniform scale on
-        // the root, and the LENGTH is handed in separately through SetLength.
-        float rodScale = Mathf.Max(proportion * worldScale, 1e-4f);
-        float minWidth = MinBarWidth * worldScale;
-        float zoneDepth = 0.05f * worldScale;
+
+        // ONE CALL FOR EVERY DIMENSION THE ROD HAS, shared with GrabbableModal and CombatLogSurface.
+        // ONE settled width feeds BOTH fractions inside it, so the drawn rod and the palm zone can
+        // never disagree about how wide the panel is, and the MinBarWidth floor is applied there
+        // rather than by the settle rule for the reason GrabBarLayout.Solve states.
+        GrabBarLayout.Rod rod = GrabBarLayout.Solve(sourceWidth, panelHeight, worldScale);
+        float rodScale = rod.Scale;
+        float zoneDepth = rod.ZoneDepth;
+        float barWidth = rod.BarWidth;
+        float zoneWidth = rod.ZoneWidth;
 
         // rect.yMin / rect.center are taken from the RectTransform rather than assuming a centred
         // pivot: the host is created by CanvasConversion and is pivot-centred today, but a bar
         // hung off an assumed pivot is a bar that silently detaches the day one is not.
         float x = rect.center.x * unit;
-        float y = rect.yMin * unit - gap;
-        // ONE settled width feeds BOTH fractions, so the drawn rod and the palm zone can never
-        // disagree about how wide the panel is. The MinBarWidth floor stays OUTSIDE the settle rule:
-        // it is a hard invariant about a rod shorter than its own two caps, not a size the rule may
-        // own for a settle window.
-        float barWidth = Mathf.Max(sourceWidth * BarWidthFraction, minWidth);
-        float zoneWidth = Mathf.Max(sourceWidth * ZoneWidthFraction, minWidth);
+        float y = rect.yMin * unit - rod.Gap;
 
         // 2026-09-03 ("es ploppt") — TARGETS, NOT WRITES: the root position, the uniform scale, the
         // length (barWidth is in FRAME-local metres and SetLength wants the ROD's own, under a root

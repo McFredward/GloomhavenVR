@@ -157,7 +157,26 @@ internal static class ModalCloseButton
     private static readonly Color GlyphColor = new(0.62f, 0.5f, 0.28f, 0.95f);   // brass grab-bar tone
 
     /// <summary>Build the X button on <paramref name="panel"/>'s host, closing <paramref name="window"/>.</summary>
-    internal static void Attach(ConvertedPanel panel, UIWindow window)
+    /// <param name="onClose">
+    /// THE OWNER'S OWN CLOSE, or null for the game's escape/hide path — which is what every floated
+    /// <see cref="ModalFallback"/> window passes and therefore what shipped.
+    ///
+    /// <para><b>WHY IT EXISTS (user, 2026-09-05, verbatim): <i>"der X Button ist anders"</i>.</b> The
+    /// combat log is a converted panel with a host canvas exactly like a floated window, and it had
+    /// grown its OWN X — a loud red 3D <c>PlayTray.BoardButton</c> reading the letter "X" — because
+    /// this method's only close action was <c>UIWindow.Escape()</c>, and the combat log's exit is not
+    /// an escape: it is that surface's session-visibility seam (<c>SetUserVisible(false, …)</c>),
+    /// which releases the conversion back to its 2D home and remembers that the player asked for it.
+    /// Escaping the game's window instead would close the game's combat log for the flat UI as well
+    /// and leave the mod's own gate still asking for it.</para>
+    ///
+    /// <para>An <see cref="Action"/> parameter defaulting to today's behaviour is a strictly smaller
+    /// change than a second X implementation, and it is the whole reason the second one could be
+    /// deleted. The EXIT STILL ENDS IN A VISIBLE CONFIRMATION either way (standing ruling): the
+    /// default path closes the window, and the combat log's path releases the panel on the very next
+    /// tick, so the press is answered by the panel leaving.</para>
+    /// </param>
+    internal static void Attach(ConvertedPanel panel, UIWindow window, Action? onClose = null)
     {
         if (panel == null || panel.HostRect == null || panel.HostCanvas == null || window == null)
             return;
@@ -167,8 +186,22 @@ internal static class ModalCloseButton
         UIWindow target = window;
         try
         {
+            Action? ownerClose = onClose;
             Build(panel, panel.HostRect, panel.HostCanvas, layer, () =>
             {
+                if (ownerClose != null)
+                {
+                    // The owner's own exit. A SEPARATE line rather than the one below with a word
+                    // swapped, because the line below asserts an Escape/Hide that did not happen here
+                    // and a falsifier that greps for it must not be answered by a press that took a
+                    // different path.
+                    VRLog.Info("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
+                                          "— running the OWNER'S OWN close action instead of Escape/Hide, " +
+                                          "so the surface that put this panel up stays the one authority " +
+                                          "on whether it is up.");
+                    ownerClose();
+                    return;
+                }
                 // Diagnostic (issue #8): prove the click reached the X and WHICH window it targets —
                 // distinguishes "click never hit the X" (no line) from "close failed" (this line, then
                 // CloseFloatedWindow's own result line). The two together are the full X-close trace.

@@ -814,9 +814,11 @@ internal sealed partial class PlayTray
         /// cap holder sits 4 mm in front of it — so its rim shows around the cap as a brown border
         /// and its body sinks into the recess floor behind the key. Confirm, Undo, Skip, the
         /// item-use confirm (PlayTray.6.Build) and both rest discs (RestControls) pass
-        /// <c>wellPlate: false</c> now, like the FIXIERT toggle already did. The parameter stays a
-        /// parameter (default true) because <c>CombatLogSurface</c>'s pin and close keys are not on
-        /// the control board and were not part of the complaint. The cap, its label and the trigger
+        /// <c>wellPlate: false</c> now, like the FIXIERT toggle already did. 2026-09-05: the combat
+        /// log's pin passes it too, through <see cref="CreateFollowPin"/> — it is the SAME control as
+        /// the board's toggle and hangs in the air beside a grab bar, so it lines no recess either.
+        /// The parameter stays a parameter (default true) for the day a key is built into a recess
+        /// again; nothing in the mod passes true today. The cap, its label and the trigger
         /// collider are exactly what they were — the collider's seat plane never depended on the
         /// plate being drawn. The KEYCAP SURFACE line now ends by naming the pieces a key is built
         /// from and the plate it has (none), and KEYCAP PLATE counts every renderer under a key that
@@ -1238,6 +1240,86 @@ internal sealed partial class PlayTray
             Core.VRLayers.Apply(go);
             button.LogCapSurface("BUILT");
             return button;
+        }
+
+        /// <summary>The FIXIERT/FOLGEN cap's face colour: aged brass, desaturated from the loud
+        /// gold it wore before T4. One literal for every follow/pin toggle in the mod.</summary>
+        private static readonly Color FollowPinAccent = new(0.58f, 0.46f, 0.26f);
+
+        /// <summary>
+        /// <b>THE FIXIERT/FOLGEN KEYCAP — ONE CONSTRUCTION, EVERY OWNER.</b> The control board's
+        /// dashboard toggle (<c>PlayTray.CreateDashboardButtons</c>) and the combat log's pin
+        /// (<c>CombatLogSurface</c>) are the same control doing the same job on two different pieces
+        /// of furniture, so they are built by one call with one set of dials instead of by two call
+        /// sites carrying the same eleven arguments.
+        ///
+        /// <para><b>THE REPORT THAT COLLAPSED THEM (user, 2026-09-05, verbatim):</b> <i>"der fixiert
+        /// button sollte gleich sein wie der button am controllboard"</i>, with the standing
+        /// instruction <i>"Am liebsten wäre es mir wenn du so wenig extra code nur für den Kampflog
+        /// hast wie möglich und es wie ein normales Fenster behandelst."</i> The combat log's pin was
+        /// a hand-sized rounded gold cap (<c>Vector2(0.068, 0.030)</c>, <c>Color(0.75,0.55,0.2)</c>,
+        /// no <c>boxy</c>, no travel dial, no cap category, no engraved SYMBOL); the board's was the
+        /// [BoardDashboard] tuning set with a symbol that swaps on every toggle. Two caps built from
+        /// two argument lists cannot be kept equal by intention, which is what the user was
+        /// looking at.</para>
+        ///
+        /// <para><b>WHAT IS DELIBERATELY NOT IN HERE.</b> The tray's own <c>WireCap</c> (the peer
+        /// mirror of a board press) and its laser registration are set by the tray at its call site,
+        /// because they are statements about the CONTROL BOARD and not about this control: the
+        /// combat log's pin flips a local BepInEx key and nothing about it goes on the wire. The
+        /// board's engraved caption beside the cap is likewise the board's — it is cut into the
+        /// board's own bottom margin and there is no board under a combat-log panel.</para>
+        ///
+        /// <para><b>wellPlate: false</b> for the same reason the board's does: the well is a plate
+        /// that makes a key read as seated in a recess, and neither of these two caps sits in one —
+        /// the board's toggle hangs below the board's bottom edge and the combat log's hangs beside
+        /// a grab bar in mid-air.</para>
+        /// </summary>
+        /// <param name="follow">The state the control is in RIGHT NOW: true = FOLGEN (two
+        /// footprints), false = FIXIERT (an anchor). Only decides which symbol is baked at build
+        /// time; <see cref="ApplyFollowPinState"/> owns every later flip.</param>
+        internal static BoardButton CreateFollowPin(Transform anchor, bool follow,
+                                                    System.Action onClick)
+        {
+            WorldUI.ButtonTuning.Bind();
+            return Create(anchor,
+                new Vector2(WorldUI.ButtonTuning.DashboardPinWidth, WorldUI.ButtonTuning.DashboardHeight),
+                FollowPinAccent,
+                // The FALLBACK label, i.e. the word this cap wears when the bundle ships no keycap
+                // atlas. It is the constant "follow" string at BUILD time on both owners (it also
+                // names the GameObject, `BoardButton_<label>`, and a GameObject whose name depends on
+                // a config value is a name that changes under the player); the state word arrives
+                // through ApplyFollowPinState on the very next line at both call sites.
+                Core.Loc.Mod("follow"), onClick,
+                thickness: WorldUI.ButtonTuning.DashboardDepth, boxy: true,
+                travel: WorldUI.ButtonTuning.DashboardTravel,
+                capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard,
+                capRole: follow ? CapRole.FixedFollow : CapRole.FixedPinned,
+                capStyle: CardsConfig.CurrentBoard,
+                wellPlate: false);
+        }
+
+        /// <summary>
+        /// Put a follow/pin cap into the state it is actually in — the ACCENT, the WORD and the
+        /// engraved SYMBOL, from one read of one bool, in one call, so a cap can never show an
+        /// anchor while its own colour says FOLGEN.
+        ///
+        /// <para>The symbol swap is two floats on a material instance
+        /// (<see cref="SetCapRole"/>), so there is no rebuild and the dust dissolve never sees it —
+        /// which matters for a toggle the player presses repeatedly, and it is the half the combat
+        /// log's pin was missing entirely before 2026-09-05.</para>
+        ///
+        /// <para>The tray ALSO cuts the word into the board beside the cap
+        /// (<c>PlayTray.RefreshFollowEngraving</c>) and keeps that half at its own call site: an
+        /// engraving needs a board to be cut into.</para>
+        /// </summary>
+        internal static void ApplyFollowPinState(BoardButton? cap, bool follow)
+        {
+            if (cap == null)
+                return;
+            cap.SetState(true, accent: !follow);
+            cap.SetLabel(follow ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
+            cap.SetCapRole(follow ? CapRole.FixedFollow : CapRole.FixedPinned);
         }
 
         /// <summary>

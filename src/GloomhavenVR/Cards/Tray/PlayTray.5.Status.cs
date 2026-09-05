@@ -59,9 +59,9 @@ internal sealed partial class PlayTray
             _labelLang = lang;
             _confirmedLabel = null;     // rebuild "✓ READY" in the new language
             _roundShown = int.MinValue; // force the round readout to re-localize
-            if (_followToggle != null)
-                _followToggle.SetLabel(CardsConfig.TrayFollow.Value
-                    ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
+            // Through the shared helper the combat log's pin also calls, so a language change
+            // cannot re-label one follow/pin control and leave the other reading the old word.
+            BoardButton.ApplyFollowPinState(_followToggle, CardsConfig.TrayFollow.Value);
             // The toggle's word now lives in the BOARD, not on the cap, so the language change has
             // to reach the engraving as well — this is the "es kann lokalisiert sein" half of the
             // requirement, and it is the reason the caption is TMP text laid into the board rather

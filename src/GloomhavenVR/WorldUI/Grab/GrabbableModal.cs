@@ -37,8 +37,21 @@ namespace GloomhavenVR.WorldUI;
 /// </summary>
 internal sealed class GrabbableModal : IPanelGrabOwner
 {
+    // ---- THE ROD'S DIMENSIONS NOW LIVE IN GrabBarLayout, AND THAT IS THE WHOLE OF THE CHANGE ----
+    //
+    // Every constant that used to be declared here was ALSO declared, by value and by name, in
+    // SurfaceGrabBar — whose class doc says so in as many words — and the combat log was about to
+    // become the third copy. They moved to WorldUI.GrabBarLayout verbatim, together with the eight
+    // lines of derivation SyncBar spent on them, and the three owners now call GrabBarLayout.Solve.
+    // The aliases below keep this file's own prose (and its falsifier's arithmetic) reading the way
+    // it did; nothing about any shipped bar's size, thickness, gap or zone moved by a float.
+    //
+    // The doc that stood on BarRadius is preserved on GrabBarLayout.BarRadius, including the
+    // ergonomics exchange behind 0.014 and the note that this measures the SHAFT rather than the
+    // knobs — the same distinction every consumer in this file depends on.
+
     /// <summary>Gap below the panel's bottom edge to the bar centre (frame-local, scale-1 metres).</summary>
-    private const float BarGapMeters = 0.03f;
+    private const float BarGapMeters = GrabBarLayout.BarGapMeters;
 
     /// <summary>
     /// THE ROD'S NOMINAL RADIUS, in the same frame-local scale-1 metres <see cref="BarGapMeters"/>
@@ -63,41 +76,27 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// here could be. Every consumer of this value in this file — the drawn thickness, and the top
     /// gap the falsifier reports — is about the long uniform run, which is the shaft.</para>
     /// </summary>
-    private const float BarRadius = GrabBarMesh.DefaultRadius;
-    private const float BarWidthFraction = 0.55f;
-    private const float ZoneWidthFraction = 0.62f;
-    // RAISED 0.04 -> 0.06 WHEN THE BAR BECAME A ROD, and the reason is arithmetic rather than
-    // taste. A rod cannot be drawn shorter than its own two end caps:
-    // 2 x CapLengthInRadii x DefaultRadius = 2 x 2.0 x 0.014 = 0.056 m. Below that
-    // GrabBarVisual.SetLength collapses the shaft to nothing and the two knobs meet in the middle —
-    // an honest picture of "as short as this bar gets", but a bar clamped to the old 0.04 would
-    // have been drawn ~40 % WIDER than it asked for, and the laser capsule (sized on the requested
-    // length) would have been shorter than the thing it is a target for. A floor under the rod's
-    // own minimum is a floor that does not hold.
-    //
-    // Only reachable with very narrow ink, and it moves in the safe direction: the floor exists so
-    // the grab and laser targets survive on a tiny window, and this makes them slightly larger.
-    // The two quantities are not in the same frame — this is frame-local metres and the rod's
-    // minimum is root-local — so at a heavily shrunken world scale the inequality can still bite;
-    // what it cannot do any more is bite at the ordinary scale, where it did.
-    private const float MinBarWidth = 0.06f;
+    private const float BarRadius = GrabBarLayout.BarRadius;
+    private const float BarWidthFraction = GrabBarLayout.BarWidthFraction;
+    private const float ZoneWidthFraction = GrabBarLayout.ZoneWidthFraction;
 
-    /// <summary>
-    /// EMPTY-GOLD-PLATE FIX (torbogen screenshot 2026-08-02): panel height (real metres) at or
-    /// above which the bar keeps its full thickness/gap. The fixed 2.4 cm bar + 3 cm gap were
-    /// sized for board-scale menus; under the ~6 cm level-message ACTION STRIP the same bar
-    /// rendered nearly as tall as the strip itself and a full strip-height away from it — on
-    /// the flat mirror it read as a detached EMPTY GOLD RECTANGLE floating below the hint
-    /// (identified in the screenshot by its brass colour, 55 % width and centred position one
-    /// gap below the strip). Panels shorter than this reference get a proportionally slimmer,
-    /// closer bar so the handle visually attaches to its window; taller panels (ESC/Options,
-    /// results, tutorial boxes) are numerically unchanged.
-    /// </summary>
-    private const float BarFullSizePanelHeightMeters = 0.30f;
+    /// <summary>See <see cref="GrabBarLayout.MinBarWidth"/> for the arithmetic behind the 0.06.
+    /// It is only reachable with very narrow ink and it moves in the safe direction: the floor
+    /// exists so the grab and laser targets survive on a tiny window. The two quantities are not in
+    /// the same frame — this is frame-local metres and the rod's minimum is root-local — so at a
+    /// heavily shrunken world scale the inequality can still bite; what it cannot do any more is
+    /// bite at the ordinary scale, where it did.</summary>
+    private const float MinBarWidth = GrabBarLayout.MinBarWidth;
+
+    /// <summary>Panel height (real metres) at or above which the bar keeps its full thickness/gap —
+    /// see <see cref="GrabBarLayout.BarFullSizePanelHeightMeters"/> for the torbogen screenshot
+    /// that established it. Taller panels (ESC/Options, results, tutorial boxes) are numerically
+    /// unchanged by it.</summary>
+    private const float BarFullSizePanelHeightMeters = GrabBarLayout.BarFullSizePanelHeightMeters;
 
     /// <summary>Floor of the short-panel bar proportion — the visible rod (and the laser capsule,
     /// which rides the same uniform root scale) must stay a comfortable target.</summary>
-    private const float MinBarProportion = 0.5f;
+    private const float MinBarProportion = GrabBarLayout.MinBarProportion;
 
     // ---- WHAT BECAME OF BarColliderPad, AND WHAT DID NOT GO WITH IT --------------------------
     //
@@ -135,7 +134,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     /// "order beats distance" defect the whole round is about. The offset stays below
     /// <c>CanvasConversion.PanelOrderStep</c>, which is what guarantees the second half.</para>
     /// </summary>
-    private const int BarOrderOffset = 4;
+    private const int BarOrderOffset = GrabBarLayout.BarOrderOffset;
 
     private ConvertedPanel _panel = null!;
     private float _extraScale = 1f;             // ModalFallback.WindowScaleFactor (host shrink)
@@ -1996,29 +1995,6 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                         && _bar.Root.gameObject.activeInHierarchy;
         float panelHeight = _heightSettle.Apply(halfHeight * 2f / Mathf.Max(worldScale, 1e-4f),
             onScreen, _logName);
-        float proportion = Mathf.Clamp(panelHeight / BarFullSizePanelHeightMeters,
-            MinBarProportion, 1f);
-        float gap = BarGapMeters * proportion * worldScale;
-        // THE ROD'S ROOT TAKES A UNIFORM SCALE AND NOTHING ELSE. The cube carried the short-panel
-        // proportion and the diorama's world scale in its own localScale, one axis at a time; a rod
-        // cannot take that write (stretching along the axis smears the domed caps into ellipsoids and
-        // flattens the beaded rings, which is the whole reason GrabBarVisual exists). So the two
-        // factors that used to be a NON-uniform scale become a UNIFORM one on the root — which
-        // GrabBarVisual explicitly permits, and which the two-hand resize already applies further up
-        // the chain — and the LENGTH is handed in separately through SetLength.
-        float rodScale = Mathf.Max(proportion * worldScale, 1e-4f);
-        // The drawn shaft diameter, in frame-local metres. Same shape as the cube's
-        // `BarThickness * proportion * worldScale`, with the sheet's radius in place of the old
-        // half-thickness: 28 mm where it was 24 mm at proportion 1 and diorama scale 1.
-        float thickness = BarRadius * 2f * rodScale;
-        float minWidth = MinBarWidth * worldScale;
-        float zoneDepth = 0.05f * worldScale;
-
-        // THE FRAME-BASED PLACEMENT — byte-for-byte what shipped through ModBuild 235, and still the
-        // answer whenever the ink cannot be measured (see the degenerate branch below).
-        float x = 0f;
-        float y = -(halfHeight + gap);
-
         // THE WIDTH THE ROD IS A FRACTION OF, as ONE number — the frame's, or the ink's when the ink
         // is narrower. It is a REWRITE OF THE SAME ARITHMETIC, not a new rule, and the equality is
         // worth stating because the old shape is what every other build's numbers came from. It was:
@@ -2041,10 +2017,25 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             : width;
         sourceWidth = _widthSettle.Apply(sourceWidth, onScreen, _logName);
 
-        // The MinBarWidth floor stays OUTSIDE the settle rule: it is a hard invariant about a rod
-        // shorter than its own two caps, not a size the rule may own for a settle window.
-        float barWidth = Mathf.Max(sourceWidth * BarWidthFraction, minWidth);
-        float zoneWidth = Mathf.Max(sourceWidth * ZoneWidthFraction, minWidth);
+        // ONE CALL FOR EVERY DIMENSION THE ROD HAS, shared with SurfaceGrabBar and CombatLogSurface
+        // (GrabBarLayout). The proportion, the gap, the uniform root scale, the drawn shaft diameter,
+        // the two fractions and the MinBarWidth floor were eight lines here and eight identical lines
+        // over there; they are one function now and no number changed. The settle rule still runs
+        // BEFORE it — the rule decides WHICH size the bar should be, this decides what that size
+        // means for the rod — and the floor still lives outside the settle rule for the reason
+        // GrabBarLayout.Solve states.
+        GrabBarLayout.Rod rod = GrabBarLayout.Solve(sourceWidth, panelHeight, worldScale);
+        float gap = rod.Gap;
+        float rodScale = rod.Scale;
+        float thickness = rod.Thickness;
+        float zoneDepth = rod.ZoneDepth;
+        float barWidth = rod.BarWidth;
+        float zoneWidth = rod.ZoneWidth;
+
+        // THE FRAME-BASED PLACEMENT — byte-for-byte what shipped through ModBuild 235, and still the
+        // answer whenever the ink cannot be measured (see the degenerate branch below).
+        float x = 0f;
+        float y = -(halfHeight + gap);
 
         if (_inkValid && unit > 1e-9f)
         {

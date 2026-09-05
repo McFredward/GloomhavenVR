@@ -1322,43 +1322,24 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // follow plates read the [BoardDashboard] set EXCLUSIVELY — per-button widths (they
         // are authored 0.062 vs 0.068), shared height/depth/travel. Numeric defaults ARE the
         // authored 0.062|0.068 × 0.030 × 0.030 / 4 mm geometry (no 0=Auto sentinel any more).
-        WorldUI.ButtonTuning.Bind();
-        float capDepth = WorldUI.ButtonTuning.DashboardDepth;
-        float capTravel = WorldUI.ButtonTuning.DashboardTravel;
-        _followToggle = BoardButton.Create(_followAnchor,
-            new Vector2(WorldUI.ButtonTuning.DashboardPinWidth, WorldUI.ButtonTuning.DashboardHeight),
-            new Color(0.58f, 0.46f, 0.26f), // T4: aged brass (desaturated from the loud gold)
-            Core.Loc.Mod("follow"), ToggleFollow,
-            thickness: capDepth, boxy: true, travel: capTravel,
-            capCategory: WorldUI.ButtonTuning.CapCategory.Dashboard,
-            // ONE CONTROL, TWO MEANINGS, TWO SYMBOLS. FIXIERT is an anchor; FOLGEN is two
-            // footprints. The cap is built at whichever the board is in NOW and swaps in place on
-            // every toggle (SetCapRole — two floats on a material instance, no rebuild, so the
-            // dust dissolve never sees it). The WORD is engraved into the board beside it, and
-            // flips with the symbol.
-            capRole: CardsConfig.TrayFollow.Value ? CapRole.FixedFollow : CapRole.FixedPinned,
-            capStyle: CardsConfig.CurrentBoard,
-            // NO WELL BEHIND THIS ONE. User, 2026-09-03: "ich mag den schwebenden braunen
-            // Hintergrund nicht auf dem der button sitzt - der button alleine reicht, lösche diese
-            // hintergrund mesh auf dem der button sitzt, er kann direkt unter dem controllboard
-            // schweben ohne Unterlage."
-            //
-            // IT IS THIS CALL AND ONLY THIS CALL, and the reason is physical rather than aesthetic.
-            // Every other board button — Confirm, Undo, Skip, the item-use confirm, both rest discs
-            // — sits ON the board, in a recess the board's own art already has, and its dark well is
-            // what makes the key read as seated in that recess. This toggle does not: its anchor is
-            // BELOW the board's bottom edge (PinBase y = −BoardH/2 − 0.030 against a −0.16 edge), so
-            // its well was not lining a recess, it was a loose brown tile hanging in the air behind
-            // a key hanging in the air. Removing it here removes it from nothing else — and the
-            // mirror of this cap does the same (Net.RemoteBoardFurniture.InertCap.Square), because
-            // a plate deleted on the owner's board and left on every peer's copy of it is the 1:1
-            // ruling broken in the one direction the owner can never see.
-            // 2026-09-04: NOT THIS CALL ONLY ANY MORE. The user then asked for the plate behind ALL
-            // of the control board's keys to go ("der button asset selbst ohne diese kleinen Platten
-            // dahinter reicht"), so Confirm/Undo/Skip/item-use (PlayTray.6.Build) and both rest discs
-            // (RestControls) pass wellPlate: false too. This note stays as the record of why the
-            // toggle was first.
-            wellPlate: false);
+        // ONE CONTROL, TWO OWNERS, ONE CONSTRUCTION (2026-09-05). Every dial this cap is built with
+        // — the [BoardDashboard] width/height/depth/travel, the aged-brass face, boxy:true, the
+        // Dashboard cap category, the engraved state SYMBOL and wellPlate:false — moved into
+        // BoardButton.CreateFollowPin, because the combat log's pin is the same control on a
+        // different piece of furniture and the user's report was that the two did not match. The
+        // reasoning behind each dial travelled with it; in particular NO WELL BEHIND THIS ONE (user,
+        // 2026-09-03: "ich mag den schwebenden braunen Hintergrund nicht auf dem der button sitzt")
+        // — this toggle's anchor is BELOW the board's bottom edge (PinBase y = −BoardH/2 − 0.030
+        // against a −0.16 edge), so its well was not lining a recess, it was a loose brown tile
+        // hanging in the air behind a key hanging in the air. The MIRROR of this cap does the same
+        // (Net.RemoteBoardFurniture.InertCap.Square), because a plate deleted on the owner's board
+        // and left on every peer's copy of it is the 1:1 ruling broken in the one direction the
+        // owner can never see.
+        _followToggle = BoardButton.CreateFollowPin(_followAnchor, CardsConfig.TrayFollow.Value,
+                                                    ToggleFollow);
+        // THE TWO HALVES THAT STAY HERE ARE STATEMENTS ABOUT THE BOARD, NOT ABOUT THIS CONTROL: the
+        // peer mirror of a board press, and the board's own laser scan. The combat log's pin has
+        // neither — nothing about it goes on the wire, and it is scanned by the surface that owns it.
         _followToggle.WireCap = Net.NetProtocol.CapPressFollowPin;
         _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
         RegisterLaserTarget(_followToggle.Collider!, _followToggle);
@@ -1512,11 +1493,11 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
             // float-noise-sized deltas — name it so it never reads as an unknown writer.
             NotePinnedWrite("pin engaged (ApplyFollowMode — world-pose-preserving re-parent)");
         }
-        if (_followToggle != null)
-        {
-            _followToggle.SetState(true, accent: !CardsConfig.TrayFollow.Value);
-            _followToggle.SetLabel(CardsConfig.TrayFollow.Value ? Core.Loc.Mod("follow") : Core.Loc.Mod("pinned"));
-        }
+        // The cap's own three halves — accent, word, engraved symbol — through the shared helper the
+        // combat log's pin also calls, so the two follow/pin controls cannot disagree about what a
+        // FIXIERT cap looks like. (SetCapRole is idempotent, so RefreshFollowEngraving below still
+        // owning the symbol beside the board's engraved word costs nothing.)
+        BoardButton.ApplyFollowPinState(_followToggle, CardsConfig.TrayFollow.Value);
         // …and the two halves of the control that were added with the symbols: the cap's SYMBOL
         // (anchor while pinned, footprints while following) and the WORD cut into the board beside
         // it. Here rather than only in ToggleFollow, because this method is the ONE place that puts

@@ -24,29 +24,41 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// roll/pitch), yaw toward the head at that moment. Between events the panel
 /// behaves exactly like the control board: it does not move at all.
 ///
-/// GRAB (test #19: movable/scalable/pinnable EXACTLY like the control board): a
-/// brass grab bar under the panel's bottom edge drives the tray's shared
-/// <see cref="PanelGrabHandle"/> core — one hand moves, two hands resize
-/// (0.5×–2×), and the final release persists the layout as [WorldUI] CombatLog*
-/// (table-anchor offsets in real meters + the size factor), so it survives
-/// sessions and diorama scale. Yaw carry is ON like the tray (no billboard is
-/// fighting the carry anymore); release snaps the panel upright with its yaw
-/// toward the head, then it freezes again.
+/// GRAB (test #19: movable/scalable/pinnable EXACTLY like the control board): the
+/// SHARED WINDOW ROD (<see cref="GrabBarVisual"/>, sized by
+/// <see cref="GrabBarLayout"/> and presented by <see cref="GrabBarTween"/>) under
+/// the panel's bottom edge drives the tray's shared <see cref="PanelGrabHandle"/>
+/// core — one hand moves, two hands resize (0.5×–2×), and the final release
+/// persists the layout as [WorldUI] CombatLog* (table-anchor offsets in real
+/// meters + the size factor), so it survives sessions and diorama scale. Yaw
+/// carry is ON like the tray (no billboard is fighting the carry anymore);
+/// release snaps the panel upright with its yaw toward the head, then it freezes
+/// again. Until 2026-09-05 this bar was a stretched <c>PrimitiveType.Cube</c> with
+/// four size constants of its own — the "alter Greifbalken" of the user's report.
 ///
-/// FOLLOW/PINNED: a <see cref="PlayTray.BoardButton"/> next to the bar (same
-/// visual/behavior as the tray's pin toggle) flips [WorldUI] CombatLogFollowSeat.
-/// PINNED (default since test #20) freezes the world pose; like the tray, a
-/// pinned WORLD pose does not survive sessions — on each conversion the panel
-/// first places from the persisted offsets (head-relative fallback pose when no
-/// table anchor exists yet), then freezes. FOLLOW re-derives the POSITION from
-/// the persisted offsets every tick (moves with recenters/diorama like every
-/// panel) but never the rotation. Poke always works on the pin and on the X
-/// (PokeableBehaviour self-registration); SINCE ModBuild 351 THE LASER DOES TOO,
-/// AND IT NO LONGER DEPENDS ON THE CONTROL BOARD — this surface runs its own
-/// geometric scan over its own two caps (see TickCapLaser). Up to 350 both caps
-/// rode PlayTray.LaserTargets, whose scan returns immediately when the tray is
-/// hidden, so a combat log standing on its own had a close cross the laser could
-/// not press.
+/// FOLLOW/PINNED: the CONTROL BOARD'S OWN dashboard keycap
+/// (<c>PlayTray.BoardButton.CreateFollowPin</c> — same dials, same aged brass,
+/// same engraved state symbol) next to the bar flips [WorldUI]
+/// CombatLogFollowSeat. PINNED (default since test #20) freezes the world pose;
+/// like the tray, a pinned WORLD pose does not survive sessions — on each
+/// conversion the panel first places from the persisted offsets (head-relative
+/// fallback pose when no table anchor exists yet), then freezes. FOLLOW
+/// re-derives the POSITION from the persisted offsets every tick (moves with
+/// recenters/diorama like every panel) but never the rotation.
+///
+/// CLOSE: the SHARED X (<see cref="ModalCloseButton"/>) on the host canvas, the
+/// same muted plate and brass cross every floated window wears, running THIS
+/// surface's own close action (<c>SetUserVisible(false, "X button")</c>) rather
+/// than <c>UIWindow.Escape()</c>.
+///
+/// INPUT: poke works on both controls (PokeableBehaviour self-registration for the
+/// pin, the host's own poke surface for the X). THE LASER REACHES BOTH TOO, by two
+/// different routes and neither of them the control board's: the X is a uGUI
+/// button on a registered poke surface, so RayUguiDriver drives it like any other
+/// converted widget, and the 3D pin is covered by this surface's own geometric
+/// scan (see TickCapLaser). Up to ModBuild 350 both caps rode PlayTray.LaserTargets,
+/// whose scan returns immediately when the tray is hidden, so a combat log standing
+/// on its own had a close cross the laser could not press.
 ///
 /// TRANSFORM LAYOUT: holder (identity pose, localScale = diorama WorldScale)
 /// → frame (grab root at the BAR CENTER; localScale = user size factor 0.5–2)
@@ -58,12 +70,29 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// </summary>
 internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 {
-    /// <summary>Panel bottom edge sits this far above the bar center (the tray's handle gap).</summary>
-    private const float BarGapMeters = 0.03f;
-    private const float BarThickness = 0.024f;
-    /// <summary>Bar/zone width relative to the panel width (the tray uses 0.55/0.62 of its board).</summary>
-    private const float BarWidthFraction = 0.55f;
-    private const float ZoneWidthFraction = 0.62f;
+    // ---- THIS PANEL'S CHROME IS NOT ITS OWN ANY MORE (2026-09-05) -----------------------------
+    //
+    // USER RULING, verbatim: "Der Kampflog ist jetzt spawnable, ABER er sieht anders aus als die
+    // anderen Fenster. Ich will das du es angleichst: a) Er hat noch den alten Greifbalken - auch
+    // soll er den normalen Greifbalken bekommen, b) Der fixiert button sollte gleich sein wie der
+    // button am controllboard, c) der X Button ist anders. Am liebsten wäre es mir wenn du so wenig
+    // extra code nur für den Kampflog hast wie möglich und es wie ein normales Fenster behandelst."
+    //
+    // All three deltas had the same cause: this file owned three private copies of chrome that every
+    // other floated window gets from a shared owner. The BAR was a GameObject.CreatePrimitive cube
+    // with a flat brass material and four size constants of its own, while every other window wears
+    // the drawn ROD (GrabBarVisual, three pieces and one material) sized by GrabBarLayout. The PIN
+    // was a hand-sized rounded gold cap with a bare word, while the control board's identical
+    // control is the [BoardDashboard] keycap with an engraved symbol that swaps on toggle. The X was
+    // a loud red 3D BoardButton reading the letter "X", while every other window gets the muted
+    // brass cross on the host canvas (ModalCloseButton).
+    //
+    // So the constants that used to be declared here are GrabBarLayout's, the pin is
+    // PlayTray.BoardButton.CreateFollowPin's, and the X is ModalCloseButton's. What is left in this
+    // file about chrome is the three things that are genuinely this panel's own: WHERE the frame
+    // sits (the bar centre, because the panel grows up from the handle), what the X DOES (this
+    // surface's session-visibility seam, not UIWindow.Escape) and the laser scan the pin still needs
+    // because it is a 3D cap on a panel that is routinely up without the control board.
 
     public override string Name => "CombatLog";
     // ONE ACTION AND ONE PREFERENCE, never one toggle doing both jobs — see the
@@ -242,15 +271,44 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
     private Transform? _holder;   // identity pose, carries the diorama scale
     private Transform? _frame;    // grab root at the bar center; localScale = user factor
-    private Transform? _bar;
+
+    /// <summary>The drawn rod — shaft plus two end knobs, ONE material — exactly the object every
+    /// floated window's handle is. It replaced a stretched <c>PrimitiveType.Cube</c>.</summary>
+    private GrabBarVisual? _bar;
+
+    /// <summary>THE ONE WRITER of the rod's presented pose, shared with <c>GrabbableModal</c> and
+    /// <c>SurfaceGrabBar</c>: this class sets a TARGET and the LateUpdate step eases the drawn rod,
+    /// its laser capsule and the palm zone toward it. Without it this panel's handle would be the
+    /// only one in the mod that still snaps ("es ploppt", 2026-09-03).</summary>
+    private GrabBarTween? _barTween;
+
     private BoxCollider? _grabZone;
     private PanelGrabHandle? _handle;
     private PlayTray.BoardButton? _pin;
     private Transform? _pinAnchor;
-    private PlayTray.BoardButton? _close;
-    private Transform? _closeAnchor;
-    private PlayTray.BoardButton? _laserHover; // the cap the beam is on (this surface owns the scan)
-    private float _builtBarWidth = -1f;
+
+    /// <summary>The shared uGUI close X on the HOST canvas (<see cref="ModalCloseButton"/>), found
+    /// once per conversion so the per-tick re-seat costs a null check. It is destroyed with the
+    /// host, so it needs no teardown of its own.</summary>
+    private RectTransform? _closePlate;
+
+    /// <summary>The solved bar-centre-to-panel-bottom gap, in the frame's units. Written by
+    /// <see cref="SyncBar"/> and read by the two placements that hang off the bar (the host itself
+    /// and the empty-state note), so the three can never disagree about where the panel's bottom
+    /// edge is — it is one number now instead of a constant repeated in three expressions.</summary>
+    private float _barGap = GrabBarLayout.BarGapMeters;
+
+    /// <summary>The shared settle rule, one instance per size term, exactly as the other two bar
+    /// owners hold it: a host rect that moves and moves straight back must not change the rod's
+    /// thickness and its gap ("Wenn sich das Fenster nicht wirklich vergrößert, sollte der
+    /// Greifbalken auch nicht größer werden", asked for "allgemein").</summary>
+    private readonly BarSizeSettle _widthSettle = new("width");
+    private readonly BarSizeSettle _heightSettle = new("height");
+
+    /// <summary>True while the beam is resting on the FOLLOW/PINNED cap — the only 3D cap this
+    /// panel still has (see <see cref="TickCapLaser"/>).</summary>
+    private bool _pinLaserHovered;
+
     private bool _placedFromConfig;
     private int _facedPoseVersion = -1; // RigPoseVersion the orientation was derived at
     private bool _healLogged;           // change-dedup for the out-of-view heal log
@@ -299,6 +357,61 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _entryCount = -1;
         _lastChildCount = -1;
         _nextEntryScan = 0f;
+        // A SETTLED SIZE DESCRIBES A RECT THAT NO LONGER EXISTS. Reset before the frame is built, so
+        // a second conversion never holds the previous float's rod size for a whole settle window on
+        // a panel it was never measured against.
+        _widthSettle.Reset();
+        _heightSettle.Reset();
+        EnsureFrame();
+        AttachPanelChrome();
+    }
+
+    /// <summary>
+    /// The two pieces of chrome that belong to the CONVERSION rather than to the frame: the rod's
+    /// place on the panel's draw-order ladder, and the close X.
+    ///
+    /// <para>Both are per-<see cref="ConvertedPanel"/> and this panel is released and re-converted
+    /// every time the player hides and re-shows the log, so this runs once per conversion rather
+    /// than once per frame build — the mod-owned holder deliberately outlives a conversion (a scene
+    /// load destroys it; a hide does not), and a registration made against the previous panel is
+    /// dead the moment that panel is.</para>
+    ///
+    /// <para>THE ORDER FOLLOWERS ARE ALL THREE RENDERERS, not one. The rod is a shaft and two caps;
+    /// registering only the shaft would sort it over the panel and leave both knobs behind it, which
+    /// is a bar with its ends bitten off. Registration is idempotent per panel, so a second call
+    /// costs three reference compares.</para>
+    /// </summary>
+    private void AttachPanelChrome()
+    {
+        if (Panel == null)
+            return;
+        if (_bar != null)
+        {
+            System.Collections.Generic.IReadOnlyList<MeshRenderer> rs = _bar.Renderers;
+            for (int i = 0; i < rs.Count; i++)
+                CanvasConversion.RegisterOrderFollower(Panel, rs[i], GrabBarLayout.BarOrderOffset);
+        }
+
+        // THE SAME X EVERY OTHER FLOATED WINDOW GETS — a uGUI button on the HOST canvas (a sibling
+        // of the game subtree), a muted dark plate carrying a brass cross drawn as two crossed
+        // Images, brightening on hover. Because it is a uGUI widget on a registered poke surface it
+        // is driven by UguiPokeSurfaces / RayUguiDriver like every other converted widget: the
+        // fingertip AND THE LASER reach it through the same ExecuteEvents path, with nothing to
+        // register and no scan of this surface's own (ModBuild 348: "Alle buttons müssen auch mit
+        // dem Laser drückbar sein"). It is destroyed with the host, so there is no teardown here.
+        //
+        // THE CLOSE ACTION IS STILL THIS SURFACE'S OWN, and that is the one thing the shared button
+        // could not do before today: UIWindow.Escape() would close the GAME's combat log for the
+        // flat UI as well and leave this surface's own gate still asking for it. SetUserVisible is
+        // the seam that owns whether this panel is up, and the press ends in the panel being
+        // released back to its 2D home on the very next tick — the visible confirmation an exit
+        // control owes a press.
+        _closePlate = null;
+        UIWindow? window = Singleton<CombatLogHandler>.IsInitialized
+            ? Singleton<CombatLogHandler>.Instance.GetComponent<UIWindow>()
+            : null;
+        if (window != null)
+            ModalCloseButton.Attach(Panel, window, () => SetUserVisible(false, "X button"));
     }
 
     // ---- IPanelGrabOwner -------------------------------------------------------------------
@@ -366,18 +479,20 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _holder = null;
         _frame = null;
         _bar = null;
+        _barTween?.Release();   // leaves the LateUpdate tick list; the rod it presented is gone
+        _barTween = null;
         _grabZone = null;
         _handle = null;
         _pin = null;
         _pinAnchor = null;
-        _close = null;
-        _closeAnchor = null;
+        _closePlate = null;     // the plate itself dies with the host it is parented to
         _emptyNote = null;
         _emptyAnchor = null;
         _emptyNoteRenderer = null;
         _scroll = null;
         ClearCapLaserHover();
-        _builtBarWidth = -1f;
+        _widthSettle.Reset();
+        _heightSettle.Reset();
         _placedFromConfig = false;
         _facedPoseVersion = -1;
         _healLogged = false;
@@ -510,24 +625,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         float metersPerPixel = WorldUIConfig.CanvasScaleMm.Value * 0.001f;
         float hostScale = worldScale * _frame.localScale.x;
 
-        SyncBarWidth(rect.width * metersPerPixel);
+        SyncBar(rect, metersPerPixel);
 
-        // Panel grows UP from the bar (bottom-center convention, like the tray mounts).
+        // Panel grows UP from the bar (bottom-center convention, like the tray mounts). The gap is
+        // the one SyncBar just solved, not a constant re-quoted here: on a short panel the shared
+        // rule pulls the handle CLOSER to its window, and a fixed gap in this expression would leave
+        // the panel where the full-size handle would have put it.
         Vector3 center = _frame.position + _frame.rotation *
-            (Vector3.up * ((BarGapMeters + rect.height * metersPerPixel * 0.5f) * hostScale));
+            (Vector3.up * ((_barGap + rect.height * metersPerPixel * 0.5f) * hostScale));
         CanvasConversion.PlaceHost(Panel, center, _frame.rotation, hostScale);
 
-        // X close button rides the panel's TOP-RIGHT corner (frame-local, meters at scale 1
-        // like the bar/pin — the anchor's hostScale handles the diorama/user scaling). The
-        // corner moves with the live host rect, so re-seat it every tick.
-        if (_closeAnchor != null)
-        {
-            const float inset = 0.035f;
-            float halfWidth = rect.width * metersPerPixel * 0.5f;
-            float topEdge = BarGapMeters + rect.height * metersPerPixel;
-            _closeAnchor.localPosition = new Vector3(halfWidth - inset, topEdge - inset, -0.004f);
-        }
-
+        SyncCloseX(rect);
         TickEmptyNote(rect, metersPerPixel);
         TickCapLaser();
     }
@@ -552,6 +660,33 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// re-uses the same pooled objects via SetActive and moves no count, so the cadence is what
     /// catches it). No allocation on either path.</para>
     /// </summary>
+    /// <summary>
+    /// Keep the shared close X seated against the window, through the SAME method
+    /// <c>GrabbableModal</c>'s follow tick calls — so the two can never disagree about where the
+    /// corner of a window is. Idempotent and allocation-free: it only writes when the corner moved.
+    ///
+    /// <para><b>THE FRAME PATH, DELIBERATELY, AND IT IS THE SHIPPED PLACEMENT.</b> The INK path
+    /// needs <c>PanelInkBounds</c>' committed union, which ModalFallback's fit machinery feeds and
+    /// which does not exist for a surface panel — the same reason <c>SurfaceGrabBar</c> places its
+    /// rod off the host rect. <c>ModalCloseButton.PlaceAgainstInk</c> with <c>inkValid: false</c> is
+    /// byte-for-byte what anchor (1,1) + <c>anchoredPosition (-7,-7)</c> resolved to, i.e. the
+    /// window's own top-right corner, which is exactly where this panel's own X sat before today.
+    /// It is also right on the merits here: <see cref="OnConverted"/> pins this host at the game's
+    /// full window layout, so the frame IS the picture rather than a mostly-empty margin.</para>
+    /// </summary>
+    private void SyncCloseX(Rect rect)
+    {
+        if (Panel == null || !Panel.IsAlive || Panel.HostRect == null)
+            return;
+        if (_closePlate == null)
+        {
+            _closePlate = ModalCloseButton.FindPlate(Panel);
+            if (_closePlate == null)
+                return;
+        }
+        ModalCloseButton.PlaceAgainstInk(_closePlate, rect, inkValid: false, ink: default);
+    }
+
     private void TickEmptyNote(Rect rect, float metersPerPixel)
     {
         RectTransform? content = _scroll != null ? _scroll.content : null;
@@ -590,7 +725,7 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         if (!empty)
             return;
         _emptyAnchor.localPosition = new Vector3(
-            0f, BarGapMeters + rect.height * metersPerPixel * 0.5f, -0.004f);
+            0f, _barGap + rect.height * metersPerPixel * 0.5f, -0.004f);
 
         // DRAW IT OVER THE PANEL, NOT UNDER IT. A converted host is a world-space uGUI canvas that
         // writes no depth and rides a sortingOrder ladder rewritten every frame from its measured
@@ -684,17 +819,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
 
         _frame = null;
         _bar = null;
+        _barTween?.Release();
+        _barTween = null;
         _grabZone = null;
         _handle = null;
         _pin = null;
         _pinAnchor = null;
-        _close = null;
-        _closeAnchor = null;
+        _closePlate = null;
         _emptyNote = null;
         _emptyAnchor = null;
         _emptyNoteRenderer = null;
         ClearCapLaserHover();
-        _builtBarWidth = -1f;
 
         var holderGo = new GameObject("GloomhavenVR.CombatLogPanel");
         _holder = holderGo.transform;
@@ -703,28 +838,54 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         _frame = frameGo.transform;
         _frame.SetParent(_holder, worldPositionStays: false);
 
-        var bar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-        bar.name = "Bar";
-        Object.Destroy(bar.GetComponent<Collider>());
-        bar.transform.SetParent(_frame, worldPositionStays: false);
-        bar.transform.localScale = new Vector3(0.30f, BarThickness, BarThickness);
-        bar.GetComponent<MeshRenderer>().sharedMaterial =
-            WorldUIAssets.CreateFlatMaterial(new Color(0.62f, 0.5f, 0.28f)); // brass — same "grab me" as the tray
-        _bar = bar.transform;
+        // THE NORMAL WINDOW ROD, and the frame origin IS its centre (this panel grows UP from its
+        // handle, which is why the rod sits at the frame's own origin rather than one gap below a
+        // panel centre the way GrabbableModal's does). Style Generic is the neutral window rod —
+        // dark oiled walnut with small aged-brass knobs — i.e. member 0 of the enum, so this call
+        // could not accidentally have picked up a board's material. overlay:true is what makes it a
+        // WINDOW rod: GrabBarVisual then builds it on the bundled GloomhavenVR/Overlay shader and
+        // forces _ZWrite on there, so the handle draws SOLID and occludes the log behind it while a
+        // hand held physically in front still occludes the handle.
+        GrabBarVisual bar = GrabBarVisual.Build(_frame, "Bar", GrabBarStyle.Generic,
+                                                GrabBarLayout.BarRadius, overlay: true);
+        if (!bar.Textured)
+            VRLog.Warn("WorldUI", "Combat log built its handle WITHOUT the wood strip (the embedded "
+                                  + "texture did not decode — EmbeddedTexture has already named it). "
+                                  + "The rod falls back to the flat brass the cube wore, so the "
+                                  + "handle works and only the grain is lost.");
+        _bar = bar;
+
+        // The LASER's grab target is a capsule down the rod's own axis, which SetLength keeps in
+        // step; the PALM's target is the generous box on the frame below. The split is the
+        // lost-menu fix and it is why this panel can now be carried by the far ray at all — the
+        // cube never had a bar collider, so PanelGrabHandle's laser-carry had nothing to test.
+        Collider barCollider = bar.AttachLaserTarget();
 
         // Grab zone + shared grab core (collider BEFORE the handle: OnEnable registers it).
         _grabZone = frameGo.AddComponent<BoxCollider>();
-        _grabZone.size = new Vector3(0.35f, 0.05f, 0.05f);
+        _grabZone.size = new Vector3(0.35f, GrabBarLayout.ZoneDepthMeters, GrabBarLayout.ZoneDepthMeters);
         _grabZone.isTrigger = true;
+        // THE TWEEN OWNS THE ROD'S POSE FROM HERE ON: SyncBar sets a TARGET on it and WorldUIModule's
+        // GrabBarTween.Late step eases the drawn rod, its laser capsule and this palm zone toward it.
+        _barTween = new GrabBarTween(bar, _grabZone, "Combat log", visible: true);
         _handle = frameGo.AddComponent<PanelGrabHandle>();
-        _handle.Init(this, bar.GetComponent<MeshRenderer>(), "WorldUI", "Combat log");
+        // bar.Renderer is the SHAFT and all three pieces share ONE Material, so the handle's single
+        // sharedMaterial.color write in OnGrabHighlight lights the whole rod, and its Init seeds the
+        // highlight fallback from that same material — GrabBarVisual.RestingTint for a textured rod
+        // and the historic brass for an untextured one. Nothing here names a resting colour: it is a
+        // TINT multiplied onto the strip now and must stay white or the rod is drawn through a filter.
+        _handle.Init(this, bar.Renderer, "WorldUI", "Combat log");
+        _handle.SetBarCollider(barCollider);
 
-        // FOLLOW/PINNED pin, right of the bar (the tray's toggle, same look & feel).
+        // FOLLOW/PINNED pin, right of the bar — THE CONTROL BOARD'S OWN CAP, built by the same call
+        // with the same [BoardDashboard] dials (user, 2026-09-05: "Der fixiert button sollte gleich
+        // sein wie der button am controllboard"). The engraved state SYMBOL that swaps on toggle
+        // comes with it; the board's engraved WORD does not, because an engraving needs a board.
         _pinAnchor = new GameObject("PinToggle").transform;
         _pinAnchor.SetParent(_frame, worldPositionStays: false);
         _pinAnchor.localPosition = new Vector3(0.22f, 0f, -0.002f);
-        _pin = PlayTray.BoardButton.Create(_pinAnchor, new Vector2(0.068f, 0.030f),
-            new Color(0.75f, 0.55f, 0.2f), Loc.Mod("follow"), TogglePin);
+        _pin = PlayTray.BoardButton.CreateFollowPin(_pinAnchor, WorldUIConfig.CombatLogFollow.Value,
+                                                    TogglePin);
         ApplyPinVisual();
 
         // Live language following: the FOLLOW/PINNED pin label and the empty-state note are set at
@@ -736,17 +897,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             Loc.OnChanged += ApplyLocalisedText;
         }
 
-        // X close button at the panel's TOP-RIGHT corner: same BoardButton vocabulary as the pin.
-        // It ENDS THE WINDOW — the conversion is released back to its 2D home on the very next
-        // tick, which is the visible confirmation an exit control owes the press. The log stays
-        // gone until the player asks for it again ("Kampflog jetzt einblenden" in the VR options)
-        // or the next scenario starts with the start-up preference on. Nothing about the press is
-        // persisted, so a mis-press costs one press to undo. Accent = the tray's warm red.
-        _closeAnchor = new GameObject("CloseButton").transform;
-        _closeAnchor.SetParent(_frame, worldPositionStays: false);
-        _close = PlayTray.BoardButton.Create(_closeAnchor, new Vector2(0.05f, 0.05f),
-            new Color(0.72f, 0.28f, 0.24f), "X", () => SetUserVisible(false, "X button"));
-        _close.SetState(true, accent: true);
+        // NO X IS BUILT HERE ANY MORE. It was a loud red 3D BoardButton reading the letter "X",
+        // parented to this frame — the one piece of chrome on this panel that no other window has.
+        // The shared one (ModalCloseButton) is a uGUI widget on the HOST canvas and is therefore
+        // attached per CONVERSION rather than per frame: see AttachPanelChrome, which also carries
+        // why the close ACTION is still this surface's own.
 
         // The empty-state note (see TickEmptyNote). Built here so it shares the frame's lifetime
         // and its scale; parked inactive — Place() decides, once the entry count is known.
@@ -763,25 +918,81 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         ApplyEmptyNoteText();
         noteGo.SetActive(false);
 
-        // Render-only mod layer — grabs and pokes go through the registries.
+        // Render-only mod layer — grabs and pokes go through the registries. AFTER the rod exists,
+        // because it walks the tree it is given.
         VRLayers.Apply(holderGo);
         VRLog.Info("WorldUI", "Combat log frame built (grab bar + FOLLOW/PINNED pin; " +
-                              "world-static placement, orientation derived at events only).");
+                              "world-static placement, orientation derived at events only). "
+                              + "Since 2026-09-05 the bar is the SHARED window rod and the pin is the "
+                              + "control board's own dashboard cap; the close X is not built here at "
+                              + "all — it is attached per conversion (AttachPanelChrome). The "
+                              + "COMBAT LOG VERDICT line's chrome= field is what says whether all "
+                              + "three actually arrived.");
+
+        // PARKED OFF UNTIL Place() HAS A POSE FOR IT, and that became load-bearing on 2026-09-05.
+        // Until then this method was only ever reached from Place(), AFTER its table-anchor and head
+        // guards, so a frame could not exist without a place to be. It is now also called from
+        // OnConverted (the rod's draw order and the close X are per-CONVERSION, not per frame), and
+        // Place() still returns early when there is no anchor or no head — which would leave a brass
+        // rod hanging at the world origin with no window on it. That is the leeres_fenster.jpg shape
+        // exactly, and one SetActive is the whole guard: Place activates the holder on the same tick
+        // it positions it, and Tick() switches it back off whenever the panel goes down.
+        holderGo.SetActive(false);
     }
 
-    /// <summary>Bar/zone/pin track the CONTENT-FIT panel width (change-gated; re-fits are rare).</summary>
-    private void SyncBarWidth(float panelWidthMeters)
+    /// <summary>
+    /// Size the rod, the palm zone and the pin's seat off the panel's live rect — through the same
+    /// two shared rules every other window's handle goes through, so this handle cannot look or
+    /// behave like a different piece of furniture.
+    ///
+    /// <para><b>THE WORLD SCALE TERM IS 1 HERE, AND THAT IS NOT AN OMISSION.</b>
+    /// <see cref="GrabBarLayout.Solve"/>'s third argument is the scale its fixed metre constants
+    /// must be expressed in to land in the FRAME's units. <c>GrabbableModal</c> and
+    /// <c>SurfaceGrabBar</c> hold their holders at identity and therefore pass the live diorama
+    /// scale; this holder CARRIES the diorama scale (<c>_holder.localScale = WorldScale</c>, the
+    /// transform-layout contract at the top of this file), so a frame-local 1 is already a scaled
+    /// metre and passing the scale again would apply it twice.</para>
+    ///
+    /// <para>THE CHANGE GATE IS GONE and nothing lost it: it used to be a hand-rolled 5 mm
+    /// dead-band on the bar width alone. <see cref="BarSizeSettle"/> now owns "has this window
+    /// really changed size?" (a transient that reverts inside a second never reaches the rod) and
+    /// <see cref="GrabBarTween"/> owns "and how does the rod get there" — both shared, both
+    /// allocation-free on a tick that changes nothing.</para>
+    /// </summary>
+    private void SyncBar(Rect rect, float metersPerPixel)
     {
         if (_bar == null || _grabZone == null)
             return;
-        float barWidth = panelWidthMeters * BarWidthFraction;
-        if (Mathf.Abs(barWidth - _builtBarWidth) < 0.005f)
-            return;
-        _builtBarWidth = barWidth;
-        _bar.localScale = new Vector3(barWidth, BarThickness, BarThickness);
-        _grabZone.size = new Vector3(panelWidthMeters * ZoneWidthFraction, 0.05f, 0.05f);
+        // The visibility term is the same predicate GrabVisible answers with: "grabbing something
+        // that is not there" and "gating a size the player cannot see" are the same question about
+        // the same rod. A change made while the panel is down is adopted at once.
+        bool onScreen = Panel != null && Panel.IsAlive && !Panel.RenderHidden
+                        && !Panel.OwnerRenderHidden
+                        && _holder != null && _holder.gameObject.activeInHierarchy;
+        float panelHeight = _heightSettle.Apply(rect.height * metersPerPixel, onScreen, "Combat log");
+        float sourceWidth = _widthSettle.Apply(rect.width * metersPerPixel, onScreen, "Combat log");
+        GrabBarLayout.Rod rod = GrabBarLayout.Solve(sourceWidth, panelHeight, worldScale: 1f);
+        _barGap = rod.Gap;
+
+        // TARGETS, NOT WRITES. The rod sits at the frame's ORIGIN — this frame IS the bar centre —
+        // so the position term is zero and only the size ever moves. barWidth is in frame-local
+        // metres and SetLength wants the rod's OWN, under a root scaled by rod.Scale, so it is
+        // divided back out and the drawn end-to-end length is barWidth exactly. Snapped, never
+        // eased, while a hand carries the panel or while the rod is off the screen — the same two
+        // exemptions the other two bar owners state, for the same reasons.
+        bool carried = _handle != null && _handle.IsGrabbed;
+        string? snapWhy = carried
+            ? "a hand is carrying the window"
+            : !onScreen ? "the rod is off the screen (the panel is down or render-hidden)" : null;
+        _barTween?.SetTarget(Vector3.zero, rod.Scale, rod.BarWidth / rod.Scale,
+                             new Vector3(rod.ZoneWidth, rod.ZoneDepth, rod.ZoneDepth), snapWhy,
+                             "CombatLogSurface.SyncBar (the host rect)");
+
+        // The pin sits one knob-and-a-bit clear of the rod's right end. Off the TARGET width rather
+        // than the presented one: a cap that slid along with a growing rod would read as the control
+        // drifting, and the rod reaches this length within one tween.
         if (_pinAnchor != null)
-            _pinAnchor.localPosition = new Vector3(barWidth * 0.5f + 0.05f, 0f, -0.002f);
+            _pinAnchor.localPosition = new Vector3(rod.BarWidth * 0.5f + 0.05f, 0f, -0.002f);
     }
 
     // ---- FOLLOW/PINNED ------------------------------------------------------------------------
@@ -797,101 +1008,99 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
                               $"{(follow ? "FOLLOW (seat-anchored)" : "PINNED (world-anchored)")}.");
     }
 
-    private void ApplyPinVisual()
-    {
-        if (_pin == null)
-            return;
-        bool follow = WorldUIConfig.CombatLogFollow.Value;
-        _pin.SetState(true, accent: !follow);
-        _pin.SetLabel(follow ? Loc.Mod("follow") : Loc.Mod("pinned"));
-    }
+    /// <summary>Put the pin into the state it is actually in — accent, word and engraved SYMBOL —
+    /// through the same helper the control board's own toggle calls, so the two cannot drift. The
+    /// symbol is the half this panel's cap simply did not have before 2026-09-05.</summary>
+    private void ApplyPinVisual() =>
+        PlayTray.BoardButton.ApplyFollowPinState(_pin, WorldUIConfig.CombatLogFollow.Value);
 
     /// <summary>
-    /// THIS PANEL'S OWN LASER SCAN OVER ITS OWN TWO KEYCAPS (FOLLOW/PINNED and the X).
+    /// THIS PANEL'S OWN LASER SCAN OVER THE ONE 3D KEYCAP IT STILL HAS: the FOLLOW/PINNED pin.
     ///
     /// <para><b>USER RULING (ModBuild 348 multiplayer hardware test), verbatim, item 2:</b> <i>"Alle
     /// buttons müssen auch mit dem Laser drückbar sein. … Prüfe, dass das bei allen Knöpfen der Fall
     /// ist."</i></para>
     ///
-    /// <para><b>WHAT WAS WRONG, AND THIS CLASS'S OWN DOC ADMITTED IT IN WRITING.</b> Up to ModBuild
-    /// 350 the two caps were handed to <c>PlayTray.RegisterLaserTarget</c>, i.e. their ONLY laser
-    /// route was the control board's scan — and that scan's first statement is
-    /// <c>if (!_tray.IsVisible …) { ClearBoardHover(); return; }</c>
+    /// <para><b>IT SHRANK TO ONE CAP ON 2026-09-05, AND THE OTHER HALF DID NOT LOSE THE LASER — IT
+    /// STOPPED NEEDING THIS.</b> The scan used to cover the close X as well, for the reason stated
+    /// below, and the X is now the shared <see cref="ModalCloseButton"/>: a uGUI <c>Button</c> on the
+    /// HOST canvas, which is already registered with <c>UguiPokeSurfaces</c> and hit by the
+    /// dominant-hand laser (<c>RayUguiDriver</c>), so the fingertip poke AND the beam drive its
+    /// onClick through the same <c>ExecuteEvents</c> path as every other converted widget. Nothing
+    /// to register and nothing to scan. The PIN is still a 3D <c>BoardButton</c> — it is the control
+    /// board's own cap, deliberately, because that is what the user asked it to look like — so it is
+    /// still reachable only through a geometric ray test, and this method is that test.</para>
+    ///
+    /// <para><b>WHY THE TEST HAS TO LIVE HERE AT ALL.</b> Up to ModBuild 350 the caps were handed to
+    /// <c>PlayTray.RegisterLaserTarget</c>, i.e. their ONLY laser route was the control board's scan
+    /// — and that scan's first statement is <c>if (!_tray.IsVisible …) { ClearBoardHover(); return; }</c>
     /// (Cards/Driver/CardsDriver.3.Laser.cs:1252). The combat log is a GRABBABLE, independently
-    /// placed panel with its own show/hide seam: it is routinely up while the board is not. The
-    /// old doc said so in as many words — "without a tray the pin is poke-only" — and the same
-    /// sentence was true of the X, which is the panel's ONLY close affordance besides the settings
-    /// toggle. A panel you cannot close with the laser is the shape of a window that will not go
-    /// away, and it was one tray rebuild away even while the board WAS up: the registration was per
-    /// tray INSTANCE and the list dies with each tray.</para>
+    /// placed panel with its own show/hide seam: it is routinely up while the board is not. It was
+    /// also one tray rebuild away from losing the route even while the board WAS up, because the
+    /// registration was per tray INSTANCE and the list dies with each tray.</para>
     ///
     /// <para><b>THE SHAPE IS <c>MapButtonRail.TickLaser</c>'s, for its reason.</b> A geometric
-    /// <c>Collider.Raycast</c> over this surface's own caps needs no physics layer and no mask, so
+    /// <c>Collider.Raycast</c> over this surface's own cap needs no physics layer and no mask, so
     /// it cannot disturb anybody else's pick mask, and it is owned by the object that owns the
-    /// caps' lifetime — so it cannot go stale when some third party is rebuilt. The tray
+    /// cap's lifetime — so it cannot go stale when some third party is rebuilt. The tray
     /// registration is GONE rather than kept alongside: two scans over one collider would fight for
     /// the hover (the press itself is debounced, the hover is not).</para>
     ///
-    /// <para><b>PRECEDENCE.</b> A nearer uGUI hit wins (a click on a floated window's widget must
-    /// never also press a cap behind it) and so does a nearer SOLID mod surface — the control board
-    /// or a raised card fan — read off the ray's own precomputed
-    /// <c>RayInteractor.SolidOccluderDistance</c>, the same term <c>RayUguiDriver</c> uses, so this
-    /// panel is treated exactly like every other world panel standing behind the board.</para>
+    /// <para><b>PRECEDENCE.</b> A nearer uGUI hit wins — which now includes this panel's own X, one
+    /// window-width away on the host plane, so a click meant for the close cross can never also
+    /// press the pin behind it — and so does a nearer SOLID mod surface (the control board or a
+    /// raised card fan), read off the ray's own precomputed
+    /// <c>RayInteractor.SolidOccluderDistance</c>, the same term <c>RayUguiDriver</c> uses.</para>
     ///
     /// <para><b>NO COMMIT GATE, DELIBERATELY.</b> The board's own laser path suppresses presses while
     /// a blocking modal is open, because tray keycaps call game APIs directly and END TURN is not
-    /// undoable. Neither of these two caps touches the game: the X flips this mod's own
-    /// user-visible flag and the pin flips a BepInEx config key. Suppressing them under a modal
-    /// would only mean a log panel the player cannot get out of his way while he reads a dialog.
-    /// </para>
+    /// undoable. This cap touches no game state at all: it flips a BepInEx config key. Suppressing
+    /// it under a modal would only mean a log panel the player cannot get out of his way while he
+    /// reads a dialog.</para>
     ///
-    /// <para><b>MULTIPLAYER: nothing here goes on the wire.</b> It is a local hit test over two
-    /// local colliders that drive two local presentation flags.</para>
+    /// <para><b>MULTIPLAYER: nothing here goes on the wire.</b> It is a local hit test over one
+    /// local collider that drives one local presentation flag.</para>
     /// </summary>
     private void TickCapLaser()
     {
+        PlayTray.BoardButton? cap = _pin;
         VRHand? hand = VRHands.Primary;
-        if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
+        if (cap == null || cap.Collider == null || !cap.Collider.enabled
+            || !cap.gameObject.activeInHierarchy
+            || hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
         {
             ClearCapLaserHover();
             return;
         }
 
         hand.GetAimRay(out Vector3 origin, out Vector3 direction);
-        var ray = new Ray(origin, direction);
-        float best = MaxCapLaserMeters * hand.WorldScale;
-        PlayTray.BoardButton? hit = null;
-        Vector3 hitPoint = default;
-
-        TryCapHit(_pin, ray, ref best, ref hit, ref hitPoint);
-        TryCapHit(_close, ray, ref best, ref hit, ref hitPoint);
-
-        if (hit == null)
+        float reach = MaxCapLaserMeters * hand.WorldScale;
+        if (!cap.Collider.Raycast(new Ray(origin, direction), out RaycastHit rh, reach))
         {
             ClearCapLaserHover();
             return;
         }
-        // A nearer game-UI hit wins, and so does a nearer solid mod surface (control board / raised
-        // fan) — the same two vetoes RayUguiDriver applies to a uGUI panel standing behind them.
-        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
-            || hand.Ray.SolidOccluderDistance < best - SolidOccluderEpsilonMeters * hand.WorldScale)
+        // A nearer game-UI hit wins (the X on this panel's own host canvas is one of them), and so
+        // does a nearer solid mod surface (control board / raised fan) — the same two vetoes
+        // RayUguiDriver applies to a uGUI panel standing behind them.
+        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < rh.distance)
+            || hand.Ray.SolidOccluderDistance < rh.distance - SolidOccluderEpsilonMeters * hand.WorldScale)
         {
             ClearCapLaserHover();
             return;
         }
 
-        if (!ReferenceEquals(hit, _laserHover))
+        if (!_pinLaserHovered)
         {
-            ClearCapLaserHover();
-            _laserHover = hit;
-            hit.OnPokeEnter(hand); // the cap does its own hover tint/haptic vocabulary
+            _pinLaserHovered = true;
+            cap.OnPokeEnter(hand); // the cap does its own hover tint/haptic vocabulary
         }
-        hand.Ray.UiHitOverride = hitPoint; // beam clamps to the cap (also suppresses the far click)
+        hand.Ray.UiHitOverride = rh.point; // beam clamps to the cap (also suppresses the far click)
 
         if (hand.TriggerDown)
         {
             hand.Ray.SuppressFarClick();
-            hit.Press(hand, $"combat-log laser ({hand.Side})");
+            cap.Press(hand, $"combat-log laser ({hand.Side})");
         }
     }
 
@@ -933,6 +1142,16 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         bool target = Singleton<CombatLogHandler>.IsInitialized;
         int content = _entryCount < 0 ? -1 : (_entryCount == 0 ? 0 : 1);
 
+        // THE THREE PIECES OF CHROME, AS THREE INDEPENDENT BITS (2026-09-05). They are in the change
+        // gate and not only in the printed text, because each one can go missing on its own and a
+        // verdict that did not move would swallow it: the rod's strip can fail to decode, the pin
+        // can fail to build, and the shared X is attached against a UIWindow this surface has to
+        // find. Without these bits "the X is not there" would print only if some UNRELATED term
+        // happened to move in the same session.
+        bool rod = _bar != null;
+        bool rodTextured = rod && _bar!.Textured;
+        bool closeX = _closePlate != null;
+
         // Allocation-free change gate: nothing is composed until a verdict actually moved.
         int verdict = (_gateWasOpen ? 1 : 0)
                       | (_sessionVisible ? 1 << 1 : 0)
@@ -941,7 +1160,11 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
                       | (converted ? 1 << 4 : 0)
                       | (target ? 1 << 5 : 0)
                       | ((_gameWindowOpen + 1) << 6)
-                      | ((content + 1) << 8);
+                      | ((content + 1) << 8)
+                      | (rod ? 1 << 10 : 0)
+                      | (rodTextured ? 1 << 11 : 0)
+                      | (_pin != null ? 1 << 12 : 0)
+                      | (closeX ? 1 << 13 : 0);
         if (verdict == _lastVerdict)
             return;
         _lastVerdict = verdict;
@@ -966,7 +1189,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
         }
 
         // HW-VERIFY: was the combat log surface BUILT, was it SHOWN, by WHAT, WHERE, and did it
-        // have CONTENT — the four meanings last round's silence could not tell apart.
+        // have CONTENT — the four meanings last round's silence could not tell apart. 2026-09-05
+        // adds a fifth question to the same line, because the round after this one is about how the
+        // panel LOOKS: does it wear the three shared pieces of chrome every other window wears (the
+        // rod, the control board's dashboard cap, the shared close X), or one of its own?
         VRLog.Note("WorldUI", $"COMBAT LOG VERDICT #{_verifyLines} (ticks={_ticks}, "
             + $"suppressed={_verifySuppressed}): gate={(_gateWasOpen ? "OPEN" : "shut")} "
             + $"target={(target ? "CombatLogHandler present" : "ABSENT")} "
@@ -975,7 +1201,13 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             + $"playerChose={_manualOverride} startupPref=[WorldUI] CombatLog={WorldUIConfig.CombatLogAtStart.Value} "
             + $"built={(built ? "yes" : "NO")} converted={(converted ? "yes" : "NO")} "
             + $"placed={where} entries={(_entryCount < 0 ? "unknown" : _entryCount.ToString())} "
-            + $"emptyNote={(content == 0 ? "SHOWN" : content < 0 ? "not decidable" : "hidden")}. "
+            + $"emptyNote={(content == 0 ? "SHOWN" : content < 0 ? "not decidable" : "hidden")} "
+            // The chrome field: one field, three named pieces, each one the shared object every
+            // other window wears — so "it still looks different" is answered by WHICH of the three
+            // is missing rather than by another photograph. See the marker above the call.
+            + $"chrome=[bar={(!rod ? "NONE" : rodTextured ? "shared rod (wood strip)" : "shared rod (FALLBACK BRASS — the strip did not decode)")}"
+            + $", pin={(_pin != null ? "control-board dashboard cap" : "MISSING")}"
+            + $", closeX={(closeX ? "shared ModalCloseButton plate on the host canvas" : "NOT FOUND on the host — no X on this panel")}]. "
             + "HOW TO READ IT: 'ticks' is unconditional — a log with NO line at all means this "
             + "surface is not being ticked, while a large tick count with built=NO means it ran "
             + "and refused, and the refusing term is whichever of gate/visible reads shut/False. "
@@ -985,7 +1217,10 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
             + "emptyNote=SHOWN is the correct picture for a log summoned before anything happened "
             + "— and an entries count that is NEVER 0 on a visibly empty panel means the content "
             + "root holds a permanent non-CombatLogText child, which is the one way the note can "
-            + "fail to appear.");
+            + "fail to appear. chrome names the three shared pieces this panel wears; every entry "
+            + "in it should read 'shared'/'control-board' on a healthy build, and a closeX of "
+            + "NOT FOUND with converted=yes means ModalCloseButton.Attach did not run or threw "
+            + "(its own MODAL CLOSE lines say which).");
     }
 
     /// <summary>The game's own window state. Its own options hold a DisabledCombatLog switch that
@@ -1010,30 +1245,17 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     /// proud of) its own occluder must not sit in that occluder's shadow.</summary>
     private const float SolidOccluderEpsilonMeters = 0.005f;
 
-    private static void TryCapHit(PlayTray.BoardButton? cap, Ray ray, ref float best,
-                                  ref PlayTray.BoardButton? hit, ref Vector3 hitPoint)
-    {
-        if (cap == null || cap.Collider == null || !cap.Collider.enabled
-            || !cap.gameObject.activeInHierarchy)
-            return;
-        if (!cap.Collider.Raycast(ray, out RaycastHit rh, best))
-            return;
-        hit = cap;
-        best = rh.distance;
-        hitPoint = rh.point;
-    }
-
-    /// <summary>Drop the beam hover. Cleared FIRST so a re-entrant <c>OnPokeExit</c> cannot loop,
-    /// and Unity-null-checked because the two teardown paths call it after the caps are gone.
-    /// </summary>
+    /// <summary>Drop the beam hover. The flag is cleared FIRST so a re-entrant <c>OnPokeExit</c>
+    /// cannot loop, and the cap is Unity-null-checked because the two teardown paths call this
+    /// after it is gone.</summary>
     private void ClearCapLaserHover()
     {
-        PlayTray.BoardButton? cap = _laserHover;
-        _laserHover = null;
-        if (cap == null)
+        if (!_pinLaserHovered)
             return;
+        _pinLaserHovered = false;
+        PlayTray.BoardButton? cap = _pin;
         VRHand? hand = VRHands.Primary;
-        if (hand != null)
+        if (cap != null && hand != null)
             cap.OnPokeExit(hand);
     }
 
