@@ -348,5 +348,80 @@ internal static class HeldSizeVectors
                "and both degenerate gives 0, never NaN");
     }
 
+    // -------------------------------------------------------------------------------------------
+    //  30l-30n. THE TWO SIZE-BOUND HALVES, now that they are ONE copy each (2026-09-05).
+    // -------------------------------------------------------------------------------------------
+    //
+    // GrabTimeSizeClamp and StretchFactorBounds were, until this round, twenty and ten
+    // statement-for-statement identical lines in BOTH FigureGrabbable and GrabbableProp — the prop
+    // copies' own doc comments said so ("the figure's, on a prop"; "line for line"). Nothing held
+    // them together: neither pair was registered with scripts/check-mirrors.sh, and they had
+    // already drifted once (only the figure clamp logged its trim). They are one function each now,
+    // and these are the vectors that keep the shared one honest.
+    internal static void RunBounds(Harness t)
+    {
+        t.Case("30l. grab-time size clamp");
+
+        // The ordinary case: a grab-zoom ratio inside the bound is reported and NOT trimmed.
+        t.True(!FigureStretchMath.GrabTimeSizeClamp(2f, 1f, true, 0.5f, 4f,
+                                                   out float ratio, out float clamped)
+               && Abs(ratio - 2f) < 1e-5f,
+               "a ratio inside [Min..Max] is measured and reported, and no trim is asked for");
+
+        // Above the bound: trimmed exactly ONTO it, never past it — "solle sie die Maximalgroesse
+        // in der Hand haben".
+        t.True(FigureStretchMath.GrabTimeSizeClamp(8f, 1f, true, 0.5f, 4f, out ratio, out clamped)
+               && Abs(ratio - 8f) < 1e-5f && Abs(clamped - 4f) < 1e-5f,
+               "a ratio above Max is trimmed to land exactly ON Max, and the raw ratio is still "
+               + "reported so the log can say what was measured");
+        t.True(FigureStretchMath.GrabTimeSizeClamp(0.25f, 1f, true, 0.5f, 4f, out ratio, out clamped)
+               && Abs(clamped - 0.5f) < 1e-5f,
+               "…and symmetrically at the bottom: a ratio below Min lands exactly on Min");
+
+        // LIMITS OFF keeps the true grab-zoom size, whatever it is — the latch ratio is still
+        // measured and reported, because the capture ceiling scales by it either way.
+        t.True(!FigureStretchMath.GrabTimeSizeClamp(8f, 1f, false, 0.5f, 4f, out ratio, out clamped)
+               && Abs(ratio - 8f) < 1e-5f,
+               "with StretchLimits off nothing is trimmed, but the ratio is still measured");
+
+        // DEGENERATE INPUT LEAVES THE LATCH ALONE and reads as 1x. A bounds feature must never be
+        // the thing that breaks a grab — that sentence is in both call sites' doc comments and this
+        // is what makes it true.
+        t.Case("30m. grab-time size clamp, degenerate input");
+        foreach (var pair in new[]
+                 {
+                     new[] { 0f, 1f }, new[] { 1f, 0f }, new[] { -1f, 1f }, new[] { 1f, -1f },
+                     new[] { 1e-9f, 1f }, new[] { 1f, 1e-9f },
+                     new[] { float.NaN, 1f }, new[] { 1f, float.NaN },
+                     new[] { float.PositiveInfinity, 1f },
+                 })
+        {
+            t.True(!FigureStretchMath.GrabTimeSizeClamp(pair[0], pair[1], true, 0.5f, 4f,
+                                                       out ratio, out clamped)
+                   && ratio == 1f,
+                   $"baseScale {pair[0]} / anchorScale {pair[1]} asks for no trim and reads as 1x");
+        }
+
+        t.Case("30n. stretch factor bounds");
+        // total = ratio * factor, so the factor envelope is the total bound divided by the ratio.
+        FigureStretchMath.StretchFactorBounds(true, 0.01f, 0.5f, 4f, 2f,
+                                             out float min, out float max);
+        t.True(Abs(min - 0.25f) < 1e-5f && Abs(max - 2f) < 1e-5f,
+               "at a latch ratio of 2x the factor envelope is the total bound halved — the product "
+               + "of the two is what [FigureGrab] StretchScaleMin/Max actually bounds");
+
+        FigureStretchMath.StretchFactorBounds(false, 0.01f, 0.5f, 4f, 2f, out min, out max);
+        t.True(min == 0.01f && max == float.MaxValue,
+               "with limits off only the technical floor remains: the scale must stay positive and "
+               + "finite, and nothing else is asserted");
+
+        // The divide guard is a guard, not a policy: a zero latch ratio must not hand the gesture
+        // an infinite envelope.
+        FigureStretchMath.StretchFactorBounds(true, 0.01f, 0.5f, 4f, 0f, out min, out max);
+        t.True(!float.IsInfinity(min) && !float.IsInfinity(max) && !float.IsNaN(min)
+               && !float.IsNaN(max),
+               "a zero latch ratio is floored before the divide, so the envelope stays finite");
+    }
+
     private static float Abs(float v) => v < 0f ? -v : v;
 }

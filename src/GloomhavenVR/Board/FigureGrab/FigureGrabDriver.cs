@@ -973,7 +973,7 @@ internal sealed class FigureGrabDriver : MonoBehaviour
         if (b.size.sqrMagnitude <= 1e-10f)
             return null;
 
-        var holder = new GameObject("VR_PropReach") { layer = 2 };
+        var holder = new GameObject("VR_PropReach") { layer = IgnoreRaycastLayer };
         holder.transform.SetParent(go.transform, worldPositionStays: true);
         holder.transform.position = b.center;
         holder.transform.rotation = Quaternion.identity;

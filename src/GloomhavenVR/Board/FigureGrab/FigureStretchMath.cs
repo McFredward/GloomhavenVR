@@ -91,6 +91,87 @@ internal static class FigureStretchMath
                                                      float reachRealMeters)
         => Sane(bodyRadiusRealMeters) + Sane(reachRealMeters);
 
+    /// <summary>
+    /// THE GRAB-TIME HALF OF THE TOTAL SIZE BOUND, as arithmetic — the zoom ratio a fresh latch
+    /// stands at, and the uniform trim that lands it on the violated bound.
+    ///
+    /// <para><b>ONE COPY (2026-09-05).</b> This was twenty statement-for-statement identical lines
+    /// in <c>FigureGrabbable.ApplyGrabTimeStretchClamp</c> and
+    /// <c>GrabbableProp.ApplyGrabTimeStretchClamp</c> — same dials, same 1e-6 degeneracy floors,
+    /// same <c>Mathf.Approximately</c> early-out, same uniform trim — with the prop copy's own doc
+    /// comment saying it was "the figure's, on a prop". Tuning one copy is the failure this project
+    /// keeps having, and the two copies had already drifted once: only the figure's logged the
+    /// trim, so a map item silently trimmed at grab left no trace at all.</para>
+    ///
+    /// <para>The CONFIG READS stay at the two call sites and the two dial values come in as
+    /// arguments, which is what lets this live beside the ceiling arithmetic in a file that is
+    /// linked into <c>tests/GloomhavenVR.WireTests</c> and driven size by size.</para>
+    ///
+    /// <para>Returns false when nothing should change — a degenerate rig, a dead anchor, a
+    /// non-finite ratio, limits switched off, or a ratio already inside the bound. A bounds feature
+    /// must never be the thing that breaks a grab, so every one of those leaves the caller's latch
+    /// exactly as it found it and reports the ratio it measured.</para>
+    /// </summary>
+    /// <param name="baseScale">The rig's default-zoom base scale.</param>
+    /// <param name="anchorScale">The grab anchor's world scale on the zoom axis.</param>
+    /// <param name="limitsEnabled"><c>[FigureGrab] StretchLimits</c>.</param>
+    /// <param name="min"><c>[FigureGrab] StretchScaleMin</c>.</param>
+    /// <param name="max"><c>[FigureGrab] StretchScaleMax</c>.</param>
+    /// <param name="ratio">The measured grab-zoom ratio, or 1 when it could not be measured. This
+    /// is the value the caller stores as its latch ratio whether or not a trim happened.</param>
+    /// <param name="clamped">The ratio the latch should end up at — meaningful only when the
+    /// method returns true.</param>
+    /// <returns>True when the latch must be trimmed by <c>clamped / ratio</c>.</returns>
+    internal static bool GrabTimeSizeClamp(
+        float baseScale, float anchorScale, bool limitsEnabled, float min, float max,
+        out float ratio, out float clamped)
+    {
+        ratio = 1f;
+        clamped = 1f;
+        if (baseScale <= 1e-6f || anchorScale <= 1e-6f)
+            return false;
+
+        float measured = baseScale / anchorScale;
+        if (float.IsNaN(measured) || float.IsInfinity(measured) || measured <= 0f)
+            return false;
+        ratio = measured;
+
+        if (!limitsEnabled)
+            return false; // limits off: the latch keeps the true grab-zoom size, whatever it is
+
+        clamped = Mathf.Clamp(measured, min, max);
+        return !Mathf.Approximately(clamped, measured);
+    }
+
+    /// <summary>
+    /// THE GESTURE HALF OF THE SAME BOUND: the per-hold FACTOR envelope, converted from the TOTAL
+    /// bounds at this latch's ratio — total = ratio × factor, so factor lies in
+    /// [Min/ratio .. Max/ratio]. With limits off only the technical floor remains (the scale must
+    /// stay positive and finite, nothing else).
+    ///
+    /// <para><b>ONE COPY (2026-09-05).</b> Byte-identical in <c>FigureGrabbable</c> and
+    /// <c>GrabbableProp</c> — the prop's doc said "line for line" — and copied a THIRD and FOURTH
+    /// time as the null-target fallback in both <c>StretchTarget</c> adapters. Four spellings of
+    /// one rule, none of them guarded by a lint.</para>
+    ///
+    /// <para>The 1e-6 floor on the ratio is a divide guard and not a policy: a latch ratio of zero
+    /// would otherwise hand the gesture an infinite envelope.</para>
+    /// </summary>
+    internal static void StretchFactorBounds(
+        bool limitsEnabled, float hardFloor, float totalMin, float totalMax, float latchRatio,
+        out float min, out float max)
+    {
+        if (!limitsEnabled)
+        {
+            min = hardFloor;
+            max = float.MaxValue;
+            return;
+        }
+        float ratio = Mathf.Max(latchRatio, 1e-6f);
+        min = totalMin / ratio;
+        max = totalMax / ratio;
+    }
+
     private static float Sane(float v)
         => float.IsNaN(v) || float.IsInfinity(v) || v < 0f ? 0f : v;
 }

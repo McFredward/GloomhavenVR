@@ -120,11 +120,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// the class doc for why the game's own <c>"Hovering"</c> layer cannot stay.</summary>
     private const int IgnoreRaycastLayer = 2;
 
-    /// <summary>Same 0.28 s cubic ease-out as <c>FigureGrabbable.GlideDurationSeconds</c> — a prop
-    /// being put down must look like a mini being put down. MIRRORED value: if one is ever tuned,
-    /// tune both.</summary>
-    private const float GlideDurationSeconds = 0.28f;
-
     /// <summary>Props currently mid-release-glide. Advanced by <see cref="TickGlides"/>.</summary>
     private static readonly List<GrabbableProp> Gliding = new(2);
 
@@ -350,8 +345,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
 
     /// <summary>
     /// Is <paramref name="hand"/>'s pinch point inside this prop's pick volume RIGHT NOW — the
-    /// same distance and the same admit radius <see cref="AllowsHand"/> uses, with no side effect
-    /// (the hysteresis latch is not read and not written). Read by <c>FigureStretch</c> BEFORE it
+    /// same distance <see cref="AllowsHand"/> uses, with no side effect (the hysteresis latch is
+    /// not read and not written) — but NOT the same admit RADIUS, and this line used to claim it
+    /// was (corrected 2026-09-05). <c>AllowsHand</c> widens to <c>PickRadius × PickExitFactor</c>
+    /// for the hand already holding the latch; this test always uses the bare <c>PickRadius</c>.
+    /// That is correct for what it is for — a fresh reach, never a held prop, which the
+    /// <c>_holder != null</c> guard below rejects outright — and the not-reading-the-latch clause
+    /// is exactly what makes the old claim wrong. Read by <c>FigureStretch</c> BEFORE it
     /// captures a hand: a hand physically at a prop is reaching for the prop, not for the other
     /// hand's miniature (ModBuild 404). <paramref name="realMetres"/> is the pinch-to-surface
     /// distance in real metres at the hand.
@@ -566,7 +566,13 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// both the grab-time write and the per-frame re-assert (and that per-frame re-assert is also
     /// what makes the eight [FigureGrab] PropHeld* dials live-tunable without a hook of their own).
     ///
-    /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c>, line for line</b> (user, defect (b):
+    /// <para><b>THIS IS THE FIGURE'S <c>ApplyHeldPose</c> — the three POSE WRITES line for line,
+    /// and no longer the whole method</b> (qualified 2026-09-05: the pose-stomp probe below and the
+    /// <c>_wrotePos/_wroteRot/_wroteScale</c> bookkeeping after it are a dozen lines with no figure
+    /// counterpart, and the claim of line-for-line had quietly stopped being true). The offset, the
+    /// rotation and the latched scale are the same three expressions, and the rotation is now
+    /// literally the same function — <c>HeldPoseMirror.Rotation</c> — on both paths. (User,
+    /// defect (b):
     /// "Es soll sich so verhalten wie die Figuren auch - nutze den selben Code hier"). ModBuild 338
     /// wrote the pinch offset and <c>HeldUprightRotation(side)</c> but dropped
     /// <see cref="_uprightBase"/>, so with [FigureGrab] PropHeldUprightAtGrab ON — which is what the
@@ -659,7 +665,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         if (TryBeginGlide())
         {
             VRLog.Info("FigureGrab",
-                $"[Props] {hand.Side} released {Label} — gliding home ({GlideDurationSeconds:0.00}s), "
+                $"[Props] {hand.Side} released {Label} — gliding home ({HeldGlideMath.DurationSeconds:0.00}s), "
                 + "the same cubic ease-out a released mini takes.");
             return;
         }
@@ -717,17 +723,15 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             FinishGlide(); // prop destroyed mid-glide (looted, broken) — just release the bookkeeping
             return;
         }
-        float u = (Time.unscaledTime - _glideStartTime) / GlideDurationSeconds; // unscaled: pause-proof
-        if (u >= 1f)
+        // Duration, curve and the TRS write are HeldGlideMath — one copy, shared with
+        // FigureGrabbable, whose duration used to be a hand-mirrored second constant (2026-09-05).
+        if (!HeldGlideMath.Sample(_glideStartTime, Time.unscaledTime, out float e))
         {
             FinishGlide();
             return;
         }
-        float e = 1f - (1f - u) * (1f - u) * (1f - u); // cubic ease-out — fast start, soft landing
-        Transform t = _visual.transform;
-        t.localPosition = Vector3.LerpUnclamped(_glideFromPos, _origLocalPos, e);
-        t.localRotation = Quaternion.SlerpUnclamped(_glideFromRot, _origLocalRot, e);
-        t.localScale = Vector3.LerpUnclamped(_glideFromScale, _origLocalScale, e);
+        HeldGlideMath.WriteEased(_visual.transform, _glideFromPos, _glideFromRot, _glideFromScale,
+                                 _origLocalPos, _origLocalRot, _origLocalScale, e);
     }
 
     /// <summary>Complete (or cancel) the glide instantly: snap to the exact home TRS, hand the
@@ -2008,17 +2012,10 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// very next gesture frame. <c>FigureGrabbable.GetStretchFactorBounds</c>, line for line.
     /// </summary>
     internal void GetStretchFactorBounds(out float min, out float max)
-    {
-        if (!FigureGrabConfig.StretchLimitsEnabled)
-        {
-            min = FigureGrabConfig.StretchHardFloor;
-            max = float.MaxValue;
-            return;
-        }
-        float ratio = Mathf.Max(_latchTotalRatio, 1e-6f);
-        min = FigureGrabConfig.StretchScaleMinValue / ratio;
-        max = FigureGrabConfig.StretchScaleMaxValue / ratio;
-    }
+        => FigureStretchMath.StretchFactorBounds(
+            FigureGrabConfig.StretchLimitsEnabled, FigureGrabConfig.StretchHardFloor,
+            FigureGrabConfig.StretchScaleMinValue, FigureGrabConfig.StretchScaleMaxValue,
+            _latchTotalRatio, out min, out max);
 
     /// <summary>
     /// GRAB-TIME half of the total size bound — <c>FigureGrabbable.ApplyGrabTimeStretchClamp</c>,
@@ -2033,25 +2030,30 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
     /// </summary>
     private void ApplyGrabTimeStretchClamp(Transform anchor)
     {
-        _latchTotalRatio = 1f;
-        float baseScale = GloomhavenVR.Rig.RigTarget.BaseScale;
-        float anchorScale = anchor.lossyScale.x;
-        if (baseScale <= 1e-6f || anchorScale <= 1e-6f)
-            return;
-        float ratio = baseScale / anchorScale;
-        if (float.IsNaN(ratio) || float.IsInfinity(ratio) || ratio <= 0f)
-            return;
-        _latchTotalRatio = ratio;
-
-        if (!FigureGrabConfig.StretchLimitsEnabled)
-            return; // limits off: the latch keeps the true grab-zoom size, whatever it is
+        // The arithmetic is FigureStretchMath.GrabTimeSizeClamp — one copy, shared with
+        // FigureGrabbable, which spelled the same twenty statements (2026-09-05).
         float min = FigureGrabConfig.StretchScaleMinValue;
         float max = FigureGrabConfig.StretchScaleMaxValue;
-        float clamped = Mathf.Clamp(ratio, min, max);
-        if (Mathf.Approximately(clamped, ratio))
+        bool trim = FigureStretchMath.GrabTimeSizeClamp(
+            GloomhavenVR.Rig.RigTarget.BaseScale, anchor.lossyScale.x,
+            FigureGrabConfig.StretchLimitsEnabled, min, max,
+            out float ratio, out float clamped);
+        _latchTotalRatio = ratio;
+        if (!trim)
             return;
         _heldLocalScale *= clamped / ratio; // uniform trim — the latch's own frame, no reparent
         _latchTotalRatio = clamped;
+
+        // AND THE LINE THE FIGURE COPY ALWAYS HAD AND THIS ONE DID NOT (2026-09-05). The two
+        // clamps were "identical" except that a map item trimmed at the grab left no trace at all,
+        // so a chest that entered the hand smaller than the player expected was undiagnosable.
+        // HW-VERIFY: it must stay at a tier the DEFAULT log level prints — check-hw-verify.py.
+        VRLog.Note("FigureGrab",
+            $"[Size] {Label} grab-time size CLAMP: the zoom at grab implies {ratio:0.###}× of the "
+            + $"map item's default-zoom size, outside the total bound [{min:0.##} .. {max:0.##}] — "
+            + $"latch trimmed so it enters the hand at exactly {clamped:0.###}× ([FigureGrab] "
+            + "StretchScaleMin/Max; StretchLimits=false disables this). Map-item holds are "
+            + "local-only, so no peer sees this size and the trim cannot be a desync.");
     }
 
     /// <summary>This hold's TOTAL size in default-zoom units — the very product

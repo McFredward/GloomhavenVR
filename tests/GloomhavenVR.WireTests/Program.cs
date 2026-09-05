@@ -39,6 +39,7 @@ internal static class Program
             VoiceVectors.Run(t, repoRoot);
             HauntFigureVectors.Run(t);
             HeldSizeVectors.Run(t);
+            HeldSizeVectors.RunBounds(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

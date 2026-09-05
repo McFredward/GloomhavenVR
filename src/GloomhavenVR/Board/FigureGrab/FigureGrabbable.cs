@@ -54,9 +54,6 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     // from FigureGrabDriver.Update via TickGlides.
     private static readonly List<FigureGrabbable> Gliding = new();
 
-    /// <summary>Glide time from hand to home — fast but visible (ease-out, unscaled).</summary>
-    private const float GlideDurationSeconds = 0.28f;
-
     private readonly ActorBehaviour _actor;
 
     /// <summary>
@@ -834,22 +831,15 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// </summary>
     private void ApplyGrabTimeStretchClamp(Transform anchor)
     {
-        _latchTotalRatio = 1f;
-        float baseScale = Rig.RigTarget.BaseScale;
-        float anchorScale = anchor.lossyScale.x;
-        if (baseScale <= 1e-6f || anchorScale <= 1e-6f)
-            return;
-        float ratio = baseScale / anchorScale;
-        if (float.IsNaN(ratio) || float.IsInfinity(ratio) || ratio <= 0f)
-            return;
-        _latchTotalRatio = ratio;
-
-        if (!FigureGrabConfig.StretchLimitsEnabled)
-            return; // limits off: the latch keeps the true grab-zoom size, whatever it is
+        // The arithmetic is FigureStretchMath.GrabTimeSizeClamp — one copy, shared with
+        // GrabbableProp, which spelled the same twenty statements (2026-09-05).
         float min = FigureGrabConfig.StretchScaleMinValue;
         float max = FigureGrabConfig.StretchScaleMaxValue;
-        float clamped = Mathf.Clamp(ratio, min, max);
-        if (Mathf.Approximately(clamped, ratio))
+        bool trim = FigureStretchMath.GrabTimeSizeClamp(
+            Rig.RigTarget.BaseScale, anchor.lossyScale.x, FigureGrabConfig.StretchLimitsEnabled,
+            min, max, out float ratio, out float clamped);
+        _latchTotalRatio = ratio;
+        if (!trim)
             return;
         _heldLocalScale *= clamped / ratio; // uniform trim — the latch's own frame, no reparent
         _latchTotalRatio = clamped;
@@ -873,17 +863,10 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     /// scale must stay positive and finite, nothing else).
     /// </summary>
     internal void GetStretchFactorBounds(out float min, out float max)
-    {
-        if (!FigureGrabConfig.StretchLimitsEnabled)
-        {
-            min = FigureGrabConfig.StretchHardFloor;
-            max = float.MaxValue;
-            return;
-        }
-        float ratio = Mathf.Max(_latchTotalRatio, 1e-6f);
-        min = FigureGrabConfig.StretchScaleMinValue / ratio;
-        max = FigureGrabConfig.StretchScaleMaxValue / ratio;
-    }
+        => FigureStretchMath.StretchFactorBounds(
+            FigureGrabConfig.StretchLimitsEnabled, FigureGrabConfig.StretchHardFloor,
+            FigureGrabConfig.StretchScaleMinValue, FigureGrabConfig.StretchScaleMaxValue,
+            _latchTotalRatio, out min, out max);
 
     /// <summary>
     /// Write the manual stretch factor and re-assert the rendered size in the same call, so the
@@ -1234,8 +1217,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         {
             VRLog.Info("FigureGrab", forced
                 ? $"{hand.Side} released figure ({Describe()}) — game-forced ({forcedWhy}) — "
-                  + $"gliding home ({GlideDurationSeconds:0.00}s), the usual release glide."
-                : $"{hand.Side} released figure ({Describe()}) — gliding home ({GlideDurationSeconds:0.00}s).");
+                  + $"gliding home ({HeldGlideMath.DurationSeconds:0.00}s), the usual release glide."
+                : $"{hand.Side} released figure ({Describe()}) — gliding home ({HeldGlideMath.DurationSeconds:0.00}s).");
             return;
         }
         Restore();
@@ -1334,19 +1317,16 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         }
 
         Transform t = root.transform;
-        float u = (Time.unscaledTime - _glideStartTime) / GlideDurationSeconds; // unscaled: pause-proof
-        if (u >= 1f)
+        // Duration, curve and the TRS write are HeldGlideMath — one copy, shared with
+        // GrabbableProp, whose duration used to be a hand-mirrored second constant (2026-09-05).
+        if (!HeldGlideMath.Sample(_glideStartTime, Time.unscaledTime, out float e))
         {
             FinishGlide(t);
             return;
         }
 
-        float e = 1f - (1f - u) * (1f - u) * (1f - u); // cubic ease-out — fast start, soft landing
-        t.localPosition = Vector3.LerpUnclamped(_glideFromPos, _origLocalPos, e);
-        t.localRotation = Quaternion.SlerpUnclamped(_glideFromRot, _origLocalRot, e);
-        // Size rides the same curve as the position: a mini released after a mid-hold zoom eases
-        // from its latched in-hand size back to the board's live size instead of snapping there.
-        t.localScale = Vector3.LerpUnclamped(_glideFromScale, _origLocalScale, e);
+        HeldGlideMath.WriteEased(t, _glideFromPos, _glideFromRot, _glideFromScale,
+                                 _origLocalPos, _origLocalRot, _origLocalScale, e);
         NoteClothScale(t); // the glide is a size ANIMATION — the cape rides it home too
     }
 
@@ -1466,7 +1446,7 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         {
             VRLog.Info("FigureGrab",
                 $"AUTO-RELEASE (hold gate{(side != null ? $", {side}" : string.Empty)}): {Describe()} "
-                + $"returned to the board — {why}. Gliding home ({GlideDurationSeconds:0.00}s), the "
+                + $"returned to the board — {why}. Gliding home ({HeldGlideMath.DurationSeconds:0.00}s), the "
                 + "usual release glide, as if the user had let go.");
             return;
         }

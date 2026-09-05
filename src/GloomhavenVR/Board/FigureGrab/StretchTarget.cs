@@ -68,8 +68,15 @@ internal abstract class StretchTarget
     internal abstract float Stretch { get; }
 
     /// <summary>Write the factor and re-assert the rendered size in the same call. The CALLER owns
-    /// the clamp — both implementations are dumb stores, so a sampler and the renderer can never
-    /// see two differently-clamped values.</summary>
+    /// the CLAMP — neither implementation clamps, so a sampler and the renderer can never see two
+    /// differently-clamped values.
+    ///
+    /// <para>"Dumb store" is what this said until 2026-09-05, and it was only true of one of them:
+    /// the figure's re-asserts the SCALE alone, the map item's calls <c>ApplyHeldPose</c> and
+    /// therefore rewrites <c>localPosition</c> and <c>localRotation</c> as well. Both are
+    /// idempotent and both write the values the frame would have written anyway, so this is a
+    /// difference in reach and not in outcome — but it is a real one and the contract should not
+    /// deny it.</para></summary>
     internal abstract void SetStretch(float factor);
 
     /// <summary>This hold's factor envelope, converted from the TOTAL size bounds at the latch's

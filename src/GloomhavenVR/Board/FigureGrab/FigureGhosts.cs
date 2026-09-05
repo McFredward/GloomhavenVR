@@ -26,8 +26,14 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// </summary>
 internal static class FigureGhosts
 {
-    // Dim cool translucent tint — low alpha so it reads as a ghost, not a solid figure.
-    private static readonly Color GhostTint = new Color(0.45f, 0.62f, 1.0f, 0.30f);
+    /// <summary>Dim cool translucent tint — low alpha so it reads as a ghost, not a solid figure.
+    /// ONE value for both ghost kinds (2026-09-05): a prop ghost and a figure ghost standing on
+    /// neighbouring hexes must read as the same thing, and until this was promoted
+    /// <c>PropGhosts</c> carried its own copy of the same four numbers with a comment saying "if
+    /// the two ever need to be tuned, tune them together" — the failure mode, written down and
+    /// left in place. Its stated reason ("private to a file this lane does not own") had
+    /// expired: the two files are in the same namespace and the same folder.</summary>
+    internal static readonly Color GhostTint = new Color(0.45f, 0.62f, 1.0f, 0.30f);
 
     /// <summary>A live ghost + its authoritative home pose. The pose is re-asserted every Tick:
     /// the ghost keeps its Animator (task #4 — it plays the idle in place) but all game scripts
@@ -133,11 +139,6 @@ internal static class FigureGhosts
         OverlayVisibilityProbe.Attach(ghost, $"{who}/ghost", $"GHOST of {who}");
     }
 
-    /// <summary>
-    /// Reconcile every ghost against the held-sets: destroy any whose actor was released (no longer in
-    /// <see cref="HeldFigures"/> nor <see cref="NetHeldFigures"/>) or was torn down. Cheap no-op when
-    /// no ghost exists. Call once per frame.
-    /// </summary>
     /// <summary>The live ghost object standing at <paramref name="actor"/>'s home, or null. Read
     /// by <c>ActorPropBody.LogHoldPicture</c> to prove the ghost is a CLONE (its own instance)
     /// and not the held leaf wearing the ghost material.</summary>
@@ -148,6 +149,11 @@ internal static class FigureGhosts
         return ghost.Go != null ? ghost.Go : null;
     }
 
+    /// <summary>
+    /// Reconcile every ghost against the held-sets: destroy any whose actor was released (no longer in
+    /// <see cref="HeldFigures"/> nor <see cref="NetHeldFigures"/>) or was torn down. Cheap no-op when
+    /// no ghost exists. Call once per frame.
+    /// </summary>
     internal static void Tick()
     {
         if (_ghosts.Count == 0)

@@ -35,11 +35,11 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// </summary>
 internal static class PropGhosts
 {
-    /// <summary>Dim cool translucent tint. MIRRORS <c>FigureGhosts.GhostTint</c> deliberately — a
-    /// prop ghost and a figure ghost standing on neighbouring hexes must read as the same thing.
-    /// Not merged because that field is private to a file this lane does not own; if the two ever
-    /// need to be tuned, tune them together.</summary>
-    private static readonly Color GhostTint = new Color(0.45f, 0.62f, 1.0f, 0.30f);
+    /// <summary>Dim cool translucent tint — <c>FigureGhosts.GhostTint</c> itself, not a second
+    /// copy of its four numbers (2026-09-05). A prop ghost and a figure ghost standing on
+    /// neighbouring hexes must read as the same thing, and that is now true by construction rather
+    /// than by anyone remembering to edit both.</summary>
+    private static Color GhostTint => FigureGhosts.GhostTint;
 
     private static readonly Dictionary<CObjectProp, GameObject> Ghosts = new();
     private static readonly List<CObjectProp> Scratch = new(4);
