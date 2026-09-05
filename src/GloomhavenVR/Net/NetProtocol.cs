@@ -416,7 +416,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 443;
+    public const ushort ModBuild = 444;
+    // Build 444: our own figure-glow clones read as SCENERY. f.Mod tests the mod layer or the
+    // "GloomhavenVR." prefix; FigureGrab stamps "VR" and builds with a bare new GameObject, which
+    // starts on layer 0 — so every creation and destruction of a hover glow bought the player a
+    // ~110 ms table rebuild. The log falsified my death-case diagnosis in its own output: the rows
+    // read bits 128 (no MOD bit) while ALIVE. One prefix definition now. The death case shipped
+    // too, because it is real one step later.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
     // Build 443: the user-facing docs cut roughly in half and carried by pictures, the controls
     // drawn as a button map whose LABELS are drawn by a committed script rather than generated, and
     // five [Comfort] descriptions corrected: they named the GRIP for a control that has read the
