@@ -416,7 +416,28 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 445;
+    public const ushort ModBuild = 446;
+    // Build 446: REGRESSION FROM 445, reported on hardware within the hour — the ghost hand and the
+    // wrist HUD were visible THROUGH the player's own cards. 445's card-front fix serves a body a
+    // mesh with the front-fan triangles removed, on the argument that the printed face in front of
+    // it is opaque and wins the depth test anyway. It does win the depth TEST. It writes no depth:
+    // the print is a uGUI canvas, and uGUI draws ZWrite Off. So the fan that was dropped as
+    // redundant was the card's ONLY depth-writing front surface, and every ZTest-LEqual surface
+    // behind it came through — the ghost hand (queue 3100, no depth of its own) and the wrist HUD
+    // (a world-space canvas at LEqual) are the same cause seen twice.
+    // AND IT WAS APPLIED TO THE WRONG CARDS. The correction was written for a PEER's slab under a
+    // see-through board; the map-room hand builds real local VRCards on the same prefab, so all ten
+    // cards in the player's own hand were hosted — directly in front of the hand and wrist that
+    // were showing through them. Hosting now needs a SECOND measured term: the slab must actually
+    // belong to a fade set (PeerBoardFade's own bookkeeping, not a list of class names). The bleed
+    // only exists where something composites at alpha < 1; the depth stamp only matters where
+    // nothing fades. No trade was needed.
+    // THE PREMISE IS NOW A READING. The ghost-hand instrument had ASSERTED that a card stamps
+    // depth; nothing measured it. [Cards] CARD BODY DEPTH STAMP reads the body back — shader,
+    // queue, ZWrite, submesh-0 front-fan triangle count — and names which of three ways it failed.
+    // Seven other surfaces rely on that stamp (the panel ladder exemption, MR backing plates, fog
+    // hexes, keycap labels, slot glows, pile captions, actor bars); they were all live on a hosted
+    // card and are listed where each one assumes it.
     // Build 445: THE BIG MULTIPLAYER TEST — twenty reported items, fifteen lanes, one build. FULL
     // INSTALL: the bundle moved (74,943,671 bytes) for the grass fix, so this is DLL *and* bundle.
     // TWO NEW WIRE FIELDS, both optional and both backward-compatible by length:
