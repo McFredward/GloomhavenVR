@@ -161,6 +161,16 @@ internal sealed class RemotePileFronts
 
         /// <summary>A game read threw; treated exactly like a shut gate.</summary>
         Errored,
+
+        /// <summary>
+        /// THE LENGTH-AGREEMENT BELT. Fronts are permitted and a source resolved, but this client's
+        /// copy of the peer's pile is a DIFFERENT LENGTH from the arc the owner is actually looking
+        /// at (the wire's slab count). The positional zip below is only a name for a card while the
+        /// two lists agree; the moment they do not, every slab from the first divergence on draws
+        /// somebody else's card. Backs instead — see <see cref="Tick"/>'s belt block for the whole
+        /// argument.
+        /// </summary>
+        CountMismatch,
     }
 
     private static string Reason(Gate gate) => gate switch
@@ -172,6 +182,10 @@ internal sealed class RemotePileFronts
         Gate.OffScenario => "RevealGate.InScenario=false",
         Gate.SecretPhase => "RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret " +
                             "SelectAbilityCardsOrLongRest phase for a remote actor",
+        Gate.CountMismatch => "RevealGate.ShowRoundCardFronts(actor)=true, but this client's copy of " +
+                              "the peer's pile is a different LENGTH from the arc they are looking " +
+                              "at — a positional zip across a length disagreement draws the WRONG " +
+                              "card's face, so every slab stays a back until the two agree",
         _ => "a game read threw; treated as a shut gate (fail-safe = no face)",
     };
 
@@ -339,6 +353,51 @@ internal sealed class RemotePileFronts
                               $"({ex.Message}) — showing backs.");
         }
 
+        // ---- THE LENGTH-AGREEMENT BELT --------------------------------------------------------
+        // A LENGTH DISAGREEMENT MEANS THE TWO SIDES ARE NOT LOOKING AT THE SAME PILE — SHOW BACKS.
+        // (2026-09-02 multiplayer hardware report, item 5c: the co-player burnt a card and the peer
+        // saw a DIFFERENT card marked burnt on his board.)
+        //
+        // The slab COUNT is the OWNER's, off the wire and timely: it is the size of the arc they are
+        // physically reading. The FACES are this client's OWN walk of the host-replicated model. The
+        // loop below then zips the two POSITIONALLY with nothing but a bounds check, which is a name
+        // for a card only while the two lists agree entry for entry. They do not always agree, and
+        // the doc on Resolve used to argue that every disagreement was a TAIL truncation — harmless,
+        // because a prefix of a prefix is still aligned. That argument is FALSE and this is where it
+        // dies:
+        //
+        //   * THE BURNT PILE IS A CONCATENATION. CardsGameApi.GetPileWidgets appends
+        //     LostAbilityCards and then PermanentlyLostAbilityCards. A card the owner has just burnt
+        //     is appended to the FIRST segment, i.e. it lands in the MIDDLE of the concatenated list,
+        //     and every permanently-lost entry behind it shifts by one seat.
+        //   * THE OWNER'S ARC SKIPS IN THE MIDDLE TOO. CardsDriver.UpdateBrowser drops a widget with
+        //     no AbilityCard or with IsLongRest, and then drops any card whose VR visual the board is
+        //     still holding or that is still flying in (BoardOwnsCardVisual / CardEnRouteToPile).
+        //     Those are positional skips inside GetPileWidgets order, not a truncation of its tail.
+        //
+        // So the pre-belt behaviour was not "the last card is missing", it was "from the burnt card
+        // on, every slab shows its neighbour's face" — for up to BurnEffectMaxHoldSeconds (3 s), and
+        // the remote log measured it AT that ceiling. A back reads to the player as "not loaded yet"
+        // and costs him nothing. A WRONG FRONT breaks the 1:1 rule and is unrecoverable, because he
+        // believes it and acts on it. The disagreement of the two lengths is the observable proof of
+        // exactly the condition that makes the zip unsafe, so it is the right term to gate on.
+        //
+        // This is a BELT, deliberately kept even after Resolve was taught the owner's own filter:
+        // the residual divergence (a card whose visual is still on the owner's board or in flight) is
+        // sender-local VR state that has no representation on this client at all, so no amount of
+        // model reading can reproduce it. The belt is what turns that residue from a wrong front into
+        // a back.
+        int modelCount = content == Content.Items ? _itemBuf.Count : _abilityBuf.Count;
+        if (resolved && modelCount != _arts.Count)
+        {
+            for (int i = 0; i < _arts.Count; i++)
+                _arts[i].HideFront();
+            _frontCount = 0;
+            _resolvedCount = _arts.Count;
+            Log(content, Gate.CountMismatch, 0, actor);
+            return;
+        }
+
         int fronts = 0;
         for (int i = 0; i < _arts.Count; i++)
         {
@@ -497,6 +556,28 @@ internal sealed class RemotePileFronts
                       "is presenting — record 22 via RemoteBoardFocus.DisplayedActor, so their pile " +
                       "fan follows their focus exactly as their own board does), " +
                       $"{fronts}/{_arts.Count} slab(s) show the real game card face, gate: {Reason(gate)}";
+        if (gate == Gate.CountMismatch)
+        {
+            // HW-VERIFY: this line decides multiplayer report item 5c. While it fires, the peer's
+            // pile arc is showing BACKS because a front would have been the wrong card's — it is the
+            // belt working, not a failure. It has to be readable in a SHIPPED log (Note), because
+            // the only way to tell "the belt saved him" from "the belt never armed" is to see it
+            // fire the moment a co-player burns a card. If it fires CONTINUOUSLY rather than for a
+            // second or two around a burn, the two sides disagree in the steady state and the
+            // shared filter below it has drifted from the owner's — that is the next lead.
+            VRLog.Note("Net", line + ". The arc's slab count comes off the wire and is the size of " +
+                              "the arc its OWNER is reading; the faces come from this client's own " +
+                              "walk of that character's host-replicated pile. The two disagreeing " +
+                              "means a card has moved on the owner's side that this client has not " +
+                              "placed yet (a burn still holding its artwork, a card still flying " +
+                              "into the stack, a played card still lying on their board), and the " +
+                              "burnt pile is a CONCATENATION of the lost and permanently-lost lists " +
+                              "— so the missing entry is in the MIDDLE and every slab behind it " +
+                              "would draw its neighbour's card. Backs are the safe direction: a back " +
+                              "reads as 'not loaded yet', a wrong front is believed and acted on.");
+            return;
+        }
+
         VRLog.Info("Net", line + ". Card/item identities are read LOCALLY from the peer's " +
                           "host-replicated model (CCharacterClass piles / Inventory.AllItems) and never " +
                           "from a packet — the reveal rule is a PHASE, not a place (user ruling " +
