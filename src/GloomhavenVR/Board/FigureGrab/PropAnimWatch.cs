@@ -80,13 +80,121 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///
 /// <para><b>MULTIPLAYER.</b> Read-only and local: a diagnostic that samples this client's own
 /// components and prints. Nothing goes on the wire and no peer behaviour changes.</para>
+///
+/// <para>=====================================================================================</para>
+///
+/// <para><b>ROUND 2 (2026-09-05) — WHAT THE ModBuild 435 LOG ACTUALLY SAID, AND THE FOUR BLIND
+/// SPOTS IT EXPOSED.</b> The claim that this instrument printed nothing is FALSE: it printed
+/// exactly one verdict, <c>[Props] HELD-PROP ANIMATION A/B for 'GoalChest' GoalChest (home window
+/// complete): HAND 511 frame(s)/6.25s vs HOME 360 frame(s)/4.48s</c>, and every term in it read
+/// the SAME in both windows — <c>clipRate hand=0.000/s home=0.000/s</c>,
+/// <c>speed hand=1 home=1</c>, <c>globalClock.timeScale hand=1 home=1</c>,
+/// <c>cullingMode CullUpdateTransforms</c> both sides, <c>evaluating 511/511</c> and
+/// <c>360/360</c>, <c>stateChanges 0</c>, <c>restarts 0</c>, <c>poseStomps=0 of 511</c>,
+/// <c>0 AreaClock(s) and 0 Timeline(s)</c> in the whole scene. ONE term differed:
+/// <c>lossyScale.x hand=1..3.648 home=1</c>.</para>
+///
+/// <para>That reading kills four candidates permanently and it is worth writing down so no round
+/// re-tests them: CHRONOS IS DEAD (0 area clocks in the scene — the position-dependent term does
+/// not exist here), THE SMB LATCH IS DEAD FOR THIS PROP (speed 1 in both windows, clock 1 in both),
+/// THE POSE WRITE IS DEAD (0 stomps in 511 frames, so <c>GrabbableProp.ApplyHeldPose</c> is not
+/// erasing an animated transform channel), and the flash IS NOT LAYER 0 OF THIS ANIMATOR (its
+/// normalizedTime did not move on 509 of 511 hand frames AND 359 of 360 home frames — it was
+/// equally still on its own hex).</para>
+///
+/// <para><b>The last of those is the finding.</b> A window in which the animation is not running
+/// AT HOME EITHER cannot answer a question about how the animation runs. The verdict was a
+/// flawless measurement that never contained the thing being measured, and its own step (7) then
+/// sent the next round at <c>SpawnObjectAnimateMaterial_SMB.animProperty</c> — a property of an
+/// SMB the same line had just reported as <c>NONE on this animator's controller</c>. So the
+/// instrument was blind in four specific ways, and this round fixes each one rather than tuning
+/// what it could already see:</para>
+/// <list type="number">
+///   <item><b>ONE LAYER.</b> It read <c>GetCurrentAnimatorStateInfo(0)</c> and nothing else. An
+///   attention flash layered over an idle base is the ordinary way to author exactly this, and it
+///   would be invisible to every term above. Now every layer up to <see cref="LayerCap"/> is
+///   sampled, and the line prints the animator's <c>layerCount</c> so a truncation is visible
+///   rather than silent.</item>
+///   <item><b>NO PICTURE.</b> It measured the DRIVERS (animator, clock, SMB) and never the
+///   RESULT. A flash is a value on a material; if no driver term moves, the question "was the
+///   flash even playing?" was unanswerable. Now the prop's own materials are read back:
+///   <see cref="MatPropCap"/> float/colour properties off the shader's own property table, per
+///   frame, in both windows, reported as the rate each one MOVED at. That is the ground truth the
+///   whole report is about, and it does not care which mechanism drives it.</item>
+///   <item><b>NO VISIBILITY.</b> It read <c>cullingMode</c> and never <c>Renderer.isVisible</c> —
+///   the other half of what <c>cullingMode</c> means. <c>CullUpdateTransforms</c> withholds the
+///   transform write on frames when NO renderer of that animator is visible, and a
+///   <c>SkinnedMeshRenderer</c> with <c>updateWhenOffscreen=false</c> is culled against bounds
+///   carried by its ROOT BONE, which a reparent into a palm at 3.648x is exactly the change those
+///   bounds need not follow. Now visibility, enabled-ness, object activity and the drift between
+///   <c>renderer.bounds.center</c> and the renderer's own transform are all sampled per frame.
+///   <see cref="PropAnimBelt"/> ships the remedy for that mechanism ungated, and these terms are
+///   what say whether it was load-bearing.</item>
+///   <item><b>A GATE ONLY A CHEST COULD OPEN, SPENT BY AN OBSTACLE.</b> <see cref="NotifyGrab"/>
+///   refused any prop with no <c>Animator</c>, so a TRAP with none could never arm — and the user
+///   named traps. Worse, the budget was global: the ModBuild 435 session grabbed obstacles a dozen
+///   times before a chest, and two of those would have spent the session's whole budget on props
+///   that answer nothing. The budget is now per prop KIND (<see cref="KindBudget"/> verdict each,
+///   <see cref="Budget"/> in total) and arming needs only a RENDERER, so a session in which he
+///   holds a chest cannot come back without this line.</item>
+/// </list>
+///
+/// <para><b>TWO SYMPTOMS, TWO VERDICTS.</b> "Viel langsamer" and "ploppt mitten drin einfach weg"
+/// are different defects and were being folded together. The line now ends with a
+/// <c>RATE VERDICT</c> (did the flash advance at the same rate per REAL second in the hand as on
+/// the hex) and a separate <c>STOP VERDICT</c> (did it ever freeze mid-flash, for how many frames,
+/// and was the object switched off underneath it) — each with the frame counts behind it.</para>
 /// </summary>
 internal static class PropAnimWatch
 {
-    /// <summary>How many verdicts this session prints. Two is one chest grabbed twice, or a chest
-    /// and a second animated prop — enough to see whether the reading repeats, and few enough that
-    /// the per-frame walk stops for good early in a session.</summary>
-    private const int Budget = 2;
+    /// <summary>How many verdicts this session prints IN TOTAL, across all prop kinds. Raised from
+    /// two on 2026-09-05: the budget is now spent per KIND (see <see cref="KindBudget"/>), and two
+    /// slots could not cover a session that holds an obstacle, a money token, a chest and a
+    /// trap — which is exactly the session the report describes.</summary>
+    private const int Budget = 4;
+
+    /// <summary>Verdicts per prop KIND. One is the whole point: the ModBuild 435 session grabbed
+    /// <c>'OneHexObstacle' Obstacle</c> a dozen times before it ever touched the chest, and a
+    /// GLOBAL budget of two would have been spent on obstacles long before the prop the report is
+    /// about entered a hand. A per-kind budget makes "he held a chest and no line appeared"
+    /// impossible for any reason except never holding one.</summary>
+    private const int KindBudget = 1;
+
+    /// <summary>How many distinct prop kinds the roster remembers. Past this the roster stops
+    /// growing and the total <see cref="Budget"/> is the only remaining limit.</summary>
+    private const int KindCap = 8;
+
+    /// <summary>Animator layers sampled per animator. ModBuild 435 read layer 0 ONLY and reported
+    /// a clip that had not moved in 511 hand frames AND 359 of 360 home frames — i.e. it measured
+    /// an idle base layer in both windows and could not have seen a flash layered over it. The
+    /// line prints the animator's real <c>layerCount</c> beside this cap so a truncation is
+    /// visible rather than silent.</summary>
+    private const int LayerCap = 3;
+
+    /// <summary>Renderers sampled for the visibility / bounds census.</summary>
+    private const int RendCap = 6;
+
+    /// <summary>Materials whose property table is read back per frame.</summary>
+    private const int MatCap = 2;
+
+    /// <summary>Shader properties tracked per material — float, range and colour, taken off the
+    /// shader's OWN property table (<c>Shader.GetPropertyCount/GetPropertyNameId/GetPropertyType</c>),
+    /// so nothing is guessed and no property that does not exist is ever read.</summary>
+    private const int MatPropCap = 20;
+
+    /// <summary>Property slots: one per (material, property) pair.</summary>
+    private const int MatSlots = MatCap * MatPropCap;
+
+    /// <summary>How many MOVING properties the line names. The rest are counted, not listed — a
+    /// term that never changed is worth one number, and forty dead terms is how a line stops being
+    /// read at all.</summary>
+    private const int MatListCap = 6;
+
+    /// <summary>A value that has not moved for this many consecutive frames counts as FROZEN.
+    /// Six frames is ~67 ms at 90 Hz — long enough that a curve genuinely holding a value for one
+    /// or two frames is not called a stop, short enough that a stop is caught while it is still
+    /// mid-flash rather than after it.</summary>
+    private const int FreezeRunFrames = 6;
 
     /// <summary>Frames after the release glide lands before the HOME window opens. Past
     /// <c>GrabbableProp.ThawDelayFrames</c> (3), so the Apparance <c>MonitorMovement</c> restore
@@ -120,8 +228,15 @@ internal static class PropAnimWatch
     private static readonly List<Animator> AnimScratch = new(4);
     private static readonly List<ParticleSystem> ParticleScratch = new(8);
     private static readonly List<Chronos.Timeline> TimelineScratch = new(4);
+    private static readonly List<Renderer> RendScratch = new(16);
+    private static readonly List<MonoBehaviour> BehaviourScratch = new(16);
 
     private static int _left = Budget;
+
+    /// <summary>Prop kinds that have already spent their <see cref="KindBudget"/>. Held as the
+    /// LABEL the verdict prints, so the roster and the line agree by construction.</summary>
+    private static readonly List<string> KindsDone = new(KindCap);
+
     private static Phase _phase = Phase.Idle;
     private static GameObject? _target;
     private static string _label = string.Empty;
@@ -132,6 +247,34 @@ internal static class PropAnimWatch
     private static SpawnObjectAnimateMaterial_SMB[] _smb = System.Array.Empty<SpawnObjectAnimateMaterial_SMB>();
     private static Chronos.Timeline[] _timelines = System.Array.Empty<Chronos.Timeline>();
     private static int _nextRescan;
+
+    // --- ROUND 2: the picture side of the prop, and the POPULATION each capped list came from.
+    //     A truncated list is not absence — the verdict prints found-vs-sampled for every one.
+    private static Renderer[] _renderers = System.Array.Empty<Renderer>();
+    private static readonly Material[] Mats = new Material[MatCap];
+    private static int _matCount;
+    private static readonly int[] MatPropId = new int[MatPropCap];
+    private static readonly string[] MatPropName = new string[MatPropCap];
+    private static readonly bool[] MatPropIsColor = new bool[MatPropCap];
+    private static int _matPropCount;
+    private static string _matShader = "<none>";
+    private static int _foundAnimators, _foundRenderers, _foundSkins, _foundMats, _foundProps;
+    private static int _modOwned;
+
+    // --- THE PRE-BELT SNAPSHOT, taken in NotifyGrab and therefore BEFORE PropAnimBelt.Engage runs
+    //     (GrabbableProp.OnGrab calls them in that order). It exists because THE REMEDY ERASES ITS
+    //     OWN EVIDENCE: once the belt has written AlwaysAnimate and updateWhenOffscreen=true, the
+    //     hand window's visibility and bounds terms are the belt's output and can no longer say
+    //     whether the mechanism it removes was ever live. These five numbers are the state the
+    //     prop arrived in, one frame after it entered the hand, with nothing of ours written yet.
+    private static int _preRenderers, _preVisible, _preUwoFalse, _preCullNotAlways, _preAnimators;
+    private static float _preDrift;
+
+    // --- ROUND 2: the WORLD-ANCHOR feeders, by type. These are the components that push the
+    //     object's world position into a shader uniform and then stop (ZephyrAnim.cs:41-55,
+    //     ObjectPosToMaterial.cs:15-25) — PropAnimBelt re-runs them while the prop is off its hex,
+    //     and this counts them so a log with 0 of each says that strand made no writes at all.
+    private static int _zephyrAnims, _objPosToMats, _posToMats;
 
     // --- the SCENE census, taken once per session on the first arm (see CensusScene).
     private static bool _sceneCensusDone;
@@ -190,9 +333,53 @@ internal static class PropAnimWatch
         // HAND only: frames on which someone else had rewritten the local TRS since our last write
         internal int PoseStomps;
 
+        // ---- ROUND 2 (2026-09-05) ------------------------------------------------------------
+        // EVERY LAYER, not just layer 0. Index-aligned with _animators.
+        internal readonly int[] LayerCounts = new int[ReportCap];
+        internal readonly float[] AnyAdvance = new float[ReportCap];  // Σ over layers of d(normalizedTime)
+        internal readonly float[] AnySeconds = new float[ReportCap];
+        internal readonly int[] AnyMoveFrames = new int[ReportCap];   // frames SOME layer advanced
+        internal readonly int[] LongestStall = new int[ReportCap];    // longest run with no layer advancing
+        internal readonly int[] CurStall = new int[ReportCap];
+
+        // THE PICTURE, not the driver: is the thing on screen at all, and does Unity think so?
+        internal int RendFrames;
+        internal int VisMin = int.MaxValue, VisMax = int.MinValue;     // renderers with isVisible
+        internal int VisZeroFrames;                                    // frames with NOT ONE visible
+        internal int LongestVisZeroRun, CurVisZeroRun;
+        internal int DrawMin = int.MaxValue, DrawMax = int.MinValue;   // enabled AND activeInHierarchy
+        internal int OffFrames;                                        // frames some tracked renderer was off
+        internal int LongestOffRun, CurOffRun;
+        /// <summary>The largest gap seen between a renderer's culling bounds centre and its own
+        /// transform. A SkinnedMeshRenderer with updateWhenOffscreen=false carries authored bounds
+        /// on its ROOT BONE; if this reads centimetres at home and METRES in the hand, the bounds
+        /// were left behind by the reparent and Unity's visibility answer is about the hex.</summary>
+        internal float BoundsDriftMax;
+        internal bool SkinCensusTaken;
+        internal int SkinCount, SkinUwoTrue;   // census, taken on the window's FIRST sample
+
+        // THE FLASH ITSELF: every float/range/colour property of the prop's own materials.
+        internal readonly float[] MatAbs = new float[MatSlots];        // Σ|Δv|
+        internal readonly float[] MatSecs = new float[MatSlots];
+        internal readonly int[] MatMoveFrames = new int[MatSlots];
+        internal readonly float[] MatMin = NewFilledN(float.MaxValue);
+        internal readonly float[] MatMax = NewFilledN(float.MinValue);
+        internal readonly int[] MatReversals = new int[MatSlots];      // Δ changed sign — one blink is two
+        internal readonly int[] MatMidFreezeFrames = new int[MatSlots];
+        internal readonly int[] MatLongestMidFreeze = new int[MatSlots];
+        internal readonly int[] MatCurFreeze = new int[MatSlots];
+
         private static float[] NewFilled(float v)
         {
             var a = new float[ReportCap];
+            for (int i = 0; i < a.Length; i++)
+                a[i] = v;
+            return a;
+        }
+
+        private static float[] NewFilledN(float v)
+        {
+            var a = new float[MatSlots];
             for (int i = 0; i < a.Length; i++)
                 a[i] = v;
             return a;
@@ -210,14 +397,32 @@ internal static class PropAnimWatch
     private static readonly float[] PrevSmbT = new float[ReportCap];
     private static readonly bool[] PrevSmbValid = new bool[ReportCap];
 
+    // --- ROUND 2 carry: per (animator, layer) and per (material, property).
+    private static readonly int[] PrevLayerHash = new int[ReportCap * LayerCap];
+    private static readonly float[] PrevLayerNt = new float[ReportCap * LayerCap];
+    private static readonly bool[] PrevLayerValid = new bool[ReportCap * LayerCap];
+    private static readonly float[] PrevMatV = new float[MatSlots];
+    private static readonly bool[] PrevMatValid = new bool[MatSlots];
+    private static readonly sbyte[] PrevMatSign = new sbyte[MatSlots];
+
     /// <summary>True while the HAND window is open — read by <c>GrabbableProp.ApplyHeldPose</c> so
     /// the pose-stomp comparison costs nothing on a hold nobody is watching.</summary>
     internal static bool WatchingHand => _phase == Phase.Hand;
 
-    /// <summary>Arm the watch on a prop entering a hand. Ignored when a watch is already running,
-    /// when the budget is spent, or when the prop has no Animator at all — the question is about an
-    /// ANIMATION, and a gold pile has none (the ModBuild 356 census counted zero for it), so
-    /// spending one of two verdicts on it would answer nothing.</summary>
+    /// <summary>
+    /// Arm the watch on a prop entering a hand. Ignored when a watch is already running, when the
+    /// TOTAL budget is spent, when this prop KIND has already produced its verdict, or when the
+    /// prop draws nothing at all.
+    ///
+    /// <para><b>THE ANIMATOR REQUIREMENT WAS REMOVED ON 2026-09-05, and it was a gate narrower
+    /// than its own question.</b> It read "the question is about an ANIMATION, and a gold pile has
+    /// none", which was true of the DRIVER it then went on to measure and false of the SYMPTOM: the
+    /// user's report names a TRAP as well as a chest, the ModBuild 356 census counted zero
+    /// animators on the props it looked at, and the ModBuild 435 verdict then proved the chest's
+    /// one animator was idle in both windows anyway. A flash can be a material property with no
+    /// animator behind it at all, so the arming test is now the weakest thing that can possibly
+    /// carry one: a Renderer. The per-KIND budget is what makes that affordable.</para>
+    /// </summary>
     internal static void NotifyGrab(GameObject? visual, string label)
     {
         if (_left <= 0 || visual == null)
@@ -242,13 +447,17 @@ internal static class PropAnimWatch
                 PrevValid[i] = false;
                 PrevSmbValid[i] = false;
             }
+            ForgetRound2Carry();
             return;
         }
 
-        AnimScratch.Clear();
-        visual.GetComponentsInChildren(includeInactive: true, AnimScratch);
-        if (AnimScratch.Count == 0)
+        if (KindSpent(label))
             return;
+
+        RendScratch.Clear();
+        visual.GetComponentsInChildren(includeInactive: true, RendScratch);
+        if (RendScratch.Count == 0)
+            return;   // nothing draws under this prop, so nothing about it can flash
 
         CensusScene();
         _target = visual;
@@ -263,7 +472,58 @@ internal static class PropAnimWatch
             PrevValid[i] = false;
             PrevSmbValid[i] = false;
         }
+        ForgetRound2Carry();
         Resolve();
+        CensusPreBelt();
+    }
+
+    /// <summary>
+    /// What the prop looked like the instant it entered the hand, BEFORE this mod wrote anything to
+    /// it. Called from <see cref="NotifyGrab"/>, which <c>GrabbableProp.OnGrab</c> runs one line
+    /// ahead of <c>PropAnimBelt.Engage</c>.
+    ///
+    /// <para><b>WHY IT HAS TO EXIST.</b> The belt's whole job is to make Unity stop culling a held
+    /// prop against bounds this mod invalidated — and the moment it does, every visibility term in
+    /// the HAND window reads healthy whether or not the defect was ever there. A remedy that erases
+    /// the evidence for its own cause leaves a round unable to say if it was load-bearing, which is
+    /// the same trap as a fix gated behind its own instrument, arrived at from the other side. So
+    /// the state is photographed first: how many skinned renderers shipped with
+    /// <c>updateWhenOffscreen=false</c>, how many animators were NOT already
+    /// <c>AlwaysAnimate</c>, how many renderers Unity thought were visible, and how far the culling
+    /// bounds had already drifted from the transforms carrying them.</para>
+    /// </summary>
+    private static void CensusPreBelt()
+    {
+        _preRenderers = _renderers.Length;
+        _preVisible = 0;
+        _preUwoFalse = 0;
+        _preDrift = 0f;
+        _preAnimators = 0;
+        _preCullNotAlways = 0;
+
+        for (int i = 0; i < _renderers.Length; i++)
+        {
+            Renderer r = _renderers[i];
+            if (r == null)
+                continue;
+            if (r.isVisible)
+                _preVisible++;
+            if (r is SkinnedMeshRenderer smr && smr != null && !smr.updateWhenOffscreen)
+                _preUwoFalse++;
+            float d = (r.bounds.center - r.transform.position).magnitude;
+            if (d > _preDrift)
+                _preDrift = d;
+        }
+
+        for (int i = 0; i < _animators.Length && i < ReportCap; i++)
+        {
+            Animator a = _animators[i];
+            if (a == null)
+                continue;
+            _preAnimators++;
+            if (a.cullingMode != AnimatorCullingMode.AlwaysAnimate)
+                _preCullNotAlways++;
+        }
     }
 
     /// <summary>The prop has landed back on its hex: start counting down to the HOME window. Called
@@ -323,6 +583,7 @@ internal static class PropAnimWatch
                     PrevValid[i] = false;     // never carry a delta ACROSS the window boundary
                     PrevSmbValid[i] = false;
                 }
+                ForgetRound2Carry();
                 return;
 
             case Phase.Home:
@@ -347,16 +608,50 @@ internal static class PropAnimWatch
             Hand.PoseStomps++;
     }
 
+    /// <summary>Has this prop KIND already produced its verdict? The roster is per SCENARIO and
+    /// holds the LABEL the line prints, so "which kinds are spent" and "which kinds were reported"
+    /// are the same list by construction.</summary>
+    private static bool KindSpent(string label)
+    {
+        for (int i = 0; i < KindsDone.Count; i++)
+        {
+            if (string.Equals(KindsDone[i], label, System.StringComparison.Ordinal))
+                return true;
+        }
+        return false;
+    }
+
     /// <summary>Re-arm for a new scenario (a new scenario is a new hardware question), and drop any
     /// watch mid-flight so a dead prop from the last scenario is never sampled.</summary>
     internal static void Reset()
     {
         _left = Budget;
+        KindsDone.Clear();
         _phase = Phase.Idle;
         _target = null;
         _animators = System.Array.Empty<Animator>();
         _smb = System.Array.Empty<SpawnObjectAnimateMaterial_SMB>();
         _timelines = System.Array.Empty<Chronos.Timeline>();
+        _renderers = System.Array.Empty<Renderer>();
+        _matCount = 0;
+        _matPropCount = 0;
+        for (int i = 0; i < MatCap; i++)
+            Mats[i] = null!;
+    }
+
+    /// <summary>Drop every per-layer and per-material previous sample. A delta must never be
+    /// carried ACROSS a window boundary — one frame of the new window would otherwise be charged
+    /// with the whole gap since the old one, which on the HOME boundary is several seconds of
+    /// glide and settle.</summary>
+    private static void ForgetRound2Carry()
+    {
+        for (int i = 0; i < PrevLayerValid.Length; i++)
+            PrevLayerValid[i] = false;
+        for (int i = 0; i < PrevMatValid.Length; i++)
+        {
+            PrevMatValid[i] = false;
+            PrevMatSign[i] = 0;
+        }
     }
 
     // ---- the measurement ------------------------------------------------------------------------
@@ -409,6 +704,156 @@ internal static class PropAnimWatch
             _timelines = new Chronos.Timeline[tn];
         for (int i = 0; i < tn; i++)
             _timelines[i] = TimelineScratch[i];
+
+        _foundAnimators = AnimScratch.Count;
+        ResolveRenderers(go);
+        ResolveAnchors(go);
+    }
+
+    /// <summary>The DRAWABLES and their materials — the side of the prop the eye actually sees.
+    /// Renderers are taken in tree order and capped; the population is remembered so the verdict
+    /// can print found-vs-sampled instead of a silently truncated list.</summary>
+    private static void ResolveRenderers(GameObject go)
+    {
+        RendScratch.Clear();
+        go.GetComponentsInChildren(includeInactive: true, RendScratch);
+
+        // DROP THIS MOD'S OWN CLONES. FigureHighlight parents an additive glow clone under the
+        // prop's own meshes and PropGhosts clones the subtree; both draw on 'GloomhavenVR/…'
+        // shaders. Counting them would put OUR material in the property table and answer a question
+        // about the game's flash with a reading of our own overlay.
+        _foundRenderers = 0;
+        _foundSkins = 0;
+        _modOwned = 0;
+        for (int i = RendScratch.Count - 1; i >= 0; i--)
+        {
+            Renderer r = RendScratch[i];
+            if (r == null || IsModOwned(r))
+            {
+                if (r != null)
+                    _modOwned++;
+                RendScratch.RemoveAt(i);
+                continue;
+            }
+            _foundRenderers++;
+            if (r is SkinnedMeshRenderer)
+                _foundSkins++;
+        }
+
+        int n = Mathf.Min(RendScratch.Count, RendCap);
+        if (_renderers.Length != n)
+            _renderers = new Renderer[n];
+        for (int i = 0; i < n; i++)
+            _renderers[i] = RendScratch[i];
+
+        ResolveMaterials();
+    }
+
+    /// <summary>
+    /// The property table, read ONCE off the shader's own metadata.
+    ///
+    /// <para><b><c>sharedMaterial</c>, NEVER <c>material</c>.</b> <c>Renderer.material</c>
+    /// INSTANTIATES a copy the first time it is touched — a real change to the object, and the
+    /// exact thing an instrument may not do. <c>sharedMaterial</c> returns whatever the renderer is
+    /// actually drawing with, INCLUDING the instance the game itself created when its own code
+    /// touched <c>.material</c>, so it reads the same numbers with no side effect.</para>
+    ///
+    /// <para>Only materials on the SAME shader as the first one are tracked: the ids come from that
+    /// shader's table, and an id that a second shader does not declare would be read as a silent
+    /// zero rather than a missing value.</para>
+    /// </summary>
+    private static void ResolveMaterials()
+    {
+        _matPropCount = 0;
+        _foundMats = 0;
+        _foundProps = 0;
+        _matShader = "<none>";
+        _matCount = 0;
+        for (int i = 0; i < MatCap; i++)
+            Mats[i] = null!;
+
+        Shader? shader = null;
+        for (int i = 0; i < _renderers.Length && _matCount < MatCap; i++)
+        {
+            Renderer r = _renderers[i];
+            if (r == null)
+                continue;
+            Material m = r.sharedMaterial;
+            if (m == null || m.shader == null)
+                continue;
+            _foundMats++;
+            if (shader == null)
+            {
+                shader = m.shader;
+                _matShader = shader.name;
+            }
+            else if (!ReferenceEquals(m.shader, shader))
+            {
+                continue;
+            }
+            Mats[_matCount++] = m;
+        }
+        if (shader == null)
+            return;
+
+        try
+        {
+            _foundProps = shader.GetPropertyCount();
+            for (int i = 0; i < _foundProps && _matPropCount < MatPropCap; i++)
+            {
+                UnityEngine.Rendering.ShaderPropertyType t = shader.GetPropertyType(i);
+                bool isColor = t == UnityEngine.Rendering.ShaderPropertyType.Color;
+                if (!isColor
+                    && t != UnityEngine.Rendering.ShaderPropertyType.Float
+                    && t != UnityEngine.Rendering.ShaderPropertyType.Range)
+                    continue;
+                MatPropId[_matPropCount] = shader.GetPropertyNameId(i);
+                MatPropName[_matPropCount] = shader.GetPropertyName(i);
+                MatPropIsColor[_matPropCount] = isColor;
+                _matPropCount++;
+            }
+        }
+        catch
+        {
+            // A shader whose property table cannot be walked is a real state (a stripped or
+            // procedurally-built one) and must not throw into a hold.
+            _matPropCount = 0;
+        }
+    }
+
+    /// <summary>Is this renderer one of ours? Every mod-drawn clone under a prop is on a shader
+    /// this mod ships, and those all live under the <c>GloomhavenVR/</c> name prefix.</summary>
+    private static bool IsModOwned(Renderer r)
+    {
+        Material m = r.sharedMaterial;
+        Shader? sh = m != null ? m.shader : null;
+        string? name = sh != null ? sh.name : null;
+        return name != null && name.StartsWith("GloomhavenVR/", System.StringComparison.Ordinal);
+    }
+
+    /// <summary>Count the game's own WORLD-ANCHOR feeders under the prop. Read-only; the writing
+    /// side is <c>PropAnimBelt</c>. Three counts, so a log can say whether the anchor strand had
+    /// anything to act on at all.</summary>
+    private static void ResolveAnchors(GameObject go)
+    {
+        _zephyrAnims = 0;
+        _objPosToMats = 0;
+        _posToMats = 0;
+        BehaviourScratch.Clear();
+        go.GetComponentsInChildren(includeInactive: true, BehaviourScratch);
+        for (int i = 0; i < BehaviourScratch.Count; i++)
+        {
+            MonoBehaviour c = BehaviourScratch[i];
+            if (c == null)
+                continue;
+            if (c is ZephyrAnim)
+                _zephyrAnims++;
+            else if (c is ObjectPosToMaterial)
+                _objPosToMats++;
+            else if (c is PosToMat)
+                _posToMats++;
+        }
+        BehaviourScratch.Clear();
     }
 
     private static void Sample(Window w)
@@ -437,8 +882,11 @@ internal static class PropAnimWatch
 
         SampleGlobalClock(w);
         SampleAnimators(w, dt);
+        SampleLayers(w, dt);
         SampleSmb(w, dt);
         SampleTimelines(w);
+        SampleRenderers(w);
+        SampleMaterials(w, dt);
 
         if (!w.CensusTaken)
         {
@@ -531,6 +979,258 @@ internal static class PropAnimWatch
                 w.ZeroFrames[i]++;
             w.NormAdvance[i] += d;
             w.NormSeconds[i] += dt;
+        }
+    }
+
+    /// <summary>
+    /// EVERY LAYER of every sampled animator — the blind spot that cost round 1.
+    ///
+    /// <para>Layer 0 keeps its own terms above, unchanged, because they are what the existing
+    /// verdict tokens name. This adds the union: how much normalizedTime advanced across ALL
+    /// layers per real second, how many frames SOME layer moved, and the longest run of frames on
+    /// which none did. A flash authored as an additive layer over an idle base is invisible to
+    /// layer 0 and obvious here.</para>
+    /// </summary>
+    private static void SampleLayers(Window w, float dt)
+    {
+        for (int i = 0; i < _animators.Length && i < ReportCap; i++)
+        {
+            Animator a = _animators[i];
+            if (a == null || !a.isActiveAndEnabled || a.runtimeAnimatorController == null)
+            {
+                for (int L = 0; L < LayerCap; L++)
+                    PrevLayerValid[(i * LayerCap) + L] = false;
+                continue;
+            }
+
+            int layers = a.layerCount;
+            if (layers > w.LayerCounts[i])
+                w.LayerCounts[i] = layers;
+
+            bool movedThisFrame = false;
+            bool sampledAny = false;
+            for (int L = 0; L < layers && L < LayerCap; L++)
+            {
+                int k = (i * LayerCap) + L;
+                AnimatorStateInfo info = a.GetCurrentAnimatorStateInfo(L);
+                int hash = info.fullPathHash;
+                float nt = info.normalizedTime;
+                sampledAny = true;
+                if (!PrevLayerValid[k])
+                {
+                    PrevLayerValid[k] = true;
+                    PrevLayerHash[k] = hash;
+                    PrevLayerNt[k] = nt;
+                    continue;
+                }
+                if (hash != PrevLayerHash[k])
+                {
+                    PrevLayerHash[k] = hash;
+                    PrevLayerNt[k] = nt;
+                    movedThisFrame = true;   // a state change IS the animation doing something
+                    continue;
+                }
+                float d = nt - PrevLayerNt[k];
+                PrevLayerNt[k] = nt;
+                if (d <= 0f)
+                    continue;                // a rewind is not a rate sample (see SampleAnimators)
+                w.AnyAdvance[i] += d;
+                movedThisFrame = true;
+            }
+
+            if (!sampledAny)
+                continue;
+            w.AnySeconds[i] += dt;
+            if (movedThisFrame)
+            {
+                w.AnyMoveFrames[i]++;
+                w.CurStall[i] = 0;
+            }
+            else
+            {
+                w.CurStall[i]++;
+                if (w.CurStall[i] > w.LongestStall[i])
+                    w.LongestStall[i] = w.CurStall[i];
+            }
+        }
+    }
+
+    /// <summary>
+    /// IS THE PICTURE THERE, AND DOES UNITY THINK SO — the other half of what <c>cullingMode</c>
+    /// means, and the term round 1 never read.
+    ///
+    /// <para><c>Renderer.isVisible</c> is Unity's own culling answer. With
+    /// <c>Animator.cullingMode = CullUpdateTransforms</c> — which is what the chest measured in
+    /// BOTH windows — a frame on which NO renderer of that animator is visible is a frame on which
+    /// the transform write is withheld while the state machine advances. <c>VisZeroFrames</c> is
+    /// therefore the count of frames the animation was running and not being drawn, and
+    /// <c>LongestVisZeroRun</c> is how long the longest such gap lasted: the "ploppt mitten drin
+    /// weg" term, in frames. <c>PropAnimBelt</c> now removes that dependency for a held prop, so a
+    /// HAND window that still reads zero-visible frames says the belt did not cover the case.</para>
+    ///
+    /// <para><c>OffFrames</c> is deliberately separate. A renderer that is <c>enabled=false</c> or
+    /// whose object went inactive was switched off by SOMEBODY, and if that somebody is the game
+    /// (a trap springing, a chest looted) it is a game decision this mod must report and not
+    /// suppress. Culled-but-on and switched-off look identical to an eye and must never be summed
+    /// into one number.</para>
+    /// </summary>
+    private static void SampleRenderers(Window w)
+    {
+        if (_renderers.Length == 0)
+            return;
+
+        int vis = 0, draw = 0, tracked = 0;
+        float drift = 0f;
+        for (int i = 0; i < _renderers.Length; i++)
+        {
+            Renderer r = _renderers[i];
+            if (r == null)
+                continue;
+            tracked++;
+            if (r.isVisible)
+                vis++;
+            if (r.enabled && r.gameObject.activeInHierarchy)
+                draw++;
+            float d = (r.bounds.center - r.transform.position).magnitude;
+            if (d > drift)
+                drift = d;
+        }
+        if (tracked == 0)
+            return;
+
+        w.RendFrames++;
+        if (vis < w.VisMin) w.VisMin = vis;
+        if (vis > w.VisMax) w.VisMax = vis;
+        if (draw < w.DrawMin) w.DrawMin = draw;
+        if (draw > w.DrawMax) w.DrawMax = draw;
+        if (drift > w.BoundsDriftMax) w.BoundsDriftMax = drift;
+
+        if (vis == 0)
+        {
+            w.VisZeroFrames++;
+            w.CurVisZeroRun++;
+            if (w.CurVisZeroRun > w.LongestVisZeroRun)
+                w.LongestVisZeroRun = w.CurVisZeroRun;
+        }
+        else
+        {
+            w.CurVisZeroRun = 0;
+        }
+
+        if (draw < tracked)
+        {
+            w.OffFrames++;
+            w.CurOffRun++;
+            if (w.CurOffRun > w.LongestOffRun)
+                w.LongestOffRun = w.CurOffRun;
+        }
+        else
+        {
+            w.CurOffRun = 0;
+        }
+
+        if (!w.SkinCensusTaken)
+        {
+            w.SkinCensusTaken = true;
+            for (int i = 0; i < _renderers.Length; i++)
+            {
+                if (_renderers[i] is SkinnedMeshRenderer smr && smr != null)
+                {
+                    w.SkinCount++;
+                    if (smr.updateWhenOffscreen)
+                        w.SkinUwoTrue++;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// THE FLASH ITSELF — every float/range/colour property of the prop's own materials, read back
+    /// per frame and compared between the two windows.
+    ///
+    /// <para>This is the measurement round 1 was missing and the one the report is actually about.
+    /// It does not care which mechanism drives the value: an animator layer, a state behaviour, a
+    /// coroutine or a world-position uniform the game pushed once and never again all show up here
+    /// as the same thing — a number that moves, or does not. A colour is reduced to its largest
+    /// channel, which for a WHITE flash is the flash.</para>
+    ///
+    /// <para>Three terms per property, because the report has two halves and one of them needs a
+    /// shape rather than a total. <c>MatAbs/MatSecs</c> is the RATE (sum of |dv| per REAL second, so
+    /// a value driven at half speed reads half the home number). <c>MatReversals</c> is how many
+    /// times the direction of travel changed — one blink up and back is two — which is what
+    /// separates "a value that ramps once" from "a value that pulses". <c>MatMidFreezeFrames</c> is
+    /// the STOP: frames on which the value did not move AT ALL while sitting away from the bottom
+    /// of its own range, i.e. frozen in the middle of a flash rather than resting between two.</para>
+    ///
+    /// <para>The elevation test uses the window's RUNNING min/max, so the first frames of a window
+    /// are judged against an incomplete range. That is stated rather than hidden: it can only
+    /// under-report a freeze at the very start of a window, never invent one.</para>
+    /// </summary>
+    private static void SampleMaterials(Window w, float dt)
+    {
+        for (int m = 0; m < _matCount; m++)
+        {
+            Material mat = Mats[m];
+            if (mat == null)
+            {
+                for (int k = 0; k < _matPropCount; k++)
+                    PrevMatValid[(m * MatPropCap) + k] = false;
+                continue;
+            }
+
+            for (int k = 0; k < _matPropCount; k++)
+            {
+                int slot = (m * MatPropCap) + k;
+                float v;
+                if (MatPropIsColor[k])
+                {
+                    Color c = mat.GetColor(MatPropId[k]);
+                    v = Mathf.Max(Mathf.Max(c.r, c.g), Mathf.Max(c.b, c.a));
+                }
+                else
+                {
+                    v = mat.GetFloat(MatPropId[k]);
+                }
+
+                if (v < w.MatMin[slot]) w.MatMin[slot] = v;
+                if (v > w.MatMax[slot]) w.MatMax[slot] = v;
+
+                if (!PrevMatValid[slot])
+                {
+                    PrevMatValid[slot] = true;
+                    PrevMatV[slot] = v;
+                    PrevMatSign[slot] = 0;
+                    continue;
+                }
+
+                float d = v - PrevMatV[slot];
+                PrevMatV[slot] = v;
+                w.MatSecs[slot] += dt;
+
+                if (d == 0f)
+                {
+                    float span = w.MatMax[slot] - w.MatMin[slot];
+                    if (span > 1e-4f && v > w.MatMin[slot] + (0.10f * span))
+                    {
+                        w.MatCurFreeze[slot]++;
+                        if (w.MatCurFreeze[slot] >= FreezeRunFrames)
+                        {
+                            w.MatMidFreezeFrames[slot]++;
+                            if (w.MatCurFreeze[slot] > w.MatLongestMidFreeze[slot])
+                                w.MatLongestMidFreeze[slot] = w.MatCurFreeze[slot];
+                        }
+                    }
+                    continue;
+                }
+
+                w.MatCurFreeze[slot] = 0;
+                w.MatMoveFrames[slot]++;
+                w.MatAbs[slot] += d < 0f ? -d : d;
+                sbyte sign = (sbyte)(d > 0f ? 1 : -1);
+                if (PrevMatSign[slot] != 0 && sign != PrevMatSign[slot])
+                    w.MatReversals[slot]++;
+                PrevMatSign[slot] = sign;
+            }
         }
     }
 
@@ -647,6 +1347,8 @@ internal static class PropAnimWatch
         if (_left <= 0 || (Hand.Frames == 0 && Home.Frames == 0))
             return;
         _left--;
+        if (KindsDone.Count < KindCap && !KindSpent(_label))
+            KindsDone.Add(_label);
         ReportVerdict(reason);
     }
 
@@ -657,7 +1359,7 @@ internal static class PropAnimWatch
     /// something that can never be switched off.</summary>
     private static void ReportVerdict(string reason)
     {
-        var sb = new System.Text.StringBuilder(2048);
+        var sb = new System.Text.StringBuilder(8192);
         sb.Append("[Props] HELD-PROP ANIMATION A/B for ").Append(_label)
           .Append(" (").Append(reason).Append("): HAND ").Append(Hand.Frames)
           .Append(" frame(s)/").Append(Hand.RealSeconds.ToString("0.00")).Append("s vs HOME ")
@@ -746,6 +1448,13 @@ internal static class PropAnimWatch
           .Append("; poseStomps=").Append(Hand.PoseStomps).Append(" of ").Append(Hand.Frames)
           .Append(" hand frame(s)");
 
+        // ---- ROUND 2 (2026-09-05): the four terms round 1 could not see -----------------------
+        AppendPopulations(sb);
+        AppendLayers(sb);
+        AppendVisibility(sb);
+        AppendAnchors(sb);
+        AppendMaterials(sb);
+
         sb.Append(". READ IT LIKE THIS, IN THIS ORDER. (1) clipRate is the ground truth — "
             + "normalizedTime advanced per REAL second, so a clip that plays at half speed reads "
             + "half the home value and one that plays normally reads the same number in both "
@@ -782,10 +1491,278 @@ internal static class PropAnimWatch
             + "float, read back off the prop's materials by the name this line just printed.")
           .Append(" (").Append(_left).Append(" more animation A/B lines this session.)");
 
+        AppendVerdicts(sb);
+
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("FigureGrab", sb.ToString());
     }
+
+    /// <summary>Found-vs-sampled for every capped list in this line. A truncated list is not
+    /// absence, and round 1 printed three animators without ever saying three was the cap.</summary>
+    private static void AppendPopulations(System.Text.StringBuilder sb)
+    {
+        sb.Append(". POPULATIONS (found under the prop vs sampled here — a capped list is not an "
+                  + "absence): animator(s) ").Append(_foundAnimators).Append('/')
+          .Append(Mathf.Min(_animators.Length, ReportCap))
+          .Append("; renderer(s) ").Append(_foundRenderers).Append('/').Append(_renderers.Length)
+          .Append(" of which ").Append(_foundSkins).Append(" skinned, ").Append(_modOwned)
+          .Append(" mod-owned clone(s) dropped")
+          .Append("; material(s) ").Append(_foundMats).Append('/').Append(_matCount)
+          .Append(" on shader '").Append(_matShader).Append('\'')
+          .Append("; shader propert(y/ies) ").Append(_foundProps).Append(" declared, ")
+          .Append(_matPropCount).Append(" float/range/colour tracked");
+    }
+
+    /// <summary>EVERY LAYER, not just layer 0 — and the animator's real <c>layerCount</c> beside
+    /// the cap, so a controller with more layers than this samples says so out loud.</summary>
+    private static void AppendLayers(System.Text.StringBuilder sb)
+    {
+        sb.Append(". ALL ANIMATOR LAYERS (round 1 read layer 0 only, and layer 0 was idle in BOTH "
+                  + "windows — a flash layered over an idle base would have been invisible to it): ");
+        int n = Mathf.Min(_animators.Length, ReportCap);
+        if (n == 0)
+            sb.Append("no animator under this prop");
+        for (int i = 0; i < n; i++)
+        {
+            Animator a = _animators[i];
+            sb.Append(i > 0 ? " | " : string.Empty)
+              .Append('\'').Append(a != null ? a.name : "<destroyed>").Append("' layerCount hand=")
+              .Append(Hand.LayerCounts[i]).Append(" home=").Append(Home.LayerCounts[i])
+              .Append(" (this samples at most ").Append(LayerCap).Append(')')
+              .Append("; anyLayerRate hand=").Append(Rate(Hand.AnyAdvance[i], Hand.AnySeconds[i]))
+              .Append("/s home=").Append(Rate(Home.AnyAdvance[i], Home.AnySeconds[i]))
+              .Append("/s; advancing hand=").Append(Hand.AnyMoveFrames[i]).Append('/').Append(Hand.Frames)
+              .Append(" home=").Append(Home.AnyMoveFrames[i]).Append('/').Append(Home.Frames)
+              .Append("; longest run with NO layer advancing hand=").Append(Hand.LongestStall[i])
+              .Append(" frame(s) home=").Append(Home.LongestStall[i]).Append(" frame(s)");
+        }
+    }
+
+    /// <summary>Unity's own culling answer, and whether anyone switched the prop off. These are the
+    /// terms that decide whether <c>PropAnimBelt</c> was load-bearing.</summary>
+    private static void AppendVisibility(System.Text.StringBuilder sb)
+    {
+        sb.Append(". VISIBILITY AND BOUNDS (the other half of what cullingMode means, never read "
+                  + "before this build): renderers reporting Renderer.isVisible hand=")
+          .Append(IntRange(Hand.VisMin, Hand.VisMax)).Append(" home=")
+          .Append(IntRange(Home.VisMin, Home.VisMax))
+          .Append(" of ").Append(_renderers.Length).Append(" sampled")
+          .Append("; frames with NOT ONE visible hand=").Append(Hand.VisZeroFrames).Append('/')
+          .Append(Hand.RendFrames).Append(" home=").Append(Home.VisZeroFrames).Append('/')
+          .Append(Home.RendFrames)
+          .Append(", longest such run hand=").Append(Hand.LongestVisZeroRun)
+          .Append(" frame(s) home=").Append(Home.LongestVisZeroRun).Append(" frame(s)")
+          .Append("; renderers actually DRAWING (enabled and object active) hand=")
+          .Append(IntRange(Hand.DrawMin, Hand.DrawMax)).Append(" home=")
+          .Append(IntRange(Home.DrawMin, Home.DrawMax))
+          .Append(", frames with at least one switched OFF hand=").Append(Hand.OffFrames)
+          .Append(" home=").Append(Home.OffFrames)
+          .Append(", longest such run hand=").Append(Hand.LongestOffRun)
+          .Append(" frame(s) home=").Append(Home.LongestOffRun).Append(" frame(s)")
+          .Append("; worst gap between a renderer's culling bounds centre and its own transform "
+                  + "hand=").Append(Hand.BoundsDriftMax.ToString("0.000")).Append(" wu home=")
+          .Append(Home.BoundsDriftMax.ToString("0.000")).Append(" wu")
+          .Append("; skinned renderer(s) with updateWhenOffscreen=true hand=").Append(Hand.SkinUwoTrue)
+          .Append('/').Append(Hand.SkinCount).Append(" home=").Append(Home.SkinUwoTrue).Append('/')
+          .Append(Home.SkinCount)
+          .Append(" (PropAnimBelt sets BOTH AlwaysAnimate and updateWhenOffscreen for the hold and "
+                  + "hands the originals back on landing, so the HAND figures here are what the "
+                  + "belt produced and the HOME figures are the game's own defaults)")
+          .Append(". AT THE GRAB, BEFORE THE BELT WROTE ANYTHING (the state the prop arrived in — "
+                  + "without this the belt would erase the evidence for its own cause): ")
+          .Append(_preVisible).Append(" of ").Append(_preRenderers)
+          .Append(" renderer(s) reported isVisible (READ IT AS THE PREVIOUS FRAME'S ANSWER — "
+                  + "isVisible is last frame's culling result and the prop has only just been "
+                  + "reparented, so it describes the hex, not the hand; the two counts after it are "
+                  + "immediate and exact), ").Append(_preUwoFalse)
+          .Append(" skinned renderer(s) had updateWhenOffscreen=false, ").Append(_preCullNotAlways)
+          .Append(" of ").Append(_preAnimators)
+          .Append(" animator(s) were NOT already AlwaysAnimate, worst bounds-vs-transform gap ")
+          .Append(_preDrift.ToString("0.000"))
+          .Append(" wu. The two exact counts are what say whether the belt had anything to do: "
+                  + "skinned renderers at updateWhenOffscreen=false and animators not already at "
+                  + "AlwaysAnimate are the preconditions of the mechanism it removes, and zeros "
+                  + "there mean the belt changed nothing and cannot be why anything got better");
+    }
+
+    /// <summary>The game's own world-anchor feeders, counted. Zero of each means
+    /// <c>PropAnimBelt</c>'s second strand made no writes at all on this prop and cannot be what
+    /// changed — which is as much an answer as finding them.</summary>
+    private static void AppendAnchors(System.Text.StringBuilder sb)
+    {
+        sb.Append(". WORLD ANCHOR FEEDERS under this prop: ").Append(_zephyrAnims)
+          .Append(" ZephyrAnim (pushes the object's WORLD POSITION into a shader uniform, but only "
+                  + "from Update while its serialized moveUpdate bool is set — ZephyrAnim.cs:41-55), ")
+          .Append(_objPosToMats)
+          .Append(" ObjectPosToMaterial (pushes it in OnEnable and NEVER again — "
+                  + "ObjectPosToMaterial.cs:15-25), ")
+          .Append(_posToMats)
+          .Append(" PosToMat (pushes _ObjPosY every frame and needs no help — PosToMat.cs:5-11). "
+                  + "The flat game never moved a prop off its hex, so 'written once at spawn' was "
+                  + "always true there; this mod moves it into a palm, and a shader term anchored at "
+                  + "a uniform still naming the HEX would arrive late and end early on a mesh a "
+                  + "metre away. PropAnimBelt re-runs the first two by toggling their own enabled "
+                  + "flag while the prop is off its hex, so the value written is the GAME's, from "
+                  + "the GAME's own serialized property name");
+    }
+
+    /// <summary>
+    /// THE FLASH ITSELF: every tracked material property that MOVED in either window, with its rate
+    /// on each side, how often it turned round, and how long it sat frozen mid-flash. Properties
+    /// that never moved are counted rather than listed — a dead term is worth one number, not a
+    /// line.
+    /// </summary>
+    private static void AppendMaterials(System.Text.StringBuilder sb)
+    {
+        sb.Append(". MATERIAL PROPERTIES READ BACK OFF THE PROP (this is the flash itself, whatever "
+                  + "drives it — the measurement round 1 did not have): ");
+        if (_matPropCount == 0 || _matCount == 0)
+        {
+            sb.Append("no material property table could be read on this prop");
+            return;
+        }
+
+        int listed = 0, moved = 0;
+        for (int m = 0; m < _matCount; m++)
+        {
+            for (int k = 0; k < _matPropCount; k++)
+            {
+                int slot = (m * MatPropCap) + k;
+                if (Hand.MatMoveFrames[slot] == 0 && Home.MatMoveFrames[slot] == 0)
+                    continue;
+                moved++;
+                if (listed >= MatListCap)
+                    continue;
+                sb.Append(listed > 0 ? " | " : string.Empty)
+                  .Append("mat").Append(m).Append('.').Append(MatPropName[k] ?? "<unnamed>")
+                  .Append(" rate hand=").Append(Rate(Hand.MatAbs[slot], Hand.MatSecs[slot]))
+                  .Append("/s home=").Append(Rate(Home.MatAbs[slot], Home.MatSecs[slot]))
+                  .Append("/s; moving hand=").Append(Hand.MatMoveFrames[slot]).Append('/').Append(Hand.Frames)
+                  .Append(" home=").Append(Home.MatMoveFrames[slot]).Append('/').Append(Home.Frames)
+                  .Append("; reversals hand=").Append(Hand.MatReversals[slot])
+                  .Append(" home=").Append(Home.MatReversals[slot])
+                  .Append("; range hand=").Append(Range(Hand.MatMin[slot], Hand.MatMax[slot]))
+                  .Append(" home=").Append(Range(Home.MatMin[slot], Home.MatMax[slot]))
+                  .Append("; frozen MID-FLASH hand=").Append(Hand.MatMidFreezeFrames[slot])
+                  .Append(" frame(s) (longest run ").Append(Hand.MatLongestMidFreeze[slot])
+                  .Append(") home=").Append(Home.MatMidFreezeFrames[slot])
+                  .Append(" frame(s) (longest run ").Append(Home.MatLongestMidFreeze[slot]).Append(')');
+                listed++;
+            }
+        }
+
+        if (moved == 0)
+            sb.Append("NOT ONE of the ").Append(_matPropCount * _matCount)
+              .Append(" tracked property slot(s) changed value in EITHER window — so no flash was "
+                      + "playing on this prop's own materials while it was held AND none was playing "
+                      + "while it stood on its hex, and this window did not contain the thing the "
+                      + "report is about");
+        else
+            sb.Append(". ").Append(moved).Append(" propert(y/ies) moved, ").Append(listed)
+              .Append(" listed; the rest never changed value in either window");
+    }
+
+    /// <summary>
+    /// THE TWO VERDICTS, SEPARATELY — because "viel langsamer" and "ploppt mitten drin einfach weg"
+    /// are two defects and folding them into one number is what made round 1 unreadable.
+    ///
+    /// <para>RATE compares the fastest-moving material property's Σ|Δv| per REAL second in the hand
+    /// against the same property on the hex, and falls back to the all-layer animator rate when no
+    /// material property moved at all. STOP names every way the picture could have stopped while
+    /// the driver ran: a value frozen mid-flash, a run of frames on which Unity thought nothing was
+    /// visible, and a renderer somebody switched off — the last of which is reported and never
+    /// suppressed, because switching a prop off is the GAME's decision about game state.</para>
+    /// </summary>
+    private static void AppendVerdicts(System.Text.StringBuilder sb)
+    {
+        int best = -1;
+        float bestRate = 0f;
+        for (int m = 0; m < _matCount; m++)
+        {
+            for (int k = 0; k < _matPropCount; k++)
+            {
+                int slot = (m * MatPropCap) + k;
+                float h = Hand.MatSecs[slot] > 1e-4f ? Hand.MatAbs[slot] / Hand.MatSecs[slot] : 0f;
+                float o = Home.MatSecs[slot] > 1e-4f ? Home.MatAbs[slot] / Home.MatSecs[slot] : 0f;
+                float top = Mathf.Max(h, o);
+                if (top <= bestRate)
+                    continue;
+                bestRate = top;
+                best = slot;
+            }
+        }
+
+        sb.Append(" RATE VERDICT: ");
+        if (best < 0)
+        {
+            float ah = Hand.AnySeconds[0] > 1e-4f ? Hand.AnyAdvance[0] / Hand.AnySeconds[0] : 0f;
+            float ao = Home.AnySeconds[0] > 1e-4f ? Home.AnyAdvance[0] / Home.AnySeconds[0] : 0f;
+            if (ah <= 0f && ao <= 0f)
+                sb.Append("NO ANIMATION WAS RUNNING IN EITHER WINDOW — no tracked material property "
+                          + "moved and no animator layer advanced, on ").Append(Hand.Frames)
+                  .Append(" hand frame(s) and ").Append(Home.Frames)
+                  .Append(" home frame(s). That is NOT a verdict about the hand: it says this hold "
+                          + "did not contain a flash at all, so the comparison has nothing in it. "
+                          + "The next round needs a hold that visibly flashes");
+            else
+                sb.Append("no material property moved; on the ANIMATOR's all-layer rate the hand ran "
+                          + "at ").Append(RatioText(ah, ao)).Append(" (hand ").Append(ah.ToString("0.000"))
+                  .Append("/s vs home ").Append(ao.ToString("0.000")).Append("/s)");
+        }
+        else
+        {
+            float h = Hand.MatSecs[best] > 1e-4f ? Hand.MatAbs[best] / Hand.MatSecs[best] : 0f;
+            float o = Home.MatSecs[best] > 1e-4f ? Home.MatAbs[best] / Home.MatSecs[best] : 0f;
+            sb.Append("on the fastest-moving property (mat").Append(best / MatPropCap).Append('.')
+              .Append(MatPropName[best % MatPropCap] ?? "<unnamed>").Append(") the hand ran at ")
+              .Append(RatioText(h, o)).Append(" (hand ").Append(h.ToString("0.000"))
+              .Append("/s over ").Append(Hand.MatMoveFrames[best]).Append(" moving frame(s) vs home ")
+              .Append(o.ToString("0.000")).Append("/s over ").Append(Home.MatMoveFrames[best])
+              .Append(" moving frame(s))");
+        }
+
+        sb.Append(". STOP VERDICT: ");
+        int midHand = best >= 0 ? Hand.MatMidFreezeFrames[best] : 0;
+        int midHome = best >= 0 ? Home.MatMidFreezeFrames[best] : 0;
+        int midRunHand = best >= 0 ? Hand.MatLongestMidFreeze[best] : 0;
+        int midRunHome = best >= 0 ? Home.MatLongestMidFreeze[best] : 0;
+        sb.Append("frozen MID-FLASH hand=").Append(midHand).Append(" frame(s) (longest run ")
+          .Append(midRunHand).Append(") home=").Append(midHome).Append(" frame(s) (longest run ")
+          .Append(midRunHome).Append("); frames Unity saw NOTHING of this prop hand=")
+          .Append(Hand.VisZeroFrames).Append(" (longest run ").Append(Hand.LongestVisZeroRun)
+          .Append(") home=").Append(Home.VisZeroFrames).Append(" (longest run ")
+          .Append(Home.LongestVisZeroRun).Append("); frames a renderer was SWITCHED OFF hand=")
+          .Append(Hand.OffFrames).Append(" (longest run ").Append(Hand.LongestOffRun)
+          .Append(") home=").Append(Home.OffFrames).Append(" (longest run ")
+          .Append(Home.LongestOffRun).Append("). A switched-off renderer is the GAME deactivating "
+                  + "the prop — a decision about game state, reported here and never suppressed; a "
+                  + "zero-visible run with everything still switched on is Unity culling the prop "
+                  + "against bounds this mod's reparent invalidated, which is what PropAnimBelt "
+                  + "exists to remove. If both read 0 in the hand and the picture still stopped, the "
+                  + "stop is in the value itself and MID-FLASH is the term that names it.");
+    }
+
+    /// <summary>"x0.27 of home" / "MATCHED (x1.00)" / "only the hand moved" — a ratio with a word
+    /// for each degenerate case, because a bare 0 and a bare infinity both read as a bug.</summary>
+    private static string RatioText(float hand, float home)
+    {
+        if (home <= 1e-6f && hand <= 1e-6f)
+            return "NEITHER WINDOW MOVED";
+        if (home <= 1e-6f)
+            return "only the HAND window moved (home was still)";
+        if (hand <= 1e-6f)
+            return "x0.00 — the hand window did not move at all while the hex did";
+        float r = hand / home;
+        return Mathf.Abs(r - 1f) <= 0.10f
+            ? $"MATCHED (x{r.ToString("0.00")} of home)"
+            : $"x{r.ToString("0.00")} of home";
+    }
+
+    /// <summary>An int min/max range, with the "never sampled" sentinel printed as n/a rather than
+    /// as int.MaxValue.</summary>
+    private static string IntRange(int min, int max)
+        => min > max ? "n/a" : (min == max ? min.ToString() : $"{min}..{max}");
 
     private static void Reset(Window w)
     {
@@ -808,7 +1785,40 @@ internal static class PropAnimWatch
             w.SmbLiveFrames[i] = 0;
             w.TimelineMin[i] = float.MaxValue;
             w.TimelineMax[i] = float.MinValue;
+            w.LayerCounts[i] = 0;
+            w.AnyAdvance[i] = 0f;
+            w.AnySeconds[i] = 0f;
+            w.AnyMoveFrames[i] = 0;
+            w.LongestStall[i] = 0;
+            w.CurStall[i] = 0;
         }
+        for (int i = 0; i < MatSlots; i++)
+        {
+            w.MatAbs[i] = 0f;
+            w.MatSecs[i] = 0f;
+            w.MatMoveFrames[i] = 0;
+            w.MatMin[i] = float.MaxValue;
+            w.MatMax[i] = float.MinValue;
+            w.MatReversals[i] = 0;
+            w.MatMidFreezeFrames[i] = 0;
+            w.MatLongestMidFreeze[i] = 0;
+            w.MatCurFreeze[i] = 0;
+        }
+        w.RendFrames = 0;
+        w.VisMin = int.MaxValue;
+        w.VisMax = int.MinValue;
+        w.VisZeroFrames = 0;
+        w.LongestVisZeroRun = 0;
+        w.CurVisZeroRun = 0;
+        w.DrawMin = int.MaxValue;
+        w.DrawMax = int.MinValue;
+        w.OffFrames = 0;
+        w.LongestOffRun = 0;
+        w.CurOffRun = 0;
+        w.BoundsDriftMax = 0f;
+        w.SkinCensusTaken = false;
+        w.SkinCount = 0;
+        w.SkinUwoTrue = 0;
         w.ClockMin = float.MaxValue;
         w.ClockMax = float.MinValue;
         w.LocalClockMin = float.MaxValue;

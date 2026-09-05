@@ -196,6 +196,13 @@ internal static class PropGrab
         // state, and nothing at all once its two-verdict budget is spent. See PropAnimWatch.
         PropAnimWatch.Tick();
 
+        // The belt sits above the gate for the same reason, and for one more: a prop still in a
+        // hand when GrabProps is toggled off is released by the gate's ReleaseAll on THIS frame,
+        // and the culling values it replaced must be handed back on that same frame or they are
+        // stranded for the rest of the session. One Count compare when nothing is held. See
+        // PropAnimBelt.
+        PropAnimBelt.Tick();
+
         Prune();
         PropGhosts.Tick();
 

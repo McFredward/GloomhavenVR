@@ -490,6 +490,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _probeFrame = Time.frameCount + 2; // arm the held-visibility probe (see TickProbe)
         BeginWatch();                      // arm the PER-FRAME hold watch (see BeginWatch)
         PropAnimWatch.NotifyGrab(_visual, Label); // …and the ANIMATION A/B (see PropAnimWatch)
+        PropAnimBelt.Engage(_visual, Label);       // …and the belt that keeps it animating
 
         if (_grabLogsLeft <= 0)
             return;
@@ -754,6 +755,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         RestoreLayers();
         HeldProps.Remove(_prop);
         PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
+        PropAnimBelt.Release(_visual);       // …and hand the culling defaults back, object-for-object
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -799,6 +801,7 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _holder = null;
         HeldProps.Remove(_prop);
         PropAnimWatch.NotifyLanded(_visual); // the prop is on its hex again — open the HOME window
+        PropAnimBelt.Release(_visual);       // …and hand the culling defaults back, object-for-object
         ScheduleThaw(); // home again — hand MonitorMovement back once the bounds have re-synced
     }
 
@@ -2198,5 +2201,6 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _cardRouteLogsLeft = HighlightKindBudget;
         CardRouteKinds.Clear();
         PropAnimWatch.Reset();
+        PropAnimBelt.Reset();
     }
 }
