@@ -41,10 +41,10 @@ internal sealed class PileBrowser
     /// which tops out ≈ 0.08 m past the edge). Tunable — raise to lift the whole fan. The
     /// pivot lives in board-local space, so it scales with the board automatically.
     /// </summary>
-    private const float BoardFloatHeight = 0.26f;
+    private const float BoardFloatHeight = PileFanShape.BoardFloatHeight;
 
     /// <summary>Poke-toggle proud offset toward the viewer (board-local −Z is out of the board face), meters.</summary>
-    private const float BoardFloatProudZ = -0.05f;
+    private const float BoardFloatProudZ = PileFanShape.BoardFloatProudZ;
 
     // ---- physical hand sweep (single-winner highlight) ---------------------------
     // The browse arc runs the SAME election as the palm fan, literally: FanSweep.Score. Its
@@ -60,8 +60,7 @@ internal sealed class PileBrowser
     /// <see cref="CardsConfig.BrowseFanOffset"/>, re-read every <see cref="Tick"/> while
     /// board-anchored so the Piles 'Browse X/Y/Z' steppers move an OPEN fan immediately.
     /// </summary>
-    private static Vector3 BoardAnchorBase =>
-        new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+    private static Vector3 BoardAnchorBase => PileFanShape.BoardAnchorBase;
 
     private readonly List<VRCard> _cards = new(16);
     private Transform? _root;
@@ -368,14 +367,7 @@ internal sealed class PileBrowser
     /// downward-hanging arc clears the board top edge and the initiative track (see
     /// <see cref="BoardFloatHeight"/>).
     /// </summary>
-    private void PlaceAboveBoard()
-    {
-        if (_root == null)
-            return;
-        _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
-        _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
-        Tick(); // face the head immediately (no first-frame flash of the un-billboarded arc)
-    }
+    private void PlaceAboveBoard() => PileFanShape.PlaceAboveBoard(_root, Vector3.zero);
 
     /// <summary>
     /// Head-relative reading pose (FALLBACK — used only when no control board exists): in front
@@ -417,7 +409,7 @@ internal sealed class PileBrowser
         // Vector3 config read — so the debug menu's Piles 'Browse X/Y/Z' steppers move an OPEN
         // fan live; the board-LOCAL anchor still rides its parent's pose/scale for free.
         if (_boardAnchored)
-            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
+            _root.localPosition = PileFanShape.BoardAnchorLive(Vector3.zero);
         // Billboard on BOTH paths — board-anchored and head-fallback alike. See PileFanShape.
         PileFanShape.FaceHead(_root);
     }

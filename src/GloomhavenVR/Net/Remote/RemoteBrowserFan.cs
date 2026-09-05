@@ -70,20 +70,38 @@ internal sealed class RemoteBrowserFan
     // ---- geometry (mirror of PileBrowser's arc constants; local copies so this stays independent
     //      of the receiver's live [Cards] config being bound) ------------------------------------
     /// <summary>
-    /// How many browse slabs this mirror draws — A REAL CAP, and NOT one the owner has.
+    /// How many browse slabs this fan builds UP FRONT. It is a capacity hint, not a cap — see
+    /// <see cref="ResolveCount"/>, which draws whatever the owner is showing.
     ///
-    /// <para>It used to cite "PileBrowser's own list capacity". It never was one:
-    /// <c>PileBrowser.cs</c>'s <c>new List&lt;VRCard&gt;(16)</c> is a List INITIAL CAPACITY, an
-    /// allocation hint that grows silently, so the owner's browse fan has no cap at all. Nor is
-    /// this a WIRE bound — <c>PresenceState.PileBrowseCardCount</c> is a full byte and the sender
-    /// writes the owner's real count into it. It is purely this receiver's slab pool, and the two
-    /// clamps below (<c>Mathf.Clamp(_owner.PileBrowseCardCount, 1, MaxCards)</c>) are therefore a
-    /// SILENT TRUNCATION: a peer browsing a 20-card discard pile is drawn here with 16 slabs.
-    /// Recorded rather than raised because the pool feeds the emerge/collapse animation's
-    /// index-aligned buffers; it is the same shape as the active column's old
-    /// <c>MaxCards = 6</c>, which was lifted, and it wants the same treatment.</para>
+    /// <para>IT USED TO BE A CAP, <c>MaxCards = 16</c>, AND IT TRUNCATED SILENTLY. Its comment
+    /// cited "PileBrowser's own list capacity"; that was never a capacity in the sense meant —
+    /// <c>new List&lt;VRCard&gt;(16)</c> is an allocation hint that grows — so the owner's browse
+    /// fan has no cap at all, while a peer watching them browse a longer pile was drawn 16 slabs
+    /// and nobody was told. That is the standing 1:1 ruling's own failure mode and it is R3's
+    /// defect in a second file.</para>
+    ///
+    /// <para>THERE WAS NEVER A BUFFER IN THE WAY, and the previous round said there was. Every
+    /// index-aligned store here is grown or rebuilt from <c>_cards.Count</c>: <see cref="Rebuild"/>
+    /// destroys and re-creates the whole slab list for ANY count, <c>_collapseFrom</c> is
+    /// <c>Clear()</c>ed and refilled at each <see cref="BeginCollapse"/> (and
+    /// <see cref="TickCollapse"/> bounds by both lists), and <c>_pop</c> grows on demand inside
+    /// <see cref="PopAmount"/>. Nothing was fixed-size; the cap was arbitrary.</para>
     /// </summary>
-    private const int MaxCards = 16;
+    private const int InitialSlots = 16;
+
+    /// <summary>
+    /// THE ONLY REMAINING CEILING, and it is a defence against a MALFORMED PACKET rather than a
+    /// statement about any pile. <c>PresenceState.PileBrowseCardCount</c> is a full byte, so a
+    /// corrupt or hostile sender can ask this receiver for 255 slabs — each a GameObject with a
+    /// mesh, a renderer and a front overlay. No real browse fan comes near this number (the pile a
+    /// character browses is drawn from a hand deck an order of magnitude smaller), so it can never
+    /// truncate what a peer is actually looking at.
+    ///
+    /// <para>AND IF IT EVER DOES, IT SAYS SO. A cap a player cannot see is what this row is about,
+    /// so <see cref="ResolveCount"/> logs at a tier the default level prints whenever it bites —
+    /// once per changed count, never per frame.</para>
+    /// </summary>
+    private const int SanityMaxCards = 64;
     private const float CardW = RemoteHandFan.DefaultCardWidth;   // ability cards, 63.5 × 88
     private const float CardH = RemoteHandFan.DefaultCardHeight;
     private const float MaxArcDegrees = 110f;           // PileBrowser.MaxArcDegrees
@@ -223,7 +241,7 @@ internal sealed class RemoteBrowserFan
     private readonly RemoteAvatar _owner;
 
     private GameObject? _root;
-    private readonly List<GameObject> _cards = new(MaxCards);
+    private readonly List<GameObject> _cards = new(InitialSlots);
 
     /// <summary>The FRONT layer over those slabs (user ruling 2026-08-08) — one overlay per slab,
     /// gated on <see cref="RevealGate.ShowRoundCardFronts"/> and fed from the peer's own replicated
@@ -252,7 +270,7 @@ internal sealed class RemoteBrowserFan
     private Vector3 _collapseArcUp = Vector3.up;
     private float _collapseArc;
     private float _collapseTargetScale = 1f;
-    private readonly List<Vector3> _collapseFrom = new(MaxCards);
+    private readonly List<Vector3> _collapseFrom = new(InitialSlots);
     private int _collapseKind = -1;
 
     public RemoteBrowserFan(RemoteAvatar owner)
@@ -415,7 +433,7 @@ internal sealed class RemoteBrowserFan
         // ---- state edges -------------------------------------------------------------------
         if (wantOpen && (!_open || wantKind != _shownKind))
         {
-            BeginEmerge(wantKind, Mathf.Clamp(_owner.PileBrowseCardCount, 1, MaxCards));
+            BeginEmerge(wantKind, ResolveCount());
         }
         else if (!wantOpen && _open)
         {
@@ -439,7 +457,7 @@ internal sealed class RemoteBrowserFan
         SyncTuning();
         SyncFaceRect();
 
-        int count = Mathf.Clamp(_owner.PileBrowseCardCount, 1, MaxCards);
+        int count = ResolveCount();
         if (count != _builtCount)
             Rebuild(count); // cards plucked out of / returned to the arc mid-browse: no re-emerge
 
@@ -698,6 +716,34 @@ internal sealed class RemoteBrowserFan
 
     /// <summary>VRCard's pop RAMP rate (units/second, MoveTowards).</summary>
     private const float PopRate = Cards.VRCard.PopRate;
+
+    /// <summary>Last count this fan complained about being forced to clamp (−1 = never), so the
+    /// sanity-ceiling line below fires once per changed count and never per frame.</summary>
+    private int _loggedClampedCount = -1;
+
+    /// <summary>
+    /// HOW MANY SLABS TO DRAW: the owner's own count, off the wire, floored at 1 so an open fan is
+    /// never empty. ONE resolver, so the emerge edge and the per-frame layout cannot disagree about
+    /// the arc's length — they were two separate <c>Mathf.Clamp</c> expressions.
+    /// </summary>
+    private int ResolveCount()
+    {
+        int want = _owner.PileBrowseCardCount;
+        if (want > SanityMaxCards && _loggedClampedCount != want)
+        {
+            _loggedClampedCount = want;
+            // HW-VERIFY: this line decides F1 — a peer's browse arc is the owner's own length, and
+            // the only thing that can shorten it now announces itself. Change-gated on the count, so
+            // it cannot become per-frame chatter.
+            VRLog.Alert("Net", $"Remote pile browse [player {_owner.PlayerId}]: the wire asked for "
+                + $"{want} cards and this fan will draw {SanityMaxCards}. That ceiling exists only "
+                + "to bound a MALFORMED packet (PileBrowseCardCount is a full byte) and no real "
+                + "pile reaches it, so a peer's arc is now SHORTER than its owner's — which the 1:1 "
+                + "ruling forbids. Either the sender's count is corrupt or SanityMaxCards is too "
+                + "low; this line is the only way to tell the two apart.");
+        }
+        return Mathf.Clamp(want, 1, SanityMaxCards);
+    }
 
     /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — kept per slab so a
     /// lift MOVING between cards has the old one relaxing while the new one rises.</summary>

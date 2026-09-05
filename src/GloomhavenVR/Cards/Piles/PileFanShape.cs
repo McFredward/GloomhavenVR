@@ -29,6 +29,13 @@ namespace GloomhavenVR.Cards;
 /// retune of an inline literal is invisible to every checker the project has.</item>
 /// <item><b>The no-board fallback pose.</b> <c>PlaceAtHead</c> was twenty character-identical lines
 /// in both files.</item>
+/// <item><b>The board anchor and the board-top pose.</b> <c>BoardFloatHeight</c>,
+/// <c>BoardFloatProudZ</c>, <c>BoardAnchorBase</c> and <c>PlaceAboveBoard</c> were a fourth copied
+/// set — and the copy had already drifted by one term: <c>ItemsPile.Tick</c> re-poses the open arc
+/// at <c>BoardAnchorBase + BrowseFanOffset + ItemFanOffset</c> while its own
+/// <c>PlaceAboveBoard</c> dropped the item nudge, so the arc opened at the browse fan's spot and
+/// was moved to its own on the next tick. That is the whole argument for this file in miniature:
+/// two spellings of one pose, and the one that ran less often was the one that was wrong.</item>
 /// </list>
 ///
 /// <para><b>THESE ARE AUTHORED CONSTANTS, NOT DIALS, AND DELIBERATELY NOT THE HAND FAN'S.</b> The
@@ -57,6 +64,56 @@ internal static class PileFanShape
     /// <summary>THE BOARD FANS' ROLL GAIN — the <c>0.85</c> in <c>Euler(0, 0, -angle * 0.85f)</c>,
     /// so a card leans slightly less than its own arc angle.</summary>
     internal const float TiltFactor = 0.85f;
+
+    /// <summary>
+    /// How far ABOVE the control board's top edge a pile fan's pivot floats, in board-local metres —
+    /// high enough to clear the top edge and the initiative track drawn over it. The pivot lives in
+    /// board-local space, so it scales with the board automatically. Raise it to lift the whole fan.
+    /// </summary>
+    internal const float BoardFloatHeight = 0.26f;
+
+    /// <summary>The same pivot's proud offset toward the viewer (board-local −Z is out of the board
+    /// face), metres.</summary>
+    internal const float BoardFloatProudZ = -0.05f;
+
+    /// <summary>
+    /// The pile fans' FIXED board-local base anchor. The live anchor is this plus the debug-menu
+    /// tunable <c>[Cards] BrowseFanOffset</c> (and, for the item fan, its own <c>ItemCardOffset</c>
+    /// nudge) — re-read every tick while board-anchored, so the Piles 'Browse X/Y/Z' steppers move
+    /// an OPEN fan immediately.
+    /// </summary>
+    internal static Vector3 BoardAnchorBase =>
+        new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+
+    /// <summary>
+    /// The board-anchored reading pose: a spot a comfortable reading height above the control
+    /// board, centred on its long axis. The root is a child of the board root, so this board-LOCAL
+    /// offset inherits the board's live scale and pose — the fan tracks a two-hand board resize and
+    /// a board switch — and the arc hangs downward from it, clearing the top edge and the
+    /// initiative track (see <see cref="BoardFloatHeight"/>).
+    ///
+    /// <para>POSITION is written here and re-read every tick (live tuning); the FACING is
+    /// billboarded here too, so an arc is never presented for one frame un-billboarded.</para>
+    /// </summary>
+    /// <param name="t">The fan root, already parented under the board root.</param>
+    /// <param name="extraOffset">The fan's OWN nudge on top of <c>[Cards] BrowseFanOffset</c> —
+    /// zero for the ability piles, <c>ItemCardOffset</c> for the item fan. It is a parameter rather
+    /// than a second copy of this method because it is the only term that differs, and because the
+    /// item fan's own copy used to omit it on the open path and add it on the tick path.</param>
+    internal static void PlaceAboveBoard(Transform? t, Vector3 extraOffset)
+    {
+        if (t == null)
+            return;
+        t.localPosition = BoardAnchorLive(extraOffset);
+        t.localRotation = Quaternion.identity; // the billboard below owns the WORLD rotation
+        FaceHead(t);
+    }
+
+    /// <summary>The live board-local anchor — the base plus <c>[Cards] BrowseFanOffset</c> plus the
+    /// fan's own nudge. Shared with the per-tick re-read so the OPEN pose and the TICK pose cannot
+    /// resolve to two different spots, which is exactly how the item fan's two spellings drifted.</summary>
+    internal static Vector3 BoardAnchorLive(Vector3 extraOffset)
+        => BoardAnchorBase + CardsConfig.BrowseFanOffset.Value + extraOffset;
 
     /// <summary>
     /// Billboard a fan root toward the local head, with the reading pitch on top. UNGUARDED by

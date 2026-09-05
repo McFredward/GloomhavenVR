@@ -99,10 +99,9 @@ internal sealed class ItemsPile
     // spot above the control board as the discard/burnt PileBrowser (mirror of
     // PileBrowser.BoardFloatHeight / BoardFloatProudZ / BoardAnchorBase). The root parents
     // under the board root (PlayTray.Current.Root) so it inherits the board's live pose + scale.
-    private const float BoardFloatHeight = 0.26f;
-    private const float BoardFloatProudZ = -0.05f;
-    private static Vector3 BoardAnchorBase =>
-        new(0f, PlayTray.BoardTopLocalY + BoardFloatHeight, BoardFloatProudZ);
+    private const float BoardFloatHeight = PileFanShape.BoardFloatHeight;
+    private const float BoardFloatProudZ = PileFanShape.BoardFloatProudZ;
+    private static Vector3 BoardAnchorBase => PileFanShape.BoardAnchorBase;
 
     /// <summary>
     /// Requirement #2: the per-board ITEM-fan offset — nudges the item fan root (board-anchored,
@@ -946,7 +945,7 @@ internal sealed class ItemsPile
         if (_root == null)
             return;
         if (_boardAnchored)
-            _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value + ItemFanOffset; // req #2 item nudge
+            _root.localPosition = PileFanShape.BoardAnchorLive(ItemFanOffset); // req #2 item nudge
         // BILLBOARD ON BOTH PATHS. This call used to sit INSIDE the guard above, and the head-
         // fallback path (PlaceAtHead, taken when there is no control board) therefore never
         // re-faced: open the item browser with no board, step sideways, and the arc went edge-on
@@ -1163,17 +1162,18 @@ internal sealed class ItemsPile
     // ------------------------------------------------------------------ placement --
 
     /// <summary>
-    /// Shared board-top reading pose (requirement 2, mirror of PileBrowser.PlaceAboveBoard):
-    /// float the fan at the SAME spot above the control board the discard/burnt fans use.
+    /// Shared board-top reading pose (requirement 2): float the fan at the SAME spot above the
+    /// control board the discard/burnt fans use, plus this fan's own <see cref="ItemFanOffset"/>
+    /// nudge.
+    ///
+    /// <para>THE NUDGE IS NEW HERE AND ITS ABSENCE WAS THE DRIFT. This method used to be
+    /// <c>PileBrowser.PlaceAboveBoard</c> copied, and the copy dropped <see cref="ItemFanOffset"/>
+    /// while <see cref="Tick"/> — three hundred lines away, in this same file — added it. So the
+    /// arc opened at the ability piles' spot and was moved to its own on the next tick, which is a
+    /// one-frame jump at the shipped non-zero nudge and invisible in a screenshot. One expression
+    /// now (<see cref="PileFanShape.BoardAnchorLive"/>), called from both.</para>
     /// </summary>
-    private void PlaceAboveBoard()
-    {
-        if (_root == null)
-            return;
-        _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
-        _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
-        PileFanShape.FaceHead(_root);
-    }
+    private void PlaceAboveBoard() => PileFanShape.PlaceAboveBoard(_root, ItemFanOffset);
 
     /// <summary>Fixed head-relative reading pose (fallback when no control board exists) — the
     /// SAME twenty lines PileBrowser used to spell for itself; see <see cref="PileFanShape"/>.</summary>
@@ -3545,7 +3545,28 @@ internal sealed class ItemsPile
         // outlives the close now, see _keptClip): with an arc up it glides back to its own slot,
         // without one it folds into the items stack.
         ReturnPlacedChipHome(chip, "laser click on the placed card — put back on the pile");
-        hand.SendHaptic(HapticPreset.HoverTick);
+        // THE PRESS CONFIRMATION, AT THE POINT THE RETURN COMMITS — and this is the ONE receiver
+        // under Cards/Piles that did not have it.
+        //
+        // WHY IT WAS MISSING AND WHY IT IS HERE NOW (R22, 2026-09-05). PokeInteractor used to fire
+        // an unconditional ClickPulse the instant IPokeable.OnPoke returned. That was deleted,
+        // correctly: it double-pulsed every receiver that already pulses at its own commit, and it
+        // fired PHANTOM pulses for an 8 mm brush the depth-fire gate treats as no press at all.
+        // Only the receiver knows a press happened — which is exactly why the receiver has to say
+        // so. Every sibling already did (PileViewer.PileStack.OnPoke and its LaserToggle,
+        // ItemChip.OnGrab, which is where the pluck branch of OnPoke lands); this path relied on
+        // the interactor's, so fingertip-poking a placed chip home went silent the moment it went.
+        //
+        // IT REPLACES THE HoverTick THAT USED TO SIT HERE rather than joining it: a second impulse
+        // in the same frame overrides the first on the device, so a tick after a click is a click
+        // the hand never feels. Before the deletion the LAST impulse this gesture produced was the
+        // interactor's ClickPulse, so this reproduces the shipped feel exactly.
+        //
+        // THE TWO REFUSAL BRANCHES ABOVE KEEP THEIR HoverTick, deliberately. They also used to
+        // collect the interactor's pulse and no longer do, and that is the deletion working as
+        // intended: a refused gesture is answered, but it did not commit, so it must not feel like
+        // a press that did.
+        hand.SendHaptic(HapticPreset.ClickPulse);
         VRLog.Info("Cards", $"ITEM recess: laser click on the placed card '{chip.name}' ({hand.Side}) — " +
                             $"it glides back to the fan. {flow}. To take it INTO your hand instead, " +
                             "reach for it and grab it (either hand) — that is the physical route, and " +
