@@ -1935,8 +1935,30 @@ internal static partial class WallSegmentFade
                 // every wall's floor samples against the head pose EVERY FRAME, which makes it a
                 // prime suspect for head-motion-correlated cost — so it gets its own measured
                 // scope. The scope never alters the try/catch semantics around it.
+                // PERF S6 (2026-09-05): the same scope, now also broken into the phases the
+                // tick actually has. WallFade.Late was ONE number for 86 % of the subsystem's
+                // per-second cost in the ModBuild 435 log — see WallSegmentFade.TickPhases.cs
+                // for the arithmetic and for why the applier tier is sampled.
                 using (PerfMonitor.Scope("WallFade.Late"))
-                    Tick();
+                {
+                    BeginTickFrame();
+                    try
+                    {
+                        using (Phase(TickPhase.Total))
+                            Tick();
+                    }
+                    finally
+                    {
+                        // IN A FINALLY, and inside the WallFade.Late scope. The finally is so a
+                        // THROWING tick still folds and still prints: the driver's own failure
+                        // path logs once and then stays silent forever, and an instrument that
+                        // went quiet at the same moment would read as "the subsystem is not
+                        // running" rather than "it is running and dying". Inside the scope
+                        // because an instrument's cost belongs on the step it measures, and
+                        // this one prints that cost.
+                        EndTickFrame(Time.unscaledTime);
+                    }
+                }
             }
             catch (Exception e)
             {
@@ -2062,8 +2084,9 @@ internal static partial class WallSegmentFade
                 // than the budget allows, so it does no census work on top — the census starts
                 // on the next frame. Nothing waits on it: the segment table in force is the
                 // last committed one, exactly as it was between two old rescans.
-                sweptThisFrame =
-                    BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _live.BuiltRoomCount);
+                using (Phase(TickPhase.Pipeline))
+                    sweptThisFrame =
+                        BeginRescanCycle(gen!, now, urgent: gen!.m_RoomRenderers.Count != _live.BuiltRoomCount);
             }
             // MEASURE THE OUTCOME, NOT THE READINESS OF THE MECHANISM. This counts the cadence
             // ticks the suspension actually swallowed, and the SAMPLING RESUMED line prints the
@@ -2089,13 +2112,15 @@ internal static partial class WallSegmentFade
             }
 
             if (_rescanStage != RescanStage.Idle && !sweptThisFrame)
-                StepRescanCycle(gen!, now);
+                using (Phase(TickPhase.Pipeline))
+                    StepRescanCycle(gen!, now);
             if (_live.Segments.Count == 0 || _live.RoomBounds.Count == 0)
                 return;
 
             Transform headT = head!.transform;
             Vector3 headPos = headT.position;
-            UpdatePerspectiveState(headT, now);
+            using (Phase(TickPhase.Perspective))
+                UpdatePerspectiveState(headT, now);
 
             // INSIDE THE MAP (user report 2026-08-24: "wenn ich mich so klein mache, dass ich IN
             // der Map stehe, dann sollten alle Wände voll sichtbar sein"). A point against ONE
@@ -2167,7 +2192,13 @@ internal static partial class WallSegmentFade
             }
             if (suspended)
                 _suspendedEvaluations++;
-            int visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
+            // PERF S6: the per-segment coverage sweep against the head — the one step this
+            // subsystem's own 2026-07 note called the prime head-motion-correlated suspect and
+            // then never priced on its own. Its population is the segment table.
+            int visibleCount;
+            using (Phase(TickPhase.Visibility))
+                visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
+            NoteTickWalk(TickPhase.Visibility, evaluate ? _live.Segments.Count : 0);
             _lastVisibleCount = visibleCount;
             bool reevalArmed = _perspective.Armed(now);
 
@@ -2210,11 +2241,23 @@ internal static partial class WallSegmentFade
             // no one-frame skew between the trunk and the masonry beside it. Segments with no
             // RunOwner (every unsplit ProceduralWall: 'Wall 2', 'Wall 3', 'Wall 4' in the
             // ModBuild 258 log) never enter this method and keep the branch below verbatim.
-            if (evaluate && WallFadeTuning.SplitRunUnifiedOn)
-                EvaluateSplitRuns(headPos, now, fracStep, onFraction, offFraction,
-                    reevalArmed ? exitDwellMoved : exitDwellStationary);
-            else if (evaluate)
-                ClearSplitRunDrive(); // dial off: every piece decides for itself, as in 258
+            using (Phase(TickPhase.SplitRuns))
+            {
+                if (evaluate && WallFadeTuning.SplitRunUnifiedOn)
+                    EvaluateSplitRuns(headPos, now, fracStep, onFraction, offFraction,
+                        reevalArmed ? exitDwellMoved : exitDwellStationary);
+                else if (evaluate)
+                    ClearSplitRunDrive(); // dial off: every piece decides for itself, as in 258
+            }
+            NoteTickWalk(TickPhase.SplitRuns, _runs.Count);
+            // PERF S6: the decision + apply loop, whose per-frame residue was 86 % of this
+            // subsystem's cost in the ModBuild 435 log and had no name of its own. Its
+            // population is the SEGMENT TABLE — 34 walls plus 792 split-run pieces on the board
+            // the user reported — and the six Apply* phases inside it are its parts, sampled.
+            NoteTickWalk(TickPhase.Decide, _live.Segments.Count);
+            // The `using` brackets the foreach STATEMENT — no extra block, so not one line of
+            // the loop body moved or changed indentation and the diff stays readable.
+            using (Phase(TickPhase.Decide))
             foreach (Segment seg in _live.Segments.Values)
             {
                 // BOUNDLESS FAIL-SAFE (round 14 — user report: "Das Element über dem Rechteck
@@ -2451,21 +2494,26 @@ internal static partial class WallSegmentFade
             }
 
             // Shared corner pieces (round 7): min-fade of the adjacent walls, per frame.
-            ApplyCornerPieces();
+            using (Phase(TickPhase.Corners))
+                ApplyCornerPieces();
+            NoteTickWalk(TickPhase.Corners, _live.CornerPieces.Count);
             // WHICH RENDERERS ARE ACTUALLY BEING FADED, BY NAME (user report 2026-08-19,
             // skelet.jpg: "Der Schädel ist immer noch nicht sichtbar"). Deliberately HERE — after
             // every applier has run, so the line reports what was written and not what was
             // intended (the ModBuild-164 lesson). Rate-limited and change-triggered; the
             // expensive half only runs on a frame where the written set moved. See
             // WallSegmentFade.FadeCensus.cs.
-            LogFadeWriteCensus(now);
+            using (Phase(TickPhase.FadeCensus))
+                LogFadeWriteCensus(now);
             // FLOOR NEVER FADES — immediately AFTER the fade-write census on purpose: that census
             // is what sets _floorHeldInFadingSegments, and this line is the only place it is
             // read, so the two must be in this order to speak about the same pass.
-            LogFloorGuardCensus(now);
+            using (Phase(TickPhase.FloorAudit))
+                LogFloorGuardCensus(now);
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
-            FastReclaimRegeneratedShell(now);
+            using (Phase(TickPhase.FastReclaim))
+                FastReclaimRegeneratedShell(now);
 
             // WALL-PATH AUDIT, sliced (ModBuild 262). Stepped ONLY while the rescan pipeline is
             // idle, so this budget and the census budget can never land on the same frame.
@@ -2479,7 +2527,8 @@ internal static partial class WallSegmentFade
             // the same edge everything else does, and _nextPathAudit is likewise left in the
             // past so the first pass after the release runs immediately.
             if (_rescanStage == RescanStage.Idle && !suspended)
-                StepWallPathAudit(now);
+                using (Phase(TickPhase.PathAudit))
+                    StepWallPathAudit(now);
 
             // Re-log the heartbeat when the tracked set changes materially (walls stream in over
             // several rescans as Apparance generates, and adopted tilesets appear late) — the
@@ -3921,11 +3970,32 @@ internal static partial class WallSegmentFade
             // DOORWAY segments (user ruling 2026-08-02) take this same path: the decision
             // loop pins their state to solid, so the fade decays to 0 and any residual
             // MPB/foliage/sibling state clears through the normal branches below.
-            ApplyFoliage(seg);
-            ApplySiblings(seg);
-            ApplyMounted(seg);
-            ApplyStacked(seg);
-            ApplyBody(seg);
+            // PERF S6 — THE FIVE DRESSING LANES, EACH PRICED WITH THE LIST IT WALKS. The
+            // populations are booked on every frame; the timing rides the sampled tier (see
+            // WallSegmentFade.TickPhases.cs) because this method runs once per SEGMENT and the
+            // reported board carries 826 of them.
+            NoteTickWalk(TickPhase.ApplyFoliage, seg.Foliage.Count);
+            using (ApplyPhase(TickPhase.ApplyFoliage))
+                ApplyFoliage(seg);
+            NoteTickWalk(TickPhase.ApplySiblings, seg.Siblings.Count);
+            using (ApplyPhase(TickPhase.ApplySiblings))
+                ApplySiblings(seg);
+            NoteTickWalk(TickPhase.ApplyMounted, seg.Mounted.Count);
+            using (ApplyPhase(TickPhase.ApplyMounted))
+                ApplyMounted(seg);
+            NoteTickWalk(TickPhase.ApplyStacked, seg.Stacked.Count);
+            using (ApplyPhase(TickPhase.ApplyStacked))
+                ApplyStacked(seg);
+            NoteTickWalk(TickPhase.ApplyBody, seg.Body.Count);
+            using (ApplyPhase(TickPhase.ApplyBody))
+                ApplyBody(seg);
+            // The wall's OWN channel from here to the end of the method: the dissolve census,
+            // the property block and the per-renderer write loop that is floor-write primitive
+            // 1 of 4. Its population is seg.Renderers, booked whether or not the segment is
+            // fading — "0.0 wall renderer(s)/frame" and "N/frame at 0 ms" are different
+            // readings and the line must be able to tell them apart.
+            NoteTickWalk(TickPhase.ApplyWall, seg.Renderers.Count);
+            using var _wallWrite = ApplyPhase(TickPhase.ApplyWall);
             // ROUND-15 DISSOLVE CENSUS: the appliers above have just established each piece's
             // dissolve channel, so this is the moment the breakdown is true. Logged once per
             // fade episode (whatever drove it — local decision, peer sync, gate lift), re-logged

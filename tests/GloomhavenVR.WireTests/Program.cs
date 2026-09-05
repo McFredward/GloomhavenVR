@@ -78,6 +78,13 @@ internal static class Program
             // every rescan — a prop that pops while neither wall changes state, visible only from
             // inside a headset.
             WallPropUnitVectors.Run(t);
+            // PERF S6: the SAME question that pass asks — "which segments hold this
+            // renderer?" — answered the old way and the new way over the ModBuild 435
+            // board, driven against each other. The equivalence half is the one that
+            // matters: a faster answer to a different question would move a prop onto a
+            // wall nobody chose, which is only visible from inside a headset and is the
+            // exact defect skelet.jpg reported. The cost half prints a RATIO.
+            WallPropUnitHolderVectors.Run(t);
             // WHETHER a prop may fade with a wall at all. Same photograph (skelet.jpg), fourth
             // report, and the one piece of arithmetic in the wall-fade family that fails in both
             // directions in silence: too tight and the skull stays missing, too loose and masonry

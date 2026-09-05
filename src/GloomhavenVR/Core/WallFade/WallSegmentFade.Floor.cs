@@ -204,9 +204,23 @@ internal static partial class WallSegmentFade
         private bool FloorNeverFades(Renderer? r)
         {
             _floorExamined++;
-            if (r == null || IsModObject(r))
+            if (r == null)
                 return false;
             int id = r.GetInstanceID();
+            // PERF S6 (2026-09-05) — THE MEMO IS PROBED BEFORE IsModObject, AND THE ORDER IS
+            // OUTPUT-IDENTICAL RATHER THAN MERELY SAFE. The only two writes to _floorMemo are
+            // below, and both sit past the IsModObject guard, so NO mod renderer is ever a key
+            // in it: a memo hit therefore cannot be answering for a renderer the guard would
+            // have rejected, and a memo miss falls through to that guard unchanged. What the
+            // swap removes is the guard's `r.name` — an interop call that ALLOCATES a managed
+            // string — from every memo hit.
+            //
+            // WHY IT IS WORTH A REORDER. This is write primitive 1 of 4 and it is on the
+            // PER-FRAME path: Apply's renderer loop and DriveProp both reach it for every piece
+            // of every fading segment, every frame. The ModBuild 435 log prices the population
+            // itself — "its floor test EXAMINED 77505 write candidate(s) (1094 of them derived
+            // fresh, the rest read off the per-renderer memo)" — i.e. 98.6 % of the calls were
+            // memo hits, and every one of them allocated a string to reach the memo.
             if (_floorMemo.TryGetValue(id, out byte cached))
             {
                 if (cached != FloorMemoIsFloor)
@@ -215,6 +229,11 @@ internal static partial class WallSegmentFade
                     _floorSessionRefused++;
                 return true;
             }
+            // The guard itself, verbatim and in the same place in the ANSWER — only the memo
+            // hit now reaches its verdict without paying for it. A mod object still never
+            // enters the memo, which is the property the swap above rests on.
+            if (IsModObject(r))
+                return false;
             Bounds b = r.bounds;
             if (!NearestAnchoredFloorY(b.min.y, out float floorY))
                 return false; // no anchored room yet — undecidable, and deliberately not memoized

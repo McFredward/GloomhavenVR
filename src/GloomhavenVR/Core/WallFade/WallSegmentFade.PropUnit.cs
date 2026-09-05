@@ -218,6 +218,101 @@ internal static partial class WallSegmentFade
         /// that merely has no owner from one that has a different owner.</summary>
         private readonly HashSet<MeshRenderer> _propUnitClaimed = new(256);
 
+        // ==================================================================================
+        //  PERF S6 (2026-09-05) — WHO HOLDS THIS RENDERER, ANSWERED WITHOUT WALKING THE BOARD.
+        //
+        //  THE MEASUREMENT THAT PUT IT HERE. ModBuild 435 hardware log, the big all-doors-open
+        //  scenario: WallFade.Commit.PropUnits reads "52.640ms avg, worst 52.89ms" against a
+        //  segment table the PER-WALL line prices at 34 independently-deciding walls PLUS 792
+        //  split-run pieces — 826 Segment entries, where the scenario the pass was written
+        //  against had a few dozen. PASS 2 of ResolvePropUnit asked, for EVERY member of every
+        //  torn unit, "which segments hold you?" by enumerating _live.Segments.Values in full
+        //  and running List.IndexOf on each one's Renderers. That is O(members x segments x
+        //  renderers-per-segment) and its answer, in the same log, is "0 renderer(s) moved" —
+        //  the whole board is walked to find nothing.
+        //
+        //  WHY THE ANSWER IS BIT-IDENTICAL AND NOT MERELY EQUIVALENT. The replaced loop's body
+        //  does exactly nothing for a segment that does not hold the member: the two skips
+        //  (owner, per-renderer split) are read first, then `IndexOf(m) < 0` continues. So the
+        //  segments this index omits are precisely the ones whose iteration had no effect. The
+        //  two properties that make the substitution exact rather than approximate:
+        //
+        //   * ORDER. The chain is appended in the SAME _live.Segments.Values enumeration order
+        //     PHASE 1a walks, and traversed head-first, so a member's holders are visited in
+        //     the order the old loop visited them. _propUnitLosers therefore ends up in the
+        //     same order, and so does every counter and every SetPropertyBlock.
+        //   * MULTIPLICITY. The old loop removed at most ONE occurrence per (member, segment)
+        //     pair — one IndexOf, one RemoveAt. PHASE 1a sees a renderer listed twice in one
+        //     segment twice, so the append suppresses a repeat of the segment it just added
+        //     (a segment's renderers are walked contiguously, so a repeat is always the tail).
+        //
+        //  VALIDITY WINDOW. Built in PHASE 1a and read in PASS 2, with no segment added to or
+        //  removed from _live.Segments in between (nothing between those two points touches the
+        //  table itself, only renderer lists). Unit member sets are DISJOINT — UnitOf maps a
+        //  renderer to at most one unit — so a removal made for one unit can never be re-offered
+        //  to another, which is why the chain does not have to be maintained as PASS 2 mutates.
+        //  PropUnitRecruit adds to owner.Renderers, and owner is the one segment the loop skips.
+        //
+        //  ALLOCATION. Three reused containers, cleared per rescan (Clear keeps capacity), so a
+        //  commit allocates nothing here after the first. This is a COMMIT path, not the
+        //  per-frame one, but the subsystem's GC bill is already 6 MB/s in that log.
+        // ==================================================================================
+
+        /// <summary>Head node of each held renderer's holder chain, or absent when no segment
+        /// holds it. Index into <see cref="_propUnitHolderSeg"/>.</summary>
+        private readonly Dictionary<MeshRenderer, int> _propUnitHolderHead = new(256);
+
+        /// <summary>Tail node of the same chain, so the append keeps enumeration order without
+        /// re-walking. Written only by <see cref="AddPropUnitHolder"/>.</summary>
+        private readonly Dictionary<MeshRenderer, int> _propUnitHolderTail = new(256);
+
+        /// <summary>Chain arena: the segment at each node.</summary>
+        private readonly List<Segment> _propUnitHolderSeg = new(512);
+
+        /// <summary>Chain arena: the next node index, or -1 at the tail.</summary>
+        private readonly List<int> _propUnitHolderNext = new(512);
+
+        /// <summary>Segment visits the OLD shape would have made this commit — one per
+        /// (torn-unit member x live segment). Printed beside the number below so the change is
+        /// a measurement on the player's own board and not a claim about it.</summary>
+        private long _propUnitHolderVisitsOld;
+
+        /// <summary>Chain nodes actually walked in PASS 2 this commit, i.e. the work that
+        /// replaced those visits.</summary>
+        private long _propUnitHolderVisitsWalked;
+
+        /// <summary>Drop the holder index — called with every other per-rescan structure.</summary>
+        private void ClearPropUnitHolders()
+        {
+            _propUnitHolderHead.Clear();
+            _propUnitHolderTail.Clear();
+            _propUnitHolderSeg.Clear();
+            _propUnitHolderNext.Clear();
+        }
+
+        /// <summary>Append <paramref name="seg"/> to <paramref name="r"/>'s holder chain,
+        /// suppressing an immediate repeat (the same segment listing the same renderer twice —
+        /// see MULTIPLICITY above).</summary>
+        private void AddPropUnitHolder(MeshRenderer r, Segment seg)
+        {
+            if (_propUnitHolderTail.TryGetValue(r, out int tail))
+            {
+                if (ReferenceEquals(_propUnitHolderSeg[tail], seg))
+                    return; // this segment is already this renderer's most recent holder
+                int node = _propUnitHolderSeg.Count;
+                _propUnitHolderSeg.Add(seg);
+                _propUnitHolderNext.Add(-1);
+                _propUnitHolderNext[tail] = node;
+                _propUnitHolderTail[r] = node;
+                return;
+            }
+            int head = _propUnitHolderSeg.Count;
+            _propUnitHolderSeg.Add(seg);
+            _propUnitHolderNext.Add(-1);
+            _propUnitHolderHead[r] = head;
+            _propUnitHolderTail[r] = head;
+        }
+
 
         /// <summary>
         /// PERF S3 (2026-08-23) — THE THREE PER-NODE FACTS <see cref="PropUnitRootOf"/> ASKS,
@@ -512,7 +607,13 @@ internal static partial class WallSegmentFade
                 foreach (MeshRenderer r in seg.Renderers)
                 {
                     if (r != null)
+                    {
                         _propUnitClaimed.Add(r);
+                        // PERF S6: the SAME walk, in the SAME order, now also records WHICH
+                        // segment made the claim — the question PASS 2 used to answer by
+                        // enumerating the whole table per member. See _propUnitHolderHead.
+                        AddPropUnitHolder(r, seg);
+                    }
                 }
             }
             foreach (Segment seg in _live.Segments.Values)
@@ -571,6 +672,11 @@ internal static partial class WallSegmentFade
             _propUnitByStem.Clear();
             _live.PropUnitRootMemo.Clear();
             _propUnitClaimed.Clear();
+            // PERF S6: same lifetime as the claim set it is built beside — one rescan, and it
+            // holds Segment references, which a scene change must not let dangle.
+            ClearPropUnitHolders();
+            _propUnitHolderVisitsOld = 0;
+            _propUnitHolderVisitsWalked = 0;
             _propUnitOwnerNow.Clear();
             _propUnitCensus.Clear();
             _propUnitTouched.Clear();
@@ -1493,8 +1599,21 @@ internal static partial class WallSegmentFade
                 // FinishRefresh only clears leavers during a refresh, and this is not one, so a
                 // renderer dropped from a currently-faded segment would keep that fade forever —
                 // the exact restitution StripGroundRenderers performs for the ground band.
-                foreach (Segment seg in _live.Segments.Values)
+                //
+                // PERF S6 (2026-09-05): the segments walked here are the ones that HOLD m, taken
+                // from the index PHASE 1a built out of this very membership, in that same
+                // enumeration order — not the whole table. A segment that does not hold m
+                // reached `at < 0` and did nothing, so nothing this loop can do has been
+                // dropped; what has been dropped is 826 dictionary steps and an IndexOf per
+                // member on the ModBuild 435 board. The argument, term by term, is at
+                // _propUnitHolderHead.
+                _propUnitHolderVisitsOld += _live.Segments.Count;
+                for (int node = _propUnitHolderHead.TryGetValue(m, out int h) ? h : -1;
+                     node >= 0;
+                     node = _propUnitHolderNext[node])
                 {
+                    _propUnitHolderVisitsWalked++;
+                    Segment seg = _propUnitHolderSeg[node];
                     if (ReferenceEquals(seg, owner) || IsPerRendererSplit(seg))
                         continue;
                     int at = seg.Renderers.IndexOf(m);

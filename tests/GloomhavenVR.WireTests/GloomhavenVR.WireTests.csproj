@@ -307,6 +307,7 @@
   <ItemGroup>
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallPropUnit.cs" Link="core\WallPropUnit.cs" />
     <Compile Include="WallPropUnitVectors.cs" />
+    <Compile Include="WallPropUnitHolderVectors.cs" />
   </ItemGroup>
 
   <!-- Not a wire file, and the sharpest case of the WallPropUnit reason: it decides WHETHER a

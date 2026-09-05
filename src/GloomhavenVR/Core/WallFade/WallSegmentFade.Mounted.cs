@@ -2062,11 +2062,23 @@ internal static partial class WallSegmentFade
                     // drift every frame, which is what made the candles blink.
                     bool particles = c is ParticleSystemRenderer;
                     Bounds b = c.bounds;
+                    // PERF S6 (2026-09-05) — THE EMITTER POSITION IS READ ONCE. `c.transform`
+                    // is a native property get and `.position` is another, and the pair was
+                    // taken FIVE times per particle candidate — twice here, twice for the
+                    // anchor/top pair below, and then ONCE PER SEGMENT inside the election
+                    // loop, which is 826 native reads per candidate on the ModBuild 435 board
+                    // (34 walls + 792 split-run pieces, PER-WALL line). Nothing in this pass
+                    // moves a transform — the commit is one synchronous frame and it writes
+                    // materials, property blocks and lists, never a pose — so every one of
+                    // those reads returned the same Vector3. Hoisting it is a value-identical
+                    // change; only the count moves. Non-particle candidates never read it,
+                    // then or now.
+                    Vector3 emitter = particles ? c.transform.position : Vector3.zero;
                     // Round-13: particles are arch-tested by their EMITTER, not their live
                     // particle bounds (which drift every frame and made the arch fires'
                     // protection flicker) — the same anchor rule the mounting itself uses.
                     Bounds archProbe = particles
-                        ? new Bounds(c.transform.position, Vector3.zero)
+                        ? new Bounds(emitter, Vector3.zero)
                         : b;
                     // PERF E (ModBuild 279) — THE NAME IS ALREADY IN HAND, so it is not read
                     // again. `c.name` is an interop call that allocates, it was built as an
@@ -2086,8 +2098,8 @@ internal static partial class WallSegmentFade
                     // onto a wall and dragged out with it while the water plane stays.
                     if (IsWaterProtected(archProbe))
                         continue;
-                    float anchorY = particles ? c.transform.position.y : b.min.y;
-                    float topY = particles ? c.transform.position.y : b.max.y;
+                    float anchorY = particles ? emitter.y : b.min.y;
+                    float topY = particles ? emitter.y : b.max.y;
                     // Tiny emissive FX quads (candle flames, glows) may ride from farther out
                     // (round-9 audit alarm — they float when their wall opens).
                     bool tinyFx = !particles
@@ -2174,7 +2186,7 @@ internal static partial class WallSegmentFade
                         if (!seg.HasBounds)
                             continue;
                         float gapAny = particles
-                            ? HorizontalGap(seg.Bounds, c.transform.position)
+                            ? HorizontalGap(seg.Bounds, emitter)
                             : HorizontalGap(seg.Bounds, b);
                         if (seg.Fade >= FoliageHideFade && gapAny < _leftoverFadedGap)
                         {
@@ -2245,7 +2257,7 @@ internal static partial class WallSegmentFade
                         {
                             best = home;
                             bestGap = particles
-                                ? HorizontalGap(home.Bounds, c.transform.position)
+                                ? HorizontalGap(home.Bounds, emitter)
                                 : HorizontalGap(home.Bounds, b);
                             // Counted at the ADOPTION, not here: this candidate can still be
                             // refused below as a figure, a mobile prop or architecture, and a
