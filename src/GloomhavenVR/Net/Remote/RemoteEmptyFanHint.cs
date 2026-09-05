@@ -238,6 +238,19 @@ internal sealed class RemoteEmptyFanHint
         // placard is a picture.
         RemoteBoardFurniture.StripColliders(_root, "RemoteEmptyFanHint");
 
+        // USER ITEM 11a (2026-09), the same seam as RemoteHandFan's: this placard hangs at the
+        // owner's palm, i.e. exactly where their hand fan would have opened, so when they hold an
+        // empty hand over their board it is one of "die Faecher vor dem Brett" and must yield with
+        // it. WhileOverBoard for the same reason the fan is: it follows the board only while it is
+        // parked over one, and stays untouched avatar content everywhere else.
+        //
+        // The plate drives its OWN alpha (ApplyAlpha, the mirrored ease-in), and the two COMPOSE
+        // rather than fight: the see-through re-reads the live material colour every frame and
+        // scales it, so a plate that is 40 % through its own fade-in on a board at 0.25 shows at
+        // 0.4 x 0.25. Neither writer freezes the other.
+        PeerBoardFade.Follow(_owner.PlayerId, _root.transform,
+                             PeerBoardFade.FollowRule.WhileOverBoard);
+
         _root.SetActive(false);
     }
 

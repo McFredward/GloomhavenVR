@@ -53,6 +53,19 @@ internal enum RemoteBoardVisibility
 ///     <see cref="RemoteCardFx"/> already drew in prose ("every anchor except the hand fan is board
 ///     furniture") — it is now drawn in code, once, here.
 ///
+/// THAT LINE IS UNCHANGED BY USER ITEM 11a (2026-09), AND THE REASON IS WORTH WRITING DOWN, because
+/// the peer-board SEE-THROUGH now fades a peer's hand fan and a reader will otherwise conclude the
+/// classification moved. It did not. This gate answers "may this surface be DRAWN at all", and its
+/// answer for hand-held content is still an unconditional yes — hiding a peer's hands remains a
+/// different feature. <c>PeerBoardFade</c> answers a different question entirely: "is this surface,
+/// right now, one of the things standing between ME and the play field that the board it is in
+/// front of is already yielding for". For board furniture that is a permanent property; for a
+/// hand-anchored root it is a question about where the hand currently IS, and
+/// <c>PeerBoardFade.Follow</c> registers those roots under a rule that admits them only while their
+/// owner parks them over the board (frozen for the duration of a fade so membership cannot strobe).
+/// A surface can therefore be avatar content for this gate and a board follower for that ramp at
+/// the same moment without either statement being weakened.
+///
 /// THE OUTER GATE (2026-08-22, user item 1 — a peer's board hovering over the 3D campaign map).
 /// Everything above is the INSIDE-A-SCENARIO question. Whether the question may be asked at all is
 /// <see cref="RemoteBoardScenarioGate"/>, and it is folded into <see cref="SurfaceVisible"/> so

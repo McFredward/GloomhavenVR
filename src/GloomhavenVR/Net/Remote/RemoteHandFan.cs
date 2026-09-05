@@ -2463,6 +2463,27 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             _root.transform.localScale = Vector3.one; // inherit AppliedScale from the holder
             _root.SetActive(false);
             _holder = null; // a fresh root must ALWAYS reparent, even onto the same holder object
+
+            // USER ITEM 11a (2026-09): "Die Faecher vor dem Brett sind nicht mit transparent in
+            // der Auswahlphase (wo nur die Rueckseiten sichtbar sind), sollen sie aber sein."
+            //
+            // This fan is parented to the peer's HAND HOLDER, so it is in neither the peer-board
+            // see-through's subtree census nor — until now — its follower registry, and a peer's
+            // hand fan hung fully solid in front of a board that was dissolving behind it.
+            //
+            // WhileOverBoard, NOT Always, and the distinction is the point. A hand fan is AVATAR
+            // content wherever its owner takes it (RemoteBoardGate says so in as many words and
+            // that classification is unchanged); it becomes one of "die Faecher vor dem Brett"
+            // only while it is actually parked over the board, which is what the see-through's own
+            // predicate measures, in the BOARD's local space, and freezes for the duration of a
+            // fade so membership can never strobe. See PeerBoardFade.Follow.
+            //
+            // REGISTERED HERE, at the one place a NEW root transform comes into existence, so the
+            // self-heal above — which destroys and recreates this object wholesale — re-registers
+            // as a matter of course. Registration is idempotent, and the see-through sweeps
+            // Unity-null roots on its own census, so the dead one needs no teardown call.
+            PeerBoardFade.Follow(_owner.PlayerId, _root.transform,
+                                 PeerBoardFade.FollowRule.WhileOverBoard);
         }
 
         // (Re)parent when the non-dominant holder changes (e.g. the sender flips dominant hand)

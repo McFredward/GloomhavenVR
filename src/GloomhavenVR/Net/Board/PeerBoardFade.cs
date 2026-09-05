@@ -586,6 +586,12 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// rather than for masonry.</para></summary>
     private const float BlockEpsFraction = 0.02f;
 
+    /// <summary>How far outside the board's own occluder box a <see cref="FollowRule.WhileOverBoard"/>
+    /// root still counts as being "in front of the board", as a fraction of the box's larger
+    /// footprint dimension. Half a board-width — see <see cref="OverBoard"/> for why this is
+    /// derived from the board rather than tuned, and why it is not a config key.</summary>
+    private const float FollowReachFactor = 0.5f;
+
     /// <summary>Colour properties an alpha write is attempted on, in this order. <c>_Color</c>
     /// covers Sprites/Default, Standard and BoardLit's clone; <c>_BaseColor</c> the URP-shaped
     /// materials; <c>_TintColor</c> the particle/additive glows; <c>_FaceColor</c> the 3D TMP SDF
@@ -658,6 +664,13 @@ internal sealed class PeerBoardFade : MonoBehaviour
     private CanvasGroup? _group;
     /// <summary>Follower roots seen by the last census, in registration order.</summary>
     private readonly List<Transform> _followers = new(4);
+    /// <summary>Next census's follower set, built while <see cref="_followers"/> still holds the
+    /// previous one (the freeze test reads it) and swapped in at the end.</summary>
+    private readonly List<Transform> _followerScratch = new(4);
+    /// <summary>Registered roots the last census REFUSED — a <see cref="FollowRule.WhileOverBoard"/>
+    /// root its owner is not currently holding over the board. Reported, so a "the peer's hand fan
+    /// still does not fade" line can say whether the registration or the predicate is the reason.</summary>
+    private int _followersHeld;
 
     private Bounds _localBox;
     private bool _hasBox;
@@ -712,7 +725,37 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// Extra roots, per owning peer, whose renderers this driver fades WITH the board even though
     /// they are not under it in the hierarchy. See <see cref="Follow"/>.
     /// </summary>
-    private static readonly Dictionary<int, List<Transform>> FollowerRoots = new(8);
+    private static readonly Dictionary<int, List<FollowerEntry>> FollowerRoots = new(8);
+
+    /// <summary>One registered follower root and the rule that decides whether it is in the fade
+    /// set right now. See <see cref="FollowRule"/>.</summary>
+    private readonly struct FollowerEntry
+    {
+        internal readonly Transform Root;
+        internal readonly FollowRule Rule;
+        internal FollowerEntry(Transform root, FollowRule rule)
+        {
+            Root = root;
+            Rule = rule;
+        }
+    }
+
+    /// <summary>
+    /// WHEN a registered root belongs to the board's fade set. The distinction is the whole of
+    /// user item 11a and it is a real one — see <see cref="Follow"/> for the argument.
+    /// </summary>
+    internal enum FollowRule
+    {
+        /// <summary>It belongs to the board unconditionally: it is posed FROM the board's pose and
+        /// exists nowhere else. The three original followers (item arc, discard browse, card FX)
+        /// are all of this kind, and this is the default so their call sites are unchanged.</summary>
+        Always = 0,
+
+        /// <summary>It belongs to the board only while it is physically parked OVER it. This is
+        /// for HAND-anchored surfaces, which are avatar content wherever else they go and become
+        /// "eine der Faecher vor dem Brett" only when their owner holds them there.</summary>
+        WhileOverBoard = 1,
+    }
 
     /// <summary>
     /// USER ITEM 7 (2026-09): "Die offenen Faecher, die ueber dem board schweben und zu dem board
@@ -744,36 +787,84 @@ internal sealed class PeerBoardFade : MonoBehaviour
     /// above the board would inflate that box and re-tune both bars by the back door. Delivery
     /// covers board + fans, the metric stays the board's.</para>
     ///
+    /// <para><b>USER ITEM 11a (2026-09) ADDED THE SECOND RULE</b>: <i>"Die Faecher vor dem Brett
+    /// sind nicht mit transparent in der Auswahlphase (wo nur die Rueckseiten sichtbar sind),
+    /// sollen sie aber sein."</i> The fan he means is the peer's HAND fan (and its
+    /// <c>RemoteEmptyFanHint</c> placard), which <c>RemoteHandFan.EnsureRoot</c> parents to the
+    /// peer's HAND HOLDER and which therefore appears in neither this driver's
+    /// <c>GetComponentsInChildren</c> census nor its follower registry. In the selection phase
+    /// that fan hangs in front of its owner's board, showing card BACKS, and it stayed fully solid
+    /// while the board behind it dissolved.</para>
+    ///
+    /// <para><b>THE CLASSIFICATION TENSION, AND HOW IT IS RESOLVED RATHER THAN PAPERED OVER.</b>
+    /// <c>RemoteBoardGate</c> classifies hand-held surfaces as AVATAR content on purpose and
+    /// deliberately does NOT gate them: hiding a peer's hands is a different feature with a
+    /// different failure mode, and the setting is named "Mitspieler-Boards". Registering the hand
+    /// fan here unconditionally would quietly move that line — a peer holding their cards up
+    /// beside their face, nowhere near their board, would watch them dissolve because a board they
+    /// are not standing behind is occluding somebody's view of the map.</para>
+    ///
+    /// <para>So the two questions are kept apart, because they ARE apart. <c>RemoteBoardGate</c>
+    /// answers "may this surface be drawn at all", and its answer for hand-held content is
+    /// unchanged: always yes. This registry answers "is this surface, right now, one of the things
+    /// standing between the viewer and the play field that the board is already yielding for", and
+    /// for a hand-anchored root that is a question about WHERE THE HAND IS. The predicate is
+    /// <see cref="OverBoard"/>: the root's origin lies within half a board-width of the board's own
+    /// oriented occluder box. It is measured in BOARD-LOCAL space, so it means the same thing at
+    /// any diorama scale and from any viewer's seat, and it is exactly the user's own words — the
+    /// fans IN FRONT OF the board.</para>
+    ///
+    /// <para><b>AND THE MEMBERSHIP CANNOT FLICKER, which would be worse than either extreme.</b>
+    /// A root joining or leaving mid-fade is a POP by construction: joining installs clones and
+    /// snaps the surface to the current alpha, leaving calls <see cref="Restore"/> and snaps it
+    /// back to solid. A geometric predicate sampled on a 2 Hz census against a hand that is
+    /// drifting would do exactly that, twice a second. So the conditional membership is decided
+    /// ONLY WHILE THE BOARD IS SOLID and then held for the whole fade episode: once
+    /// <see cref="_engaged"/> is true the set is frozen, and a hand that wanders off keeps fading
+    /// until the board itself comes back. One stale follower for the tail of one fade is a cost;
+    /// a fan strobing in and out of the set is a defect.</para>
+    ///
     /// <para>Idempotent, and safe before the board exists — the list is keyed by player id and read
     /// on the driver's own 2 Hz census. Costs nothing at all while <c>[PeerBoardFade] Mode</c> is
     /// Off, because the driver never ticks. Unity-null roots are swept on the next census, so a fan
     /// that is destroyed with its peer needs no teardown call; <see cref="Unfollow"/> exists for a
-    /// caller that gives a root up while the peer lives on.</para>
+    /// caller that gives a root up while the peer lives on. Re-registering a root that is already
+    /// known UPDATES its rule rather than being ignored, so a caller cannot be left with a stale
+    /// classification after a self-heal.</para>
     /// </summary>
-    internal static void Follow(int playerId, Transform? followerRoot)
+    internal static void Follow(int playerId, Transform? followerRoot,
+                               FollowRule rule = FollowRule.Always)
     {
         if (followerRoot == null || playerId < 0)
             return;
-        if (!FollowerRoots.TryGetValue(playerId, out List<Transform> list))
-            FollowerRoots[playerId] = list = new List<Transform>(4);
+        if (!FollowerRoots.TryGetValue(playerId, out List<FollowerEntry> list))
+            FollowerRoots[playerId] = list = new List<FollowerEntry>(4);
         for (int i = 0; i < list.Count; i++)
         {
-            if (ReferenceEquals(list[i], followerRoot))
-                return;
+            if (!ReferenceEquals(list[i].Root, followerRoot))
+                continue;
+            if (list[i].Rule != rule)
+                list[i] = new FollowerEntry(followerRoot, rule);
+            return;
         }
-        list.Add(followerRoot);
+        list.Add(new FollowerEntry(followerRoot, rule));
     }
 
     /// <summary>Stop fading <paramref name="followerRoot"/> with <paramref name="playerId"/>'s
     /// board. Never needed for a root that is simply destroyed (the census sweeps Unity-null
-    /// entries); needed only when a live root stops belonging to the board.</summary>
+    /// entries); needed only when a live root stops belonging to the board — and NOT the way a
+    /// <see cref="FollowRule.WhileOverBoard"/> root leaves the set, which is the census's own
+    /// per-scan decision and leaves the registration in place.</summary>
     internal static void Unfollow(int playerId, Transform? followerRoot)
     {
-        if (followerRoot == null || !FollowerRoots.TryGetValue(playerId, out List<Transform> list))
+        if (followerRoot == null
+            || !FollowerRoots.TryGetValue(playerId, out List<FollowerEntry> list))
+        {
             return;
+        }
         for (int i = list.Count - 1; i >= 0; i--)
         {
-            if (ReferenceEquals(list[i], followerRoot))
+            if (ReferenceEquals(list[i].Root, followerRoot))
                 list.RemoveAt(i);
         }
     }
@@ -1030,25 +1121,46 @@ internal sealed class PeerBoardFade : MonoBehaviour
         GetComponentsInChildren(true, _rendererScratch);
         AdoptRenderers(_rendererScratch, toLocal, contributeBox: true);
 
-        // The board's floating fans (user item 7). Their renderers join the SAME list and are
-        // driven by the SAME alpha; their extents deliberately do NOT join the occluder box, or the
-        // decision this board is judged by would silently change with what its owner happens to
-        // have open. See Follow().
-        _followers.Clear();
-        if (FollowerRoots.TryGetValue(_playerId, out List<Transform> registered))
+        // The board's floating fans (user items 7 and 11a). Their renderers join the SAME list and
+        // are driven by the SAME alpha; their extents deliberately do NOT join the occluder box, or
+        // the decision this board is judged by would silently change with what its owner happens to
+        // have open. See Follow() for the two membership rules and for why the conditional one is
+        // frozen while the board is engaged.
+        //
+        // THE FREEZE IS THE WHOLE ANTI-FLICKER ARGUMENT and it is one line: while _engaged, a
+        // WhileOverBoard root keeps whatever membership it had, because joining or leaving the set
+        // mid-fade is a pop either way (a join swaps materials and snaps to the live alpha; a
+        // leave calls Restore and snaps to solid). The predicate is only ever asked of a board
+        // that is currently solid, where both answers are invisible.
+        bool freeze = _engaged;
+        _followerScratch.Clear();
+        _followersHeld = 0;
+        if (FollowerRoots.TryGetValue(_playerId, out List<FollowerEntry> registered))
         {
             for (int i = registered.Count - 1; i >= 0; i--)
             {
-                if (registered[i] == null)
-                {
+                if (registered[i].Root == null)
                     registered.RemoveAt(i); // a fan destroyed with its peer
-                    continue;
-                }
-                _followers.Add(registered[i]);
-                _rendererScratch.Clear();
-                registered[i].GetComponentsInChildren(true, _rendererScratch);
-                AdoptRenderers(_rendererScratch, toLocal, contributeBox: false);
             }
+            for (int i = 0; i < registered.Count; i++)
+            {
+                FollowerEntry entry = registered[i];
+                bool admit = entry.Rule == FollowRule.Always
+                    || (freeze ? WasFollowing(entry.Root) : OverBoard(entry.Root));
+                if (admit)
+                    _followerScratch.Add(entry.Root);
+                else
+                    _followersHeld++;
+            }
+        }
+        _followers.Clear();
+        for (int i = 0; i < _followerScratch.Count; i++)
+        {
+            Transform f = _followerScratch[i];
+            _followers.Add(f);
+            _rendererScratch.Clear();
+            f.GetComponentsInChildren(true, _rendererScratch);
+            AdoptRenderers(_rendererScratch, toLocal, contributeBox: false);
         }
         if (_engaged)
             EnsureGroups();
@@ -1066,6 +1178,53 @@ internal sealed class PeerBoardFade : MonoBehaviour
             _surfaces.RemoveAt(i);
         }
         LogCensusIfChanged();
+    }
+
+    /// <summary>Was this root in the fade set at the previous census? The freeze's memory — see
+    /// the anti-flicker paragraph on <see cref="Follow"/>. A linear scan of at most a handful of
+    /// entries, run once per root per 2 Hz census.</summary>
+    private bool WasFollowing(Transform root)
+    {
+        for (int i = 0; i < _followers.Count; i++)
+        {
+            if (ReferenceEquals(_followers[i], root))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// "IS THIS ROOT ONE OF THE FANS IN FRONT OF THE BOARD?" — the <see cref="FollowRule.WhileOverBoard"/>
+    /// predicate, and the whole of what keeps user item 11a from silently reclassifying a peer's
+    /// hands as board furniture.
+    ///
+    /// <para>Measured in BOARD-LOCAL space against the board's own occluder box, which this census
+    /// has just rebuilt from the live renderers two dozen lines above — so it costs one
+    /// <c>InverseTransformPoint</c> and one <c>Bounds.SqrDistance</c>, it means the same thing at
+    /// any diorama scale, and it does not depend on where the VIEWER is standing (two clients must
+    /// agree about whether a fan belongs to a board, even though they never compare notes).</para>
+    ///
+    /// <para>THE ROOT'S ORIGIN, NOT ITS RENDERERS' BOUNDS, and that is deliberate. A hand fan's
+    /// slabs are laid out fresh every frame — they bow, they toe in, they ease as cards are added
+    /// — so a bounds-based test would breathe. The root is the fan's anchor point (the owner's
+    /// palm plus their own tuned offset) and it moves only when the hand does.</para>
+    ///
+    /// <para>THE MARGIN IS THE BOARD'S OWN SIZE, not a tuned number: half the larger of the box's
+    /// two footprint dimensions, i.e. "within about a half board-width of the board". A board is
+    /// the only object in the expression, so there is nothing for a config key to mean here, and a
+    /// dial whose only visible effect is which of two surfaces starts fading half a second earlier
+    /// is exactly what the standing no-new-key ruling refuses.</para>
+    ///
+    /// <para>Answers FALSE while the board has no occluder box at all (a board whose renderers are
+    /// all inactive), which is the safe direction: no box means no fade decision either.</para>
+    /// </summary>
+    private bool OverBoard(Transform? root)
+    {
+        if (root == null || !_hasBox)
+            return false;
+        Vector3 local = transform.InverseTransformPoint(root.position);
+        float reach = FollowReachFactor * Mathf.Max(_localBox.size.x, _localBox.size.z);
+        return _localBox.SqrDistance(local) <= reach * reach;
     }
 
     /// <summary>
@@ -1607,7 +1766,8 @@ internal sealed class PeerBoardFade : MonoBehaviour
             $"samples in view); bars on {onFraction:0.00} / off {offFraction:0.00}; " +
             $"{(reevalArmed ? "short" : "long")} exit dwell armed; box (board-local) " +
             $"{_localBox.size.x:0.00}×{_localBox.size.y:0.00}×{_localBox.size.z:0.00} m; " +
-            $"{_surfaces.Count} surface(s) driven.");
+            $"{_surfaces.Count} surface(s) driven; {_followers.Count} follower root(s), " +
+            $"{_followersHeld} held out.");
     }
 
     /// <summary>
@@ -1640,7 +1800,8 @@ internal sealed class PeerBoardFade : MonoBehaviour
                 default: swap++; break;
             }
         }
-        int signature = ((_surfaces.Count * 397 + flip) * 397 + swap) * 397 + _followers.Count;
+        int signature = (((_surfaces.Count * 397 + flip) * 397 + swap) * 397 + _followers.Count)
+                        * 397 + _followersHeld;
         if (signature == _loggedSurfaces)
             return;
         _loggedSurfaces = signature;
@@ -1653,8 +1814,15 @@ internal sealed class PeerBoardFade : MonoBehaviour
             "the fade-in still ends on a one-frame brightness step — that is a BUNDLE age, not a " +
             "decision: a bundle baked at ModBuild 351+ moves the board slab family from unlit-swap " +
             $"to lit-clone). Every clone is forced single-sided, so a fading board never shows its " +
-            $"interior. {_followers.Count} follower root(s) (the floating item/burned/discard fans) " +
-            "fade with this board off the same alpha; every UI graphic rides one CanvasGroup per " +
-            "root.");
+            $"interior. {_followers.Count} follower root(s) fade with this board off the same " +
+            $"alpha and {_followersHeld} registered root(s) are currently HELD OUT. A held root is " +
+            "always a hand-anchored one (the peer's hand fan or its 'keine Handkarten' placard, " +
+            "which follow the board only while their owner parks them over it — see Follow()); " +
+            "the item / burned / discard fans belong to the board unconditionally and are never " +
+            "held. So a peer whose hand fan is visibly still solid IN FRONT OF their fading board " +
+            "is a held count that should have been a followed count, and a hand fan fading while " +
+            "its owner holds it up beside their face is the reverse — those two readings, not a " +
+            "screenshot, are what the 'over the board' predicate is judged by. Every UI graphic " +
+            "rides one CanvasGroup per root.");
     }
 }
