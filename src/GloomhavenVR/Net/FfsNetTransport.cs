@@ -197,6 +197,21 @@ internal sealed class FfsNetTransport : INetTransport
             if (self._gaActionTypeId?.GetValue(action) is not int typeId || typeId != NetProtocol.SentinelActionTypeId)
                 return true; // not ours — let the game process it normally
 
+            // A CONTROL REQUEST rather than a cosmetic packet: a client asking the host to press
+            // something on its behalf (EnemyInfoContinue — "any player may end the enemy-info
+            // reveal"). It rides the same sentinel type with NO payload token, and is recognised by
+            // markers in the NetworkAction's own DataInt/DataInt2/DataBoolean.
+            //
+            // WHY IT LIVES HERE AND NOT IN A SECOND HARMONY PREFIX. This method already IS the
+            // mod's prefix on ActionProcessor.ProcessSideAction, the single chokepoint every
+            // inbound side action passes through. A second prefix on the same method would be a
+            // duplicate mechanism AND an ordering hazard, because a prefix that returns false
+            // suppresses the ones after it. One seam, one explicit order. The request handler takes
+            // the raw object so this file keeps its zero-compile-time-dependency stance on the Bolt
+            // token types; nothing below this line names one.
+            if (EnemyInfoContinue.TryHandleSideAction(action))
+                return false;
+
             // Ours: pull the payload out of the CustomDataToken and hand it up. Consume it.
             object? tokenObj = self._gaSupplementaryToken?.GetValue(action);
             if (tokenObj != null && self._customDataProp?.GetValue(tokenObj) is byte[] bytes && bytes.Length > 0)

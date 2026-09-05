@@ -220,8 +220,26 @@ internal sealed partial class PlayTray
             // tracks the shown character. Offline the game has no confirmed-waiting
             // state (END SELECTION starts the round at once) — normal affordance.
             bool confirmed = hand != null && CardsGameApi.IsConfirmed(hand);
+            // THIRD TERM: the enemy-information reveal on a NON-HOST client (user request
+            // 2026-09-05, "Der Fortfahren knopf soll auf allen Controllboards erscheinen"). The
+            // game forces ReadyButton.interactable false there for a client, so CanConfirm — which
+            // faithfully mirrors the game's press guard — is false and this cap used to be hidden
+            // on every peer. Net.EnemyInfoContinue.LocalPressIsRequest is the SAME predicate
+            // CardsGameApi.ClickReady routes the press through, so the control that appears and the
+            // path a press takes cannot disagree; it is false on the host, offline, and in every
+            // other phase, so nothing else here changes. The label below is unaffected:
+            // ReadyToggleAvailable is hard-false outside SelectAbilityCardsOrLongRest, so the
+            // wording stays CardsGameApi.ConfirmLabel() — the live ReadyButton text ("Fortfahren"),
+            // which is what the peer's mirrored cap renders verbatim through ExtIdCapLabels bit 0.
+            // Read OUTSIDE the `hand != null` conjunction on purpose: the predicate carries the
+            // change-gated ENEMY-INFO CONTINUE ARMED/DISARMED line, and short-circuiting it on a
+            // frame with no presented hand would make the instrument's silence mean two different
+            // things. It is four property reads in the steady state.
+            bool enemyInfoRequest = Net.EnemyInfoContinue.LocalPressIsRequest();
             bool canConfirm = hand != null
-                              && (CardsGameApi.CanConfirm() || CardsGameApi.ReadyToggleAvailable());
+                              && (CardsGameApi.CanConfirm()
+                                  || CardsGameApi.ReadyToggleAvailable()
+                                  || enemyInfoRequest);
             // Item 7 ("wenn es nicht drückbar ist dann soll es dort auch nicht erscheinen"):
             // only SHOW confirm when its action is actually possible right now — a valid
             // confirmable selection exists (canConfirm) or the player has confirmed and can

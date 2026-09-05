@@ -64,6 +64,23 @@ internal static class NetProtocol
     /// </summary>
     public const int SentinelTargetPlayerId = int.MaxValue;
 
+    /// <summary>
+    /// CLIENT-TO-HOST CONTROL REQUEST: "end the enemy-information reveal" — the tag a
+    /// <see cref="EnemyInfoContinue"/> request carries in <c>NetworkAction.DataInt</c>.
+    ///
+    /// <para>IT COSTS THE GVR1 PACKET NOTHING, and that is the point of putting it here rather
+    /// than inventing a record. A request rides the GAME's own <c>NetworkAction</c> token with NO
+    /// <c>CustomDataToken</c> at all: the two ints and the bool it uses (<c>DataInt</c>,
+    /// <c>DataInt2</c>, <c>DataBoolean</c>) are fields that token already serialises on every side
+    /// action the game has ever sent (decompiled NetworkAction.cs:44-53). Nothing is added to the
+    /// mod's own payload, so the wire-size accounting is untouched by this feature.</para>
+    ///
+    /// <para>Non-zero and small: <see cref="EnemyInfoContinue.TryHandleSideAction"/> requires an
+    /// exact match, so a value of 0 (what the transport's own rig/extras packets leave there)
+    /// can never be read as a request. Give the next control request the next number.</para>
+    /// </summary>
+    public const int SideRequestEnemyInfoContinue = 1;
+
     /// <summary>Local sampling / send rate (Hz). ~15 Hz unreliable, interpolated on the receiver.</summary>
     public const float SendRateHz = 15f;
 

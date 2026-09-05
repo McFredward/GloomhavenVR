@@ -2700,6 +2700,16 @@ internal static class CardsGameApi
     /// </summary>
     internal static bool ClickReady()
     {
+        // ANY PLAYER MAY END THE ENEMY-INFORMATION REVEAL (user request 2026-09-05). On a non-host
+        // client inside that ONE phase the game deliberately makes this button dead — CanConfirm
+        // below would return false and the press would vanish with no line and no effect — so the
+        // press becomes a REQUEST to the host instead, and the host presses its own copy. FIRST,
+        // because the whole point is that the local guard cannot pass here; and narrow, because
+        // Net.EnemyInfoContinue.LocalPressIsRequest is false on the host, offline, and in every
+        // other phase. Nothing is written locally either way: see Net/EnemyInfoContinue.cs.
+        if (Net.EnemyInfoContinue.LocalPressIsRequest())
+            return Net.EnemyInfoContinue.RequestHostPress();
+
         if (!CanConfirm())
             return false;
         // Tutorial deadlock #3: mirror the ExtendedButton gate the 2D Ready click runs
@@ -2709,6 +2719,10 @@ internal static class CardsGameApi
             RejectTutorialIsolated("board CONFIRM (ReadyButton)");
             return false;
         }
+        // The HOST's / offline seat's own press of the reveal's Continue, named in the log so ONE
+        // grep token answers "who handed the action to the game" for either seat. A no-op in every
+        // other phase.
+        Net.EnemyInfoContinue.NoteLocalPress();
         Ready()!.OnClickInternal();
         return true;
     }

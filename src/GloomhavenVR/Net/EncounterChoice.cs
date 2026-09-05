@@ -1,4 +1,3 @@
-using System.Reflection;
 using FFSNet;
 using GloomhavenVR.Core;
 using GloomhavenVR.Net.Desync;
@@ -219,52 +218,26 @@ internal static class EncounterChoice
     // The one FFSNet call, reached the way every other FFSNet call in this module is
     // -----------------------------------------------------------------------------------------
 
-    private static MethodInfo? _sendSideAction;
-    private static bool _sendResolved;
-    private static bool _sendDegraded;
-
-    /// <summary>Reusable argument array for the reflected send — the eight parameters of
-    /// <c>Synchronizer.SendSideAction</c>, only slots 5 and 6 (the two data ints) changing per
-    /// press. Slot 1 is the <c>IProtocolToken</c> and stays null, exactly as the game's own
-    /// <c>GameLoadedAndClientReady</c> / <c>ReadyForAssignment</c> sends pass it.</summary>
-    private static readonly object?[] SendArgs =
-    {
-        GameActionType.ContinueRoadEvent, // actionType — the game's own, not an invented one
-        null,                             // supplementaryDataToken (IProtocolToken): none
-        false,                            // canBeUnreliable: a dropped choice is a stuck window
-        true,                             // sendToHostOnly: this is a REQUEST, to the authority
-        0,                                // targetPlayerID: 0 = the receiver processes it
-        0,                                // dataInt: the option id      (set per press)
-        0,                                // dataInt2: the screen stamp  (set per press)
-        true,                             // dataBool: the marker IsRemotePressRequest reads
-    };
-
-    /// <summary>Send the request. FALSE when FFSNet could not be resolved on this build — the
-    /// caller then holds the press back and says so, rather than pretending it travelled.</summary>
-    private static bool SendRequest(int optionId, int screenStamp)
-    {
-        if (!_sendResolved)
-        {
-            _sendResolved = true;
-            // Same member, same resolution style and the same degrade-to-nothing contract as
-            // FfsNetTransport.Resolve: an unexpected game build turns the feature off, it does not
-            // throw into the game's dispatch.
-            _sendSideAction = AccessTools.Method("FFSNet.Synchronizer:SendSideAction");
-            _sendDegraded = _sendSideAction == null;
-            if (_sendDegraded)
-                VRLog.Alert(Scope, "ENCOUNTER OPTION PRESS: FFSNet.Synchronizer.SendSideAction did "
-                                 + "not resolve on this game build, so a non-host player's "
-                                 + "encounter press cannot be forwarded. The flat game's host-only "
-                                 + "behaviour stands and nothing else changes.");
-        }
-        if (_sendDegraded || _sendSideAction == null)
-            return false;
-
-        SendArgs[5] = optionId;
-        SendArgs[6] = screenStamp;
-        _sendSideAction.Invoke(null, SendArgs);
-        return true;
-    }
+    /// <summary>
+    /// Send the request. FALSE when FFSNet could not be resolved on this build — the caller then
+    /// holds the press back and says so, rather than pretending it travelled.
+    ///
+    /// <para>The reflected call itself lives in <see cref="SideActionRequest"/>, shared with
+    /// <see cref="EnemyInfoContinue"/>: there are two client-to-host request features now, and
+    /// <c>SendSideAction</c>'s eight parameters are positional and untyped through reflection, so a
+    /// second copy of that argument ORDER is a duplicate that would go wrong silently.
+    /// <c>targetPlayerID: 0</c> is this feature's own value and stays here — an encounter request
+    /// must be PROCESSED by the receiving host, which vanilla only does for 0 or its own id
+    /// (ActionProcessor.cs:188), whereas the enemy-info request rides the mod's sentinel and wants
+    /// exactly the opposite.</para>
+    /// </summary>
+    private static bool SendRequest(int optionId, int screenStamp) =>
+        SideActionRequest.Send(
+            GameActionType.ContinueRoadEvent, // actionType — the game's own, not an invented one
+            targetPlayerId: 0,                // 0 = the receiver processes it
+            dataInt: optionId,
+            dataInt2: screenStamp,
+            dataBool: true);                  // the marker IsRemotePressRequest reads
 
     // -----------------------------------------------------------------------------------------
     // The local press

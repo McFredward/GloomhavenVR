@@ -280,8 +280,24 @@ internal static class EnemyInfoPhaseSkip
     /// first (ReadyButton.cs:246-249). Failing any of them is a REASON TO WAIT, not to give up:
     /// a confirmation box over the reveal closes, and the phase gate above ends the wait if the
     /// game moves on regardless.
+    ///
+    /// <para>INTERNAL BECAUSE IT HAS A SECOND READER, and sharing it is the point:
+    /// <c>Net.EnemyInfoContinue</c> asks the same four questions on both sides of a non-host
+    /// player's "Fortfahren" press, and a second copy of these terms is precisely the mirrored
+    /// predicate that goes wrong silently when one copy is tuned.</para>
+    ///
+    /// <para><b><paramref name="requireInteractable"/> IS THE ONE TERM THE TWO READERS DISAGREE
+    /// ON, and the disagreement is the whole feature.</b> The game forces
+    /// <c>readyButton.interactable = false</c> on a CLIENT for the entire
+    /// <c>MonsterClassesSelectAbilityCards</c> phase (<c>CheckButtonInteractability</c>,
+    /// ReadyButton.cs:500-501), so a client asking "may I press this" is answered no by
+    /// construction — but the question a client actually needs answered is "is the Continue
+    /// control STANDING here", i.e. is there a reveal on screen waiting to be ended. That is every
+    /// other term in this method. Pass FALSE only when the caller is NOT going to press this
+    /// button itself; the host's copy is still tested with the term in place, which is what keeps
+    /// the host the only seat that may write.</para>
     /// </summary>
-    private static bool Clickable(ReadyButton button, out string why)
+    internal static bool Clickable(ReadyButton button, out string why, bool requireInteractable = true)
     {
         why = "";
         if (button.buttonState != ReadyButton.EButtonState.EREADYBUTTONCONTINUE)
@@ -290,7 +306,15 @@ internal static class EnemyInfoPhaseSkip
             return false;
         }
         Button? component = button.ButtonComponent;
-        if (component == null || !component.enabled || !button.IsInteractable)
+        if (component == null || !component.enabled)
+        {
+            why = component == null
+                ? "the ready button has no Button component"
+                : "the ready button's Button component is disabled — the game does that for the "
+                  + "length of a press's own FX, so the control has just been spent";
+            return false;
+        }
+        if (requireInteractable && !button.IsInteractable)
         {
             why = "the ready button is not interactable yet";
             return false;
