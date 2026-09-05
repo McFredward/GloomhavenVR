@@ -419,8 +419,151 @@ internal sealed partial class CardsDriver
         _dirty = true;
     }
 
+    // ============================================================ A DEAD BOARD HAS NO CARDS ======
+    //
+    // The LOCAL half of the rule; the rule itself, its evidence and the argument for enforcing it
+    // at ONE seam are on Board.CharacterFocus.BoardCarriesCards. Everything here is instrumentation:
+    // the rebuild's `hand == null` arm below already drains every population, and this states — in
+    // numbers, on both sides of that drain — that it did.
+
+    /// <summary>One reading of every CARD population on the local board. Sampled from the surfaces
+    /// themselves, never from the model, because the report is about what is DRAWN.</summary>
+    private readonly struct ExhaustedCounts
+    {
+        internal readonly int Fan;
+        internal readonly int Slots;
+        internal readonly int Halves;
+        internal readonly int Active;
+        internal readonly int Discard;
+        internal readonly int Burnt;
+        internal readonly int Items;
+        internal readonly bool StacksShown;
+        internal readonly int Field;
+        internal readonly bool BrowseOpen;
+        internal readonly bool ItemFanOpen;
+        internal readonly bool TrayShown;
+
+        internal ExhaustedCounts(int fan, int slots, int halves, int active, int discard, int burnt,
+            int items, bool stacksShown, int field, bool browseOpen, bool itemFanOpen, bool trayShown)
+        {
+            Fan = fan; Slots = slots; Halves = halves; Active = active;
+            Discard = discard; Burnt = burnt; Items = items; StacksShown = stacksShown;
+            Field = field; BrowseOpen = browseOpen; ItemFanOpen = itemFanOpen; TrayShown = trayShown;
+        }
+
+        public override string ToString() =>
+            $"fan={Fan}, round-card slots={Slots}, docked halves={Halves}, active={Active}, "
+            + $"stacks={(StacksShown ? $"shown d{Discard}/b{Burnt}/i{Items}" : "hidden")}, "
+            + $"pick/decision field={Field}, browse arc={(BrowseOpen ? "open" : "closed")}, "
+            + $"item fan={(ItemFanOpen ? "open" : "closed")}, tray={(TrayShown ? "up" : "down")}";
+    }
+
+    /// <summary>Read every card population the local board can carry. THE ENUMERATION — if a new
+    /// population is ever added to the board it belongs in this list too, because "empty except for
+    /// one of them" is the defect this instrument exists to catch.</summary>
+    private ExhaustedCounts SampleBoardCards()
+    {
+        int slots = 0;
+        for (int s = 0; s < 2; s++)
+            if (_tray.Occupant(s) != null)
+                slots++;
+        (int discard, int burnt, int items)? counts = PileViewer.CurrentCounts;
+        return new ExhaustedCounts(
+            fan: _fan.Count,
+            slots: slots,
+            halves: _halfBuffer.Count,
+            active: _active.Cards.Count,
+            discard: counts?.discard ?? 0,
+            burnt: counts?.burnt ?? 0,
+            items: counts?.items ?? 0,
+            // THE RENDERED FACT, not CurrentCounts.HasValue. CurrentCounts is the WIRE seam and is
+            // nulled by the per-frame TickStatus, which on the rebuild frame has not run yet; the
+            // stacks' own activeSelf is what the player is looking at.
+            stacksShown: _piles.StacksShown,
+            field: _fieldCards.Count,
+            browseOpen: PileBrowser.Current != null && PileBrowser.Current.IsOpen,
+            itemFanOpen: _piles.ItemsBrowseOpen,
+            trayShown: _tray.IsVisible);
+    }
+
+    /// <summary>Per-character gate for the clear line — one line per death, not one per rebuild
+    /// (the clear arm runs every rebuild for as long as the character stays dead).</summary>
+    private int _loggedExhaustedActorId;
+
+    /// <summary>Session total, for the ARMED line's falsifier reading.</summary>
+    private int _exhaustedClears;
+
+    /// <summary>The death whose CLEARED line is captured but not yet emitted, and the BEFORE
+    /// reading taken on the frame the clear started. Held across the pile stacks' two-frame hide
+    /// grace so the AFTER reading is the settled picture — see the clear arm in
+    /// <see cref="Rebuild"/>.</summary>
+    private CPlayerActor? _pendingExhaustedLog;
+
+    private ExhaustedCounts _pendingExhaustedBefore;
+
+    private void LogExhaustedBoardClear(CPlayerActor exhausted, in ExhaustedCounts before)
+    {
+        int id = Net.NetFigures.StableActorId(exhausted);
+        if (id == _loggedExhaustedActorId)
+            return;
+        _loggedExhaustedActorId = id;
+        _exhaustedClears++;
+        ExhaustedCounts after = SampleBoardCards();
+        // HW-VERIFY
+        VRLog.Note("Cards", $"EXHAUSTED BOARD: CLEARED (local) — "
+            + $"'{Board.CharacterFocus.Describe(exhausted)}' (actor {id}) is exhausted, so the "
+            + "control board it was presenting carries no cards at all (user 2026-09-05 #13: "
+            + "\"wenn ein Character tot ist ... sollen dort gar keine Karten mehr liegen\"). "
+            + $"CARD POPULATIONS BEFORE: {before}. AFTER: {after}. "
+            + $"This is clear #{_exhaustedClears} of this session. "
+            + "READ IT LIKE THIS: every AFTER number must be 0 and the stacks HIDDEN — a non-zero "
+            + "one names the population that survived, which is the whole defect and not a detail. "
+            + "A BEFORE that is already all-zero means the board was empty anyway and this line "
+            + "proves the RULE ran, not that it removed anything. tray=up in the AFTER reading is "
+            + "CORRECT and required: the board is the scenario dashboard (initiative track, "
+            + "objectives, element strip, CONFIRM/rest keycaps) and a just-killed player still "
+            + "needs it — the confirm is party-wide whenever nobody is at turn, so taking the "
+            + "keycaps away here would deadlock the scenario. Cards only.");
+    }
+
+    /// <summary>Per-scenario latch for the ARMED line (see <see cref="NoteExhaustedRuleArmed"/>).</summary>
+    private bool _exhaustedRuleArmed;
+
+    /// <summary>
+    /// THE FALSIFIER. Without this line a session in which NOBODY dies and a session in which the
+    /// rule silently failed to run look identical — both are silent. One line per scenario entry
+    /// says the rule is live and how many boards it has cleared, so "no CLEARED line" reads as
+    /// "nobody died" only when this line is present to say so.
+    /// </summary>
+    private void NoteExhaustedRuleArmed()
+    {
+        if (!CardsGameApi.InScenario)
+        {
+            _exhaustedRuleArmed = false;   // the next scenario entry re-states it
+            _loggedExhaustedActorId = 0;   // …and a new scenario's death is a fresh edge
+            _pendingExhaustedLog = null;   // a capture that never settled dies with the scenario
+            return;
+        }
+        if (_exhaustedRuleArmed)
+            return;
+        _exhaustedRuleArmed = true;
+        // HW-VERIFY
+        VRLog.Note("Cards", "EXHAUSTED BOARD: ARMED (local) — the rule that a dead character's "
+            + "board carries no cards is live on this client for this scenario, enforced at "
+            + "Board.CharacterFocus (the one seam every card population on the board is fed from) "
+            + $"and drained by the rebuild's no-hand arm. {_exhaustedClears} board(s) cleared so "
+            + "far this session. FALSIFIER: this line WITHOUT a later 'EXHAUSTED BOARD: CLEARED' "
+            + "means nobody was exhausted while this scenario ran — it does NOT mean the clear "
+            + "worked. NO line at all means the rule never even reached a rebuild in a scenario, "
+            + "which is a broken build, not a quiet success. The peer-side twin is "
+            + "'[Net] EXHAUSTED BOARD [id]' and both must agree: the 1:1 rule makes the owner's "
+            + "board and its mirror one verdict, not two.");
+    }
+
     private void Rebuild(Transform anchor)
     {
+        NoteExhaustedRuleArmed();
+
         // FREE CHARACTER FOCUS: the game's own presented hand goes in, and the hand the player
         // asked to LOOK at comes out. With no focus this is the identity function, so every path
         // below is byte-for-byte the pre-feature one. With a focus it is an OVERRIDE, and
@@ -471,7 +614,45 @@ internal sealed partial class CardsDriver
             // must not leave the fan latched in a restricted mode: the next interactive fan would
             // be inert.
             _fan.SetMode(CardFan.FanMode.Interactive);
+            // A DEAD BOARD HAS NO CARDS (user 2026-09-05 #13). This arm is where the clear happens
+            // for EVERY reason a board can lose its hand; the seam tells us when the reason was a
+            // DEATH, which is the only one the user asked to be able to read off a log. The counts
+            // are taken on both sides of RebuildFakeOrClear because "it cleared" and "there was
+            // nothing there anyway" are the two readings a hardware round has to tell apart.
+            CPlayerActor? exhausted = Board.CharacterFocus.ExhaustedRefusal;
+            if (exhausted != null && _pendingExhaustedLog == null)
+            {
+                // Captured BEFORE the clear, and held until the clear has fully settled (below).
+                // Deliberately NOT gated on the logger's own per-character latch: reading a
+                // diagnostic's change gate from the rebuild would make that gate load-bearing, and
+                // a logger whose state the mechanism depends on is the exact shape that once
+                // nearly latched the wall fade off forever. The latch stays inside
+                // LogExhaustedBoardClear, which simply declines a repeat.
+                _pendingExhaustedLog = exhausted;
+                _pendingExhaustedBefore = SampleBoardCards();
+            }
             RebuildFakeOrClear(anchor);
+            // THE PILE STACKS HIDE ON A TWO-FRAME GRACE (PileViewer.HidePending): the first call
+            // only ARMS it, and this method is the grace's only driver. A board that has gone quiet
+            // — which an exhausted character's board does by construction, its own change signals
+            // having all stopped — could otherwise take the arming call as the LAST one and keep
+            // three stacks of a dead character's numbers up for the rest of the scenario. Re-arming
+            // the rebuild until the hide has landed is the general fix: it covers every reason a
+            // board loses its hand, not only this one, and costs one extra rebuild.
+            //
+            // THE EVIDENCE LINE WAITS FOR THE SAME SETTLE, and that is not cosmetic: an AFTER
+            // reading taken on the arming frame would report "stacks shown" every single time and
+            // the instrument would ship convicting its own fix. Read the whole picture or say
+            // nothing yet.
+            if (_piles.HidePending)
+            {
+                _dirty = true;
+            }
+            else if (_pendingExhaustedLog != null)
+            {
+                LogExhaustedBoardClear(_pendingExhaustedLog, _pendingExhaustedBefore);
+                _pendingExhaustedLog = null; // released whether or not the line printed
+            }
             return;
         }
         if (_fakeActive)

@@ -309,6 +309,28 @@ internal sealed class PileViewer
     private int _hideAt;
 
     /// <summary>
+    /// Is a HIDE armed but not yet applied — i.e. would the stacks still be drawn if nothing called
+    /// <see cref="SetVisible"/> again?
+    ///
+    /// <para>WHY IT IS PUBLISHED (user 2026-09-05 #13, the exhausted-board round). The grace below
+    /// needs a SECOND call after <see cref="HideGraceFrames"/> to actually switch the three stacks
+    /// off, and its only caller is <c>CardsDriver.RebuildFakeOrClear</c>, which runs on the
+    /// EDGE-DRIVEN rebuild. In the steady state something marks the driver dirty again within a
+    /// frame or two and the hide lands — but "in the steady state" is not a guarantee, and the one
+    /// state where it is least true is precisely a board whose character has just been exhausted:
+    /// that board's own change signals have all gone quiet by construction, so a first, arming call
+    /// could be the LAST call and three stacks with a dead character's numbers would stand for the
+    /// rest of the scenario. <c>Rebuild</c> re-arms its dirty flag on this, which turns "usually"
+    /// into "always" for every no-hand reason, not just this one.</para>
+    /// </summary>
+    internal bool HidePending => _hideAt != 0 && _discard != null && _discard.gameObject.activeSelf;
+
+    /// <summary>Are the three stacks actually DRAWN right now? The rendered fact, not the intent —
+    /// read by the exhausted-board evidence line, which must report what is on screen and not what
+    /// a caller asked for (an armed-but-ungraced hide is still a visible stack).</summary>
+    internal bool StacksShown => _discard != null && _discard.gameObject.activeSelf;
+
+    /// <summary>
     /// Show/hide the three pile stacks — and, since 2026-08-11, DEBOUNCE THE HIDE BY TWO FRAMES.
     ///
     /// <para>User, hardware, ModBuild 107, in mixed reality: "Nicht nur der Text sondern auch die
@@ -454,7 +476,18 @@ internal sealed class PileViewer
         //     decision the game addressed to the acting/deciding actor, and their own drop seams key
         //     reference-identical CItem instances out of the game's dictionaries, so a watched
         //     character's card is refused there structurally.
-        CardsHandUI? counted = presented != null ? presented : hand;
+        //
+        // …AND THE FALLBACK MAY NOT RESURRECT WHAT THE SEAM REFUSED (user 2026-09-05 #13, "wenn ein
+        // Character tot ist ... sollen dort gar keine Karten mehr liegen"). `presented` is null for
+        // an EXHAUSTED character by construction now (Board.CharacterFocus.BoardCarriesCards), and
+        // this line is a per-frame path that runs whether or not a rebuild has happened — so a bare
+        // "else hand" would hand the three stacks straight back the dead character's GAME hand and
+        // keep counting its piles, fanning its items and beating its usable cue on a board the
+        // rebuild has already emptied. Same predicate, same class as the seam, so the two cannot
+        // drift; a dead character therefore reaches the "nothing displayed" guard below, which is
+        // also what nulls PileViewer.CurrentCounts and so takes the wire record with it.
+        CardsHandUI? counted = presented != null ? presented
+            : Board.CharacterFocus.BoardCarriesCards(hand) ? hand : null;
         // The items browse renders — and acts on — the character the BOARD shows. DispatchPoke opens
         // the fan with this hand, so poking the stack while watching somebody fans out THEIR items.
         _hand = counted;

@@ -817,6 +817,87 @@ internal static class CharacterFocus
     /// <summary>Stable wire id of <see cref="PresentedActor"/> — what record 22 carries.</summary>
     internal static int PresentedActorId => NetFigures.StableActorId(PresentedActor);
 
+    // ================================================================= A DEAD BOARD HAS NO CARDS ==
+    //
+    // USER, hardware 2026-09-05, item 13, verbatim: "Wenn ein Character tot ist (was ein Character
+    // im Test war) sollen dort gar keine Karten mehr liegen. Im Test wurden noch die Karten
+    // angezeigt die ich fuer die Phase ausgewaehlt hatte bevor ich gestorben bin."
+    //
+    // THE RULE, and it is absolute: a control board is ABOUT exactly one character — the one it
+    // PRESENTS. If that character is exhausted, the board carries NO cards, in ANY population:
+    // the two round-card recesses, the hand fan, the discard / burnt / items stacks and their
+    // captions, the item chips and their fan, the active-card column and its title, the pick /
+    // decision field, the docked action halves and any open browse arc. "Empty except for one of
+    // those" is the same defect wearing a smaller hat.
+    //
+    // WHERE IT IS ENFORCED, and why HERE and nowhere else. Every one of those populations is
+    // already drained by ONE branch — CardsDriver.Rebuild's `hand == null` arm
+    // (CardsDriver.6.Flows.RebuildFakeOrClear) — and every one of them is fed from ONE seam, this
+    // class's ResolveHand / PresentedHand pair. So the rule is a filter ON THE SEAM, not a clause
+    // repeated at each surface: refuse an exhausted character's hand and the existing clear does
+    // the rest. A per-surface version of this is exactly the shape that has already cost this
+    // project a round (a cascade clears only what it lists, and the row outside the membership
+    // test survives the whole chain).
+    //
+    // WHY THE HOLE WAS HERE. The class already knew the rule and applied it three times — TryFocus
+    // refuses an exhausted portrait ("an exhausted character has no hand, no turn and no board
+    // presence left to look at"), ResolveHandCore drops a focus whose character died, and
+    // LocalFloorHand skips dead actors in BOTH of its arms. What no path tested was the
+    // PASS-THROUGH: with no focus taken, ResolveHandCore returns `gameHand` unchanged, and
+    // CardsGameApi.IsLocalHand — the only gate in front of it — asks about OWNERSHIP, never about
+    // life. So the game's own hand for a character this client owns kept flowing onto the board
+    // after that character was killed. Session evidence (ModBuild 447): the host's Mindthief
+    // 'Testo' died at .planning/debug/Player.log:255544 ("MindthiefID takes 3 damage and is now at
+    // -2 health", [MessageHandler] ActorDead, "Disabling card hand tab for MindthiefID") and the
+    // board went on reporting "Piles: discard=2, burnt=6 for 'Testo'" and sending "Board UI SENT:
+    // ... slots=3 (slot1=card, slot2=card)" for the remaining two rounds, to the session's last line.
+    //
+    // WHAT DELIBERATELY STAYS. The BOARD itself, and everything on it that is not a card: the
+    // initiative track, the objectives panel, the element strip, the status readouts and the
+    // CONFIRM / rest keycaps. Rebuild's clear arm keeps the tray up inside a scenario for exactly
+    // that reason ("the dashboard"), and the keycaps must not be taken away here: the confirm is
+    // party-wide whenever nobody is at turn (PlayTray.5.Status' attribution clause), so hiding it
+    // on the only board a just-killed player still has would deadlock the scenario. The report is
+    // about CARDS lying on a dead character's board, and that is exactly what this removes.
+
+    /// <summary>
+    /// May the board this hand feeds carry CARDS at all? False for an EXHAUSTED character — see
+    /// the block above. A null hand and a hand with no actor answer as before (there is nothing to
+    /// refuse), so this can only ever turn a drawn board into an empty one, never the reverse.
+    ///
+    /// <para>Guarded: a mid-teardown actor reads as gone rather than throwing inside a per-frame
+    /// board path — the fail-safe direction is "no cards", which is the state the user asked
+    /// for.</para>
+    /// </summary>
+    internal static bool BoardCarriesCards(CardsHandUI? hand)
+    {
+        CPlayerActor? actor = hand != null ? hand.PlayerActor : null;
+        if (actor == null)
+            return true;
+        try { return !actor.IsDead; }
+        catch { return false; }
+    }
+
+    /// <summary>
+    /// The exhausted character whose hand the last resolve REFUSED, or null. Published so the
+    /// rebuild that lands in the clear arm can say WHY it is empty (the <c>EXHAUSTED BOARD</c>
+    /// evidence line) instead of reporting the same "no hand" a scenario teardown produces.
+    /// </summary>
+    internal static CPlayerActor? ExhaustedRefusal { get; private set; }
+
+    /// <summary>Apply <see cref="BoardCarriesCards"/> to the hand entering the seam, and latch the
+    /// refusal for the diagnostic. The ONE place the rule is applied to the game's own hand.</summary>
+    private static CardsHandUI? LivingHand(CardsHandUI? hand)
+    {
+        if (BoardCarriesCards(hand))
+        {
+            ExhaustedRefusal = null;
+            return hand;
+        }
+        ExhaustedRefusal = hand!.PlayerActor;
+        return null;
+    }
+
     /// <summary>True while the presented character is NOT the one the game itself presents, i.e.
     /// the view is a focus OVERRIDE and therefore strictly read-only (class doc). Callers use
     /// this to strip every interaction affordance off what they build.</summary>
@@ -1148,6 +1229,10 @@ internal static class CharacterFocus
     /// </summary>
     internal static CardsHandUI? ResolveHand(CardsHandUI? gameHand)
     {
+        // A DEAD BOARD HAS NO CARDS (user 2026-09-05 #13 — see the block at BoardCarriesCards).
+        // Applied to the GAME's hand here, at the seam, so the whole card pipeline drains through
+        // the one clear arm below instead of each surface growing a death test of its own.
+        gameHand = LivingHand(gameHand);
         CardsHandUI? resolved = ResolveHandCore(gameHand);
         if (resolved != null)
         {
@@ -1263,6 +1348,10 @@ internal static class CharacterFocus
     /// </summary>
     internal static CardsHandUI? PresentedHand(CardsHandUI? gameHand)
     {
+        // The same filter ResolveHand applies, for the reason this method's own doc gives for
+        // existing: the two must answer the same question, or the per-frame consumers keep
+        // counting a character the rebuild has already taken off the board.
+        gameHand = LivingHand(gameHand);
         CardsHandUI? resolved = PresentedHandCore(gameHand);
         // The selection floor is part of the ANSWER, so this twin has to apply it too — otherwise
         // the per-frame consumers (the pile counts) would read "no hand" for exactly the character
@@ -1710,6 +1799,7 @@ internal static class CharacterFocus
         _focused = null;
         _readOnlyView = false;
         PresentedActor = null;
+        ExhaustedRefusal = null;
         _loggedFocusId = 0;
         _floorActor = null;    // a dead scenario's character must never be the next one's floor
         _loggedFloorId = null;

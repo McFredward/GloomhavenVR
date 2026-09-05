@@ -45,6 +45,14 @@ namespace GloomhavenVR.Net;
 ///     scenario yet, it died, the peer focused a summon) degrades to the owned character — i.e.
 ///     to the exact behaviour every build before this one had. A remote board is never left
 ///     without an actor because of this feature.
+///
+///     ONE EXCEPTION, and it is not about the focus at all: when the OWNED character itself is
+///     EXHAUSTED there is no character left to fall back TO, and the resolution answers null with
+///     <c>exhausted</c> set (user 2026-09-05 #13 — "wenn ein Character tot ist … sollen dort gar
+///     keine Karten mehr liegen"). The BOARD is still not blank: it keeps its surface and every
+///     GLOBAL panel; what goes is the CARDS. See the death rule inside
+///     <see cref="DisplayedActor(RemoteAvatar, out bool, out bool)"/> and its consumer
+///     <c>RemoteControlBoard.ApplyExhaustedCardRule</c>.
 /// </summary>
 /// <remarks>CLASSIFICATION: PER-ACTOR MODEL — ZERO wire of its own. It re-uses extension record 22
 /// (already spent on the focus rings) as a SELECTOR into the host-replicated model, and resolves it
@@ -160,12 +168,51 @@ internal static class RemoteBoardFocus
     /// diagnostics and for callers that want to say so in a log line.
     /// </summary>
     internal static CPlayerActor? DisplayedActor(RemoteAvatar owner, out bool viaFocus)
+        => DisplayedActor(owner, out viaFocus, out _);
+
+    /// <summary>
+    /// <see cref="DisplayedActor(RemoteAvatar, out bool)"/> plus the reason a null is a null.
+    ///
+    /// <para><paramref name="exhausted"/> is true when this peer's board resolved to an EXHAUSTED
+    /// character and was therefore left without one — as opposed to the JOIN-TIME null (no
+    /// character assigned yet), which the board treats completely differently. See the death rule
+    /// on <c>owned</c> below.</para>
+    /// </summary>
+    internal static CPlayerActor? DisplayedActor(RemoteAvatar owner, out bool viaFocus,
+        out bool exhausted)
     {
         viaFocus = false;
+        exhausted = false;
         if (owner == null)
             return null;
 
         CPlayerActor? owned = NetPlayerActors.ActorFor(owner.PlayerId);
+
+        // A DEAD BOARD HAS NO CARDS — RULE 3'S ONE EXCEPTION, AND THE HOLE THIS ROUND CLOSED.
+        //
+        // User, hardware 2026-09-05, item 13: "Wenn ein Character tot ist ... sollen dort gar keine
+        // Karten mehr liegen." The class doc's rule 3 ("fall back, never blank") is about an
+        // UNRESOLVABLE focus id, and the focus arm below already refuses a dead character with
+        // exactly this argument — but the fallback it degrades TO was never asked the same
+        // question. So a peer whose own character had been killed kept a fully dressed mirrored
+        // board: two round-card recesses, three pile stacks and an active column, all about a
+        // character the game had already taken off the initiative track. That is the same shape as
+        // the LOCAL defect (Board.CharacterFocus.BoardCarriesCards) — the membership test was
+        // applied to the override and not to the default row — and it is fixed at the same kind of
+        // place: the ONE resolution every per-actor remote surface funnels through.
+        //
+        // NOT a blank BOARD: the surface stays (RemoteBoardVisibility.ShowBoardSurface reads an
+        // actorless board as "nothing to hide"), the objectives / elements / initiative track are
+        // GLOBAL and keep rendering, and RemoteControlBoard clears only the CARD populations —
+        // including the wire-fed ones, which is the half a null actor alone would not have reached.
+        //
+        // A peer who is LOOKING at a living teammate is untouched by this: the focus arm below runs
+        // first for them and the board is about the teammate, whose cards are correctly drawn.
+        if (owned != null && IsDead(owned))
+        {
+            owned = null;
+            exhausted = true;
+        }
 
         // RULE 1 — secrecy wins. See the class doc: the sender cannot legally change focus inside
         // this window, so anything we still hold for them is stale, and following it would only
@@ -193,6 +240,10 @@ internal static class RemoteBoardFocus
             return owned;
         }
 
+        // A LIVING focus target wins over the owner's own death: the board is then ABOUT that
+        // teammate and must draw their cards exactly as any other watcher's board does. The
+        // exhausted verdict is the OWNER's fallback, not a property of the peer.
+        exhausted = false;
         viaFocus = !ReferenceEquals(focused, owned);
         Log(owner.PlayerId, focused, viaFocus, secretPhase: false);
         return focused;

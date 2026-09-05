@@ -561,7 +561,13 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // OWNED character whenever the focus is absent, unresolvable or suppressed, so the
         // pre-ModBuild-84 behaviour is exactly the fallback. See RemoteBoardFocus for the three
         // rules (secrecy wins, the viewer's gate still decides, never blank).
-        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out bool viaFocus);
+        // …and WHY a null is a null. `exhausted` separates the JOIN-TIME null (no character
+        // assigned yet — the case every clause below was written for) from the peer whose
+        // character has been KILLED. The two want opposite things from the wire-fed halves: a
+        // joining peer's recesses, stacks and cue are knowable and must be drawn; an exhausted
+        // one's must not exist at all (user 2026-09-05 #13). See ApplyExhaustedCardRule.
+        CPlayerActor? actor = RemoteBoardFocus.DisplayedActor(_owner, out bool viaFocus,
+            out bool exhausted);
         _ = viaFocus; // the state is stated in RemoteBoardFocus' own change-gated log line
 
         bool showFronts = actor != null && RevealGate.ShowRoundCardFronts(actor);
@@ -703,7 +709,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // our own actor / off-scenario). The slot only ever CREATES a face object inside its
         // front branch, so the fronts cannot exist a frame early. The actor is handed through purely
         // so the slot can find that player's own card widget to clone — it is never written to.
-        SeatSlots(actor, showFronts);
+        // EXHAUSTED: the recesses are forced empty regardless of the owner's occupancy nibble —
+        // that mask is the last one they sent while alive, and a latched wire fact is exactly how
+        // a "cleared" board keeps two card backs (see ApplyExhaustedCardRule).
+        SeatSlots(actor, showFronts, exhausted);
 
         // …and the GAME's OWN card plume on those very slabs (wire id 236) — the PLAYED/round-slot
         // half of the bit whose HAND half RemoteHandFan.TickMirroredPlumes already pays. PER FRAME,
@@ -782,6 +791,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 RefreshContent(actor, showFronts);
             else
                 RefreshGlobalContent();
+            // A DEAD BOARD HAS NO CARDS. Runs AFTER the refresh on purpose: that pass is what
+            // re-paints the wire-fed pile counts and the item cue, so clearing before it would be
+            // undone in the same tick. Called UNCONDITIONALLY and both ways, so the rule is
+            // reversible by construction (scenario restart, a peer swapping character) rather than
+            // a one-way hide nothing ever undoes. The global panels the refresh also drives
+            // (objectives, elements, initiative track, round readout) are scenario-wide state and
+            // stay: this takes the CARDS, not the board.
+            ApplyExhaustedCardRule(exhausted);
             // This pass is what CREATES new surfaces on the board (a card face, a pile front, a
             // readout label). Re-arm the draw-order sweep so it runs at the END of THIS tick
             // rather than up to a cadence later: two independent timers of the same period can be
@@ -1286,9 +1303,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// the next one and there is no edge to miss. A sender without the field reads as "unknown" and
     /// takes the legacy branch below verbatim.
     /// </summary>
-    private void SeatSlots(CPlayerActor? actor, bool showFronts)
+    private void SeatSlots(CPlayerActor? actor, bool showFronts, bool exhausted)
     {
-        int wire = _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;
+        // EXHAUSTED OWNER ⇒ BOTH RECESSES EMPTY, whatever the wire last said. The occupancy nibble
+        // is a LATCHED fact — the last one its owner sent while their character was alive — so
+        // reading it here is exactly how a board that is supposed to be empty keeps two anonymous
+        // card backs. Forcing the mask to 0 rather than to -1 matters: -1 would fall through to the
+        // legacy MODEL derivation, which for a null actor is empty too but for the wrong reason.
+        int wire = exhausted ? 0 : _owner.SlotOccupancyKnown ? _owner.BoardSlotMask : -1;
         _slotOccupiedMask = 0;
         _slotFaceMask = 0;
         _slotAnonMask = 0;
@@ -1710,6 +1732,119 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                           "not available on this client yet.");
     }
 
+    /// <summary>Last <c>exhausted</c> verdict this board applied; null = never applied one, so the
+    /// first tick states it either way and a session with no death is not silent.</summary>
+    private bool? _appliedExhausted;
+
+    /// <summary>
+    /// A DEAD BOARD HAS NO CARDS — the remote half of the rule, at the one place this board's card
+    /// populations are written.
+    ///
+    /// <para>USER, hardware 2026-09-05, item 13: "Wenn ein Character tot ist ... sollen dort gar
+    /// keine Karten mehr liegen." The 1:1 rule makes that a statement about BOTH representations:
+    /// whatever the owner's own board becomes, their mirrored board here must become too.</para>
+    ///
+    /// <para>WHY THE NULL ACTOR IS NOT ENOUGH, and this is the whole reason this method exists.
+    /// <see cref="RemoteBoardFocus.DisplayedActor"/> now answers null for an exhausted owner, which
+    /// by itself drains every MODEL-read population (the active column, the pile-front fans, the
+    /// hand fan's front art). It reaches NONE of the WIRE-FED ones: the slot-occupancy nibble, the
+    /// three pile counts and the items cue are LATCHED on this client at the last value their owner
+    /// sent, and <see cref="RefreshGlobalContent"/> — the actorless path — deliberately re-paints
+    /// all three every cadence, because the case it was written for is a peer who has not been
+    /// given a character YET. A board cleared only through the actor would therefore still stand
+    /// there with two anonymous card backs and "ABGEWORFEN 2 / VERBRANNT 6". That is the recorded
+    /// failure shape (a cascade clears only what it lists) and it is why the clear is enumerated
+    /// here rather than inferred.</para>
+    ///
+    /// <para>THE ENUMERATION — every card population a remote board can carry, and what happens to
+    /// each: round-card recesses ⇒ forced empty at <see cref="SeatSlots"/> (the wire mask is
+    /// overridden, not consulted); hosted faces ⇒ dropped with <see cref="BlankCardFaces"/>; active
+    /// cards + their title ⇒ blanked and the column deactivated; discard / burnt / items stacks ⇒
+    /// hidden WITH their captions (<c>PileCounter.SetShown</c>); the items usable cue ⇒ off; the
+    /// mirrored hand fan and the pile-front arcs ⇒ already empty, because their content is the
+    /// owner's own fan, which the owner's board cleared at ITS choke point
+    /// (<c>Board.CharacterFocus.BoardCarriesCards</c>), and their FACE gate reads the null actor.
+    /// What is deliberately NOT taken: the board surface, the objectives panel, the element strip,
+    /// the initiative track, the round readout and the furniture's keycaps — none of them is a
+    /// card, and a dead player still watches the scenario from their board.</para>
+    /// </summary>
+    private void ApplyExhaustedCardRule(bool exhausted)
+    {
+        bool? was = _appliedExhausted;
+        bool edge = was != exhausted;
+
+        // BEFORE — read off the surfaces themselves, not off the verdict that is about to change
+        // them, so the line reports what was DRAWN rather than what was intended.
+        int slotsBefore = CountBits(_slotOccupiedMask);
+        int activeBefore = _active != null ? _active.Count : 0;
+        int discardBefore = _piles[0] != null ? _piles[0]!.Shown : 0;
+        int burntBefore = _piles[1] != null ? _piles[1]!.Shown : 0;
+        int itemsBefore = _piles[2] != null ? _piles[2]!.Shown : 0;
+        int stacksBefore = (_piles[0]?.IsShown == true ? 1 : 0) + (_piles[1]?.IsShown == true ? 1 : 0)
+                           + (_piles[2]?.IsShown == true ? 1 : 0);
+
+        if (exhausted)
+        {
+            BlankCardFaces();               // round-slot faces + active-column faces + the masks
+            _active?.SetActive(false);      // …and the column itself, so its title goes with it
+            for (int i = 0; i < _piles.Length; i++)
+                _piles[i]?.SetShown(false); // slabs, digits AND caption
+            _piles[2]?.SetUsableCue(false); // an exhausted character can play no item
+        }
+        else
+        {
+            for (int i = 0; i < _piles.Length; i++)
+                _piles[i]?.SetShown(true);
+            // The active column re-activates itself from RefreshContent's own count test; forcing
+            // it on here would raise an empty grid on every board that simply has no active cards.
+        }
+
+        // THE STATE IS APPLIED UNCONDITIONALLY, THE LINE ONLY ON THE EDGE. The clear above must not
+        // hang off a change gate: a gate is a latch, and a latch that is the ONLY thing keeping a
+        // population cleared re-opens the defect the moment anything else re-shows it. Every call
+        // above is self-early-returning and allocation-free once applied (BlankCardFaces is already
+        // driven per frame from the hidden-board path for exactly that reason), so re-asserting it
+        // on the 4 Hz content cadence costs a handful of bool compares.
+        if (!edge)
+            return;
+        _appliedExhausted = exhausted;
+
+        int slotsAfter = CountBits(_slotOccupiedMask);
+        int activeAfter = _active != null ? _active.Count : 0;
+        int stacksAfter = (_piles[0]?.IsShown == true ? 1 : 0) + (_piles[1]?.IsShown == true ? 1 : 0)
+                          + (_piles[2]?.IsShown == true ? 1 : 0);
+
+        // HW-VERIFY
+        VRLog.Note("Net", $"EXHAUSTED BOARD [{_owner.PlayerId}]: "
+            + (exhausted ? "CLEARED (remote)" : was.HasValue ? "RESTORED (remote)" : "ARMED (remote)")
+            + $" — verdict {(was.HasValue ? was.Value.ToString() : "unset")} -> {exhausted}. "
+            + $"CARD POPULATIONS BEFORE -> AFTER: round-card recesses {slotsBefore} -> {slotsAfter} "
+            + $"(the owner's own wire nibble still says 0x{_owner.BoardSlotMask:X}, known="
+            + $"{_owner.SlotOccupancyKnown} — a LATCHED fact, which is why the recesses are forced "
+            + $"rather than read); active cards {activeBefore} -> {activeAfter}; pile stacks drawn "
+            + $"{stacksBefore} -> {stacksAfter} (discard={discardBefore}, burnt={burntBefore}, "
+            + $"items={itemsBefore} at the moment of the change; wire counts "
+            + $"{(_owner.HasPileCounts ? $"{_owner.PileDiscardCount}/{_owner.PileBurntCount}/{_owner.PileItemsCount}" : "absent")}); "
+            + $"items usable cue {(exhausted ? "forced off" : "left to the wire")}. "
+            + "READ IT LIKE THIS: after a CLEARED line every one of those AFTER numbers must be 0 "
+            + "and the stacks-drawn count 0 — a non-zero one names the population that survived the "
+            + "clear, which is the whole defect. The BOARD, the objectives, the element strip, the "
+            + "initiative track and the keycaps are NOT cards and are deliberately still there. "
+            + "The mirrored hand fan and the pile-front arcs are not counted here because they "
+            + "carry no content of their own: they are the owner's fan, cleared at the owner's own "
+            + "choke point, and their front gate reads this same null actor.");
+    }
+
+    /// <summary>Population count of a two-bit slot mask.</summary>
+    private static int CountBits(int mask)
+    {
+        int n = 0;
+        for (int i = 0; i < SlotCount; i++)
+            if ((mask & (1 << i)) != 0)
+                n++;
+        return n;
+    }
+
     /// <summary>Drop every hosted card face on this board (round slots + active column) and reset the
     /// slots' change gates, so the next visible frame re-decides from scratch. No-op before the board
     /// has ever been built.</summary>
@@ -2007,6 +2142,27 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             TmpFit.Fit(captionTmp, 0.095f, 0.024f, maxFontSize: 0.22f, wrap: false);
             WorldUI.MrBacking.Label(captionTmp); // below the slabs → sky/room behind it in MR
         }
+
+        /// <summary>
+        /// Show / hide the whole stack — slabs, count digits AND caption, because they are all
+        /// children of this one root. The receiver-side twin of <c>PileViewer.SetVisible</c>, which
+        /// hides its three <c>PileStack_*</c> objects the same way, so an emptied board never
+        /// leaves a stranded "ABGEWORFEN" over nothing. Change-gated; no debounce is needed here
+        /// (the verdict that drives it is a character's death, not a one-frame hand dropout).
+        /// </summary>
+        public void SetShown(bool shown)
+        {
+            if (_root != null && _root.gameObject.activeSelf != shown)
+                _root.gameObject.SetActive(shown);
+        }
+
+        /// <summary>Is this stack currently drawn? Read for the evidence line's BEFORE/AFTER
+        /// counts.</summary>
+        public bool IsShown => _root != null && _root.gameObject.activeSelf;
+
+        /// <summary>The count this stack is displaying, or 0 before its first write — diagnostics
+        /// only (the evidence line's BEFORE reading).</summary>
+        public int Shown => _shown == int.MinValue ? 0 : _shown;
 
         /// <summary>Write the count (change-gated); an empty pile greys its TOP SLAB out, exactly
         /// like the local board's stack dims at zero (<c>PileStack.SetCount</c>).</summary>
