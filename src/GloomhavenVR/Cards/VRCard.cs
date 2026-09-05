@@ -1212,7 +1212,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// the fingers grip the card's lower-edge area ~12 % up from the bottom, like a
     /// real card pinched at its corner.
     /// </summary>
-    private const float PinchGripFraction = 0.12f;
+    internal const float PinchGripFraction = 0.12f;
 
     // ---- THE HOVER POP — ONE DEFINITION, FIVE DRAWERS -----------------------------------------
     //
@@ -1285,13 +1285,7 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         float scale = CardsConfig.InspectScale.Value;
         float cardH = CardsConfig.CardHeight * scale;
 
-        // GrabAnchor frame: +Y out of the palm, +Z along the fingers, ±X thumb side.
-        float bias = CardsConfig.HeldFaceBias.Value * Mathf.Deg2Rad;
-        var faceNormal = new Vector3(0f, Mathf.Cos(bias), -Mathf.Sin(bias));
-        float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
-        // Card +Z (away from the viewer) = −faceNormal; card top (+Y) = thumb side.
-        var rot = Quaternion.LookRotation(-faceNormal, new Vector3(thumbSide, 0f, 0f));
-
+        bool left = hand.Side == HandSide.Left;
         Vector3 pinchLocal;
         FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
         FingerJoints index = hand.Rig.GetFinger(Finger.Index);
@@ -1309,19 +1303,27 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // [Cards] HeldPinchOffset (authored on the RIGHT hand, default X = -5.5 cm) was added
         // RAW on both hands — but the GrabAnchor frames are anatomical mirrors: +Y out of the
         // palm and +Z along the fingers on BOTH hands, so the lateral ±X axis necessarily
-        // points to the THUMB side on the right hand and the PINKY side on the left (exactly
-        // why `thumbSide` above flips sign per hand). A raw X therefore shifted the card
-        // toward the thumb on one hand and toward the pinky on the other — the left card
-        // missed the thumb/index pinch spot by twice the tuned lateral offset. Flip ONLY the
-        // X term for the left hand (Y/Z are anatomically symmetric); one tuned value set,
-        // mirrored by construction — the same authored-right-mirrored-left convention as
-        // FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
+        // points to the THUMB side on the right hand and the PINKY side on the left. A raw X
+        // therefore shifted the card toward the thumb on one hand and toward the pinky on the
+        // other — the left card missed the thumb/index pinch spot by twice the tuned lateral
+        // offset. Flip ONLY the X term for the left hand (Y/Z are anatomically symmetric).
+        //
+        // THE SIGN IS THE PROJECT'S ONE DEFINITION OF IT — Board.FigureGrab.HeldPoseMirror.
+        // OffsetSign, which the figure and prop grabs already read, rather than a fourth
+        // hand-spelled `if (left) x = -x`. That rule has been broken three times in this
+        // codebase (CardGripPose's header records two of them and the 2026-08-09 item-card
+        // report is the third), and every one of them was a copy of the ternary rather than a
+        // call into it.
+        float thumbSide = Board.FigureGrab.HeldPoseMirror.OffsetSign(left);
         Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
-        if (hand.Side == HandSide.Left)
-            pinchOffset.x = -pinchOffset.x;
+        pinchOffset.x *= thumbSide;
         pinchLocal += pinchOffset;
 
-        Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
+        // ONE SOLVER FOR BOTH CARD KINDS — see CardGripPose.ReadingPose. The item card's copy of
+        // these terms is what made the left-hand mirror a five-day defect on one card kind and not
+        // the other; only the card HEIGHT legitimately differs, and that is the parameter.
+        CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, thumbSide, pinchLocal,
+                                 cardH, PinchGripFraction, out Vector3 pos, out Quaternion rot);
         return new HeldPose(pos, rot, scale);
     }
 

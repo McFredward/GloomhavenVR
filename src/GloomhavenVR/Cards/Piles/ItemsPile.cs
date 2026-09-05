@@ -4895,8 +4895,9 @@ internal sealed class ItemsPile
         private float _heldScale = 1f;
 
         /// <summary>FIX 1 — fraction of the card height between the bottom edge and the pinch anchor
-        /// (mirror of VRCard.PinchGripFraction): the fingers grip ~12 % up from the card bottom.</summary>
-        private const float PinchGripFraction = 0.12f;
+        /// (VRCard.PinchGripFraction, CALLED not mirrored): the fingers grip ~12 % up from the
+        /// card bottom.</summary>
+        private const float PinchGripFraction = VRCard.PinchGripFraction;
 
         /// <summary>FIX 2 — unscaled seconds the post-release home glide runs (mirror of
         /// VRCard.ReleaseGlideSeconds): keeps the exponential home-lerp flying while the game may pause
@@ -6071,31 +6072,23 @@ internal sealed class ItemsPile
         }
 
         // FIX 1 — take-into-hand reading pose: pinched between thumb and index, the card CENTER sitting
-        // (0.5 − PinchGripFraction)·cardH above the pinch along the card up-axis, at InspectScale. This
-        // is VRCard.GetHeldPose verbatim, except cardH is the ITEM card's own near-square held height
-        // (_faceHeight at held scale) so the pinch grips the right spot on a near-square card. The base
-        // snap seats this the instant the chip is grabbed; TickHeldPose then billboards the face.
+        // (0.5 − PinchGripFraction)·cardH above the pinch along the card up-axis, at InspectScale. The
+        // base snap seats this the instant the chip is grabbed; TickHeldPose then billboards the face.
         //
-        // THE HEIGHT TERM IS THE ONLY LICENSED DIFFERENCE from the ability-card original, and it is
-        // stated here because this copy has now drifted from it once (see the LEFT-HAND MIRROR note
-        // below). Everything else — the HeldFaceBias face normal, the thumbSide card-up, the
-        // LookRotation, the thumb/index pinch midpoint in GrabAnchor-local space, the HeldOffPalm/
-        // HeldForward partial-rig fallback, the HeldPinchOffset fine-tune and the grip lift — must
-        // stay byte-identical to <see cref="VRCard.GetHeldPose"/>, because a held item card and a
-        // held ability card are the same gesture and the user judges them side by side.
+        // IT IS NO LONGER A COPY OF VRCard.GetHeldPose. It used to be one — a verbatim copy whose own
+        // comment listed the seven terms that had to "stay byte-identical" to the original — and the
+        // 2026-08-09 report is what that list cost: the left-hand mirror was fixed in one copy and
+        // not the other, and this card sat 11 cm out for five days. Both card kinds now call
+        // CardGripPose.ReadingPose, and the HEIGHT — an item card is near-square and 40 mm shorter,
+        // so it must grip its own — is the only licensed difference and is the parameter that says
+        // so. A held item card and a held ability card are the same gesture and the user judges them
+        // side by side.
         protected override HeldPose GetHeldPose(VRHand hand)
         {
             float scale = CardsConfig.InspectScale.Value;
             // Item cards are near-square — use the chip's OWN measured held height (not the tall ability
             // CardHeight) so the grip offset lifts the card the right amount out of the pinch.
             float cardH = (_faceHeight > 0.001f ? _faceHeight : CardsConfig.CardHeight) * scale;
-
-            // GrabAnchor frame: +Y out of the palm, +Z along the fingers, ±X thumb side.
-            float bias = CardsConfig.HeldFaceBias.Value * Mathf.Deg2Rad;
-            var faceNormal = new Vector3(0f, Mathf.Cos(bias), -Mathf.Sin(bias));
-            float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
-            // Card +Z (away from the viewer) = −faceNormal; card top (+Y) = thumb side.
-            var rot = Quaternion.LookRotation(-faceNormal, new Vector3(thumbSide, 0f, 0f));
 
             Vector3 pinchLocal;
             FingerJoints thumb = hand.Rig.GetFinger(Finger.Thumb);
@@ -6127,12 +6120,19 @@ internal sealed class ItemsPile
             // Flip ONLY the X term for the left hand (Y and Z are anatomically symmetric): one tuned
             // value set, mirrored by construction — the same authored-right-mirrored-left convention
             // as VRCard.GetHeldPose, FigureGrabConfig.HeldFaceYawFor and VRHand's grip roll/yaw.
+            //
+            // THE SIGN IS THE PROJECT'S ONE DEFINITION OF IT — Board.FigureGrab.HeldPoseMirror.
+            // OffsetSign, the same call the figure and prop grabs make and the same one VRCard now
+            // makes, rather than a third hand-spelled `if (left) x = -x`. Every one of the three
+            // times this rule has been broken in this codebase, it was broken in a COPY of the
+            // ternary.
+            float thumbSide = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
             Vector3 pinchOffset = CardsConfig.HeldPinchOffset.Value;
-            if (hand.Side == HandSide.Left)
-                pinchOffset.x = -pinchOffset.x;
+            pinchOffset.x *= thumbSide;
             pinchLocal += pinchOffset;
 
-            Vector3 pos = pinchLocal + rot * new Vector3(0f, cardH * (0.5f - PinchGripFraction), 0f);
+            CardGripPose.ReadingPose(CardsConfig.HeldFaceBias.Value, thumbSide, pinchLocal,
+                                     cardH, PinchGripFraction, out Vector3 pos, out Quaternion rot);
             return new HeldPose(pos, rot, scale);
         }
 

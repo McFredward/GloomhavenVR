@@ -329,5 +329,59 @@ namespace GloomhavenVR.Cards
             pos = pinchLocal + rot * new Vector3(thumbSide * cardWidth * 0.5f * GripAcross,
                                                  cardHeight * 0.5f - GripBelow(cardHeight), 0f);
         }
+
+        /// <summary>
+        /// THE READING POSE — the OTHER card hold, and the one this file's header contrasts itself
+        /// against: a card pinched between thumb and index with its face leaned back toward the
+        /// wrist so it reads at rest without a supination. (This solves the FIXED local rotation;
+        /// the per-frame billboard that <c>VRCard.TickHeldPose</c> runs on top of it is the
+        /// caller's, and it is what makes this a reading pose and the <see cref="Solve"/> next door
+        /// a rigid one.)
+        ///
+        /// <para><b>WHY IT LIVES HERE NOW.</b> It was written twice: <c>VRCard.GetHeldPose</c> for
+        /// an ability card and <c>ItemsPile.ItemChip.GetHeldPose</c> for an item card, the second
+        /// an admitted verbatim copy of the first whose own comment listed everything that had to
+        /// "stay byte-identical" — and the 2026-08-09 report is what that list cost: the left-hand
+        /// mirror was fixed in one copy and not the other, and the item card sat 11 cm out for five
+        /// days. The header above records that the lateral rule "HAS NOW BEEN BROKEN TWICE IN THIS
+        /// FILE'S SHORT LIFE"; the reading pose broke it a third time, next door. The 2026-09-05
+        /// round gave the figures' and props' held poses one home
+        /// (<c>Board.FigureGrab.HeldPoseMirror</c>) and the two card poses did not join it. They
+        /// join here, beside the grip they are the alternative to.</para>
+        ///
+        /// <para><b>THE HEIGHT IS THE ONLY LICENSED DIFFERENCE</b> between the two callers, and it
+        /// is a parameter for exactly that reason: an item card is near-square and 40 mm shorter
+        /// than an ability card, so it must grip its own height or the pinch lands in the wrong
+        /// place on it. Everything else is one expression.</para>
+        /// </summary>
+        /// <param name="faceBiasDegrees">How far the face normal leans back from the palm normal
+        /// (+Y) toward the wrist (−Z) — [Cards] HeldFaceBias. At the ~65° default the face points
+        /// at your eyes in a relaxed grip with no wrist twist.</param>
+        /// <param name="thumbSide">+1 on the RIGHT hand, −1 on the left. The card TOP points to the
+        /// thumb side, which is world-up in a relaxed grip, so the card stands out of the pinch
+        /// like a really held playing card. The two grab anchors are anatomical mirrors, so this is
+        /// the only term that can be handed.</param>
+        /// <param name="pinchLocal">Where the hand closes on the card, in anchor-local metres — the
+        /// midpoint of the thumb and index TIPS. The caller has already added the tuning nudge
+        /// ([Cards] HeldPinchOffset) and mirrored its lateral term on the left hand, for the same
+        /// reason this method takes a side at all.</param>
+        /// <param name="cardHeight">The card's height in metres AT ITS HELD SCALE.</param>
+        /// <param name="gripFraction">How far up the card the fingers grip, as a fraction of its
+        /// height — the card CENTRE then sits (0.5 − this) × height above the pinch.</param>
+        /// <param name="pos">Card centre, anchor-local.</param>
+        /// <param name="rot">Card rotation, anchor-local.</param>
+        internal static void ReadingPose(float faceBiasDegrees, float thumbSide, Vector3 pinchLocal,
+                                         float cardHeight, float gripFraction,
+                                         out Vector3 pos, out Quaternion rot)
+        {
+            // GrabAnchor frame: +Y out of the palm, +Z along the fingers, ±X thumb side. The FACE
+            // NORMAL is the palm normal leaned faceBias° back toward the wrist (−Z): in a relaxed
+            // grip the fingers point forward/slightly down, so −Z runs back and UP toward the head.
+            float bias = faceBiasDegrees * Mathf.Deg2Rad;
+            var faceNormal = new Vector3(0f, Mathf.Cos(bias), -Mathf.Sin(bias));
+            // Card +Z (away from the viewer) = −faceNormal; card top (+Y) = thumb side.
+            rot = Quaternion.LookRotation(-faceNormal, new Vector3(thumbSide, 0f, 0f));
+            pos = pinchLocal + rot * new Vector3(0f, cardHeight * (0.5f - gripFraction), 0f);
+        }
     }
 }

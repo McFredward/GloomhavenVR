@@ -280,15 +280,18 @@ internal static class HeldCardGrip
         // mirrors (+Y out of the palm and +Z along the fingers on BOTH hands), so +X is the thumb
         // side on the right hand and the pinky side on the left. See CardsConfig.InHandPinchOffset
         // and, for what the raw form costs, the root-cause note on VRCard.GetHeldPose.
-        Vector3 offset = CardsConfig.InHandPinchOffset.Value;
-        if (hand.Side == HandSide.Left)
-            offset.x = -offset.x;
-        pinchLocal += offset;
-
         // +1 on the right hand, -1 on the left: the anchor frames are mirrors, so the lateral axis
         // - which IS the card's face normal in this pose - points at the thumb on one hand and at
-        // the pinky on the other. Handed once, here, exactly like the offset above.
-        float thumbSide = hand.Side == HandSide.Right ? 1f : -1f;
+        // the pinky on the other, and the tuned lateral offset takes the same sign. ONE read of
+        // the project's one definition (Board.FigureGrab.HeldPoseMirror.OffsetSign, which the
+        // figure and prop grabs and both card reading poses also call) instead of the two separate
+        // spellings this method used to carry - the rule the header above says has been broken
+        // twice in this file's short life is not a rule anybody can spell correctly by hand often
+        // enough.
+        float thumbSide = Board.FigureGrab.HeldPoseMirror.OffsetSign(hand.Side == HandSide.Left);
+        Vector3 offset = CardsConfig.InHandPinchOffset.Value;
+        offset.x *= thumbSide;
+        pinchLocal += offset;
         CardGripPose.Solve(CardsConfig.InHandPitch.Value, thumbSide, pinchLocal,
                            cardWidth, cardHeight, out pos, out rot);
         return true;
