@@ -1,5 +1,11 @@
 # README images
 
+> Not everything here is a README image any more. `controls-*.png` and `install-tree-*.png` are
+> **diagrams built by a script in this directory**, and they exist because the user-facing docs were
+> reworked to carry their information in pictures rather than prose: *"halte es kurz und knapp ...
+> Arbeite auch mehr mit Bildern! ... Die Zielgruppe sind User mit einer kurzen
+> Aufmerksamkeitsspanne."* They are documented at the bottom of this file.
+
 ## `promo.gif` — the page header
 
 Both READMEs open with `docs/img/promo.gif` (7.6 MB, 800x571, 154 frames) — the artist's promo
@@ -419,3 +425,60 @@ clips that are already there, and keeping the two language pages in step.
 | `environments.mp4` | The cellar and the night forest — firelight, the night sky, foliage moving, an element infusion changing the room, switching environments in the settings. The three stills already ship (see above); what a clip adds that they cannot is the MOTION: the drip, the rat, the shafts, and an element fading in over its second. |
 
 Each new clip needs a poster beside it, same name plus `-poster.jpg`.
+
+## The two built diagrams -- `controls-*.png` and `install-tree-*.png`
+
+These are the only images here that exist in **two language versions**, and the reason they are
+scripts rather than files is the same in both cases: **the artwork is generated once, every word is
+drawn at build time.**
+
+```
+python3 docs/img/build-controls-diagram.py     -> controls-en.png, controls-de.png
+python3 docs/img/build-install-tree.py         -> install-tree-en.png, install-tree-de.png
+```
+
+Both need Pillow and the Inter fonts at `/usr/share/fonts/opentype/inter`.
+
+### `controls-{en,de}.png` -- the button map in the playing guide
+
+The single highest-value picture in the documentation set: the controls are what a new player needs
+first, and prose is the worst possible carrier for a button map. It replaces two markdown tables and
+about 250 words of the old `PLAYING.md`.
+
+| Layer | Where it comes from |
+|---|---|
+| `controllers-artwork.png` | **generated** -- a transparent render of a ring-less controller pair with completely BLANK buttons, made with OpenAI `gpt-image-2` (first attempt; the layout came out correct -- stick, two diagonal face buttons, an inner oval, trigger, grip, correctly mirrored). Quantised to 200 colours: 543 kB to 75 kB, no visible loss at diagram size. |
+| every ring, every word | **drawn by the script**, as real text in Inter |
+
+**Never ask the generator for the labels.** A model cannot spell reliably, a labelled bitmap would
+have to be regenerated per language by that same model, and a binding that moves could not be
+corrected without redrawing the controllers. With the split, German is one more pass over the same
+artwork and a moved binding is a one-line edit in `LABELS`.
+
+**The bindings in that script came from the SOURCE, not from the docs** -- `Rig/Comfort.cs`,
+`Rig/WorldGrab.cs`, `Rig/SnapTurn.cs`, `Rig/Flight.cs`, `Board/BoardPing.cs`,
+`WorldUI/Options/OptionsToggle.cs`, `Defaults/Defaults.Rig.cs` -- because the docs were stale in
+three places when this was drawn. If a binding moves, re-read the source.
+
+Two things in the script are load-bearing:
+
+- **The feature coordinates** (`L` and `R`) are pixel positions in `controllers-artwork.png`, read
+  off the render and verified by overlaying probe dots. Regenerating the artwork moves all twelve --
+  re-probe, never guess.
+- **Both thumbstick entries share ONE colour.** A second colour on one physical stick read as a
+  second button rather than as a second gesture; that was tried and it was worse.
+
+### `install-tree-{en,de}.png` -- "did it land in the right place?"
+
+The install guide drew this tree in a fenced code block. A fence is monochrome, so the reader has to
+*read* nine lines to find the two that decide whether the install worked. Here those two folders are
+the only coloured things in the picture, and a reader who looks at nothing else still checks the
+right two. Everything is drawn -- including the tick, because Inter has no U+2714 and a missing
+glyph renders as a tofu box on exactly the row that matters.
+
+### Not in this directory: the option picker's tiles
+
+`src/GloomhavenVR/WorldUI/Options/VariantTiles/*.png` are a different set with a different job --
+they ship inside the plugin DLL, not here. `tile_env_default.png` was rebuilt in the same round; its
+recipe is `unity/asset-preview/build_variant_tile_default.py` and its provenance is
+`.planning/variant-tiles.md`.
