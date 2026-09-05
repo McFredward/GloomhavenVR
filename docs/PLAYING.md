@@ -123,11 +123,6 @@ Scenarios can be played in one of two hand-built environments — a **candle-lit
 firelight, drips, cobwebs, moonbeams through the trees and quiet spatial ambience. Or pick
 **Default** for the game's own look, or **Off (black)** for plain black.
 
-Your hands are part of the room, not visitors to it: reach through a **curtain** and it is pushed
-aside, put a hand in **smoke or fire** and the particles go round it. Both are purely local — cloth
-and effects have never been networked — and both have their own switch under **Advanced**
-(`[Hands] HandsDisturbScenery` and `[Hands] HandsDisturbVfx`).
-
 Both rooms also hide rare, quiet apparitions: a face at the barred window as the moonlight dims,
 someone standing in the dark of the stair shaft, eyes that blink once in the undergrowth. They are
 lit by the room and by nothing else, they are **never over the board and never two at once**, and

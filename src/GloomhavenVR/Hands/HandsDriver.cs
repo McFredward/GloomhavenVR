@@ -42,9 +42,6 @@ internal sealed class HandsDriver : MonoBehaviour
     private System.Action? _tickRig;
     private System.Action? _tickSim;
     private System.Action? _tickGrip;
-    private System.Action? _tickCloth;
-    private System.Action? _tickHang;
-    private System.Action? _tickVfx;
     private System.Action? _tickGhost;
     private System.Action? _tickLesson;
 
@@ -53,9 +50,6 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickRig = TickRig;
         _tickSim = AnimateSimulation;
         _tickGrip = Cards.HeldCardGrip.Tick;
-        _tickCloth = SceneClothHands.Tick;
-        _tickHang = SceneHangingHands.Tick;
-        _tickVfx = SceneVfxHands.Tick;
         _tickGhost = HandGhosts.Tick;
         // The controls lesson lives here because it drives BOTH hands (their meshes step
         // aside for the real controller) and because TickGuard already isolates a throw in
@@ -122,35 +116,18 @@ internal sealed class HandsDriver : MonoBehaviour
         // what each hand grabbed and what its grip button is doing this frame, and BEFORE the ghost
         // step, which is one of its five readers — a hand really holding a card must not fade.
         TickGuard.Run("Hands.CardGrip", _tickGrip!);
-        // Scenery cloth ([Hands] HandsDisturbScenery): arm the hand-shaped collider probe on any
-        // curtain or hanging a hand is inside. AFTER the rig step, because it reads live hand
-        // anchors, and under its own guard because it writes into the GAME's Cloth components —
-        // a surprise there must not be able to abort hand tracking itself.
-        TickGuard.Run("Hands.SceneCloth", _tickCloth!);
-        TickGuard.Run("Hands.SceneVfx", _tickVfx!);
+        // PARKED: the scenery hand-interaction lanes (scenery cloth, hanging banners/flags and
+        // particle/smoke/flame disturbance) were wired in here across ModBuild 428-432 and removed
+        // by user ruling — the record is .planning/hand-interaction-PARKED.md. The one surviving
+        // hand-interaction feature is Board/FigureGrab/FigureClothHands.cs (a held figure's own
+        // clothing), which is ticked by FigureGrabbable, not from here.
+
         // Ghost hand ([Hands] GhostHandOnFan): fade the hand carrying the OPEN card fan. Runs
         // AFTER the rig step so a hand rebuilt this frame is already in place, and under its own
         // guard so a material/shader surprise can never abort hand tracking itself.
         TickGuard.Run("Hands.Ghost", _tickGhost!);
         TickGuard.Run("Hands.ControlsLesson", _tickLesson!);
     }
-
-    /// <summary>
-    /// The one step that must run AFTER every Animator in the frame.
-    ///
-    /// <para><see cref="SceneHangingHands"/> writes a scenery banner's BIND BONES, which is the one
-    /// field in this module that something else could plausibly own: if a hanging ever ships with
-    /// an Animator driving its rig, an Update-phase write would be overwritten every frame and the
-    /// feature would look dead while behaving exactly as written. This project's standing rule for
-    /// that case is to concede the flag and own the final value in LateUpdate, so this one lives
-    /// here rather than beside its siblings in <see cref="Update"/>. It reads hand anchors the rig
-    /// step wrote earlier in the same frame; nothing else reads what it writes.</para>
-    ///
-    /// <para>Under its own <see cref="TickGuard"/> for the same reason as every step above: a
-    /// surprise inside a write into the GAME's transforms must not be able to abort hand
-    /// tracking.</para>
-    /// </summary>
-    private void LateUpdate() => TickGuard.Run("Hands.SceneHanging", _tickHang!);
 
     /// <summary>
     /// Per-frame rig-homing: resolve the parent (rig root in VR, main camera in desktop
@@ -306,18 +283,6 @@ internal sealed class HandsDriver : MonoBehaviour
         // already in the grip with no card in it — and the ghost, the curls and the wire bit all
         // read that latch.
         Cards.HeldCardGrip.Shutdown();
-        // Scenery cloth: write the authored collider arrays back BEFORE the hands die. A curtain
-        // left holding a destroyed collider never simulates correctly again, and a scene that is
-        // merely being re-entered keeps its curtains.
-        SceneClothHands.Shutdown();
-        // Scenery hangings: every driven bind bone back to its authored local pose BEFORE the
-        // hands die. A banner left mid-swing stays bent for the rest of the session, because
-        // nothing else in the game ever writes those bones back.
-        SceneHangingHands.Shutdown();
-        // Scenery VFX: write the authored collision settings back BEFORE the probe colliders die.
-        // A particle system left pointing at a destroyed collider collides against nothing for the
-        // rest of its life, and a scene that is merely being re-entered keeps its effects.
-        SceneVfxHands.Shutdown();
         // Controls lesson: it holds a controller model parented to each hand and a list of the
         // hand renderers it switched off. Both die with the tree below, but the panel does not
         // and the progress channel would keep waiting for a step nobody can perform.

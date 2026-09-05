@@ -129,12 +129,6 @@ Nachthimmel aus einem echten Sternkatalog, Feuerschein, Tropfen, Spinnweben, Mon
 Bäume und leiser räumlicher Geräuschkulisse. Oder wähl **Standard** für den Look des Spiels selbst,
 oder **Aus (schwarz)** für schlichtes Schwarz.
 
-Deine Hände sind Teil des Raums, keine Besucher darin: Greif durch einen **Vorhang**, und er wird
-beiseitegeschoben; halt eine Hand in **Rauch oder Feuer**, und die Partikel gehen um sie herum.
-Beides ist rein lokal — Stoff und Effekte waren nie über das Netz synchronisiert — und beides hat
-seinen eigenen Schalter unter **Erweitert** (`[Hands] HandsDisturbScenery` und
-`[Hands] HandsDisturbVfx`).
-
 In beiden Räumen verstecken sich außerdem seltene, leise Erscheinungen: ein Gesicht am vergitterten
 Fenster, wenn das Mondlicht schwächer wird, jemand, der im Dunkeln des Treppenschachts steht,
 Augen, die einmal im Unterholz blinzeln. Sie werden vom Raum beleuchtet und von sonst nichts, sie
