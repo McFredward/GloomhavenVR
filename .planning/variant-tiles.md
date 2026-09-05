@@ -39,8 +39,8 @@ both keys consistent; see the class doc on `VariantTiles.cs` for the exact rule 
 sky tile clears MR only if it was on, and the MR tile leaves `[Sky] Style` alone so switching MR back
 off restores the chosen room).
 
-Two of the five have no room to photograph, and both show **the same play tray at the same size and
-pose** so the difference between them is the only thing that changes:
+Three of the five have no room to photograph, and all three show **the same play tray at the same
+size and pose** so the difference between them is the only thing that changes:
 
 * **Aus (schwarz)** — the tray in pure black. Deliberately *not* an empty black rectangle: that is
   exactly what a tile whose art failed to load looks like, so the one state that really is "no
@@ -49,13 +49,27 @@ pose** so the difference between them is the only thing that changes:
   There is nothing to photograph (the surroundings are the player's own room, delivered by the
   compositor's chroma key), and a stock living room would be a picture of somebody else's flat. The
   contrast with the black tile beside it is the message.
+* **Standard** — the same tray over the game's own scenario sky. Default owns no asset at all
+  (`SkyAlternative.cs:568-575` gives it a NULL bundle path — it IS the base game's `GH_SkySphere`
+  under `AMP_SkyShader`), so its surround is the one layer here that has to be photographed rather
+  than rendered: a pure-surround window on a frame of `docs/img/control-board.mp4`.
 
-**Standard** is a crop of a real in-game frame of `docs/img/control-board.mp4`, framed to the
-scenario diorama and the game's own dark forest behind it, with every piece of mod UI cropped out.
+  **This tile was rebuilt.** It used to be a crop framed on the DIORAMA — an off-centre scenario
+  shot, ruins and a party and an element token, no board in the middle — and beside the two tiles
+  above it did not read as the same kind of picture. The author's report was
+  *"das Bild von der Standard-Umgebung ist falsch … mach da einen Ausschnitt von der Textur dieser
+  Blase drumrum rein mit dem Board in der Mitte, wie bei Mixed Reality oder aus"*, and that is now
+  what it is. Recipe: `unity/asset-preview/build_variant_tile_default.py`.
 
-Nothing is brightened. Both mod rooms are night scenes and that IS the product — the same ruling
-`docs/img/README.md` records for the README env heroes. Legibility at tile size is bought with the
-CROP, never with a curve that advertises a room the player never gets.
+Both mod ROOMS are night scenes and that IS the product — the same ruling `docs/img/README.md`
+records for the README env heroes — so Keller and Nachtwald are never brightened; their legibility
+at tile size is bought with the CROP.
+
+**Standard's surround is the one exception, and it is not that ruling.** The raw sky crop is
+near-black (mean ~12/255), and left raw the tile would be a black rectangle with a board on it —
+i.e. the Aus (schwarz) tile, which is the exact failure the first bullet above exists to prevent.
+The lift is what makes the two distinguishable at 320x240. It grades a UI THUMBNAIL of a sky, not a
+room render that is judged as the product.
 
 ## Regenerating the art
 
@@ -85,8 +99,8 @@ r $B/Head/Mask_2.fbx $B/Head/Mask_2_albedo.png raw/mask_2.png --unlit --res 512
 r $B/Table/PlayTray_prepped.fbx $B/Table/PlayTray_albedo.png raw/board_oak.png \
   --normal $B/Table/PlayTray_normal.png --res 512 --yaw 35 --pitch 50 --scale 0.78
 
-# the Standard tile's source frame
-ffmpeg -v error -ss 0.2 -i docs/img/control-board.mp4 -frames:v 1 frames/std_cb.png
+# the Standard tile's source frame — the SURROUND, not the diorama
+ffmpeg -v error -ss 6.0 -i docs/img/control-board.mp4 -frames:v 1 frames/std_cb.png
 ```
 
 The composition step (crop, scale, backdrop, contact shadow) is a short PIL script; its decisions are
@@ -101,8 +115,10 @@ rules:
   stops at the wrist;
 * Keller and Nachtwald are 4:3 crops of `docs/img/env-cellar.jpg` and `docs/img/env-forest.jpg`,
   centred on the lit part of the room (0.50/0.56 at 0.92 height, and 0.50/0.46 at 0.94);
-* Standard is `crop43(std_cb.png, cx=262, cy=312, h=364)` — the window that excludes the control
-  board (x >= 760), the tooltip (x >= 573) and the card fan (x >= 511, y >= 441).
+* Standard is `std_cb.png` cropped to `(240, 0, 453, 160)` — a 4:3 window that is ENTIRELY the
+  game's sky, with the tray keyed out of `tile_env_offblack.png` composited over it so the board
+  lands at exactly the pose the MR and Aus tiles put it at. The whole recipe, and why the tray is
+  keyed rather than re-rendered, is `unity/asset-preview/build_variant_tile_default.py`.
 
 ## Legibility
 
