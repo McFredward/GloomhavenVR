@@ -46,6 +46,19 @@ namespace GloomhavenVR.WireTests;
 /// <para>The classification is driven against the SHIPPED method — <c>MandatoryDecisionTerm.cs</c>
 /// is compiled into this assembly, not copied into it — so a change to the switch is a change to
 /// what runs here.</para>
+///
+/// <para><b>AND THE NARROWING HAD A SECOND HALF, WHICH IS WHY THE LINT NOW COVERS TWO METHODS
+/// (ModBuild 447).</b> Narrowing the caller to the four identity terms was right for the merchant
+/// and the temple and left the QUEST WINDOW with no release path at all — the ModBuild 444 log
+/// counts <c>MANDATORY DECISION ANSWERED</c> 8x for 'UI Quest Popup', the ModBuild 446 log counts
+/// it zero times for anything, and the user's next report was <i>"das Quest-Fenster soll komplett
+/// verschwinden, wenn keine Quest aktiv ausgewählt ist"</i>. The remedy deliberately did NOT
+/// re-widen anything: <c>StickinessSpentByClearedQuestSelection</c> is a SEPARATE predicate asking
+/// a different question — is there still a selection for this view to be a view of — so the
+/// merchant and the temple are untouched by it. That makes it the obvious place for the third
+/// widening, so it is linted by the same rule as its sibling: neither method may ask the union.
+/// A term added to <see cref="MandatoryDecisionTerm"/> still has to be classified above, and this
+/// file is still the only thing in the repository that can notice.</para>
 /// </summary>
 internal static class MandatoryDecisionTermVectors
 {
@@ -76,6 +89,15 @@ internal static class MandatoryDecisionTermVectors
 
     private const string CallerRelPath = "src/GloomhavenVR/WorldUI/Modal/ModalFallback.4.Tick.cs";
     private const string CallerMethod = "StickinessSpentByAnsweredDecision";
+
+    /// <summary>
+    /// ModBuild 447's sibling predicate, in the same file. It releases a floated quest window when
+    /// the map table has settled on deciding no quest, and it must reach that answer WITHOUT the
+    /// union: its whole reason to exist is that the union released the merchant and the temple.
+    /// It does not ask <c>IdentifiesTheWindow</c> either — it is not a mandatory-decision question
+    /// at all — so only the negative half of the lint applies to it.
+    /// </summary>
+    private const string SelectionCallerMethod = "StickinessSpentByClearedQuestSelection";
 
     internal static void Run(Harness t, string repoRoot)
     {
@@ -178,6 +200,23 @@ internal static class MandatoryDecisionTermVectors
                + "map-room destination carries — asking it here is exactly the 2026-09-03 "
                + "regression: the merchant and the temple were released by the flat game's "
                + "ordinary single-window hide and by a peer's map switch.");
+
+        // ModBuild 447 — THE SIBLING PREDICATE, held to the same negative rule. It is the natural
+        // place for the next widening precisely because it is the one that got the quest window
+        // released again, and "just ask the union here instead" would put the merchant and the
+        // temple straight back into the 2026-09-03 failure by a different door.
+        string selectionBody = MethodBody(File.ReadAllText(abs), SelectionCallerMethod);
+        t.True(selectionBody.Length > 0,
+               $"{SelectionCallerMethod} was not found in {CallerRelPath}. It is the predicate that "
+               + "gives up a floated quest window once the map table has settled on deciding no "
+               + "quest — the ModBuild 447 remedy for 'das Quest-Fenster soll komplett "
+               + "verschwinden, wenn keine Quest aktiv ausgewählt ist'. If it was renamed or moved, "
+               + "update SelectionCallerMethod here rather than deleting this check.");
+        t.True(!selectionBody.Contains("IsMandatoryDecision"),
+               $"{SelectionCallerMethod} must NOT ask IsMandatoryDecision either. It exists BECAUSE "
+               + "the union released the merchant and the temple; reaching for the union inside the "
+               + "very predicate that repaired that narrowing would restore the defect through a "
+               + "second door and with a name that reads as the narrow question.");
     }
 
     /// <summary>

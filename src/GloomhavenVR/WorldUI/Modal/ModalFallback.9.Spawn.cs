@@ -3704,7 +3704,20 @@ internal static partial class ModalFallback
             // IT COSTS AT MOST ONE CENSUS LINE. This window is not counted in any of the four
             // populations for the single tick it is here, because it is not in any of them: it is
             // on its way out through the release loop and will not exist by the next tick.
-            if (StickinessSpentByAnsweredDecision(wp, out _))
+            //
+            // ModBuild 447 — AND THE SAME DEFERRAL FOR THE SECOND REASON A STICKINESS CAN BE SPENT.
+            // StickinessSpentByClearedQuestSelection releases a floated quest window when the table
+            // has settled on deciding no quest at all, through the very same loop and the very same
+            // PlayOut. It is a different question from the one above (a view whose subject is gone,
+            // rather than a decision that has been answered) but it loses the identical race: the
+            // game's own out-animation takes the popup's content below the fit's alpha floor before
+            // it calls Hide, so without this the liveness rule would mark the float DORMANT first
+            // and the release two statements later would reach PlayOut with HasNothingToDissolve's
+            // DORMANT term already true — the window would still leave without an animation, and
+            // the fix would survive its own defect. Both predicates are asked here for one reason:
+            // whatever the release loop is about to give up, this rule must not touch first.
+            if (StickinessSpentByAnsweredDecision(wp, out _)
+                || StickinessSpentByClearedQuestSelection(wp, out _))
             {
                 wp.EmptySince = 0f;
                 continue;
