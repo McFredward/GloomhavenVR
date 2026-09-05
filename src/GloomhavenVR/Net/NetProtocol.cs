@@ -433,7 +433,76 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 448;
+    public const ushort ModBuild = 449;
+    // Build 449: fifteen reported items, eleven lanes. THE THEME: this round is almost entirely
+    // SENTENCES THIS PROJECT WROTE ABOUT ITSELF AND NEVER RE-READ — six defects were each held in
+    // place by a comment asserting the very thing the hardware falsified.
+    //   * THE HELD-PROP LIGHT, sixth round, and 448's own falsifier fired: over 358 sampled frames
+    //     with the hush in place, animators 0 enabled, outlines 0 enabled, LIGHTS 3 found / 3
+    //     previously on / 0 lit / brightest 0 — everything under the prop dark, and the user still
+    //     saw it. The painter is ObjectOcclusionVolume: nine lines that register the prop's renderer
+    //     with a generator ON A CAMERA, which draws it at QUARTER RESOLUTION, blurs it twice and
+    //     publishes a GLOBAL shader texture. Not an Animator, Light, Projector, LensFlare,
+    //     ParticleSystem, Outlinable or material property — disjoint from every class five rounds
+    //     sampled, and invisible to any material read-back by construction. On a hex its footprint
+    //     is small and still; in a palm it fills the eye and sweeps every frame.
+    //   * THE PEER'S CARD HAS NO DEPTH STAMP, and 446 wrote the excuse down: "a surface nowhere near
+    //     the viewer's own hands". False in room scale — you walk to a peer's board and reach across
+    //     it. The instrument had been saying so on both machines all along: 25 of 54 host readings
+    //     and 9 of 20 peer readings say "0 are FRONT FAN … SO THIS CARD STAMPS NO DEPTH". Hosting is
+    //     now asked of the board's LIVE compositing state per slab, not of its capability.
+    //   * THE ENCOUNTER WINDOW WAS 7.5 s LATE because a claim measured itself: the FINISHED bit that
+    //     closes everyone else's story box was published only while the box read "not visible", and
+    //     visible is `m_CanvasGroup.alpha > 0` — THE FIELD OUR OWN STICKY FLOAT PINS TO 1. The
+    //     branch could never run. The co-player sat 672 frames in front of a box the host had long
+    //     finished. StoryComposite documents the identical finding for the identical window and
+    //     fixed it there; this sender never was. The two logs share NO clock, so the delay was
+    //     reconstructed three independent ways (frame spans, a pinned fps, and presence sends) that
+    //     agree at ~7.5 s.
+    //   * "WÄHLE EINE KARTE ZUM VERLIEREN" OUTLIVED THE BURN BY 87 s / 7,850 FRAMES, and the game
+    //     never forced anything — WE re-raised the banner 160 lines after his Receive Damage click
+    //     registered, and pushed it to the peer. 448's belt read the count and passed: all four host
+    //     and all four peer PICK GATE lines read pick=OPEN, not one reads CLOSED. The line I had
+    //     cited as the reset (TakeDamagePanel:520) is a HOVER PREVIEW whose VR route we ourselves
+    //     killed; the real close path touches no hand at all. It is an EDGE latch now, at the flow's
+    //     two ends. The co-player's turn was not stretching the latch — it was ENDING it.
+    //   * THE QUEST CONFIRM ARRIVED ~110 s LATE on a client (4,927 frames), and it is unbounded, not
+    //     slow: the only client route to it runs through a prompt the HOST raises by pressing that
+    //     very button. The room already had the selection — the peer's own log mirrors all four of
+    //     the host's picks in order. And the user's guess that the handle divergence came from it is
+    //     RIGHT and INCOMPLETE: with the confirm on one side only the bars sit 310-343 px apart, and
+    //     once both have it they still disagree because an animated FX quad is sampled at each
+    //     client's own phase. Two terms, both fixed. TryMeasureContent — the path behind EVERY host
+    //     rect fit — had NO transient test at all; 201's exclusion only ever lived in the fixed-fit
+    //     measure, so the quest popup and the element board were sized by decoration in one method.
+    //   * A HALF-ACTIVE ELEMENT BLINKED because the CHANNEL was a sine: waning published
+    //     0.40 + 0.12*sin(2*pi*t/2.4) while Strong and Inert published constants — the one term on
+    //     the whole path that is a clock function at ONE strength. In his own log, board still,
+    //     Ice reads 0.29 at 3169.61 s and 0.52 at 3190.30 s — and the peer reads 0.52 at 3190.29 s,
+    //     the shared clock working perfectly and showing both players the same blink. Its worst
+    //     victims were THRESHOLDS: the frost frontier is 0.12 wide and the breath swept it. 445 had
+    //     written "THE FROST PATH IS UNTOUCHED … and the pixels still creep" as a deliberate
+    //     exemption; that sentence is retracted. Half strength is now AMPLITUDE only, and the COUNT
+    //     axis falls out downstream — fewer patches, same places, still. A wire test now fails the
+    //     build if a periodic function ever reappears there.
+    // ALSO: the "+1" modifier icons faced world north because ObjectPool.Spawn's last write is a
+    // WORLD rotation (unobservable under the flat game's unrotated canvas, a full billboard's worth
+    // of tilt under ours) — and flattening the host would have frozen the card's own 180 degree
+    // reveal, a fresh 1:1 breach; the peer's grab bar sat inside the merchant art because a plate
+    // may be BIGGER than the frame it backs (his canvas is 2580x1080, ours 1920x1080, so the same
+    // art hangs 371 px below) while two comments asserted "its bottom edge IS hostRect.yMin"; the
+    // element board is MIRRORED now instead of composed (the owner's creation alpha moves 0.09 ->
+    // 0.43 under an animator and our snapshot was a hard 0.00, so we drew a transparent disc and an
+    // opaque white caption plate — and the game writes exactly ONE field on that path, so there was
+    // no state a composition could ever have read); a mirrored enemy-info card wrapped one glyph per
+    // line because the drive SKIPS a branch whose source is inactive, and the peer-hover popup is
+    // exactly the branch the viewer is looking at while the local source is off; a peer's card
+    // arriving in a recess is handed over from the fist rather than falling to an anonymous back
+    // (the model trails the occupancy by one beat because the move travels as its own game message);
+    // and the enemy-reveal panel's board clearance knew only the viewer's OWN board.
+    // Wire: ONE new record (41, the spent round-card half — 1 byte, 4 bits, no identity). Documented
+    // worst case 1732 -> 1735; MaxSize unchanged at 2100.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 448: the second big multiplayer round — sixteen reported items plus one new request,
     // fourteen lanes. THE THEME, and it is the same one three rounds running: SIX of these defects
     // were held in place by an INSTRUMENT that was structurally incapable of seeing the cause.
