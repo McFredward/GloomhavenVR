@@ -1456,7 +1456,7 @@ internal static class PresenceSerializer
     /// + 4 (half hover+select+cap press: 2 + 2 — the press field costs no byte, it fills byte 0's
     /// five reserved bits)
     /// + 5 (pile counts: 2 + 3) + 7 (track hover: 2 + 5)
-    /// + 99 (wall fades: 2 + count 1 + 4 × its 24-key cap)
+    /// + 255 (wall fades: 2 + count 1 + 4 × its 63-key cap)
     /// + 11 (character focus: 2 + its 9-byte maximum — the 5-byte form plus the flag-guarded
     /// attention-actor id)
     /// + 19 (track selection: 2 + count 1 + 4 × its 4-id cap)
@@ -1476,7 +1476,23 @@ internal static class PresenceSerializer
     /// + 4 (PER-ITEM USABLE MASK: 2 + <c>NetProtocol.ItemUsableRecordBytes</c> 2)
     /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
-    /// = 1570.
+    /// = 1726.
+    ///
+    /// <para>1570 -> 1726 on 2026-09-05: an EXISTING term grew — WALL FADES (17) went from a
+    /// 24-key cap to <see cref="NetProtocol.WallFadesMaxKeys"/> = 63, i.e. 99 -> 255 bytes, the
+    /// most that record's own TLV length byte can carry. The reason is on the const: BOTH clients
+    /// in the ModBuild-447 forest log were fading 41-44 walls at once against a 24-key cap, so the
+    /// 17-20 walls with the highest FNV keys never reached a peer AT ALL, for the whole session,
+    /// and one of them was the wall-torch sconce the user photographed hanging in mid-air
+    /// (fackel.jpg). <b><see cref="MaxSize"/> was raised 1900 -> 2100 in the same commit</b>: the
+    /// margin at 1900 would have been 174 bytes, thinner than the largest single record (257,
+    /// board tuning) and therefore a violation of the rule below. The raise restores a margin of
+    /// 374. Same reasoning as the four earlier raises, and invisible to every peer including older
+    /// builds: this sizes ONE local send buffer and appears in no packet, no header and no
+    /// contract — what actually goes out is the byte count each writer returns. THIS IS THE CASE
+    /// THE RULE BELOW IS EASIEST TO FORGET FOR — an existing term growing, not a new record — which
+    /// is why it is stated here in the same commit, and why a parallel lane measuring against the
+    /// 1570 base has to re-add its own term on top of 1726 and not of 1570.</para>
     ///
     /// <para>1513 -> 1570 in ONE round (2026-09-05), by TWO independent records, and the arithmetic
     /// is written out because each lane computed it against the same 1513 base without seeing the
@@ -1611,7 +1627,7 @@ internal static class PresenceSerializer
     /// ITS OWN COMMIT, and keeps a margin of at least one record's worth. Record 27 (track order)
     /// took the worst case 859 → 887 on 2026-08-08; the margin is 393 bytes, i.e. still more than
     /// every optional record on the tail put together.</para></summary>
-    public const int MaxSize = 1900;
+    public const int MaxSize = 2100;
 
     // ---- write --------------------------------------------------------------------------
 

@@ -18679,10 +18679,40 @@ internal static class NetProtocol
     /// </summary>
     public const byte ExtIdWallFades = 17;
 
-    /// <summary>Key cap of <see cref="ExtIdWallFades"/> — a scene rarely fades more walls
-    /// simultaneously; the sender logs when the cap truncates. Bounds the record at
-    /// 1 + 4×24 = 97 payload bytes, well under the 255-byte TLV ceiling.</summary>
-    public const int WallFadesMaxKeys = 24;
+    /// <summary>
+    /// Key cap of <see cref="ExtIdWallFades"/>. Bounds the record at 1 + 4×63 = 253 payload
+    /// bytes — the most this record's own TLV length byte can carry (255), and the reason the
+    /// number is 63 rather than a round one.
+    ///
+    /// <para><b>24 → 63 on 2026-09-05, and the old value's own comment was the defect.</b> It
+    /// read "a scene rarely fades more walls simultaneously"; that was never measured, and the
+    /// ModBuild-447 two-player forest log falsifies it on BOTH clients. The sender's own
+    /// truncation warning fired 50 times on the host and 131 times on the co-player — it is
+    /// throttled to one line per 10 s, so that is ~8 and ~22 MINUTES of continuous overflow —
+    /// and every one of them reads <c>41</c>, <c>42</c> or <c>44</c> faded walls against the
+    /// 24-key cap. A forest scenario's segment table is 826 entries (every tree trunk, pillar,
+    /// log structure and wall-torch sconce is its own segment), so 40+ simultaneous fades is
+    /// the NORMAL case there, not a pathological one.</para>
+    ///
+    /// <para><b>WHY THAT IS A VISIBLE DEFECT AND NOT A SPARSE-PACKET NOTE.</b> The sender
+    /// SORTS the keys ascending and sends the first N — so the walls that fall off are the 17
+    /// to 20 with the HIGHEST FNV keys, and an FNV key is stable for the whole scenario. The
+    /// same walls are therefore missing from every packet, for the whole session: a wall in
+    /// that tail NEVER fades on a peer, no matter how long the teammate looks behind it, while
+    /// its neighbours fade normally. That is the user's report (2026-09-05, fackel.jpg): a
+    /// wall-torch sconce left hanging in mid-air over the hole a teammate opened, its own flame
+    /// particles gone with the neighbouring segment that DID sync. The host log proves the
+    /// shape — <c>'CR_St_WallTorch_Fire_Orange'</c> is a segment that installs its own fade
+    /// block locally (STEP census) and appears in ZERO of the 777 <c>PEER-SYNC fade ON</c>
+    /// lines, while only 14 distinct walls were ever peer-faded on a client whose teammate was
+    /// fading 41.</para>
+    ///
+    /// <para>63 covers the measured worst case (44) with 43 % headroom and is the ceiling of
+    /// this record's own format; a scene that still overflows it logs the same truncation
+    /// warning, which is the falsifier for this number. Raising it further needs a different
+    /// record shape (paging, as record 28 does), not a bigger cap.</para>
+    /// </summary>
+    public const int WallFadesMaxKeys = 63;
 
     /// <summary>Minimum payload of <see cref="ExtIdWallFades"/> (the count byte). The count
     /// is re-clamped on read against the record length and <see cref="WallFadesMaxKeys"/> —

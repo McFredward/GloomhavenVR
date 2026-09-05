@@ -990,7 +990,7 @@ internal static class MapSyncVectors
         t.Equal(NetProtocol.SharedWindowKindEncounter, NetProtocol.SharedWindowKindMax,
                 "and the encounter is the largest kind this build can name, so a kind 4 from a newer "
                 + "sender is stepped over by its own computed length");
-        t.Equal(1900, PresenceSerializer.MaxSize,
+        t.Equal(2100, PresenceSerializer.MaxSize,
                 "MaxSize was raised 1600 -> 1800 when records 20 and 21 landed: the worst case went "
                 + "1357 -> 1430 (+8 for record 20 with its TLV header, +65 for record 21 with "
                 + "its), and the margin at 1600 would have been 170 — thinner than the largest "
@@ -1004,13 +1004,24 @@ internal static class MapSyncVectors
                 + "round and cost one more, so the documented sum went 1513 -> 1570, not 1569; the "
                 + "two lanes computed against the same base without seeing each other. This "
                 + "constant sizes ONE local send buffer and appears in no packet, header or "
-                + "contract, so every raise is invisible to every peer including older builds");
-        t.True(PresenceSerializer.MaxSize - 1570 >= 257,
+                + "contract, so every raise is invisible to every peer including older builds. "
+                + "RAISED AGAIN 1900 -> 2100 on 2026-09-05, and this one by an EXISTING term "
+                + "rather than a new record: the WALL FADES key cap went 24 -> 63 (99 -> 255 "
+                + "bytes, the most that record's TLV length byte can carry), so the worst case "
+                + "went 1570 -> 1726 and the margin at 1900 would have been 174 - under the "
+                + "257-byte board-tuning record, the same violation a third time. The cap was "
+                + "the defect: both clients in the ModBuild-447 forest log were fading 41-44 "
+                + "walls at once, and since the sender ships the LOWEST 24 keys and an FNV key "
+                + "is stable for the scenario, the same ~40 percent of a causer's walls never "
+                + "reached a teammate for the whole session (user 2026-09-05, fackel.jpg)");
+        t.True(PresenceSerializer.MaxSize - 1726 >= 257,
                "the margin is larger than the largest single record, which is the stated rule and "
                + "the reason all four raises happened. ModBuild 231 moved the worst case 1435 -> "
                + "1466 (record 21's payload 63 -> 94 for the encounter's entry); the pick-banner "
                + "cap and records 35/36 took it to 1513; the shared-gaze byte and the held-prop "
-               + "record together took it to 1570, which is the number this assertion is measured "
-               + "against - a margin of 330 at MaxSize 1900");
+               + "record together took it to 1570; the wall-fade key cap's 24 -> 63 raise added "
+               + "156 more and took it to 1726, which is the number this assertion is measured "
+               + "against - a margin of 374 at MaxSize 2100. A lane that computed its own term "
+               + "against the 1570 base has to re-add it on top of 1726");
     }
 }

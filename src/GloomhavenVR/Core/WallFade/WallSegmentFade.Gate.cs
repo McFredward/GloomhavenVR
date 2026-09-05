@@ -486,6 +486,34 @@ internal static partial class WallSegmentFade
                 seg.DisagreeSince = 0f;
                 return;
             }
+            // A PURELY PEER-DRIVEN FADE IS NOT A LATCH — IT IS THE FEATURE (2026-09-05).
+            //
+            // MP wall-fade sync exists so that a wall a TEAMMATE is looking behind fades here
+            // too. The teammate's coverage is the one that decided it; this client's own coverage
+            // reads OFF for the entire time, by construction. So every synced fade trips the test
+            // above after exitDwell + slack and then re-prints every 10 s for as long as the
+            // teammate keeps looking — which is exactly what happened: the ModBuild-447 host log
+            // carries 2282 LATCH WARN lines, the great majority of them naming "peer fade" as the
+            // source of a wall that was behaving perfectly. A watchdog that barks at the correct
+            // behaviour of another feature is miscalibrated, and 2282 lines of it drown the real
+            // latches the line was built to find.
+            //
+            // The suppression is deliberately NARROW. It applies only while (a) a live peer set
+            // holds the wall and (b) the local decision does NOT — if seg.State is true this falls
+            // through and the local sources below are consulted, which also fixes a
+            // misattribution: the old order asked `remoteFade` first, so a wall latched by the
+            // LOCAL Schmitt machine while a peer happened to fade it too was blamed on the peer.
+            // Nothing can hide behind this: RemoteWantsFade re-checks each peer's liveness against
+            // PeerFadeLingerSeconds (1 s) every frame, so a peer that stops sending — or
+            // disconnects — releases the wall within a second on its own, and the count of walls
+            // held this way is printed unconditionally by the PEER FADE SET line
+            // (WallSegmentFade.Net.cs), so the suppressed population is never unaccounted for.
+            if (remoteFade && !seg.State)
+            {
+                _peerHoldsWithoutLocalCoverage++;
+                seg.DisagreeSince = 0f;
+                return;
+            }
             if (seg.DisagreeSince <= 0f)
             {
                 seg.DisagreeSince = now;
@@ -495,11 +523,18 @@ internal static partial class WallSegmentFade
             if (held < exitDwell + LatchWarnSlackSeconds || now < seg.NextLatchWarn)
                 return;
             seg.NextLatchWarn = now + LatchWarnIntervalSeconds;
+            // ORDER IS ATTRIBUTION. seg.State is asked before the two composed sources because a
+            // wall the LOCAL Schmitt machine is holding is held by that machine whatever else is
+            // also true of it; a purely peer-driven fade never reaches this line at all (it
+            // returned above). The peer term survives only as the note on the local verdict.
+            string peerNote = remoteFade
+                ? " (a teammate is ALSO fading this wall over record 17, which is not what is "
+                  + "holding it — the local decision is)"
+                : "";
             string source = !seg.HasBounds
                 ? "NO DECISION AABB — the segment is not being evaluated at all (round-14 "
                   + "freeze class; the boundless fail-safe should have forced it off)"
-                : remoteFade ? "peer fade (MP wire record 17 — a teammate still hides it)"
-                : gateLift ? "gate-lift linger (its gate column is still ON)"
+                : gateLift && !seg.State ? "gate-lift linger (its gate column is still ON)"
                 : seg.RunDriven ? "its SPLIT RUN's Schmitt state machine — this piece's own "
                     + $"coverage is {seg.Smooth:0.00}, the RUN's is {RunSmoothOf(seg):0.00}, and "
                     + "the run is what decides it (ModBuild 259). A latch here is a latch of the "
@@ -514,8 +549,13 @@ internal static partial class WallSegmentFade
                 + $"{(seg.State ? "ON" : "fading")} for {held:0.0}s while coverage says OFF "
                 + $"(raw {seg.LastRaw:0.00}, ema {seg.Smooth:0.00}, bar {WallFadeTuning.Off:0.00}"
                 + $"{(seg.HasBounds ? "" : ", NO BOUNDS")}), fade {seg.Fade:0.00}, "
+                // THESE THREE ARE POPULATION SIZES, NOT HIDDEN COUNTS, and until 2026-09-05 the
+                // line said "still hidden" — a claim it does not measure. Each is the length of a
+                // membership list; how many of those pieces actually carry a write is the FADE
+                // WRITE census's question, not this one. A summary stat is not the field.
                 + $"+{seg.Stacked.Count} stacked shell / +{seg.Mounted.Count} mounted / "
-                + $"+{seg.Body.Count} body piece(s) still hidden — source: {source}.");
+                + $"+{seg.Body.Count} body piece(s) in its membership lists (list SIZES, not a "
+                + $"count of what is hidden) — source: {source}{peerNote}.");
         }
 
         /// <summary>Fraction of the piece's XZ footprint that lies inside the gate's arch

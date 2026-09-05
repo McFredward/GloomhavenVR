@@ -2307,6 +2307,9 @@ internal static partial class WallSegmentFade
             // prints collects exactly the names it printed before. See FadeDriver._censusNaming.
             _censusNaming = now >= _nextPerWallLogTime && !PerfConfig.Quiet;
             BeginPerWallCensus();
+            // MP WALL-FADE SYNC census (user item 7, fackel.jpg) — per TICK, like the per-wall
+            // census beside it, because the line it feeds reports what the loop below just did.
+            BeginPeerFadeCensus();
             _lastHeadPos = headPos;
             // ModBuild 259 (user ruling 2026-08-24: "Entweder verschwindet die ganze Wand mit
             // ALLEM was dazu gehört … oder sie ist vollständig da"). A wall run that
@@ -2510,6 +2513,9 @@ internal static partial class WallSegmentFade
                 float target = (seg.State || remoteFade || gateLift) ? 1f : 0f;
                 seg.Fade = OcclusionFade.Ramp(seg.Fade, target, fadeStep);
                 NotePerWallOutcome(seg, remoteFade, gateLift, peerFadeId);
+                // …and the MP set census: the unit this wall would take with it, booked against
+                // the source that is actually fading it. See LogPeerFadeSet.
+                NotePeerFadeUnit(seg, remoteFade);
                 // Round-14 watchdog: a fade the live coverage no longer supports must be
                 // impossible to miss in the next hardware log (see WatchLatch).
                 WatchLatch(seg, now, reevalArmed ? exitDwellMoved : exitDwellStationary,
@@ -2559,6 +2565,10 @@ internal static partial class WallSegmentFade
             }
             // R2/R1 falsifiers, on the diag cadence: the per-wall spread, and the animation path
             // every fade in flight actually took.
+            // MP WALL-FADE SYNC (user item 7, fackel.jpg). NOT behind PerfConfig.Quiet and not on
+            // the diag cadence: it is change-triggered with a 30 s heartbeat and it is the only
+            // line that can say whether a teammate's faded walls reached this client AT ALL.
+            LogPeerFadeSet(now);
             if (now >= _nextPerWallLogTime && !PerfConfig.Quiet)
             {
                 _nextPerWallLogTime = now + DiagIntervalSeconds;

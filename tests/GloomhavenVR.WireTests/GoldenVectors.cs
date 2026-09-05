@@ -2374,17 +2374,20 @@ internal static class GoldenVectors
         t.True(!wfZero.HasWallFades, "and is simply not delivered");
 
         // The WRITER cap: more keys than WallFadesMaxKeys are truncated to the cap (the
-        // sender logs the truncation; the first 24 sorted keys still ride).
-        var manyKeys = new uint[30];
+        // sender logs the truncation; the lowest WallFadesMaxKeys sorted keys still ride).
+        // The oversupply must stay ABOVE the cap for this vector to test anything — see the
+        // 2026-09-05 note on NetProtocol.WallFadesMaxKeys, where the cap went 24 -> 63 because
+        // a forest scenario really does fade 41-44 walls at once.
+        var manyKeys = new uint[NetProtocol.WallFadesMaxKeys + 6];
         for (int k = 0; k < manyKeys.Length; k++)
             manyKeys[k] = (uint)(k + 1);
         m = PresenceSerializer.Write(new PresenceState
         {
-            HasWallFades = true, WallFadesCount = 30, WallFadesKeys = manyKeys,
+            HasWallFades = true, WallFadesCount = manyKeys.Length, WallFadesKeys = manyKeys,
         }, ext);
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState wfCap), "a capped set parses");
         t.Equal(NetProtocol.WallFadesMaxKeys, wfCap.WallFadesCount,
-                "and delivers exactly the 24-key cap");
+                "and delivers exactly the WallFadesMaxKeys cap");
 
         // ID ORDER of the new tail region: records 10, 14, 15, 16 in that order — a reorder in
         // Write shows up right here, and this is also the OLD-READER vector (to a pre-batch
