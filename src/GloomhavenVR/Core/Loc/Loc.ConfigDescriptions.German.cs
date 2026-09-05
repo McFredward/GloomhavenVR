@@ -3262,8 +3262,11 @@ internal static partial class Loc
                 + "tatsächlich tut, ist es stattdessen eine sichtbare Drehung um das Doppelte der "
                 + "Gierung. (In der flachen Handflächen-Haltung, also mit ausgeschaltetem "
                 + "PropHeldUpright, bewirkt das gar nichts: diese Haltung nimmt nur die Neigung, und "
-                + "eine Neigung ist in beiden Händen dieselbe.) Gilt NUR für Map-Items, nie für "
-                + "Figuren.",
+                + "eine Neigung ist in beiden Händen dieselbe.) Diese Einstellung setzt voraus, dass "
+                + "PropHeldUprightAtGrab AN ist, was auch dem Auslieferungszustand entspricht — ist "
+                + "jener Schalter aus, reitet das Item stattdessen auf dem Handrahmen, wo die "
+                + "Spiegelung deutlich eher richtig ist; dann schalte auch diesen hier aus. Gilt NUR "
+                + "für Map-Items, nie für Figuren.",
             ["FigureGrab/*HeldRollDegrees"] =
                 "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
                 + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "

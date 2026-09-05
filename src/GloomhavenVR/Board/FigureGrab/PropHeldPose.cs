@@ -138,6 +138,15 @@ internal static class PropHeldPose
     /// <see cref="HeldPoseMirror.RotationSign"/> for why "identical" is the mirrored form and not the
     /// authored one.</para>
     ///
+    /// <para><b>IT ASSUMES <see cref="UprightAtGrab"/> IS ON, WHICH IS ALSO WHAT SHIPS.</b> The
+    /// derivation above is a statement about the frame the pose is composed in, so it is only as
+    /// true as that key. With <c>PropHeldUprightAtGrab</c> turned OFF the pose rides the anchor
+    /// instead, the anchor's own mirror-conjugacy stays in the product, and the mirror is much
+    /// closer to the right operation — a player who has turned that key off probably wants this one
+    /// off too. Nothing is derived from it here on purpose: a dial that silently ignores you is
+    /// worse than one that needs a second click, and the HANDEDNESS log line prints both keys and
+    /// the resulting <c>poseFrame=</c> so the pair can be read rather than guessed at.</para>
+    ///
     /// <para><b>IT NO LONGER TOUCHES THE OFFSET, AND IT USED TO.</b> Until this round the same
     /// switch reached <c>HeldPoseMirror.Offset</c>, so turning it ON also moved a right-hand item
     /// from +0.051 m to −0.051 m in anchor X — 10.2 cm to the pinky side of the palm. The offset is
@@ -236,7 +245,10 @@ internal static class PropHeldPose
             + "bring both hands up as mirror images of each other — reach for the same hex with "
             + "either hand, as you actually do, and it is a visible turn of twice the yaw "
             + "instead. (In the flat palm pose, with PropHeldUpright off, this does nothing: that "
-            + "pose is pitch-only and a pitch is the same in both hands.)" + ninthTail);
+            + "pose is pitch-only and a pitch is the same in both hands.) This setting assumes "
+            + "PropHeldUprightAtGrab is ON, which is also what ships — with that key off the item "
+            + "rides the hand frame instead, where the mirror is much closer to right, so turn "
+            + "this one off as well." + ninthTail);
     }
 
     // ---- the accessors, shaped exactly like FigureGrabConfig's -----------------------------

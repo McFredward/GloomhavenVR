@@ -139,6 +139,8 @@ internal static class HeldPoseReport
                   + "the two hands really are a mirror pair")
             + ". " + Headings(side, anchor) + " " + AnchorPair()
             + " The OFFSET is written in ANCHOR space either way and its flip follows no switch. "
+            + "PropHeldSameInBothHands assumes poseFrame=WORLD-YAW; on a poseFrame=ANCHOR line it "
+            + "should be OFF, because there the reflection keeps the frame it is justified in. "
             + $"({budgetLeft} more {tag} handedness lines this session.)");
     }
 
