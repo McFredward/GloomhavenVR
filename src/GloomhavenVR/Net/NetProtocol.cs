@@ -416,7 +416,51 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 438;
+    public const ushort ModBuild = 439;
+    // Build 439: THE 45-POINT REDUNDANCY SURVEY, CLOSED — AND THE "RANDOM" HITCH WAS ONE OF OUR
+    // OWN RENDERERS TOGGLING ITSELF.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
+    //
+    // THE HITCH. The user drew the line himself: a stall when a door opens is accepted ("dann
+    // werden verstaendlicherweise Dinge nachgeladen"); the ones long afterwards that appear at
+    // random are not. Those are all `scene signature moved` — and the mover is decoded rather
+    // than guessed. The signature fold is invertible mod 2^64 (FnvPrime is odd), so 67 refusals
+    // over 25 distinct deltas were run backwards: one row entering and leaving, instance -14798,
+    // bits 141 then 13 — mesh|mountable|MOD|active, then the same renderer with the active bit
+    // clear. A MOD-OWNED MeshRenderer switching itself on and off, buying the player a ~155 ms
+    // rebuild of a table it can never appear in. Mod-owned renderers are now exempt from the
+    // signature, as a CONJUNCTION with the one mod-blind consumer (`f.Mod && !(f.Mesh != null &&
+    // f.WallFadeShader)`), and the exemption is available at all only because `f.Mod` is fixed for
+    // a renderer's lifetime — unlike `f.Figure`, which is why the figure narrowing is still off.
+    //
+    // AND THE 88 ms IS STILL UNEXPLAINED, DELIBERATELY. ModBuild 438's flattening ran and was
+    // worth ~1.3 ms of it: 88.50 ms over 33,150 pairs is 2.7 us per pair against a 6-8 ns
+    // estimate, so the product was never the cause. The phase is sliced into eleven named stages
+    // instead of optimised again on a guess — the last round optimised an unmeasured term and this
+    // one refuses to.
+    //
+    // THE SURVEY. 45 findings, 25 of them already visible to a player, plus 6 outright defects.
+    // Five lanes closed them by file ownership. The ones that changed behaviour: a dial with one
+    // reader out of four re-facing sites; a teammate who could never see a 7th active card, nor a
+    // 17th browsed card, both capped by numbers that were never wire bounds; "Namensschilder aus"
+    // that hid one of two implementations; a map-room beam that pressed through the player's own
+    // raised cards; two keycap families with two ideas of what a press is, so brushing CONFIRM did
+    // nothing while brushing "Haendler" opened the merchant; a poke that buzzed on the 8 mm brush
+    // the depth gate exists to ignore; a carried chest taking a permanent dark plate because the
+    // figure guard existed twice and the held-prop clause landed in one copy; nine menu
+    // descriptions naming defaults that a re-base had moved years ago.
+    //
+    // THE X BUTTON, and it is one implementation rather than two. `ViewerNudgePx = 4` floated the
+    // plate toward the viewer, so a far ray's tested point walked 4*tan(theta) px -- 17 px at 77
+    // degrees. A floated modal seats its X against the INK, where that walk lands on bare window;
+    // the combat log deliberately uses the FRAME path, plate at the very corner, so past ~60
+    // degrees the crossing point leaves the host's hit rect and the beam does not stop at all --
+    // "kollidiert nicht", his words. The nudge is retired: its own doc already recorded that the
+    // draw order is decided by sorting order, not depth.
+    //
+    // NOTHING CROSSES THE WIRE. R26 moved the follow/pin sense to the owner's spelling with the
+    // payload bit-identical (the single negation sits at the call site); F1 bounds a MALFORMED
+    // packet rather than a pile, and says so at Alert when it bites. Wire tests 204,986.
     // Build 438: THE MENU WEARS THE GAME'S OWN PANEL ONLY WHERE SOMETHING IS READ, FOLGEN AND
     // FIXIERT ARE ONE MECHANISM FOR BOTH PANELS, AND THE 160 ms COMMIT WAS A PRODUCT.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
