@@ -416,7 +416,39 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 446;
+    public const ushort ModBuild = 447;
+    // Build 447: three hardware items, and TWO of them were a measurement that was right about the
+    // wrong question.
+    //   * THE GRAB BAR sized itself from the INK UNION — what a window actually paints. For the
+    //     merchant that union read x 461..977 while the host rect read -960..960, because the
+    //     shopkeeper artwork is a FULL-FRAME PLATE and the union excludes those: the rod was
+    //     centred on the item list alone. The plate count has been printed since ModBuild 235 and
+    //     nobody acted on it; it is now the boolean that decides. A window that paints a plate
+    //     across its frame takes width and centre from the HOST RECT; one that is transparent
+    //     around what it draws keeps the ink union. That lands on the content fit's own answer for
+    //     every window in the log, and the laser already treated a painted plate as the window —
+    //     the handle was the only piece that disagreed. The vertical term is unchanged.
+    //   * THE QUEST WINDOW never closed again, and that is MY regression from 445. Narrowing
+    //     StickinessSpentByAnsweredDecision to its four identity terms took the merchant and the
+    //     temple out of a teardown they should never have had — and took the quest window out of
+    //     one it needs. The old rule ended on "does the game refuse to close this on ESC", which
+    //     both share. The new one asks what actually differs: a merchant is a place the player
+    //     owns until he closes it; the quest window is a VIEW OF A SELECTION and is gone when the
+    //     selection is. StickinessSpentByAnsweredDecision is byte-identical, so 445's fix cannot
+    //     re-break. The 445 selection observer is SHARED, not rebuilt, so the settle rule that
+    //     tells a real deselect from a rebuild is defined once.
+    //     Full extent of that regression, measured rather than assumed: six window kinds used the
+    //     removed path. Shop, Temple and the Quest Log are CORRECT to keep standing (the last by a
+    //     standing user ruling); the event window was never affected; the quest popup is fixed
+    //     here; Map Story Window is genuinely leaking and is deliberately NOT fixed in this build,
+    //     because two new release rules would make a failed round ambiguous between them.
+    //   * THE CHARACTER BLINK on a map switch is the GAME's: UpdateCurrentMode -> OnLeaveMap ->
+    //     DisableMapOptions, which spares an Assigned character four lines before throwing it
+    //     away. Temple and Merchant re-select synchronously at the tail of EnableSelectionMode;
+    //     City and World Map have no such tail. Our restore was correct and 250 ms late — a 4 Hz
+    //     poll, i.e. up to 22 frames of a panel painting nobody. It now reacts to the drop EDGE.
+    //     Timing, not a new write: no game state is written from presentation code.
+    // DLL-only. Bundle unchanged (74,943,671 bytes, still 445's).
     // Build 446: REGRESSION FROM 445, reported on hardware within the hour — the ghost hand and the
     // wrist HUD were visible THROUGH the player's own cards. 445's card-front fix serves a body a
     // mesh with the front-fan triangles removed, on the argument that the printed face in front of
