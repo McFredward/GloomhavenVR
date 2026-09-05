@@ -146,8 +146,25 @@ internal static partial class CanvasConversion
     /// NEXT panel on the ladder still starts a full step above all of them, so a nearer panel is
     /// never pierced by a farther panel's furniture. The step must stay ABOVE every registered
     /// follower offset for that guarantee to hold.
+    ///
+    /// <para><b>INTERNAL, AND THE INVARIANT IS NOW CHECKED (ModBuild 439, survey row R41).</b> This
+    /// was <c>private const</c>, so the offsets that must stay under it lived as ten separate
+    /// literals in ten files — <c>GrabBarLayout.BarOrderOffset</c> 4,
+    /// <c>ModalCloseButton.XOrderOffset</c> 2, <c>WorldTooltips.MenuPanelSortingLift</c> 10, the
+    /// table surfaces' 12, <c>WindowMaterialiseDebris</c>'s +/-1, plus prose restatements in
+    /// <c>WristHud</c>, <c>FreeLabelOrder</c>, <c>HandGhost</c>, <c>BoardVisual</c> and
+    /// <c>MapRoomHand.3.Wrist</c> that each quote "(16)" as a number. 2 &lt; 4 &lt; 10 &lt; 12 &lt;
+    /// 16 is consistent today and there was no assert: an offset written at 16 or above would pierce
+    /// the next panel on the ladder SILENTLY, which is the one failure mode this whole file exists
+    /// to prevent.</para>
+    ///
+    /// <para>The check is at the REGISTRATION SEAM (<see cref="CheckFollowerOffset"/>) rather than a
+    /// compile-time assertion over a hand-kept list of constants, because a hand-kept list is the
+    /// same defect one level up — it would have to be edited by the person who forgot. Every
+    /// follower in the mod goes through <c>RegisterOrderFollower</c>, whatever file its offset was
+    /// authored in, so the seam sees all ten and anything a later round adds.</para>
     /// </summary>
-    private const int PanelOrderStep = 16;
+    internal const int PanelOrderStep = 16;
 
     /// <summary>Highest ladder rank that still gets its own order slot; deeper panels share the top
     /// slot. Keeps the whole ladder (100 + 180*16 = 2980) below the adopted dropdown overlays
@@ -257,6 +274,38 @@ internal static partial class CanvasConversion
     private static int s_orderHashNodes;
 
     /// <summary>
+    /// THE LADDER'S ONE INVARIANT, CHECKED WHERE IT CAN BE (survey row R41). A follower offset must
+    /// stay in <c>[0, <see cref="PanelOrderStep"/>)</c>: at or above the step it lands in the NEXT
+    /// panel's slot and paints over a window that is genuinely nearer, and below 0 it ties with the
+    /// furniture band whose top is slot-1. Neither is visible — it is a sorting number, so the only
+    /// symptom is a panel painted over by a farther panel's decoration, which is exactly the defect
+    /// class this file was written for.
+    ///
+    /// <para>Reported once per offending offset value (not per registration), at the Alert tier
+    /// because it is player-visible, and NOT refused: clamping would hide the mistake behind
+    /// almost-correct behaviour, and the follower still has to draw. The line names the number and
+    /// the bound so the fix is the offset, not this check.</para>
+    /// </summary>
+    private static readonly HashSet<int> ReportedBadOffsets = new();
+
+    private static void CheckFollowerOffset(int offset, string what)
+    {
+        if (offset >= 0 && offset < PanelOrderStep)
+            return;
+        if (!ReportedBadOffsets.Add(offset))
+            return;
+        // HW-VERIFY
+        VRLog.Alert("WorldUI",
+            $"PANEL ORDER FOLLOWER OUT OF BAND: '{what}' registered at offset {offset}, which is "
+            + $"outside [0, {PanelOrderStep}). The panel ladder gives each converted window a slot "
+            + $"{PanelOrderStep} orders wide and its own decorations the {PanelOrderStep - 1} values "
+            + "above it; an offset at or above the step lands in the NEXT panel's slot, so this "
+            + "decoration will paint OVER a window that is genuinely nearer than the one it belongs "
+            + "to, and a negative one ties with the furniture band under its own panel. Nothing is "
+            + "clamped: the fix is the offset. This is the silent failure survey row R41 named.");
+    }
+
+    /// <summary>
     /// Register a mod-owned <see cref="Canvas"/> that must ride <paramref name="panel"/>'s ladder
     /// order at a fixed <paramref name="offset"/> (1..<see cref="PanelOrderStep"/>-1: above its own
     /// panel's content, still below the next panel on the ladder). Idempotent per canvas; the entry
@@ -274,6 +323,7 @@ internal static partial class CanvasConversion
     {
         if (panel == null || canvas == null)
             return;
+        CheckFollowerOffset(offset, canvas.name);
         for (int i = 0; i < panel.OrderFollowers.Count; i++)
         {
             if (ReferenceEquals(panel.OrderFollowers[i].Canvas, canvas))
@@ -294,6 +344,7 @@ internal static partial class CanvasConversion
     {
         if (panel == null || renderer == null)
             return;
+        CheckFollowerOffset(offset, renderer.name);
         for (int i = 0; i < panel.OrderFollowers.Count; i++)
         {
             if (ReferenceEquals(panel.OrderFollowers[i].Renderer, renderer))
