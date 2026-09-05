@@ -317,11 +317,15 @@ internal static partial class VROptionsTab
                         new("Comfort", "VerticalDrag", "vr_o_vdrag"),
                         new("Comfort", "RotateEnabled", "vr_o_rotate"),
                         new("Comfort", "ScaleEnabled", "vr_o_scale"),
-                        // The two ends of the zoom the pinch gesture may reach — direct
-                        // neighbours of "Welt skalieren" that only lived under Erweitert while
-                        // the gesture they clamp was an everyday control (audit 05 §2.1).
-                        new("Comfort", "ScaleMin", "vr_o_zoommin"),
-                        new("Comfort", "ScaleMax", "vr_o_zoommax"),
+                        // THE TWO ZOOM BOUNDS WENT BACK TO ERWEITERT (2026-09-05). Audit 05 §2.1
+                        // had promoted them as "direct neighbours of 'Welt skalieren'", and the
+                        // user has now ruled against exactly that argument, asked as a question:
+                        // "Ja auch die Höhe der Lebensbalken und die Grenzen sind
+                        // Experteneinstellungen und gehören in Erweitert." They are raw scale
+                        // factors on a gesture that already has its own floor and ceiling in
+                        // practice — a player discovers the reachable zoom by pinching, not by
+                        // typing a multiplier. The GESTURE's own switch ("Welt skalieren") stays
+                        // here; only its two numeric clamps left.
                         new("Comfort", "RecenterHoldSeconds", "vr_o_recenterhold"),
                         // Keep-your-place after taking the headset off and re-donning it —
                         // promoted per ruling 20 (audit 03 UNCERTAIN, resolved NORMAL).
@@ -344,6 +348,15 @@ internal static partial class VROptionsTab
                     // simply moved one tab over with the rest of the world block, so [Compat]
                     // WallFade still has exactly two curated rows, not three. Both write the same
                     // ConfigEntry, so the duplicate costs nothing but a line in this file.
+                    // THE SECOND COPY IS GONE (2026-09-05, user: "Entferne die Dopplung.").
+                    // These three rows stood a second time under Umgebung & Ton ▸ Sichtbarkeit —
+                    // a duplicate that existed only as the descendant of the row that used to sit
+                    // on Grafik ▸ Darstellung and travelled with the world block. THIS copy is the
+                    // one that survives because it is the one an explicit ruling put here ("the
+                    // wall see-through … must be findable HERE, not only under Grafik"), and the
+                    // page that ruling was measured against no longer holds the world block at
+                    // all. Both copies wrote the same ConfigEntry, so nothing changes but where
+                    // the row is found — and it is found where he asked for it.
                     LocKey = "sec_visibility",
                     Entries = new CuratedEntry[]
                     {
@@ -815,30 +828,13 @@ internal static partial class VROptionsTab
                         new("Cards", "CardSoundsEnabled", "vr_o_cardsounds"),
                     },
                 },
-                new()
-                {
-                    // SEEING THE BOARD. This is the SECOND door to the wall see-through, and it is
-                    // the one that used to sit on Grafik ▸ Darstellung — it moved here with the
-                    // rest of the world block, so the count is unchanged at two curated rows for
-                    // one ConfigEntry.
-                    //
-                    // THE FIRST DOOR IS STILL IN KOMFORT and must stay there: "the wall
-                    // see-through … must be findable HERE, not only under Grafik" (user ruling,
-                    // quoted at Komfort ▸ sec_visibility). The audit proposed dissolving the
-                    // Komfort section into this one; that half was overruled. Both rows write the
-                    // same value, so the duplicate costs nothing and the ruling is honoured.
-                    LocKey = "sec_visibility",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("Compat", "WallFade", "wall_see_through"),
-                        // Fort superstructures fade with the walls — ruling 18 put the switch
-                        // directly beside the walls-transparent toggle it extends, and it is
-                        // beside it here exactly as it is in Komfort. Folds under WallFade
-                        // (VROptionsTab.8.Dependencies.cs).
-                        new("WallFade", "StackedShellFade", "vr_o_stackedfade"),
-                        new("WallFade", "WalkInStandDown", "vr_o_walkin"),
-                    },
-                },
+                // A "Sichtbarkeit" SECTION STOOD HERE with the wall see-through and its two
+                // companions — the SECOND copy of the three rows in Komfort ▸ Sichtbarkeit. It is
+                // gone as a section, heading and all (2026-09-05, user: "Entferne die Dopplung."),
+                // because a section that loses every row may not stay as an empty heading. The
+                // surviving copy is the Komfort one: that is where his own earlier ruling put it,
+                // and the Grafik page this second door was inherited from no longer holds the
+                // world block at all. One ConfigEntry, one row again.
                 new()
                 {
                     // THE CAMPAIGN MAP — the other "which world am I standing in" decision, and
@@ -1156,8 +1152,17 @@ internal static partial class VROptionsTab
                         //
                         // THE VALUE IS UNTOUCHED. Defaults.BarHeightOffset stays 0 (the measured
                         // height stands); this round moves rows, it does not tune.
-                        new("WorldUI", "BarHeightOffset", "",
-                            "Health bars: height", "Lebensbalken: Höhe"),
+                        // "Lebensbalken: Höhe" ([WorldUI] BarHeightOffset) STOOD HERE and is on
+                        // Erweitert since 2026-09-05. It was curated because he could not find it
+                        // ("Weiterhin finde ich den offset für die healthbar nicht"), and when the
+                        // new "offsets do not belong on everyday pages" ruling was put to him with
+                        // this row named as the possible exception, he answered that it is not one:
+                        // "Ja auch die Höhe der Lebensbalken … sind Experteneinstellungen und
+                        // gehören in Erweitert." FINDABILITY WAS THE ORIGINAL COMPLAINT AND IT IS
+                        // ANSWERED SEPARATELY: the key had no Loc.ConfigNames entry at all, which
+                        // is why it could only ever be found through a hand-written caption here.
+                        // It has one now, carrying these exact words, so Erweitert lists it under
+                        // its German name instead of a raw key.
                         // PROMOTED from Erweitert ▸ Menüs & Tafeln (2026-08-22 settings audit,
                         // question (b)): "Balken: Abstand ignorieren" is the THIRD member of a
                         // three-row family whose other two are already here, and the heading above

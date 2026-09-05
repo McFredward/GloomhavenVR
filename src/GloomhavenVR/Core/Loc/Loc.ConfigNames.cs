@@ -757,6 +757,11 @@ internal static partial class Loc
             // anyone reading it as a head-follow.
             ["WorldUI/WindowFacing"] = Pair("Turn to you on release", "Beim Loslassen zu dir drehen"),
             ["WorldUI/CombatLogFollowSeat"] = Pair("Combat log follows you", "Kampflog folgt dir"),
+            // 2026-09-05: the key had NO entry here, so its only readable name was a caption
+            // hand-written into the curated table — which is why demoting it to Erweitert
+            // would have printed the raw key at the very moment the user was told where to
+            // find it. These are the words the curated row carried, verbatim.
+            ["WorldUI/BarHeightOffset"] = Pair("Health bars: height", "Lebensbalken: Höhe"),
             ["WorldUI/CombatLogForward"] = Pair("Combat log: forward (m)", "Kampflog: vor (m)"),
             ["WorldUI/CombatLogRight"] = Pair("Combat log: right (m)", "Kampflog: rechts (m)"),
             ["WorldUI/CombatLogUp"] = Pair("Combat log: height (m)", "Kampflog: Höhe (m)"),

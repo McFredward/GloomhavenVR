@@ -368,6 +368,21 @@ DUPLICATE_ALLOWED = {
 # that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
     ("Board", "TouchRange"),
+    # 2026-09-05 - THREE DEMOTIONS THE USER RULED ON DIRECTLY, each a sibling of a family
+    # whose everyday member stays curated. Asked whether "offsets etc. gehoeren da nicht hin"
+    # also covers these, he answered: "Ja auch die Hoehe der Lebensbalken und die Grenzen sind
+    # Experteneinstellungen und gehoeren in Erweitert."
+    #   * [Comfort] ScaleMin/ScaleMax clamp the two-hand pinch. The GESTURE switch
+    #     ([Comfort] ScaleEnabled, "Welt skalieren") is the curated family member and stays;
+    #     these two are raw multipliers a player discovers by pinching, not by typing.
+    #   * [WorldUI] BarHeightOffset is one metre offset beside the curated bar family
+    #     (BarFixedSize, BarsOccluded), which are on/off rows a player can judge instantly.
+    # None of the three is unreachable: all sit on a named Erweitert heading, and
+    # BarHeightOffset gained the Loc.ConfigNames entry it never had, so it lists under its
+    # German name rather than a raw key.
+    ("Comfort", "ScaleMax"),
+    ("Comfort", "ScaleMin"),
+    ("WorldUI", "BarHeightOffset"),
     ("Cards", "BoardMaxWidthMeters"),
     ("Cards", "BoardMinWidthMeters"),
     ("Cards", "BoardPitchMaxDegrees"),
