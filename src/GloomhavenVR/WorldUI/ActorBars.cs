@@ -252,6 +252,38 @@ internal static class ActorBars
         public Quaternion LastRot;
         public Vector3 LastScale;
 
+        // ---- attack-modifier icon facing (user report 2026-09-05 #6) --------------------------
+        // Per-EPISODE accumulators for the "+1" modifier icons the game pools into this bar's
+        // AttackModBar during an attack. An episode is one attack-modifier flow on THIS bar; it
+        // opens on the first frame an AttackModElementUI is live under the bar and closes on the
+        // first frame none is. Everything here is written and read by the instrument alone except
+        // ModIconEpisode itself, which is the open/close latch the clamp is driven from.
+        public bool ModIconEpisode;
+        public int ModIconEpisodeIndex;
+        public int ModIconPeak;
+        public int ModIconSamples;
+        public int ModIconCorrections;
+
+        /// <summary>Worst angle (degrees) between an icon's face normal and the direction to the
+        /// local head, measured on the value THE GAME left — i.e. before this class's clamp. This
+        /// is the DEFECT SIZE the clamp removes; a run of 0.0 here means the clamp is inert.</summary>
+        public float ModIconWorstRawDeg;
+
+        /// <summary>Frames since this class first saw that icon, at the sample that produced
+        /// <see cref="ModIconWorstRawDeg"/>. 0 = the icon's own spawn frame.</summary>
+        public int ModIconWorstRawAge;
+
+        /// <summary>Worst angle AFTER the clamp wrote, head-relative like the raw one. It has an
+        /// expected FLOOR that is not zero: the icon sits off-centre inside a FLAT bar, so its own
+        /// line to the eye differs from the bar's by the parallax of that offset — single digits at
+        /// a normal reading distance, exactly as the health segments themselves do.</summary>
+        public float ModIconWorstHeldDeg;
+
+        /// <summary>Worst angle between the icon's rotation and the BAR's own, measured before the
+        /// clamp. This one has no parallax term and no floor: it is the pure defect, and 0.0 across
+        /// a whole episode means the game left the icon in the bar's plane by itself.</summary>
+        public float ModIconWorstSlipDeg;
+
         // ---- raycast state -------------------------------------------------------------------
         // A bar is DISPLAY ONLY: it is converted with pokeable:false, so it is never registered in
         // UguiPokeSurfaces and the VR laser/poke path cannot address it. But CanvasConversion.Convert
@@ -389,6 +421,31 @@ internal static class ActorBars
     /// <summary>Second renderer scratch, used ONLY by <see cref="CountAllRenderers"/> so the
     /// census walk can never clobber the measurement walk it is describing.</summary>
     private static readonly List<Renderer> RendererScratchAll = new(16);
+
+    /// <summary>Reused collector for the attack-modifier icons under one bar — the non-allocating
+    /// <c>GetComponentsInChildren&lt;T&gt;(bool, List&lt;T&gt;)</c> overload fills it in place, so an
+    /// attack flow costs no garbage per frame.</summary>
+    private static readonly List<AttackModElementUI> ModIconScratch = new(8);
+
+    /// <summary>First frame THIS class saw a given pooled icon (instance id -> Time.frameCount), so
+    /// the episode line can say WHICH frame after spawn the worst reading came from. Cleared whole
+    /// when the last open episode closes — the ids are pool instances and would otherwise be a
+    /// dictionary nobody notices growing.</summary>
+    private static readonly Dictionary<int, int> ModIconFirstFrame = new(16);
+
+    /// <summary>How many bars currently have an open modifier-icon episode.</summary>
+    private static int s_modIconOpenEpisodes;
+
+    /// <summary>Episodes measured this session, printed on every episode line so a truncated log
+    /// still says how many came before it.</summary>
+    private static int s_modIconEpisodesSeen;
+
+    /// <summary>True once the one-shot "watch armed" line has been printed this session.</summary>
+    private static bool s_modIconArmed;
+
+    /// <summary>A rotation error below this is quaternion/float noise, not a facing defect. Same
+    /// value and same reasoning as <c>HeadFacing.NoiseDeg</c>.</summary>
+    private const float ModIconNoiseDeg = 0.5f;
 
     /// <summary>Patch gate: true when the game must NOT drive this panel's transform.</summary>
     internal static bool Owns(WorldspaceDisplayPanelBase panel) => Owned.Contains(panel);
@@ -679,6 +736,12 @@ internal static class ActorBars
                 s_barScaleWrites++;
             }
             adopted.HasPose = true;
+
+            // ---- THE "+1" MODIFIER ICONS RIDE THIS BAR'S FACING ------------------------------
+            // Runs AFTER the pose write above on purpose: `rot` is the rotation this bar renders
+            // with THIS frame, so the icons are clamped into the plane the player will actually
+            // see, not the one from last frame. See TickModifierIconFacing for the whole account.
+            TickModifierIconFacing(adopted, controller, rot, headPos);
         }
 
         if (wantSizeLog)
@@ -689,6 +752,247 @@ internal static class ActorBars
         PerfMonitor.Count("Bars.PoseWrites", s_barPoseWrites);
         PerfMonitor.Count("Bars.ScaleWrites", s_barScaleWrites);
         PerfMonitor.Count("Bars.DepthScans", s_barDepthScans);
+    }
+
+    // ==============================================================================================
+    //  THE "+1" MODIFIER ICONS — they face the player because the BAR does, not because they billboard
+    // ==============================================================================================
+
+    /// <summary>
+    /// USER REPORT, hardware 2026-09-05, item 6, verbatim: <i>"Die Icons wie '+1' die den Modifikator
+    /// zeigen waren im Test kurz nicht zu mir ausgerichtet. Das darf nicht sein. Das muss wie die
+    /// Healthbar immer zum Spieler (jedem lokal) ausgerichtet sein."</i>
+    ///
+    /// <para><b>WHAT THOSE ICONS ARE.</b> The attack-modifier cards the game reveals over the target
+    /// while an attack resolves — <c>AttackModElementUI</c>, pooled by
+    /// <c>WorldspaceUI.AttackModBar.ShowModifiers</c> into <c>m_ContainerRect</c> and later moved to
+    /// <c>m_ContainerDrawnRect</c>. That bar is a child of the very
+    /// <c>WorldspacePanelUIController</c> this class adopts, so the icons already hang under the
+    /// billboarded host <see cref="LateTick"/> poses: there is nothing here that needs a facing of
+    /// its own, and none is added. They are wrong for exactly one reason.</para>
+    ///
+    /// <para><b>THE CAUSE, READ FROM SOURCE.</b> <c>ObjectPool.Spawn(prefab, parent)</c> forwards to
+    /// the five-argument overload with <c>Quaternion.identity</c>, and that overload's last transform
+    /// write is <c>gameObject.transform.rotation = rotation</c> — a <b>WORLD</b>-space assignment
+    /// (ObjectPool.cs; the <c>localPosition</c> beside it is local, the rotation is not). Under the
+    /// flat game's screen-space worldspace canvas, whose plane carries no world rotation, a
+    /// world-identity rotation IS a zero local rotation and nobody could ever see the difference.
+    /// Under this class's host — rotated every frame to face the head — it lands as a local rotation
+    /// the size of the billboard, i.e. the icon faces world north while the bar behind it faces the
+    /// player. This is the same mechanism <c>CanvasConversion</c>'s flatten pass already documents
+    /// for pooled combat-log entries and pooled item cards; the bars are simply a family that was
+    /// never given a clamp. <c>AttackModElementUI.Reset()</c> does not close it: it re-seats the
+    /// icon's CHILDREN (<c>m_IconRect</c>, <c>m_ValueRect</c>) and never touches the icon root.</para>
+    ///
+    /// <para><b>WHY IT LOOKED "BRIEF", AND WHY IT IS NOT A SPAWN-ORDER GAP.</b> Writing a world
+    /// rotation once does not detach the icon from its parent: it fixes the OFFSET between the two.
+    /// From then on the icon tracks every later billboard CHANGE and stays wrong by exactly the
+    /// billboard that was standing at spawn. So the error is not a first-frame transient that
+    /// anything heals — it lasts the whole episode, and its SIZE depends on where the player was
+    /// standing. Stand so the bar happens to face world north and the icons look right; step around
+    /// the table and the same code is 90° out. That is what "kurz" is describing: the icons only
+    /// exist for the two or three seconds an attack resolves, and only some of those episodes look
+    /// wrong.</para>
+    ///
+    /// <para><b>WHY A PER-FRAME RE-ASSERT AND NOT A ONE-SHOT AT SPAWN.</b> Same answer
+    /// <c>CanvasConversion.RunFlattenPass</c> gives: the value comes back live. The flow re-parents
+    /// an icon mid-episode (<c>m_Modifier.transform.SetParent(m_ContainerDrawnRect)</c>, with the
+    /// default <c>worldPositionStays: true</c>) and can spawn a second icon at any point in it. An
+    /// unconditional re-assert is immune to all of that by construction and needs to know none of
+    /// it. The write is change-gated on <see cref="ModIconNoiseDeg"/>, so a settled icon costs one
+    /// <c>Quaternion.Angle</c> and no interop set.</para>
+    ///
+    /// <para><b>WHY NOT JUST TURN ON <c>flatten2D</c> FOR THE BAR.</b> Because it would break the
+    /// reveal. That pass clamps EVERY local rotation under the target, and the icon's whole
+    /// animation IS local rotation — <c>ShowValue</c> swivels <c>m_IconRect</c> through 180° and
+    /// drives <c>m_ValueRect</c> from <c>Euler(0,-180,0)</c> back to zero to flip the card over.
+    /// Flattening the subtree would freeze the flip and hand the peer a different animation from the
+    /// owner's, which the 1:1 rule forbids. The clamp therefore addresses the icon ROOT — the one
+    /// transform the game writes in world space — and nothing below it.</para>
+    ///
+    /// <para><b>FULL BILLBOARD, NOT YAW-ONLY, AND THAT IS DELIBERATE.</b> The yaw-only ruling of
+    /// 2026-09-04 is about WINDOWS (<see cref="HeadFacing"/>), which the player reads at eye height
+    /// and which must not roll away from the horizon. These icons are not a window: they are a strip
+    /// of the health bar, the health bar is a full billboard
+    /// (<c>Quaternion.LookRotation(pos - headPos, Vector3.up)</c>, <see cref="LateTick"/>), and the
+    /// user's own sentence names the health bar as the target behaviour. Matching the bar is the
+    /// whole requirement, and it comes for free: the icons inherit the host's rotation rather than
+    /// computing one, so there is exactly ONE billboard on this surface and it is the bar's.</para>
+    ///
+    /// <para><b>MULTIPLAYER.</b> Nothing on the wire, and nothing to mirror. The scenario board is
+    /// native on both clients — every client builds its own <c>WorldspacePanelUIController</c> set
+    /// (see <c>Net.NetFigures.RebuildLookup</c>, which reads the same local registry) and this class
+    /// adopts and billboards it against THAT client's head. The peer's copy of the same "+1" is that
+    /// peer's own pooled icon under that peer's own bar, so the identical clamp on both sides is
+    /// what makes each copy face its own viewer. A synchronised orientation would be the defect, not
+    /// the fix.</para>
+    /// </summary>
+    private static void TickModifierIconFacing(Adopted adopted, WorldspacePanelUIController controller,
+                                               Quaternion hostRot, Vector3 headPos)
+    {
+        // FAST PATH. FlowControlActive() is one field read through the controller
+        // (WorldspacePanelUIController.cs:674 -> AttackModBar.IsFlowActive) and is false for every
+        // bar on the board except one, for the two or three seconds an attack resolves. A bar with
+        // no flow and no open episode leaves this method having done nothing else.
+        bool flow = controller.FlowControlActive();
+        if (!flow && !adopted.ModIconEpisode)
+            return;
+
+        ModIconScratch.Clear();
+        controller.GetComponentsInChildren(includeInactive: false, ModIconScratch);
+        int live = ModIconScratch.Count;
+
+        if (live == 0)
+        {
+            if (adopted.ModIconEpisode)
+                CloseModifierIconEpisode(adopted, controller);
+            return;
+        }
+
+        if (!adopted.ModIconEpisode)
+        {
+            adopted.ModIconEpisode = true;
+            adopted.ModIconEpisodeIndex = ++s_modIconEpisodesSeen;
+            adopted.ModIconPeak = 0;
+            adopted.ModIconSamples = 0;
+            adopted.ModIconCorrections = 0;
+            adopted.ModIconWorstRawDeg = 0f;
+            adopted.ModIconWorstRawAge = 0;
+            adopted.ModIconWorstHeldDeg = 0f;
+            adopted.ModIconWorstSlipDeg = 0f;
+            s_modIconOpenEpisodes++;
+        }
+        if (live > adopted.ModIconPeak)
+            adopted.ModIconPeak = live;
+
+        int frame = Time.frameCount;
+        for (int i = 0; i < live; i++)
+        {
+            AttackModElementUI element = ModIconScratch[i];
+            if (element == null)
+                continue;
+            Transform icon = element.transform;
+
+            int id = element.GetInstanceID();
+            if (!ModIconFirstFrame.TryGetValue(id, out int firstFrame))
+            {
+                firstFrame = frame;
+                ModIconFirstFrame[id] = frame;
+            }
+
+            // THE MEASUREMENT IS TAKEN BEFORE THE WRITE, and that is the point of the instrument.
+            // A uGUI front renders along -forward, so an icon that faces the player has its +Z
+            // pointing AWAY from the head — the same convention the bar's own billboard uses. The
+            // angle is therefore measured between the icon's forward and the head->icon direction,
+            // and 0° means "square to the player".
+            Vector3 toIcon = icon.position - headPos;
+            if (toIcon.sqrMagnitude > 1e-6f)
+            {
+                float rawDeg = Vector3.Angle(icon.forward, toIcon.normalized);
+                adopted.ModIconSamples++;
+                if (rawDeg > adopted.ModIconWorstRawDeg)
+                {
+                    adopted.ModIconWorstRawDeg = rawDeg;
+                    adopted.ModIconWorstRawAge = frame - firstFrame;
+                }
+            }
+
+            // THE CLAMP. The icon takes the bar's own rotation — not one of its own — so there is a
+            // single billboard on this surface. Change-gated against the value already there, so a
+            // settled icon pays one angle test and no transform write.
+            float slipDeg = Quaternion.Angle(icon.rotation, hostRot);
+            if (slipDeg > adopted.ModIconWorstSlipDeg)
+                adopted.ModIconWorstSlipDeg = slipDeg;
+            if (slipDeg > ModIconNoiseDeg)
+            {
+                icon.rotation = hostRot;
+                adopted.ModIconCorrections++;
+            }
+
+            // AND THE READING AFTER THE WRITE — the number the player's eye is actually left with.
+            // It does NOT go to zero and must not be read as if it should: the icon sits off-centre
+            // inside a FLAT bar, so its own line to the eye differs from the bar's by the parallax
+            // of that offset, single digits at a reading distance. That residual is correct and the
+            // health segments beside it carry the same one. SLIP above is the term with no floor.
+            toIcon = icon.position - headPos;
+            if (toIcon.sqrMagnitude > 1e-6f)
+            {
+                float heldDeg = Vector3.Angle(icon.forward, toIcon.normalized);
+                if (heldDeg > adopted.ModIconWorstHeldDeg)
+                    adopted.ModIconWorstHeldDeg = heldDeg;
+            }
+        }
+        ModIconScratch.Clear();
+    }
+
+    /// <summary>
+    /// Close one bar's modifier-icon episode and print its verdict. Called from the tick above when
+    /// the last icon goes away, and from <see cref="Release"/> so a bar destroyed mid-attack still
+    /// reports rather than swallowing the episode.
+    /// </summary>
+    private static void CloseModifierIconEpisode(Adopted adopted, WorldspacePanelUIController? controller)
+    {
+        if (!adopted.ModIconEpisode)
+            return;
+        adopted.ModIconEpisode = false;
+        if (s_modIconOpenEpisodes > 0)
+            s_modIconOpenEpisodes--;
+        if (s_modIconOpenEpisodes == 0)
+            ModIconFirstFrame.Clear();
+        LogModifierIconEpisode(adopted, controller);
+    }
+
+    /// <summary>
+    /// ONE line per attack-modifier episode — never per frame; the caller only reaches it on the
+    /// frame an episode closes, and an episode is one attack resolving on one figure (25 of them in
+    /// the whole ModBuild 448 session).
+    ///
+    /// <para>HOW TO READ IT NEXT ROUND. <c>WORST RAW</c> is the defect this clamp removed, measured
+    /// on the rotation the game left behind, and <c>frame +n</c> says how long after the icon
+    /// appeared that reading was taken. <c>WORST HELD</c> is the same angle re-measured after the
+    /// write and is the line's own falsifier in the other direction.</para>
+    /// </summary>
+    private static void LogModifierIconEpisode(Adopted adopted, WorldspacePanelUIController? controller)
+    {
+        // A released bar may already be Unity-dead; the label falls back to the actor alone.
+        string who = controller != null ? LabelOf(controller, adopted.Actor) : "actor";
+        // HW-VERIFY
+        VRLog.Note("WorldUI", $"MOD ICON FACING: episode {adopted.ModIconEpisodeIndex} on '{who}' — " +
+                              $"{adopted.ModIconPeak} '+1'-style modifier icon(s), {adopted.ModIconSamples} sample(s); " +
+                              $"WORST RAW {adopted.ModIconWorstRawDeg:F1}° off the local head, at frame " +
+                              $"+{adopted.ModIconWorstRawAge} after that icon first appeared; " +
+                              $"WORST SLIP {adopted.ModIconWorstSlipDeg:F1}° out of the bar's own plane; " +
+                              $"WORST HELD {adopted.ModIconWorstHeldDeg:F1}° off the head after the clamp; " +
+                              $"{adopted.ModIconCorrections} clamp write(s). The icons take the BAR's own " +
+                              "billboard (ObjectPool.Spawn writes a WORLD rotation onto a pooled uGUI child, " +
+                              "which under a head-facing host is a local tilt the size of the billboard). " +
+                              "READ IT SO: WORST SLIP is the pure defect and has no floor — 0.0° with 0 clamp " +
+                              "write(s) means this fix is INERT and the cause is elsewhere. WORST HELD does " +
+                              "have a floor: the icon sits off-centre in a FLAT bar, so single digits are the " +
+                              "same parallax the health segments carry and are correct; TENS of degrees there " +
+                              "mean a SECOND writer rewrites the icon after this frame phase. A RAW worst age " +
+                              "of +0 says the whole error is the spawn-time world-rotation write; a LATER age " +
+                              "says something re-tilts the icon mid-episode. User ruling 2026-09-05: \"Das " +
+                              "muss wie die Healthbar immer zum Spieler (jedem lokal) ausgerichtet sein.\"");
+    }
+
+    /// <summary>
+    /// The one-shot proof that the watch above EXISTS in this build, printed on the first bar this
+    /// session adopts. Without it a session in which no attack ever resolved and a session in which
+    /// the instrument was never compiled in read exactly the same: nothing. With it, "armed, 0
+    /// episodes" and "no line at all" are different readings, which is the whole requirement.
+    /// </summary>
+    private static void LogModifierIconWatchArmed()
+    {
+        if (s_modIconArmed)
+            return;
+        s_modIconArmed = true;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "MOD ICON FACING: watch ARMED on the first adopted actor bar — every " +
+                              "attack-modifier episode from here on prints one 'MOD ICON FACING: episode n' " +
+                              "line. ZERO of those lines after this one means no attack modifier was ever " +
+                              "drawn in this session, NOT that every icon was aimed correctly; the absence " +
+                              "of this line means the watch is not in the build at all.");
     }
 
     // ==============================================================================================
@@ -1938,6 +2242,7 @@ internal static class ActorBars
         };
         Owned.Add(controller);
         LogAnchor("at ADOPT", LabelOf(controller, Adoptions[controller].Actor), anchorOffset, anchorReport);
+        LogModifierIconWatchArmed();
 
         // Item 5a part 1 — segment the HealthBar per max-HP. Push a valid zoom exactly
         // once at adopt: the RTS-camera UnityEvent that normally does this never fires in
@@ -2145,6 +2450,9 @@ internal static class ActorBars
         // still a valid dictionary key — always use it for the map ops.
         if (Adoptions.TryGetValue(controller, out Adopted adopted))
         {
+            // A bar can be destroyed while an attack is still resolving on it (a lethal hit): close
+            // the episode here so its verdict is printed instead of being swallowed with the bar.
+            CloseModifierIconEpisode(adopted, controller);
             RestoreBarDepthTest(adopted);
             RestoreBarRaycast(adopted);
             CanvasConversion.Release(adopted.Panel);
@@ -2157,6 +2465,7 @@ internal static class ActorBars
     {
         foreach (KeyValuePair<WorldspacePanelUIController, Adopted> pair in Adoptions)
         {
+            CloseModifierIconEpisode(pair.Value, pair.Key);
             RestoreBarDepthTest(pair.Value);
             RestoreBarRaycast(pair.Value);
             CanvasConversion.Release(pair.Value.Panel);
