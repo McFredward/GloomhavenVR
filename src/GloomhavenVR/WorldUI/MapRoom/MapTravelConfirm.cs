@@ -687,6 +687,23 @@ internal static class MapTravelConfirm
     /// <summary>Graphic sink for the content sweeps — reused, so it allocates nothing.</summary>
     private static readonly List<Graphic> ContentGraphics = new(32);
 
+    /// <summary>Ancestor-chain memo for <see cref="TransientFamilies.Of"/>, cleared at the top of
+    /// every <see cref="TryContentBounds"/> call. Cleared per call rather than per refresh because
+    /// the two sweeps of one refresh use DIFFERENT roots (the window, then the container), and a
+    /// family cached against one root is not an answer about the other - the one hazard
+    /// <c>TransientFamilies.Of</c>'s own doc names.</summary>
+    private static readonly Dictionary<Transform, int> TransientMemo = new(64);
+
+    /// <summary>Graphics the last sweep refused as <see cref="TransientFamilies"/> members, and the
+    /// bit-per-family mask of which families they came from. Printed on the placement line: a
+    /// count alone cannot tell "the exclusion did nothing" from "the exclusion ate the card".
+    /// </summary>
+    private static int _anchorInfoTransient;
+
+    private static int _anchorInfoTransientMask;
+
+    private static int _anchorButtonTransient;
+
     /// <summary>World-corner scratch for the same sweep.</summary>
     private static readonly Vector3[] CornerScratch = new Vector3[4];
 
@@ -1888,14 +1905,16 @@ internal static class MapTravelConfirm
         _anchorNextRefreshAt = now + AnchorRefreshIntervalSeconds;
 
         if (!TryContentBounds(win, rect, excludeRoot: null, out Rect btn,
-                              out int btnCounted, out int btnSkipped, out int btnClipped))
+                              out int btnCounted, out int btnSkipped, out int btnClipped,
+                              out int btnTransient, out int _))
         {
             _anchorWhy = "the container has no visible Graphic this tick (the game usually has it "
                          + "switched off when no location is staged) — the previous zero is kept";
             return;
         }
         if (!TryContentBounds(win, win, excludeRoot: rect, out Rect infoRaw,
-                              out int infoCounted, out int infoSkipped, out int infoClipped))
+                              out int infoCounted, out int infoSkipped, out int infoClipped,
+                              out int infoTransient, out int infoTransientMask))
         {
             _anchorWhy = "the quest window has no visible Graphic outside the button itself — the "
                          + "previous zero is kept";
@@ -1906,10 +1925,20 @@ internal static class MapTravelConfirm
         // this card reaches 321 px to the LEFT of a 512 px card, from graphics faint enough that
         // CanvasConversion's own fit throws twenty of them away. Intersecting with the card is what
         // makes the horizontal zero agree with the position the user tuned by hand (6 mm) instead of
-        // disagreeing with it (134 mm). The vertical side of the clamp almost never bites — the
-        // information's bottom edge measured 355 px INSIDE the card — and when it does it saturates
-        // the zero at the card's own bottom edge rather than sending the button after content drawn
-        // past it.
+        // disagreeing with it (134 mm).
+        //
+        // ModBuild 448 FALSIFIED THE REST OF THIS PARAGRAPH, which read "the vertical side of the
+        // clamp almost never bites ... and when it does it saturates the zero at the card's own
+        // bottom edge rather than sending the button after content drawn past it". On the map
+        // room's quest card the vertical side bit on EVERY sample (raw union bottom y=-590.5
+        // against a card that ends at y=-510.5) and saturating there is not a safe answer: it is
+        // the LOWEST answer the card admits, and it is what put the confirm button 266 px below the
+        // drawn rewards panel in abstand2.jpg. The clamp is kept because it is still the right
+        // backstop for a graphic that is genuinely information; what changed is that the graphic
+        // which was reaching past the card - an animated UIFX effect quad - is now refused from the
+        // union by identity BEFORE the clamp is applied, so the clamp has nothing to saturate on.
+        // If a future card still saturates here, the placement line's own TRANSIENT count says
+        // whether the exclusion had anything to refuse.
         Rect info = Rect.MinMaxRect(Mathf.Max(infoRaw.xMin, frame.xMin),
                                     Mathf.Max(infoRaw.yMin, frame.yMin),
                                     Mathf.Min(infoRaw.xMax, frame.xMax),
@@ -1952,6 +1981,9 @@ internal static class MapTravelConfirm
         _anchorButtonCounted = btnCounted;
         _anchorButtonSkipped = btnSkipped;
         _anchorButtonClipped = btnClipped;
+        _anchorInfoTransient = infoTransient;
+        _anchorInfoTransientMask = infoTransientMask;
+        _anchorButtonTransient = btnTransient;
         _anchorWhy = "resolved";
     }
 
@@ -2236,12 +2268,22 @@ internal static class MapTravelConfirm
     /// </summary>
     private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
                                          Transform? excludeRoot, out Rect content,
-                                         out int counted, out int skipped, out int clipped)
+                                         out int counted, out int skipped, out int clipped) =>
+        TryContentBounds(frame, sweepRoot, excludeRoot, out content, out counted, out skipped,
+                         out clipped, out _, out _);
+
+    private static bool TryContentBounds(RectTransform frame, Transform sweepRoot,
+                                         Transform? excludeRoot, out Rect content,
+                                         out int counted, out int skipped, out int clipped,
+                                         out int transient, out int transientMask)
     {
         content = default;
         counted = 0;
         skipped = 0;
         clipped = 0;
+        transient = 0;
+        transientMask = 0;
+        TransientMemo.Clear();
         ContentGraphics.Clear();
         sweepRoot.GetComponentsInChildren(includeInactive: false, ContentGraphics);
         float xMin = float.PositiveInfinity, yMin = float.PositiveInfinity;
@@ -2281,6 +2323,31 @@ internal static class MapTravelConfirm
             if (excludeRoot != null && rt.IsChildOf(excludeRoot))
             {
                 skipped++;
+                continue;
+            }
+            // ---- ModBuild 448 - DRAWN, BUT NOT ALLOWED TO DECIDE WHERE THE BUTTON GOES. ----------
+            //
+            // This sweep is on the WRITE path: `info.yMin` IS the button's top edge. Until 448 it
+            // was the only painted-union instrument in the mod that did not consult
+            // TransientFamilies, and the map room's quest card is exactly the window that punishes
+            // that. 'Button_FX/UIFX_Wave (1)' - a UIFX_MaterialFX_Control effect quad - paints
+            // 245-299 px below a 512x1021 px card, so the raw union bottom read y=-590.5, the
+            // frame clamp saturated it at the card's own bottom edge y=-510.5, and the confirm
+            // button was seated 266 px = 279 mm below the drawn rewards panel (abstand2.jpg). The
+            // vertical clamp's own comment said it "almost never bites"; on this card it bit on
+            // every sample, and saturating at the bottom edge is the WORST answer available rather
+            // than a safe one.
+            //
+            // A TYPE TEST AND NOT A GEOMETRIC ONE. "It paints outside the card" would also describe
+            // the battle-goal picker's reward rows, which the user accepted the handle following.
+            // See TransientFamilies for the identity and for the guard that makes it inert on a
+            // controller that owns its own icon.
+            int family = TransientFamilies.Of(rt, sweepRoot, TransientMemo);
+            if (family != 0)
+            {
+                skipped++;
+                transient++;
+                transientMask |= 1 << family;
                 continue;
             }
             // uGUI's own verdict next: RectMask2D sets this on a child it has clipped away
@@ -2478,7 +2545,17 @@ internal static class MapTravelConfirm
               + "transparency term is color.a x CanvasRenderer.GetInheritedAlpha(), so a subtree the "
               + "game faded out with a CanvasGroup on a tab switch or a scroll view no longer sizes "
               + "this rect. A jump in this count with no change to the quest is that fade arriving, "
-              + "and before 439 it moved the bottom edge instead"
+              + "and before 439 it moved the bottom edge instead. "
+              + $"TRANSIENT REFUSALS (ModBuild 448): {_anchorInfoTransient} graphic(s) refused from "
+              + $"THIS rect and {_anchorButtonTransient} from the button's own, from "
+              + $"{TransientFamilies.Describe(_anchorInfoTransientMask)}. A NON-ZERO COUNT NAMING "
+              + "THE UIFX EFFECT FAMILY IS THE abstand2.jpg FIX DOING ITS WORK: that is the "
+              + "animated 'UIFX_Wave' quad which used to drag this rect's BOTTOM EDGE to the card's "
+              + "own bottom edge and hang the confirm button 266 px under the drawn rewards panel. "
+              + "A ZERO COUNT ON THE MAP-ROOM QUEST CARD MEANS THE FIX IS INERT — the controller "
+              + "sits on a node that paints, or owns its MainIcon, so TransientFamilies refused the "
+              + "family; the gap in that case is NOT the wave and this line's RAW-vs-CLAMPED pair "
+              + "names whatever is"
             : "NOT MEASURABLE — no visible Graphic in the quest window outside the button itself";
         string measuredHow = _anchorValid
             ? $"{_anchorWhy}, {measuredAgeMs:F0} ms ago (re-measured at most every "

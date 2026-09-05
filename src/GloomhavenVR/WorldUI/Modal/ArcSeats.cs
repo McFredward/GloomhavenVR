@@ -5287,7 +5287,201 @@ internal static partial class ModalFallback
                                        out worldScale, out line);
         if (seated && !replay)
             GrantPoseCriticalRevealGrace(panel!, window, kind);
+        if (seated)
+        {
+            LogSharedWindowSizeTerms(panel, window, kind, stage, halfSize);
+            LogWindowVerticalStack(window, kind, stage);
+        }
         return seated;
+    }
+
+    /// <summary>
+    /// <b>THE 1:1 FALSIFIER FOR A SHARED WINDOW'S SIZE, WITH EVERY TERM IT WAS COMPUTED FROM ON THE
+    /// SAME LINE.</b> One line per shared seat (spawn and re-place), never per frame.
+    ///
+    /// <para><b>WHY IT HAD TO EXIST (ModBuild 448).</b> The user reported the map room's quest
+    /// window drawn at DIFFERENT SIZES for the two players, and the grab bar therefore in different
+    /// places. Settling that took nine <c>MODAL CLOSE X ON THE INK</c> readings, five
+    /// <c>Host rect fit</c> lines and two <c>MAP ROOM WINDOW BAR HEIGHT</c> lines across two 100 MB
+    /// logs, because no single line carried the committed size AND its inputs. It does now: two
+    /// clients' lines for the same window and the same STAGE are directly comparable, and the term
+    /// that differs names the cause.</para>
+    ///
+    /// <para><b>NOTHING HERE GOES ON THE WIRE, AND THAT IS THE CLAIM BEING TESTED.</b> Every term
+    /// below is a pure function of this client's own copy of the game window, so 1:1 holds if and
+    /// only if those functions are fed the same numbers. The AUTHORED frame is the game's own rect
+    /// and was 512x1021 px on every sample on both machines; the FITTED host rect is what the
+    /// content fit wrote, and it is the one that diverged (1021 px against 779 px at the same
+    /// open). A size that needed a wire field would be a design failure here, not a missing
+    /// record.</para>
+    ///
+    /// <para><b>THE FALSIFIER.</b> Grep <c>SHARED WINDOW SIZE TERMS</c> on both logs and line up the
+    /// two entries for one window at stage RE-PLACE. Equal FITTED px and equal REAL mm =&gt; 1:1
+    /// holds. Different FITTED px with equal AUTHORED px =&gt; the content fit measured different
+    /// content, and the TRANSIENT/graphic counts on the fit's own line say which. Different
+    /// AUTHORED px =&gt; the two clients are not looking at the same game window at all, which is a
+    /// different defect and not this one.</para>
+    /// </summary>
+    private static void LogSharedWindowSizeTerms(ConvertedPanel? panel, UIWindow window,
+                                                 SharedWindowKind kind, string stage,
+                                                 Vector2 halfSize)
+    {
+        RectTransform? host = panel != null ? panel.HostRect : null;
+        var target = window.transform as RectTransform;
+        Vector2 fitted = host != null ? host.rect.size : Vector2.zero;
+        Vector2 authored = target != null ? target.rect.size : Vector2.zero;
+        float rig = MapRoom.MapRoomDriver.TryGetParchmentFrame(out Vector3 _, out float parchScale)
+            ? parchScale
+            : PanelLayout.WorldScale;
+        if (rig <= 0f)
+            rig = 1f;
+        float mmPerPx = fitted.y > 0f ? 2f * halfSize.y / fitted.y / rig * 1000f : 0f;
+        Vector2 realMm = new(2f * halfSize.x / rig * 1000f, 2f * halfSize.y / rig * 1000f);
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"SHARED WINDOW SIZE TERMS ({stage}) — '{window.name}' (SharedWindowKind.{kind}): "
+            + $"COMMITTED REAL SIZE {realMm.x:F0} x {realMm.y:F0} mm. THE TERMS IT CAME FROM, in "
+            + "the order they compose: AUTHORED frame (the game's own rect on the conversion "
+            + $"target) {authored.x:F0}x{authored.y:F0} px; FITTED host rect (what the content fit "
+            + $"wrote, and the only term the world size actually reads) {fitted.x:F0}x{fitted.y:F0} "
+            + $"px; fit state enabled={(panel != null && panel.FitEnabled)} "
+            + $"measuredOnce={(panel != null && panel.FitMeasuredOnce)}; rig scale {rig:F2} world "
+            + $"units per tracking metre; {mmPerPx:F3} mm per authored px; world half-size "
+            + $"({halfSize.x:F2}, {halfSize.y:F2}) world units. "
+            + "MULTIPLAYER — THIS IS THE 1:1 LINE. Nothing here is on the wire: every term is a "
+            + "pure function of this client's own copy of the window, so line this entry up against "
+            + "the peer's entry for the same window at the same STAGE. EQUAL fitted px and equal "
+            + "real mm is the 1:1 rule holding. EQUAL authored px with DIFFERENT fitted px is the "
+            + "ModBuild 447 defect: the content fit settled on a different measurement of the same "
+            + "card, which on the quest popup was an animated UIFX effect quad in or out of the "
+            + "union at the settle instant (grep MOUSEOVER LEDGER on the Host rect fit line for the "
+            + "refusal count, and TransientFamilies family 7 for what it is). DIFFERENT authored px "
+            + "is not this defect at all — the two clients are not showing the same game window. "
+            + "THE GRAB BAR AND THE SEAT NEED NO SEPARATE FIX: GrabBarLayout.Solve and the shared "
+            + "arc are pure functions of this rect, so they diverge if and only if this line does.");
+    }
+
+    /// <summary>Scratch for <see cref="LogWindowVerticalStack"/>: one entry per measured child.
+    /// One instance, cleared per call; this runs on the shared-seat path only, never per
+    /// frame.</summary>
+    private static readonly List<(string Name, Rect Ink, int Graphics)> StackScratch = new(24);
+
+    /// <summary>
+    /// <b>THE VERTICAL STACK OF A WINDOW'S CHILDREN, TOP TO BOTTOM, WITH THE EMPTY BANDS BETWEEN
+    /// THEM.</b> One line per shared seat, never per frame.
+    ///
+    /// <para><b>WHY (ModBuild 448).</b> The user reported "der Abstand ist bei mir immer noch zu
+    /// groß" with <c>abstand2.jpg</c> — a quarter of the quest card's height empty between the
+    /// rewards panel and the confirm row. Deciding WHICH element owned that band took a screenshot
+    /// measurement, and this project's own record says a screenshot measurement of a spacing defect
+    /// has already been read wrong once. So the stack is measured instead: each direct child's
+    /// PAINTED union in the window's own px, sorted top-down, with the gap to the next one and the
+    /// LARGEST gap named. A band with a child in it is a game-authored plate and stays; a band with
+    /// no child in it is reserved-and-not-drawn and may be taken back.</para>
+    ///
+    /// <para>Measured with <c>MapTravelConfirm.TryInkBounds</c> on purpose — the same sweep, with
+    /// the same mask clipping, alpha floor and (since 448) the same TransientFamilies refusal that
+    /// the confirm button's own placement is solved by. An instrument that measured the stack with
+    /// a second set of rules could disagree with the placement it is supposed to explain.</para>
+    ///
+    /// <para><b>THE FALSIFIER.</b> Grep <c>WINDOW VERTICAL STACK</c>. If the largest gap is between
+    /// two children, that band is the spacing defect and the line names both. If the largest gap is
+    /// under 40 px the window is compact and the complaint is about something else. A child list of
+    /// 0 or 1 entries means the walk found no per-child structure and the line proves nothing —
+    /// that is the reading that says this instrument, not the window, is wrong.</para>
+    /// </summary>
+    private static void LogWindowVerticalStack(UIWindow window, SharedWindowKind kind, string stage)
+    {
+        if (window.transform is not RectTransform frame)
+            return;
+        StackScratch.Clear();
+        CollectStack(frame, frame);
+        // ONE LEVEL DEEPER WHEN THE ROOT IS A WRAPPER. A uGUI card routinely hangs everything off a
+        // single 'Content' child, and a stack of one entry answers nothing. Descend once, never
+        // twice: the question is which BLOCK owns the band, not which glyph does.
+        if (StackScratch.Count == 1)
+        {
+            Transform? only = FindChildByName(frame, StackScratch[0].Name);
+            if (only != null)
+            {
+                StackScratch.Clear();
+                CollectStack(frame, only);
+            }
+        }
+        if (StackScratch.Count == 0)
+            return;
+        StackScratch.Sort(static (a, b) => b.Ink.yMax.CompareTo(a.Ink.yMax));
+
+        var sb = new System.Text.StringBuilder(384);
+        float widestGap = 0f;
+        string widestWhere = "no gap";
+        for (int i = 0; i < StackScratch.Count && i < 14; i++)
+        {
+            (string name, Rect ink, int graphics) = StackScratch[i];
+            if (i > 0)
+            {
+                float gap = StackScratch[i - 1].Ink.yMin - ink.yMax;
+                sb.Append(" --GAP ").Append(gap.ToString("F0")).Append(" px--> ");
+                if (gap > widestGap)
+                {
+                    widestGap = gap;
+                    widestWhere = $"between '{StackScratch[i - 1].Name}' (ends y="
+                                  + $"{StackScratch[i - 1].Ink.yMin:F0}) and '{name}' (starts y="
+                                  + $"{ink.yMax:F0})";
+                }
+            }
+            sb.Append('\'').Append(name).Append("' y ").Append(ink.yMin.ToString("F0")).Append("..")
+              .Append(ink.yMax.ToString("F0")).Append(" (").Append(ink.height.ToString("F0"))
+              .Append(" px, ").Append(graphics).Append(" graphic(s))");
+        }
+
+        // HW-VERIFY
+        VRLog.Note("WorldUI",
+            $"WINDOW VERTICAL STACK ({stage}) — '{window.name}' (SharedWindowKind.{kind}), frame "
+            + $"{frame.rect.width:F0}x{frame.rect.height:F0} px spanning y {frame.rect.yMin:F0}.."
+            + $"{frame.rect.yMax:F0}. {StackScratch.Count} measurable child block(s), TOP TO BOTTOM, "
+            + $"each as its PAINTED union in the window's own px: {sb}. THE LARGEST EMPTY BAND is "
+            + $"{widestGap:F0} px, {widestWhere}. HOW TO READ IT: a band with no child block in it "
+            + "is space the window RESERVES AND DOES NOT DRAW, and this project's standing note is "
+            + "that a window must not reserve far more than it draws — take it back. A band that "
+            + "IS a child block (a plate with nothing on it) is game-authored and is not this "
+            + "mod's to collapse. This is the measured answer to 'der Abstand ist zu groß' "
+            + "(abstand2.jpg), and it replaces reading the band off a screenshot. MEASURED WITH "
+            + "MapTravelConfirm.TryInkBounds — the same sweep, mask clipping, alpha floor and "
+            + "TransientFamilies refusal the confirm button's own placement is solved by, so this "
+            + "line and MAP TRAVEL CONFIRM placement can never disagree about what is drawn. A "
+            + "COUNT OF 0 OR 1 BLOCK(S) MEANS THIS WALK FOUND NO STRUCTURE AND THE LINE PROVES "
+            + "NOTHING — that reading indicts the instrument, not the window.");
+    }
+
+    /// <summary>Measure every direct child of <paramref name="root"/> into
+    /// <see cref="StackScratch"/>, in <paramref name="frame"/>'s own local px.</summary>
+    private static void CollectStack(RectTransform frame, Transform root)
+    {
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (child == null || !child.gameObject.activeInHierarchy)
+                continue;
+            if (MapRoom.MapTravelConfirm.TryInkBounds(frame, child, out Rect ink, out int counted)
+                && ink.height > 0f)
+            {
+                StackScratch.Add((child.name, ink, counted));
+            }
+        }
+    }
+
+    /// <summary>First direct child of <paramref name="root"/> with this name, or null.</summary>
+    private static Transform? FindChildByName(Transform root, string name)
+    {
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+            if (child != null && child.name == name)
+                return child;
+        }
+        return null;
     }
 
     /// <summary>How much longer than <c>CanvasConversion.RevealMaxWaitSeconds</c> a SHARED window
