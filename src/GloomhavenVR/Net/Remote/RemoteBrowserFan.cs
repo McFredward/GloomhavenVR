@@ -649,23 +649,22 @@ internal sealed class RemoteBrowserFan
     private float _splitScale = Defaults.FanHoverSplitScale;
 
     /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> cards away from the
-    /// highlighted one — <c>FanSweep.SplitOffset</c> against the OWNER's three dials.
-    /// <c>RemoteHandFan.SplitOffset</c> / <c>RemoteItemFan.SplitOffset</c> are the same five terms;
-    /// the three fans genuinely share this one formula.</summary>
+    /// highlighted one — the shared <c>Cards.FanSweep.SplitOffset</c> against the OWNER's three
+    /// dials. It said <c>RemoteHandFan.SplitOffset</c> / <c>RemoteItemFan.SplitOffset</c> "are the
+    /// same five terms; the three fans genuinely share this one formula" — they did not share it,
+    /// they each spelled it. Now they share it.</summary>
     private float SplitOffset(int signed)
-    {
-        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
-    }
+        => Cards.FanSweep.SplitOffset(signed, _splitMultiplier, _splitFalloff, _splitScale);
 
-    /// <summary>VRCard's pop: the small upward component riding with the forward lift.</summary>
-    private const float PopUp = 0.012f;
+    /// <summary>VRCard's pop: the small upward component riding with the forward lift. READ from
+    /// the owner's own constant, not re-typed beside a comment naming it.</summary>
+    private const float PopUp = Cards.VRCard.PopUp;
 
     /// <summary>VRCard's pop: the extra size a lifted card takes (+18 %).</summary>
-    private const float PopScale = 0.18f;
+    private const float PopScale = Cards.VRCard.PopScale;
 
     /// <summary>VRCard's pop RAMP rate (units/second, MoveTowards).</summary>
-    private const float PopRate = 8f;
+    private const float PopRate = Cards.VRCard.PopRate;
 
     /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — kept per slab so a
     /// lift MOVING between cards has the old one relaxing while the new one rises.</summary>

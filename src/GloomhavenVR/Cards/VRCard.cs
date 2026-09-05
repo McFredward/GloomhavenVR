@@ -1214,6 +1214,35 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
     /// </summary>
     private const float PinchGripFraction = 0.12f;
 
+    // ---- THE HOVER POP — ONE DEFINITION, FIVE DRAWERS -----------------------------------------
+    //
+    // THE LIFT A HIGHLIGHTED CARD TAKES is the ability card's, and four other places draw it: the
+    // owner's item chip (ItemsPile.ItemChip) and the three mirrors that reproduce a peer's fans
+    // (Net.RemoteHandFan, Net.RemoteBrowserFan, Net.RemoteItemFan). Until 2026-09-05 the ORIGINAL
+    // was three INLINE literals in the method below while all four copies were named constants
+    // citing it in a comment — the arrangement scripts/check-mirrors.sh cannot see at all, because
+    // its extractor reads named constants and an inline literal is not one. Retuning the card the
+    // player is actually looking at was therefore a change no checker could pair with the four
+    // fans that were supposed to follow it.
+    //
+    // THE FORWARD COMPONENT IS DELIBERATELY NOT HERE: it is the authored dial
+    // [Cards] FanSelectedPopForward, which already rides the wire (record 28, id 75), so a peer's
+    // mirrored lift comes toward the viewer by the OWNER's own number. These three have never had
+    // a dial on either side and minting one for them is the parallel set this removes, not adds.
+
+    /// <summary>The pop's UPWARD component in card-local metres — the small rise that goes with the
+    /// forward lift.</summary>
+    internal const float PopUp = 0.012f;
+
+    /// <summary>The pop's EXTRA SIZE as a fraction (+18 %). Sites that want the MULTIPLIER write
+    /// <c>1f + PopScale</c> rather than a second literal.</summary>
+    internal const float PopScale = 0.18f;
+
+    /// <summary>The pop RAMP rate, units per second on a <c>MoveTowards</c> — how fast the lift
+    /// grows and relaxes. The mirrors run it on their own clock, so the wire never carries an
+    /// animation, only the highlighted index.</summary>
+    internal const float PopRate = 8f;
+
     /// <summary>
     /// P8 (hardware test #12, "pinch grip"): the held card is pinched BETWEEN THUMB
     /// AND INDEX — its lower-edge area sits exactly at the pinch point, the midpoint
@@ -2192,15 +2221,15 @@ internal sealed class VRCard : GrabbableBehaviour, IGrabHighlight, IPokeable, IG
         // ONE predicate, read here and broadcast by the Net layer (see IsHighlighted) so a peer's
         // copy of this fan lifts the same card this one does.
         float popTarget = IsHighlighted ? 1f : 0f;
-        _pop = Mathf.MoveTowards(_pop, popTarget, dt * 8f);
+        _pop = Mathf.MoveTowards(_pop, popTarget, dt * PopRate);
 
         // Pop: toward the viewer (-Z of the card) and slightly up, plus scale-up. The
         // forward magnitude is [Cards] FanSelectedPopForward (G2) so it matches the fan
         // split; falls back to the 0.035 m default if the config is not yet bound.
         float popForward = CardsConfig.FanSelectedPopForward != null
             ? CardsConfig.FanSelectedPopForward.Value : 0.035f;
-        Vector3 target = _homePos + _homeRot * new Vector3(0f, 0.012f * _pop, -popForward * _pop);
-        float scale = _homeScale * (1f + 0.18f * _pop);
+        Vector3 target = _homePos + _homeRot * new Vector3(0f, PopUp * _pop, -popForward * _pop);
+        float scale = _homeScale * (1f + PopScale * _pop);
 
         if (_instantNext)
         {

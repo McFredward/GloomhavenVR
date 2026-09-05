@@ -335,15 +335,16 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// (VRCard's pop, along the card's own −Z).</summary>
     private float _popForward = Defaults.FanSelectedPopForward;
 
-    /// <summary>VRCard's pop: the small upward component that rides with the forward lift.</summary>
-    private const float PopUp = 0.012f;
+    /// <summary>VRCard's pop: the small upward component that rides with the forward lift. READ
+    /// from the owner's own constant, not re-typed beside a comment naming it.</summary>
+    private const float PopUp = Cards.VRCard.PopUp;
 
     /// <summary>VRCard's pop: the extra size a lifted card takes (+18 %).</summary>
-    private const float PopScale = 0.18f;
+    private const float PopScale = Cards.VRCard.PopScale;
 
     /// <summary>VRCard's pop RAMP rate (units per second, MoveTowards) — the lift grows and relaxes
     /// at the local speed, so the wire never carries an animation, only the index.</summary>
-    private const float PopRate = 8f;
+    private const float PopRate = Cards.VRCard.PopRate;
 
     private readonly RemoteAvatar _owner;
 
@@ -1844,12 +1845,12 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     private int _loggedHighlight = -2;
 
     /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> cards away from the
-    /// highlighted one — <c>CardFan.SplitOffset</c> against the AUTHORED defaults.</summary>
+    /// highlighted one — the shared <c>Cards.FanSweep.SplitOffset</c>, driven by the OWNER's three
+    /// dials off extension record 28 rather than this client's. It used to be this file's own copy
+    /// of those five terms, and <see cref="RemoteBrowserFan"/> and <see cref="RemoteItemFan"/> each
+    /// carried a byte-identical third and fourth.</summary>
     private float SplitOffset(int signed)
-    {
-        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
-    }
+        => Cards.FanSweep.SplitOffset(signed, _splitMultiplier, _splitFalloff, _splitScale);
 
     /// <summary>Advance and return slab <paramref name="i"/>'s pop ramp toward 1 while it is the
     /// highlighted card and toward 0 otherwise, on <c>VRCard</c>'s own <see cref="PopRate"/>.</summary>

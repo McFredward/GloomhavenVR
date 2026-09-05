@@ -836,9 +836,9 @@ internal sealed class RemoteItemFan
     // ---------------------------------------------------------------- highlight (record 6) --
 
     /// <summary>ItemsPile.ItemChip.PopScale — the enlargement a lifted item chip takes locally
-    /// (×1.18, which is VRCard's own number). Local copy of the authored value, like every geometry
-    /// constant in this file.</summary>
-    private const float PopScale = 1.18f;
+    /// (×1.18, which is VRCard's own number). READ from <c>VRCard.PopScale</c> (the FRACTION, so
+    /// the multiplier is 1 + it), exactly as the owner's own chip reads it.</summary>
+    private const float PopScale = 1f + Cards.VRCard.PopScale;
 
     /// <summary>ItemsPile.ItemChip.PopUp — the UPWARD component of the lift (fan-local metres),
     /// <c>VRCard</c>'s 0.012 m, the same constant <see cref="RemoteBrowserFan"/> mirrors for the
@@ -846,14 +846,15 @@ internal sealed class RemoteItemFan
     /// forward-only); without it here the mirrored chip would creep toward the viewer while the
     /// owner's rises out of the arc. The FORWARD component is not a constant at all any more — it is
     /// the owner's own <c>[Cards] FanSelectedPopForward</c>, see <see cref="_popForward"/>.</summary>
-    private const float PopUp = 0.012f;
+    private const float PopUp = Cards.VRCard.PopUp;
 
     /// <summary>ItemsPile.ItemChip.PopLerpSpeed — the ramp rate of the local pop (units/second),
     /// which the parity pass set to <c>VRCard</c>'s own 8/s. See <see cref="PopAmount"/> for the
     /// matching change of CURVE: the owner ramps on MoveTowards (linear), as do
     /// <see cref="RemoteHandFan"/> and <see cref="RemoteBrowserFan"/>; this file was the only one
-    /// easing exponentially, so its lift arrived on a different curve than the one it mirrors.</summary>
-    private const float PopLerpSpeed = 8f;
+    /// easing exponentially, so its lift arrived on a different curve than the one it mirrors.
+    /// READ from <c>VRCard.PopRate</c>, the one home the owner's chip reads it from too.</summary>
+    private const float PopLerpSpeed = Cards.VRCard.PopRate;
 
     /// <summary>ItemsPile.ChipScale — item chips stand in the arc 1.25× the authored card size, and
     /// the owner scales the shared split offset by it (ItemsPile.Relayout) so the gap keeps pace with
@@ -862,14 +863,12 @@ internal sealed class RemoteItemFan
     private const float ChipScale = 1.25f;
 
     /// <summary>Sideways slide of a split neighbour <paramref name="signed"/> slots away from the
-    /// highlighted chip — <c>FanSweep.SplitOffset</c> (the shape the hand fan, the browse fan and the
-    /// item fan all split on) against the OWNER's resolved dials rather than ours. Byte-for-byte
-    /// <c>RemoteHandFan.SplitOffset</c>; the two fans genuinely share this one formula.</summary>
+    /// highlighted chip — the shared <c>Cards.FanSweep.SplitOffset</c> (the shape the hand fan, the
+    /// browse fan and the item fan all split on) against the OWNER's resolved dials rather than
+    /// ours. It said "byte-for-byte RemoteHandFan.SplitOffset" and was one; the three fans now
+    /// genuinely share the one formula instead of three spellings of it.</summary>
     private float SplitOffset(int signed)
-    {
-        float x = Mathf.Abs(signed) / Mathf.Max(0.0001f, _splitFalloff);
-        return Mathf.Sign(signed) * Mathf.Exp(-x * x) * _splitMultiplier * Mathf.Max(0f, _splitScale);
-    }
+        => Cards.FanSweep.SplitOffset(signed, _splitMultiplier, _splitFalloff, _splitScale);
 
     /// <summary>Per-slab pop ramp (0..1), index-aligned with <c>_cards</c> — per slab so a lift
     /// MOVING along the arc has the old chip relaxing while the new one rises, exactly like the

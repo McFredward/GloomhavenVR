@@ -328,13 +328,29 @@ internal static class FanSweep
     /// of "one card at a time": the winner is the pivot and its neighbours physically step aside.
     /// </summary>
     internal static float SplitOffset(int signedSlots)
+        => SplitOffset(signedSlots,
+                       CardsConfig.FanSplitMultiplier.Value,
+                       CardsConfig.FanSplitFalloff.Value,
+                       CardsConfig.FanHoverSplitScale.Value);
+
+    /// <summary>
+    /// The same five terms against dials that are NOT this client's — the form a peer's mirrored
+    /// fan needs, because under the 1:1 ruling a mirrored fan splits by the OWNER's tuning and not
+    /// by the viewer's. <c>Net.RemoteHandFan</c>, <c>Net.RemoteBrowserFan</c> and
+    /// <c>Net.RemoteItemFan</c> each carry the owner's three values off extension record 28 and
+    /// each spelled this expression out for itself (their own doc comments said so: "byte-for-byte
+    /// RemoteHandFan.SplitOffset", "the same five terms"). Four copies of a formula is how a retune
+    /// of the shape reaches one fan and not the other three.
+    ///
+    /// <para>The falloff is the only guarded term because it is a DIVISOR; the scale is clamped
+    /// non-negative so a negative dial cannot push neighbours INTO the highlight.</para>
+    /// </summary>
+    internal static float SplitOffset(int signedSlots, float multiplier, float falloff, float scale)
     {
         float distance = Mathf.Abs(signedSlots);
-        float falloff = Mathf.Max(0.0001f, CardsConfig.FanSplitFalloff.Value);
-        float x = distance / falloff;
-        float splitScale = Mathf.Max(0f, CardsConfig.FanHoverSplitScale.Value);
+        float x = distance / Mathf.Max(0.0001f, falloff);
         return Mathf.Sign(signedSlots) * Mathf.Exp(-x * x)
-               * CardsConfig.FanSplitMultiplier.Value * splitScale;
+               * multiplier * Mathf.Max(0f, scale);
     }
 
     // ---- laser: angular near-miss rescue ----------------------------------------------

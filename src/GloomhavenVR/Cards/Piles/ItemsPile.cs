@@ -4749,20 +4749,21 @@ internal sealed class ItemsPile
         //     chip simply snapped where the card eases, which is what makes an otherwise identical
         //     lift feel like a different mechanism.
         //
-        // The +18 % enlargement was already VRCard's number and is unchanged.
-        private const float PopScale = 1.18f;
+        // The +18 % enlargement was already VRCard's number and is READ from it — see VRCard.PopScale,
+        // which is the fraction, so the multiplier is 1 + it.
+        private const float PopScale = 1f + VRCard.PopScale;
 
         /// <summary>
-        /// The UPWARD component of the lift, in fan-local metres — <c>VRCard</c>'s own 0.012 m
-        /// (see its home-pose update; <c>Net.RemoteBrowserFan.PopUp</c> mirrors the same value for
-        /// the browse arc). Deliberately a shared authored CONSTANT rather than a new [Cards] dial:
-        /// the ability side has never had one either, and minting a second dial for the ability
-        /// card's own number is precisely the parallel set this change exists to remove.
+        /// The UPWARD component of the lift, in fan-local metres — <c>VRCard</c>'s own number, now
+        /// READ from it rather than re-typed beside a comment naming it. Deliberately a shared
+        /// authored CONSTANT rather than a new [Cards] dial: the ability side has never had one
+        /// either, and minting a second dial for the ability card's own number is precisely the
+        /// parallel set this change exists to remove.
         /// </summary>
-        private const float PopUp = 0.012f;
+        private const float PopUp = VRCard.PopUp;
 
         /// <summary>VRCard's pop RAMP rate (units/second, MoveTowards) — see the block above.</summary>
-        private const float PopLerpSpeed = 8f;
+        private const float PopLerpSpeed = VRCard.PopRate;
 
         /// <summary>Grab-box margin around the rendered face (card-local metres) — a little slack
         /// for easy laser/finger targeting. Named because <see cref="SetGrabStrip"/> has to rebuild
