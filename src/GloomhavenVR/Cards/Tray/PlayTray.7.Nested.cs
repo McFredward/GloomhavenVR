@@ -88,6 +88,14 @@ internal sealed partial class PlayTray
     /// One physical board button: base plate + travelling cap + label. Poke (P2
     /// registry) and laser (tray LaserTargets) both land in <see cref="OnPoke"/>.
     /// Cap presses in ~4 mm on click and springs back (transform anim, no Animator).
+    ///
+    /// <para><b>WHAT COUNTS AS A PRESS IS SHARED WITH THE MAP TABLE'S CAPS.</b> This class and
+    /// <c>WorldUI.MapRoom.MapButtonRail.Cap</c> are the same affordance built twice, and
+    /// <c>WorldUI.KeycapPress</c> is the written contract for the six channels they used to
+    /// diverge on — which four are now one answer, and which two are deliberately still two. This
+    /// side is the REFERENCE for the commit rule, so nothing about the board moved when they were
+    /// unified; read that file before changing the depth-fire, the debounce or the press haptic
+    /// here, because the map table now depends on them.</para>
     /// </summary>
     internal sealed class BoardButton : PokeableBehaviour
     {

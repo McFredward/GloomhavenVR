@@ -36,6 +36,42 @@ namespace GloomhavenVR.WorldUI;
 /// configurable 4 mm because a table cap is read from a metre away. None of that is what a press
 /// IS. One press vocabulary, two skins.</para>
 ///
+/// <para><b>THE SIX CHANNELS, AND WHERE EACH ONE STANDS.</b> The redundancy audit's R11 found the
+/// two families diverging on six at once. This is the written contract for all six, so that the
+/// next person to touch either family can see which differences are answers and which were
+/// accidents:</para>
+/// <list type="number">
+///   <item><b>Commit rule</b> — SHARED, here. Travel-depth fire with re-arm hysteresis. The map
+///   caps' contact-fire is gone.</item>
+///   <item><b>Debounce</b> — SHARED, here. <see cref="ButtonTuning.PokePressCooldownSeconds"/>
+///   across every physical path of both families. The map caps had none.</item>
+///   <item><b>Press haptic</b> — SHARED RULE, each family's own call: one
+///   <c>HapticPreset.ClickPulse</c> at the single commit point, after every gate. The map caps had
+///   none at all; a laser press on one was silent to the hand.</item>
+///   <item><b>Disabled caption</b> — SHARED FACTOR,
+///   <see cref="NativeButtonSkin.DisabledLabelDim"/>. Each family keeps its own base colour. The
+///   board's caption did not dim at all.</item>
+///   <item><b>Hover visual</b> — <b>DELIBERATELY STILL DIFFERENT.</b> A map cap warms 45 % toward
+///   <see cref="NativeButtonSkin.LabelColor"/> under a pointer; a board keycap does not change
+///   colour at all. This is NOT the same omission as the four above, because a board keycap is not
+///   silent under the beam: it ticks (<c>BoardButton.OnPokeEnter</c>, which the laser path calls
+///   too) and the beam visibly clamps onto it. What a board cap would have to warm is a sampled
+///   keycap-atlas face under a per-category <c>[ButtonColors]</c> tint the user has tuned through
+///   six rounds; a map cap is a flat sampled sprite with no such stack. Adding an unasked colour
+///   term on top of that is a LOOK change to the mod's most-tuned object, and the look is exactly
+///   what audit section 4 item 6 protects. If a round ever asks for it, the shared answer is the
+///   45 % lerp — put it here, do not write a second one.</item>
+///   <item><b>Disabled input</b> — <b>DELIBERATELY STILL DIFFERENT, and both sides carry an
+///   argument.</b> A board keycap keeps its collider LIVE while disabled and routes the press to
+///   <c>BoardButton.Press</c>, which logs REJECTED with the exact gate state — test #14's
+///   requirement that "a silent dead button can no longer happen", which is a diagnostic the
+///   project has spent hardware rounds on. A map cap sets <c>Collider.enabled = live</c> and is
+///   physically inert to finger and beam — its own "HONEST AFFORDANCE" ruling, and the second half
+///   of the ModBuild 200 defect where a cap drawn dead was still pressable. Neither is wrong; they
+///   are answers to two different questions (is a dead control DIAGNOSABLE, is a dead control
+///   HONEST). Left as it stands, named here so it is a decision and not a discovery.</item>
+/// </list>
+///
 /// <para><b>WHAT THIS TYPE DOES NOT DECIDE.</b> Whether the press is ALLOWED — the board's grip
 /// chord, the map cap's <c>Pressable</c> predicate, the modal commit gate, the activation guard.
 /// Those are policy and they belong to the owner; this is only the question of whether a gesture
