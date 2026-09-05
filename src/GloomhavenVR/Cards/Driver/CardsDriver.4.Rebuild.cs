@@ -841,10 +841,33 @@ internal sealed partial class CardsDriver
                 // flight the game momentarily reports EVERYTHING deselected — do not
                 // prune on that transient or the still-placed card would snap to the
                 // fan mid-swap; the reopen's completion re-runs this with final state.
+                // ...AND A PARKED CARD IS NOT AN OCCUPANT (item 11d, second half). The
+                // selection latch above is the game's, and the game does NOT clear it when the
+                // character DIES: the 2026-09-05 host log follows one card the whole way.
+                //   251442  Pick commit (LoseCard): 'ABILITY_CARD_PerverseEdge'
+                //   252557  BURN ANIM [pile-watch]: ... flies from ... -> Burnt pile
+                //   252670  BURN ANIM: 'VRCard_ABILITY_CARD_PerverseEdge' reached the Burnt pile
+                //           - PARKED
+                //   255544  MindthiefID takes 3 damage and is now at -2 health / ActorDead
+                //           (then EndTurnLoot -> EndTurn -> EndRound -> StartRoundEffects ->
+                //           PlayerExhausted -> Autosave -> SelectAbilityCardsOrLongRest, with
+                //           `Rebuild: mode=LoseCard` unbroken across all seven)
+                //   256759  Fly-to-pile REFUSED [pick field]: 'ABILITY_CARD_PerverseEdge' ...
+                // Four thousand lines and a whole round after it was parked in the burnt stack,
+                // this list still held it and RelayoutField re-seated it into the pick recess -
+                // which is verbatim his "eine bereits verbrannte Karte kam wieder zurueck aus dem
+                // Stapel auf das Board". IsSelected could not catch it (still true) and neither
+                // could the burnt-pile test alone: the three HEALTHY burns in the same session sit
+                // in the pile too, for the second or so of the documented handover to
+                // TryStartBurnFly, and pruning those would break an accepted animation.
+                // PARKED is the term that separates them, and it needs no new state: a card mid-
+                // handover is by contract left LYING where it is (that is what "the burn path owns
+                // it" means), and only a card whose flight has completed is on the pool root.
                 for (int i = _fieldCards.Count - 1; i >= 0; i--)
                 {
                     VRCard occupant = _fieldCards[i];
                     if (occupant == null || occupant.GameCard == null
+                        || IsParked(occupant)
                         || (!_pickReopenBusy && !occupant.GameCard.IsSelected))
                     {
                         // Event-discard batching: a pruned LOCKED card shrinks the

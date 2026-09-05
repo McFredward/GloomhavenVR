@@ -771,8 +771,8 @@ internal sealed partial class CardsDriver
     /// <summary>Change-dedup for the pick-fan source line (item 9): (mode, source pile).</summary>
     private (CardHandMode mode, CardPileType source)? _loggedPickSource;
 
-    /// <summary>Change-dedup for the pick-fill GATE line (item 11d): (mode, open, refused).</summary>
-    private (CardHandMode mode, bool open, bool refused)? _loggedPickGate;
+    /// <summary>Change-dedup for the pick-fill GATE line (item 11d): (mode, open, refused, field).</summary>
+    private (CardHandMode mode, bool open, bool refused, int field)? _loggedPickGate;
 
     /// <summary>
     /// HARDWARE VERIFICATION (2026-09-05 item 11d, "eine bereits verbrannte Karte kam wieder zurueck aus dem
@@ -783,20 +783,33 @@ internal sealed partial class CardsDriver
     /// <para>Change-gated on (mode, open, refused&gt;0), so it is at most a handful of lines per
     /// pick and NEVER per frame even though the fill it guards runs on every rebuild.</para>
     ///
-    /// <para>PROOF the fix landed: after a burn commits, one line with <c>pick=CLOSED</c> - the
-    /// game's own <c>maxCardsSelected</c> read 0, so nothing was seated and the banner stood down.
-    /// Read it together with the absence of any later <c>Pick fan source (LoseCard): burnt
-    /// pile</c>, which is the pre-fix line this whole gate exists to stop.</para>
+    /// <para>WHERE IT BIT, AND IT IS A DEATH. The 2026-09-05 host log strands one card across the
+    /// session's only player death (<c>Player.log:255544</c>, <c>MindthiefID ... -2 health</c> /
+    /// <c>ActorDead</c>): <c>Rebuild: mode=LoseCard</c> runs UNBROKEN through EndTurnLoot, EndTurn,
+    /// EndRound, StartRoundEffects, PlayerExhausted, Autosave and into the next round's
+    /// SelectAbilityCardsOrLongRest, where the banner asks for a burn again (<c>:256719</c>) and
+    /// the pick field re-seats a card parked in the burnt stack 4 000 lines earlier
+    /// (<c>:256759</c>). The game never re-drives <c>currentMode</c> on death, so nothing on our
+    /// side may treat that mode as evidence a pick is live.</para>
     ///
-    /// <para>FALSIFIER - the fix is INERT rather than the defect being gone: <c>pick=OPEN</c>
-    /// standing for minutes after the last <c>Pick commit</c>, or a <c>Pick fan source (LoseCard):
-    /// burnt pile</c> line appearing again WITH <c>refusedFromIllegalPile=0</c>. The first means
-    /// the game leaves a nonzero count behind too and the count is not the right term; the second
-    /// means the burnt widgets reached the fill through a pile this test does not name.</para>
+    /// <para>PROOF the fix landed: after a burn commits, one line with <c>pick=CLOSED</c> and
+    /// <c>cardsLyingInThePickField=0</c> - the game's own <c>maxCardsSelected</c> read 0, so
+    /// nothing was seated and the banner stood down, and the parked occupant left the field. Read
+    /// it together with the absence of any later <c>Pick fan source (LoseCard): burnt pile</c> or
+    /// <c>Fly-to-pile REFUSED [pick field]</c>, which are the two pre-fix lines this gate exists to
+    /// stop.</para>
+    ///
+    /// <para>FALSIFIERS - three, and they say different things. (1) <c>pick=OPEN</c> standing for
+    /// minutes after the last <c>Pick commit</c>: the game leaves a nonzero count behind too, so
+    /// the count is not the right term. (2) A <c>Pick fan source (LoseCard): burnt pile</c> line
+    /// again WITH <c>refusedFromIllegalPile=0</c>: the burnt widgets reached the fill through a
+    /// pile this test does not name. (3) <c>cardsLyingInThePickField</c> staying nonzero across a
+    /// death or a round boundary: the PARKED term in the field prune did not catch the stranded
+    /// occupant, and the card is still being re-seated onto the board.</para>
     /// </summary>
     private void LogPickFillGate(CardHandMode mode, bool pickOpen, int refusedPile, CardsHandUI? hand)
     {
-        var key = (mode, pickOpen, refusedPile > 0);
+        var key = (mode, pickOpen, refusedPile > 0, _fieldCards.Count);
         if (_loggedPickGate.HasValue && _loggedPickGate.Value == key)
             return;
         _loggedPickGate = key;
@@ -807,7 +820,8 @@ internal sealed partial class CardsDriver
         // refusedFromIllegalPile=0. See this method's doc for what each of those means.
         VRLog.Note("Cards", $"PICK GATE ({mode}): pick={(pickOpen ? "OPEN" : "CLOSED")} " +
                             $"(the game's own maxCardsSelected = {want}), " +
-                            $"refusedFromIllegalPile={refusedPile}. CLOSED means the hand's mode is " +
+                            $"refusedFromIllegalPile={refusedPile}, cardsLyingInThePickField=" +
+                            $"{_fieldCards.Count}. CLOSED means the hand's mode is " +
                             "still a pick mode but nothing is being asked for - the game leaves " +
                             "CardsHandUI.currentMode latched and TakeDamagePanel's reset re-Shows with " +
                             "selectableCardType=Any, which turns every widget in the hand selectable " +
