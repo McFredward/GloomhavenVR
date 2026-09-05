@@ -7105,16 +7105,20 @@ internal static partial class WallSegmentFade
             // Caching it would latch a prop hidden for the rest of the pass it was grabbed in.
             // Cost while nothing is held — the steady state, and the state this runs ~3000
             // times per rescan in — is one List.Count compare.
-            if (GloomhavenVR.Board.FigureGrab.HeldProps.OwnsRendererOf(r.transform))
+            if (FigureRendererGuard.HeldByPlayer(r))
                 return true;
 
             // FAST PATH (PERF S1) — only inside an open memo scope, and only for a renderer
             // whose whole ancestor chain is active. See FigureAncestryMemo.
             if (_figureMemoActive && r.gameObject.activeInHierarchy)
                 return FigureAncestry(r.transform);
-            return r.GetComponentInParent<ActorBehaviour>() != null
-                || r.GetComponentInParent<CInteractableActor>() != null
-                || r.GetComponentInParent<Animator>() != null;
+            // THE CLAUSE LIST LIVES IN FigureRendererGuard SINCE 2026-09-05 (redundancy survey R9).
+            // This file is the REFERENCE — it is the one that has all five clauses and the one that
+            // got the ModBuild 340 held-prop term — but MixedReality kept a hand-maintained mirror
+            // of the list that ModBuild 340 did not reach, so the list is now read from one place by
+            // both. Only the LIST moved: the memo below, the ordering above and the fast path are
+            // this system's own and are unchanged.
+            return FigureRendererGuard.HasFigureAncestor(r);
         }
 
         /// <summary>
@@ -7173,9 +7177,7 @@ internal static partial class WallSegmentFade
         {
             if (FigureAncestryMemo.TryGetValue(t, out bool cached))
                 return cached;
-            bool here = t.GetComponent<ActorBehaviour>() != null
-                || t.GetComponent<CInteractableActor>() != null
-                || t.GetComponent<Animator>() != null;
+            bool here = FigureRendererGuard.CarriesFigureComponent(t);
             Transform? parent = t.parent;
             bool verdict = here || (parent != null && FigureAncestry(parent));
             FigureAncestryMemo[t] = verdict;

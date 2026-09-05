@@ -1493,9 +1493,11 @@ internal static partial class MixedReality
     /// would walk across the board. Seeded this way the region's extent is fixed by the game's own
     /// fog-of-war geometry and cannot expand, no matter how many sweeps run.</para>
     ///
-    /// <para>RAILS, each counted by reason so the next log can audit them: never a figure (mirrors
-    /// the wall system's guard — skinned outright, plus ActorBehaviour / CInteractableActor /
-    /// Animator ancestors), never mod-owned (name prefix or mod layer), never a
+    /// <para>RAILS, each counted by reason so the next log can audit them: never a figure (the
+    /// shared clause list in <see cref="FigureRendererGuard"/> — skinned outright, a prop the
+    /// player is HOLDING, plus ActorBehaviour / CInteractableActor / Animator ancestors; the
+    /// held-prop clause was missing here until 2026-09-05 and a carried chest could take a
+    /// permanent dark plate because of it), never mod-owned (name prefix or mod layer), never a
     /// particle/trail/line, never something reaching above its host piece's own top plane (that is
     /// what keeps chests, clutter and roots STANDING ON the tiles out of it), and never a footprint
     /// more than <see cref="RegionMaxFootprintFactor"/>× the host hex (no room-spanning floor, no FX
@@ -1560,6 +1562,10 @@ internal static partial class MixedReality
             // (three ancestor walks) and this is the point where the candidate would otherwise be
             // adopted — so it runs a few times per sweep instead of a few hundred, and its counter
             // means "figures we refused to swallow", not "figures that happened to be nearby".
+            // Since 2026-09-05 it also refuses a prop the player is HOLDING: this rail is where a
+            // carried chest used to fall through into forceDark and pick up a dark backing plate
+            // that then followed it home, because teardown only fires when the source renderer
+            // dies. _regionRejectFigure therefore now counts held props too.
             if (IsFigureOrActorRenderer(r))
             {
                 _regionRejectFigure++;
@@ -1736,29 +1742,35 @@ internal static partial class MixedReality
     }
 
     /// <summary>
-    /// FIGURES ARE NEVER TOUCHED. Deliberate MIRROR of the wall system's guard
-    /// (<c>WallSegmentFade.IsFigureOrActorRenderer</c>, round-7 ruling: a Brute's horned head was
-    /// permanently hidden by an adoption sweep) — that one is private to a nested type in a file
-    /// this change does not own, and the rule is severe enough to be re-stated at every sweep that
-    /// adopts renderers rather than shared by a refactor across module boundaries. Keep the two in
-    /// step. Over-broad on purpose (fail-open = the renderer keeps rendering normally):
-    /// <list type="bullet">
-    /// <item>every <see cref="SkinnedMeshRenderer"/> outright — characters are skinned, scenery is
-    ///   not;</item>
-    /// <item>anything under an <c>ActorBehaviour</c> ancestor (the game's board actor);</item>
-    /// <item>anything under a <c>CInteractableActor</c> ancestor (the figure root FigureGrab picks
-    ///   by);</item>
-    /// <item>anything under an <c>Animator</c> ancestor — an accessory hangs off a BONE, and the
-    ///   rig root always sits above it; this also spares animated props.</item>
-    /// </list>
-    /// An actor standing in an unexplored room therefore cannot get a dark backing, whatever its
+    /// FIGURES ARE NEVER TOUCHED. Over-broad on purpose (fail-open = the renderer keeps rendering
+    /// normally). An actor standing in an unexplored room cannot get a dark backing, whatever its
     /// bounds overlap.
+    ///
+    /// <para><b>THIS WAS A HAND-MAINTAINED MIRROR AND THE MIRROR BROKE.</b> The doc that stood here
+    /// said "Deliberate MIRROR of the wall system's guard … Keep the two in step", and gave the
+    /// reason: the wall's copy is private to a nested type in another file, so the rule was
+    /// re-stated at every sweep rather than shared across a module boundary. Then ModBuild 340 added
+    /// a FIFTH clause to the wall's copy — a prop the player is HOLDING is not scenery, for the
+    /// report <i>"ich sehe zwar einen Geist aber in der Hand ist es garnicht oder nur immer ganz
+    /// kurz für einen Frame sichtbar"</i> — and stepped one and not the other. This copy stayed at
+    /// four clauses and <c>rg -c HeldProps</c> over this file returned zero.</para>
+    ///
+    /// <para><b>WHAT THAT COST, and it is not hypothetical:</b> carry a chest or a gold pile over an
+    /// unexplored region for ~0.7 s (RegionMembershipPass runs on a 60-frame cadence) and the held
+    /// prop fails this guard, takes <c>BuildUnseenUnderlay(…, forceDark: true)</c>, and acquires a
+    /// permanent dark backing plate that follows it home — teardown fires only when the source
+    /// renderer dies. A held MINIATURE was immune the whole time, because it is a
+    /// <see cref="SkinnedMeshRenderer"/>.</para>
+    ///
+    /// <para><b>SO THE CLAUSE LIST IS NO LONGER MIRRORED, IT IS SHARED</b>
+    /// (<see cref="FigureRendererGuard"/>, redundancy survey R9). The wall system keeps its own
+    /// entry point because it fronts the ancestor half with a pass-scoped memo this sweep has no
+    /// use for; what both now read from one place is WHICH CLAUSES THERE ARE. The severity argument
+    /// in the old doc was right and is the reason this is shared rather than re-stated: a rule this
+    /// severe must not depend on somebody noticing a second copy.</para>
     /// </summary>
     private static bool IsFigureOrActorRenderer(Renderer r) =>
-        r is SkinnedMeshRenderer
-        || r.GetComponentInParent<ActorBehaviour>() != null
-        || r.GetComponentInParent<CInteractableActor>() != null
-        || r.GetComponentInParent<Animator>() != null;
+        FigureRendererGuard.IsFigureOrActorRenderer(r);
 
     /// <summary>
     /// Build the opaque dark underlay for one matched source renderer: a mod-owned CHILD sharing
