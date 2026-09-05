@@ -86,8 +86,13 @@ internal static partial class VROptionsTab
     // its own is enough to answer "which is on?".
     private static readonly Color TileBorderOn = new(0.85f, 0.69f, 0.30f, 1f);
     private static readonly Color TileBorderOnHot = new(1f, 0.85f, 0.45f, 1f);
-    private static readonly Color TileBorderOff = new(0.19f, 0.17f, 0.14f, 0.92f);
-    private static readonly Color TileBorderOffHot = new(0.50f, 0.40f, 0.18f, 0.95f);
+    // OPAQUE, both of them (2026-09-05 transparency sweep). They shipped at 0.92 and 0.95, which is
+    // an alpha nobody chose for a reason anybody wrote down — and an UNSELECTED tile's frame is the
+    // one cue on this strip that has to read against whatever is behind the window. The difference
+    // an 8% hole makes to the look is nil; the difference it makes to the rule "no mod-drawn
+    // graphic in this menu is translucent" is the whole rule.
+    private static readonly Color TileBorderOff = new(0.19f, 0.17f, 0.14f, 1f);
+    private static readonly Color TileBorderOffHot = new(0.50f, 0.40f, 0.18f, 1f);
     private static readonly Color TileBorderPressed = new(0.95f, 0.78f, 0.36f, 1f);
     private static readonly Color TilePlate = new(0.07f, 0.065f, 0.06f, 1f);
     private static readonly Color TilePictureOn = Color.white;

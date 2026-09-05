@@ -97,6 +97,25 @@ internal static partial class VROptionsTab
             return;
 
         ConfigCatalog.EnsureFresh();
+        // The window's own ground, re-asserted on every show (idempotent — see
+        // VROptionsTab.10.Skin.cs). It runs before a single row exists because the pane is
+        // re-parented and re-shown by machinery this file does not own, and a ground that exists
+        // only if one particular call ran is a ground that is sometimes missing.
+        //
+        // NEVER-EMPTY GUARD: Rebuild's own TickGuard catches by ABORTING the rest of the callback,
+        // so an unguarded throw this early would cost the whole list rather than the decoration.
+        // A window with no ground is the reported defect; a window with no rows is the standing
+        // ruling, and decoration may never outrank content.
+        try
+        {
+            EnsureOpaqueGround();
+        }
+        catch (Exception e)
+        {
+            VRLog.Warn("WorldUI", $"VR options tab: the window ground could not be built ({e.Message}) "
+                                  + "— the menu opens as it did before, translucent over whatever is "
+                                  + "behind it.");
+        }
         ClearRows();
         HideForeignContent();
 
@@ -593,6 +612,13 @@ internal static partial class VROptionsTab
         {
             Transform child = holder.GetChild(i);
             if (ReferenceEquals(child, content) || !child.gameObject.activeSelf)
+                continue;
+            // OUR OWN GROUND IS NOT FOREIGN. On a donor with no scroll view the content root is a
+            // direct child of the pane, so this sweep's holder IS the pane — and the ground plate
+            // added by EnsureOpaqueGround would be swept off as a donor leftover on the very same
+            // rebuild that created it. Matched by name because that is the only handle a sweep over
+            // a holder it did not build can have.
+            if (string.Equals(child.name, GroundName, StringComparison.Ordinal))
                 continue;
             child.gameObject.SetActive(false);
             hidden++;

@@ -223,6 +223,23 @@ internal static class MrBacking
     /// <summary>The repo's dark panel neutral (RoundReadout/slot plates use the same family).</summary>
     private static readonly Color PlateDark = new(0.12f, 0.11f, 0.10f, 1f);
 
+    /// <summary>
+    /// THE SAME NEUTRAL, READABLE BY ANYONE WHO NEEDS AN OPAQUE GROUND UNDER A MOD-DRAWN MENU —
+    /// and it is deliberately the MR plate's colour rather than a second dark grey.
+    ///
+    /// <para>First consumer: the VR options window's ground plate (<c>VROptionsTab.10.Skin.cs</c>),
+    /// which is not an MR feature at all. It needs a ground because that window is a detached tab
+    /// pane with no window panel of its own, and the value it needs is exactly the one this file
+    /// already stands behind every floated menu in mixed reality — a colour this project has
+    /// shipped and had judged. Exposing it is what keeps the two from drifting into two neutrals
+    /// that are almost the same, which is the failure <c>scripts/check-mirrors.sh</c> exists for.
+    /// </para>
+    ///
+    /// <para>It is the UNLIFTED value on purpose: the key-avoidance lift answers a chroma-key
+    /// compositor, and a uGUI plate inside a menu is never chroma-keyed.</para>
+    /// </summary>
+    internal static Color PanelNeutral => PlateDark;
+
     /// <summary>Key-avoidance lift: still a readable dark-warm backing, but every channel is
     /// ≥0.25 away from a black key so no compositor threshold can key the plate away.</summary>
     private static readonly Color PlateLift = new(0.34f, 0.30f, 0.25f, 1f);
