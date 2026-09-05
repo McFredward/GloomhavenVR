@@ -61,12 +61,29 @@ internal static partial class VROptionsTab
     // A FIXED TILE WIDTH, not a share of the row. Sharing the row would make the three-tile pickers
     // draw tiles half again as wide as the five-tile one, and the picture inside would then float in
     // the middle of its own plate (preserveAspect fits the 4:3 art to the SHORTER side). One width
-    // means one apparent size across all three strips. The layout group still shrinks toward
-    // TileMinWidth when the pane is narrower than 5 tiles, so a small pane loses size, not tiles.
+    // means one apparent size across all three strips.
     private const float TileWidth = 232f;
-    private const float TileMinWidth = 116f;
     private const float TileHeight = 204f;
     private const float TileGap = 10f;
+
+    /// <summary>
+    /// THE PICTURE'S SIZE IS THE CONSTRAINT AND THE ROW COUNT IS THE FREE VARIABLE.
+    ///
+    /// <para>USER RULING (2026-09-05, verbatim): <i>"Statt die Kacheln bei den Umgebungen in den VR
+    /// Optionen immer enger zu machen und das Bild darin immer kleiner, mach einfach zwei Reihen, so
+    /// dass man das Bild aber noch gut erkennen kann."</i> The strip used to be ONE
+    /// <c>HorizontalLayoutGroup</c> row whose tiles shrank toward a <c>TileMinWidth</c> of 116 — half
+    /// the authored width — as environments were added, and the 4:3 art shrank with them. It now
+    /// WRAPS instead.</para>
+    ///
+    /// <para>TWO ROWS IS NOT HARD-CODED, and deliberately so: two rows is what this floor happens to
+    /// produce at five environments in today's pane. The rule is "a tile never goes below this width;
+    /// add a row instead", so a sixth and seventh environment get a third row rather than a third
+    /// round of shrinking. The number itself: a tile may lose at most a QUARTER of its authored width
+    /// before the strip wraps. 116 px is the width that produced the complaint and 232 is the size
+    /// the art was authored at, so the floor belongs near the authored end, not midway.</para>
+    /// </summary>
+    private const float TileMinLegibleWidth = TileWidth * 0.75f;
 
     /// <summary>Thickness of the border ring — the SELECTED marker. 5 px reads at arm's length;
     /// a 1 px outline is the kind of hairline that disappears in a headset.</summary>
@@ -75,6 +92,12 @@ internal static partial class VROptionsTab
     /// <summary>Bottom strip of the tile that carries the name. The label is not optional: art
     /// alone cannot distinguish two dark rooms, and it is the whole control when art is missing.</summary>
     private const float TileLabelHeight = 27f;
+
+    /// <summary>How small a tile label may get before <c>VROptionsTab.ProbeCaptionFit</c> reports
+    /// it by name instead of shrinking further. Higher than the settings rows' floor on purpose: a
+    /// tile is narrower than a row, and a 9-point word centred under a picture stops reading as the
+    /// picture's name.</summary>
+    private const float TileLabelFloor = 10f;
 
     private const float TileLabelSize = 16f;
 
@@ -93,6 +116,12 @@ internal static partial class VROptionsTab
     // graphic in this menu is translucent" is the whole rule.
     private static readonly Color TileBorderOff = new(0.19f, 0.17f, 0.14f, 1f);
     private static readonly Color TileBorderOffHot = new(0.50f, 0.40f, 0.18f, 1f);
+
+    /// <summary>A tile that cannot be chosen. Derived from <see cref="TileBorderOff"/> rather than
+    /// authored, so the two can never be equal again by hand — which is the defect this replaced
+    /// (B6): the disabled colour WAS the un-picked colour.</summary>
+    private static readonly Color TileBorderDisabled =
+        new(TileBorderOff.r * 0.5f, TileBorderOff.g * 0.5f, TileBorderOff.b * 0.5f, TileBorderOff.a);
     private static readonly Color TileBorderPressed = new(0.95f, 0.78f, 0.36f, 1f);
     private static readonly Color TilePlate = new(0.07f, 0.065f, 0.06f, 1f);
     private static readonly Color TilePictureOn = Color.white;
@@ -165,19 +194,22 @@ internal static partial class VROptionsTab
         stripRect.SetParent(parent, worldPositionStays: false);
         Rows.Add(strip); // ClearRows owns it from here — a strip that outlived a rebuild would stack
 
-        var row = strip.AddComponent<HorizontalLayoutGroup>();
-        row.spacing = TileGap;
-        row.childAlignment = TextAnchor.UpperLeft;
-        row.childControlWidth = true;
-        row.childControlHeight = true;
-        row.childForceExpandWidth = false;
-        row.childForceExpandHeight = false;
-        row.padding = new RectOffset(0, 0, 2, 14);
+        // A GRID, NOT A ROW — see TileMinLegibleWidth for the ruling. The grid's own
+        // CalculateLayoutInputVertical reports the height of however many rows it ended up with, so
+        // the strip is NOT given a LayoutElement height any more: a fixed one would have pinned the
+        // strip to a single row's worth of space and clipped the second.
+        var grid = strip.AddComponent<GridLayoutGroup>();
+        grid.spacing = new Vector2(TileGap, TileGap);
+        grid.childAlignment = TextAnchor.UpperLeft;
+        grid.padding = new RectOffset(0, 0, 2, 14);
+        // Seeded as one row at the authored size. TileStripGrid corrects both the moment the strip's
+        // width is known, which is not until the parent's horizontal layout pass has run.
+        grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+        grid.constraintCount = Mathf.Max(1, tiles.Length);
+        grid.cellSize = new Vector2(TileWidth, TileHeight);
 
-        var size = strip.AddComponent<LayoutElement>();
-        size.preferredHeight = TileHeight + 16f;
-        size.minHeight = TileHeight + 16f;
-        size.flexibleHeight = 0f;
+        TileStripGrid balancer = strip.AddComponent<TileStripGrid>();
+        balancer.Bind(grid, tiles.Length);
 
         var built = new List<BuiltTile>(tiles.Length);
         int withArt = 0;
@@ -202,6 +234,102 @@ internal static partial class VROptionsTab
         return true;
     }
 
+    /// <summary>
+    /// Chooses the strip's COLUMN COUNT and CELL WIDTH from the width the strip actually got.
+    ///
+    /// <para>WHY A COMPONENT AND NOT A NUMBER AT BUILD TIME. The strip's width is zero until the
+    /// pane's own layout pass has run, so nothing at build time can divide by it — the same reason
+    /// <c>VROptionsTab.ProbeCaptionFit</c> gives up and waits for the next rebuild. A
+    /// <c>UIBehaviour</c> is told when that width changes, including when the player re-sizes or
+    /// re-seats the window, so the strip re-flows instead of keeping a count decided once.</para>
+    ///
+    /// <para>WHY NOT <c>Constraint.Flexible</c>, which wraps on its own and needs none of this: it
+    /// fills each row to capacity, so five tiles in a pane that fits four come out FOUR AND ONE. The
+    /// rows are balanced here instead — how many rows do we need at the legible floor, then spread
+    /// the tiles evenly over them — which is 3+2 for the same pane. Only then is the cell allowed to
+    /// grow back toward <see cref="TileWidth"/> to use up the leftover width.</para>
+    /// </summary>
+    private sealed class TileStripGrid : UnityEngine.EventSystems.UIBehaviour
+    {
+        private GridLayoutGroup? _grid;
+        private int _count;
+        private int _lastColumns = -1;
+        private bool _pending;
+
+        internal void Bind(GridLayoutGroup grid, int count)
+        {
+            _grid = grid;
+            _count = count;
+            _lastColumns = -1;
+            _pending = true;
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            _pending = true;
+        }
+
+        protected override void OnRectTransformDimensionsChange()
+        {
+            base.OnRectTransformDimensionsChange();
+            _pending = true;
+        }
+
+        /// <summary>
+        /// The recompute is DEFERRED to the frame's end, not run inside
+        /// <see cref="OnRectTransformDimensionsChange"/>. That callback fires from INSIDE Unity's
+        /// layout rebuild, and marking a rect for rebuild from in there is the
+        /// "Trying to add ... while we are already inside a layout rebuild loop" complaint — one
+        /// warning per strip per frame in a log this project reads for other things.
+        /// </summary>
+        private void LateUpdate()
+        {
+            if (!_pending)
+                return;
+            _pending = false;
+            Apply();
+        }
+
+        private void Apply()
+        {
+            if (_grid == null || _count <= 0)
+                return;
+
+            float width = ((RectTransform)transform).rect.width;
+            float usable = width - _grid.padding.horizontal + TileGap;
+            if (usable <= TileGap + 1f)
+                return; // layout has not run yet — the next dimensions change calls back
+
+            // How many tiles fit at the floor, then how few ROWS that needs, then an EVEN spread
+            // over those rows. Never more columns than tiles, never fewer than one.
+            int fit = Mathf.Clamp(Mathf.FloorToInt(usable / (TileMinLegibleWidth + TileGap)), 1, _count);
+            int rows = Mathf.Max(1, Mathf.CeilToInt(_count / (float)fit));
+            int columns = Mathf.Clamp(Mathf.CeilToInt(_count / (float)rows), 1, _count);
+
+            // The leftover width is given back to the tiles, up to the authored size — a two-row
+            // strip in a wide pane should not leave a hole on the right of each row.
+            float cell = Mathf.Clamp(usable / columns - TileGap, TileMinLegibleWidth, TileWidth);
+
+            _grid.cellSize = new Vector2(cell, TileHeight);
+            if (columns == _lastColumns)
+                return;
+
+            _lastColumns = columns;
+            _grid.constraintCount = columns;
+            // HW-VERIFY: the wrap ruling's only observable is "how many rows, at what tile width",
+            // and no other line carries either number. Change-gated on the COLUMN count, so a
+            // settled strip prints once and a re-seated window prints again with the new answer.
+            VRLog.Note("WorldUI",
+                $"Variant tile strip {name}: {_count} tile(s) in {rows} row(s) x {columns} column(s), " +
+                $"cell {cell:F0} px wide (floor {TileMinLegibleWidth:F0}, authored {TileWidth:F0}) " +
+                $"in {width:F0} px of strip.");
+            // The ROW COUNT changed, so the strip's own preferred height did too, and the pane above
+            // it has to be told: a grid does not mark its ancestors dirty for its own reflow.
+            LayoutRebuilder.MarkLayoutForRebuild((RectTransform)transform);
+        }
+    }
+
     /// <summary>The pieces of one built tile that the repaint has to reach.</summary>
     private sealed class BuiltTile
     {
@@ -223,13 +351,9 @@ internal static partial class VROptionsTab
         var tileRect = (RectTransform)tileGo.transform;
         tileRect.SetParent(strip, worldPositionStays: false);
 
-        var element = tileGo.AddComponent<LayoutElement>();
-        element.preferredWidth = TileWidth;
-        element.minWidth = TileMinWidth;
-        element.flexibleWidth = 0f;
-        element.preferredHeight = TileHeight;
-        element.minHeight = TileHeight;
-        element.flexibleHeight = 0f;
+        // NO LayoutElement here: GridLayoutGroup writes every cell's size itself and ignores one,
+        // so a LayoutElement on a grid child is a set of numbers that look authoritative and are
+        // inert. The size comes from grid.cellSize, which TileStripGrid owns.
 
         var frame = tileGo.AddComponent<Image>();
         frame.color = Color.white; // the ColorBlock below carries the real colour; see RepaintTile
@@ -274,12 +398,14 @@ internal static partial class VROptionsTab
         label.text = tile.Label();
         label.fontSize = TileLabelSize;
         label.alignment = TextAlignmentOptions.Center;
-        label.enableWordWrapping = false;
         // The name must never be replaced by an ellipsis (standing ruling for this pane): shrink
-        // the glyphs instead and keep the word readable.
-        label.enableAutoSizing = true;
-        label.fontSizeMin = 10f;
-        label.fontSizeMax = TileLabelSize;
+        // the glyphs instead and keep the word readable. ONE implementation of that ruling now —
+        // VROptionsTab.FitCaption — with this pane's own floor of 10 (a tile is narrower than a
+        // settings row and a 9-point word centred under a picture reads as a caption, not a name).
+        // The probe comes with it: this path used to fail SILENTLY when a name did not fit, so an
+        // over-long German environment name was invisible in the log.
+        VROptionsTab.FitCaption(label, TileLabelSize, TileLabelFloor, wrap: false);
+        VROptionsTab.ProbeCaptionFit(label, "variant-tile:" + tile.Resource);
         label.raycastTarget = false;
 
         var button = tileGo.AddComponent<Button>();
@@ -359,9 +485,16 @@ internal static partial class VROptionsTab
                 colors.highlightedColor = on ? TileBorderOnHot : TileBorderOffHot;
                 colors.pressedColor = TileBorderPressed;
                 colors.selectedColor = colors.normalColor;
-                colors.disabledColor = TileBorderOff;
+                // NOT TileBorderOff, which is what an available UN-PICKED tile is painted: the two
+                // were byte-identical, so a tile that could not be chosen would have looked exactly
+                // like one that simply was not chosen yet (2026-09 redundancy audit, B6). Nothing
+                // sets interactable = false on these buttons today, so this has never been on
+                // screen — which is precisely why it would have shipped wrong the day something
+                // did. Half the un-picked border's luminance, alpha kept: a disabled tile reads as
+                // sunk into the pane rather than as a choice waiting to be made.
+                colors.disabledColor = TileBorderDisabled;
                 colors.colorMultiplier = 1f;
-                colors.fadeDuration = 0.08f;
+                colors.fadeDuration = VROptionsTab.HoverTintFadeSeconds;
                 made.Button.colors = colors;
             }
 

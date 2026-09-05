@@ -1610,19 +1610,32 @@ internal static partial class VROptionsTab
         // Reaching this branch means the catalog produced the bound [Sky] Style entry.
         if (string.Equals(item.Section, "Sky", StringComparison.Ordinal))
         {
+            // FIVE ENVIRONMENTS, THE SAME FIVE THE TILE STRIP OFFERS, AND THE SAME WRITE. This
+            // dropdown is what the row ladder falls back to when the picture strip cannot build,
+            // and it used to be a DIFFERENT control: four values instead of five, a bare write to
+            // [Sky] Style, and no clear of [MixedReality] Enabled — so a player who reached the
+            // safety net could pick "Keller" and keep looking at their living room, which is the
+            // outcome the strip's own ChooseSky exists to prevent (2026-09 redundancy audit, R45).
+            // Index 0-3 map 1:1 onto SkyStyle (documented at Core.SkyStyle), 4 is mixed reality;
+            // that vocabulary and both writes live in VariantTilesTable now, so the two doors
+            // cannot answer differently again.
             string[] skyNames =
             {
                 Loc.Mod("sky_default"),
                 Loc.Mod("sky_cellar"),
                 Loc.Mod("sky_swamp"),
-                // Index maps 1:1 onto SkyStyle (Default=0/Cellar=1/SwampNight=2/OffBlack=3).
-                // A missing entry here does not hide the value — BuildPresetRow clamps to the
-                // last index, so a persisted OffBlack would display as the night forest.
                 Loc.Mod("sky_off"),
+                Loc.Mod("vr_o_mrenabled"),
             };
             BuildPresetRow(parent, item, caption, hintKey, skyNames,
-                           (int)SkyAlternative.Style.Value,
-                           index => SkyAlternative.Style.Value = (SkyStyle)index); // BepInEx persists on set
+                           EnvironmentIndex(),
+                           index =>
+                           {
+                               // True = [MixedReality] Enabled moved, and it is a dependency parent
+                               // whose children have to fold away with it — a repaint is not enough.
+                               if (ChooseEnvironment(index))
+                                   TickGuard.Run("VROptionsTab.EnvironmentFallback", Rebuild, "WorldUI");
+                           });
             return true;
         }
 

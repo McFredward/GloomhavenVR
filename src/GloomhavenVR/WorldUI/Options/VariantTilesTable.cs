@@ -100,6 +100,38 @@ internal static partial class VROptionsTab
         return true;
     }
 
+    /// <summary>
+    /// THE ENVIRONMENT CHOICE, INDEPENDENT OF THE CONTROL THAT DRAWS IT.
+    ///
+    /// <para>Five environments over TWO config keys: <c>[Sky] Style</c>'s four members plus
+    /// <c>[MixedReality] Enabled</c> as the fifth. The picture-tile strip below is the control the
+    /// player gets; the dropdown in <c>VROptionsTab.4.Curated.cs</c> is the one the row ladder falls
+    /// back to when <c>VariantTilesFor</c> hands back nothing (missing art is NOT that case — a
+    /// tile without a picture is still built, label-only). That fallback used to write <c>[Sky]
+    /// Style</c> and nothing else, so a player who reached it could pick "Keller" and go on looking
+    /// at their living room — the one outcome this strip exists to prevent, argued at
+    /// <see cref="ChooseSky"/>, and the argument only ever reached one of the two doors (2026-09
+    /// redundancy audit, R45).</para>
+    ///
+    /// <para>Both doors go through these two methods now. The INDEX is the shared vocabulary: 0-3 are
+    /// <see cref="SkyStyle"/> 1:1 (documented at Core.SkyStyle), 4 is mixed reality.</para>
+    /// </summary>
+    internal const int MixedRealityEnvironmentIndex = 4;
+
+    /// <summary>The environment the player is looking at, as an index into the five. Mixed reality
+    /// wins when it is on, exactly as the tiles' own <c>Selected</c> predicates do — with MR on,
+    /// none of the four skies is what is being rendered.</summary>
+    internal static int EnvironmentIndex() =>
+        MixedRealityOn ? MixedRealityEnvironmentIndex : (int)EffectiveSky();
+
+    /// <summary>Write an environment choice. Returns true when the pane has to be REBUILT rather
+    /// than repainted, which is what a change to the <c>[MixedReality] Enabled</c> dependency parent
+    /// costs. Out-of-range indices land on the sky half and are clamped by
+    /// <see cref="ChooseSky"/>'s own cast, which is the same answer <see cref="EffectiveSky"/>
+    /// gives for a hand-edited cfg.</summary>
+    internal static bool ChooseEnvironment(int index) =>
+        index == MixedRealityEnvironmentIndex ? ChooseMixedReality() : ChooseSky((SkyStyle)index);
+
     private static VariantTile SkyTile(SkyStyle style, string art, string locKey) => new()
     {
         Resource = TileResourcePrefix + art + ".png",
@@ -123,9 +155,9 @@ internal static partial class VROptionsTab
         new VariantTile
         {
             Resource = TileResourcePrefix + "tile_env_mr.png",
-            Label = () => Loc.Mod("mixed_reality"),
-            Selected = () => MixedRealityOn,
-            Choose = ChooseMixedReality,
+            Label = () => Loc.Mod("vr_o_mrenabled"),
+            Selected = () => EnvironmentIndex() == MixedRealityEnvironmentIndex,
+            Choose = () => ChooseEnvironment(MixedRealityEnvironmentIndex),
         },
     };
 
@@ -192,8 +224,16 @@ internal static partial class VROptionsTab
             {
                 Resource = TileResourcePrefix + "tile_mask_" + id + ".png",
                 Label = () => name,
-                Selected = () => NetModule.MaskId != null
-                                 && Mathf.Clamp(NetModule.MaskId.Value, 0, names.Length - 1) == id,
+                // NOT Mathf.Clamp(...) == id, which lit the LAST tile for any id past the end.
+                // The dropdown this strip replaced spends a paragraph refusing exactly that —
+                // "'cannot happen' is not a reason to display a lie" (VROptionsTab.4.Curated.cs) —
+                // and then the live path did it anyway (2026-09 redundancy audit, R45). The
+                // dropdown's answer, a synthetic trailing entry naming the raw number, has no tile
+                // to be drawn on; the honest tile-strip answer is that NO tile is lit, so the pane
+                // says "not one of these" instead of naming the wrong one. Unreachable in practice
+                // either way: [Net] MaskId is bound with AcceptableValueRange(0, MaskCount-1), so
+                // BepInEx clamps a hand-edited value before this ever reads it.
+                Selected = () => NetModule.MaskId != null && NetModule.MaskId.Value == id,
                 Choose = () =>
                 {
                     if (NetModule.MaskId != null)

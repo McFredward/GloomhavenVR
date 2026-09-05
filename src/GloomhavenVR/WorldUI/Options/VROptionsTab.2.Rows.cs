@@ -305,12 +305,41 @@ internal static partial class VROptionsTab
         if (title == null)
             return;
         float authored = _titleStyle != null ? _titleStyle.Value.size : title.fontSize;
-        title.enableWordWrapping = false;
-        title.overflowMode = TextOverflowModes.Overflow; // NEVER Ellipsis — see the ruling above
-        title.enableAutoSizing = true;
-        title.fontSizeMax = authored;
-        title.fontSizeMin = Mathf.Max(9f, authored * CaptionMinScale);
+        FitCaption(title, authored, Mathf.Max(AbsoluteCaptionFloor, authored * CaptionMinScale),
+                   wrap: false);
     }
+
+    /// <summary>
+    /// THE ONE PLACE THAT ANSWERS "MAKE THIS NAME FIT, AND NEVER CUT IT".
+    ///
+    /// <para>USER RULING 2026-08-03, quoted in full at <see cref="ApplyOptionCaption"/>: a name is
+    /// never replaced by an ellipsis — the glyphs shrink instead. That ruling was obeyed in THREE
+    /// hand-written places with three different floors: the setting caption at
+    /// <see cref="ApplyOptionCaption"/> (78% of the authored size, no wrap), the tab caption at
+    /// <see cref="FitTabCaption"/> (a flat 9, wrapping ON, argued in its own doc), and the variant
+    /// tile label in <c>VariantTiles</c> (a flat 10, no wrap). So the same over-long German word —
+    /// "Panzerhandschuh", "Kontrollbrett" — stopped shrinking one point earlier on a tile than on
+    /// the row beside it, and only the first of the three ever told the log that a name had not
+    /// fit. Three floors is a legitimate design (a tile is not a row is not a tab), so the floor
+    /// and the wrap stay ARGUMENTS; what is shared is the ruling's mechanism and the probe.</para>
+    ///
+    /// <para><paramref name="ceiling"/> is read by the caller, not here, because two of the three
+    /// call sites have to sample it BEFORE auto-sizing is switched on (an autosized label reports
+    /// an autosized size, not its authored one).</para>
+    /// </summary>
+    internal static void FitCaption(TMP_Text label, float ceiling, float floor, bool wrap)
+    {
+        label.enableWordWrapping = wrap;
+        label.overflowMode = TextOverflowModes.Overflow; // NEVER Ellipsis — see the ruling above
+        label.enableAutoSizing = true;
+        label.fontSizeMax = ceiling;
+        label.fontSizeMin = floor;
+    }
+
+    /// <summary>The smallest a caption may ever be, in menu-canvas units, whatever the floor a
+    /// caller computes. Below this a name is not readable at arm's length, so overflowing is the
+    /// better failure and <see cref="ProbeCaptionFit"/> says so by name.</summary>
+    private const float AbsoluteCaptionFloor = 9f;
 
     /// <summary>How far a caption may shrink before it is reported as too long (fraction of the
     /// sampled style size).</summary>
@@ -343,7 +372,7 @@ internal static partial class VROptionsTab
     /// the 362 localized names are too long, the log names them, with the measured overflow and
     /// the language they overflowed in, so each one can be shortened deliberately.
     /// </summary>
-    private static void ProbeCaptionFit(TMP_Text? title, string key)
+    internal static void ProbeCaptionFit(TMP_Text? title, string key)
     {
         if (title == null || string.IsNullOrEmpty(title.text))
             return;
@@ -351,14 +380,22 @@ internal static partial class VROptionsTab
         float budget = rect.rect.width;
         if (budget <= 1f)
             return; // layout has not run yet — the next rebuild probes again
-        float needed = title.GetPreferredValues(title.text, 0f, 0f).x * CaptionMinScale;
+        // Against the label's OWN floor, not the setting row's: this probe used to multiply by
+        // CaptionMinScale, which is only the setting caption's shrink limit. A tab caption (flat 9)
+        // and a variant tile label (flat 10) shrink to a different fraction of their authored size,
+        // so the same constant would have over- or under-reported on two of the three paths.
+        float ceiling = title.fontSizeMax > 0.01f ? title.fontSizeMax : title.fontSize;
+        float shrink = ceiling > 0.01f ? Mathf.Clamp01(title.fontSizeMin / ceiling) : CaptionMinScale;
+        float needed = title.GetPreferredValues(title.text, 0f, 0f).x * shrink;
         if (needed <= budget + 0.5f || !ReportedLongCaptions.Add(key))
             return;
         VRLog.Warn("WorldUI",
             $"OPTION NAME TOO LONG: '{title.text}' ({key}, {Loc.CurrentLanguage}) needs " +
             $"{needed:F0} px at the smallest allowed size but its label column is {budget:F0} px " +
             "— it will OVERFLOW rather than be cut (ellipsis is banned, user ruling 2026-08-03). " +
-            "Shorten the name in Loc.ConfigNames for this language.");
+            "Shorten the name in Loc.ConfigNames for this language." +
+            " (A 'tab:' key is a tab caption and a 'variant-tile:' key is a picture-tile label;" +
+            " both are Loc.cs ids, not Loc.ConfigNames entries.)");
     }
 
 
@@ -784,7 +821,7 @@ internal static partial class VROptionsTab
             colors.highlightedColor = ActionPlateHot();
             colors.pressedColor = ActionPlateDown();
             colors.selectedColor = colors.normalColor;
-            colors.fadeDuration = 0.08f;
+            colors.fadeDuration = HoverTintFadeSeconds;
             button.colors = colors;
         }
         button.onClick.AddListener(() => onClick());
@@ -1157,10 +1194,9 @@ internal static partial class VROptionsTab
         // Never LARGER than the donor's caption — autosizing in a stretched rect would otherwise
         // happily inflate a short name past the tab style it is supposed to match. Read before
         // enableAutoSizing so the cap is the donor's authored size, never an autosized one.
-        label.fontSizeMax = label.fontSize;
-        label.enableAutoSizing = true;
-        label.fontSizeMin = 9f;
-        label.overflowMode = TextOverflowModes.Overflow;
+        // Wrapping ON here and only here — the argument is in this method's own doc above.
+        FitCaption(label, label.fontSize, AbsoluteCaptionFloor, wrap: true);
+        ProbeCaptionFit(label, "tab:" + label.text);
     }
 
     /// <summary>

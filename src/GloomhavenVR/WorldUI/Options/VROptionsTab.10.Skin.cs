@@ -207,6 +207,20 @@ internal static partial class VROptionsTab
     /// <summary>Press tint for an action plate — the same gold, brighter, opaque.</summary>
     private static readonly Color ActionPlatePress = new(0.68f, 0.55f, 0.24f, 1f);
 
+    /// <summary>
+    /// HOW LONG A HOVER TINT TAKES TO CROSS-FADE, in seconds — the one number every hand-built
+    /// <c>Button.colors</c> in this mod's own chrome sets, and the one every one of them had as a
+    /// bare 0.08f literal (2026-09 redundancy audit, R20). Three sites: the action-row plate
+    /// (VROptionsTab.2.Rows.cs), the variant picture tile (VariantTiles.cs) and the modal close X
+    /// (WorldUI/Grab/ModalCloseButton.cs, not converted this round — it is another lane's file).
+    /// Named rather than merged: the three PALETTES are legitimately different (the X multiplies a
+    /// flat grey over a plate, the other two brighten toward the menu's gold), but the timing is
+    /// one perceptual decision — "a subtle affordance, no loud colour flash", quoted from the X's
+    /// own doc — and three copies of it could only ever drift into three different feels.
+    /// Unity's own default is 0.1 s; this is deliberately a shade faster.
+    /// </summary>
+    internal const float HoverTintFadeSeconds = 0.08f;
+
     /// <summary>Sample the game's own row plate once, off the captured toggle template.</summary>
     private static void SampleRowPlate(GameObject? toggleTemplate)
     {
