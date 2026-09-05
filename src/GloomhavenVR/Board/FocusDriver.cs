@@ -215,6 +215,10 @@ internal sealed class FocusDriver : MonoBehaviour
         // outline down with it, and the two would then disagree about the state — the one thing
         // this feature exists to prevent. Each carrier is therefore isolated on its own, and names
         // itself once so a hardware log says WHICH cue died instead of "the focus cue died".
+        // Since 2026-09-05 it also says whether that cue is STILL dying: the report goes through
+        // TickGuard.NoteThrow, which emits the house 'is still throwing (N time(s) so far)' repeat
+        // the project's throw-storm triage counts off. Before that this guard fell silent after
+        // its first line and a permanently dead cue read exactly like a single bad frame.
         //
         // The arguments travel in FIELDS and the three delegates are cached, because a lambda per
         // carrier per frame is a steady-state allocation in a LateUpdate — the same reason the
@@ -235,10 +239,31 @@ internal sealed class FocusDriver : MonoBehaviour
 
     private void RunBoard() => TickBoardFrame(_tickMark);
 
-    /// <summary>Names already reported by <see cref="Carrier"/>, so a per-frame failure logs once
-    /// instead of flooding — the carrier keeps being retried, only the shouting stops.</summary>
-    private readonly HashSet<string> _reported = new(4);
-
+    /// <summary>
+    /// Run one focus cue, isolated from the other two, and report a throw through the shared
+    /// throw-storm bookkeeping in <see cref="Core.TickGuard.NoteThrow"/>.
+    ///
+    /// <para><b>UNTIL 2026-09-05 THIS GUARD WENT SILENT AFTER ITS FIRST LINE.</b> It kept a
+    /// <c>HashSet&lt;string&gt; _reported</c> and logged only if <c>_reported.Add(name)</c>
+    /// succeeded, i.e. exactly once per carrier per session, with no repeat line ever. Every
+    /// sibling guard in the mod emits <c>is still throwing (N time(s) so far)</c>, and the
+    /// project's documented throw-storm triage counts a storm OFF THAT LINE — so a focus-cue
+    /// carrier throwing on every frame of a scenario was invisible to the one procedure meant to
+    /// find it. Its own doc even claimed the opposite ("names itself once so a hardware log says
+    /// WHICH cue died"): one line saying a cue died and nothing afterwards cannot distinguish a
+    /// single bad frame from a cue that has been dead for twenty minutes.</para>
+    ///
+    /// <para>TWO THINGS CHANGED AND BOTH ARE THE POINT. The bookkeeping is no longer local, so the
+    /// count is on the same static store and the same 10 s window as <see cref="Core.TickGuard"/>'s
+    /// and the two N values are comparable. And the tier moved <c>Warn</c> → <c>Error</c>, because
+    /// <c>VRLog.Warn</c> is the DEBUG tier under the ModBuild 331 mapping and the shipped level is
+    /// Info: at the default level this instrument printed nothing at all, for a failure whose
+    /// symptom is the initiative rings and the board outline disagreeing about who is at turn. The
+    /// two sibling guards it is now identical to have always been at Error. The line is throttled
+    /// by the shared gate, so this is one line plus one per 10 s, not a flood.</para>
+    ///
+    /// <para>The carrier keeps being retried either way; only the reporting changed.</para>
+    /// </summary>
     private void Carrier(string name, System.Action work)
     {
         try
@@ -247,12 +272,13 @@ internal sealed class FocusDriver : MonoBehaviour
         }
         catch (System.Exception e)
         {
-            if (_reported.Add(name))
-            {
-                VRLog.Warn("Board", $"Focus cue carrier '{name}' threw and was ISOLATED — the other "
-                                    + "carriers still render this frame, so the board, the avatar "
-                                    + $"ring and the track cannot drift apart over it. {e}");
-            }
+            // The prose is this site's own and is unchanged; only the SHAPE around it — the
+            // opener, the repeat and the counter — is now the shared one.
+            Core.TickGuard.NoteThrow("Board", "FocusDriver." + name, e,
+                                     $"Focus cue carrier '{name}'",
+                                     "the other carriers still render this frame, so the board, the "
+                                     + "avatar ring and the track cannot drift apart over it.",
+                                     "Fix the carrier; the other cues stay isolated.");
         }
     }
 

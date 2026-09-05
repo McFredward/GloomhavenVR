@@ -823,39 +823,41 @@ internal sealed partial class CardsDriver
 
     // ------------------------------------------------- per-frame tick attribution guard --
 
-    // Throttle state for the Cards per-frame tick guard (see the try/catch in Update). Same
-    // contract as WorldUIModule.TickGuard: first throw logged once WITH its stack, further
-    // throws summarized at most once / 10 s so an every-frame throw can't itself flood the log.
-    private bool _tickThrowOpened;
-    private float _tickThrowLastLog;
-    private long _tickThrowCount;
-
     /// <summary>
     /// Attribute + throttle an exception thrown by the per-frame interaction/status path.
     /// Turns the otherwise ANONYMOUS, stackless per-frame NullReferenceException flood Unity
     /// would write for an unhandled Update throw into a single traced [Cards] Error (subsystem +
     /// message + stack) plus a throttled repeat summary — so the root deref is finally
     /// attributable from Player.log alone, without swallowing the bug silently.
+    ///
+    /// <para><b>THE BOOKKEEPING MOVED TO <see cref="Core.TickGuard.NoteThrow"/> ON 2026-09-05, and
+    /// the two defects it fixes are both about READING the line, not writing it</b> (redundancy
+    /// survey R30(b) and R30(c)):</para>
+    /// <list type="number">
+    ///   <item>The counter used to live on THIS DRIVER INSTANCE (<c>_tickThrowCount</c>) while
+    ///   <c>TickGuard</c>'s is static. Two lines with the same <c>is still throwing (N time(s) so
+    ///   far)</c> wording therefore carried N values counted over different populations, and the
+    ///   project's triage procedure compares exactly those numbers. Now there is one store.</item>
+    ///   <item>It keyed the WHOLE tick path. <c>TickGuard</c> keys per named sub-step, so two
+    ///   throwing subsystems inside Cards used to read as one storm with one count. The key is now
+    ///   <c>Cards.TickInteractionsAndStatus/&lt;throwing method&gt;</c> via
+    ///   <see cref="Core.TickGuard.SubStepOf"/> — the one try/catch here isolates a path rather
+    ///   than a step, so the sub-step comes off the exception instead of off a call site.</item>
+    /// </list>
+    ///
+    /// <para>The wording of both lines is byte-identical to what it has always been; the shared
+    /// method takes this site's own two sentences and supplies only the opener and the repeat
+    /// shape, which are what a reader greps for.</para>
     /// </summary>
     private void NoteTickThrow(System.Exception ex)
     {
-        _tickThrowCount++;
-        float now = Time.unscaledTime;
-        if (!_tickThrowOpened)
-        {
-            _tickThrowOpened = true;
-            _tickThrowLastLog = now;
-            VRLog.Error("Cards", "Per-frame Cards tick threw and was ISOLATED — the Rebuild / " +
-                                 "CardActionQueue path is never starved by it. This is the source of " +
-                                 "any anonymous per-frame NullReferenceException flood attributed to " +
-                                 $"the Cards subsystem. {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
-        }
-        else if (now - _tickThrowLastLog >= 10f)
-        {
-            _tickThrowLastLog = now;
-            VRLog.Error("Cards", $"Per-frame Cards tick is still throwing ({_tickThrowCount} time(s) so far) — " +
-                                 $"latest {ex.GetType().Name}: {ex.Message}. Fix the deref; the tick stays isolated.");
-        }
+        Core.TickGuard.NoteThrow(
+            "Cards",
+            Core.TickGuard.SubStepOf(ex, "Cards.TickInteractionsAndStatus"), ex,
+            "Per-frame Cards tick",
+            "the Rebuild / CardActionQueue path is never starved by it. This is the source of any "
+            + "anonymous per-frame NullReferenceException flood attributed to the Cards subsystem.",
+            "Fix the deref; the tick stays isolated.");
     }
 
     // ------------------------------------------------------- THE FAN'S ONE DECISION POINT --

@@ -54,6 +54,23 @@ internal static class TickGuard
 
     private static readonly Dictionary<string, Entry> State = new();
 
+    /// <summary>Seconds between repeat lines for one key. The house cadence — every guard in the
+    /// mod that reports a throw storm uses this one, so two <c>is still throwing</c> lines from two
+    /// subsystems are counted over the same window and are therefore comparable.</summary>
+    private const float RepeatSeconds = 10f;
+
+    /// <summary>Cap on distinct keys in <see cref="State"/>. <see cref="Run"/> feeds it a fixed set
+    /// of step names, but <see cref="NoteThrow"/> lets a caller key on something derived from the
+    /// exception (see <see cref="SubStepOf"/>), and an unbounded key set inside a DIAGNOSTIC is a
+    /// leak wearing an instrument's clothes. Past the cap everything lands in one bucket, which is
+    /// exactly what this class did before the cap existed.</summary>
+    private const int MaxKeys = 64;
+
+    /// <summary>The bucket used once <see cref="MaxKeys"/> is reached, named so a reader can see in
+    /// the line itself that attribution has degraded rather than wonder why two subsystems suddenly
+    /// share a count.</summary>
+    private const string OverflowKey = "<key cap reached>";
+
     /// <summary>
     /// Run one per-frame sub-tick, ISOLATING any exception it throws so the remaining
     /// ticks in the frame still run (a single misbehaving subsystem must never starve the
@@ -79,34 +96,105 @@ internal static class TickGuard
         }
         catch (Exception ex)
         {
-            if (!State.TryGetValue(name, out Entry e))
-            {
-                e = new Entry();
-                State[name] = e;
-            }
-            e.Count++;
-            float now = Time.unscaledTime;
-            if (!e.Opened)
-            {
-                e.Opened = true;
-                e.LastLog = now;
-                VRLog.Error(scope ?? DeriveScope(name),
-                    $"Tick '{name}' threw and was ISOLATED — the rest of the frame's " +
-                    "ticks still run, so the pause-menu tap / input pipeline can't be " +
-                    $"starved by one subsystem. {ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
-            }
-            else if (now - e.LastLog >= 10f)
-            {
-                VRLog.Error(scope ?? DeriveScope(name),
-                    $"Tick '{name}' is still throwing ({e.Count} time(s) so far) — latest " +
-                    $"{ex.GetType().Name}: {ex.Message}. Fix the subsystem; ticks stay isolated.");
-                e.LastLog = now;
-            }
+            NoteThrow(scope ?? DeriveScope(name), name, ex,
+                      $"Tick '{name}'",
+                      "the rest of the frame's ticks still run, so the pause-menu tap / input "
+                      + "pipeline can't be starved by one subsystem.",
+                      "Fix the subsystem; ticks stay isolated.");
         }
         finally
         {
             PerfMonitor.EndStep(name, perf);
         }
+    }
+
+    /// <summary>
+    /// THE THROW-STORM REPORT, AND THE ONLY COPY OF IT. Records one throw against
+    /// <paramref name="key"/> and emits at most two kinds of line for it: the FIRST one with the
+    /// full stack, then a repeat every <see cref="RepeatSeconds"/> saying how many times it has
+    /// happened since. Never rethrows, and allocates nothing on a frame that does not log.
+    ///
+    /// <para><b>WHY THIS IS A SHARED METHOD AND NOT A PATTERN TO COPY.</b> The 2026-09-05
+    /// redundancy survey (R30) found this bookkeeping hand-rolled in three more places, and the
+    /// copies had drifted in ways that each broke the project's own throw-storm triage procedure,
+    /// which is "grep <c>is still throwing</c> and read N":</para>
+    /// <list type="bullet">
+    ///   <item><c>Board/FocusDriver.Carrier</c> reported the FIRST throw and then suppressed for
+    ///   ever (<c>_reported.Add(name)</c>), so a focus-cue carrier throwing every frame emitted no
+    ///   repeat line at all and was invisible to that grep.</item>
+    ///   <item><c>Cards/Driver/CardsDriver.NoteTickThrow</c> kept its counter on the DRIVER
+    ///   INSTANCE while this one is static, so two lines with identical wording carried N values
+    ///   that could not be compared.</item>
+    ///   <item>That same Cards guard keyed the WHOLE tick path, where this one keys per named
+    ///   sub-step — so two throwing subsystems inside Cards read as one storm.</item>
+    /// </list>
+    ///
+    /// <para><b>THE WORDING IS ASSEMBLED FROM THE CALLER'S OWN SENTENCES, deliberately.</b> Each of
+    /// those sites explains a DIFFERENT consequence of the isolation ("the rest of the frame's ticks
+    /// still run" against "the other carriers still render this frame"), and that sentence is the
+    /// part a reader actually needs. What has to be identical is the SHAPE — the
+    /// <c>threw and was ISOLATED</c> opener and the <c>is still throwing (N time(s) so far)</c>
+    /// repeat — because those two are what the triage procedure greps for. So the caller owns the
+    /// prose and this method owns the shape, and no existing line changed its wording.</para>
+    /// </summary>
+    /// <param name="scope">VRLog module tag.</param>
+    /// <param name="key">What the count is kept against — a step name, a carrier name, or a
+    /// sub-step derived from the exception (<see cref="SubStepOf"/>).</param>
+    /// <param name="ex">The throw being reported.</param>
+    /// <param name="subject">How the line names the thing that threw, e.g. <c>Tick 'Board.Rings'</c>.
+    /// Interpolated directly in front of <c>threw and was ISOLATED</c>.</param>
+    /// <param name="isolatedBecause">The caller's own sentence saying what still runs. Ends with a
+    /// full stop; the exception detail follows it.</param>
+    /// <param name="repeatAdvice">The caller's own closing sentence on the repeat line.</param>
+    internal static void NoteThrow(string scope, string key, Exception ex, string subject,
+                                   string isolatedBecause, string repeatAdvice)
+    {
+        if (!State.TryGetValue(key, out Entry e))
+        {
+            if (State.Count >= MaxKeys)
+                key = OverflowKey;
+            if (!State.TryGetValue(key, out e))
+            {
+                e = new Entry();
+                State[key] = e;
+            }
+        }
+
+        e.Count++;
+        float now = Time.unscaledTime;
+        if (!e.Opened)
+        {
+            e.Opened = true;
+            e.LastLog = now;
+            VRLog.Error(scope,
+                $"{subject} threw and was ISOLATED — {isolatedBecause} " +
+                $"{ex.GetType().Name}: {ex.Message}\n{ex.StackTrace}");
+        }
+        else if (now - e.LastLog >= RepeatSeconds)
+        {
+            VRLog.Error(scope,
+                $"{subject} is still throwing ({e.Count} time(s) so far) — latest " +
+                $"{ex.GetType().Name}: {ex.Message}. {repeatAdvice}");
+            e.LastLog = now;
+        }
+    }
+
+    /// <summary>
+    /// The method an exception was thrown from, qualified by <paramref name="fallback"/>, for a
+    /// caller that isolates a WHOLE path in one try/catch and therefore has no step name to key on.
+    /// Null-safe, and cheap enough for the cold path (one reflection property read on a frame that
+    /// has already thrown).
+    ///
+    /// <para>It is not exactly the sub-step: a throw three helpers deep names the helper rather than
+    /// the tick. That is enough for the job — the defect this fixes is that two DIFFERENT throwing
+    /// subsystems shared one counter and read as one storm, and two different methods give two
+    /// different keys whatever depth they sit at. <paramref name="fallback"/> alone is used when the
+    /// runtime carries no target site.</para>
+    /// </summary>
+    internal static string SubStepOf(Exception ex, string fallback)
+    {
+        string? name = ex.TargetSite?.Name;
+        return string.IsNullOrEmpty(name) ? fallback : fallback + "/" + name;
     }
 
     /// <summary>Module tag from a fully-qualified step name ("Board.Targeting" → "Board").</summary>
