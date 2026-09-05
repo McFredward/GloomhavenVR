@@ -637,8 +637,10 @@ internal static class WorldUIConfig
                 "2.0 is a bar twice as tall and twice as wide however the table is zoomed. That " +
                 "is the only size statement that survives a pinch-zoom, because the mod's zoom is " +
                 "a scale on the RIG - a size expressed in world units would mean a different " +
-                "apparent size at every zoom level. Default 1.0 = exactly the size before this " +
-                "dial existed (at the shipped table zoom), so nothing changes until you tune it. " +
+                "apparent size at every zoom level. A factor of 1.0 is exactly the size before " +
+                "this dial existed (at the shipped table zoom); the SHIPPED default is not " +
+                "1.0 - it was re-based from a tuned cfg and the menu prints it under this " +
+                "text. " +
                 "Whatever you set here HOLDS while you pinch-zoom the table: the bars follow the " +
                 "zoom only inside a fixed 0.7-1.5 band around the size you chose, so they can " +
                 "neither shrink away nor swallow the board. Live: the next frame is drawn at the " +

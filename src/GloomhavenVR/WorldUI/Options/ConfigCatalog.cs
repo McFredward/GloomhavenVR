@@ -1509,7 +1509,7 @@ internal static class ConfigCatalog
             switch (item.Kind)
             {
                 case ConfigKind.Bool:
-                    return v is bool b && b ? Loc.Mod("on") : Loc.Mod("off");
+                    return v is bool b && b ? Loc.Mod("vr_on") : Loc.Mod("vr_off");
                 case ConfigKind.Choice:
                     return v?.ToString() ?? "-";
                 case ConfigKind.Number:

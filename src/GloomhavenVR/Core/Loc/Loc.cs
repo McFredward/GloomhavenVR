@@ -875,7 +875,10 @@ internal static partial class Loc
         // The per-variant families and their members. Shown in a heading over the rows that belong
         // to them ("Appearance — Hand style: Gauntlet"), which is the only place left that says
         // which board or hand the rows below are editing.
-        ["vr_var_board"] = Pair("Control board", "Kontrolltafel"),
+        // "Kontrollbrett", not "Kontrolltafel": the naming rule for this word class is stated at the
+        // remote_boards entry below — everywhere else in the German menu this object is a Brett,
+        // and control_board / vr_sec_controlboard / vr_ct_board all already say Kontrollbrett.
+        ["vr_var_board"] = Pair("Control board", "Kontrollbrett"),
         ["vr_var_hand"] = Pair("Hand style", "Handstil"),
         ["vr_board_oak"] = Pair("Oak", "Eiche"),
         ["vr_board_steel"] = Pair("Steel", "Stahl"),
@@ -1403,8 +1406,12 @@ internal static partial class Loc
         // ever evaluates while [Compat] WallFade is on, so they are inert with the "Wände
         // durchsichtig" toggle off. The pane says so instead of offering four steppers that move
         // nothing.
-        ["on"] = Pair("On", "An"),
-        ["off"] = Pair("Off", "Aus"),
+        // "on"/"off" WERE HERE with ("On","An"). They were the config browser's value-column
+        // words and duplicated vr_on/vr_off above, which say ("On","Ein") — one boolean state,
+        // two German words, on two rows drawn under each other on Erweitert. The ruling is
+        // written beside vr_on (VROptionsTab.2.Rows.cs:1395: "the game says 'Aus' in German,
+        // so a mod row beside it must too"), so that pair is the one that survived and
+        // ConfigCatalog.ValueText now asks for it.
         ["spacing"] = Pair("Spacing", "Abstand"),
         ["round"] = Pair("Round", "Rund"),
         ["square"] = Pair("Square", "Eckig"),
@@ -1552,7 +1559,7 @@ internal static partial class Loc
             "Everything the board tells you: initiative track, placards and hints, the round "
             + "readout, objectives, elements and the decision dock.",
             "Alles, was das Brett dir anzeigt: Initiative-Leiste, Tafeln und Hinweise, die "
-            + "Runden-Anzeige, Aufgaben, Elemente und das Entscheidungsdock."),
+            + "Runden-Anzeige, Aufgaben, Elemente und die Entscheidungsleiste."),
         ["vr_bg_placards"] = Pair("Placards & hints", "Tafeln & Hinweise"),
         ["h_vr_bg_placards"] = Pair(
             "The initiative track, the status placard, the hover-hint panel and the round "
@@ -1563,7 +1570,7 @@ internal static partial class Loc
         ["h_vr_bg_docks"] = Pair(
             "The objectives panel and the element-infusion dock: position and size of both.",
             "Die Aufgaben-Tafel und das Elemente-Dock: Position und Größe von beiden."),
-        ["vr_bg_decision"] = Pair("Decision dock", "Entscheidungsdock"),
+        ["vr_bg_decision"] = Pair("Decision dock", "Entscheidungsleiste"),
         ["h_vr_bg_decision"] = Pair(
             "The shared dock where decision prompts land (take damage, dialogs): position, size, "
             + "and the gap between the prompt text and the buttons.",
@@ -1880,6 +1887,67 @@ internal static partial class Loc
         ["ver_cancel"] = Pair("Cancel", "Abbrechen"),
         ["ver_build_unknown"] = Pair("an older build (before version negotiation)",
                                      "einen älteren Build (vor dem Versionsabgleich)"),
+
+        // ---- self-update window (Core/SelfUpdate) ----
+        // LIFTED FROM Core/SelfUpdate/SelfUpdateText.cs, whose own header asked for exactly this
+        // move: it held a SECOND embedded string table with its own Pair() and a T() byte-identical
+        // to Mod() above, "here only because Loc.cs is not this lane's file". Two tables meant a new
+        // language, a font pass or a fallback fix reached one of them; and "Cancel"/"Abbrechen" was
+        // by then defined in both (upd_cancel beside ver_cancel two lines up), which is the drift
+        // arriving. The strings are copied VERBATIM — no wording changed with the move.
+        //
+        // upd_cancel is deliberately NOT folded into ver_cancel: the two dialogs are separate
+        // surfaces with separate lifetimes (a version handshake during a multiplayer JOIN, and a
+        // download that restarts the game), and one key shared between them would mean a wording
+        // change for one silently rewrote the other. Sitting in the same table, they are now at
+        // least VISIBLY the same word.
+        ["upd_title"] = Pair("Update available", "Update verfügbar"),
+
+        // {0} installed version, {1} available version, {2} download size in MB
+        ["upd_body"] = Pair(
+            "A newer version of GloomhavenVR has been released.\n\n"
+            + "Installed:  {0}\nAvailable:  {1}\nDownload:   {2} MB\n\n"
+            + "\"Update\" downloads it, replaces the mod files and restarts the game. "
+            + "Your saves, your campaign and your settings are not touched.",
+            "Eine neuere Version von GloomhavenVR ist erschienen.\n\n"
+            + "Installiert:  {0}\nVerfügbar:    {1}\nDownload:     {2} MB\n\n"
+            + "\"Updaten\" lädt sie herunter, ersetzt die Mod-Dateien und startet das Spiel neu. "
+            + "Deine Spielstände, deine Kampagne und deine Einstellungen bleiben unberührt."),
+
+        ["upd_ignore"] = Pair("Ignore", "Ignorieren"),
+        ["upd_update"] = Pair("Update", "Updaten"),
+        ["upd_cancel"] = Pair("Cancel", "Abbrechen"),
+        ["upd_close"] = Pair("Close", "Schließen"),
+
+        // {0} target version
+        ["upd_working"] = Pair(
+            "Installing GloomhavenVR {0}.\n\n"
+            + "The game closes and comes back by itself when the files have been replaced. "
+            + "Do not close it by hand while the bar is running.",
+            "GloomhavenVR {0} wird installiert.\n\n"
+            + "Das Spiel schließt sich und kommt von selbst zurück, sobald die Dateien ersetzt "
+            + "sind. Bitte schließe es nicht selbst, solange der Balken läuft."),
+
+        // {0} downloaded MB, {1} total MB
+        ["upd_downloading"] = Pair("Downloading … {0} of {1} MB", "Lädt herunter … {0} von {1} MB"),
+        ["upd_verifying"] = Pair("Checking the archive …", "Archiv wird geprüft …"),
+        ["upd_extracting"] = Pair("Unpacking …", "Wird entpackt …"),
+        ["upd_restarting"] = Pair("Restarting the game …", "Spiel wird neu gestartet …"),
+
+        // {0} the term that failed
+        ["upd_failed"] = Pair(
+            "The update was not installed.\n\n{0}\n\n"
+            + "Nothing was changed — the version you were running is still installed. "
+            + "You can always install the update by hand from the GitHub releases page.",
+            "Das Update wurde nicht installiert.\n\n{0}\n\n"
+            + "Es wurde nichts verändert — die bisherige Version ist weiterhin installiert. "
+            + "Du kannst das Update jederzeit von Hand über die GitHub-Releases-Seite einspielen."),
+
+        ["upd_still_running"] = Pair(
+            "Everything is ready. The game did not close by itself — please close it now, and it "
+            + "will come back with the new version installed.",
+            "Alles ist bereit. Das Spiel hat sich nicht von selbst geschlossen — bitte schließe es "
+            + "jetzt; es kommt mit der neuen Version zurück."),
 
         // ---- FlatScreen desktop splash ----
         ["starting_desktop"] = Pair("starting… (intro plays on the desktop)",

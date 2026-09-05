@@ -552,7 +552,7 @@ internal static partial class Loc
             ["Cards/PinOffset_*"] = Pair("Pin button: position", "Fixier-Taste: Position"),
             ["Cards/ReadoutOffset_*"] = Pair("Round readout: position", "Runden-Anzeige: Position"),
             ["Cards/DecisionOffset_*"] = Pair("Decision dock: position", "Entscheidung: Position"),
-            ["Cards/DecisionScale_*"] = Pair("Decision dock: size", "Entscheidungsdock: Größe"),
+            ["Cards/DecisionScale_*"] = Pair("Decision dock: size", "Entscheidungsleiste: Größe"),
             ["Cards/DecisionGap_*"] = Pair("Decision: text gap (m)", "Entscheidung: Textlücke"),
 
             // ---- [MixedReality] / [Stereo] / [RenderQuality] — picture ----------------------

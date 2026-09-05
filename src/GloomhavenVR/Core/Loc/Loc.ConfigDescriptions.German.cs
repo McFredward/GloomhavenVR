@@ -913,9 +913,10 @@ internal static partial class Loc
             ["Comfort/SavedScaleMultiplier"] =
                 "Letzter Pinch-Skalierungsfaktor relativ zur Grund-WorldScale (die \"Tischgröße\" in der "
                 + "VR-Einstellungstafel). Wird nach jeder Zwei-Griff-Skaliergeste automatisch geschrieben und "
-                + "beim Neuaufbau des Rigs wieder angewandt. Standard 2.5 — die automatische Grundskalierung "
-                + "wirkt wie ein riesiges Diorama; 2.5x schrumpft sie beim ersten Erscheinen auf eine angenehme "
-                + "Tischgröße (Nutzerwunsch: Standard-Tischgröße ~2.5).",
+                + "beim Neuaufbau des Rigs wieder angewandt. Die automatische Grundskalierung wirkt wie ein "
+                + "riesiges Diorama; der Faktor schrumpft sie beim ersten Erscheinen auf eine angenehme "
+                + "Tischgröße (Nutzerwunsch: Standard-Tischgröße ~2.5). Der ausgelieferte Standard steht "
+                + "unter diesem Text; er wird ohnehin nach jeder Skaliergeste überschrieben.",
             ["Comfort/KeepPlaceOnReorigin"] =
                 "Bleib dort, wo du warst, wenn die VR-Laufzeit ihren Tracking-Ursprung unter dem "
                 + "Spiel verschiebt — genau das passiert meist, wenn du die Brille absetzt und wieder "
@@ -1205,7 +1206,8 @@ internal static partial class Loc
             ["MapRoom/IconScale"] =
                 "GRÖSSE der Ortssymbole auf der WELTKARTE, solange du im 3D-Kartenraum stehst "
                 + "([Rig] Vanilla2DMap aus) — die Dorf-, Szenario- und Bossmarker auf dem Pergament. "
-                + "Bereich 0.5-4, Standard 1 = die Größe, die sie immer hatten. Die Untergrenze gibt es, "
+                + "Bereich 0.5-4, wobei 1 = die Größe ist, die sie immer hatten; der ausgelieferte "
+                + "Standard steht unter diesem Text und ist NICHT 1. Die Untergrenze gibt es, "
                 + "weil ein auf nichts geschrumpftes Symbol ein Szenario ist, das du nicht mehr anvisieren "
                 + "kannst. Der Faktor vergrößert nur den Marker, er ordnet die Karte nicht neu. Getrennt "
                 + "einstellbar von der Stadtkarte ([MapRoom] CityIconScale) und vom Gloomhaven-Marker. "
@@ -1247,8 +1249,9 @@ internal static partial class Loc
             // say so where the player reads about it, not only in a code comment.
             ["MapRoom/PartyMarkerScale"] =
                 "GRÖSSE des GRUPPEN-MARKERS im 3D-Kartenraum — die Figur, die zeigt, wo eure Gruppe gerade "
-                + "steht und die beim Reisen den Weg abläuft. Bereich 0.5-4, Standard 1 = die bisherige "
-                + "Größe. Getrennt von den Ortssymbolen, denn der Marker ist ein anderes Objekt und das "
+                + "steht und die beim Reisen den Weg abläuft. Bereich 0.5-4, wobei 1 = die bisherige "
+                + "Größe ist; der ausgelieferte Standard steht unter diesem Text und ist "
+                + "größer. Getrennt von den Ortssymbolen, denn der Marker ist ein anderes Objekt und das "
                 + "Erste, wonach man auf der Karte sucht. Die Untergrenze gibt es aus demselben Grund wie "
                 + "überall: eine geschrumpfte Gruppe findest du nicht wieder. Diese Einstellung "
                 + "ändert die Größe am Kartenobjekt des Spiels; beim Verlassen wird sie exakt "
@@ -1257,7 +1260,8 @@ internal static partial class Loc
             ["MapRoom/PathWidthScale"] =
                 "BREITE des eingezeichneten WEGES im 3D-Kartenraum — sowohl der Pfad zu dem Ort, auf den du "
                 + "zeigst, als auch die festen Straßen zwischen den freigeschalteten Dörfern. Bereich 0.5-4, "
-                + "Standard 1 = die Breite, die das Spiel zeichnet. Der Wert multipliziert die absichtlich "
+                + "wobei 1 = die Breite ist, die das Spiel zeichnet; der ausgelieferte Standard steht "
+                + "unter diesem Text und ist breiter. Der Wert multipliziert die absichtlich "
                 + "unregelmäßige Linie des Spiels: ein breiterer Weg sieht weiterhin von Hand gezeichnet aus "
                 + "und wird kein glattes Band. Wie beim Gruppen-Marker wird hier etwas am Kartenobjekt des "
                 + "Spiels geändert; beim Verlassen wird es exakt zurückgesetzt, und an "
@@ -1451,16 +1455,17 @@ internal static partial class Loc
                 + "auch gerade nach OBEN — kann den Messwert nicht bewegen; nur das Rollen des Handgelenks tut "
                 + "das. Gemessen an der SICHTBAREN Hand (nach den Hand-Sitz-Versätzen/Handstil-Feinkorrekturen "
                 + "aus dem Debug-Menü). Skala: 0 = flache Hand mit Knöcheln oben, 90 = Handfläche voll zum "
-                + "Gesicht gerollt (negativ = andersherum gerollt, das öffnet den Fächer nie). Standard 60 = "
-                + "eine bequeme Supination deutlich über die Senkrechte hinaus (Demeos eigene Schwelle liegt "
-                + "bei ~37°). HINWEIS: die Skala hat sich gegenüber dem alten v2-Messverfahren GEÄNDERT (dessen "
+                + "Gesicht gerollt (negativ = andersherum gerollt, das öffnet den Fächer nie). Der ausgelieferte "
+                + "Standard steht unter diesem Text und ist eine bequeme Supination deutlich über die "
+                + "Senkrechte hinaus (Demeos eigene Schwelle liegt bei ~37°). HINWEIS: die Skala hat sich gegenüber dem alten v2-Messverfahren GEÄNDERT (dessen "
                 + "Standard 95 auf einer 0-180-Skala war) — alte Werte außerhalb des Bereichs werden einmalig "
                 + "automatisch zurückgesetzt. Live änderbar im VR-Debug-Menü (Kategorie Kartenfächer).",
             ["Cards/RevealExitDegrees"] =
                 "RevealMode=tilt: Hand-Rollwinkel in GRAD, unter dem sich der Fächer SCHLIESST (gleiche "
                 + "Rollskala wie RevealEnterDegrees: 0 = flach, 90 = Handfläche voll zum Gesicht). Das "
-                + "voreingestellte Totband von 15° unter dem Öffnen-Wert von 60° verhindert, dass das Gate an "
-                + "der Grenze flattert; das Gate hält diesen Wert immer unter RevealEnterDegrees. Live änderbar "
+                + "Totband UNTER dem Öffnen-Wert verhindert, dass das Gate an der Grenze flattert; das Gate "
+                + "hält diesen Wert immer unter RevealEnterDegrees. Beide ausgelieferten Werte stehen "
+                + "jeweils unter ihrer eigenen Zeile. Live änderbar "
                 + "im VR-Debug-Menü (Kategorie Kartenfächer).",
             ["Cards/FanRadius"] =
                 "Bogenradius des Handflächen-Fächers in echten Metern (die Dioramen-Skalierung wird "
@@ -2355,9 +2360,10 @@ internal static partial class Loc
                 + "0.35 mm pro uGUI-Pixel vor deinem Gesicht, 2.0 ist also ein doppelt so hoher und doppelt so "
                 + "breiter Balken — bei jedem Tischzoom. Das ist die einzige Größenangabe, die einen "
                 + "Pinch-Zoom überlebt, denn der Zoom des Mods ist eine Skalierung des RIGS: eine Größe in "
-                + "Welteinheiten sähe auf jeder Zoomstufe anders groß aus. Standard 1.0 = genau die Größe von "
-                + "vor diesem Regler (beim ausgelieferten Tischzoom), es ändert sich also nichts, bis du ihn "
-                + "verstellst. Die eingestellte Größe HÄLT auch beim Zoomen: die Balken folgen dem Tischzoom "
+                + "Welteinheiten sähe auf jeder Zoomstufe anders groß aus. Der Faktor 1.0 ist genau die Größe "
+                + "von vor diesem Regler (beim ausgelieferten Tischzoom); der AUSGELIEFERTE Standard ist "
+                + "nicht 1.0 — er stammt aus einer eingestellten cfg und steht unter diesem Text. "
+                + "Die eingestellte Größe HÄLT auch beim Zoomen: die Balken folgen dem Tischzoom "
                 + "nur innerhalb eines festen Bandes von 0.7-1.5 um deine Größe herum, können also weder "
                 + "wegschrumpfen noch das Brett verschlucken. Live: schon das nächste Bild wird in der neuen "
                 + "Größe gezeichnet. Bereich 0.25-3.",
@@ -2959,14 +2965,17 @@ internal static partial class Loc
                 + "Zeichen von einer hellen Messingkappe trennt). AUS für eine flache Beschriftung. Standard "
                 + "true. Live änderbar.",
             ["ButtonColors/LabelOutlineR"] =
-                "KONTURFARBE der Tastenkappen-Beschriftung — ROT-Kanal (0..1). Standard 0.09 = dunkles Umbra. "
-                + "Live änderbar.",
+                "KONTURFARBE der Tastenkappen-Beschriftung — ROT-Kanal (0..1). Der AUTHORED-Wert war 0.09 "
+                + "(dunkles Umbra); der ausgelieferte Standard stammt aus einer eingestellten cfg und "
+                + "steht unter diesem Text. Live änderbar.",
             ["ButtonColors/LabelOutlineG"] =
-                "KONTURFARBE der Tastenkappen-Beschriftung — GRÜN-Kanal (0..1). Standard 0.06 = dunkles "
-                + "Umbra. Live änderbar.",
+                "KONTURFARBE der Tastenkappen-Beschriftung — GRÜN-Kanal (0..1). Der AUTHORED-Wert war 0.06 "
+                + "(dunkles Umbra); der ausgelieferte Standard stammt aus einer eingestellten cfg und "
+                + "steht unter diesem Text. Live änderbar.",
             ["ButtonColors/LabelOutlineB"] =
-                "KONTURFARBE der Tastenkappen-Beschriftung — BLAU-Kanal (0..1). Standard 0.03 = dunkles "
-                + "Umbra. Live änderbar.",
+                "KONTURFARBE der Tastenkappen-Beschriftung — BLAU-Kanal (0..1). Der AUTHORED-Wert war 0.03 "
+                + "(dunkles Umbra); der ausgelieferte Standard stammt aus einer eingestellten cfg und "
+                + "steht unter diesem Text. Live änderbar.",
             ["ButtonColors/LabelOutlineWidth"] =
                 "KONTURBREITE der Tastenkappen-Beschriftung, Anteil der SDF-Streuung (dicker = schwererer "
                 + "dunkler Rand). Standard 0.20. Live änderbar; begrenzt auf 0..1.",

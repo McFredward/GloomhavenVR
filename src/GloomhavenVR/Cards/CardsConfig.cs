@@ -665,8 +665,8 @@ internal static class CardsConfig
                 "wrist does. Measured on the VISIBLE hand (after the debug-menu hand seat " +
                 "offsets/per-style trims). Scale: 0 = knuckles-up flat hand, 90 = palm " +
                 "fully rolled toward the face (negative = rolled the other way, which never " +
-                "opens the fan). Default 60 = a comfortable supination well past vertical " +
-                "(Demeo's own threshold is ~37°). NOTE: the scale CHANGED from the old v2 " +
+                "opens the fan). The shipped default, printed under this text, is a comfortable " +
+                "supination well past vertical (Demeo's own threshold is ~37°). NOTE: the scale CHANGED from the old v2 " +
                 "measure (whose default was 95 on a 0-180 scale) — old out-of-range values " +
                 "are auto-reset once. Live-tunable from the in-VR debug menu (Fan category).",
                 new AcceptableValueRange<float>(15f, 85f)));
@@ -674,9 +674,9 @@ internal static class CardsConfig
             new ConfigDescription(
                 "RevealMode=tilt: hand roll in DEGREES below which the fan CLOSES (same " +
                 "roll scale as RevealEnterDegrees: 0 = flat, 90 = palm fully toward " +
-                "the face). The 15° default dead band under the 60° enter keeps the gate from " +
-                "chattering at the boundary; the gate always clamps this below " +
-                "RevealEnterDegrees. Live-tunable from the in-VR debug menu (Fan category).",
+                "the face). Sitting BELOW the enter angle is what keeps the gate from chattering " +
+                "at the boundary; the gate always clamps this below RevealEnterDegrees, and " +
+                "both shipped values are printed under their own rows. Live-tunable from the in-VR debug menu (Fan category).",
                 new AcceptableValueRange<float>(5f, 80f)));
         // One-time migration (roll gate v3): the v2 measure ran on a 0-180° scale with 95/80
         // defaults; the Demeo measure caps at 90° and defaults 60/45. Old cfg values above the

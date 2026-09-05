@@ -306,31 +306,20 @@ internal sealed partial class CardsDriver
         // The mod stopped auto-raising the item fan (see ItemsPile's class doc); this hint is what
         // replaces it, and it disappears the moment the fan is up.
         if (canSelect && !fanOpen)
-            line += " — " + ItemFanOpenHint();
+            line += " — " + Core.Loc.Mod("item_fan_open_hint");
         _tray.SetPickStatus(who.Length > 0 ? who + ": " + line : line, null, null);
         return true;
     }
 
-    /// <summary>
-    /// "Open the items pile" hint for the MANDATORY item-demand banner. The mod no longer raises
-    /// the item fan for the player (see <see cref="ItemsPile"/>'s class doc — the auto-open was
-    /// what made the fan unclosable), so a blocking demand has to name the affordance.
-    ///
-    /// The string belongs in <c>Core.Loc</c>'s table under <c>item_fan_open_hint</c>; that file is
-    /// shared, so this build carries the wording INLINE and prefers the table entry the moment it
-    /// exists (<c>Loc.Mod</c> returns the id itself for an unknown key — that is the probe here).
-    /// Delete this fallback once the key is in the table.
-    /// </summary>
-    private static string ItemFanOpenHint()
-    {
-        const string key = "item_fan_open_hint";
-        string localized = Core.Loc.Mod(key);
-        if (!string.Equals(localized, key, System.StringComparison.Ordinal))
-            return localized;
-        return Core.Loc.CurrentLanguage == "German"
-            ? "tippe den Gegenstände-Stapel an, um den Fächer zu öffnen"
-            : "tap the items pile to open the fan";
-    }
+    // The "open the items pile" hint the MANDATORY item-demand banner appends is Loc.Mod
+    // "item_fan_open_hint" and nothing else. It used to go through a private ItemFanOpenHint()
+    // that probed the table (Loc.Mod returns the id itself for an unknown key) and fell back to
+    // an inline EN/DE pair, because the wording landed in a build where Loc.cs was another lane's
+    // file. Its own doc said "delete this fallback once the key is in the table"; the key has been
+    // in Loc.cs since, so the fallback was a second, silently divergeable copy of a player-facing
+    // sentence. The mod no longer raises the item fan by itself (see ItemsPile's class doc — the
+    // auto-open was what made the fan unclosable), which is why a blocking demand names the
+    // affordance at all.
 
     // Change-gate for the floating-panel decision banner (flows 2-4: doom picker /
     // distribute-points select+assign — see UpdatePanelDecisionStatus).

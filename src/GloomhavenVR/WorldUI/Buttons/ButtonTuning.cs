@@ -253,11 +253,17 @@ internal static class ButtonTuning
             "Draw the dark keyline OUTLINE around the keycap label (the carved-engraving rim that " +
             "separates bright glyphs from a light brass cap). Turn OFF for a flat label. Default true. Live.");
         LabelOutlineR = config.Bind("ButtonColors", "LabelOutlineR", Defaults.LabelOutlineR,
-            "Keycap label OUTLINE colour — RED channel (0..1). Default 0.09 = dark umber. Live.");
+            "Keycap label OUTLINE colour — RED channel (0..1). The AUTHORED keyline was 0.09 " +
+            "(dark umber); the shipped default was re-based from a tuned cfg and is printed under " +
+            "this text. Live.");
         LabelOutlineG = config.Bind("ButtonColors", "LabelOutlineG", Defaults.LabelOutlineG,
-            "Keycap label OUTLINE colour — GREEN channel (0..1). Default 0.06 = dark umber. Live.");
+            "Keycap label OUTLINE colour — GREEN channel (0..1). The AUTHORED keyline was 0.06 " +
+            "(dark umber); the shipped default was re-based from a tuned cfg and is printed under " +
+            "this text. Live.");
         LabelOutlineB = config.Bind("ButtonColors", "LabelOutlineB", Defaults.LabelOutlineB,
-            "Keycap label OUTLINE colour — BLUE channel (0..1). Default 0.03 = dark umber. Live.");
+            "Keycap label OUTLINE colour — BLUE channel (0..1). The AUTHORED keyline was 0.03 " +
+            "(dark umber); the shipped default was re-based from a tuned cfg and is printed under " +
+            "this text. Live.");
         LabelOutlineW = config.Bind("ButtonColors", "LabelOutlineWidth", Defaults.LabelOutlineWidth,
             "Keycap label OUTLINE width, fraction of the SDF spread (thicker = a heavier dark rim). " +
             "Default 0.20. Live; clamped 0..1.");

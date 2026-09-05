@@ -238,16 +238,16 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
         SelfUpdateRelease release = check.Release;
         string body = string.Format(
             CultureInfo.InvariantCulture,
-            SelfUpdateText.T("upd_body"),
+            Loc.Mod("upd_body"),
             BuildInfo.Version,
             release.Version,
             Megabytes(release.AssetSize));
 
         _dialog.ShowChoice(
-            SelfUpdateText.T("upd_title"),
+            Loc.Mod("upd_title"),
             body,
-            SelfUpdateText.T("upd_ignore"),
-            SelfUpdateText.T("upd_update"),
+            Loc.Mod("upd_ignore"),
+            Loc.Mod("upd_update"),
             onIgnore: () =>
             {
                 VRLog.Info("SelfUpdate", $"UPDATE CHECK: the user chose to ignore {release.Version} "
@@ -265,9 +265,9 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
         _lastStatus = string.Empty;   // a second attempt must not inherit the first one's last line
         _nextStatusAt = 0f;
         _dialog.ShowProgress(
-            string.Format(CultureInfo.InvariantCulture, SelfUpdateText.T("upd_working"),
+            string.Format(CultureInfo.InvariantCulture, Loc.Mod("upd_working"),
                 release.Version),
-            SelfUpdateText.T("upd_cancel"),
+            Loc.Mod("upd_cancel"),
             onCancel: () =>
             {
                 _installer?.Cancel();
@@ -308,9 +308,9 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
         {
             case SelfUpdatePhase.Failed:
                 _dialog.ShowDone(
-                    string.Format(CultureInfo.InvariantCulture, SelfUpdateText.T("upd_failed"),
+                    string.Format(CultureInfo.InvariantCulture, Loc.Mod("upd_failed"),
                         installer.FailedTerm),
-                    SelfUpdateText.T("upd_close"),
+                    Loc.Mod("upd_close"),
                     onClose: () =>
                     {
                         _dialog.Close();
@@ -337,7 +337,7 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
     private void DriveQuitting()
     {
         _dialog.SetProgress(1f);
-        string status = SelfUpdateText.T("upd_restarting");
+        string status = Loc.Mod("upd_restarting");
         if (!string.Equals(status, _lastStatus, StringComparison.Ordinal))
         {
             _lastStatus = status;   // TMP rebuild guard — see DriveInstall
@@ -348,7 +348,7 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
 
         // The game is still here. The applier is waiting for this process and will do its work the
         // moment it is gone, so the honest thing is to say so rather than to keep a bar spinning.
-        _dialog.ShowDone(SelfUpdateText.T("upd_still_running"), SelfUpdateText.T("upd_close"),
+        _dialog.ShowDone(Loc.Mod("upd_still_running"), Loc.Mod("upd_close"),
             onClose: () => _dialog.Close());
         _state = State.Finished;
     }
@@ -403,11 +403,11 @@ internal sealed class SelfUpdateDriver : MonoBehaviour
     private static string StatusLine(SelfUpdateInstaller installer) => installer.Phase switch
     {
         SelfUpdatePhase.Downloading => string.Format(CultureInfo.InvariantCulture,
-            SelfUpdateText.T("upd_downloading"),
+            Loc.Mod("upd_downloading"),
             Megabytes(installer.DownloadedBytes), Megabytes(installer.TotalBytes)),
-        SelfUpdatePhase.Verifying => SelfUpdateText.T("upd_verifying"),
-        SelfUpdatePhase.Extracting => SelfUpdateText.T("upd_extracting"),
-        SelfUpdatePhase.Handover => SelfUpdateText.T("upd_restarting"),
+        SelfUpdatePhase.Verifying => Loc.Mod("upd_verifying"),
+        SelfUpdatePhase.Extracting => Loc.Mod("upd_extracting"),
+        SelfUpdatePhase.Handover => Loc.Mod("upd_restarting"),
         _ => string.Empty,
     };
 

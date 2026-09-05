@@ -621,8 +621,9 @@ public class Plugin : BaseUnityPlugin
             new ConfigDescription(
                 "SIZE of the WORLD MAP's location icons WHILE YOU STAND IN THE 3D MAP ROOM "
                 + "([Rig] Vanilla2DMap off) — the village, scenario and boss markers on the "
-                + "parchment. Range 0.5-4, default 1 = the size they have always had, so nothing "
-                + "changes until you move this; the floor is there because an icon scaled to "
+                + "parchment. Range 0.5-4, where 1 = the size they have always had — the shipped "
+                + "default is printed under this text and is NOT 1, it was re-based from a "
+                + "tuned cfg. The floor is there because an icon scaled to "
                 + "nothing is a scenario you can no longer point at. The factor multiplies each "
                 + "icon's authored footprint, so every icon keeps its own proportions and its own "
                 + "place on the map: it is a zoom of the marker, not a re-layout of the map. The "
@@ -671,8 +672,9 @@ public class Plugin : BaseUnityPlugin
             "MapRoom", "PartyMarkerScale", Defaults.MapPartyMarkerScale,
             new ConfigDescription(
                 "SIZE of the PARTY MARKER in the 3D map room — the token that shows where your group "
-                + "currently is, and that walks the route when you travel. Range 0.5-4, default 1 = "
-                + "the size it has always had. Separate from the location icons: the marker is a "
+                + "currently is, and that walks the route when you travel. Range 0.5-4, where 1 = "
+                + "the size it has always had — the shipped default is printed under this "
+                + "text and is larger. Separate from the location icons: the marker is a "
                 + "different object drawn a different way, and it is the one thing on the map you "
                 + "look for first. The floor is there for the same reason as everywhere else — a "
                 + "marker shrunk to nothing is a party you can no longer find. It is enlarged in the "
@@ -685,7 +687,8 @@ public class Plugin : BaseUnityPlugin
             new ConfigDescription(
                 "WIDTH of the ROUTE drawn between two places in the 3D map room — both the path to "
                 + "the location you are pointing at and the permanent roads between the villages "
-                + "you have unlocked. Range 0.5-4, default 1 = the width the game draws. The value "
+                + "you have unlocked. Range 0.5-4, where 1 = the width the game draws — the shipped "
+                + "default is printed under this text and is wider. The value "
                 + "multiplies the game's own hand-drawn, deliberately ragged line, so a wider road "
                 + "still looks drawn by hand and does not become a flat ribbon. This is the only "
                 + "setting in the map room that changes something on the game's own map object; it "
