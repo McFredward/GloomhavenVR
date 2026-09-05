@@ -942,19 +942,208 @@ internal sealed class PropInfoSurface
 }
 
 /// <summary>
-/// Attribution diagnostic (test #18): the 'Geschlossene Tür' panel appeared with
-/// nothing in the log naming WHY — the lock had to be reconstructed from fan-state
-/// lines. One change-deduped Info line per Show while VR runs names the hovered
-/// prop titles, so any future "mystery panel" report is attributable from
-/// LogOutput.log alone. Postfix on the params overload — the (title, description)
-/// overload delegates to it (UITextInfoPanel.cs:74-77). Note Show can still
-/// early-return inside the game (scene transition, results shown, DoShow off), so
-/// the line records the hover REQUEST, not necessarily a visible panel.
+/// THE HOVER CARD'S CONTENT — the attribution diagnostic (test #18), and since ModBuild 445 the
+/// GOLD REPAIR that the 2026-09-05 report needs.
+///
+/// <para><b>The report.</b> "Hinterlassene Goldhaufen von Gegnern haben keine Tooltips beim
+/// Laser-Mouseover und können auch nicht in die Hand genommen werden." The second half is a
+/// collider defect and is fixed elsewhere (<c>VRInteractables.IsUsablePickShape</c>). The FIRST
+/// half is not the same bug and the recon that paired them had it wrong: the hover tooltip is
+/// raised entirely from the HEX, never from the prop's own collider. The chain is
+/// <c>WorldspaceStarHexDisplay.Update</c> → <c>DisplayCursorHoverStar</c> (:3200) →
+/// <c>Interactable()</c> (:3813) → <c>MF.FindInteractableAtMousePosition</c> (MF.cs:387) on
+/// <c>m_HexSelectionRaycastLayer</c>, which the mod prefixes with the VR ray
+/// (<c>Board.Patches.PickingPatches</c>), then <c>GetComponent&lt;TileBehaviour&gt;</c> and
+/// <c>ShowTooltipForTile(tile)</c> (:3370), which reads <c>tile.m_Tile.m_Props</c>. A prop's
+/// collider state cannot reach any step of that. And the gold pile IS in that list: an enemy drop
+/// is built by <c>DelayedDropSMB</c> (:124) and added through <c>CTile.SpawnProp</c>
+/// (CTile.cs:130).</para>
+///
+/// <para><b>THE ACTUAL CAUSE IS A DEDUP COLLISION IN THE GAME'S OWN TOOLTIP BUILDER, and it is
+/// specific to gold.</b> <c>ShowTooltipForTile</c> walks the hex's props through a ladder of
+/// <c>if (ObjectType == …)</c> branches. Every branch writes <c>info.ImportType =
+/// cObjectProp.ObjectType</c> — Chest at :3425, GoalChest :3430, Obstacle :3436, Door :3442,
+/// PressurePlate :3446, Portal :3451, CarryableQuestItem :3457, Resource :3464 — with exactly
+/// ONE exception: the MoneyToken branch (:3413-3421) sets only <c>info.Gold</c> and leaves
+/// <c>ImportType</c> at its initialiser, <c>None</c>. The list is then deduped on that same field:
+/// <c>if (!list.Exists(x =&gt; x.ImportType == info.ImportType)) list.Add(info);</c> (:3468).</para>
+///
+/// <para>Several prop families have NO branch at all in that ladder — <c>MonsterGrave</c>,
+/// <c>GenericProp</c>, <c>TerrainVisualEffect</c>, rubble, water, thorns, traps. Such a prop falls
+/// through with a null title AND <c>ImportType == None</c>, and is added anyway because the list
+/// was empty. When the gold arrives after it, the reunion test at :3415 looks for
+/// <c>ImportType == MoneyToken</c> or <c>(ImportType == None &amp;&amp; Gold &gt; 0)</c> — the
+/// blank entry has <c>Gold == 0</c>, so it does not match and the gold gets a FRESH
+/// <c>PropInfo</c>, which then collides with the blank one's <c>None</c> at :3468 and IS SILENTLY
+/// DISCARDED. The list is left holding one entry with a null title, <c>list.Count &gt; 0</c> so
+/// the <c>TryReset()</c> branch is skipped, and <c>Show((null, null))</c> runs.</para>
+///
+/// <para><b>Why that is invisible rather than merely wrong, and worse in VR.</b>
+/// <c>UITextInfoElement.Set</c> deactivates its whole row on an empty TITLE
+/// (UITextInfoElement.cs:21), while <c>UITextInfoPanel.Show</c> calls <c>_window.Show()</c>
+/// unconditionally (UITextInfoPanel.cs:69). Flat-screen still paints the panel's container; this
+/// surface converts with content-fitting off and <c>MrBackingSuppressed</c> (see
+/// <see cref="PropInfoSurface"/>'s dock), so the player gets a fully transparent quad — no card
+/// at all, which is exactly the word the report uses.</para>
+///
+/// <para><b>Why a chest on the same hex never shows this.</b> Chest and Obstacle claim their own
+/// <c>ImportType</c>, so a blank neighbour can never dedup them away. Gold is the only entry whose
+/// identity is <c>None</c>, i.e. the only one that can lose a collision it did not know it was
+/// in. And an enemy drop is always APPENDED to the hex's prop list, so anything already standing
+/// there — a grave the same death created, terrain the enemy was standing on — is at a lower
+/// index and always takes the slot first.</para>
+///
+/// <para><b>THE REPAIR, and what it deliberately does not do.</b> A prefix that re-adds the entry
+/// the game dropped, and nothing else. It reads the hovered hex through
+/// <c>BoardPick.TryGetHoveredTile</c>, counts its MoneyToken props and converts them with the
+/// game's own expression (<c>SLTE == null ? 1 : SLTE.GoldConversion</c> per token —
+/// WorldspaceStarHexDisplay.cs:3420, the same term CollectLootSMB.cs:87 and CAbilityLoot.cs:302
+/// use), and appends the line the game builds in <c>PropInfo.Get()</c> (:85-91) only when the
+/// incoming array does not already carry it. NOTHING IS WRITTEN TO GAME STATE: the prop list, the
+/// scenario and the level table are read and never assigned, and the only mutation is to the
+/// argument array this call is about to render. When the hex has no gold, when the gold is
+/// already in the array, or when the VR pick is not on a hex, the prefix returns having changed
+/// nothing — so every tooltip that works today is bit-identical.</para>
+///
+/// <para><b>Blank entries are dropped in the same pass, and only then.</b> A <c>PropInfo</c> with
+/// no title renders as a deactivated row, so removing it costs no information; keeping it is what
+/// made <c>list.Count &gt; 0</c> true and suppressed the game's own <c>TryReset()</c>. They are
+/// dropped only on a call this repair is already rewriting, so a panel that is legitimately blank
+/// for some other reason is untouched.</para>
+///
+/// <para><b>THE DIAGNOSTIC WAS ALWAYS HERE AND COULD NOT BE READ.</b> The postfix below has logged
+/// the hovered titles since test #18 — including <c>&lt;untitled&gt;</c>, which is this exact
+/// defect printing its own name — at <c>VRLog.Info</c>, i.e. the DEBUG tier, which a shipped
+/// build does not print. It is promoted to <c>Note</c>: one change-deduped line per hover change
+/// is affordable and it is the line that settles gold tooltips for good.</para>
+///
+/// <para>Both hooks sit on the params overload; the <c>(title, description)</c> overload delegates
+/// to it (UITextInfoPanel.cs:74-77). <c>Show</c> can still early-return inside the game (scene
+/// transition, results shown, <c>DoShow</c> off), so the log records the hover REQUEST, not
+/// necessarily a visible panel.</para>
 /// </summary>
 [HarmonyPatch(typeof(UITextInfoPanel), nameof(UITextInfoPanel.Show), typeof((string, string)[]))]
 internal static class UITextInfoPanel_Show_Patch
 {
     private static string? _lastLogged;
+
+    /// <summary>Repair lines this session. The repair fires per hover change over a broken hex,
+    /// which a player can do dozens of times; the first two lines carry the whole finding and the
+    /// counter below carries the rest.</summary>
+    private const int RepairLogBudget = 2;
+
+    private static int _repairLogsLeft = RepairLogBudget;
+
+    private static int _repairs;
+
+    /// <summary>Hexes seen carrying MoneyToken props whose converted total was ZERO — i.e. the
+    /// scenario's <c>GoldConversion</c> is 0. A different cause with the same symptom, counted so
+    /// it cannot be confused with the dedup collision.</summary>
+    private static int _zeroConversion;
+
+    private static void Prefix(ref (string title, string description)[] input)
+    {
+        if (!VRSession.IsRunning || input == null)
+            return;
+
+        int gold = HoveredHexGold(out int tokens);
+        if (tokens == 0)
+            return; // the hovered hex carries no gold: nothing this repair has an opinion about
+
+        if (gold <= 0)
+        {
+            _zeroConversion++;
+            return; // GoldConversion is 0; inventing a number here would be a fudge, not a fix
+        }
+
+        // The game's own term, through the game's own localiser (WorldspaceStarHexDisplay.cs:91),
+        // so the repaired card reads in the player's language exactly as a working one would.
+        string goldLine = $"{gold} {GLOOM.LocalizationManager.GetTranslation("Gold")}";
+
+        int titled = 0;
+        for (int i = 0; i < input.Length; i++)
+        {
+            if (string.IsNullOrEmpty(input[i].title))
+                continue;
+            titled++;
+            // The game composes the gold either alone or appended after another prop's title with
+            // "\n&\n" (PropInfo.Get, WorldspaceStarHexDisplay.cs:85-91), so a Contains test is
+            // what "the gold is already on this card" means for both shapes.
+            if (input[i].title.Contains(goldLine))
+                return; // the game got it right for this hex; change nothing
+        }
+
+        var rebuilt = new (string title, string description)[titled + 1];
+        int w = 0;
+        for (int i = 0; i < input.Length; i++)
+        {
+            if (!string.IsNullOrEmpty(input[i].title))
+                rebuilt[w++] = input[i];
+        }
+        rebuilt[w] = (goldLine, null!);
+        int dropped = input.Length - titled;
+        input = rebuilt;
+
+        _repairs++;
+        if (_repairLogsLeft <= 0)
+            return;
+        _repairLogsLeft--;
+        // HW-VERIFY: this line is the falsifier for the 2026-09-05 "gold piles have no tooltip"
+        // diagnosis. It prints only when the game's own tooltip builder dropped a gold entry that
+        // the hovered hex demonstrably carries, so its presence proves the dedup collision is real
+        // on this board and its ABSENCE, while the user still reports no card, sends the search
+        // downstream (the hover re-entry latch, or the conversion). It must stay at a tier the
+        // DEFAULT log level prints (Note/Alert/Error); scripts/check-hw-verify.py enforces it.
+        VRLog.Note("WorldUI",
+            $"HOVER TOOLTIP REPAIRED: the hex under the laser carries {tokens} MoneyToken prop(s) "
+            + $"worth {gold} gold, and the game's own tooltip builder handed us "
+            + $"{input.Length - 1} titled entr(y/ies) with none of them naming it. That is "
+            + "WorldspaceStarHexDisplay.ShowTooltipForTile:3468 discarding the gold: MoneyToken is "
+            + "the ONE prop family whose branch (:3413-3421) never sets PropInfo.ImportType, so it "
+            + "stays None and collides with any prop on the same hex that has no branch in that "
+            + "ladder at all (a MonsterGrave the death itself created, terrain, a generic prop) — "
+            + "those also come out None, and being EARLIER in the hex's prop list they take the "
+            + $"slot. {dropped} blank entr(y/ies) dropped and the gold line re-added, so the card "
+            + "says what the hex holds. A chest or obstacle can never hit this because it claims "
+            + "its own ImportType (:3425/:3436), which is why only ENEMY-DROP gold was reported. "
+            + $"({_repairLogsLeft} more of these lines this session; the count is in the Show line "
+            + "below.)");
+    }
+
+    /// <summary>
+    /// The gold the hovered hex actually holds, computed with the GAME's expression so the number
+    /// on the repaired card is the number the game would have printed.
+    /// </summary>
+    /// <param name="tokens">How many MoneyToken props the hex carries — separate from the value,
+    /// because "no gold here" and "gold worth zero" are different answers and only the first one
+    /// means this repair has nothing to say.</param>
+    private static int HoveredHexGold(out int tokens)
+    {
+        tokens = 0;
+        if (!Board.BoardPick.TryGetHoveredTile(out ScenarioRuleLibrary.CTile? hovered))
+            return 0;
+        ScenarioRuleLibrary.CTile? tile = hovered;
+        if (tile == null)
+            return 0;
+        System.Collections.Generic.List<ScenarioRuleLibrary.CObjectProp>? props = tile.m_Props;
+        if (props == null)
+            return 0;
+
+        ScenarioRuleLibrary.CScenario? scenario = ScenarioRuleLibrary.ScenarioManager.Scenario;
+        ScenarioRuleLibrary.YML.ScenarioLevelTableEntry? slte = scenario != null ? scenario.SLTE : null;
+        int per = slte == null ? 1 : slte.GoldConversion;
+        int total = 0;
+        for (int i = 0; i < props.Count; i++)
+        {
+            ScenarioRuleLibrary.CObjectProp prop = props[i];
+            if (prop == null
+                || prop.ObjectType != ScenarioRuleLibrary.ScenarioManager.ObjectImportType.MoneyToken)
+                continue;
+            tokens++;
+            total += per;
+        }
+        return total;
+    }
 
     private static void Postfix((string title, string description)[] input)
     {
@@ -975,6 +1164,18 @@ internal static class UITextInfoPanel_Show_Patch
         if (titles == _lastLogged)
             return; // change-deduped: the hover path re-Shows per hover change
         _lastLogged = titles;
-        VRLog.Info("WorldUI", $"UITextInfoPanel.Show (hover prop info): {titles}.");
+        // HW-VERIFY: PROMOTED Info -> Note in ModBuild 445, text otherwise unchanged. This line has
+        // printed "<untitled>" — the gold-dedup defect naming itself — since test #18, at the DEBUG
+        // tier, i.e. never in a shipped build, which is why two hardware rounds argued about gold
+        // tooltips with the answer already written. It is the ONE line that says what the hover
+        // card was asked to contain. Tier enforced by scripts/check-hw-verify.py.
+        VRLog.Note("WorldUI",
+            $"UITextInfoPanel.Show (hover prop info): {titles}. "
+            + $"Gold entries this session that the game dropped and we re-added: {_repairs}; "
+            + $"hover(s) over a gold hex whose converted value was ZERO (the scenario's "
+            + $"GoldConversion is 0, a different cause with the same blank card): {_zeroConversion}. "
+            + "READ IT LIKE THIS: '<untitled>' here means the game built a tooltip entry with no "
+            + "title, which renders as a deactivated row and, on this world-space surface, as "
+            + "nothing at all.");
     }
 }

@@ -32,7 +32,7 @@ runtime, which is why a runtime audit could never do this job (see
 `.planning/refactor/REVIEW-Hands-Board-Core.md` §P1).
 
 
-**95 patch classes, 152 patched methods.**
+**95 patch classes, 153 patched methods.**
 
 ## Board
 
@@ -217,7 +217,8 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `AbilityCardUI.ChangeFullCardPosition()` | prefix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | postfix | &nbsp; |
 | &nbsp; | `AbilityCardUI.ToggleFullCardPreview()` | prefix | &nbsp; |
-| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:956</sub> | `UITextInfoPanel.Show((string, string)[])` | postfix | `WorldUIModule`:55 |
+| `UITextInfoPanel_Show_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/PropInfoSurface.cs:1027</sub> | `UITextInfoPanel.Show((string, string)[])` | prefix | `WorldUIModule`:55 |
+| &nbsp; | `UITextInfoPanel.Show((string, string)[])` | postfix | &nbsp; |
 | `UIDistributePointsPopup_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:147</sub> | `UIDistributePointsPopup.Hide()` | prefix | `SurfaceCloseEdge`:77 |
 | `UIAbilityCardPicker_Hide_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Surfaces/SurfaceCloseEdge.cs:156</sub> | `UIAbilityCardPicker.Hide()` | prefix | `SurfaceCloseEdge`:78 |
 

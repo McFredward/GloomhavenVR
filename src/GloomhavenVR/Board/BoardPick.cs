@@ -197,6 +197,34 @@ internal static class BoardPick
         return _source != PickSource.None && _hasHit;
     }
 
+    /// <summary>
+    /// THE HEX THE LASER IS ON, as the game's own scenario-state tile — read-only.
+    ///
+    /// <para>Nothing here writes: it resolves the collider this pick already hit to the
+    /// <c>TileBehaviour</c> the game hangs on every hex, exactly as <see cref="ResolveCursorWorld"/>
+    /// has always done for the cursor snap, and hands back the rules-side <c>CTile</c>. It exists
+    /// for <c>WorldUI.Surfaces.PropInfoSurface</c>'s gold-tooltip repair, which needs to know what
+    /// the hovered hex actually carries in order to tell a tooltip that is MISSING an entry from
+    /// one that simply has nothing to say. See that repair for the account.</para>
+    ///
+    /// <para><c>GetComponentInParent</c> rather than <c>GetComponent</c> for the same reason the
+    /// cursor snap uses it: a hex's collider may sit on a child of the object that carries the
+    /// behaviour. This mirrors the game's own resolution in
+    /// <c>MF.FindInteractableAtMousePosition</c>, which the mod already prefixes with this same
+    /// ray, so the tile answered here is the tile the game's hover is looking at.</para>
+    /// </summary>
+    public static bool TryGetHoveredTile(out ScenarioRuleLibrary.CTile? tile)
+    {
+        tile = null;
+        EnsureFresh();
+        if (_source == PickSource.None || !_hasHit || _hitCollider == null)
+            return false;
+        TileBehaviour? behaviour = _hitCollider.GetComponentInParent<TileBehaviour>();
+        CClientTile? client = behaviour != null ? behaviour.m_ClientTile : null;
+        tile = client != null ? client.m_Tile : null;
+        return tile != null;
+    }
+
     /// <summary>Hot-reload hygiene (module Shutdown).</summary>
     public static void Reset()
     {
