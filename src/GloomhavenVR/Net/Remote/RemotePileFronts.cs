@@ -125,7 +125,10 @@ internal sealed class RemotePileFronts
 
     /// <summary>Reused resolve buffers — the per-cadence resolve allocates nothing.</summary>
     private readonly List<AbilityCardUI> _abilityBuf = new(16);
-    private readonly List<CItem> _itemBuf = new(16);
+    /// <summary>The ITEM resolve buffer. <c>CItem?</c> because it is a RAW copy of
+    /// <c>Inventory.AllItems</c> INCLUDING its null entries — the index has to stay the owner's, and
+    /// a null seat draws a back. See <see cref="Resolve"/>.</summary>
+    private readonly List<CItem?> _itemBuf = new(16);
 
     private float _nextResolveAt;
     private int _resolvedCount = -1;
@@ -432,24 +435,50 @@ internal sealed class RemotePileFronts
     /// Fill the reused buffer for <paramref name="content"/> off the peer's OWN replicated model.
     /// Returns false when there is nothing to draw (which lands the fan on backs, exactly as before).
     ///
-    /// <para>SLOT ALIGNMENT: slab <c>i</c> takes model entry <c>i</c>. The two agree whenever the arc
-    /// holds the whole pile, which is the normal case — the sender's own arc is built from this same
-    /// list in this same order. They can differ by one for as long as the owner has physically PLUCKED
-    /// a card out of their arc (the wire count drops, the model list does not), which shifts the tail
-    /// of the arc by one card until they put it back. That is a cosmetic mismatch inside a pile the
-    /// viewer is allowed to read in full, never a disclosure; buying exactness would cost a per-card
-    /// wire field, which is the one thing this feature is built to avoid.</para>
+    /// <para>SLOT ALIGNMENT: slab <c>i</c> takes model entry <c>i</c>. The slab COUNT is the owner's,
+    /// off the wire; the entries are this client's own walk of the same host-replicated pile. The zip
+    /// is a name for a card only while the two lists agree entry for entry, so this method's whole job
+    /// is to reproduce the owner's arc EXACTLY — and where it provably cannot, to let the length
+    /// disagreement show, because <see cref="Tick"/>'s belt turns a disagreement into backs.</para>
     ///
-    /// <para>THE PILE-ARRIVAL RULE ADDS A SECOND, BOUNDED CASE OF THE SAME KIND, and it lands on the
-    /// harmless side by construction. Since the owner's stack label and browse arc defer a card until
-    /// its VR visual physically LANDS in the pile (CardsDriver "pile ARRIVAL" region), the sender's
-    /// arc omits a freshly discarded/burnt card for the ~0.4 s of its flight while THIS client's
-    /// model already lists it. But the game APPENDS to those lists
-    /// (<c>CCharacterClass.MoveAbilityCardToPile</c> → <c>DiscardRoundAbilityCards</c>), so the
-    /// omitted entries are always the TAIL — slabs 0..n-1 still align with model entries 0..n-1 and
-    /// the only effect is that the extra model entries have no slab to be drawn on, which is exactly
-    /// what the wire count already says. Nothing shifts, and it resolves the moment the flight
-    /// lands.</para>
+    /// <para>THE ARGUMENT THAT USED TO STAND HERE WAS FALSE, and it is written out rather than
+    /// deleted because it is the reason multiplayer report item 5c shipped. It ran: the owner's arc
+    /// defers a card until its VR visual lands, but the game APPENDS to the pile lists, so an omitted
+    /// entry is always the TAIL — slabs 0..n-1 still align with model entries 0..n-1 and nothing
+    /// shifts. Both halves are wrong.
+    /// <list type="bullet">
+    ///   <item>THE BURNT PILE IS A CONCATENATION, not a list.
+    ///         <c>CardsGameApi.GetPileWidgets</c> appends <c>LostAbilityCards</c> and THEN
+    ///         <c>PermanentlyLostAbilityCards</c>. A normal burn appends to the FIRST segment, so it
+    ///         lands in the MIDDLE of the concatenation and every permanently-lost entry behind it
+    ///         moves down a seat. "The game appends" is true of each segment and says nothing about
+    ///         their join.</item>
+    ///   <item>THE OWNER'S ARC SKIPS IN THE MIDDLE. <c>CardsDriver.UpdateBrowser</c> drops non-member
+    ///         widgets (<see cref="CardsGameApi.PileWidgetIsArcMember"/>) and then drops any card
+    ///         whose visual its board is still holding or that is still flying in. Those are
+    ///         positional skips inside <c>GetPileWidgets</c> order, not a truncation of its tail.</item>
+    /// </list>
+    /// The observed symptom was therefore not "the last card is missing" but "from the burnt card on,
+    /// every slab draws its neighbour's face", for up to the 3 s burn hold.</para>
+    ///
+    /// <para>WHAT THIS METHOD DOES ABOUT IT, TERM BY TERM. The owner's arc filter has two terms and
+    /// they are not the same KIND of thing:
+    /// <list type="bullet">
+    ///   <item>MEMBERSHIP (no model card / long rest) is pure host-replicated MODEL state, so this
+    ///         client can evaluate it exactly. It is not re-implemented here — both sides call the one
+    ///         expression, <see cref="CardsGameApi.PileWidgetIsArcMember"/>, because two copies kept in
+    ///         step by hand is the defect and not the remedy. This term used to be applied by the owner
+    ///         and NOT here at all, so a character holding a long-rest placeholder in the pile had the
+    ///         whole mirrored arc one seat out permanently, not transiently.</item>
+    ///   <item>ARRIVAL (the card's VR visual is still lying on the owner's board, still in flight, or
+    ///         still held by its burn artwork) is SENDER-LOCAL VR state. It has no representation on
+    ///         this client — not on the wire, not in the model — so no amount of model reading can
+    ///         reproduce it, and pretending otherwise is what the falsified argument above did. It is
+    ///         deliberately left to disagree, where the length belt converts it into backs for the
+    ///         second or two it lasts.</item>
+    /// </list>
+    /// Splitting the two is the whole design: the derivable term is made exact so the belt is quiet in
+    /// the ordinary case, and the underivable term is made VISIBLE so the belt can catch it.</para>
     /// </summary>
     private bool Resolve(CPlayerActor actor, Content content)
     {
@@ -462,11 +491,20 @@ internal sealed class RemotePileFronts
             List<CItem>? all = inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
+            // RAW INDEX, NULLS INCLUDED — and that is a correction, not a shortcut. This walk used
+            // to COMPACT the list (`if (all[i] != null) add`), which put it out of step with the two
+            // things it is required to agree with: the owner's own arc, built from the UNFILTERED
+            // Inventory.AllItems by Cards.ItemsPile (whose doc says "verified UNFILTERED" in as many
+            // words), and TryResolveItemSpentFlags below, which walks the same list by RAW index and
+            // whose own doc already claims — wrongly, until now — that the two are one walk. A
+            // single null anywhere but the end of AllItems therefore shifted every chip behind it:
+            // the wrong item face, and the tapped rotation landing on the wrong chip beside it. It
+            // is the same positional-zip defect as the burnt pile's, on the fan next door.
+            //
+            // A null entry becomes a slab with no face — a BACK — which is exactly what an
+            // unresolvable card has always drawn here, and it keeps every other seat correct.
             for (int i = 0; i < all.Count; i++)
-            {
-                if (all[i] != null)
-                    _itemBuf.Add(all[i]);
-            }
+                _itemBuf.Add(all[i]);
             return _itemBuf.Count > 0;
         }
 
@@ -479,6 +517,19 @@ internal sealed class RemotePileFronts
         // The owner's own browse arc is filled from exactly this call, in exactly this order
         // (CardsDriver → CardsGameApi.GetPileWidgets), so the mirrored arc is card-for-card theirs.
         CardsGameApi.GetPileWidgets(hand, content == Content.Burnt, _abilityBuf);
+        // …AND THEN THE OWNER'S OWN MEMBERSHIP FILTER, THE SAME EXPRESSION THEY APPLY. Without this
+        // the mirrored arc counted widgets the owner's arc never seated (a long-rest placeholder, a
+        // widget whose model card has gone), which put every slab behind such an entry one seat out
+        // for as long as the card sat in the pile — a PERMANENT misalignment, not the transient one
+        // the belt is for. Removing entries here in place keeps the surviving order intact, which is
+        // the only property the positional zip needs.
+        int kept = 0;
+        for (int i = 0; i < _abilityBuf.Count; i++)
+        {
+            if (CardsGameApi.PileWidgetIsArcMember(_abilityBuf[i]))
+                _abilityBuf[kept++] = _abilityBuf[i];
+        }
+        _abilityBuf.RemoveRange(kept, _abilityBuf.Count - kept);
         return _abilityBuf.Count > 0;
     }
 
@@ -495,6 +546,13 @@ internal sealed class RemotePileFronts
     /// <see cref="RemoteBoardFocus.DisplayedActor"/>). Slab <c>i</c> takes model entry <c>i</c> on
     /// both paths or the tap lands on the wrong chip, so the two must be one piece of code — the
     /// slot-alignment argument in <see cref="Resolve"/>'s doc applies here word for word.</para>
+    ///
+    /// <para>THAT CLAIM WAS UNTRUE WHEN IT WAS WRITTEN, and it is worth saying so here rather than
+    /// letting the next reader trust it twice. This walk has always used the RAW index (a flag per
+    /// <c>AllItems</c> entry, nulls included), while <see cref="Resolve"/> COMPACTED the nulls out.
+    /// A single null anywhere but the end of the list therefore drew every chip behind it with its
+    /// neighbour's face while this method tapped the seats the owner actually has spent. Both walk
+    /// the raw index now.</para>
     ///
     /// <para>DELIBERATELY NOT BEHIND <see cref="RevealGate"/>, and this is the one place to say why.
     /// The gate governs card FRONTS: it exists so the game's secret

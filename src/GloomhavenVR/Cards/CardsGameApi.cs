@@ -3316,6 +3316,37 @@ internal static class CardsGameApi
         }
     }
 
+    /// <summary>
+    /// THE PILE ARC'S MEMBERSHIP TEST — is this <see cref="GetPileWidgets"/> entry a card that
+    /// belongs in a browse arc at all? False for a widget with no model card behind it and for the
+    /// LONG REST placeholder, which the game keeps in <c>cardsUI</c> but which is not a card anybody
+    /// browses.
+    ///
+    /// <para>WHY THIS IS A SHARED METHOD AND NOT TWO MATCHING <c>if</c>s. It is one half of a WIRE
+    /// CONTRACT. The owner's arc (<c>CardsDriver.UpdateBrowser</c>) applies it to decide how many
+    /// cards the arc holds, and that number — not the model's — is what travels to a peer as the
+    /// browse block's COUNT. The peer then fills those slabs from its OWN walk of
+    /// <see cref="GetPileWidgets"/> over the same host-replicated pile
+    /// (<c>Net.RemotePileFronts.Resolve</c>) and zips the two POSITIONALLY. If the two sides apply
+    /// even slightly different membership rules, the peer's slab <c>i</c> stops being the owner's
+    /// card <c>i</c> and every slab from the first divergence on draws its neighbour's face — the
+    /// 2026-09-02 multiplayer report's item 5c, where a burnt card marked a DIFFERENT card on the
+    /// observer's board.</para>
+    ///
+    /// <para>The two sides used to hold one copy each of <c>widget.AbilityCard == null ||
+    /// widget.IsLongRest</c> — except the peer held NO copy at all, so a character with a long-rest
+    /// placeholder in the pile put the whole arc one seat out permanently. Keeping them in step by
+    /// hand is the defect, not the remedy; there is one expression now and both sides call it.</para>
+    ///
+    /// <para>DELIBERATELY NOT FOLDED INTO <see cref="GetPileWidgets"/> itself. That call has other
+    /// readers (the stack label's arrival count, the burn flow) whose own loops already apply their
+    /// own variants of this test on top of extra terms, and silently narrowing what the shared
+    /// getter returns would change all of them at once for reasons that have nothing to do with
+    /// them. The filter belongs to the ARC, so it is named for the arc and applied by the arc.</para>
+    /// </summary>
+    internal static bool PileWidgetIsArcMember(AbilityCardUI? widget) =>
+        widget != null && widget.AbilityCard != null && !widget.IsLongRest;
+
     private static void AppendPileWidgets(CardsHandUI hand, List<CAbilityCard> pile, List<AbilityCardUI> buffer)
     {
         List<AbilityCardUI> cards = hand.cardsUI;

@@ -1974,7 +1974,13 @@ internal sealed partial class CardsDriver
         for (int i = 0; i < _pileWidgetBuffer.Count; i++)
         {
             AbilityCardUI widget = _pileWidgetBuffer[i];
-            if (widget.AbilityCard == null || widget.IsLongRest)
+            // THE ARC'S MEMBERSHIP TEST, AND IT IS HALF OF A WIRE CONTRACT. `arrived` below becomes
+            // the browse block's COUNT, which a peer uses as the number of slabs to fill from its own
+            // walk of this same pile — so this test must be the SAME EXPRESSION on both machines or
+            // the peer's slab i stops naming the owner's card i (multiplayer report item 5c). It is
+            // shared rather than duplicated for exactly that reason; see
+            // CardsGameApi.PileWidgetIsArcMember.
+            if (!CardsGameApi.PileWidgetIsArcMember(widget))
                 continue;
             pileCount++;
             VRCard card = AdoptedCard(widget);
