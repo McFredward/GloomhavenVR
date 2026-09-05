@@ -39,7 +39,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// wired to each entry's SettingChanged in <see cref="FigureGrabConfig.Bind"/>), so the
 /// in-headset debug-menu steppers nudge the mini in your hand in real time.
 /// </summary>
-internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable
+internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
+                                        IWalkInHighlightTarget
 {
     /// <summary>Every grabbable currently held in a hand — the live-tune broadcast target.</summary>
     private static readonly HashSet<FigureGrabbable> Live = new();
@@ -416,8 +417,12 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // raises this on the hover change and never polls — so if the suppression below simply
         // returned, entering walk-in mid-hover would leave a glow standing until the hand moved
         // away, and leaving walk-in would need a re-hover to get it back. Knowing WHO is hovered
-        // even while suppressed is what lets TickHighlightMode drive both edges.
-        _hovered[(int)hand.Side] = highlighted ? this : null;
+        // even while suppressed is what lets WalkInHighlightEdges drive both edges.
+        //
+        // The record lives in WalkInHighlightEdges since 2026-09-05 (redundancy survey R10), where
+        // GrabbableProp now writes to the same two slots: props had this whole mechanism missing and
+        // diverged from figures in OPPOSITE directions on the two edges.
+        WalkInHighlightEdges.NoteHover(hand.Side, highlighted ? this : null);
 
         if (highlighted)
         {
@@ -535,10 +540,8 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
     {
         // The hover record goes even when there was no glow to clear: this is also the path a grab
         // and a release-glide take (Restore / TryBeginGlide), and a stale entry there would have
-        // TickHighlightMode re-light a figure that is no longer under anybody's hand.
-        for (int i = 0; i < _hovered.Length; i++)
-            if (ReferenceEquals(_hovered[i], this))
-                _hovered[i] = null;
+        // WalkInHighlightEdges.Tick re-light a figure that is no longer under anybody's hand.
+        WalkInHighlightEdges.Forget(this);
 
         if (!_highlight.Active)
             return;
@@ -546,70 +549,31 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         VRLog.Info("FigureGrab", $"pre-grab highlight CLEARED ({Describe()}).");
     }
 
-    /// <summary>
-    /// The figure each hand is currently hovering, indexed by <see cref="HandSide"/> — recorded
-    /// whether or not the glow was actually applied. See <see cref="OnGrabHighlight"/> for why the
-    /// two are separate, and <see cref="TickHighlightMode"/> for what reads it.
-    /// </summary>
-    private static readonly FigureGrabbable?[] _hovered = new FigureGrabbable?[2];
-
-    /// <summary>The walk-in verdict this pass last acted on, so only the EDGES do work.</summary>
-    private static bool _highlightAllowedLast = true;
-
     private static bool _loggedWalkInSuppress;
 
-    /// <summary>
-    /// Drive the pre-grab glow across a WALK-IN EDGE, in both directions.
-    ///
-    /// <para>The grab system raises <see cref="OnGrabHighlight"/> on hover changes only and never
-    /// polls, so nothing else in the pipeline would notice the player stepping into or out of the
-    /// board while a figure is already under their hand. Both directions matter and both are the
-    /// part that is easy to get wrong: entering walk-in must CLEAR a glow that is already standing,
-    /// and leaving it must bring the glow back WITHOUT requiring a re-hover.</para>
-    ///
-    /// <para>Edge-gated, so the steady state is one bool compare — this runs every frame. It reads
-    /// the same narrow latch the wall fade uses (<c>WallSegmentFade.WalkInsideEngaged</c>), which
-    /// each client evaluates from its own head, so there is nothing here to synchronise: the
-    /// pre-grab glow has never been a wire field and no peer has ever seen it (a remote hold is a
-    /// local VETO on it, via <c>NetHeldFigures.Owns</c>, and that is the only net term involved).</para>
-    /// </summary>
-    private static void TickHighlightMode()
+    // ---- IWalkInHighlightTarget -----------------------------------------------------------------
+    //
+    // THE WALK-IN EDGE DRIVER MOVED TO WalkInHighlightEdges ON 2026-09-05 (redundancy survey R10).
+    // Its body was TickHighlightMode here, private to this class, reading a FigureGrabbable-typed
+    // hover array — so GrabbableProp could not use it and did not have an equivalent. The two then
+    // disagreed on the two edges in OPPOSITE directions. The mechanism is unchanged for figures,
+    // clause for clause; what changed is that the array is now typed on the capability rather than
+    // on this class, and props write to it too.
+
+    bool IWalkInHighlightTarget.HighlightActive => _highlight.Active;
+
+    void IWalkInHighlightTarget.ClearHighlightVisualOnly() => _highlight.Clear();
+
+    string IWalkInHighlightTarget.HighlightLabel => Describe();
+
+    bool IWalkInHighlightTarget.TryRelightHighlight(out string overlay)
     {
-        bool allowed = FigureGrabConfig.HighlightAllowedHere;
-        if (allowed == _highlightAllowedLast)
-            return;
-        _highlightAllowedLast = allowed;
-
-        for (int i = 0; i < _hovered.Length; i++)
-        {
-            FigureGrabbable? g = _hovered[i];
-            if (g == null)
-                continue;
-
-            if (!allowed)
-            {
-                // ClearHighlight would drop the hover record with it, and the hand has NOT stopped
-                // hovering — it is the mode that changed. Clear the visual only.
-                if (g._highlight.Active)
-                {
-                    g._highlight.Clear();
-                    VRLog.Info("FigureGrab",
-                        $"pre-grab highlight CLEARED ({g.Describe()}) — walk-in mode engaged under a "
-                        + "standing hover; the hover itself is untouched and grabbing still works.");
-                }
-                continue;
-            }
-
-            GameObject? root = g.Root;
-            if (root == null || g._highlight.Active || NetHeldFigures.Owns(g._actor))
-                continue;
-            if (g.ApplyHighlightOverlay(root, out string overlay))
-                // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
-                // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
-                VRLog.Note("FigureGrab",
-                    $"pre-grab highlight ENGAGED ({g.Describe()}) — walk-in mode released under a "
-                    + $"standing hover, so the glow returns without needing a re-hover: {overlay}.");
-        }
+        overlay = string.Empty;
+        GameObject? root = Root;
+        // MP lock kept exactly where it was: never re-light a figure a REMOTE player is holding.
+        if (root == null || NetHeldFigures.Owns(_actor))
+            return false;
+        return ApplyHighlightOverlay(root, out overlay);
     }
 
     public void OnGrab(VRHand hand)
@@ -1078,7 +1042,9 @@ internal sealed class FigureGrabbable : IGrabbable, IGrabHighlight, IGrabbableHa
         // WALK-IN HIGHLIGHT EDGES. Rides here for the same reason as the two above, and because it
         // must run above the config gate: a figure hovered on the frame the gate releases every
         // grabbable must still have its glow taken off it. One bool compare in the steady state.
-        TickHighlightMode();
+        // Since 2026-09-05 this one call drives PROPS as well (redundancy survey R10) — the hover
+        // record it reads is typed on the capability, not on this class.
+        WalkInHighlightEdges.Tick();
     }
 
     /// <summary>The figure's root GameObject, for the sibling passes that need the subtree

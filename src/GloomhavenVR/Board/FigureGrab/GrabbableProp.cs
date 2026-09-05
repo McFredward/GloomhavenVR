@@ -114,7 +114,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// seam is named in <see cref="HeldProps"/>; the identity a held-prop record needs is
 /// <c>CObjectProp.PropGuid</c>.</para>
 /// </summary>
-internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable
+internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHandFilter, ITriggerOnlyGrabbable,
+                                      IWalkInHighlightTarget
 {
     /// <summary>Unity's built-in Ignore Raycast layer. Parked here for the duration of a hold; see
     /// the class doc for why the game's own <c>"Hovering"</c> layer cannot stay.</summary>
@@ -389,6 +390,17 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             ClearHighlight();
             return;
         }
+
+        // THE HOVER IS RECORDED BEFORE THE SUPPRESSION CHECK, AND UNTIL 2026-09-05 THERE WAS NO
+        // RECORD AT ALL (redundancy survey R10). FigureGrabbable has kept one since walk-in
+        // suppression landed, precisely because the grab system is EDGE-DRIVEN and never polls: a
+        // gate that simply returns cannot notice the player stepping into or out of the board while
+        // his hand is already over something. Props had the gate and not the record, so the two
+        // populations diverged on BOTH edges and in opposite directions — step in and the chest
+        // kept glowing while a miniature went dark; step back out and the miniature re-lit itself
+        // while the chest stayed dark until the hand moved away and back. Same rule, one driver.
+        WalkInHighlightEdges.NoteHover(hand.Side, this);
+
         if (_highlight.Active || !FigureGrabConfig.HighlightAllowedHere)
             return;
 
@@ -413,8 +425,35 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
 
     private void ClearHighlight()
     {
+        // The hover record goes even when there was no glow to clear — this is also the path a grab
+        // and a restore take, and a stale entry would have WalkInHighlightEdges.Tick re-light a prop
+        // that is no longer under anybody's hand. Same belt FigureGrabbable.ClearHighlight wears.
+        WalkInHighlightEdges.Forget(this);
         if (_highlight.Active)
             _highlight.Clear();
+    }
+
+    // ---- IWalkInHighlightTarget -----------------------------------------------------------------
+    //
+    // The pre-grab glow across a walk-in edge, in both directions. Shared with FigureGrabbable since
+    // 2026-09-05 (redundancy survey R10) — see WalkInHighlightEdges for what the two edges are and
+    // why a one-way gate cannot serve them.
+
+    bool IWalkInHighlightTarget.HighlightActive => _highlight.Active;
+
+    void IWalkInHighlightTarget.ClearHighlightVisualOnly() => _highlight.Clear();
+
+    string IWalkInHighlightTarget.HighlightLabel => Label;
+
+    bool IWalkInHighlightTarget.TryRelightHighlight(out string overlay)
+    {
+        overlay = string.Empty;
+        if (_visual == null || _holder != null)
+            return false;
+        // The same three nulls OnGrabHighlight passes: a prop has no animated root and no
+        // selection-ring subtree. The remote grab-lock goes here alongside the one in
+        // AllowsHand when the prop sync lands.
+        return _highlight.Apply(_visual, null, null, Label, out overlay);
     }
 
     // ---- the hold -----------------------------------------------------------------------------
@@ -2200,6 +2239,9 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         _loggedRichThrow = false;
         _cardRouteLogsLeft = HighlightKindBudget;
         CardRouteKinds.Clear();
+        // A new scenario destroys every prop and figure behind the hover records, so the shared
+        // walk-in driver must not hold them across the boundary.
+        WalkInHighlightEdges.Reset();
         PropAnimWatch.Reset();
         PropAnimBelt.Reset();
     }
