@@ -764,6 +764,12 @@ internal sealed partial class CardsDriver
                 break;
         }
 
+        // THE LAST WORD ON WHAT THE FAN SHOWS IS THE RULES MODEL — for EVERY fill above, not just
+        // the one that happens to carry a belt. Runs here, before the park sweep, so a vetoed card
+        // is pooled with the rest of the off-board cards instead of being left lying wherever it
+        // was. See DropFanCardsTheModelMoved for the report this closes.
+        DropFanCardsTheModelMoved(hand, mode, readOnly);
+
         if (mode != CardHandMode.CardsSelection)
             _tray.ClearSlots(); // stale occupancy must not pin cards outside CardsSelection
 
@@ -1152,6 +1158,22 @@ internal sealed partial class CardsDriver
 
         CardsHandUI? was = _focusAdoptedHand;
         _focusAdoptedHand = nowFocusHand;
+
+        // A CHARACTER SWITCH ENDS AN IN-FLIGHT BURN HOLD — DETERMINISTICALLY, HERE (user
+        // 2026-09-04). The hold's contract is "the burn path OWNS this card, leave it lying exactly
+        // where it is", so anything that changes the board's subject WITHOUT landing the flight
+        // strands a burned card. TickBurnToPile has a flush for exactly that, but it is keyed on
+        // `hand != _burnWatchHand` and its `hand` is CurrentHand() (CardsDriver.2.Update.cs) — the
+        // GAME's hand. A mod-side focus switch does not change the game's hand, so that branch is
+        // not merely late for a focus switch, it is UNREACHABLE: the hardware log of the report has
+        // no `BURN ANIM: FLUSHING` line anywhere, and the hold ran its full 3 s deadline straight
+        // through a second take-damage decision. This is the focus edge, it is an EDGE (the
+        // identity early-out above guarantees it) rather than a tick noticing a changed reference,
+        // and it runs before the rebuild adopts anything — so the launch sites still see the world
+        // the hold was taken in. A no-op when nothing is held.
+        FlushBurnHolds(nowFocusHand != null
+            ? $"the board switched to presenting '{Board.CharacterFocus.Describe(nowFocusHand.PlayerActor)}'"
+            : "the board stopped presenting a focused character and followed the game again");
 
         if (was != null)
         {
@@ -1715,6 +1737,193 @@ internal sealed partial class CardsDriver
         {
             (into[0], into[1]) = (into[1], into[0]);
         }
+    }
+
+    // ------------------------------------------------ the model has the last word on the fan --
+    //
+    // USER REPORT (2026-09-04, verbatim): "Der Mitspieler hat zwei mal hintereinander Schaden
+    // bekommen. Das erste mal hat er eine Karte verbrannt, beim zweiten mal hat er zwischendurch
+    // kurz den Character gewechselt und nach dem Zurückwechseln hatte er die bereits verbrannte
+    // Karte wieder auf der Hand. Das darf unter keinen Umständen sein."
+    //
+    // WHAT THE HARDWARE LOG ACTUALLY SHOWS (remote/LogOutput.log, one continuous sequence):
+    //   47133  Pick commit (LoseCard): 'ABILITY_CARD_WardingStrength' via drop-slot → accepted
+    //   47269  BURN ANIM: holding 'ABILITY_CARD_WardingStrength' ON THE BOARD …
+    //   47361  … waited 3,00s … flying to the Burnt pile now      ← the burn LANDED correctly
+    //   47367  … reached the Burnt pile — parked
+    //   47380  fan state: mode=LoseCard, widgets=14, fanBuffer=5   ← still correct: 5 hand cards
+    //   48294  [Focus] now looking at 'Testo' … 48310 fanBuffer=6  ← Testo's own hand, correct
+    //   48449  [Focus] cleared … 48450 RESTORED 'Testo' … 0 / 0    ← a clean hand-back
+    //   48451  Pick fan source (LoseCard): real hand — the selectable cards ARE the hand fan
+    //   48453  Fan order [scenario hand]: n=6 … 'ABILITY_CARD_WardingStrength' sits RIGHT of a
+    //          higher initiative                                   ← THE BURNED CARD IS BACK
+    //   48457  Piles: discard=4, burnt=1 for 'Testi'               ← the MODEL was right all along
+    //   49283  the hand is physically in 'VRCard_ABILITY_CARD_WardingStrength' (hand fan)
+    //
+    // ROOT CAUSE, AND IT IS NOT THE BURN AND NOT THE FACE RESTORE. Both of those did exactly what
+    // they promise, and the log says so line by line. The card came back because the take-damage
+    // decision runs the board in CardHandMode.LoseCard, and THAT rebuild branch does not fill the
+    // fan from the hand at all — it fills it from the GAME WIDGET's own `isSelectable` latch
+    // (AbilityCardUI.SetMode → SetSelectable, AbilityCardUI.cs:900/906). Two properties of that
+    // latch make the reappearance inevitable:
+    //   * it is a LATCH, written only when the game re-runs SetMode. The second take-damage
+    //     decision opened while the burned widget's own `cardType` still read Hand, so the widget
+    //     was latched selectable and stayed selectable for the whole decision;
+    //   * while the burned card was still the PICK-FIELD occupant it was excluded from the fan by
+    //     `_fieldCards` (that is the fanBuffer=5), and the moment the field prune dropped it — any
+    //     rebuild would do; here it was the focus switch back — the stale latch put it straight
+    //     into the fan (fanBuffer=6).
+    // FillHandFan's model belt (CardLeftTheHand, item 10, 2026-09-02) would have refused it
+    // outright. It never ran: in LoseCard mode FillHandFan is not the fill.
+    //
+    // WHY THIS IS THE CLASS FIX AND THE BELT WAS NOT. The belt is correct and stays — but it sits
+    // in ONE of the fan's fills, so every OTHER fill is free to disagree with the rules model, and
+    // that is precisely how the same defect returned a third time. This veto sits at the point
+    // where the fan's contents are FINAL, after every branch has had its say and before anything
+    // is published or parked, and it asks one question of the game's authoritative lists:
+    // "does the model agree this card belongs in the pile the fan is showing?" A future fill —
+    // a new mode, a new flow, a new source — inherits it without knowing it exists.
+    //
+    // IT NEVER WRITES GAME STATE. Every read is a Contains() on a CCharacterClass list; the only
+    // thing that changes is which VR cards this mod draws.
+
+    /// <summary>
+    /// WHICH PILE THE FAN IS SHOWING THIS REBUILD — the veto's expectation, and the one thing it
+    /// must not guess.
+    ///
+    /// <para>Every fill except the pick branch is the HAND (FillHandFan is the only executor, in
+    /// the read-only focus view and in every mode branch alike). The PICK fill is not: the game
+    /// marks a whole pile selectable and the fan becomes that pile — the hand for "1 verfügbare
+    /// Karte verbrennen" (TakeDamagePanel.cs:538, <c>CardPileType.Hand</c>), the DISCARD pile for
+    /// "2 abgeworfene Karten verbrennen" (:575), the burnt pile for a recover
+    /// (Choreographer.cs:7775). So the pick expectation is read from the GAME's own declaration of
+    /// it — <c>CardsHandUI.selectableCardTypes</c>, written by <c>UpdateView</c>
+    /// (CardsHandUI.cs:580) from that same <c>Show(...)</c> argument, and the very list the fill's
+    /// own <c>isSelectable</c> / <c>IsPickEligible</c> tests are derived from, so the two cannot
+    /// disagree about what is on offer.</para>
+    ///
+    /// <para>ANYTHING BUT EXACTLY ONE NAMED PILE MEANS NO OPINION, and no opinion vetoes nothing:
+    /// <c>Any</c> (TakeDamagePanel.cs:520 opens the take-damage view with every pile selectable),
+    /// <c>Unselected</c> (the card-limit pick), several piles at once, or a hand we cannot read.
+    /// Failing towards SHOWING is the direction this whole fan is required to fail in.</para>
+    /// </summary>
+    private static CardPileType FanPileShowing(CardsHandUI? hand, CardHandMode mode, bool readOnly)
+    {
+        if (readOnly || !IsPickMode(mode))
+            return CardPileType.Hand;
+        try
+        {
+            List<CardPileType>? piles = hand != null ? hand.selectableCardTypes : null;
+            return piles != null && piles.Count == 1 ? piles[0] : CardPileType.None;
+        }
+        catch (System.Exception)
+        {
+            return CardPileType.None; // a half-torn hand has no opinion, and no opinion shows the card
+        }
+    }
+
+    /// <summary>Change-dedup for the veto line: the last (verdict, expectation) logged per card,
+    /// and how many times the veto has fired for it. The COUNT is in the line so a veto that keeps
+    /// firing is never silent — a change-gated line with a constant reason reads as a dead
+    /// instrument otherwise.</summary>
+    private readonly Dictionary<int, (RoundCardExit Exit, CardPileType Expected, int Count)> _loggedFanVeto = new(8);
+
+    /// <summary>
+    /// THE CHOKE POINT: drop every card the fan is about to show that the RULES MODEL puts in a
+    /// different pile than the one the fan is showing. See the region header for the report and the
+    /// root cause.
+    ///
+    /// <para>ONLY A POSITIVE CONTRADICTION VETOES, and the direction of failure is the one this
+    /// whole fan is required to fail in (item 3): <c>NoModel</c> (no CAbilityCard / no owning
+    /// actor) and <c>OffModel</c> (a consumed supply card, or a half-torn actor) KEEP the card.
+    /// A card with no game widget at all — the dev fake hand, the map room's loadout fan — has no
+    /// model to ask and is never touched.</para>
+    ///
+    /// <para>The model is read through <see cref="RoundCardExitOf"/>, the same classifier the
+    /// fly-to-pile trigger and <c>CardLeftTheHand</c> use, so "the card left the hand", "the card
+    /// flew to a pile" and "the card may not be shown" can never become three opinions.</para>
+    ///
+    /// <para>Cost: one <c>RoundCardExitOf</c> per fan card per REBUILD (edge-driven, ~5-14 cards),
+    /// i.e. a handful of list <c>Contains</c> calls. No allocation.</para>
+    /// </summary>
+    private void DropFanCardsTheModelMoved(CardsHandUI? hand, CardHandMode mode, bool readOnly)
+    {
+        if (_fanBuffer.Count == 0)
+            return;
+        CardPileType showing = FanPileShowing(hand, mode, readOnly);
+        if (showing == CardPileType.None)
+            return; // the fan is not showing one nameable pile — nothing to contradict
+        for (int i = _fanBuffer.Count - 1; i >= 0; i--)
+        {
+            VRCard card = _fanBuffer[i];
+            if (card == null)
+                continue;
+            AbilityCardUI? widget = card.GameCard;
+            if (widget == null)
+                continue; // a mod-built card (dev fake hand / map-room loadout) — no model to ask
+            RoundCardExit exit = RoundCardExitOf(hand, card, out CPlayerActor? owner);
+            if (!ModelContradictsFanPile(showing, exit))
+                continue;
+            _fanBuffer.RemoveAt(i);
+            LogFanModelVeto(widget, exit, owner, mode, readOnly, showing);
+        }
+    }
+
+    /// <summary>
+    /// Does the model's answer for a card CONTRADICT the pile the fan is showing? One row per pile
+    /// the fan can ever show; everything not named is "no opinion", which shows the card.
+    ///
+    /// <para><c>Lost</c> and <c>Permalost</c> are ONE stack on the board (the 2D hand shows both
+    /// under one "burnt" header, CardsHandUI.cs:1333/1340), so either model verdict satisfies
+    /// either expectation — otherwise a recover-lost fan would veto its own contents.</para>
+    /// </summary>
+    private static bool ModelContradictsFanPile(CardPileType showing, RoundCardExit exit) => showing switch
+    {
+        CardPileType.Hand => exit is RoundCardExit.Discarded or RoundCardExit.Lost
+            or RoundCardExit.PermanentlyLost or RoundCardExit.Activated or RoundCardExit.StillRound,
+        CardPileType.Discarded => exit is RoundCardExit.Hand or RoundCardExit.Lost
+            or RoundCardExit.PermanentlyLost or RoundCardExit.Activated or RoundCardExit.StillRound,
+        CardPileType.Lost or CardPileType.Permalost => exit is RoundCardExit.Hand
+            or RoundCardExit.Discarded or RoundCardExit.Activated or RoundCardExit.StillRound,
+        _ => false, // Round / Active / Any / Unselected / ExtraTurn / None — not a pile this fan shows
+    };
+
+    /// <summary>
+    /// The veto's HW-VERIFY line: what was offered, by WHICH fill, and what the model said instead.
+    /// Change-deduped per (card, verdict, expectation) with a running count.
+    /// </summary>
+    private void LogFanModelVeto(AbilityCardUI widget, RoundCardExit exit, CPlayerActor? owner,
+        CardHandMode mode, bool readOnly, CardPileType showing)
+    {
+        int id = widget.CardID;
+        _loggedFanVeto.TryGetValue(id, out (RoundCardExit Exit, CardPileType Expected, int Count) was);
+        int count = was.Count + 1;
+        bool changed = was.Count == 0 || was.Exit != exit || was.Expected != showing;
+        _loggedFanVeto[id] = (exit, showing, count);
+        if (!changed)
+            return;
+        // WHICH PATH OFFERED IT. The pick fills read the game widget's own isSelectable/
+        // IsPickEligible latch; every other fill is FillHandFan. Naming the path is the whole
+        // point of this line: a future reappearance is then one grep away from its source.
+        string path = readOnly
+            ? "the read-only FOCUS fill (FillHandFan)"
+            : IsPickMode(mode)
+                ? $"the PICK fill (mode={mode} — the game's own AbilityCardUI.isSelectable / " +
+                  "IsPickEligible latch, which is written once per SetMode and can be stale)"
+                : $"the hand fill (FillHandFan, mode={mode})";
+        // HW-VERIFY: the burned-card-back-in-the-hand instrument (user 2026-09-04). If a burned card
+        // is EVER visible in the fan again and this line is absent, the offer came from a fill that
+        // does not pass through the veto — which is the only way left for this defect to exist.
+        VRLog.Note("Cards", $"HAND FAN MODEL VETO (#{count} for this card): card {id} " +
+                            $"('{CardsGameApi.CardName(widget)}', owner " +
+                            $"'{(owner != null ? CardsGameApi.ActorLabel(owner) : "?")}') was offered to the fan " +
+                            $"by {path}, but the RULES MODEL puts it in CCharacterClass." +
+                            $"{ModelListName(exit)} while the fan is showing the {showing} pile. " +
+                            "DROPPED before the fan was published; the park sweep pools its VR card. The game's " +
+                            "own model is authoritative and this mod never argues with it — the widget flag that " +
+                            "offered the card is a UI latch the game rewrites later. This is the exact window a " +
+                            "burned card came back onto the hand fan after a character switch (report 2026-09-04, " +
+                            "'die bereits verbrannte Karte wieder auf der Hand').");
     }
 
     // ---------------------------------------------------------------- fly-to-pile (issue 5) --
