@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using GloomhavenVR.Cards;
+using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
 using TMPro;
 using UnityEngine;
@@ -195,14 +196,15 @@ internal sealed class RemoteActiveCards
             _cards[i].MaintainMips();
         }
 
-        // HW-VERIFY: this line decides R3 — that a peer's active block is the OWNER's grid, not a
-        // narrower one, and that no active card is dropped. Change-gated on the shape itself, so it
-        // fires on a human-paced event (a card going active) and never per refresh.
+        // Change-gated on the shape itself, so the line below fires on a human-paced event (a card
+        // going active) and never per refresh.
         int shape = Count * 100 + rows;
         if (_loggedShape != shape)
         {
             _loggedShape = shape;
-            Core.VRLog.Note("Net", $"Peer [{_playerId}] active grid: {Count} card(s) in {rows} row(s) x up to "
+            // HW-VERIFY: this line decides R3 — that a peer's active block is the OWNER's grid, not
+            // a narrower one, and that no active card is silently dropped.
+            VRLog.Note("Net", $"Peer [{_playerId}] active grid: {Count} card(s) in {rows} row(s) x up to "
                             + $"{Columns} col(s) — the owner's own ActivePileViewer.Columns, and the "
                             + "list is uncapped, so a 7th active card is drawn here too.");
         }

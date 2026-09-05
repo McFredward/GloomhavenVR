@@ -124,7 +124,7 @@ internal static class BoardVisual
     /// </summary>
     internal static void OrderWithPanels(Renderer?[] renderers, float eyeDistance)
     {
-        int order = WorldUI.CanvasConversion.OrderAboveDistanceAndClusters(eyeDistance, TagPanelLift);
+        int order = PanelLadderOrder(eyeDistance);
         for (int i = 0; i < renderers.Length; i++)
         {
             Renderer? r = renderers[i];
@@ -132,6 +132,28 @@ internal static class BoardVisual
                 r.sortingOrder = order;
         }
     }
+
+    /// <summary>
+    /// The same seat for a free-floating tag drawn by a mod-owned world-space CANVAS rather than by
+    /// Renderers — the ping name tag's vanilla-tooltip clone route, whose whole row is uGUI. A
+    /// CanvasRenderer is not a Renderer, so the array overload above cannot reach it and a canvas
+    /// left at its creation order of 0 loses to every converted panel on the ladder (>= 100) at
+    /// every distance and every angle.
+    /// </summary>
+    internal static void OrderWithPanels(Canvas? canvas, float eyeDistance)
+    {
+        if (canvas == null)
+            return;
+        int order = PanelLadderOrder(eyeDistance);
+        if (canvas.sortingOrder != order)
+            canvas.sortingOrder = order;
+    }
+
+    /// <summary>The ladder query both tag seats share — one answer to "which order does a
+    /// non-panel plate at THIS eye distance need to draw over everything farther and under every
+    /// panel and board cluster genuinely nearer".</summary>
+    private static int PanelLadderOrder(float eyeDistance)
+        => WorldUI.CanvasConversion.OrderAboveDistanceAndClusters(eyeDistance, TagPanelLift);
 
     /// <summary>
     /// Adopt every TRANSPARENT renderer and every mod-owned world-space canvas under

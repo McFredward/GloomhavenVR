@@ -172,7 +172,7 @@ internal sealed class RemoteNameTag
 
         // LIVE config gate + head presence. Re-read every tick (one bool), so toggling the
         // config entry applies immediately without a restart.
-        bool want = NetModule.NameTags != null && NetModule.NameTags.Value
+        bool want = NetModule.NameTagsWanted
                     && _owner.HeadHolder != null && _owner.HeadHolder.gameObject.activeSelf;
         if (!want)
         {
@@ -373,7 +373,7 @@ internal sealed class RemoteNameTag
         label.color = new Color(1f, 0.95f, 0.85f);     // OwnerTag's warm off-white
         label.fontStyle = FontStyles.Bold;
         TmpFit.Fit(label, NameWidth, Height, maxFontSize: 0.065f, wrap: false);
-        float textWidth = MeasureInkWidth(label);
+        float textWidth = MeasureInkWidth(label, NameWidth, Height);
 
         float groupWidth = avatarSpan + textWidth;
         float left = -groupWidth * 0.5f;
@@ -418,12 +418,22 @@ internal sealed class RemoteNameTag
     /// onto it. WHY the font size is pinned first: <see cref="TmpFit"/> leaves auto-sizing ON, so
     /// assigning a narrower rect would make TMP re-fit the text to the new box and the measurement
     /// would chase its own tail. After <c>ForceMeshUpdate</c> the resolved size is in
-    /// <c>fontSize</c>; pinning it makes the box a pure container. Falls back to the full
-    /// <see cref="NameWidth"/> box when TMP reports nothing usable (empty string, generation
-    /// deferred) — that is exactly the old behaviour, so a degenerate case can never make the tag
-    /// worse than before.
+    /// <c>fontSize</c>; pinning it makes the box a pure container. Falls back to the full authored
+    /// box when TMP reports nothing usable (empty string, generation deferred) — that is exactly
+    /// the old fixed-box behaviour, so a degenerate case can never make a tag worse than before.
+    ///
+    /// <para>INTERNAL AND PARAMETERISED because it is not this tag's rule, it is the IDENTITY ROW's
+    /// rule, and there are two identity rows: this one above a peer's head and <see cref="OwnerTag"/>
+    /// on the corner of their board. Both draw the same avatar + username pair; only this one
+    /// measured the ink. The user report that produced this method (2026-08-02, "the tag sits
+    /// noticeably left of the mask") is a statement about the layout, not about which carrier
+    /// happened to be looked at — and the OTHER carrier still centred the fixed box, so the same
+    /// person's board tag hung left of its anchor while their head tag was centred correctly.</para>
     /// </summary>
-    private static float MeasureInkWidth(TextMeshPro label)
+    /// <param name="label">A freshly built, auto-sized label; its box is shrunk onto the ink.</param>
+    /// <param name="boxWidth">The authored container width — the ceiling, and the fallback.</param>
+    /// <param name="boxHeight">The authored row height; the box keeps it.</param>
+    internal static float MeasureInkWidth(TextMeshPro label, float boxWidth, float boxHeight)
     {
         label.ForceMeshUpdate();
         float resolved = label.fontSize;
@@ -433,11 +443,11 @@ internal sealed class RemoteNameTag
             label.fontSize = resolved;
         }
         float ink = label.textBounds.size.x;
-        if (float.IsNaN(ink) || float.IsInfinity(ink) || ink <= 0.001f || ink > NameWidth)
-            ink = NameWidth;
+        if (float.IsNaN(ink) || float.IsInfinity(ink) || ink <= 0.001f || ink > boxWidth)
+            ink = boxWidth;
         // A hair of air on both sides so the pinned font can never clip against its own box.
-        float box = Mathf.Min(ink + 2f * InkPad, NameWidth);
-        label.rectTransform.sizeDelta = new Vector2(box, Height);
+        float box = Mathf.Min(ink + 2f * InkPad, boxWidth);
+        label.rectTransform.sizeDelta = new Vector2(box, boxHeight);
         return box;
     }
 

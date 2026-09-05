@@ -140,7 +140,14 @@ internal sealed class PingNameTag : MonoBehaviour
     private int _playerKey;
     private float _dieAt;                    // unscaled time
     private CanvasGroup? _group;             // clone route: fade carrier
+    private Canvas? _canvas;                 // clone route: the world-space canvas that draws it
     private TextMeshPro? _label;             // fallback route: mod-drawn TMP line
+
+    // The tag's own renderers for the panel-ladder compositing (BoardVisual.OrderWithPanels — the
+    // "the menu behind it mixes with the label" fix); same cache contract as OwnerTag/RemoteNameTag.
+    private Renderer[] _tagRenderers = Array.Empty<Renderer>();
+    private int _tagRenderersRefreshAt;
+    private const int TagRenderersRefreshFrames = 90; // ~1 s at 90 Hz, see RemoteNameTag
     private Color _baseColor;
     private Action? _tickCached;             // [Optimize] CacheTickDelegates — see BoardPing.Update
 
@@ -262,6 +269,7 @@ internal sealed class PingNameTag : MonoBehaviour
         try
         {
             var canvas = gameObject.AddComponent<Canvas>(); // auto-upgrades our Transform to RectTransform
+            _canvas = canvas;                               // ranked on the panel ladder every Tick
             canvas.renderMode = RenderMode.WorldSpace;
             Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
             if (head != null)
@@ -330,6 +338,7 @@ internal sealed class PingNameTag : MonoBehaviour
             Canvas? c = GetComponent<Canvas>();
             if (c != null)
                 DestroyImmediate(c);
+            _canvas = null;
             _group = null;
             return false;
         }
@@ -345,6 +354,7 @@ internal sealed class PingNameTag : MonoBehaviour
     {
         DestroyImmediate(clone);
         DestroyImmediate(canvas);
+        _canvas = null;
         _group = null;
     }
 
@@ -497,7 +507,44 @@ internal sealed class PingNameTag : MonoBehaviour
             Vector3 away = transform.position - head.transform.position;
             if (away.sqrMagnitude > 1e-6f)
                 transform.rotation = Quaternion.LookRotation(away.normalized, Vector3.up);
+
+            // PANEL COMPOSITING — the third free-floating identity tag, and the one that was never
+            // in the 2026-08-04 sweep. Net.OwnerTag and Net.RemoteNameTag both rank their renderers
+            // on the converted-panel distance ladder every frame through the SAME seam; this one
+            // ranked nothing and sat at the default sortingOrder 0, which loses to a converted
+            // panel's >= 100 at every distance and every angle. Ping a hex behind the initiative
+            // row and the pinging player's name was painted over — while that same player's head
+            // tag composited correctly a metre away. The tag lives ~2 s, so it read as a flicker.
+            //
+            // BOTH ROUTES, because this tag has two and they draw through different systems: the
+            // vanilla-tooltip CLONE is uGUI under a mod-owned world-space Canvas (a CanvasRenderer
+            // is NOT a Renderer, so the renderer array never sees it), the FALLBACK is a mod-drawn
+            // TextMeshPro, i.e. a real Renderer. The exemption list on BoardVisual.AdoptBoardOrder
+            // names the owner tag as already driven "by somebody else" — this one was driven by
+            // nobody.
+            float eyeDistance = away.magnitude;
+            RefreshTagRenderers();
+            Net.BoardVisual.OrderWithPanels(_tagRenderers, eyeDistance);
+            Net.BoardVisual.OrderWithPanels(_canvas, eyeDistance);
         }
+    }
+
+    /// <summary>Lazy-stale cache of the tag's own renderers, the same cache contract
+    /// <c>Net.OwnerTag</c> and <c>Net.RemoteNameTag</c> keep: refetch when empty, when an entry
+    /// died, or on the periodic pickup that catches MrBacking's lazily ADDED backing plate (which
+    /// is added without any existing entry dying, so a died-entry test alone cannot see it).</summary>
+    private void RefreshTagRenderers()
+    {
+        bool stale = _tagRenderers.Length == 0 || Time.frameCount >= _tagRenderersRefreshAt;
+        for (int i = 0; !stale && i < _tagRenderers.Length; i++)
+        {
+            if (_tagRenderers[i] == null)
+                stale = true;
+        }
+        if (!stale)
+            return;
+        _tagRenderers = GetComponentsInChildren<Renderer>(includeInactive: false);
+        _tagRenderersRefreshAt = Time.frameCount + TagRenderersRefreshFrames;
     }
 
     private void OnDestroy()

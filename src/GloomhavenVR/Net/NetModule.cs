@@ -89,6 +89,25 @@ internal sealed class NetModule : IVRModule
     internal static ConfigEntry<bool> NameTags = null!;
 
     /// <summary>
+    /// THE ONE READ OF <c>[Net] NameTags</c>. Both floating identity rows ask this: the tag above a
+    /// peer's head mask (<see cref="RemoteNameTag"/>) and the tag on the corner of their
+    /// control board (<see cref="OwnerTag"/>).
+    ///
+    /// <para>ONLY THE HEAD TAG USED TO ASK. The board tag was built unconditionally at
+    /// <c>RemoteControlBoard.BuildBoard</c> and never read the entry at all, so turning the setting
+    /// OFF left every peer's username readable off their board corner. The shipped description says
+    /// the opposite in both languages — "turn OFF to hide <b>all</b> tags without a restart" /
+    /// "AUS blendet <b>alle</b> Schilder ohne Neustart aus" — and the row is named for the object,
+    /// "Name tags" / "Namensschilder", not for one of its two carriers. The setting is honoured as
+    /// it is written.</para>
+    ///
+    /// <para>Re-read every tick (one bool) on both carriers, so a flip applies live with no restart
+    /// and no rebuild, which is the other half of what the description promises. A null entry —
+    /// before the config binds — reads as OFF, exactly as the head tag has always treated it.</para>
+    /// </summary>
+    internal static bool NameTagsWanted => NameTags != null && NameTags.Value;
+
+    /// <summary>
     /// Show the local player their own avatar in a mirror floating in front of the head (a local
     /// cosmetic preview — independent of the net send, works in single-player). Default off.
     /// </summary>

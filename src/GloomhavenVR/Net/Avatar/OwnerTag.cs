@@ -78,6 +78,33 @@ internal sealed class OwnerTag
     /// <summary>Refresh the avatar/name (change-gated) and billboard toward the local head.</summary>
     public void Tick()
     {
+        if (_root == null)
+            return;
+
+        // LIVE [Net] NameTags GATE — the SAME read the head tag makes (NetModule.NameTagsWanted),
+        // because the setting is about the object and this board corner carries the other one of
+        // its two rows. It used to be built unconditionally and never asked, so switching name tags
+        // off left every peer's username readable here. Re-read every tick (one bool) so a flip
+        // applies live, exactly as the description promises.
+        //
+        // The turn RING is seated under this root as a sibling of the avatar quad
+        // (Net.AvatarTurnRing), so switching the row off switches that cue off with it — the same
+        // relationship, and the same one-hide rule, RemoteNameTag records for its own children.
+        bool want = NetModule.NameTagsWanted;
+        if (_root.activeSelf != want)
+        {
+            _root.SetActive(want);
+            // HW-VERIFY: this line decides R24 — that [Net] NameTags reaches BOTH identity rows, not
+            // just the one above the head. Change-gated on the flip itself, so it fires once per
+            // press of a setting a human operates and never per frame.
+            VRLog.Note("Net", $"Board owner tag [{_playerId}] {(want ? "SHOWN" : "HIDDEN")} by "
+                + "[Net] NameTags — the board-corner row follows the same live gate as the "
+                + "head-mask row now, which is what the setting's own description promises "
+                + "(turn OFF to hide ALL tags).");
+        }
+        if (!want)
+            return;
+
         Sprite? avatar = NetPlayerActors.AvatarFor(_playerId);
         string? name = NetPlayerActors.NameFor(_playerId);
         if (string.IsNullOrEmpty(name))
@@ -135,8 +162,31 @@ internal sealed class OwnerTag
         Texture? t = avatar != null ? avatar.texture : null;
         bool hasAvatar = t != null;
         float avatarSpan = hasAvatar ? AvatarSize + Pad : 0f;
-        // Centre the whole row on the corner anchor.
-        float totalWidth = avatarSpan + NameWidth;
+
+        // ---- name box: BUILT FIRST, then MEASURED --------------------------------------------
+        // CENTRED ON MEASURED INK, NOT ON A FIXED BOX. This row used to centre avatar + the fixed
+        // NameWidth CONTAINER, with the label left-aligned inside it — which RemoteNameTag's own
+        // header names as a fixed DEFECT (user report 2026-08-02): the visible ink is avatar + the
+        // ACTUAL glyph run, so every name shorter than the box left an invisible tail of empty box
+        // on the right and pushed the whole visible group LEFT of the anchor by half of it. The
+        // report was about the layout, not about which carrier was being looked at, and this is the
+        // second carrier of the same row: on a peer's board corner a short name hung ~5 cm left of
+        // its anchor on a 0.64 m board whose anchor is already at x = −0.30, while the SAME
+        // person's head tag was centred correctly.
+        //
+        // The measurement is RemoteNameTag.MeasureInkWidth — the one that was fixed, called rather
+        // than re-typed, with this row's own authored box as its ceiling and fallback.
+        var labelGo = new GameObject("Name");
+        labelGo.transform.SetParent(_billboard, worldPositionStays: false);
+        _nameLabel = labelGo.AddComponent<TextMeshPro>();
+        _nameLabel.text = name;
+        _nameLabel.alignment = TextAlignmentOptions.Center; // the box is the ink now
+        _nameLabel.color = new Color(1f, 0.95f, 0.85f);
+        _nameLabel.fontStyle = FontStyles.Bold;
+        TmpFit.Fit(_nameLabel, NameWidth, Height, maxFontSize: 0.05f, wrap: false);
+        float textWidth = RemoteNameTag.MeasureInkWidth(_nameLabel, NameWidth, Height);
+
+        float totalWidth = avatarSpan + textWidth;
         float left = -totalWidth * 0.5f;
 
         if (t != null)
@@ -151,17 +201,18 @@ internal sealed class OwnerTag
             _avatarQuad.transform.localPosition = new Vector3(left + AvatarSize * 0.5f, 0f, 0f);
         }
 
-        var labelGo = new GameObject("Name");
-        labelGo.transform.SetParent(_billboard, worldPositionStays: false);
         labelGo.transform.localPosition =
-            new Vector3(left + avatarSpan + NameWidth * 0.5f, 0f, -0.001f);
-        _nameLabel = labelGo.AddComponent<TextMeshPro>();
-        _nameLabel.text = name;
-        _nameLabel.alignment = hasAvatar ? TextAlignmentOptions.Left : TextAlignmentOptions.Center;
-        _nameLabel.color = new Color(1f, 0.95f, 0.85f);
-        _nameLabel.fontStyle = FontStyles.Bold;
-        TmpFit.Fit(_nameLabel, NameWidth, Height, maxFontSize: 0.05f, wrap: false);
+            new Vector3(left + avatarSpan + textWidth * 0.5f, 0f, -0.001f);
         WorldUI.MrBacking.Label(_nameLabel); // free-floating over the room in MR
+
+        // HW-VERIFY: this line decides R17 — that the board tag is centred on its MEASURED ink like
+        // the head tag, not on the fixed container. Rebuild runs only on an identity change (sprite
+        // or name), so this is change-gated by construction and can never be per-frame.
+        VRLog.Note("Net", $"Board owner tag [{_playerId}] CENTRED on measured ink: avatar "
+            + $"{avatarSpan:F3} incl. pad + name {textWidth:F3} of a {NameWidth:F3} box = group "
+            + $"{totalWidth:F3} m; centring offset {(NameWidth - textWidth) * 0.5f:F3} m "
+            + "(+x = moved RIGHT vs. the old fixed-box row, which is the same defect "
+            + "RemoteNameTag fixed for the head row on 2026-08-02).");
 
         VRLayers.Apply(_root);
         _tagRenderers = System.Array.Empty<Renderer>(); // rebuilt children → re-cache next Tick
