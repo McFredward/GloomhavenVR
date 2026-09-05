@@ -138,7 +138,9 @@ namespace GloomhavenVR.Board.Patches;
 /// other slot is empty, so a restored spawner exit cannot tear down a monster popup the hex hover
 /// raised, or the reverse.</para>
 ///
-/// <para><b>Cost.</b> One <c>Physics.Raycast</c> per frame — the SAME one the original casts,
+/// <para><b>Cost.</b> One <c>Physics.RaycastNonAlloc</c> per frame into a shared 16-hit buffer —
+/// the same ray the original casts (see <see cref="TryPickHoverTarget"/> for why it can no longer
+/// be the single-hit overload),
 /// with the same mask and the same length (1000 m for the laser; a few centimetres for the
 /// fingertip pick, which is <c>BoardPick</c>'s near-ray budget). Nothing is added: the original
 /// method does not run. The per-frame allocation the original had is removed —
@@ -203,6 +205,9 @@ internal static class HoverPickPatch
         _nextLogTime = 0f;
         _suppressed = 0;
         _errorLogs = 0;
+        _passthroughFrames = 0;
+        _passthroughLogsLeft = 3;
+        _passthroughLastProp = null;
     }
 
     // ---- patch -------------------------------------------------------------------------------
@@ -262,16 +267,11 @@ internal static class HoverPickPatch
             return false;
         }
 
-        if (!Physics.Raycast(origin, direction, out RaycastHit hit, maxDistance, TargetLayerRef(registerer)))
+        if (!TryPickHoverTarget(origin, direction, maxDistance, TargetLayerRef(registerer),
+                                out RaycastHit hit, out GameObject? hitObject, out string miss)
+            || hitObject == null)
         {
-            ExitAll(cursorTargets, "the VR pick ray hit nothing on the hover mask");
-            return false;
-        }
-
-        GameObject? hitObject = hit.transform != null ? hit.transform.gameObject : null;
-        if (hitObject == null)
-        {
-            ExitAll(cursorTargets, "the hover raycast reported a hit with no transform");
+            ExitAll(cursorTargets, miss);
             return false;
         }
 
@@ -335,7 +335,169 @@ internal static class HoverPickPatch
         cursorTargets.Clear();
     }
 
+    // ---- the pick: a decoration must not be able to cancel a hover ---------------------------
+
+    /// <summary>
+    /// Reused hit buffer for <see cref="TryPickHoverTarget"/> — no per-frame allocation. Sixteen
+    /// is far past what a board hex can stack; if it ever fills, the nearest hit AMONG THE
+    /// SIXTEEN is used, which degrades to the vanilla single-hit answer rather than to nothing.
+    /// </summary>
+    private static readonly RaycastHit[] HitScratch = new RaycastHit[16];
+
+    /// <summary>
+    /// The nearest hit on the hover mask that is not hover-transparent decoration.
+    ///
+    /// <para><b>WHY THIS IS NOT A PLAIN <c>Physics.Raycast</c> (user report 2026-09-05: "Das
+    /// Tooltip von einer neuen gespawnten Falle zuckt und ist an der falschen Stelle").</b>
+    /// <c>UnityGameEditorObject.Start</c> (:57-63) puts EVERY prop except Tile / EdgeTile /
+    /// Coverage on the "Hovering" layer, hoverable or not — so membership of
+    /// <c>HoverRegisterer.targetLayer</c> says "this is a prop", never "this can be hovered" and
+    /// never "this occludes". A <c>TerrainVisualEffect</c> is pure decoration: it carries no
+    /// <c>IHoverable</c>, has no branch in <c>WorldspaceStarHexDisplay.ShowTooltipForTile</c>'s
+    /// ladder either, and the game's own rules treat its hex as EMPTY — <c>GameState</c>'s
+    /// pathing lists it beside gold and chests as walkable (:3215/:3237/:3317/:3322), and
+    /// <c>CAbilityTrap</c>:145 accepts a tile whose props are exactly one
+    /// <c>TerrainVisualEffect</c> as a legal trap DROP TARGET. That last line is the whole
+    /// report: a trap spawned during the scenario is systematically allowed to land on a hex
+    /// that already holds a decoration, so its collider and the decoration's are coincident.
+    /// An authored trap sits on its own authored hex and never meets this.</para>
+    ///
+    /// <para>In the flat game the pixel under the mouse is perfectly still, so
+    /// <c>Physics.Raycast</c> returns the same one of two coincident colliders every frame. A VR
+    /// laser trembles by a fraction of a milliradian, so the nearest hit alternates at frame
+    /// rate, and each flip is a full <c>OnCursorExit</c> → <c>UIPropInfoPanel.Hide</c> →
+    /// <c>OnCursorEnter</c> → <c>ShowTrap</c>. The 2026-09-05 host log has it outright: over the
+    /// trap-hover episode at lines 142925-144104 the 'Prop Info Panel' (ID TrapInfoPanel) hides
+    /// and re-shows every two to six frames, the EXIT lines all name a
+    /// <c>'TerrainVisualEffect : (guid)'</c> as the thing under the ray at 6.90/6.96 m while the
+    /// ENTER lines name the <c>BearTrap</c> on the same hex at 6.93/6.97/7.01 m, and up to 14
+    /// further dispatches were swallowed by the 0.25 s log cap inside one of those quarters.</para>
+    ///
+    /// <para><b>The rule, and its limit.</b> Only a prop the GAME classifies as not occupying its
+    /// hex is passed through, and only after confirming structurally that it carries no
+    /// <c>IHoverable</c> — so "it can never answer a hover" is measured here, not assumed. Every
+    /// other non-hoverable hit still drains the list exactly as
+    /// <c>HoverRegisterer</c>:49-52 does: an obstacle standing in front of a trap is a real
+    /// occluder and keeps occluding.</para>
+    /// </summary>
+    private static bool TryPickHoverTarget(Vector3 origin, Vector3 direction, float maxDistance,
+                                           LayerMask mask, out RaycastHit hit,
+                                           out GameObject? hitObject, out string miss)
+    {
+        hit = default;
+        hitObject = null;
+        miss = "the VR pick ray hit nothing on the hover mask";
+
+        int count = Physics.RaycastNonAlloc(origin, direction, HitScratch, maxDistance, mask);
+        int passed = 0;
+        string? nearestPassed = null;
+
+        // Walk the hits NEAREST FIRST and stop at the first one that is not decoration. Ordering
+        // it this way — rather than filtering the whole set — keeps the steady-state cost at ONE
+        // GetComponent per frame: the nearest hit is almost always the answer, and the test only
+        // escalates on the rare frame where a decoration got in front. RaycastNonAlloc does not
+        // sort, and two colliders on one hex can report the identical distance, so exhausted hits
+        // are struck off by INDEX (a bitmask over the 16-slot buffer) and never by distance.
+        int skipMask = 0;
+        for (int guard = 0; guard <= count; guard++)
+        {
+            int bestIdx = -1;
+            float best = float.PositiveInfinity;
+            for (int i = 0; i < count; i++)
+            {
+                if ((skipMask & (1 << i)) != 0 || HitScratch[i].distance >= best
+                    || HitScratch[i].transform == null)
+                    continue;
+                best = HitScratch[i].distance;
+                bestIdx = i;
+            }
+            if (bestIdx < 0)
+                break;
+
+            skipMask |= 1 << bestIdx;
+            GameObject go = HitScratch[bestIdx].transform.gameObject;
+            if (!IsHoverTransparent(go))
+            {
+                hit = HitScratch[bestIdx];
+                hitObject = go;
+                LogPassthrough(passed, nearestPassed, go, best);
+                return true;
+            }
+            passed++;
+            if (nearestPassed == null)
+                nearestPassed = go.name;
+        }
+
+        if (passed > 0)
+            miss = $"the VR pick ray hit only hover-transparent decoration ({passed} of them, "
+                   + $"nearest '{nearestPassed}')";
+        else if (count > 0)
+            miss = "the hover raycast reported hit(s) with no transform";
+        return false;
+    }
+
+    /// <summary>
+    /// A prop that can never answer a hover AND that the game itself does not treat as occupying
+    /// its hex. Type first (cheap and exact), then the structural confirmation.
+    /// </summary>
+    private static bool IsHoverTransparent(GameObject go)
+    {
+        UnityGameEditorObject? authored = go.GetComponent<UnityGameEditorObject>();
+        if (authored == null
+            || authored.m_ObjectType != ScenarioRuleLibrary.ScenarioManager.ObjectImportType.TerrainVisualEffect)
+            return false;
+        // If a future build ever hangs an IHoverable on the effect prop, it stops being
+        // decoration and this rule must stand down rather than swallow its hover.
+        return go.GetComponent<IHoverable>() == null;
+    }
+
     // ---- diagnostics -------------------------------------------------------------------------
+
+    /// <summary>Frames on which the pick passed through at least one decoration to reach a prop.</summary>
+    private static int _passthroughFrames;
+
+    /// <summary>Report budget for the passthrough line (per session).</summary>
+    private static int _passthroughLogsLeft = 3;
+
+    /// <summary>Change gate: the prop the last emitted passthrough line named.</summary>
+    private static string? _passthroughLastProp;
+
+    /// <summary>
+    /// One line the first time the pick saves a hover from a decoration on a given prop.
+    /// Change-gated on the prop and capped at three per session, so a whole hover episode over a
+    /// trap costs ONE line however many frames it lasts.
+    /// </summary>
+    private static void LogPassthrough(int passed, string? nearestPassed, GameObject target, float distance)
+    {
+        if (passed <= 0)
+            return;
+        _passthroughFrames++;
+        string name = target.name;
+        if (_passthroughLogsLeft <= 0
+            || string.Equals(name, _passthroughLastProp, StringComparison.Ordinal))
+            return;
+        _passthroughLastProp = name;
+        _passthroughLogsLeft--;
+        // HW-VERIFY: this line is the proof that the trap-tooltip flicker's TRIGGER is gone. It
+        // prints only when the hover pick passed THROUGH a hover-transparent decoration and
+        // landed on a real prop behind it — i.e. on exactly the frames that used to drain the
+        // hover list and hide the card. FALSIFIER: if this line is ABSENT while the user still
+        // reports a twitching trap card, the ray is NOT being stolen by a TerrainVisualEffect and
+        // the churn has another source — read the HEX HINT STILLNESS line's lapse count next,
+        // which counts the hide/show cycles whatever caused them. Tier enforced by
+        // scripts/check-hw-verify.py.
+        VRLog.Note(Scope,
+            $"HOVER PASSTHROUGH: the pick passed through {passed} hover-transparent decoration "
+            + $"prop(s) (nearest '{nearestPassed}') and hovered '{name}' at {distance:0.00} m "
+            + "behind them. Before ModBuild 448 the nearer decoration WON this raycast whenever "
+            + "the laser trembled onto it, and every win was an OnCursorExit → panel Hide → "
+            + "OnCursorEnter → Show cycle — the reported 'newly spawned trap tooltip twitches'. "
+            + "A TerrainVisualEffect carries no IHoverable and the game's own pathing and "
+            + "CAbilityTrap:145 drop rule both treat its hex as empty, so nothing is lost by "
+            + "seeing past it; every other non-hoverable prop still occludes. "
+            + $"({_passthroughFrames} frame(s) so far this session; {_passthroughLogsLeft} more "
+            + "of these lines.)");
+    }
 
     /// <summary>
     /// One line per enter/exit DISPATCH — which pointer drove it, what it resolved to, the prop
@@ -352,16 +514,25 @@ internal static class HoverPickPatch
     /// <c>UIPropInfoPanel</c> / <c>WorldUI PropInfoSurface</c>, not here. If ENTER lines appear
     /// without a matching EXIT before the next ENTER on a different prop, the bookkeeping
     /// transcription is wrong.</para>
+    ///
+    /// <para><b>The EXIT line used to name the wrong object (fixed ModBuild 448).</b> It printed
+    /// <c>DescribeProp(hitObject)</c>, i.e. what the ray hit THIS frame — which on an exit frame
+    /// is by definition NOT the thing that exited. Reading the 2026-09-05 log that meant every
+    /// trap EXIT appeared as <c>'TerrainVisualEffect : (guid)' [IHoverable
+    /// UnityGameEditorTrapProp]</c>, a pairing that exists on no GameObject. The subject and the
+    /// current ray target are now printed as two separate, labelled facts — which is what
+    /// actually named the coincident-decoration cause.</para>
     /// </summary>
     private static void LogDispatch(string direction, IHoverable? target, GameObject? hitObject, float distance)
     {
         if (!TakeLogSlot(out int swallowed))
             return;
 
+        GameObject? subject = target is Component c && c != null ? c.gameObject : null;
         VRLog.Info(Scope,
-            $"hover {direction} — pointer {DescribePointer()} → {DescribeProp(hitObject)} " +
+            $"hover {direction} — pointer {DescribePointer()} → {DescribeProp(subject ?? hitObject)} " +
             $"[IHoverable {(target != null ? target.GetType().Name : "null")}] on hex {DescribeHex(hitObject)}, " +
-            $"ray hit at {distance:0.00} m{Suffix(swallowed)}");
+            $"ray now on {DescribeProp(hitObject)} at {distance:0.00} m{Suffix(swallowed)}");
     }
 
     private static void LogDrain(int count, string reason)
