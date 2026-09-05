@@ -74,8 +74,18 @@ internal sealed class RemoteCardArt
     // Fallback face pixel size when the cloned rect is degenerate.
     private static readonly Vector2 DefaultFaceSize = new(270f, 400f);
 
-    // Small inset so the art sits just inside the slab silhouette (mirrors CardFace.BorderFraction).
-    private const float BorderFraction = 0.06f;
+    /// <summary>Small inset so the art sits just inside the box it is handed (mirrors
+    /// <c>CardFace.BorderFraction</c>): a cloned face is fitted to <c>(1 - BorderFraction)</c> of
+    /// that box.
+    ///
+    /// <para>INTERNAL, because two surfaces have to undo it and a private copy is how they drift.
+    /// A caller whose BODY is the card's real outline (an item chip, whose box comes from the Item
+    /// footprint) grows the box it hands us by <c>1/(1 - BorderFraction)</c> so the print lands
+    /// flush on that outline; a caller whose body it OWNS (an ability slab) shrinks the body to
+    /// <c>CardFace.VisibleFaceRect</c> instead, which is the same product seen from the other end.
+    /// Either way the number belongs to this class, which is the one that applies it.</para>
+    /// </summary>
+    internal const float BorderFraction = 0.06f;
 
     /// <summary>Re-run the shared mip-bake sprite swap over the shown clone this often (seconds) —
     /// the exact cadence the LOCAL card faces use (<c>CardFace.MipRescanInterval</c>). Needed

@@ -210,7 +210,9 @@ internal sealed class RemoteItemFan
     private float _cardH = Defaults.CardWidth * ChipScale * LegacyAspect;
 
     /// <summary>
-    /// <c>RemoteCardArt.BorderFraction</c>, mirrored (it is private there). The front overlay fits a
+    /// <c>RemoteCardArt.BorderFraction</c>, CALLED not mirrored — it used to be a private copy of
+    /// the number here, which is exactly the drift the avoid-redundancy ruling names. The front
+    /// overlay fits a
     /// cloned face to <c>(1 − BorderFraction)</c> of the box it is handed, which is right for an
     /// ABILITY card — the local <c>CardFace</c> insets its face inside the slab the same way — but
     /// wrong for an item chip: <c>ItemsPile</c> sizes the chip body to the card's rendered rect
@@ -218,7 +220,7 @@ internal sealed class RemoteItemFan
     /// punched-out silhouette. Cancelled by handing the overlay a box scaled up by the same factor,
     /// so the face lands flush on the body edge — the body itself is untouched.
     /// </summary>
-    private const float FrontBorderFraction = 0.06f;
+    private const float FrontBorderFraction = RemoteCardArt.BorderFraction;
 
     // ---- WHICH CHIPS LIE TAPPED (the SPENT look, ItemsPile.Relayout requirement 3) --------------
     // One flag per equipped item, index-aligned with the arc exactly as the front overlays are, and

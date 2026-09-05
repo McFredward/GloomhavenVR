@@ -304,6 +304,49 @@ internal static class RevealGate
     public static bool ShowMapPhaseHandFronts => InMapPhase;
 
     /// <summary>
+    /// WHICH POPULATION a peer-card surface belongs to, for <see cref="CardFaces"/> — the ONE term
+    /// that decides whether the game's secret selection window applies to it.
+    ///
+    /// <para>IT IS A PARAMETER RATHER THAN A SECOND METHOD ON PURPOSE. The user's ruling of
+    /// 2026-09-05 is absolute — "Gewährleiste das außerhalb der Auswahlphase NIEMALS Rückseiten auf
+    /// Vorderseiten angezeigt werden sondern immer die echte Vorderseite. IMMER OHNE AUSNAHME" —
+    /// and it carries ONE carve-out (the selection phase) plus ONE carve-out from THAT (the active
+    /// card matrix beside the control board, "das ist kein Geheimnis. Auch in der Auswahlphase").
+    /// A rule with two nested exceptions written as two sibling methods is a rule two surfaces can
+    /// pick the wrong half of; written as an enum every caller must name, the exception is
+    /// something a surface DECLARES about itself and the arithmetic stays in one place.</para>
+    /// </summary>
+    public enum PeerCardPopulation
+    {
+        /// <summary>Cards whose identity is the sanctioned secret of the game's own
+        /// <c>SelectAbilityCardsOrLongRest</c> window: a peer's HAND fan, the card in their hand,
+        /// their round-card slots, their pile-browse arcs and their item fan. THE CARVE-OUT: while
+        /// <see cref="IsSecretSelectionPhase"/> is open online for a character that is not ours,
+        /// these show BACKS. Outside that window they show the real front, without exception.
+        /// </summary>
+        Selectable,
+
+        /// <summary>Cards that are ALREADY PUBLIC and therefore exempt from the carve-out above —
+        /// today exactly the ACTIVE / persistent card matrix beside the peer's control board
+        /// (<c>Net.RemoteActiveCards</c>).
+        ///
+        /// <para>THE CARVE-OUT FROM THE CARVE-OUT, and it is the user's, verbatim (2026-09-05, item
+        /// 2b): "Die Vorderseite der aktiven Karten in der kleinen Matrix neben dem Controllboard
+        /// soll IMMER angezeigt werden - das ist kein Geheimnis. Auch in der Auswahlphase." He is
+        /// right about the game as well as about the picture: an active card is on the table
+        /// BECAUSE it was played face-up in front of everybody in an earlier round, so its identity
+        /// was public before the current selection window opened and hiding it now protects
+        /// nothing. Vanilla agrees — <c>ActivePileViewer</c> has no phase term at all.</para>
+        ///
+        /// <para>WHAT THIS DOES NOT COVER, stated so the next surface does not adopt it by
+        /// analogy: a peer's DISCARD pile is also "cards that were played", and it is deliberately
+        /// left in <see cref="Selectable"/>. The user ruled on the active matrix and on nothing
+        /// else, and this file's standing invariant is to show LESS when nobody has ruled.</para>
+        /// </summary>
+        AlreadyPublic,
+    }
+
+    /// <summary>
     /// WHERE A REMOTE PLAYER'S CARD FACES MAY COME FROM RIGHT NOW — the one call every remote
     /// ability-card surface asks, so that no two of them can answer the secrecy question
     /// differently.
@@ -349,19 +392,35 @@ internal static class RevealGate
     /// third surface added later cannot drift because there is nothing left for it to drift FROM.
     /// </para>
     ///
+    /// <para><paramref name="population"/> IS THE WHOLE OF THE SECRECY DIFFERENCE BETWEEN SURFACES,
+    /// and there is nothing else for one to get wrong: every caller states which population it draws
+    /// and this method owns both nested exceptions (see <see cref="PeerCardPopulation"/>). The
+    /// answer for <see cref="PeerCardPopulation.AlreadyPublic"/> differs from the other in exactly
+    /// one term — the phase — and in nothing about WHERE the faces come from, which is why it is the
+    /// same call and not a second one.</para>
+    ///
     /// <para>The actor is optional because the map phase has none — see
     /// <see cref="ShowMapPhaseHandFronts"/> for why that is a statement about the game's model and
     /// not a missing argument. Never throws: any failure answers <see cref="CardFaceSource.None"/>,
     /// which is the direction this whole file is required to fail in.</para>
     /// </summary>
-    public static CardFaceSource HandCardFaces(ScenarioRuleLibrary.CPlayerActor? actor)
+    public static CardFaceSource CardFaces(PeerCardPopulation population,
+                                           ScenarioRuleLibrary.CPlayerActor? actor)
     {
         try
         {
             if (InScenario)
-                return actor != null && ShowRoundCardFronts(actor)
-                    ? CardFaceSource.Scenario
-                    : CardFaceSource.None;
+            {
+                if (actor == null)
+                    return CardFaceSource.None;
+                // THE CARVE-OUT AND THE CARVE-OUT FROM IT, in one expression and in this order: the
+                // secrecy term is asked ONLY of a population the secret applies to. An already
+                // public card still needs a running scenario (the capability half above) and still
+                // needs a character to resolve against — it just has no phase to be secret in.
+                bool secret = population == PeerCardPopulation.Selectable
+                              && !ShowRoundCardFronts(actor);
+                return secret ? CardFaceSource.None : CardFaceSource.Scenario;
+            }
             return ShowMapPhaseHandFronts ? CardFaceSource.MapLoadout : CardFaceSource.None;
         }
         catch

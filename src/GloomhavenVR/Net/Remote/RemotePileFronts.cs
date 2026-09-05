@@ -193,6 +193,19 @@ internal sealed class RemotePileFronts
         _ => "a game read threw; treated as a shut gate (fail-safe = no face)",
     };
 
+    /// <summary>This surface's standing verdict for the per-population census — every frame, on
+    /// every path, including the ones that draw nothing. See <see cref="PeerCardFaceCensus"/> for
+    /// why the change-gated <c>Log</c> beside it could not answer the question the user is asking.
+    /// The population follows the CONTENT, because a peer's item fan and their pile-browse arc are
+    /// two different pictures that happen to share this driver.</summary>
+    private void Census(Content content, int fronts, Gate gate) =>
+        PeerCardFaceCensus.Report(
+            content == Content.Items
+                ? PeerCardFaceCensus.Surface.ItemFan
+                : PeerCardFaceCensus.Surface.PileBrowse,
+            _owner.PlayerId, fronts, System.Math.Max(_arts.Count - fronts, 0),
+            $"{content}: {Reason(gate)}");
+
     internal RemotePileFronts(RemoteAvatar owner, string surface)
     {
         _owner = owner;
@@ -287,14 +300,24 @@ internal sealed class RemotePileFronts
             // mismatched pair. It falls back to their owned character whenever the focus is absent,
             // unresolvable or suppressed.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
+            // THE ONE CALL, not a fourth hand-written copy of its terms. This used to spell
+            // `InScenario ? (ShowRoundCardFronts ? Open : Secret) : OffScenario` — which is the same
+            // conjunction RevealGate.CardFaces was extracted to own, re-derived here, and therefore
+            // one more place for the two halves to come apart (RevealGate's own doc block names that
+            // as the ModBuild-192 defect and says it recurred once already). The mapping back onto
+            // this class's Gate enum is exact and deliberately loses nothing: MapLoadout means "no
+            // scenario is running", and a pile-browse arc or an item fan needs the scenario
+            // singletons its clone path reads, so for THIS surface that answer IS OffScenario.
+            RevealGate.CardFaceSource source =
+                RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor);
             if (actor == null)
                 gate = Gate.NoActor;
-            else if (!RevealGate.InScenario)
-                // The clone paths lean on scenario singletons (CardsHandManager, ObjectPool's card
-                // pools); off-scenario there is no peer board to hang a fan off either.
+            else if (source == RevealGate.CardFaceSource.Scenario)
+                gate = Gate.Open;
+            else if (source == RevealGate.CardFaceSource.MapLoadout || !RevealGate.InScenario)
                 gate = Gate.OffScenario;
             else
-                gate = RevealGate.ShowRoundCardFronts(actor) ? Gate.Open : Gate.SecretPhase;
+                gate = Gate.SecretPhase;
         }
         catch (System.Exception ex)
         {
@@ -316,6 +339,7 @@ internal sealed class RemotePileFronts
                 _frontCount = 0;
                 Reset();
             }
+            Census(content, 0, gate);
             Log(content, gate, 0, actor);
             return;
         }
@@ -398,6 +422,7 @@ internal sealed class RemotePileFronts
                 _arts[i].HideFront();
             _frontCount = 0;
             _resolvedCount = _arts.Count;
+            Census(content, 0, Gate.CountMismatch);
             Log(content, Gate.CountMismatch, 0, actor);
             return;
         }
@@ -429,6 +454,7 @@ internal sealed class RemotePileFronts
         _frontCount = fronts;
         _resolvedCount = _arts.Count;
 
+        Census(content, fronts, resolved ? Gate.Open : Gate.NoSource);
         Log(content, resolved ? Gate.Open : Gate.NoSource, fronts, actor);
     }
 

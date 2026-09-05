@@ -125,9 +125,27 @@ internal sealed class RemoteActiveCards
         _root.gameObject.SetActive(false);
     }
 
-    /// <summary>Re-read the actor's active pile and repaint.</summary>
-    public void Refresh(CPlayerActor actor, bool showFronts)
+    /// <summary>
+    /// Re-read the actor's active pile and repaint.
+    ///
+    /// <para>IT ASKS THE FACE RULE ITSELF, and that is the fix for 2026-09-05 report item 2b: "Die
+    /// Vorderseite der aktiven Karten in der kleinen Matrix neben dem Controllboard soll IMMER
+    /// angezeigt werden - das ist kein Geheimnis. Auch in der Auswahlphase." This method used to
+    /// TAKE a <c>showFronts</c> from its caller, and the caller had exactly one — the board's own
+    /// <c>RevealGate.ShowRoundCardFronts(actor)</c>, computed for the round-card recesses and
+    /// handed to every per-actor surface below it. So the selection phase, which is the right
+    /// answer for a card being CHOSEN, was also being applied to a card that was PLAYED FACE-UP in
+    /// front of everybody two rounds ago. A parameter is a carve-out the caller can forget; the
+    /// call below is one this surface declares about itself and no caller can take away —
+    /// <c>RevealGate.PeerCardPopulation.AlreadyPublic</c> carries the whole argument.</para>
+    /// </summary>
+    public void Refresh(CPlayerActor actor)
     {
+        // THE CARVE-OUT FROM THE CARVE-OUT, asked of the one rule every peer-card surface asks. It
+        // still needs a running scenario and a character to resolve against (both are inside the
+        // call); the ONLY term it drops is the phase.
+        bool showFronts = RevealGate.CardFaces(RevealGate.PeerCardPopulation.AlreadyPublic, actor)
+                          != RevealGate.CardFaceSource.None;
         _buffer.Clear();
         try
         {
@@ -152,6 +170,10 @@ internal sealed class RemoteActiveCards
         {
             for (int i = 0; i < _cards.Count; i++)
                 _cards[i].Set(null, showFronts, actor);
+            // ZERO IS A READING (see PeerCardFaceCensus): an empty active pile must overwrite this
+            // population's census row rather than leave the last non-empty one standing.
+            PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _playerId, 0, 0,
+                "this character has no active cards");
             return;
         }
 
@@ -195,6 +217,20 @@ internal sealed class RemoteActiveCards
             // header art rides this refresh instead (see RemoteBoardCard.MaintainMips).
             _cards[i].MaintainMips();
         }
+
+        // The standing picture for the census — this population must NEVER read a BACK, in any
+        // phase, and the line PeerCardFaceCensus prints says so in as many words. RealFaceCount is
+        // "how many of the drawn cells carry a real game-card face"; the rest are the mod-drawn
+        // name+initiative fallback, which is a front too (it is not a card back), so the BACK count
+        // is the cells the gate refused outright and nothing else.
+        int fronts = showFronts ? Count : 0;
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _playerId,
+            fronts, Count - fronts,
+            showFronts
+                ? $"RevealGate.CardFaces(AlreadyPublic) — {RealFaceCount} real game-card face(s), "
+                  + "the rest the mod-drawn fallback panel"
+                : "RevealGate.CardFaces(AlreadyPublic) named NO source — off-scenario, or no "
+                  + "character resolved. NOT the selection phase: this population is exempt from it");
 
         // Change-gated on the shape itself, so the line below fires on a human-paced event (a card
         // going active) and never per refresh.

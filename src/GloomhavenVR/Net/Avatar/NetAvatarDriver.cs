@@ -3121,7 +3121,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 + $"slot1 {DescribeHeldFace(faceCode0, faceCount0)}, "
                 + $"slot2 {DescribeHeldFace(faceCode1, faceCount1)} (record 36) — a source-list id "
                 + "plus a POSITION in a list every client already holds, never a card id. Peers draw "
-                + "the front only while RevealGate.HandCardFaces names a source for the character "
+                + "the front only while RevealGate.CardFaces names a source for the character "
                 + "this board presents, and only while their own copy of that list is exactly as "
                 + "long as the count above. 'map-room loadout' is the MAP-ROOM list (source id 5, "
                 + "report item 5a): there is no CPlayerActor and no items pile there, so this "
@@ -3585,6 +3585,13 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         if (_avatars.Count == 0)
             return;
 
+        // THE PEER-CARD FACE CENSUS' cadence, driven from the one loop that visits every peer's
+        // surfaces. It is a SAMPLER on a fixed interval rather than a change edge — see
+        // PeerCardFaceCensus for why the per-surface edge lines could not answer "is a peer's card
+        // showing a front right now". Called BEFORE the avatars tick so the line it prints is last
+        // frame's settled picture rather than a half-updated one.
+        PeerCardFaceCensus.PrintIfDue();
+
         _scratchIds.Clear();
         foreach (KeyValuePair<int, RemoteAvatar> kv in _avatars)
         {
@@ -3619,6 +3626,7 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                 Board.CharacterFocus.ForgetPeer(id);   // …and their focus outline goes with them
                 _peerEnv.Remove(id);                   // …and they stop being a clock/host candidate
                 RemoteTestTriggers.ForgetPeer(id);     // …and any debug override they owned is released
+                PeerCardFaceCensus.ReportPeerGone(id);     // …and their card-face rows stop being reported
             }
         }
     }

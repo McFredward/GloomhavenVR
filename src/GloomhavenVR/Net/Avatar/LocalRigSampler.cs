@@ -290,6 +290,32 @@ internal static class LocalRigSampler
         if (!left && !right)
             return;
         CPlayerActor? actor = Cards.ItemsPile.Current?.OwnerActor;
+        // ─── THE ACTOR CAME OUT OF THE ITEM PILE, AND THE ITEM PILE IS USUALLY NOT THERE ─────────
+        // 2026-09-05 report item 2c, "Innerhalb des Szenarios hat das wieder so gut wie garnicht
+        // funktioniert", and this line is the whole of it. Cards.ItemsPile.Current is PUBLISHED BY
+        // THE ITEM ARC AND ONLY WHILE IT IS OPEN — ItemsPile.Open assigns it, ItemsPile.Close nulls
+        // it, and its own doc comment says so ("Current is null the moment the arc goes"). A player
+        // in a scenario raises their item fan for a few seconds a session; the rest of the time this
+        // read answers null, the map-room branch below was taken, MapRoomHand had nothing to say
+        // because no map room is standing, and the record named NOTHING. So a card plucked out of a
+        // peer's HAND inside a scenario could never get a front — on any client, in any phase, for
+        // the whole life of the feature.
+        //
+        // THE EVIDENCE IS THE SILENCE, and it is only readable once the line's cadence is known:
+        // "Held-card face SENT" is change-gated on the CODE, so a code that is always 0 never changes and
+        // never prints. Both 100 MB logs of the 2026-09-05 session contain four such lines each and
+        // not one of them names the hand: 'map-room loadout' and 'items', never 'hand fan'. Two
+        // players played a whole scenario picking cards up and putting them down.
+        //
+        // THE CORRECT SOURCE IS THE CHARACTER WHOSE HAND THIS CLIENT IS PRESENTING, which is what
+        // the RECEIVER already resolves the seat against: RemoteBoardFocus.DisplayedActor follows
+        // extension record 22, and record 22 carries Board.CharacterFocus.PresentedActorId. Asking
+        // for the same fact on this side makes the two ends of the index name the same list by
+        // construction instead of by coincidence. Guarded on RevealGate.InScenario so a
+        // PresentedActor left standing from a finished scenario can never steal the map room's
+        // branch below — off-scenario the map loadout is the only list there is.
+        if (actor == null && RevealGate.InScenario)
+            actor = Board.CharacterFocus.PresentedActor;
         // NO ACTOR IS NOT "NAMES NOTHING" ANY MORE — IT IS THE MAP ROOM (report item 5a). This used
         // to return here, and the consequence was that in the map room the record was omitted
         // outright and a card in a peer's hand could only ever be a back, while the fan beside it

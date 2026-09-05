@@ -541,6 +541,15 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         if (!_owner.HasBoard || vis == RemoteBoardVisibility.Off)
         {
             BlankCardFaces();
+
+            // ZERO IS A READING (see PeerCardFaceCensus). A board that is not being drawn must say
+            // so, or its last front/back split would stand in every census line for the rest of the
+            // session — and "the board was hidden" and "the slots went to backs" are two different
+            // answers to the user's question.
+            PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.RoundSlots, _owner.PlayerId, 0, 0,
+                "this peer's board is not being drawn (RemoteBoardGate)");
+            PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.ActiveMatrix, _owner.PlayerId, 0, 0,
+                "this peer's board is not being drawn (RemoteBoardGate)");
             SetActive(false);
             return;
         }
@@ -713,6 +722,21 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // that mask is the last one they sent while alive, and a latched wire fact is exactly how
         // a "cleared" board keeps two card backs (see ApplyExhaustedCardRule).
         SeatSlots(actor, showFronts, exhausted);
+
+        // THE STANDING PICTURE for the per-population census (see Net/PeerCardFaceCensus): how many
+        // of this peer's round-card recesses are showing a real front and how many a back, every
+        // frame, beside the change-gated lines the slots keep of their own. _slotFaceMask is the
+        // slots that carry a face; the occupied slots that do not are backs, whether identity-known
+        // or anonymous.
+        int seatedSlots = CountBits(_slotOccupiedMask);
+        int facedSlots = CountBits(_slotFaceMask);
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.RoundSlots, _owner.PlayerId,
+            facedSlots, seatedSlots - facedSlots,
+            showFronts
+                ? "RevealGate.ShowRoundCardFronts(actor)=true — a seated slot with no face is one "
+                  + "whose card widget could not be resolved on this client"
+                : "RevealGate.ShowRoundCardFronts(actor)=false — the game's own secret "
+                  + "SelectAbilityCardsOrLongRest window, or no character resolved");
 
         // …and the GAME's OWN card plume on those very slabs (wire id 236) — the PLAYED/round-slot
         // half of the bit whose HAND half RemoteHandFan.TickMirroredPlumes already pays. PER FRAME,
@@ -998,7 +1022,10 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             _pickBanner?.Apply(_owner.PickBannerText);
             _boardTooltip?.Apply(_owner.TooltipText);
             _status?.Refresh(actor, showFronts);
-            _active?.Refresh(actor, showFronts);
+            // NO showFronts HANDED DOWN (report item 2b): the active matrix asks the face rule
+            // for its OWN population, which is exempt from the selection phase. See
+            // RemoteActiveCards.Refresh and RevealGate.PeerCardPopulation.AlreadyPublic.
+            _active?.Refresh(actor);
             _track?.Refresh();
             SyncInitiativeBadge();
 
@@ -1303,6 +1330,18 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// the next one and there is no edge to miss. A sender without the field reads as "unknown" and
     /// takes the legacy branch below verbatim.
     /// </summary>
+    /// <summary>Population count of a slot mask — <c>SlotCount</c> is 2, so this is two shifts and
+    /// costs nothing; it exists so the census reports a NUMBER rather than a bitmask nobody can read
+    /// in a hardware log.</summary>
+    private static int CountBits(int mask)
+    {
+        int n = 0;
+        for (int i = 0; i < SlotCount; i++)
+            if ((mask & (1 << i)) != 0)
+                n++;
+        return n;
+    }
+
     private void SeatSlots(CPlayerActor? actor, bool showFronts, bool exhausted)
     {
         // EXHAUSTED OWNER ⇒ BOTH RECESSES EMPTY, whatever the wire last said. The occupancy nibble

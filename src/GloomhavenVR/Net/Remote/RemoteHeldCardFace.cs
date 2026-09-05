@@ -105,8 +105,25 @@ internal sealed class RemoteHeldCardFace
     /// </summary>
     internal void Tick(Transform? slab, bool held, byte code, byte count)
     {
-        if (slab == null || !held || !NetProtocol.HeldFaceNamesCard(code))
+        if (slab == null || !held)
         {
+            // REPORTED AS ZERO RATHER THAN NOT REPORTED. A census row that is simply left alone
+            // keeps its last reading forever, so a card put down half an hour ago would still be
+            // saying "1 BACK" in every line since. Nothing held is a real answer and it prints as
+            // one; the row disappears only when the peer does.
+            Report(0, 0, "nothing in this hand");
+            Hide();
+            return;
+        }
+        if (!NetProtocol.HeldFaceNamesCard(code))
+        {
+            // A CARD IS IN THEIR FIST AND THE RECORD NAMES NO SEAT FOR IT — the state the 2026-09-05
+            // evidence turned out to be made of, and the one state the old code reported as if
+            // nothing were being drawn at all. It is a BACK on screen, so it is a BACK in the census,
+            // and the rule names the SENDER rather than this receiver: no amount of work here can
+            // draw a face for a seat nobody named.
+            Report(0, 1, "the sender named no seat for this card (record 36 code 0) — nothing this "
+                       + "receiver can do; read the owner's 'Held-card face SENT' line");
             Hide();
             return;
         }
@@ -119,6 +136,11 @@ internal sealed class RemoteHeldCardFace
             _filter = slab.GetComponent<MeshFilter>();
             _renderer = slab.GetComponent<MeshRenderer>();
         }
+        // Keep the body cut to the rectangle the print paints, every frame this slot is live: the
+        // ability box is derived from an OBSERVED face size that changes once per session, so a
+        // one-shot cut at build time would leave the cold-start guess standing. Two int compares in
+        // the steady state (see EnsureBody).
+        EnsureBody(_bodyKind);
 
         CPlayerActor? actor = null;
         RevealGate.CardFaceSource source = RevealGate.CardFaceSource.None;
@@ -139,7 +161,7 @@ internal sealed class RemoteHeldCardFace
             // and asking a CMapCharacter for one THROWS. A null actor is now the map room's normal
             // state rather than a refusal.
             actor = RemoteBoardFocus.DisplayedActor(_owner, out _);
-            source = RevealGate.HandCardFaces(actor);
+            source = RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor);
         }
         catch (System.Exception ex)
         {
@@ -149,6 +171,8 @@ internal sealed class RemoteHeldCardFace
         }
         if (source == RevealGate.CardFaceSource.None)
         {
+            Report(0, 1, "RevealGate.CardFaces(Selectable) named no source — the game's own secret "
+                       + "SelectAbilityCardsOrLongRest window, or no context to resolve a face in");
             Hide();
             return;
         }
@@ -181,6 +205,8 @@ internal sealed class RemoteHeldCardFace
 
         if (_face == null && _item == null && _mapCard == null)
         {
+            Report(0, 1, $"the seat the sender named ({Describe(code, count)}) did not resolve on "
+                       + "this client — a list of a different length, or an empty seat");
             HideArtKeepResolve();
             return;
         }
@@ -195,9 +221,12 @@ internal sealed class RemoteHeldCardFace
                 : art.ShowFront(_face!);
         if (!shown)
         {
+            Report(0, 1, "the seat resolved but the face CLONE failed to build");
             HideArtKeepResolve();
             return;
         }
+        Report(1, 0, $"{source} — resolved {Describe(code, count)} against this client's own copy of "
+                   + "that host-replicated list");
         if (!_loggedShown || code != _loggedCode)
         {
             _loggedShown = true;
@@ -210,7 +239,7 @@ internal sealed class RemoteHeldCardFace
             VRLog.Note("Net", $"Remote held card FRONT [player {_owner.PlayerId} slot {_slot}]: "
                 + $"showing {Describe(code, count)} — resolved from THIS client's own copy of that "
                 + "host-replicated list, which is exactly as long as the sender said. No card "
-                + $"identity crossed the wire; RevealGate.HandCardFaces named {source} as the "
+                + $"identity crossed the wire; RevealGate.CardFaces named {source} as the "
                 + "source"
                 + (source == RevealGate.CardFaceSource.MapLoadout
                     ? ", i.e. the MAP ROOM — no scenario is running, there is no CPlayerActor here, "
@@ -321,25 +350,90 @@ internal sealed class RemoteHeldCardFace
         _face = found.fullAbilityCard;
     }
 
-    /// <summary>Swap the slab's BODY between the ability and item silhouettes, change-gated to a
-    /// single enum compare. The meshes and the back materials both come out of
-    /// <see cref="CardMesh"/>'s shared caches and are never ours to destroy — the two submeshes keep
-    /// wearing the back material on both faces exactly as the slab was built, because the FRONT is
-    /// an overlay canvas in front of the mesh, not a material slot.</summary>
+    /// <summary>
+    /// THE BODY BOX THIS SLAB IS CUT TO, for <paramref name="kind"/> — and the fix for the
+    /// 2026-09-05 report item 1: the printed front on a peer's held card was too small for its body,
+    /// so a frame of card back stood around it, and the owner sees no such frame on their own card.
+    ///
+    /// <para>THE RIM WAS ARITHMETIC, AND IT WAS THE SAME ARITHMETIC THE HAND FAN ALREADY FIXED.
+    /// <see cref="RemoteCardArt"/> letterboxes a cloned face into the box it is handed and insets it
+    /// by <see cref="RemoteCardArt.BorderFraction"/>, so a 63.5 x 88.0 mm box PRINTS 54.04 x 82.72 mm
+    /// (a 294 x 450 px face, height-limited fit, times 0.94). This slab handed the overlay the
+    /// NOMINAL card box and cut its body to the nominal card box as well — so 4.73 mm of card back
+    /// per side at the sides and 2.64 mm at the ends stood around the print. That rim is the report's
+    /// "Rahmen", and the same numbers made the peer's card 17.5 % WIDER than the owner's own, which
+    /// is the 1:1 breach he names in the same sentence: the OWNER's card has no such rim because
+    /// <c>VRCard.SetCanvasSize</c> scales the local BACKING MESH to the printed rect instead of
+    /// leaving it at the nominal card. <c>Net/RemoteHandFan</c> adopted that step in ModBuild 305
+    /// (its report 12) and this surface did not — the identical defect, one slab over. It is fixed
+    /// the same way and through the same shared definition (<c>CardFace.VisibleFaceRect</c>), so a
+    /// future third surface cannot pick a third answer.</para>
+    ///
+    /// <para>AN ITEM CARD IS THE OTHER WAY ROUND AND STAYS THAT WAY. Its box comes from the applied
+    /// Item FOOTPRINT — it IS the card's real outline, the way <c>ItemsPile</c> cuts the owner's own
+    /// chip — so the body must not shrink; the ART box is grown by <c>1/(1 - BorderFraction)</c>
+    /// instead (see <see cref="ArtBox"/>), which is exactly what <see cref="RemoteItemFan"/> does for
+    /// the arc this card was plucked out of. Two kinds, one printed-equals-body outcome.</para>
+    /// </summary>
+    private static Vector2 BodyBox(CardBodyKind kind)
+    {
+        float w = RemoteHandFan.DefaultCardWidth;
+        if (kind == CardBodyKind.Item)
+            return new Vector2(w, ItemBoxHeight(w));
+        return CardFace.VisibleFaceRect(w, RemoteHandFan.DefaultCardHeight);
+    }
+
+    /// <summary>The box handed to <see cref="RemoteCardArt"/> for <paramref name="kind"/>. ABILITY:
+    /// the NOMINAL card, because the overlay's own letterbox-and-inset turns that into exactly
+    /// <see cref="BodyBox"/>. ITEM: the body box grown by <c>1/(1 - BorderFraction)</c>, which
+    /// cancels that inset so the print lands flush on the punched-out item outline.</summary>
+    private static Vector2 ArtBox(CardBodyKind kind)
+    {
+        if (kind != CardBodyKind.Item)
+            return new Vector2(RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
+        Vector2 body = BodyBox(kind);
+        const float k = 1f - RemoteCardArt.BorderFraction;
+        return new Vector2(body.x / k, body.y / k);
+    }
+
+    /// <summary>Cut the slab's BODY to <see cref="BodyBox"/> for <paramref name="kind"/>. Gated on
+    /// the kind AND on <c>CardFace.FacePixelsRevision</c>, because the ability box is derived from
+    /// the face pixel size this client has OBSERVED and that answer changes once per session, the
+    /// first time a real card face is hosted — a gate on the kind alone would leave this slab cut to
+    /// the cold-start guess for the rest of the run. The meshes and the back materials both come out
+    /// of <see cref="CardMesh"/>'s shared caches and are never ours to destroy; the two submeshes
+    /// keep wearing the back material on both faces exactly as the slab was built, because the FRONT
+    /// is an overlay canvas in front of the mesh, not a material slot.</summary>
     private void EnsureBody(CardBodyKind kind)
     {
-        if (kind == _bodyKind || _filter == null || _renderer == null)
+        if (_filter == null || _renderer == null)
             return;
-        float w = RemoteHandFan.DefaultCardWidth;
-        float h = kind == CardBodyKind.Item ? ItemBoxHeight(w) : RemoteHandFan.DefaultCardHeight;
-        CardMesh.AttachBody(_filter, kind, w, h);
-        Material back = CardMesh.CreateBackMaterial(kind);
-        _renderer.sharedMaterials = new[] { back, back };
+        if (kind == _bodyKind && _bodyFaceRevision == CardFace.FacePixelsRevision)
+            return;
+        bool kindChanged = kind != _bodyKind;
+        _bodyFaceRevision = CardFace.FacePixelsRevision;
+        Vector2 box = BodyBox(kind);
+        CardMesh.AttachBody(_filter, kind, box.x, box.y);
+        if (kindChanged)
+        {
+            Material back = CardMesh.CreateBackMaterial(kind);
+            _renderer.sharedMaterials = new[] { back, back };
+            // The ART box follows the KIND, so an overlay built for the previous one would keep
+            // printing at the wrong aspect. Cheap to drop: the clone is a throwaway either way.
+            _art?.Destroy();
+            _art = null;
+        }
         _bodyKind = kind;
         VRLog.Info("Net", $"Remote held card [player {_owner.PlayerId} slot {_slot}]: body -> "
-            + $"{kind} at {w * 1000f:F1}x{h * 1000f:F1} mm — an item card is nearly square and an "
-            + "ability card is tall, so the silhouette follows the face instead of letterboxing it.");
+            + $"{kind} at {box.x * 1000f:F2}x{box.y * 1000f:F2} mm — an item card is nearly square "
+            + "and an ability card is tall, so the silhouette follows the face instead of "
+            + "letterboxing it; and the ABILITY box is CardFace.VisibleFaceRect, i.e. the rectangle "
+            + "the print actually paints, so no card back shows around it (report item 1).");
     }
+
+    /// <summary>The <c>CardFace.FacePixelsRevision</c> the current body was cut for — see
+    /// <see cref="EnsureBody"/> for why a kind-only gate was not enough.</summary>
+    private int _bodyFaceRevision = -1;
 
     /// <summary>The item card's box height for <paramref name="w"/>, from the applied Item
     /// FOOTPRINT — the same two static array reads (and the same 0.5x..2x sanity band, degrading to
@@ -356,13 +450,11 @@ internal sealed class RemoteHeldCardFace
 
     private RemoteCardArt EnsureArt()
     {
-        float w = RemoteHandFan.DefaultCardWidth;
-        float h = _bodyKind == CardBodyKind.Item
-            ? ItemBoxHeight(w)
-            : RemoteHandFan.DefaultCardHeight;
         // The art is bound to the slab transform and inherits its live scale, so the box handed
-        // over is the UNSCALED slab box — the same contract the fans' overlays are built on.
-        return _art ??= new RemoteCardArt(_slab!, w, h);
+        // over is the UNSCALED slab box — the same contract the fans' overlays are built on. WHICH
+        // box that is per kind, and why it is not simply the body box, is ArtBox's own note.
+        Vector2 box = ArtBox(_bodyKind);
+        return _art ??= new RemoteCardArt(_slab!, box.x, box.y);
     }
 
     /// <summary>Drop the drawn front but KEEP what was resolved, so the next frame does not re-walk
@@ -416,6 +508,16 @@ internal sealed class RemoteHeldCardFace
         _slab = null;
         _pileBuf.Clear();
     }
+
+    /// <summary>This slot's verdict for the per-population census — see
+    /// <see cref="PeerCardFaceCensus"/> for why a sampler exists beside this class's own
+    /// change-gated lines. One call per frame per slot, on every path including the ones that draw
+    /// nothing: a population that reports only when it succeeds cannot be distinguished from one
+    /// that is not running, and that ambiguity is what made the previous round's logs silent about
+    /// this exact surface.</summary>
+    private void Report(int fronts, int backs, string rule) =>
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HeldCard, _owner.PlayerId,
+                                  fronts, backs, $"slot {_slot}: {rule}");
 
     /// <summary>One slot as a log phrase — the LIST and the SEAT, never a card. Deliberately the
     /// same wording the sender's edge log uses, so the two lines can be read as a pair.</summary>

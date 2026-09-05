@@ -705,6 +705,10 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     /// log exactly once on each backs↔fronts transition (never per frame, never card identities).</summary>
     private bool _frontsShown;
 
+    /// <summary>The held-seat drop has been reported once for this fan instance — see the note at
+    /// the length belt for why it is latched rather than change-gated.</summary>
+    private bool _loggedHeldSeatDrop;
+
     // ---- BORROWING A CARD OFF THIS FAN (report 7, 2026-08-15) ---------------------------------
     //
     // "Ich will auch in der Lage sein, dass man die fremden Handkarten jederzeit auch in der Hand
@@ -889,7 +893,27 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
     internal CAbilityCard? MapLoadoutSeat(int seat, int senderLength)
     {
         if (!_mapFronts)
-            return null; // this fan is not currently drawing map faces — nothing to be a seat in
+        {
+            // THE HELD CARD OUTLIVES THE FAN (2026-09-05, report item 2a): "Wird der Faecher
+            // geschlossen aber eine Karte ist noch in der Hand bekommt diese keine Vorderseite mehr,
+            // das soll nicht sein. Die Vorderseite soll dauerhaft sichtbar sein."
+            //
+            // _mapFronts says "this fan is drawing map faces RIGHT NOW", and it is false the moment
+            // the fan hides — which is the moment the owner lowers it, because the wire count is
+            // CardFan.Current.Count and a closed fan publishes no Current at all. Tick then takes
+            // its `count == 0` bail, never reaches UpdateFaces, and this answered null for a card
+            // that is still physically in the peer's hand. It was a CAPABILITY answer ("no buffer
+            // has been resolved this frame") standing in for a secrecy one ("this card may not be
+            // shown") — the exact substitution RevealGate's own map-phase block is written about,
+            // for the third time and one method over.
+            //
+            // The secrecy question is asked HERE, of the gate that owns it, and the buffer is then
+            // resolved on demand. Cost: one walk of the party, on a card being picked up, throttled
+            // by ResolveMapFronts' own cadence.
+            if (!RevealGate.ShowMapPhaseHandFronts)
+                return null;
+            ResolveMapFronts(senderLength);
+        }
         if (seat < 0 || seat >= _mapBuffer.Count || _mapBuffer.Count != senderLength)
             return null;
         return _mapBuffer[seat];
@@ -1252,7 +1276,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // the same character; when it cannot (no record, unresolvable, secret phase) it hands
             // back the owned character exactly as before.
             //
-            // ONE CALL DECIDES BOTH "MAY WE?" AND "FROM WHERE?" — RevealGate.HandCardFaces. This
+            // ONE CALL DECIDES BOTH "MAY WE?" AND "FROM WHERE?" — RevealGate.CardFaces. This
             // used to be two hand-written branches, `InScenario && ShowRoundCardFronts(actor)` and
             // `ShowMapPhaseHandFronts`, whose disjointness was an argument in a comment rather than
             // a property of the code. The argument was correct here and the SAME pair of branches
@@ -1265,7 +1289,7 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
             // The scenario branch's InScenario term was never an anti-cheat term — it is a
             // CAPABILITY test for ResolveHandFronts, whose clone widget lifecycle depends on
             // scenario singletons — and that distinction now lives in RevealGate, stated once.
-            switch (RevealGate.HandCardFaces(actor))
+            switch (RevealGate.CardFaces(RevealGate.PeerCardPopulation.Selectable, actor))
             {
                 case RevealGate.CardFaceSource.Scenario:
                     ResolveHandFronts(actor!);  // fills _handBuffer with the actor's HAND-pile widgets
@@ -1324,6 +1348,70 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // Latched for the BACKS log line below, which otherwise cannot tell the player WHICH of the
         // three reasons shut the fan — the very ambiguity that let item 5b read as a reveal-gate
         // problem for a whole round of hardware testing.
+        //
+        // ...AND THE CARD IN THEIR FIST IS NOT A DISAGREEMENT (2026-09-05, report item 2c): "Wurde
+        // eine Karte aus dem Faecher wo ich alles sehen kann in die Hand genommen wurde nicht nur
+        // die Karte in der remote Hand mit der Rueckseite angezeigt sondern ploetzlich auch der
+        // ganze Faecher wieder nur Rueckseiten." That co-occurrence names its own cause: ONE term
+        // flipped for the fan and the held card together, and the term is this belt.
+        //
+        // Plucking a card out of the owner's fan runs CardFan.Remove (Cards/Driver/
+        // CardsDriver.5.Interactions.cs:274), so the wire count — CardFan.Current.Count, sampled at
+        // NetAvatarDriver.cs:1035 — drops by one the instant the card leaves the arc. The MODEL this
+        // client resolves faces from does NOT: the card has not been played, so it is still a hand
+        // card by CardsGameApi.HandFanMember and still in _handBuffer. N against N-1, every frame the
+        // peer holds a card up to read it, for as long as they hold it. The belt then did exactly
+        // what it is for and refused the whole fan — correctly, on a premise that was wrong.
+        //
+        // THE MISSING SEAT IS ALREADY ON THE WIRE. Record 36 names WHICH seat of that same list is in
+        // the peer's fist (it exists to draw that card's own front), in the same index space, built
+        // by the same shared membership expression on both machines. So take those seats out: what
+        // is left is the arc the owner is actually holding, in the owner's own order, at the owner's
+        // own length. No new wire field, and the belt below still has to agree afterwards — if it
+        // does not, nothing is dropped and the fan falls back to backs exactly as before.
+        int heldSeatCount = 0;
+        if (showFronts && !mapFronts && _handBuffer.Count != count)
+        {
+            heldSeatCount = _owner.HeldHandSeats(out int heldSeatA, out int heldSeatB);
+            // TWO POSE SLOTS CANNOT NAME ONE SEAT, but this is a value off the wire and a receiver
+            // never assumes a sender is well-formed: a duplicate would remove two entries for one
+            // held card and shift every face after it, which is exactly the failure the belt below
+            // exists to prevent. Collapse it to one and let the length check judge the result.
+            if (heldSeatCount == 2 && heldSeatA == heldSeatB)
+            {
+                heldSeatB = -1;
+                heldSeatCount = 1;
+            }
+            if (heldSeatCount > 0 && _handBuffer.Count - heldSeatCount == count)
+            {
+                // Descending, so removing the first index cannot move the second.
+                if (heldSeatB > heldSeatA)
+                    (heldSeatA, heldSeatB) = (heldSeatB, heldSeatA);
+                if (heldSeatA >= 0 && heldSeatA < _handBuffer.Count)
+                    _handBuffer.RemoveAt(heldSeatA);
+                if (heldSeatB >= 0 && heldSeatB < _handBuffer.Count)
+                    _handBuffer.RemoveAt(heldSeatB);
+                if (!_loggedHeldSeatDrop)
+                {
+                    _loggedHeldSeatDrop = true;
+                    // HW-VERIFY: report item 2c. This is the line that says the fan did NOT fall to
+                    // backs because a card was plucked out of it. Latched once per fan instance --
+                    // it is a per-frame condition for as long as the card is up, so a per-event line
+                    // would be a flood; the PEER CARD FACE CENSUS carries the standing picture.
+                    VRLog.Note("Net", $"Remote hand fan [player {_owner.PlayerId}]: HELD SEAT "
+                        + $"DROPPED — the owner has {heldSeatCount} card(s) of this hand in their "
+                        + "fist, so their fan reports one slab fewer than this client resolves hand "
+                        + "cards. The seats record 36 already names are removed from the resolved "
+                        + "list, which makes the two lengths agree and keeps slab i a name for card "
+                        + "i. Before this build that difference tripped the LENGTH BELT and every "
+                        + "face in the fan went to a BACK for as long as the peer held a card up — "
+                        + "which is exactly report item 2c, and why the held card and the whole fan "
+                        + "lost their fronts in the same instant. No new wire field: the seat is the "
+                        + "one the held-card front is already drawn from.");
+                }
+            }
+        }
+
         _countBelt = showFronts && !mapFronts && _handBuffer.Count != count
             ? (Model: _handBuffer.Count, Wire: count)
             : ((int Model, int Wire)?)null;
@@ -1421,6 +1509,24 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
                     _leavingFaces[i]?.HideFront();
             }
         }
+
+        // THE STANDING PICTURE, every frame, for the per-population census — beside (never instead
+        // of) the change-gated line below. See PeerCardFaceCensus: a fan that is UNIFORMLY on backs
+        // never crosses the transition that line is gated on and therefore says nothing at all,
+        // which is how two 100 MB logs came back holding 31 lines about a defect the user says was
+        // constant.
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HandFan, _owner.PlayerId,
+            frontCount, Mathf.Max(count - frontCount, 0),
+            _countBelt != null
+                ? $"LENGTH BELT: {_countBelt.Value.Model} model card(s) vs {_countBelt.Value.Wire} "
+                  + "slab(s) on the wire"
+                : !showFronts
+                    ? "RevealGate.CardFaces(Selectable) named no source, or no widget resolved"
+                    : mapFronts
+                        ? "RevealGate map-phase fronts (peer's replicated map loadout)"
+                        : heldSeatCount > 0
+                            ? $"RevealGate scenario fronts, {heldSeatCount} held seat(s) dropped"
+                            : "RevealGate scenario fronts");
 
         // Log exactly once per backs↔fronts transition — counts + gate state only, never identities.
         // The line NAMES the predicate on purpose: the same sentence appears on every other remote
@@ -2763,6 +2869,11 @@ internal sealed class RemoteHandFan : IBorrowedCardSource
         // A hidden fan has no slabs on screen to have borrowed from, so a copy in the air would be
         // orphaned the moment the owner lowered their hand (report 7's "must not survive").
         CardBorrow.EndIfFrom(this, "the owner's fan was hidden");
+
+        // ZERO IS A READING (see PeerCardFaceCensus): a hidden fan must overwrite its census row
+        // rather than leave the last frame's front count standing for the rest of the session.
+        PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.HandFan, _owner.PlayerId, 0, 0,
+            "no fan up — the owner is not holding their hand out");
 
         // Drop any cloned fronts so a hidden hand keeps no game-widget clones alive.
         for (int i = 0; i < _faces.Count; i++)

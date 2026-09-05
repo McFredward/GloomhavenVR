@@ -302,6 +302,52 @@ internal sealed class RemoteAvatar
     /// <summary>Record 36's list length for slot 2.</summary>
     private byte _secondHeldFaceCount;
 
+    /// <summary>
+    /// WHICH SEATS OF THIS PEER'S HAND LIST ARE CURRENTLY IN THEIR FIST — the seats named by record
+    /// 36 for the two pose slots, filtered to <see cref="NetProtocol.HeldFaceListHand"/>, handed back
+    /// in <paramref name="seatA"/> / <paramref name="seatB"/> and answered as a count (0..2).
+    ///
+    /// <para>WHY <see cref="RemoteHandFan"/> NEEDS IT, which is the 2026-09-05 report item 2c: "Wurde
+    /// eine Karte aus dem Fächer … in die Hand genommen wurde nicht nur die Karte in der remote Hand
+    /// mit der Rückseite angezeigt sondern plötzlich auch der ganze Fächer wieder nur Rückseiten."
+    /// Plucking a card out of the owner's fan calls <c>CardFan.Remove</c>, so the count on the wire
+    /// (<c>CardFan.Current.Count</c>) drops by one — while the MODEL the receiver resolves faces from
+    /// still holds that card, because it has not been played. The fan's length belt then sees N model
+    /// cards against N-1 slabs, correctly refuses to zip two lists of different lengths, and every
+    /// face in the fan goes to a back at the same instant the held card does. One term, both
+    /// symptoms, exactly as the report describes them.</para>
+    ///
+    /// <para>NO NEW WIRE FIELD IS OWED: the seat is already here. Record 36 exists to draw the front
+    /// of the held card and names the same index space the fan resolves in
+    /// (<c>CardsGameApi.HandFanMember</c> on both machines), so the receiver can simply take those
+    /// seats OUT of its model list and get back a list the wire count agrees with — and one whose
+    /// positions still line up, because removing seat k from an ordered list is exactly what the
+    /// owner's own fan did to produce the arc.</para>
+    /// </summary>
+    internal int HeldHandSeats(out int seatA, out int seatB)
+    {
+        seatA = -1;
+        seatB = -1;
+        int n = 0;
+        if (NetProtocol.HeldFaceNamesCard(_heldFaceCode)
+            && NetProtocol.HeldFaceList(_heldFaceCode) == NetProtocol.HeldFaceListHand)
+        {
+            seatA = NetProtocol.HeldFaceIndex(_heldFaceCode);
+            n++;
+        }
+        if (NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
+            && NetProtocol.HeldFaceList(_secondHeldFaceCode) == NetProtocol.HeldFaceListHand)
+        {
+            int seat = NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
+            if (n == 0)
+                seatA = seat;
+            else
+                seatB = seat;
+            n++;
+        }
+        return n;
+    }
+
     /// <summary>The two front overlays, one per held-card POSE SLOT — built lazily on the first
     /// front, exactly like the slabs they sit on.</summary>
     private RemoteHeldCardFace? _heldFace1;
@@ -1927,8 +1973,18 @@ internal sealed class RemoteAvatar
         // for the in-place swap the moment the contour is learned. Sized to the same defaults the
         // remote fan slabs use.
         var mf = holder.gameObject.AddComponent<MeshFilter>();
-        Cards.CardMesh.AttachBody(mf, Cards.CardBodyKind.Ability,
+        // …AND CUT TO THE RECTANGLE THE PRINT ACTUALLY PAINTS, not to the nominal card (2026-09-05
+        // report item 1, "Dann sieht man so einen 'Rahmen' um die Vorderseite der rmote Karte"). The
+        // nominal 63.5 x 88.0 mm box prints 54.04 x 82.72 mm once RemoteCardArt has letterboxed and
+        // inset the cloned face, so a nominal body left 4.73 mm of card back per side showing around
+        // it AND drew the peer's card 17.5 % wider than the owner's own — the owner's backing mesh is
+        // scaled to that same printed rect by VRCard.SetCanvasSize. RemoteHandFan took this step in
+        // ModBuild 305; this slab is the one that did not. RemoteHeldCardFace.EnsureBody re-cuts the
+        // body from the same shared definition when the kind or the observed face size changes, so
+        // this is the cold-start value and never a second opinion.
+        Vector2 heldBody = Cards.CardFace.VisibleFaceRect(
             RemoteHandFan.DefaultCardWidth, RemoteHandFan.DefaultCardHeight);
+        Cards.CardMesh.AttachBody(mf, Cards.CardBodyKind.Ability, heldBody.x, heldBody.y);
         var mr = holder.gameObject.AddComponent<MeshRenderer>();
         // Ability KIND, not the never-clipped Neutral pair (2026-08-11). This is the peer's HELD
         // card slab, and it was the one mirror site the previous round's five opt-ins missed — a

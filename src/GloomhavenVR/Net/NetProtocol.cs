@@ -19657,7 +19657,7 @@ internal static class NetProtocol
     ///
     /// <para>WHAT IT FIXES: 2026-09-02 report item 5a — in the map room a peer's FAN showed its card
     /// fronts while a card he was HOLDING showed only its back. Half of that was the receiver's gate
-    /// (see <c>RevealGate.HandCardFaces</c>); this is the other half. The sender could not name the
+    /// (see <c>RevealGate.CardFaces</c>); this is the other half. The sender could not name the
     /// card at all, because <c>LocalRigSampler.SampleHeldCardFaces</c> resolved the owning character
     /// through <c>Cards.ItemsPile.Current.OwnerActor</c> and there is no items pile — and no
     /// <c>CPlayerActor</c> at all — in the map room, so the record was omitted outright.</para>
