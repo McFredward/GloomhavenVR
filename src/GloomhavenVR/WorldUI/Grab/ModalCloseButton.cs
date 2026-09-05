@@ -92,11 +92,53 @@ internal static class ModalCloseButton
     /// touches a drawn row.</summary>
     private const float InkGapPx = 12f;
 
-    /// <summary>How far (host px ~ mm) the X floats toward the viewer, so it never z-fights the
-    /// window's coplanar content. Imperceptible in the headset. NOTE (MP round 2, "immer noch kein
-    /// X"): the nudge alone does NOT decide the draw - see <see cref="XOrderOffset"/> for what
-    /// does now, and for why the depth stamp that used to is gone.</summary>
-    private const float ViewerNudgePx = 4f;
+    /// <summary>
+    /// <b>THE X IS COPLANAR WITH ITS WINDOW, AND THE 4 px VIEWER NUDGE THAT USED TO LIFT IT IS GONE
+    /// (ModBuild 439).</b> User, 2026-09-05, verbatim: <i>"Den 'X' Button zum Schließen des
+    /// Kampflogs treffe ich nur aus einem guten geraden Winkel. Wenn ich zB von unten mit dem Laser
+    /// draufzeige kollidiert der Laser nicht und ich kann es nicht drücken. Bei den anderen Fenstern
+    /// ist mir das nicht aufgefallen."</i> — and the useful half of that report is the last sentence:
+    /// it is ONE implementation (this file) behaving differently on one panel, not two
+    /// implementations.
+    ///
+    /// <para><b>THE MECHANISM, and it is arithmetic rather than a guess.</b> The far ray picks a
+    /// converted panel by intersecting the HOST canvas plane (<c>RayUguiDriver.TryIntersect</c>),
+    /// then converts that crossing point to a screen position and raycasts the merged
+    /// raycasters there (<c>UguiPointer.TryRaycast</c>). One screen point, taken on the HOST plane,
+    /// for every nested canvas whatever its depth. The plate — and with it its invisible
+    /// <c>HitPlane</c> child, which is what the beam actually has to hit — floated 4 px in FRONT of
+    /// that plane. So a beam aimed at the drawn glyph crossed the host plane
+    /// <c>4 x tan(theta)</c> px further along, where theta is the angle between the laser and the
+    /// panel's normal: 7 px at 60 degrees, 17 px at 77. That walk points AWAY from wherever the
+    /// player is aiming from — pointing up from below walks it UP.</para>
+    ///
+    /// <para><b>AND THAT IS WHY ONLY THIS PANEL.</b> The plate is seated
+    /// <see cref="InsetPx"/> = 7 px below the window's own top edge. A floated modal usually seats
+    /// it against the INK instead, well inside the frame, so the walk lands the crossing point on
+    /// bare window and the beam still CLAMPS — the player sees an X that did not react. The combat
+    /// log deliberately uses the FRAME path (<c>CombatLogSurface.SyncCloseX</c>: its host is pinned
+    /// at the game's full window layout, so "the frame IS the picture"), which puts the plate at the
+    /// very corner with those 7 px of margin and nothing above it. Past roughly 60 degrees the
+    /// crossing point leaves the host's hit rect ALTOGETHER, <c>TryIntersect</c> returns false, this
+    /// canvas never becomes the winner and the beam does not stop at all — which is exactly the
+    /// symptom reported, down to the word <i>kollidiert</i>. The combat log is also the panel that
+    /// lives low, at the board, so an oblique aim is the normal way to point at it.</para>
+    ///
+    /// <para><b>WHY REMOVING THE NUDGE IS SAFE, and why it is a leftover rather than a trade.</b>
+    /// The nudge's own doc already said it: <i>"the nudge alone does NOT decide the draw — see
+    /// XOrderOffset for what does now, and for why the depth stamp that used to is gone."</i> The X
+    /// rides its own <c>overrideSorting</c> canvas on the panel's ladder at
+    /// <see cref="XOrderOffset"/>; two canvases at different sorting orders are drawn in that order
+    /// and never z-fight, so a coplanar plate is drawn over the window's content exactly as a lifted
+    /// one was. The POKE path is unaffected either way — it projects the fingertip ORTHOGONALLY onto
+    /// the canvas plane, so it never had this parallax and its depth test is against the host plane,
+    /// not the plate. What changes is only the far ray, and only in the direction of being exact:
+    /// with the plate on the host plane the crossing point IS the aim point at every angle.</para>
+    ///
+    /// <para>The constant is deleted rather than set to zero: a frozen literal with no consumer is
+    /// a thing the next round has to re-derive. The number was 4 px.</para>
+    /// </summary>
+    private const float InsetPx = 7f;
 
     /// <summary>
     /// MP round 2 root cause ("Kontrolle uebergeben" STILL had no X) and the TRANSPARENCY ROUND
@@ -120,7 +162,6 @@ internal static class ModalCloseButton
     /// rather than by a ZTest.</para>
     /// </summary>
     private const int XOrderOffset = 2;
-    private const float InsetPx = 7f;
     // The "X" occupies the middle ~44 % of the plate — a compact glyph with clear margins.
     private const float BarLengthFraction = 0.44f;
     private const float BarThicknessPx = 3.5f;
@@ -195,7 +236,8 @@ internal static class ModalCloseButton
                     // swapped, because the line below asserts an Escape/Hide that did not happen here
                     // and a falsifier that greps for it must not be answered by a press that took a
                     // different path.
-                    VRLog.Info("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
+                    // HW-VERIFY
+                    VRLog.Note("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
                                           "— running the OWNER'S OWN close action instead of Escape/Hide, " +
                                           "so the surface that put this panel up stays the one authority " +
                                           "on whether it is up.");
@@ -205,19 +247,31 @@ internal static class ModalCloseButton
                 // Diagnostic (issue #8): prove the click reached the X and WHICH window it targets —
                 // distinguishes "click never hit the X" (no line) from "close failed" (this line, then
                 // CloseFloatedWindow's own result line). The two together are the full X-close trace.
-                VRLog.Info("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
+                // HW-VERIFY
+                VRLog.Note("WorldUI", $"MODAL CLOSE (X button): PRESSED for '{target.name}' (ID {target.ID}) " +
                                       "— closing exactly this window (Escape/Hide), other open windows untouched.");
                 ModalFallback.CloseFloatedWindow(target);
             });
             // Attach evidence (MP round 2 lesson): the X built silently, so "no X visible" could
             // not be told apart from "no X attached" in the hardware log. One line per attach.
-            VRLog.Info("WorldUI", $"MODAL CLOSE (X button): attached to '{window.name}' (ID {window.ID}) " +
+            // HW-VERIFY
+            VRLog.Note("WorldUI", $"MODAL CLOSE (X button): attached to '{window.name}' (ID {window.ID}) " +
                                   "- top-right plate riding the panel's draw order +2 (over the window's " +
                                   "own backing, still under any panel that is genuinely nearer). It is " +
                                   "built at the FRAME's top-right corner and re-seated against the ink's " +
                                   "from GrabbableModal's follow tick as soon as a union exists — the " +
                                   "MODAL CLOSE X ON THE INK line for this window says which of the two " +
-                                  "is deciding it right now.");
+                                  "is deciding it right now. THE PLATE IS COPLANAR WITH ITS WINDOW " +
+                                  "(ModBuild 439): the 4 px viewer nudge is retired, because the far " +
+                                  "ray judges every nested canvas at ONE screen point taken on the " +
+                                  "HOST plane, so any depth on this plate became a lateral error of " +
+                                  "depth x tan(incidence) — 7 px at 60 degrees, which is the whole " +
+                                  "margin between this plate and the frame's top edge on a panel " +
+                                  "seated by the FRAME path. THIS PAIR OF LINES IS THE FALSIFIER: " +
+                                  "an attach line with no PRESSED line for the same window after a " +
+                                  "session of trying means the beam never reached the plate, and a " +
+                                  "PRESSED line that is not followed by the window leaving means it " +
+                                  "reached it and the close failed.");
         }
         catch (Exception ex)
         {
@@ -287,7 +341,8 @@ internal static class ModalCloseButton
 
         // Anchored to the host rect's CENTRE rather than its top-right corner, because the corner is
         // now a computed point and not a corner. anchoredPosition is a Vector2 write: it leaves
-        // anchoredPosition3D.z alone, so the viewer nudge Build applies below survives every re-seat.
+        // anchoredPosition3D.z alone, so whatever local z Build left on the plate survives every
+        // re-seat — that is ZERO since ModBuild 439, see the retired viewer nudge.
         var anchor = new Vector2(0.5f, 0.5f);
         Vector2 wanted = placement.Corner - hostRect.center;
         if (rect.anchorMin != anchor || rect.anchorMax != anchor)
@@ -362,9 +417,10 @@ internal static class ModalCloseButton
         //
         // The VISUALS ride the owning panel's distance-derived draw order at a small offset, so the
         // X is unambiguously over its own window and unambiguously under any panel that is
-        // genuinely nearer than that window (see XOrderOffset). The plate is still NUDGED a few px
-        // toward the viewer so it cannot z-fight the window's coplanar content; the side the viewer
-        // is on is MEASURED from the head camera, not assumed from the canvas axes.
+        // genuinely nearer than that window (see XOrderOffset). The plate is COPLANAR with the
+        // window: the 4 px viewer nudge it used to carry is what made the X unhittable from a
+        // shallow angle, and ORDER is what decides the draw. The whole derivation is on the retired
+        // ViewerNudgePx doc above; it is the answer to "von unten kollidiert der Laser nicht".
         var xCanvas = go.AddComponent<Canvas>();
         xCanvas.overrideSorting = true;
         // Seed only; RegisterOrderFollower below puts it on the panel's live ladder order + offset.
@@ -372,12 +428,12 @@ internal static class ModalCloseButton
         if (hostCanvas != null)
             xCanvas.worldCamera = hostCanvas.worldCamera; // match the host's event camera (adoption pattern)
 
-        Camera? cam = hostCanvas != null ? hostCanvas.worldCamera : null;
-        float toViewer = cam != null
-            ? Mathf.Sign(Vector3.Dot(host.forward, cam.transform.position - host.position))
-            : -1f; // fallback: converted panels face the player from their -Z side
-        rect.localPosition = new Vector3(rect.localPosition.x, rect.localPosition.y,
-                                         toViewer * ViewerNudgePx);
+        // NO DEPTH WRITE HERE ANY MORE. The plate's local z stays the 0 set above, which is what
+        // makes the far ray's pick exact: RayUguiDriver takes ONE screen point, on the HOST plane,
+        // and raycasts every nested canvas at it — so any depth this object carries becomes a
+        // lateral error of `depth x tan(angle of incidence)` in what the beam is judged to have hit.
+        // The head-camera sign test that used to pick the nudge's DIRECTION went with it: there is
+        // no side to be on when the offset is zero.
 
         // Beat the window's own coplanar content by ORDER, not by a depth stamp and not by a
         // distance tie: the X canvas follows its panel's ladder order at XOrderOffset (see that
