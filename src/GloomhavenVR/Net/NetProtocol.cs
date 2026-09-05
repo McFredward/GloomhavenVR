@@ -416,7 +416,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 441;
+    public const ushort ModBuild = 442;
+    // Build 442: REGRESSION FIX. 441 wrote an array length as "the member that was last when I
+    // wrote this line" and a later build had appended past it, so MountedMark threw
+    // IndexOutOfRangeException, the throw aborted RescanCore, the segment table was never rebuilt
+    // and NO WALL FADED AT ALL — with the retry burning the frame, which is the second half of the
+    // same report. All three phase enums carry a Count sentinel now. NO GATE COULD SEE IT: this is
+    // a runtime index on a path no test walks, and 441 passed every one of them.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
     // Build 441: THE SAME UN-FLATTENED PRODUCT, IN TWO LANES WRITTEN AFTER THE ROUND THAT
     // REMOVED IT — AND THE DECODER CAN NOW RUN IN THE CASE IT EXISTS FOR.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.

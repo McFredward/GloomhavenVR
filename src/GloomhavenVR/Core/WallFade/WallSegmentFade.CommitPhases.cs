@@ -80,9 +80,18 @@ internal static partial class WallSegmentFade
             StandCensus,
             UnitCensus,
             BoardVolume,
+
+            /// <summary>SENTINEL, ALWAYS LAST — the array length, so appending a phase cannot
+            /// forget to widen the arrays that index by this enum. Its sibling in
+            /// WallSegmentFade.CommitPhases.cs did not have one, the length was written by hand as
+            /// "the member that was last when I wrote this line", a later build appended past it,
+            /// and ModBuild 441 shipped an IndexOutOfRangeException that aborted the rescan and
+            /// stopped every wall in the game from fading. Correct here today; a sentinel is what
+            /// keeps it correct tomorrow.</summary>
+            Count,
         }
 
-        private const int CommitPhaseCount = (int)CommitPhase.BoardVolume + 1;
+        private const int CommitPhaseCount = (int)CommitPhase.Count;
 
         /// <summary>Short names for the BUDGET clause. Kept in enum order (see
         /// <see cref="CommitPhase"/>) — index IS the enum value.</summary>
@@ -378,16 +387,45 @@ internal static partial class WallSegmentFade
             /// stop adding up to the phase, and this project has an entry for a census whose
             /// arithmetic nobody could reproduce.</summary>
             ElectionWalk,
+
+            /// <summary>SENTINEL, ALWAYS LAST — the array length, so adding a stage cannot forget
+            /// to widen the three arrays that index by this enum.
+            ///
+            /// <para><b>THIS EXISTS BECAUSE ITS ABSENCE SHIPPED A CRASH.</b> ModBuild 441 wrote the
+            /// length by hand as <c>(int)MountedStage.HangingPlants + 1</c>, naming the member that
+            /// was last WHEN THAT LINE WAS WRITTEN. ModBuild 440 had already appended
+            /// <c>ElectionWalk</c> after it, so the count was 13 while the enum's largest value was
+            /// 13 — one past the end. <c>MountedMark(ElectionWalk, …)</c> threw
+            /// <c>IndexOutOfRangeException</c> inside <c>CollectWallMountedProps</c>, the throw
+            /// aborted <c>RescanCore</c>, the segment table was therefore never rebuilt, and NO WALL
+            /// FADED AT ALL while the retry burned the frame. A hand-kept length beside a list that
+            /// grows is the same defect one level up, and this file now takes the length from the
+            /// list itself.</para></summary>
+            Count,
         }
 
-        private const int MountedStageCount = (int)MountedStage.HangingPlants + 1;
+        private const int MountedStageCount = (int)MountedStage.Count;
 
+        /// <summary>One label per stage, IN ENUM ORDER — index i is <c>(MountedStage)i</c>.
+        ///
+        /// <para>ModBuild 441 shipped this list in a different order than the enum: it ended
+        /// "Census", "ElectionWalk", "FreeRiders", "HangingPlants" while the enum reads Census=10,
+        /// FreeRiders=11, HangingPlants=12, ElectionWalk=13. Three of the fourteen figures were
+        /// therefore printed under each other's names — a silent wrong answer from an instrument,
+        /// which is worse than a missing one, and it rode in on the same commit as the crash above
+        /// because both come from maintaining two hand-ordered lists of one thing. The static
+        /// check below is what makes them one thing.</para></summary>
         private static readonly string[] MountedStageNames =
         {
             "Ownership", "UnitHomes", "WallHomes", "Park", "Sticky", "ElectionIndex", "Sweep",
             "Riders(RETIRED-always 0)", "Leavers", "Union", "Census",
-            "ElectionWalk(subset of Sweep)", "FreeRiders", "HangingPlants",
+            "FreeRiders", "HangingPlants", "ElectionWalk(subset of Sweep)",
         };
+
+        /// <summary>Fails loudly at the first tick rather than mislabelling every figure for a
+        /// build: a name list one entry short prints an out-of-range index, one entry long prints a
+        /// label nothing produces, and either way the reader trusts it. Checked once.</summary>
+        private static bool _mountedStageNamesChecked;
 
         private readonly float[] _mountedStageCycle = new float[MountedStageCount];
         private readonly float[] _mountedStageWorst = new float[MountedStageCount];
@@ -443,6 +481,23 @@ internal static partial class WallSegmentFade
         /// </summary>
         private void AppendMountedStageBreakdown(System.Text.StringBuilder sb)
         {
+            // THE TWO LISTS ARE ONE THING OR THIS LINE LIES. A names array shorter than the enum
+            // throws while building a log line; longer, and it prints a label no stage produces.
+            // ModBuild 441 shipped it merely REORDERED, which is the quiet case: fourteen correct
+            // numbers under three wrong names, and nothing to notice. Checked once, at Alert so it
+            // reaches a default-tier log, and the line still prints — a mislabelled breakdown is
+            // worth more than no breakdown, provided the reader is told.
+            if (!_mountedStageNamesChecked)
+            {
+                _mountedStageNamesChecked = true;
+                if (MountedStageNames.Length != MountedStageCount)
+                    // HW-VERIFY
+                    VRLog.Alert(Name, "MOUNTED STAGES name list is " + MountedStageNames.Length +
+                                      " entry(s) against " + MountedStageCount + " stage(s) — the "
+                                      + "breakdown below is MISLABELLED from the first mismatch on. "
+                                      + "Add the name beside the enum member, in enum order.");
+            }
+
             sb.Append(" MOUNTED STAGES (ModBuild 439 — worst single cycle / window total, ms; ")
               .Append("the 438 product hypothesis was falsified by the count above, so the phase ")
               .Append("is sliced before anything else is tried): ");
@@ -450,7 +505,8 @@ internal static partial class WallSegmentFade
             {
                 if (i > 0)
                     sb.Append(", ");
-                sb.Append(MountedStageNames[i]).Append(' ')
+                sb.Append(i < MountedStageNames.Length ? MountedStageNames[i] : "stage" + i)
+                  .Append(' ')
                   .Append(_mountedStageWorst[i].ToString("F2")).Append('/')
                   .Append(_mountedStageTotal[i].ToString("F1"));
             }

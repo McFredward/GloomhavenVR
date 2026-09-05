@@ -118,9 +118,18 @@ internal static partial class WallSegmentFade
             FastReclaim,
             /// <summary>The sliced wall-path audit.</summary>
             PathAudit,
+
+            /// <summary>SENTINEL, ALWAYS LAST — the array length, so appending a phase cannot
+            /// forget to widen the arrays that index by this enum. Its sibling in
+            /// WallSegmentFade.CommitPhases.cs did not have one, the length was written by hand as
+            /// "the member that was last when I wrote this line", a later build appended past it,
+            /// and ModBuild 441 shipped an IndexOutOfRangeException that aborted the rescan and
+            /// stopped every wall in the game from fading. Correct here today; a sentinel is what
+            /// keeps it correct tomorrow.</summary>
+            Count,
         }
 
-        private const int TickPhaseCount = (int)TickPhase.PathAudit + 1;
+        private const int TickPhaseCount = (int)TickPhase.Count;
 
         /// <summary>First applier phase — the sampled tier starts here.</summary>
         private const int TickApplierFirst = (int)TickPhase.ApplyFoliage;
