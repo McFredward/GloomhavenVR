@@ -906,6 +906,17 @@ internal static partial class VROptionsTab
                         // spawn-side choice (audit 01 NORMAL); its three fine-tune metre dials
                         // (Spawn*Meters) stay under Erweitert.
                         new("Cards", "SpawnLeftOfHead", "vr_o_spawnleft"),
+                        // …and the ARRIVAL GUARD's two bounds, which are a different KIND of dial
+                        // from the three metre offsets above and therefore do NOT stay under
+                        // Erweitert with them. Those three answer "where exactly does it start";
+                        // these two answer "what counts as too far away to accept", which is the
+                        // row a player goes looking for after the 2026-09-05 report ("mein
+                        // Controlboard ist hinter dem Spielfeld gespawnt und ich musste es erst
+                        // suchen"). A guard whose threshold cannot be found is a guard the player
+                        // cannot argue with. Empty caption keys — the config display names
+                        // ("Board at spawn: max reach (m)" / "max angle (°)") already say it.
+                        new("Cards", "SpawnMaxReachMeters", ""),
+                        new("Cards", "SpawnMaxBearingDegrees", ""),
                     },
                 },
                 new()

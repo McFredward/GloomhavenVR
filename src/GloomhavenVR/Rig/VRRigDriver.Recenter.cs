@@ -522,6 +522,10 @@ internal sealed partial class VRRigDriver
         if (_ringSettled)
             return;
         _ringSettled = true;
+        // THE ARRIVAL IS OVER HERE, on every terminal path, and BEFORE the rig-kind early-out
+        // below — a menu/map rig closing its (inert) window must still leave the flag false.
+        // Consumers of ScenarioArrivalPending stop acting from this moment; see its doc.
+        ScenarioArrivalPending = false;
         if (_kind != RigKind.Scenario)
             return;
 

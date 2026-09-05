@@ -433,6 +433,8 @@ internal static partial class Loc
             ["Cards/SpawnSideMeters"] = Pair("Board start: left (m)", "Brett-Start: links (m)"),
             ["Cards/SpawnForwardMeters"] = Pair("Board start: forward (m)", "Brett-Start: vor (m)"),
             ["Cards/SpawnDownMeters"] = Pair("Board start: down (m)", "Brett-Start: runter (m)"),
+            ["Cards/SpawnMaxReachMeters"] = Pair("Board at spawn: max reach (m)", "Brett beim Spawn: max. Reichweite (m)"),
+            ["Cards/SpawnMaxBearingDegrees"] = Pair("Board at spawn: max angle (\u00b0)", "Brett beim Spawn: max. Winkel (\u00b0)"),
             ["Cards/FaceMipBake"] = Pair("Smooth card textures", "Kartentexturen glätten"),
             ["Cards/Board"] = Pair("Control board", "Kontrollbrett"),
             ["Cards/BoardScaleDefault04Applied"] = Pair("Internal marker", "Interne Marke"),

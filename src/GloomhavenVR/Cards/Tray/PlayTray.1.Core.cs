@@ -1591,6 +1591,9 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         _pinHousekeepingMove = null;
         _pinFreezeValid = false;   // freeze sentinel: never diff a new root against the old one's pose
         _pinFreezeSource = null;
+        // ARRIVAL SEAT GUARD: same argument as the pin bookkeeping above — the INSTANCE outlives
+        // the root, so a stale "already checked this arrival" would silently skip the next one.
+        ResetArrivalSeatGuard();
     }
 
     /// <summary>
@@ -1625,7 +1628,13 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// [Cards] TrayTilt it replaced is still bound so old cfg files load, but nothing reads
     /// it — see ComputeBoardRotation.) The board's -Z (element side) faces up toward the player.
     /// </summary>
-    internal void PlaceAtHead()
+    /// <param name="forceFirstSeat">Take the FIRST-SEAT offset even though this tray has been
+    /// placed before. The ARRIVAL SEAT GUARD (<see cref="TickArrivalSeatGuard"/>) passes true: the
+    /// tray INSTANCE and its root survive a scenario change (they are torn down only when the hands
+    /// root goes away), so <c>_everPlaced</c> alone made "beim ersten Spawnen" mean "the first
+    /// scenario of the session" — which is exactly how the 2026-09-05 report happened. Every other
+    /// caller passes false and behaves bit-identically to before.</param>
+    internal void PlaceAtHead(bool forceFirstSeat = false)
     {
         if (_root == null)
             return;
@@ -1679,7 +1688,7 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         // the player rather than beside them. Only the very first placement is overridden; every
         // later path through here (board switch, explicit recall, follow-mode re-seat) keeps using
         // the saved layout, so nothing the player arranges during the session is thrown away.
-        bool firstSeat = !_everPlaced && CardsConfig.SpawnLeftOfHead != null
+        bool firstSeat = (forceFirstSeat || !_everPlaced) && CardsConfig.SpawnLeftOfHead != null
                          && CardsConfig.SpawnLeftOfHead.Value;
         Vector3 offset = firstSeat
             ? CardsConfig.SpawnSeatOffset  // (left, -down, forward), real meters
@@ -1717,7 +1726,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
                                 ? $" — FIRST SEAT: fixed spot beside the head on the LEFT ({offset.x:F2} m " +
                                   $"side, {offset.z:F2} m forward, {-offset.y:F2} m down), not the saved " +
                                   "layout, so every scenario starts with the board in the same place " +
-                                  "([Cards] SpawnLeftOfHead)."
+                                  "([Cards] SpawnLeftOfHead)." +
+                                  (forceFirstSeat
+                                      ? " Asked for by the ARRIVAL SEAT GUARD, i.e. this is a LATER " +
+                                        "scenario in the same session and the tray root survived the " +
+                                        "one before it."
+                                      : "")
                                 : $" — saved layout ({offset.x:F2}, {offset.y:F2}, {offset.z:F2} m)."));
         // A persisted PINNED mode re-engages only NOW, at the just-placed
         // head-relative pose (test #17): the tray always spawns in front of the

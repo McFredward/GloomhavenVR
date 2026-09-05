@@ -256,6 +256,8 @@ internal static partial class Defaults
     internal const float SpawnSideMeters = 0.45f;                                                     // => [Cards] SpawnSideMeters
     internal const float SpawnForwardMeters = 0.28f;                                                  // => [Cards] SpawnForwardMeters
     internal const float SpawnDownMeters = 0.32f;                                                     // => [Cards] SpawnDownMeters
+    internal const float SpawnMaxReachMeters = 1.0f;                                                  // => [Cards] SpawnMaxReachMeters
+    internal const float SpawnMaxBearingDegrees = 100f;                                               // => [Cards] SpawnMaxBearingDegrees
     internal const bool GameCardParticles = false;                                                    // => [Cards] GameCardParticles
     internal const bool CardDust = false;                                                             // => [Cards] CardDust
     internal const bool WantedSlotHint = true;                                                        // => [Cards] WantedSlotHint

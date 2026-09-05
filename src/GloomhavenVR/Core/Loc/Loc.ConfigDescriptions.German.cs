@@ -1822,6 +1822,25 @@ internal static partial class Loc
                 + "\"neben dir\", nicht \"vor dir\".",
             ["Cards/SpawnDownMeters"] =
                 "Startplatz: wie weit UNTER Augenhöhe das Brett steht, in echten Metern.",
+            ["Cards/SpawnMaxReachMeters"] =
+                "ANKUNFTS-WACHE: wie weit dein Kontrollbrett beim Start eines Szenarios höchstens "
+                + "von deinem Kopf entfernt sein darf, in echten Metern. Genau dann, wenn dich ein "
+                + "Szenario absetzt — und nur dann sowie bei jedem weiteren Umsetzen, das der Mod "
+                + "während dieser Ankunft selbst vornimmt — wird der Abstand gemessen; ist das Brett "
+                + "weiter weg, wird es zurück auf den Startplatz darüber gesetzt. Der Wert liegt "
+                + "bewusst etwas über diesem Startplatz (rund 0,53 m) und etwas unter den 1,2 m, die "
+                + "die Platzierung überhaupt jemals erzeugt — ein Brett am äußersten Rand der "
+                + "Reichweite wird also neu gesetzt statt dort stehen gelassen. Ist die Ankunft "
+                + "vorbei, wird das Brett nie wieder wegen der Entfernung bewegt: von einem "
+                + "fixierten Brett wegzugehen ist kein Fehler.",
+            ["Cards/SpawnMaxBearingDegrees"] =
+                "ANKUNFTS-WACHE: wie weit SEITLICH deiner Blickrichtung das Kontrollbrett beim Start "
+                + "eines Szenarios höchstens stehen darf, in Grad von geradeaus (0 = direkt vor dir, "
+                + "180 = direkt hinter dir). Gleicher Moment und gleiche Regel wie die Reichweite "
+                + "darüber. Die voreingestellten 100° liegen knapp außerhalb des Sichtfelds einer "
+                + "Brille — was die Wache bewegt, hättest du dir also wirklich erst durch Umdrehen "
+                + "suchen müssen. Der Startplatz selbst liegt bei rund 58° und wird davon nie "
+                + "angefasst.",
             ["Cards/GameCardParticles"] =
                 "Den EIGENEN Partikeleffekt des Spiels für Karten (die Funken-/Rauchwolke "
                 + "\"CardSmoke\") zulassen. Standardmäßig AUS: Er ist für die bildschirmgroße 2D-Karte "

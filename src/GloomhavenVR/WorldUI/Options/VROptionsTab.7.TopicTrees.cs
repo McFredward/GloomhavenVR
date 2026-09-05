@@ -528,6 +528,8 @@ internal static partial class VROptionsTab
                         new BoardRef("Cards", "SpawnSideMeters", perBoard: false),
                         new BoardRef("Cards", "SpawnForwardMeters", perBoard: false),
                         new BoardRef("Cards", "SpawnDownMeters", perBoard: false),
+                        new BoardRef("Cards", "SpawnMaxReachMeters", perBoard: false),
+                        new BoardRef("Cards", "SpawnMaxBearingDegrees", perBoard: false),
                         new BoardRef("Cards", "BoardMinWidthMeters", perBoard: false),
                         new BoardRef("Cards", "BoardMaxWidthMeters", perBoard: false),
                     },

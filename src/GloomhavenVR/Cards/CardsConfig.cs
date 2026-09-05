@@ -161,6 +161,12 @@ internal static class CardsConfig
     internal static ConfigEntry<float> SpawnForwardMeters = null!;
     internal static ConfigEntry<float> SpawnDownMeters = null!;
 
+    /// <summary>The ARRIVAL SEAT GUARD's two bounds — how far from the head, and how far off the
+    /// player's forward, the control board may be when a scenario puts the player down. See
+    /// <c>PlayTray.TickArrivalSeatGuard</c>.</summary>
+    internal static ConfigEntry<float> SpawnMaxReachMeters = null!;
+    internal static ConfigEntry<float> SpawnMaxBearingDegrees = null!;
+
     // [Cards] SlotCardFill is GONE (retired 2026-08-11). It scaled a slotted card up to fill the
     // physical recess, but the blinking slot overlays took their size from a code literal, so the
     // card that landed was 6.6 % wider than the overlay that had just marked the spot and there was
@@ -1085,6 +1091,28 @@ internal static class CardsConfig
             new ConfigDescription(
                 "First-placement seat: how far BELOW eye level the board sits, real meters.",
                 new AcceptableValueRange<float>(-0.5f, 1.5f)));
+        SpawnMaxReachMeters = _file.Bind("Cards", "SpawnMaxReachMeters", Defaults.SpawnMaxReachMeters,
+            new ConfigDescription(
+                "ARRIVAL GUARD: how far from your head the control board may be when a scenario " +
+                "puts you down, real meters. When a scenario seats you - and ONLY then, plus at " +
+                "each further re-seat the mod itself performs during that arrival - the board's " +
+                "distance from your head is measured; further out than this and it is put back at " +
+                "the starting spot above. It is deliberately a little wider than that spot (about " +
+                "0.53 m out) and a little tighter than the 1.2 m the placement maths will ever " +
+                "produce, so a board that has drifted to the very edge of reach is re-seated " +
+                "instead of being left at full stretch. Once the arrival is over the board is " +
+                "never moved again for being far away - walking away from a fixed board is not a " +
+                "fault.",
+                new AcceptableValueRange<float>(0.3f, 3f)));
+        SpawnMaxBearingDegrees = _file.Bind("Cards", "SpawnMaxBearingDegrees", Defaults.SpawnMaxBearingDegrees,
+            new ConfigDescription(
+                "ARRIVAL GUARD: how far to the SIDE of your view the control board may be when a " +
+                "scenario puts you down, degrees off straight ahead (0 = dead ahead, 180 = " +
+                "directly behind you). Same moment and same rule as the reach above. The default " +
+                "100 deg sits just outside a headset's own field of view, so anything the guard " +
+                "moves really was something you would have had to turn around and look for; the " +
+                "starting spot itself is about 58 deg off forward and is never touched by it.",
+                new AcceptableValueRange<float>(30f, 180f)));
         GameCardParticles = _file.Bind("Cards", "GameCardParticles", Defaults.GameCardParticles,
             "Let the GAME's own card particle effect (the CardSmoke spark/smoke plume) play. OFF by " +
             "default: it is authored for the full-size 2D card, so on the table-sized board it " +

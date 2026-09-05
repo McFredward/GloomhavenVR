@@ -146,6 +146,8 @@ EXEMPT = {
     ("Cards", "SpawnSideMeters"): ("COMFORT", "as SpawnLeftOfHead"),
     ("Cards", "SpawnForwardMeters"): ("COMFORT", "as SpawnLeftOfHead"),
     ("Cards", "SpawnDownMeters"): ("COMFORT", "as SpawnLeftOfHead"),
+    ("Cards", "SpawnMaxReachMeters"): ("COMFORT", "the bounds the ARRIVAL SEAT GUARD accepts for THEIR own board beside THEIR own head; the corrected pose itself rides the board extras like every other pose"),
+    ("Cards", "SpawnMaxBearingDegrees"): ("COMFORT", "as SpawnMaxReachMeters"),
     ("Cards", "RevealMode"): ("COMFORT", "WHEN their fan opens; the open/closed STATE itself is synced"),
     ("Cards", "RevealEnterDegrees"): ("COMFORT", "as RevealMode"),
     ("Cards", "RevealExitDegrees"): ("COMFORT", "as RevealMode"),

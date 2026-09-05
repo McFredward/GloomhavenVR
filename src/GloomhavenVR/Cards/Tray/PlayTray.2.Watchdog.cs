@@ -107,6 +107,11 @@ internal sealed partial class PlayTray
         // the state it exists to prove is exactly the state a gripped board is in.
         if (_root != null && _wantVisible)
             TickBoardAnchorDiagnostics();
+        // ARRIVAL WINDOW EDGE, observed UNCONDITIONALLY and for the same reason: the window can
+        // open while the tray is still hidden or its placement still deferred (a scenario load is
+        // exactly such a moment), and an edge missed there is an arrival never guarded. Arming is
+        // free; the judging half runs below, after the pin carry.
+        ObserveArrivalWindow();
         // !_placed = the initial head-relative placement is still deferred (untracked head at
         // scenario start). The root is hidden and still sits at its spawn pose, so any verdict
         // here would be about a pose that does not exist yet; TickPlacement is already retrying
@@ -119,6 +124,12 @@ internal sealed partial class PlayTray
         // RELATIVE TO THE PLAYER across a recentre, which is what "it stayed where I put it"
         // means — so it is not a move under the ruling above.
         SyncPinHolder();
+        // ARRIVAL SEAT GUARD — AFTER SyncPinHolder, and that order is load-bearing. Both react to
+        // the same RigPoseVersion bump; the carry is the cheap answer (keep the player's own
+        // offset) and the guard is the verdict on the result. Judging BEFORE the carry would judge
+        // a pose that is about to be replaced, and the carry would then undo the correction from a
+        // rig-local cache taken before it — the classic "measured the wrong stage" shape.
+        TickArrivalSeatGuard();
         // NO world-tilt compensation (user decision 2026-08, supersedes item 11): a PINNED
         // board is deliberately WORLD-static — a tilt change leaves it untouched (it then
         // looks tilted like the rest of the world; the user re-adjusts it in Free mode).
@@ -927,6 +938,352 @@ internal sealed partial class PlayTray
 
         perUnit = BoardHalfWidthLocal * 2f * parent / divisor;
         return perUnit > 1e-6f && !float.IsInfinity(perUnit);
+    }
+
+    // ------------------------------------------------------------- ARRIVAL SEAT GUARD --
+    //
+    // THE REPORT (user, 2026-09-05, verbatim): "Ich hatte beim Test den Fall, dass mein
+    // Controlboard hinter dem Spielfeld gespawnt ist und ich es erst suchen musste. Das
+    // Controlboard muss zwingend immer neben einem spawnen, niemals weiter weg."
+    //
+    // WHAT THE HARDWARE LOG SAYS, AND IT IS NOT THE PLACEMENT MATHS (LogOutput.log, ModBuild
+    // 430-433 era, three scenario starts at lines 785 / 5980 / 11282). The line
+    //   "[Cards] Control board placed (... ) - FIRST SEAT: fixed spot beside the head on the LEFT"
+    // fires EXACTLY ONCE in the whole session, at line 896, in the FIRST scenario. The second and
+    // third scenarios never re-seat the tray at all. The reason is structural: the seat is armed by
+    // `_everPlaced`, which is cleared only in PlayTray.Destroy - i.e. when the HANDS ROOT goes
+    // away, not when the player arrives at a scenario. The tray instance and its root survive a
+    // scenario change, so "beim ersten Spawnen" quietly meant "the first scenario of the session".
+    //
+    // WHAT HAPPENED INSTEAD is that SyncPinHolder faithfully carried the board by its RIG-RELATIVE
+    // pose across every origin change (7 carries in that session, each 24-42 m of world
+    // displacement and a 138-176 degree flip). That carry is correct and stays: it is what keeps a
+    // board the player has arranged where the player put it. But what it preserves is the offset
+    // the PREVIOUS scenario ended with - and in scenario 3 that offset put the board 28.55 world
+    // units from the head (2.05 m at rig scale 13.94), out past the far edge of the play field,
+    // drifting to 41.08 wu / 2.95 m before the player found it and grabbed it back by hand
+    // (Board pose [user-grab] at line 12084). That is the report, in numbers.
+    //
+    // THE ORDERING IS THE OTHER HALF. In that same log the recenter and every carry run BEFORE the
+    // board footprint is even measurable and BEFORE the ring seats the player:
+    //   S3: rig built 11282 -> carry 11323 -> recentered 11348 -> board measurable 11512 ->
+    //       ring SEATED 11562 -> carry 11564.
+    // A seat authored at any stage before the last of those is authored against a rig pose the
+    // arrival is about to abandon. So the invariant this guard holds is stated on the OUTCOME, not
+    // on any one stage:
+    //
+    //   AT EVERY STAGE OF A SCENARIO ARRIVAL THAT MOVES THE PLAYER WITHOUT THE PLAYER ASKING, AND
+    //   AT THE END OF THE ARRIVAL, THE CONTROL BOARD IS WITHIN [Cards] SpawnMaxReachMeters OF THE
+    //   HEAD AND WITHIN [Cards] SpawnMaxBearingDegrees OF THE PLAYER'S FORWARD.
+    //
+    // WHY THIS IS NOT THE FORBIDDEN RECALL. The block at the top of this file forbids re-adding a
+    // distance- or visibility-based recall, on a ruling this guard obeys literally: it NEVER writes
+    // on a frame where the rig origin is unchanged. Walking away from a FIXIERT board, reading a
+    // menu next to it, flying off with the stick - none of those bump VRRigDriver.RigPoseVersion,
+    // so none of them can reach the correction. The only writes are on the stages where the MOD
+    // teleported the player (the arrival itself, the ring's join seat, its one allowed correction,
+    // the first-pose recenter), and only while VRRigDriver.ScenarioArrivalPending is true, and only
+    // until the player's own hand touches the board. Outside that window the guard is a READING and
+    // nothing else.
+    //
+    // MULTIPLAYER: nothing on the wire, and nothing needs to be. Every input is local - this
+    // client's own head camera, its own rig scale, its own board transform, its own rig pose
+    // version. The JOIN case is covered for free and is the reason the arrival window is keyed on
+    // the ring rather than on a timer: when the local NetworkPlayer has no id yet the ring reports
+    // PeersUnknown and may seat the player LATE, or spend its one correction seconds later when a
+    // peer's first pose finally lands - both of those are RigPoseVersion bumps inside the window,
+    // so the board is re-verified against each of them. The board's world pose is already sampled
+    // onto the wire by NetAvatarDriver.TickExtrasSend, so peers see the corrected seat with no new
+    // field; and this is a purely LOCAL seating decision about the local player's own furniture,
+    // which is why it needs none (there is no per-sub-feature sync setting - [Net] RemoteBoards
+    // already decides whether peers draw the thing at all).
+
+    /// <summary>Hard cap on how many verdicts one arrival may spend. The window holds an arrival
+    /// seat, at most one ring correction and a recenter, so three or four is the real number; the
+    /// cap is defence in depth against a rig that bumps its pose version in a loop, and it bounds
+    /// the log at the same time.</summary>
+    private const int MaxArrivalChecks = 8;
+
+    /// <summary>True while a scenario arrival is being watched — armed on the rising edge of
+    /// <see cref="VRRigDriver.ScenarioArrivalPending"/>, disarmed by the terminal verdict, by the
+    /// player's own hand, or by the check cap.</summary>
+    private bool _arrivalArmed;
+
+    /// <summary>Last observed value of <see cref="VRRigDriver.ScenarioArrivalPending"/> — the edge
+    /// detector, so one arrival arms the guard exactly once and the NEXT arrival re-arms it.</summary>
+    private bool _arrivalPendingSeen;
+
+    /// <summary><see cref="VRRigDriver.RigPoseVersion"/> the last verdict was taken at, and whether
+    /// one has been taken at all. The first verdict of an arrival is deliberately unconditional:
+    /// the pose the board carries into a new scenario was authored in the previous one.</summary>
+    private bool _arrivalHaveVersion;
+    private int _arrivalVersion;
+
+    /// <summary>Verdicts and corrections spent this arrival — both printed on every line, so
+    /// "the guard never ran" and "the guard ran and found nothing" are different readings.</summary>
+    private int _arrivalChecks;
+    private int _arrivalCorrections;
+
+    /// <summary>Clear the whole guard for a fresh root (called from <see cref="Destroy"/>). The
+    /// PlayTray INSTANCE outlives its root, so a stale "already checked" would skip an arrival.</summary>
+    private void ResetArrivalSeatGuard()
+    {
+        _arrivalArmed = false;
+        _arrivalPendingSeen = false;
+        _arrivalHaveVersion = false;
+        _arrivalVersion = 0;
+        _arrivalChecks = 0;
+        _arrivalCorrections = 0;
+    }
+
+    /// <summary>
+    /// Arm on the rising edge of the rig's arrival window. Deliberately separate from, and ahead
+    /// of, <see cref="TickArrivalSeatGuard"/>'s judging half: the window opens during the scenario
+    /// load, when the tray may still be hidden with its placement deferred, and an edge that is
+    /// only looked for once the tray is placed is an edge that can be missed entirely. Two field
+    /// reads and a bool compare — allocation-free, and the whole cost on a steady frame.
+    /// </summary>
+    private void ObserveArrivalWindow()
+    {
+        bool pending = VRRigDriver.ScenarioArrivalPending;
+        if (pending && !_arrivalPendingSeen)
+        {
+            _arrivalArmed = true;
+            _arrivalHaveVersion = false;
+            _arrivalChecks = 0;
+            _arrivalCorrections = 0;
+        }
+        _arrivalPendingSeen = pending;
+    }
+
+    /// <summary>
+    /// The judging half. Runs after <see cref="SyncPinHolder"/> (see the call site for why that
+    /// order is load-bearing) and writes ONLY on a frame where the rig origin changed — see the
+    /// block above for why that single rule is what keeps this out of the recall the standing
+    /// ruling forbids. Allocation-free until it actually has a verdict to give.
+    /// </summary>
+    private void TickArrivalSeatGuard()
+    {
+        if (!_arrivalArmed || _root == null || !_placed)
+            return;
+
+        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
+        if (head == null)
+            return; // no head to measure against — spend nothing, decide nothing, retry next frame
+
+        // THE PLAYER'S OWN HAND OUTRANKS THE GUARD, permanently. A board being carried is being
+        // placed, and the ruling this file opens with says that pose is theirs from then on.
+        if (_handle != null && _handle.IsGrabbed)
+        {
+            EvaluateArrivalSeat(head, VRRigDriver.RigPoseVersion,
+                                "the player took the board in their own hand", mayCorrect: false);
+            _arrivalArmed = false;
+            return;
+        }
+
+        int version = VRRigDriver.RigPoseVersion;
+        bool originChanged = !_arrivalHaveVersion || version != _arrivalVersion;
+        if (!originChanged)
+        {
+            if (VRRigDriver.ScenarioArrivalPending)
+                return; // the arrival is still running and nothing has moved — nothing to say
+            // THE TERMINAL VERDICT, and it is a READING, never a write: the origin is stable, so
+            // whatever the board's distance is now is a consequence of where the PLAYER went.
+            EvaluateArrivalSeat(head, version,
+                                "the arrival has settled — the rig will not move the player again",
+                                mayCorrect: false);
+            _arrivalArmed = false;
+            return;
+        }
+
+        _arrivalHaveVersion = true;
+        _arrivalVersion = version;
+        EvaluateArrivalSeat(head, version,
+                            _arrivalChecks == 0
+                                ? "the scenario arrival (first verdict — the board carries the pose "
+                                  + "the PREVIOUS scenario left it at)"
+                                : "the rig moved the player (spawn-ring seat, its one correction, or "
+                                  + "the first-pose recenter)",
+                            mayCorrect: true);
+        if (_arrivalChecks >= MaxArrivalChecks)
+            _arrivalArmed = false;
+    }
+
+    /// <summary>
+    /// One verdict: measure head to board, decide, correct when allowed, and say all of it in a
+    /// single line. Split out of <see cref="TickArrivalSeatGuard"/> so the log call does not sit
+    /// inside a method a reader (or scripts/check-hw-verify.py) would take for per-frame chatter —
+    /// it fires at most <see cref="MaxArrivalChecks"/> times per scenario arrival.
+    /// </summary>
+    private void EvaluateArrivalSeat(Camera head, int version, string stage, bool mayCorrect)
+    {
+        if (_root == null)
+            return;
+        if (CardsConfig.SpawnMaxReachMeters == null || CardsConfig.SpawnMaxBearingDegrees == null)
+            return; // config not bound yet (no scenario can have started) — nothing is spent
+
+        float maxReach = CardsConfig.SpawnMaxReachMeters.Value;
+        float maxBearing = CardsConfig.SpawnMaxBearingDegrees.Value;
+
+        // MEASURE FIRST, SPEND SECOND: a verdict that could not be taken (a non-finite pose, which
+        // is the lost-board watchdog's business) must not consume one of the arrival's few checks.
+        if (!TryMeasureArrivalSeat(head, out float outWorld, out float outMeters, out float upMeters,
+                                   out float bearing, out float rigScale))
+            return;
+
+        _arrivalChecks++;
+
+        bool tooFar = outMeters > maxReach;
+        bool behind = Mathf.Abs(bearing) > maxBearing;
+
+        // THE DIALS MUST NOT FIGHT EACH OTHER. The first seat is itself authored from
+        // [Cards] Spawn{Side,Forward,Down}Meters, so a player who widens those past the guard's own
+        // bounds would otherwise be corrected to a seat that fails the very next verdict. Their
+        // dials win, and the line says so rather than looping.
+        Vector3 seat = CardsConfig.SpawnSeatOffset;
+        var seatFlat = new Vector3(seat.x, 0f, seat.z);
+        float seatReach = seatFlat.magnitude;
+        float seatBearing = Mathf.Abs(Vector3.SignedAngle(Vector3.forward, seatFlat, Vector3.up));
+        bool seatOutsideItsOwnBounds = seatReach > maxReach || seatBearing > maxBearing;
+
+        string verdict;
+        string after = string.Empty;
+        if (!tooFar && !behind)
+        {
+            verdict = "BESIDE THE PLAYER — nothing to correct";
+        }
+        else
+        {
+            string wrong = tooFar && behind ? "OUT OF REACH AND BEHIND THE PLAYER"
+                         : tooFar ? "OUT OF REACH"
+                         : "BEHIND THE PLAYER";
+            if (!mayCorrect)
+            {
+                verdict = wrong + " — NOT corrected: " + stage + ", so this is a reading only. "
+                        + "The board is only ever moved on a frame where the rig itself moved the "
+                        + "player, which is what keeps this out of the automatic recall the "
+                        + "2026-08-03 ruling removed";
+            }
+            else if (seatOutsideItsOwnBounds)
+            {
+                verdict = wrong + " — NOT corrected: the configured first seat is itself "
+                        + $"{seatReach:F2} m out at {seatBearing:F0}deg ([Cards] Spawn"
+                        + "SideMeters/SpawnForwardMeters), which these bounds would reject too. "
+                        + "The dials are the player's; widen the bounds or narrow the seat";
+            }
+            else
+            {
+                ReseatBesidePlayer(stage);
+                _arrivalCorrections++;
+                verdict = wrong + " — RE-SEATED at the configured first seat";
+                if (TryMeasureArrivalSeat(head, out float w2, out float m2, out float u2,
+                                          out float b2, out _))
+                    after = $" AFTER the correction: {w2:F2} world units / {m2:F2} m out, "
+                          + $"{b2:F0}deg off forward, {u2:F2} m vertical.";
+            }
+        }
+
+        // HW-VERIFY: THE LINE THAT DECIDES THE 2026-09-05 REPORT ("das Controlboard muss zwingend
+        // immer neben einem spawnen"). It fires on every verdict, including the ones that change
+        // nothing, so "the guard never ran" (no line at all in a scenario) and "the guard ran and
+        // found the board where it belongs" are different readings. If a hardware round still
+        // reports hunting for the board, either this line is absent — read the [Rig] "Spawn ring:
+        // window closed" line for whether an arrival was ever declared — or it is present with a
+        // verdict, and the verdict names the stage and the numbers it was taken on.
+        VRLog.Note("Cards", $"CONTROL BOARD ARRIVAL SEAT: verdict #{_arrivalChecks} of at most " +
+                            $"{MaxArrivalChecks}, stage: {stage}. Board at {_root.position}, " +
+                            $"{outWorld:F2} world units / {outMeters:F2} m from the head at rig " +
+                            $"scale x{rigScale:F2} (the same distance in both units — the rig scale " +
+                            $"is the only conversion), bearing {bearing:F0}deg off the player's " +
+                            $"forward (0 = dead ahead, + = right, 180 = directly behind), " +
+                            $"{upMeters:F2} m vertically. Bounds {maxReach:F2} m " +
+                            $"([Cards] SpawnMaxReachMeters) and {maxBearing:F0}deg " +
+                            $"([Cards] SpawnMaxBearingDegrees); the configured first seat is " +
+                            $"{seatReach:F2} m out at {seatBearing:F0}deg. VERDICT: {verdict}." +
+                            after +
+                            $" Corrections this arrival {_arrivalCorrections}; mode " +
+                            $"{(CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT")}; rig pose " +
+                            $"version {version}; arrival window " +
+                            $"{(VRRigDriver.ScenarioArrivalPending ? "OPEN" : "CLOSED")}.");
+    }
+
+    /// <summary>
+    /// Head-to-board geometry in BOTH units, because a bound named …Meters compared against a
+    /// world-unit product is a mistake this project has already shipped: <paramref name="outWorld"/>
+    /// is raw world units, <paramref name="outMeters"/> is that divided by the LIVE rig scale, and
+    /// the rig scale is handed back so the arithmetic in the log line is checkable. Horizontal
+    /// distance and bearing are taken in the flat world frame, matching <see cref="PlaceAtHead"/>'s
+    /// own frame exactly (world, yaw-only). False when the pose is not measurable.
+    /// </summary>
+    private bool TryMeasureArrivalSeat(Camera head, out float outWorld, out float outMeters,
+                                       out float upMeters, out float bearing, out float rigScale)
+    {
+        outWorld = outMeters = upMeters = bearing = 0f;
+        rigScale = 1f;
+        if (_root == null)
+            return false;
+
+        Transform? rigRoot = VRRigDriver.RigRoot;
+        rigScale = rigRoot != null ? Mathf.Max(1e-4f, rigRoot.lossyScale.x) : 1f;
+
+        Transform headT = head.transform;
+        Vector3 delta = _root.position - headT.position;
+        if (!IsFinite(delta))
+            return false; // a non-finite pose is the lost-board watchdog's verdict, not this one
+
+        var flat = new Vector3(delta.x, 0f, delta.z);
+        outWorld = flat.magnitude;
+        outMeters = outWorld / rigScale;
+        upMeters = delta.y / rigScale;
+
+        Vector3 flatForward = headT.forward;
+        flatForward.y = 0f;
+        if (flatForward.sqrMagnitude < 1e-4f)
+            flatForward = Vector3.forward;
+        bearing = outWorld > 1e-4f ? Vector3.SignedAngle(flatForward, flat, Vector3.up) : 0f;
+        return true;
+    }
+
+    /// <summary>
+    /// The correction: put the board back at the seat the player configured, keeping the size they
+    /// dialled in (the "SIZE IS NOT PART OF A RECALL" ruling that <see cref="RecoverLostBoard"/>
+    /// obeys applies verbatim here). It re-authors the pin against the CURRENT tracking origin and
+    /// refreshes the rig-local cache in the same breath, so the very next
+    /// <see cref="SyncPinHolder"/> cannot carry the board back to the pose this just replaced.
+    /// </summary>
+    private void ReseatBesidePlayer(string stage)
+    {
+        if (_root == null)
+            return;
+        Vector3 before = _root.position;
+        Vector3 keepScale = _root.localScale;
+        bool keepScaleValid = IsFinite(keepScale) && keepScale.x > 1e-4f;
+
+        _placed = false;
+        PlaceAtHead(forceFirstSeat: true); // defers safely if the head lost its pose; retried next verdict
+        if (keepScaleValid)
+            _root.localScale = keepScale;
+
+        NotePinnedWrite($"arrival seat guard ({stage})"); // freeze sentinel: a sanctioned write
+        // Sanction it for CardsDriver's issue-C pose watch as well, which would otherwise report a
+        // silent recompute. Drained by CardsDriver right after TickLostWatchdog returns.
+        _pinHousekeepingMove = "arrival seat guard re-seated the board beside the player";
+
+        // Re-author the pin against the CURRENT origin, and re-cache the rig-relative pose from the
+        // NEW world pose. Without the second half, the next origin change would carry the board by
+        // an offset measured before this correction and quietly undo it.
+        _pinPoseVersion = VRRigDriver.RigPoseVersion;
+        Transform? rig = VRRigDriver.RigRoot;
+        if (rig != null)
+        {
+            _rigLocalPinPos = rig.InverseTransformPoint(_root.position);
+            _rigLocalPinRot = Quaternion.Inverse(rig.rotation) * _root.rotation;
+            _rigLocalPinValid = IsFinite(_rigLocalPinPos);
+        }
+        if (_wantVisible)
+            SetVisible(true); // a correction must never leave the board hidden
+        VRLog.Info("Cards", $"Control board re-seated beside the player by the ARRIVAL SEAT GUARD " +
+                            $"({stage}): {before} → {_root.position}.");
     }
 
     private static bool IsFinite(Vector3 v) =>

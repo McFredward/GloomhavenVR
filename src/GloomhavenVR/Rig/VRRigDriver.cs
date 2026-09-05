@@ -81,6 +81,30 @@ internal sealed partial class VRRigDriver : MonoBehaviour
     /// </summary>
     internal static int RigPoseVersion { get; private set; }
 
+    /// <summary>
+    /// TRUE while a scenario ARRIVAL is still running — i.e. from the moment a scenario rig is
+    /// built for a player who was NOT already at this table, until the spawn ring's window closes
+    /// for any reason (a seat placed and the player moving on, a manual recenter, the deadline, or
+    /// <c>[Rig] SpawnInCircle</c> being off). It is FALSE for an in-scenario rig REBUILD, for the
+    /// menu and map rigs, and once there is no rig at all.
+    ///
+    /// <para>WHAT IT IS FOR, AND WHY IT IS NOT SIMPLY "the rig moved". Arrival is the one window in
+    /// which the mod itself may still teleport the player without the player asking — the ring's
+    /// join seat, its one allowed correction, and the first-pose recenter all live inside it. Any
+    /// of the player's OWN furniture that is anchored in world space (today: the control board in
+    /// FIXIERT, <c>PlayTray.TickArrivalSeatGuard</c>) has to be re-verified against the pose the
+    /// player actually ENDS UP IN rather than the one it was seated against, and it must stop
+    /// doing so the instant the arrival is over — after that, where the board sits is the player's
+    /// business and moving it is the defect (the standing "angewurzelt" ruling at the top of
+    /// <c>PlayTray.2.Watchdog.cs</c>). This flag is exactly that window and nothing wider.</para>
+    ///
+    /// <para>PURELY LOCAL, and nothing here is sent: it is derived from this client's own rig kind
+    /// and its own spawn-ring window. The MULTIPLAYER join case is the reason the window is long —
+    /// the local <c>NetworkPlayer</c> can arrive seconds after the rig — and a consumer that keys
+    /// on this flag therefore covers the late peer pose and the ring's one correction for free.</para>
+    /// </summary>
+    internal static bool ScenarioArrivalPending { get; private set; }
+
     /// <summary>Fallback diorama scale when auto-detection has no tile size yet.</summary>
     private const float FallbackWorldScale = 12f;
 
@@ -824,6 +848,9 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         bool arrival = _priorKind != RigKind.Scenario;
         _ringPlaced = false;
         _ringSettled = !arrival;
+        // The arrival window opens and closes with the ring's own window — one writer per event,
+        // so a consumer can never see "arriving" while the ring is inert (see the property doc).
+        ScenarioArrivalPending = arrival;
         _ringPeersAtPlacement = -1;
         _ringOutcome = SpawnRing.Outcome.Offline;
         _ringProbe = default;
@@ -994,6 +1021,7 @@ internal sealed partial class VRRigDriver : MonoBehaviour
         // recenter runs at all — see UpdateBody).
         _ringSettled = true;  // no rig ⇒ inert; a scenario BuildRig re-opens it
         _ringPlaced = false;
+        ScenarioArrivalPending = false; // no rig ⇒ nobody is arriving at anything
         RigRoot = null;
         HeadCamera = null;
         BaseWorldScale = 0f;
