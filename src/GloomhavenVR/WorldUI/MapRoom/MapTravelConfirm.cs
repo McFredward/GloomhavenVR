@@ -899,7 +899,8 @@ internal static class MapTravelConfirm
         // written this frame is what keeps the pair one block instead of two chasing each other.
         // Offline `_parkedIsReadyToggle` is false, the row is released and MapQuestReadyRoster
         // .ReservedHeight() returns 0, so the single-player placement is bit-identical to 422.
-        MapQuestReadyRoster.Tick(questWindow,
+        MapQuestReadyRoster.Tick(ReadyRosterSite.Quest,
+                                 questWindow,
                                  _parkedIsReadyToggle ? _parked : null,
                                  _posed);
     }
@@ -1944,6 +1945,19 @@ internal static class MapTravelConfirm
         _anchorButtonClipped = btnClipped;
         _anchorWhy = "resolved";
     }
+
+    /// <summary>
+    /// The painted union of everything <paramref name="sweepRoot"/> draws, in
+    /// <paramref name="frame"/>'s own local space — the SAME sweep the anchor solve is built on,
+    /// exposed so a sibling placement measures ink with this file's rules rather than a second set
+    /// of its own.
+    ///
+    /// <para>Allocation-free: the sweep fills this class's own static scratch list and is called from
+    /// one place at a time, on a cadence, never re-entrantly.</para>
+    /// </summary>
+    internal static bool TryInkBounds(RectTransform frame, Transform sweepRoot,
+                                      out Rect ink, out int counted) =>
+        TryContentBounds(frame, sweepRoot, excludeRoot: null, out ink, out counted, out _, out _);
 
     /// <summary>
     /// ONE LINE, ONCE PER SESSION: the dials' ZERO changed meaning at ModBuild 197, so any value

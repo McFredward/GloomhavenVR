@@ -319,6 +319,12 @@ internal static class LoadoutConfirmPark
     private static GameObject? _parked;
     private static bool _parkedIsReadyToggle;
     private static UIWindow? _host;
+
+    /// <summary>Has <see cref="ApplyPose"/> written the control's seat for the current parking?
+    /// Handed to <see cref="MapQuestReadyRoster"/>, which hangs the ready row off the control's
+    /// painted top edge and must not read a seat that has not been solved yet — it would place the
+    /// icons at the control's PREVIOUS position for one tick.</summary>
+    private static bool _posed;
     private static GameObject? _homeOwner;
     private static bool _homeRecorded;
     private static Transform? _home;
@@ -536,6 +542,7 @@ internal static class LoadoutConfirmPark
         try
         {
             TickCore();
+            OfferReadyRow();
         }
         catch (System.Exception e)
         {
@@ -551,8 +558,71 @@ internal static class LoadoutConfirmPark
             Unpark("the parker threw");
             DropClaim("the parker threw");
             _standDown = true;
+            OfferReadyRow();
         }
     }
+
+    /// <summary>
+    /// HAND THE READY ROW'S OWNER THIS SITE'S LIVE STATE — the icon row of "wer schon akzeptiert hat"
+    /// beside the 'Verlies betreten' button.
+    ///
+    /// <para><b>USER REQUEST, 2026-09-05, verbatim:</b> <i>"Beim 'Verlies betreten' Button will ich
+    /// auch die Symbole sehen vom Spiel, wer schon akzeptiert hat und wer nicht - wie zu Beginn auch
+    /// bei der Questauswahl."</i></para>
+    ///
+    /// <para>NOTHING IS BUILT HERE AND NOTHING IS TRACKED HERE. The game already populates its own
+    /// <c>UIReadyTrackerBar</c> for this exact phase — <c>MPConfirmEnterScenario</c> ends with
+    /// <c>ShowLoadoutMultiplayer()</c>, which is <c>ShowCharactersTrackers()</c>
+    /// (decompiled UILoadoutManager.cs:516, UIMapMultiplayerController.cs:95-99) — and keeps the cells
+    /// current through <c>UpdateReadyPlayer</c> (UILoadoutManager.cs:499). It is drawn on the flat HUD,
+    /// which this room does not draw. <see cref="MapQuestReadyRoster"/> owns the moving and the
+    /// placing for both confirmations; this method only says what this site has to offer. See that
+    /// class's section 4 for the full citation chain.</para>
+    ///
+    /// <para>THE CONTROL IS OFFERED ONLY WHILE IT IS THE READY TOGGLE. Offline the confirm is
+    /// <c>UILoadoutManager.confirmationButton</c>, the game never populates the bar at all for this
+    /// phase, and an icon row with nothing in it would be a decoration asserting a readiness nobody
+    /// is tracking. The BUTTON is never withheld with it — this method cannot affect the control's
+    /// own seat, which <see cref="ApplyPose"/> solved before it ran.</para>
+    ///
+    /// <para>LEVEL-TRIGGERED AND UNCONDITIONAL: it runs on every exit path of the tick, including the
+    /// guarded throw, so a site that stands down stops offering within a frame rather than leaving a
+    /// stale claim on the shared bar.</para>
+    /// </summary>
+    /// <remarks>
+    /// GUARDED SEPARATELY FROM THE PARKER, and that is the whole reason this is a method and not a
+    /// line. It runs INSIDE <see cref="Tick"/>'s try, whose catch unparks the control and stands the
+    /// parking down — so without this guard a throw inside the ROW's placement would take the
+    /// 'Verlies betreten' BUTTON away from the player. A decoration must never be able to do that to
+    /// a control [[a-write-inside-a-logger]]. The row simply does not update this tick, and the
+    /// roster's own report line is the thing that goes quiet.
+    /// </remarks>
+    private static void OfferReadyRow()
+    {
+        try
+        {
+            MapQuestReadyRoster.Tick(ReadyRosterSite.EnterDungeon,
+                                     _host,
+                                     _parkedIsReadyToggle ? _parked : null,
+                                     _posed);
+        }
+        catch (System.Exception e)
+        {
+            if (_rowThrewLogged)
+                return;
+            _rowThrewLogged = true;
+            VRLog.Warn(Scope, "LOADOUT CONFIRM: the ready-icon row threw while being offered "
+                              + $"({e.GetType().Name}: {e.Message}). CONSEQUENCE: the 'Verlies "
+                              + "betreten' button and its parking are UNAFFECTED — the row is a "
+                              + "decoration and it is guarded away from the control on purpose. The "
+                              + "player loses the 'wer hat schon akzeptiert' icons beside the button "
+                              + "and nothing else. One line per session.");
+        }
+    }
+
+    /// <summary>One Warn per session for the guard above — a throw that repeats every frame must not
+    /// become the log.</summary>
+    private static bool _rowThrewLogged;
 
     private static void TickCore()
     {
@@ -1028,6 +1098,7 @@ internal static class LoadoutConfirmPark
         _parked = null;
         _host = null;
         _parkedIsReadyToggle = false;
+        _posed = false;
         _parkLogged = false;
         ResetAnchor("the control was unparked");
 
@@ -1189,7 +1260,10 @@ internal static class LoadoutConfirmPark
             RefreshAnchor(win, rect, frame);
         }
         if (!_anchorValid)
+        {
+            _posed = false;
             return;
+        }
 
         // ANCHORS ARE READ, NEVER RE-WRITTEN unless they are STRETCHED. anchoredPosition means
         // nothing without the anchor it is measured from, so the number written is derived from the
@@ -1202,6 +1276,7 @@ internal static class LoadoutConfirmPark
         Vector2 want = _anchorPivot - reference;
         if ((rect.anchoredPosition - want).sqrMagnitude > OffsetEpsilonPx * OffsetEpsilonPx)
             rect.anchoredPosition = want;
+        _posed = true;
 
         if (_parkLogged)
             return;
@@ -1959,6 +2034,7 @@ internal static class LoadoutConfirmPark
             root.GetComponentsInChildren(includeInactive: false, PaintScratch);
             if (PaintScratch.Count == 0)
                 return false;
+            Transform? rowExclude = MapQuestReadyRoster.HeldRow;
             if (panel != null)
                 CanvasConversion.BeginContentQuery();
 
@@ -1974,6 +2050,18 @@ internal static class LoadoutConfirmPark
                 if (rt == null)
                     continue;
                 if (exclude != null && (ReferenceEquals(rt, exclude) || rt.IsChildOf(exclude)))
+                    continue;
+                // THE READY ROW IS NEVER CONTENT, AT ANY CALL SITE IN THIS FILE (ModBuild 436). It is
+                // the game's own UIReadyTrackerBar, adopted by MapQuestReadyRoster and parked ABOVE
+                // the control — which means it is parked to the RIGHT of everything else this window
+                // draws, and it FOLLOWS the control. A seat solved against the right edge of the
+                // painted content would therefore push the control right, which would pull the row
+                // right, which would push the control right again: a divergent loop wearing a
+                // measurement's clothes. The exclusion lives HERE rather than at the two call sites
+                // that need it today so that a call site added later cannot forget it, and it costs
+                // the sweeps that do not need it one null compare. Sweeps rooted at the control's own
+                // subtree are unaffected — the row is never a child of the control.
+                if (rowExclude != null && (ReferenceEquals(rt, rowExclude) || rt.IsChildOf(rowExclude)))
                     continue;
                 if (panel != null)
                 {

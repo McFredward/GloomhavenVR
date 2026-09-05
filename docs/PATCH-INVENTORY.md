@@ -141,11 +141,11 @@ runtime, which is why a runtime audit could never do this job (see
 | &nbsp; | `WorldspaceDisplayPanelBase.LateUpdate()` *(private)* | prefix | &nbsp; |
 | `InputManager_SetGamepadInputDevice_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:75</sub> | `InputManager.SetGamepadInputDevice()` | prefix | `WorldUIModule`:53 |
 | `InputManager_AssignGamepadBindings_Patch`<br/><sub>src/GloomhavenVR/WorldUI/Grab/InputModeGuard.cs:95</sub> | `InputManager.AssignGamepadBindingsToPlayerActions()` *(private)* | prefix | `WorldUIModule`:54 |
-| `MapQuestReadyPress`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyRoster.cs:948</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | postfix | `MapTravelConfirm`:842 |
+| `MapQuestReadyPress`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyRoster.cs:1544</sub> | `UIReadyToggle.ReadyUp(bool, bool)` | postfix | `MapTravelConfirm`:842 |
 | `MapQuestReadyUp.ClientQuestPromptSeam`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapQuestReadyUp.cs:753</sub> | `UIGuildmasterConfirmActionButtonPresenter.ShowQuestSelectedAction()` | postfix | `MapQuestReadyUp`:328 |
 | &nbsp; | `UIGuildmasterConfirmActionPopupPresenter.ShowQuestSelectedAction()` | postfix | &nbsp; |
-| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:2661</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:828 |
-| `MapPartyTravel.TravelDrivePatches`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:3231</sub> | `global::PartyToken.PartyMoveTo(Vector3[], float, System.Action<List<Vector3>>, System.Action<float>)` | prefix | `MapTravelConfirm`:2872 |
+| `MapTravelConfirm.TravelShortcutGate`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:2675</sub> | `AdventureMapUIManager.OnSelectedMapLocation()` *(private)* | prefix | `MapTravelConfirm`:828 |
+| `MapPartyTravel.TravelDrivePatches`<br/><sub>src/GloomhavenVR/WorldUI/MapRoom/MapTravelConfirm.cs:3245</sub> | `global::PartyToken.PartyMoveTo(Vector3[], float, System.Action<List<Vector3>>, System.Action<float>)` | prefix | `MapTravelConfirm`:2886 |
 | &nbsp; | `global::PartyToken.PartyMoveTo(Vector3[], System.Action, System.Action<float>)` | prefix | &nbsp; |
 | &nbsp; | `global::MapTimedMovementFlow.TeleportPartyToWayPoint()` *(private)* | prefix | &nbsp; |
 | &nbsp; | `global::PartyToken.PartyInstantMove()` | prefix | &nbsp; |
