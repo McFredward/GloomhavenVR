@@ -162,11 +162,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// the fit is skipped for this tick rather than applied to nonsense.</summary>
     private const float MinMeasuredPixels = 1f;
 
-    /// <summary>Effective-alpha floor a graphic must clear to size the fallback union — verbatim
-    /// <c>CanvasConversion.FitMinAlpha</c>, the value the LOCAL dock's own content fit uses. Kept
-    /// here as a literal for the same reason the density clamps above are: this file must not
-    /// widen WorldUI's internal surface to read three constants.</summary>
-    private const float FitMinAlpha = 0.05f;
+    /// <summary>Effective-alpha floor a graphic must clear to size the fallback union —
+    /// <c>CanvasConversion.FitMinAlpha</c> itself, the value the LOCAL dock's own content fit uses.
+    /// It used to be a literal "for the same reason the density clamps above are: this file must not
+    /// widen WorldUI's internal surface to read three constants" — but that reason never covered
+    /// THIS constant: the density clamps really are private to <c>TablePanelSurfaces</c>, while
+    /// <c>FitMinAlpha</c> has been <c>internal</c> since ModBuild 291 and needs no widening at all.
+    /// So this one is the alias and the two above stay mirrors (ModBuild 439, survey row R27). A
+    /// mirrored panel and its owner now cannot disagree about which graphic paints, which is the
+    /// 1:1 ruling in the one term of the fit that was still copied.</summary>
+    private const float FitMinAlpha = WorldUI.CanvasConversion.FitMinAlpha;
 
     // ---------------------------------------------------------------- built state --
 

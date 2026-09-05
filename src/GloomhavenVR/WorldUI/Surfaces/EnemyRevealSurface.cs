@@ -304,8 +304,12 @@ internal sealed class EnemyRevealSurface
     private float _nextHoverScan;     // 4 Hz throttle for the hover watch (no reveal up)
 
     /// <summary>Effective-alpha floor for "this graphic is actually drawing" — the house test
-    /// (<see cref="PanelInkBounds"/>, CanvasConversion's fit): color.a x inherited alpha.</summary>
-    private const float DrawAlphaFloor = 0.05f;
+    /// (<see cref="PanelInkBounds"/>, CanvasConversion's fit): color.a x inherited alpha.
+    /// <c>CanvasConversion.FitMinAlpha</c> itself rather than a fifth copy of 0.05 (ModBuild 439,
+    /// survey row R27). The value is unchanged, and this instrument's printed floor
+    /// (the audit line's <c>DrawAlphaFloor.ToString("F2")</c>) now cannot disagree with the fit that
+    /// decided the same graphic.</summary>
+    private const float DrawAlphaFloor = CanvasConversion.FitMinAlpha;
 
     /// <summary>Seconds after the show flip at which the settled reading is taken if the content
     /// fit never pinned (the pin itself hard-times-out at 2.5 s, so this only covers a reveal that

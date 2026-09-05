@@ -3011,7 +3011,7 @@ internal static partial class ModalFallback
             Graphic g = LiveCheckGraphics[i];
             if (g == null || !g.enabled || g.canvasRenderer == null || g.canvasRenderer.cull)
                 continue;
-            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < 0.05f)
+            if (g.color.a * g.canvasRenderer.GetInheritedAlpha() < CanvasConversion.FitMinAlpha)
                 continue;
             Rect r = g.rectTransform != null ? g.rectTransform.rect : default;
             if (r.width < 0.5f || r.height < 0.5f)
@@ -3061,11 +3061,32 @@ internal static partial class ModalFallback
     /// <see cref="EmptyHideDwellSeconds"/>. A wrong "still dark" costs a stranded window, which is
     /// the defect being fixed. The flap that a wrong wake would produce is counted, per float, by
     /// <c>WindowPanel.DormantCycles</c> and printed by the liveness census.</para>
+    /// <para><b>ModBuild 439 — INTERNAL, AND THE CANVAS TERM CAME BACK WITH THE COPY IT ABSORBED
+    /// (survey row R6).</b> <c>SurfaceMaterialise</c> could not reach this method, so it shipped a
+    /// self-declared "faithful copy" of it plus ONE extra term — <c>CanvasChainDisabled</c> — and
+    /// named its own fix in its own doc: <i>"REQUESTED CHANGE: make that method and GroupChainAlpha
+    /// beside it internal, and this copy is deleted."</i> The copy was the MORE CORRECT of the two,
+    /// so the deletion had to carry its extra term here rather than drop it. What that term buys, on
+    /// a MODAL window, is the exact complaint that started the materialise round: <i>"kam die
+    /// Animation das ein neues Fenster spawnt aber das 'Fenster' ist sofort wieder verschwunden"</i>
+    /// and <i>"Wenn kein Fenster inhalt hat soll neben der Animation auch kein Greifbalken
+    /// erscheinen"</i>. A decision surface with identical content was already correct; a modal
+    /// window whose canvas the game had left switched off underneath it played the dust and grew a
+    /// brass rod over nothing, because every other term here is script-side and cannot see a
+    /// disabled Canvas. The precedent is exact and one build older:
+    /// <see cref="CanvasConversion.FitMinAlpha"/> was promoted to <c>internal</c> for this reason in
+    /// ModBuild 291.</para>
+    ///
+    /// <para>THE WAKE VERDICT CAN ONLY GET STRICTER BY THAT TERM, never looser, so the asymmetry
+    /// argued above is unchanged: it can withhold a wake for a subtree no Canvas is drawing, which
+    /// is a window that was not going to be visible anyway.</para>
     /// </summary>
-    /// <param name="root">The window's conversion target (<c>ConvertedPanel.Target</c>).</param>
-    private static bool DrawsAnythingScriptSide(Transform root)
+    /// <param name="root">The window's conversion target (<c>ConvertedPanel.Target</c>). Nullable
+    /// because the absorbed copy's caller passes one, and "no target" is a legitimate "draws
+    /// nothing" rather than a throw.</param>
+    internal static bool DrawsAnythingScriptSide(Transform? root)
     {
-        if (!root.gameObject.activeInHierarchy)
+        if (root == null || !root.gameObject.activeInHierarchy)
             return false;
         LiveCheckGraphics.Clear();
         root.GetComponentsInChildren(includeInactive: false, LiveCheckGraphics);
@@ -3086,6 +3107,14 @@ internal static partial class ModalFallback
                 continue;
             if (GroupChainAlpha(gr, root) < CanvasConversion.FitMinAlpha)
                 continue;
+            // ModBuild 395's WITHHOLD IS A TERM HERE. That build stopped the reveal from
+            // re-enabling a Canvas it had recorded as `enabled` off a pre-Start window the game has
+            // since decided against, so a canvas really can stay switched off underneath a revealed
+            // panel — and every other term above is script-side and cannot see it. The walk stops at
+            // the conversion target and only runs for a graphic that has already passed everything
+            // else, so a drawing panel pays for one short chain.
+            if (CanvasChainDisabled(gr, root))
+                continue;
             return true;
         }
         // A 3D preview (character / enemy models) carries no Graphic at all — the same arm the two
@@ -3103,13 +3132,37 @@ internal static partial class ModalFallback
     }
 
     /// <summary>
+    /// Is any <c>Canvas</c> between this graphic and the conversion target switched OFF? A disabled
+    /// Canvas stops its whole subtree rendering, and uGUI leaves every script-side term this class
+    /// reads exactly as it was — so without this a withheld canvas reads as a drawing panel.
+    ///
+    /// <para>Read as a plain <c>Canvas.enabled</c> and not through <c>Graphic.canvas</c>: that
+    /// property is maintained by canvas servicing, which is precisely what has not happened yet in
+    /// the LateUpdate a materialise appear is decided in.</para>
+    /// </summary>
+    private static bool CanvasChainDisabled(Transform from, Transform stop)
+    {
+        Transform? t = from;
+        while (t != null)
+        {
+            var c = t.GetComponent<Canvas>();
+            if (c != null && !c.enabled)
+                return true;
+            if (ReferenceEquals(t, stop))
+                break;
+            t = t.parent;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Product of every <c>CanvasGroup.alpha</c> from <paramref name="from"/> up to (and including)
     /// <paramref name="stop"/>, honouring <c>ignoreParentGroups</c> exactly as uGUI does. This is
     /// the script-side equivalent of the inherited alpha a CanvasRenderer would report if anything
     /// were servicing it. GetComponent does not allocate and the caller early-outs on the first
     /// graphic that passes, so a window that IS drawing pays for one chain walk.
     /// </summary>
-    private static float GroupChainAlpha(Transform from, Transform stop)
+    internal static float GroupChainAlpha(Transform from, Transform stop)
     {
         float alpha = 1f;
         Transform? t = from;

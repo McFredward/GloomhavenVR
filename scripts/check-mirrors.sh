@@ -153,7 +153,15 @@ MIRRORS=(
   # (a peer's track floating far above their board).
   "dock fit floor : WorldUI/Surfaces/TablePanelSurfaces.cs:MinDensityScale Net/Remote/RemoteWidgetMirror.cs:MinDensityScale"
   "dock fit ceiling : WorldUI/Surfaces/TablePanelSurfaces.cs:MaxDensityScale Net/Remote/RemoteWidgetMirror.cs:MaxDensityScale"
-  "content-fit alpha floor : WorldUI/Conversion/CanvasConversion.3.Fit.cs:FitMinAlpha Net/Remote/RemoteWidgetMirror.cs:FitMinAlpha"
+  # The CONTENT-FIT ALPHA FLOOR is no longer a mirror and the group is GONE, which is the fix this
+  # file keeps recommending rather than a coverage loss. The 2026-09-04 redundancy survey (row R27)
+  # found the house "is this graphic painting?" floor of 0.05 existing FIVE times — CanvasConversion
+  # .FitMinAlpha, RemoteWidgetMirror.FitMinAlpha (the two this group linted), PanelInkBounds
+  # .FaintAlphaFloor, EnemyRevealSurface.DrawAlphaFloor, and a bare inline literal inside
+  # ModalFallback.DrawsAnythingLoose that no lint could ever have seen. FitMinAlpha had been
+  # `internal` since ModBuild 291 for exactly this, so the other four now ALIAS it and the inline
+  # one names it. One value, five readers, nothing left to drift and nothing left to lint — the
+  # same resolution DecisionDockSurface.BarClearanceMeters and RemoteCapFx.AppearFadeFloor got.
 
   # The DECISION DOCK's prompt anchor, mirrored by the remote board (decision-mirror round):
   # the owner's widget block hangs (bar bottom − BarClearanceMeters − DecisionGap) below the

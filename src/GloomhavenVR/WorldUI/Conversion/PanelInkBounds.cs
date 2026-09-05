@@ -158,11 +158,20 @@ internal static class PanelInkBounds
     private const float PlateWidthFraction = 0.80f;
     private const float PlateHeightFraction = 0.95f;
 
-    /// <summary>EFFECTIVE-ALPHA FLOOR, BY VALUE from <c>CanvasConversion.FitMinAlpha</c> (0.05) — the
-    /// same borrowing, for the same reason, as <see cref="PlateWidthFraction"/>. This is the term whose
-    /// absence put the grab bar 390 px under an empty frame; see the class comment for both instruments'
-    /// numbers. Graphics it rejects are counted into <see cref="Ink.Faint"/>, never silently dropped.</summary>
-    private const float FaintAlphaFloor = 0.05f;
+    /// <summary>EFFECTIVE-ALPHA FLOOR — <c>CanvasConversion.FitMinAlpha</c> itself (0.05), NOT a copy
+    /// of its value. This is the term whose absence put the grab bar 390 px under an empty frame; see
+    /// the class comment for both instruments' numbers. Graphics it rejects are counted into
+    /// <see cref="Ink.Faint"/>, never silently dropped.
+    ///
+    /// <para>ModBuild 439 (survey row R27): the house "is this graphic painting?" floor existed as
+    /// FIVE 0.05 literals — this one, <c>EnemyRevealSurface.DrawAlphaFloor</c>,
+    /// <c>RemoteWidgetMirror.FitMinAlpha</c>, a bare inline one in <c>ModalFallback</c>, and the
+    /// original — of which <c>check-mirrors.sh</c> could see two. It is one constant now, for the
+    /// reason <c>FitMinAlpha</c>'s own doc gives about a different pair of readers: the rule that
+    /// hides a window and the rule that brings it back must not be able to disagree about the same
+    /// graphic. Unlike <see cref="PlateWidthFraction"/> this one needed no borrowing at all — the
+    /// source has been <c>internal</c> since ModBuild 291.</para></summary>
+    private const float FaintAlphaFloor = CanvasConversion.FitMinAlpha;
 
     /// <summary>Node budget for one walk. A converted window is order hundreds of transforms; this is
     /// a runaway guard, not a working limit, and <see cref="Ink.Truncated"/> reports if it ever bites

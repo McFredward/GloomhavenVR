@@ -54,11 +54,14 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// "no" for any panel that list does not carry — which is every surface panel. They are not merely
 /// inaccessible, they are keyed on a record these panels never get. The two TERMS behind them are
 /// re-derived here, on this family's own stored verdict.</item>
-/// <item><b><c>ModalFallback.DrawsAnythingScriptSide</c></b> (ModalFallback.9.Spawn.cs:2925) is
-/// <c>private static</c>. <see cref="DrawsAnythingScriptSide"/> below is a faithful copy, and that
-/// is the one duplication in this lane. REQUESTED CHANGE: make that method and
-/// <c>GroupChainAlpha</c> beside it <c>internal</c>, and this copy is deleted — two copies of one
-/// rule is exactly how two verdicts drift, which <c>BarSizeSettle</c>'s own doc says.</item>
+/// <item><b><c>ModalFallback.DrawsAnythingScriptSide</c></b> — WAS <c>private static</c>, so this
+/// file shipped a self-declared "faithful copy" of it and asked, in this list, for the copy to be
+/// deleted. <b>ModBuild 439 did that</b> (survey row R6): that method and <c>GroupChainAlpha</c>
+/// beside it are <c>internal</c> and this class calls them. The copy had ONE term the original
+/// lacked — <c>CanvasChainDisabled</c>, the ModBuild 395 withhold — so it was the MORE correct of
+/// the two, and the deletion carried that term into the shared method rather than dropping it. The
+/// modal window that was still playing dust and growing a brass rod over a switched-off canvas is
+/// the thing that fixes; a surface panel's verdict is unchanged term for term.</item>
 /// </list></para>
 ///
 /// <para><b>THE OWED-APPEAR RULE (ModBuild 374) HOLDS HERE FROM THE FIRST BUILD.</b> User, same
@@ -146,7 +149,7 @@ namespace GloomhavenVR.WorldUI.Surfaces;
 /// <c>CanvasRenderer.GetAlpha()</c> ONCE at construction and restores exactly those numbers at the
 /// end, so a runner built over a not-yet-populated window would hold and then re-assert prefab
 /// values. Neither edge here can be built at that moment, and both for a stated reason rather than
-/// by luck. The APPEAR is gated on <see cref="DrawsAnythingScriptSide"/> being TRUE — active
+/// by luck. The APPEAR is gated on <c>ModalFallback.DrawsAnythingScriptSide</c> being TRUE — active
 /// subtree, enabled Graphics above the fit's alpha floor, a live CanvasGroup chain and, since this
 /// build, no disabled Canvas over them — which is a strictly later instant than the reveal edge the
 /// other lane's flash came from; a panel that has not been populated is exactly the panel this class
@@ -273,7 +276,7 @@ internal static class SurfaceMaterialise
             if (e.Panel.RenderHidden || e.Panel.OwnerRenderHidden)
                 continue;
 
-            bool draws = DrawsAnythingScriptSide(e.Panel.Target);
+            bool draws = ModalFallback.DrawsAnythingScriptSide(e.Panel.Target);
             if (!e.Decided)
             {
                 e.Decided = true;
@@ -492,129 +495,17 @@ internal static class SurfaceMaterialise
         }
     }
 
-    // ---- the drawability verdict ------------------------------------------------------------------
-
-    private static readonly List<Graphic> WalkGraphics = new(64);
-
-    private static readonly List<Renderer> WalkRenderers = new(16);
-
-    /// <summary>
-    /// DOES THIS SUBTREE DRAW ANYTHING, JUDGED SCRIPT-SIDE? A faithful copy of
-    /// <c>ModalFallback.DrawsAnythingScriptSide</c> (ModalFallback.9.Spawn.cs:2925), which is
-    /// <c>private static</c> and therefore unreachable from here.
-    ///
-    /// <para>THE SCRIPT-SIDE TEST IS THE CORRECT ONE AT THIS INSTANT, not merely the cheap one, and
-    /// the argument is that method's: the strict verdict reads
-    /// <c>CanvasRenderer.GetInheritedAlpha</c> and <c>cull</c>, which uGUI maintains by SERVICING a
-    /// canvas — and this runs in the very LateUpdate that just enabled those canvases, so the strict
-    /// test would read stale zeros for a panel that is about to draw perfectly well. Every term below
-    /// is written by the game from its own Update and is readable whether or not anything is
-    /// rendering.</para>
-    ///
-    /// <para>The asymmetry of the two errors is also the right way round here: a wrong "it draws"
-    /// costs one appear over a panel that then turns out empty, and a wrong "it is dark" costs the
-    /// appear being deferred a few frames and then played on first paint — which is what was asked
-    /// for anyway. Neither can strand a window, and neither touches the float.</para>
-    /// </summary>
-    private static bool DrawsAnythingScriptSide(Transform? root)
-    {
-        if (root == null || !root.gameObject.activeInHierarchy)
-            return false;
-        WalkGraphics.Clear();
-        root.GetComponentsInChildren(includeInactive: false, WalkGraphics);
-        for (int i = 0; i < WalkGraphics.Count; i++)
-        {
-            Graphic g = WalkGraphics[i];
-            if (g == null || !g.enabled)
-                continue;
-            if (g.color.a < CanvasConversion.FitMinAlpha)
-                continue;
-            RectTransform? gr = g.rectTransform;
-            if (gr == null)
-                continue;
-            Rect r = gr.rect;
-            if (r.width < 0.5f || r.height < 0.5f)
-                continue;
-            if (g.gameObject.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
-                continue;
-            if (GroupChainAlpha(gr, root) < CanvasConversion.FitMinAlpha)
-                continue;
-            // ModBuild 395's WITHHOLD IS A TERM HERE, and this is the one place this copy
-            // deliberately goes FURTHER than the method it copies. That build stopped the reveal
-            // from re-enabling a Canvas it had recorded as `enabled` off a pre-Start window the game
-            // has since decided against, so a canvas really can stay switched off underneath a
-            // revealed panel — and every other term above is script-side and cannot see it. An
-            // appear played over content no canvas is drawing is exactly "dust for a window that was
-            // not there", i.e. the ModBuild 374 complaint arriving by a new route. The walk stops at
-            // the conversion target and only runs for a graphic that has already passed everything
-            // else, so a drawing panel pays for one short chain.
-            if (CanvasChainDisabled(gr, root))
-                continue;
-            return true;
-        }
-        // A 3D preview (the item's own model, a portrait render) carries no Graphic at all, and
-        // `enabled` on a Renderer is game state rather than canvas state.
-        WalkRenderers.Clear();
-        root.GetComponentsInChildren(includeInactive: false, WalkRenderers);
-        for (int i = 0; i < WalkRenderers.Count; i++)
-        {
-            Renderer rend = WalkRenderers[i];
-            if (rend != null && rend.enabled
-                && !rend.gameObject.name.StartsWith("GloomhavenVR.", StringComparison.Ordinal))
-                return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Is any <c>Canvas</c> between this graphic and the conversion target switched OFF? A disabled
-    /// Canvas stops its whole subtree rendering, and uGUI leaves every script-side term this class
-    /// reads exactly as it was — so without this a withheld canvas reads as a drawing panel.
-    ///
-    /// <para>Read as a plain <c>Canvas.enabled</c> and not through <c>Graphic.canvas</c>: that
-    /// property is maintained by canvas servicing, which is precisely what has not happened yet in
-    /// the LateUpdate this runs in.</para>
-    /// </summary>
-    private static bool CanvasChainDisabled(Transform from, Transform stop)
-    {
-        Transform? t = from;
-        while (t != null)
-        {
-            var c = t.GetComponent<Canvas>();
-            if (c != null && !c.enabled)
-                return true;
-            if (ReferenceEquals(t, stop))
-                break;
-            t = t.parent;
-        }
-        return false;
-    }
-
-    /// <summary>Product of every <c>CanvasGroup.alpha</c> from <paramref name="from"/> up to and
-    /// including <paramref name="stop"/>, honouring <c>ignoreParentGroups</c> exactly as uGUI does.
-    /// The script-side equivalent of the inherited alpha a serviced CanvasRenderer would report.
-    /// </summary>
-    private static float GroupChainAlpha(Transform from, Transform stop)
-    {
-        float alpha = 1f;
-        Transform? t = from;
-        while (t != null)
-        {
-            var group = t.GetComponent<CanvasGroup>();
-            if (group != null)
-            {
-                alpha *= group.alpha;
-                if (alpha < CanvasConversion.FitMinAlpha)
-                    return alpha;
-                if (group.ignoreParentGroups)
-                    return alpha;
-            }
-            if (ReferenceEquals(t, stop))
-                break;
-            t = t.parent;
-        }
-        return alpha;
-    }
+    // ---- the drawability verdict -------------------------------------------------------------------
+    //
+    // THERE IS NO COPY HERE ANY MORE (ModBuild 439, survey row R6). This section used to carry
+    // DrawsAnythingScriptSide, CanvasChainDisabled and GroupChainAlpha — a self-declared "faithful
+    // copy" of ModalFallback's wake test plus one extra term — together with its own two walk
+    // buffers. All of it now lives in ModalFallback.9.Spawn.cs, which is `internal` for exactly
+    // this, and the extra term went with it. The argument for the SCRIPT-SIDE test being the
+    // correct one at this instant (the strict verdict reads CanvasRenderer.GetInheritedAlpha and
+    // cull, which uGUI maintains by SERVICING a canvas — and this runs in the very LateUpdate that
+    // just enabled those canvases, so the strict test would read stale zeros for a panel that is
+    // about to draw perfectly well) is written out on that method, once.
 
     // ---- WHAT ACTUALLY HAPPENED, PER SURFACE AND PER EDGE ------------------------------------------
     //
