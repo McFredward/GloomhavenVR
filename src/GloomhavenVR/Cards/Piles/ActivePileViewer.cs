@@ -38,8 +38,18 @@ internal sealed class ActivePileViewer
     // about the mount x and vertically centered, so its midpoint holds at a consistent
     // height and it stays balanced as rows are added. Round-2: the col/row step FACTORS are
     // per-board (debug-menu tunable, CardsConfig.ActiveGridSpacing — seeded (1.06, 0.70)).
-    private const int Columns = 3;               // active cards per row
-    private const float ZStagger = 0.004f;        // render-order stagger, same as CardFan/PileBrowser
+    /// <summary>Active cards per row. INTERNAL because the peer's mirror
+    /// (<c>Net.RemoteActiveCards</c>) draws the same block and must draw it in the same number of
+    /// columns: it carried its own <c>Columns = 2</c> until 2026-09-05, so with three active cards
+    /// the owner saw one row of three and every teammate saw a 2+1 block, re-centred to a
+    /// different height against the board's other docks. That is the standing 1:1 ruling's own
+    /// object ("gleiche Position, gleiche Größe"), and the mirror's own note already claimed to
+    /// copy this layout "term for term" — the column count was the one term it re-typed.</summary>
+    internal const int Columns = 3;               // active cards per row
+
+    /// <summary>Render-order stagger per row (same as CardFan/PileBrowser). INTERNAL for the same
+    /// reason as <see cref="Columns"/> — the mirror stepped its rows by an inline copy of it.</summary>
+    internal const float ZStagger = 0.004f;
 
     private readonly List<VRCard> _cards = new(8);
     private Transform? _root;

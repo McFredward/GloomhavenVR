@@ -66,31 +66,41 @@ internal sealed class RemotePileFronts
     /// a peer's browse fan both stood <b>12 degrees more upright</b> than the arcs their owner was
     /// reading — at the shipped defaults, with nobody having tuned anything. Two independent copies
     /// of the number is how that gap comes back, and this class is already the one type both fans
-    /// share (it draws the faces for exactly these two arcs), so the constant has one home.</para>
+    /// share (it draws the faces for exactly these two arcs), so the mirrors read it from here.</para>
+    ///
+    /// <para>IT IS NO LONGER A LITERAL, and that is a strict improvement of the same shape
+    /// <c>RemoteBoardFurniture.PinIdleColor</c> took: it is the OWNER's own
+    /// <c>Cards.PileFanShape.ReadingPitchDegrees</c>, so the four arcs that must agree — two owner
+    /// fans and their two mirrors — read one definition instead of two that happen to match.</para>
     /// </summary>
-    internal const float FanReadingPitchDegrees = -12f;
+    internal const float FanReadingPitchDegrees = Cards.PileFanShape.ReadingPitchDegrees;
 
     /// <summary>
     /// THE BOARD FANS' ARCH DEPTH — the <c>0.55</c> in <c>(cos(rad) - 1) * radius * 0.55f</c>, which
     /// <c>PileBrowser.Relayout</c> and <c>ItemsPile.Relayout</c> both apply to bend their arc around
     /// a pivot BELOW the root without dropping the ends the full sagitta.
     ///
-    /// <para>DELIBERATELY A LITERAL, NOT <c>Defaults.FanFlatCurvatureFactor</c>. That entry is the
-    /// HAND fan's dial (<c>CardFan</c> reads <c>[Cards] FanFlatCurvatureFactor</c> live); the two
-    /// board pile fans hardcode 0.55 with no config entry at all. The numbers are equal today and
-    /// they are not the same number — pointing this constant at that entry would make a hand-fan
-    /// retune silently reshape two arcs the owner's own retune leaves alone, which is the "wrong
-    /// entry" mistake scripts/check-remote-defaults.py exists to catch. If the owner's pile arcs
-    /// ever gain a dial, this becomes a wire-overridable field like the radius beside it.</para>
+    /// <para>DELIBERATELY NOT <c>Defaults.FanFlatCurvatureFactor</c>. That entry is the HAND fan's
+    /// dial (<c>CardFan</c> reads <c>[Cards] FanFlatCurvatureFactor</c> live); the two board pile
+    /// fans have no config entry at all. The numbers are equal today and they are not the same
+    /// number — pointing this constant at that entry would make a hand-fan retune silently reshape
+    /// two arcs the owner's own retune leaves alone, which is the "wrong entry" mistake
+    /// scripts/check-remote-defaults.py exists to catch. If the owner's pile arcs ever gain a dial,
+    /// this becomes a wire-overridable field like the radius beside it.</para>
+    ///
+    /// <para>IT IS ALSO NO LONGER A LITERAL HERE: the owner's two arcs used to spell 0.55 inline in
+    /// <c>PileBrowser.Relayout</c> and <c>ItemsPile.Relayout</c> — inline, so no checker in the
+    /// project could see a retune of it — and it now has one home on the owner's side
+    /// (<c>Cards.PileFanShape.ArchFactor</c>) that this reads.</para>
     /// </summary>
-    internal const float FanArchFactor = 0.55f;
+    internal const float FanArchFactor = Cards.PileFanShape.ArchFactor;
 
     /// <summary>The board fans' ROLL gain — the <c>0.85</c> in <c>Euler(0, 0, -angle * 0.85f)</c>,
     /// which both <c>PileBrowser.Relayout</c> and <c>ItemsPile.Relayout</c> apply so a card leans
-    /// slightly less than its own arc angle. A literal on the owner's side too, for the same reason
-    /// <see cref="FanArchFactor"/> is one — it is NOT <c>Defaults.FanTiltFactor</c>, which is the
-    /// hand fan's live dial.</summary>
-    internal const float FanTiltFactor = 0.85f;
+    /// slightly less than its own arc angle. Read off the owner's own home for the same reason
+    /// <see cref="FanArchFactor"/> is — and it is still NOT <c>Defaults.FanTiltFactor</c>, which is
+    /// the hand fan's live dial.</summary>
+    internal const float FanTiltFactor = Cards.PileFanShape.TiltFactor;
 
     /// <summary>Which of the peer's piles the fan this driver serves is currently showing.</summary>
     internal enum Content

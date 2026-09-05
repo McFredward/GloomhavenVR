@@ -384,28 +384,7 @@ internal sealed class PileBrowser
     /// of a pair. POSITION is placed once per open (deliberately no per-frame follow); the FACING
     /// is re-billboarded toward the head every frame in <see cref="Tick"/> (ISSUE #7).
     /// </summary>
-    private void PlaceAtHead()
-    {
-        if (_root == null)
-            return;
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-        Transform headT = head.transform;
-        Vector3 flatForward = headT.forward;
-        flatForward.y = 0f;
-        if (flatForward.sqrMagnitude < 1e-4f)
-            flatForward = Vector3.forward;
-        flatForward.Normalize();
-
-        float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
-        Vector3 pos = headT.position
-                      + flatForward * (CardsConfig.TrayForward.Value * 0.9f * scale)
-                      + Vector3.up * (-(CardsConfig.TrayDown.Value - 0.22f) * scale);
-        _root.position = pos;
-        _root.rotation = Quaternion.LookRotation(flatForward, Vector3.up)
-                         * Quaternion.Euler(-12f, 0f, 0f);
-    }
+    private void PlaceAtHead() => PileFanShape.PlaceAtHead(_root);
 
     /// <summary>
     /// Per-frame facing update while the browse is open (ISSUE #7): the arc
@@ -439,15 +418,8 @@ internal sealed class PileBrowser
         // fan live; the board-LOCAL anchor still rides its parent's pose/scale for free.
         if (_boardAnchored)
             _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-        Vector3 away = _root.position - head.transform.position;
-        if (away.sqrMagnitude < 1e-6f)
-            return;
-        // Cards' +Z points away from the viewer (uGUI reads from -Z); tilt back a touch.
-        _root.rotation = Quaternion.LookRotation(away.normalized, Vector3.up)
-                         * Quaternion.Euler(-12f, 0f, 0f);
+        // Billboard on BOTH paths — board-anchored and head-fallback alike. See PileFanShape.
+        PileFanShape.FaceHead(_root);
     }
 
     // ------------------------------------------------------------------ layout --
@@ -503,9 +475,9 @@ internal sealed class PileBrowser
             // Same arc math as CardFan.Relayout: bend around a pivot below the
             // root, z-stagger for stable draw order (later = nearer the viewer).
             var pos = new Vector3(Mathf.Sin(rad) * radius,
-                                  (Mathf.Cos(rad) - 1f) * radius * 0.55f,
+                                  (Mathf.Cos(rad) - 1f) * radius * PileFanShape.ArchFactor,
                                   -ZStagger * i);
-            var rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
+            var rot = Quaternion.Euler(0f, 0f, -angle * PileFanShape.TiltFactor);
             if (hovered >= 0 && i != hovered)
                 pos += rot * new Vector3(FanSweep.SplitOffset(i - hovered) * CardScale, 0f, 0f);
             card.SetHome(_root, pos, rot, CardScale, instant);

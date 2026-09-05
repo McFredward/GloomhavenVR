@@ -1625,7 +1625,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         _status = new RemoteStatusReadouts(contentParent, _layout);
         _pickBanner = new RemotePickBanner(contentParent, _layout);
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
-        _active = new RemoteActiveCards(contentParent, _layout);
+        _active = new RemoteActiveCards(_owner.PlayerId, contentParent, _layout);
         _track = new RemoteInitiativeTrack(contentParent, _layout, _owner.BoardTuning);
         // THE GLOW BASE, NOT AnchorLocalLive (2026-08-27). Those two were the same vector until this
         // round and are not any more: AnchorLocalLive is the CARD's seat now (it carries the owner's

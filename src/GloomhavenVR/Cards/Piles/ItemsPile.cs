@@ -946,24 +946,14 @@ internal sealed class ItemsPile
         if (_root == null)
             return;
         if (_boardAnchored)
-        {
             _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value + ItemFanOffset; // req #2 item nudge
-            FaceHead(_root);
-        }
-    }
-
-    /// <summary>Billboard a transform to face the head (mirror of PileBrowser.Tick's facing math).</summary>
-    private static void FaceHead(Transform t)
-    {
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-        Vector3 away = t.position - head.transform.position;
-        if (away.sqrMagnitude < 1e-6f)
-            return;
-        // +Z points away from the viewer (uGUI/sprites read from -Z); tilt back a touch.
-        t.rotation = Quaternion.LookRotation(away.normalized, Vector3.up)
-                     * Quaternion.Euler(-12f, 0f, 0f);
+        // BILLBOARD ON BOTH PATHS. This call used to sit INSIDE the guard above, and the head-
+        // fallback path (PlaceAtHead, taken when there is no control board) therefore never
+        // re-faced: open the item browser with no board, step sideways, and the arc went edge-on
+        // and stayed there — while the discard browser beside it turned to follow, because
+        // PileBrowser.Tick writes its billboard outside its own guard. One shared expression now,
+        // so the two arcs cannot have two guards; see PileFanShape.
+        PileFanShape.FaceHead(_root);
     }
 
     private bool AnyHeld()
@@ -1182,32 +1172,12 @@ internal sealed class ItemsPile
             return;
         _root.localPosition = BoardAnchorBase + CardsConfig.BrowseFanOffset.Value;
         _root.localRotation = Quaternion.identity; // Tick billboards the WORLD rotation each frame
-        FaceHead(_root);
+        PileFanShape.FaceHead(_root);
     }
 
-    /// <summary>Fixed head-relative reading pose (fallback when no control board exists).</summary>
-    private void PlaceAtHead()
-    {
-        if (_root == null)
-            return;
-        Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
-        if (head == null)
-            return;
-        Transform headT = head.transform;
-        Vector3 flatForward = headT.forward;
-        flatForward.y = 0f;
-        if (flatForward.sqrMagnitude < 1e-4f)
-            flatForward = Vector3.forward;
-        flatForward.Normalize();
-
-        float scale = _root.parent != null ? _root.parent.lossyScale.x : 1f;
-        Vector3 pos = headT.position
-                      + flatForward * (CardsConfig.TrayForward.Value * 0.9f * scale)
-                      + Vector3.up * (-(CardsConfig.TrayDown.Value - 0.22f) * scale);
-        _root.position = pos;
-        _root.rotation = Quaternion.LookRotation(flatForward, Vector3.up)
-                         * Quaternion.Euler(-12f, 0f, 0f);
-    }
+    /// <summary>Fixed head-relative reading pose (fallback when no control board exists) — the
+    /// SAME twenty lines PileBrowser used to spell for itself; see <see cref="PileFanShape"/>.</summary>
+    private void PlaceAtHead() => PileFanShape.PlaceAtHead(_root);
 
     // ------------------------------------------------------------------ layout --
 
@@ -1275,9 +1245,9 @@ internal sealed class ItemsPile
             float angle = start + step * i;
             float rad = angle * Mathf.Deg2Rad;
             var pos = new Vector3(Mathf.Sin(rad) * radius,
-                                  (Mathf.Cos(rad) - 1f) * radius * 0.55f,
+                                  (Mathf.Cos(rad) - 1f) * radius * PileFanShape.ArchFactor,
                                   -ZStagger * i);
-            Quaternion rot = Quaternion.Euler(0f, 0f, -angle * 0.85f);
+            Quaternion rot = Quaternion.Euler(0f, 0f, -angle * PileFanShape.TiltFactor);
             // SPENT items lie "tapped": roll the chip 90° in its slot (requirement 3).
             if (chip.State == ItemChip.Visual.Spent)
                 rot *= Quaternion.Euler(0f, 0f, 90f);
