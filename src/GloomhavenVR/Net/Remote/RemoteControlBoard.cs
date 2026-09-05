@@ -2015,16 +2015,6 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             + "choke point, and their front gate reads this same null actor.");
     }
 
-    /// <summary>Population count of a two-bit slot mask.</summary>
-    private static int CountBits(int mask)
-    {
-        int n = 0;
-        for (int i = 0; i < SlotCount; i++)
-            if ((mask & (1 << i)) != 0)
-                n++;
-        return n;
-    }
-
     /// <summary>Drop every hosted card face on this board (round slots + active column) and reset the
     /// slots' change gates, so the next visible frame re-decides from scratch. No-op before the board
     /// has ever been built.</summary>
