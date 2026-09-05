@@ -56,13 +56,20 @@ internal static class ButtonTuning
     private static ConfigFile? _file;
 
     // ---- authored defaults (the exact values each bind replaced — see the consumers) ------
-    internal const float DefaultBoardWidth = 0.073f;    // authored Confirm/Undo cap side (was [Cards] ConfirmUndoSize_Bronze until its 2026-08 retirement; also the round-cap diameter now)
-    internal const float DefaultBoardHeight = 0.073f;
-    internal const float DefaultBoardDepth = 0.036f;    // PlayTray.SquareCapThickness
+    // ALL TWELVE NAME Defaults.* — see the [ButtonColors] note below for why. Five of them used to
+    // restate a literal (Board 0.073/0.073/0.036, Dashboard 0.030/0.030) that was the 2026-08 AUTHORED
+    // geometry; the shipped set has since been rebased to the values the user dialled in
+    // (0.063/0.065/0.014, 0.035/0.014), so the file held two different answers to "how big is a
+    // keycap before Bind()" that differed by up to 2.6x, and the MIRRORED twin
+    // (Net/RemoteBoardFurniture.cs:245) already read Defaults.*. No shipped value moves: every one of
+    // these is only the fallback INSIDE Clamped() and every geometry consumer calls Bind() first.
+    internal const float DefaultBoardWidth = Defaults.BoardButtons_Width;    // authored Confirm/Undo cap side (was [Cards] ConfirmUndoSize_Bronze until its 2026-08 retirement; also the round-cap diameter now)
+    internal const float DefaultBoardHeight = Defaults.BoardButtons_Height;
+    internal const float DefaultBoardDepth = Defaults.BoardButtons_Depth;    // PlayTray.SquareCapThickness
     internal const float DefaultBoardTravel = Defaults.BoardButtons_Travel;   // BoardButton.CapTravel
     internal const float DefaultPinWidth = Defaults.PinWidth;      // authored follow/pin plate width
-    internal const float DefaultDashHeight = 0.030f;    // authored gear/pin plate height
-    internal const float DefaultDashDepth = 0.030f;     // authored gear/pin plate extrusion
+    internal const float DefaultDashHeight = Defaults.BoardDashboard_Height;    // authored gear/pin plate height
+    internal const float DefaultDashDepth = Defaults.BoardDashboard_Depth;     // authored gear/pin plate extrusion
     internal const float DefaultDashTravel = Defaults.BoardDashboard_Travel;    // BoardButton.CapTravel (same authored travel)
     internal const float DefaultRestWidth = Defaults.RestButtons_Width;     // authored RestButtonDiameter default (square rest-cap side)
     internal const float DefaultRestHeight = Defaults.RestButtons_Height;

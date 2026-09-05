@@ -831,12 +831,12 @@ internal static partial class Loc
         ["vr_o_worldtilt"] = Pair("World tilt", "Weltneigung"),
         ["vr_o_primaryhand"] = Pair("Dominant hand", "Dominante Hand"),
         ["vr_var_copy"] = Pair("Take all settings from {0}", "Alle Einstellungen von {0} übernehmen"),
-        ["vr_o_stickscroll"] = Pair("Scroll with the stick only", "Nur mit dem Stick scrollen"),
-        ["vr_o_laserorigin"] = Pair("Laser origin", "Laser-Ursprung"),
+        ["vr_o_stickscroll"] = Pair("Scroll with stick only", "Nur per Stick scrollen"),
+        ["vr_o_laserorigin"] = Pair("Laser from fingertip", "Laser ab Fingerspitze"),
         ["vr_o_fingertiptouch"] = Pair("Touch hexes with fingertip", "Feld mit Finger antippen"),
         ["vr_o_fog"] = Pair("Volumetric fog off", "Volumennebel aus"),
         ["vr_o_forward"] = Pair("Forward rendering", "Forward-Rendering"),
-        ["vr_o_circle"] = Pair("Free seat around the board", "Freier Platz am Brett"),
+        ["vr_o_circle"] = Pair("Free seat at the board", "Freier Platz am Brett"),
         ["vr_o_gfxjobs"] = Pair("Threaded submission", "Parallele Bildabgabe"),
         ["vr_o_autorestart"] = Pair("Restart automatically", "Automatisch neu starten"),
         // ONE family, ONE object name (2026-08 naming pass, audit 05 §3) — and since 2026-08-13 one
@@ -861,8 +861,8 @@ internal static partial class Loc
         ["boardmove_pitch"] = Pair("Limited + tilt", "Begrenzt mit Neigung"),
         // The per-board pitch window that "Begrenzt mit Neigung" clamps the grab to — the rows
         // sit directly under the movement-scheme dropdown (user request: they must be findable).
-        ["vr_o_pitchmin"] = Pair("Tilt limit down", "Neigungslimit unten"),
-        ["vr_o_pitchmax"] = Pair("Tilt limit up", "Neigungslimit oben"),
+        ["vr_o_pitchmin"] = Pair("Tilt limit down (°)", "Neigungslimit unten (°)"),
+        ["vr_o_pitchmax"] = Pair("Tilt limit up (°)", "Neigungslimit oben (°)"),
         // "Nahansicht: Größe", not bare "Nahansicht": the row is a size dial, not a switch
         // (2026-08 naming pass, audit 05 §3).
         ["vr_o_inspectscale"] = Pair("Close-up: size", "Nahansicht: Größe"),
@@ -904,7 +904,7 @@ internal static partial class Loc
         ["h_vr_o_walkin"] = Pair("Standing inside the play field holds every wall fully visible; nothing fades while you are in there.", "Wer im Spielfeld steht, sieht jede Wand vollständig — solange du drin bist, faded nichts."),
         // Komfort ▸ Hände & Zielen — accessibility framing per ruling 15: the row is FOR a
         // player with a weak grip, and its everyday name says so.
-        ["vr_o_curlassist"] = Pair("Full-grip assist (weak grip)", "Vollgriff-Hilfe (schwacher Griff)"),
+        ["vr_o_curlassist"] = Pair("Full curl at grip value", "Vollgriff ab Griffwert"),
         ["h_vr_o_curlassist"] = Pair("Lower it and a partial squeeze of the grip already counts as a full fist — for hands that cannot press all the way.", "Niedriger stellen, und ein halber Druck auf die GRIP-Taste zählt schon als volle Faust — für Hände, die nicht ganz durchdrücken können."),
         // Grafik ▸ Darstellung
         ["vr_o_eyeres"] = Pair("Resolution per eye", "Auflösung pro Auge"),
@@ -1283,7 +1283,12 @@ internal static partial class Loc
         // wording mirrors the user's own term ("Infotafeln"), the English one names them as the
         // hover info cards they are.
         ["mixed_reality"] = Pair("Mixed Reality", "Mixed Reality"),
-        ["key_color"] = Pair("Key color", "Key-Farbe"),
+        // The [MixedReality] Enabled ROW. Same reason as vr_o_handstyle: "mixed_reality" also
+        // names the category, the config SECTION and the MR environment tile, so the row could
+        // not be aligned with its Erweitert name ("Mixed Reality an") without renaming three
+        // other things. The German states the EFFECT of ON, as the naming rules require.
+        ["vr_o_mrenabled"] = Pair("Mixed Reality", "Mixed Reality an"),
+        ["key_color"] = Pair("Key colour", "Key-Farbe"),
         // The Debug pane's FIRST navigation level. It was a hardcoded German literal — the one
         // caption in the panel that an English player got in German, and the caption that has to be
         // read to discover that the sub-category list expands at all.
@@ -1328,6 +1333,10 @@ internal static partial class Loc
         // qualifiers is what keeps the two rows from reading as duplicates of each other. German
         // "Fixiert" is the word engraved on the plate itself (Loc "pinned"), not a new term.
         ["hands"] = Pair("Hands", "Hände"),
+        // The [Hands] HandStyle ROW, not the topic heading above it: the row used to borrow
+        // "hands" and so read "Hände" under a heading already saying "Hände", while the same
+        // row under Erweitert read "Handmodell" (Loc.ConfigNames). One row, one name, both doors.
+        ["vr_o_handstyle"] = Pair("Hand model", "Handmodell"),
         ["cat_buttons"] = Pair("Buttons", "Tasten"),
         ["cat_panels"] = Pair("Panels", "Tafeln"),
         // Ghost hand: the fan-carrying hand fades while the fan is open ([Hands] GhostHandOnFan).

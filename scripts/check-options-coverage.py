@@ -8,7 +8,7 @@ that the topic tree above it exists to empty. He tested ModBuild 340 and reporte
 "Weiterhin finde ich den offset für die healthbar nicht". The feature was delivered and
 unreachable, and nothing in the build said so.
 
-Nothing here judges taste. It checks four things a machine can decide, each of which has already
+Nothing here judges taste. It checks five things a machine can decide, each of which has already
 cost this project a round:
 
   1. ADVERTISED BUT ABSENT. Every (Section, Key) named in `VROptionsTab.4.Curated.cs`,
@@ -29,6 +29,20 @@ cost this project a round:
      KNOWN_ORPHANS with the reason it is not. That set is FROZEN at the state the rule was
      written against (ModBuild 340), so the gate is on the delta: the check passes today and
      fails the moment a NEW key joins a curated family without a row.
+  5. ONE ROW, TWO NAMES. A setting reachable from the everyday page AND from Erweitert carries
+     two captions: the curated row's `CaptionKey` (a `Loc.Mod` id) and `Loc.ConfigDisplayName`
+     (`Loc.ConfigNames.cs`). `Loc.ConfigNames.cs:161` already states the rule — "kept identical
+     on purpose: ONE ROW, ONE NAME, BOTH DOORS" — and four rows were aligned by hand to obey it.
+     Nothing enforced it, so by the 2026-09 redundancy audit TWENTY of the 82 rows that carry
+     both names disagreed: `[Hands] LaserFingerOrigin` was "Laser-Ursprung" on the everyday page
+     and "Laser ab Fingerspitze" under Erweitert, `[WorldUI] BarsOccluded` was "Lebensbalken
+     hinter Wänden" and "Balken hinter Wänden", and six `BoardPitchMin/Max_*` rows carried the
+     unit on one door only. So: for every curated row whose (Section, Key) also resolves through
+     `ConfigNames` (exact key, then the per-style/per-board/per-pile family wildcard), the two
+     EN strings and the two DE strings must be equal, or the pair must be named in
+     NAME_DIFFERS_ON_PURPOSE with the reason. This does NOT merge the two tables: the everyday
+     caption is allowed to be shorter than the browser's descriptive name — it just has to be a
+     DECISION rather than an accident.
 
 WHAT IS NOT CHECKED, AND WHY. "Every key is reachable" is not checked because it is TRUE BY
 CONSTRUCTION and checking it would be checking the wrong thing: Erweitert is the catalog's own
@@ -325,6 +339,40 @@ def loc_ids():
     return ids
 
 
+# `["id"] = Pair("English", "Deutsch")` — the ONE shape both string tables use (Loc.cs:192,
+# Loc.ConfigNames.cs). Multi-line and concatenated bodies (the long help prose) do not match and
+# are simply not compared; every caption in both tables is a single literal pair.
+LOC_PAIR = re.compile(r'\[\s*"([^"]+)"\s*\]\s*=\s*Pair\(\s*'
+                      r'"((?:[^"\\]|\\.)*)"\s*,\s*"((?:[^"\\]|\\.)*)"\s*\)', re.S)
+
+
+def loc_pairs(filename):
+    """{id: (english, german)} for one Loc table file."""
+    path = os.path.join(LOC_DIR, filename)
+    with open(path, encoding="utf-8") as fh:
+        body = strip_comments(fh.read())
+    return {m.group(1): (m.group(2), m.group(3)) for m in LOC_PAIR.finditer(body)}
+
+
+# Loc.FamilyKey's three families, mirrored (Loc.ConfigDescriptions.cs:66-113). Kept as literals
+# rather than parsed, because the C# arrays mirror HandStyle / ControlBoard / CardsConfig and a
+# parse of the parse would not be more truthful — check 1 already fails if a variant key vanishes.
+STYLE_PREFIXES = ("Glove", "Plate", "Arcane")
+FAMILY_SUFFIXES = ("_Oak", "_Steel", "_Bronze", "_Items", "_Discard", "_Burnt")
+
+
+def family_key(key):
+    """The wildcard key a per-style / per-board / per-pile entry shares with its siblings, or
+    None. Same order and same 'exact key first' contract as Loc.FamilyKey."""
+    for prefix in STYLE_PREFIXES:
+        if len(key) > len(prefix) and key.startswith(prefix):
+            return "*" + key[len(prefix):]
+    for suffix in FAMILY_SUFFIXES:
+        if len(key) > len(suffix) and key.endswith(suffix):
+            return key[:len(key) - len(suffix) + 1] + "*"
+    return None
+
+
 # ============================================================================================
 #  3. The deliberate exceptions, each with the ruling that makes it one
 # ============================================================================================
@@ -339,6 +387,16 @@ DUPLICATE_ALLOWED = {
     ("Compat", "WallFade"): "user ruling — findable under Komfort AND with the world block",
     ("WallFade", "StackedShellFade"): "ruling 18 — sits directly beside WallFade in both doors",
     ("WallFade", "WalkInStandDown"): "ruling 18 — sits directly beside WallFade in both doors",
+}
+
+# A curated row whose everyday caption differs from its Erweitert name ON PURPOSE. The rule it
+# relaxes is Loc.ConfigNames.cs:161 — "one row, one name, both doors". A shorter everyday caption
+# under a heading that already supplies the context is a legitimate reason; "nobody noticed" is not.
+# Keyed (Section, Key); the value is the reason, and it is printed by --report.
+NAME_DIFFERS_ON_PURPOSE = {
+    # (empty — the 2026-09 audit's twenty disagreements were all resolved to one name. Two rows
+    # that LOOKED like entries here instead got their own caption key, because their old one also
+    # named a heading: [Hands] HandStyle -> vr_o_handstyle, [MixedReality] Enabled -> vr_o_mrenabled.)
 }
 
 # A curated family whose sibling is NOT curated. The rule this relaxes is check 4: "a family
@@ -562,6 +620,33 @@ def main():
                             f"({cat} / {sec}) — Loc.Mod returns the id, so the row is "
                             f"captioned with a programmer's string.")
 
+    # ---- 5. one row, two names ---------------------------------------------------------------
+    everyday = loc_pairs("Loc.cs")
+    erweitert = loc_pairs("Loc.ConfigNames.cs")
+    two_names = 0
+    for cat, _ck, sec, _sk, section, key, cap in curated:
+        if not cap:
+            continue                       # the documented fallback: the row USES ConfigNames
+        mine = everyday.get(cap)
+        if mine is None:
+            continue                       # check 3 owns "the caption resolves"
+        theirs = erweitert.get(section + "/" + key)
+        if theirs is None:
+            family = family_key(key)
+            theirs = erweitert.get(section + "/" + family) if family else None
+        if theirs is None:
+            continue                       # Erweitert falls back to the spaced-out key; not a name clash
+        two_names += 1
+        if mine == theirs or (section, key) in NAME_DIFFERS_ON_PURPOSE:
+            continue
+        failures.append(
+            f"ONE ROW, TWO NAMES: [{section}] {key} ({cat} / {sec}) is captioned "
+            f"EN '{mine[0]}' / DE '{mine[1]}' on the everyday page (Loc.cs '{cap}') and "
+            f"EN '{theirs[0]}' / DE '{theirs[1]}' under Erweitert "
+            f"(Loc.ConfigNames.cs '{section}/{key}'). Loc.ConfigNames.cs:161: one row, one "
+            f"name, both doors. Align the two, or name the pair in NAME_DIFFERS_ON_PURPOSE "
+            f"with the reason the everyday caption is deliberately different.")
+
     # ---- 4. a split family -------------------------------------------------------------------
     curated_pairs = {(s, k) for _c, _ck, _s2, _sk, s, k, _cap in curated}
     families = {}
@@ -602,6 +687,8 @@ def main():
         print(f"unresolved interpolation patterns (wildcards): {len(wild) // 2}")
         print(f"curated rows: {len(curated)}   distinct keys: {len(curated_pairs)}   "
               f"tabs: {len(cats)}   sections: {sum(len(c[2]) for c in cats)}")
+        print(f"rows named on BOTH doors: {two_names}   "
+              f"deliberately different: {len(NAME_DIFFERS_ON_PURPOSE)}")
         print(f"deliberate second doors: {len(DUPLICATE_ALLOWED)}   "
               f"known family orphans (frozen backlog): {len(KNOWN_ORPHANS)}")
         print()
@@ -620,6 +707,7 @@ def main():
         print(f"\n{len(failures)} option-menu coverage failure(s).")
         return 1
     print("options coverage: every curated and topic-tree key exists, every caption resolves, "
+          f"{two_names} row(s) named on both doors agree, "
           f"{len(DUPLICATE_ALLOWED)} deliberate second door(s), "
           f"{len(KNOWN_ORPHANS)} known family orphan(s) in the frozen backlog, no NEW split family.")
     return 0

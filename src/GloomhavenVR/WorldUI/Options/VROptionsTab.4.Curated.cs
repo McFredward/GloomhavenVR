@@ -677,7 +677,7 @@ internal static partial class VROptionsTab
                     LocKey = "mixed_reality",
                     Entries = new CuratedEntry[]
                     {
-                        new("MixedReality", "Enabled", "mixed_reality"),
+                        new("MixedReality", "Enabled", "vr_o_mrenabled"),
                         new("MixedReality", "KeyColor", "key_color"),
                     },
                 },
@@ -1364,7 +1364,7 @@ internal static partial class VROptionsTab
                     LocKey = "vr_sec_your_look",
                     Entries = new CuratedEntry[]
                     {
-                        new("Hands", "HandStyle", "hands"),
+                        new("Hands", "HandStyle", "vr_o_handstyle"),
                         new("Hands", "GloveScale", "vr_o_handscale"),
                         new("Hands", "PlateScale", "vr_o_handscale"),
                         new("Hands", "ArcaneScale", "vr_o_handscale"),

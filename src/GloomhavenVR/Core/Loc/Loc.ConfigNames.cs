@@ -144,7 +144,7 @@ internal static partial class Loc
             ["Comfort/RecenterHoldSeconds"] = Pair("Recenter: hold time (s)", "Zentrieren: Haltedauer (s)"),
             ["Comfort/SavedScaleMultiplier"] = Pair("Saved table scale", "Gespeicherte Tischgröße"),
             ["Comfort/DebugGizmos"] = Pair("Comfort debug overlay", "Komfort-Debug-Overlay"),
-            ["Comfort/KeepPlaceOnReorigin"] = Pair("Keep place on re-don", "Platz nach Absetzen"),
+            ["Comfort/KeepPlaceOnReorigin"] = Pair("Keep place on re-don", "Platz nach Absetzen behalten"),
             ["Comfort/TableScaleDefault25Applied"] = Pair("Internal marker", "Interne Marke"),
             // The turn stick's forward axis as world up/down (user request 2026-08-15). Named after
             // the STICK rather than after "flight", because that is the thing the player is looking
@@ -159,7 +159,12 @@ internal static partial class Loc
             // caption, so a German menu captioned them "Flight Enabled", "Flight Direction",
             // "Flight Hand", "Flight Max Speed" — the spaced-out English key, in a German menu, on
             // four rows a player is meant to use. The words below are the curated captions
-            // (Loc "vr_o_flight*"), kept identical on purpose: one row, one name, both doors.
+            // (Loc "vr_o_flight*"), kept identical on purpose: ONE ROW, ONE NAME, BOTH DOORS.
+            // That rule is ENFORCED as of the 2026-09 redundancy audit (R2): check 5 of
+            // scripts/check-options-coverage.py compares every curated row's caption against its
+            // entry here, in BOTH languages, and fails with the row named. It had to be enforced
+            // rather than restated — the four rows below were aligned by hand, and TWENTY of the 82
+            // rows that carry both names had drifted apart by the time anybody counted them.
             ["Comfort/FlightEnabled"] = Pair("Stick flight", "Stick-Flug"),
             ["Comfort/FlightDirection"] = Pair("Flight direction", "Flugrichtung"),
             ["Comfort/FlightMaxSpeed"] = Pair("Flight speed", "Fluggeschwindigkeit"),
@@ -211,7 +216,7 @@ internal static partial class Loc
             ["WristHud/*PalmLiftOffset"] = Pair("Wrist HUD: off palm (m)", "Arm-HUD: Abstand Hand (m)"),
 
             // ---- [Board] / [HexHighlight] / [SelectionReady] — board & targeting ------------
-            ["Board/TouchTilesWithFingertip"] = Pair("Touch hexes: fingertip", "Feld mit Finger antippen"),
+            ["Board/TouchTilesWithFingertip"] = Pair("Touch hexes with fingertip", "Feld mit Finger antippen"),
             ["Board/TouchRange"] = Pair("Fingertip pick range (m)", "Fingerreichweite (m)"),
             ["Board/SnapToHexCenter"] = Pair("Snap to hex centre", "Auf Hexmitte einrasten"),
             ["Board/HoverHaptics"] = Pair("Haptics on new target", "Vibration bei Wechsel"),
@@ -226,7 +231,7 @@ internal static partial class Loc
             // binds is not harmless: it is the one place a reader looks to find out whether a
             // setting exists, and it would answer yes.
             ["HexHighlight/LogMaterialDump"] = Pair("Log hex material", "Hex-Material ins Log"),
-            ["SelectionReady/Enabled"] = Pair("Selection reminder pulse", "Auswahl-Erinnerung"),
+            ["SelectionReady/Enabled"] = Pair("Selection reminder", "Auswahl-Erinnerung"),
 
             // ---- [Rig] — the world frame ----------------------------------------------------
             // The campaign-map switch had NO display name, so the menu fell back to spacing the
@@ -718,7 +723,7 @@ internal static partial class Loc
             ["WorldUI/BarSizeScale"] = Pair("Health bars: size", "Lebensbalken: Größe"),
             // "WorldUI/BarZoomMinScale" / "WorldUI/BarZoomMaxScale" ("Mindestgröße"/"Maximalgröße")
             // stood here. GONE with their dials (user ruling 2026-08-13, see ActorBars.ZoomFollowMin).
-            ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Balken hinter Wänden"),
+            ["WorldUI/BarsOccluded"] = Pair("Health bars behind walls", "Lebensbalken hinter Wänden"),
             ["WorldUI/PanelMipBake"] = Pair("Smooth panel textures", "Tafeltexturen glätten"),
             // ModBuild 191's answer to the window shimmer, and the reason it went untested for a
             // build: both dials were bound and wired, but neither had a name, so the only place
@@ -741,7 +746,7 @@ internal static partial class Loc
                                                            "Kartenraum: Fensterhöhe (m)"),
             ["WorldUI/ScenarioWindowBoardClearanceMeters"] = Pair("Scenario: window height (m)",
                                                                  "Szenario: Fensterhöhe (m)"),
-            ["WorldUI/DesktopMirrorLeftEye"] = Pair("Monitor shows left eye", "Monitor: linkes Auge"),
+            ["WorldUI/DesktopMirrorLeftEye"] = Pair("Monitor shows left eye", "Monitor zeigt linkes Auge"),
             ["WorldUI/ShowIntro"] = Pair("Show intro in VR", "Intro in VR zeigen"),
             ["WorldUI/ScreenWidth"] = Pair("2D screen: width (m)", "2D-Schirm: Breite (m)"),
             ["WorldUI/ScreenDistance"] = Pair("2D screen: distance (m)", "2D-Schirm: Abstand (m)"),
@@ -750,7 +755,7 @@ internal static partial class Loc
             ["WorldUI/DragUnlockSeconds"] = Pair("Unlock click after (s)", "Klick lösen nach (s)"),
             ["WorldUI/PokeClick"] = Pair("Poke to click", "Antippen klickt"),
             ["WorldUI/PokePressDepthMm"] = Pair("Poke depth (mm)", "Antipp-Tiefe (mm)"),
-            ["WorldUI/DecisionPokeDeliberate"] = Pair("Decisions: firm press", "Entscheidung: fest"),
+            ["WorldUI/DecisionPokeDeliberate"] = Pair("Decisions: firm press", "Entscheidung: fester Druck"),
             // User request 8 (2026-08-22). Named after the MOMENT, not the mechanism: the row is
             // read next to its own dropdown ("Nur mit Laser" / "Immer" / "Nie"), so the caption's
             // job is to say WHEN the turning happens, and "beim Loslassen" is the answer that stops
@@ -773,7 +778,7 @@ internal static partial class Loc
             ["WorldUI/HexHintSide"] = Pair("Hex hint: sideways", "Feld-Hinweis: seitlich"),
             ["WorldUI/ModalStyle"] = Pair("Window style", "Fenster-Stil"),
             ["WorldUI/ManualScreenChordSeconds"] = Pair("Rescue chord: hold (s)", "Notgriff: halten (s)"),
-            ["WorldUI/LoadingIndicator"] = Pair("Loading indicator", "Ladeanzeige beim Laden"),
+            ["WorldUI/LoadingIndicator"] = Pair("Loading indicator", "Ladeanzeige"),
             ["WorldUI/DevShowAllPanels"] = Pair("Dev: show all panels", "Dev: alle Tafeln zeigen"),
             ["WorldUI/DevForceConvert"] = Pair("Dev: force conversion", "Dev: Zwangsumwandlung"),
             ["WorldUI/StereoScreen"] = Pair("Screen with 3D depth", "Bildschirm mit 3D-Tiefe"),

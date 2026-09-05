@@ -317,9 +317,9 @@ internal static class BoardAnchors
     ///
     /// <para><b>WHY THE PREFAB CARRIES A MEASUREMENT AT ALL.</b> The keycaps are sized from
     /// <c>[BoardButtons] Width/Height</c>, one global pair the user dialled in — shipped
-    /// 0.063 × 0.065 m (<c>Defaults.BoardButtons_Width/Height</c>, which is what his cfg holds;
-    /// <c>ButtonTuning.DefaultBoardWidth</c>'s 0.073 is only the PRE-BIND fallback and is never the
-    /// live cap). The three re-authored boards cut their button recesses at three different sizes,
+    /// 0.063 × 0.065 m (<c>Defaults.BoardButtons_Width/Height</c>, which is what his cfg holds, and
+    /// which <c>ButtonTuning.DefaultBoardWidth</c> now NAMES rather than restating — it used to hold a
+    /// stale 0.073, reachable only as the PRE-BIND fallback). The three re-authored boards cut their button recesses at three different sizes,
     /// and that 65 mm height fits none of them — so a cap that fits the tuning overhangs its own
     /// seat. The size therefore has to be fitted PER BOARD, and the only honest
     /// source for "how big is this recess" is the board itself.</para>
