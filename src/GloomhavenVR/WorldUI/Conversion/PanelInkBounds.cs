@@ -88,7 +88,19 @@ namespace GloomhavenVR.WorldUI;
 /// the perks view's 1620x1080 <c>Blur</c>. The test is the fit's, taken BY VALUE (this file may not
 /// edit <c>CanvasConversion.3.Fit.cs</c>): width &gt;= 0.80 and height &gt;= 0.95 of the host rect —
 /// see <c>CanvasConversion.FixedFitPlateWidthFraction</c> / <c>…HeightFraction</c>, the same
-/// borrowing <c>EnchantressComposite</c> already does.</item>
+/// borrowing <c>EnchantressComposite</c> already does.
+/// <para><b>ModBuild 447 — THE COUNT IS LOAD-BEARING NOW, NOT A DIAGNOSTIC.</b> This exclusion is
+/// right for the question this class answers ("what is painted INSIDE the frame") and it was wrong
+/// for the question its one consumer was really asking ("how big is this window"), because on
+/// <c>UI Shop Item Window</c> the excluded plates ARE the picture: the union spans <c>x 461..977</c>,
+/// the item list alone, inside a 1920 px window whose other two thirds is the shopkeeper artwork.
+/// The user photographed the consequence (<c>händlerbalken.jpg</c>) and the fix is in the consumer,
+/// not here — <see cref="Ink.Plates"/> is read by <c>GrabbableModal</c> and decides, through
+/// <c>GrabBarLayout.SolveSpan</c>, whether the grab bar's width and centre come from the frame or
+/// from this union. NOTHING ABOUT THIS WALK CHANGED, and that is deliberate: the union is still the
+/// bar's VERTICAL answer and still the "does this window draw anything at all" verdict, both of
+/// which need the plate gone. But a future round that widens, narrows or deletes the plate test is
+/// now moving handles as well as counters, and must read <c>SolveSpan</c> before it does.</para></item>
 /// <item><b>EMPTY TEXT.</b> <c>PanelSupersample.Draws</c> is permissive by design — enabled, active,
 /// alpha above zero, not culled — and that is right for a CAPTURE FRAME, which must never crop. It is
 /// wrong here: a <c>TMP_Text</c> with an empty string passes every one of those tests and contributes
@@ -313,6 +325,13 @@ internal static class PanelInkBounds
         internal bool Valid;
         internal Rect Rect;
         internal int Graphics;
+        /// <summary>Graphics refused as FULL-FRAME BACKDROP PLATES — a surface covering at least
+        /// 0.80 of the host rect's width and 0.95 of its height, at an effective alpha the fit calls
+        /// visible. ModBuild 447: this is no longer only a census number. A non-zero count is the
+        /// statement "this window paints its whole frame", and <c>GrabbableModal</c> hands it to
+        /// <c>GrabBarLayout.SolveSpan</c>, which then takes the grab bar's width and centre from the
+        /// FRAME instead of from <see cref="Rect"/>. See the class comment's ModBuild 447
+        /// block.</summary>
         internal int Plates;
         internal int EmptyText;
         internal int ModChrome;

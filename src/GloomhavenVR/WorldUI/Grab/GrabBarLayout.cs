@@ -19,6 +19,13 @@ namespace GloomhavenVR.WorldUI;
 /// drift twice as fast. So the numbers moved here and the three owners call
 /// <see cref="Solve"/>.</para>
 ///
+/// <para><b>AND SINCE ModBuild 447, THE OTHER HALF OF THE SAME QUESTION.</b> <see cref="Solve"/>
+/// answers "how long is the rod, given a width" — it never owned WHICH width, and that is where the
+/// merchant's handle went wrong (<c>händlerbalken.jpg</c>: a 284 px rod under the right-hand edge of
+/// a 1920 px window). <see cref="SolveSpan"/> is that decision, stated once, with its own doc
+/// comment: the frame's width and centre for a window that paints its whole frame, the ink union's
+/// for a window whose frame is transparent around what it draws.</para>
+///
 /// <para><b>IT IS A REWRITE OF THE SAME ARITHMETIC, NOT A NEW RULE.</b> Every line of
 /// <see cref="Solve"/> is byte-for-byte what <c>GrabbableModal.SyncBar</c> and
 /// <c>SurfaceGrabBar.SyncBar</c> computed before it, in the same order, with the same clamps and
@@ -101,6 +108,125 @@ internal static class GrabBarLayout
     /// paint OVER its own panel's content, while staying under <c>CanvasConversion.PanelOrderStep</c>
     /// so a genuinely nearer panel still outranks it.</summary>
     internal const int BarOrderOffset = 4;
+
+    /// <summary>
+    /// <b>WHICH RECTANGLE A BAR'S WIDTH AND CENTRE COME FROM.</b> The answer <see cref="SolveSpan"/>
+    /// returns: one horizontal span, in the grab frame's own local units, plus the prose that says
+    /// which of the two rules produced it.
+    /// </summary>
+    internal struct Span
+    {
+        /// <summary>The width <see cref="Solve"/>'s <c>sourceWidth</c> wants — the frame's, or the
+        /// ink union's when the ink union is the honest size of the window.</summary>
+        internal float Width;
+
+        /// <summary>Where the rod's midpoint goes, as an offset from the frame's own centre. Zero
+        /// whenever the frame itself is the answer.</summary>
+        internal float Centre;
+
+        /// <summary>Which rule fired, spelled out — the tween prints it and so does the
+        /// <c>GRAB BAR CLEARS THE INK</c> falsifier, so a placed bar and its own report can never
+        /// disagree about what they were derived from.</summary>
+        internal string Source;
+    }
+
+    /// <summary>
+    /// <b>HOW WIDE THE WINDOW IS, AND WHERE ITS MIDDLE IS — the one rule, for every handle.</b>
+    ///
+    /// <para><b>THE USER'S RULING THAT WROTE IT</b> (2026-09-05, <c>händlerbalken.jpg</c>):
+    /// <i>"Die Handles für den Händler und co. reagieren so als wäre das Fenster ganz klein. Ich
+    /// möchte dass die Grabbalken dort mittig so ausgerichtet sind wie für ein Fenster dieser
+    /// Größe."</i> The merchant's rod was 284 px long and hung under the RIGHT-HAND EDGE of a
+    /// 1920 px window, because the ink union it was sized from spanned <c>x 461..977</c> — the item
+    /// list alone. The shopkeeper artwork, which is the other two thirds of everything that window
+    /// paints, was not in that union: it is a FULL-FRAME PLATE, and <c>PanelInkBounds</c> excludes
+    /// those by construction.</para>
+    ///
+    /// <para><b>THE RULE, AND WHY IT IS A RULE RATHER THAN A CORRECTION FACTOR.</b> The ink union
+    /// exists to answer one question — <i>is this window's frame bigger than the picture inside
+    /// it?</i> — and there are exactly two ways a frame can be bigger:
+    /// <list type="bullet">
+    /// <item><b>The frame is TRANSPARENT around the content.</b> <c>New Party display</c> is the
+    /// case the union was written for: a 1988 px frame with a 328 px character column at x -818 and
+    /// nothing else painted at all (its own reading in the ModBuild 446 log: <c>0 full-frame
+    /// plate(s)</c>). Here the frame is not a window, it is empty air, and a rod as wide as it would
+    /// hang over nothing. The ink union IS the window, and the bar takes its width and its
+    /// centre.</item>
+    /// <item><b>The frame is PAINTED and the union merely excluded the paint.</b> <c>UI Shop Item
+    /// Window</c> and <c>UI Temple Window</c> both report <c>2 full-frame plate(s)</c>: a graphic
+    /// covering at least 0.80 of the frame's width and 0.95 of its height, at an effective alpha the
+    /// content fit itself calls visible, is a surface the player is looking at. A window that paints
+    /// a plate across its whole frame IS a window of that size — that is the user's sentence
+    /// restated as geometry — so the bar takes the FRAME's width and the frame's centre.</item>
+    /// </list>
+    /// No fudge factor, no blend, no threshold tuned until the picture looked right: one boolean,
+    /// and it is the plate count <c>PanelInkBounds</c> has printed on every <c>GRAB BAR CLEARS THE
+    /// INK</c> line since ModBuild 235 without anybody ever acting on it.</para>
+    ///
+    /// <para><b>IT AGREES WITH THE INSTRUMENT THAT ALREADY KNEW.</b> The content fit measures the
+    /// same windows and counts a plate as content, and on every window in the ModBuild 446 log this
+    /// rule lands exactly on the fit's own <c>DRAWN CONTENT</c> answer: shop <c>1920x1080 px at
+    /// (0,0)</c> (:5949), <c>Quest Log Manager</c> <c>390x880 px at (0,0)</c> (:3758),
+    /// <c>New Party display</c> <c>328x1080 px at (-818,0)</c> (:4281). That is the whole point of
+    /// it — the laser already treats a painted plate as the window (the hit rect is
+    /// <c>Content ∪ Host</c> by contract) and the handle was the one piece of the window that
+    /// disagreed.</para>
+    ///
+    /// <para><b>WHAT THIS RULE MUST NOT BE ASKED.</b> It answers the HORIZONTAL question only. How
+    /// far DOWN the bar hangs stays the ink union's answer and nothing here touches it: a plate's
+    /// bottom edge IS the frame's bottom edge, so a plate can never lift a bar off content the bar
+    /// was moved to clear (<c>quest_überlap.jpg</c>, ModBuild 236). Nor does it decide whether a
+    /// window has content at all — that verdict is the plate-EXCLUDING graphic count, which is why
+    /// the exclusion stays exactly where it is: a window painting nothing but its own backdrop is an
+    /// empty window and still loses its handle ("Wenn kein Fenster inhalt hat soll neben der
+    /// Animation auch kein Greifbalken erscheinen").</para>
+    ///
+    /// <para><b>THE OTHER TWO OWNERS PASS <paramref name="inkValid"/> FALSE</b> and get the frame,
+    /// which is byte-for-byte what <c>SurfaceGrabBar</c> and <c>CombatLogSurface</c> already did —
+    /// a decision surface's rect IS its content, so it has no union to consult. They call this
+    /// anyway, so that the day either of them grows one there is a rule to grow into rather than a
+    /// second copy of this argument.</para>
+    /// </summary>
+    /// <param name="frameWidth">The host/frame width, in the grab frame's own local units.</param>
+    /// <param name="inkValid">Whether a committed ink union exists for this window at all.</param>
+    /// <param name="inkWidth">The committed union's width, in the same units as
+    /// <paramref name="frameWidth"/>.</param>
+    /// <param name="inkCentre">The committed union's centre, as an offset from the frame's centre,
+    /// in the same units.</param>
+    /// <param name="framePainted">Whether the window paints a full-frame plate — i.e. whether the
+    /// committed ink walk counted one. See the rule above.</param>
+    internal static Span SolveSpan(float frameWidth, bool inkValid, float inkWidth, float inkCentre,
+                                   bool framePainted)
+    {
+        var span = default(Span);
+        if (!inkValid)
+        {
+            span.Width = frameWidth;
+            span.Centre = 0f;
+            span.Source = "the host rect (no ink union has been committed for this window, so its "
+                          + "frame is the only thing there is to measure)";
+            return span;
+        }
+        if (framePainted)
+        {
+            span.Width = frameWidth;
+            span.Centre = 0f;
+            span.Source = "the host rect (this window paints a plate across its whole frame, so the "
+                          + "frame IS the window — the ink union still owns how far DOWN the rod "
+                          + "hangs)";
+            return span;
+        }
+        // THE MIN IS THE OLD CAP, NOT A NEW ONE. Before this the caller computed
+        //   frameBar = Max(width * F, min); bar = Clamp(inkW * F, min, frameBar)
+        // and that upper clamp is exactly "the bar can only ever get NARROWER than the frame-based
+        // one". Keeping it here means content drawing a little outside its own frame (the temple
+        // reaches x=978 against a frame that ends at 960) lengthens nothing.
+        span.Width = Mathf.Min(inkWidth, frameWidth);
+        span.Centre = inkCentre;
+        span.Source = "the ink union (this window's frame is transparent around what it draws, so "
+                      + "the frame is empty air and a frame-wide rod would hang over nothing)";
+        return span;
+    }
 
     /// <summary>Every number a caller needs to place, size and grip one rod. A plain value struct:
     /// <see cref="Solve"/> allocates nothing and may be called per frame.</summary>

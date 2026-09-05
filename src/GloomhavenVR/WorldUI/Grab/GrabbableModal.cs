@@ -428,6 +428,24 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     private bool _inkValid;                     // a committed rectangle exists (survives a generation reset)
     private bool _inkGenSeeded;                 // this generation has contributed a sample to it yet
     private Rect _inkRect;                      // host-local uGUI px — the COMMITTED, monotone union
+    /// <summary>
+    /// ModBuild 447 — <b>THE COMMITTED ANSWER TO "DOES THIS WINDOW PAINT ITS WHOLE FRAME?"</b>, and
+    /// the one term that decides whether the rod's width and centre come from the frame or from the
+    /// union. The rule, the user's ruling behind it and the four windows it was measured against are
+    /// all on <see cref="GrabBarLayout.SolveSpan"/>; this field is only its storage.
+    ///
+    /// <para><b>IT IS COMMITTED, NOT SAMPLED,</b> and that is deliberate: it moves through exactly
+    /// the gates <see cref="_inkRect"/> moves through — monotone inside a generation (a plate seen
+    /// once holds until the generation ends), a growth outside the settle burst must repeat before
+    /// it is taken (the repeat gate), and only a confirmed RELEASE may drop it. Read on a raw sample
+    /// instead it would be a boolean that can flip on any single frame, and it moves the rod's
+    /// CENTRE, which is the one term <see cref="SyncBar"/> deliberately does not damp.</para>
+    ///
+    /// <para>Cleared wherever <see cref="_inkValid"/> is cleared — a window that has stopped drawing
+    /// has no verdict about its frame either, and the next window to arrive in the same holder must
+    /// not inherit this one's.</para>
+    /// </summary>
+    private bool _inkFullFrame;
     private int _inkGraphics;
     private int _inkPlates;
     private int _inkEmptyText;
@@ -1954,27 +1972,36 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                         && _bar.Root.gameObject.activeInHierarchy;
         float panelHeight = _heightSettle.Apply(halfHeight * 2f / Mathf.Max(worldScale, 1e-4f),
             onScreen, _logName);
-        // THE WIDTH THE ROD IS A FRACTION OF, as ONE number — the frame's, or the ink's when the ink
-        // is narrower. It is a REWRITE OF THE SAME ARITHMETIC, not a new rule, and the equality is
-        // worth stating because the old shape is what every other build's numbers came from. It was:
+        // THE WIDTH THE ROD IS A FRACTION OF, AND WHERE ITS MIDDLE GOES — one call, one rule,
+        // GrabBarLayout.SolveSpan, which carries the whole argument and the user's ruling that
+        // wrote it (händlerbalken.jpg, 2026-09-05).
         //
-        //     frameBarWidth = Max(width * F, minWidth)
-        //     barWidth      = ink ? Clamp(inkW * F, minWidth, frameBarWidth) : frameBarWidth
+        // ModBuild 447 — WHAT CHANGED, STATED AGAINST WHAT IT REPLACED. This method used to take
+        // Min(inkWidth, frameWidth) and the ink's centre WHENEVER a union existed, and that is the
+        // merchant's defect: 'UI Shop Item Window' paints a 1920x1080 shopkeeper plate and its union
+        // spans x 461..977, because PanelInkBounds excludes full-frame plates by construction. The
+        // rod came out 284 px long under the right-hand edge of a window the player sees as 1920 px
+        // wide. SolveSpan asks the one question that separates that window from 'New Party display'
+        // (a 1988 px TRANSPARENT frame around a 328 px column, which is the window the union was
+        // written for): does this window paint a plate across its own frame? The frame's width and
+        // centre if it does, the union's if it does not. Every window in the ModBuild 446 log then
+        // lands on the content fit's own DRAWN CONTENT answer for the same window.
         //
-        // and it is now Max(Min(inkW, width) * F, minWidth). With inkW <= width the upper clamp
-        // never binds, so both give Max(inkW * F, minWidth); with inkW > width both give
-        // Max(width * F, minWidth) — the old form by hitting its cap, the new one by taking the Min.
-        // Same for the zone's fraction. Nothing about "the bar can only ever get NARROWER than the
-        // frame-based one" changed: the Min IS that cap.
+        // THE VERTICAL TERM IS UNTOUCHED AND STAYS THE UNION'S — see the placement block below.
         //
-        // ModBuild 376 — AND IT GOES THROUGH THE SHARED SETTLE RULE (BarSizeSettle). One settled
-        // width feeds BOTH fractions, so the drawn rod and the palm zone can never disagree about
-        // how wide the window is, and the ink branch is covered by the same gate as the frame branch
-        // rather than by a second one: whichever of the two moves, it is this scalar that moves.
-        float sourceWidth = _inkValid && unit > 1e-9f
-            ? Mathf.Min(_inkRect.width * unit, width)
-            : width;
-        sourceWidth = _widthSettle.Apply(sourceWidth, onScreen, _logName);
+        // ModBuild 376 — AND THE WIDTH STILL GOES THROUGH THE SHARED SETTLE RULE (BarSizeSettle).
+        // One settled width feeds BOTH fractions, so the drawn rod and the palm zone can never
+        // disagree about how wide the window is, and both of SolveSpan's branches are covered by
+        // that one gate rather than by a second one: whichever branch answers, it is this scalar
+        // that moves.
+        bool inkUsable = _inkValid && unit > 1e-9f;
+        GrabBarLayout.Span span = GrabBarLayout.SolveSpan(
+            frameWidth: width,
+            inkValid: inkUsable,
+            inkWidth: _inkRect.width * unit,
+            inkCentre: _inkRect.center.x * unit,
+            framePainted: _inkFullFrame);
+        float sourceWidth = _widthSettle.Apply(span.Width, onScreen, _logName);
 
         // ONE CALL FOR EVERY DIMENSION THE ROD HAS, shared with SurfaceGrabBar and CombatLogSurface
         // (GrabBarLayout). The proportion, the gap, the uniform root scale, the drawn shaft diameter,
@@ -1996,19 +2023,30 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float x = 0f;
         float y = -(halfHeight + gap);
 
-        if (_inkValid && unit > 1e-9f)
+        if (inkUsable)
         {
             // BELOW THE LOWEST DRAWN GRAPHIC. hostRect.yMin x unit is exactly -halfHeight for a
             // pivot-centred host, so a window whose ink stays inside its frame is unchanged; the Min
             // is what keeps the bar from ever RISING into the frame when the ink is short.
             //
+            // ModBuild 447 — THIS TERM IS STILL THE UNION'S, AND ONLY THE UNION'S. The horizontal
+            // rule above may now answer with the frame; this one may not, and the reason is the
+            // window that wrote it: 'New Party display' draws a Rewards row at host-local y=-913
+            // against a frame that ends at -540, and a bar placed on the frame lands on top of it
+            // (quest_überlap.jpg, ModBuild 236). A full-frame plate cannot change this number
+            // anyway — its bottom edge IS hostRect.yMin, which the Min already covers — so the two
+            // rules cannot fight over it.
+            //
             // POSITION IS UNGATED, and that is deliberate — see BarSizeSettle. A handle that lags
             // its own window hangs off the side of it, which is a worse artefact than the one the
             // settle rule was built for and is not the one that was reported.
             y = Mathf.Min(hostRect.yMin, _inkRect.yMin) * unit - gap;
-            // CENTRED ON THE INK. For a window whose ink fills its frame this is 0 and nothing moved.
-            x = _inkRect.center.x * unit;
         }
+        // CENTRED WHERE SolveSpan SAYS: on the frame for a window that paints its whole frame, on
+        // the ink for a window whose frame is transparent around what it draws. Zero in both of the
+        // cases that used to reach here with zero (no union at all, and a union that fills its
+        // frame), so the windows this round is not about do not move by a float.
+        x = span.Centre;
 
         // 2026-09-03 ("es ploppt") — THESE ARE TARGETS NOW, NOT WRITES. The rod's root position,
         // its uniform scale, its length (barWidth is in frame-local metres; SetLength wants the rod's
@@ -2029,9 +2067,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             : !onScreen ? "the rod is off the screen (behind the reveal gate or withheld)" : null;
         _barTween?.SetTarget(new Vector3(x, y, 0f), rodScale, barWidth / rodScale,
                              new Vector3(zoneWidth, zoneDepth, zoneDepth), snapWhy,
-                             _inkValid && unit > 1e-9f
-                                 ? "GrabbableModal.SyncBar (the ink union)"
-                                 : "GrabbableModal.SyncBar (the host rect)");
+                             "GrabbableModal.SyncBar — width and centre from " + span.Source);
 
         SyncBarVisibility();
 
@@ -2052,9 +2088,17 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             // from, so a report can never disagree with the placement it is describing. The intended
             // gap is to the bar's TOP EDGE: BarGapMeters is documented as the gap to the bar's CENTRE,
             // and half the thickness of the bar lies above that centre.
+            //
+            // ModBuild 447 — AND THE SPAN GOES WITH THEM, for exactly the same reason. The judged
+            // horizontal term used to be "the bar's centre must be the ink's centre"; that claim is
+            // no longer the one the code makes, and an instrument left asserting it would print NOT
+            // ACHIEVED for every window this round repaired ([[instrument-shipped-and-lying]]).
+            // Handing over the ANSWER rather than the terms is what stops the report and the
+            // placement from being two derivations of one rule.
             ReportBarPlacement(hostRect, unit, barWidth, thickness,
                 intendedTopGapPx: (gap - thickness * 0.5f) / Mathf.Max(unit, 1e-9f),
-                mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f);
+                mmPerPx: unit / Mathf.Max(worldScale, 1e-4f) * 1000f,
+                span: span);
         }
     }
 
@@ -2772,6 +2816,10 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             _inkEmpties++;
             _barHiddenForEmpty = true; // SyncBarVisibility takes the handle off on this same tick
             _inkValid = false;
+            // ModBuild 447 — and with it the full-frame verdict. A window that draws nothing paints
+            // no plate either, and leaving the verdict standing would hand the NEXT content to
+            // arrive in this holder a frame-wide rod it never earned.
+            _inkFullFrame = false;
             _inkGenSeeded = false;
             _inkPendingValid = false;
             _inkReleaseValid = false;
@@ -2838,6 +2886,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
                                     Mathf.Max(_inkRect.yMax, ink.Rect.yMax));
         }
 
+        // ModBuild 447 — THE FULL-FRAME VERDICT RIDES THE ENVELOPE, term for term. It is monotone
+        // inside the generation for the same reason the rectangle is: a growth is believed on sight
+        // and a shrink has to prove itself, so a plate that is momentarily missed by one walk (a
+        // fade, a one-frame CanvasGroup dip) cannot snap the rod's CENTRE across the window and back.
+        // The release branch below overwrites it with the raw reading, because a release IS the
+        // proven shrink — see the assignment there.
+        bool fullFrame = ink.Plates > 0 || (_inkValid && _inkGenSeeded && _inkFullFrame);
+
         // ---- THE RELEASE SIDE. Whole policy on the InkSettleFrames block; this is its mechanism.
         bool released = false;
         if (settling || !_inkValid || !_inkGenSeeded || !SameRect(grown, _inkRect))
@@ -2868,6 +2924,11 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             {
                 grown = _inkReleaseCandidate;
                 released = true;
+                // ModBuild 447 — AND THE FULL-FRAME VERDICT COMES BACK TO THE RAW READING. A release
+                // is the one path that has PROVEN a recession (InkReleaseConsecutive agreeing
+                // samples against the dead band), so it is the one path allowed to say "the plate is
+                // gone" — the monotone term above is bypassed here exactly as it is for the rect.
+                fullFrame = ink.Plates > 0;
             }
             else
             {
@@ -2889,7 +2950,14 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             ScheduleConfirmSample(now);
         }
 
-        bool moved = !_inkValid || !SameRect(grown, _inkRect);
+        // ModBuild 447 — THE FULL-FRAME VERDICT IS PART OF "MOVED", and it has to be. It changes the
+        // rod's width and its centre on its own, with no change to the rectangle at all: a window
+        // whose backdrop plate arrives after its list has settled would otherwise be a placement
+        // nothing ever commits, because every gate below is keyed on `moved` and the early return
+        // three lines down would take every such sample. It is also what puts the verdict through
+        // the repeat gate, so a plate that appears once outside the settle burst has to appear twice
+        // before the handle jumps.
+        bool moved = !_inkValid || !SameRect(grown, _inkRect) || fullFrame != _inkFullFrame;
         // The census fields always describe the LATEST sample; only the rectangle is the envelope.
         _inkGraphics = ink.Graphics;
         _inkPlates = ink.Plates;
@@ -2983,14 +3051,27 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // 'cause: the ink receded and held for 3 verify sample(s)' on a commit where the union GREW
         // from 1301 to 1495 px, with the release counter unchanged at 1. Any reading of that line
         // that trusts `cause:` on a growth is wrong, and one did.
+        //
+        // ModBuild 447 — AND IT MUST NOT SAY "GROWTH" WHEN THE RECTANGLE DID NOT MOVE. The
+        // full-frame verdict commits on its own (see the `moved` block above), and a commit that
+        // reports a growth which the printed union does not show is the same lie one build later.
         if (!released && _inkGenSeeded)
-            _inkCause = settling
-                ? "the settle burst followed the window as it finished arriving (a GROWTH inside the "
-                  + "burst, no sub-view change and no host resize)"
-                : "the verify poll found ink outside the held envelope and the growth repeated (a "
-                  + "GROWTH, no sub-view change and no host resize)";
+        {
+            bool rectMoved = !SameRect(grown, _inkRect);
+            _inkCause = !rectMoved
+                ? "the FULL-FRAME VERDICT changed with the union standing still — the window "
+                  + (fullFrame ? "started" : "stopped")
+                  + " painting a plate across its own frame, which is what decides whether the rod's "
+                  + "width and centre come from the frame or from the ink (GrabBarLayout.SolveSpan)"
+                : settling
+                    ? "the settle burst followed the window as it finished arriving (a GROWTH inside "
+                      + "the burst, no sub-view change and no host resize)"
+                    : "the verify poll found ink outside the held envelope and the growth repeated (a "
+                      + "GROWTH, no sub-view change and no host resize)";
+        }
 
         _inkRect = grown;
+        _inkFullFrame = fullFrame;
         _inkValid = true;
         _inkGenSeeded = true;
         _inkConfirmRun = 0; // the episode committed; the next one starts with a full budget
@@ -3184,7 +3265,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
     }
 
     private void ReportBarPlacement(Rect hostRect, float unit, float barWidth, float thickness,
-                                    float intendedTopGapPx, float mmPerPx)
+                                    float intendedTopGapPx, float mmPerPx, GrabBarLayout.Span span)
     {
         _inkReportDue = false;
         bool fallback = _inkFallbackDue;
@@ -3267,7 +3348,20 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         float inkBottom = _inkRect.yMin;
         float inkCentre = _inkRect.center.x;
         bool clearsVertically = barTopPx <= inkBottom + 0.5f;
-        bool centredOnInk = Mathf.Abs(barCentrePx - inkCentre) <= 1f;
+        // ModBuild 447 — THE HORIZONTAL CLAIM IS NOW "THE BAR IS CENTRED ON WHATEVER SolveSpan
+        // CHOSE", and the choice is printed beside the verdict so the two can be read together. It
+        // used to be "centred on the ink" flat, which was the right claim only while the ink union
+        // was the only source the placement had; leaving it would have marked the merchant's
+        // REPAIRED handle as the failure ([[instrument-shipped-and-lying]]).
+        float claimedCentrePx = span.Centre / unit;
+        bool centredAsClaimed = Mathf.Abs(barCentrePx - claimedCentrePx) <= 1f;
+        string spanTerm = $"the rod's width and centre were taken from {span.Source} — that rectangle "
+                          + $"is {span.Width / unit:F0} px wide with its centre at "
+                          + $"x={claimedCentrePx:F0} px, and the rod is "
+                          + $"{GrabBarLayout.BarWidthFraction:F2} of it (the width, and only the "
+                          + "width, then passes through the BarSizeSettle damp, so the half-width "
+                          + "above may lag this number by one settle window on a tick the host "
+                          + "resized; the centre does not and is written straight through)";
 
         // THE GAP, both ways. See this method's own comment for which of the two is judged and why.
         float gapToInkPx = inkBottom - barTopPx;
@@ -3291,26 +3385,35 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + $"all in the window's own authored px; the LOWEST drawn graphic '{_inkBottomName}' ends at "
             + $"y={inkBottom:F0} px; the ink union spans x {_inkRect.xMin:F0}..{_inkRect.xMax:F0} "
             + $"(width {_inkRect.width:F0} px, centre {inkCentre:F0}) and y {inkBottom:F0}..{_inkRect.yMax:F0}; "
-            + $"{gaps}; {frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} "
+            + $"{spanTerm}; {gaps}; {frame}; {census}; FRESH capture, generation {_inkGeneration}, sample {_inkSamples} "
             + $"of that generation, held {_inkHeldFrames} frame(s) before it, {_inkGrowthsDeferred} "
             + $"growth(s) deferred by the repeat gate and {_inkReleases} release(s) committed over this "
             + $"window's life, cause: {_inkCause}; {SignatureLedger()}";
 
-        if (clearsVertically && centredOnInk && gapWithinIntent)
+        if (clearsVertically && centredAsClaimed && gapWithinIntent)
         {
             VRLog.Info("WorldUI",
                 $"GRAB BAR CLEARS THE INK: CONFIRMED for '{_logName}' — {measurement}.{suppressed} HOW TO "
-                + "READ IT. The claim is that the brass handle is placed against what the window DRAWS "
-                + "rather than what it FRAMES, and the THREE numbers that would falsify it are on this "
-                + "line: the bar's top edge must be at or below the lowest drawn graphic's bottom edge, "
-                + "the bar's centre must be the ink's centre, and — new in ModBuild 239 — the handle "
-                + "must not hang more than one dead band below the window's OWN bottom edge. That third "
-                + "term is the user's 'zu grosser Abstand' report, and it is JUDGED rather than merely "
-                + "printed because the first two were both true of the window he photographed the "
-                + "handle 390 px under. A window whose ink fills its frame "
-                + "reads centre 0 and a bar top one gap under the host rect — unchanged from ModBuild "
-                + "235 by construction, which is what makes an unchanged reading on those windows "
-                + "evidence rather than an absence of evidence. The ink union GROWS on sight and "
+                + "READ IT. The claim is that the brass handle hangs BELOW everything the window draws "
+                + "and is as long and as centred as the WINDOW, and the THREE numbers that would "
+                + "falsify it are on this line: the bar's top edge must be at or below the lowest drawn "
+                + "graphic's bottom edge, the bar's centre must be the centre of the rectangle named in "
+                + "the 'width and centre were taken from' clause, and — new in ModBuild 239 — the "
+                + "handle must not hang more than one dead band below the window's OWN bottom edge. "
+                + "That third term is the user's 'zu grosser Abstand' report, and it is JUDGED rather "
+                + "than merely printed because the first two were both true of the window he "
+                + "photographed the handle 390 px under. WHICH RECTANGLE THE SECOND TERM NAMES IS "
+                + "ModBuild 447's WHOLE CHANGE, and the full-frame plate count on this line is what "
+                + "decides it: a window that paints a plate across its own frame IS a window of that "
+                + "size and takes the FRAME's width and centre (the merchant, whose union spans only "
+                + "its item list at x 461..977 inside a 1920 px window — händlerbalken.jpg), while a "
+                + "window whose frame is transparent around what it draws takes the UNION's ('New "
+                + "Party display', 0 plates, a 328 px column inside a 1988 px frame). If those two "
+                + "windows ever read the same way, this term has stopped separating them. A window "
+                + "whose ink fills its frame reads centre 0 and a bar top one gap under the host rect "
+                + "— unchanged from ModBuild 235 by construction, which is what makes an unchanged "
+                + "reading on those windows evidence rather than an absence of evidence. "
+                + "The ink union GROWS on sight and "
                 + "SHRINKS only after a recession has held for several verify samples, so a bar that "
                 + "never moves while the generation number climbs means the events fire and the content "
                 + "genuinely did not move; a generation number stuck at 1 across a session in which the "
@@ -3327,9 +3430,13 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             ? $"VERTICAL — the bar's top edge y={barTopPx:F0} px is ABOVE the lowest drawn graphic's "
               + $"bottom edge y={inkBottom:F0} px by {inkBottom - barTopPx:F0} px, so it is drawn over "
               + "content"
-            : !centredOnInk
-                ? $"HORIZONTAL CENTRE — the bar's centre x={barCentrePx:F0} px is off the ink's centre "
-                  + $"x={inkCentre:F0} px by {Mathf.Abs(barCentrePx - inkCentre):F0} px"
+            : !centredAsClaimed
+                ? $"HORIZONTAL CENTRE — the bar's centre x={barCentrePx:F0} px is off the centre this "
+                  + $"placement CLAIMS, x={claimedCentrePx:F0} px, by "
+                  + $"{Mathf.Abs(barCentrePx - claimedCentrePx):F0} px, and {spanTerm}. THIS TERM IS "
+                  + "READ OFF THE TWEEN'S TARGET, which SyncBar sets to the claimed centre on the "
+                  + "same line, so it can only fail if a SECOND owner is writing the rod's target — "
+                  + "grep the rod's tween source clause for who"
                 : $"THE GAP IS LARGER THAN INTENDED — the handle's top edge hangs "
                   + $"{dropBelowFramePx:F0} px = {dropBelowFramePx * mmPerPx:F0} mm below the window's "
                   + $"own bottom edge y={hostRect.yMin:F0} px, which is {dropBelowFramePx / Mathf.Max(intendedTopGapPx, 1e-3f):F1}x "
@@ -3383,6 +3490,7 @@ internal sealed class GrabbableModal : IPanelGrabOwner
         // The ink capture describes furniture that no longer exists; a rebuilt holder must measure
         // again from scratch rather than inherit a union taken against the old host rect.
         _inkValid = false;
+        _inkFullFrame = false;   // ModBuild 447 — the frame it was a verdict about is gone too
         _inkGenSeeded = false;
         _inkPendingValid = false;
         _inkReleaseValid = false;
