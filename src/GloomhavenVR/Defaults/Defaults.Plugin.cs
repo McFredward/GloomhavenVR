@@ -113,6 +113,11 @@ internal static partial class Defaults
     internal const string DisableComponents = "";                            // => [Compat] DisableComponents
     internal const bool WallFade = true;                                     // => [Compat] WallFade
     internal const bool ControlsLesson = true;                               // => [Compat] ControlsLesson
+    // ON by default because it does not add behaviour — it RESTORES the game's own. The door
+    // open is one Animator.Play; Unity's CullUpdateTransforms default withholds the transform
+    // write while the door is off-camera, a condition a top-down flat camera never produces and
+    // a first-person VR camera produces constantly. See Core/Environment/DoorOpenWatch.
+    internal const bool DoorAnimateOffscreen = true;                         // => [Compat] DoorAnimateOffscreen
     // [Compat] TutorialVRAdapt is GONE (user ruling 2026-08-13): its OFF restored the vanilla
     // camera-step DEADLOCK the bridge exists to break (Compat/Tutorial/TutorialVR.cs).
     internal const string PrimaryHand = "Right";                             // => [Hands] PrimaryHand

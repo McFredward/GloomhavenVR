@@ -121,6 +121,8 @@ internal static partial class Loc
             ["Compat/DisableVolumetricFog"] = Pair("Volumetric fog off", "Volumennebel aus"),
             ["Compat/DisableComponents"] = Pair("Disabled components", "Deaktivierte Teile"),
             ["Compat/WallFade"] = Pair("See-through walls", "Wände durchsichtig"),
+            ["Compat/DoorAnimateOffscreen"] = Pair("Doors open off-camera",
+                                                   "Türen öffnen außer Sicht"),
             ["Compat/ControlsLesson"] = Pair("Explain the controls in the tutorial",
                                             "Steuerung im Tutorial erklären"),
 

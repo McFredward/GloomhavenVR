@@ -230,7 +230,10 @@ internal sealed class CompatModule : IVRModule
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
         HostingChainWatch.Uninstall(); // drops the log hook and the driver GO — the Harmony guard goes with UnpatchSelf
-        DoorOpenWatch.Uninstall();       // nothing to restore — its writes are the game's own intended state
+        // Restores every renderer it hid through the enable ledger AND every door animator's
+        // authored cullingMode ([Compat] DoorAnimateOffscreen, ModBuild 428). Its other writes
+        // — the replayed Open, the unlatched speed — are the game's own intended state.
+        DoorOpenWatch.Uninstall();
         WallSegmentFade.Uninstall();
         ApparanceDetailFocus.Uninstall(); // restores the engine's authored viewpoint source
         MaterialLoaderHeal.Uninstall();   // healed loads are the game's own intended state — nothing to revert

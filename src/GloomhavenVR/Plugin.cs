@@ -264,6 +264,14 @@ public class Plugin : BaseUnityPlugin
     internal static ConfigEntry<bool> WallFade = null!;
     internal static ConfigEntry<bool> ControlsLesson = null!;
 
+    /// <summary>
+    /// [Compat] Let a scenario door's OWN open animation play while the door is off-camera —
+    /// <c>Animator.cullingMode = AlwaysAnimate</c> on the door animators the door watch already
+    /// resolves. See <c>Core.DoorOpenWatch</c>; consulted live, and the replaced value is
+    /// restored on a scenario change, on uninstall and the moment the dial goes off.
+    /// </summary>
+    internal static ConfigEntry<bool> DoorAnimateOffscreen = null!;
+
 
     /// <summary>Dominant hand ("Right"/"Left") — its ray is the default pick source.</summary>
     internal static ConfigEntry<string> PrimaryHand = null!;
@@ -760,6 +768,23 @@ public class Plugin : BaseUnityPlugin
             "solid — the VR behavior so far. Purely visual and local (per-renderer material " +
             "property blocks): multiplayer peers are unaffected. Live-togglable from the VR " +
             "settings panel.");
+        DoorAnimateOffscreen = Config.Bind(
+            "Compat", "DoorAnimateOffscreen", Defaults.DoorAnimateOffscreen,
+            "Let a door play its OWN opening animation even while you are not looking at it. " +
+            "The game opens a door with one call — it plays the state 'Open' on the door's " +
+            "animator and does nothing else — and Unity's default for a placed prop animator is " +
+            "to keep the state machine running but STOP WRITING TRANSFORMS while none of that " +
+            "animator's renderers is on screen (AnimatorCullingMode.CullUpdateTransforms). The " +
+            "flat game never met that case: its camera looks down on the whole room, so a door " +
+            "it opens is always on screen. In VR you stand in the room, and the door you just " +
+            "opened is very often behind you or around a corner while its 0.87 s clip runs out — " +
+            "after which the state sits clamped at the last frame and the leaf never moves again. " +
+            "ON (the default) sets AlwaysAnimate on the handful of scenario door animators the " +
+            "door watch already tracks, so the vanilla open plays wherever you are standing. " +
+            "OFF restores Unity's default on every one of them immediately. PRESENTATION ONLY: " +
+            "the value replaced is remembered per door and put back on a scenario change and on " +
+            "uninstall, no game state is touched, and nothing goes on the wire — each player's " +
+            "own client animates its own copy of the door.");
         ControlsLesson = Config.Bind(
             "Compat", "ControlsLesson", Defaults.ControlsLesson,
             "Teach the VR controls during the first tutorial. Your hands become the controller " +

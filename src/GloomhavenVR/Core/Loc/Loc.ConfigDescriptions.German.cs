@@ -1354,6 +1354,24 @@ internal static partial class Loc
                 + "Wände nie flackern lassen. AUS (Standard) hält jede Wand solide — das bisherige "
                 + "VR-Verhalten. Rein visuell und lokal (Material Property Blocks pro Renderer): Mitspieler im "
                 + "Mehrspieler sind nicht betroffen. Live umschaltbar in der VR-Einstellungstafel.",
+            ["Compat/DoorAnimateOffscreen"] =
+                "Türen spielen ihre EIGENE Öffnungsanimation auch dann ab, wenn du gerade nicht "
+                + "hinsiehst. Das Spiel öffnet eine Tür mit einem einzigen Aufruf — es spielt den "
+                + "Zustand 'Open' auf dem Animator der Tür ab und tut sonst nichts. Unity lässt bei "
+                + "einem platzierten Requisiten-Animator die Zustandsmaschine zwar weiterlaufen, "
+                + "SCHREIBT aber keine Transforms mehr, solange kein Renderer dieses Animators im "
+                + "Bild ist (AnimatorCullingMode.CullUpdateTransforms). Im Flachbildspiel kam dieser "
+                + "Fall nie vor: Die Kamera blickt von oben auf den ganzen Raum, eine gerade "
+                + "geöffnete Tür ist also immer im Bild. In VR stehst du mitten im Raum, und die Tür, "
+                + "die du gerade geöffnet hast, liegt sehr oft hinter dir oder um die Ecke, während "
+                + "ihr 0,87 s langer Clip abläuft — danach steht der Zustand auf dem letzten Bild "
+                + "fest und das Türblatt bewegt sich nie mehr. AN (Voreinstellung) setzt AlwaysAnimate "
+                + "auf die Handvoll Tür-Animatoren, die die Türüberwachung ohnehin verfolgt, damit "
+                + "das originale Öffnen abläuft, egal wo du stehst. AUS stellt sofort bei jedem "
+                + "einzelnen Unitys Standardwert wieder her. REIN DARSTELLERISCH: Der ersetzte Wert "
+                + "wird pro Tür gemerkt und bei Szenariowechsel und Deinstallation zurückgeschrieben, "
+                + "es wird kein Spielzustand angefasst, und es geht nichts über die Leitung — jeder "
+                + "Client animiert seine eigene Kopie der Tür.",
             // ---- [Hands] ----
             ["Hands/PrimaryHand"] =
                 "Dominante Hand (Right/Left). Ihr Zeigefinger-Strahl ist die Standardquelle für die Auswahl "

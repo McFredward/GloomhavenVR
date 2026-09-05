@@ -69,6 +69,50 @@ namespace GloomhavenVR.Core;
 /// renderer still enabled and unmoved says the clip hides nothing and the hide lives elsewhere; a
 /// sample that shows the animator REPLACED names the rebuild.</para>
 ///
+/// <para><b>THE CAUSE, AND WHY THE REMEDIES ABOVE ARE A STAND-IN (ModBuild 428, user ruling
+/// 2026-09-05: <i>"Ich will eigentlich, dass hier wieder das vanilla base game für die Türen
+/// verantwortlich ist und du einfach das wirkliche Problem fixed"</i>).</b> He is right. The
+/// game's ENTIRE door-open behaviour is one call — <c>Choreographer.OpenDoor</c> plays the state
+/// "Open" on the door's animator and does nothing else. The ModBuild 426 hardware log shows that
+/// state machine RUNNING (state 'Open', normalizedTime 9.28 on a 0.87 s non-looping clip with 0
+/// events, hasBoundPlayables true, playableGraph valid, one SMB on the whole controller and it
+/// only writes <c>animator.speed</c>) while NOT ONE transform under the animator moves. In Unity
+/// that leaves exactly two families, and this build addresses both:</para>
+/// <list type="number">
+///   <item><b>(A) NOTHING BINDS</b> — the clip's curve paths do not resolve on this placement.
+///   <c>DOOR OPEN CLIP SAMPLE</c> (ModBuild 427) runs the clip against the live hierarchy and
+///   says so directly.</item>
+///   <item><b>(B) THE WRITE IS SUPPRESSED OR UNDONE.</b> Unity has exactly one built-in
+///   transform-write suppression — <c>cullingMode == CullUpdateTransforms</c> while none of the
+///   animator's renderers is visible, with the state machine still advancing — and the alternative
+///   is a per-frame writer putting the pose back. Neither was measurable before: every probe up to
+///   ModBuild 427 read the pose ONCE PER FRAME, in <c>Update</c>, i.e. BEFORE Unity's animation
+///   phase, so a write that is undone before the next frame is bit-identical in every sample it
+///   takes. <c>DOOR OPEN PHASES</c> reads the same transforms THREE times in the same frame
+///   (Update / LateUpdate / end of frame) and names which interval moved the door and which put it
+///   back; the <c>isVisible</c> census folded into <c>DOOR OPEN FRAMES</c> says whether the culling
+///   suppression could have applied at all.</item>
+/// </list>
+///
+/// <para><b>THE BELT — <c>[Compat] DoorAnimateOffscreen</c>, ON by default.</b> It adds no
+/// behaviour; it puts back an assumption the flat game was written under. That game's camera looks
+/// down on the whole room, so a door it opens is on screen while its clip plays. In VR the camera
+/// stands IN the room and the door you just opened is very often behind you — a condition the
+/// authors never had to consider, and precisely the one Unity's default cullingMode withholds the
+/// transform write for. So the scenario door animators this watch already resolves get
+/// <c>AlwaysAnimate</c>, the replaced value is remembered per door and restored on a scenario
+/// change, on uninstall, when the animator instance is replaced and the moment the dial goes off.
+/// It is belted onto EVERY animator with a controller under the door prop, not only the one
+/// <c>MF.GetGameObjectAnimator</c> returns: a door prop root carries two animated subtrees (the
+/// Apparance-generated one under <c>Generated Content</c>, and the prefab clone
+/// <c>ApparanceLayer.Create</c> parents in at decompiled ApparanceLayer.cs:72) and MF searches
+/// with the <c>GetComponentsInChildren</c> overload that SKIPS INACTIVE objects, so which of the
+/// two answers moves with the room's visibility state. The game writes <c>cullingMode</c> in
+/// exactly zero places (decompiled tree, 0 hits), so there is nobody to fight for it.
+/// If that was the suppressor, the GAME opens its own doors again from this build on and
+/// <see cref="Watch.HideStuckLeaf"/> stops firing by itself, because it only fires on a leaf that
+/// has not moved. That is the outcome to look for; the stand-in is not to be extended.</para>
+///
 /// <para><b>NO GAME STATE IS WRITTEN.</b> <c>Animator.Play</c> and <c>Animator.speed</c> are
 /// presentation on this client's own copy of the door; the rules state is only read. MULTIPLAYER:
 /// every peer runs its own choreography against its own scene — nothing goes on the wire, and a
@@ -198,6 +242,87 @@ internal static class DoorOpenWatch
         public float NtFirst, NtLast;
         public int ClipCountMin, ClipCountMax;
         public bool Bound0, BoundLast, GraphValid0, GraphValidLast;
+        // ---- THE THREE-PHASE WRITE-WAR PROBE (ModBuild 428). The ModBuild 416/427 probe read
+        // every transform ONCE PER FRAME, from Update — i.e. BEFORE Unity's animation phase. A
+        // pose the animator writes after Update and a second writer puts back before the next
+        // Update is bit-identical in every one of those samples, so "not one transform changed"
+        // was never able to tell "the animator writes nothing" from "the animator writes and
+        // someone overwrites it". Three samples in the SAME frame separate them by phase:
+        // Update -> [Unity animation] -> LateUpdate -> [render] -> end of frame -> next Update.
+        /// <summary>Local TRS of every probe transform as read in <c>Update</c> this frame.</summary>
+        public readonly List<Vector3> PhaseUPos = new(32);
+        public readonly List<Quaternion> PhaseURot = new(32);
+        public readonly List<Vector3> PhaseUScale = new(32);
+        /// <summary>...as read in <c>LateUpdate</c>, i.e. AFTER the animation phase wrote.</summary>
+        public readonly List<Vector3> PhaseLPos = new(32);
+        public readonly List<Quaternion> PhaseLRot = new(32);
+        public readonly List<Vector3> PhaseLScale = new(32);
+        /// <summary>...as read at <c>WaitForEndOfFrame</c>, after rendering.</summary>
+        public readonly List<Vector3> PhaseEPos = new(32);
+        public readonly List<Quaternion> PhaseERot = new(32);
+        public readonly List<Vector3> PhaseEScale = new(32);
+        public bool HaveU, HaveL, HaveE;
+        /// <summary>Update -> LateUpdate: what the ANIMATION PHASE wrote.</summary>
+        public readonly PhaseDelta UL = new();
+        /// <summary>LateUpdate -> end of frame: what ran after every LateUpdate.</summary>
+        public readonly PhaseDelta LE = new();
+        /// <summary>End of frame -> the NEXT Update: what put the pose back between frames.</summary>
+        public readonly PhaseDelta EU = new();
+        public int PhaseFramesU, PhaseFramesL, PhaseFramesE;
+        // ---- the per-frame VISIBILITY census (ModBuild 428). cullingMode CullUpdateTransforms
+        // withholds the transform write while NONE of the animator's renderers is visible, and
+        // the state machine keeps advancing — the exact shape of this defect. ModBuild 426 read
+        // ONE renderer's isVisible at ONE instant, which settles nothing about the 0.87 s the
+        // clip runs.
+        public readonly List<Renderer> ProbeR = new(16);
+        public int VisMin, VisMax, VisZeroFrames, VisFrames;
+        // ---- THE BELT (ModBuild 428): AlwaysAnimate on the game's own door animator, and the
+        // value it replaced. Restored on a scenario change, on uninstall, when the animator
+        // instance is replaced and the moment the dial goes off.
+        /// <summary>EVERY animator the belt was written to under this door prop, with the
+        /// cullingMode each one had. Not just the one <c>MF.GetGameObjectAnimator</c> resolves: a
+        /// door prop root carries TWO animated subtrees — the Apparance-generated one under
+        /// <c>Generated Content</c> and the plain prefab clone <c>ApparanceLayer.Create</c>
+        /// parents in (decompiled ApparanceLayer.cs:72) — and <c>MF.GetGameObjectAnimator</c>
+        /// searches with <c>GetComponentsInChildren&lt;Animator&gt;()</c>, the overload that SKIPS
+        /// INACTIVE objects (decompiled MF.cs:135-146). Which of the two it returns therefore
+        /// changes with the room's visibility state, so belting only the one resolved right now
+        /// can arm the wrong subtree. Belting both costs one enum write each.</summary>
+        public readonly List<Animator> BeltOn = new(4);
+        public readonly List<AnimatorCullingMode> BeltMode0 = new(4);
+        /// <summary>Next time the prop is re-walked for animators (a subtree that was inactive at
+        /// the last walk can be active now — <c>ProceduralMapTile.ShowContent</c> deactivates the
+        /// whole <c>Generated Content</c> subtree while a room is in Preview visibility).</summary>
+        public float NextBeltScan;
+        /// <summary>How often the belt has been (re-)asserted on this door. A door whose content is
+        /// rebuilt in a loop would otherwise print a line per rebuild; only the first two print.</summary>
+        public int BeltWrites;
+    }
+
+    /// <summary>The largest per-frame move seen between two PHASES of the same frame, by metric,
+    /// with the index of the transform that produced it. Held per entry and reused, so the
+    /// per-frame path allocates nothing and the NAME is read once, at log time.</summary>
+    private sealed class PhaseDelta
+    {
+        public float PosMax, RotMax, ScaleMax;
+        public int PosIdx = -1, RotIdx = -1, ScaleIdx = -1;
+
+        public void Reset()
+        {
+            PosMax = RotMax = ScaleMax = 0f;
+            PosIdx = RotIdx = ScaleIdx = -1;
+        }
+
+        public void Feed(int i, float dpos, float drot, float dscale)
+        {
+            if (dpos > PosMax) { PosMax = dpos; PosIdx = i; }
+            if (drot > RotMax) { RotMax = drot; RotIdx = i; }
+            if (dscale > ScaleMax) { ScaleMax = dscale; ScaleIdx = i; }
+        }
+
+        /// <summary>The same thresholds the DOOR OPEN FRAMES reading has used since ModBuild 416:
+        /// a ten-thousandth of a world unit, or a hundredth of a degree.</summary>
+        public bool Moved => PosMax > 1e-4f || RotMax > 0.01f || ScaleMax > 1e-4f;
     }
 
     private sealed class Watch : MonoBehaviour
@@ -207,6 +332,13 @@ internal static class DoorOpenWatch
         private const float FirstSightGraceSeconds = 5f;
         private const float ReassertSpacingSeconds = 2f;
         private static readonly float[] SampleAt = { 1f, 3f, 8f };
+        /// <summary>Seconds between two belt scans of one door prop. It is not once-and-done
+        /// because a door's animated subtree can be INACTIVE when the room is in Preview
+        /// visibility (decompiled ProceduralMapTile.ShowContent) and because Apparance destroys
+        /// and re-instantiates placed content; two seconds is far inside the reaction time of a
+        /// door the player has to walk to, and ten doors cost ten GetComponentsInChildren every
+        /// two seconds.</summary>
+        private const float BeltScanSeconds = 2f;
         private static readonly int OpenHash = Animator.StringToHash("Open");
 
         private readonly List<UnityGameEditorDoorProp> _props = new(16);
@@ -231,6 +363,9 @@ internal static class DoorOpenWatch
         private readonly List<bool> _measureActiveA = new(64);
         private readonly List<bool> _measureMoved = new(64);
         private readonly List<AnimationClip> _clipScratch = new(8);
+        /// <summary>The belt's own animator scratch — the walk runs while nothing else is live,
+        /// but a shared list would still be a trap the day it does not.</summary>
+        private readonly List<Animator> _beltScratch = new(8);
         private readonly List<Material> _matScratch = new(8);
         private readonly HashSet<Transform> _movedSet = new();
         private readonly List<Renderer> _movableLeaves = new(16);
@@ -244,26 +379,76 @@ internal static class DoorOpenWatch
         private ScenarioState? _state;
         private float _nextTick;
         private System.Action? _tick;
+        private System.Action? _late;
+        private System.Action? _eof;
 
-        private void Awake() => _tick = Tick; // cached delegate — TickGuard hot-path contract
+        private void Awake()
+        {
+            // Cached delegates — TickGuard hot-path contract (a method group converted at the call
+            // site allocates a delegate every frame).
+            _tick = Tick;
+            _late = SampleLatePhase;
+            _eof = SampleEndOfFramePhase;
+        }
 
         private void OnDestroy()
         {
             try { RestoreAllHidden("watch destroyed"); }
             catch { /* scene teardown already took the renderers */ }
+            try { RestoreAllBelts("watch destroyed"); }
+            catch { /* the animators went with the scene */ }
         }
 
         private int _probing;
+        /// <summary>The end-of-frame pump is running (started when the first probe window opens,
+        /// stopped by itself when the last one closes).</summary>
+        private bool _pumping;
+        /// <summary>One instance for the life of the watch — <c>new WaitForEndOfFrame()</c> in a
+        /// yield allocates a managed object per frame otherwise.</summary>
+        private readonly WaitForEndOfFrame _endOfFrame = new();
 
         private void Update() => TickGuard.Run("Core.DoorOpenWatch", _tick!, Name);
+
+        /// <summary>The SECOND of the three phase samples: after Unity's animation phase, so this
+        /// is where an animator's transform write is visible for the first time. Runs only while a
+        /// probe window is open, which is ~1.5 s per door open and never otherwise.</summary>
+        private void LateUpdate()
+        {
+            if (_probing > 0)
+                TickGuard.Run("Core.DoorOpenWatch.Late", _late!, Name);
+        }
+
+        /// <summary>The THIRD phase sample, after the frame has rendered — the codebase's own
+        /// end-of-frame idiom (WorldUIModule.cs, InitiativeTrack.cs). It catches a writer that runs
+        /// after every LateUpdate (an onBeforeRender handler, another end-of-frame coroutine).
+        /// It stops itself the moment the last window closes, so nothing yields per frame while no
+        /// door is opening.</summary>
+        private System.Collections.IEnumerator PumpEndOfFrame()
+        {
+            while (_probing > 0)
+            {
+                yield return _endOfFrame;
+                if (_probing > 0)
+                    TickGuard.Run("Core.DoorOpenWatch.EndOfFrame", _eof!, Name);
+            }
+            _pumping = false;
+        }
 
         private void Tick()
         {
             if (!VRSession.IsRunning)
+            {
+                // VR went down mid-window. Nothing further will decrement _probing from here, and
+                // that counter is what holds the LateUpdate branch and the end-of-frame coroutine
+                // open — so close every window rather than leave a pump yielding for the rest of
+                // the process.
+                if (_probing > 0)
+                    CloseAllProbes();
                 return;
+            }
             float now = Time.unscaledTime;
             if (_probing > 0)
-                SampleFrameProbes(now); // every frame while a window is open — 0.6 s per open
+                SampleFrameProbes(now); // every frame while a window is open — ProbeSeconds per open
             if (now < _nextTick)
                 return;
             _nextTick = now + TickSeconds;
@@ -274,6 +459,9 @@ internal static class DoorOpenWatch
             if (!ReferenceEquals(state, _state))
             {
                 RestoreAllHidden("scenario changed"); // nothing we hid may outlive its scenario
+                RestoreAllBelts("scenario changed");  // ...and nothing we wrote on an animator either
+                foreach (KeyValuePair<int, Entry> kv in _entries)
+                    CloseProbeSilently(kv.Value); // ...and no probe window may outlive its entry
                 _entries.Clear(); // a new scenario: every door is a new door
                 _state = state;
             }
@@ -288,7 +476,14 @@ internal static class DoorOpenWatch
                     _deadScratch.Add(kv.Key);
             }
             foreach (int dead in _deadScratch)
+            {
+                if (_entries.TryGetValue(dead, out Entry gone))
+                {
+                    RestoreBelt(gone, "the door prop is gone"); // no-op once the animator died with it
+                    CloseProbeSilently(gone);
+                }
                 _entries.Remove(dead);
+            }
 
             foreach (UnityGameEditorDoorProp prop in _props)
             {
@@ -313,6 +508,13 @@ internal static class DoorOpenWatch
             }
             if (e.Door == null)
                 return;
+
+            // THE BELT MUST BE ON BEFORE THE OPEN, NOT AFTER IT, so it runs here — ahead of the
+            // rules read, for a CLOSED door as much as an open one. Unity decides whether to write
+            // an animator's transforms at the moment the clip runs, and a door is closed right up
+            // until the frame it is asked to open; arming only doors that are already open would
+            // arm every one of them exactly one clip too late.
+            ApplyBelt(e, now, force: false);
 
             bool open;
             try { open = e.Door.DoorIsOpen; }
@@ -343,6 +545,7 @@ internal static class DoorOpenWatch
                 e.SampleStage = 0;
                 e.NextSample = now + SampleAt[0];
                 ResolveAnimator(e, now, force: true);
+                ApplyBelt(e, now, force: true); // a rebuilt subtree must not wait out the cadence
                 CaptureLeaf(e);
                 ArmFrameProbe(e, now);
                 LogOpened(e, now);
@@ -355,7 +558,7 @@ internal static class DoorOpenWatch
                     e.WasOpen = false; // a scenario restart closes doors again — start over on the next open
                     RestoreHidden(e, "the door reads closed again");
                 }
-                return;
+                return; // the belt was already asserted above — it does not need an open door
             }
 
             // Open in the rules. Keep the picture in step with that.
@@ -1439,7 +1642,11 @@ internal static class DoorOpenWatch
 
         // ---------------------------------------------------------------- the per-frame probe
 
-        private const float ProbeSeconds = 0.6f;
+        /// <summary>MODBUILD 428: 0.6 s covered two thirds of the 0.87 s <c>Door_02_Open</c> clip,
+        /// so the window could close while the clip was still running and the phase deltas would
+        /// have been read off a partial open. 1.5 s covers the clip with room either side, and the
+        /// window is still one and a half seconds per door open in a whole scenario.</summary>
+        private const float ProbeSeconds = 1.5f;
 
         /// <summary>Open a 0.6 s per-frame window on the door's animator: the root-motion deltas it
         /// PRODUCES each frame against what EVERY transform under the animator actually DOES. The two
@@ -1486,7 +1693,72 @@ internal static class DoorOpenWatch
             e.ProbePos0.Clear();
             e.ProbeRot0.Clear();
             e.ProbeScale0.Clear();
+            // The three-phase state (ModBuild 428). Nothing is captured until the first Update
+            // sample; HaveU/HaveL/HaveE say which snapshots the comparison may read.
+            e.HaveU = e.HaveL = e.HaveE = false;
+            e.UL.Reset();
+            e.LE.Reset();
+            e.EU.Reset();
+            e.PhaseFramesU = e.PhaseFramesL = e.PhaseFramesE = 0;
+            e.PhaseUPos.Clear(); e.PhaseURot.Clear(); e.PhaseUScale.Clear();
+            e.PhaseLPos.Clear(); e.PhaseLRot.Clear(); e.PhaseLScale.Clear();
+            e.PhaseEPos.Clear(); e.PhaseERot.Clear(); e.PhaseEScale.Clear();
+            // The visibility census population — every renderer under the animator handle, the
+            // exact population Unity's CullUpdateTransforms asks about.
+            e.ProbeR.Clear();
+            try { a.GetComponentsInChildren(includeInactive: true, e.ProbeR); }
+            catch { e.ProbeR.Clear(); }
+            e.VisMin = int.MaxValue;
+            e.VisMax = 0;
+            e.VisZeroFrames = 0;
+            e.VisFrames = 0;
             _probing++;
+            if (!_pumping)
+            {
+                _pumping = true;
+                try { StartCoroutine(PumpEndOfFrame()); }
+                catch { _pumping = false; /* the watch is being torn down — two phases still read */ }
+            }
+        }
+
+        /// <summary>
+        /// Close an open probe window WITHOUT logging, because the entry it belongs to is going
+        /// away (a scenario change, a destroyed door prop).
+        /// <para>ModBuild 428, and it is a correctness fix rather than a tidy-up: <c>_probing</c>
+        /// was incremented by <see cref="ArmFrameProbe"/> and decremented ONLY by
+        /// <see cref="SampleFrameProbes"/>, so an entry dropped while its window was open leaked the
+        /// count for the rest of the session and the watch then ran its per-frame path over an empty
+        /// armed set forever. That was cheap and invisible when the counter only gated one loop; it
+        /// is neither now, because the same counter holds a <c>LateUpdate</c> and a
+        /// <c>WaitForEndOfFrame</c> coroutine open.</para>
+        /// </summary>
+        private void CloseAllProbes()
+        {
+            foreach (KeyValuePair<int, Entry> kv in _entries)
+            {
+                try { CloseProbeSilently(kv.Value); }
+                catch { /* one entry's teardown may not stop the rest */ }
+            }
+            _probing = 0;
+        }
+
+        private void CloseProbeSilently(Entry e)
+        {
+            if (!e.ProbeArmed)
+                return;
+            e.ProbeArmed = false;
+            _probing--;
+            if (_probing < 0)
+                _probing = 0; // belt and braces: the pump must be able to stop
+            e.ProbeT.Clear();
+            e.ProbePos0.Clear();
+            e.ProbeRot0.Clear();
+            e.ProbeScale0.Clear();
+            e.ProbeR.Clear();
+            e.PhaseUPos.Clear(); e.PhaseURot.Clear(); e.PhaseUScale.Clear();
+            e.PhaseLPos.Clear(); e.PhaseLRot.Clear(); e.PhaseLScale.Clear();
+            e.PhaseEPos.Clear(); e.PhaseERot.Clear(); e.PhaseEScale.Clear();
+            e.HaveU = e.HaveL = e.HaveE = false;
         }
 
         private void SampleFrameProbes(float now)
@@ -1502,12 +1774,18 @@ internal static class DoorOpenWatch
                     e.ProbeArmed = false;
                     _probing--;
                     LogOpenFrames(e, a == null);
+                    LogOpenPhases(e, a == null);
                     // Drop the subtree references: the window is closed and a door's content is
                     // destroyed and re-instantiated freely by Apparance.
                     e.ProbeT.Clear();
                     e.ProbePos0.Clear();
                     e.ProbeRot0.Clear();
                     e.ProbeScale0.Clear();
+                    e.ProbeR.Clear();
+                    e.PhaseUPos.Clear(); e.PhaseURot.Clear(); e.PhaseUScale.Clear();
+                    e.PhaseLPos.Clear(); e.PhaseLRot.Clear(); e.PhaseLScale.Clear();
+                    e.PhaseEPos.Clear(); e.PhaseERot.Clear(); e.PhaseEScale.Clear();
+                    e.HaveU = e.HaveL = e.HaveE = false;
                     continue;
                 }
                 try
@@ -1566,9 +1844,126 @@ internal static class DoorOpenWatch
                     if (cc > e.ClipCountMax) e.ClipCountMax = cc;
                     e.BoundLast = a.hasBoundPlayables;
                     e.GraphValidLast = a.playableGraph.IsValid();
+                    // ---- PHASE 1 of 3 (ModBuild 428): Update, BEFORE Unity's animation phase.
+                    // First close the previous frame's end-of-frame -> Update pair: that interval
+                    // contains no animation write at all, so anything moving across it is a
+                    // between-frames writer putting the pose back.
+                    if (e.HaveE)
+                        FeedPhase(e, e.EU, e.PhaseEPos, e.PhaseERot, e.PhaseEScale);
+                    CapturePhase(e, e.PhaseUPos, e.PhaseURot, e.PhaseUScale);
+                    e.HaveU = true;
+                    e.HaveL = false;
+                    e.HaveE = false;
+                    e.PhaseFramesU++;
+                    // The visibility census, once per frame. isVisible reports the LAST completed
+                    // culling pass, so this reads the frame before — which is exactly the value
+                    // Unity's own CullUpdateTransforms decision was taken on.
+                    CountVisible(e);
                 }
                 catch { /* a frame the animator was mid-rebuild — the window keeps sampling */ }
             }
+        }
+
+        /// <summary>PHASE 2 of 3: after Unity's animation phase. Everything the animator wrote
+        /// this frame is visible here for the first time, and nothing has yet had a chance to put
+        /// it back — so <c>Entry.UL</c> IS the animator's write, measured directly.</summary>
+        private void SampleLatePhase()
+        {
+            foreach (KeyValuePair<int, Entry> kv in _entries)
+            {
+                Entry e = kv.Value;
+                if (!e.ProbeArmed || !e.HaveU)
+                    continue;
+                try
+                {
+                    FeedPhase(e, e.UL, e.PhaseUPos, e.PhaseURot, e.PhaseUScale);
+                    CapturePhase(e, e.PhaseLPos, e.PhaseLRot, e.PhaseLScale);
+                    e.HaveL = true;
+                    e.PhaseFramesL++;
+                }
+                catch { /* mid-rebuild subtree — the next frame samples again */ }
+            }
+        }
+
+        /// <summary>PHASE 3 of 3: after the frame rendered. What moved between LateUpdate and here
+        /// ran after every LateUpdate in the process — an onBeforeRender handler or another
+        /// end-of-frame coroutine.</summary>
+        private void SampleEndOfFramePhase()
+        {
+            foreach (KeyValuePair<int, Entry> kv in _entries)
+            {
+                Entry e = kv.Value;
+                if (!e.ProbeArmed || !e.HaveL)
+                    continue;
+                try
+                {
+                    FeedPhase(e, e.LE, e.PhaseLPos, e.PhaseLRot, e.PhaseLScale);
+                    CapturePhase(e, e.PhaseEPos, e.PhaseERot, e.PhaseEScale);
+                    e.HaveE = true;
+                    e.PhaseFramesE++;
+                }
+                catch { /* as above */ }
+            }
+        }
+
+        /// <summary>Every probe transform's CURRENT local TRS against the snapshot in
+        /// <paramref name="pos"/>/<paramref name="rot"/>/<paramref name="scale"/>, folded into
+        /// <paramref name="d"/>. Allocation-free: the worst mover is kept by INDEX and its name is
+        /// read once, at log time.</summary>
+        private static void FeedPhase(Entry e, PhaseDelta d,
+                                      List<Vector3> pos, List<Quaternion> rot, List<Vector3> scale)
+        {
+            int n = e.ProbeT.Count;
+            if (pos.Count < n) n = pos.Count;
+            if (rot.Count < n) n = rot.Count;
+            if (scale.Count < n) n = scale.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Transform t = e.ProbeT[i];
+                if (t == null)
+                    continue;
+                d.Feed(i,
+                       (t.localPosition - pos[i]).magnitude,
+                       Quaternion.Angle(t.localRotation, rot[i]),
+                       (t.localScale - scale[i]).magnitude);
+            }
+        }
+
+        /// <summary>Snapshot every probe transform's local TRS into the three lists. Clear+Add
+        /// keeps the capacity the arm reserved, so this allocates nothing after the first frame.</summary>
+        private static void CapturePhase(Entry e,
+                                         List<Vector3> pos, List<Quaternion> rot, List<Vector3> scale)
+        {
+            pos.Clear();
+            rot.Clear();
+            scale.Clear();
+            for (int i = 0; i < e.ProbeT.Count; i++)
+            {
+                Transform t = e.ProbeT[i];
+                bool live = t != null;
+                pos.Add(live ? t!.localPosition : Vector3.zero);
+                rot.Add(live ? t!.localRotation : Quaternion.identity);
+                scale.Add(live ? t!.localScale : Vector3.one);
+            }
+        }
+
+        /// <summary>How many renderers under the animator handle report <c>isVisible</c> this
+        /// frame. Unity withholds an animator's TRANSFORM WRITE while that count is zero and its
+        /// cullingMode is CullUpdateTransforms — the state machine keeps advancing either way,
+        /// which is exactly what the ModBuild 426 log shows.</summary>
+        private static void CountVisible(Entry e)
+        {
+            int visible = 0;
+            for (int i = 0; i < e.ProbeR.Count; i++)
+            {
+                Renderer r = e.ProbeR[i];
+                if (r != null && r.isVisible)
+                    visible++;
+            }
+            e.VisFrames++;
+            if (visible < e.VisMin) e.VisMin = visible;
+            if (visible > e.VisMax) e.VisMax = visible;
+            if (visible == 0) e.VisZeroFrames++;
         }
 
         private void LogOpenFrames(Entry e, bool animatorLost)
@@ -1596,7 +1991,18 @@ internal static class DoorOpenWatch
                .Append("; hasBoundPlayables ").Append(e.Bound0).Append(" -> ").Append(e.BoundLast)
                .Append("; playableGraph valid ").Append(e.GraphValid0).Append(" -> ").Append(e.GraphValidLast)
                .Append("; clipInfoCount ").Append(e.ClipCountMin == int.MaxValue ? "n/a" : e.ClipCountMin.ToString())
-               .Append("..").Append(e.ClipCountMax).Append(". READING: ");
+               .Append("..").Append(e.ClipCountMax)
+               // ModBuild 428, APPENDED (the token above is unchanged): Unity's ONLY built-in
+               // transform-write suppression is cullingMode CullUpdateTransforms while NONE of the
+               // animator's renderers is visible. ModBuild 426 read one renderer at one instant.
+               .Append("; renderers under the handle ").Append(e.ProbeR.Count)
+               .Append(", isVisible per frame min ")
+               .Append(e.VisMin == int.MaxValue ? "n/a" : e.VisMin.ToString())
+               .Append(" max ").Append(e.VisMax).Append(", frames with ZERO visible ")
+               .Append(e.VisZeroFrames).Append(" of ").Append(e.VisFrames)
+               .Append("; cullingMode ").Append(CullingModeOf(e))
+               .Append(", belt ").Append(BeltEnabled ? "ON" : "OFF")
+               .Append(". READING: ");
             bool produced = e.DeltaPosMax > 1e-4f || e.DeltaRotMax > 0.01f;
             bool rootMoved = e.RootPosDevMax > 1e-4f || e.RootRotDevMax > 0.01f || e.RootScaleDevMax > 1e-4f;
             bool leafMoved = e.AnyPosDevMax > 1e-4f || e.AnyRotDevMax > 0.01f || e.AnyScaleDevMax > 1e-4f;
@@ -1618,9 +2024,116 @@ internal static class DoorOpenWatch
                          + "watched while claiming the same thing. So the clip binds NOTHING on this hierarchy (a "
                          + "path it expects that this placement does not have, or curves on properties this probe "
                          + "does not read: material or enabled curves were already ruled out by the sample's "
-                         + "material dump). DOOR OPEN CLIP SAMPLE decides that last ambiguity directly.");
+                         + "material dump). DOOR OPEN CLIP SAMPLE decides that last ambiguity directly.")
+                   // ModBuild 428, APPENDED to the sentence above: this whole line is sampled from
+                   // Update, i.e. BEFORE Unity's animation phase, so a pose the animator writes and
+                   // a second writer puts back before the next Update is bit-identical in every
+                   // sample it takes. That is now measured separately — see DOOR OPEN PHASES.
+                   .Append(" NOTE: every sample above is taken in Update, BEFORE the animation "
+                         + "phase, so this cannot see a write that is undone before the next frame. "
+                         + "DOOR OPEN PHASES measures that, and the isVisible census on this line "
+                         + "says whether cullingMode CullUpdateTransforms could have withheld the "
+                         + "write at all.");
             // HW-VERIFY: the one line that decides 'produced and discarded' vs 'binds nothing'.
             VRLog.Note(Name, _sb.ToString());
+        }
+
+        /// <summary>
+        /// THE THREE-PHASE WRITE-WAR LINE (ModBuild 428) — the one instrument that can tell
+        /// "the animator writes nothing" from "the animator writes and someone overwrites it",
+        /// which every probe before it read from a single Update-phase sample and therefore could
+        /// not. The frame is Update -> [Unity animation] -> LateUpdate -> [render] -> end of frame,
+        /// so <c>Update -> LateUpdate</c> IS the animation phase's own write, in isolation.
+        /// </summary>
+        private void LogOpenPhases(Entry e, bool animatorLost)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR OPEN PHASES '").Append(e.RootName).Append("': ").Append(e.ProbeCovered)
+               .Append(" transform(s) under the animator read THREE times in the SAME frame over "
+                     + "the first ").Append(ProbeSeconds.ToString("0.0")).Append(" s after the flip")
+               .Append(animatorLost ? " (animator LOST mid-window)" : "")
+               .Append(" — Update (before Unity's animation phase) / LateUpdate (after it) / end of "
+                     + "frame (after rendering); frames sampled U ").Append(e.PhaseFramesU)
+               .Append(", L ").Append(e.PhaseFramesL).Append(", E ").Append(e.PhaseFramesE)
+               .Append(". Update->LateUpdate (THE ANIMATION PHASE'S OWN WRITE): ");
+            AppendPhase(e, e.UL);
+            _sb.Append("; LateUpdate->end of frame (a writer after every LateUpdate): ");
+            AppendPhase(e, e.LE);
+            _sb.Append("; end of frame->next Update (a writer between frames): ");
+            AppendPhase(e, e.EU);
+            _sb.Append("; and the Update-phase drift across the WHOLE window (does it STAY): pos ")
+               .Append(e.AnyPosDevMax.ToString("0.0000")).Append(" wu, rot ")
+               .Append(e.AnyRotDevMax.ToString("0.00")).Append(" deg, scale ")
+               .Append(e.AnyScaleDevMax.ToString("0.0000"))
+               .Append(". READING: ");
+
+            bool stays = e.AnyPosDevMax > 1e-4f || e.AnyRotDevMax > 0.01f || e.AnyScaleDevMax > 1e-4f;
+            if (e.PhaseFramesL == 0 || e.PhaseFramesE == 0)
+            {
+                _sb.Append("INCONCLUSIVE — one of the three phase samples never ran (L ")
+                   .Append(e.PhaseFramesL).Append(", E ").Append(e.PhaseFramesE)
+                   .Append("). LateUpdate is a Unity message on this watch and end of frame is a "
+                         + "WaitForEndOfFrame coroutine on it; a zero for either means the watch was "
+                         + "disabled or the coroutine never resumed, NOT that the door held still. "
+                         + "Nothing below this point may be read off this window.");
+            }
+            else if (e.UL.Moved && !stays)
+            {
+                _sb.Append("THE ANIMATOR WRITES AND SOMEONE OVERWRITES IT — the animation phase moved '")
+                   .Append(ProbeNameAt(e, e.UL.PosIdx >= 0 ? e.UL.PosIdx : e.UL.RotIdx))
+                   .Append("' by ").Append(e.UL.PosMax.ToString("0.0000")).Append(" wu / ")
+                   .Append(e.UL.RotMax.ToString("0.00"))
+                   .Append(" deg every frame and the pose was back at the Update value by the next "
+                         + "frame, so the clip binds fine and the door is losing a WRITE WAR. The "
+                         + "interval that put it back is named above: a bigger LateUpdate->end-of-frame "
+                         + "number means an onBeforeRender or end-of-frame writer, a bigger "
+                         + "end-of-frame->next-Update number means a writer between frames "
+                         + "(a coroutine, a FixedUpdate, or an early Update). Hunt the writer on '")
+                   .Append(ProbeNameAt(e, e.UL.PosIdx >= 0 ? e.UL.PosIdx : e.UL.RotIdx))
+                   .Append("' — the mod's own audit found no per-frame writer that can reach a "
+                         + "scenario door, so this would name the GAME's.");
+            }
+            else if (e.UL.Moved)
+            {
+                _sb.Append("THE DOOR IS ANIMATING AND THE MOVE STAYS — the animation phase writes and "
+                         + "nothing takes it back. The clip binds, the vanilla open is working, and "
+                         + "the mod's HideStuckLeaf stand-in must stop firing on this door (it only "
+                         + "fires on a leaf that has not moved). If the leaf still LOOKS wrong from "
+                         + "here it is a pose question, not a binding question.");
+            }
+            else if (e.LE.Moved || e.EU.Moved)
+            {
+                _sb.Append("THE ANIMATION PHASE WROTE NOTHING, BUT SOMETHING ELSE MOVED THE DOOR — "
+                         + "the animator is not the mover this window saw. Name the phase above and "
+                         + "the transform with it; the animator itself is still unexplained and "
+                         + "DOOR OPEN CLIP SAMPLE decides whether its clip binds at all.");
+            }
+            else
+            {
+                _sb.Append("THE ANIMATOR NEVER WRITES — nothing moved in ANY of the three phases, so "
+                         + "there is no write for anyone to undo and this is NOT a write war. That "
+                         + "leaves two causes and this build separates them: either the clip binds "
+                         + "nothing on this hierarchy (DOOR OPEN CLIP SAMPLE runs the clip against "
+                         + "the live objects and says so directly), or Unity withheld the write — "
+                         + "which requires cullingMode CullUpdateTransforms AND zero visible "
+                         + "renderers, both printed on the DOOR OPEN FRAMES line beside this one. "
+                         + "If that line says 'frames with ZERO visible' is 0 and cullingMode is "
+                         + "AlwaysAnimate, the culling explanation is dead and only the binding is "
+                         + "left.");
+            }
+            // HW-VERIFY: this is the line that decides family (A) 'binds nothing' against family
+            // (B) 'the write is undone' — the whole point of the round.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
+        /// <summary>One phase pair's three maxima and the transform that produced each.</summary>
+        private void AppendPhase(Entry e, PhaseDelta d)
+        {
+            _sb.Append("pos ").Append(d.PosMax.ToString("0.0000")).Append(" wu on '")
+               .Append(ProbeNameAt(e, d.PosIdx)).Append("', rot ").Append(d.RotMax.ToString("0.00"))
+               .Append(" deg on '").Append(ProbeNameAt(e, d.RotIdx)).Append("', scale ")
+               .Append(d.ScaleMax.ToString("0.0000")).Append(" on '")
+               .Append(ProbeNameAt(e, d.ScaleIdx)).Append('\'');
         }
 
         /// <summary>The name of the probe transform at <paramref name="idx"/>, read only when the
@@ -1696,6 +2209,187 @@ internal static class DoorOpenWatch
             e.Animator = a;
         }
 
+        // ---------------------------------------------------------------- THE BELT (ModBuild 428)
+
+        /// <summary>
+        /// <c>[Compat] DoorAnimateOffscreen</c> — read live, so the belt can be A/B'd inside one
+        /// session. The entry is bound in Plugin.cs; a null read (a config file that has not been
+        /// created yet) falls back to the SHIPPED default rather than to <c>false</c>, because the
+        /// default IS the fix.
+        /// </summary>
+        private static bool BeltEnabled
+        {
+            get
+            {
+                try { return Plugin.DoorAnimateOffscreen?.Value ?? Defaults.DoorAnimateOffscreen; }
+                catch { return Defaults.DoorAnimateOffscreen; }
+            }
+        }
+
+        /// <summary>
+        /// PUT THE VANILLA ASSUMPTION BACK. The game's whole door-open behaviour is one call —
+        /// <c>Choreographer.OpenDoor</c> plays the state "Open" on the door's animator and does
+        /// nothing else (decompiled Choreographer.cs:13305). Unity's default for a placed prop
+        /// animator is <c>AnimatorCullingMode.CullUpdateTransforms</c>: the state machine keeps
+        /// advancing while none of that animator's renderers is visible, and the TRANSFORM WRITE is
+        /// withheld. That is the only transform-write suppression Unity has, and it is the exact
+        /// shape of this defect (state "Open" at normalizedTime 9.28 with every transform unmoved,
+        /// ModBuild 426 log). The flat game never met it: a top-down camera holding the whole room
+        /// has the door on screen whenever it opens. A first-person camera standing IN the room
+        /// does not, so this is a VR-only condition the authors never had to consider.
+        /// <para>What is written and what is owed back: one enum per door animator, every replaced
+        /// value remembered on the entry, and every one of them put back when the dial goes off, on
+        /// a scenario change, when the door prop dies and on uninstall. A row whose animator has
+        /// been destroyed under us (Apparance re-instantiates placed content freely) is pruned —
+        /// nothing is owed to an object that is gone. Nothing else is touched. MP-safe: every peer
+        /// animates its own copy of its own scene, nothing goes on the wire.</para>
+        /// </summary>
+        private void ApplyBelt(Entry e, float now, bool force)
+        {
+            if (!BeltEnabled)
+            {
+                if (e.BeltOn.Count > 0)
+                    RestoreBelt(e, "the belt was switched off");
+                return;
+            }
+            if (!force && now < e.NextBeltScan)
+                return;
+            e.NextBeltScan = now + BeltScanSeconds;
+            if (e.Prop == null)
+                return;
+            _beltScratch.Clear();
+            try { e.Prop.GetComponentsInChildren(includeInactive: true, _beltScratch); }
+            catch { return; } // a subtree mid-teardown — the next scan tries again
+            for (int i = 0; i < _beltScratch.Count; i++)
+            {
+                Animator a = _beltScratch[i];
+                if (a == null || a.runtimeAnimatorController == null)
+                    continue; // MF.GetGameObjectAnimator's own test: an animator with no controller
+                if (IndexOfBelt(e, a) >= 0)
+                    continue; // already asserted on THIS instance
+                AnimatorCullingMode before;
+                try { before = a.cullingMode; }
+                catch { continue; } // a dying animator — the next scan tries again
+                if (before != AnimatorCullingMode.AlwaysAnimate)
+                {
+                    try { a.cullingMode = AnimatorCullingMode.AlwaysAnimate; }
+                    catch { continue; }
+                }
+                e.BeltOn.Add(a);
+                e.BeltMode0.Add(before);
+                e.BeltWrites++;
+                // A door whose content is rebuilt in a loop would otherwise print a line per
+                // rebuild. The first two print; the rest are counted on the line's assert number.
+                if (e.BeltWrites <= 2)
+                    LogBelt(e, a, before);
+            }
+            _beltScratch.Clear();
+            PruneDeadBelts(e);
+        }
+
+        /// <summary>Where <paramref name="a"/> sits in the belt ledger, or -1. A linear walk over
+        /// at most a handful of animators per door, and it runs at the scan cadence, not per frame.</summary>
+        private static int IndexOfBelt(Entry e, Animator a)
+        {
+            for (int i = 0; i < e.BeltOn.Count; i++)
+            {
+                if (ReferenceEquals(e.BeltOn[i], a))
+                    return i;
+            }
+            return -1;
+        }
+
+        /// <summary>Drop ledger rows whose animator has been destroyed (Apparance destroys and
+        /// re-instantiates a door's content freely). Nothing is owed to an object that is gone, and
+        /// the row would otherwise keep the entry growing for the life of the scenario.</summary>
+        private static void PruneDeadBelts(Entry e)
+        {
+            for (int i = e.BeltOn.Count - 1; i >= 0; i--)
+            {
+                if (e.BeltOn[i] == null)
+                {
+                    e.BeltOn.RemoveAt(i);
+                    e.BeltMode0.RemoveAt(i);
+                }
+            }
+        }
+
+        /// <summary>Give every belted animator back the cullingMode it had. Safe on a destroyed
+        /// animator, on a door that never got the belt, and called twice.</summary>
+        private void RestoreBelt(Entry e, string why)
+        {
+            int restored = 0;
+            for (int i = 0; i < e.BeltOn.Count; i++)
+            {
+                Animator a = e.BeltOn[i];
+                if (a == null)
+                    continue;
+                try { a.cullingMode = e.BeltMode0[i]; restored++; }
+                catch { /* the animator went with its scene — nothing is owed */ }
+            }
+            e.BeltOn.Clear();
+            e.BeltMode0.Clear();
+            if (restored > 0)
+            {
+                VRLog.Info(Name, $"DoorOpenWatch: gave {restored} animator(s) under '{e.RootName}' "
+                                 + $"their authored cullingMode back ({why}).");
+            }
+        }
+
+        private void RestoreAllBelts(string why)
+        {
+            foreach (KeyValuePair<int, Entry> kv in _entries)
+            {
+                try { RestoreBelt(kv.Value, why); }
+                catch { /* one door's teardown may not stop the rest */ }
+            }
+        }
+
+        /// <summary>The live cullingMode of the door's animator, for the DOOR OPEN FRAMES line —
+        /// the value that decides whether Unity's suppression could have applied at all.</summary>
+        private static string CullingModeOf(Entry e)
+        {
+            Animator? a = e.Animator;
+            if (a == null)
+                return "no animator";
+            try { return a.cullingMode.ToString(); }
+            catch { return "?"; }
+        }
+
+        private void LogBelt(Entry e, Animator a, AnimatorCullingMode before)
+        {
+            _sb.Clear();
+            _sb.Append("DOOR ANIMATE OFFSCREEN '").Append(e.RootName).Append("': animator '")
+               .Append(PathUnder(a.transform, e.Prop != null ? e.Prop.transform : a.transform))
+               .Append("' (controller '").Append(ControllerName(a)).Append("', active ")
+               .Append(a.gameObject.activeInHierarchy).Append(", resolved-by-MF ")
+               .Append(ReferenceEquals(a, e.Animator))
+               .Append(") cullingMode ").Append(before).Append(" -> ")
+               .Append(a.cullingMode).Append(" — assert #").Append(e.BeltWrites)
+               .Append(" on this door, ").Append(e.BeltOn.Count)
+               .Append(" animator(s) belted here so far. WHY: the game opens a door with ONE call, "
+                     + "MF.GameObjectAnimatorPlay(door, \"Open\"), and Unity's "
+                     + "CullUpdateTransforms withholds an animator's TRANSFORM WRITE while none of "
+                     + "its renderers is visible while still advancing the state machine — which is "
+                     + "the picture the ModBuild 426 log shows (state 'Open' at normalizedTime 9.28, "
+                     + "not one transform moved). The game itself manufactures the precondition: it "
+                     + "disables every renderer under a door prop until the room is revealed "
+                     + "(decompiled UnityGameEditorRuntime.cs:811-818 and ApparanceLayer.cs:74-81) "
+                     + "and it never writes cullingMode anywhere, so whatever each door prefab was "
+                     + "serialised with is what runs. The flat game's top-down camera never produced "
+                     + "the off-camera half of that condition; a first-person VR camera produces it "
+                     + "constantly. EVERY animator with a controller under the prop is belted, not "
+                     + "just the one MF resolves: a door prop carries two animated subtrees and MF "
+                     + "searches with the overload that skips INACTIVE ones, so which one it returns "
+                     + "moves with the room's visibility. If this is the cause, the game opens its "
+                     + "own doors from this build on and the mod's HideStuckLeaf stand-in stops "
+                     + "firing by itself. Every replaced value is restored on a scenario change and "
+                     + "on uninstall; [Compat] DoorAnimateOffscreen turns it off live.");
+            // HW-VERIFY: the candidate FIX's own line — a build where this never prints has not
+            // tested the belt, whatever the door did.
+            VRLog.Note(Name, _sb.ToString());
+        }
+
         private void CaptureLeaf(Entry e)
         {
             e.LeafIds.Clear();
@@ -1742,6 +2436,7 @@ internal static class DoorOpenWatch
                + "(CObjectDoor.DoorIsOpen, read-only — a regular 'Tür öffnen' and a cheat's "
                + "ForceActivate both land here). ");
             AppendAnimator(e, now);
+            AppendAnimatorCensus(e);
             AppendLeafCensus(e, "leaf renderers under the game's own animator handle at the flip");
             _sb.Append(" Samples follow at +1 s, +3 s and +8 s; the +8 s line's 'still enabled' must "
                      + "read 0 once the game's 'Open' has hidden the leaf. If it reads the full count "
@@ -1878,6 +2573,56 @@ internal static class DoorOpenWatch
                .Append("; 'Open' observed on this instance: ").Append(e.ObservedOpen)
                .Append("; re-asserts ").Append(e.Reasserts).Append(", unlatches ").Append(e.Unlatched)
                .Append("; ").Append((now - e.OpenedAt).ToString("0.0")).Append(" s since the open. ");
+        }
+
+        /// <summary>
+        /// EVERY animator with a controller under the door prop, not just the one the game's own
+        /// resolver returns (ModBuild 428). The prop root carries TWO animated subtrees — the
+        /// Apparance-generated content under <c>Generated Content</c>, and the door prefab clone
+        /// <c>ApparanceLayer.Create</c> parents into it (decompiled ApparanceLayer.cs:72) — and
+        /// <c>MF.GetGameObjectAnimator</c> takes the FIRST hit from
+        /// <c>GetComponentsInChildren&lt;Animator&gt;()</c>, the overload that SKIPS INACTIVE
+        /// objects (decompiled MF.cs:135-146). The whole <c>Generated Content</c> subtree is
+        /// deactivated while a room is in Preview visibility, so which animator the game plays
+        /// "Open" on can differ between two calls in the same scenario. Every line this watch has
+        /// printed so far named ONE animator and never said which of the two it was.
+        /// </summary>
+        private void AppendAnimatorCensus(Entry e)
+        {
+            if (e.Prop == null)
+            {
+                _sb.Append("Animator census: the door prop is gone. ");
+                return;
+            }
+            _beltScratch.Clear();
+            try { e.Prop.GetComponentsInChildren(includeInactive: true, _beltScratch); }
+            catch { _beltScratch.Clear(); }
+            int withController = 0;
+            for (int i = 0; i < _beltScratch.Count; i++)
+            {
+                Animator x = _beltScratch[i];
+                if (x != null && x.runtimeAnimatorController != null)
+                    withController++;
+            }
+            _sb.Append("Animator census under the prop: ").Append(_beltScratch.Count)
+               .Append(" animator(s), ").Append(withController).Append(" with a controller");
+            for (int i = 0; i < _beltScratch.Count; i++)
+            {
+                Animator x = _beltScratch[i];
+                if (x == null || x.runtimeAnimatorController == null)
+                    continue;
+                _sb.Append(" | '").Append(PathUnder(x.transform, e.Prop.transform))
+                   .Append("' controller '").Append(ControllerName(x)).Append("', active ")
+                   .Append(x.gameObject.activeInHierarchy).Append(", enabled ").Append(x.enabled)
+                   .Append(", cullingMode ").Append(x.cullingMode)
+                   .Append(ReferenceEquals(x, e.Animator) ? ", THE ONE MF RESOLVES" : "")
+                   .Append(IndexOfBelt(e, x) >= 0 ? ", belted" : ", NOT belted");
+            }
+            _beltScratch.Clear();
+            _sb.Append(". READING: more than one 'with a controller' means the game's own resolver "
+                     + "is choosing between two door subtrees, and it uses the search that skips "
+                     + "INACTIVE objects — so an entry here reading active False is an animator the "
+                     + "game cannot see right now and could start playing 'Open' on later. ");
         }
 
         private void AppendLeafCensus(Entry e, string what)
