@@ -113,6 +113,29 @@ internal static class RemoteMapStory
 
     private const float NoteThrottleSeconds = 5f;
 
+    /// <summary>
+    /// How many consecutive FRAMES the GAME must have said this client's map story window is CLOSED
+    /// before the FINISHED bit goes on the wire.
+    ///
+    /// <para>The bound exists because <c>UIWindow.IsOpen</c> has been observed to drop for a SINGLE
+    /// TICK and come back - <c>WorldUI.StoryComposite.StoryWindow</c> records the ModBuild 232 log
+    /// where it did exactly that while the mod's float stood throughout. A one-tick dropout must not
+    /// publish "everybody skip to the end".</para>
+    ///
+    /// <para><b>FRAMES AND NOT SECONDS, and the difference is load-bearing.</b> The cost of this
+    /// bound is not paid by the flap it catches, it is paid by a message CHAIN:
+    /// <c>MapStoryController.OnFinishShow -> ShowNext</c> can open the next message shortly after
+    /// closing this one, and while the window is open again this client publishes the NEW key - so
+    /// any FINISHED for the old one that has not left yet never leaves at all, and a peer still
+    /// holding the old message is stranded exactly as before. Two frames (~22 ms at 90 Hz) kills
+    /// the one-tick dropout and leaves the send edge - which pre-empts the 5 Hz gate - essentially
+    /// the whole inter-message gap to travel in. A quarter-second bound would have spent most of
+    /// that gap on the guard. THE RESIDUAL IS STATED AND NOT HIDDEN: a chain that re-opens within
+    /// ~2 frames plus one send opportunity would still strand a peer, and the MAP STORY CLOSE line
+    /// is what would show it (a close line on one client with no APPLIED line on the other).</para>
+    /// </summary>
+    private const int StoryClosedSettleFrames = 2;
+
     // ---- per-peer state ----------------------------------------------------------------------
 
     private readonly struct PeerEntry
@@ -266,6 +289,41 @@ internal static class RemoteMapStory
     private static bool _sentQuestOpen;
     private static bool _sentEncounterOpen;
 
+    /// <summary>THE GAME'S OWN VERDICT ON THE MAP STORY WINDOW, LAST TICK - <c>UIWindow.IsOpen</c>
+    /// and nothing else, so the falling edge read off it is the game running <c>Hide()</c> and never
+    /// this mod re-showing something of its own.</summary>
+    private static bool _storyGameOpenLast;
+
+    /// <summary>The frame the GAME's <c>IsOpen</c> last went false for the map story window, or -1
+    /// while it is open. The settle clock for <see cref="StoryClosedSettleFrames"/>; the -1 is
+    /// tested BEFORE the subtraction, because a sentinel inside an arithmetic comparison is how
+    /// [[sentinel-overflow-and-silent-scans]] happened.</summary>
+    private static int _storyGameClosedFrame = -1;
+
+    /// <summary>Unscaled time this client's map story box was last closed BY THE GAME, or -1 when no
+    /// map story has closed this session. The ORIGIN the <c>ENCOUNTER ARRIVAL</c> line measures
+    /// from - see <see cref="NoteEncounterArrival"/> for why an origin and not a timestamp.</summary>
+    private static float _storyClosedAt = -1f;
+
+    /// <summary>Who closed it: this player's own click, or a peer's FINISHED record driven through
+    /// <see cref="ResolveStoryPage"/>. Prose, printed verbatim.</summary>
+    private static string _storyClosedWhy = "no map story has closed on this client";
+
+    /// <summary>The message key that close belonged to - printed beside the encounter's own key so
+    /// a reader can confirm both clients measured their arrival from the SAME origin before
+    /// subtracting one number from the other.</summary>
+    private static uint _storyClosedKey;
+
+    /// <summary>Unscaled time <see cref="ResolveStoryPage"/> last drove the TERMINAL page here, and
+    /// the peer whose record asked for it - the attribution for <see cref="_storyClosedWhy"/>. A
+    /// TIME and not a latch, so it cannot outlive its own subject.</summary>
+    private static float _storyTerminalDriveAt = -1f;
+    private static int _storyTerminalDrivePeer;
+
+    /// <summary>The encounter identity the <c>ENCOUNTER ARRIVAL</c> line has already been printed
+    /// for, so one encounter produces one line per client and never one per packet.</summary>
+    private static uint _encounterNotedKey;
+
     private static string _lastNote = string.Empty;
     private static float _nextNoteAt;
 
@@ -373,6 +431,14 @@ internal static class RemoteMapStory
         _sharedVerdictKey = string.Empty;
         _sharedNextHeartbeatAt = 0f;
         _sharedHeartbeats = 0;
+        _storyGameOpenLast = false;
+        _storyGameClosedFrame = -1;
+        _storyClosedAt = -1f;
+        _storyClosedWhy = "no map story has closed on this client";
+        _storyClosedKey = 0u;
+        _storyTerminalDriveAt = -1f;
+        _storyTerminalDrivePeer = 0;
+        _encounterNotedKey = 0u;
     }
 
     /// <summary>
@@ -398,8 +464,13 @@ internal static class RemoteMapStory
                 return false;
             UICharacterStoryBox? box = MapBox();
             int page = box != null ? box.currentDialogIndex : int.MinValue;
-            bool finished = box == null && StoryLocal.Key != 0u
-                            && Time.unscaledTime < StoryLocal.FinishedUntil;
+            // ModBuild 449 - THE SAME TWO-BRANCH TEST Sample() uses, and it has to be the same or
+            // the edge would not pre-empt: the box being GONE is one way this client has clicked
+            // its story through, and the GAME saying the window is closed while the mod's sticky
+            // re-show keeps drawing it is the other - and it is the one that actually happens.
+            bool finished = (box == null && StoryLocal.Key != 0u
+                             && Time.unscaledTime < StoryLocal.FinishedUntil)
+                            || StoryClickedThroughHere(box);
             bool questOpen = QuestPopup() != null;
             // The encounter's OPEN EDGE pre-empts for the same reason the quest window's does: the
             // record is what makes a peer's blue bar and pose apply to it at all, and a window that
@@ -449,6 +520,190 @@ internal static class RemoteMapStory
             return false;
         MapStoryController mc = Singleton<MapStoryController>.Instance;
         return mc != null && mc.window != null && mc.window.IsOpen;
+    }
+
+    /// <summary>
+    /// IS THE LOCAL BOX SITTING ON ITS LAST PAGE? The entitlement term for the FINISHED bit.
+    ///
+    /// <para>"I clicked THROUGH the end" is a claim about a page, and the only client entitled to
+    /// make it is one whose box was on the final page when the game closed it.
+    /// <c>UICharacterStoryBox.ShowLine</c> past the last page runs <c>Hide()</c> WITHOUT writing
+    /// <c>currentDialogIndex</c> (:172-177), so after a genuine click-through the index is still
+    /// <c>Count - 1</c> and this is true. A window that goes closed in the MIDDLE of a message is
+    /// something else entirely, and publishing FINISHED for it would drag every peer past text
+    /// nobody has read.</para></summary>
+    private static bool OnLastPage(UICharacterStoryBox? box)
+    {
+        if (box == null)
+            return false;
+        List<DialogLineDTO>? pages = box.dialogs;
+        int count = pages != null ? pages.Count : 0;
+        return count > 0 && box.currentDialogIndex >= count - 1;
+    }
+
+    /// <summary>
+    /// <b>THIS CLIENT HAS CLICKED ITS MAP STORY THROUGH, EVEN THOUGH THE MOD IS STILL DRAWING IT.
+    /// </b> The term that used to be missing, and the whole of the ModBuild 449 defect.
+    ///
+    /// <para><b>THE BUG, MEASURED.</b> In the 2026-09-05 two-player session the host clicked the
+    /// campaign-map story box through and his party set off; the co-player's copy had been page-
+    /// synced to the last page (<c>MAP ROOM story APPLIED ... moved from page 1 to 2</c>, peer frame
+    /// 36887) and then STOPPED - he sat on that page for 672 frames (~7.4 s) until he clicked it
+    /// away himself at frame 37559. Everything downstream is chained to that click: the map travel
+    /// leg, and then the road event. So the 'Begegnung!' window arrived ~7.5 s late on his machine,
+    /// and the mod's own travel drive is exonerated to the millisecond (both clients: DURATION asked
+    /// 3.400 s, measured 3.405 / 3.406 s over 306 frames on each).</para>
+    ///
+    /// <para><b>WHY THE TERMINAL CLOSE NEVER TRAVELLED.</b> <see cref="Sample"/> published the
+    /// FINISHED bit only while <see cref="MapBox"/> returned null, and <see cref="MapBox"/> is
+    /// <c>IsOpen || IsVisible</c>. <c>UIWindow.IsVisible</c> is literally
+    /// <c>m_CanvasGroup != null &amp;&amp; m_CanvasGroup.alpha &gt; 0</c> (UIWindow.cs:305-315) - the
+    /// exact field <c>ModalFallback.ReassertStickyVisible</c> pins to 1 on every STICKY float whose
+    /// game window is hidden. The mod floats the map story window and keeps that float standing for
+    /// the whole encounter (neither log has <c>MODAL WINDOW: 'Map Story Window' released</c> until
+    /// long after the road event closed), so <see cref="MapBox"/> could never return null, the
+    /// FINISHED branch could never run, and the record that unlocks every other player's box was
+    /// never sent. [[a-claim-must-not-measure-itself]] - a statement about the player's click was
+    /// resting on a flag this mod writes. <c>WorldUI.StoryComposite.StoryWindow</c> carries the
+    /// identical finding for the identical window and fixed it there; this file was never fixed.
+    /// </para>
+    ///
+    /// <para><b>SO THE TEST IS THE GAME'S OWN STATE MACHINE.</b> <c>UIWindow.IsOpen</c> is
+    /// <c>m_CurrentVisualState == Shown</c> (:317), written by <c>Hide()</c> synchronously and
+    /// never by this mod - <see cref="MapStoryWindowOpen"/> already asks exactly that on the RECEIVE
+    /// side, and the send side now asks the same question. Two guards bound it: the page
+    /// entitlement (<see cref="OnLastPage"/>) and <see cref="StoryClosedSettleFrames"/> against the
+    /// one-tick <c>IsOpen</c> dropout <c>StoryComposite</c> recorded.</para>
+    ///
+    /// <para>PURE: reads live game state and this file's own clocks, and writes nothing - it is
+    /// asked from <see cref="SendDue"/>, which is documented as mutating nothing.</para>
+    /// </summary>
+    private static bool StoryClickedThroughHere(UICharacterStoryBox? box) =>
+        box != null
+        && StoryLocal.Key != 0u
+        && !MapStoryWindowOpen()
+        && OnLastPage(box)
+        && _storyGameClosedFrame >= 0
+        && Time.frameCount - _storyGameClosedFrame >= StoryClosedSettleFrames;
+
+    /// <summary>
+    /// Track the GAME's close edge for the map story window, once per frame, and print the one line
+    /// that says whether the record that unlocks every other player's box is going out.
+    ///
+    /// <para>Called from <see cref="Resolve"/> (per frame) rather than from <see cref="Sample"/>
+    /// (5 Hz) so the settle clock below is sampled at frame rate, and BEFORE the map-room gate so a
+    /// room standing down cannot leave a stale edge behind.</para>
+    /// </summary>
+    private static void TickStoryCloseEdge()
+    {
+        float now = Time.unscaledTime;
+        bool gameOpen = MapStoryWindowOpen();
+        if (gameOpen)
+        {
+            _storyGameClosedFrame = -1;
+        }
+        else if (_storyGameOpenLast)
+        {
+            _storyGameClosedFrame = Time.frameCount;
+            _storyClosedAt = now;
+            _storyClosedKey = StoryLocal.Key;
+            bool driven = _storyTerminalDriveAt >= 0f && now - _storyTerminalDriveAt <= 1f;
+            _storyClosedWhy = driven
+                ? $"DRIVEN HERE by player {_storyTerminalDrivePeer}'s FINISHED record"
+                : "CLICKED THROUGH by the player at this machine";
+            UICharacterStoryBox? box = MapBox();
+            bool onLast = OnLastPage(box);
+            // HW-VERIFY: the falling edge of the GAME's own IsOpen on the map story window - one
+            // line per message close, per client, never per frame. It is the falsifier for the
+            // ModBuild 449 fix: this line saying "the FINISHED record WILL go out" on the client
+            // that clicked, and a `MAP ROOM story APPLIED ... (past the last page -> the box
+            // closes)` on every other client within ~200 ms, is the fix working. This line saying
+            // WITHHELD, or this line present on one client with no APPLIED line anywhere, is the
+            // fix inert - and the term printed here says which. Its ABSENCE all session means no
+            // map story box was ever closed in the 3D room; `grep -c 'Show event screen'` and the
+            // game's own story lines separate that from a dead instrument.
+            VRLog.Note(Scope, "MAP STORY CLOSE: the GAME closed this client's map story window "
+                            + $"(UIWindow.IsOpen went false) and it was {_storyClosedWhy}. "
+                            + $"LOCAL PAGE {(box != null ? box.currentDialogIndex : -1)} of "
+                            + $"{StoryLocal.PageCount} page(s), message key 0x{StoryLocal.Key:X8}. "
+                            + "THE MOD IS STILL DRAWING IT: "
+                            + $"{(box != null ? "YES" : "no")} - MapBox() is IsOpen||IsVisible and "
+                            + "ModalFallback.ReassertStickyVisible pins IsVisible's CanvasGroup "
+                            + "alpha to 1 on a sticky float, which is exactly why this record may "
+                            + "NOT be decided on it. THE FINISHED RECORD "
+                            + (StoryLocal.Key != 0u && onLast && MapRoomDriver.Active
+                                ? $"WILL GO OUT on the next extras packet ({StoryClosedSettleFrames} "
+                                  + "frame(s) of settle against a one-tick IsOpen dropout, then the "
+                                  + "send edge pre-empts the 5 Hz gate), and every peer holding this "
+                                  + "message key drives its own box through the end - grep MAP ROOM "
+                                  + "story APPLIED on theirs"
+                                : "IS WITHHELD, by term: "
+                                  + (!MapRoomDriver.Active
+                                      ? "this client's 3D map room is not standing, so record 21 is "
+                                        + "not sampled at all here and this player keeps the flat "
+                                        + "game's own per-player pacing, exactly as the request "
+                                        + "scopes it"
+                                      : StoryLocal.Key == 0u
+                                          ? "no message key was ever sampled here, so there is "
+                                            + "nothing to name on the wire"
+                                          : "this box was NOT on its last page, so nobody here "
+                                            + "clicked THROUGH the end and saying so would drag "
+                                            + "every peer past text they have not read"))
+                            + ". Nothing local is written by any of this: the peer that receives it "
+                            + "runs the game's own ShowLine -> Hide chain, which is the same chain "
+                            + "its own click runs.");
+        }
+        _storyGameOpenLast = gameOpen;
+    }
+
+    /// <summary>
+    /// <b>THE ENCOUNTER WINDOW ARRIVED HERE - the one line that measures item (3) of the 2026-09-05
+    /// report</b> (<i>"Das Begegnungsfenster erscheint nicht zeitgleich bei allen Spielern ... Es
+    /// soll zeitgleich erscheinen bei allen."</i>).
+    ///
+    /// <para><b>AN ORIGIN, NOT A TIMESTAMP, AND THAT IS THE WHOLE POINT.</b> The two clients' logs
+    /// share NO clock - no wall time, no session time, and their frame counters start at different
+    /// moments - so "the arrival timestamp" cannot be compared across two files at all. Working out
+    /// this round's delay took reconstructing one from the game's GameAction ids, sparse frame
+    /// stamps and a count of presence packets. So this line reports the ELAPSED TIME FROM AN EVENT
+    /// THE FIX MAKES SIMULTANEOUS: the map story box closing. Subtract the two numbers and that IS
+    /// the residual arrival delay, with no shared clock needed.</para>
+    ///
+    /// <para>Once per encounter identity per client. The identity is the same
+    /// <see cref="EncounterKey"/> record 21 already carries - FNV-1a of <c>CRoadEvent.ID</c>, a yml
+    /// key, so it is byte-identical on both machines regardless of UI language and is the join key
+    /// between the two logs.</para>
+    /// </summary>
+    private static void NoteEncounterArrival(uint key)
+    {
+        float now = Time.unscaledTime;
+        string since = _storyClosedAt >= 0f
+            ? $"{now - _storyClosedAt:F2} s after this client's map story box (message key "
+              + $"0x{_storyClosedKey:X8}) was closed, and that close was {_storyClosedWhy}"
+            : "with NO map story box having closed on this client this session, so there is no "
+              + "shared origin to measure from and the delay for this encounter cannot be read off "
+              + "these two logs";
+        // HW-VERIFY: THE ARRIVAL LINE. One per encounter, per client. Grep both logs for
+        // `] [Net] ENCOUNTER ARRIVAL:` and match on the event key; the DIFFERENCE of the two
+        // "s after ... closed" numbers is the delay the user reported, and it needs no clock the
+        // logs do not have. If the token is absent from BOTH logs, no encounter happened - the
+        // game's own unconditional `Encountered Road Event:` line separates that from a dead
+        // instrument, and a non-zero count of THAT with zero of THIS means this line is the defect.
+        VRLog.Note(Scope, $"ENCOUNTER ARRIVAL: the 'Begegnung' window (event key 0x{key:X8}) is "
+                        + $"floated and shared on this client at frame {Time.frameCount}, {since}. "
+                        + "WHAT DECIDES THE MOMENT: the window is opened by THIS client's own map "
+                        + "flow (UIEventPanel.ShowEvent at the end of MapTimedMovementFlow leg 1), "
+                        + "never by a packet - so the only fact that can make it simultaneous is "
+                        + "the story close above being simultaneous, which is what record 21's "
+                        + "FINISHED bit is for (grep MAP STORY CLOSE). The mod's own party-travel "
+                        + "drive is NOT a term here: it is constant-duration by construction and "
+                        + "the 2026-09-05 logs measured 3.405 s and 3.406 s for it over 306 frames "
+                        + "on both clients. COMPARE THIS NUMBER WITH THE PEER'S: equal to within a "
+                        + "wire tick is the fix; a difference of seconds is the residual and the "
+                        + "story-close line on each side names which client was late. CHECK THE TWO "
+                        + "MESSAGE KEYS MATCH before subtracting: two clients that closed DIFFERENT "
+                        + "map messages have no shared origin and their two numbers are not "
+                        + "comparable.");
     }
 
     /// <summary>The FLOATED quest-confirm popup, or null. Asked of the float set rather than of the
@@ -549,10 +804,23 @@ internal static class RemoteMapStory
 
         // ---- entry 1: the map story box ------------------------------------------------------
         UICharacterStoryBox? box = MapBox();
-        if (box == null)
+        // ModBuild 449 - THE CLICK-THROUGH IS THE GAME'S VERDICT, NOT THE MOD'S FLOAT LIFETIME.
+        // Read StoryClickedThroughHere for the whole account: the FINISHED branch below used to be
+        // reachable only once MapBox() went null, and MapBox() is IsOpen||IsVisible while
+        // ModalFallback.ReassertStickyVisible pins IsVisible's alpha to 1 for as long as the mod
+        // floats the window - which is the whole encounter. So the record that closes every other
+        // player's story box was never sent, and each of them sat on the last page until they
+        // clicked it away themselves. Everything the road event chains behind that click moved with
+        // it, the 'Begegnung' window included.
+        bool clickedThrough = StoryClickedThroughHere(box);
+        if (box == null || clickedThrough)
         {
             TrackFrame(SharedWindowKind.MapStory, StoryLocal, reset: true);
-            if (StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil)
+            // THE LINGER IS THE BOUND FOR BOTH BRANCHES, unchanged: FinishedUntil was last written
+            // by the OPEN branch below, so a click-through publishes inside the same 60 s window a
+            // box that vanished does, and the idle packet still goes back to being byte-identical.
+            bool lingering = StoryLocal.Key != 0u && now < StoryLocal.FinishedUntil;
+            if (lingering)
             {
                 // The box is down here and we clicked it through: keep saying so for a bounded
                 // while, so the statement that unlocks a peer survives packet loss.
@@ -564,11 +832,15 @@ internal static class RemoteMapStory
                 SendBuffer[n].ContentKey = StoryLocal.Key;
                 n++;
             }
-            else
+            else if (!clickedThrough)
             {
                 StoryLocal.FinishedUntil = 0f;
                 StoryLocal.Key = 0u;
             }
+            // clickedThrough with the linger spent: fall silent, and KEEP the key. Clearing it here
+            // would make StoryClickedThroughHere false on the next tick, drop this client back into
+            // the OPEN branch, and republish a box the game closed a minute ago as "open on page N"
+            // - a stale statement, resurrected by the mod's own float, at 5 Hz.
         }
         else
         {
@@ -653,6 +925,13 @@ internal static class RemoteMapStory
             TrackFrame(SharedWindowKind.Encounter, EncounterLocal, reset: false);
             WritePose(SharedWindowKind.Encounter, EncounterLocal, ref SendBuffer[n]);
             n++;
+            // The window's ARRIVAL edge, keyed on the encounter's own identity so a re-sample never
+            // repeats it and a second encounter always gets its own line.
+            if (key != 0u && key != _encounterNotedKey)
+            {
+                _encounterNotedKey = key;
+                NoteEncounterArrival(key);
+            }
         }
 
         _sentValid = true;
@@ -1049,6 +1328,9 @@ internal static class RemoteMapStory
     internal static void Resolve()
     {
         PruneStale();
+        // Before the map-room gate on purpose: the edge below is the GAME's own close of the story
+        // window, and a room standing down must not leave a stale one latched for the next one.
+        TickStoryCloseEdge();
         if (!MapRoomDriver.Active)
         {
             // The 3D map is off here: this player keeps the flat game's own per-player pacing,
@@ -1430,6 +1712,10 @@ internal static class RemoteMapStory
 
         if (terminal)
         {
+            // The attribution for the MAP STORY CLOSE line: this close is a PEER's statement being
+            // honoured here, not a hand at this machine. A time and not a latch, so it expires.
+            _storyTerminalDriveAt = Time.unscaledTime;
+            _storyTerminalDrivePeer = remoteFinished ? finishedPeer : furthestPeer;
             // ARMED BEFORE THE CALL, NOT AFTER. ShowLine runs the game's whole close chain
             // synchronously inside itself, and anything in that chain that reached back into this
             // resolver would find the latch already down.
