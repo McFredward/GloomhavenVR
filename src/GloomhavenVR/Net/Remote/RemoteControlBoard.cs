@@ -901,6 +901,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         {
             _track?.TickLive();
             _objectives?.TickLive();
+            // THE ELEMENT BOARD JOINED THEM (2026-09-06). It has to be a per-FRAME drive and not a
+            // cadence one: the "wird erstellt" cell is a GUIAnimator animation the game can start
+            // and finish inside one 250 ms content period, so a strip sampled at 4 Hz can miss the
+            // whole event — which is the "manchmal komplett weg" half of the user's report.
+            _elements?.TickLive();
         }
 
         // DRAW ORDER: adopt whatever this board has grown since the last sweep into its cluster,
@@ -1948,11 +1953,12 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             new Color(0.30f, 0.42f, 0.26f), PileViewer.Caption(PileKind.Items), _layout.PileScale,
             _owner.BoardTuning);
 
-        // Full-parity panels. The initiative TRACK and the OBJECTIVES panel now mirror the game's
-        // OWN widgets (RemoteWidgetMirror) and keep their mod-drawn versions only as fallbacks;
-        // the rest stay mod-drawn and fed from the LOCAL model — see the class note.
+        // Full-parity panels. The initiative TRACK, the OBJECTIVES panel and — since 2026-09-06 —
+        // the ELEMENT BOARD mirror the game's OWN widgets (RemoteWidgetMirror) and keep their
+        // mod-drawn versions only as fallbacks; the rest stay mod-drawn and fed from the LOCAL
+        // model — see the class note.
         _objectives = new RemoteObjectivesPanel(contentParent, _layout);
-        _elements = new RemoteElementStrip(contentParent, _layout);
+        _elements = new RemoteElementStrip(_owner.PlayerId, contentParent, _layout);
         _status = new RemoteStatusReadouts(contentParent, _layout);
         _pickBanner = new RemotePickBanner(contentParent, _layout);
         _boardTooltip = new RemoteBoardTooltip(contentParent, _layout, _owner.BoardTuning);
@@ -2185,6 +2191,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // on Unity's destruction order (see RemoteWidgetMirror / RemoteAbilityCardSource).
         _track?.Destroy();
         _objectives?.Destroy();
+        _elements?.Destroy();
         // …and the third one: the furniture's mirrored DECISION ROW (ModBuild 105). It is a clone of
         // this client's own TakeDamagePanel widgets, registered with MrBacking, so it must be
         // released explicitly rather than left to the board root's destruction.

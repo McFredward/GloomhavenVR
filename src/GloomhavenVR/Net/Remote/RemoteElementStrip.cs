@@ -175,6 +175,73 @@ namespace GloomhavenVR.Net;
 /// and manufacturing one would be inventing a picture rather than mirroring it.
 ///
 /// ═══════════════════════════════════════════════════════════════════════════════════════════════
+///  ROUND THREE — "ES SOLL NICHT NACHGEBAUT WERDEN": THE MIRROR, NOT THE REBUILD
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// <i>"Das 'Wird erstellt' sieht nicht identisch aus. Es soll nicht nachgebaut werden (was du
+/// vermutlich gemacht hast) sondern 1:1 genau so aussehen wie für den Spieler auch … Auch ist es bei
+/// den remote boards manchmal komplett weg."</i> (2026-09-05, element_diskrepanz1/2.jpg.) He is
+/// right about what the block above did, and the screenshot shows three separate misses in one
+/// frame: the caption in the wrong FACE and the wrong COLOUR (a default sans in orange, against the
+/// owner's small-caps serif in white), a plain WHITE BAR where the disc belongs, and no disc.
+///
+/// <b>THE 448 LOGS NAME THE MECHANISM, AND IT IS THE APPROACH AND NOT A BUG IN IT.</b> Both clients
+/// printed, for a chip in creation:
+/// <code>
+///   Ice OWNER … creation=on 'IceCreating' (1.00,1.00,1.00) a0.09
+///     | MIRROR chip=shown state=CREATING rung=AUTHORED-DISC art='IceCreating (VR-mip)' a0.00 plate=on
+/// </code>
+/// The owner's number MOVES (0.09 on one client, 0.43, 0.31, 0.11) because
+/// <c>animatorCreating</c> / <c>loopAnimatorCreating</c> are driving it; the mirror's is a hard
+/// <c>0.00</c>, because <c>ResolveCreatingCells</c> captured <c>creationImage.color</c> ONCE, at
+/// resolve time — when nothing was in creation and the animator was parked at its init state, i.e.
+/// invisible. So the disc was drawn at alpha zero and the "white square" the user photographed was
+/// never the disc at all: it is the caption's own background plate, drawn opaque because its colour
+/// was latched from the same parked widget. Measuring an authored tint off a widget whose tint is
+/// ANIMATOR STATE cannot be made to work by measuring it better.
+///
+/// <b>AND SetState PROVES THERE IS NOTHING ELSE TO MEASURE.</b> Read the vanilla creating branch
+/// (decompiled/GH.Runtime/InfusionElementUI.cs, case <c>Inert</c>): it writes exactly ONE field,
+/// <c>creationImage.enabled = isCreating</c>, and calls <c>ShowCreating()</c>. It never touches
+/// <c>creatingElementText</c>, <c>creationTextBackgroundImage</c> or <c>creationBumpImage</c>.
+/// Their visibility, their alphas, their positions — the whole picture — are authored GUIAnimator
+/// curves in prefab scene data. A composition can only ever be a guess at them.
+///
+/// <b>SO THE STRIP MIRRORS THE WIDGET.</b> Rung ZERO is now <see cref="RemoteWidgetMirror"/> against
+/// <c>InfusionBoardUI.Instance.transform</c> — the identical demotion the initiative track and the
+/// objectives panel already went through when the user rejected THEIR mod-drawn stand-ins, and the
+/// same answer to the same complaint. <c>Pair.Apply</c> copies each node's active flag, rect pose,
+/// <c>Graphic.enabled</c>, colour, sprite, TMP text and CanvasGroup alpha every frame and SHARES the
+/// animated material instance, so all of it arrives at once and none of it is guessed:
+/// <list type="bullet">
+/// <item>the caption's FACE and its per-element glow material — <c>Awake</c> clones
+///   <c>createElementText.fontSharedMaterial</c> and <c>Init</c> writes the element colour into its
+///   glow; <c>Object.Instantiate</c> copies both references, which is why the clone reads in the
+///   game's own small-caps face and not in a mod-built TMP default;</item>
+/// <item>every animator-driven alpha and position, including the creation disc's pulse and the
+///   caption plate's — the terms the composition latched at zero and at opaque white;</item>
+/// <item>the two <c>UIFX</c> quads, which the composition explicitly did not reproduce:
+///   <c>UIFX_MaterialFX_Control</c> instantiates its own material and animates <c>_FXAnim</c> on
+///   it, and <c>Pair.CopyMaterial</c> shares that very instance, so the effect plays on the mirror
+///   for free and with no second animator;</item>
+/// <item>RESERVED and the whole draw-list rule, which vanilla expresses as
+///   <c>gameObject.SetActive</c> and the drive copies verbatim.</item>
+/// </list>
+/// The composition below is KEPT, whole, as the fallback for a client with no infusion board up
+/// (menu / loading) — and as the answer to "es darf niemals leere Fenster geben": a clone that is up
+/// and driving but has put no ink on the board for three content ticks while the owner's board is
+/// showing elements is demoted back to it. That test is a MEASURE of the clone's own graphics
+/// (<see cref="MirrorInk"/>), never "the clone exists", because "the clone exists" is the same
+/// species of claim as the <c>chip=shown</c> that 448 printed over a disc at alpha zero.
+///
+/// <b>THE SECOND HALF: "manchmal komplett weg".</b> A separate cause, and the cadence is it. The
+/// composition repainted only from <see cref="Refresh"/>, which the board calls at 4 Hz behind a
+/// signature gate — while the creating state is a window <c>InfusionBoardUI.UpdateBoard</c> closes
+/// the instant the column goes non-inert. An infusion that resolves inside one 250 ms period is
+/// therefore never sampled in creation at all, and the mirror shows nothing where the owner saw a
+/// caption and a pulse. The clone is driven from <see cref="TickLive"/> instead, per FRAME, off the
+/// same widget the owner is watching, so there is no sampling window left to fall through.
+///
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
 ///  IN CREATION, RESERVED, AVAILABLE — THE DEBT, AND WHY IT CLOSES FOR ZERO WIRE BYTES
 /// ═══════════════════════════════════════════════════════════════════════════════════════════════
 /// The bullet above used to end "They are NOT replicated … the wire debt this lane files rather
@@ -259,10 +326,17 @@ namespace GloomhavenVR.Net;
 /// NOT consulted here — a gate that can only ever be open would be a second secrecy policy with no
 /// rule behind it.
 ///
-/// <b>REJECTED: routing the real <c>InfusionBoardUI</c> through <see cref="RemoteWidgetMirror"/>.</b>
-/// One singleton, N boards. That is not a state hazard, since the state IS global — but a mirrored
-/// WIDGET would have carried the local hover, tooltip target and GUIAnimator run state onto every
-/// peer's board, and those really are the viewer's.
+/// <b>THIS FILE USED TO SAY: "REJECTED: routing the real <c>InfusionBoardUI</c> through
+/// <see cref="RemoteWidgetMirror"/> — a mirrored WIDGET would have carried the local hover, tooltip
+/// target and GUIAnimator run state onto every peer's board, and those really are the viewer's."
+/// EVERY CLAUSE OF THAT SENTENCE WAS WRONG,</b> and the block below is what replaced it. The hover
+/// and the tooltip target are components, and <c>RemoteWidgetMirror.Neutralize</c> DESTROYS every
+/// component that is not pure presentation before the clone ever wakes — <c>UITextTooltipTarget</c>
+/// among them — so neither can ride a clone anywhere. And the GUIAnimator run state is not the
+/// viewer's at all: there is one infusion board per SCENARIO, the animators are started from
+/// <c>SetState</c>, which is driven by the same host-replicated messages this class already reads,
+/// so the run state is exactly as global as the column it animates. It is, in fact, the one thing
+/// this strip most needed and could not otherwise have.
 ///
 /// <b>WHAT ANIMATES, AND WHAT DOES NOT.</b> The ramp above stays keyed on the game's own DRAW LIST
 /// (non-inert ∪ in-creation), because that is the set whose entries and exits vanilla animates with
@@ -297,6 +371,56 @@ internal sealed class RemoteElementStrip
         new(1.00f, 0.95f, 0.58f), // Light
         new(0.56f, 0.40f, 0.82f), // Dark
     };
+
+    /// <summary>Verbatim <c>ElementBoardSurface.DensityScale</c> — the per-panel multiplier on the
+    /// shared tray density this dock (and only this dock) applies to the game's own element board.
+    /// A local copy for the reason every other remote-board constant is one: WorldUI's protected
+    /// override cannot be read from here, and a mirrored panel drawn at another density is not a
+    /// mirror. <see cref="RemoteObjectivesPanel"/> carries the same copy for its own dock.</summary>
+    private const float ElementDensityScale = 0.8f;
+
+    /// <summary>
+    /// THE GAME'S OWN ELEMENT BOARD, CLONED AND LIVE-DRIVEN — rung ZERO, ahead of every rung the
+    /// composition below still has. See THE MIRROR, NOT THE REBUILD in the class doc.
+    /// </summary>
+    private readonly RemoteWidgetMirror _mirror;
+
+    /// <summary>Which peer's board this strip is on. Diagnostic only — it is what lets the parity
+    /// line's one-shot key be PER BOARD, so a second board's empty strip cannot be swallowed by a
+    /// first board's identical-looking verdict. See <see cref="EmitParity"/>.</summary>
+    private readonly int _playerId;
+
+    /// <summary>Which mechanism the last <see cref="Refresh"/> drew with — the clone, the mod-drawn
+    /// composition, or nothing at all. Reported by <see cref="EmitParity"/>.</summary>
+    private RemoteWidgetMirror.Fidelity _drawnBy = RemoteWidgetMirror.Fidelity.None;
+
+    /// <summary>Consecutive content ticks on which the clone was up and driving but put NO ink on
+    /// the board while the owner's own element board was showing something. See the demotion in
+    /// <see cref="Refresh"/>.</summary>
+    private int _mirrorBlankTicks;
+
+    /// <summary>Latched by that demotion; cleared by an empty board or a clone rebuild.</summary>
+    private bool _mirrorBlanked;
+
+    /// <summary>The MIRRORED path's parity gate — the owner's discrete state (<c>sig</c>) times four
+    /// plus the clamped blank count. Its own gate because that path runs on every content tick
+    /// rather than only on a repaint. The product cannot wrap: <c>sig</c> is bounded by
+    /// 3^6 · 64^3 = 191,102,976 and four times that is well inside <c>int.MaxValue</c>.</summary>
+    private int _paritySig = -1;
+
+    /// <summary>One-shot for the demotion line — a mechanism change is worth stating once, and a
+    /// board that keeps flapping would otherwise say it every 0.75 s.</summary>
+    private static bool s_demotionLogged;
+
+    /// <summary><see cref="RemoteWidgetMirror.RebuildStamp"/> as of the last tick — a rebuilt clone
+    /// is a new object and must not inherit the previous one's blank verdict.</summary>
+    private int _mirrorStamp = -1;
+
+    /// <summary>How long a mirror may draw nothing over a non-empty board before the mod-drawn
+    /// composition takes over: 3 content ticks, i.e. 0.75 s at the board's 4 Hz cadence. Long enough
+    /// that a single tick caught mid-rebuild cannot flap the two mechanisms, short enough that a
+    /// blank dock is never something a player has time to read as "the elements are gone".</summary>
+    private const int BlankTicksBeforeFallback = 3;
 
     private readonly Transform _root;
 
@@ -604,8 +728,9 @@ internal sealed class RemoteElementStrip
     /// without being infused, and a reserved element is infused without being drawn.</summary>
     public int ActiveCount { get; private set; }
 
-    public RemoteElementStrip(Transform boardRoot, in RemoteBoardLayout layout)
+    public RemoteElementStrip(int playerId, Transform boardRoot, in RemoteBoardLayout layout)
     {
+        _playerId = playerId;
         // MOUNT (position + authored per-board scale, exactly like PlayTray.BuildMounts sets its
         // own element mount) …
         var mount = new GameObject("ElementMount").transform;
@@ -613,7 +738,18 @@ internal sealed class RemoteElementStrip
         mount.localPosition = layout.ElementMount;
         mount.localScale = Vector3.one * layout.ElementScale;
 
-        // … and the strip itself, half a dock width to the LEFT of it — the mount's origin is
+        // RUNG ZERO — THE GAME'S OWN ELEMENT BOARD, CLONED. Same mount, and the same three dock
+        // numbers ElementBoardSurface docks the OWNER's copy of this very panel with
+        // (PlayTray.ElementMountWidth x ElementMountMaxHeight, growing LEFT off the mount origin,
+        // at that surface's own 0.8 density) — a mirror fitted with different numbers is not a
+        // mirror. fitWidth stays at the shared default because ElementBoardSurface does not
+        // override FitWidthToMount; the objectives dock's `false` is specific to a panel whose
+        // content is FORCED to its width budget, which this one's is not.
+        _mirror = new RemoteWidgetMirror("ElementBoard", mount,
+            PlayTray.ElementMountWidth, PlayTray.ElementMountMaxHeight, Vector2.left,
+            densityScale: ElementDensityScale);
+
+        // … and the FALLBACK strip, half a dock width to the LEFT of it — the mount's origin is
         // RIGHT-centre growing left (the objectives convention), so the shift belongs INSIDE the
         // mount, where the scale applies to it too.
         _root = new GameObject("Elements").transform;
@@ -871,10 +1007,103 @@ internal sealed class RemoteElementStrip
         // masks: 729 * 64^3 = 191,102,976 < int.MaxValue, so this cannot wrap.
         sig = ((sig * 64 + creating) * 64 + reserved) * 64 + available;
 
+        // ═══ RUNG ZERO: MIRROR THE REAL BOARD ═══════════════════════════════════════════════════
+        // Attempted on EVERY content tick and deliberately OUTSIDE the signature gate. The clone's
+        // own rebuild test is a STRUCTURE test, not a state test, and the state this class gates on
+        // is not the state the creating cell is made of: vanilla drives that cell's alphas,
+        // positions and enabled flags from GUIAnimator curves that no column value can predict. A
+        // mirror behind an infusion-table gate would freeze mid-animation.
+        ActiveCount = infused;
+
+        // Is there anything for a mirror to be WRONG about? The game's own draw rule, so this is the
+        // same population EmitParity calls `ownerDraws` — see the class doc for why a RESERVED
+        // element is excluded (it is hidden on both sides by construction).
+        bool ownerHasPicture = false;
+        for (int i = 0; i < 6; i++)
+        {
+            if ((state[i] != ElementInfusionBoardManager.EColumn.Inert
+                 || (creating & (1 << i)) != 0)
+                && (reserved & (1 << i)) == 0)
+            {
+                ownerHasPicture = true;
+                break;
+            }
+        }
+        if (!ownerHasPicture || _mirrorStamp != _mirror.RebuildStamp)
+        {
+            // A CLEAN SLATE RE-ARMS THE MIRROR. Latching the demotion below for the life of the
+            // board would turn one bad frame into a permanently mod-drawn strip; an empty board and
+            // a freshly rebuilt clone are both moments where the old verdict has stopped being
+            // about anything.
+            _mirrorStamp = _mirror.RebuildStamp;
+            _mirrorBlankTicks = 0;
+            _mirrorBlanked = false;
+        }
+
+        if (!_mirrorBlanked && TryMirror())
+        {
+            _drawnBy = RemoteWidgetMirror.Fidelity.MirroredWidget;
+            _mirrorStamp = _mirror.RebuildStamp;
+            bool blank = ownerHasPicture && !MirrorHasPicture();
+            _mirrorBlankTicks = blank ? _mirrorBlankTicks + 1 : 0;
+            if (_mirrorBlankTicks < BlankTicksBeforeFallback)
+            {
+                // The composition must repaint FROM SCRATCH if the mirror ever falls over, so the
+                // signature is deliberately NOT consumed here — the same reason
+                // RemoteObjectivesPanel clears its own gate on the mirrored path.
+                _signature = -1;
+                _transitionsSeeded = false;
+                // …but the PARITY line does get a gate of its own, because this path runs every
+                // content tick whether or not anything moved and its verdict string is not free to
+                // build. `sig` is every DISCRETE fact about the owner's board (six columns plus the
+                // creating / reserved / available masks); the animated numbers inside one state are
+                // exactly what the verdict KEY already refuses to spend its budget on. The blank
+                // count is in the gate too, so a mirror going dark under an unchanged board still
+                // speaks.
+                int gate = sig * 4 + Mathf.Min(_mirrorBlankTicks, 3);
+                if (gate != _paritySig)
+                {
+                    _paritySig = gate;
+                    EmitParity(state, creating, reserved, available);
+                }
+                return;
+            }
+            // "Es darf niemals leere Fenster geben." A clone that is up, paired and driving but has
+            // put no ink on the board for three quarters of a second while the owner's board is
+            // showing elements is not a mirror of anything, and the mod-drawn composition — however
+            // approximate — beats a blank dock. Confirmed over several content ticks rather than
+            // one, so a single frame caught mid-rebuild cannot flap the two mechanisms.
+            _mirrorBlanked = true;
+            _mirror.SetShown(false);
+            _signature = -1;
+            _paritySig = -1;  // a later re-promotion must re-state, not inherit this gate
+            if (!s_demotionLogged)
+            {
+                s_demotionLogged = true;
+                // HW-VERIFY: the DEMOTION event itself, once per session — the moment this strip
+                // stopped mirroring and started composing, stated separately from the per-state
+                // ELEMENT PARITY verdicts because a mechanism change is not a state change. Its
+                // ABSENCE is the pass: a session whose parity lines all read via=MIRRORED-WIDGET and
+                // that carries no line of this token never had to fall back. Its presence names the
+                // board and the states involved, and the ELEMENT PARITY lines with MIRROR BLANK
+                // immediately above it hold the per-element readback that decided it.
+                VRLog.Note("Net", $"ELEMENT PARITY: board {_playerId} DEMOTED the mirrored element "
+                                  + $"board to the mod-drawn composition — the clone was up and "
+                                  + $"driving but put no ink on the strip for "
+                                  + $"{BlankTicksBeforeFallback} content ticks while the owner's "
+                                  + "own board was showing elements. Read the MIRROR BLANK lines "
+                                  + "above for which element and which clone graphic was dark. "
+                                  + "The strip re-arms the mirror the next time the board goes "
+                                  + "empty or the clone is rebuilt, so this is not permanent.");
+            }
+        }
+        _drawnBy = RemoteWidgetMirror.Fidelity.ModDrawn;
+        if (!_root.gameObject.activeSelf)
+            _root.gameObject.SetActive(true);
+
         if (sig == _signature)
             return;
         _signature = sig;
-        ActiveCount = infused;
 
         // WHICH CHIPS ARE DRAWN — InfusionBoardUI.UpdateBoard's own rule, term for term:
         //   inList = every non-inert element PLUS everything still in elementsInCreation;
@@ -1128,6 +1357,77 @@ internal sealed class RemoteElementStrip
         // THE 1:1 LINE. Last, because it reports what the paint above actually did.
         EmitParity(state, creating, reserved, available);
     }
+
+    /// <summary>
+    /// RUNG ZERO — clone the game's own element board and let it drive itself.
+    ///
+    /// <para>THE SOURCE IS THE <c>InfusionBoardUI</c> ROOT, verbatim
+    /// <c>ElementBoardSurface.FindTarget()</c>, and the node identity is load-bearing rather than
+    /// incidental. <see cref="RemoteWidgetMirror"/>'s EXACT measure path
+    /// (<c>TryDockRect</c>) matches a live <c>ConvertedPanel</c> by <c>ReferenceEquals(p.Target,
+    /// source)</c> and hands back the owner's OWN fitted host rect — "genau die gleiche Größe" by
+    /// construction rather than by re-measurement. Handing it <c>elementsHolder</c> instead (the
+    /// panel's <c>FitContentRoot</c>) would miss that match and drop the mirror onto the graphics-
+    /// union fallback for the life of the session. Both mirrored panels this mod already ships pass
+    /// their surface's <c>FindTarget</c> node for the same reason. Which path actually ran is stated
+    /// in the mirror's own fit line ("measured via converted host rect" / "via graphics union"), so
+    /// this claim is checkable in the next hardware log rather than assumed.</para>
+    ///
+    /// <para>WHAT THE CLONE CARRIES THAT NO COMPOSITION COULD. Everything the creating cell is made
+    /// of is written by <c>animatorCreating</c> / <c>loopAnimatorCreating</c> —
+    /// <c>InfusionElementUI.SetState</c> sets exactly ONE field on that path
+    /// (<c>creationImage.enabled</c>) and never touches the caption, the caption plate or the bump
+    /// image at all. <see cref="RemoteWidgetMirror.Pair.Apply"/> copies the source's LIVE graphic
+    /// enabled flag, colour, sprite, rect pose, localScale and active flag every frame, and SHARES
+    /// the animated material instance, so the animator's output arrives without the animator. That
+    /// list also happens to contain every term the composition got wrong.</para>
+    ///
+    /// <para>Returns false — and shows the mod-drawn strip — whenever there is no infusion board on
+    /// this client (menu / loading) or the clone could not be built or fitted.</para>
+    /// </summary>
+    private bool TryMirror()
+    {
+        Transform? target = null;
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            target = board != null ? board.transform : null;
+        }
+        catch { target = null; }
+
+        if (!_mirror.Refresh(target))
+        {
+            _mirror.SetShown(false);
+            return false;
+        }
+
+        _mirror.SetShown(true);
+        // The mod-drawn strip and its MR plate go down as ONE object: the clone brings its own
+        // MrBacking surface, so leaving the fallback plate up would put two plates on one dock.
+        if (_root.gameObject.activeSelf)
+            _root.gameObject.SetActive(false);
+        return true;
+    }
+
+    /// <summary>
+    /// Per-FRAME: re-copy the owner's live element board onto the clone.
+    ///
+    /// <para>THIS IS THE SECOND HALF OF "manchmal komplett weg". <see cref="Refresh"/> runs on the
+    /// board's 4 Hz content cadence, and the whole creating cell is an animation the game can start
+    /// and finish inside ONE of those periods — <c>InfusionBoardUI.UpdateBoard</c> drops an element
+    /// from <c>elementsInCreation</c> the instant its column goes non-inert, so a fast infusion can
+    /// be born and gone between two samples and the cadence-driven composition would never draw a
+    /// frame of it. The clone is driven here instead, at frame rate, off the same widget the owner
+    /// is watching.</para>
+    ///
+    /// <para>No-op while the mod-drawn fallback is up (there is no clone to drive) and while the
+    /// board is not being ticked at all.</para>
+    /// </summary>
+    public void TickLive() => _mirror.TickLive();
+
+    /// <summary>Drop the clone and its MrBacking registration. The mod-drawn half dies with the
+    /// board root that owns it, as it always has.</summary>
+    public void Destroy() => _mirror.Destroy();
 
     /// <summary>
     /// The three overlay masks the element COLUMN cannot express, read off the local
@@ -1436,18 +1736,11 @@ internal sealed class RemoteElementStrip
     /// when there is no widget to read (menu / loading). Read-only.</summary>
     private static string? LiveCreatingText(int i)
     {
+        InfusionElementUI? one = Widget(i);
+        if (one == null)
+            return null;
         try
         {
-            InfusionBoardUI? board = InfusionBoardUI.Instance;
-            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board != null
-                ? board.elementsUI
-                : null;
-            if (ui == null
-                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
-                || one == null)
-            {
-                return null;
-            }
             TextMeshProUGUI caption = one.creatingElementText;
             return caption != null ? caption.text : null;
         }
@@ -1821,10 +2114,22 @@ internal sealed class RemoteElementStrip
             // key therefore carries only the DISCRETE facts (which element, which state, which rung,
             // which artwork, what is on and off) and the line carries the numbers.
             var kb = new System.Text.StringBuilder(160);
+            // WHICH BOARD, IN BOTH HALVES. The one-shot set is STATIC — it has to be, or six chips
+            // would each burn a slot on the same infusion — and until now the key carried nothing
+            // about WHOSE board the verdict came from. With two peers up, board B's verdict was
+            // swallowed whenever board A had already reached the same one, which is precisely the
+            // reading the second half of the user's report needs: "the mirror is empty ON THIS
+            // BOARD" is not the same fact as "a mirror somewhere drew this".
+            string via = _drawnBy == RemoteWidgetMirror.Fidelity.MirroredWidget
+                ? "MIRRORED-WIDGET"
+                : "MOD-DRAWN";
+            sb.Append("[board ").Append(_playerId).Append("] via=").Append(via).Append(": ");
+            kb.Append(_playerId).Append(via);
             int spoken = 0;
+            int blank = 0;
             for (int i = 0; i < 6; i++)
             {
-                bool mirrorDraws = _rung[i] != 0;
+                bool mirrorDraws = MirrorInk(i);
                 bool ownerDraws = state[i] != ElementInfusionBoardManager.EColumn.Inert
                                   || (creating & (1 << i)) != 0
                                   || (reserved & (1 << i)) != 0;
@@ -1833,36 +2138,45 @@ internal sealed class RemoteElementStrip
                 if (spoken > 0)
                     sb.Append("  ;;  ");
                 spoken++;
+                // THE SECOND HALF OF THE REPORT, COUNTED. A reserved element is hidden on BOTH
+                // sides by construction, so it is not a blank — everything else the owner is
+                // drawing and this board is not, is.
+                bool blanked = ownerDraws && !mirrorDraws && (reserved & (1 << i)) == 0;
+                if (blanked)
+                    blank++;
                 string mirrorState = (creating & (1 << i)) != 0
                                      && state[i] == ElementInfusionBoardManager.EColumn.Inert
                     ? "CREATING"
                     : state[i].ToString();
-                string rung = RungNames[Mathf.Clamp(_rung[i], 0, RungNames.Length - 1)];
                 sb.Append((ElementInfusionBoardManager.EElement)i).Append(' ')
                   .Append(OwnerClause(i))
-                  .Append(" | MIRROR chip=").Append(mirrorDraws ? "shown" : "hidden")
+                  .Append(" | MIRROR ")
+                  .Append(blanked ? "DREW NOTHING " : string.Empty)
+                  .Append("chip=").Append(mirrorDraws ? "shown" : "hidden")
                   .Append(" state=").Append(mirrorState)
-                  .Append(" rung=").Append(rung)
-                  .Append(" art='").Append(_rungArt[i] ?? "-").Append('\'')
-                  .Append(" a").Append(_iconBaseAlpha[i].ToString("F2"))
-                  .Append(" caption=")
-                  .Append(_labels[i].enabled ? "'" + _labels[i].text + "'" : "off")
-                  .Append(" plate=").Append(_plates[i].enabled ? "on" : "off")
-                  .Append(" ring=").Append(_rings[i].enabled ? "on" : "off")
+                  .Append(' ').Append(MirrorClause(i))
                   .Append(" reserved=").Append((reserved & (1 << i)) != 0 ? "yes" : "no")
                   .Append(" avail=").Append((available & (1 << i)) != 0 ? "yes" : "no");
-                kb.Append(i).Append(mirrorState).Append(rung).Append(_rungArt[i] ?? "-")
-                  .Append(mirrorDraws ? 'D' : 'h').Append(_labels[i].enabled ? 'C' : 'c')
-                  .Append(_plates[i].enabled ? 'P' : 'p').Append(_rings[i].enabled ? 'R' : 'r')
+                kb.Append(i).Append(mirrorState).Append(MirrorKey(i))
+                  .Append(mirrorDraws ? 'D' : 'h').Append(blanked ? 'B' : 'b')
                   .Append((reserved & (1 << i)) != 0 ? 'S' : 's')
                   .Append((available & (1 << i)) != 0 ? 'A' : 'a')
                   .Append(OwnerKey(i)).Append('|');
             }
             if (spoken == 0)
             {
+                // THE FALSIFIER'S TWO HALVES, SPELT OUT SO THEY CANNOT BE READ AS ONE. This branch
+                // is "the owner has nothing up either" — an empty MIRROR over a non-empty owner is
+                // the `blank` count above and prints as MIRROR BLANK, never here.
                 sb.Append("nothing drawn on either side — all six elements Inert, none in creation, "
-                          + "none reserved. The strip DID repaint; it had nothing to mirror");
+                          + "none reserved. The strip DID repaint; it had nothing to mirror. This is "
+                          + "NOT the 'mirror is empty' reading: that one prints as MIRROR BLANK "
+                          + "with the owner clause beside it");
                 kb.Append("empty");
+            }
+            else if (blank > 0)
+            {
+                sb.Insert(0, "MIRROR BLANK (" + blank + " of " + spoken + ") — ");
             }
             verdict = sb.ToString();
             key = kb.ToString();
@@ -1896,6 +2210,170 @@ internal sealed class RemoteElementStrip
         VRLog.Note("Net", "ELEMENT PARITY: " + verdict);
     }
 
+    /// <summary>The game's live element widget for element <paramref name="i"/>, or null when there
+    /// is none to read (menu / loading / a half-built board). One lookup, used by everything in this
+    /// file that needs the owner's own cell — it used to be copied out four times.</summary>
+    private static InfusionElementUI? Widget(int i)
+    {
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board != null
+                ? board.elementsUI
+                : null;
+            if (ui == null
+                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                || one == null)
+            {
+                return null;
+            }
+            return one;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>The CLONE node paired with one of the owner's components, or null while the
+    /// mod-drawn fallback is up. Diagnostic-only, and read-only by construction —
+    /// <see cref="RemoteWidgetMirror.CloneOf"/> hands back a node this class never writes.</summary>
+    private T? Mirrored<T>(T? source) where T : Component
+    {
+        Transform? node = source != null ? _mirror.CloneOf(source.transform) : null;
+        return node != null ? node.GetComponent<T>() : null;
+    }
+
+    /// <summary>Does this graphic put INK on the screen — on at a visible alpha inside a live
+    /// branch? "Enabled" alone is the state probe that let a chip drawn at alpha 0.00 be reported
+    /// as <c>chip=shown</c> for a whole hardware round.</summary>
+    private static bool Ink(Graphic? g)
+        => g != null && g.enabled && g.gameObject.activeInHierarchy && g.color.a > 0.02f;
+
+    /// <summary>
+    /// DID THIS MIRROR ACTUALLY DRAW ELEMENT <paramref name="i"/> — measured, not asserted.
+    ///
+    /// <para>On the mirrored path it is a readback off the CLONE's own graphics; on the mod-drawn
+    /// path it is the ladder's rung AND the alpha that rung committed. The alpha term is the whole
+    /// point: ModBuild 448 reported <c>chip=shown rung=AUTHORED-DISC</c> for a disc it had just
+    /// drawn at <c>a0.00</c>, so the instrument agreed with a picture that was not there.</para>
+    /// </summary>
+    private bool MirrorInk(int i)
+    {
+        try
+        {
+            if (_drawnBy == RemoteWidgetMirror.Fidelity.MirroredWidget)
+            {
+                InfusionElementUI? one = Widget(i);
+                if (one == null)
+                    return false;
+                Transform? cell = _mirror.CloneOf(one.transform);
+                if (cell == null || !cell.gameObject.activeInHierarchy)
+                    return false;
+                return Ink(Mirrored(one.elementImage))
+                       || Ink(Mirrored(one.creationImage))
+                       || Ink(Mirrored<TMP_Text>(one.creatingElementText))
+                       || Ink(Mirrored(one.creationTextBackgroundImage));
+            }
+
+            if (_rung[i] == 0)
+                return false;
+            if (_rung[i] == 3)
+                return _quadBaseAlpha[i] > 0.02f;
+            if (_iconBaseAlpha[i] > 0.02f)
+                return true;
+            // A transparent disc is still a drawn cell if the caption beside it carries the picture.
+            return (_labels[i].enabled && _cells[i].TextColor.a > 0.02f)
+                   || (_plates[i].enabled && _cells[i].PlateColor.a > 0.02f);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Did the mirror put ink anywhere on this strip? The demotion test in
+    /// <see cref="Refresh"/>, and the reason it is a MEASURE and not "the clone exists".</summary>
+    private bool MirrorHasPicture()
+    {
+        for (int i = 0; i < 6; i++)
+        {
+            if (MirrorInk(i))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>The MIRROR half of the parity line: what THIS board actually put on screen for
+    /// element <paramref name="i"/>. Two shapes, because there are two mechanisms and reporting
+    /// them in one vocabulary would hide which was running.</summary>
+    private string MirrorClause(int i)
+    {
+        try
+        {
+            if (_drawnBy != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            {
+                return "rung=" + RungNames[Mathf.Clamp(_rung[i], 0, RungNames.Length - 1)]
+                       + " art='" + (_rungArt[i] ?? "-") + "'"
+                       + " a" + _iconBaseAlpha[i].ToString("F2")
+                       + " caption=" + (_labels[i].enabled ? "'" + _labels[i].text + "'" : "off")
+                       + " plate=" + (_plates[i].enabled ? "on" : "off")
+                       + " ring=" + (_rings[i].enabled ? "on" : "off");
+            }
+
+            InfusionElementUI? one = Widget(i);
+            if (one == null)
+                return "clone=no owner widget to pair with";
+            Transform? cell = _mirror.CloneOf(one.transform);
+            if (cell == null)
+                return "clone=NOT PAIRED (this element is not in the mirrored subtree)";
+            var caption = Mirrored<TMP_Text>(one.creatingElementText);
+            Image? ring = Mirrored(one.availableHighlight);
+            return "clone cell=" + (cell.gameObject.activeInHierarchy ? "shown" : "hidden")
+                   + " disc=" + ImageClause(Mirrored(one.elementImage))
+                   + " creation=" + ImageClause(Mirrored(one.creationImage))
+                   + " caption=" + (caption != null
+                       ? "'" + caption.text + "' (enabled=" + caption.enabled
+                         + ", a" + caption.color.a.ToString("F2") + ")"
+                       : "none")
+                   + " plate=" + ImageClause(Mirrored(one.creationTextBackgroundImage))
+                   + " ring=" + (ring != null && ring.enabled ? "on" : "off");
+        }
+        catch (System.Exception ex)
+        {
+            return "the mirror readback threw (" + ex.GetType().Name + ")";
+        }
+    }
+
+    /// <summary>The DISCRETE half of <see cref="MirrorClause"/> — the cap key. Every animated NUMBER
+    /// is absent for the reason <see cref="OwnerKey"/> states: a key that moves with a running
+    /// animation spends the whole verdict budget on one infusion.</summary>
+    private string MirrorKey(int i)
+    {
+        try
+        {
+            if (_drawnBy != RemoteWidgetMirror.Fidelity.MirroredWidget)
+            {
+                return RungNames[Mathf.Clamp(_rung[i], 0, RungNames.Length - 1)] + (_rungArt[i] ?? "-")
+                       + (_labels[i].enabled ? 'C' : 'c') + (_plates[i].enabled ? 'P' : 'p')
+                       + (_rings[i].enabled ? 'R' : 'r');
+            }
+            InfusionElementUI? one = Widget(i);
+            Transform? cell = one != null ? _mirror.CloneOf(one.transform) : null;
+            if (cell == null)
+                return "unpaired";
+            return (cell.gameObject.activeInHierarchy ? "K" : "k")
+                   + ImageKey(Mirrored(one!.elementImage))
+                   + ImageKey(Mirrored(one.creationImage))
+                   + (Ink(Mirrored<TMP_Text>(one.creatingElementText)) ? "C" : "c")
+                   + ImageKey(Mirrored(one.creationTextBackgroundImage));
+        }
+        catch
+        {
+            return "unreadable";
+        }
+    }
+
     /// <summary>The OWNER half of the parity line for element <paramref name="i"/>: what the game's
     /// own element widget is actually drawing. Read-only and fully guarded — a diagnostic may never
     /// be the thing that takes a board down.</summary>
@@ -1903,16 +2381,11 @@ internal sealed class RemoteElementStrip
     {
         try
         {
-            InfusionBoardUI? board = InfusionBoardUI.Instance;
-            if (board == null)
+            if (InfusionBoardUI.Instance == null)
                 return "OWNER no InfusionBoardUI (menu/loading)";
-            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board.elementsUI;
-            if (ui == null
-                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
-                || one == null)
-            {
+            InfusionElementUI? one = Widget(i);
+            if (one == null)
                 return "OWNER no element widget";
-            }
             TextMeshProUGUI caption = one.creatingElementText;
             Image ring = one.availableHighlight;
             return "OWNER cell=" + (one.gameObject.activeSelf ? "shown" : "hidden")
@@ -1942,16 +2415,9 @@ internal sealed class RemoteElementStrip
     {
         try
         {
-            InfusionBoardUI? board = InfusionBoardUI.Instance;
-            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board != null
-                ? board.elementsUI
-                : null;
-            if (ui == null
-                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
-                || one == null)
-            {
+            InfusionElementUI? one = Widget(i);
+            if (one == null)
                 return "nowidget";
-            }
             TextMeshProUGUI caption = one.creatingElementText;
             Image ring = one.availableHighlight;
             return (one.gameObject.activeSelf ? "W" : "w")

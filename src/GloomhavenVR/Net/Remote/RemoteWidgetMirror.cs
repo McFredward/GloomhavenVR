@@ -9,7 +9,12 @@ namespace GloomhavenVR.Net;
 
 /// <summary>
 /// A LIVE, PIXEL-FAITHFUL COPY of one of the game's own uGUI panels, rendered on a peer's remote
-/// control board — the initiative TRACK and the objectives/quest panel today.
+/// control board — the initiative TRACK, the objectives/quest panel, the furniture's decision row
+/// and, since 2026-09-06, the ELEMENT INFUSION BOARD. Each arrived here the same way: the user
+/// rejected a mod-drawn stand-in for not looking identical, and the element board's case
+/// (<see cref="RemoteElementStrip"/>) is the sharpest of the four, because its "wird erstellt" cell
+/// is written entirely by GUIAnimator curves that live in prefab scene data — there is no state a
+/// composition could have read.
 ///
 /// ─── THE CLAIM THIS CLASS RETIRES ──────────────────────────────────────────────────────────────
 /// <see cref="RemoteBoardContent"/> used to state: "the game instantiates exactly ONE objectives
