@@ -1617,15 +1617,70 @@ internal sealed class MapButtonRail
 
     // ---- laser -------------------------------------------------------------------------------
 
+    /// <summary>How far the beam may reach a table cap, in real metres before the diorama scale.
+    /// A map table is read from across the room, so this is the full beam budget rather than the
+    /// control board's arm's-length reach — the same 20 m <c>RayInteractor.MaxDistanceMeters</c>,
+    /// <c>RayUguiDriver</c> and <c>RayGrabDriver</c> give the beam, mirrored here because this
+    /// scan is geometric and never touches the physics pick. It was a bare inline <c>20f</c> until
+    /// 2026-09-05, i.e. the one site of the six that <c>scripts/check-mirrors.sh</c> could not see
+    /// at all; naming it is what puts it in the lint.</summary>
+    private const float MaxCapLaserMeters = 20f;
+
+    /// <summary>Occlusion epsilon for the solid-occluder veto below — shared value with
+    /// <c>RayUguiDriver.OcclusionEpsilonMeters</c> and <c>RayGrabDriver</c>'s, for the same reason:
+    /// a cap COPLANAR with (or proud of) the surface that occludes it must not fall into that
+    /// surface's own shadow.</summary>
+    private const float SolidOccluderEpsilonMeters = 0.005f;
+
     /// <summary>
     /// Geometric laser test over this rail's own caps — the same shape as <c>RayGrabDriver</c>'s
     /// bar scan, and for the same reason: it needs no layer/mask coupling, so it cannot disturb the
     /// deliberately narrow pick mask the map room keeps.
+    ///
+    /// <para><b>THE TWO VETOES THIS SCAN OWES ITS SIBLINGS (2026-09-05).</b> Every other beam scan
+    /// in the mod rejects a target that sits BEHIND something the player can see; this one did not,
+    /// and the map room is the room where that matters most, because <b>the map-room hand fan IS a
+    /// <c>Cards.CardFan</c></b> (<c>MapRoomHand.1.Core</c>, since ModBuild 192). So
+    /// <c>RayInteractor.ComputeFanOccluder</c> measures those raised cards every frame and
+    /// publishes them through <c>Ray.SolidOccluderDistance</c> — and this scan looked straight
+    /// past them. Aim at a raised map-room hand card with a table cap behind it and the cap
+    /// hovered, the beam was clamped ONTO the cap and drawn THROUGH the card
+    /// (<c>UiHitOverride</c> below), and the trigger pressed the cap instead of taking the card.
+    /// That is verbatim the defect <c>CardsDriver.UpdateBoardLaser</c> spent four hardware rounds
+    /// on and closed at this same seam; <c>CombatLogSurface.TickCapLaser</c> — this method's own
+    /// documented copy — carried the veto from the day it was written. A held hand is refused for
+    /// the same reason it is there: a hand carrying something is not pointing.</para>
+    ///
+    /// <para><b>NO MODAL COMMIT GATE, AND THIS IS THE ENTRY THAT SAYS SO.</b> Every other press
+    /// path in the mod suppresses its COMMIT while a blocking modal stands
+    /// (<c>ModalFallback.HardCommitLockActive</c>; the control board's is
+    /// <c>CardsDriver.UpdateBoardLaser</c>'s <c>_modalInputBlocked</c> branch). This rail omits it,
+    /// and until 2026-09-05 it omitted it silently, which is the only part that was wrong. The
+    /// reason it must keep omitting it: <b>in this room the floated destination window IS what the
+    /// cap closes.</b> User ruling, three times over and quoted in <see cref="Press"/> — ModBuild
+    /// 200 <i>"soll ein erneuter Druck auf den button zB vom Händler obwohl das Fenster offen ist,
+    /// das offene Fenster wieder schließen"</i>, 226 <i>"Ein erneuter Druck auf einen Button z.B.
+    /// Händler obwohl das Fenster SCHON DA IST soll das jeweilige Fenster wieder schließen"</i>,
+    /// 230 <i>"Die Tasten soll Tiggles sein"</i>. A commit gate keyed on "a modal is open" would
+    /// refuse exactly the press the ruling requires — the merchant is up, so the Händler cap goes
+    /// dead, and the window can no longer be dismissed from the table. The board's gate exists
+    /// because a tray keycap calls a non-undoable game API (END TURN) past the 2D raycast blocker;
+    /// a map cap dispatches a <c>pointerClick</c> into the game's own guildmaster Toggle, which is
+    /// the very widget a blocking modal is supposed to arbitrate, and <see cref="Pressable"/>
+    /// already asks the game whether it would accept the press at all.</para>
+    ///
+    /// <para><b>WHY <c>Ray.HasFreshUiHit</c> IS NOT ONE OF THEM.</b> This scan is a PRODUCER of
+    /// that signal, not a consumer — <c>RayInteractor</c>'s provenance block names "the map rail"
+    /// in the list of world lasers whose clamp raises it. <c>HasFreshUiHit</c> is true for the
+    /// frame a clamp is set AND the one after, so a scan that both raises it and gates on it would
+    /// latch itself off after its own first hover frame and never hover again. The two vetoes above
+    /// are the ones that carry real information about somebody ELSE's surface, and they are the
+    /// same pair <c>TickCapLaser</c> applies.</para>
     /// </summary>
     private void TickLaser()
     {
         VRHand? hand = VRHands.Primary;
-        if (hand == null || !hand.HasPose || !hand.Ray.Active)
+        if (hand == null || !hand.HasPose || !hand.Ray.Active || hand.Grabber.Held != null)
         {
             ClearLaserHover();
             return;
@@ -1633,7 +1688,7 @@ internal sealed class MapButtonRail
 
         hand.GetAimRay(out Vector3 origin, out Vector3 direction);
         var ray = new Ray(origin, direction);
-        float best = 20f * hand.WorldScale;
+        float best = MaxCapLaserMeters * hand.WorldScale;
         Cap? hit = null;
         Vector3 hitPoint = default;
 
@@ -1656,8 +1711,12 @@ internal sealed class MapButtonRail
             return;
         }
         // A nearer game-UI hit wins: a click on a floated window's widget must never also press a
-        // table button behind it (the same precedence RayGrabDriver applies to its bars).
-        if (hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
+        // table button behind it (the same precedence RayGrabDriver applies to its bars) — and so
+        // does a nearer SOLID mod surface, which in THIS room is the player's own raised hand of
+        // ability cards (see the method doc). Both read exactly as CombatLogSurface.TickCapLaser
+        // reads them, off the ray's own precomputed terms; neither is inferred here.
+        if ((hand.RayUgui.HasHit && hand.RayUgui.HitDistance < best)
+            || hand.Ray.SolidOccluderDistance < best - SolidOccluderEpsilonMeters * hand.WorldScale)
         {
             ClearLaserHover();
             return;
