@@ -344,6 +344,14 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
     /// but keeps the instance and restores the captured pose, so it must not re-seat.</summary>
     private bool _everPlaced;
 
+    /// <summary>Which of <see cref="TrySolveBoardScale"/>'s three answers the LAST placement's
+    /// size came from, in the words the BOARD ARRIVAL SIZE line prints. Written by
+    /// <see cref="PlaceAtHead"/> (the mechanism, not an instrument) and read by
+    /// <c>ResetToArrivalSeat</c>, which has to report the source of a size a method it called
+    /// solved. Re-running the solver there to recover the string would measure a per-unit taken
+    /// AFTER the write — a different number wearing the same name.</summary>
+    private string _lastPlacementSizeSource = "NO PLACEMENT YET IN THIS SESSION";
+
 
     internal bool IsVisible => _root != null && _root.gameObject.activeSelf;
 
@@ -1725,6 +1733,12 @@ internal sealed partial class PlayTray : WorldUI.IPanelGrabOwner, WorldUI.IFurni
         bool sizeSolved = TrySolveBoardScale(board, out float appliedScale, out string sizeSource,
                                              out float targetApparent);
         _root.localScale = Vector3.one * appliedScale;
+        // The solver's own answer, kept for the ONE other caller that has to report which size a
+        // placement it did not perform itself ended up with: the B+Y recenter reset
+        // (ResetToArrivalSeat). Re-running TrySolveBoardScale there to read the string back would
+        // be a second solve against a per-unit measured AFTER the write, i.e. a different number
+        // wearing the same name.
+        _lastPlacementSizeSource = sizeSource;
         NotePinnedWrite("head-relative placement (PlaceAtHead — first seat/recall/recovery)");
         _placed = true;
         _everPlaced = true;

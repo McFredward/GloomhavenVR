@@ -1627,19 +1627,35 @@ internal sealed partial class PlayTray
     }
 
     /// <summary>
-    /// The correction: put the board back at the seat the player configured, keeping the size they
-    /// dialled in (the "SIZE IS NOT PART OF A RECALL" ruling that <see cref="RecoverLostBoard"/>
-    /// obeys applies verbatim here). It re-authors the pin against the CURRENT tracking origin and
-    /// refreshes the rig-local cache in the same breath, so the very next
-    /// <see cref="SyncPinHolder"/> cannot carry the board back to the pose this just replaced.
+    /// The correction: put the board back at the seat the player configured. It re-authors the pin
+    /// against the CURRENT tracking origin and refreshes the rig-local cache in the same breath, so
+    /// the very next <see cref="SyncPinHolder"/> cannot carry the board back to the pose this just
+    /// replaced.
+    ///
+    /// <para>THE ONE SEATING PATH, and it stays one. Both callers go through
+    /// <see cref="PlaceAtHead"/> with <c>forceFirstSeat: true</c>; they differ in exactly one bit,
+    /// <paramref name="keepSize"/>, and nothing else. Writing a second seat solver for the recenter
+    /// reset would have meant two places that can disagree about what "beim ersten Spawn" means.</para>
     /// </summary>
-    private void ReseatBesidePlayer(string stage)
+    /// <param name="stage">What asked for the re-seat (log material).</param>
+    /// <param name="keepSize">Restore the size the board had on the way in.
+    /// <list type="bullet">
+    /// <item><b>true</b> (the arrival seat guard, and the default) — the "SIZE IS NOT PART OF A
+    /// RECALL" ruling that <see cref="RecoverLostBoard"/> obeys applies verbatim: an AUTOMATIC
+    /// correction the player did not ask for repairs the POSE and touches nothing else.</item>
+    /// <item><b>false</b> (the B+Y recenter chord, <see cref="ResetToArrivalSeat"/>) — the player
+    /// asked for the first-spawn state in so many words ("so dass die Position UND Größe wieder so
+    /// ist wie beim ersten Spawn"), so the size PlaceAtHead just solved is kept and the carried-in
+    /// one is discarded. That ruling bounds what the mod may do UNASKED; it is not a bar on an
+    /// explicit request.</item>
+    /// </list></param>
+    private void ReseatBesidePlayer(string stage, bool keepSize = true)
     {
         if (_root == null)
             return;
         Vector3 before = _root.position;
         Vector3 keepScale = _root.localScale;
-        bool keepScaleValid = IsFinite(keepScale) && keepScale.x > 1e-4f;
+        bool keepScaleValid = keepSize && IsFinite(keepScale) && keepScale.x > 1e-4f;
 
         _placed = false;
         PlaceAtHead(forceFirstSeat: true); // defers safely if the head lost its pose; retried next verdict
@@ -1665,7 +1681,202 @@ internal sealed partial class PlayTray
         if (_wantVisible)
             SetVisible(true); // a correction must never leave the board hidden
         VRLog.Info("Cards", $"Control board re-seated beside the player by the ARRIVAL SEAT GUARD " +
-                            $"({stage}): {before} → {_root.position}.");
+                            $"({stage}): {before} → {_root.position}." +
+                            // APPENDED, never reworded: the token above is the grep anchor every
+                            // previous hardware round was read with, and the B+Y reset now shares
+                            // this one seating path. The clause says which of the two callers it was.
+                            (keepSize
+                                ? " Size carried over unchanged."
+                                : " Size RE-SOLVED to the first-spawn width as well (the explicit " +
+                                  "recenter reset, not the automatic guard)."));
+    }
+
+    // ------------------------------------------------ THE RECENTER CHORD'S BOARD RESET --
+    //
+    // THE REQUEST (user, 2026-09-05, verbatim): "Wenn man sich mit Y und B Taste (gedrückt
+    // halten) wieder an den ursprünglichen Platz teleportiert, soll das auch für das
+    // Controlboard gelten — es soll mit resettet werden, so dass die Position UND Größe wieder
+    // so ist wie beim ersten Spawn."
+    //
+    // ONE GESTURE, ONE OUTCOME, ONE FRAME. VRRigDriver.RequestRecenter — the HUMAN entry point,
+    // and the only one (the B+Y chord and the dev F11 key; the first-pose auto-recenter calls the
+    // instance Recenter() directly and deliberately does NOT come through here) — writes the rig
+    // pose, bumps RigPoseVersion, and then calls RequestRecenterReset SYNCHRONOUSLY, in the same
+    // Update, before anything renders. The head camera is a child of the rig root, so its world
+    // pose is already the new one by the time PlaceAtHead reads it: the player and the board are
+    // both settled in the frame the chord fired, with no intermediate pose ever drawn. A flag
+    // picked up by CardsDriver.Update on the next tick was the alternative, and it is exactly the
+    // visible two-stage settle the request forbids — Unity gives no ordering between two
+    // MonoBehaviours that have not declared one, so "the same frame" would have been a coin toss.
+    //
+    // WHAT "WIE BEIM ERSTEN SPAWN" RESOLVES TO, stated rather than implied. It is whatever
+    // PlaceAtHead(forceFirstSeat: true) produces TODAY, because that method IS the first spawn —
+    // there is no second copy of the answer to drift from it:
+    //   * POSITION: [Cards] Spawn{Side,Forward,Down}Meters, read verbatim, in the head frame, plus
+    //     BoardPosOffset_{board} — the contract anchor his hand-tuned config is measured from,
+    //     untouched by this change.
+    //   * SIZE: TrySolveBoardScale, which takes HIS RECORDED APPARENT WIDTH
+    //     ([Cards] BoardApparentWidth_{board}, written only by a real two-hand resize) when he has
+    //     one, and the seat-derived [Cards] SpawnBoardWidthDegrees solve when he does not. His
+    //     recorded width is what a first spawn uses, so it is what the reset restores — a reset
+    //     that threw away a size he deliberately dialled in would be restoring a size he has never
+    //     seen at a first spawn. Either way the width is an APPARENT width re-solved against the
+    //     live zoom's per-unit, so the board comes back the same size to the eye whatever zoom the
+    //     chord was pulled at.
+    //
+    // THE GRAB DISARM IS NOT TOUCHED, and that is a decision, not an omission. TickArrivalSeatGuard
+    // disarms itself permanently the moment the player's hand closes on the board, so the mod never
+    // yanks furniture they placed; this reset does NOT re-arm it. Re-arming would hand an ORDINARY
+    // arrival — a stage the player did not ask for — power over a board they had grabbed, which
+    // is the 2026-08-03 ruling's whole subject. The chord needs nothing from the guard anyway: it is
+    // a complete seat in itself. What the chord DOES override is the disarm's CONSEQUENCE, not the
+    // disarm: a board he placed by hand IS reset, because he asked for it in this gesture. The one
+    // hand that still wins is a hand closed on the board AT THIS INSTANT — never yank a board
+    // mid-carry.
+    //
+    // MULTIPLAYER: no wire field, and this is why rather than by omission. Every input is local
+    // (this client's head, rig scale, board transform and config) and the OUTPUT is the board's
+    // world pose and scale, which NetAvatarDriver.TickExtrasSend already samples onto the avatar
+    // extras every frame — so a peer sees the reset arrive as the ordinary pose stream, one send
+    // later than the local player and with no new packet. [Net] RemoteBoards already decides
+    // whether they draw it at all, and the standing ruling forbids a second per-sub-feature switch
+    // beside it. Nor is there anything to AGREE on: the reset is a statement about one player's own
+    // furniture, so two clients holding different board poses is the correct outcome, not a desync.
+
+    /// <summary>Recenter resets ASKED FOR this session — the unconditional liveness field on the
+    /// CONTROL BOARD RECENTER RESET line. It counts REQUESTS, not resets, and it is incremented
+    /// before any early-out, so "the chord fired and the board did not move" (a line with a
+    /// NOT RESET verdict) and "the chord never fired" (no line at all) are different readings.
+    /// Static because the request arrives at the type, not at an instance: a chord pulled with no
+    /// tray alive must still leave a line.</summary>
+    private static int _recenterResetRequests;
+
+    /// <summary>
+    /// Put the control board back where and at the size a first spawn would put it. THE ENTRY
+    /// POINT for <c>VRRigDriver.RequestRecenter</c>; see the block above for the whole design.
+    /// Safe with no tray, no root, an unplaced board or a board in the player's hand — each of
+    /// those is a NOT RESET verdict with its reason, never a throw and never a silent return.
+    /// </summary>
+    /// <param name="trigger">What pulled the chord, for the log line (the caller knows; this
+    /// method must not guess).</param>
+    internal static void RequestRecenterReset(string trigger)
+    {
+        int request = ++_recenterResetRequests;
+        PlayTray? tray = Current;
+        if (tray == null)
+        {
+            // HW-VERIFY: the no-board arm of the line below — same tier, same token, so a hardware
+            // round that pulls the chord in the menu or before the board exists still gets a line
+            // and does not read it as "the chord never fired".
+            VRLog.Note("Cards", $"CONTROL BOARD RECENTER RESET: request #{request} this session, " +
+                                $"asked for by {trigger}. NOT RESET — there is no control board in " +
+                                "this session yet (no PlayTray instance), so the chord moved the " +
+                                "player and nothing else. The arrival seat guard is untouched.");
+            return;
+        }
+        tray.ResetToArrivalSeat(trigger, request);
+    }
+
+    /// <summary>
+    /// The instance half: measure, re-seat through the ONE seating path, measure again, and say
+    /// all of it in a single line. Split from <see cref="RequestRecenterReset"/> so the null-tray
+    /// arm has somewhere to report from, and so the log call sits in a method that fires on a
+    /// GESTURE rather than on a frame.
+    /// </summary>
+    private void ResetToArrivalSeat(string trigger, int request)
+    {
+        ControlBoard board = CardsConfig.CurrentBoard;
+        Transform? rig = VRRigDriver.RigRoot;
+        float rigScale = rig != null ? Mathf.Max(1e-4f, rig.lossyScale.x) : 1f;
+        // The guard's state is REPORTED, never written, by this path — see the block above for why
+        // an explicit chord must not re-arm an automatic seating window.
+        string guardClause = $"Arrival seat guard {(_arrivalArmed ? "ARMED" : "DISARMED")} and NOT " +
+                             "re-armed by this reset (an explicit chord seats the board itself; " +
+                             "re-arming would give an ordinary arrival power over a board he has " +
+                             $"grabbed). Mode {(CardsConfig.TrayFollow.Value ? "FOLGEN" : "FIXIERT")}; " +
+                             $"rig pose version {VRRigDriver.RigPoseVersion}.";
+
+        if (_root == null || !_placed)
+        {
+            // HW-VERIFY: the not-yet-placed arm. A chord pulled while the initial placement is
+            // still deferred (untracked head at a scenario start) must read as "nothing to reset",
+            // never as "the reset ran and did nothing".
+            VRLog.Note("Cards", $"CONTROL BOARD RECENTER RESET: request #{request} this session, " +
+                                $"asked for by {trigger}, board {board}. NOT RESET — the board " +
+                                $"{(_root == null ? "has no root yet" : "has never been placed (its first placement is still deferred on an untracked head)")}" +
+                                ", so there is no pose or size to reset; the first placement will " +
+                                $"itself be a first spawn. {guardClause}");
+            return;
+        }
+
+        if (_handle != null && _handle.IsGrabbed)
+        {
+            // HW-VERIFY: the in-hand arm. NEVER touch a board mid-carry — the same rule
+            // TickLostWatchdog returns on. A hardware round that reports "B+Y did not reset it"
+            // is answered here: he was holding it.
+            VRLog.Note("Cards", $"CONTROL BOARD RECENTER RESET: request #{request} this session, " +
+                                $"asked for by {trigger}, board {board}. NOT RESET — the board is " +
+                                "IN THE PLAYER'S HAND this frame, and nothing moves a board " +
+                                "mid-carry. Let go and pull the chord again. " + guardClause);
+            return;
+        }
+
+        Vector3 beforePos = _root.position;
+        float beforeLocal = _root.localScale.x;
+        bool beforeMeasured = TryGetApparentWidthPerScaleUnit(out float beforePerUnit, out _, out _);
+        float beforeApparent = beforeMeasured ? beforePerUnit * beforeLocal : 0f;
+
+        // THE ONE SEATING PATH. keepSize: false is the entire difference from the arrival guard's
+        // correction — PlaceAtHead(forceFirstSeat: true) inside it solves the first-spawn pose AND
+        // the first-spawn size, and this is the caller that lets the solved size stand.
+        ReseatBesidePlayer($"the B+Y recenter chord — {trigger}", keepSize: false);
+
+        Vector3 afterPos = _root.position;
+        float afterLocal = _root.localScale.x;
+        bool afterMeasured = TryGetApparentWidthPerScaleUnit(out float afterPerUnit, out _, out _);
+        float afterApparent = afterMeasured ? afterPerUnit * afterLocal : 0f;
+        float movedWorld = (afterPos - beforePos).magnitude;
+        bool moved = movedWorld > 1e-4f;
+        bool resized = Mathf.Abs(afterLocal - beforeLocal) > 1e-5f;
+        // PlaceAtHead DEFERS rather than writing a garbage pose when the head has no tracked pose
+        // (HMD doffed mid-chord). It cannot be reached from a B+Y hold, which needs two tracked
+        // controllers, but the verdict must not CLAIM a reset that did not happen — CardsDriver's
+        // TickPlacement retries every frame and will complete it with its own "Control board
+        // placed" line.
+        string headline = _placed
+            ? "RESET to the first-spawn seat."
+            : "RESET DEFERRED — the head lost its tracked pose between the chord and the re-seat, "
+              + "so PlaceAtHead wrote nothing rather than a garbage pose. TickPlacement retries "
+              + "every frame; the numbers below are the pose and size it still has.";
+
+        // HW-VERIFY: THE LINE THAT DECIDES THE 2026-09-05 RECENTER-RESET REQUEST ("soll das auch
+        // für das Controlboard gelten — es soll mit resettet werden, so dass die Position UND
+        // Größe wieder so ist wie beim ersten Spawn"). Every quantity that can disagree with
+        // another is in BOTH units with its conversion beside it, because this project has already
+        // shipped a bound named …Meters clamped against a world-unit product at ×198 rig scale.
+        // If a round reports the board NOT coming back: read the verdict (RESET / NOT RESET and
+        // why), then the SIZE SOURCE — his own recorded width, the seat-derived arrival solve, and
+        // a carried-over config product each need a different fix — then whether the pose and the
+        // size actually CHANGED, which separates "the reset ran and was a no-op because the board
+        // was already there" from "the reset ran and did not take".
+        VRLog.Note("Cards", $"CONTROL BOARD RECENTER RESET: request #{request} this session, " +
+                            $"asked for by {trigger}, board {board}. {headline} " +
+                            $"POSE {beforePos} → {afterPos} ({movedWorld:F2} world units / " +
+                            $"{movedWorld / rigScale:F2} m moved at rig ×{rigScale:F2}; " +
+                            $"{(moved ? "MOVED" : "unchanged — it was already at the seat")}). " +
+                            $"SIZE localScale {beforeLocal:F3} → {afterLocal:F3} " +
+                            $"({(resized ? "RESIZED" : "unchanged — it was already at the first-spawn size")})" +
+                            (beforeMeasured && afterMeasured
+                                ? $", apparent {beforeApparent * 100f:F1} → {afterApparent * 100f:F1} cm " +
+                                  $"= {beforeApparent * rigScale:F3} → {afterApparent * rigScale:F3} m-world " +
+                                  $"(per unit {afterPerUnit * 100f:F2} cm at this zoom), in the " +
+                                  $"{MinWidthMeters * 100f:F0}–{MaxWidthMeters * 100f:F0} cm apparent window"
+                                : ", apparent size UNAVAILABLE " +
+                                  $"({(beforeMeasured ? "after" : "before")} the re-seat: no rig or a " +
+                                  "degenerate transform), so nothing here converts between units") +
+                            $". THE SIZE IN FORCE CAME FROM {_lastPlacementSizeSource}. " +
+                            "The seat itself is [Cards] SpawnSideMeters/SpawnForwardMeters/" +
+                            "SpawnDownMeters verbatim, unchanged by this. " + guardClause);
     }
 
     private static bool IsFinite(Vector3 v) =>

@@ -29,6 +29,18 @@ internal sealed partial class VRRigDriver
     /// the radius, the height and the facing the way the arrival seat did — at the azimuth the
     /// player ALREADY HAS, which is what keeps the paragraph above true. See
     /// <see cref="SpawnRing.TryRecenterSeat"/>.</para>
+    ///
+    /// <para>THE CONTROL BOARD COMES BACK WITH THE PLAYER (2026-09-05, user: "Wenn man sich mit Y
+    /// und B Taste (gedrückt halten) wieder an den ursprünglichen Platz teleportiert, soll das auch
+    /// für das Controlboard gelten — es soll mit resettet werden, so dass die Position UND Größe
+    /// wieder so ist wie beim ersten Spawn"). THIS method is where that hangs, and deliberately not
+    /// <see cref="Recenter"/>: this is the HUMAN entry point (B+Y hold, the dev F11 key), while
+    /// <c>Recenter()</c> is also called by the rig's own first-pose settle, which is an ARRIVAL and
+    /// must leave the board to <c>PlayTray.TickArrivalSeatGuard</c>. The board reset runs AFTER the
+    /// rig pose is written and after <c>RigPoseVersion</c> has been bumped, synchronously in this
+    /// same Update, so the player and their board are settled in one frame with no intermediate
+    /// pose drawn — see the design block above <c>PlayTray.RequestRecenterReset</c> for the whole
+    /// rule, including why the size is re-solved and why the arrival guard is not re-armed.</para>
     /// </summary>
     internal static void RequestRecenter()
     {
@@ -37,6 +49,13 @@ internal sealed partial class VRRigDriver
             return;
         drv.CloseRingWindow("the player recentered manually");
         drv.Recenter();
+        // AFTER the seat is written and RigPoseVersion is bumped, and in the SAME frame. Order is
+        // load-bearing in both directions: the board seats itself from the head pose the recentre
+        // just produced (the head camera is a child of the rig root, so its world pose is already
+        // the new one), and PlayTray re-authors its pin against the CURRENT RigPoseVersion, so the
+        // next SyncPinHolder cannot carry the board back by an offset measured before this.
+        // Safe for every rig kind and with no board at all — the callee reports each case.
+        Cards.PlayTray.RequestRecenterReset("the B+Y recenter chord (VRRigDriver.RequestRecenter)");
     }
 
     /// <summary>
