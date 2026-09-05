@@ -464,17 +464,23 @@ internal sealed class RemoteBoardFurniture
     private static readonly Color ConfirmColor = new(0.35f, 0.46f, 0.28f); // muted sage "go"
     private static readonly Color UndoColor = new(0.44f, 0.31f, 0.20f);    // worn leather
     /// <summary>PINNED (accented) FOLLOW/PIN cap — the <c>_accentColor</c> the local
-    /// <c>PlayTray.BuildDashboardControls</c> hands its pin button (aged brass).</summary>
-    /// <remarks>THE ONE STILL-COPIED HALF OF THE FOLLOW/PIN CONTROL. The owner's own declaration
-    /// (<c>PlayTray.BoardButton.FollowPinAccent</c>) says of itself "One literal for every
-    /// follow/pin toggle in the mod" — a claim this line falsifies, and has falsified since the
-    /// 2026-09-05 round unified the two LOCAL pins and left the peer's as a third. It cannot be
-    /// CALLED, the way <see cref="PinIdleColor"/> is: that field is <c>private</c> on a nested type
-    /// inside <c>Cards/Tray</c>. And it cannot be LINTED either — it is a <c>Color</c>, and
-    /// <c>scripts/check-mirrors.sh</c> is a float/string extractor, a limit this file's palette note
-    /// already concedes. Promoting the owner's field to <c>internal</c> is a one-line change and is
-    /// the whole fix; everything else about this control now reads one definition.</remarks>
-    private static readonly Color PinAccentColor = new(0.58f, 0.46f, 0.26f);
+    /// <c>PlayTray.BoardButton.CreateFollowPin</c> hands every follow/pin toggle it builds (aged
+    /// brass).
+    ///
+    /// <para><b>IT IS NO LONGER A MIRROR</b> (R26, 2026-09-05), for the identical reason
+    /// <see cref="PinIdleColor"/> stopped being one: it reads
+    /// <c>PlayTray.BoardButton.FollowPinAccent</c> instead of re-declaring the same three floats.
+    /// The copy existed only because that field was private on a nested type, and it was the one
+    /// copy in this palette that NOTHING could catch — <c>scripts/check-mirrors.sh</c> extracts
+    /// floats and strings and cannot lint a <c>Color</c>, and the owner's own doc comment asserted
+    /// "one literal for every follow/pin toggle in the mod", which was false while this line
+    /// stood.</para>
+    ///
+    /// <para>A PROPERTY and not a field initialiser, exactly as <see cref="PinIdleColor"/> is a
+    /// method: a <c>static readonly</c> seeded from another type's static would fix the value at
+    /// THIS type's initialisation, and the whole point of reading the owner is that there is
+    /// nothing left to fix.</para></summary>
+    private static Color PinAccentColor => Cards.PlayTray.BoardButton.FollowPinAccent;
 
     /// <summary>FOLLOW (idle) FOLLOW/PIN cap — the colour every ENABLED, un-accented keycap rests
     /// at. The remote cap used to be built in the ACCENT colour and left there, so a peer's board

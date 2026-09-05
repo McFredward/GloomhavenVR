@@ -1252,9 +1252,29 @@ internal sealed partial class PlayTray
             return button;
         }
 
-        /// <summary>The FIXIERT/FOLGEN cap's face colour: aged brass, desaturated from the loud
-        /// gold it wore before T4. One literal for every follow/pin toggle in the mod.</summary>
-        private static readonly Color FollowPinAccent = new(0.58f, 0.46f, 0.26f);
+        /// <summary>
+        /// The FIXIERT/FOLGEN cap's face colour: aged brass, desaturated from the loud gold it wore
+        /// before T4. <b>One literal for every follow/pin toggle in the mod</b> — the board's own
+        /// toggle and the combat log's pin through <see cref="CreateFollowPin"/>, and every peer's
+        /// mirror of them through <c>Net.Remote.RemoteBoardFurniture.PinAccentColor</c>, which reads
+        /// this field.
+        ///
+        /// <para><b>R26 — THAT SENTENCE WAS FALSE UNTIL 2026-09-05, and a comment asserting a
+        /// singularity that does not hold is worse than no comment: it is exactly what stops the
+        /// next reader from checking.</b> The mirror re-declared the same three floats because this
+        /// field was <c>private</c> on a nested type, and <c>scripts/check-mirrors.sh</c> is a
+        /// float/string extractor that cannot lint a <c>Color</c> — so nothing anywhere would have
+        /// caught the two drifting apart, and the only thing standing between a peer's pin and the
+        /// wrong brass was this claim. It is <c>internal</c> now for the same reason
+        /// <c>BoardIdleColor</c> is: the mirror CALLS the owner rather than copying it, which is the
+        /// shape <c>RemoteBoardFurniture.PinIdleColor</c> and <c>CapIdleColor</c> already took when
+        /// their own hand-copied literals became a three-way drift.</para>
+        ///
+        /// <para>1:1 RULING: a peer sees the owner's control board as the owner has it, so a
+        /// mirrored pin must wear the OWNER's accent and not a locally-authored lookalike. Reading
+        /// one field is the only version of that which cannot be wrong.</para>
+        /// </summary>
+        internal static readonly Color FollowPinAccent = new(0.58f, 0.46f, 0.26f);
 
         /// <summary>
         /// <b>HOW FAR A BEAM MAY REACH A KEYCAP OF THIS FAMILY</b>, real metres before the rig's
