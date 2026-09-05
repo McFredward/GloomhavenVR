@@ -6,173 +6,123 @@
   <a href="PLAYING.de.md"><img src="img/flag-de.png" width="24" alt="Deutsch">&nbsp;Deutsch</a>
 </p>
 
-Every control, what each part of the table does, how a session with other people works, and the
-honest list of what is still rough. If you have not installed it yet, that is the
-[install guide](../INSTALL.md).
-
-- [Moving around](#moving-around)
-- [Your cards](#your-cards)
-- [The board](#the-board)
-- [Windows](#windows)
-- [The campaign map](#the-campaign-map)
-- [The room you play in](#the-room-you-play-in)
-- [Multiplayer](#multiplayer)
-- [Known limitations](#known-limitations)
-
-Everything below is adjustable. The settings live in the game's own Options window under the
-**VR Options** tab — see [settings in the install guide](../INSTALL.md#settings).
+Not installed yet? → [install guide](../INSTALL.md)
 
 ---
 
-## The tutorial teaches all of this
+## The controls
 
-You do not have to read the tables below. Start the tutorial and, a couple of seconds in, **your
-hands become the controller you are actually holding** — a Quest 3, a Pico 4 or a Valve Index as
-its own model, anything else as a generic controller with the same keys in the same places. The
-key you need lights up on it, and each step ends when you *do* the thing, not when you have read
-about it.
+<p align="center">
+  <img src="img/controls-en.png" width="860" alt="A Quest 3 controller pair with every binding labelled: thumbstick, trigger, grip, X, A and the Y+B chord">
+</p>
 
-Fourteen controls, in the order they become useful: point and click, reach and grab, then every
-way of getting about at once — drag the table, fly, turn round, zoom, rotate — then take a
-card, hold one properly in your hand, pick with a fingertip, reel a window in, ping a hex, re-seat
-yourself, and open the menu. The three one-handed stick moves come before the two-handed pair, so the thumbstick
-reads as one lesson rather than five unrelated controls.
+**You do not have to learn this.** The tutorial turns your hands into the controller you are actually
+holding and lights up the key for each of the fourteen controls, in the order they become useful.
+Switch it off under **Comfort ▸ Hands & aiming**. *(A Steam Frame is shown a neutral controller —
+Valve does not distribute a model of theirs.)*
 
-The box has one button and it always does the same thing: it passes the step you are on. It reads
-**SKIP** on a step that teaches a control and **NEXT** on the welcome and closing cards. Use it when
-the room is not offering what a step asks for, such as an open window to reel in. It does not end
-the lesson — to switch the lesson off for good, use **Comfort ▸ Hands & aiming**
-(`[Compat] ControlsLesson`).
+Three more that the picture cannot show:
 
-*Valve's Steam Frame is recognised by name and shown the neutral controller. Valve deliberately
-does not distribute a model of it — their guidance is to fetch one from the runtime — and putting a
-Meta controller in a Valve owner's hands instead is the one thing the licence on the models we do
-ship asks nobody to do. Its four top inputs are a D-pad, and the steps that name a face button say
-so.*
+- **Resize a held figure** — hold it in one hand, pull the **other hand's trigger**, move your hands apart or together.
+- **45° snap turning** instead of a smooth one — **Comfort ▸ Turning**.
+- **Rise and sink** on the right stick — off by default, switch it on under **Comfort**.
 
 ---
 
-## Moving around
+## Your cards and your board
 
-| Action | Control |
-|---|---|
-| Drag the table / world | Hold **one thumbstick clicked in** and move your hand |
-| Rotate and zoom the world | Hold **both thumbstick clicks** — turn your hands around each other to rotate, spread or close them to zoom |
-| Turn | Push a thumbstick left or right. Smooth by default; switch to 45° snap steps under **Comfort ▸ Turning** if a continuous turn does not agree with you |
-| Fly through the room | Push the movement hand's thumbstick |
-| Rise and sink | Push the *turn* stick up or down — off by default, switch it on under **Comfort** |
-| Recentre yourself | Hold **B + Y** (the upper face button on *both* controllers) for one second |
+<p align="center">
+  <a href="img/card-fan.mp4"><img src="img/card-fan-poster.jpg" width="420" alt="The card fan"></a>
+  <a href="img/control-board.mp4"><img src="img/control-board-poster.jpg" width="420" alt="The control board"></a>
+</p>
 
----
+Turn your palm up and your hand **fans out in front of it**. Take a card with the trigger and drop
+it into a slot on your control board — slot order is your initiative, exactly like the physical
+game. Both cards in, press **CONFIRM**. On your turn, **poke the top or bottom half** of a played
+card to choose which half you use.
 
-## Your cards
-
-Turn your palm up and your hand of ability cards **fans out in front of it**. Grab a card with
-the **trigger**, look at it, and drop it into a slot on your control board to play it — the
-slot order is your initiative, exactly like the physical game. When both cards are in, press
-the **CONFIRM** keycap on the board.
-
-On your turn, **poke the top or bottom half** of a played card in its slot to choose which half
-you use (or point the laser at it and pull the trigger).
-
-The control board floating beside you also carries the confirm and undo keycaps, the short and
-long rest discs, the skip cap, the decision drawer, a recess for using items, and the discard,
-burnt and item piles — which you can open and read as fans, either above the board or held in
-your palm.
+The board beside you also carries undo, the short and long rest discs, skip, the decision drawer, a
+recess for using items, and the discard, burnt and item piles — each opens as a fan you can read
+above the board or in your palm.
 
 ---
 
-## The board
+## The board in front of you
 
-| Action | Control |
-|---|---|
-| Pick a hex, an enemy, a door, a chest | Point the **laser** at it and pull the trigger — or hold the **grip** button and touch it with a fingertip |
-| See an enemy's coming turn | Point the laser at its portrait on the initiative track, or simply **pick the figure up** |
-| Pick up a miniature | Reach out and squeeze the **trigger** |
-| Resize a held miniature | While one hand holds it, pull the **other hand's trigger** and move the hands apart or together |
+<p align="center">
+  <a href="img/figure-grab.mp4"><img src="img/figure-grab-poster.jpg" width="420" alt="Lifting a miniature"></a>
+  <a href="img/physical-interaction.mp4"><img src="img/physical-interaction-poster.jpg" width="420" alt="Reaching into the scenario"></a>
+</p>
 
-The fingertip route deliberately requires the grip button to be held, so a hand that merely
+Point the laser and pull the trigger to pick a hex, an enemy, a door or a chest — or hold the
+**grip** and touch it with a fingertip. The grip is required on purpose, so a hand that merely
 sweeps across the board never selects anything.
+
+**Pick a figure up** with the trigger to see its coming turn.
 
 ---
 
 ## Windows
 
-The game's own windows (character sheets, the merchant, dialogs, the story) become **panels in
-the room**. Grab the bar at the top to move one, resize it, close it with its X, or reel it
-closer and further with the stick while the laser holds it. New windows are placed in your
-field of view, and where you put one is where it stays.
+The game's windows — character sheets, the merchant, dialogs, the story — become **panels in the
+room**. Grab the bar at the top to move one, resize it, or close it with its X, and reel it closer
+and further with the stick while the laser holds it. Where you put one is where it stays.
 
 ---
 
 ## The campaign map
 
-Between scenarios, the campaign map is a **room with a table in it**, not a flat screen. The
-guildmaster buttons are physical caps on the table rim: press one to open its window, press it
-again to close it. Point at a location on the map to see its quest placard, and your party
-token actually walks the route it travels.
+<p align="center">
+  <a href="img/map-interaction.mp4"><img src="img/map-interaction-poster.jpg" width="560" alt="The campaign map room"></a>
+</p>
 
-If you would rather have the original flat map, set `[Rig] Vanilla2DMap = true`.
+Between scenarios the map is a **room with a table in it**. The guildmaster buttons are physical
+caps on the table rim, point at a location to see its quest placard, and your party token walks the
+route it travels. Prefer the original flat map? `[Rig] Vanilla2DMap = true`.
 
 ---
 
 ## The room you play in
 
-Scenarios can be played in one of two hand-built environments — a **candle-lit cellar** or a
-**moonlit night forest** — with a procedural night sky built from a real star catalogue,
-firelight, drips, cobwebs, moonbeams through the trees and quiet spatial ambience. Or pick
-**Default** for the game's own look, or **Off (black)** for plain black.
+<p align="center">
+  <img src="img/env-cellar.jpg" width="420" alt="The cellar">
+  <img src="img/env-forest.jpg" width="420" alt="The night forest">
+</p>
 
-Both rooms also hide rare, quiet apparitions: a face at the barred window as the moonlight dims,
-someone standing in the dark of the stair shaft, eyes that blink once in the undergrowth. They are
-lit by the room and by nothing else, they are **never over the board and never two at once**, and
-every player in a session sees the same one in the same place at the same moment. They have their
-own on/off switch and a frequency dial under **World ▸ Creepy** — and switching them off
-is a purely local decision, so if you turn them off you see none, whatever anybody else has set.
+A candle-lit **cellar**, a **moonlit forest** under a real star catalogue, the game's own **Default**
+look, or **Off (black)**. Both built rooms have firelight, drips, moonbeams and quiet spatial
+ambience.
+
+They also hide rare apparitions — a face at the barred window, someone in the dark of the stair
+shaft, eyes that blink in the undergrowth. Never over the board, never two at once, and everyone in
+a session sees the same one at the same moment. Dial or switch them off under **World ▸ Creepy**;
+that choice is yours alone.
 
 ---
 
 ## Multiplayer
 
-Multiplayer works, and it is designed so that it cannot break anyone's game:
-
-- **Everyone in a VR session must run the same version.** If two players are on different
-  versions, the mod shows a blocking version-mismatch dialog instead of letting a session go
-  wrong quietly. Update together — see [updating](../INSTALL.md#updating).
-- **Players who do not have the mod at all can still play with you normally.** The mod's data
-  rides an event the game already has, and an unmodded client simply ignores it. Nothing the
-  mod sends changes game state.
-- **What other VR players see of you:** your head and both hands with real finger poses, your
-  chosen hand style and head mask, a figure or a card while you hold it (cards always as backs
-  — no card you hold is ever revealed), your card and item fans as counts, and a live mirror of
+- **Everyone in a VR session must run the same version.** A mismatch is blocked with a dialog rather
+  than allowed to go quietly wrong — [update together](../INSTALL.md#updating).
+- **Players without the mod play with you normally.** Nothing the mod sends changes game state.
+- **What others see of you:** your head and both hands with real finger poses, your mask and hand
+  style, whatever you are holding (cards always as backs), your fan counts, and a live mirror of
   your control board.
-- **What you experience together:** shared map windows (marked by a small badge in the corner
-  rather than a coloured bar), a fully shared story window with the same page for everyone, and a shared clock
-  for the environment so the same ambient sounds and the same apparitions happen at the same
-  moment in the same place on every client.
+- **What you share:** map windows (marked by a small badge in the corner), the story window on the
+  same page for everyone, and one clock — so the same ambient sounds and the same apparitions
+  happen at the same moment in the same place for everybody.
 
 ---
 
 ## Known limitations
 
-Honest list. None of these is a bug report worth filing — they are known.
+Known, and not worth reporting.
 
-- **Fully-revealed, large scenarios seen from above can hitch.** The wall-fade update is done in
-  one piece on purpose; in the worst case that costs roughly 80–100 ms every couple of seconds.
-- **Windows in the map room can overlap.** With five windows open, the placement arc is almost
-  full. Placed windows are never moved for you, so a nearer window can end up in front of a
-  further one — and it will take the clicks meant for the one behind it. Move or close one.
-- **A couple of texts still live only on the flat screen** — notably the "waiting for other
-  players" hint and the multiplayer lock overlay. In VR you see the effect (a button changes)
-  but not the sentence.
-- **VR field of view makes distant models drop to a coarser version slightly earlier** than the
-  game intends. Real, small, and deliberately left alone.
-- **Per-pixel lights are expensive** and ship off by default; at zero, some lights can flicker.
-- **Forcing full texture resolution costs video memory** (never frame time). If you are tight on
-  video memory, that is the first setting to turn down.
-- **Mixed-reality / see-through mode turns the environments and the sky off** — they cannot be
-  drawn over passthrough and still look right.
-- **In multiplayer, arrival at a new location can differ by a couple of seconds** between
-  players, because the travel animation runs on each machine.
-- The mod is **pre-1.0**. It is developed round by round against real headset sessions and
-  things move.
+- **Big, fully-revealed scenarios seen from above can hitch** — roughly 80–100 ms every couple of seconds, worst case.
+- **Windows in the map room can overlap.** With five open the arc is full; a nearer window takes the clicks meant for the one behind it. Move or close one.
+- **A couple of texts live only on the flat screen** — the "waiting for other players" hint and the multiplayer lock overlay. In VR you see the effect but not the sentence.
+- **Distant models drop to a coarser version slightly earlier** than the game intends. Real, small, left alone.
+- **Per-pixel lights ship off** and can flicker at zero; **forced full texture resolution costs video memory** — the first thing to turn down if you are tight.
+- **Mixed reality turns the environments and the sky off.** They cannot be drawn over passthrough and still look right.
+- **In multiplayer, arrival at a new location can differ by a second or two** — the travel animation runs on each machine.
+- The mod is **pre-1.0** and moves round by round against real headset sessions.
