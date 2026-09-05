@@ -62,6 +62,12 @@ internal static partial class Defaults
     internal const float PropHeldRotRoll = 0f;              // => [FigureGrab] PropHeldRotRoll
     internal const bool PropHeldUpright = true;             // => [FigureGrab] PropHeldUpright
     internal const bool PropHeldUprightAtGrab = true;       // => [FigureGrab] PropHeldUprightAtGrab
+    // The NINTH key, and the only one with no figure twin (2026-09-05, the handedness round).
+    // TRUE is exactly what the eight above already did, so this row moves nothing: it names the
+    // mirror the prop path has applied since ModBuild 349 and lets it be switched off. See
+    // PropHeldPose.MirrorHands for the report ("...wenn ich es dann mit der rechten Hand nehme,
+    // ist es verdreht") and for why the answer is a switch rather than a correction.
+    internal const bool PropHeldMirrorHands = true;         // => [FigureGrab] PropHeldMirrorHands
 
     // ---- Board/HexHighlightFix.cs --------------------------------------------------
     // [HexHighlight] SwapStableShader / StableZTest / StableDepthBias / KillBorderFlame /

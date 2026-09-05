@@ -166,6 +166,19 @@
     <Compile Include="$(RepoRoot)src\GloomhavenVR\Board\FigureGrab\FigureStretchMath.cs" Link="board\FigureStretchMath.cs" />
   </ItemGroup>
 
+  <!-- Not a wire file either, and here because its failure mode is a RELATIONSHIP between two
+       things a screenshot only ever shows one of. HeldPoseMirror is the single definition of "the
+       other hand" for a held miniature and a held map item alike; get one of its three sign flips
+       wrong and BOTH hands still look plausible on their own, while the pair is wrong — which in a
+       headset reads only as "das ist verdreht" (user, the 2026-09-05 handedness round). The file was written free of
+       HandSide, of every config entry and of every Unity component — plain bools, floats,
+       Vector3 and Quaternion — precisely so the left/right pair could be driven here against the
+       reflection it is supposed to be, rather than against a table of remembered angles. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Board\FigureGrab\HeldPoseMirror.cs" Link="board\HeldPoseMirror.cs" />
+    <Compile Include="HeldPoseMirrorVectors.cs" />
+  </ItemGroup>
+
   <!-- Not a wire file either, and here for the strongest version of the same reason: it decides
        WHERE THE PLAYER IS STANDING and AT WHAT SCALE in the 3D campaign map. Get it wrong and the
        verdict from inside a headset is "giant map below the player" — which is not a hypothetical,

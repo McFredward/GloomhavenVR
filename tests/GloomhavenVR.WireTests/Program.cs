@@ -39,6 +39,9 @@ internal static class Program
             VoiceVectors.Run(t, repoRoot);
             HauntFigureVectors.Run(t);
             HeldSizeVectors.Run(t);
+            // The left hand is the mirror of the right, for a held mini and a held map item alike
+            // — one shared definition, driven against the reflection it is supposed to be.
+            HeldPoseMirrorVectors.Run(t, repoRoot);
             PeerBoardFadeVectors.Run(t, repoRoot);
             // The two round-card facts of the 2026-08-15 hardware session: record 14's
             // standard-action qualifier byte and record 18's slot order.

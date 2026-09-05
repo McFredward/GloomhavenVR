@@ -992,6 +992,11 @@ internal static partial class VROptionsTab
                             "Map item: hold upright", "Map-Item: aufrecht halten"),
                         new("FigureGrab", "PropHeldUprightAtGrab", "",
                             "Map item: upright on grab", "Map-Item: aufrecht greifen"),
+                        // the 2026-09-05 handedness round — the NINTH row, and the one the "linke oder rechte Hand"
+                        // report is about. It belongs on this heading and not on the figures'
+                        // because it is the map items' answer alone; the figures keep the mirror.
+                        new("FigureGrab", "PropHeldMirrorHands", "",
+                            "Map item: mirror between hands", "Map-Item: zwischen den Händen spiegeln"),
                     },
                 },
                 new()

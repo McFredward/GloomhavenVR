@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using BepInEx.Configuration;
 using GloomhavenVR.Core;
 using GloomhavenVR.Hands;
 using GloomhavenVR.Hands.Interact;
@@ -513,6 +514,70 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
             + $"stands on its hex by) points out of the palm. heldLocalScale={_heldLocalScale.x:0.######} "
             + $"latched against anchorScale={anchor.lossyScale.x:0.###}. "
             + $"({_grabLogsLeft} more prop grab lines this session.)");
+
+        EmitHandednessLine(hand.Side);
+    }
+
+    /// <summary>
+    /// THE HANDEDNESS LINE (2026-09-05, the handedness round) — the map item's hold and the FIGURE's hold for the SAME
+    /// hand, printed side by side, plus what each of them would be in the other hand.
+    ///
+    /// <para><b>THE QUESTION IT SETTLES.</b> The user asked why the mirror works for figures and
+    /// not for map items (<i>"warum klappt das bei den Figuren, aber Props nicht?"</i>). Reading
+    /// the source answers it — <see cref="HeldPoseMirror"/> is now the ONE place either path
+    /// computes the mirror, so the two cannot differ — but "the code is the same" is a claim, and
+    /// the thing that decides the report is the SIZE of the swing each path's own tuned yaw
+    /// produces. <c>mirrorSwing</c> is that number: the angle between the pose this hand gets and
+    /// the pose the other hand gets, for the map item and for the figure, in one line. A figure
+    /// swing near 0° beside a map-item swing near 90° IS the whole explanation and needs no
+    /// further round.</para>
+    ///
+    /// <para>Angles are printed SIGNED (±180) and in the HAND's own frame, because that is the
+    /// frame the dials are written in and the one a person can hold their hand up and check. A new
+    /// line rather than a clause on the one above: that line's tokens are what earlier rounds
+    /// grep for, and this appends beside them instead of rewording them.</para>
+    /// </summary>
+    private static void EmitHandednessLine(HandSide side)
+    {
+        HandSide other = side == HandSide.Left ? HandSide.Right : HandSide.Left;
+
+        bool propUpright = PropHeldPose.HeldUpright;
+        Quaternion propThis = propUpright ? PropHeldPose.HeldUprightRotation(side)
+                                          : PropHeldPose.HeldPalmRotation();
+        Quaternion propOther = propUpright ? PropHeldPose.HeldUprightRotation(other)
+                                           : PropHeldPose.HeldPalmRotation();
+        Vector3 propOff = PropHeldPose.HeldOffsetFor(side);
+
+        // The figure half is READ-ONLY and guarded: these entries are bound at plugin start, long
+        // before any hand exists, but a diagnostic must never be the thing that throws inside a
+        // grab. A null entry reads as the shipped mode rather than refusing the whole line.
+        ConfigEntry<bool>? figUprightEntry = FigureGrabConfig.HeldUpright;
+        bool figUpright = figUprightEntry != null ? figUprightEntry.Value : Defaults.HeldUpright;
+        Quaternion figThis = figUpright ? FigureGrabConfig.HeldUprightRotation(side)
+                                        : FigureGrabConfig.HeldPalmRotation();
+        Quaternion figOther = figUpright ? FigureGrabConfig.HeldUprightRotation(other)
+                                         : FigureGrabConfig.HeldPalmRotation();
+        Vector3 figOff = FigureGrabConfig.HeldOffsetFor(side);
+
+        // HW-VERIFY: the line that answers "why the figures and not the props". It must stay at a
+        // tier the DEFAULT log level prints (Note/Alert/Error) — scripts/check-hw-verify.py.
+        VRLog.Note("FigureGrab",
+            $"[Props] HANDEDNESS {side} hand — [FigureGrab] PropHeldMirrorHands="
+            + $"{PropHeldPose.Mirrored} (the figures are always mirrored; there is no figure key). "
+            + $"MAP ITEM: applied rot {FmtSigned(propThis)}° in the hand's own frame, from authored "
+            + $"pitch={PropHeldPose.Pitch:0.#}° yaw={PropHeldPose.Yaw:0.#}° roll={PropHeldPose.Roll:0.#}° "
+            + $"(this hand takes yaw={PropHeldPose.YawFor(side):0.#}° roll={PropHeldPose.RollFor(side):0.#}°), "
+            + $"offset=({propOff.x:0.###},{propOff.y:0.###},{propOff.z:0.###}) m, upright={propUpright}, "
+            + $"mirrorSwing={Quaternion.Angle(propThis, propOther):0.#}° vs the {other} hand. "
+            + $"FIGURE, same hand, for comparison: applied rot {FmtSigned(figThis)}° from authored "
+            + $"pitch={FigureGrabConfig.ActiveHeldTilt:0.#}° yaw={FigureGrabConfig.ActiveHeldFaceYaw:0.#}° "
+            + $"roll={FigureGrabConfig.ActiveHeldRoll:0.#}° (this hand takes "
+            + $"yaw={FigureGrabConfig.HeldFaceYawFor(side):0.#}° roll={FigureGrabConfig.HeldRollFor(side):0.#}°), "
+            + $"offset=({figOff.x:0.###},{figOff.y:0.###},{figOff.z:0.###}) m, upright={figUpright}, "
+            + $"mirrorSwing={Quaternion.Angle(figThis, figOther):0.#}°. "
+            + "Both swings come from ONE shared mirror (HeldPoseMirror): it flips the yaw, the roll "
+            + "and the sideways offset and leaves the pitch alone, so the swing is set by the tuned "
+            + "YAW and by nothing else — 0° at yaw 0 or ±180, widest near ±90.");
     }
 
     private static string Fmt(Quaternion q)
@@ -520,6 +585,17 @@ internal sealed class GrabbableProp : IGrabbable, IGrabHighlight, IGrabbableHand
         Vector3 e = q.eulerAngles;
         return $"({e.x:0.0},{e.y:0.0},{e.z:0.0})";
     }
+
+    /// <summary>Euler angles wrapped to ±180 — the form the [FigureGrab] dials are written in, so
+    /// a tuned −133° reads back as −133 and not as 227. <see cref="Fmt"/> keeps Unity's raw 0..360
+    /// because earlier rounds' lines are read against it.</summary>
+    private static string FmtSigned(Quaternion q)
+    {
+        Vector3 e = q.eulerAngles;
+        return $"({Signed(e.x):0.#},{Signed(e.y):0.#},{Signed(e.z):0.#})";
+    }
+
+    private static float Signed(float degrees) => degrees > 180f ? degrees - 360f : degrees;
 
     /// <summary>
     /// THE UPRIGHT BASE — <c>FigureGrabbable.CaptureUprightBase</c>, verbatim in behaviour, on a

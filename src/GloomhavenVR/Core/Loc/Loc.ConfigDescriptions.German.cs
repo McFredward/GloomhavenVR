@@ -3230,6 +3230,17 @@ internal static partial class Loc
                 "Stellt ein MAP-ITEM im Moment des Greifens richtig herum IN DIE WELT, egal aus welchem "
                 + "Winkel du gegriffen hast. Wird EINMAL erfasst; danach reitet es normal auf der Hand. "
                 + "Gilt NUR für Map-Items, nie für Figuren.",
+            ["FigureGrab/PropHeldMirrorHands"] =
+                "SPIEGELT ein gehaltenes MAP-ITEM zwischen deinen beiden Händen (Standard), oder gibt "
+                + "beiden Händen genau die Haltung, die du eingestellt hast. Die Spiegelung dreht das "
+                + "Vorzeichen von seitlichem Versatz, Gierung und Rollung um, damit das Item in der "
+                + "linken Hand so liegt wie sein Spiegelbild in der rechten — richtig, wenn du beide "
+                + "Hände gleich hochnimmst, und eine sichtbare Drehung, wenn nicht. Schalte das AUS, "
+                + "und beide Hände nehmen PropHeldRotYaw / PropHeldRotRoll / PropHeldOffsetSide genau "
+                + "so, wie sie dastehen: die RECHTE Hand bleibt völlig unverändert, die LINKE wird "
+                + "identisch zu ihr. Wenn du die Haltung mit eingeschalteter Spiegelung auf der LINKEN "
+                + "Hand eingestellt hast, kehre diese drei Werte einmal im Vorzeichen um, dann liegen "
+                + "beide Hände dort, wo deine linke jetzt liegt. Gilt NUR für Map-Items, nie für Figuren.",
             ["FigureGrab/*HeldRollDegrees"] =
                 "Gehaltene ROLLUNG (Grad) um die Achse, die aus deinen Fingerspitzen zeigt — die dritte "
                 + "Drehachse, damit eine Figur in der Hand dieselbe Freiheit hat wie die Hand selbst: drei "

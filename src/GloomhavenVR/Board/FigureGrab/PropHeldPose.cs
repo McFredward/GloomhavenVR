@@ -37,6 +37,13 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// shape when you change gauntlets — so the mirror is of the eight effective dials, and every
 /// figure key is accounted for in the table in the round notes.</para>
 ///
+/// <para><b>AND ONE KEY THE FIGURES DO NOT HAVE</b> (2026-09-05, the handedness round):
+/// <see cref="MirrorHands"/> decides whether the hold is MIRRORED between the two hands at all.
+/// It is not part of the one-for-one mirror above and deliberately has no figure twin — the
+/// figures' hold was tuned round after round with the reflection in the picture and the user has
+/// accepted it ("bei den Figuren passt es"), so the figure call sites pass a literal
+/// <c>true</c>.</para>
+///
 /// <para><b>LIVE-TUNABLE, with no hook of its own.</b> A held prop's pose is re-asserted every
 /// frame by <c>GrabbableProp.TickHeld</c> → <c>ApplyHeldPose</c> (that re-assert is why a
 /// foreign write to a held prop's transform lasts one frame instead of a whole hold), and
@@ -87,6 +94,41 @@ internal static class PropHeldPose
     /// <summary>Stand the item the right way up in the world at the instant of the grab, whatever
     /// angle you reached from. Mirrors the figures' <c>HeldUprightAtGrab</c>.</summary>
     public static ConfigEntry<bool>? UprightAtGrab;
+
+    /// <summary>
+    /// MIRROR THE HOLD BETWEEN THE HANDS, or give both hands the authored pose verbatim
+    /// (2026-09-05, the handedness round). The NINTH key, and the only one with no figure twin — it exists because of
+    /// the report the figures' eight dials have never produced.
+    ///
+    /// <para><b>THE REPORT, verbatim.</b> <i>"Die Rotation ist anders, wenn ich Props in die linke
+    /// oder rechte Hand nehme. Bei den Figuren passt es. Bei den Props habe ich die Rotation nun so
+    /// eingestellt, dass es für die linke Hand passt; wenn ich es dann mit der rechten Hand nehme,
+    /// ist es verdreht — warum klappt das bei den Figuren, aber Props nicht?"</i></para>
+    ///
+    /// <para><b>THE ANSWER, AND WHY IT IS A SWITCH AND NOT A FIX.</b> It does not work differently
+    /// for the figures. The prop path and the figure path apply the SAME mirror, and it is exact —
+    /// see <see cref="HeldPoseMirror"/>, which is now the one place either of them computes it.
+    /// What the mirror costs is set by the YAW alone: it reflects the held object's FACING and
+    /// leaves its up axis in the palm untouched, so at yaw 0° or ±180° the two hands are identical
+    /// and at the shipped −133° they present the object's front 94° apart. The figures' hold sits
+    /// where it does because it was tuned round after round WITH that reflection in the picture;
+    /// the map items' has not been. So the honest question is not "which path is broken" but
+    /// "should this object be mirrored at all", and that is about how the player holds their two
+    /// hands, which no amount of source reading decides.</para>
+    ///
+    /// <para><b>SHIPPED TRUE = TODAY, BIT FOR BIT.</b> Nothing moves on first run. Turned OFF,
+    /// both hands take the authored numbers unflipped — so the RIGHT hand is still exactly what it
+    /// is today and the LEFT hand becomes identical to it. A pose tuned on the LEFT hand under the
+    /// mirror is reproduced on BOTH hands by negating the three mirror terms once:
+    /// <c>PropHeldRotYaw</c>, <c>PropHeldRotRoll</c> and <c>PropHeldOffsetSide</c>.</para>
+    ///
+    /// <para>LIVE like the other eight (the per-frame re-assert in <c>GrabbableProp.TickHeld</c>
+    /// re-poses whatever is already in the hand), and MULTIPLAYER-inert for the same reason they
+    /// are: prop holds are local-only in this build, and when they do reach the wire this key
+    /// follows the standing ruling — the OWNER's value decides what every viewer sees, never
+    /// ANDed with a viewer's own copy.</para>
+    /// </summary>
+    public static ConfigEntry<bool>? MirrorHands;
 
     /// <summary>
     /// Bound from <c>FigureGrabConfig.Bind</c>, into the SAME <c>dev.gloomhavenvr.figuregrab.cfg</c>
@@ -142,6 +184,17 @@ internal static class PropHeldPose
             + "so turning your wrist still turns it through every angle. The angles above stay "
             + "offsets — with this on they are offsets from 'standing up' rather than from the "
             + "hand." + tail);
+        MirrorHands = config.Bind(
+            "FigureGrab", "PropHeldMirrorHands", Defaults.PropHeldMirrorHands,
+            "MIRROR a held MAP ITEM between your two hands (default), or give both hands the "
+            + "SAME pose you dialled in. The mirror flips the sideways offset, the yaw and the "
+            + "roll, so the item sits in the left hand the way its reflection sits in the right — "
+            + "right when you bring both hands up the same way, and a visible turn when you do "
+            + "not. Turn this OFF and both hands take PropHeldRotYaw / PropHeldRotRoll / "
+            + "PropHeldOffsetSide exactly as written: the RIGHT hand does not move at all and the "
+            + "LEFT hand becomes identical to it. If you tuned the pose on your LEFT hand with "
+            + "the mirror on, negate those three values once and both hands will sit where your "
+            + "left hand does now." + tail);
     }
 
     // ---- the accessors, shaped exactly like FigureGrabConfig's -----------------------------
@@ -170,6 +223,10 @@ internal static class PropHeldPose
     /// <summary>Capture "the right way up in the world" once, at the grab.</summary>
     internal static bool HeldUprightAtGrab => Val(UprightAtGrab, Defaults.PropHeldUprightAtGrab);
 
+    /// <summary>Mirror the hold between the hands (shipped) or hand both hands the authored pose
+    /// verbatim. See <see cref="MirrorHands"/> for the report this answers.</summary>
+    internal static bool Mirrored => Val(MirrorHands, Defaults.PropHeldMirrorHands);
+
     /// <summary>
     /// The GrabAnchor-local held offset for one hand. The tuned values are canonical for the RIGHT
     /// hand; the LEFT is the MIRROR IMAGE across the hand frame's left-right (X) axis, so only the
@@ -179,20 +236,21 @@ internal static class PropHeldPose
     /// to <c>FigureGrabConfig.HeldOffsetFor</c>.
     /// </summary>
     internal static Vector3 HeldOffsetFor(HandSide side)
-    {
-        float sideSign = side == HandSide.Left ? -1f : 1f;
-        return new Vector3(
-            sideSign * Val(OffsetSide, Defaults.PropHeldOffsetSide),
+        => HeldPoseMirror.Offset(
+            side == HandSide.Left, Mirrored,
+            Val(OffsetSide, Defaults.PropHeldOffsetSide),
             Val(OffsetUp, Defaults.PropHeldOffsetUp),
             Val(OffsetForward, Defaults.PropHeldOffsetForward));
-    }
 
     /// <summary>Yaw for one hand — mirroring a rotation across the hand frame's left-right plane
-    /// negates the yaw (and the roll) and leaves the pitch untouched.</summary>
-    internal static float YawFor(HandSide side) => side == HandSide.Left ? -Yaw : Yaw;
+    /// negates the yaw (and the roll) and leaves the pitch untouched. Returns the authored value
+    /// unflipped on both hands while <see cref="MirrorHands"/> is off.</summary>
+    internal static float YawFor(HandSide side)
+        => HeldPoseMirror.Angle(side == HandSide.Left, Mirrored, Yaw);
 
     /// <summary>Roll for one hand (see <see cref="YawFor"/>).</summary>
-    internal static float RollFor(HandSide side) => side == HandSide.Left ? -Roll : Roll;
+    internal static float RollFor(HandSide side)
+        => HeldPoseMirror.Angle(side == HandSide.Left, Mirrored, Roll);
 
     /// <summary>
     /// The upright held orientation as a FIXED CONSTANT rotation relative to the GrabAnchor.
@@ -204,12 +262,11 @@ internal static class PropHeldPose
     /// dials substituted, and the composition order is the same for the same reason.</para>
     /// </summary>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => Quaternion.Euler(Pitch, 0f, RollFor(side))
-           * Quaternion.Euler(0f, YawFor(side), 0f);
+        => HeldPoseMirror.Upright(side == HandSide.Left, Mirrored, Pitch, Yaw, Roll);
 
     /// <summary>The flat palm pose: pitch only. It deliberately does NOT take the yaw and the
     /// roll — giving it all three makes the two poses identical and turns
     /// <see cref="HeldUpright"/> into a switch that does nothing, which is a mistake the figure
     /// path already made once.</summary>
-    internal static Quaternion HeldPalmRotation() => Quaternion.Euler(Pitch, 0f, 0f);
+    internal static Quaternion HeldPalmRotation() => HeldPoseMirror.Palm(Pitch);
 }

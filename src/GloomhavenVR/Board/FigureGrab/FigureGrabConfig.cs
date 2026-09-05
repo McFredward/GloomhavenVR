@@ -397,11 +397,16 @@ internal static class FigureGrabConfig
     /// see HandRig), so without this flip the same local X put the mini on the same frame-side of
     /// both hands (anatomically opposite) — this negation restores the true mirror.
     /// </summary>
+    /// <remarks>
+    /// The flip itself is <see cref="HeldPoseMirror"/> — ONE definition, shared with the map
+    /// items' <see cref="PropHeldPose"/>, since the 2026-09-05 handedness round found the two paths carrying the same
+    /// five expressions written twice. <c>mirrored: true</c> is passed as a LITERAL and not as a
+    /// dial: the figures' hold is what the user has already tuned and accepted ("bei den Figuren
+    /// passt es"), so this call site is bit-identical to what it was.
+    /// </remarks>
     internal static Vector3 HeldOffsetFor(HandSide side)
-    {
-        float sideSign = side == HandSide.Left ? -1f : 1f;
-        return new Vector3(sideSign * ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
-    }
+        => HeldPoseMirror.Offset(side == HandSide.Left, mirrored: true,
+                                 ActiveHeldSide, ActiveHeldUp, ActiveHeldForward);
 
     /// <summary>
     /// The inspection yaw for a given hand. Mirroring a rotation across the hand-frame's
@@ -410,7 +415,7 @@ internal static class FigureGrabConfig
     /// the tuned RIGHT-hand yaw. (Roll is always 0 here, so only the yaw needs the flip.)
     /// </summary>
     internal static float HeldFaceYawFor(HandSide side)
-        => side == HandSide.Left ? -ActiveHeldFaceYaw : ActiveHeldFaceYaw;
+        => HeldPoseMirror.Angle(side == HandSide.Left, mirrored: true, ActiveHeldFaceYaw);
 
     /// <summary>
     /// Held ROLL for one hand — the third rotation axis, so a mini has the same freedom in the
@@ -422,7 +427,7 @@ internal static class FigureGrabConfig
     /// about the mirror axis itself.)</para>
     /// </summary>
     internal static float HeldRollFor(HandSide side)
-        => side == HandSide.Left ? -ActiveHeldRoll : ActiveHeldRoll;
+        => HeldPoseMirror.Angle(side == HandSide.Left, mirrored: true, ActiveHeldRoll);
 
     /// <summary>
     /// Issue A — the upright held orientation as a FIXED CONSTANT rotation RELATIVE TO THE
@@ -450,8 +455,8 @@ internal static class FigureGrabConfig
     /// mini's axis; tilted, it is still a pure spin, just seen tipped.
     /// </remarks>
     internal static Quaternion HeldUprightRotation(HandSide side)
-        => Quaternion.Euler(ActiveHeldTilt, 0f, HeldRollFor(side))
-           * Quaternion.Euler(0f, HeldFaceYawFor(side), 0f);
+        => HeldPoseMirror.Upright(side == HandSide.Left, mirrored: true,
+                                  ActiveHeldTilt, ActiveHeldFaceYaw, ActiveHeldRoll);
 
     /// <summary>
     /// The palm pose: tilt only, as it always was.
@@ -463,7 +468,7 @@ internal static class FigureGrabConfig
     /// you inspect a mini in.</para>
     ///
     /// </summary>
-    internal static Quaternion HeldPalmRotation() => Quaternion.Euler(ActiveHeldTilt, 0f, 0f);
+    internal static Quaternion HeldPalmRotation() => HeldPoseMirror.Palm(ActiveHeldTilt);
 
     private static ConfigFile? _file;
 
