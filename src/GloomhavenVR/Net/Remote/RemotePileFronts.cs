@@ -125,10 +125,11 @@ internal sealed class RemotePileFronts
 
     /// <summary>Reused resolve buffers — the per-cadence resolve allocates nothing.</summary>
     private readonly List<AbilityCardUI> _abilityBuf = new(16);
-    /// <summary>The ITEM resolve buffer. <c>CItem?</c> because it is a RAW copy of
-    /// <c>Inventory.AllItems</c> INCLUDING its null entries — the index has to stay the owner's, and
-    /// a null seat draws a back. See <see cref="Resolve"/>.</summary>
-    private readonly List<CItem?> _itemBuf = new(16);
+    /// <summary>The ITEM resolve buffer: <c>Inventory.AllItems</c> with its null entries SKIPPED,
+    /// which is the ARC's index space — no chip is built for a null on either machine. See
+    /// <see cref="Resolve"/>, and <see cref="RemoteUsableFrame.ResolveSlots"/> for the translation
+    /// record 35's raw mask index needs to reach it.</summary>
+    private readonly List<CItem> _itemBuf = new(16);
 
     private float _nextResolveAt;
     private int _resolvedCount = -1;
@@ -491,20 +492,20 @@ internal sealed class RemotePileFronts
             List<CItem>? all = inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
-            // RAW INDEX, NULLS INCLUDED — and that is a correction, not a shortcut. This walk used
-            // to COMPACT the list (`if (all[i] != null) add`), which put it out of step with the two
-            // things it is required to agree with: the owner's own arc, built from the UNFILTERED
-            // Inventory.AllItems by Cards.ItemsPile (whose doc says "verified UNFILTERED" in as many
-            // words), and TryResolveItemSpentFlags below, which walks the same list by RAW index and
-            // whose own doc already claims — wrongly, until now — that the two are one walk. A
-            // single null anywhere but the end of AllItems therefore shifted every chip behind it:
-            // the wrong item face, and the tapped rotation landing on the wrong chip beside it. It
-            // is the same positional-zip defect as the burnt pile's, on the fan next door.
-            //
-            // A null entry becomes a slab with no face — a BACK — which is exactly what an
-            // unresolvable card has always drawn here, and it keeps every other seat correct.
+            // NULLS ARE SKIPPED, AND THAT IS THE ARC'S INDEX SPACE — not a shortcut. A null
+            // inventory entry gets NO CHIP on either machine: the owner's arc skips it
+            // (Cards.ItemsPile.Populate) and so does this walk, so slab i is chip i on both sides.
+            // RemoteUsableFrame.ResolveSlots states the same rule from the other end and exists
+            // ENTIRELY to translate record 35's RAW mask index into this COMPACTED arc index —
+            // read its doc before touching this loop, because "AllItems is unfiltered" is true of
+            // the LIST and says nothing about the ARC built from it. (I made exactly that mistake
+            // one commit ago and this comment is the cheap way to stop the next reader repeating
+            // it: the belt in Tick would then have refused every item front for good.)
             for (int i = 0; i < all.Count; i++)
-                _itemBuf.Add(all[i]);
+            {
+                if (all[i] != null)
+                    _itemBuf.Add(all[i]);
+            }
             return _itemBuf.Count > 0;
         }
 
@@ -548,11 +549,17 @@ internal sealed class RemotePileFronts
     /// slot-alignment argument in <see cref="Resolve"/>'s doc applies here word for word.</para>
     ///
     /// <para>THAT CLAIM WAS UNTRUE WHEN IT WAS WRITTEN, and it is worth saying so here rather than
-    /// letting the next reader trust it twice. This walk has always used the RAW index (a flag per
-    /// <c>AllItems</c> entry, nulls included), while <see cref="Resolve"/> COMPACTED the nulls out.
-    /// A single null anywhere but the end of the list therefore drew every chip behind it with its
-    /// neighbour's face while this method tapped the seats the owner actually has spent. Both walk
-    /// the raw index now.</para>
+    /// letting the next reader trust it twice. This walk used the RAW <c>AllItems</c> index (a flag
+    /// per entry, nulls included) while <see cref="Resolve"/> — and the owner's own arc, and every
+    /// other consumer — SKIP the nulls. One null anywhere but the end of the list therefore tapped
+    /// the chip BELOW the one the owner has spent. Both walk the compacted arc index now.</para>
+    ///
+    /// <para>WHICH SPACE IS THE RIGHT ONE IS NOT A JUDGEMENT CALL, and it is settled one file over:
+    /// no chip is built for a null entry on EITHER machine (<c>Cards.ItemsPile.Populate</c> on the
+    /// owner's side, <see cref="Resolve"/> on this one), which is why
+    /// <see cref="RemoteUsableFrame.ResolveSlots"/> exists at all — its whole job is to translate
+    /// record 35's mask out of the raw index and into this compacted one. "AllItems is unfiltered"
+    /// is a true statement about the LIST that says nothing about the ARC.</para>
     ///
     /// <para>DELIBERATELY NOT BEHIND <see cref="RevealGate"/>, and this is the one place to say why.
     /// The gate governs card FRONTS: it exists so the game's secret
@@ -575,8 +582,17 @@ internal sealed class RemotePileFronts
             List<CItem>? all = inv != null ? inv.AllItems : null;
             if (all == null)
                 return false;
+            // ONE FLAG PER CHIP, NOT ONE PER INVENTORY ENTRY — nulls skipped, exactly as Resolve
+            // above and Cards.ItemsPile.Populate skip them. This walked the RAW index while every
+            // arc on both machines is the compacted one, so a single null anywhere but the end of
+            // AllItems tapped the chip BELOW the one the owner has actually spent. See the doc
+            // above for why that could stand for so long, and RemoteUsableFrame.ResolveSlots for
+            // the same translation done deliberately for record 35's mask.
             for (int i = 0; i < all.Count; i++)
-                into.Add(all[i] != null && all[i].SlotState == CItem.EItemSlotState.Spent);
+            {
+                if (all[i] != null)
+                    into.Add(all[i].SlotState == CItem.EItemSlotState.Spent);
+            }
             return true;
         }
         catch (System.Exception ex)
