@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
   <a>
-    <img src="https://img.shields.io/badge/version-1.0.0-7c3aed.svg" alt="Mod version">
+    <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
   </a>
 </p>
 
@@ -30,6 +30,7 @@
 
 <p align="center">
   <a href="INSTALL.md"><b>Install →</b></a> &nbsp;·&nbsp;
+  <a href="docs/PLAYING.md#the-controls">Controls</a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md">Playing guide</a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.md#known-limitations">Known limitations</a>
 </p>
@@ -54,46 +55,29 @@
 </tr>
 </table>
 
-### Grab it where it is
+### Full VR multiplayer
 
-Every window and every control board hangs from a turned wooden or metal rod, and you move it by
-taking hold of that rod — with your hand, or with the pointer from across the table. Each of the
-three board styles wears its own: honey oak with a dark bronze knob, forged steel, or patinated
-bronze with gilt caps. Windows get a quieter walnut one so it does not compete with the page next
-to it.
+Every VR player has a mask, hands and their own control board. Lifted miniatures, moved windows and
+pointing fingers are visible to everyone, and players without a headset join the same game on a flat
+screen.
 
-The rods are real geometry, not a painted strip: they are round, so the pointer has to actually
-hit one, and a window's rod keeps the same grain, the same worn grip and the same fine beading
-whatever width the window happens to be.
+## Mod assets
 
-### Full VR Multiplayer
-
-Every VR player has a mask, hands and their own
-control board; lifted miniatures, moved windows and pointing fingers are visible to everyone.
-Players without a headset join the same game on a flat screen.
-
-A board you are looking at across the table wears **its owner's** rod, not yours — if they play on
-the bronze board and you play on oak, that is what you see. Windows shared with the group carry a
-small badge in the corner rather than a coloured bar.
-
-## Mod Assets
-
-Three pairs of hands, three masks, three control boards. One dropdown each, changeable mid-session,
-and the other players see the choice. All modelled for this project.
+Three pairs of hands, three masks, three control boards — one dropdown each, changeable mid-session,
+and the other players see your choice. All modelled for this project.
 
 <p align="center">
   <img src="docs/img/styles.png" width="680" alt="Three hands, three masks, and three control boards with the grab rod each one comes with">
 </p>
 
-Each board is shown with the turned grab rod it comes with, at the spot along its bottom edge where
-you actually take hold of it. The rods are modelled from a lathe profile and textured one by one,
-down to the incised fillets, the knurled collars and the worn band where a hand has held it. Windows
-get a fourth, quieter walnut rod.
+Every window and every board hangs from a turned rod and is moved by taking hold of it — with your
+hand, or with the pointer from across the table. A board you look at across the table wears **its
+owner's** rod, not yours.
 
 ## Environments
 
-A candle-lit cellar or a night forest with a real star catalogue overhead — both built for this
-project, both with firelight, ambient sound and rare events, each with its own setting.
+A candle-lit cellar or a night forest under a real star catalogue — both built for this project, both
+with firelight, ambient sound and rare events.
 
 <p align="center">
   <img src="docs/img/env-cellar.jpg" width="345" alt="The cellar">
@@ -101,13 +85,13 @@ project, both with firelight, ambient sound and rare events, each with its own s
 </p>
 
 **Mixed reality** replaces the sky with a chroma-key colour so the board can be composited over your
-real room; the built rooms switch off while it is on.
+real room.
 
 ### Elemental changes
 
-<b>The rooms react to the scenario's element infusions</b>, at the edges rather than over the play area.
-Fire lights the room and sets props burning, Ice grows frost, Air moves flames and foliage, Earth
-brings up growth, Light lifts the ambient level and Dark lowers it and eclipses the moon.
+**The rooms react to the scenario's element infusions**, at the edges rather than over the play area.
+Fire sets props burning, Ice grows frost, Air moves flames and foliage, Earth brings up growth, Light
+lifts the ambient level, Dark eclipses the moon.
 
 <p align="center">
   <img src="docs/img/env-elements.jpg" width="700" alt="The same camera with the element off and on"><br>
@@ -116,10 +100,10 @@ brings up growth, Light lifts the ambient level and Dark lowers it and eclipses 
 
 ## Requirements
 
-**Gloomhaven (Digital)** for PC (Steam or GOG) · a Windows PC that runs it · a PC-VR headset with
-two tracked controllers · room-scale or standing. Developed on a **Quest 3 over Virtual Desktop**.
+**Gloomhaven (Digital)** for PC (Steam or GOG) · Windows · a PC-VR headset with two tracked
+controllers · room-scale or standing. Developed on a **Quest 3 over Virtual Desktop**.
 
-Installation is two archives into the game folder. **[→ Install guide](INSTALL.md)**
+**[→ Install guide](INSTALL.md)** — two archives into the game folder.
 
 ---
 

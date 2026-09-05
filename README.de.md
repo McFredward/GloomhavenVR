@@ -13,7 +13,7 @@
     <img src="https://img.shields.io/badge/Supported Game version-1.1.8307.0-yellow.svg" alt="Supported game version">
   </a>
   <a>
-    <img src="https://img.shields.io/badge/version-1.0.0-7c3aed.svg" alt="Mod version">
+    <img src="https://img.shields.io/badge/version-0.1.1-7c3aed.svg" alt="Mod version">
   </a>
 </p>
 
@@ -30,6 +30,7 @@
 
 <p align="center">
   <a href="INSTALL.de.md"><b>Installieren →</b></a> &nbsp;·&nbsp;
+  <a href="docs/PLAYING.de.md#die-steuerung">Steuerung</a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md">Spielanleitung</a> &nbsp;·&nbsp;
   <a href="docs/PLAYING.de.md#bekannte-einschränkungen">Bekannte Einschränkungen</a>
 </p>
@@ -54,48 +55,29 @@
 </tr>
 </table>
 
-### Anfassen, wo es hängt
-
-Jedes Fenster und jedes Kontrollbrett hängt an einer gedrechselten Stange aus Holz oder Metall, und
-du bewegst es, indem du diese Stange greifst — mit der Hand oder mit dem Zeigestrahl quer über den
-Tisch. Jeder der drei Brettstile trägt seine eigene: Honigeiche mit dunklem Bronzeknauf,
-geschmiedeter Stahl oder patinierte Bronze mit vergoldeten Kappen. Fenster bekommen eine ruhigere
-aus Nussbaum, damit sie dem Inhalt daneben nicht die Schau stiehlt.
-
-Die Stangen sind echte Geometrie, kein aufgemalter Streifen: sie sind rund, der Zeigestrahl muss
-also wirklich eine treffen, und die Stange eines Fensters behält dieselbe Maserung, denselben
-abgegriffenen Griff und dieselbe feine Perlung, egal wie breit das Fenster gerade ist.
-
 ### Vollwertiger VR-Mehrspieler
 
-Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett; hochgehobene Miniaturen,
-verschobene Fenster und zeigende Finger sehen alle. Wer kein Headset hat, spielt am flachen
+Jeder VR-Spieler hat eine Maske, Hände und ein eigenes Kontrollbrett. Hochgehobene Miniaturen,
+verschobene Fenster und zeigende Finger sehen alle, und wer kein Headset hat, spielt am flachen
 Bildschirm in derselben Partie mit.
-
-Ein Brett, auf das du quer über den Tisch schaust, trägt **die Stange seines Besitzers**, nicht
-deine — wenn er auf dem Bronzebrett spielt und du auf Eiche, siehst du genau das. Fenster, die mit
-der Gruppe geteilt sind, tragen ein kleines Abzeichen in der Ecke statt eines farbigen Balkens.
 
 ## Assets der Mod
 
-Drei Handpaare, drei Masken, drei Kontrollbretter. Je ein Dropdown, mitten in der Sitzung
-umstellbar, und die anderen Spieler sehen die Wahl. Alles für dieses Projekt modelliert.
+Drei Handpaare, drei Masken, drei Kontrollbretter — je ein Dropdown, mitten in der Sitzung
+umstellbar, und die anderen Spieler sehen deine Wahl. Alles für dieses Projekt modelliert.
 
 <p align="center">
   <img src="docs/img/styles.png" width="680" alt="Drei Handpaare, drei Masken und drei Kontrollbretter mit der Greifstange, die zu jedem gehört">
 </p>
 
-Jedes Brett wird mit der gedrechselten Greifstange gezeigt, die dazugehört, an genau der Stelle
-seiner Unterkante, an der du es tatsächlich anfasst. Die Stangen sind nach einem Drechselprofil
-modelliert und einzeln texturiert, bis hin zu den eingestochenen Kehlen, den gerändelten Ringen und
-dem abgegriffenen Band, wo eine Hand sie gehalten hat. Fenster bekommen eine vierte, ruhigere
-Stange aus Nussbaum.
+Jedes Fenster und jedes Brett hängt an einer gedrechselten Stange und wird bewegt, indem du sie
+greifst — mit der Hand oder mit dem Zeigestrahl quer über den Tisch. Ein Brett, auf das du quer über
+den Tisch schaust, trägt **die Stange seines Besitzers**, nicht deine.
 
 ## Umgebungen
 
-Ein kerzenbeleuchteter Keller oder ein Nachtwald mit einem echten Sternkatalog über dir — beide für
-dieses Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen, jeder mit
-seiner eigenen Einstellung.
+Ein kerzenbeleuchteter Keller oder ein Nachtwald unter einem echten Sternkatalog — beide für dieses
+Projekt gebaut, beide mit Feuerschein, Umgebungsklang und seltenen Ereignissen.
 
 <p align="center">
   <img src="docs/img/env-cellar.jpg" width="345" alt="Der Keller">
@@ -103,14 +85,14 @@ seiner eigenen Einstellung.
 </p>
 
 **Mixed Reality** ersetzt den Himmel durch eine Chroma-Key-Farbe, damit das Brett über dein echtes
-Zimmer gelegt werden kann; die gebauten Räume schalten sich ab, solange das an ist.
+Zimmer gelegt werden kann.
 
 ### Wirkung der Elemente
 
-<b>Die Räume reagieren auf die Elementinfusionen des Szenarios</b>, an den Rändern statt über der
-Spielfläche. Feuer erhellt den Raum und setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft
-bewegt Flammen und Blattwerk, Erde treibt Bewuchs hervor, Licht hebt die Grundhelligkeit, und
-Dunkelheit senkt sie und verfinstert den Mond.
+**Die Räume reagieren auf die Elementinfusionen des Szenarios**, an den Rändern statt über der
+Spielfläche. Feuer setzt Requisiten in Brand, Eis lässt Frost wachsen, Luft bewegt Flammen und
+Blattwerk, Erde treibt Bewuchs hervor, Licht hebt die Grundhelligkeit, Dunkelheit verfinstert den
+Mond.
 
 <p align="center">
   <img src="docs/img/env-elements.jpg" width="700" alt="Dieselbe Kamera mit ausgeschaltetem und mit eingeschaltetem Element"><br>
@@ -119,12 +101,11 @@ Dunkelheit senkt sie und verfinstert den Mond.
 
 ## Voraussetzungen
 
-**Gloomhaven (Digital)** für den PC (Steam oder GOG) · ein Windows-PC, der es packt · ein
-PC-VR-Headset mit zwei getrackten Controllern · Room-Scale oder im Stehen. Entwickelt auf einer
-**Quest 3 über Virtual Desktop**.
+**Gloomhaven (Digital)** für den PC (Steam oder GOG) · Windows · ein PC-VR-Headset mit zwei
+getrackten Controllern · Room-Scale oder im Stehen. Entwickelt auf einer **Quest 3 über Virtual
+Desktop**.
 
-Installiert wird mit zwei Archiven, entpackt in den Spielordner.
-**[→ Installationsanleitung](INSTALL.de.md)**
+**[→ Installationsanleitung](INSTALL.de.md)** — zwei Archive, entpackt in den Spielordner.
 
 ---
 
