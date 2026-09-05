@@ -3374,7 +3374,19 @@ internal sealed class GrabbableModal : IPanelGrabOwner
             + $"(BarGapMeters {BarGapMeters:F3} m to the bar's centre, less half its thickness, x the "
             + $"short-panel proportion, at {mmPerPx:F3} mm per authored px on the live rig)";
 
-        string census = $"{_inkGraphics} graphic(s) unioned, {_inkPlates} full-frame plate(s), "
+        // ModBuild 447 — THE CENSUS IS THE LATEST SAMPLE, THE VERDICT IS THE COMMITTED ONE, and they
+        // are printed side by side because they are ALLOWED to disagree: the verdict is monotone
+        // inside a generation and only a confirmed release may drop it, so "0 full-frame plate(s)"
+        // beside "committed verdict: the window PAINTS its frame" is one walk that missed a plate
+        // being correctly ignored — not a contradiction. A STANDING disagreement across many lines
+        // is the release side failing to reach its run length, and that is the lead.
+        string plateVerdict = _inkFullFrame
+            ? "committed verdict: this window PAINTS a plate across its own frame, so the rod's "
+              + "width and centre are the FRAME's"
+            : "committed verdict: this window does NOT paint its frame, so the rod's width and "
+              + "centre are the UNION's";
+        string census = $"{_inkGraphics} graphic(s) unioned, {_inkPlates} full-frame plate(s) on this "
+                        + $"sample ({plateVerdict}), "
                         + $"{_inkFaint} drawn-but-invisible graphic(s) (effective alpha under the fit's "
                         + $"floor), {_inkEmptyText} empty text(s) and {_inkModChrome} mod chrome object(s) "
                         + $"excluded — the chrome was {PanelInkBounds.DescribeChrome(_inkModChromeMask)}"

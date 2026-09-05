@@ -59,6 +59,37 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// which is registered on <c>PartyDisplay.OnShown</c> only while the LOADOUT window is up
 /// (:330/:406). Outside the loadout nothing re-selects, which is precisely the reported hole.</para>
 ///
+/// <para><b>ModBuild 447 — AND ONE MORE DROP SOURCE THE LIST ABOVE DID NOT HAVE, which is the one
+/// the user could see.</b> Report, verbatim (2026-09-05): <i>"Wenn die Map gewechselt wird, blinkt
+/// auch immer ganz kurz der ausgewählte Character in dem Character-UI Fenster. Ich möchte dass es da
+/// stabil bleibt."</i> Every guildmaster mode change runs
+/// <c>UIGuildmasterHUD.UpdateCurrentMode</c> (:435) → <c>modes[current].Exit()</c> →
+/// <c>OnLeaveMap</c> (:523) → <c>NewPartyDisplayUI.DisableMapOptions()</c> (:1501), and the last
+/// statement of THAT is <c>CloseWindows()</c> (:1316) whose own last statement is
+/// <c>selectedCharacter?.Escape()</c> (:1323) — <c>NewPartyCharacterUI.Escape()</c> (:1453) calls
+/// <c>OnClick()</c> on the slot that is already selected, which toggles it off and lands in
+/// <c>SelectCurrentCharacter(null)</c>. The list above named <c>DisableMapOptions()</c> at :1504,
+/// which is its <c>UnselectCurrentCharacter()</c> branch — and that branch deliberately spares an
+/// ASSIGNED character. The method then throws the assigned one away four lines later through
+/// <c>CloseWindows</c>. One method, both statements, opposite intents
+/// ([[the-game-threw-away-its-own-fact]]).</para>
+///
+/// <para><b>WHY IT BLINKS ON A MAP SWITCH AND NOT ON A TEMPLE OR MERCHANT OPEN</b>, which is the
+/// asymmetry that names the cause: a destination's <c>Enter()</c> reaches
+/// <c>EnableSelectionMode</c> (:1408), which calls <c>DisableMapOptions()</c> itself and then
+/// SYNCHRONOUSLY re-selects at its tail (:1435-1438). <c>CityMapMode</c> and <c>WorldMapMode</c>
+/// have no such tail, so on those two nothing re-selects and this class is the only thing that
+/// does. The ModBuild 446 log shows exactly that: four map switches, four drives; three destination
+/// opens, no drive needed.</para>
+///
+/// <para><b>THE FIX IS TIMING, NOT A NEW WRITE.</b> The restore is the drive this class has always
+/// made under the 2026-08-15 ruling; what was wrong is that it was reached by a 4 Hz poll, so the
+/// panel painted nobody for up to 250 ms — about 22 frames at 90 Hz, which is what the user sees as
+/// a blink. <see cref="Tick"/> now reacts to the DROP EDGE (somebody → nobody) on the frame it
+/// happens. Nothing about who may write the selection, which character is chosen, or how often a
+/// drive may be issued changed; see the block on the edge itself for why it cannot make
+/// <see cref="DriveFuse"/> hair-trigger.</para>
+///
 /// <para><b>THE ANSWER IS TWO LAYERS, and which one applies is decided by whether the game has a
 /// selection to write at all.</b></para>
 /// <list type="number">
@@ -153,9 +184,18 @@ internal static class MapCharacterSelection
 {
     private const string Scope = "WorldUI";
 
-    /// <summary>How often the rule is evaluated at all. The whole tick is two float compares until
-    /// this elapses, so it is free on the per-frame path; 4 Hz is fast enough that a drop to nobody
-    /// is invisible to the player and slow enough that a drive can never become a per-frame write.</summary>
+    /// <summary>How often the rule is evaluated when nothing has happened. 4 Hz is slow enough that
+    /// a drive can never become a per-frame write, and that is still the only job this number has.
+    ///
+    /// <para><b>ModBuild 447 — IT USED TO CLAIM ONE MORE THING AND THE CLAIM WAS FALSE.</b> This doc
+    /// said 4 Hz "is fast enough that a drop to nobody is invisible to the player". The user's eyes
+    /// falsified it: <i>"Wenn die Map gewechselt wird, blinkt auch immer ganz kurz der ausgewählte
+    /// Character in dem Character-UI Fenster. Ich möchte dass es da stabil bleibt."</i> A poll can
+    /// only ever be at most one PERIOD late, and one period here is 250 ms — about 22 frames at
+    /// 90 Hz of a party panel painting nobody. That is not a cadence to tune, it is the wrong shape:
+    /// see <see cref="Tick"/>'s drop edge, which reacts on the frame the selection goes rather than
+    /// on the next poll after it. This constant is unchanged and now covers only what it can: the
+    /// case where nothing changed and we are simply re-checking.</para></summary>
     private const float EvaluateSeconds = 0.25f;
 
     /// <summary>The census/falsifier cadence — slow enough not to spam a log, fast enough that a
@@ -169,8 +209,31 @@ internal static class MapCharacterSelection
     /// cannot tell a hand from a loop" — so this fuse is keyed on our own failure, not on activity.)</summary>
     private const int DriveFuse = 6;
 
+    /// <summary>ModBuild 447 — how many DROP EDGES print a line before the count alone carries them
+    /// on the census. Twelve, because the ModBuild 446 session produced ten programmatic deselects
+    /// in total and a hardware round must see every one of a normal session's; a window that dropped
+    /// the selection every frame is a different defect and must not be able to drown the log while
+    /// it is being diagnosed.</summary>
+    private const int DropEdgeLinesPerSession = 12;
+
     private static float _nextEvaluate;
     private static float _nextCensus;
+
+    /// <summary>
+    /// ModBuild 447 — <b>DID THE PARTY DISPLAY HAVE SOMEBODY ON THE PREVIOUS FRAME?</b> One bool,
+    /// so <see cref="Tick"/> can see the DROP itself rather than wait for the next poll to notice
+    /// its consequence. Written every frame from the same <see cref="Selected"/> read the rule
+    /// already uses, so the two can never disagree about what "selected" means.
+    /// </summary>
+    private static bool _hadSelection;
+
+    /// <summary>Drop edges seen over this session, and how many of them arrived inside the 4 Hz
+    /// window this round exists to close (i.e. would have been a visible blink). Both are printed on
+    /// the census: a fix that never fires and a defect that never happens look identical without
+    /// them, and this one is easy to leave in place doing nothing after some future round moves the
+    /// game's deselect somewhere else.</summary>
+    private static int _dropEdges;
+    private static int _dropEdgesInsidePollWindow;
 
     /// <summary>The character the floor last supplied — continuity, see the class doc.</summary>
     private static CMapCharacter? _held;
@@ -366,7 +429,88 @@ internal static class MapCharacterSelection
     internal static void Tick()
     {
         float now = Time.unscaledTime;
-        bool evaluate = now >= _nextEvaluate;
+
+        // ---- ModBuild 447 — THE DROP EDGE. ------------------------------------------------------
+        //
+        // USER REPORT, verbatim (2026-09-05): "Wenn die Map gewechselt wird, blinkt auch immer ganz
+        // kurz der ausgewählte Character in dem Character-UI Fenster. Ich möchte dass es da stabil
+        // bleibt."
+        //
+        // WHAT BLINKS, AND WHOSE FAULT EACH HALF IS. The GAME drops the selection on every
+        // guildmaster mode change, and it does it in a place the class doc above did not list:
+        // UIGuildmasterHUD.UpdateCurrentMode (:435) runs modes[current].Exit() -> OnLeaveMap (:523)
+        // -> NewPartyDisplayUI.DisableMapOptions() (:1501), whose LAST statement is CloseWindows()
+        // (:1316), whose last statement is `selectedCharacter?.Escape()` (:1323) —
+        // NewPartyCharacterUI.Escape() (:1453) calls OnClick() on the already-selected slot, which
+        // toggles it OFF and reaches SelectCurrentCharacter(null). The game contradicts itself
+        // inside one method: DisableMapOptions' own first lines take care to unselect ONLY a slot
+        // that is not Assigned, and then CloseWindows throws the Assigned one away anyway
+        // ([[the-game-threw-away-its-own-fact]]).
+        //
+        // The mod already puts it back — that is this whole class, under the user's 2026-08-15
+        // ruling — so nothing new is written here and no new owner of the selection is created. What
+        // was wrong is WHEN: the restore was reached by a 4 Hz poll, so the panel painted nobody for
+        // up to 250 ms. The ModBuild 446 log has all four map switches with the same three beats and
+        // no fourth: press (:4996), the game's own programmatic deselect seen through the mod's
+        // click patch (:5004 "CHARACTER CLICK SUPPRESSED THE AUTO-OPEN ... slot 0"), and the restore
+        // (:5066 "the party display was showing NOBODY ... SELECTED 'Testi'"). Ten such suppressed
+        // clicks in the session, seven of them within 2-11 lines of a GUILDMASTER WINDOW PRESS.
+        //
+        // WHY AN EDGE AND NOT A FASTER POLL. A poll is at most one period late whatever the period
+        // is; only an edge is bounded by a frame. And it is deliberately keyed on the SELECTION, not
+        // on the guildmaster mode: this class must not learn a second subsystem's state machine to
+        // do its own job, and a drop is a drop whoever caused it — the same edge covers the panel
+        // Hide(deselectCurrentCharacter: true) path the class doc already names.
+        //
+        // WHY IT CANNOT MAKE THE FUSE HAIR-TRIGGER, which is the objection it has to answer
+        // ([[a-fuse-cannot-tell-a-hand-from-a-loop]]). DriveFuse counts CONSECUTIVE drives whose
+        // outcome was still nobody, one per evaluation. This edge is `somebody -> nobody`, so it can
+        // fire at most once per drop: the frame after a drive that landed there is a selection and
+        // no edge, and the frame after a drive that did NOT land the previous frame was also nobody
+        // and there is no edge either. A drop therefore adds exactly ONE evaluation, and the drive
+        // rate stays the 4 Hz it has always been.
+        //
+        // COST: one Selected read per frame in place of two float compares — a static singleton
+        // field, a cast, a field and two properties, inside the try/catch that read already carries.
+        bool hasSelection = Selected != null;
+        bool dropEdge = _hadSelection && !hasSelection;
+        _hadSelection = hasSelection;
+        if (dropEdge)
+        {
+            _dropEdges++;
+            bool insidePollWindow = now < _nextEvaluate;
+            if (insidePollWindow)
+                _dropEdgesInsidePollWindow++;
+            if (_dropEdges <= DropEdgeLinesPerSession)
+            {
+                // HW-VERIFY — the ONE line that says this round fired. It is Note (printed in a
+                // shipped build) because the next hardware round has to read it: the user's report
+                // is a sub-second visual and there is no other way to tell "the blink is gone
+                // because the edge caught it" from "the blink is gone because the game stopped
+                // deselecting". Capped, with the running total on the census, so a window that
+                // dropped every frame could not drown the log ([[a-cap-that-goes-silent]]).
+                VRLog.Note(Scope,
+                    $"SELECTION GUARD DROP EDGE: map — the party display went from somebody to NOBODY "
+                    + $"on THIS frame (edge {_dropEdges} of at most {DropEdgeLinesPerSession} printed; "
+                    + $"{_dropEdgesInsidePollWindow} so far arrived inside the 4 Hz poll's own window). "
+                    + (insidePollWindow
+                        ? "IT LANDED INSIDE THE POLL WINDOW, which is the user's 'blinkt auch immer "
+                          + "ganz kurz' case: before ModBuild 447 the panel would have painted nobody "
+                          + "until the next poll, up to 250 ms = about 22 frames at 90 Hz. The rule is "
+                          + "being evaluated on this frame instead"
+                        : "The poll was due on this frame anyway, so this edge changed nothing and is "
+                          + "printed only so the two cases cannot be confused")
+                    + ". THE OUTCOME IS THE NEXT 'SELECTION GUARD: map —' LINE: it names who was put "
+                    + "back and through which seam, or why nothing could be written. WHAT DROPPED IT "
+                    + "is normally the game's own mode change — UIGuildmasterHUD.UpdateCurrentMode "
+                    + "runs the leaving mode's Exit, which reaches NewPartyDisplayUI.CloseWindows and "
+                    + "its closing selectedCharacter.Escape() -> OnClick() — so a CHARACTER CLICK "
+                    + "SUPPRESSED THE AUTO-OPEN line within a few lines above is this edge's cause. "
+                    + "An edge with no such line beside it is a DIFFERENT drop source and the lead.");
+            }
+        }
+
+        bool evaluate = dropEdge || now >= _nextEvaluate;
         bool census = now >= _nextCensus;
         if (!evaluate && !census)
             return;
@@ -731,6 +875,26 @@ internal static class MapCharacterSelection
                   .Append(" with no assigned character — the last group is the ONLY one the ruling "
                           + "allows to show nobody, and 'unobserved' is a blind spot, not a pass; "
                           + "a peer is always unobserved here, so falsify their half in THEIR log.");
+
+        // ModBuild 447 — THE DROP-EDGE LEDGER, and it is the falsifier for the "blinkt ganz kurz"
+        // fix rather than a statistic. A drop edge is the frame the party display goes from somebody
+        // to nobody; the SECOND number is the ones that landed inside the 4 Hz poll's own window,
+        // i.e. exactly the drops that used to leave the panel painting nobody until the next poll —
+        // up to 250 ms, about 22 frames at 90 Hz. So: a session in which the user switched maps and
+        // this reads 0 edges means the edge is not seeing the game's deselect and the fix is inert
+        // ([[a-held-instrument-reads-as-dead]]); a session in which it reads N edges and the
+        // VIOLATED count above is also non-zero means the edge fires and the RESTORE is what fails,
+        // which is a different defect and is read off the drive's own lines.
+        CensusText.Append(" DROP-EDGE LEDGER (ModBuild 447): ").Append(_dropEdges)
+                  .Append(" frame(s) this session on which the party display went from somebody to "
+                          + "NOBODY, of which ").Append(_dropEdgesInsidePollWindow)
+                  .Append(" arrived inside the 4 Hz poll's own window and were evaluated on the drop "
+                          + "frame instead of up to 250 ms later — that second number IS the "
+                          + "user's \"blinkt auch immer ganz kurz\" report, counted. The game's "
+                          + "deselect is UIGuildmasterHUD.UpdateCurrentMode -> OnLeaveMap -> "
+                          + "NewPartyDisplayUI.DisableMapOptions -> CloseWindows -> "
+                          + "selectedCharacter.Escape() -> OnClick(), which is why every one of them "
+                          + "sits beside a CHARACTER CLICK SUPPRESSED THE AUTO-OPEN line.");
 
         if (violated == 0)
             VRLog.Info(Scope, CensusText.ToString());
