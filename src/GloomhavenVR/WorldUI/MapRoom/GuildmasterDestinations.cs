@@ -403,6 +403,32 @@ internal static class GuildmasterDestinations
         return DeclaredOrder.Length + (int)mode;
     }
 
+    /// <summary>How many rows the table rail stands in. Row 0 is the far one, nearest the map.</summary>
+    internal const int RailRowCount = 2;
+
+    /// <summary>
+    /// WHICH ROW OF THE TABLE RAIL THIS MODE'S CAP STANDS IN — user request, 2026-09-05: <i>the
+    /// "Gloomhaven" and "Worldmap" buttons should sit in a SECOND ROW below the others, for visual
+    /// separation.</i>
+    ///
+    /// <para>DECLARED, LIKE THE ORDER, AND FOR THE SAME REASON. It is a partition of the same table
+    /// and it lives beside it, so "which buttons stand where" is answered by one file that every
+    /// client compiles in. Nothing scans, nothing infers it from a name or from how many neighbours
+    /// a cap has, and two players' rails are identical by construction.</para>
+    ///
+    /// <para>THE PARTITION IS THE ONE THE ROOM ALREADY HAS. Row 1 is exactly
+    /// <see cref="IsMapSurfaceMode"/>: <c>WorldMap</c> and <c>City</c>, the two modes that are not
+    /// windows but SURFACES this whole room is built on — the same two the press path already treats
+    /// apart (they cannot be "closed", only switched between). So the visual separation he asked for
+    /// is a separation that already existed in the behaviour; it is only now visible on the table.
+    /// Row 0 keeps everything else, including any mode a later game version adds.</para>
+    ///
+    /// <para>Row 1 stands NEARER THE PLAYER, which is what "below" means on a table of caps lying
+    /// flat — see <c>MapButtonRail.Build</c>, where the sign is worked out from the rail's own frame
+    /// and printed on the order line.</para>
+    /// </summary>
+    internal static int RailRow(EGuildmasterMode mode) => IsMapSurfaceMode(mode) ? 1 : 0;
+
     /// <summary>Is this mode named by <see cref="DeclaredOrder"/>? False means it was appended by
     /// the fallback rule in <see cref="Rank"/> and the rail says so on its order line.</summary>
     internal static bool IsRanked(EGuildmasterMode mode)
@@ -863,7 +889,12 @@ internal static class GuildmasterDestinations
         // structurally FALSE for every ID-less destination (see Sample) — the close only ever worked
         // because floatByGrab and gameOpen carried it. The object-keyed term is the honest one and
         // it can only ever ADD a standing signal, never remove one, so no press changes its answer.
-        bool standing = floatLive || floatByGrab || gameOpen;
+        //
+        // 2026-09-05: the three signals moved into IsStanding so the RAIL'S CAP LIGHTING can read
+        // the same definition instead of a lookalike. The out-flags above are still produced, but
+        // only for Describe — the log must keep naming each signal separately, which is the whole
+        // reason a close's BEFORE/AFTER pair is readable.
+        bool standing = IsStanding(window);
 
         // TownRecords / MercenaryLog: two modes, ONE UIWindow (UIGuildmasterHUD.cs:248-254). While
         // the other mode owns it and it is standing, this press switches the tab — it is not a
@@ -874,6 +905,40 @@ internal static class GuildmasterDestinations
 
         return standing || modeIsCurrent ? CapPress.Close : CapPress.Open;
     }
+
+    /// <summary>
+    /// IS ANYTHING OF THIS DESTINATION OBSERVABLY STANDING? The three signals <see cref="Decide"/>
+    /// closes on, as ONE definition that the rail's cap lighting reads too.
+    ///
+    /// <para><b>WHY THIS BECAME A METHOD (2026-09-05, user item 4).</b> The rail decided which caps
+    /// look lit and carry a collider from <c>c.Toggle.isOn</c> — the game's own bar
+    /// <c>ToggleGroup</c>, which is SINGLE-MODE by construction (<c>UIGuildmasterButton.RefreshSelected</c>,
+    /// decompiled :209: <c>toggle.interactable = !toggle.isOn</c>). With two destinations genuinely
+    /// standing open in parallel — which is what the map room is FOR, and what the modal fix of the
+    /// same day gave back — the game's mode enum can only ever name one of them, so <c>isOn</c>
+    /// cannot answer "is this destination standing" for the other. It is not a question about the
+    /// game's mode at all; it is a question about what is on the table, and the mod is the only thing
+    /// that knows. Reading it here means the rail and the press path cannot drift apart, which is the
+    /// invariant <c>MapButtonRail.Pressable</c> exists to keep.</para>
+    ///
+    /// <para><b>WHAT IT COSTS, because this runs per cap per frame and the rail's own doc has twice
+    /// refused to put a converted-window walk there.</b> It is one walk of <c>Converted</c> (which
+    /// holds at most a handful of floats and is scanned back-to-front with an early exit), one
+    /// dictionary probe and one bool field — a few dozen reference compares for the whole rail, per
+    /// frame. What was refused, and is still refused, is <see cref="Sample"/>: that resolves the
+    /// window through the HUD singleton and a <c>GetComponent</c> every time. The caller passes a
+    /// window it has already resolved and CACHED, so nothing is looked up here.</para>
+    ///
+    /// <para>All three signals are kept, and in <see cref="Decide"/>'s order. <c>floatByGrab</c>
+    /// without <c>floatLive</c> is the single tick between a close and its release — counting it as
+    /// standing is what stops the cap's LOOK and the press's DECISION from disagreeing for that
+    /// tick, which would be a cap going dark under a panel that is still on the table.</para>
+    /// </summary>
+    internal static bool IsStanding(UIWindow? window) =>
+        window != null
+        && (ModalFallback.FloatIsLive(window)
+            || ModalFallback.TryGetGrabFor(window, out _)
+            || window.IsOpen);
 
     /// <summary>
     /// THE CAP'S ONE ENTRY POINT, and the one line per press the next log is read by. Returns TRUE

@@ -158,21 +158,24 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// derived from what a press in THIS ROOM actually does:</para>
 /// <list type="number">
 /// <item>the game says yes (<c>Toggle.IsInteractable()</c>) — unchanged, the common case;</item>
-/// <item>the bar is hidden ONLY because a map location is selected. Then the press is still
-///   deliverable, because <see cref="TryRevealBar"/> drops that selection first through the game's
-///   own <c>AdventureMapUIManager.DeselectCurrentMapLocation()</c> (:385-393) — the very call the
-///   game makes on ITSELF at :359 before selecting another location — and the bar returns. This is
-///   the accident above, made deliberate: same seam, same order, but now the cap is solid (so
-///   <c>MapLocationInteractor</c>'s own beam arbitration correctly hands the trigger to the cap and
-///   does NOT deselect behind our back) and the log says what was dropped and why;</item>
-/// <item>this cap's own mode is the one that is OPEN. The game marks that toggle non-interactable on
-///   purpose (<c>UIGuildmasterButton.RefreshSelected</c>, :209: <c>toggle.interactable =
-///   !toggle.isOn</c>, plus the grayscale material on :216) because a flat second click has nothing
-///   to do — and a repeat click could not commit anyway, since <c>toggleGroup.allowSwitchOff</c> is
-///   false while a mode is active (UIGuildmasterHUD.cs:441) so uGUI's <c>Toggle.Set</c> merely
-///   re-asserts <c>isOn</c>. In the room it DOES have something to do: it closes the window. So the
-///   cap stays lit and pressable, and the press routes to
-///   <c>GuildmasterDestinations.HandleCapPress</c>.</item>
+/// <item><b>2026-09-05 — THE REVEAL CLAUSE IS GONE, and this entry is kept as its headstone.</b>
+///   It read: "the bar is hidden ONLY because a map location is selected, so the press is still
+///   deliverable — <c>TryRevealBar</c> drops that selection first through the game's own
+///   <c>AdventureMapUIManager.DeselectCurrentMapLocation()</c> and the bar returns." Two things
+///   were wrong with it. Its PREDICATE was a fact about the MAP, identical for every cap, so a
+///   selected quest lit all eight caps at once. Its ACTION brought the bar back in single player
+///   only: online, <c>UIMapMultiplayerController</c> holds a second <c>disableOptionsRequests</c>
+///   entry (:405) that the mod may not remove, so the press ate the player's quest selection and
+///   delivered nothing — twice in his host log, verbatim. See <see cref="Deliverable"/>.</item>
+/// <item>this cap's own destination is STANDING in the room. Until 2026-09-05 this asked
+///   <c>toggle.isOn</c>, i.e. the game's single-mode <c>ToggleGroup</c>, and the game marks that
+///   toggle non-interactable on purpose (<c>UIGuildmasterButton.RefreshSelected</c>, :209:
+///   <c>toggle.interactable = !toggle.isOn</c>, plus the grayscale material on :216) because a flat
+///   second click has nothing to do. In the room it DOES have something to do: it closes the window.
+///   But the game's mode enum can only ever name ONE open destination, and this room's whole point
+///   is that several stand open in parallel — so the term is now
+///   <c>GuildmasterDestinations.IsStanding</c>, the mod's own float set, object-keyed. The press
+///   routes to <c>GuildmasterDestinations.HandleCapPress</c> exactly as before.</item>
 /// </list>
 ///
 /// <para>THE SECOND PRESS CLOSES, AND IT IS THE X's OWN ROUTE, ALL OF IT (ModBuild 230). The whole
@@ -192,14 +195,18 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <c>pointerClick</c> on the bar's own map Toggle — the same dispatch the window X has sent since
 /// ModBuild 184 — and <c>UpdateCurrentMode</c> → <c>Exit</c> is local UI state; the purchase,
 /// blessing or enhancement a destination may have committed was committed by ITS own button on its
-/// own action path, so a second press cannot re-commit it: it can only leave. The reveal calls
-/// <c>MapLocation.Deselect</c>, which is guarded by the game's own <c>IsSelectable()</c> and
-/// <c>m_OnClickAction</c> (MapLocation.cs:670-678) and reaches
-/// <c>UIMapMultiplayerController.OnDeselectedQuest</c> (:287-294), whose entire body hides two local
-/// UI elements when online. Nothing is sent. It is also the identical call
-/// <c>MapLocationInteractor</c> has been making from the table since ModBuild 183.</para>
+/// own action path, so a second press cannot re-commit it: it can only leave. Since 2026-09-05 no
+/// path in this file writes to the map at all: the reveal that called <c>MapLocation.Deselect</c>
+/// is gone (see <see cref="Deliverable"/>), so a press can no longer touch this player's quest
+/// selection, and a PEER's mode mirror can no longer touch it either.</para>
 ///
-/// <para>REJECTED. (1) Hard-coding the caps to look enabled: that is the symptom, and it would have
+/// <para>REJECTED. (0, 2026-09-05) Keeping the reveal for SINGLE player, where it does work: it
+/// would have to decide per frame whether dropping the selection would actually bring the bar back,
+/// which needs <c>disableOptionsRequests</c> — a private <c>HashSet&lt;Component&gt;</c> — read by
+/// reflection for every cap; and on the machine where it does not work it would still be a press
+/// that silently undid what the player just did. A cap that cannot deliver a click is now simply
+/// dim, which is what the flat game shows in the same state. (1) Hard-coding the caps to look
+/// enabled: that is the symptom, and it would have
 /// left the beam passing through them and silently dropping his quest selection. (2) Writing
 /// <c>optionsContainer.SetActive(true)</c> ourselves to bring the bar back: a direct edit of game UI
 /// state against a level-triggered game writer, i.e. a write war, and it lies about
@@ -241,6 +248,19 @@ internal sealed class MapButtonRail
 
     /// <summary>Gap between neighbouring caps, edge to edge.</summary>
     private const float CapGapMeters = 0.018f;
+
+    /// <summary>
+    /// Gap between the two ROWS of the rail, edge to edge — deliberately wider than
+    /// <see cref="CapGapMeters"/>.
+    ///
+    /// <para>The user asked for the second row "zur optischen Trennung", so the gap has to READ as a
+    /// break rather than as more of the same lattice. At 18 mm — the column gap — two rows of flat
+    /// caps read as one 2x4 block; at 30 mm they read as two groups. It is a separate constant and
+    /// not a multiple of the column gap because it is answering a different question: the column gap
+    /// is about not fat-fingering the neighbouring button, this one is about telling two kinds of
+    /// button apart at a glance.</para>
+    /// </summary>
+    private const float RowGapMeters = 0.030f;
 
     /// <summary>Cap body depth (the collider's thickness along its own normal).</summary>
     private const float CapDepthMeters = 0.012f;
@@ -377,6 +397,20 @@ internal sealed class MapButtonRail
         /// bar has one, the <c>UIGuildmasterButton</c>'s otherwise. Cached at build so the press and
         /// hover paths can never disagree about the target.</summary>
         internal GameObject? Target;
+
+        /// <summary>
+        /// The <c>UIWindow</c> this cap's destination owns, or null for a map surface and for a mode
+        /// the HUD has no window for. Cached because <see cref="Pressable"/> asks per frame whether
+        /// that window is standing, and resolving it goes through the HUD singleton and a
+        /// <c>GetComponent</c> — which is exactly the per-frame cost ModBuild 226 and 230 refused to
+        /// pay here, and the only part of the question that was ever expensive.
+        ///
+        /// <para>Re-resolved on every rail rescan rather than once at build: the HUD's serialized
+        /// window references are populated in its own <c>Awake</c>, so a rail that stood up in the
+        /// same frame as the HUD would otherwise cache a null for the session. A null is retried,
+        /// never remembered as an answer.</para>
+        /// </summary>
+        internal UIWindow? DestinationWindow;
 
         /// <summary>How many mod pointers (left fingertip, right fingertip, laser) are on this cap.
         /// The 0→1 edge sends the game a <c>pointerEnter</c> and the 1→0 edge a <c>pointerExit</c>;
@@ -561,7 +595,10 @@ internal sealed class MapButtonRail
         _scratch.Sort(CompareByDeclaredRank);
 
         if (SameSet())
+        {
+            RefreshDestinationWindows();
             return;
+        }
 
         // The set changed (a mode switch rebuilds the bar) — rebuild from scratch rather than
         // reconciling: eight caps are cheap, and a partial reconcile is where stale references live.
@@ -579,6 +616,28 @@ internal sealed class MapButtonRail
         }
         _emptyReported = false;
         Build();
+        RefreshDestinationWindows();
+    }
+
+    /// <summary>
+    /// Re-resolve each destination cap's own <c>UIWindow</c> — the ONE expensive part of "is this
+    /// destination standing", paid once per rescan (every <see cref="RescanIntervalFrames"/> frames)
+    /// instead of per cap per frame. See <see cref="Cap.DestinationWindow"/>.
+    ///
+    /// <para>A null is never cached as an answer: the HUD populates its serialized window references
+    /// in its own <c>Awake</c>, so a rail that stood up in the same frame would otherwise be blind
+    /// for the session. Re-asking costs one HUD field read and one <c>GetComponent</c> per
+    /// destination cap, at 6 Hz.</para>
+    /// </summary>
+    private void RefreshDestinationWindows()
+    {
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            Cap c = _caps[i];
+            if (c.Button == null)
+                continue;
+            c.DestinationWindow = GuildmasterDestinations.ModeWindow(c.Button.GuildmasterMode);
+        }
     }
 
     /// <summary>
@@ -682,8 +741,41 @@ internal sealed class MapButtonRail
         float gap = CapGapMeters * _scale;
         float depth = CapDepthMeters * _scale;
         float pitch = cap + gap;
-        float span = pitch * _scratch.Count - gap;
-        float x0 = -span * 0.5f + cap * 0.5f;
+
+        // THE SECOND ROW (user request, 2026-09-05): "die 'Gloomhaven' und 'Worldmap' Buttons
+        // sollen in einer zweiten Reihe unterhalb der anderen sitzen" — for visual separation.
+        //
+        // "BELOW" IS A STEP IN THE RAIL'S OWN −Z, NOT IN Y, and the sign is worked out from this
+        // method's own frame note rather than guessed. The caps lie FLAT (CapTiltDegrees = 0), so
+        // there is no "below" in height at all — a second row in +Y would be a shelf floating over
+        // the first one. On a table read from a seat, "below" is NEARER THE PLAYER. The root's
+        // rotation is seat.Rotation, whose forward runs SEAT → MAP (the frame note above; 179 and
+        // 180 both had this backwards and shipped caps facing away from the player), so +Z points
+        // at the map and −Z points at the player. Row 1 therefore stands at −rowStep.
+        //
+        // The two rows are each CENTRED ON THEIR OWN SPAN, not left-aligned to a shared origin: six
+        // caps over two would otherwise read as a row with a gap in it rather than as two groups.
+        //
+        // WHICH cap goes in which row is GuildmasterDestinations.RailRow — declared beside the order
+        // table, never scanned — and within a row the caps keep their declared rank order, because
+        // _scratch is already sorted and this loop preserves it.
+        int[] rowCount = new int[GuildmasterDestinations.RailRowCount];
+        for (int i = 0; i < _scratch.Count; i++)
+        {
+            if (_scratch[i] == null)
+                continue;
+            int r = GuildmasterDestinations.RailRow(_scratch[i].GuildmasterMode);
+            if (r >= 0 && r < rowCount.Length)
+                rowCount[r]++;
+        }
+        float[] rowX = new float[rowCount.Length];
+        for (int r = 0; r < rowCount.Length; r++)
+        {
+            float span = pitch * rowCount[r] - gap;
+            rowX[r] = -span * 0.5f + cap * 0.5f;
+        }
+        int[] rowPlaced = new int[rowCount.Length];
+        float rowStep = cap + RowGapMeters * _scale;
 
         int built = 0;
         int withIcon = 0;
@@ -693,7 +785,12 @@ internal sealed class MapButtonRail
             UIGuildmasterButton button = _scratch[i];
             if (button == null)
                 continue;
-            Cap c = BuildCap(button, new Vector3(x0 + pitch * i, 0f, 0f), capLocalRot, cap, depth);
+            int row = GuildmasterDestinations.RailRow(button.GuildmasterMode);
+            if (row < 0 || row >= rowCount.Length)
+                row = 0;
+            var localPos = new Vector3(rowX[row] + pitch * rowPlaced[row], 0f, -rowStep * row);
+            rowPlaced[row]++;
+            Cap c = BuildCap(button, localPos, capLocalRot, cap, depth);
             _caps.Add(c);
             built++;
             if (c.Icon != null) withIcon++;
@@ -708,7 +805,13 @@ internal sealed class MapButtonRail
             VRLog.Info(Scope, $"MAP TABLE BUTTONS: {built} cap(s) standing on the table rim at {origin}, "
                               + $"{RailInsetMeters:F3} m (real) outside the map's near edge on the seat's "
                               + $"own view side {side}, {CapSizeMeters * 1000f:F0} mm faces tilted "
-                              + $"{CapTiltDegrees:F0}° up, rig scale {_scale:F2}. The set was READ off the "
+                              + $"{CapTiltDegrees:F0}° up, rig scale {_scale:F2}, in "
+                              + $"{GuildmasterDestinations.RailRowCount} ROWS "
+                              + $"({rowCount[0]} destination cap(s) in the far row nearest the map, "
+                              + $"{rowCount[1]} map-surface cap(s) in the near row {RowGapMeters * 1000f:F0} mm "
+                              + "toward the player — 'below' on a table of flat caps is a step in the "
+                              + "rail's own −Z, not in Y; see MAP TABLE BUTTON ORDER for the frame). "
+                              + "The set was READ off the "
                               + "live UIGuildmasterHUD (component type, not a name list). "
                               + $"{withIcon}/{built} carry the game's own icon Image and {withGlow}/{built} "
                               + "carry its highlight graphic — those two are SAMPLED every frame (sprite, "
@@ -749,25 +852,50 @@ internal sealed class MapButtonRail
         int unranked = 0;
         int ties = 0;
         int lastRank = int.MinValue;
-        for (int i = 0; i < _caps.Count; i++)
+        // ONE PASS PER ROW, so the line reads the way the table looks. Walking _caps once would
+        // interleave the rows (the list is in declared-rank order, and rank does not respect the row
+        // partition), and a line that prints WorldMap between Trainer and Temple would be describing
+        // a rail nobody can see — which is the failure the ModBuild 226 order line exists to end.
+        for (int row = 0; row < GuildmasterDestinations.RailRowCount; row++)
         {
-            UIGuildmasterButton button = _caps[i].Button;
-            EGuildmasterMode mode = button != null ? button.GuildmasterMode : EGuildmasterMode.None;
-            int rank = GuildmasterDestinations.Rank(mode);
-            if (!GuildmasterDestinations.IsRanked(mode))
-                unranked++;
-            if (i > 0 && rank == lastRank)
-                ties++;
-            lastRank = rank;
-            if (i > 0)
-                sb.Append(" | ");
-            sb.Append(i + 1).Append(' ').Append(mode.ToString());
+            int inRow = 0;
+            for (int i = 0; i < _caps.Count; i++)
+            {
+                UIGuildmasterButton button = _caps[i].Button;
+                EGuildmasterMode mode = button != null ? button.GuildmasterMode : EGuildmasterMode.None;
+                if (GuildmasterDestinations.RailRow(mode) != row)
+                    continue;
+                int rank = GuildmasterDestinations.Rank(mode);
+                if (!GuildmasterDestinations.IsRanked(mode))
+                    unranked++;
+                if (inRow > 0 && rank == lastRank)
+                    ties++;
+                lastRank = rank;
+                if (inRow == 0)
+                    sb.Append(row == 0 ? "ROW 0 (far, nearest the map): " : "  ||  ROW 1 (near, "
+                                                                            + "toward the player): ");
+                else
+                    sb.Append(" | ");
+                sb.Append(inRow + 1).Append(' ').Append(mode.ToString());
+                inRow++;
+            }
+            if (inRow == 0)
+                sb.Append(row == 0 ? "ROW 0 (far, nearest the map): <empty>"
+                                   : "  ||  ROW 1 (near, toward the player): <empty>");
         }
-        sb.Append(". READ IT AS: the caps left to right along the rail's own +X, which is the "
-                  + "reading direction for a player at this table edge. THE ORDER IS DECLARED, NOT "
-                  + "SCANNED (ModBuild 226): it is GuildmasterDestinations.DeclaredOrder, one table "
-                  + "every client compiles in, so two players' rails are identical by construction "
-                  + "and this line can be diffed between two logs directly. Before 226 it was "
+        sb.Append(". READ IT AS: within each row, the caps left to right along the rail's own +X, "
+                  + "which is the reading direction for a player at this table edge. THE ROWS RUN "
+                  + "TOWARD THE PLAYER: the rail root's forward is seat.Rotation, i.e. seat -> map, "
+                  + "so +Z points AT THE MAP and each further row steps in −Z, which on a table of "
+                  + "caps lying flat (CapTiltDegrees = 0) is what 'below' means to someone reading "
+                  + "it from the seat. ROW 1 IS EXACTLY THE TWO MAP SURFACES (WorldMap, City) — "
+                  + "user request 2026-09-05, 'zur optischen Trennung' — and it is the partition the "
+                  + "press path already had: those are the two modes that are not windows and cannot "
+                  + "be closed, only switched between. BOTH THE ORDER AND THE ROW ARE DECLARED, NOT "
+                  + "SCANNED (ModBuild 226; the row since 2026-09-05): they are "
+                  + "GuildmasterDestinations.DeclaredOrder and .RailRow, two tables every client "
+                  + "compiles in, so two players' rails are identical by construction and this line "
+                  + "can be diffed between two logs directly. Before 226 the order was "
                   + "whatever the local scan handed over — a transform hierarchy walk of whichever "
                   + "UIGuildmasterHUD won the singleton race, or, while that singleton was cold, an "
                   + "Object.FindObjectsOfType sweep whose order Unity documents as undefined. ");
@@ -784,7 +912,14 @@ internal sealed class MapButtonRail
                       + "that only happens when the scene really does hold two guildmaster bars and "
                       + "the sweep fallback picked up both. They are ordered by GameObject name; if "
                       + "the names also tie, their relative order is not decidable from the data.");
-        VRLog.Info(Scope, sb.ToString());
+        // HW-VERIFY
+        // PROMOTED TO Note 2026-09-05 WITH THE SECOND ROW. Until this build the line described one
+        // strip and the only thing it had to say was an order two logs could be diffed on. It now
+        // states a GEOMETRIC claim — that row 1 steps in the rail's own −Z, i.e. toward the player —
+        // and that claim has a sign that can be wrong. If it is wrong the second row stands BEHIND
+        // the first, half over the map, and this line is the only thing in the log that says which
+        // sign shipped; the alternative is another photograph. Printed once per rail build.
+        VRLog.Note(Scope, sb.ToString());
     }
 
     private Cap BuildCap(UIGuildmasterButton button, Vector3 localPos, Quaternion localRot,
@@ -1157,17 +1292,13 @@ internal sealed class MapButtonRail
     /// share this method rather than agreeing by inspection: the whole ModBuild 200 defect was an
     /// appearance and a behaviour computed from two different things.
     ///
-    /// <para>Read it as: can a press on this cap reach the game and make it do something?</para>
+    /// <para>Read it as: can a press on this cap reach the game and make it do something? It is the
+    /// AND of two questions that are deliberately separate methods since 2026-09-05, because they
+    /// had started answering for each other:</para>
     /// <list type="number">
-    ///   <item>the button must be DELIVERABLE — <c>ExecuteEvents</c> drops every event aimed at an
-    ///   inactive GameObject, so an inactive bar is a hard no UNLESS the one thing hiding it is a
-    ///   selected map location, which <see cref="TryRevealBar"/> can drop through the game's own
-    ///   call before dispatching (see the class doc);</item>
-    ///   <item>either the game's own <c>Toggle</c> says yes,</item>
-    ///   <item>or this cap's mode is the one that is OPEN and it is a mode that can be closed — the
-    ///   second-press-closes ruling. The game marks that toggle non-interactable
-    ///   (<c>UIGuildmasterButton.RefreshSelected</c>, :209) precisely because a flat second click has
-    ///   nothing to do; here it has.</item>
+    ///   <item><see cref="Deliverable"/> — can a pointer event REACH this button at all;</item>
+    ///   <item><see cref="HasSomethingToDo"/> — would the game, or this room, do anything with
+    ///   it.</item>
     /// </list>
     ///
     /// <para><c>Toggle.IsInteractable()</c> on an inactive object returns the CACHED group flag
@@ -1190,8 +1321,70 @@ internal sealed class MapButtonRail
     /// the room would pay a converted-window walk per cap per frame for a value that decides nothing
     /// until a press happens. Nothing in the ModBuild 230 change is per-frame; see section 8 of
     /// <c>GuildmasterDestinations</c> for the cost statement.</para>
+    ///
+    /// <para><b>AND 2026-09-05 DOES ASK PART OF IT PER FRAME, WITH THE COST PAID DOWN RATHER THAN
+    /// WAVED THROUGH.</b> <see cref="HasSomethingToDo"/>'s standing term is
+    /// <c>GuildmasterDestinations.IsStanding</c>, which walks the converted set. What ModBuild
+    /// 226/230 refused was <c>Sample</c> — which resolves the destination window through the HUD
+    /// singleton and a <c>GetComponent</c> on every call. That resolution is now done ONCE per rail
+    /// rescan and cached on the cap (<see cref="Cap.DestinationWindow"/>), so what is left per cap
+    /// per frame is one early-exit walk of a list that holds at most a handful of floats, one
+    /// dictionary probe and one bool field. The reason it has to be per frame at all is that it is
+    /// the answer to "is this destination on the table", and that changes without any press.</para>
     /// </summary>
-    private static bool Pressable(Cap c)
+    private static bool Pressable(Cap c) => Deliverable(c) && HasSomethingToDo(c);
+
+    /// <summary>
+    /// CAN A POINTER EVENT REACH THIS BUTTON AT ALL? <c>ExecuteEvents</c> silently drops everything
+    /// aimed at an inactive GameObject, so this is a hard no and it is asked FIRST.
+    ///
+    /// <para><b>THIS USED TO HAVE AN ESCAPE HATCH AND IT WAS A LIE (user item 6, 2026-09-05).</b>
+    /// The clause read <c>!c.Button.IsActive &amp;&amp; !CanRevealBar()</c>, and <c>CanRevealBar()</c>
+    /// answered "a map location is selected" — a fact about the MAP, identical for every cap on the
+    /// rail. So the moment the player selected a quest, the game removed its whole option bar
+    /// (<c>AdventureMapUIManager.OnSelectedMapLocation</c> :357 →
+    /// <c>EnableHeadquartersOptions(this, false)</c> → <c>optionsContainer.SetActive(false)</c>) and
+    /// this predicate lit ALL EIGHT CAPS AT ONCE and gave every one of them a collider. His words:
+    /// <i>"Solange der point of no return nicht überschritten ist soll das Öffnen einer Quest gar
+    /// keinen Einfluss auf die Aktivierung der Buttons haben."</i></para>
+    ///
+    /// <para><b>AND THE PRESS THAT FOLLOWED ATE HIS SELECTION AND DELIVERED NOTHING.</b>
+    /// <see cref="Press"/> dropped the selected location through the game's own
+    /// <c>DeselectCurrentMapLocation</c> and only then re-tested deliverability. In SINGLE player the
+    /// bar comes back on that call and the press lands; IN MULTIPLAYER IT DOES NOT, and the reason is
+    /// in the decompile rather than in a guess: <c>disableOptionsRequests</c> is a SET, and while a
+    /// quest is selected online <c>UIMapMultiplayerController.ToggleReadyUpUI(show: true)</c> (:405)
+    /// has put the multiplayer controller in it as a second entry, which nothing this mod may touch
+    /// removes. His host log has the whole sequence twice, for 'Trainer' and for 'Enchantress': the
+    /// deselect line, then <c>"…its game object 'Trainer Button' is INACTIVE, so no pointer event can
+    /// be delivered to it at all … and nothing was dispatched."</c> One trigger pull, quest selection
+    /// gone, nothing opened.</para>
+    ///
+    /// <para><b>SO THE HATCH IS DELETED, NOT NARROWED.</b> A cap that cannot deliver a click must not
+    /// look pressable — the standing ruling about exit controls, generalised: a click on a control
+    /// must end in the thing it promises or in a visible refusal, never in silence. With the bar
+    /// down, the caps are dim and inert, which is exactly what the flat game shows in the same state
+    /// (it removes the bar outright).</para>
+    ///
+    /// <para><b>WHAT THIS COSTS, STATED, BECAUSE IT IS A CHANGE AGAINST AN EARLIER RULING.</b>
+    /// ModBuild 200 answered <i>"man den Händler und co. jederzeit mit dem button aufrufen kann,
+    /// auch wenn gerade eine Quest ausgewählt ist"</i> with the reveal. That is now gone in SINGLE
+    /// player too, where it did work: with a quest selected, the destination caps are dim until the
+    /// selection is dropped — which the player still does from the table
+    /// (<c>MapLocationInteractor</c>, ModBuild 183). Keeping it for single player only was rejected:
+    /// it would need the private <c>disableOptionsRequests</c> set read per frame to decide whether
+    /// the reveal would work, and it would leave the same press quietly eating a selection on the
+    /// one machine where it does. The residual is honest and visible; the old behaviour was neither.
+    /// </para>
+    /// </summary>
+    private static bool Deliverable(Cap c) => c.Button != null && c.Button.IsActive;
+
+    /// <summary>
+    /// WOULD THE GAME, OR THIS ROOM, DO ANYTHING WITH THE PRESS? The three mode-shaped rules,
+    /// unchanged in intent since ModBuild 200/231 — with the LAST one moved off the game's mode
+    /// enum, which cannot answer it any more.
+    /// </summary>
+    private static bool HasSomethingToDo(Cap c)
     {
         // ModBuild 231, belt and braces past the point of no return (user ruling: "zu diesem
         // Zeitpunkt ist der 'Point of Return' schon überschritten, d.h. zB Händler und co. darf man
@@ -1204,8 +1397,6 @@ internal sealed class MapButtonRail
         if (StoryComposite.PointOfNoReturn)
             return false;
         if (c.Button == null || c.Toggle == null)
-            return false;
-        if (!c.Button.IsActive && !CanRevealBar())
             return false;
 
         // ModBuild 231 — A MAP-SURFACE CAP ANSWERS TO THE SURFACE, NOT TO THE CURRENT MODE.
@@ -1268,7 +1459,31 @@ internal sealed class MapButtonRail
 
         if (c.Toggle.IsInteractable())
             return true;
-        return c.Toggle.isOn && IsClosableMode(c.Button.GuildmasterMode);
+
+        // THE SECOND-PRESS-CLOSES CLAUSE, AND ITS TERM MOVED OFF THE GAME'S MODE ENUM
+        // (user item 4, 2026-09-05).
+        //
+        // It read `c.Toggle.isOn && IsClosableMode(mode)`. `isOn` is the game's bar ToggleGroup and
+        // that group is SINGLE-MODE by construction: UIGuildmasterButton.RefreshSelected (decompiled
+        // :209) runs `toggle.interactable = !toggle.isOn`, and UIGuildmasterHUD keeps exactly one
+        // mode current. So the pair of clauses asked, in effect, "is this the one mode the game
+        // says is open?" — and the whole point of this room, restored the same day in
+        // ModalFallback's StickinessSpentByAnsweredDecision, is that SEVERAL destinations stand open
+        // in parallel here. He asked for it in those words: the merchant and the sorceress together.
+        // The game's enum cannot name two, so for every standing destination but one the answer came
+        // out of clause 2 instead, which is a different question that happens to agree — until it
+        // does not, and then a cap sits dark over a panel that is plainly on the table.
+        //
+        // "IS THIS DESTINATION STANDING" IS THE MOD'S OWN QUESTION AND IT HAS ONE DEFINITION:
+        // GuildmasterDestinations.IsStanding, the same three signals Decide closes on, object-keyed,
+        // reading the float set rather than the mode. Look and behaviour therefore still come from
+        // one place — the ModBuild 200 invariant this method exists to keep — but they now come from
+        // the place that can answer for a room with two windows in it.
+        //
+        // The window reference is CACHED on the cap (see Cap.DestinationWindow), so nothing here
+        // resolves anything through the HUD singleton; see the cost paragraph in Pressable's doc.
+        return IsClosableMode(c.Button.GuildmasterMode)
+               && GuildmasterDestinations.IsStanding(c.DestinationWindow);
     }
 
     /// <summary>
@@ -1307,77 +1522,6 @@ internal sealed class MapButtonRail
     /// </summary>
     private static bool IsClosableMode(EGuildmasterMode mode) =>
         GuildmasterDestinations.IsWindowMode(mode);
-
-    /// <summary>
-    /// Is the guildmaster bar hidden by a SELECTED MAP LOCATION — the one lock this room can lift?
-    ///
-    /// <para>The question is deliberately about the location and not about
-    /// <c>disableOptionsRequests</c>: that set can also hold the multiplayer controller
-    /// (UIMapMultiplayerController.cs:405), the town-records window (UITownRecordsWindow.cs:106) and
-    /// several <c>MapChoreographer</c> phases, and none of those is ours to clear. A selected
-    /// location is, because the mod already deselects one from the table on the user's own ModBuild
-    /// 183 ruling. If the bar is down for any other reason the cap stays greyed and inert, which is
-    /// honest — the flat game would refuse the same click.</para>
-    /// </summary>
-    private static bool CanRevealBar()
-    {
-        AdventureMapUIManager? map = Singleton<AdventureMapUIManager>.IsInitialized
-            ? Singleton<AdventureMapUIManager>.Instance
-            : null;
-        MapLocation? sel = map != null ? map.LocationToTravel : null;
-        return sel != null && sel.IsSelected;
-    }
-
-    /// <summary>
-    /// Drop the selected map location so the game brings its own option bar back, then say so.
-    ///
-    /// <para>THE SEAM IS THE GAME'S OWN AND SO IS THE SIDE EFFECT.
-    /// <c>AdventureMapUIManager.DeselectCurrentMapLocation()</c> (:385-393) calls
-    /// <c>MapLocation.Deselect()</c>, which still runs <c>IsSelectable()</c> and the location's own
-    /// <c>m_OnClickAction</c> guard (MapLocation.cs:670-678); the game itself makes this exact call
-    /// at :359 whenever a different location is selected. The bar returns synchronously through
-    /// <c>OnDeselectedMapLocation</c> → <c>EnableHeadquartersOptions(true)</c>, which is why the
-    /// caller can re-test <c>IsActive</c> on the very next line.</para>
-    ///
-    /// <para>IT IS NOT SILENT AND IT IS NOT NEW. Before ModBuild 200 the same deselection happened
-    /// anyway, by accident, because the greyed cap's collider let the beam through to the table —
-    /// see the class doc. The only difference now is that the cap catches its own press and this
-    /// line names the location that was dropped.</para>
-    /// </summary>
-    private static bool TryRevealBar(UIGuildmasterButton button, string source)
-    {
-        AdventureMapUIManager? map = Singleton<AdventureMapUIManager>.IsInitialized
-            ? Singleton<AdventureMapUIManager>.Instance
-            : null;
-        MapLocation? sel = map != null ? map.LocationToTravel : null;
-        if (map == null || sel == null || !sel.IsSelected)
-            return false;
-        string what = sel.name;
-        try
-        {
-            map.DeselectCurrentMapLocation();
-        }
-        catch (System.Exception ex)
-        {
-            VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' ({source}): "
-                              + $"AdventureMapUIManager.DeselectCurrentMapLocation threw "
-                              + $"({ex.GetType().Name}: {ex.Message}) — the guildmaster bar stays hidden "
-                              + "and this press will be refused on the next line.");
-            return false;
-        }
-        VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' ({source}): the guildmaster bar "
-                          + $"was hidden because '{what}' was SELECTED, so the selection was dropped first "
-                          + "through the game's own AdventureMapUIManager.DeselectCurrentMapLocation — the "
-                          + "same call the game makes on itself before selecting another location, and the "
-                          + "same MapLocation.Deselect the table-click deselection has used since ModBuild "
-                          + "183. The game re-enables its option bar synchronously "
-                          + "(OnDeselectedMapLocation -> EnableHeadquartersOptions(true)), so the click "
-                          + "below is deliverable. NOTHING GOES ON THE WIRE: OnDeselectedQuest only hides "
-                          + "two local UI elements when online. THIS ALREADY HAPPENED BEFORE ModBuild 200, "
-                          + "invisibly — the greyed cap's collider was off, so the beam reached the table "
-                          + "behind it and MapLocationInteractor deselected there instead.");
-        return true;
-    }
 
     // ---- THE ALIASING FIX: mip-baked copies of the game's own symbols -------------------------
 
@@ -1999,41 +2143,51 @@ internal sealed class MapButtonRail
 
         // (1) DELIVERABLE? ExecuteEvents drops everything aimed at an inactive GameObject, so a
         //     hidden option bar is not a "refusal" the game would print — it is a press that lands
-        //     nowhere. If the only thing hiding the bar is a selected map location, drop that first
-        //     through the game's own call; the bar returns synchronously. (ModBuild 200 — this is the
-        //     accident the beam used to perform for us; see the class doc.)
+        //     nowhere. THE PRESS NOW REFUSES INSTEAD OF CLEARING THE WAY (user item 6, 2026-09-05).
+        //
+        //     WHAT STOOD HERE. `TryRevealBar` dropped the player's SELECTED MAP LOCATION through the
+        //     game's own AdventureMapUIManager.DeselectCurrentMapLocation and then re-tested. That
+        //     was ModBuild 200 making the beam's old accident deliberate, and in single player it
+        //     works — the bar comes back on that call. IN MULTIPLAYER IT DOES NOT.
+        //     `disableOptionsRequests` is a SET (UIGuildmasterHUD.cs:111) and while a quest is
+        //     selected online UIMapMultiplayerController.ToggleReadyUpUI(show: true) has put the
+        //     multiplayer controller in it as a second entry (:405), removed only by that same
+        //     method's show:false branch (:451) — nothing this mod may touch. So the press dropped
+        //     his quest selection AND delivered nothing. His host log has the pair verbatim, twice,
+        //     for 'Trainer' and for 'Enchantress': the deselect line, then the INACTIVE warning
+        //     below.
+        //
+        //     "SOLANGE DER POINT OF NO RETURN NICHT ÜBERSCHRITTEN IST SOLL DAS ÖFFNEN EINER QUEST
+        //     GAR KEINEN EINFLUSS AUF DIE AKTIVIERUNG DER BUTTONS HABEN." A press that silently
+        //     undoes the thing the player just did is the worst reading of that, so the reveal is
+        //     gone from this path entirely — including for a PROGRAMMATIC dispatch (PressMode, the
+        //     multiplayer surface mirror), which is the other reason this had to be removed here and
+        //     not merely guarded in Pressable: a peer's map switch must never touch this player's
+        //     selection either.
+        //
+        //     A physical press cannot normally reach this line any more (Deliverable is false, so
+        //     the cap has no collider), which is why the warning below now says what it means: if it
+        //     prints, something dispatched at a bar that is down.
         if (!target.activeInHierarchy)
         {
-            TryRevealBar(button, source);
-            if (target.activeInHierarchy && cap != null && cap.GameHovered)
-            {
-                // THE OUTSTANDING pointerEnter NEVER ARRIVED, so it must not be claimed as arriving.
-                // The cap was solid and hovered while its game button was inactive, and ExecuteEvents
-                // silently drops every event aimed at an inactive object — so the game's
-                // ExtendedToggle.isHighlighted was never set, and without it the game gates its own
-                // press SOUND off (the whole ModBuild 195 defect). Handing the claim back here makes
-                // `hovered` below FALSE, which takes the well-worn synthesized
-                // pointerEnter -> down -> up -> click -> pointerExit path on a now-ACTIVE object. The
-                // beam's own claim is released with it so the next TickLaser re-hovers cleanly.
-                if (ReferenceEquals(_laserHover, cap))
-                    _laserHover = null;
-                DropHover(cap, "its game button was inactive while we held the hover — re-sending it");
-            }
-            if (!target.activeInHierarchy)
-            {
-                VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) but its "
-                                  + $"game object '{target.name}' is INACTIVE, so no pointer event can be "
-                                  + "delivered to it at all (ExecuteEvents refuses an inactive target) and "
-                                  + "nothing was dispatched. The guildmaster option bar is down for a reason "
-                                  + "this room cannot lift: UIGuildmasterHUD.RefreshVisibilityHeadquartersOptions "
-                                  + "runs optionsContainer.SetActive(false) while disableOptionsRequests is "
-                                  + "non-empty, and the only entry the mod clears is a selected map location "
-                                  + "(the multiplayer controller, the town-records window and several "
-                                  + "MapChoreographer phases also put themselves in that set). The cap should "
-                                  + "have been greyed and inert already; if this line appears, Pressable and "
-                                  + "the collider were one frame behind the game.");
-                return;
-            }
+            VRLog.Warn(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' pressed ({source}) but its "
+                              + $"game object '{target.name}' is INACTIVE, so no pointer event can be "
+                              + "delivered to it at all (ExecuteEvents refuses an inactive target) and "
+                              + "nothing was dispatched. THE PLAYER'S MAP SELECTION WAS NOT TOUCHED: "
+                              + "before 2026-09-05 this path dropped a selected quest through "
+                              + "DeselectCurrentMapLocation first, which brings the bar back in single "
+                              + "player and does NOT in multiplayer (UIMapMultiplayerController holds a "
+                              + "second disableOptionsRequests entry, :405, that the mod may not remove) "
+                              + "— so the press ate the selection and still landed nowhere. The bar is "
+                              + "down for a reason this room cannot lift: "
+                              + "UIGuildmasterHUD.RefreshVisibilityHeadquartersOptions runs "
+                              + "optionsContainer.SetActive(false) while disableOptionsRequests is "
+                              + "non-empty. A PHYSICAL press should not be able to reach this line at all "
+                              + "— Deliverable() is false while the bar is down, so the cap is dim and has "
+                              + "no collider — so if the source names a hand or the laser, the cap was a "
+                              + "frame behind the game; if it names PressMode or the multiplayer mirror, "
+                              + "this is the mod dispatching into a bar the game has removed.");
+            return;
         }
 
         // (2) SECOND PRESS ON THE MODE THAT IS OPEN = CLOSE IT (ModBuild 200 — "Weiterhin soll ein
