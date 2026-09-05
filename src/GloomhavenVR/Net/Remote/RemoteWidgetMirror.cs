@@ -205,6 +205,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private readonly LayoutOwner _layoutOwner;
 
     /// <summary>
+    /// WHICH SOURCE NODES HEAD A BRANCH WHOSE VISIBILITY THIS CLASS DOES NOT DECIDE — null (the
+    /// default) when every branch's <c>activeSelf</c> is the source's own answer, which is what the
+    /// class assumed for its whole life. See <see cref="Pair.External"/> for the defect that
+    /// assumption shipped.
+    /// </summary>
+    private readonly System.Func<Transform, bool>? _externalBranch;
+
+    /// <summary>
     /// THE ONE PLACE THIS FILE TURNS TRAY METRES INTO uGUI PIXELS — <c>TrayPixelsPerMeter</c> ×
     /// this dock's own density scale, verbatim <c>TrayMountedPanelSurface</c>'s
     /// <c>density</c> local and verbatim the one <c>ObjectivesSurface.ApplyContentWidth</c>
@@ -324,11 +332,17 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// dock whose content width is FORCED from a synced dial asks for
     /// <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>, and today that is the objectives panel
     /// alone.</param>
+    /// <param name="externallyShownBranch">Which SOURCE nodes head a branch whose visibility the
+    /// CALLER decides — see <see cref="Pair.External"/>. Evaluated once per clone REBUILD, on the
+    /// source and on the clone, never per frame. Null (the default) is every mirror that has no
+    /// such branch, i.e. the behaviour that shipped before this parameter existed.</param>
     public RemoteWidgetMirror(string name, Transform mount, float mountWidth, float mountMaxHeight,
         Vector2 grow, bool fitWidth = true, float densityScale = 1f, bool driveFromSource = true,
-        LayoutOwner layoutOwner = LayoutOwner.Source)
+        LayoutOwner layoutOwner = LayoutOwner.Source,
+        System.Func<Transform, bool>? externallyShownBranch = null)
     {
         _layoutOwner = layoutOwner;
+        _externalBranch = externallyShownBranch;
         _driveFromSource = driveFromSource;
         _name = name;
         _mount = mount;
@@ -523,7 +537,7 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _clone = clone;
         _source = source;
 
-        Neutralize(clone, _layoutOwner);
+        Neutralize(clone, _layoutOwner, _externalBranch);
 
         _cloneRect = clone.transform as RectTransform;
         if (_cloneRect == null)
@@ -564,6 +578,21 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         _pairs = new Pair[n];
         for (int i = 0; i < n; i++)
             _pairs[i] = new Pair(srcNodes[i], _walk[i], skipTo[i]);
+        // THE BRANCHES THIS CLASS DOES NOT OWN THE VISIBILITY OF — latched through the array
+        // element for the same reason Suppress() is (see the Pair remarks). Evaluated on the
+        // SOURCE: Neutralize already ran on the clone and took the game components the predicate
+        // asks about with it.
+        int external = 0;
+        if (_externalBranch != null)
+        {
+            for (int i = 0; i < n; i++)
+            {
+                if (srcNodes[i] == null || !_externalBranch(srcNodes[i]))
+                    continue;
+                _pairs[i].MarkExternal();
+                external++;
+            }
+        }
         int secret = SuppressSecretBranches(clone.transform);
         RebuildStamp++; // CloneOf holders must re-resolve against the fresh clone
         // A clone rebuild is an Instantiate of a whole game panel plus a full re-pair — the single
@@ -592,6 +621,11 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                           (secret > 0
                               ? $" {secret} node(s) carrying a PER-CHARACTER SECRET goal were " +
                                 "suppressed on the clone (see SuppressSecretBranches)."
+                              : string.Empty) +
+                          (external > 0
+                              ? $" {external} branch(es) are EXTERNALLY SHOWN — the caller owns " +
+                                "their active flag and the clone owns their geometry (see " +
+                                "Pair.External)."
                               : string.Empty));
         return true;
     }
@@ -957,8 +991,24 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// behaviour's <c>Awake</c>/<c>OnEnable</c> run on the frame the host activates, which is the
     /// entire thing this method exists to prevent.
     /// </summary>
-    private static void Neutralize(GameObject clone, LayoutOwner layoutOwner)
+    private static void Neutralize(GameObject clone, LayoutOwner layoutOwner,
+                                  System.Func<Transform, bool>? externallyShownBranch)
     {
+        // THE BRANCHES THE CLONE WILL LAY OUT ITSELF, resolved BEFORE a single component is
+        // destroyed — the predicate reads the very game components the loop below removes, so
+        // asking afterwards would always answer "none". See Pair.External for why these exist and
+        // IsStockLayout for why exactly three component families are exempted.
+        List<Transform>? cloneLaidOut = null;
+        if (externallyShownBranch != null)
+        {
+            foreach (Transform node in clone.GetComponentsInChildren<Transform>(includeInactive: true))
+            {
+                if (node == null || !externallyShownBranch(node))
+                    continue;
+                (cloneLaidOut ??= new List<Transform>(4)).Add(node);
+            }
+        }
+
         // Unity refuses to destroy a component that a SURVIVING one declares as a
         // [RequireComponent] dependency (GraphicRaycaster→Canvas is the common case, and game
         // scripts have their own chains). Two mitigations, both cheap:
@@ -977,6 +1027,8 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                 if (c == null || c is Transform || IsPresentation(c, layoutOwner))
                     continue;
                 if (c is Canvas && pass == 0)
+                    continue;
+                if (cloneLaidOut != null && IsStockLayout(c) && InsideAny(c.transform, cloneLaidOut))
                     continue;
                 Object.DestroyImmediate(c);
                 if (c == null)
@@ -1017,7 +1069,10 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     ///     UNLESS the caller asked for <see cref="LayoutOwner.CloneAtBoardOwnersWidth"/>, in which
     ///     case the rect drive is the thing that stands down and these three come back; see
     ///     <see cref="IsStockLayout"/> for why exactly three, and <see cref="ApplyOwnersColumn"/>
-    ///     for the audit of what they contest.
+    ///     for the audit of what they contest. They also come back INSIDE an externally shown
+    ///     branch, whatever the layout owner: the drive skips such a branch entirely, so the clone's
+    ///     own layout contests nothing and is the only thing that can resolve it. See
+    ///     <see cref="Pair.External"/>.
     ///   everything else (the game's own MonoBehaviours) — see the class note.
     /// </summary>
     private static bool IsPresentation(Component c, LayoutOwner layoutOwner) =>
@@ -1047,6 +1102,18 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     private static bool IsStockLayout(Component c) =>
         (c is LayoutGroup || c is ContentSizeFitter || c is LayoutElement)
         && ReferenceEquals(c.GetType().Assembly, typeof(LayoutGroup).Assembly);
+
+    /// <summary>Is <paramref name="node"/> inside (or itself) any of <paramref name="roots"/>?
+    /// One parent walk per stock-layout component per clone REBUILD — never per frame.</summary>
+    private static bool InsideAny(Transform node, List<Transform> roots)
+    {
+        for (int i = 0; i < roots.Count; i++)
+        {
+            if (IsSelfOrDescendant(node, roots[i]))
+                return true;
+        }
+        return false;
+    }
 
     private void DestroyClone()
     {
@@ -1122,9 +1189,16 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
     /// invisible branch changes nothing anybody can see.</para>
     ///
     /// <para>With the extents in hand, an off branch costs ONE <c>activeSelf</c> read and one index
-    /// jump. Nothing is skipped that could be visible: the moment a branch's own node reports
-    /// active again, the loop continues into it IN THE SAME FRAME (the jump only happens on the
-    /// false result), so there is no staleness and no one-frame catch-up.</para>
+    /// jump. The moment a branch's own node reports active again, the loop continues into it IN THE
+    /// SAME FRAME (the jump only happens on the false result), so there is no staleness and no
+    /// one-frame catch-up.</para>
+    ///
+    /// <para>"NOTHING IS SKIPPED THAT COULD BE VISIBLE" USED TO BE WRITTEN HERE AS A FACT. It is
+    /// the source's answer to a question a CALLER may also answer: <c>RemoteInitiativeTrack</c>
+    /// shows a mirrored enemy-info popup from the PEER's hover while this client's own copy of it
+    /// is off. That branch is now marked (see <see cref="Pair.External"/>) and skipped for a
+    /// DIFFERENT reason — its geometry belongs to the clone — rather than on a premise that does
+    /// not hold for it.</para>
     /// </summary>
     private void BuildSubtreeExtents(int[] skipTo)
     {
@@ -1687,6 +1761,19 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
         Pair[] pairs = _pairs;
         for (int i = 0; i < pairs.Length; i++)
         {
+            // AN EXTERNALLY SHOWN BRANCH IS NOT PART OF THE PANEL'S EXTENT. It is a hover POPUP the
+            // caller raises over the widget, and it stays active across the whole frame now that
+            // the drive no longer flips it off (see Pair.External) — where before it was only ever
+            // active between ApplyHoverOverrides and the next Sync, i.e. never at this measure. Left
+            // in, the panel would shrink on a peer's board for exactly as long as that peer hovers
+            // an enemy: the owner's own dock never sizes itself to the popup either, so including it
+            // would be a 1:1 breach, not a fix. One index jump per branch, the extents' whole point.
+            if (pairs[i].External)
+            {
+                int past = pairs[i].SkipTo;
+                i = past > i ? past - 1 : i;
+                continue;
+            }
             RectTransform? rect = pairs[i].DstRect;
             Graphic? g = pairs[i].DstGraphic;
             if (rect == null || g == null || !g.enabled || !rect.gameObject.activeInHierarchy)
@@ -1762,6 +1849,55 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
             if (Dst != null && Dst.gameObject.activeSelf)
                 Dst.gameObject.SetActive(false);
         }
+
+        /// <summary>
+        /// THE CALLER OWNS THIS BRANCH'S VISIBILITY, AND THE CLONE OWNS ITS GEOMETRY.
+        ///
+        /// <para><b>THE DEFECT THIS RETIRES</b> — user report 2026-09-05, item 14, verbatim: "Bei
+        /// der remote Gegnerinfo hatte ich wieder den Fall dass alle Buchstaben untereinander statt
+        /// nebeneinander aufgeführt wurden … Das tritt nicht immer auf - aber es sollte NIEMALS
+        /// auftreten" (<c>remote-generinfo-textproblem.jpg</c>: the mirrored enemy-info card with
+        /// its caption rendered as a single column of glyphs). Same shape as ModBuild 448's
+        /// short-rest captions, one class up.</para>
+        ///
+        /// <para><b>WHY.</b> <see cref="Sync"/>'s cost model rests on one sentence — "an off branch
+        /// is invisible, so its interior does not need driving" (see <see cref="BuildSubtreeExtents"/>).
+        /// That sentence is FALSE for exactly one branch in this mod. A peer's mirrored initiative
+        /// track shows an enemy's info popup when the PEER hovers it (record 16), and
+        /// <c>RemoteInitiativeTrack.ApplyHoverOverrides</c> re-activates the CLONE of a
+        /// <c>MonsterBaseUI</c> whose SOURCE — this client's own copy — is switched off, because
+        /// this client is not hovering anything. So the branch the drive skips as "invisible" is the
+        /// one the viewer is looking at, and its interior is frozen at whatever
+        /// <c>Instantiate</c> captured.</para>
+        ///
+        /// <para>What <c>Instantiate</c> captures is the trouble: <c>MonsterBaseUI.GenerateCard</c>
+        /// destroys and re-instantiates the card body on every generation (MonsterBaseUI.cs:293/304)
+        /// while the popup is INACTIVE — <c>TogglePreview</c> only activates it afterwards, and
+        /// <b>uGUI runs no layout on an inactive object</b>. A body regenerated and never activated
+        /// therefore carries layout-DRIVEN rects nobody has driven: a caption box far narrower than
+        /// any wording, and TMP, doing exactly what it is told, wraps after every glyph. The clone
+        /// of that is a permanent column, because <see cref="Neutralize"/> then destroyed the very
+        /// layout components that would have fixed it.</para>
+        ///
+        /// <para><b>AND THAT IS THE INTERMITTENCY.</b> The picture is correct exactly when the
+        /// LOCAL player happened to open that same enemy's popup (or the enemy-reveal screen
+        /// animated it, which also activates it) at some point AFTER the clone was built: the source
+        /// is active then, the branch is not skipped, and the drive copies the now-resolved rects in
+        /// and they stay. Nothing about the PEER decides it — which is why "das tritt nicht immer
+        /// auf".</para>
+        ///
+        /// <para><b>THE FIX, and why it cannot depend on the source.</b> A marked node's active flag
+        /// is never written here (the caller decides it) and its subtree is never driven from an
+        /// off source, and <see cref="Neutralize"/> KEEPS the stock uGUI layout components inside
+        /// it. The clone is a live subtree of an active world-space canvas, so uGUI lays it out
+        /// itself the moment the caller shows it — the same engine, the same widths, the same text,
+        /// and no dependence whatever on this client having opened the popup first.</para>
+        /// </summary>
+        public bool External { get; private set; }
+
+        /// <summary>Latch <see cref="External"/>. Through the array element, like
+        /// <see cref="Suppress"/>.</summary>
+        public void MarkExternal() => External = true;
 
         /// <summary>The clone-side rect and graphic, exposed for <see cref="TryMeasure"/> — the fit
         /// measures the same objects the drive writes, so the two can never disagree.</summary>
@@ -1846,6 +1982,14 @@ internal sealed class RemoteWidgetMirror : WorldUI.MrBacking.IBackedSurface
                     Dst.gameObject.SetActive(false);
                 return false;
             }
+
+            // EXTERNALLY SHOWN, before the active flag is touched: the caller decides whether this
+            // branch is on, and the clone's own surviving layout decides what is inside it. Writing
+            // the source's flag here would fight the caller once a frame (an enable/disable flap
+            // that re-dirties the whole branch's layout every frame), and driving the interior from
+            // an off source would copy rects no layout has ever resolved. See External.
+            if (External)
+                return false;
 
             bool on = isRoot || Src.gameObject.activeSelf;
             if (Dst.gameObject.activeSelf != on)

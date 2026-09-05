@@ -199,7 +199,8 @@ internal sealed class RemoteInitiativeTrack
         _root.localPosition = layout.InitiativeMount;
 
         _mirror = new RemoteWidgetMirror("InitiativeTrack", _root,
-            PlayTray.InitiativeMountWidth, PlayTray.InitiativeMountMaxHeight, Vector2.up);
+            PlayTray.InitiativeMountWidth, PlayTray.InitiativeMountMaxHeight, Vector2.up,
+            externallyShownBranch: IsEnemyInfoPopup);
 
         _fallbackRoot = new GameObject("Fallback").transform;
         _fallbackRoot.SetParent(_root, worldPositionStays: false);
@@ -1122,6 +1123,12 @@ internal sealed class RemoteInitiativeTrack
         /// block header for why the mirror cannot touch it and it cannot touch the mirror.</summary>
         public Board.UiRing? FocusRing;
         public GameObject? Popup;      // clone of the entry's MonsterBaseUI root (enemies only)
+
+        /// <summary>Has <see cref="RemoteInitiativeTrack.LayoutMirroredPopup"/> already resolved
+        /// this clone popup's layout? One-shot per CLONE REBUILD, because that is the lifetime of
+        /// the geometry it writes — <c>EnsureHoverCache</c> rebuilds this list on every rebuild, so
+        /// a fresh clone starts false again.</summary>
+        public bool PopupLaidOut;
         public Graphic? Name;          // clone of the entry's name label
         public RectTransform? Entry;   // clone of the entry ROOT — the row this widens (enemies)
                                        // and the row ApplyOrderOverride re-deals the x of
@@ -1462,7 +1469,15 @@ internal sealed class RemoteInitiativeTrack
         }
         catch
         {
-            _hoverNodes.Clear(); // no overrides this frame; the next tick re-resolves
+            // No overrides this frame — and the next tick really must re-resolve, which the stamp
+            // gate at the top of this method would otherwise refuse until the NEXT clone rebuild.
+            // That line said "the next tick re-resolves" and, for as long as it stood alone, it was
+            // not true. It matters more now than it did: the mirrored enemy-info popup's active flag
+            // is no longer written by the drive at all (RemoteWidgetMirror.Pair.External), so
+            // ApplyHoverOverrides is the ONLY thing that can put it away, and a cache stuck empty
+            // would leave a peer's popup standing open over their board.
+            _hoverNodes.Clear();
+            InvalidateHoverCache();
         }
     }
 
@@ -1517,6 +1532,15 @@ internal sealed class RemoteInitiativeTrack
                 bool wantPopup = hovered && _peerHoverPopup;
                 if (node.Popup.activeSelf != wantPopup)
                     node.Popup.SetActive(wantPopup);
+                // ...and, the first time this clone's popup is actually ON SCREEN, make it resolve
+                // its own layout. See LayoutMirroredPopup: the source is off, so nothing else ever
+                // will. The latch is per CLONE REBUILD (EnsureHoverCache rebuilds the list), and it
+                // is only taken when the rebuild could really run.
+                if (wantPopup && !node.PopupLaidOut && node.Popup.activeInHierarchy)
+                {
+                    node.PopupLaidOut = LayoutMirroredPopup(node.ActorId, node.Popup);
+                    _hoverNodes[i] = node;
+                }
             }
 
             // HOVER GROW — re-decided from the PEER's hover, never copied.
@@ -1558,6 +1582,169 @@ internal sealed class RemoteInitiativeTrack
                     node.Entry.sizeDelta = new Vector2(w, sd.y);
             }
         }
+    }
+
+    // ------------------------------------------------- the mirrored enemy-info popup --
+
+    /// <summary>
+    /// The one branch of this mirror whose VISIBILITY this client does not decide — an enemy
+    /// entry's <c>MonsterBaseUI</c> info popup, which <see cref="ApplyHoverOverrides"/> shows from
+    /// the PEER's hover (record 16) while this client's own copy of it is switched off.
+    ///
+    /// <para>Handed to <see cref="RemoteWidgetMirror"/> at construction; see
+    /// <c>RemoteWidgetMirror.Pair.External</c> for the whole derivation, and
+    /// <see cref="LayoutMirroredPopup"/> for the other half of the fix.</para>
+    /// </summary>
+    private static bool IsEnemyInfoPopup(Transform node) => node.GetComponent<MonsterBaseUI>() != null;
+
+    /// <summary>Per-clone cap on <see cref="LayoutMirroredPopup"/>'s line. Every line carries the
+    /// running totals, so the cap costs detail and never the FACT — the "a cap that goes silent"
+    /// ruling.</summary>
+    private const int PopupLayoutLogCap = 8;
+
+    /// <summary>At most this many captions are named individually in one line; the counts cover the
+    /// rest. A truncated list is not an absence, so the totals are printed either way.</summary>
+    private const int PopupLayoutLabelCap = 5;
+
+    /// <summary>A caption averaging this many glyphs per line or fewer IS the collapse the user
+    /// reported, not a wrap: an ability row legitimately runs to two or three lines, while "alle
+    /// Buchstaben untereinander" is one or two glyphs on each of many.</summary>
+    private const float PopupCollapseGlyphsPerLine = 2f;
+
+    /// <summary>Clone the popup counters below belong to (<c>RemoteWidgetMirror.RebuildStamp</c>;
+    /// <c>int.MinValue</c> = never). A fresh clone starts the tally again, because the geometry
+    /// this method writes lives exactly as long as the clone does.</summary>
+    private int _popupLayoutStamp = int.MinValue;
+    private int _popupLayoutDone;       // popups laid out under the CURRENT clone
+    private int _popupLayoutCollapsed;  // ...of which arrived with a collapsed caption
+    private int _popupLayoutLogged;     // ...of which got a line
+
+    /// <summary>
+    /// MAKE THE MIRRORED POPUP RESOLVE ITS OWN LAYOUT, the first frame it is really on screen.
+    ///
+    /// <para><b>WHY IT IS NEEDED AT ALL.</b> See <c>RemoteWidgetMirror.Pair.External</c>: this
+    /// branch is shown from the PEER's hover while the SOURCE is off, and uGUI runs no layout on an
+    /// inactive object, so a card body that was regenerated and never opened on THIS client carries
+    /// caption rects no layout has ever resolved — TMP then wraps after every glyph (user report
+    /// 2026-09-05 item 14, <c>remote-generinfo-textproblem.jpg</c>). The mirror keeps the stock
+    /// layout components alive inside the branch precisely so this call has something to run.</para>
+    ///
+    /// <para><b>WHY IT IS AN EXPLICIT CALL AND NOT LEFT TO <c>OnEnable</c>.</b> Activating the
+    /// branch does dirty its layout groups, and Unity would rebuild them at the next canvas update
+    /// on its own. Relying on that alone would make the fix depend on bookkeeping this code cannot
+    /// read back; the explicit rebuild is one call, and the readback below is taken off what it
+    /// produced rather than off what it intended.</para>
+    ///
+    /// <para><b>THE GUARD IS THE POINT.</b> <c>LayoutRebuilder.ForceRebuildLayoutImmediate</c>
+    /// strips disabled behaviours from its own work list, so a call while the board host is off is
+    /// a silent no-op — the exact "a gated remedy never ran" shape this project has on file. The
+    /// caller therefore only offers the popup once it is <c>activeInHierarchy</c>, and the latch is
+    /// taken from THIS method's return value, so a refusal is retried next frame instead of being
+    /// recorded as done.</para>
+    ///
+    /// <para>Returns whether the layout was actually resolved.</para>
+    /// </summary>
+    private bool LayoutMirroredPopup(int actorId, GameObject popup)
+    {
+        var rect = popup.transform as RectTransform;
+        if (rect == null)
+            return false;
+        if (_popupLayoutStamp != _mirror.RebuildStamp)
+        {
+            _popupLayoutStamp = _mirror.RebuildStamp;
+            _popupLayoutDone = 0;
+            _popupLayoutCollapsed = 0;
+            _popupLayoutLogged = 0;
+        }
+
+        int labels = 0, collapsedLabels = 0, worstLines = 0, drivers = 0;
+        var report = new StringBuilder(192);
+        try
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+
+            // WHAT THE REBUILD HAD TO WORK WITH. Neutralize keeps the stock uGUI layout components
+            // alive inside this branch and nothing else, so this count IS the premise of the fix:
+            // rects that collapse are rects a LayoutGroup / ContentSizeFitter / LayoutElement
+            // drives. Zero here with captions still collapsing falsifies that premise outright and
+            // sends the next round to RemoteDialogOptions.LayoutCaption's remedy — WRITE the box
+            // from measured numbers — instead of to a layout engine that has nothing to run.
+            foreach (Behaviour driver in popup.GetComponentsInChildren<Behaviour>(includeInactive: true))
+            {
+                if (driver is LayoutGroup || driver is ContentSizeFitter || driver is LayoutElement)
+                    drivers++;
+            }
+
+            // MEASURED, NOT ASSUMED — the discipline RemoteDialogOptions.LayoutCaption already logs
+            // under: the line count comes back off TMP after a forced mesh update, so what is
+            // printed is what was drawn.
+            foreach (TMP_Text label in popup.GetComponentsInChildren<TMP_Text>(includeInactive: false))
+            {
+                if (label == null || string.IsNullOrEmpty(label.text))
+                    continue;
+                labels++;
+                label.ForceMeshUpdate();
+                TMP_TextInfo textInfo = label.textInfo;
+                int lines = textInfo != null ? textInfo.lineCount : 0;
+                int glyphs = textInfo != null ? textInfo.characterCount : 0;
+                bool collapsed = lines >= 3 && glyphs <= lines * PopupCollapseGlyphsPerLine;
+                if (collapsed)
+                    collapsedLabels++;
+                if (lines > worstLines)
+                    worstLines = lines;
+                if (labels > PopupLayoutLabelCap)
+                    continue;
+                if (report.Length > 0)
+                    report.Append("; ");
+                report.Append($"w {label.rectTransform.rect.width:F0}, font {label.fontSize:F1}, " +
+                              $"lines={lines}, chars={glyphs}")
+                      .Append(collapsed ? " COLLAPSED" : string.Empty);
+            }
+        }
+        catch (System.Exception e)
+        {
+            VRLog.Warn("Net", $"Mirrored enemy-info popup layout threw for actor {actorId} " +
+                              $"({e.GetType().Name}: {e.Message}) — the clone keeps whatever rects " +
+                              "Instantiate captured, which is what every build before this one had.");
+            return false;
+        }
+
+        _popupLayoutDone++;
+        if (collapsedLabels > 0)
+            _popupLayoutCollapsed++;
+        if (_popupLayoutLogged >= PopupLayoutLogCap)
+            return true;
+        _popupLayoutLogged++;
+
+        // HW-VERIFY: grep MIRRORED ENEMY INFO LAYOUT — one line per enemy popup per clone rebuild,
+        // naming each caption's rect WIDTH, its fitted font size and its MEASURED line count. The
+        // collapse the user reported is then a number ("lines=20, chars=20 COLLAPSED"), not a
+        // screenshot.
+        // FALSIFIER, in two halves. "0 collapsed" on every line while the headset still shows a
+        // column of letters means this rebuild did not reach the popup the eye sees — look at
+        // whether ApplyHoverOverrides is showing a clone from an OLDER RebuildStamp than the one
+        // measured here, or whether the card on screen is the LOCAL EnemyRevealSurface rather than
+        // this mirror, NOT at the caption arithmetic. "0 stock layout driver(s) kept" WITH a
+        // collapse means the premise is wrong instead: these rects are not layout-driven, so no
+        // layout engine can resolve them and the remedy is RemoteDialogOptions.LayoutCaption's —
+        // WRITE the caption box from measured numbers. "0 caption(s)" means the branch was empty at
+        // the moment it was shown.
+        VRLog.Note("Net", $"MIRRORED ENEMY INFO LAYOUT: actor {actorId}'s info popup laid ITSELF " +
+                          $"out on the clone — {labels} caption(s), {collapsedLabels} collapsed, " +
+                          $"worst {worstLines} line(s), {drivers} stock layout driver(s) kept " +
+                          $"[{report}]. " +
+                          $"{_popupLayoutDone} popup(s) laid out under this clone, " +
+                          $"{_popupLayoutCollapsed} of them with a collapsed caption" +
+                          (_popupLayoutLogged >= PopupLayoutLogCap
+                              ? " (line cap reached — the totals still count every one)"
+                              : string.Empty) + ". " +
+                          "The SOURCE popup is this client's own MonsterBaseUI and is switched OFF " +
+                          "whenever this client is not hovering that enemy, so no layout ever runs " +
+                          "on it and the drive skips its whole branch; the clone's own uGUI layout " +
+                          "is what resolves these rects. A caption averaging " +
+                          $"{PopupCollapseGlyphsPerLine:F0} glyph(s) per line or fewer is the " +
+                          "reported defect (one letter per line), never an ordinary wrap.");
+        return true;
     }
 
     /// <summary>Content-cadence refresh: mirror the real widget when it exists, else repaint the
