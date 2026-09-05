@@ -379,8 +379,12 @@ internal sealed partial class PlayTray
         // control the 1:1 ruling is about. Both sides call the one BoardAnchors.FitCapSize again.)
         //
         // The tuned [BoardButtons] pair is 0.063 × 0.065 m — Defaults.BoardButtons_Width/Height, which
-        // is what his cfg holds; ButtonTuning.DefaultBoardWidth's 0.073 is only the PRE-BIND fallback
-        // inside Clamped() and is never the live cap. The three re-authored boards cut their button
+        // is what his cfg holds and what BoardCapWidth/Height resolve to. ButtonTuning's
+        // DefaultBoardWidth still carries a 0.073 literal; it names a RETIRED geometry (the old
+        // [Cards] ConfirmUndoSize_Bronze) and has never been the live cap. It is not even the
+        // pre-bind fallback any more — R23 pointed those at Defaults.* — so 0.073 is now a number
+        // with no consumer on this path at all, and quoting it here as "the fallback inside
+        // Clamped()" was the stale half of this comment. The three re-authored boards cut their button
         // recesses at 74.6 × 64.3 (Oak), 81.0 × 70.1 (Steel) and 61.2 × 51.9 mm (Bronze) of usable
         // FLOOR, so the 65 mm height does not fit any of the three and Bronze's width does not fit
         // either. The fit SHRINKS the cap to the board's own recess and never grows it, so the global

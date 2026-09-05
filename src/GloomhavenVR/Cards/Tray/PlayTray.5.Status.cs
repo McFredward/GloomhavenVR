@@ -578,20 +578,25 @@ internal sealed partial class PlayTray
     /// <c>PhysicalButton.SetLabel</c> strips it ("BUTTON LABEL: stripped un-renderable glyph(s)
     /// [U+2713]" in every hardware log), so it is gone from the string too.
     ///
-    /// Loc key <c>confirm_unready</c> — probed through <see cref="Core.Loc.Mod"/> (which returns
-    /// the id itself for a key that is not in the table yet) with an inline EN/DE fallback, the
-    /// same shape <c>DecisionDockSurface.ItemFanOpenHint</c> uses. The peers' mirrored control
-    /// caps show whatever this returns: the wording is shipped as text on the existing
-    /// <c>ConfirmControlLabel</c> extension, so nothing new goes on the wire.
+    /// Loc key <c>confirm_unready</c> (<c>Core/Loc/Loc.cs</c>), read straight through
+    /// <see cref="Core.Loc.Mod"/>.
+    ///
+    /// <para><b>R36 — THE INLINE EN/DE FALLBACK IS GONE (2026-09-05), and it was not a fallback.</b>
+    /// This method used to probe the key, compare the result against the key itself, and fall back
+    /// to <c>Loc.CurrentLanguage == "German" ? "Auswahl ändern" : "Change selection"</c> — the same
+    /// shape <c>DecisionDockSurface.ItemFanOpenHint</c> carried, and deleted in the same round. The
+    /// key HAS been in the table since it was written, with those exact two strings, so the ternary
+    /// was dead code that duplicated the table. Worse than dead: a wording change made in the table
+    /// would silently not reach the keycap on whichever branch had drifted, and the point of the
+    /// row is that an inline ternary is invisible to every instrument that reads the string table.
+    /// One string, one place.</para>
+    ///
+    /// <para>The peers' mirrored control caps show whatever this returns: the wording is shipped as
+    /// text on the existing <c>ConfirmControlLabel</c> extension, so nothing new goes on the wire —
+    /// and a peer reading a different language still sees the OWNER's word, which is the 1:1
+    /// ruling.</para>
     /// </summary>
-    private static string UnreadyLabel()
-    {
-        const string key = "confirm_unready";
-        string localized = Core.Loc.Mod(key);
-        if (!string.Equals(localized, key, System.StringComparison.Ordinal))
-            return localized;
-        return Core.Loc.CurrentLanguage == "German" ? "Auswahl ändern" : "Change selection";
-    }
+    private static string UnreadyLabel() => Core.Loc.Mod("confirm_unready");
 
     // -------------------------------------------------- pick banner + keycap overrides --
 
