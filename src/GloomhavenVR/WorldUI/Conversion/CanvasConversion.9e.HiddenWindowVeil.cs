@@ -373,7 +373,16 @@ internal static partial class CanvasConversion
             }
             else
             {
-                VeilHolds[cr] = new VeilHold { Alpha = cr.GetAlpha(), Holds = 1 };
+                // ModBuild 434 — THROUGH THE SEAT VEIL, for exactly the reason this whole file
+                // exists for the materialise runner. A renderer the sub-view SEAT veil (part 9g)
+                // is holding reads 0 here, and capturing that zero as its pre-veil value would
+                // restore it as zero on this veil's own lift — the black-column failure with the
+                // two writers swapped. Falls back to the channel itself when nothing holds it.
+                VeilHolds[cr] = new VeilHold
+                {
+                    Alpha = PreSeatVeilAlpha(cr, cr.GetAlpha()),
+                    Holds = 1,
+                };
             }
             cr.SetAlpha(0f);
             cr.cull = true;

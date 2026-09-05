@@ -1128,6 +1128,15 @@ internal static partial class CanvasConversion
             // at the renderer. See CanvasConversion.9e.HiddenWindowVeil.cs for the whole account.
             using (Core.PerfMonitor.Scope("WorldUI.HiddenWindowVeil"))
                 TickHiddenWindowVeil(panel);
+            // ModBuild 434 — the SUB-VIEW SEAT VEIL (user report 2026-09-05: "die private Quest …
+            // steht weiter oben und ploppt dann runter nach ca. 1 s"). Here for the reason the veil
+            // above is here and one more: the game opens a sub-view from its own Update, Unity runs
+            // every Update before any LateUpdate and every LateUpdate before the render loop, so
+            // this is the last phase in which the frame that would draw the un-seated picker can
+            // still be withheld — and being ABOVE the reveal flip means a panel that becomes
+            // visible this frame is already covered. One dictionary lookup for every window in the
+            // game except the character screen; see CanvasConversion.9g.SubViewSeatVeil.cs.
+            TickSubViewSeatVeil(panel);
             if (panel.FlattenEnabled)
                 FlattenSubtree(panel);
 

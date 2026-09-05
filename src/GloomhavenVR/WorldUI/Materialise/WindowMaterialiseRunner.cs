@@ -351,7 +351,13 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
             // 0 here, and capturing that zero as its "own" alpha restored it as zero in Finish —
             // one half of the black character column in the 404 log. The veil keeps the pre-veil
             // value; this asks for it and falls back to the channel itself when nothing holds it.
-            _origAlpha.Add(CanvasConversion.PreVeilAlpha(cr, cr.GetAlpha()));
+            // ModBuild 434: AND THROUGH THE SECOND VEIL, for exactly the same reason. The sub-view
+            // SEAT veil (CanvasConversion.9g) also parks this channel at 0 — on the battle-goal
+            // picker's subtree, which is inside this host and which an appear can start over — so
+            // asking only the hidden-window veil would capture that zero and dissolve the picker IN
+            // to nothing. Both are asked; a renderer no veil holds falls back to the channel itself.
+            _origAlpha.Add(CanvasConversion.PreSeatVeilAlpha(cr,
+                CanvasConversion.PreVeilAlpha(cr, cr.GetAlpha())));
 
             var rt = cr.transform as RectTransform;
             for (int k = 0; k < WindowMaterialiseField.Samples; k++)
@@ -519,6 +525,14 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
         List<float>? orig = _origAlpha;
         if (rs != null && th != null && orig != null)
         {
+            // ModBuild 434: ONE BOOL, HOISTED OUT OF THE LOOP. The sub-view seat veil
+            // (CanvasConversion.9g) parks this same channel at zero on the frames between a
+            // sub-view opening and its seat being written, and it re-asserts from
+            // WorldUIModule.LateUpdate — undefined order against THIS LateUpdate, so a re-assert
+            // alone would lose a coin flip and hand the eye the un-seated frame. This writer
+            // clamps instead. False on every frame no veil stands, which is all of them but a
+            // handful, and then the loop below is byte-for-byte what it was.
+            bool veiled = CanvasConversion.SeatVeilStanding;
             int n = rs.Count;
             for (int i = 0; i < n; i++)
             {
@@ -529,8 +543,9 @@ internal sealed class WindowMaterialiseRunner : MonoBehaviour
                 // 0.3 must not jump to 1.0 for the duration of the effect; and at progress 0 this
                 // writes back exactly the number that was there, so the effect's first frame is a
                 // no-op and its restore is exact rather than approximately exact.
-                cr.SetAlpha(orig[i] * WindowMaterialiseField.PresenceOf(
-                    th, i * WindowMaterialiseField.Samples, elementProgress));
+                float a = orig[i] * WindowMaterialiseField.PresenceOf(
+                    th, i * WindowMaterialiseField.Samples, elementProgress);
+                cr.SetAlpha(veiled ? CanvasConversion.SeatVeilClamp(cr, a) : a);
             }
         }
 

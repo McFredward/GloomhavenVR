@@ -305,12 +305,13 @@ internal static partial class CanvasConversion
     /// Arm and drive the settle burst. Called from <c>TickFit</c> immediately BEFORE its
     /// <see cref="FitCheckIntervalFrames"/> gate and AFTER every one-shot / pre-reveal early
     /// return, so the reveal gate and the one-shot menus are provably out of reach of it: the
-    /// only thing this method ever writes is <c>panel.FitNextCheckFrame</c>, and only for a
-    /// window that is already <c>FitMeasuredOnce</c> and on the fixed-fit path.
+    /// only thing this method ever writes outside its own <see cref="FixedFitState"/> is
+    /// <c>panel.FitNextCheckFrame</c>, and only for a window on the fixed-fit path that has
+    /// already measured once (see the split explained in the body).
     /// </summary>
     private static void TickSubViewBurst(ConvertedPanel panel)
     {
-        if (!panel.FitMeasuredOnce || !TryGetLiveFixedFit(panel, out FixedFitState fx))
+        if (!TryGetLiveFixedFit(panel, out FixedFitState fx))
             return;
 
         int signature = SubViewOpenSetSignature(panel);
@@ -343,6 +344,30 @@ internal static partial class CanvasConversion
             fx.BurstChecksLeft = SubViewBurstMaxChecks;
             fx.BurstNextCheckFrame = Time.frameCount;
         }
+
+        // THE OBSERVATION HALF ABOVE RUNS BEFORE THE FIRST FIT; THE FORCING HALF BELOW DOES NOT,
+        // AND THE SPLIT IS ModBuild 434's WHOLE CORRECTION (user report 2026-09-05, the battle-goal
+        // picker still popping down after ~1 s). Both halves used to sit behind
+        // `panel.FitMeasuredOnce`, and the ModBuild 433 log shows what that cost: the character
+        // screen was FORCE-revealed with fit=pending (':5496 MODAL REVEAL … FORCED after 603 ms …
+        // still waiting on first content fit') and then stood DARK for 16.2 s, so FitMeasuredOnce
+        // was false for that whole time and this method returned on its first line every frame. The
+        // window's first measurable frame is the frame the sub-view ARRIVES — that is what makes it
+        // measurable — so the first observation the burst ever took was already the CHANGED state
+        // and it was recorded as the BASELINE. The session's own line says so: 'SUB-VIEW BURST
+        // STATE: 0 burst(s) armed', and not one SUB-VIEW SETTLE BURST line in 16 562 log lines,
+        // while the same pass wrote 'sub-view UI Battle Goal Picker Window … shifted by 14,-168 px'
+        // — the remedy was INERT, exactly as its own HW-VERIFY note said it would look.
+        //
+        // The forcing half keeps the guard because forcing is only useful where a check can
+        // MEASURE: while nothing has measured once, TickFit's cadence gate
+        // (`panel.FitMeasuredOnce && Time.frameCount < panel.FitNextCheckFrame`) is wide open on
+        // every frame anyway, so there is nothing to force — and spending the four checks on
+        // frames a dark window cannot answer would expire the burst before the content it was
+        // armed for exists. The budget therefore waits, un-spent, with BurstNextCheckFrame already
+        // in the past, and is drawn on the first frame the window can be measured at all.
+        if (!panel.FitMeasuredOnce)
+            return;
 
         // EXPIRY IS DECIDED ONE TICK LATE, AND THAT IS THE POINT. The final forced check runs
         // BELOW this line, after the counter that pays for it has already reached zero — so a

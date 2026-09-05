@@ -2447,6 +2447,55 @@ internal static partial class CanvasConversion
         /// <summary>Printed COLUMN OVERSPILL lines so far — capped, so a window that overspills
         /// every pass cannot flood the log the way ModBuild 331 was asked to stop.</summary>
         internal int OverspillLines;
+
+        // ---- the sub-view SEAT VEIL (user report 2026-09-05) — see part 9g ------------------
+        //
+        // Appended at the END of this class for the reason the burst block above gives: the
+        // refactor guard tracks member order and nothing that already existed may move. Only the
+        // two lists carry an initializer, and they are INSTANCE fields — check-partial-order.py
+        // is about STATIC initialiser order across parts, which this adds nothing to.
+
+        /// <summary>The open-set signature whose sub-view seat the fixed fit has actually WRITTEN,
+        /// and whether one has ever been written. This is the veil's release condition, stated as
+        /// a fact about the seat rather than as an elapsed time.</summary>
+        internal int SeatedSignature;
+        internal bool SeatedValid;
+
+        /// <summary>The open-set signature the veil is currently holding for, and whether it
+        /// stands. A veil is keyed on the SET, not on a member: a set that changes mid-hold hands
+        /// back what it holds and re-raises, so the two can never be confused.</summary>
+        internal int SeatVeilSignature;
+        internal bool SeatVeilActive;
+
+        /// <summary>The frame and unscaled time the standing veil was raised on — the two halves
+        /// of the gap the report states, in frames AND in milliseconds.</summary>
+        internal int SeatVeilStartFrame;
+        internal float SeatVeilStartTime;
+
+        /// <summary>An open set the deadline already released once. It is never veiled again, so a
+        /// window whose seat can never be solved cannot strobe.</summary>
+        internal int SeatVeilGaveUpSignature;
+        internal bool SeatVeilGaveUpValid;
+
+        /// <summary>Session totals: veils raised, veils lifted BY THE SEAT LANDING, veils released
+        /// by the deadline, and the worst gap in frames. The middle two are the yes/no the report
+        /// turns into a sentence — a veil that was lifted by the seat means the first visible frame
+        /// of that sub-view carried the final seat.</summary>
+        internal int SeatVeilRaised;
+        internal int SeatVeilLiftedOnSeat;
+        internal int SeatVeilOverdue;
+        internal int SeatVeilWorstFrames;
+        internal int SeatVeilWorstMillis;
+        internal int SeatVeilRenderers;
+
+        /// <summary>The last outcome printed, so an identical one stays quiet.</summary>
+        internal int SeatVeilLastReported;
+
+        /// <summary>Foreign alpha writes LEARNED while this veil stood — the same accounting the
+        /// hidden-window veil keeps, and for the same reason: the materialise runner writes this
+        /// channel every LateUpdate of an appear, and the value it left is the one a lift must hand
+        /// back rather than overwrite. [[a-hide-saved-a-foreign-value]]</summary>
+        internal int SeatVeilLearned;
     }
 
     /// <summary>Fixed-fit state by host GameObject instance ID.</summary>
@@ -2499,6 +2548,10 @@ internal static partial class CanvasConversion
         int id = panel.HostGo.GetInstanceID();
         if (!FixedFits.TryGetValue(id, out FixedFitState? fx) || fx == null)
             return;
+        // Part 9g: hand back anything the seat veil is holding BEFORE the entry leaves the table —
+        // after the Remove nothing would ever look at it again and the held renderers would be
+        // stranded invisible. Unconditional, exactly like MapTravelConfirm's hold-down release.
+        LiftSubViewSeatVeil(panel, fx, overdue: false, silent: true);
         FixedFits.Remove(id);
 
         int restored = 0;
@@ -2720,6 +2773,15 @@ internal static partial class CanvasConversion
             fx.PendingChecks = 0;
             fx.PendingScale = wantScale;
             fx.PendingShift = groupShift;
+            // Part 9g: "THERE IS NOTHING LEFT TO WRITE FOR THIS OPEN SET" IS ALSO A SEAT, and the
+            // seat veil must be released by it or it would hold a sub-view that is ALREADY in the
+            // right place until its backstop fired. Three real cases reach here without a write —
+            // a sub-view whose wanted seat happens to BE its authored home, a set the fit has
+            // already placed and re-measured, and the ModBuild 201 write-war concession (which
+            // clears viewWrong on purpose) — and in every one of them the correct answer to "may
+            // this be drawn now?" is yes.
+            fx.SeatedSignature = SubViewOpenSetSignature(panel);
+            fx.SeatedValid = true;
             panel.FitContentPadding = Vector2.Max(Vector2.zero, (fx.Size - size) * 0.5f);
             // Part 9c: nothing left to write, so a settle burst in flight has done its job
             // and stops here rather than spending its remaining checks on a window that has
@@ -2820,6 +2882,13 @@ internal static partial class CanvasConversion
             }
             if (placed > 0)
             {
+                // Part 9g: THE SEAT FOR THIS OPEN SET NOW EXISTS. Recorded against the CHEAP
+                // open-set signature (the one the per-frame veil reads) and not against
+                // fx.OpenSignature, because the two are different signatures of different
+                // granularity and reading one as the other is [[two-fans-one-name]]. This is the
+                // veil's release condition, and it is a fact about the write rather than a timer.
+                fx.SeatedSignature = SubViewOpenSetSignature(panel);
+                fx.SeatedValid = true;
                 if (Mathf.Abs(wantScale - fx.ViewScale) > FixedFitScaleEpsilon)
                     fx.ScaleWrites++;
                 else
