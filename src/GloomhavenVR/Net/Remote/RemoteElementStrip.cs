@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using GloomhavenVR.Cards;
 using GloomhavenVR.Core;
 using ScenarioRuleLibrary;
+using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -112,6 +113,58 @@ namespace GloomhavenVR.Net;
 ///   array with nothing to say so. The three are counted, named and reported separately now, and
 ///   the unusable ones are listed by element and state.</item>
 /// </list>
+///
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+///  THE WHITE SQUARE, ROUND TWO — IT WAS NOT A DEAD TEXTURE, IT WAS "WIRD ERSTELLT"
+/// ═══════════════════════════════════════════════════════════════════════════════════════════════
+/// The ladder above shipped in ModBuild 445 and the user saw the square again on 447, this time
+/// with the observation that decides it: <i>"Bei mir steht im Text 'wird erstellt' mit einer
+/// Animation in dem Moment in dem dieses weiße Viereck zu sehen ist — das will ich auch beim remote
+/// board genau so sehen (1:1 Regel)."</i>
+///
+/// <b>THE 447 LOGS FALSIFY THE DEAD-TEXTURE HYPOTHESIS OUTRIGHT.</b> Both machines printed one
+/// resolve line and it reads <c>STRONG 6/6, WANING 6/6, CREATION 6/6; every state has usable
+/// authored artwork</c>, and NEITHER log carries a single "cannot be drawn" line from
+/// <see cref="LogFallback"/>. So the ladder never stepped down: rung ONE drew, with a live sprite
+/// on a live texture, and the picture was still a white square. A second dead-atlas site cannot be
+/// the cause of a square painted by a rung that reported healthy artwork.
+///
+/// <b>WHAT IT ACTUALLY IS.</b> The owner does not see "the creation disc". Vanilla's creating cell
+/// (<c>InfusionElementUI.SetState</c>, case <c>Inert</c> with <c>isCreating</c>) is a COMPOSITION:
+/// <c>elementImage</c> off, <c>creationImage</c> on wearing <c>creationIcon</c> AT THE PREFAB'S OWN
+/// TINT AND ALPHA, the <c>creatingElementText</c> label ("wird erstellt") over
+/// <c>creationTextBackgroundImage</c>, a <c>creationBumpImage</c>, and <c>animatorCreating</c> +
+/// <c>loopAnimatorCreating</c> running. This strip drew exactly ONE of those terms — the raw
+/// <c>creationIcon</c>, at <c>Color.white</c>, opaque, at full chip size. An artwork authored to be
+/// tinted and composited, drawn untinted and alone, is a flat pale block; that is the reported
+/// square, and it is why it appears exactly when the owner's cell says "wird erstellt".
+///
+/// <b>THE REMEDY IS THE MIRROR, NOT A BLANK.</b> Blanking the chip would satisfy the first half of
+/// the report and breach the 1:1 rule on the second, which is the half the user actually specified.
+/// So the creating cell is now MEASURED OFF THE LIVE WIDGET, exactly as the availability ring
+/// already was (<see cref="ResolveRings"/>): the disc's authored sprite AND colour AND its size
+/// relative to <c>elementImage</c>, and the label's string, colour, size and CENTRE OFFSET, and its
+/// background sprite, colour and size — all as ratios of the element disc, so the mirror keeps the
+/// authored proportion at whatever chip size this strip runs at. See <see cref="CreatingCell"/> and
+/// <see cref="ResolveCreatingCells"/>. Zero wire: same singleton, same global state as everything
+/// else this class reads.
+///
+/// <b>AND A MEASURED GUARD SO NO RUNG CAN EVER PAINT A WHITE BLOCK AGAIN.</b> The 445 guard tested
+/// the sprite's <c>texture</c> for liveness — a STATE probe, and it passed a healthy sprite whose
+/// drawn RESULT was still a white square. <see cref="InkOf"/> measures the PICTURE instead: an 8×8
+/// downsample of the sprite region that actually reaches the renderer (post-<see cref="Baked"/>, so
+/// a bad mip bake is covered too), giving mean RGBA and the spread across the rect. A draw whose
+/// artwork is a featureless near-white block AND whose tint is near-white and opaque is refused at
+/// the single choke point every rung goes through (<see cref="TryApplyIcon"/>) and steps down to
+/// the generic element glyph, with the measured numbers on the record. This is the project's own
+/// "measure the picture, not the state" rule applied to the instrument that missed it.
+///
+/// <b>THE ANIMATION.</b> <c>animatorCreating</c> / <c>loopAnimatorCreating</c> are authored
+/// <c>GUIAnimator</c> / <c>LoopAnimator</c> curves living in prefab scene data this mod cannot
+/// read — the same wall the CREATED pop already hit. The user asked for an animation in so many
+/// words, so the creating cell breathes on a house curve (<see cref="CreationBreathSeconds"/>), and
+/// that substitution is stated rather than hidden: the mirror says "this element is forming", on
+/// the mod's own rhythm, which is a truthful statement of an event the owner really does see move.
 ///
 /// The transition ramp itself borrows the mod's own card vocabulary — <c>VRCard.SmootherStep</c>
 /// over <c>DockAppearSeconds</c> (0.28 s) / <c>DockVanishSeconds</c> (0.30 s) — because the owner's
@@ -296,6 +349,166 @@ internal sealed class RemoteElementStrip
     /// <see cref="ResolveRings"/>.</summary>
     private const float RingRatioFallback = 1.35f;
 
+    // ------------------------------------------------------------------ the "wird erstellt" cell --
+
+    /// <summary>
+    /// The owner's CREATING cell for one element, measured off the live
+    /// <c>InfusionElementUI</c> — the mirror of what vanilla's <c>SetState(Inert, isCreating: true)</c>
+    /// composes. Every size and offset is expressed as a RATIO of the element disc's own rect
+    /// (<c>elementImage</c>), so the mirror keeps the authored proportion at whatever
+    /// <see cref="ChipSize"/> this strip runs at — the same rule <see cref="ResolveRings"/> uses for
+    /// the availability ring, for the same reason: a guessed proportion is a second opinion about
+    /// something the widget already states.
+    ///
+    /// <para><see cref="Measured"/> false means the widget could not be read (no singleton, a zero
+    /// rect, a throw). The cell then falls back to <see cref="DiscRatioFallback"/> and the label is
+    /// laid out from <see cref="TextSizeFallback"/> / <see cref="TextAtFallback"/> — a stand-in for
+    /// the authored layout, not a shipped proportion, and the resolve line says which one is
+    /// standing.</para>
+    /// </summary>
+    private struct CreatingCell
+    {
+        /// <summary>True once the live widget answered with a usable rect for the element disc.</summary>
+        public bool Measured;
+
+        /// <summary>The authored <c>creationImage</c> sprite.</summary>
+        public Sprite? Disc;
+
+        /// <summary>Its PREFAB tint and alpha. Drawing this untinted at full opacity is what
+        /// painted the reported white square.</summary>
+        public Color DiscColor;
+
+        /// <summary>Its size as a fraction of the element disc's own rect.</summary>
+        public float DiscRatio;
+
+        /// <summary>The authored <c>creatingElementText</c> — the localized "wird erstellt" string
+        /// as the OWNER's own client composed it, which is also why this mirror needs no EN/DE
+        /// string of its own.</summary>
+        public string? Text;
+
+        /// <summary>The label's authored colour.</summary>
+        public Color TextColor;
+
+        /// <summary>The label's box, in disc-axis units.</summary>
+        public Vector2 TextSize;
+
+        /// <summary>The label's CENTRE offset from the disc's centre, in disc-axis units. Centres,
+        /// not <c>anchoredPosition</c>: an anchored position runs to each rect's own pivot, so two
+        /// siblings' anchored positions are not comparable — this project has that filed under its
+        /// own name.</summary>
+        public Vector2 TextAt;
+
+        /// <summary>The authored <c>creationTextBackgroundImage</c> behind the label. A null sprite
+        /// leaves the plate off; a mirror cannot invent a shape.</summary>
+        public Sprite? Plate;
+
+        /// <summary>The plate's authored tint.</summary>
+        public Color PlateColor;
+
+        /// <summary>The plate's box, in disc-axis units.</summary>
+        public Vector2 PlateSize;
+
+        /// <summary>The plate's centre offset from the disc's centre, in disc-axis units.</summary>
+        public Vector2 PlateAt;
+    }
+
+    private readonly CreatingCell[] _cells = new CreatingCell[6];
+
+    /// <summary>The creation disc:element disc size ratio used when the authored rects cannot be
+    /// measured. A FALLBACK, not a shipped proportion — see <see cref="CreatingCell.Measured"/>.
+    /// 1.0 because vanilla swaps one Image for the other inside the same cell.</summary>
+    private const float DiscRatioFallback = 1.0f;
+
+    /// <summary>
+    /// Label box when the authored rect cannot be measured, in disc-axis units.
+    ///
+    /// <para>NOT A GUESS — taken from the 447 hardware capture of the owner's own panel:
+    /// <c>Host rect fit 'GloomhavenVR.Panel_ElementBoard'</c> reports the creating cell's
+    /// <c>Creating icon/CreatingText</c> as 199x50 px beside a 52x52 px <c>Element icon</c>, i.e.
+    /// 3.83 x 0.96 disc-axis units. It is still only the FALLBACK: the live measurement in
+    /// <see cref="ResolveCreatingCells"/> is what normally decides, and these numbers stand in when
+    /// that measurement cannot run.</para>
+    /// </summary>
+    private static readonly Vector2 TextSizeFallback = new(3.83f, 0.96f);
+
+    /// <summary>
+    /// Label centre offset from the disc centre when the authored rect cannot be measured, in
+    /// disc-axis units.
+    ///
+    /// <para>Same capture, same line: the caption's rect runs x −242..−43 against a disc centred at
+    /// 0, so it sits BESIDE the disc on the left and vertically centred on it — not under it, which
+    /// is what a mirror written from intuition would have assumed.</para>
+    /// </summary>
+    private static readonly Vector2 TextAtFallback = new(-2.74f, 0f);
+
+    /// <summary>The "wird erstellt" label per chip, and the authored plate behind it. Built at
+    /// board-build time like every other renderer here (<c>VRLayers.Apply</c> runs over the finished
+    /// board ONCE — a renderer minted later is invisible to the mod head camera), and left disabled
+    /// until an element is actually in creation.</summary>
+    private readonly TextMeshPro[] _labels = new TextMeshPro[6];
+
+    /// <summary>The plate behind the label — see <see cref="_labels"/>.</summary>
+    private readonly SpriteRenderer[] _plates = new SpriteRenderer[6];
+
+    /// <summary>Whether chip <c>i</c> is currently drawing the CREATING cell — the gate for the
+    /// breath in <see cref="ApplyChip"/> and the reason <see cref="TickTransitions"/> keeps ticking
+    /// a chip that has no ramp running.</summary>
+    private readonly bool[] _creatingNow = new bool[6];
+
+    /// <summary>
+    /// Period of the creating BREATH, seconds. The owner's <c>loopAnimatorCreating</c> is a prefab
+    /// curve this mod cannot read (see the class doc), and the user asked for the animation in so
+    /// many words, so the cell pulses on the mod's own rhythm instead of standing still.
+    ///
+    /// <para>SLOW ON PURPOSE. This project has a ledger of pulses the user called "nervig"; a
+    /// 1.8 s period is a breath, not a flicker, and the floor below never takes the cell far enough
+    /// down to read as a dropout.</para>
+    /// </summary>
+    private const float CreationBreathSeconds = 1.8f;
+
+    /// <summary>How far down the breath dips the creating cell's opacity (1 = untouched).</summary>
+    private const float CreationBreathFloor = 0.62f;
+
+    /// <summary>The ALPHA the last repaint wrote into chip <c>i</c>'s ICON — the sprite path's twin
+    /// of <see cref="_quadBaseAlpha"/>, and it exists because the creating disc now carries the
+    /// PREFAB'S OWN alpha. The class used to argue it needed no twin, on the grounds that the one
+    /// dim in the sprite path was expressed in RGB; mirroring an authored transparency is not a dim
+    /// and cannot honestly be folded into a colour, so the twin is here and
+    /// <see cref="ApplyChip"/> stays the sole owner of every renderer's final alpha.</summary>
+    private readonly float[] _iconBaseAlpha = { 1f, 1f, 1f, 1f, 1f, 1f };
+
+    /// <summary>The box the caption was last FIT to, world metres — the change gate in front of
+    /// <c>TmpFit.Fit</c>, which forces a mesh update and is not free at a 4 Hz repaint.</summary>
+    private readonly Vector2[] _labelBox = new Vector2[6];
+
+    /// <summary>Which rung of the draw ladder chip <c>i</c> landed on at the last repaint, indexed
+    /// into <see cref="RungNames"/> — the MIRROR half of the parity line. Recorded rather than
+    /// re-derived: a second derivation of the same decision would be a claim measuring itself.
+    /// </summary>
+    private readonly int[] _rung = new int[6];
+
+    /// <summary>The name of the sprite chip <c>i</c> actually handed its renderer, or null when it
+    /// drew no sprite at all. The other half of the same record.</summary>
+    private readonly string?[] _rungArt = new string?[6];
+
+    /// <summary>Rung names for the parity line, indexed by <see cref="_rung"/>.</summary>
+    private static readonly string[] RungNames =
+        { "not-drawn", "AUTHORED-DISC", "GENERIC-GLYPH", "COLOUR-CHIP" };
+
+    /// <summary>Every distinct owner-vs-mirror verdict already on the record — see
+    /// <see cref="EmitParity"/>. Capped per VERDICT, never per call, so a new combination is never
+    /// swallowed by an old one; STATIC because the infusion table is scenario-wide and every peer
+    /// board in the room would otherwise print the same verdict once per peer.</summary>
+    private static readonly HashSet<string> s_parityLogged = new HashSet<string>();
+
+    /// <summary>Ceiling on distinct parity verdicts, so a pathological state churn cannot turn the
+    /// line into a flood. When it is reached the fact is stated once, rather than the line simply
+    /// going quiet — a cap that goes silent is its own defect.</summary>
+    private const int MaxParityVerdicts = 40;
+
+    /// <summary>Set once the verdict cap above has been reported.</summary>
+    private static bool s_parityCapped;
+
     private bool _spritesResolved;
     private bool _resolveLogged;
 
@@ -449,6 +662,32 @@ internal sealed class RemoteElementStrip
             icon.enabled = false;
             _icons[i] = icon;
 
+            // THE "WIRD ERSTELLT" CELL — the plate first, then the label over it, both PROUD of the
+            // disc (-Z, the module convention) because vanilla's own creating cell draws its caption
+            // over the strip and calls SetAsLastSibling to say so. Built here, disabled, for the
+            // reason everything else here is built here: VRLayers.Apply runs over the finished board
+            // once, and a renderer minted later is invisible to the mod head camera.
+            var plateGo = new GameObject("CreatingPlate");
+            plateGo.transform.SetParent(chip, worldPositionStays: false);
+            plateGo.transform.localPosition = new Vector3(0f, 0f, -0.001f);
+            var plate = plateGo.AddComponent<SpriteRenderer>();
+            plate.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            plate.receiveShadows = false;
+            plate.enabled = false;
+            _plates[i] = plate;
+
+            var labelGo = new GameObject("CreatingLabel");
+            labelGo.transform.SetParent(chip, worldPositionStays: false);
+            labelGo.transform.localPosition = new Vector3(0f, 0f, -0.002f);
+            var label = labelGo.AddComponent<TextMeshPro>();
+            label.text = string.Empty;
+            label.alignment = TextAlignmentOptions.Center;
+            label.color = Color.white;
+            label.enabled = false;
+            _labels[i] = label;
+
+            ResetCell(i);
+
             chip.gameObject.SetActive(false);
         }
 
@@ -478,7 +717,15 @@ internal sealed class RemoteElementStrip
         for (int i = 0; i < 6; i++)
         {
             if (!_ramping[i])
+            {
+                // THE CREATING BREATH. A chip with no ramp running still MOVES while its element is
+                // forming, which is the animation the user asked to see mirrored. ApplyChip owns the
+                // breath, so re-applying the settled point is the whole of it. Free for every chip
+                // that is not creating.
+                if (_creatingNow[i] && _chips[i].gameObject.activeSelf)
+                    ApplyChip(i, 1f);
                 continue;
+            }
             _rampElapsed[i] += dt;
             float duration = _rampIn[i] ? VRCard.DockAppearSeconds : VRCard.DockVanishSeconds;
             float t = duration > 0f ? Mathf.Clamp01(_rampElapsed[i] / duration) : 1f;
@@ -523,29 +770,67 @@ internal sealed class RemoteElementStrip
     /// Write one point of chip <paramref name="i"/>'s ramp. <paramref name="visible"/> is the
     /// smootherstepped fraction read from the arrival end, so one method serves both directions.
     ///
-    /// <para>The scale rides the CHIP ROOT, whose two children (the fallback quad and the sprite
-    /// icon) already carry their own fitted scales — so the settle multiplies onto whichever of the
-    /// two is rendering without either of them needing to know about it. Both alphas are written
-    /// even though only one renderer is enabled, for the same reason
-    /// <c>RemoteBoardCard.ApplyMaterialise</c> writes all three of its materials: the repaint can
-    /// switch which path draws while a ramp is running, and the other one must not be sitting at
-    /// full opacity when it does. The AVAILABILITY RING is the third such renderer and takes the
-    /// same treatment, scaled off its AUTHORED alpha (<c>_ringColors</c>) for the reason
-    /// <c>_quadBaseAlpha</c> exists — the ring is not opaque to begin with.</para>
+    /// <para>The scale rides the CHIP ROOT, whose children (the fallback quad, the sprite icon, the
+    /// availability ring, and the creating cell's plate and caption) already carry their own fitted
+    /// scales — so the settle multiplies onto whichever of them is rendering without any of them
+    /// needing to know about it. EVERY alpha is written even though only some renderers are
+    /// enabled, for the same reason <c>RemoteBoardCard.ApplyMaterialise</c> writes all three of its
+    /// materials: the repaint can switch which path draws while a ramp is running, and the others
+    /// must not be sitting at full opacity when it does. Each renderer that is not opaque to begin
+    /// with is scaled off its own AUTHORED base rather than off 1 — <c>_quadBaseAlpha</c>,
+    /// <see cref="_iconBaseAlpha"/>, <c>_ringColors</c>, and the creating cell's two authored
+    /// colours.</para>
     /// </summary>
     private void ApplyChip(int i, float visible)
     {
         float a = Mathf.Clamp01(visible);
+        // THE CREATING BREATH rides ON TOP of the ramp rather than beside it, so ONE method still
+        // owns every renderer's final alpha — the reason this method writes all of them at once.
+        float ca = a * (_creatingNow[i] ? Breath() : 1f);
         _chips[i].localScale = Vector3.one * Mathf.Lerp(ChipSettleScale, 1f, a);
         Color quad = _mats[i].color;
-        quad.a = _quadBaseAlpha[i] * a;
+        quad.a = _quadBaseAlpha[i] * ca;
         _mats[i].color = quad;
         Color icon = _icons[i].color;
-        icon.a = a;
+        icon.a = _iconBaseAlpha[i] * ca;
         _icons[i].color = icon;
         Color ring = _ringColors[i];
         ring.a *= a;
         _rings[i].color = ring;
+        // The label and its plate belong to the creating cell alone, so they take the same ramp AND
+        // the same breath as the disc — the three move as one, which is what the owner's animator
+        // does with them. Both read their AUTHORED colour as the base, for the reason _ringColors
+        // does: neither is opaque to begin with.
+        if (_plates[i].enabled)
+        {
+            Color plate = _cells[i].PlateColor;
+            plate.a *= ca;
+            _plates[i].color = plate;
+        }
+        if (_labels[i].enabled)
+        {
+            Color text = _cells[i].TextColor;
+            text.a *= ca;
+            _labels[i].color = text;
+        }
+    }
+
+    /// <summary>
+    /// The creating cell's opacity multiplier this frame: a raised cosine between
+    /// <see cref="CreationBreathFloor"/> and 1 over <see cref="CreationBreathSeconds"/>.
+    ///
+    /// <para>UNSCALED TIME, like every other clock in this file — the element board moves during
+    /// card phases, which pause <c>timeScale</c>. A FIXED period, deliberately: this project has a
+    /// bug class filed for animations whose frequency is scaled by a strength term, and there is no
+    /// strength here to scale it with.</para>
+    /// </summary>
+    private static float Breath()
+    {
+        // No zero-period guard: the period is a compile-time constant above zero, and a guard the
+        // compiler can prove dead is a warning, not a safety net.
+        float phase = Mathf.Repeat(Time.unscaledTime, CreationBreathSeconds) / CreationBreathSeconds;
+        float wave = 0.5f - 0.5f * Mathf.Cos(phase * 2f * Mathf.PI);
+        return Mathf.Lerp(CreationBreathFloor, 1f, wave);
     }
 
     /// <summary>Re-read the infusion table AND the three overlay masks, and repaint on an actual
@@ -617,14 +902,22 @@ internal sealed class RemoteElementStrip
         // it to the union instead would make the plate itself jump wider than the discs for the
         // same 0.30 s, which is the more visible of the two artefacts on a backing whose entire job
         // is to be unnoticed.
+        //
+        // AND IT COVERS THE CAPTION TOO. The "wird erstellt" cell hangs BELOW the chip run and is
+        // wider than one chip, so a plate sized to the discs alone would have left the caption
+        // floating over the passthrough room — the exact complaint the plate exists to answer, one
+        // element further down. The rect is therefore accumulated as a UNION over the loop below
+        // and written once after it; the seed is the run rect this paragraph describes, so a repaint
+        // with nothing in creation produces byte-identical geometry to before.
         bool anyChips = visible > 0;
         if (_mrPlate.gameObject.activeSelf != anyChips)
             _mrPlate.gameObject.SetActive(anyChips);
-        if (anyChips)
-        {
-            float runW = (visible - 1) * ChipStep + ChipSize + 0.010f;
-            _mrPlate.transform.localScale = new Vector3(runW, ChipSize + 0.010f, 1f);
-        }
+        float padX = 0.005f;
+        float runHalf = (visible - 1) * 0.5f * ChipStep + ChipSize * 0.5f;
+        float plateMinX = -runHalf - padX;
+        float plateMaxX = runHalf + padX;
+        float plateMinY = -ChipSize * 0.5f - padX;
+        float plateMaxY = ChipSize * 0.5f + padX;
 
         // Pack the visible chips left-to-right and centre the run, exactly like the game's own
         // horizontal element holder does with its layout group.
@@ -639,6 +932,13 @@ internal sealed class RemoteElementStrip
             _wasInList[i] = inList[i];
             if (!on)
             {
+                // The creating cell is part of the CREATING state and nothing else, so it leaves
+                // with the chip — including during a crumble, where the caption would otherwise
+                // outlive the state it names.
+                _creatingNow[i] = false;
+                _rung[i] = 0;
+                _rungArt[i] = null;
+                HideCreatingCell(i);
                 // LEFT THE BOARD (consumed, or waned all the way out). It keeps its seat and its
                 // artwork and crumbles in place — the run below has already re-centred WITHOUT it,
                 // which is why the position write is inside the `on` branch and this chip is not
@@ -685,21 +985,72 @@ internal sealed class RemoteElementStrip
             // disc could reach hardware with nothing in the log to say so.
             int want = inCreation ? 2 : (strong ? 0 : 1);
 
+            // ── THE OWNER'S "WIRD ERSTELLT" CELL ────────────────────────────────────────────────
+            // Everything vanilla composes at SetState(Inert, isCreating: true) — the creation disc
+            // AT ITS AUTHORED TINT AND SIZE, the caption, the caption's plate — is decided here,
+            // ahead of the ladder, because it supplies the disc's own sprite, tint, alpha and size
+            // for that state. Drawing the raw creationIcon untinted and alone is what painted the
+            // reported white square; see the class doc.
+            _creatingNow[i] = inCreation;
+            Sprite? wantSprite = _sprites[i, want];
+            var wantTint = Color.white;
+            float wantAlpha = 1f;
+            float wantSize = ChipSize;
+            if (inCreation)
+            {
+                CreatingCell cell = _cells[i];
+                if (Usable(cell.Disc))
+                {
+                    wantSprite = cell.Disc;
+                    wantTint = cell.DiscColor;
+                    wantAlpha = Mathf.Clamp01(cell.DiscColor.a);
+                }
+                wantSize = ChipSize * (cell.DiscRatio > 0.05f ? cell.DiscRatio : DiscRatioFallback);
+                ApplyCreatingCell(i);
+                // The MR backing has to reach under the caption as well — see the plate paragraph
+                // above. Measured from the SEATED chip, so the union is in strip-local metres like
+                // the seed rect.
+                if (_labels[i].enabled || _plates[i].enabled)
+                {
+                    float cx = _chips[i].localPosition.x + cell.TextAt.x * ChipSize;
+                    float cy = cell.TextAt.y * ChipSize;
+                    float hw = Mathf.Max(cell.TextSize.x, _plates[i].enabled ? cell.PlateSize.x : 0f)
+                               * ChipSize * 0.5f;
+                    float hh = Mathf.Max(cell.TextSize.y, _plates[i].enabled ? cell.PlateSize.y : 0f)
+                               * ChipSize * 0.5f;
+                    plateMinX = Mathf.Min(plateMinX, cx - hw - padX);
+                    plateMaxX = Mathf.Max(plateMaxX, cx + hw + padX);
+                    plateMinY = Mathf.Min(plateMinY, cy - hh - padX);
+                    plateMaxY = Mathf.Max(plateMaxY, cy + hh + padX);
+                }
+            }
+            else
+            {
+                HideCreatingCell(i);
+            }
+
             // THE DRAW LADDER. Three rungs, and the invariant across all of them is that no rung
             // may ever hand an UNDRAWABLE sprite to a SpriteRenderer — that is what paints the
             // white square. Every rung either draws real artwork or steps down, and every step
-            // down goes on the record naming the element and the state.
-            if (TryApplyIcon(i, _sprites[i, want], ChipSize, Color.white))
+            // down goes on the record naming the element and the state. Since the 2026-09-05 round
+            // "undrawable" is MEASURED and not merely tested for liveness: see TryApplyIcon.
+            if (TryApplyIcon(i, wantSprite, wantSize, wantTint, wantAlpha, want))
             {
-                // RUNG 1, THE REAL DISC: vanilla parity is the sprite itself — untinted, full chip
-                // size in every state (the waning and creation artwork carry their own look;
-                // vanilla swaps the sprite, it does not dim or shrink — see the class doc).
+                _rung[i] = 1;
+                // RUNG 1, THE REAL DISC. For STRONG and WANING that is the sprite itself, untinted
+                // and at full chip size — the artwork carries its own look and vanilla swaps the
+                // sprite rather than dimming or shrinking it. For CREATING it is the sprite AT THE
+                // OWNER'S OWN TINT, ALPHA AND RELATIVE SIZE, decided just above: that state's
+                // artwork is authored to be composited, and drawing it untinted is what produced
+                // the reported white square.
                 if (_quads[i].enabled)
                     _quads[i].enabled = false;
             }
             else if (TryApplyIcon(i, GenericIcon(i), want == 0 ? ChipSize : ChipSize * 0.74f,
-                                  want == 0 ? Color.white : new Color(0.55f, 0.55f, 0.55f)))
+                                  want == 0 ? Color.white : new Color(0.55f, 0.55f, 0.55f),
+                                  1f, want))
             {
+                _rung[i] = 2;
                 // RUNG 2, THE GAME'S OWN GENERIC ELEMENT GLYPH (UIInfoTools.GetElementIcon, i.e.
                 // ElementConfigUI.icon — the symbol the game draws for this element everywhere
                 // outside the infusion board). It is real authored art for the RIGHT element, so a
@@ -725,6 +1076,9 @@ internal sealed class RemoteElementStrip
                 // favour of this file's per-element table, which contains no white. A white chip
                 // here would be indistinguishable from the very defect this ladder exists to make
                 // impossible.
+                _rung[i] = 3;
+                _rungArt[i] = null;
+                _iconBaseAlpha[i] = 1f;
                 if (_icons[i].enabled)
                     _icons[i].enabled = false;
                 if (!_quads[i].enabled)
@@ -748,11 +1102,31 @@ internal sealed class RemoteElementStrip
                 BeginChipRamp(i, arriving: true);
             else
                 EndChipRamp(i);
+
+            // A SETTLED chip's EndChipRamp is a no-op by design, so a creating cell this repaint
+            // just switched ON would keep the previous frame's colours until the pump's next tick —
+            // and if the pump is not running (a board root that is off), forever. One settled write
+            // here closes that without adding a second alpha owner: ApplyChip still computes every
+            // renderer's final value, this only asks it to.
+            if (_creatingNow[i] && !_ramping[i])
+                ApplyChip(i, 1f);
+        }
+
+        // THE MR PLATE, written once from the union accumulated above.
+        if (anyChips)
+        {
+            _mrPlate.transform.localPosition =
+                new Vector3((plateMinX + plateMaxX) * 0.5f, (plateMinY + plateMaxY) * 0.5f, 0.004f);
+            _mrPlate.transform.localScale =
+                new Vector3(plateMaxX - plateMinX, plateMaxY - plateMinY, 1f);
         }
 
         // Every element the strip is going to show this repaint has now been seeded once, so the
         // NEXT change is a real one and animates. See _transitionsSeeded.
         _transitionsSeeded = true;
+
+        // THE 1:1 LINE. Last, because it reports what the paint above actually did.
+        EmitParity(state, creating, reserved, available);
     }
 
     /// <summary>
@@ -876,18 +1250,42 @@ internal sealed class RemoteElementStrip
     /// distortion whatever the atlas padding is.
     ///
     /// <para>Returns FALSE without touching the renderer when the sprite cannot be drawn honestly
-    /// (see <see cref="Usable"/>), which is what lets the caller walk down its fallback ladder
-    /// instead of shipping a white square. Only the RGB is written here: the ALPHA belongs to
-    /// <see cref="ApplyChip"/>, which may be running a transition ramp at the same time — which is
-    /// also why the dim of a non-strong state is expressed in RGB and not in alpha, so the sprite
-    /// path needs no <see cref="_quadBaseAlpha"/> twin.</para>
+    /// — either because it is unusable (see <see cref="Usable"/>) or because its MEASURED artwork
+    /// under the requested tint is the featureless white block this whole ladder exists to make
+    /// impossible (see <see cref="InkOf"/>). Either way the caller walks down one rung instead of
+    /// shipping a white square.</para>
+    ///
+    /// <para>Only the RGB is written here: the ALPHA belongs to <see cref="ApplyChip"/>, which may
+    /// be running a transition ramp at the same time. <paramref name="baseAlpha"/> is recorded in
+    /// <see cref="_iconBaseAlpha"/> for that method to scale — the sprite path DOES need a base
+    /// now, because the creating disc carries the prefab's own transparency and a transparency
+    /// cannot honestly be folded into a colour the way the generic glyph's dim is.</para>
     /// </summary>
-    private bool TryApplyIcon(int i, Sprite? sprite, float worldSize, Color rgb)
+    private bool TryApplyIcon(int i, Sprite? sprite, float worldSize, Color rgb, float baseAlpha,
+                              int state)
     {
         if (!Usable(sprite))
             return false;
         SpriteRenderer icon = _icons[i];
         Sprite show = Baked(sprite!);
+
+        // ── THE MEASURED WHITE-BLOCK REFUSAL ────────────────────────────────────────────────────
+        // The 445 guard asked whether the sprite's texture was alive. That is a STATE probe, and
+        // the 447 logs show it passing every disc ("STRONG 6/6, WANING 6/6, CREATION 6/6") while
+        // the user was still photographing a white square. So this asks about the PICTURE instead:
+        // if the artwork that will actually reach the renderer is a featureless near-white block
+        // AND the tint about to be laid over it is near-white and opaque, the result is the exact
+        // rectangle the report is about, and this rung refuses it and lets the caller step down.
+        // Measured on `show`, i.e. AFTER Baked(), so a bad mip bake is covered by the same test.
+        SpriteInk ink = InkOf(show);
+        if (ink.WhiteBlock && NearWhiteOpaque(rgb, baseAlpha))
+        {
+            LogWhiteBlock(i, state, show, ink, rgb, baseAlpha);
+            return false;
+        }
+        _rungArt[i] = show.name;
+        _iconBaseAlpha[i] = Mathf.Clamp01(baseAlpha);
+
         if (icon.sprite != show)
             icon.sprite = show;
         Color tint = icon.color;
@@ -958,6 +1356,638 @@ internal sealed class RemoteElementStrip
         }
         catch { /* menu / loading window */ }
         return null;
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //  THE "WIRD ERSTELLT" CELL — drawing it, and measuring it off the owner's own widget
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Draw chip <paramref name="i"/>'s CREATING cell: the caption the owner reads as "wird
+    /// erstellt" and the authored plate behind it, both at the proportion and offset measured off
+    /// the owner's own widget (<see cref="ResolveCreatingCells"/>). The creation DISC itself is not
+    /// drawn here — it goes through the shared ladder in <see cref="Refresh"/>, so it is covered by
+    /// the same white-block refusal as every other state.
+    ///
+    /// <para>The caption STRING is re-read live rather than taken from the resolve snapshot: it is
+    /// localized by the game's own text component, which need not have run when this strip first
+    /// resolved against the singleton. An empty string leaves the label off — a mirror with nothing
+    /// to say says nothing rather than drawing an empty box.</para>
+    /// </summary>
+    private void ApplyCreatingCell(int i)
+    {
+        CreatingCell cell = _cells[i];
+
+        // THE PLATE. Off when the widget carries no sprite for it — a sprite-less Image is a plain
+        // tinted rectangle in vanilla, not a shape, and inventing one is the mistake the
+        // availability ring already refuses to make (see ResolveRings).
+        SpriteRenderer plate = _plates[i];
+        if (Usable(cell.Plate))
+        {
+            Sprite show = Baked(cell.Plate!);
+            if (plate.sprite != show)
+                plate.sprite = show;
+            FitSprite(plate.transform, show, cell.PlateSize * ChipSize);
+            plate.transform.localPosition = new Vector3(cell.PlateAt.x * ChipSize,
+                                                        cell.PlateAt.y * ChipSize, -0.001f);
+            if (!plate.enabled)
+                plate.enabled = true;
+        }
+        else if (plate.enabled)
+        {
+            plate.enabled = false;
+        }
+
+        // THE CAPTION.
+        TextMeshPro label = _labels[i];
+        string text = LiveCreatingText(i) ?? cell.Text ?? string.Empty;
+        if (text.Length == 0)
+        {
+            if (label.enabled)
+                label.enabled = false;
+            return;
+        }
+        var box = new Vector2(Mathf.Max(0.004f, cell.TextSize.x * ChipSize),
+                              Mathf.Max(0.004f, cell.TextSize.y * ChipSize));
+        // Change-gated: TmpFit.Fit re-runs auto-sizing, which is not free at a repaint cadence.
+        if (label.text != text || _labelBox[i] != box)
+        {
+            label.text = text;
+            _labelBox[i] = box;
+            TmpFit.Fit(label, box.x, box.y, wrap: false);
+        }
+        label.transform.localPosition = new Vector3(cell.TextAt.x * ChipSize,
+                                                    cell.TextAt.y * ChipSize, -0.002f);
+        if (!label.enabled)
+            label.enabled = true;
+    }
+
+    /// <summary>Take the creating cell down — the caption and its plate belong to that state alone.
+    /// Free once they are already off.</summary>
+    private void HideCreatingCell(int i)
+    {
+        if (_plates[i].enabled)
+            _plates[i].enabled = false;
+        if (_labels[i].enabled)
+            _labels[i].enabled = false;
+    }
+
+    /// <summary>The owner's live "wird erstellt" string for element <paramref name="i"/>, or null
+    /// when there is no widget to read (menu / loading). Read-only.</summary>
+    private static string? LiveCreatingText(int i)
+    {
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board != null
+                ? board.elementsUI
+                : null;
+            if (ui == null
+                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                || one == null)
+            {
+                return null;
+            }
+            TextMeshProUGUI caption = one.creatingElementText;
+            return caption != null ? caption.text : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Stretch a sprite renderer's transform so <paramref name="show"/> covers
+    /// <paramref name="worldSize"/> world units — NON-uniformly, on both axes, because the thing
+    /// being mirrored is a uGUI <c>Image</c> stretched to its own rect and that is what a uGUI
+    /// Image does. (The element DISC keeps the uniform larger-axis fit of
+    /// <see cref="TryApplyIcon"/>: a disc must not be squashed.)
+    /// </summary>
+    private static void FitSprite(Transform t, Sprite show, Vector2 worldSize)
+    {
+        Vector3 size = show.bounds.size; // rect / pixelsPerUnit, world units at scale 1
+        float fx = size.x > 0.0001f ? worldSize.x / size.x : 1f;
+        float fy = size.y > 0.0001f ? worldSize.y / size.y : 1f;
+        var scale = new Vector3(fx, fy, 1f);
+        if (t.localScale != scale)
+            t.localScale = scale;
+    }
+
+    /// <summary>See <see cref="ResolveCreatingCells"/> — the fallback state one cell stands at
+    /// before (and after a failed) measurement. Seeded at board-build time as well as at every
+    /// resolve, so a strip that draws a creating chip before the singleton ever answered still
+    /// draws a legible caption instead of a transparent one at a zero-sized box.</summary>
+    private void ResetCell(int i)
+    {
+        _cells[i] = default;
+        _cells[i].Disc = _sprites[i, 2];
+        _cells[i].DiscColor = Color.white;
+        _cells[i].DiscRatio = DiscRatioFallback;
+        _cells[i].TextColor = Color.white;
+        _cells[i].TextSize = TextSizeFallback;
+        _cells[i].TextAt = TextAtFallback;
+        _cells[i].PlateColor = Color.white;
+        _cells[i].PlateSize = TextSizeFallback;
+        _cells[i].PlateAt = TextAtFallback;
+    }
+
+    /// <summary>
+    /// Measure the owner's CREATING cell off the live element widgets — the creation disc's sprite,
+    /// PREFAB TINT and size, the caption's string, colour, box and centre offset, and the caption
+    /// plate's sprite, tint, box and offset. Everything is normalised by the ELEMENT DISC's own
+    /// rect, so the mirror inherits the authored proportion at any chip size, exactly as
+    /// <see cref="ResolveRings"/> does for the availability ring.
+    ///
+    /// <para>Read-only: sprites are assets, the widgets are only measured. A widget that cannot be
+    /// measured leaves <see cref="CreatingCell.Measured"/> false and the fallback layout standing,
+    /// and the counts below say how many of each of the four things were found — one number per
+    /// population, because a single "n/6 creating cells" would be true of four different worlds and
+    /// this file has already paid for that mistake once (see <see cref="TryResolveSprites"/>).</para>
+    /// </summary>
+    private void ResolveCreatingCells(InfusionBoardUI board, out int measured, out int discs,
+                                      out int captions, out int plates)
+    {
+        measured = 0;
+        discs = 0;
+        captions = 0;
+        plates = 0;
+        for (int i = 0; i < 6; i++)
+            ResetCell(i);
+
+        Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board.elementsUI;
+        if (ui == null)
+            return;
+        for (int i = 0; i < 6; i++)
+        {
+            if (!ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                || one == null)
+            {
+                continue;
+            }
+            Transform frame = one.transform;
+            Image disc = one.elementImage;
+            if (disc == null
+                || !RectInFrame(frame, disc.rectTransform, out Vector2 discAt, out Vector2 discSize))
+            {
+                continue;
+            }
+            float axis = Mathf.Max(discSize.x, discSize.y);
+            if (axis <= 0.0001f)
+                continue;
+            _cells[i].Measured = true;
+            measured++;
+
+            Image creation = one.creationImage;
+            if (creation != null)
+            {
+                // THE TINT IS THE POINT. Vanilla never draws this sprite untinted at full opacity;
+                // doing so is what produced the reported white square.
+                _cells[i].DiscColor = creation.color;
+                if (Usable(creation.sprite))
+                {
+                    _cells[i].Disc = creation.sprite;
+                    discs++;
+                }
+                if (RectInFrame(frame, creation.rectTransform, out _, out Vector2 cSize))
+                {
+                    float cAxis = Mathf.Max(cSize.x, cSize.y);
+                    if (cAxis > 0.0001f)
+                        _cells[i].DiscRatio = cAxis / axis;
+                }
+            }
+
+            TextMeshProUGUI caption = one.creatingElementText;
+            if (caption != null)
+            {
+                _cells[i].Text = caption.text;
+                _cells[i].TextColor = caption.color;
+                if (RectInFrame(frame, caption.rectTransform, out Vector2 tAt, out Vector2 tSize)
+                    && tSize.x > 0.0001f && tSize.y > 0.0001f)
+                {
+                    _cells[i].TextSize = tSize / axis;
+                    _cells[i].TextAt = (tAt - discAt) / axis;
+                }
+                if (!string.IsNullOrEmpty(_cells[i].Text))
+                    captions++;
+            }
+
+            Image bg = one.creationTextBackgroundImage;
+            if (bg != null && Usable(bg.sprite))
+            {
+                _cells[i].Plate = bg.sprite;
+                _cells[i].PlateColor = bg.color;
+                if (RectInFrame(frame, bg.rectTransform, out Vector2 pAt, out Vector2 pSize)
+                    && pSize.x > 0.0001f && pSize.y > 0.0001f)
+                {
+                    _cells[i].PlateSize = pSize / axis;
+                    _cells[i].PlateAt = (pAt - discAt) / axis;
+                }
+                plates++;
+            }
+        }
+    }
+
+    /// <summary>
+    /// One authored rect expressed in <paramref name="frame"/>'s space: its CENTRE and its SIZE.
+    ///
+    /// <para>Centres, never <c>anchoredPosition</c> — an anchored position runs to each rect's own
+    /// pivot, so two siblings' anchored positions are not comparable and this project has that
+    /// filed under its own name. The size is scaled by the rect's lossy scale relative to the
+    /// frame's, so a rect under an intermediate scale is measured in the frame's units and not its
+    /// own. False whenever anything read back is non-finite, in which case the caller keeps its
+    /// fallback.</para>
+    /// </summary>
+    private static bool RectInFrame(Transform frame, RectTransform? r, out Vector2 centre,
+                                    out Vector2 size)
+    {
+        centre = Vector2.zero;
+        size = Vector2.zero;
+        if (frame == null || r == null)
+            return false;
+        Rect rect = r.rect;
+        if (!IsFinite(rect.width) || !IsFinite(rect.height))
+            return false;
+        Vector3 local = frame.InverseTransformPoint(r.TransformPoint(rect.center));
+        if (!IsFinite(local.x) || !IsFinite(local.y))
+            return false;
+        Vector3 fs = frame.lossyScale;
+        Vector3 rs = r.lossyScale;
+        float kx = Mathf.Abs(fs.x) > 0.0001f ? rs.x / fs.x : 1f;
+        float ky = Mathf.Abs(fs.y) > 0.0001f ? rs.y / fs.y : 1f;
+        if (!IsFinite(kx) || !IsFinite(ky))
+            return false;
+        centre = new Vector2(local.x, local.y);
+        size = new Vector2(Mathf.Abs(rect.width * kx), Mathf.Abs(rect.height * ky));
+        return true;
+    }
+
+    /// <summary>A real number — neither NaN nor infinite.</summary>
+    private static bool IsFinite(float v) => !float.IsNaN(v) && !float.IsInfinity(v);
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //  MEASURING THE PICTURE — the white-block probe
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// What one sprite's artwork actually looks like: mean colour and alpha over its rect, and the
+    /// largest single-texel departure from that mean. <see cref="Measured"/> false means the probe
+    /// could not run (an unblittable texture, a device that refused the readback) — an unmeasured
+    /// sprite is NEVER refused, because a probe that failed must not be allowed to make the picture
+    /// worse than it was.
+    /// </summary>
+    private readonly struct SpriteInk
+    {
+        internal readonly bool Measured;
+        internal readonly float R;
+        internal readonly float G;
+        internal readonly float B;
+        internal readonly float A;
+
+        /// <summary>Largest per-texel departure from the mean across all four channels — the term
+        /// that separates a flat block from artwork. A disc, a glyph or a caption plate all carry a
+        /// silhouette and therefore a large spread; a featureless fill does not.</summary>
+        internal readonly float Spread;
+
+        internal SpriteInk(float r, float g, float b, float a, float spread)
+        {
+            Measured = true;
+            R = r;
+            G = g;
+            B = b;
+            A = a;
+            Spread = spread;
+        }
+
+        /// <summary>A featureless near-white block: opaque nearly everywhere, near-white nearly
+        /// everywhere, and almost no variation across the rect. The thresholds are deliberately
+        /// tight — this must catch the reported rectangle and nothing that is real artwork.
+        /// </summary>
+        internal bool WhiteBlock =>
+            Measured && A > 0.90f && R > 0.90f && G > 0.90f && B > 0.90f && Spread < 0.06f;
+
+        public override string ToString() =>
+            Measured
+                ? $"rgb({R:F2},{G:F2},{B:F2}) a{A:F2} spread {Spread:F2}"
+                : "unmeasured (the readback did not run)";
+    }
+
+    /// <summary>Edge of the square the ink probe downsamples a sprite into. 8 x 8 = 64 texels: far
+    /// too coarse to be a picture, exactly enough to answer "is this a flat block".</summary>
+    private const int InkProbeSize = 8;
+
+    /// <summary>Ink measurements by sprite instance id. CLEARED whenever the strip re-resolves
+    /// against a NEW <c>InfusionBoardUI</c>, because Unity reuses instance ids after a destroy and a
+    /// stale entry would answer about somebody else's artwork — the same hazard
+    /// <see cref="Baked"/> defends against one indirection out.</summary>
+    private static readonly Dictionary<int, SpriteInk> s_ink = new Dictionary<int, SpriteInk>();
+
+    /// <summary>
+    /// Measure <paramref name="sprite"/>'s artwork — see <see cref="SpriteInk"/>. One tiny GPU
+    /// downsample per sprite, cached: <see cref="InkProbeSize"/> squared texels through a temporary
+    /// RenderTexture, which is why this can sit in a repaint path at all. The atlas region comes
+    /// from <c>textureRect</c>, so a packed sprite is measured on ITS OWN region and not the whole
+    /// sheet.
+    ///
+    /// <para>Restores <c>RenderTexture.active</c> unconditionally: <c>Graphics.Blit</c> rebinds the
+    /// target, and this project has already paid for a blit that left someone else's target bound.
+    /// Every failure yields an UNMEASURED reading, never a verdict.</para>
+    /// </summary>
+    private static SpriteInk InkOf(Sprite sprite)
+    {
+        int id = sprite.GetInstanceID();
+        if (s_ink.TryGetValue(id, out SpriteInk known))
+            return known;
+
+        SpriteInk ink = default;
+        RenderTexture? prev = RenderTexture.active;
+        RenderTexture? rt = null;
+        Texture2D? tmp = null;
+        try
+        {
+            Texture2D tex = sprite.texture;
+            if (tex != null && tex.width > 0 && tex.height > 0)
+            {
+                Rect region = sprite.textureRect;
+                var scale = new Vector2(region.width / tex.width, region.height / tex.height);
+                var offset = new Vector2(region.x / tex.width, region.y / tex.height);
+                rt = RenderTexture.GetTemporary(InkProbeSize, InkProbeSize, 0,
+                    RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+                Graphics.Blit(tex, rt, scale, offset);
+                RenderTexture.active = rt;
+                tmp = new Texture2D(InkProbeSize, InkProbeSize, TextureFormat.RGBA32,
+                                    mipChain: false, linear: false);
+                tmp.ReadPixels(new Rect(0f, 0f, InkProbeSize, InkProbeSize), 0, 0);
+                Color32[] px = tmp.GetPixels32();
+                if (px != null && px.Length > 0)
+                {
+                    float sr = 0f, sg = 0f, sb = 0f, sa = 0f;
+                    for (int k = 0; k < px.Length; k++)
+                    {
+                        sr += px[k].r;
+                        sg += px[k].g;
+                        sb += px[k].b;
+                        sa += px[k].a;
+                    }
+                    float n = px.Length * 255f;
+                    float mr = sr / n, mg = sg / n, mb = sb / n, ma = sa / n;
+                    float spread = 0f;
+                    for (int k = 0; k < px.Length; k++)
+                    {
+                        spread = Mathf.Max(spread, Mathf.Abs(px[k].r / 255f - mr));
+                        spread = Mathf.Max(spread, Mathf.Abs(px[k].g / 255f - mg));
+                        spread = Mathf.Max(spread, Mathf.Abs(px[k].b / 255f - mb));
+                        spread = Mathf.Max(spread, Mathf.Abs(px[k].a / 255f - ma));
+                    }
+                    ink = new SpriteInk(mr, mg, mb, ma, spread);
+                }
+            }
+        }
+        catch
+        {
+            ink = default; // unmeasured — never a verdict
+        }
+        finally
+        {
+            RenderTexture.active = prev;
+            if (rt != null)
+                RenderTexture.ReleaseTemporary(rt);
+            if (tmp != null)
+                UnityEngine.Object.Destroy(tmp);
+        }
+
+        s_ink[id] = ink;
+        return ink;
+    }
+
+    /// <summary>Would this tint leave a white block white? Only a near-white, near-opaque tint
+    /// does; any real colour or any transparency turns the block into something the report is not
+    /// about, and refusing those would cost artwork for nothing.</summary>
+    private static bool NearWhiteOpaque(Color rgb, float alpha) =>
+        alpha > 0.90f && rgb.r > 0.90f && rgb.g > 0.90f && rgb.b > 0.90f;
+
+    /// <summary>One refused white block on the record — capped per (element, state) verdict through
+    /// the same one-shot table the fallback ladder uses.</summary>
+    private static void LogWhiteBlock(int i, int state, Sprite show, SpriteInk ink, Color rgb,
+                                      float alpha)
+    {
+        if (i < 0 || i >= 6 || state < 0 || state > 2 || s_fallbackLogged[i, state])
+            return;
+        s_fallbackLogged[i, state] = true;
+        // HW-VERIFY: this is the line that says the reported WHITE SQUARE was caught at the draw
+        // site and refused, with the measurement that decided it — not a liveness flag, the actual
+        // pixels that were about to reach the renderer.
+        VRLog.Note("Net", $"Remote element strip: {(ElementInfusionBoardManager.EElement)i}'s " +
+                          $"{StateNames[state]} artwork '{show.name}' measures {ink} — a " +
+                          "FEATURELESS NEAR-WHITE BLOCK, and the tint about to be laid over it is " +
+                          $"({rgb.r:F2},{rgb.g:F2},{rgb.b:F2}) a{alpha:F2}, i.e. near-white and " +
+                          "opaque. That product IS the white square the user photographed, so this " +
+                          "rung is refused and the ladder steps down to the game's generic element " +
+                          "glyph. The element stays identifiable; what is lost is one state's art.");
+    }
+
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+    //  THE 1:1 LINE — what the owner is in, beside what the mirror drew
+    // ══════════════════════════════════════════════════════════════════════════════════════════
+
+    /// <summary>
+    /// Report, per element, the state the OWNER's own widget is in and the state this MIRROR just
+    /// drew — the one grep that settles 1:1 for the element strip.
+    ///
+    /// <para>THE TWO HALVES ARE TWO POPULATIONS, deliberately. The mirror half is what
+    /// <see cref="Refresh"/> just decided; the owner half is read back off the live
+    /// <c>InfusionElementUI</c> widgets — the actual Images and the actual caption the owner's
+    /// docked panel is drawing. Deriving both from <c>ElementColumn</c> would have been a claim
+    /// measuring itself, which is a bug class this project has filed.</para>
+    ///
+    /// <para>THE FALSIFIER. This line prints on the FIRST repaint of every strip, whatever the
+    /// board holds, and then once per DISTINCT verdict. In a session where no element is ever
+    /// created it therefore still prints, reading "nothing in creation on either side" — so silence
+    /// of the token <c>ELEMENT PARITY</c> does not mean success, it means this strip never
+    /// repainted at all, which is a different defect.</para>
+    /// </summary>
+    private void EmitParity(ElementInfusionBoardManager.EColumn[] state, int creating, int reserved,
+                            int available)
+    {
+        string verdict;
+        string key;
+        try
+        {
+            var sb = new System.Text.StringBuilder(640);
+            // THE CAP KEY IS THE VERDICT CLASS, NOT THE LINE. The owner's GUIAnimator drives real
+            // NUMBERS — the caption's alpha, the creation Image's tint — that move every frame while
+            // the animation runs, so keying the one-shot on the printed text would burn the whole
+            // budget on one infusion and then go quiet exactly when a second element mattered. The
+            // key therefore carries only the DISCRETE facts (which element, which state, which rung,
+            // which artwork, what is on and off) and the line carries the numbers.
+            var kb = new System.Text.StringBuilder(160);
+            int spoken = 0;
+            for (int i = 0; i < 6; i++)
+            {
+                bool mirrorDraws = _rung[i] != 0;
+                bool ownerDraws = state[i] != ElementInfusionBoardManager.EColumn.Inert
+                                  || (creating & (1 << i)) != 0
+                                  || (reserved & (1 << i)) != 0;
+                if (!mirrorDraws && !ownerDraws)
+                    continue;
+                if (spoken > 0)
+                    sb.Append("  ;;  ");
+                spoken++;
+                string mirrorState = (creating & (1 << i)) != 0
+                                     && state[i] == ElementInfusionBoardManager.EColumn.Inert
+                    ? "CREATING"
+                    : state[i].ToString();
+                string rung = RungNames[Mathf.Clamp(_rung[i], 0, RungNames.Length - 1)];
+                sb.Append((ElementInfusionBoardManager.EElement)i).Append(' ')
+                  .Append(OwnerClause(i))
+                  .Append(" | MIRROR chip=").Append(mirrorDraws ? "shown" : "hidden")
+                  .Append(" state=").Append(mirrorState)
+                  .Append(" rung=").Append(rung)
+                  .Append(" art='").Append(_rungArt[i] ?? "-").Append('\'')
+                  .Append(" a").Append(_iconBaseAlpha[i].ToString("F2"))
+                  .Append(" caption=")
+                  .Append(_labels[i].enabled ? "'" + _labels[i].text + "'" : "off")
+                  .Append(" plate=").Append(_plates[i].enabled ? "on" : "off")
+                  .Append(" ring=").Append(_rings[i].enabled ? "on" : "off")
+                  .Append(" reserved=").Append((reserved & (1 << i)) != 0 ? "yes" : "no")
+                  .Append(" avail=").Append((available & (1 << i)) != 0 ? "yes" : "no");
+                kb.Append(i).Append(mirrorState).Append(rung).Append(_rungArt[i] ?? "-")
+                  .Append(mirrorDraws ? 'D' : 'h').Append(_labels[i].enabled ? 'C' : 'c')
+                  .Append(_plates[i].enabled ? 'P' : 'p').Append(_rings[i].enabled ? 'R' : 'r')
+                  .Append((reserved & (1 << i)) != 0 ? 'S' : 's')
+                  .Append((available & (1 << i)) != 0 ? 'A' : 'a')
+                  .Append(OwnerKey(i)).Append('|');
+            }
+            if (spoken == 0)
+            {
+                sb.Append("nothing drawn on either side — all six elements Inert, none in creation, "
+                          + "none reserved. The strip DID repaint; it had nothing to mirror");
+                kb.Append("empty");
+            }
+            verdict = sb.ToString();
+            key = kb.ToString();
+        }
+        catch (System.Exception ex)
+        {
+            verdict = "the parity readback threw (" + ex.GetType().Name + ": " + ex.Message + ")";
+            key = "threw:" + ex.GetType().Name;
+        }
+
+        if (s_parityLogged.Contains(key))
+            return;
+        if (s_parityLogged.Count >= MaxParityVerdicts)
+        {
+            if (s_parityCapped)
+                return;
+            s_parityCapped = true;
+            // HW-VERIFY: a cap that goes quiet is its own defect — this says the line stopped and
+            // why, instead of leaving a reader to mistake the silence for a settled board.
+            VRLog.Note("Net", $"ELEMENT PARITY: {MaxParityVerdicts} distinct owner-vs-mirror " +
+                              "verdicts recorded; further NEW verdicts are no longer printed. The " +
+                              "cap is on DISTINCT verdicts, not on calls, so everything up to here " +
+                              "is a complete census of the states this session reached.");
+            return;
+        }
+        s_parityLogged.Add(key);
+        // HW-VERIFY: THE 1:1 line for the element strip. OWNER is read off the game's own live
+        // InfusionElementUI widgets (what the owner's docked panel is drawing); MIRROR is what this
+        // strip just painted. One line per distinct verdict, and it prints on the first repaint of
+        // every strip — see the falsifier in this method's doc.
+        VRLog.Note("Net", "ELEMENT PARITY: " + verdict);
+    }
+
+    /// <summary>The OWNER half of the parity line for element <paramref name="i"/>: what the game's
+    /// own element widget is actually drawing. Read-only and fully guarded — a diagnostic may never
+    /// be the thing that takes a board down.</summary>
+    private static string OwnerClause(int i)
+    {
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            if (board == null)
+                return "OWNER no InfusionBoardUI (menu/loading)";
+            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board.elementsUI;
+            if (ui == null
+                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                || one == null)
+            {
+                return "OWNER no element widget";
+            }
+            TextMeshProUGUI caption = one.creatingElementText;
+            Image ring = one.availableHighlight;
+            return "OWNER cell=" + (one.gameObject.activeSelf ? "shown" : "hidden")
+                   + " disc=" + ImageClause(one.elementImage)
+                   + " creation=" + ImageClause(one.creationImage)
+                   + " caption=" + (caption != null
+                       ? "'" + caption.text + "' (enabled=" + caption.enabled
+                         + ", active=" + caption.gameObject.activeInHierarchy
+                         + ", a" + caption.color.a.ToString("F2") + ")"
+                       : "none")
+                   + " avail=" + (ring != null && ring.enabled ? "on" : "off");
+        }
+        catch (System.Exception ex)
+        {
+            return "OWNER unreadable (" + ex.GetType().Name + ")";
+        }
+    }
+
+    /// <summary>
+    /// The DISCRETE half of the owner's state — which Images are on and what they are wearing, and
+    /// whether the caption is up at all. Every animated NUMBER is deliberately absent: this is the
+    /// cap key for <see cref="EmitParity"/>, and a key that moves with a running animation would
+    /// spend the whole verdict budget on one infusion. The numbers still reach the log; they just
+    /// do not decide whether the line prints.
+    /// </summary>
+    private static string OwnerKey(int i)
+    {
+        try
+        {
+            InfusionBoardUI? board = InfusionBoardUI.Instance;
+            Dictionary<ElementInfusionBoardManager.EElement, InfusionElementUI>? ui = board != null
+                ? board.elementsUI
+                : null;
+            if (ui == null
+                || !ui.TryGetValue((ElementInfusionBoardManager.EElement)i, out InfusionElementUI one)
+                || one == null)
+            {
+                return "nowidget";
+            }
+            TextMeshProUGUI caption = one.creatingElementText;
+            Image ring = one.availableHighlight;
+            return (one.gameObject.activeSelf ? "W" : "w")
+                   + ImageKey(one.elementImage) + ImageKey(one.creationImage)
+                   + (caption != null && caption.enabled && caption.gameObject.activeInHierarchy
+                          && caption.color.a > 0.02f
+                      ? "T" : "t")
+                   + (ring != null && ring.enabled ? "H" : "h");
+        }
+        catch
+        {
+            return "unreadable";
+        }
+    }
+
+    /// <summary>One Image reduced to "on/off plus which sprite" — see <see cref="OwnerKey"/>.
+    /// </summary>
+    private static string ImageKey(Image? img)
+    {
+        if (img == null)
+            return "-";
+        Sprite? sprite = img.sprite;
+        return (img.enabled ? "+" : "=") + (sprite != null ? sprite.name : "?");
+    }
+
+    /// <summary>One authored Image, as the parity line needs it: on/off, its sprite and its tint.
+    /// </summary>
+    private static string ImageClause(Image? img)
+    {
+        if (img == null)
+            return "none";
+        Sprite? sprite = img.sprite;
+        Color c = img.color;
+        return (img.enabled ? "on" : "off")
+               + " '" + (sprite != null ? sprite.name : "-") + "'"
+               + $" ({c.r:F2},{c.g:F2},{c.b:F2}) a{c.a:F2}";
     }
 
     /// <summary>
@@ -1055,12 +2085,20 @@ internal sealed class RemoteElementStrip
             if (found[0] + found[1] + found[2] == 0)
                 return false;
             ResolveRings(board, out int widgets, out int images, out int ringSprites, out int ratios);
+            ResolveCreatingCells(board, out int cells, out int cellDiscs, out int cellCaptions,
+                                 out int cellPlates);
             _spritesResolved = true;
             // A NEW infusion board is a new set of assets and therefore a new verdict: re-arm the
             // one-shot so the re-resolve is on the record instead of inheriting the old board's
             // line. (See _spriteSourceId for why re-resolving at all is the white-square fix.)
             if (sourceId != _spriteSourceId)
+            {
                 _resolveLogged = false;
+                // AND DROP THE INK MEASUREMENTS. They are keyed on sprite instance id, and Unity
+                // reuses instance ids after a destroy — a stale entry would answer this board's
+                // question about the previous board's artwork.
+                s_ink.Clear();
+            }
             _spriteSourceId = sourceId;
             if (!_resolveLogged)
             {
@@ -1083,7 +2121,16 @@ internal sealed class RemoteElementStrip
                                   $"{ringSprites}/6 of those Images have a usable SPRITE (an Image " +
                                   "with no sprite is a plain tinted rectangle in vanilla, not a " +
                                   "ring, and is deliberately not mirrored — a shape would have to " +
-                                  $"be invented), {ratios}/6 authored ring:disc ratios measured.");
+                                  $"be invented), {ratios}/6 authored ring:disc ratios measured. " +
+                                  $"CREATING cells (the owner's \"wird erstellt\" state, mirrored " +
+                                  $"since the 2026-09-05 round): {cells}/6 measured against the " +
+                                  $"element disc's own rect, {cellDiscs}/6 carry a usable authored " +
+                                  $"creationImage sprite, {cellCaptions}/6 a non-empty caption " +
+                                  $"string, {cellPlates}/6 a usable caption-plate sprite. Four " +
+                                  "numbers and not one, because a single count would be true of " +
+                                  "four different worlds — the same mistake the disc counter above " +
+                                  "already paid for. An unmeasured cell keeps the fallback layout " +
+                                  "and still shows the caption.");
             }
             return true;
         }
