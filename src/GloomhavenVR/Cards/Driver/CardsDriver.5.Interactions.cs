@@ -1448,6 +1448,38 @@ internal sealed partial class CardsDriver
     // -------------------------------------------------------------- short rest --
 
     /// <summary>
+    /// THE SEAM THE SACRIFICE-SEAT RECORD (39) IS SAMPLED FROM: which round recess the short-rest
+    /// sacrifice is PHYSICALLY lying in right now, and the hand it belongs to, or a -1 recess when
+    /// no short rest is mid-choice. Static for the same reason
+    /// <c>Piles.PileViewer.CurrentCounts</c> is: the driver instance is a private of this class and
+    /// the Net layer must not thread through it.
+    ///
+    /// <para>IT REPORTS WHAT IS ON THE BOARD, NOT WHAT THE GAME INTENDS. The recess comes from
+    /// <c>PlayTray.SlotIndexOfCard</c> — the physical parent of the card this driver actually laid
+    /// down — so the record can never claim a face for a recess the owner is not looking at. The
+    /// window it is non-empty for is exactly the window <see cref="PresentShortRestCard"/> holds
+    /// <see cref="_shortRestCard"/> for, which the game opens synchronously before the burn/redraw
+    /// dialog and closes synchronously inside <c>FinalizeShortRest</c>.</para>
+    ///
+    /// <para>THE HAND RIDES ALONG because the receiver resolves the seat in a DISCARD LIST and has
+    /// to resolve it in the RIGHT character's. The sampler compares it with the character the
+    /// board presents and stays silent when they differ, rather than indexing a list it guessed at
+    /// — the same stance <c>Net.LocalRigSampler.NameHeldCard</c> takes for an absent actor.</para>
+    /// </summary>
+    internal static (CardsHandUI? hand, int recess) SacrificeSeat =>
+        Instance != null ? Instance.SacrificeSeatNow() : (null, -1);
+
+    private (CardsHandUI? hand, int recess) SacrificeSeatNow()
+    {
+        if (_shortRestCard == null || _shortRestPresented == null)
+            return (null, -1);
+        CardsHandUI? hand = CurrentHand();
+        if (hand == null)
+            return (null, -1);
+        return (hand, _tray.SlotIndexOfCard(_shortRestCard));
+    }
+
+    /// <summary>
     /// Present the short-rested card in the LEFT slot recess (test #25, item 1d;
     /// test #28 seating). Adopts the sacrifice widget through the SAME
     /// <see cref="AdoptedCard"/> path as every other physical card and homes it into

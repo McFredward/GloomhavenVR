@@ -516,6 +516,33 @@ internal struct PresenceState
     /// must not have.</summary>
     public byte HeldFaceCount;
 
+    /// <summary>
+    /// True when a short-rest SACRIFICE is lying in one of this player's round recesses and this
+    /// packet carries the sacrifice-seat record (<see cref="NetProtocol.ExtIdSacrificeSeat"/>).
+    /// False for every other moment of every session — which keeps the record off the wire and the
+    /// packet byte-identical to ModBuild 447's.
+    /// </summary>
+    public bool HasSacrificeSeat;
+
+    /// <summary>Round recess 1's code byte: the SOURCE LIST in bits 5..7 and the INDEX in bits
+    /// 0..4, packed by <see cref="NetProtocol.EncodeHeldFace"/> — today always
+    /// <see cref="NetProtocol.HeldFaceListDiscard"/>. 0 means "no sacrifice in this recess", which
+    /// is the state nearly always in force for at least one of the two.</summary>
+    public byte SacrificeSeatCode0;
+
+    /// <summary>The LENGTH of the list recess 1's index points into, clamped to 255. The receiver
+    /// refuses the front unless its own copy of that list is exactly this long — the same belt
+    /// record 36 carries, and for the same reason: a card lying in a peer's recess wearing the
+    /// WRONG name is worse than the anonymous back this record replaces.</summary>
+    public byte SacrificeSeatCount0;
+
+    /// <summary>Round recess 2's code byte — same encoding as
+    /// <see cref="SacrificeSeatCode0"/>.</summary>
+    public byte SacrificeSeatCode1;
+
+    /// <summary>The LENGTH of the list recess 2's index points into, clamped to 255.</summary>
+    public byte SacrificeSeatCount1;
+
     /// <summary>Slot 2's code byte — the card in record
     /// <see cref="NetProtocol.ExtIdSecondHeldCard"/>'s slot, the one
     /// <see cref="NetProtocol.HeldCardGripSecondBit"/> describes. 0 means "this slot names
@@ -1478,6 +1505,16 @@ internal static class PresenceSerializer
     /// + 56 (HELD PROPS: 2 + its two-slot form, 2 x <c>NetProtocol.HeldPropSlotBytes</c>)
     /// = 1726.
     ///
+    /// <para>1726 -> 1732 on 2026-09-05, in the same round and on top of the wall-fade raise below:
+    /// the SHORT-REST SACRIFICE SEAT record (39) adds 6 bytes at its worst — <c>[id][len]</c> plus
+    /// two 2-byte recesses — and that worst case is in force only while a sacrifice is actually
+    /// lying in a recess, a handful of seconds per short rest. <see cref="MaxSize"/> is UNCHANGED
+    /// at 2100: the margin is 368 bytes, still more than the largest single record (257, board
+    /// tuning), so the rule below is satisfied without a raise. Computed against 1726 and NOT
+    /// against 1570 — the stale literal in <c>HeldPropVectors</c> that pins this sum had already
+    /// gone out of date once this round, which is why the test is a CONSUMER of this number and is
+    /// updated in the same commit.</para>
+    ///
     /// <para>1570 -> 1726 on 2026-09-05: an EXISTING term grew — WALL FADES (17) went from a
     /// 24-key cap to <see cref="NetProtocol.WallFadesMaxKeys"/> = 63, i.e. 99 -> 255 bytes, the
     /// most that record's own TLV length byte can carry. The reason is on the const: BOTH clients
@@ -1762,6 +1799,11 @@ internal static class PresenceSerializer
                           // player who is not carrying a map item byte-identical to the previous
                           // build's.
                           || (state.HasHeldProp && HeldPropPayload(in state) > 0)
+                          // A sacrifice-seat record naming no recess says nothing and must not open
+                          // the tail — the same rule as the two records above it, and here it is
+                          // what keeps every packet outside the few seconds of an actual short rest
+                          // byte-identical to the previous build's.
+                          || (state.HasSacrificeSeat && SacrificeSeatPayload(in state) > 0)
                           // STORY WINDOW SYNC (19): same rule as the test-force record — the
                           // emptiness test lives in the SAMPLER (RemoteStorySync.Sample), which
                           // sets this flag only while a story box is really up here or the single
@@ -2741,6 +2783,30 @@ internal static class PresenceSerializer
                     }
                     records++;
                 }
+                int sacrificeBytes = SacrificeSeatPayload(in state);
+                if (state.HasSacrificeSeat && sacrificeBytes > 0
+                    && i + 2 + sacrificeBytes <= buffer.Length)
+                {
+                    // SHORT-REST SACRIFICE SEAT (39): [code][list length] per ROUND RECESS, 2 bytes
+                    // for recess 1 alone and 4 when the sacrifice is in recess 2 — read by LENGTH,
+                    // exactly like records 20, 36 and 37. NO CARD IDENTITY: a code byte carries a
+                    // list id and a POSITION in the owner's DISCARD pile, which the receiver already
+                    // holds and already draws a whole browse arc from.
+                    //
+                    // Recess 2 forces the long form because a bare recess-2 entry would otherwise be
+                    // re-seated onto recess 1 by a length-gated reader — the same trap record 36's
+                    // HeldFacePayload documents for its second pose slot.
+                    buffer[i++] = NetProtocol.ExtIdSacrificeSeat;
+                    buffer[i++] = (byte)sacrificeBytes;
+                    buffer[i++] = state.SacrificeSeatCode0;
+                    buffer[i++] = state.SacrificeSeatCount0;
+                    if (sacrificeBytes >= 2 * NetProtocol.SacrificeSeatSlotBytes)
+                    {
+                        buffer[i++] = state.SacrificeSeatCode1;
+                        buffer[i++] = state.SacrificeSeatCount1;
+                    }
+                    records++;
+                }
                 int heldPropBytes = HeldPropPayload(in state);
                 if (state.HasHeldProp && heldPropBytes > 0
                     && i + 2 + heldPropBytes <= buffer.Length)
@@ -2838,6 +2904,31 @@ internal static class PresenceSerializer
             return 2 * NetProtocol.HeldCardFaceSlotBytes;
         return NetProtocol.HeldFaceList(state.HeldFaceCode) != NetProtocol.HeldFaceListNone
             ? NetProtocol.HeldCardFaceSlotBytes
+            : 0;
+    }
+
+    /// <summary>
+    /// Payload size record <see cref="NetProtocol.ExtIdSacrificeSeat"/> would occupy for
+    /// <paramref name="state"/> — 0 when NEITHER round recess holds a sacrifice (the record is then
+    /// omitted entirely, which is every moment of every session outside a short rest and is what
+    /// keeps those packets byte-identical to ModBuild 447's),
+    /// <c>SacrificeSeatSlotBytes</c> when only recess 1 does, and twice that when recess 2 does.
+    ///
+    /// <para>RECESS 2 FORCES THE LONG FORM even though recess 1 is then empty, and it is the same
+    /// argument <see cref="HeldFacePayload"/> makes for its second pose slot: the record is read by
+    /// LENGTH, so a 2-byte record always describes recess 1. Writing recess 2's entry alone would
+    /// re-seat the sacrifice onto the wrong recess on every receiver — a card drawn face-up in a
+    /// place its owner does not have one, which is the failure this record must not have. Unlike
+    /// record 36's slots these two are genuinely independent (the mod docks the sacrifice in recess
+    /// 1 today, but that is <c>CardsDriver.PresentShortRestCard</c>'s choice and not a contract),
+    /// so the case is real rather than theoretical.</para>
+    /// </summary>
+    private static int SacrificeSeatPayload(in PresenceState state)
+    {
+        if (NetProtocol.HeldFaceList(state.SacrificeSeatCode1) != NetProtocol.HeldFaceListNone)
+            return 2 * NetProtocol.SacrificeSeatSlotBytes;
+        return NetProtocol.HeldFaceList(state.SacrificeSeatCode0) != NetProtocol.HeldFaceListNone
+            ? NetProtocol.SacrificeSeatSlotBytes
             : 0;
     }
 
@@ -3931,6 +4022,42 @@ internal static class PresenceSerializer
                             state.HeldFaceCount = count0;
                             state.SecondHeldFaceCode = code1;
                             state.SecondHeldFaceCount = count1;
+                        }
+                    }
+                    else if (id == NetProtocol.ExtIdSacrificeSeat
+                             && len >= NetProtocol.SacrificeSeatSlotBytes)
+                    {
+                        // SHORT-REST SACRIFICE SEAT: [code][list length] per ROUND RECESS. Recess 2
+                        // is read ONLY from a record long enough to carry it, so a sender with the
+                        // sacrifice in recess 1 degrades to "recess 2 names nothing" rather than to
+                        // whatever the next record's bytes happen to say — the same length-gated
+                        // shape records 20, 36 and 37 use.
+                        //
+                        // A code naming no list (or a list id 6..7 this build does not define)
+                        // decodes to "record absent" for that recess, which is the ANONYMOUS BACK a
+                        // peer predating the record draws. UNDEFINED IS ALWAYS A BACK and never a
+                        // guess: a face drawn on the wrong card in a recess is worse than the back
+                        // this record exists to replace, so every unknown value is routed to it.
+                        byte seatCode0 = buffer[i];
+                        byte seatCount0 = buffer[i + 1];
+                        byte seatCode1 = 0;
+                        byte seatCount1 = 0;
+                        if (len >= 2 * NetProtocol.SacrificeSeatSlotBytes)
+                        {
+                            seatCode1 = buffer[i + 2];
+                            seatCount1 = buffer[i + 3];
+                        }
+                        if (NetProtocol.HeldFaceList(seatCode0) > NetProtocol.HeldFaceListMax)
+                            seatCode0 = 0;
+                        if (NetProtocol.HeldFaceList(seatCode1) > NetProtocol.HeldFaceListMax)
+                            seatCode1 = 0;
+                        if (seatCode0 != 0 || seatCode1 != 0)
+                        {
+                            state.HasSacrificeSeat = true;
+                            state.SacrificeSeatCode0 = seatCode0;
+                            state.SacrificeSeatCount0 = seatCount0;
+                            state.SacrificeSeatCode1 = seatCode1;
+                            state.SacrificeSeatCount1 = seatCount1;
                         }
                     }
                     else if (id == NetProtocol.ExtIdSlotCardSize

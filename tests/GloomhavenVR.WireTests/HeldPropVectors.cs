@@ -294,16 +294,20 @@ internal static class HeldPropVectors
     private static void Budget(Harness t)
     {
         t.Case("37f. held prop, the send buffer still satisfies its own margin rule");
-        const int documentedWorstCase = 1726;  // the sum in PresenceSerializer.MaxSize's doc.
+        const int documentedWorstCase = 1732;  // the sum in PresenceSerializer.MaxSize's doc.
                                                // 1513 -> 1570 when this record and the shared-gaze
                                                // byte landed in one round; 1570 -> 1726 on
                                                // 2026-09-05 when an EXISTING term grew (the wall-
-                                               // fade key cap, 24 -> 63 keys = +156 B). THIS
+                                               // fade key cap, 24 -> 63 keys = +156 B); 1726 ->
+                                               // 1732 in the same round when the SHORT-REST
+                                               // SACRIFICE SEAT record (39) added its 6. THIS
                                                // LITERAL IS A CONSUMER OF THAT SUM: it must be
                                                // re-read from PresenceState's doc block every time
                                                // the sum moves, or the margin it claims to police
                                                // goes on passing against a number nobody documents
-                                               // any more.
+                                               // any more. It has already been stale once in this
+                                               // one round, which is why record 39's lane updated
+                                               // it in the same commit that moved the sum.
         const int largestSingleRecord = 257;   // board tuning: 2 TLV + one 255-byte page
         t.True(PresenceSerializer.MaxSize >= documentedWorstCase + largestSingleRecord,
                $"MaxSize {PresenceSerializer.MaxSize} leaves "

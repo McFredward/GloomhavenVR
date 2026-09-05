@@ -3537,6 +3537,41 @@ internal static class CardsGameApi
     internal static bool PileWidgetIsArcMember(AbilityCardUI? widget) =>
         widget != null && widget.AbilityCard != null && !widget.IsLongRest;
 
+    /// <summary>
+    /// THE PILE ARC'S INDEX SPACE — <see cref="GetPileWidgets"/> narrowed by
+    /// <see cref="PileWidgetIsArcMember"/>, as ONE call rather than as a filter each caller
+    /// re-applies (or forgets to).
+    ///
+    /// <para>WHY IT EXISTS, and it is not tidying. This is a WIRE index space: extension record 36
+    /// seats a held card in a pile with <c>[list id + index][list length]</c>, and record 39 does
+    /// the same for the short-rest sacrifice. The receiver
+    /// (<c>Net.RemoteHeldCardFace.Resolve</c>) filtered the raw getter through
+    /// <see cref="PileWidgetIsArcMember"/> before indexing AND before comparing the length; the
+    /// sender (<c>Net.LocalRigSampler.NameHeldCard</c>) indexed and counted the RAW buffer. Two
+    /// expressions for one index space is exactly the defect record 36's own doc block forbids and
+    /// exactly the one <see cref="PileWidgetIsArcMember"/> was extracted to end one surface over —
+    /// it was inert only because <see cref="AppendPileWidgets"/> cannot currently append a
+    /// non-member, which is a property of today's game code and not of the contract.</para>
+    ///
+    /// <para>THE DIVERGENCE WOULD HAVE FAILED SAFE, and that is the reason it went unnoticed rather
+    /// than a reason to leave it: any entry the filter drops changes the COUNT as well as the
+    /// index, so the receiver's length belt refuses and draws a back. A silently dead front is
+    /// still a defect — it is the failure mode that looks exactly like "the feature is off".</para>
+    ///
+    /// <para>No allocation — the caller owns the buffer, and the narrowing is done in place.</para>
+    /// </summary>
+    internal static void GetPileArcWidgets(CardsHandUI hand, bool burnt, List<AbilityCardUI> buffer)
+    {
+        GetPileWidgets(hand, burnt, buffer);
+        int kept = 0;
+        for (int i = 0; i < buffer.Count; i++)
+        {
+            if (PileWidgetIsArcMember(buffer[i]))
+                buffer[kept++] = buffer[i];
+        }
+        buffer.RemoveRange(kept, buffer.Count - kept);
+    }
+
     private static void AppendPileWidgets(CardsHandUI hand, List<CAbilityCard> pile, List<AbilityCardUI> buffer)
     {
         List<AbilityCardUI> cards = hand.cardsUI;

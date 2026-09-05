@@ -1378,15 +1378,21 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             + "OCCUPIED on the owner's board (the wire's occupancy nibble says so) and this client "
             + "cannot name the card in it, so it draws an anonymous BACK — and it does so ABOVE the "
             + "reveal-gate branch, independent of it. Their piles right now: discard "
-            + $"{_owner.PileDiscardCount}, burnt {_owner.PileBurntCount}. A SHORT-REST SACRIFICE reads as a "
-            + "discard count that just dropped by one with the burnt count unchanged: the game took "
-            + "the card out of the discard pile and laid it in this recess, so at this instant it is "
-            + "in NEITHER host-replicated pile and was never in RoundAbilityCards — the identity "
-            + "cannot be re-derived here by any means, and opening RevealGate for it would move "
-            + "nothing. WHAT WOULD FIX IT: one extension record naming, per round slot, a SOURCE "
-            + "LIST id plus a SEAT and that list's LENGTH — record 36's encoding "
-            + "(NetProtocol.EncodeHeldFace / HeldFaceList*) verbatim, resolved by the sender against "
-            + "whichever list still holds the card, never a card id and never a card NAME. An "
+            + $"{_owner.PileDiscardCount}, burnt {_owner.PileBurntCount}. A SHORT-REST SACRIFICE is "
+            + "NO LONGER one of the ways into this line: extension record 39 names it and "
+            + "'SHORT REST SEAT' is printed instead. If a short rest still lands HERE, exactly one "
+            + "of four things happened and they are worth naming because the fix differs for each: "
+            + "the owner's build predates record 39 (then this is correct and nothing is owed); the "
+            + "owner's sampler could not seat the card (their own 'SHORT REST SEAT ... SENT' line "
+            + "says 'names nothing'); the two clients' DISCARD arcs disagree in LENGTH, so the belt "
+            + "refused a seat that would have shifted; or this client holds no hand for the "
+            + "character. READ THE OWNER'S LINE FIRST — it tells the first two apart from the last "
+            + "two. WHAT THIS LINE USED TO CLAIM, and it was wrong: that at this instant the card "
+            + "is in NEITHER host-replicated pile. It is in DiscardedAbilityCards the whole time it "
+            + "lies here — PerformShortRest indexes that list and removes nothing — and the discard "
+            + "count above looks one LOWER only because record 15 carries the RENDERED stack label, "
+            + "which nets off cards in flight, and our own short-rest presentation makes this card "
+            + "one of them. An "
             + $"ordinary selection-phase drop (character '{Board.CharacterFocus.Describe(actor)}' "
             + "putting a card in a recess before the model commits it) also lands here and is "
             + "correct — the pile numbers are what tell the two apart. THE THIRD WAY INTO THIS "
@@ -1448,6 +1454,105 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             if ((mask & (1 << i)) != 0)
                 n++;
         return n;
+    }
+
+    /// <summary>
+    /// Resolve the SHORT-REST SACRIFICE lying in round recess <paramref name="slot"/> from
+    /// extension record 39, or answer false and leave the recess to the walk above.
+    ///
+    /// <para>WHAT ARRIVES IS A SEAT, NOT A CARD: a source-list id plus an index, which this method
+    /// resolves against <c>CardsGameApi.GetPileArcWidgets(hand, burnt: false)</c> — the SAME call
+    /// the sender seated it with (<c>LocalRigSampler.SampleSacrificeSeats</c>) and the same call
+    /// <c>RemoteHeldCardFace.Resolve</c> uses for record 36's pile arm. One expression, three
+    /// consumers; an index is only a name for a card while both machines build the list the same
+    /// way.</para>
+    ///
+    /// <para>FOUR REFUSALS, and every one of them draws the anonymous BACK this record replaces
+    /// rather than a guess: no actor to look a hand up on; a list id this build does not resolve
+    /// (only DISCARD is defined for this record today); a length disagreement, which means this
+    /// client's model lags the owner's and the seat has shifted under it; and a seat past the end.
+    /// A back is wrong in a way the player reads as "not loaded"; a confidently wrong FACE is wrong
+    /// in a way he cannot read at all and would act on.</para>
+    ///
+    /// <para>THE GATE IS ASKED HERE AND IS NOT RE-DERIVED. <c>RevealGate.IsPublicPopulation</c> over
+    /// the named <c>SacrificedCard</c> population is the one expression; the receiver asks it rather
+    /// than trusting the sender's willingness to write the record, so a future build that widened
+    /// the sender by mistake still cannot open a recess this client's own gate says is secret.</para>
+    /// </summary>
+    private bool TryResolveSacrifice(int slot, CPlayerActor? actor, out CAbilityCard? card)
+    {
+        card = null;
+        if (!RevealGate.IsPublicPopulation(RevealGate.PeerCardPopulation.SacrificedCard))
+            return false;
+        byte code = _owner.SacrificeSeatCode(slot);
+        if (!NetProtocol.HeldFaceNamesCard(code)
+            || NetProtocol.HeldFaceList(code) != NetProtocol.HeldFaceListDiscard)
+            return false;
+        if (actor == null)
+            return false;
+        CardsHandManager manager = CardsHandManager.Instance;
+        CardsHandUI? hand = manager != null ? manager.GetHand(actor) : null;
+        if (hand == null)
+            return false;
+        Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false, s_sacrificeBuf);
+        int at = NetProtocol.HeldFaceIndex(code);
+        bool ok = s_sacrificeBuf.Count == _owner.SacrificeSeatCount(slot) && at < s_sacrificeBuf.Count;
+        AbilityCardUI? widget = ok ? s_sacrificeBuf[at] : null;
+        s_sacrificeBuf.Clear();
+        card = widget != null ? widget.AbilityCard : null;
+        return card != null;
+    }
+
+    /// <summary>Reused widget buffer for <see cref="TryResolveSacrifice"/> — the board's content
+    /// pass runs at 4 Hz and must stay allocation-free.</summary>
+    private static readonly System.Collections.Generic.List<AbilityCardUI> s_sacrificeBuf = new();
+
+    /// <summary>Last recess a sacrifice face was reported for, as <c>slot * 1000 + card id</c>
+    /// (int.MinValue = never), so a redraw prints a second line and a settled rest prints none.
+    /// </summary>
+    private int _loggedSacrifice = int.MinValue;
+
+    /// <summary>
+    /// Report item 15 — the RECEIVER edge of the short-rest sacrifice. Grep token:
+    /// SHORT REST SEAT, the SAME token the sender prints, so one grep across two logs answers the
+    /// 1:1 question in one pass instead of correlating two different tokens.
+    ///
+    /// <para>Change-gated on the recess AND the card, so a short rest costs one line and a redraw
+    /// costs a second — the one mid-rest event worth seeing — while a settled board costs none.</para>
+    ///
+    /// <para>FALSIFIERS. (1) This line absent all session AND no "SHORT REST SACRIFICE" line on
+    /// either machine: no short rest happened, and the round says NOTHING about item 15 — silence
+    /// is not success. (2) The owner's "SHORT REST SEAT ... SENT" line naming a seat while this one
+    /// is absent: the record arrived and did not resolve — read "ANONYMOUS RECESS" beside it, which
+    /// now states which of the four refusals fired. (3) THE 1:1 FAILURE: this line and the owner's
+    /// own "SHORT REST SACRIFICE" line naming DIFFERENT cards for the same rest. That cannot happen
+    /// through a length disagreement (the belt refuses and this line does not print at all), so it
+    /// would mean the two machines build the discard arc differently — one expression has grown a
+    /// second copy again, and CardsGameApi.GetPileArcWidgets is the place to look.</para>
+    /// </summary>
+    private void LogSacrificeSeat(int slot, CAbilityCard card, CPlayerActor? actor)
+    {
+        int key = slot * 1000 + card.ID;
+        if (_loggedSacrifice == key)
+            return;
+        _loggedSacrifice = key;
+        // HW-VERIFY: report item 15, the RECEIVER edge. Note tier because the co-player runs at the
+        // shipped default level and either tester can be the one watching.
+        VRLog.Note("Net", $"SHORT REST SEAT [player {_owner.PlayerId}]: round slot {slot + 1} draws "
+            + $"the REAL FRONT of '{card.Name}' (card id {card.ID}) — resolved from the DISCARD "
+            + $"arc at seat {NetProtocol.HeldFaceIndex(_owner.SacrificeSeatCode(slot))} of "
+            + $"{_owner.SacrificeSeatCount(slot)} (extension record 39), for character "
+            + $"'{Board.CharacterFocus.Describe(actor)}'. This is the SACRIFICE a short rest lays "
+            + "face-up, and it is drawn face-up even though the game's secret selection phase is "
+            + "open — RevealGate.PeerCardPopulation.SacrificedCard is the named carve-out and the "
+            + "user's ruling behind it is verbatim in that member. WHAT ARRIVED IS A SEAT, never a "
+            + "card id and never a card name: the owner's own client indexed the card in "
+            + "CardsGameApi.GetPileArcWidgets(hand, burnt: false) and this client re-walked the same "
+            + "call, and the front is refused outright unless both copies of that list are exactly "
+            + "as long. Compare this card id with the owner's own 'SHORT REST SEAT ... SENT' seat and with "
+            + "their 'SHORT REST SACRIFICE' line: two "
+            + "different names for one rest is the 1:1 failure and means the two machines have "
+            + "stopped building that list with the same expression.");
     }
 
     private void SeatSlots(CPlayerActor? actor, bool showFronts, bool exhausted)
@@ -1538,6 +1643,30 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
                 continue;
             }
             _slotOccupiedMask |= 1 << i;
+            // ─── THE SHORT-REST SACRIFICE, AND IT IS ASKED FIRST ────────────────────────────────
+            // Report item 15. The owner's own record 39 names WHICH card is lying in THIS recess,
+            // by seat in their discard arc — a more specific fact than the positional zip below,
+            // which is why it is consulted before the walk rather than as a fallback after it. It
+            // also cannot disturb that walk: it never advances `next`, because a sacrifice recess
+            // is not holding a round card.
+            //
+            // IT IS DRAWN FACE-UP EVEN WHILE THE GATE IS SHUT, and that is the whole point. A short
+            // rest always runs inside SelectAbilityCardsOrLongRest, so showFronts is false for its
+            // entire duration; RevealGate.PeerCardPopulation.SacrificedCard is the named carve-out
+            // that says the phase term is WRONG for this population rather than merely
+            // inconvenient, and IsPublicPopulation is the one expression that answers it.
+            if (TryResolveSacrifice(i, actor, out CAbilityCard? sacrifice) && sacrifice != null)
+            {
+                _slotFaceMask |= 1 << i;
+                _cards[i].Set(sacrifice, front: true, actor);
+                // NOT LATCHED. _latchedFaces exists so a recess whose ROUND card the model has
+                // drained keeps the face it legitimately showed; a sacrifice is the opposite kind
+                // of card — it leaves the moment its owner accepts or re-draws, and a latch would
+                // keep a burnt card's front lying in an empty recess for the rest of the phase.
+                _latchedFaces[i] = null;
+                LogSacrificeSeat(i, sacrifice, actor);
+                continue;
+            }
             CAbilityCard? card = null;
             while (compact && next < SlotCount && card == null)
                 card = _ordered[next++];

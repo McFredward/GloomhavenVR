@@ -584,6 +584,35 @@ internal sealed class RemoteAvatar
     public int WantedGlowMask { get; private set; }
 
     /// <summary>
+    /// Round recess 1's SHORT-REST SACRIFICE code (extension record 39): the sender's DISCARD-arc
+    /// list id and seat for the card they are sacrificing, or 0 for "no sacrifice in this recess" —
+    /// which is the value for every moment outside a short rest AND for a sender predating the
+    /// record, so both draw the anonymous back they always drew.
+    /// </summary>
+    public byte SacrificeSeatCode0 { get; private set; }
+
+    /// <summary>The length of the list <see cref="SacrificeSeatCode0"/> indexes into. The consumer
+    /// refuses the front unless its own copy of that list is exactly this long.</summary>
+    public byte SacrificeSeatCount0 { get; private set; }
+
+    /// <summary>Round recess 2's SHORT-REST SACRIFICE code — same encoding as
+    /// <see cref="SacrificeSeatCode0"/>.</summary>
+    public byte SacrificeSeatCode1 { get; private set; }
+
+    /// <summary>The length of the list <see cref="SacrificeSeatCode1"/> indexes into.</summary>
+    public byte SacrificeSeatCount1 { get; private set; }
+
+    /// <summary>The sacrifice code for round recess <paramref name="slot"/>, or 0 when that recess
+    /// holds none. One accessor rather than two fields at the call site, so
+    /// <c>RemoteControlBoard.SeatSlots</c>'s recess loop reads the same way for both.</summary>
+    public byte SacrificeSeatCode(int slot) =>
+        slot == 0 ? SacrificeSeatCode0 : slot == 1 ? SacrificeSeatCode1 : (byte)0;
+
+    /// <summary>The list length beside <see cref="SacrificeSeatCode"/>.</summary>
+    public byte SacrificeSeatCount(int slot) =>
+        slot == 0 ? SacrificeSeatCount0 : slot == 1 ? SacrificeSeatCount1 : (byte)0;
+
+    /// <summary>
     /// Which recess the sender's own GOLD SNAP GLOW is lit on (0/1), or -1 for none — the HOVER
     /// telegraph "the card I am holding lands here on release" (board-UI record byte 1 bits 6..7).
     /// -1 both when no rim is lit and for a sender that predates the field;
@@ -1133,6 +1162,16 @@ internal sealed class RemoteAvatar
         _heldFaceCount = p.HasHeldCardFace ? p.HeldFaceCount : (byte)0;
         _secondHeldFaceCode = p.HasHeldCardFace ? p.SecondHeldFaceCode : (byte)0;
         _secondHeldFaceCount = p.HasHeldCardFace ? p.SecondHeldFaceCount : (byte)0;
+
+        // SHORT-REST SACRIFICE SEAT (extension record 39): which round recess holds the sender's
+        // sacrifice and where that card sits in their discard arc. Written unconditionally for the
+        // same reason as the held-card codes above — the ABSENCE of the record is the statement
+        // "no sacrifice is lying in either recess", and a latched code would keep a face on a card
+        // whose owner has already burnt or re-drawn it.
+        SacrificeSeatCode0 = p.HasSacrificeSeat ? p.SacrificeSeatCode0 : (byte)0;
+        SacrificeSeatCount0 = p.HasSacrificeSeat ? p.SacrificeSeatCount0 : (byte)0;
+        SacrificeSeatCode1 = p.HasSacrificeSeat ? p.SacrificeSeatCode1 : (byte)0;
+        SacrificeSeatCount1 = p.HasSacrificeSeat ? p.SacrificeSeatCount1 : (byte)0;
 
         // Board UI (extension record 4): authoritative when present — the furniture then shows
         // EXACTLY the controls the owner sees. Absent = the sender predates the field; the

@@ -19714,6 +19714,68 @@ internal static class NetProtocol
                && HeldFaceIndex(code) != HeldFaceIndexUnknown;
     }
 
+    // ---- record 39: SHORT-REST SACRIFICE SEAT --------------------------------------------------
+
+    /// <summary>
+    /// WHICH CARD A PEER IS SACRIFICING, and in which round recess it is lying — report item 15,
+    /// the user verbatim: "Bei einer kurzen Rast soll es sichtbar sein welche Karte dort liegt -
+    /// ich sehe nur die Rückseite."
+    ///
+    /// <para>Payload: <c>[code][list length]</c> per ROUND RECESS, in recess order, so 4 bytes for
+    /// the two recesses a control board has. The encoding is
+    /// <see cref="EncodeHeldFace"/>/<see cref="HeldFaceList"/>/<see cref="HeldFaceIndex"/>
+    /// VERBATIM — the same 3-bit list id plus 5-bit index, the same length belt, the same
+    /// "undefined is always a back" decode — because it is the same question record 36 answers for
+    /// a hand, one surface over, and a second encoding would be a second thing to keep in step.</para>
+    ///
+    /// <para>THE LIST IS ALWAYS <see cref="HeldFaceListDiscard"/> TODAY, and the field is a list id
+    /// rather than an implied constant for the reason every other one here is: the receiver
+    /// resolves whatever list the sender names, so a future ruling that lays some other card in a
+    /// recess costs a sender change and no format change.</para>
+    ///
+    /// <para>THE CARD IS IN THE DISCARD LIST THE WHOLE TIME IT LIES IN THE RECESS, and this record
+    /// exists because that fact was measured wrong twice before it was measured right.
+    /// <c>CardsHandUI.PerformShortRest</c> picks the sacrifice as
+    /// <c>CharacterClass.DiscardedAbilityCards[ScenarioRNG.Next(...)]</c> and REMOVES NOTHING; only
+    /// <c>FinalizeShortRest</c> — which runs when the owner accepts — moves it. Two lanes and the
+    /// integrator read the peer's pile counts going <c>d/b/i=8/2/2</c> to <c>7/2/2</c> as the game
+    /// taking the card out of the discard list, and concluded it was in NO replicated list and
+    /// therefore unnameable. That number is OUR OWN: extension record 15 carries the RENDERED stack
+    /// label, which is <c>DiscardedCount - PendingPileArrivals</c>
+    /// (<c>Cards.Piles.PileViewer.TickStatus</c>), and our own short-rest presentation
+    /// (<c>CardsDriver.PresentShortRestCard</c>) flies the sacrifice out of the stack and so makes
+    /// it a pending arrival. The co-player's own log says both halves in one line: "Piles:
+    /// discard=7, burnt=2 ... DEFERRED: the model already lists discard=8, burnt=2, but 1 discard
+    /// ... still ON THEIR WAY". Model 8, wire 7, and the one card on its way IS the sacrifice.</para>
+    ///
+    /// <para>WHAT MAY BE WRITTEN HERE, AND IT IS NARROWER THAN "WHAT IS IN THE RECESS". A non-zero
+    /// code is written for a recess ONLY while that recess holds the short-rest sacrifice
+    /// (<c>CardsHandUI.ShortRestedCard</c>). This is not a simplification, it is the anti-cheat
+    /// boundary: the OTHER thing that lies in a round recess during
+    /// <c>SelectAbilityCardsOrLongRest</c> is a PICK CANDIDATE, and which two cards a player is
+    /// about to commit is precisely the secret that phase protects. A record that named "whatever
+    /// occupies the recess" would hand that over. The reveal gate agrees in one named place —
+    /// <c>RevealGate.PeerCardPopulation.SacrificedCard</c> is a carve-out for the sacrifice and for
+    /// nothing else — and the receiver re-checks it rather than trusting the sender.</para>
+    ///
+    /// <para>NEVER A CARD ID AND NEVER A CARD NAME. What travels is a POSITION in
+    /// <c>Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false)</c>, the identical call the
+    /// receiver resolves with and the identical call record 36's discard arm uses. An index is only
+    /// a name for a card while both machines build the list with the SAME expression, which is why
+    /// there is one method and not two matching loops.</para>
+    ///
+    /// <para>Written ONLY while a sacrifice is actually lying in a recess — a handful of seconds
+    /// per short rest, and never at all in a session without one — so every packet of every other
+    /// moment is byte-identical to ModBuild 447's. ADDITIVE TLV: a peer predating the record steps
+    /// over it by its length and draws the anonymous back it drew before.</para>
+    /// </summary>
+    public const byte ExtIdSacrificeSeat = 39;
+
+    /// <summary>Payload length of ONE <see cref="ExtIdSacrificeSeat"/> recess: [code][list length].
+    /// A reader requires at least this much before it trusts recess 1, and twice this much before
+    /// it trusts recess 2.</summary>
+    public const int SacrificeSeatSlotBytes = 2;
+
     // ---- record 25: USE BARS ------------------------------------------------------------------
 
     // ---- record 28: BOARD TUNING (the owner's OWN dial positions) ----------------------------

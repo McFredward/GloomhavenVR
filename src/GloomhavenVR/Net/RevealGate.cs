@@ -362,17 +362,29 @@ internal static class RevealGate
         /// laying it face-up in a recess is that everyone watches it burn. Nothing about knowing it
         /// tells you anything about the round the phase is protecting.</para>
         ///
-        /// <para>THIS ONE IS NOT SUFFICIENT ON ITS OWN, AND THAT IS STATED HERE RATHER THAN
-        /// DISCOVERED LATER. Opening the gate does not draw the card, because no receiver can NAME
-        /// it: measured on the 2026-09-05 host log at the moment of the user's screenshot, the
-        /// peer's pile counts go <c>d/b/i=8/2/2</c> to <c>7/2/2</c> with <c>slot-occupancy 0x0</c>
-        /// to <c>0x1</c> — the card has left the DISCARD list and has not entered the BURNT one, so
-        /// at the instant it is lying in the recess it is in NEITHER replicated list, and it was
-        /// never in <c>RoundAbilityCards</c> either (<c>RemoteControlBoard.OrderRoundCards</c> is
-        /// what reads that, and it answered null: <c>round-card faces=anon-back/empty</c>). The
-        /// identity has to travel. Until it does, this member is a CONTRACT and not a remedy — the
-        /// site that would consume it (<c>RemoteControlBoard.SeatSlots</c>) says so in its own
-        /// hardware-verified line rather than quietly drawing a back.</para>
+        /// <para>THIS ONE IS NOT SUFFICIENT ON ITS OWN — the identity has to travel too, and it now
+        /// does: extension record 39 (<c>NetProtocol.ExtIdSacrificeSeat</c>) names WHICH recess
+        /// holds the sacrifice and WHERE that card sits in its owner's discard arc, and
+        /// <c>RemoteControlBoard.TryResolveSacrifice</c> asks THIS member before drawing the front.
+        /// Both halves shipped in the same build, so this member has never been a permission
+        /// without a picture behind it.</para>
+        ///
+        /// <para>WHAT THIS PARAGRAPH USED TO SAY, AND WHY THE CORRECTION IS RECORDED RATHER THAN
+        /// OVERWRITTEN. It said the card was unnameable — that the peer's pile counts going
+        /// <c>d/b/i=8/2/2</c> to <c>7/2/2</c> proved the card had left the DISCARD list without
+        /// entering the BURNT one, and so lay in NEITHER replicated list. Two lanes and the
+        /// integrator reasoned that way and it is FALSE. <c>CardsHandUI.PerformShortRest</c> picks
+        /// the sacrifice as <c>DiscardedAbilityCards[ScenarioRNG.Next(...)]</c> and REMOVES NOTHING;
+        /// only <c>FinalizeShortRest</c>, on accept, moves it. The <c>8 -> 7</c> was OUR OWN
+        /// instrument subtracting the very card the question was about: extension record 15 carries
+        /// the RENDERED stack label, <c>DiscardedCount - PendingPileArrivals</c>
+        /// (<c>Cards.Piles.PileViewer.TickStatus</c>), and our own
+        /// <c>CardsDriver.PresentShortRestCard</c> flies the sacrifice out of the stack, which makes
+        /// it a pending arrival. The co-player's own log states both halves in one line: "Piles:
+        /// discard=7, burnt=2 ... DEFERRED: the model already lists discard=8, burnt=2, but 1
+        /// discard ... still ON THEIR WAY". The true blocker was never the model — it was that
+        /// <c>RemoteControlBoard.OrderRoundCards</c> reads only <c>RoundAbilityCards</c>, and
+        /// nobody checked the pile the card had never left.</para>
         /// </summary>
         SacrificedCard,
 

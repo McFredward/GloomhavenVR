@@ -898,6 +898,39 @@ internal sealed partial class PlayTray
         }
     }
 
+    /// <summary>
+    /// WHICH recess physically parents <paramref name="card"/> right now, or -1 for none. The same
+    /// physical-truth question <see cref="OccupiedSlotMask"/> asks, narrowed to ONE card.
+    ///
+    /// <para>IT CANNOT BE ANSWERED FROM <c>_occupants</c>, and that is the whole reason this exists
+    /// rather than <see cref="Occupant"/> being reused. <c>_occupants</c> is the CardsSelection
+    /// round-card bookkeeping and <see cref="PlacePickCard"/> — the call the short-rest sacrifice
+    /// is laid down with — DELIBERATELY does not touch it, so <see cref="Occupant"/> is null for
+    /// the sacrifice in every frame it is lying there. That is exactly the trap
+    /// <see cref="OccupiedSlotMask"/>'s own doc block records for the mask, one card down.</para>
+    ///
+    /// <para>Sole caller today is the Net sampler for the sacrifice-seat record (39), at the extras
+    /// rate. Two transforms with a handful of children each, no allocation.</para>
+    /// </summary>
+    internal int SlotIndexOfCard(VRCard? card)
+    {
+        if (card == null)
+            return -1;
+        for (int i = 0; i < _slots.Length; i++)
+        {
+            Transform? slot = _slots[i];
+            if (slot == null)
+                continue;
+            for (int c = 0; c < slot.childCount; c++)
+            {
+                Transform child = slot.GetChild(c);
+                if (child != null && ReferenceEquals(child.GetComponent<VRCard>(), card))
+                    return i;
+            }
+        }
+        return -1;
+    }
+
     /// <summary>Does <paramref name="slot"/> currently parent a live, un-held VR card? See
     /// <see cref="OccupiedSlotMask"/> for why this is the physical truth rather than a flag. The
     /// slot's own children are the two glow quads plus at most a card, so this loop is tiny.</summary>

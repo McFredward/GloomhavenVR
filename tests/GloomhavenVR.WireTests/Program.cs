@@ -45,6 +45,10 @@ internal static class Program
             // prop moved out of the world by a bad packet never comes back: unlike a figure,
             // nothing in the game re-authors a prop's transform.
             HeldPropVectors.Run(t);
+            // The short-rest sacrifice's seat (39). Same reasons as record 37 above, plus the one
+            // that is peculiar to it: a 2-byte record is ALWAYS recess 1's, so a sacrifice lying in
+            // recess 2 must force the long form or every peer draws its front in the wrong recess.
+            SacrificeSeatVectors.Run(t);
             // The left hand is the mirror of the right, for a held mini and a held map item alike
             // — one shared definition, driven against the reflection it is supposed to be.
             HeldPoseMirrorVectors.Run(t, repoRoot);

@@ -490,6 +490,15 @@ internal sealed class NetAvatarDriver : MonoBehaviour
     private byte _lastSentFaceCode0;
     private byte _lastSentFaceCode1;
 
+    /// <summary>Last SACRIFICE SEAT codes put on the wire (record 39), one per ROUND RECESS. Same
+    /// change-gating rule and same exclusion of the COUNT bytes as the held-card codes above: the
+    /// owner's discard pile can grow under a sacrifice that is still lying in the same recess (a
+    /// teammate's card landing there does not move it), and an edge on the length would turn one
+    /// short rest into a stream of lines. A REDRAW changes the code, so it does print — which is
+    /// the one mid-rest event a hardware log has to be able to see.</summary>
+    private byte _lastSentSeatCode0;
+    private byte _lastSentSeatCode1;
+
     /// <summary>Popcount of a 16-bit mask — how many items record 35 is framing. Used by the edge
     /// log only; the wire carries the mask itself.</summary>
     private static int CountBits(ushort mask)
@@ -3152,6 +3161,55 @@ internal sealed class NetAvatarDriver : MonoBehaviour
             extras.HeldFaceCount = faceCount0;
             extras.SecondHeldFaceCode = faceCode1;
             extras.SecondHeldFaceCount = faceCount1;
+        }
+        // SHORT-REST SACRIFICE SEAT (extension record 39 — report item 15, "Bei einer kurzen Rast
+        // soll es sichtbar sein welche Karte dort liegt"): WHICH round recess the sacrifice is
+        // lying in, and WHERE that card sits in this character's discard arc. Same encoding as
+        // record 36 above and the same length belt; no card identity, ever.
+        //
+        // Sampled here beside the held-card faces rather than with the board-UI record because it
+        // answers the same KIND of question they do — a seat in a host-replicated list — and shares
+        // their encoder. The occupancy nibble that says a card LIES there is record 4's; this says
+        // WHICH card, and only for the one population the reveal gate carves out.
+        LocalRigSampler.SampleSacrificeSeats(out byte seatCode0, out byte seatCount0,
+                                             out byte seatCode1, out byte seatCount1);
+        if (seatCode0 != 0 || seatCode1 != 0)
+        {
+            extras.HasSacrificeSeat = true;
+            extras.SacrificeSeatCode0 = seatCode0;
+            extras.SacrificeSeatCount0 = seatCount0;
+            extras.SacrificeSeatCode1 = seatCode1;
+            extras.SacrificeSeatCount1 = seatCount1;
+        }
+        if (seatCode0 != _lastSentSeatCode0 || seatCode1 != _lastSentSeatCode1)
+        {
+            _lastSentSeatCode0 = seatCode0;
+            _lastSentSeatCode1 = seatCode1;
+            // HW-VERIFY: report item 15, the SENDER edge. Grep token: SHORT REST SEAT. Note tier
+            // because the co-player runs at the shipped default level and either tester can be the
+            // one resting — one grep across BOTH logs then settles the 1:1 question, because the
+            // receiver prints the same token with the card it resolved.
+            //
+            // FALSIFIERS. (1) No line at all, all session, and no "SHORT REST SACRIFICE" line
+            // either: no short rest happened and this round says NOTHING about item 15 — silence is
+            // not success. (2) "SHORT REST SACRIFICE" present (the owner really did lay a card in a
+            // recess) while this line is absent or reads 'names nothing': the SAMPLER is the half
+            // that failed — the sacrifice could not be seated in the discard arc, or the board was
+            // presenting another character — and the recess correctly stayed an anonymous back.
+            // (3) This line naming a seat while the receiver's line says nothing: the mirror failed,
+            // not the sampler.
+            VRLog.Note("Net", "SHORT REST SEAT: "
+                + $"recess1 {DescribeHeldFace(seatCode0, seatCount0)}, "
+                + $"recess2 {DescribeHeldFace(seatCode1, seatCount1)} (record 39) — a source-list id "
+                + "plus a POSITION in this character's DISCARD arc, never a card id and never a "
+                + "card name. The sacrifice is in that list the whole time it lies in the recess: "
+                + "CardsHandUI.PerformShortRest indexes DiscardedAbilityCards and removes nothing, "
+                + "and only FinalizeShortRest (on accept) moves it. The 'd=' count on the board is "
+                + "SMALLER because extension record 15 carries the RENDERED stack label, which nets "
+                + "off cards in flight — and our own PresentShortRestCard makes this one of them. "
+                + "Peers draw the front through RevealGate.PeerCardPopulation.SacrificedCard, which "
+                + "is a carve-out for the SACRIFICE and for nothing else — a pick candidate in a "
+                + "recess is still the secret the selection phase protects and is never named here.");
         }
         if (faceCode0 != _lastSentFaceCode0 || faceCode1 != _lastSentFaceCode1)
         {

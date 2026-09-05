@@ -431,8 +431,16 @@ internal static class LocalRigSampler
         Cards.PileKind? origin = card.PileOrigin;
         if (origin == Cards.PileKind.Discard || origin == Cards.PileKind.Burnt)
         {
-            Cards.CardsGameApi.GetPileWidgets(gameHand, origin == Cards.PileKind.Burnt,
-                                        s_heldFaceBuf);
+            // THE PILE ARC'S INDEX SPACE, and the SAME CALL the receiver resolves with
+            // (Net.RemoteHeldCardFace.Resolve). This used to index and count the RAW getter while
+            // the receiver narrowed it by CardsGameApi.PileWidgetIsArcMember first — two
+            // expressions for one wire index space, which is precisely what the paragraph below
+            // about the hand fan says must never happen, on the pile arm instead of the hand arm.
+            // It was inert (AppendPileWidgets cannot currently append a non-member) and it failed
+            // SAFE when it was not (a dropped entry moves the count too, so the length belt refuses
+            // and draws a back) — neither is a reason to keep two copies of an index space.
+            Cards.CardsGameApi.GetPileArcWidgets(gameHand, origin == Cards.PileKind.Burnt,
+                                                 s_heldFaceBuf);
             int at = s_heldFaceBuf.IndexOf(widget);
             count = (byte)Mathf.Clamp(s_heldFaceBuf.Count, 0, 255);
             s_heldFaceBuf.Clear();
@@ -477,6 +485,78 @@ internal static class LocalRigSampler
             return;
         count = (byte)Mathf.Clamp(n, 0, 255);
         code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListHand, seat);
+    }
+
+    /// <summary>
+    /// WHICH ROUND RECESS HOLDS THE SHORT-REST SACRIFICE, AND WHICH CARD IT IS — extension record
+    /// <see cref="NetProtocol.ExtIdSacrificeSeat"/>'s whole payload, as a <c>[code][list length]</c>
+    /// pair per RECESS. A code of 0 means "no sacrifice in this recess", and when both are 0 the
+    /// writer omits the record entirely, so every packet outside the few seconds of an actual short
+    /// rest is byte-identical to ModBuild 447's.
+    ///
+    /// <para>REPORT ITEM 15, and the reason it needed a wire field at all. A watcher could name a
+    /// recess card only out of <c>CCharacterClass.RoundAbilityCards</c>
+    /// (<c>RemoteControlBoard.OrderRoundCards</c>), and the sacrifice was never in it — so the
+    /// recess drew an anonymous back and the user saw "nur die Rückseite". The card is NOT, however,
+    /// outside every replicated list, which is what two earlier lanes concluded and what
+    /// <c>NetProtocol.ExtIdSacrificeSeat</c>'s doc block sets out in full: it sits in
+    /// <c>DiscardedAbilityCards</c> for the entire time it lies in the recess, because
+    /// <c>CardsHandUI.PerformShortRest</c> indexes that list and removes nothing.</para>
+    ///
+    /// <para>THE SEAT IS RESOLVED WITH THE RECEIVER'S OWN CALL —
+    /// <c>Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false)</c>, the same method
+    /// <c>RemoteHeldCardFace.Resolve</c> and <see cref="NameHeldCard"/>'s pile arm now use. An index
+    /// is only a name for a card while both machines build the list with the SAME expression, so
+    /// there is one method and no second copy of its terms to keep in step.</para>
+    ///
+    /// <para>THE ACTOR MUST BE THE ONE THE BOARD PRESENTS, exactly as in
+    /// <see cref="SampleHeldCardFaces"/>: the receiver resolves this index through
+    /// <c>RemoteBoardFocus.DisplayedActor</c>'s discard pile, so naming a seat in a DIFFERENT
+    /// character's list would put a confidently wrong face in a peer's recess. When the sacrificing
+    /// hand is not that character's, this says nothing and the recess keeps the anonymous back —
+    /// the honest answer, and the picture this surface had before the record existed.</para>
+    ///
+    /// <para>Read-only throughout, and gated on a short rest actually being mid-choice, so on every
+    /// other packet the whole body is one null check.</para>
+    /// </summary>
+    public static void SampleSacrificeSeats(out byte code0, out byte count0,
+                                            out byte code1, out byte count1)
+    {
+        code0 = 0;
+        count0 = 0;
+        code1 = 0;
+        count1 = 0;
+        (CardsHandUI? hand, int recess) = Cards.CardsDriver.SacrificeSeat;
+        if (hand == null || recess < 0 || recess >= NetProtocol.BoardUiSlotCount)
+            return;
+        // WHOSE DISCARD LIST — the character the BOARD presents, which is the character the
+        // receiver will resolve this index in. Silence beats a guess at whose list to index.
+        CPlayerActor? shown = Cards.ItemsPile.Current?.OwnerActor;
+        if (shown == null || !ReferenceEquals(hand.PlayerActor, shown))
+            return;
+        AbilityCardUI? widget = Cards.CardsGameApi.ShortRestedCardWidget(hand);
+        if (widget == null || widget.AbilityCard == null)
+            return;
+        Cards.CardsGameApi.GetPileArcWidgets(hand, burnt: false, s_heldFaceBuf);
+        int at = s_heldFaceBuf.IndexOf(widget);
+        int length = s_heldFaceBuf.Count;
+        s_heldFaceBuf.Clear();
+        if (at < 0)
+            return; // the sacrifice is not in the discard arc this frame — say nothing
+        byte code = NetProtocol.EncodeHeldFace(NetProtocol.HeldFaceListDiscard, at);
+        if (code == 0)
+            return; // could not be seated in five bits — say nothing rather than half a thing
+        byte count = (byte)Mathf.Clamp(length, 0, 255);
+        if (recess == 0)
+        {
+            code0 = code;
+            count0 = count;
+        }
+        else
+        {
+            code1 = code;
+            count1 = count;
+        }
     }
 
     /// <summary>Reused widget buffer for <see cref="NameHeldCard"/>'s pile lookups — the send path

@@ -304,16 +304,12 @@ internal sealed class RemoteHeldCardFace
 
         if (list == NetProtocol.HeldFaceListDiscard || list == NetProtocol.HeldFaceListBurnt)
         {
-            CardsGameApi.GetPileWidgets(hand, list == NetProtocol.HeldFaceListBurnt, _pileBuf);
-            // …and then the ARC's own membership filter, so this index space is the pile browse
-            // arc's index space and not a third one beside it (CardsGameApi.PileWidgetIsArcMember).
-            int keptPile = 0;
-            for (int i = 0; i < _pileBuf.Count; i++)
-            {
-                if (CardsGameApi.PileWidgetIsArcMember(_pileBuf[i]))
-                    _pileBuf[keptPile++] = _pileBuf[i];
-            }
-            _pileBuf.RemoveRange(keptPile, _pileBuf.Count - keptPile);
+            // THE PILE ARC'S INDEX SPACE, as one call. This used to be GetPileWidgets followed by
+            // an inline PileWidgetIsArcMember narrowing written out here — while the SENDER
+            // (LocalRigSampler.NameHeldCard) indexed and counted the raw getter. Two expressions
+            // for one wire index space is the defect this record's own doc block forbids; both
+            // sides now call CardsGameApi.GetPileArcWidgets and there is nothing to keep in step.
+            CardsGameApi.GetPileArcWidgets(hand, list == NetProtocol.HeldFaceListBurnt, _pileBuf);
             if (_pileBuf.Count != count || at >= _pileBuf.Count)
             {
                 _pileBuf.Clear();
