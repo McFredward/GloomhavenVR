@@ -128,8 +128,8 @@ namespace GloomhavenVR.Board.FigureGrab;
 ///   carried by its ROOT BONE, which a reparent into a palm at 3.648x is exactly the change those
 ///   bounds need not follow. Now visibility, enabled-ness, object activity and the drift between
 ///   <c>renderer.bounds.center</c> and the renderer's own transform are all sampled per frame.
-///   <see cref="PropAnimBelt"/> ships the remedy for that mechanism ungated, and these terms are
-///   what say whether it was load-bearing.</item>
+///   <see cref="PropAnimBelt"/> shipped the remedy for that mechanism ungated, and these terms
+///   are what said whether it was load-bearing. THEY SAID IT WAS NOT — see ROUND 3 below.</item>
 ///   <item><b>A GATE ONLY A CHEST COULD OPEN, SPENT BY AN OBSTACLE.</b> <see cref="NotifyGrab"/>
 ///   refused any prop with no <c>Animator</c>, so a TRAP with none could never arm — and the user
 ///   named traps. Worse, the budget was global: the ModBuild 435 session grabbed obstacles a dozen
@@ -144,6 +144,46 @@ namespace GloomhavenVR.Board.FigureGrab;
 /// <c>RATE VERDICT</c> (did the flash advance at the same rate per REAL second in the hand as on
 /// the hex) and a separate <c>STOP VERDICT</c> (did it ever freeze mid-flash, for how many frames,
 /// and was the object switched off underneath it) — each with the frame counts behind it.</para>
+///
+/// <para>=====================================================================================</para>
+///
+/// <para><b>ROUND 3 (2026-09-06) — READ THIS BEFORE ARMING THIS INSTRUMENT AGAIN. FOUR ROUNDS HAVE
+/// MEASURED A WINDOW THAT NEVER CONTAINED THE FLASH.</b> Round 2's own fixes worked: every layer
+/// was sampled, the materials were read back, visibility and bounds were measured, and the gate
+/// widened so a trap could arm. The verdict it then produced on hardware — on BOTH machines of a
+/// two-player session, anchored <c>[Props] HELD-PROP ANIMATION A/B for 'Chest' Chest</c> — is that
+/// <b>nothing was animating in EITHER window</b>: <c>clipRate hand=0.000/s home=0.000/s</c>,
+/// <c>anyLayerRate 0.000/s</c> on every layer, <c>advancing 0/665</c> and <c>0/360</c>,
+/// <c>stateChanges 0</c>, and NOT ONE of the forty tracked material property slots moving on
+/// either side. The instrument said so itself, in its own RATE VERDICT: <i>"this window did not
+/// contain the thing the report is about."</i></para>
+///
+/// <para><b>So the flash the user sees is NOT this animator and NOT these material properties, and
+/// no fifth round should spend itself finding that out again.</b> The remedy round 2 shipped
+/// (<see cref="PropAnimBelt"/>) was confirmed to APPLY — <c>cullingMode hand=AlwaysAnimate
+/// home=CullUpdateTransforms</c>, <c>updateWhenOffscreen hand=3/3 home=0/3</c> — and to change
+/// nothing, and the one term its argument rested on read IDENTICALLY on both sides
+/// (<c>worst bounds-vs-transform gap hand=0.237 wu home=0.237 wu</c>), so the reparent never left
+/// the culling bounds behind in the first place.</para>
+///
+/// <para><b>WHERE THE ANSWER CANNOT BE, BY CONSTRUCTION.</b> This instrument reads animator state
+/// and a material property table. Three whole mechanism classes are invisible to it and one of
+/// them is now the leading candidate: (1) a SCREEN-SPACE POST-EFFECT — <c>EPOOutline</c> draws by
+/// walking a static list in a post pass and writes no material property and no animator state, and
+/// the game raises exactly such an outline on a hovered board object through
+/// <c>WorldspaceUITools.EnableHoveredOutline</c>; (2) a <c>MaterialPropertyBlock</c> write, which
+/// shows up in neither <c>material</c> nor <c>sharedMaterial</c>; (3) a write through
+/// <c>.material</c>, which instantiates a per-renderer CLONE this class's <c>sharedMaterial</c>
+/// read-back never looks at — and both <c>SpawnObjectAnimateMaterial_SMB</c> and <c>PosToMat</c>
+/// write that way. The full record, the candidate list and what distinguishes each candidate are
+/// in <c>.planning/held-prop-flash-experiments.md</c>.</para>
+///
+/// <para><b>THIS CLASS IS STILL USEFUL, BUT ONLY FOR A HOLD THAT VISIBLY FLASHES.</b> A verdict
+/// from a hold in which nothing flashed is not evidence about the hand. The round's new evidence
+/// comes instead from <see cref="PropAnimBelt"/>'s grab-edge census
+/// (<c>[Props] HELD-PROP ANIMATION HUSH</c>), which ENUMERATES what a held prop actually carries —
+/// including the <c>Outlinable</c> count nobody has ever measured, and the distinct MonoBehaviour
+/// type histogram in which the driver's name will be if it is a component at all.</para>
 /// </summary>
 internal static class PropAnimWatch
 {
@@ -267,7 +307,7 @@ internal static class PropAnimWatch
     //     hand window's visibility and bounds terms are the belt's output and can no longer say
     //     whether the mechanism it removes was ever live. These five numbers are the state the
     //     prop arrived in, one frame after it entered the hand, with nothing of ours written yet.
-    private static int _preRenderers, _preVisible, _preUwoFalse, _preCullNotAlways, _preAnimators;
+    private static int _preRenderers, _preVisible, _preUwoFalse, _preAnimatorsOn, _preAnimators;
     private static float _preDrift;
 
     // --- ROUND 2: the WORLD-ANCHOR feeders, by type. These are the components that push the
@@ -499,7 +539,7 @@ internal static class PropAnimWatch
         _preUwoFalse = 0;
         _preDrift = 0f;
         _preAnimators = 0;
-        _preCullNotAlways = 0;
+        _preAnimatorsOn = 0;
 
         for (int i = 0; i < _renderers.Length; i++)
         {
@@ -521,8 +561,13 @@ internal static class PropAnimWatch
             if (a == null)
                 continue;
             _preAnimators++;
-            if (a.cullingMode != AnimatorCullingMode.AlwaysAnimate)
-                _preCullNotAlways++;
+            // ROUND 3: the field the remedy now writes is Animator.enabled, so THAT is the
+            // one worth photographing before it is written. cullingMode is no longer touched by
+            // PropAnimBelt at all (Unity does not evaluate a disabled animator, so it decides
+            // nothing) — it is still sampled per frame in both windows further down, as a
+            // measurement, but it is no longer a precondition of anything this mod does.
+            if (a.enabled)
+                _preAnimatorsOn++;
         }
     }
 
@@ -1566,9 +1611,11 @@ internal static class PropAnimWatch
           .Append("; skinned renderer(s) with updateWhenOffscreen=true hand=").Append(Hand.SkinUwoTrue)
           .Append('/').Append(Hand.SkinCount).Append(" home=").Append(Home.SkinUwoTrue).Append('/')
           .Append(Home.SkinCount)
-          .Append(" (PropAnimBelt sets BOTH AlwaysAnimate and updateWhenOffscreen for the hold and "
-                  + "hands the originals back on landing, so the HAND figures here are what the "
-                  + "belt produced and the HOME figures are the game's own defaults)")
+          .Append(" (PropAnimBelt still sets updateWhenOffscreen for the hold and hands the "
+                  + "originals back on landing, so the HAND figures here are what it produced and "
+                  + "the HOME figures are the game's own defaults. It NO LONGER writes cullingMode: "
+                  + "since 2026-09-06 it SUPPRESSES the held prop's animation instead of keeping it "
+                  + "running, so any cullingMode read above is the game's own value)")
           .Append(". AT THE GRAB, BEFORE THE BELT WROTE ANYTHING (the state the prop arrived in — "
                   + "without this the belt would erase the evidence for its own cause): ")
           .Append(_preVisible).Append(" of ").Append(_preRenderers)
@@ -1576,14 +1623,15 @@ internal static class PropAnimWatch
                   + "isVisible is last frame's culling result and the prop has only just been "
                   + "reparented, so it describes the hex, not the hand; the two counts after it are "
                   + "immediate and exact), ").Append(_preUwoFalse)
-          .Append(" skinned renderer(s) had updateWhenOffscreen=false, ").Append(_preCullNotAlways)
+          .Append(" skinned renderer(s) had updateWhenOffscreen=false, ").Append(_preAnimatorsOn)
           .Append(" of ").Append(_preAnimators)
-          .Append(" animator(s) were NOT already AlwaysAnimate, worst bounds-vs-transform gap ")
+          .Append(" animator(s) were ENABLED, worst bounds-vs-transform gap ")
           .Append(_preDrift.ToString("0.000"))
-          .Append(" wu. The two exact counts are what say whether the belt had anything to do: "
-                  + "skinned renderers at updateWhenOffscreen=false and animators not already at "
-                  + "AlwaysAnimate are the preconditions of the mechanism it removes, and zeros "
-                  + "there mean the belt changed nothing and cannot be why anything got better");
+          .Append(" wu. Those two exact counts are what say whether the SUPPRESSION had anything "
+                  + "to do: enabled animators are what PropAnimBelt now switches off for the hold "
+                  + "(2026-09-06 — it used to do the opposite; see .planning/"
+                  + "held-prop-flash-experiments.md), and a zero there means it changed nothing "
+                  + "and cannot be why anything got better OR worse");
     }
 
     /// <summary>The game's own world-anchor feeders, counted. Zero of each means
@@ -1602,9 +1650,13 @@ internal static class PropAnimWatch
                   + "The flat game never moved a prop off its hex, so 'written once at spawn' was "
                   + "always true there; this mod moves it into a palm, and a shader term anchored at "
                   + "a uniform still naming the HEX would arrive late and end early on a mesh a "
-                  + "metre away. PropAnimBelt re-runs the first two by toggling their own enabled "
-                  + "flag while the prop is off its hex, so the value written is the GAME's, from "
-                  + "the GAME's own serialized property name");
+                  + "metre away. PropAnimBelt USED TO re-run the first two by toggling their own "
+                  + "enabled flag while the prop was off its hex; that strand was REMOVED on "
+                  + "2026-09-06 when the remedy was inverted into a suppression, because its whole "
+                  + "purpose was to make a sweep look right in the hand and there is no longer a "
+                  + "sweep to make look right. The counts above are therefore a pure census now. "
+                  + "PosToMat is the one worth reading: a non-zero count is a live per-frame "
+                  + "material writer on a held prop that no round has ruled in or out");
     }
 
     /// <summary>
