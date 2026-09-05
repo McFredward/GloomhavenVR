@@ -134,6 +134,13 @@ internal static partial class CanvasConversion
     /// Cards need nothing from the ladder in either direction: a fan/tray card's backing slab is
     /// depth-writing AlphaTest geometry at queue 2450, so it stamps its own footprint before any
     /// canvas draws and resolves against panels by real depth, per pixel, whatever the orders say.
+    /// THE ONE EXCEPTION, NAMED SO IT IS NOT REDISCOVERED: a card body wearing the FACE-HOSTED mesh
+    /// (<c>Cards.CardMesh.SetBodyFaceHosted</c>) has had its front fan removed and stamps NOTHING
+    /// over its own face, so a panel behind it wins by order after all. That is granted only to a
+    /// slab in a peer board's fade set (<c>Net.PeerBoardFade.BelongsToAFadeSet</c>) — never to a
+    /// local card, which is the population this exemption was written about. The
+    /// <c>CARD BODY DEPTH STAMP</c> log line reads a real body back and says which of the two a
+    /// given card is.
     /// </summary>
     private const int PanelOrderBase = 100;
 

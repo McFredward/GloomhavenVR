@@ -920,6 +920,63 @@ internal sealed class PeerBoardFade : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Is <paramref name="t"/> part of SOME peer board's fade set — i.e. can a
+    /// <see cref="PeerBoardFade"/> driver ever composite it at an alpha below 1?
+    ///
+    /// <para>WHAT THE QUESTION IS FOR. It is the second term of the card-body FACE-HOSTING switch
+    /// (<c>Cards.CardMesh.SetBodyFaceHosted</c>, decided in <c>Net/Remote/RemoteCardArt</c>). That
+    /// switch drops a card body's FRONT FAN while a printed face stands in front of it, which kills
+    /// the front/back bleed a fading board turns that fan into — and which ALSO removes the card's
+    /// only depth-writing front surface, because the print is a uGUI canvas and uGUI writes no
+    /// depth. On a surface that never fades there is no bleed to kill and the depth stamp is pure
+    /// loss (hardware report, 2026-09: the ghost hand and the wrist HUD showing straight through the
+    /// map-room hand's cards). So the switch has to know which surfaces can fade. This answers
+    /// exactly that and nothing else.</para>
+    ///
+    /// <para>IT IS A MEMBERSHIP QUESTION, NOT A STATE ONE, ON PURPOSE. It asks whether the surface
+    /// BELONGS to a fade set, not whether that set is faded this instant. A body whose mesh followed
+    /// the live alpha would swap its front fan twice per fade episode, on every card — and this
+    /// driver's own <see cref="Follow"/> note already records why a membership that can strobe is
+    /// worse than a membership that is slightly generous. The generous answer costs a peer's printed
+    /// card its depth stamp while their board is still solid, which is a surface nowhere near the
+    /// viewer's own hands; the exact one would cost a mesh swap on every ramp edge for ever.</para>
+    ///
+    /// <para>TWO POPULATIONS, BOTH READ OFF THIS DRIVER'S OWN BOOKKEEPING rather than off a list of
+    /// class names somebody has to keep current: anything under a transform that CARRIES a driver
+    /// (the board root and everything parented beneath it), and anything under a root that was
+    /// handed to <see cref="Follow"/> (the item arc, the discard browse, the card FX, the hand fan
+    /// and its placard). A <see cref="FollowRule.WhileOverBoard"/> root counts whatever its owner's
+    /// hand is doing right now, for the same anti-strobe reason.</para>
+    ///
+    /// <para>False for every LOCAL surface — the player's own scenario hand, the map-room hand, the
+    /// item chips on their own board — because none of them is a peer's board and none of them is
+    /// registered here. That is the whole point: those keep their front fan and go on stamping the
+    /// depth that rejects the ghost hand and the wrist HUD standing behind them.</para>
+    /// </summary>
+    internal static bool BelongsToAFadeSet(Transform? t)
+    {
+        if (t == null)
+            return false;
+        // Under a board root: the driver's own surface census is GetComponentsInChildren on the
+        // transform it sits on, so "carries a driver somewhere up my parent chain" is precisely
+        // "that driver's census would find me". Inactive included — a fan parked inactive is still
+        // a member of the set it rejoins the moment it is shown.
+        if (t.GetComponentInParent<PeerBoardFade>(includeInactive: true) != null)
+            return true;
+        foreach (KeyValuePair<int, List<FollowerEntry>> byPlayer in FollowerRoots)
+        {
+            List<FollowerEntry> list = byPlayer.Value;
+            for (int i = 0; i < list.Count; i++)
+            {
+                Transform root = list[i].Root;
+                if (root != null && t.IsChildOf(root))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     private void LateUpdate()
     {
         PeerBoardFadeMode mode = PeerBoardFadeTuning.Mode;

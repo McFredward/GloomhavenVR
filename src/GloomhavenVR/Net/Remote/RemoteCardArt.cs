@@ -92,8 +92,9 @@ internal sealed class RemoteCardArt
 
     /// <summary>Is the slab's card body currently serving its FACE-HOSTED mesh — i.e. has this
     /// overlay told <see cref="CardMesh.SetBodyFaceHosted"/> that its print covers the body's front
-    /// face? Held here so the per-frame dedup path costs nothing: the switch only ever moves on a
-    /// show/hide edge, and <c>CardMesh.AttachBody</c> carries it across an in-place re-cut.</summary>
+    /// face? Held here so the cadenced re-ask in <see cref="MaintainBodyFaceHosting"/> costs nothing
+    /// while the verdict has not moved, and so <c>CardMesh.AttachBody</c> can carry the switch across
+    /// an in-place re-cut.</summary>
     private bool _bodyFaceHosted;
 
     /// <summary>
@@ -107,11 +108,31 @@ internal sealed class RemoteCardArt
     /// </summary>
     private const float RequiredBodyCoverage = 0.999f;
 
-    /// <summary>One-shot per VERDICT CLASS, not per card: the hosted reading and the refused reading
-    /// each print once per session with the numbers that produced them. A fan of twelve chips must
-    /// not write twelve identical lines, and an acceptance must not summarise a refusal away.</summary>
+    /// <summary>The printed rectangle in SLAB-LOCAL metres, as measured by the last
+    /// <see cref="FitClone"/> — the one moment that number is true. Kept so
+    /// <see cref="MaintainBodyFaceHosting"/> can re-run the verdict without re-deriving it from a
+    /// rect that may be mid-relayout. Zero until a print has been fitted.</summary>
+    private Vector2 _printedLocalMeters;
+
+    /// <summary>Unscaled time of the next cadenced re-run of the face-hosting verdict. See
+    /// <see cref="MaintainBodyFaceHosting"/> for why the verdict cannot be a one-shot.</summary>
+    private float _nextFaceHostRecheck;
+
+    /// <summary>How often the face-hosting verdict is re-asked (seconds). It only ever changes when
+    /// a peer fan registers itself with <c>PeerBoardFade.Follow</c>, which happens once per fan per
+    /// session and normally BEFORE the first print — this is the backstop for the reverse order,
+    /// not a poll of anything that moves.</summary>
+    private const float FaceHostRecheckInterval = 1f;
+
+    /// <summary>One-shot per VERDICT CLASS, not per card: the hosted reading, the coverage refusal
+    /// and the "this surface never fades" refusal each print once per session with the numbers that
+    /// produced them. A fan of twelve chips must not write twelve identical lines, and an acceptance
+    /// must not summarise a refusal away. NOTE THAT THESE ARE STATIC: one line means "at least one
+    /// surface reached this verdict", never "exactly one did" — reading the single hosting line in
+    /// the ModBuild 445 log as a count of one card is what hid this defect for a round.</summary>
     private static bool _loggedFaceHosted;
     private static bool _loggedFaceHostRefused;
+    private static bool _loggedFaceHostNeverFades;
 
     /// <summary>
     /// The peer half of the local cards' zero-aliased-frame fix (see <see cref="Cards.CardArtWatch"/>).
@@ -335,6 +356,7 @@ internal sealed class RemoteCardArt
     {
         if (_clone == null || _host == null || !_host.activeSelf)
             return;
+        MaintainBodyFaceHosting();
         // ARRIVAL FIRST (zero-alloc, one reference compare per Image): the clone's header art
         // lands in a loader continuation, and this catches it in that very frame instead of
         // whenever the cadence below next happens to fire. The cadenced pass stays as the
@@ -877,9 +899,34 @@ internal sealed class RemoteCardArt
     /// <c>PeerBoardFade</c> follower and never fades today, so it has no bleed to correct yet, and it
     /// is left with its front fan rather than with a hole. Measuring rather than listing is what makes
     /// that a property of the geometry instead of a list somebody has to remember to update.</para>
+    ///
+    /// <para>AND THE SECOND TERM, WHICH THE FIRST VERSION OF THIS CORRECTION DID NOT HAVE. The
+    /// paragraph above says "the canvas is opaque, sits in front and wins the depth test" — true for
+    /// COLOUR and false for DEPTH, and that gap is the whole of the 2026-09 hardware report "Die
+    /// Geisterhand und die Characterinfo am Handgelenk ist durch die Karten hindurch sichtbar". The
+    /// print is a world-space uGUI canvas; uGUI draws with ZWrite Off. So the front fan this drops
+    /// was not merely a redundant surface behind an opaque one — it was the card's ONLY depth-writing
+    /// front surface, and a face-hosted body stamps nothing over its own face. Every transparent
+    /// surface that was being z-rejected by that stamp then comes straight through the card: the
+    /// ghost hand (<c>Hands/HandGhost</c>, renderQueue 3100, ZWrite off, ZTest LEqual) and the wrist
+    /// HUD (a world-space canvas, <c>unity_GUIZTestMode</c> = LEqual) both did, on all ten cards of
+    /// the map-room hand — a LOCAL fan that reuses this class's printing machinery and that nothing
+    /// ever fades.</para>
+    ///
+    /// <para>The bleed exists only while something composites the surface at an alpha below 1, and
+    /// the only thing that does that to a card is <c>Net/Board/PeerBoardFade</c>. So the fan is
+    /// dropped only where that can happen, asked as
+    /// <c>PeerBoardFade.BelongsToAFadeSet(_slab)</c> — the driver's own registry, not a list of class
+    /// names. A local card belongs to no fade set, keeps its fan, and stamps the depth it stamped
+    /// before any of this existed.</para>
     /// </summary>
     private void ApplyBodyFaceHosting(Vector2 printedLocalMeters)
     {
+        // Remembered so the cadenced re-evaluation below has the number that was measured at the
+        // one moment it was true (the final pose write in FitClone) instead of re-deriving it from
+        // a rect that may be mid-relayout.
+        _printedLocalMeters = printedLocalMeters;
+
         // A slab with no REGISTERED card body under it — a board slot, a control-board panel, whose
         // backing is a single quad with no front fan to drop — answers false here and drops out of
         // everything below, including the log: there is no verdict to report about a surface this
@@ -891,13 +938,49 @@ internal sealed class RemoteCardArt
         bool covers = printedLocalMeters.x >= measured.x * RequiredBodyCoverage
                       && printedLocalMeters.y >= measured.y * RequiredBodyCoverage;
 
+        // SECOND TERM, AND IT IS THE ONE THE FIRST VERSION OF THIS CORRECTION WAS MISSING (hardware
+        // report, 2026-09: "Die Geisterhand und die Characterinfo am Handgelenk ist durch die Karten
+        // hindurch sichtbar"). Dropping the front fan does not only remove a surface that BLEEDS
+        // when composited — it removes the card's only DEPTH-WRITING front surface. The print that
+        // replaces it is a world-space uGUI canvas, and uGUI draws with ZWrite Off, so a face-hosted
+        // body stamps nothing into the depth buffer over its own face. Everything that was being
+        // rejected BY that stamp then comes through the card: the ghost hand (renderQueue 3100,
+        // ZWrite off, ZTest LEqual — Hands/HandGhost) and the wrist HUD (a world-space canvas, whose
+        // unity_GUIZTestMode is LEqual) both did, on every card of the map-room hand.
+        //
+        // The bleed only exists while something composites this surface at an alpha below 1, and the
+        // only thing in the mod that does that to a card is PeerBoardFade. So the fan is dropped
+        // only where that can happen. A LOCAL card — the scenario hand, the map-room hand, the
+        // player's own item chips — belongs to no fade set, keeps its fan, and goes on stamping the
+        // depth it stamped before this correction existed.
+        bool canFade = PeerBoardFade.BelongsToAFadeSet(_slab);
+        bool hosted = covers && canFade;
+
         // The MESH switch is change-gated; the VERDICT below is not gated on it. A refusal never
         // moves the switch (the body already has its front fan), so gating the log on the switch
         // would have made the refusal unreportable — the one reading that says a surface still
         // carries the bleed would never have been printed.
-        if (covers != _bodyFaceHosted && CardMesh.SetBodyFaceHosted(_slab, covers) > 0)
-            _bodyFaceHosted = covers;
-        if (covers && !_loggedFaceHosted)
+        if (hosted != _bodyFaceHosted && CardMesh.SetBodyFaceHosted(_slab, hosted) > 0)
+            _bodyFaceHosted = hosted;
+        if (covers && !canFade && !_loggedFaceHostNeverFades)
+        {
+            _loggedFaceHostNeverFades = true;
+            // HW-VERIFY
+            VRLog.Note("Net", "CARD FACE HOSTING NOT NEEDED HERE: the printed face on slab "
+                + $"'{_slab.name}' does cover its card body "
+                + $"({printedLocalMeters.x * 1000f:F1}x{printedLocalMeters.y * 1000f:F1} mm over "
+                + $"{measured.x * 1000f:F1}x{measured.y * 1000f:F1} mm), but this slab belongs to NO "
+                + "peer board's fade set, so nothing will ever composite it at an alpha below 1 and "
+                + "the front/back bleed this correction exists for cannot happen on it. The front "
+                + "fan is therefore KEPT — which matters, because that fan is the card's only "
+                + "depth-writing front surface: the print in front of it is a uGUI canvas and uGUI "
+                + "draws ZWrite Off. Keeping it is what makes this card reject the ghost hand "
+                + "(renderQueue 3100, ZWrite off, ZTest LEqual) and the wrist HUD (a world-space "
+                + "canvas at LEqual) standing behind it. If you can see either of those THROUGH a "
+                + "card while this line is in the log, the depth stamp is being lost somewhere other "
+                + "than here — read the CARD BODY DEPTH STAMP line for what the body actually is.");
+        }
+        else if (hosted && !_loggedFaceHosted)
         {
             _loggedFaceHosted = true;
             // HW-VERIFY
@@ -912,7 +995,11 @@ internal sealed class RemoteCardArt
                 + "down the ramp. On an opaque board this changes nothing you can see, because the print was "
                 + "already painting over that fan. If a peer's card front now shows a see-through RING around "
                 + "its edge, the print is less flush than this measurement says and the coverage bar is what "
-                + "to move.");
+                + "to move. THE PRICE, STATED: the dropped fan was also this body's only depth-writing front "
+                + "surface (the print is a uGUI canvas and uGUI draws ZWrite Off), so while it is hosted this "
+                + "card stamps no depth over its own face and does not reject a transparent surface behind "
+                + "it. That is why hosting is granted ONLY to a slab in a peer board's fade set: a peer's "
+                + "board is not somewhere the viewer's own ghost hand or wrist HUD ever stands.");
         }
         else if (!covers && !_loggedFaceHostRefused)
         {
@@ -933,11 +1020,42 @@ internal sealed class RemoteCardArt
         }
     }
 
+    /// <summary>
+    /// Re-ask the face-hosting verdict on a slow cadence while a print is up.
+    ///
+    /// <para>WHY THE VERDICT CANNOT BE A ONE-SHOT. It used to be decided exactly once, in
+    /// <see cref="FitClone"/>, because its only term was the printed COVERAGE and that cannot change
+    /// while the same print is up. Its second term can: a peer fan registers itself with
+    /// <c>PeerBoardFade.Follow</c> when it builds its root, and while every fan in the codebase does
+    /// that before it prints its first face, nothing in the type system says it must. A one-shot
+    /// asked in the other order would refuse hosting for the life of that print and silently hand
+    /// back the front/back bleed on a peer's faded board — a defect that only shows on somebody
+    /// else's machine, mid-ramp. One re-ask a second closes that seam for three field compares.</para>
+    ///
+    /// <para>It costs nothing to be wrong about the cadence: the mesh switch inside
+    /// <see cref="ApplyBodyFaceHosting"/> is change-gated, so a verdict that has not moved writes
+    /// nothing at all.</para>
+    /// </summary>
+    private void MaintainBodyFaceHosting()
+    {
+        if (_printedLocalMeters.x <= 0f || _printedLocalMeters.y <= 0f)
+            return;
+        float now = Time.unscaledTime;
+        if (now < _nextFaceHostRecheck)
+            return;
+        _nextFaceHostRecheck = now + FaceHostRecheckInterval;
+        ApplyBodyFaceHosting(_printedLocalMeters);
+    }
+
     /// <summary>Give the body its front fan back. Idempotent and free when nothing was ever taken:
     /// the switch can only be true if <see cref="ApplyBodyFaceHosting"/> found a real card body under
     /// this slab and measured a print that covered it.</summary>
     private void ReleaseBodyFaceHosting()
     {
+        // No print in front of the body any more, so there is no printed rectangle to re-judge and
+        // MaintainBodyFaceHosting must stand down with it — otherwise a hidden front would go on
+        // asking a verdict about a measurement that stopped being true.
+        _printedLocalMeters = Vector2.zero;
         if (!_bodyFaceHosted)
             return;
         CardMesh.SetBodyFaceHosted(_slab, false);
