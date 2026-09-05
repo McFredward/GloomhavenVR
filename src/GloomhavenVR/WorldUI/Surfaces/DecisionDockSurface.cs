@@ -1621,8 +1621,12 @@ internal sealed class DecisionDockSurface : WorldSurface
         }
         VRLog.Info("WorldUI", $"DECISION DOCK: wire decision published — {lines.Split('\n').Length} " +
                               $"label(s) \"{lines.Replace('\n', '|')}\", prompt kind {kind}, states " +
-                              $"[{states}] (record 12: pressable-widget labels only, never a dialog's " +
-                              "description text; record 24: the states + the prompt kind; record 29: " +
+                              $"[{states}] (record 12: the labels of PRESSABLE WIDGETS only, never a " +
+                              "dialog's description text — which is a statement about what is " +
+                              "SELECTED and not about what those labels CONTAIN: a burn prompt's " +
+                              "confirm label names the card being burnt, so this record is not " +
+                              "identity-free. See RevealGate.PeerCardPopulation.DecisionRowWording; " +
+                              "record 24: the states + the prompt kind; record 29: " +
                               $"the widget ROLES above plus damage " +
                               $"{((widgetFlags & NetProtocol.DecisionWidgetDamageValidBit) != 0 ? damage.ToString() : "n/a")}" +
                               $"{((widgetFlags & NetProtocol.DecisionWidgetLethalBit) != 0 ? " LETHAL" : string.Empty)}" +

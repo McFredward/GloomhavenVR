@@ -2190,10 +2190,53 @@ internal sealed class NetAvatarDriver : MonoBehaviour
         // DECISION LINES (extension record 12): written on every packet WHILE a decision row is
         // docked; omitted otherwise, so an idle packet stays byte-identical to the previous
         // build's. The sampler already excluded everything that is not a pressable widget label.
+        //
+        // ─── A LABEL CAN CONTAIN A CARD NAME, AND THIS RECORD USED TO DENY IT ────────────────────
+        // The note here and the log line below both used to read "pressable-widget labels only, NO
+        // card identity". The first half is a true statement about what the SAMPLER SELECTS; the
+        // second was read as a statement about what those labels CONTAIN, and it is false. The
+        // 2026-09-05 session put `<sprite name="Lost"> Verbrennen "In die Nacht"` on the wire from
+        // both clients — the confirm button of a burn prompt, which names the card being burnt, in
+        // plain text, with no RevealGate term anywhere on this path.
+        //
+        // IT IS AN EXEMPTION AND IT IS NOW A NAMED ONE:
+        // RevealGate.PeerCardPopulation.DecisionRowWording carries the ruling and its three grounds
+        // (the content is a card being LOST rather than one being chosen; refusing it would blank a
+        // mirrored row mid-prompt, which is an empty window; and vanilla already lets any player
+        // read any other player's cards outside the selection window). What the exemption owes in
+        // return is a MEASUREMENT rather than a promise, and that is the line below it.
         if (!string.IsNullOrEmpty(decisionNow))
         {
             extras.HasDecisionLines = true;
             extras.DecisionLinesText = decisionNow;
+        }
+        // …and SAY SO whenever a label travels inside the window the backs-only rule exists for.
+        // Change-gated on the label itself, so a prompt that stands for ten seconds prints once.
+        if (decisionChanged && !string.IsNullOrEmpty(decisionNow)
+            && !RevealGate.PeersSeeOurCardFronts)
+        {
+            // HW-VERIFY: grep token DECISION LABEL INSIDE THE SECRET WINDOW. This line exists
+            // because an exemption nobody can see is indistinguishable from a leak, and because the
+            // claim it replaces ("NO card identity") was an assertion the instrument could not make.
+            // READ IT LIKE THIS: content naming a card being BURNT or LOST — a Verbrennen/Lost
+            // confirm, a short-rest sacrifice — is the ruled exemption and is expected here. Content
+            // naming a card being CHOSEN, or any HAND card, is NOT covered by that ruling and means
+            // the exemption is too wide: narrow it at RevealGate.PeerCardPopulation
+            // .DecisionRowWording, which is the one place it is written down. THE FALSIFIER: this
+            // line never appearing at all does NOT mean nothing travels — it means no decision row
+            // was docked during a selection phase this session, so the question was not put.
+            VRLog.Note("Net", "DECISION LABEL INSIDE THE SECRET WINDOW: record 12 is publishing "
+                + $"\"{decisionNow!.Replace('\n', '|')}\" while RevealGate.PeersSeeOurCardFronts is "
+                + "SHUT — i.e. online, during the game's own SelectAbilityCardsOrLongRest phase, the "
+                + "window in which every OTHER surface in this mod refuses a peer a card front. This "
+                + "record carries the wording of a pressable widget, and a burn prompt's wording "
+                + "NAMES THE CARD; the record's own note used to claim it never carried a card "
+                + "identity and that claim was false. It is a ruled EXEMPTION, not an accident — see "
+                + "RevealGate.PeerCardPopulation.DecisionRowWording for the three grounds and for "
+                + "the user's own 2026-09-05 ruling that he wants to see which card is at stake. "
+                + "What is printed above is the whole of what went out, so this line is checkable: "
+                + "if it ever quotes a card the owner is CHOOSING rather than one they are LOSING, "
+                + "the exemption is too wide and that is where to narrow it.");
         }
         // DECISION NAMES (extension record 33): the card-name KEYS the mandatory-use hint is
         // prefixed with. The sampler fills this ONLY for that one text variant and ONLY while
@@ -2213,9 +2256,12 @@ internal sealed class NetAvatarDriver : MonoBehaviour
                   "record omitted (peers drop the mirrored buttons, exactly as the owner's own " +
                   "board drops them)."
                 : $"Decision lines SENT: \"{decisionNow!.Replace('\n', '|')}\" — extension record 12 " +
-                  $"(UTF8, capped {NetProtocol.DecisionLinesMaxBytes} B: pressable-widget labels " +
-                  "only, NO card identity); peers render them as inert plates at their copy's " +
-                  "decision seat.");
+                  $"(UTF8, capped {NetProtocol.DecisionLinesMaxBytes} B: the labels of pressable " +
+                  "widgets ONLY, never a dialog's description text — but a label CAN name a card, " +
+                  "and a burn prompt's does, so this record is not identity-free and no longer " +
+                  "claims to be; see RevealGate.PeerCardPopulation.DecisionRowWording for the "
+                  + "ruling and 'DECISION LABEL INSIDE THE SECRET WINDOW' for the measurement); " +
+                  "peers render them as inert plates at their copy's decision seat.");
         }
         // DECISION STATE (extension record 24, NetProtocol.ExtIdDecisionState — the two log lines
         // below still say "record 23"; that wording is a shipped grep token, the ID they name is

@@ -728,6 +728,11 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // frame, beside the change-gated lines the slots keep of their own. _slotFaceMask is the
         // slots that carry a face; the occupied slots that do not are backs, whether identity-known
         // or anonymous.
+        // …and the anonymous-recess line re-arms once no recess is anonymous any more, so a SECOND
+        // short rest prints a second line instead of being swallowed by the first one's latch.
+        if (_slotAnonMask == 0)
+            _loggedAnonSlot = -1;
+
         int seatedSlots = CountBits(_slotOccupiedMask);
         int facedSlots = CountBits(_slotFaceMask);
         PeerCardFaceCensus.Report(PeerCardFaceCensus.Surface.RoundSlots, _owner.PlayerId,
@@ -1330,6 +1335,109 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
     /// the next one and there is no edge to miss. A sender without the field reads as "unknown" and
     /// takes the legacy branch below verbatim.
     /// </summary>
+    /// <summary>Which recess this board last reported as an anonymous back, so the line below fires
+    /// on a real change and never per frame. -1 = none reported.</summary>
+    private int _loggedAnonSlot = -1;
+
+    /// <summary>
+    /// NAME THE BLOCKER FOR THE SHORT-REST CARD (2026-09-05, user item 15: "Bei einer kurzen Rast
+    /// soll es sichtbar sein welche Karte dort liegt — ich sehe nur die Rückseite").
+    ///
+    /// <para>WHY A MEASUREMENT AND NOT A FIX. This recess is OCCUPIED on the owner's board — the
+    /// wire's occupancy nibble says so — and this client cannot name the card in it, so it draws an
+    /// anonymous back. Note where that happens: ABOVE the <c>showFronts</c> branch, and completely
+    /// independent of it. Opening <see cref="RevealGate"/> for this population would therefore
+    /// change nothing at all, which is precisely the "gated remedy never ran" shape — a fix that
+    /// passes its own reading and moves no picture. <c>RevealGate.PeerCardPopulation.SacrificedCard</c>
+    /// carries the secrecy ruling and says the same thing from the other end.</para>
+    ///
+    /// <para>WHAT IS ACTUALLY MISSING is an IDENTITY on the wire, and this line is what proves it
+    /// rather than asserting it: it prints the peer's live pile counts beside the verdict, so a
+    /// short-rest sacrifice reads as "discard went down by one, burnt did not go up, and the recess
+    /// filled" — a card in flight between two replicated lists, in neither of them, and never in
+    /// <c>RoundAbilityCards</c>. That is a three-number proof that no receiver-side cleverness can
+    /// close the gap.</para>
+    /// </summary>
+    private void LogAnonymousRecess(int slot, CPlayerActor? actor)
+    {
+        if (_loggedAnonSlot == slot)
+            return;
+        _loggedAnonSlot = slot;
+        // HW-VERIFY: this line decides report item 15. Grep token: ANONYMOUS RECESS. It is
+        // change-gated on WHICH recess, so a short rest produces one line and a settled board
+        // produces none. READ IT LIKE THIS: if it fires with the peer's discard count one LOWER
+        // than the previous "Pile counts RECEIVED" line and their burnt count unchanged, the card
+        // lying there is a short-rest sacrifice in flight between two piles and the identity is on
+        // no wire — the fix is a field, not a gate, and the spec is in this method's own note. If
+        // it fires during ordinary card SELECTION instead (the peer dropped a card into a recess
+        // before the model committed it), that is the pre-existing and correct behaviour and
+        // nothing is owed. THE FALSIFIER for any future fix: this line must STOP appearing at a
+        // short rest. A build that opens the reveal gate and leaves this line standing has changed
+        // a permission and not a picture.
+        VRLog.Note("Net", $"ANONYMOUS RECESS [player {_owner.PlayerId}]: round slot {slot + 1} is "
+            + "OCCUPIED on the owner's board (the wire's occupancy nibble says so) and this client "
+            + "cannot name the card in it, so it draws an anonymous BACK — and it does so ABOVE the "
+            + "reveal-gate branch, independent of it. Their piles right now: discard "
+            + $"{_owner.PileDiscardCount}, burnt {_owner.PileBurntCount}. A SHORT-REST SACRIFICE reads as a "
+            + "discard count that just dropped by one with the burnt count unchanged: the game took "
+            + "the card out of the discard pile and laid it in this recess, so at this instant it is "
+            + "in NEITHER host-replicated pile and was never in RoundAbilityCards — the identity "
+            + "cannot be re-derived here by any means, and opening RevealGate for it would move "
+            + "nothing. WHAT WOULD FIX IT: one extension record naming, per round slot, a SOURCE "
+            + "LIST id plus a SEAT and that list's LENGTH — record 36's encoding "
+            + "(NetProtocol.EncodeHeldFace / HeldFaceList*) verbatim, resolved by the sender against "
+            + "whichever list still holds the card, never a card id and never a card NAME. An "
+            + $"ordinary selection-phase drop (character '{Board.CharacterFocus.Describe(actor)}' "
+            + "putting a card in a recess before the model commits it) also lands here and is "
+            + "correct — the pile numbers are what tell the two apart. THE THIRD WAY INTO THIS "
+            + "LINE is the compaction belt refusing the walk: if 'ROUND SLOT COMPACTION REFUSED' "
+            + "stands beside this line, the card is one this client CAN name but cannot place, "
+            + "which is a different defect with a different fix — read that line first.");
+    }
+
+    /// <summary>Last reported compaction verdict, as <c>model * 10 + occupied</c> with a sign for
+    /// the verdict itself (int.MinValue = never reported), so the line below fires on a real change
+    /// and never per frame.</summary>
+    private int _loggedCompaction = int.MinValue;
+
+    /// <summary>Change-gated evidence for the compaction belt — see the block in
+    /// <see cref="SeatSlots"/> for why a length disagreement may not be walked across.</summary>
+    private void LogCompactionIfChanged(bool compact, int modelCount, int occupiedCount)
+    {
+        int key = (compact ? 1 : -1) * (modelCount * 10 + occupiedCount + 1);
+        if (key == _loggedCompaction)
+            return;
+        bool first = _loggedCompaction == int.MinValue;
+        _loggedCompaction = key;
+        if (compact)
+        {
+            if (!first)
+                VRLog.Info("Net", $"Remote board [{_owner.PlayerId}] round slots: compaction is "
+                    + $"SAFE again — {modelCount} model card(s) for {occupiedCount} occupied "
+                    + "recess(es), so recess order and initiative order are the same list.");
+            return;
+        }
+        // HW-VERIFY: grep token ROUND SLOT COMPACTION REFUSED. This is the second, independent way
+        // a peer could be shown the WRONG card's front, and it is invisible to every face-state
+        // diagnostic beside it because a wrong face reports exactly like a right one. READ IT LIKE
+        // THIS: a brief refusal around a burn, a played card or a pick candidate is this client's
+        // copy of the peer's round cards lagging their board by a frame and clears itself; a
+        // refusal that STANDS means the occupancy nibble and RoundAbilityCards have drifted apart
+        // for a reason that is not lag, and the recesses will show latched faces or anonymous backs
+        // until they agree. THE FALSIFIER: if this line never appears while the user still reports
+        // a wrong card face in a recess, the wrong card is coming from somewhere other than this
+        // walk — read ANONYMOUS RECESS and the round-card face states instead.
+        VRLog.Note("Net", $"ROUND SLOT COMPACTION REFUSED [player {_owner.PlayerId}]: this client "
+            + $"resolves {modelCount} round card(s) for that character while the owner's own board "
+            + $"reports {occupiedCount} occupied recess(es). Slab i is only a NAME for card i while "
+            + "those two agree, so the walk that hands each recess the next model card is refused "
+            + "and each occupied recess falls back to the face THIS board already showed in that "
+            + "very recess, or to an anonymous back. Before this build the walk ran anyway and a "
+            + "peer with a burn or pick candidate lying in one recess was shown the OTHER round "
+            + "card's front there — a confidently wrong face, which is the one failure a player "
+            + "cannot read as a failure. Same belt as the hand fan's LENGTH BELT, same reason.");
+    }
+
     /// <summary>Population count of a slot mask — <c>SlotCount</c> is 2, so this is two shifts and
     /// costs nothing; it exists so the census reports a NUMBER rather than a bitmask nobody can read
     /// in a hardware log.</summary>
@@ -1389,17 +1497,49 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         // player put in slot 0. A slot the owner has filled but the model cannot name yet (a pick
         // candidate, a drop whose SelectCard is still queued, a peer whose actor we do not have)
         // shows an anonymous card BACK.
+        // ─── THE COMPACTION BELT: A WALK ACROSS A LENGTH DISAGREEMENT NAMES THE WRONG CARD ──────
+        // The walk below hands each occupied recess the next model card that is not null. That is a
+        // POSITIONAL ZIP of two lists — the owner's occupancy nibble off the wire, and this client's
+        // own RoundAbilityCards — and it is only a NAME for a card while the two agree in LENGTH.
+        // The moment they do not, every recess from the first divergence on draws somebody else's
+        // face: the owner has a burn or pick candidate lying in one recess while the model still
+        // names both round cards, and the peer is shown the OTHER card's front. It is exactly the
+        // defect the hand fan's own length belt exists for, one surface over, and the identical
+        // remedy applies — a back is wrong in a way the player can read as "not loaded yet", a
+        // CONFIDENTLY WRONG FACE is wrong in a way he cannot read at all and would act on.
+        //
+        // Where the counts agree, compaction is not a guess: initiative order IS the physical order
+        // on the owner's board, because CardsDriver.ReconcileInitiative drives the game's initiative
+        // to follow whichever card the player put in slot 0. Where they disagree there is no fact
+        // here that says which recess holds which card, so the walk is refused outright and each
+        // occupied recess falls back to its OWN latched face (a face this board already legitimately
+        // showed in that very recess) or to an anonymous back. Nothing guesses.
+        int modelCount = 0;
+        for (int i = 0; i < SlotCount; i++)
+            if (_ordered[i] != null)
+                modelCount++;
+        int occupiedCount = CountBits(wire & ((1 << SlotCount) - 1));
+        bool compact = modelCount == occupiedCount;
+        LogCompactionIfChanged(compact, modelCount, occupiedCount);
+
         int next = 0;
         for (int i = 0; i < SlotCount; i++)
         {
             if ((wire & (1 << i)) == 0)
             {
                 _cards[i].Set(null, showFronts, actor); // empty recess — and it stays empty
+                // …AND THE LATCH GOES WITH IT. _latchedFaces[i] used to survive its own recess
+                // emptying, so a face approved in an earlier round could reappear in a recess that
+                // has since been cleared — the latch's whole stated purpose is "a recess the model
+                // can no longer name KEEPS the face it legitimately showed", and an EMPTY recess is
+                // not that case, it is the case where there is nothing to keep. There is no state
+                // in which a latched face for an unoccupied recess is wanted.
+                _latchedFaces[i] = null;
                 continue;
             }
             _slotOccupiedMask |= 1 << i;
             CAbilityCard? card = null;
-            while (next < SlotCount && card == null)
+            while (compact && next < SlotCount && card == null)
                 card = _ordered[next++];
             // ACTION-PHASE FACE LATCH (see _latchedFaces): while the gate is OPEN, a recess the
             // model can no longer name — the game drained RoundAbilityCards as the owner used the
@@ -1413,6 +1553,7 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             {
                 _slotAnonMask |= 1 << i;
                 _cards[i].SetAnonymousBack();
+                LogAnonymousRecess(i, actor);
                 continue;
             }
             _cards[i].Set(card, showFronts, actor);

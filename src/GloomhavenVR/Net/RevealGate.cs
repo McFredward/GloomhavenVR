@@ -344,7 +344,74 @@ internal static class RevealGate
         /// else, and this file's standing invariant is to show LESS when nobody has ruled.</para>
         /// </summary>
         AlreadyPublic,
+
+        /// <summary>The card a peer is SACRIFICING — the one the game lays into a round recess
+        /// during a SHORT REST for its owner to accept or re-roll. Exempt from the selection-phase
+        /// carve-out for the same reason the active matrix is, and by the same kind of ruling.
+        ///
+        /// <para>USER, VERBATIM (2026-09-05, item 15): "Bei einer kurzen Rast soll es sichtbar sein
+        /// welche Karte dort liegt — ich sehe nur die Rückseite."</para>
+        ///
+        /// <para>WHY THE PHASE TERM IS WRONG HERE RATHER THAN MERELY INCONVENIENT. A short rest
+        /// always runs inside <c>SelectAbilityCardsOrLongRest</c> — that phase is what the game
+        /// OFFERS the rest in — so <see cref="IsSecretSelectionPhase"/> is true for its whole
+        /// duration and this card could never be shown while it was a term. But the secret that
+        /// phase protects is a DECISION IN FLIGHT: which two cards a player is about to commit. The
+        /// sacrifice is the opposite of a decision in flight — it is a card LEAVING the player's
+        /// resources, drawn from their DISCARD pile by the game's own RNG, and the whole point of
+        /// laying it face-up in a recess is that everyone watches it burn. Nothing about knowing it
+        /// tells you anything about the round the phase is protecting.</para>
+        ///
+        /// <para>THIS ONE IS NOT SUFFICIENT ON ITS OWN, AND THAT IS STATED HERE RATHER THAN
+        /// DISCOVERED LATER. Opening the gate does not draw the card, because no receiver can NAME
+        /// it: measured on the 2026-09-05 host log at the moment of the user's screenshot, the
+        /// peer's pile counts go <c>d/b/i=8/2/2</c> to <c>7/2/2</c> with <c>slot-occupancy 0x0</c>
+        /// to <c>0x1</c> — the card has left the DISCARD list and has not entered the BURNT one, so
+        /// at the instant it is lying in the recess it is in NEITHER replicated list, and it was
+        /// never in <c>RoundAbilityCards</c> either (<c>RemoteControlBoard.OrderRoundCards</c> is
+        /// what reads that, and it answered null: <c>round-card faces=anon-back/empty</c>). The
+        /// identity has to travel. Until it does, this member is a CONTRACT and not a remedy — the
+        /// site that would consume it (<c>RemoteControlBoard.SeatSlots</c>) says so in its own
+        /// hardware-verified line rather than quietly drawing a back.</para>
+        /// </summary>
+        SacrificedCard,
+
+        /// <summary>The WORDING of a peer's mirrored decision row — the pressable-widget labels
+        /// extension record 12 carries, which for a burn prompt read <c>Verbrennen "In die
+        /// Nacht"</c> and therefore DO contain a card name.
+        ///
+        /// <para>IT IS AN EXEMPTION AND NOT A LEAK, AND IT IS NAMED HERE BECAUSE AN EXEMPTION
+        /// NOBODY CAN FIND IS INDISTINGUISHABLE FROM ONE. Record 12's own send log asserted
+        /// "pressable-widget labels only, NO card identity" and that claim was false — the assertion
+        /// was about what the sampler SELECTS (only labels of pressable widgets) and was read as a
+        /// statement about what those labels CONTAIN. Both wordings are corrected at their sites.
+        /// </para>
+        ///
+        /// <para>THE RULING, AND ITS THREE GROUNDS. (1) What actually travels is the name of a card
+        /// being BURNT or LOST — the same content <see cref="SacrificedCard"/> covers, and the user
+        /// has now explicitly asked to be able to see it. (2) Refusing it would blank a mirrored
+        /// decision row in the middle of a prompt, which is an empty window and a standing
+        /// prohibition, and would remove the ONLY channel that currently tells a peer which card is
+        /// at stake. (3) Card identity is not a durable secret in this game: vanilla lets any player
+        /// open any other player's complete card overview from the initiative track outside the
+        /// selection window, and broadcasts the chosen battle goal in the clear.</para>
+        ///
+        /// <para>WHAT IS OWED IN RETURN IS A MEASUREMENT, not a promise: the sender now prints a
+        /// hardware-verified line whenever a decision label travels while
+        /// <see cref="PeersSeeOurCardFronts"/> is SHUT, quoting the label. If that line ever names
+        /// content this ruling does not cover — a HAND card, a card being chosen rather than lost —
+        /// the exemption is too wide and this is the member to narrow.</para>
+        /// </summary>
+        DecisionRowWording,
     }
+
+    /// <summary>
+    /// Is <paramref name="population"/> exempt from the selection-phase carve-out? ONE expression,
+    /// so three named members cannot answer it three ways — the members exist to make a call site
+    /// and a hardware log say WHICH exemption is being claimed, never to compute a different answer.
+    /// </summary>
+    public static bool IsPublicPopulation(PeerCardPopulation population) =>
+        population != PeerCardPopulation.Selectable;
 
     /// <summary>
     /// WHERE A REMOTE PLAYER'S CARD FACES MAY COME FROM RIGHT NOW — the one call every remote
@@ -417,8 +484,7 @@ internal static class RevealGate
                 // secrecy term is asked ONLY of a population the secret applies to. An already
                 // public card still needs a running scenario (the capability half above) and still
                 // needs a character to resolve against — it just has no phase to be secret in.
-                bool secret = population == PeerCardPopulation.Selectable
-                              && !ShowRoundCardFronts(actor);
+                bool secret = !IsPublicPopulation(population) && !ShowRoundCardFronts(actor);
                 return secret ? CardFaceSource.None : CardFaceSource.Scenario;
             }
             return ShowMapPhaseHandFronts ? CardFaceSource.MapLoadout : CardFaceSource.None;
