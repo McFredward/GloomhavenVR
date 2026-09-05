@@ -45,45 +45,28 @@ internal static partial class WallSegmentFade
     /// mod and must not be switched back on by another of its subsystems.</summary>
     internal static bool IsHeldHiddenByEnable(Renderer r) => _driver != null && _driver.IsHeldHidden(r);
 
-    /// <summary>Hide a renderer THROUGH the enable ledger from outside the wall system (the
-    /// opened-door leaf, Core/Environment/DoorOpenWatch.cs), so the healer and every wall-fade
-    /// restore path treat it as a deliberate mod hide. Without a driver (wall fade off) the bit is
-    /// written directly. Returns true when the renderer was switched off by this call.</summary>
-    internal static bool HideByEnableExternal(Renderer r)
-    {
-        if (r == null)
-            return false;
-        if (_driver != null)
-        {
-            bool was = r.enabled;
-            _driver.HideByEnable(r);
-            // `was && !r.enabled`, not `was`: HideByEnable can now REFUSE (a floor tile is never
-            // hidden by anything in this subsystem — see WallSegmentFade.Floor.cs), and a caller
-            // told "I switched it off" for a renderer still drawing would restore a bit nobody
-            // wrote.
-            return was && !r.enabled;
-        }
-        if (!r.enabled)
-            return false;
-        r.enabled = false;
-        return true;
-    }
-
-    /// <summary>The counterpart of <see cref="HideByEnableExternal"/>: switch the renderer back on
-    /// only if the ledger says the mod turned it off (or, with no driver, unconditionally — the
-    /// caller is the one that hid it).</summary>
-    internal static void ShowIfWeHidExternal(Renderer r)
-    {
-        if (r == null)
-            return;
-        if (_driver != null)
-        {
-            _driver.ShowIfWeHid(r);
-            return;
-        }
-        if (!r.enabled)
-            r.enabled = true;
-    }
+    // THERE IS NO `HideByEnableExternal` / `ShowIfWeHidExternal` ANY MORE, AND THERE MUST NOT BE
+    // ONE AGAIN WITHOUT THE FLOOR GUARD ON IT.
+    //
+    // They existed for ONE caller — Core/Environment/DoorOpenWatch.cs hiding an opened door leaf
+    // — and that hide was deleted outright in ModBuild 429 by a user ruling ("entferne jegliche
+    // workarounds die du eingebaut hattest mit dem deaktivieren"). It is not coming back, so from
+    // 429 until now the pair sat here with ZERO callers anywhere in src/ or tests/.
+    //
+    // WHY THAT WAS A HAZARD AND NOT A TIDY-UP. Each of them carried a NO-DRIVER branch that wrote
+    // the enable bit DIRECTLY — `r.enabled = false` / `r.enabled = true` — around
+    // FadeDriver.HideByEnable and therefore around the floor rule that lives on it. The file
+    // summary below and WallSegmentFade.Floor.cs both state that HideByEnable is the ONLY
+    // `Renderer.enabled = false` in the subsystem and that every enable-delivery lane is covered
+    // by that one line. With this pair present that was true only by accident of nobody calling
+    // them: the moment anything wired one up, a floor tile could be hidden with no floor test and
+    // no ledger row — invisible, and invisible to the restitution sweep as well, which reads
+    // _hidByEnable. ModBuild 431 has just spent a round on exactly that class of defect (a
+    // refusal with no restitution behind it), so the fifth write path goes rather than waits.
+    //
+    // If an outside caller ever needs this again: route it through FadeDriver.HideByEnable, which
+    // is guarded and ledgered, and give the no-driver case the same floor test — never a bare
+    // enable write.
 
     private sealed partial class FadeDriver
     {
