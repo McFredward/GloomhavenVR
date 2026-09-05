@@ -345,6 +345,33 @@ internal static partial class WallSegmentFade
         /// <summary>Which wall's masonry currently contains the head, if any — an observation
         /// since ModBuild 255, when the hard-1f shortcut it used to feed was deleted.</summary>
         private string _headInMasonryWall = "-";
+
+        /// <summary>
+        /// PERF S7 (2026-09-05) — TRUE ONLY ON THE PASS THAT WILL PRINT THE CENSUS.
+        ///
+        /// <para>The per-wall independence census, the animation-path census and the shape
+        /// (admission) census are all reset by <see cref="BeginPerWallCensus"/> at the top of
+        /// EVERY tick and consumed at the bottom of the SAME tick, and only on the pass where
+        /// <c>now >= _nextPerWallLogTime</c>. At the 2 s cadence and 90 Hz that is one pass in
+        /// about 180: the other 179 build the same twenty formatted strings — each one an engine
+        /// <c>Object.name</c> fetch plus several <c>F2</c> float formats — and re-read the world
+        /// box of every renderer of the first eight walls (341 of them in the ModBuild 436 log's
+        /// shape census), and then throw all of it away. That is per-frame work whose only
+        /// consumer runs at 0.5 Hz, and it is a measurable slice of both WallFade.Tick.Decide and
+        /// the 5 MB/s of managed allocation on the [Perf] FRAME line.</para>
+        ///
+        /// <para>WHY GATING IT CANNOT CHANGE A PRINTED LINE. The flag is computed from
+        /// <c>now</c> and <c>_nextPerWallLogTime</c> BEFORE the decision loop, and
+        /// <c>_nextPerWallLogTime</c> is written nowhere between that point and the emit test at
+        /// the end of the tick — so it holds exactly the value the emit test will read. On an
+        /// emitting pass every name is collected as before, from that same pass. On a
+        /// non-emitting pass the buffers are cleared again by the next
+        /// <see cref="BeginPerWallCensus"/> before anything could read them. The COUNTERS
+        /// (_pwTotal / _pwFaded / _animSmooth / _animStepped and the walk-in pair) are
+        /// deliberately NOT gated: they are cheap, and the walk-in edge line prints its two from
+        /// whichever pass flipped the latch.</para>
+        /// </summary>
+        private bool _censusNaming;
         /// <summary>Floor-grid cell count of the room the censused walls were judged against —
         /// the denominator whose reciprocal is the smallest coverage difference the metric can
         /// express at all.</summary>
@@ -2252,7 +2279,7 @@ internal static partial class WallSegmentFade
                 return;
             }
             _folNoChannel++;
-            if (_folNoChannelNames.Count < PerWallNameCap)
+            if (_censusNaming && _folNoChannelNames.Count < PerWallNameCap)
             {
                 string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                 string piece = p.Renderer != null ? p.Renderer.name : "<dead>";
@@ -2330,7 +2357,7 @@ internal static partial class WallSegmentFade
             if (seg.RunDriven)
             {
                 _pwRunPieceTotal++;
-                if (_pwRunPieceNames.Count < PerWallRunPieceCap)
+                if (_censusNaming && _pwRunPieceNames.Count < PerWallRunPieceCap)
                 {
                     string piece = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                     string owner = seg.RunOwner != null ? seg.RunOwner.name : "<orphan>";
@@ -2372,14 +2399,18 @@ internal static partial class WallSegmentFade
             if (seg.Smooth > _pwMaxSmooth)
             {
                 _pwMaxSmooth = seg.Smooth;
-                _pwMaxWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                // The FLOAT is tracked on every pass; only the engine name fetch waits for the
+                // pass that prints it — see _censusNaming.
+                if (_censusNaming)
+                    _pwMaxWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             }
             if (seg.Smooth < _pwMinSmooth)
             {
                 _pwMinSmooth = seg.Smooth;
-                _pwMinWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
+                if (_censusNaming)
+                    _pwMinWall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
             }
-            if (_pwNames.Count < PerWallNameCap)
+            if (_censusNaming && _pwNames.Count < PerWallNameCap)
             {
                 string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                 // PER-CELL ATTRIBUTION. "blocks 2 of 16" has been the unanswerable question in
@@ -2426,6 +2457,8 @@ internal static partial class WallSegmentFade
                     + (seg.State ? "FADED" : "solid")
                     + $" cells {cells}{blocker}{latch}");
             }
+            if (!_censusNaming)
+                return; // the rest of this method exists only to fill the census's name lists
             NoteAdmission(seg);
             // Kept as an OBSERVATION after ModBuild 255 deleted the hard-1f shortcut it used to
             // feed. "Is his head actually in the masonry" is still the right question to be able
@@ -2462,7 +2495,7 @@ internal static partial class WallSegmentFade
                 return;
             }
             _animStepped++;
-            if (_animSteppedNames.Count < PerWallNameCap)
+            if (_censusNaming && _animSteppedNames.Count < PerWallNameCap)
             {
                 string wall = seg.Anchor != null ? seg.Anchor.name : "<dead>";
                 _animSteppedNames.Add($"'{wall}' "

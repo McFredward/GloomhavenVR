@@ -1432,6 +1432,54 @@ internal static partial class WallSegmentFade
         private readonly HashSet<object> _censusMapsSeen = new();
         private readonly Dictionary<string, int> _censusBiomes = new();
         private readonly bool[] _sampleVisible = new bool[MaxTotalSamples]; // per-frame frustum flags
+
+        // PERF S7 (2026-09-05) — THE HEAD→SAMPLE RAY IS A PROPERTY OF THE SAMPLE, NOT OF THE
+        // WALL, AND IT WAS BEING REBUILT ONCE PER (WALL, SAMPLE) PAIR. The ModBuild 436 log
+        // prices WallFade.Tick.SplitRuns at 2.055 ms/frame while its printed population is
+        // "4.0 run(s)/tick" — four objects. The population it actually walks is the SPLIT-RUN
+        // DECIDERS (615 in that log's PER-WALL line) times their room's floor grid (16 cells),
+        // i.e. ~9840 head→sample rays per frame, each of which recomputed the same three things
+        // from the same two inputs: the vector to the sample, its length (a sqrt), and a
+        // UnityEngine.Ray whose constructor normalises the already-normalised direction (a
+        // SECOND sqrt). headPos is fixed for the whole tick and the sample positions are fixed
+        // between commits, so all of it is loop-invariant across the segment table.
+        //
+        // BIT-IDENTICAL BY CONSTRUCTION: the expressions below are the ones deleted from
+        // RoomBlockedFraction, verbatim, on the same inputs — `sample - headPos`, `.magnitude`,
+        // `new Ray(headPos, to / dist)`. The Ray is STORED rather than rebuilt precisely so the
+        // constructor's normalisation happens exactly once and its result is reused, instead of
+        // being recomputed to a value that would agree only to within float noise.
+        //
+        // Only entries whose _sampleVisible flag is true are filled; every consumer tests that
+        // flag first, exactly as before.
+        private readonly Vector3[] _samplePos = new Vector3[MaxTotalSamples];
+        private readonly Ray[] _sampleRay = new Ray[MaxTotalSamples];
+        private readonly float[] _sampleDist = new float[MaxTotalSamples];
+        /// <summary>Per sample, the axis-aligned box of the head→sample SEGMENT — i.e.
+        /// componentwise min/max of the two endpoints. Every point of that segment lies inside
+        /// it, which is what makes the cheap managed reject in RoomBlockedFraction / the narrow
+        /// phase EXACT rather than approximate: a wall box disjoint from this one can neither be
+        /// entered before the sample nor contain it, so both acceptance clauses are false.
+        /// See the argument at the reject site.</summary>
+        private readonly Vector3[] _sampleBoxMin = new Vector3[MaxTotalSamples];
+        private readonly Vector3[] _sampleBoxMax = new Vector3[MaxTotalSamples];
+        /// <summary>The head position the four arrays above were built from, and a flag that
+        /// says they were built at all this tick. Both callers of <c>BlockedFraction</c> pass the
+        /// very same <c>headPos</c> the visibility sweep saw one statement earlier — this pair is
+        /// what makes that an INVARIANT THE CODE CHECKS rather than one a comment asserts: a
+        /// mismatch falls back to computing the ray inline, which is the pre-PERF-S7 code path
+        /// verbatim, so the worst a future caller can do is be slow.</summary>
+        private Vector3 _sampleRayOrigin;
+        private bool _sampleRaysReady;
+
+        // PERF S7 — the real populations behind TickPhase.SplitRuns / TickPhase.Decide, counted
+        // where the work happens so the next hardware log can divide the milliseconds by
+        // something other than "4 runs". Folded into the TICK BUDGET line and reset with it.
+        private long _coverageSegments;   // BlockedFraction calls
+        private long _coverageSamples;    // (segment, sample) pairs the broad phase looked at
+        private long _coverageBoxSkips;   // pairs the managed box reject removed before the ICall
+        private long _coveragePieceReads; // Renderer.bounds reads the narrow phase actually made
+        private long _coveragePieceHits;  // narrow-phase piece tests served from the per-segment cache
         private readonly Dictionary<MeshRenderer, float> _floorYByRenderer = new(); // volume anchors
         private readonly List<float> _floorYScratch = new();    // median fallback scratch
         private readonly List<Material> _matScratch = new();
@@ -2197,7 +2245,7 @@ internal static partial class WallSegmentFade
             // then never priced on its own. Its population is the segment table.
             int visibleCount;
             using (Phase(TickPhase.Visibility))
-                visibleCount = evaluate ? UpdateSampleVisibility(head!) : _lastVisibleCount;
+                visibleCount = evaluate ? UpdateSampleVisibility(head!, headPos) : _lastVisibleCount;
             NoteTickWalk(TickPhase.Visibility, evaluate ? _live.Segments.Count : 0);
             _lastVisibleCount = visibleCount;
             bool reevalArmed = _perspective.Armed(now);
@@ -2231,6 +2279,11 @@ internal static partial class WallSegmentFade
             // gates, since ModBuild 271, is `walkInside`: the same verdict AND a real-metre
             // crest bar AND the HEIGHT slab AND a readable rig scale. Outside that mode the
             // per-wall metric below is the whole decision, exactly as before.
+            // PERF S7 — read the emit predicate ONCE, here, and hand it to the census. It is the
+            // same expression the emit test at the end of this tick evaluates, on the same `now`
+            // and the same _nextPerWallLogTime (which nothing writes in between), so the pass that
+            // prints collects exactly the names it printed before. See FadeDriver._censusNaming.
+            _censusNaming = now >= _nextPerWallLogTime && !PerfConfig.Quiet;
             BeginPerWallCensus();
             _lastHeadPos = headPos;
             // ModBuild 259 (user ruling 2026-08-24: "Entweder verschwindet die ganze Wand mit
@@ -2763,8 +2816,10 @@ internal static partial class WallSegmentFade
         /// precomputed floor samples. Returns the overall visible count (diagnostic only —
         /// the metric reads the flags per room).
         /// </summary>
-        private int UpdateSampleVisibility(Camera head)
+        private int UpdateSampleVisibility(Camera head, Vector3 headPos)
         {
+            _sampleRaysReady = false;
+            _sampleRayOrigin = headPos;
             int visible = 0;
             int n = Mathf.Min(_live.AllSamples.Count, _sampleVisible.Length);
             for (int i = 0; i < n; i++)
@@ -2774,11 +2829,29 @@ internal static partial class WallSegmentFade
                 // (0.20 viewport-relative) generously covers that skew.
                 // The test itself is now shared with the peer-board play-field grid, which
                 // needs it for the same reason and kept its own copy of it.
-                bool vis = OcclusionFade.InFrustum(head, _live.AllSamples[i]);
+                Vector3 sample = _live.AllSamples[i];
+                bool vis = OcclusionFade.InFrustum(head, sample);
                 _sampleVisible[i] = vis;
-                if (vis)
-                    visible++;
+                if (!vis)
+                    continue;
+                visible++;
+                // PERF S7 — the head→sample ray, built ONCE for the whole segment table instead
+                // of once per (segment, sample) pair. See the field declarations for why this is
+                // bit-identical and not merely equivalent; the statements are the ones lifted out
+                // of RoomBlockedFraction, unchanged, on the same two inputs.
+                _samplePos[i] = sample;
+                Vector3 to = sample - headPos;
+                float dist = to.magnitude;
+                _sampleDist[i] = dist;
+                _sampleBoxMin[i] = Vector3.Min(headPos, sample);
+                _sampleBoxMax[i] = Vector3.Max(headPos, sample);
+                // The 0.001 guard is the consumer's, and it still is: a degenerate sample leaves
+                // a stale Ray here and every reader tests _sampleDist before touching it.
+                if (dist < 0.001f)
+                    continue;
+                _sampleRay[i] = new Ray(headPos, to / dist);
             }
+            _sampleRaysReady = true;
             return visible;
         }
 
@@ -2830,6 +2903,11 @@ internal static partial class WallSegmentFade
         /// </summary>
         private float BlockedFraction(Segment seg, Vector3 headPos)
         {
+            // PERF S7 — FIRST STATEMENT ON PURPOSE. Every early return below would otherwise
+            // leave the previous segment's narrow-phase cache marked valid, and a wall measured
+            // against another wall's renderers is the worst defect this file could ship.
+            BeginNarrowCache(seg);
+            _coverageSegments++;
             seg.LastBlocked = 0;
             seg.LastRoomVisible = 0;
             seg.LastRoomTotal = 0;
@@ -2922,31 +3000,79 @@ internal static partial class WallSegmentFade
                 return 0f;
 
             Bounds b = seg.Bounds;
+            // PERF S7 — hoisted out of the sample loop: Bounds.min/max are center∓extents, and
+            // recomputing them per sample was 16x more arithmetic than the box reject below saves.
+            // The slack makes the reject ONE-SIDED (see CoverageRejectSlackWU): it can only ever
+            // fail to fire, never fire where the engine test would have accepted.
+            Vector3 bMin = b.min, bMax = b.max;
+            bMin.x -= CoverageRejectSlackWU; bMin.y -= CoverageRejectSlackWU; bMin.z -= CoverageRejectSlackWU;
+            bMax.x += CoverageRejectSlackWU; bMax.y += CoverageRejectSlackWU; bMax.z += CoverageRejectSlackWU;
             int start = _live.RoomSampleStart[room];
             int end = Mathf.Min(start + totalOut, Mathf.Min(_live.AllSamples.Count, _sampleVisible.Length));
             float thicknessEps = seg.BlockEps;
+            // PERF S7 — see _samplePos/_sampleRay: the per-sample ray is loop-invariant across the
+            // segment table and is built once, in the visibility sweep. `useCache` is false only
+            // if some future caller measures against a head position the sweep did not see, in
+            // which case every sample takes the inline branch, which IS the pre-PERF-S7 code.
+            // Component-wise and EXACT on purpose: Vector3.operator== is an approximate
+            // comparison (1e-5), and this is an identity test on a value that was copied, not a
+            // tolerance question.
+            bool useCache = _sampleRaysReady
+                && _sampleRayOrigin.x == headPos.x
+                && _sampleRayOrigin.y == headPos.y
+                && _sampleRayOrigin.z == headPos.z;
             int blocked = 0, roomVisible = 0;
             for (int i = start; i < end; i++)
             {
                 if (!_sampleVisible[i])
                     continue; // out of view-direction — cannot be "hidden by the wall"
                 roomVisible++;
-                Vector3 sample = _live.AllSamples[i];
-                Vector3 to = sample - headPos;
-                float dist = to.magnitude;
+                Vector3 sample;
+                float dist;
+                Vector3 segMin, segMax;
+                if (useCache)
+                {
+                    sample = _samplePos[i];
+                    dist = _sampleDist[i];
+                    segMin = _sampleBoxMin[i];
+                    segMax = _sampleBoxMax[i];
+                }
+                else
+                {
+                    sample = _live.AllSamples[i];
+                    dist = (sample - headPos).magnitude;
+                    segMin = Vector3.Min(headPos, sample);
+                    segMax = Vector3.Max(headPos, sample);
+                }
                 if (dist < 0.001f)
                     continue;
                 // Generous "clearly before the point": wall entry must precede the sample
                 // by max(half wall thickness, 5% of the ray length) — thickness alone is
                 // too strict for long grazing rays, a pure percentage was the round-4 bug.
                 float eps = Mathf.Max(thicknessEps, BlockEpsDistFraction * dist);
-                var ray = new Ray(headPos, to / dist);
+                // PERF S7 — MANAGED PRE-REJECT, AND IT IS EXACT, NOT CONSERVATIVE-BY-TASTE.
+                // Every point of the head→sample SEGMENT lies inside the axis-aligned box of its
+                // two endpoints. If seg.Bounds is strictly disjoint from that box then (a) no ray
+                // entry point can lie on the segment, so any IntersectRay hit is at d >= dist and
+                // fails `d < dist - eps` for every eps >= 0, and (b) the sample itself is outside
+                // seg.Bounds, so Contains(sample) is false. Both acceptance clauses are therefore
+                // false and the original code would have taken this same `continue` — after an
+                // engine ICall this skips. Touching boxes are NOT rejected, so the boundary case
+                // still goes the long way round.
+                if (bMax.x < segMin.x || bMin.x > segMax.x
+                    || bMax.y < segMin.y || bMin.y > segMax.y
+                    || bMax.z < segMin.z || bMin.z > segMax.z)
+                {
+                    _coverageBoxSkips++;
+                    continue;
+                }
+                Ray ray = useCache ? _sampleRay[i] : new Ray(headPos, (sample - headPos) / dist);
                 // BROAD PHASE ONLY. seg.Bounds rejects the ray cheaply; it may never ACCEPT
                 // one on its own — see RayHitsWallMesh for why a union AABB is not a wall.
                 if (!b.IntersectRay(ray, out float d) || (d >= dist - eps && !b.Contains(sample)))
                     continue;
-                if (!RayHitsWallMesh(seg, ray, dist, eps, sample, out Renderer? by,
-                                     out string byList, out bool byContains))
+                if (!NarrowHits(seg, ray, dist, eps, sample, segMin, segMax, out Renderer? by,
+                                out string byList, out bool byContains))
                 {
                     continue;
                 }
@@ -2973,7 +3099,170 @@ internal static partial class WallSegmentFade
             }
             blockedOut = blocked;
             visibleOut = roomVisible;
+            _coverageSamples += roomVisible;
             return blocked / (float)totalOut;
+        }
+
+        // ---- PERF S7: the narrow phase's per-SEGMENT piece cache -------------------------
+
+        /// <summary>
+        /// PERF S7 (2026-09-05) — THE SAME RENDERER'S WORLD BOX WAS BEING FETCHED FROM THE ENGINE
+        /// ONCE PER FLOOR SAMPLE.
+        ///
+        /// <para><see cref="RayHitsWallMesh"/> asks each piece <c>r.bounds</c> — an engine
+        /// property that recomputes the world AABB — and <c>r == null</c>, per (piece, sample)
+        /// pair. A split-run piece owns ONE renderer and its room carries 16 floor cells, so the
+        /// ModBuild 436 board fetched the identical box up to sixteen times per piece per frame
+        /// across 615 deciders. The box cannot change inside one <see cref="BlockedFraction"/>
+        /// call: nothing between the first sample and the last writes a transform, the call runs
+        /// synchronously inside our own LateUpdate, and the alt-room passes of a seam wall are
+        /// part of the same call. Reading it once per call is therefore the same number, not an
+        /// approximation of it.</para>
+        ///
+        /// <para>THE CAP IS THE WHOLE DESIGN. Building the cache is eager, so a segment with 178
+        /// renderers would pay 178 box fetches even when the very first piece answers every ray —
+        /// which is what the un-cached walk does today and does WELL, because it returns on the
+        /// first hit. So the cache is built only for segments at or under
+        /// <see cref="NarrowCacheMaxPieces"/> pieces, which is every split-run piece (the 615-strong
+        /// population that costs the milliseconds) and none of the big unsplit walls (34 of them,
+        /// 544 pairs, whose code path is byte-for-byte the pre-PERF-S7 one). A segment over the cap
+        /// takes <see cref="RayHitsWallMesh"/> exactly as before.</para>
+        ///
+        /// <para>ORDER IS PRESERVED EXACTLY — Renderers, Foliage, Siblings, Body, Stacked — because
+        /// the FIRST piece to accept a ray is what the diagnostics name
+        /// (<c>Segment.LastBlockerPiece</c> / <c>LastBlockerList</c>), and a different order would
+        /// silently rewrite every blocker attribution in the log. Null pieces are dropped exactly
+        /// where the old walk skipped them without counting them, so an EMPTY cache means the same
+        /// thing <c>meshes == 0</c> meant: no meshes to ask, and the fail-open verdict.</para>
+        /// </summary>
+        private const int NarrowCacheMaxPieces = 16;
+
+        /// <summary>
+        /// PERF S7 — the ROUNDING GUARD on the managed box rejects, and deliberately not a tuning
+        /// dial: it only ever makes a reject FAIL TO FIRE, in which case the pair falls through to
+        /// the engine test that decided it before this build. The reject's argument is exact in
+        /// real arithmetic; in float, <c>Bounds.min</c> is <c>center - extents</c> evaluated in
+        /// managed code while the engine's own AABB routines work from center/extents directly, so
+        /// the two can disagree by an ulp on a ray that grazes a face. One ulp at this scene's
+        /// widest coordinate (a few hundred world units) is about 3e-5 wu; 1e-3 wu is thirty times
+        /// that and, at the diorama's ~20x world scale, fifty microns of real geometry — far below
+        /// anything a floor-cell verdict can resolve, and it is spent in the SAFE direction.
+        /// </summary>
+        private const float CoverageRejectSlackWU = 0.001f;
+
+        private readonly List<Renderer> _narrowPieces = new();
+        private readonly List<Bounds> _narrowBounds = new();
+        private readonly List<string> _narrowFromList = new();
+        /// <summary>The segment the cache is eligible for, or null when this segment is over the
+        /// cap and keeps the uncached walk.</summary>
+        private Segment? _narrowSeg;
+        /// <summary>Whether the boxes have actually been fetched yet. THE BUILD IS LAZY, and that
+        /// is not a micro-optimisation: a segment whose broad phase rejects all sixteen of its
+        /// room's samples never reaches the narrow phase at all, and eagerly fetching its boxes
+        /// would ADD engine calls to exactly the segments this round is trying to make cheaper.
+        /// Nothing is fetched until the first ray actually gets past seg.Bounds.</summary>
+        private bool _narrowBuilt;
+
+        private void BeginNarrowCache(Segment seg)
+        {
+            _narrowBuilt = false;
+            int n = seg.Renderers.Count + seg.Foliage.Count + seg.Siblings.Count
+                    + seg.Body.Count + seg.Stacked.Count;
+            // A big wall keeps the first-hit short circuit — see the header.
+            _narrowSeg = n > NarrowCacheMaxPieces ? null : seg;
+        }
+
+        private void BuildNarrowCache(Segment seg)
+        {
+            _narrowBuilt = true;
+            _narrowPieces.Clear();
+            _narrowBounds.Clear();
+            _narrowFromList.Clear();
+            for (int i = 0; i < seg.Renderers.Count; i++)
+                AddNarrowPiece(seg.Renderers[i], "Renderers");
+            for (int i = 0; i < seg.Foliage.Count; i++)
+                AddNarrowPiece(seg.Foliage[i], "Foliage");
+            for (int i = 0; i < seg.Siblings.Count; i++)
+                AddNarrowPiece(seg.Siblings[i], "Siblings");
+            for (int i = 0; i < seg.Body.Count; i++)
+                AddNarrowPiece(seg.Body[i].Renderer, "Body");
+            for (int i = 0; i < seg.Stacked.Count; i++)
+                AddNarrowPiece(seg.Stacked[i].Renderer, "Stacked");
+            // seg.Mounted is deliberately NOT cached, for the same reason RayHitsWallMesh does
+            // not walk it — see that method's exclusion note.
+        }
+
+        private void AddNarrowPiece(Renderer? r, string fromList)
+        {
+            if (r == null)
+                return;
+            _narrowPieces.Add(r);
+            _narrowBounds.Add(r.bounds);
+            _narrowFromList.Add(fromList);
+            _coveragePieceReads++;
+        }
+
+        /// <summary>
+        /// The narrow phase as the broad phase calls it: the cached walk when
+        /// <see cref="BeginNarrowCache"/> built one for this segment, otherwise
+        /// <see cref="RayHitsWallMesh"/> unchanged. The two return the same verdict, the same
+        /// blocking piece, the same list name and the same <paramref name="byContains"/> for
+        /// every input — the cached walk is that method with the two engine reads lifted out of
+        /// the loop and the same exact box reject the broad phase uses in front of the ICall.
+        /// </summary>
+        private bool NarrowHits(Segment seg, Ray ray, float dist, float eps, Vector3 sample,
+            Vector3 segMin, Vector3 segMax, out Renderer? by, out string fromList,
+            out bool byContains)
+        {
+            if (!ReferenceEquals(_narrowSeg, seg))
+                return RayHitsWallMesh(seg, ray, dist, eps, sample, out by, out fromList,
+                                       out byContains);
+            if (!_narrowBuilt)
+                BuildNarrowCache(seg);
+            by = null;
+            fromList = "-";
+            byContains = false;
+            int n = _narrowPieces.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Bounds rb = _narrowBounds[i];
+                // Each of these is one engine box fetch the pre-PERF-S7 walk would have made.
+                _coveragePieceHits++;
+                Vector3 rMin = rb.min, rMax = rb.max;
+                rMin.x -= CoverageRejectSlackWU; rMin.y -= CoverageRejectSlackWU; rMin.z -= CoverageRejectSlackWU;
+                rMax.x += CoverageRejectSlackWU; rMax.y += CoverageRejectSlackWU; rMax.z += CoverageRejectSlackWU;
+                // Exact, for the reason spelled out at the broad-phase reject: a piece box
+                // disjoint from the head→sample segment's own box can neither be entered before
+                // the sample nor contain it, so HitsPiece would have returned false.
+                if (rMax.x < segMin.x || rMin.x > segMax.x
+                    || rMax.y < segMin.y || rMin.y > segMax.y
+                    || rMax.z < segMin.z || rMin.z > segMax.z)
+                    continue;
+                if (!rb.IntersectRay(ray, out float rd))
+                    continue;
+                if (rd < dist - eps)
+                {
+                    by = _narrowPieces[i];
+                    fromList = _narrowFromList[i];
+                    return true;
+                }
+                // CONTAINS is reported separately (ModBuild 257) and NOT changed — see HitsPiece.
+                if (rb.Contains(sample))
+                {
+                    by = _narrowPieces[i];
+                    fromList = _narrowFromList[i];
+                    byContains = true;
+                    return true;
+                }
+            }
+            // No meshes to ask: keep the broad-phase verdict. Same statement, same literal, same
+            // reason as RayHitsWallMesh's tail — an empty cache IS `meshes == 0`.
+            if (n == 0)
+            {
+                fromList = "fail-open (no meshes to ask)";
+                return true;
+            }
+            return false;
         }
 
         /// <summary>

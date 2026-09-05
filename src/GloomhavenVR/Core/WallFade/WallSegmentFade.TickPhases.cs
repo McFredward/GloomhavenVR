@@ -314,6 +314,13 @@ internal static partial class WallSegmentFade
             _tickFrames = 0;
             _tickSampledFrames = 0;
             _tickInstrumentTicks = 0;
+            // PERF S7 coverage populations — same window, same reset point, same rule: the
+            // cadence and the reset live in the mechanism and not in the logger.
+            _coverageSegments = 0;
+            _coverageSamples = 0;
+            _coverageBoxSkips = 0;
+            _coveragePieceReads = 0;
+            _coveragePieceHits = 0;
         }
 
         /// <summary>
@@ -373,6 +380,35 @@ internal static partial class WallSegmentFade
               .Append(" holder-chain step(s) instead — the same removals, from the same segments, ")
               .Append("in the same order. 0 and 0 together mean no unit was torn since the last ")
               .Append("commit, which is the steady state and not a dead counter.");
+
+            // PERF S7 — APPENDED, never reworded. The phase line above prices SplitRuns against
+            // "4.0 run(s)/tick", which is the number of VERDICTS it produces and not the work it
+            // does: the work is one BlockedFraction per decision-eligible piece times its room's
+            // floor grid. This clause names that population, so the next log divides the
+            // milliseconds by something the fix can move.
+            double coverageFrames = Math.Max(_tickFrames, 1L);
+            long pieceTotal = _coveragePieceReads + _coveragePieceHits;
+            sb.Append(" COVERAGE POPULATIONS (PERF S7, and this is the divisor the SplitRuns and ")
+              .Append("Decide figures above actually need): ")
+              .Append((_coverageSegments / coverageFrames).ToString("F1"))
+              .Append(" BlockedFraction call(s)/tick over ")
+              .Append((_coverageSamples / coverageFrames).ToString("F1"))
+              .Append(" (segment, floor-sample) pair(s)/tick, of which ")
+              .Append((_coverageBoxSkips / coverageFrames).ToString("F1"))
+              .Append(" were dropped by the managed head→sample box reject before any engine ray ")
+              .Append("call (that reject is EXACT — see RoomBlockedFraction — so this number is a ")
+              .Append("saving and never a difference in verdict). NARROW PHASE: ")
+              .Append((_coveragePieceReads / coverageFrames).ToString("F1"))
+              .Append(" renderer world-box fetch(es)/tick, serving ")
+              .Append((_coveragePieceHits / coverageFrames).ToString("F1"))
+              .Append(" piece test(s)/tick from the per-segment cache; before PERF S7 those were ")
+              .Append("ONE number and the engine was asked ")
+              .Append((pieceTotal / coverageFrames).ToString("F1"))
+              .Append(" times a tick for boxes that cannot change inside one call. Segments over ")
+              .Append(NarrowCacheMaxPieces)
+              .Append(" piece(s) keep the uncached first-hit walk and contribute to neither figure, ")
+              .Append("so a large pair count beside a small fetch count is the CAP working, not a ")
+              .Append("dead counter.");
 
             sb.Append(" THIS INSTRUMENT COST ")
               .Append(((float)(_tickInstrumentTicks * msPerTick)).ToString("F2"))
