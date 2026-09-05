@@ -261,7 +261,7 @@ internal static class LoadoutConfirmPark
     /// is the same 24 px <c>StoryComposite.ImageGapPx</c> uses between the quest picture and the
     /// dialog, for the same reason — on a committed panel that is roughly 17-25 mm, visibly one gap and
     /// never a separation.</summary>
-    private const float ConfirmGapPx = 24f;
+    private const float ConfirmGapPx = ChromeParkTuning.ChromeGapPx;
 
     /// <summary>Has the frame clamp been reported as biting this session? One line, not one per
     /// tick: the solve runs on every reseat and a clamped state persists for as long as the picker
@@ -297,22 +297,25 @@ internal static class LoadoutConfirmPark
     /// the re-seat line is already for.</summary>
     private static int _seatVerdictStamp = int.MinValue;
 
-    /// <summary>Below this the re-place is skipped, in authored uGUI px — <c>MapTravelConfirm</c>'s
-    /// <c>OffsetEpsilon</c>, for its reason: a settled layout is not bit-identical frame to frame and
-    /// writing it back every frame would keep the host's content fit re-measuring forever.</summary>
-    private const float OffsetEpsilonPx = 0.5f;
+    // THREE CONSTANTS THAT USED TO BE RESTATED HERE, each with a comment naming the file it was
+    // copied from and the words "for its reason" — which is a shared meaning written twice, not two
+    // meanings (ModBuild 439, survey row R35). They now ALIAS ChromeParkTuning, where the argument
+    // for each is written once. No value moved. What is deliberately NOT shared is this class's
+    // bounds sweep: it is the only one that clips to uGUI masks and the only one with an escape lane
+    // when the union fills the frame, and its own comment refuses to extend ClipToMasks to the
+    // others' unions.
 
-    /// <summary>How often the measured zero is re-solved, seconds. <c>MapTravelConfirm</c>'s
-    /// <c>AnchorRefreshIntervalSeconds</c> and the same argument: the sweep walks every Graphic under
-    /// the character screen, the thing it measures changes when the roster or a sub-panel changes,
-    /// and running it per frame would buy nothing in a room whose Update budget is already the one
-    /// the perf line complains about.</summary>
-    private const float AnchorRefreshIntervalSeconds = 0.2f;
+    /// <summary>Below this the re-place is skipped, in authored uGUI px.</summary>
+    private const float OffsetEpsilonPx = ChromeParkTuning.OffsetEpsilonPx;
+
+    /// <summary>How often the measured zero is re-solved, seconds. Here the sweep walks every
+    /// Graphic under the character screen and what it measures changes when the roster or a sub-panel
+    /// does — the shared cadence's argument, on this window's numbers.</summary>
+    private const float AnchorRefreshIntervalSeconds = ChromeParkTuning.AnchorRefreshIntervalSeconds;
 
     /// <summary>How long the park claim may stand while the online control is on screen but not yet
-    /// parked. <c>MapQuestReadyUp</c>'s <c>ClaimGraceSeconds</c>, for its reason: a confirm nobody
-    /// can reach is worse than an ugly one, so the refusal is released rather than held.</summary>
-    private const float ClaimGraceSeconds = 1.5f;
+    /// parked.</summary>
+    private const float ClaimGraceSeconds = ChromeParkTuning.ClaimGraceSeconds;
 
     // ---- park state ----------------------------------------------------------------------------
 

@@ -644,13 +644,22 @@ internal static class MapTravelConfirm
     /// does. A fifth of a second is far below the time it takes a window to re-fit and far above the
     /// frame rate, so the button follows a new quest visibly at once and costs nothing in between.
     /// The first tick after a park always measures, whatever this says.
+    ///
+    /// <para>ONE VALUE, EVERY PARKER: <see cref="ChromeParkTuning.AnchorRefreshIntervalSeconds"/>,
+    /// which carries this cadence and its argument once (ModBuild 439, survey row R35).
+    /// <c>LoadoutConfirmPark</c> held a copy of it whose own comment said "MapTravelConfirm's
+    /// AnchorRefreshIntervalSeconds and the same argument".</para>
     /// </summary>
-    private const float AnchorRefreshIntervalSeconds = 0.2f;
+    private const float AnchorRefreshIntervalSeconds = ChromeParkTuning.AnchorRefreshIntervalSeconds;
 
     /// <summary>How far the dialled offset must move before it is written (container-local uGUI
     /// units). Sub-pixel churn is not worth a transform write, and a rect rewritten every frame is
-    /// indistinguishable from a write war in a log.</summary>
-    private const float OffsetEpsilon = 0.5f;
+    /// indistinguishable from a write war in a log.
+    ///
+    /// <para>ONE VALUE, EVERY PARKER: <see cref="ChromeParkTuning.OffsetEpsilonPx"/>. This was the ORIGINAL and the
+    /// other four parkers each restated its value with a comment naming this constant "for its
+    /// reason" (ModBuild 439, survey row R35).</para></summary>
+    private const float OffsetEpsilon = ChromeParkTuning.OffsetEpsilonPx;
 
     /// <summary>
     /// Hard bound on how long the button may stay held down after the game showed it while no pose

@@ -684,13 +684,12 @@ internal static class StoryComposite
     /// on the composite's committed panel: visibly one gap, never a separation. The falsifier
     /// <c>STORY COMPOSITE GAP</c> states the millimetres against
     /// <see cref="MaxGapMillimetres"/>.</para></summary>
-    private const float ImageGapPx = 24f;
+    private const float ImageGapPx = ChromeParkTuning.ChromeGapPx;
 
-    /// <summary>Below this the re-place is skipped, in authored uGUI px. Same purpose as
-    /// <c>MapTravelConfirm</c>'s <c>OffsetEpsilon</c>: the layout settles to a value that is not
-    /// bit-identical frame to frame, and writing it back every frame would dirty the host rect and
-    /// keep the panel's content fit re-measuring forever.</summary>
-    private const float OffsetEpsilonPx = 0.5f;
+    /// <summary>Below this the re-place is skipped, in authored uGUI px —
+    /// <see cref="ChromeParkTuning.OffsetEpsilonPx"/>, where the argument this used to restate from
+    /// <c>MapTravelConfirm</c> is written once (ModBuild 439, survey row R35).</summary>
+    private const float OffsetEpsilonPx = ChromeParkTuning.OffsetEpsilonPx;
 
     /// <summary>A parked subtree must be a MINORITY of its window, or it is not the image. The
     /// paper measures 1280x720 inside a 1920x1080 window (0.67 x 0.67); the group that CONTAINS it

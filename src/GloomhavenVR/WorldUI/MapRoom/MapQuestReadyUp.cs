@@ -296,8 +296,14 @@ internal static class MapQuestReadyUp
     /// bounds how long a claim survives WITHOUT BEING RE-ASSERTED (i.e. how quickly a dead parker
     /// releases its refusal), while this one bounds how long a LIVE parker may keep asserting a claim
     /// it cannot make good on.</para>
+    ///
+    /// <para>ONE VALUE, EVERY PARKER: <see cref="ChromeParkTuning.ClaimGraceSeconds"/>, which
+    /// carries this bound and the ruling behind it once. <c>LoadoutConfirmPark</c> held a copy whose
+    /// own comment said "MapQuestReadyUp's ClaimGraceSeconds, for its reason" (ModBuild 439, survey
+    /// row R35). The paragraph above about ReadyToggleParkClaim.ClaimLifetimeSeconds travelled with
+    /// it.</para>
     /// </summary>
-    private const float ClaimGraceSeconds = 1.5f;
+    private const float ClaimGraceSeconds = ChromeParkTuning.ClaimGraceSeconds;
 
     private static ClaimState _claimState = ClaimState.None;
     private static GameObject? _claimed;

@@ -198,8 +198,14 @@ internal static class HintOnOwnerComposite
 
     /// <summary>Below this many authored px the placement correction is not written at all — a hint
     /// that is already where it should be must never be nudged, or the "correction" becomes the
-    /// per-frame jitter that makes the two eyes disagree.</summary>
-    private const float OffsetEpsilonPx = 0.5f;
+    /// per-frame jitter that makes the two eyes disagree. That is this parker's own statement of the
+    /// shared reason, so it takes the shared value (ModBuild 439, survey row R35).
+    ///
+    /// <para><see cref="HintGapPx"/> beside it deliberately does NOT join
+    /// <see cref="ChromeParkTuning.ChromeGapPx"/>: it is the same 24 px by coincidence of taste and
+    /// carries its own argument (the hint sits ON the window like a tooltip rather than hanging off
+    /// it), and a number argued independently is exactly what must not be collapsed.</para></summary>
+    private const float OffsetEpsilonPx = ChromeParkTuning.OffsetEpsilonPx;
 
     /// <summary>A hint rect smaller than this in either axis is not a message box; refuse to park it
     /// rather than do anchor arithmetic on a degenerate rect.</summary>

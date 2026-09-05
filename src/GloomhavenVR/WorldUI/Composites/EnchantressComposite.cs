@@ -197,10 +197,11 @@ internal static class EnchantressComposite
     /// and the same reason as <c>StoryComposite.MinParkSizePx</c>.</summary>
     private const float MinParkSizePx = 2f;
 
-    /// <summary>Below this the re-place writes nothing. <c>StoryComposite.OffsetEpsilonPx</c>'s value
-    /// and its reason: the pose is computed from float measurements, so exact equality would be
-    /// defeated by the last bit while anything visible is orders of magnitude above it.</summary>
-    private const float OffsetEpsilonPx = 0.5f;
+    /// <summary>Below this the re-place writes nothing — <see cref="ChromeParkTuning.OffsetEpsilonPx"/>.
+    /// The reason it used to restate from <c>StoryComposite</c> holds here too: the pose is computed
+    /// from float measurements, so exact equality would be defeated by the last bit while anything
+    /// visible is orders of magnitude above it (ModBuild 439, survey row R35).</summary>
+    private const float OffsetEpsilonPx = ChromeParkTuning.OffsetEpsilonPx;
 
     /// <summary>
     /// The smallest uniform scale the park may draw the list at. Below it the park is declined as a
