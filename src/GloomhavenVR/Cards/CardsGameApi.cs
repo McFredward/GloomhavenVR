@@ -443,6 +443,70 @@ internal static class CardsGameApi
     }
 
     /// <summary>
+    /// IS A MODAL CARD PICK ACTUALLY BEING ASKED FOR RIGHT NOW — the game's OWN
+    /// <c>maxCardsSelected</c>, RAW, with no fallback.
+    ///
+    /// <para>WHY THIS IS NOT <see cref="PickCardsWanted"/>. That one answers "how many does the
+    /// open pick want" and floors a zero at 2 so a placement hint can never under-shoot. The
+    /// question HERE is the opposite one — "is a pick open at all" — and for it the zero is the
+    /// whole answer, so a fallback that hides it is the defect. The 2026-09-05 hardware log shows
+    /// the floor fabricating a requirement out of nothing: <c>Pick banner: "Testo: Waehle 2
+    /// Karte(n) zum Verlieren - 1/2 gewaehlt"</c> long after the damage flow closed, with no
+    /// preceding pick-source line and no commit.</para>
+    ///
+    /// <para>THE ROOT CAUSE IT ANSWERS (2026-09-05 item 11d: "eine bereits verbrannte Karte kam
+    /// wieder zurueck aus dem Stapel auf das Board und oben stand ich solle etwas verbrennen - war
+    /// aber garnicht mehr am Zug"). <c>CardsHandUI.currentMode</c> STAYS <c>LoseCard</c> after the
+    /// damage decision closes - the same latch the ActionSelection branch of
+    /// <c>CardsDriver.Rebuild</c> already documents - and <c>TakeDamagePanel</c>'s reset re-Shows
+    /// the hand with <c>selectableCardType = CardPileType.Any, maxCardsSelected = 0</c>
+    /// (TakeDamagePanel.cs:520). <c>AbilityCardUI.SetMode</c> then runs
+    /// <c>SetSelectable(selectableCardType.Contains(Any) || ...)</c> (AbilityCardUI.cs:905), so
+    /// EVERY widget in that hand - including the ones already in the LOST pile - comes back with
+    /// <c>isSelectable == true</c>. A pick fill that reads only that latch therefore re-adopts
+    /// burnt cards onto the board. The log names it in one line:
+    /// <c>Pick fan source (LoseCard): burnt pile</c>.</para>
+    ///
+    /// <para>The count is read off the HAND (its <c>UpdateView</c> is the same call that produced
+    /// the <c>isSelectable</c> flags being tested, so the two can never be a frame apart), falling
+    /// back to the manager's copy of the same <c>Show</c> parameter when there is no hand.</para>
+    /// </summary>
+    internal static bool PickIsOpen(CardsHandUI? hand)
+    {
+        try
+        {
+            if (hand != null)
+                return hand.MaxSelectedCards > 0;
+            CardsHandManager manager = CardsHandManager.Instance;
+            return manager != null && manager.maxCardsSelected > 0;
+        }
+        catch (System.Exception)
+        {
+            return false; // a game-side shape change must never fabricate a pick nobody asked for
+        }
+    }
+
+    /// <summary>
+    /// May a widget sitting in THIS pile be offered as a candidate for THIS pick mode?
+    ///
+    /// <para>A card that is already LOST cannot be lost again and a card that is already lost
+    /// cannot be discarded, so <c>Lost</c>/<c>Permalost</c> are never legal sources for
+    /// <c>LoseCard</c>/<c>DiscardCard</c>. They ARE the legal source for <c>RecoverLostCard</c>,
+    /// which is why this is a per-mode test and not a blanket refusal.</para>
+    ///
+    /// <para>This is the SECOND belt behind <see cref="PickIsOpen"/> and it is deliberately
+    /// independent of it: the panel's reset Show passes <c>CardPileType.Any</c>, so the game's own
+    /// <see cref="IsPickEligible"/> answers TRUE for a burnt widget and cannot be used alone. A
+    /// count of zero and an illegal source pile are two different ways for the same latch to leak,
+    /// and item 11d needs both shut.</para>
+    /// </summary>
+    internal static bool PickPileIsLegalFor(CardHandMode mode, CardPileType pile)
+    {
+        bool losing = mode == CardHandMode.LoseCard || mode == CardHandMode.DiscardCard;
+        return !losing || (pile != CardPileType.Lost && pile != CardPileType.Permalost);
+    }
+
+    /// <summary>
     /// Task #11: is the PICK CONFIRM DialogPopup live for a modal pick flow? The game
     /// opens exactly ONE dialog in the lose/discard pick flows — the
     /// "Karten verbrennen" / "Wähle eine andere Karte" popup shown the moment

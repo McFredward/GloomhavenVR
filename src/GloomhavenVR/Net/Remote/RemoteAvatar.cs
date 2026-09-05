@@ -59,6 +59,7 @@ internal sealed class RemoteAvatar
     /// one control-board-adjacent display that had no mirror at all before it.</summary>
     private readonly RemoteEmptyFanHint _emptyFanHint;
     private readonly RemoteCardFx _cardFx;     // report 6: replayed card animations
+    private readonly RemoteBurnFx _burnFx;     // item 11a/11b: the peer's burn, on the right card
     private readonly RemoteBrowserFan _browserFan; // the peer's discard/burnt pile-browse reading fan
     private readonly RemoteNameTag _nameTag;   // username + Steam avatar floating above the mask
 
@@ -830,6 +831,7 @@ internal sealed class RemoteAvatar
         _itemFan = new RemoteItemFan(this);
         _emptyFanHint = new RemoteEmptyFanHint(this);
         _cardFx = new RemoteCardFx(this);
+        _burnFx = new RemoteBurnFx(this);
         _browserFan = new RemoteBrowserFan(this);
         _nameTag = new RemoteNameTag(this); // appended last — never reorder the ctor above (ghosts-before-BuildHands)
 
@@ -1477,7 +1479,13 @@ internal sealed class RemoteAvatar
             else if (p.FxSeq != _lastFxSeq)
             {
                 _lastFxSeq = p.FxSeq;
-                _cardFx.Play(p.FxEndpoints);
+                // ITEM 11a/11b: a BURN this client has already recognised out of the owner's
+                // host-replicated Lost pile is presented on the REAL card by RemoteBurnFx, which
+                // then swallows this event so the same burn cannot also fly as an anonymous back
+                // slab. Every other event - and every burn that mirror could not present - falls
+                // through to the unchanged path below.
+                if (!_burnFx.ConsumesWireEvent(p.FxEndpoints))
+                    _cardFx.Play(p.FxEndpoints);
             }
         }
     }
@@ -1624,7 +1632,10 @@ internal sealed class RemoteAvatar
             _emptyFanHint.Tick();
         }
         using (Core.PerfMonitor.Scope("Net.AvatarExtras"))
+        {
             _cardFx.Tick(dt);
+            _burnFx.Tick(dt);
+        }
         using (Core.PerfMonitor.Scope("Net.Fans"))
             _browserFan.Tick(dt);
         using (Core.PerfMonitor.Scope("Net.AvatarExtras"))
@@ -1943,6 +1954,7 @@ internal sealed class RemoteAvatar
         _itemFan.Destroy();
         _emptyFanHint.Destroy();
         _cardFx.Destroy();
+        _burnFx.Destroy();
         _browserFan.Destroy();
         _nameTag.Destroy();
         // Record 36's front overlays own their own clones and materials, so they are destroyed in

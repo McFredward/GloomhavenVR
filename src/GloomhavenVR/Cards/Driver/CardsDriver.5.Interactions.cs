@@ -771,6 +771,50 @@ internal sealed partial class CardsDriver
     /// <summary>Change-dedup for the pick-fan source line (item 9): (mode, source pile).</summary>
     private (CardHandMode mode, CardPileType source)? _loggedPickSource;
 
+    /// <summary>Change-dedup for the pick-fill GATE line (item 11d): (mode, open, refused).</summary>
+    private (CardHandMode mode, bool open, bool refused)? _loggedPickGate;
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-05 item 11d, "eine bereits verbrannte Karte kam wieder zurueck aus dem
+    /// Stapel auf das Board ... war aber garnicht mehr am Zug"): state, once per change, whether a
+    /// modal pick is REALLY open and whether this fill refused any candidate for sitting in a pile
+    /// its mode may not draw from. Grep token: <c>PICK GATE</c>.
+    ///
+    /// <para>Change-gated on (mode, open, refused&gt;0), so it is at most a handful of lines per
+    /// pick and NEVER per frame even though the fill it guards runs on every rebuild.</para>
+    ///
+    /// <para>PROOF the fix landed: after a burn commits, one line with <c>pick=CLOSED</c> - the
+    /// game's own <c>maxCardsSelected</c> read 0, so nothing was seated and the banner stood down.
+    /// Read it together with the absence of any later <c>Pick fan source (LoseCard): burnt
+    /// pile</c>, which is the pre-fix line this whole gate exists to stop.</para>
+    ///
+    /// <para>FALSIFIER - the fix is INERT rather than the defect being gone: <c>pick=OPEN</c>
+    /// standing for minutes after the last <c>Pick commit</c>, or a <c>Pick fan source (LoseCard):
+    /// burnt pile</c> line appearing again WITH <c>refusedFromIllegalPile=0</c>. The first means
+    /// the game leaves a nonzero count behind too and the count is not the right term; the second
+    /// means the burnt widgets reached the fill through a pile this test does not name.</para>
+    /// </summary>
+    private void LogPickFillGate(CardHandMode mode, bool pickOpen, int refusedPile, CardsHandUI? hand)
+    {
+        var key = (mode, pickOpen, refusedPile > 0);
+        if (_loggedPickGate.HasValue && _loggedPickGate.Value == key)
+            return;
+        _loggedPickGate = key;
+        int want = hand != null ? hand.MaxSelectedCards : -1;
+        // HW-VERIFY: grep token "PICK GATE". PROOF = a pick=CLOSED line after each burn commits,
+        // and no later "Pick fan source (LoseCard): burnt pile". FALSIFIER = pick=OPEN standing for
+        // minutes after the last "Pick commit", or the burnt-pile source line back with
+        // refusedFromIllegalPile=0. See this method's doc for what each of those means.
+        VRLog.Note("Cards", $"PICK GATE ({mode}): pick={(pickOpen ? "OPEN" : "CLOSED")} " +
+                            $"(the game's own maxCardsSelected = {want}), " +
+                            $"refusedFromIllegalPile={refusedPile}. CLOSED means the hand's mode is " +
+                            "still a pick mode but nothing is being asked for - the game leaves " +
+                            "CardsHandUI.currentMode latched and TakeDamagePanel's reset re-Shows with " +
+                            "selectableCardType=Any, which turns every widget in the hand selectable " +
+                            "INCLUDING the ones already burnt. No candidate is seated on the board and " +
+                            "no banner is raised while this reads CLOSED.");
+    }
+
     /// <summary>
     /// Item 9: name where the pick fan's candidates come from — the REAL HAND
     /// (avoid-damage lose-1, card-limit) vs the DISCARD pile (burn-two-discarded,

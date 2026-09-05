@@ -875,11 +875,31 @@ internal sealed partial class CardsDriver
                 // (OnCardGrabbed → game's own "choose another card"), which restores
                 // real selectability before any commit can run.
                 bool confirmOpen = CardsGameApi.IsPickConfirmDialogOpen(hand);
-                for (int i = 0; i < _widgetBuffer.Count; i++)
+                // ITEM 11d (2026-09-05): A LATCH THE GAME LEAVES SET IS NOT A LIVE PICK.
+                // `widget.IsSelectable` was the ONLY term here, and it survives the flow: when the
+                // damage decision closes, TakeDamagePanel re-Shows the hand with
+                // `selectableCardType = Any, maxCardsSelected = 0` (TakeDamagePanel.cs:520) and
+                // AbilityCardUI.SetMode's `Contains(Any)` arm (AbilityCardUI.cs:905) turns EVERY
+                // widget in the hand selectable - the ones in the LOST pile included. The fill then
+                // re-adopted burnt cards onto the board and the banner kept asking for a burn while
+                // it was no longer the player's turn. The hardware log names both halves:
+                //   251607  Pick fan source (LoseCard): burnt pile
+                //   256719  Pick banner: "Testo: Waehle 2 Karte(n) zum Verlieren - 1/2 gewaehlt"
+                // The remedy is the game's own count - it says 0 exactly when nothing is being
+                // asked for - plus a per-mode source-pile test, because a pick that IS open with
+                // `Any` still has no business offering a card that is already lost.
+                bool pickOpen = CardsGameApi.PickIsOpen(hand);
+                int refusedPile = 0;
+                for (int i = 0; pickOpen && i < _widgetBuffer.Count; i++)
                 {
                     AbilityCardUI widget = _widgetBuffer[i];
                     if (widget.AbilityCard == null || widget.IsLongRest)
                         continue;
+                    if (!CardsGameApi.PickPileIsLegalFor(mode, widget.CardType))
+                    {
+                        refusedPile++;
+                        continue;
+                    }
                     bool eligible = widget.IsSelectable
                         || (confirmOpen && !widget.IsSelected && CardsGameApi.IsPickEligible(hand, widget));
                     if (!eligible)
@@ -890,6 +910,7 @@ internal sealed partial class CardsDriver
                     if (!_fieldCards.Contains(card))
                         _fanBuffer.Add(card);
                 }
+                LogPickFillGate(mode, pickOpen, refusedPile, hand);
                 LogPickSource(mode, pickSource);
                 RelayoutField();
                 break;
@@ -2496,6 +2517,7 @@ internal sealed partial class CardsDriver
         // sweep. Same 2-byte semantic endpoint pair as the others; peers replay a card-back slab
         // arcing off this player's board into their burnt stack.
         ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+        LogBurnAttribution(widget, "park-sweep");
         VRCard flying = card;
         card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
         {
@@ -2508,6 +2530,34 @@ internal sealed partial class CardsDriver
                             "board, orientation locked). VR presentation only; the game's own pile state is " +
                             "untouched.");
         return true;
+    }
+
+    /// <summary>
+    /// HARDWARE VERIFICATION (2026-09-05 item 11a, "der Mitspieler sieht eine andere Karte die verbrannt wurde
+    /// als ich"): name the card THIS client attributed the burn to. One line per launched burn (the
+    /// launch sites claim the widget into <see cref="_knownBurntWidgets"/> first, so a burn cannot
+    /// print twice), never per frame.
+    ///
+    /// <para>Grep token: <c>BURN CARD</c>. Its RECEIVER twin is <c>RemoteBurnFx</c>'s line with the
+    /// same token, so ONE grep across the two hardware logs decides 11a: the owner's line and the
+    /// peer's line for the same burn must name the same card. They are deliberately the same token
+    /// and the same field order so the comparison needs no arithmetic.</para>
+    ///
+    /// <para>FALSIFIER: this line appearing on the owner with NO <c>BURN CARD</c> line on the peer
+    /// at all means the peer's mirror never armed (board hidden, or the burnt-pile walk found
+    /// nothing) — a different defect from the two lines disagreeing, which is the 1:1 breach.</para>
+    /// </summary>
+    private static void LogBurnAttribution(AbilityCardUI widget, string origin)
+    {
+        // HW-VERIFY: grep token "BURN CARD". Its twin is RemoteBurnFx's line with the same token on
+        // the PEER; for one burn the two must name the same card. See this method's doc for the
+        // falsifiers (different cards = 11a still open; no peer line at all = the mirror never armed).
+        VRLog.Note("Cards", $"BURN CARD [owner/{origin}]: this client burned " +
+                            $"'{CardsGameApi.CardName(widget)}'. This is the card whose face lies on the " +
+                            "board through its burn artwork and then flies into the Burnt stack here. " +
+                            "Every peer resolves the SAME card locally out of this character's " +
+                            "host-replicated LostAbilityCards list (no identity rides the wire) and prints " +
+                            "its own BURN CARD line — the two naming different cards IS the 1:1 breach.");
     }
 
     /// <summary>
@@ -3081,14 +3131,50 @@ internal sealed partial class CardsDriver
         _burnHoldSince.Remove(widget);
         _burnHoldLogged.Remove(widget);
         if (held > 0.01f)
-            VRLog.Info("Cards", $"BURN ANIM: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
+        {
+            // HW-VERIFY (2026-09-05 item 11c "auch fuer mich blieb die Karte laenger liegen"): WHICH
+            // arm released the hold, and after how long. Grep token: "BURN HOLD".
+            // PROOF the fix landed: "artwork finished" with held well under
+            // BurnEffectMaxHoldSeconds (the real BurnCardTimeline is 2.0 s, so ~2.0-2.5 s).
+            // FALSIFIER — the fix is INERT, not the defect gone: "DEADLINE reached" at
+            // 3.00-3.02 s again. That is the pre-fix reading (9 of 9 burns across both clients on
+            // ModBuild 447) and it means the running-coroutine term in BurnArtworkActive never went
+            // false, i.e. the handle is not the one the timeline nulls.
+            VRLog.Note("Cards", $"BURN HOLD: '{CardsGameApi.CardName(widget)}' waited {held:F2}s on the board " +
                                 $"({(effectActive ? "artwork still running — DEADLINE reached" : "artwork finished")}) " +
-                                "— flying to the Burnt pile now.");
+                                "— flying to the Burnt pile now. The release term is the game's OWN running " +
+                                "BurnCardTimeline handle (CardEffects.coroutine), not its latched " +
+                                "toggledEffects membership, which for a LOST card never clears and used to " +
+                                "make every burn run the full ceiling.");
+        }
         return true;
     }
 
-    /// <summary>True while the game plays its own burn/lost timeline on this card's widget — the
-    /// same three tasks <see cref="BurnCardFx"/> keys its on-card diagnostic on.</summary>
+    /// <summary>
+    /// True while the game is PLAYING its own burn/lost timeline on this card's widget.
+    ///
+    /// <para>THE OLD BODY MEASURED THE STATE AND CALLED IT THE PICTURE, and the hardware log said so
+    /// nine times out of nine (2026-09-05 MP round, item 11c "die Karte blieb länger liegen"). Every
+    /// burn on BOTH clients released with "artwork still running — DEADLINE reached" at 3.00-3.02 s,
+    /// i.e. the release condition <c>effectActive == false</c> was never once reached and the whole
+    /// gate degenerated into a fixed 3 s wait. <c>CardEffects.HasEffect</c> is
+    /// <c>toggledEffects.Contains(task)</c> over a <c>HashSet</c> that <c>ToggleEffect(true, …)</c>
+    /// ADDS to and only <c>ToggleEffect(false, …)</c> / <c>RestoreCard()</c> ever removes from
+    /// (CardEffects.cs:229/354/413/432/468) — for a card that has been LOST that is a latched
+    /// display state with no end, not an animation with a duration.</para>
+    ///
+    /// <para>THE ANIMATION HAS ITS OWN, EXACT INSTRUMENT one field over. <c>BurnCard</c> starts
+    /// <c>BurnCardTimeline</c> and stores the handle in <c>CardEffects.coroutine</c>
+    /// (CardEffects.cs:448-451); the timeline runs <c>burnTime = 2f</c> seconds and its LAST
+    /// statement is <c>coroutine = null</c> (:618). So <c>coroutine != null</c> is "the artwork is
+    /// on screen right now" — the picture — and it goes false the instant the fire is over.</para>
+    ///
+    /// <para>BOTH TERMS ARE KEPT, because either alone is wrong: the coroutine field is also the
+    /// handle for the GHOST (discard) timeline, so the state test is what says the running timeline
+    /// is a BURN; and the state test alone is what the log has just falsified. The deadline in
+    /// <see cref="TryTakeBurnFlightSlot"/> is unchanged and stays the belt for a burn whose timeline
+    /// never starts.</para>
+    /// </summary>
     private static bool BurnArtworkActive(VRCard? card)
     {
         CardEffects? fx = card?.FullCard != null ? card.FullCard.cardEffects : null;
@@ -3096,8 +3182,11 @@ internal sealed partial class CardsDriver
             return false;
         try
         {
-            return fx.HasEffect(CardEffects.FXTask.BurnCard)
-                   || fx.HasEffect(CardEffects.FXTask.LostMode);
+            bool burning = fx.HasEffect(CardEffects.FXTask.BurnCard)
+                           || fx.HasEffect(CardEffects.FXTask.LostMode);
+            // THE PICTURE, not the state: the running BurnCardTimeline handle. A lost card keeps its
+            // toggled state forever, so without this term the hold always ran its full ceiling.
+            return burning && fx.coroutine != null;
         }
         catch
         {
@@ -3184,6 +3273,7 @@ internal sealed partial class CardsDriver
             // MP parity (report 6): a damage-burn is the most dramatic card animation in the game —
             // peers replay it as a card arcing off this player's board into their burnt stack.
             ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);
+            LogBurnAttribution(widget, origin);
             card.FlyToPile(burntPos, slabWidth, FlyToPileSeconds, arcUp, () =>
             {
                 _flyingToPile.Remove(flying);
@@ -3223,6 +3313,7 @@ internal sealed partial class CardsDriver
             return;
         float slabArc = Mathf.Max(minArc, Vector3.Distance(fromPos, burntPos) * VRCard.FlyArcHeightFraction);
         BurnSlab.Launch(anchor, fromPos, fromRot, burntPos, slabWidth, FlyToPileSeconds, arcUp, minArc);
+        LogBurnAttribution(widget, origin + "/slab");
         // MP parity (report 6): the fallback slab is the same event on the wire — the peer plays a
         // back slab either way (they never see faces), so both burn branches read identically.
         ReportCardFx(Net.CardFxAnchor.Board, Net.CardFxAnchor.Burnt);

@@ -402,7 +402,16 @@ internal sealed partial class CardsDriver
         // 2026-08-24) — see PlacementIsOffered for the rule and its evidence. The banner, the
         // CONFIRM/UNDO keycap overrides and the recess hint all stand or fall together: they are
         // one promise, and half of it would be worse than none.
+        // ITEM 11d: ...AND THE GAME MUST ACTUALLY BE ASKING. IsPickMode reads
+        // CardsHandUI.currentMode, which the game LATCHES: it stays LoseCard after the damage
+        // decision closes (the same latch this file's ActionSelection branch documents for the
+        // played cards). Without the count term the banner outlived its flow, and
+        // PickCardsWanted()'s `max > 0 ? max : 2` floor then fabricated a requirement out of the
+        // game's own zero - hardware log 2026-09-05: `Pick banner: "Testo: Waehle 2 Karte(n) zum
+        // Verlieren - 1/2 gewaehlt"` with no pick source and no commit anywhere near it, while it
+        // was no longer his turn. CardsGameApi.PickIsOpen reads that count RAW, with no floor.
         if (hand == null || !_tray.IsVisible || !IsPickMode(CardsGameApi.Mode(hand))
+            || !CardsGameApi.PickIsOpen(hand)
             || !PlacementIsOffered(hand))
         {
             if (_pickStatusKey.HasValue)

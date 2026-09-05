@@ -1062,6 +1062,214 @@ internal sealed class RemoteCardArt
         _bodyFaceHosted = false;
     }
 
+    // ───────────────────────────── the BURN, played on a peer's card in step with its owner ─────
+    //
+    // WHY THIS IS A RAMP AND NOT A REPLAY, and why re-attempting the replay is forbidden: see
+    // ApplySpentLook's block above. Calling the game's own CardEffects.ToggleEffect on a clone is
+    // dead three times over (the strip destroys the component; a borrowed widget never ran
+    // Initialize so imgCount is 0 and the timeline would write the game's SHARED authored material;
+    // and the clone's Images point at the SOURCE widget's materials by reference). Every write
+    // below lands on a `new Material` this overlay minted and destroys with the clone, exactly as
+    // ApplySpentLook does.
+    //
+    // WHAT IS DIFFERENT FROM ApplySpentLook, and it is the one thing that makes an ANIMATION
+    // legitimate here. That method deliberately writes only the SETTLED end-state, on the argument
+    // that "a peer's card can appear on our board long after the owner's timeline ran and a fade
+    // starting THEN would be a picture the owner never had". That argument does not reach a BURN:
+    // the trigger is the card ENTERING the owner's LostAbilityCards list, which is host-replicated
+    // and lands on every client at the same instant it lands on the owner's - the same instant the
+    // owner's own CardsDriver.TickBurnToPile starts its hold. So the two clocks are the game's, not
+    // ours, and the ramp is in step by construction.
+    //
+    // THE NUMBERS ARE THE GAME'S OWN, term for term out of CardEffects.BurnCardTimeline
+    // (CardEffects.cs:508-618): the constants are set once at t=0 and the three animated terms are
+    // _GreyOut = t, _Flow = t, _Dissolve = lerp(0, 0.646, t) over burnTime = 2 s. The fgFx overlay
+    // quad (the orange flame sheet) is deliberately NOT reproduced, for the reason ApplySpentLook
+    // states: it is a second unmeasured material driven by nine more properties drawn over the
+    // WHOLE card, and a wrong write there is a full-card artefact. Cost, stated: the peer sees the
+    // card char, grey out and dissolve on the owner's clock, without the flame sheen on top.
+
+    /// <summary>How far the burn rig has got. Built ONCE per clone: the walk over the clone's
+    /// Images and the material minting must not repeat per frame.</summary>
+    private enum BurnRig { Unbuilt, Ready, Refused }
+
+    private BurnRig _burnRigState = BurnRig.Unbuilt;
+    private UnityEngine.UI.Image[]? _burnImages;
+    private TMPro.TextMeshProUGUI[]? _burnTexts;
+
+    /// <summary>One-shot latches for the two burn-rig outcomes. Never per card, never per frame.</summary>
+    private static bool s_burnRigLogged;
+    private static bool s_burnRigRefused;
+
+    /// <summary>
+    /// Drive the game's own burn look on the shown ABILITY face at progress
+    /// <paramref name="t"/> (0 = untouched, 1 = the timeline's settled end-state).
+    ///
+    /// <para>Returns true while the look is really being drawn — false means this face carries no
+    /// usable card-FX material (a pooled borrow whose <c>_PosAndBounds</c> is still 0x0, or a
+    /// clone with no FX images at all), and the caller then shows the card WITHOUT the burn rather
+    /// than with a guess. Missing char is a small divergence; a black card on a peer's board is
+    /// not.</para>
+    ///
+    /// <para>Never throws: it runs inside the avatar tick.</para>
+    /// </summary>
+    public bool SetAbilityBurnProgress(float t)
+    {
+        if (_clone == null)
+            return false;
+        if (_burnRigState == BurnRig.Unbuilt)
+            BuildBurnRig();
+        if (_burnRigState != BurnRig.Ready || _burnImages == null)
+            return false;
+
+        float k = Mathf.Clamp01(t);
+        try
+        {
+            for (int i = 0; i < _burnImages.Length; i++)
+            {
+                Material? mat = MaterialOf(_burnImages[i]);
+                if (mat == null)
+                    continue;
+                SetFloatIfPresent(mat, GreyOutId, k);
+                SetFloatIfPresent(mat, FlowId, k);
+                SetFloatIfPresent(mat, DissolveId, Mathf.Lerp(0f, 0.646f, k));
+            }
+            if (_burnTexts != null)
+            {
+                // BurnCardTimeline recolours the affected texts to mid grey while it runs
+                // (CardEffects.cs:583-590). It picks a different colour for the header and the
+                // initiative disc, which is a per-widget field this overlay has no honest way to
+                // read, so the one colour the timeline uses for everything else is used for all.
+                Color grey = new(0.5f, 0.5f, 0.5f, 1f);
+                for (int i = 0; i < _burnTexts.Length; i++)
+                {
+                    TMPro.TextMeshProUGUI text = _burnTexts[i];
+                    if (text != null)
+                        text.color = Color.Lerp(Color.white, grey, k);
+                }
+            }
+            return true;
+        }
+        catch (System.Exception ex)
+        {
+            _burnRigState = BurnRig.Refused;
+            VRLog.Debug("Net", $"Remote burn ramp stopped ({ex.Message}) - the peer's card keeps its " +
+                               "current look.");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Collect the shown clone's card-FX Images and mint the materials this overlay will write.
+    /// Same discipline as <see cref="ApplySpentLook"/>: the signature test names an FX material
+    /// without naming a shader, the <c>_PosAndBounds</c> extents gate refuses the whole face rather
+    /// than half of it, and every material written is one we own and destroy.
+    ///
+    /// <para>THE IMAGES ARE FOUND BY WALKING THE CLONE, not by reading <c>CardEffects.imgComp</c>.
+    /// That array is built in <c>Initialize()</c> at runtime and is NOT a serialized field, so
+    /// <c>Object.Instantiate</c> does not carry it - the clone's copy is null. (The ITEM path can
+    /// read its rig only because <see cref="StripFragileEffects"/> lifts it off the clone's own
+    /// component in the instant before destroying it, and <c>ItemCardEffects</c> has the same
+    /// problem; that path exists and this one does not.) The signature walk finds the same set for
+    /// the same reason the item bounds gate works: an image the game's FX never paints does not
+    /// carry the FX material and is skipped, exactly as the game's own write is inert on it.</para>
+    /// </summary>
+    private void BuildBurnRig()
+    {
+        _burnRigState = BurnRig.Refused;
+        _burnImages = null;
+        _burnTexts = null;
+        if (_clone == null)
+            return;
+        try
+        {
+            var all = _clone.GetComponentsInChildren<UnityEngine.UI.Image>(includeInactive: true);
+            var kept = new List<UnityEngine.UI.Image>(12);
+            for (int i = 0; i < all.Length; i++)
+            {
+                Material? mat = MaterialOf(all[i]);
+                if (mat == null || !IsCardFxMaterial(mat))
+                    continue;
+                Vector4 bounds = mat.GetVector(PosAndBoundsId);
+                if (bounds.z == 0f && bounds.w == 0f)
+                {
+                    // ALL OR NOTHING, same as the item look: switching the FX terms on against a
+                    // degenerate footprint is the "card renders DEEP BLACK" failure.
+                    ReportBurnRigRefused();
+                    return;
+                }
+                kept.Add(all[i]);
+            }
+            if (kept.Count == 0)
+                return;
+
+            for (int i = 0; i < kept.Count; i++)
+            {
+                Material? mat = MaterialOf(kept[i]);
+                if (mat == null)
+                    continue;
+                Material copy;
+                try
+                {
+                    copy = new Material(mat) { name = mat.name + " (VR-burn)" };
+                }
+                catch (System.Exception)
+                {
+                    continue;
+                }
+                // The constant half of BurnCardTimeline, written once here so the per-frame call
+                // only has to move the three animated terms.
+                SetFloatIfPresent(copy, BurnId, 0.691f);
+                SetFloatIfPresent(copy, FlowOffsetId, 0.03f);
+                SetFloatIfPresent(copy, FlowSpeedId, 0.4f);
+                SetFloatIfPresent(copy, DissolveVerticalGradientId, 0.2f);
+                if (copy.HasProperty(BurnColourTintId))
+                    copy.SetColor(BurnColourTintId, new Color(0.36862746f, 0.14509805f, 0.07450981f, 0.601f));
+                if (copy.HasProperty(AnimNoiseMaskId))
+                    copy.SetTextureScale(AnimNoiseMaskId, new Vector2(40f, 40f));
+                kept[i].material = copy;
+                _ownedMaterials.Add(copy);
+            }
+
+            _burnImages = kept.ToArray();
+            _burnTexts = _clone.GetComponentsInChildren<TMPro.TextMeshProUGUI>(includeInactive: true);
+            _burnRigState = BurnRig.Ready;
+            ReportBurnRigOnce(_burnImages.Length);
+        }
+        catch (System.Exception ex)
+        {
+            _burnImages = null;
+            _burnTexts = null;
+            VRLog.Debug("Net", $"Remote burn rig skipped ({ex.Message}) - the peer's card burns " +
+                               "without the char.");
+        }
+    }
+
+    private static void ReportBurnRigOnce(int images)
+    {
+        if (s_burnRigLogged)
+            return;
+        s_burnRigLogged = true;
+        VRLog.Info("Net", $"Remote BURN look armed on {images} card image(s) - a peer's burning card " +
+                          "now carries the game's own grey-out/flow/dissolve ramp, term for term out of " +
+                          "CardEffects.BurnCardTimeline, on materials this overlay minted and destroys " +
+                          "with the clone. The game's CardEffects stays stripped (it cannot run on a " +
+                          "detached clone and running it would write the game's pooled widget); the " +
+                          "smoke emitter and the fgFx flame quad are deliberately not reproduced.");
+    }
+
+    private static void ReportBurnRigRefused()
+    {
+        if (s_burnRigRefused)
+            return;
+        s_burnRigRefused = true;
+        VRLog.Warn("Net", "Remote BURN look REFUSED: a card-FX material on this face still carries " +
+                          "_PosAndBounds extents of 0x0, so switching its FX terms on would hand the " +
+                          "shader a degenerate card footprint - the 'card renders DEEP BLACK' failure " +
+                          "mode. The peer's burning card keeps its FRESH face and still flies into the " +
+                          "burnt stack; the missing char is the cheaper divergence.");
+    }
+
     private void DestroyClone()
     {
         if (_clone != null)
@@ -1079,6 +1287,9 @@ internal sealed class RemoteCardArt
         }
         _ownedMaterials.Clear();
         _artWatch.Clear(); // the watched Images belong to the clone that just died
+        _burnImages = null;  // the burn rig named the clone's own Images
+        _burnTexts = null;
+        _burnRigState = BurnRig.Unbuilt;
         _shownSourceId = int.MinValue;
     }
 }
