@@ -51,15 +51,15 @@ namespace GloomhavenVR.Net;
 /// "Net — content classification".</remarks>
 internal sealed class RemoteEmptyFanHint
 {
-    /// <summary>Fade length, matched to <c>Cards.EmptyFanHint.FadeSeconds</c> so a peer's plate
-    /// lasts exactly as long as the real one.</summary>
-    private const float FadeSeconds = 1.5f;
-
-    private const float PlateAlpha = 0.55f;
-    private const float TextAlpha = 0.95f;
-
-    private static readonly Color Parchment = new(0.85f, 0.78f, 0.62f);
-    private static readonly Color InkBrown = new(0.24f, 0.17f, 0.10f);
+    /// <summary>Fade length — <c>Cards.EmptyFanHint.FadeSeconds</c>, CALLED rather than re-typed,
+    /// so a peer's plate lasts exactly as long as the real one. It was a hand-copied 1.5f beside a
+    /// comment naming the owner's constant, and it was one of EIGHT such values in this file: the
+    /// two alphas, the two colours, the plate's two size factors, the ink box's factor and the fade
+    /// curve. Three of the eight are <c>Color</c>s, which <c>scripts/check-mirrors.sh</c> cannot
+    /// lint by construction — so this placard's look had no checker over half of it and a checker
+    /// blind to the other half. The whole build and the whole fade come from the owner's own
+    /// <c>Cards.EmptyFanHint</c> now.</summary>
+    private const float FadeSeconds = Cards.EmptyFanHint.FadeSeconds;
 
     private readonly RemoteAvatar _owner;
 
@@ -130,7 +130,7 @@ internal sealed class RemoteEmptyFanHint
             Hide();
             return;
         }
-        ApplyAlpha(1f - p * p);   // ease-in: holds readable, then ghosts away — their curve
+        ApplyAlpha(Cards.EmptyFanHint.FadeAlpha(p)); // their curve, their constant, one expression
     }
 
     /// <summary>Hide immediately (fade finished, hand lost, or the owner's bit cleared).</summary>
@@ -182,11 +182,13 @@ internal sealed class RemoteEmptyFanHint
         _root.transform.position = pos;
         _root.transform.localScale = Vector3.one * Mathf.Max(_owner.AppliedScale, 1e-4f);
 
-        // Language follows a live switch on THIS client, like the local placard's per-show re-read.
+        // Language follows a live switch on THIS client, like the local placard's per-show re-read
+        // — and through the SAME key, so the words over a peer's hand and the words over your own
+        // cannot be edited apart. Which LANGUAGE is deliberately the viewer's; see the header.
         if (_label != null && _labelLanguage != Loc.CurrentLanguage)
         {
             _labelLanguage = Loc.CurrentLanguage;
-            _label.text = _labelLanguage == "German" ? "Keine Handkarten" : "No hand cards";
+            _label.text = Loc.Mod("no_hand_cards");
         }
 
         Camera? head = VRRigDriver.HeadCamera != null ? VRRigDriver.HeadCamera : Camera.main;
@@ -218,34 +220,16 @@ internal sealed class RemoteEmptyFanHint
             : RemoteHandFan.DefaultCardWidth;
         float h = w * (88f / 63.5f);
 
-        var plate = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        plate.name = "Plate";
-        // Inert by construction — DestroyImmediate so the board's loud StripColliders sweep can
-        // never meet it (a deferred destroy is still visible to a sweep run this frame).
-        Object.DestroyImmediate(plate.GetComponent<Collider>());
-        plate.transform.SetParent(_root.transform, worldPositionStays: false);
-        plate.transform.localScale = new Vector3(w * 1.1f, h * 0.42f, 1f);
-        VRLayers.Apply(plate);
-        Shader? shader = Shader.Find("Sprites/Default") ?? Shader.Find("UI/Default");
-        if (shader != null)
-        {
-            _plateMaterial = new Material(shader)
-            {
-                color = new Color(Parchment.r, Parchment.g, Parchment.b, PlateAlpha),
-            };
-            plate.GetComponent<MeshRenderer>().sharedMaterial = _plateMaterial;
-        }
-
-        var textGo = new GameObject("Label");
-        textGo.transform.SetParent(_root.transform, worldPositionStays: false);
-        textGo.transform.localPosition = new Vector3(0f, 0f, -0.002f);
-        VRLayers.Apply(textGo);
-        _label = textGo.AddComponent<TextMeshPro>();
-        _label.alignment = TextAlignmentOptions.Center;
-        _label.color = new Color(InkBrown.r, InkBrown.g, InkBrown.b, TextAlpha);
+        // THE OWNER'S OWN CONSTRUCTION, not a second list of the same numbers — plate size and
+        // colour, ink colour, ink box and the proud-Z all come from Cards.EmptyFanHint. The one
+        // argument that is a statement about THIS carrier is the collider destroy: it must be
+        // immediate here, because the remote board's loud StripColliders sweep can run in the same
+        // frame and a deferred destroy is still visible to it.
+        Cards.EmptyFanHint.Placard(_root.transform, w, h, colliderDestroyImmediate: true,
+                                   out GameObject _, out _plateMaterial, out TextMeshPro label);
+        _label = label;
         _labelLanguage = Loc.CurrentLanguage;
-        _label.text = _labelLanguage == "German" ? "Keine Handkarten" : "No hand cards";
-        TmpFit.Fit(_label, w, h * 0.34f, maxFontSize: 0f, wrap: false);
+        _label.text = Loc.Mod("no_hand_cards");
 
         // BELT AND BRACES, as everywhere on this layer: the plate primitive's own collider is
         // destroyed above, and this re-proves the whole subtree is collider-free at runtime and
@@ -257,19 +241,9 @@ internal sealed class RemoteEmptyFanHint
         _root.SetActive(false);
     }
 
-    private void ApplyAlpha(float a)
-    {
-        if (_plateMaterial != null)
-        {
-            Color c = _plateMaterial.color;
-            c.a = PlateAlpha * a;
-            _plateMaterial.color = c;
-        }
-        if (_label != null)
-        {
-            Color c = _label.color;
-            c.a = TextAlpha * a;
-            _label.color = c;
-        }
-    }
+    /// <summary>The owner's own fade write. It gains the MR opaque bump the local plate has always
+    /// had and this one never did — the 0.55 parchment is the weakest backing in the mod and the
+    /// room bleeds through it in see-through mode, and passthrough is a fact about the person
+    /// LOOKING, not about whose hand the plate hangs on.</summary>
+    private void ApplyAlpha(float a) => Cards.EmptyFanHint.ApplyAlpha(_plateMaterial, _label, a);
 }

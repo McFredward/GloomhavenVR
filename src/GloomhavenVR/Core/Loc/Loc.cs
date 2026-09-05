@@ -498,6 +498,14 @@ internal static partial class Loc
         ["pinned"] = Pair("PINNED", "FIXIERT"),
         ["short_rest"] = Pair("Short rest", "Kurze Rast"),
         ["active"] = Pair("Active", "Aktiv"),
+        // The empty-fan placard's two words. It lived as an INLINE `Loc.CurrentLanguage ==
+        // "German" ? ... : ...` ternary in BOTH carriers — Cards.EmptyFanHint over your own hand
+        // and Net.RemoteEmptyFanHint over a peer's — so editing the wording over your hand left
+        // your teammate's placard saying something else. Composed from the VIEWER's language on
+        // both, which is deliberate and unchanged: RemoteEmptyFanHint's header records that a
+        // German player's placard reads "No hand cards" to an English peer, because only a KEY
+        // travels here and not the text.
+        ["no_hand_cards"] = Pair("No hand cards", "Keine Handkarten"),
 
         // ---- event-outcome card picks ("Begegnungen" pre-scenario mali + every modal pick) ----
         // The pick banner is composed as "<Charakter>: <pick_status[_step]>[ — <pick_progress>]".
