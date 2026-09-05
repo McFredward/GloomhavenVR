@@ -416,7 +416,40 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 440;
+    public const ushort ModBuild = 441;
+    // Build 441: THE SAME UN-FLATTENED PRODUCT, IN TWO LANES WRITTEN AFTER THE ROUND THAT
+    // REMOVED IT — AND THE DECODER CAN NOW RUN IN THE CASE IT EXISTS FOR.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
+    //
+    // THE 88 ms, NAMED BY THE ELEVEN-STAGE SLICE 439 SHIPPED FOR EXACTLY THIS. On the expensive
+    // commits: Riders 40-54 ms, Union 19-20 ms, Sweep 11-12 of which the election walk is only
+    // 2.7-4.0. So ~73 of the ~88 is two lanes, and the 438 round's target was 1.3 ms of it.
+    //
+    // BOTH ARE THE DEFECT PERF S7 ALREADY REMOVED FROM THE MOUNTED ELECTION IN 438, in code
+    // written after it: CollectHangingPlants (465 walkers) and RegisterUnionOverlaps (328) each
+    // walk _live.Segments.Values ONCE PER CANDIDATE, paying UnityEngine.Object null compares
+    // (native calls), a Dictionary enumerator step and four Bounds property reads per pair. The
+    // per-pair costs the log's own census counts imply -- 130-180 ns and ~90 ns -- are the same
+    // 55-70 ns band 438 measured. Both now walk the flat ElectSeg array, REBUILT per lane rather
+    // than carried, because PruneEmptyFreeStandingUnits removes from the table in between.
+    //
+    // AND IT EXPLAINS THE CONTROL. The two cheap commits in the same session read Riders 1.06 and
+    // Union 0.81. The term that changed between them is the segment table: ~10 rows to 650, 65x,
+    // against Riders 50x and Union 24x. Nothing else in either lane grew by that factor.
+    //
+    // THE DECODER. 439's row census refused every case it met, and the refusal was structural
+    // rather than unlucky: a COMPOUND delta and a RE-SWEEP arrive together, because a sweep is
+    // what admits several rows at once -- so the instrument built for the compound case was
+    // excluded from it by construction. Rows are keyed by instance id now (already the outer term
+    // of every row hash), so the diff is a set difference and is order-free. The cross-check gets
+    // stronger for it: reproducing BOTH the sum and the xor over a set diff is a proof that the
+    // named set IS the symmetric difference -- the sum alone falls to a compensating pair, the xor
+    // alone to a repeated one.
+    //
+    // Expected on hardware: HangingPlants 40-54 -> ~2-4 ms, Union 19-20 -> ~1-2 ms, worst commit
+    // ~154 -> ~85-95 ms. The pair counts DO NOT fall (both loops still visit every row), so a
+    // count that stays put while the stage figures fall is the fix working, and a small count with
+    // the milliseconds unchanged falsifies this diagnosis in its own words.
     // Build 440: THE GAME MINIMISES THE COMBAT LOG WHEN THE POINTER LEAVES, AND OUR LASER RECT
     // FOLLOWED IT OVER OUR OWN CLOSE BUTTON.
     // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
