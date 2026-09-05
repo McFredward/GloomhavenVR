@@ -22,8 +22,9 @@ namespace GloomhavenVR.Core;
 /// bundle's shaders quote these names verbatim and nothing else in the mod may write them).</b>
 /// Two <c>float4</c> globals, set with <see cref="Shader.SetGlobalVector"/>:</para>
 /// <code>
-///   _GhvrElemA = float4(Fire,  Ice,  Air,   Earth)   // each 0..1
-///   _GhvrElemB = float4(Light, Dark, Master, Peak)
+///   _GhvrElemA    = float4(Fire,  Ice,  Air,   Earth)   // each 0..1
+///   _GhvrElemB    = float4(Light, Dark, Master, Peak)
+///   _GhvrElemGrow = float(EarthGrowth)                  // 0..1, see THE GROWTH CHANNEL
 /// </code>
 /// <list type="bullet">
 /// <item><b>x,y,z,w of A and x,y of B</b> — the per-element INTENSITY, 0..1, already smoothed (see
@@ -37,10 +38,17 @@ namespace GloomhavenVR.Core;
 /// draw nothing" — and 0 is what stands whenever the channel is not live (no scenario, no VR
 /// session, mixed reality on, teardown), so a material that respects master can never be caught
 /// showing a stale mood.</item>
-/// <item><b>_GhvrElemB.w — PEAK.</b> The largest of the six intensities, BEFORE master. Purely a
-/// convenience: it is the one component a shader can branch or LOD on ("is anything up at all?")
-/// without reading and max-ing two vectors. Redundant by construction, and cheap — one float
-/// compare per element in a loop this file already runs.</item>
+/// <item><b>_GhvrElemB.w — PEAK.</b> The largest of the six intensities AND of the growth channel,
+/// BEFORE master. Purely a convenience: it is the one component a shader can branch or LOD on ("is
+/// anything up at all?") without reading and max-ing two vectors. Redundant by construction, and
+/// cheap — one float compare per element in a loop this file already runs. <b>THE GROWTH CHANNEL IS
+/// IN IT ON PURPOSE</b>: since 2026-09-05 the art can still be DRAWING (grass standing in a room
+/// while it withers) with all six intensities already at 0, and a peak that said 0 there would make
+/// the one number the bundle branches on (<c>e.live</c>, EnvElement.cginc rule 2) a lie — every
+/// consumer that brackets its element block on it would fold the grass flat in one frame, which is
+/// precisely the pop this channel exists to prevent.</item>
+/// <item><b>_GhvrElemGrow — EARTH'S GROW-IN.</b> A separate scalar with a separate curve, and the
+/// whole of THE GROWTH CHANNEL below. Like the six it is NOT pre-multiplied by the master.</item>
 /// </list>
 /// <para>WHY GLOBALS AND NOT A COMPONENT. There is currently no way for the mod to reach a material
 /// on a spawned environment prefab: <see cref="SkyAlternative"/> writes none (no
@@ -118,6 +126,56 @@ namespace GloomhavenVR.Core;
 /// chain never pops and never restarts from the wrong value.</item>
 /// </list>
 ///
+/// <para><b>THE GROWTH CHANNEL, and why a second curve rather than a second reading of the first
+/// one (2026-09-05).</b> USER, on hardware: "Das Gras im Wald, das wegen dem Element aufgetaucht
+/// ist, wächst und verschwindet in einem Loop statt einmal zu wachsen und dann konstant da zu sein!
+/// Wieso das? Das soll nicht sein. Es ist aufgefallen als das Element nur halb aktiv war."</para>
+///
+/// <para>"Nur halb aktiv" names the state exactly: it is the WANING PLATEAU, and the breath above is
+/// the loop. The breath is right for a PIXEL effect — a frost frontier that advances and retreats a
+/// few centimetres is a surface being taken and given back, and that is the reading the plateau was
+/// tuned for and accepted on. It is wrong for GEOMETRY. Earth's only remaining effect on a surface
+/// is <c>GhvrGrowCard</c> (EnvGrowth.cginc), a VERTEX FOLD that collapses a grass card onto its own
+/// base edge; the fold is driven through a THRESHOLD, so a card is either standing or has zero area.
+/// Sweeping that threshold with a 2.4 s sine does not make the grass breathe, it makes each blade
+/// near the frontier stand up and lie flat, forever. Measured on the preview harness (the forest's
+/// FloorToMoon station, one clock, only the published Earth value differing): the two phases 1.2 s
+/// apart differ in 6,140 pixels, against 24,026 for the whole difference between no grass and full
+/// grass — a quarter of the grass toggling every 1.2 s.</para>
+///
+/// <para><b>SO GROWTH IS PUBLISHED SEPARATELY, AND IT CARRIES PRESENCE RATHER THAN STRENGTH.</b>
+/// <c>_GhvrElemGrow</c> is 1 while Earth is up AT ALL — Strong and Waning are the same number, and
+/// that identity is the fix: nothing the element does between "charged" and "about to go" can move a
+/// blade of grass. Only Inert is 0. The six intensities are untouched, so the frost path, the glow,
+/// the flames and the particles all keep the breath they were tuned with.</para>
+///
+/// <para><b>WHAT HAPPENS WHEN EARTH GOES INERT, which is a choice and not a default.</b> Grass that
+/// never dies is wrong: a scenario would accumulate vegetation nobody can explain and the room would
+/// never return to the state it was authored in. Grass that pops away is wrong too, and it is the
+/// same fault as the loop — a plant is not a HUD chip and may not answer at HUD speed. So the third
+/// thing: the growth channel RISES over <see cref="RampSeconds"/>, exactly as it does today (the
+/// grow-in is the one thing about Earth the user has never objected to, and this preserves it to the
+/// number), and FALLS over <see cref="WitherSeconds"/> — nine seconds, nearly four times the breath
+/// period the complaint is about, so a wither can never be mistaken for the loop even by someone who
+/// walks in on the middle of one. It is one-way while Earth stands: within a single presence episode
+/// the channel rises to 1 and then does not move at all.</para>
+///
+/// <para><b>AND WHY THAT IS STILL BIT-IDENTICAL BETWEEN CLIENTS — the part a true ratchet would have
+/// broken.</b> The obvious spelling of "grows once and stays" is an accumulator,
+/// <c>grow = max(grow, target)</c>. It is wrong here and the reason is worth writing down: an
+/// accumulator is HISTORY, and two clients do not share a history. A client present when Earth was
+/// Strong would hold 1.0 through the waning round; a client who joined DURING that round would never
+/// have seen the Strong and would hold the waning value forever after. Two players, one room, two
+/// different lawns, permanently, with no wire message that could ever reconcile them. What is
+/// published instead is a pure function of the CURRENT column — present or not — smoothed by the
+/// same closed-form, shared-clock ramp the six use. The only history in it is the ramp's FROM, and a
+/// FROM is dead <see cref="RampSeconds"/> after the last change: any client settled for longer than
+/// one ramp is at exactly the target, whatever it saw before. The one bounded disagreement left is a
+/// client who joins DURING a wither — it starts at 0 while the others finish falling — and that is
+/// self-healing within <see cref="WitherSeconds"/> and is the same class of skew the six already
+/// have. ZERO WIRE BYTES, on the same argument as the rest of this file: the element board is
+/// replicated and desync-checked by the game, and the clock is already shared.</para>
+///
 /// <para><b>WHY THE SHARED CLOCK, PRECISELY.</b> The curve is a function of
 /// <see cref="SkyAlternative.EnvClockSeconds"/> (SkyAlternative.cs:1746) — the mod's shared
 /// multiplayer environment epoch — and not of <c>Time.time</c>. The two halves of the curve depend
@@ -171,8 +229,12 @@ internal static class ElementMood
     /// <summary>Global <c>float4(Light, Dark, Master, Peak)</c>. Quote this name, not a literal.</summary>
     internal const string ElemBName = "_GhvrElemB";
 
+    /// <summary>Global <c>float</c> — Earth's grow-in, 0..1. Quote this name, not a literal.</summary>
+    internal const string ElemGrowName = "_GhvrElemGrow";
+
     private static readonly int ElemAId = Shader.PropertyToID(ElemAName);
     private static readonly int ElemBId = Shader.PropertyToID(ElemBName);
+    private static readonly int ElemGrowId = Shader.PropertyToID(ElemGrowName);
 
     // ---- the curve, in numbers ------------------------------------------------------------------
 
@@ -192,6 +254,15 @@ internal static class ElementMood
     /// <summary>Breath period in shared-clock seconds. Slow — this is a "running out" signal, not
     /// an alarm.</summary>
     private const float WaningEbbPeriodSeconds = 2.4f;
+
+    /// <summary>How long the growth channel takes to fall to 0 once Earth is Inert, in shared-clock
+    /// seconds. It is deliberately NOT <see cref="RampSeconds"/>: the grow-in may answer at the speed
+    /// of the HUD because a player who has just infused Earth is looking for an answer, but a plant
+    /// going away at that speed is the "pops away" fault, which reads as a glitch rather than as an
+    /// end. Nine seconds is also nearly four times <see cref="WaningEbbPeriodSeconds"/>, i.e. four
+    /// times the period of the loop this channel was created to remove — so a wither seen halfway
+    /// through can never be mistaken for the defect coming back.</summary>
+    private const float WitherSeconds = 9.0f;
 
     /// <summary>Below this, a component change is not worth a uniform write. Two orders under the
     /// smallest step the art can show, and it is what makes the settled case (nothing waning,
@@ -576,6 +647,28 @@ internal static class ElementMood
     /// <summary>Shared-clock time of the last transition — the ramp's anchor.</summary>
     private static readonly float[] Since = new float[Count];
 
+    /// <summary>Earth's published grow-in, 0..1 — see THE GROWTH CHANNEL in the class doc. Four
+    /// fields rather than an array because there is exactly one of them: only Earth grows anything,
+    /// and a six-wide channel would invite the next reader to look for the other five.</summary>
+    private static float _grow;
+
+    /// <summary>The grow-in at the moment of the last presence change — the growth ramp's FROM.</summary>
+    private static float _growFrom;
+
+    /// <summary>Shared-clock time of the last presence change — the growth ramp's anchor.</summary>
+    private static float _growSince;
+
+    /// <summary>Whether Earth was up AT ALL (Strong or Waning) at the last tick. This is the whole
+    /// state the growth curve is a function of, and keeping it as its own bool rather than
+    /// re-deriving "not Inert" at three places is what makes the edge unambiguous.</summary>
+    private static bool _growPresent;
+
+    /// <summary>Earth's column at the last GROWTH LOG. Its own field, and not <c>Column[Earth]</c>,
+    /// because the line it gates has to fire on the transition the presence bool deliberately does
+    /// NOT see: Strong to Waning is the state the complaint was reported from, and it is exactly the
+    /// transition at which the grow-in must be shown NOT moving. -1 = nothing logged yet.</summary>
+    private static int _growLoggedColumn = -1;
+
     /// <summary>Base-3 signature of the six columns; the edge detector, exactly as
     /// <c>RemoteElementStrip.Refresh</c> uses it. -1 = nothing observed yet.</summary>
     private static int _signature = -1;
@@ -583,6 +676,7 @@ internal static class ElementMood
     /// <summary>The last vectors actually written, so a write happens only on a real change.</summary>
     private static Vector4 _lastA;
     private static Vector4 _lastB;
+    private static float _lastGrow;
 
     /// <summary>The channel is live (gates passed) and is publishing a mood.</summary>
     private static bool _live;
@@ -798,12 +892,62 @@ internal static class ElementMood
                 peak = v;
         }
 
+        // ---- GROW -------------------------------------------------------------------------------
+        // THE SECOND CURVE, and everything about it that matters is in THE GROWTH CHANNEL in the
+        // class doc. In one line: it is a function of Earth's PRESENCE, never of Earth's strength,
+        // because the art it drives is a geometry fold behind a threshold and a threshold swept by
+        // the waning breath is grass that stands up and lies flat every 2.4 s.
+        //
+        // Earth by its ENUM rather than by 3: the index order is the game's own EElement order and
+        // this is the one place in the file that depends on WHICH element it is.
+        bool present = Column[(int)ElementInfusionBoardManager.EElement.Earth]
+                       != ElementInfusionBoardManager.EColumn.Inert;
+        if (present != _growPresent || !_live)
+        {
+            // Anchored at the CURRENT value, exactly as the six are: Earth re-infused three seconds
+            // into a wither grows back from the grass that is still standing, not from bare ground.
+            _growFrom = _live ? _grow : 0f;
+            _growSince = clock;
+            _growPresent = present;
+        }
+        else if (clock < _growSince)
+        {
+            // The shared clock jumped backwards — same re-anchor, same reason, as the sense loop.
+            _growFrom = _grow;
+            _growSince = clock;
+        }
+
+        // Two durations, one curve: fast up, slow down. Not two code paths — the closed form is the
+        // same one the six use, so a client that anchored at the same shared-clock instant computes
+        // the same number with no accumulated integration error.
+        float growDur = present ? RampSeconds : WitherSeconds;
+        float gt = growDur > 0f ? Mathf.Clamp01((clock - _growSince) / growDur) : 1f;
+        gt = gt * gt * (3f - 2f * gt);
+        _grow = Mathf.Clamp01(Mathf.Lerp(_growFrom, present ? 1f : 0f, gt));
+
+        // THE ONE HARDWARE READING. Gated on EARTH'S COLUMN, not on the presence bool: the state the
+        // complaint came from is Strong -> Waning, at which presence does not change and the grow-in
+        // must be seen HOLDING. So the line fires on a few transitions per scenario, and each one
+        // prints the breathing intensity beside the held grow-in.
+        int earthColumn = (int)Column[(int)ElementInfusionBoardManager.EElement.Earth];
+        if (earthColumn != _growLoggedColumn)
+        {
+            _growLoggedColumn = earthColumn;
+            LogGrowth(clock);
+        }
+
+        // PEAK COVERS THE GROWTH TOO. During a wither the six can all be 0 while the grass is still
+        // standing, and peak is what the bundle's `e.live` gate is built from — see the PEAK bullet
+        // in the class doc for why a peak of 0 there would fold the grass in one frame.
+        if (_grow > peak)
+            peak = _grow;
+
         // ---- PUBLISH ----------------------------------------------------------------------------
         float master = Mathf.Max(0f, ResponseStrength.Value);
         var a = new Vector4(Value[0], Value[1], Value[2], Value[3]);
         var b = new Vector4(Value[4], Value[5], master, peak);
 
-        Write(a, b);
+        Write(a, b, _grow);
         _live = true;
         _zeroed = false;
 
@@ -859,26 +1003,47 @@ internal static class ElementMood
             Since[i] = 0f;
         }
 
-        Write(Vector4.zero, Vector4.zero);
+        // THE GRASS GOES WITH THEM, AND IT GOES INSTANTLY — no wither. The paragraph above states
+        // why the drop is not ramped, and every word of it applies here: an off-switch that takes
+        // nine seconds reads as broken, and the other routes through here (scenario end, mixed
+        // reality, teardown) are moments at which the room the grass stands in is itself
+        // disappearing. The wither is for the one case it was written for, which is Earth running
+        // out WHILE the environment stands.
+        _grow = 0f;
+        _growFrom = 0f;
+        _growSince = 0f;
+        _growPresent = false;
+        // ...and the grass line re-baselines on the next live scenario rather than staying silent
+        // because the last one happened to end on the same column.
+        _growLoggedColumn = -1;
+
+        Write(Vector4.zero, Vector4.zero, 0f);
 
         if (wasLive)
-            VRLog.Info("Core", $"ELEMENT MOOD off — {why}. {ElemAName} and {ElemBName} published as " +
-                               "zero, so the master factor every element effect multiplies by is 0 and " +
-                               "nothing is left standing in the environment's materials.");
+            VRLog.Info("Core", $"ELEMENT MOOD off — {why}. {ElemAName}, {ElemBName} and " +
+                               $"{ElemGrowName} published as zero, so the master factor every element " +
+                               "effect multiplies by is 0, Earth's grow-in is 0 and nothing is left " +
+                               "standing in the environment's materials.");
     }
 
     /// <summary>
-    /// The ONE writer of <see cref="ElemAName"/> and <see cref="ElemBName"/> — the same discipline
-    /// <c>SkyAlternative.ApplyTimeOfs</c> states for <c>_GhvrTimeOfs</c>, and for the same reason:
-    /// they are globals, so a second writer anywhere would fight this one with no way to see it.
-    /// Writes only what actually moved by more than <see cref="WriteEpsilon"/>.
+    /// The ONE writer of <see cref="ElemAName"/>, <see cref="ElemBName"/> and
+    /// <see cref="ElemGrowName"/> — the same discipline <c>SkyAlternative.ApplyTimeOfs</c> states for
+    /// <c>_GhvrTimeOfs</c>, and for the same reason: they are globals, so a second writer anywhere
+    /// would fight this one with no way to see it. Writes only what actually moved by more than
+    /// <see cref="WriteEpsilon"/>.
+    ///
+    /// <para>The three are written by ONE method rather than two, and after 2026-09-05 that is a
+    /// requirement rather than tidiness: a caller that published A and B and forgot the growth would
+    /// leave a room's grass standing at the previous scenario's value with no log line and no
+    /// visible fault anywhere near the cause.</para>
     /// </summary>
-    private static void Write(Vector4 a, Vector4 b)
+    private static void Write(Vector4 a, Vector4 b, float grow)
     {
         // A poisoned value must never reach a shader global — NaN propagates through every material
         // that multiplies by it and paints holes that look like a bundle fault, three lanes away
         // from here.
-        if (!Finite(a) || !Finite(b))
+        if (!Finite(a) || !Finite(b) || float.IsNaN(grow) || float.IsInfinity(grow))
             return;
 
         if (Differs(a, _lastA))
@@ -890,6 +1055,11 @@ internal static class ElementMood
         {
             _lastB = b;
             Shader.SetGlobalVector(ElemBId, b);
+        }
+        if (Mathf.Abs(grow - _lastGrow) > WriteEpsilon)
+        {
+            _lastGrow = grow;
+            Shader.SetGlobalFloat(ElemGrowId, grow);
         }
     }
 
@@ -912,6 +1082,40 @@ internal static class ElementMood
     /// citation — because "everything must be synced" is a standing project rule and this looks
     /// like an exception until you read why it is not one.
     /// </summary>
+    /// <summary>
+    /// THE GRASS LINE, and the one instrument this round's fix can be judged from without a headset
+    /// debugger. It is <c>Note</c> rather than <c>Info</c> on purpose: it exists to be read in a
+    /// shipped build's Player.log, which is where the defect was reported from.
+    ///
+    /// <para>WHAT IT DECIDES. The complaint is that the grass loops while Earth is "nur halb aktiv",
+    /// i.e. Waning. So the line prints, at every change of EARTH'S column: the column, the breathing
+    /// intensity that column produces, and the grow-in. The fix is confirmed by ONE relation across
+    /// two consecutive lines — Earth going Strong -> Waning must change the intensity and must NOT
+    /// change the grow-in, which must read 1.00 in both. A grow-in that tracks the intensity is the
+    /// defect still standing; a grow-in strictly between 0 and 1 while Earth is up is a ramp caught
+    /// mid-flight, which is only correct within a second of the transition above it.</para>
+    /// </summary>
+    private static void LogGrowth(float clock)
+    {
+        var column = Column[(int)ElementInfusionBoardManager.EElement.Earth];
+        float earth = Value[(int)ElementInfusionBoardManager.EElement.Earth];
+        // HW-VERIFY: the grow-in beside the breathing intensity it must no longer follow. Two
+        // consecutive lines across Strong -> Waning are the whole test.
+        VRLog.Note("Core", "EARTH GROWTH: Earth is now " + column
+                   + ", published intensity " + earth.ToString("F2")
+                   + " which BREATHES " + (WaningPlateau - WaningEbbAmplitude).ToString("F2") + ".."
+                   + (WaningPlateau + WaningEbbAmplitude).ToString("F2") + " every "
+                   + WaningEbbPeriodSeconds.ToString("F1") + "s while Waning, and grow-in "
+                   + _grow.ToString("F2") + " heading for " + (_growPresent ? "1.00" : "0.00")
+                   + ". THE GRASS FOLLOWS THE GROW-IN AND NOTHING ELSE: Strong and Waning are the "
+                   + "same grow-in, so the breath cannot move a blade; it rises over "
+                   + RampSeconds.ToString("F1") + "s once, holds while Earth stands, and withers "
+                   + "over " + WitherSeconds.ToString("F1") + "s only when Earth goes Inert. "
+                   + "Shared clock " + clock.ToString("F2") + "s, master "
+                   + Mathf.Max(0f, ResponseStrength.Value).ToString("F2")
+                   + ", zero wire: the element board is the game's own replicated state.");
+    }
+
     private static void LogEdge(int signature, float master, float clock)
     {
         var sb = new StringBuilder(320);
@@ -961,6 +1165,19 @@ internal static class ElementMood
           .Append((WaningPlateau - WaningEbbAmplitude).ToString("F2")).Append("..")
           .Append((WaningPlateau + WaningEbbAmplitude).ToString("F2")).Append(" every ")
           .Append(WaningEbbPeriodSeconds.ToString("F1")).Append("s on the shared environment clock.");
+        // THE GROWTH CHANNEL, on the same line as the values it is derived from — because the whole
+        // question a reader brings to this line after 2026-09-05 is "did the grass move when it
+        // should not have?", and that is answered by seeing Earth's column, Earth's breathing
+        // intensity and the grow-in side by side: the grow-in must read 1.00 for BOTH Strong and
+        // Waning and must never take a value in between while Earth stands.
+        sb.Append(" | ").Append(ElemGrowName).Append(" ").Append(_grow.ToString("F2"))
+          .Append(_growPresent
+                      ? " -> 1.00, Earth is up: Strong and Waning are the SAME grow-in, so the "
+                        + "waning breath cannot move a blade"
+                      : " -> 0.00, Earth inert: withering")
+          .Append(", rises over ").Append(RampSeconds.ToString("F1"))
+          .Append("s and withers over ").Append(WitherSeconds.ToString("F1"))
+          .Append("s, presence only, never strength");
         sb.Append(" | NO WIRE FOR THE BOARD, on purpose: the element board is scenario-wide state the game itself "
                   + "serializes (ScenarioState.cs:110/704/846), restores (:1374) and desync-checks "
                   + "every round with codes 117/118 (:1992-2032, run from "

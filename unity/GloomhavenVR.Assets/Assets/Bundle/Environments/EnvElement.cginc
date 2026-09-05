@@ -7,10 +7,28 @@
 //  the channel slightly differently.
 //
 //  THE CHANNEL (verbatim from ElementMood's class doc, "THE PUBLISHED CHANNEL"):
-//     _GhvrElemA = float4(Fire,  Ice,  Air,   Earth)   // each 0..1, smoothed
-//     _GhvrElemB = float4(Light, Dark, Master, Peak)
+//     _GhvrElemA    = float4(Fire,  Ice,  Air,   Earth)   // each 0..1, smoothed
+//     _GhvrElemB    = float4(Light, Dark, Master, Peak)
+//     _GhvrElemGrow = float(EarthGrowth)                  // 0..1, smoothed
 //  The six are NOT pre-multiplied by the master, so every consumer owes exactly
-//  one multiply — which is what GhvrElems() below does, once, for everyone.
+//  one multiply — which is what GhvrElems() below does, once, for everyone. Nor
+//  is the growth channel, for the same reason and with the same one multiply.
+//
+//  THE GROWTH CHANNEL, in one paragraph, because a reader who finds a SECOND
+//  Earth number will otherwise reach for the wrong one. `earth` is Earth's
+//  STRENGTH: it is 1.0 at Strong and it BREATHES 0.28..0.52 every 2.4 s while
+//  Waning, which is the reading a player is meant to get from across the table.
+//  `grow` is Earth's PRESENCE: 1.0 for Strong AND for Waning alike, 0 only when
+//  Earth is Inert, rising over 1 s and withering over 9 s. Everything that
+//  paints with Earth takes `earth`. The GROW-IN OF A CARD — GhvrGrowCard, the
+//  vertex fold that stands the grass up — takes `grow`, and must never take
+//  `earth`: the fold is behind a threshold, so a strength that breathes is not
+//  grass that breathes, it is grass that stands up and lies flat every 2.4 s.
+//  That was ModBuild 445's defect, reported from hardware in exactly those words
+//  ("wächst und verschwindet in einem Loop ... als das Element nur halb aktiv
+//  war"). See ElementMood.cs, THE GROWTH CHANNEL, for the curve and for why a
+//  presence step rather than a ratchet is the only spelling that is identical on
+//  a client who joined late.
 //
 //  THE FIVE RULES THIS FILE EXISTS TO ENFORCE
 //  ------------------------------------------
@@ -127,6 +145,10 @@
 // Same reasoning, same words, as EnvHaunt.cginc's _GhvrHaunt.
 float4 _GhvrElemA;
 float4 _GhvrElemB;
+// Earth's GROW-IN, the third component of the channel and a scalar because there
+// is exactly one thing in the mod that grows. Same rules as the two above: not a
+// material Property, one writer, and 0 whenever the channel is not live.
+float _GhvrElemGrow;
 
 // WHICH ROOM IS STANDING: 1 in the CELLAR, 0 in the forest, 0 when nothing
 // stands. A global, written by Core/SkyAlternative.ApplyIndoor whenever the
@@ -171,7 +193,13 @@ float GhvrIndoor ()
 struct GhvrElem
 {
     float fire, ice, air, earth, light, dark;
-    // peak x master: "is anything up at all". The ONE value to branch on.
+    // EARTH'S PRESENCE, not its strength — see THE GROWTH CHANNEL in the header.
+    // The grow-in of a card reads this and nothing else.
+    float grow;
+    // peak x master: "is anything up at all". The ONE value to branch on. It
+    // covers `grow` as well as the six (ElementMood folds the growth channel into
+    // the published peak), so a consumer may keep bracketing on it even while the
+    // only thing left standing is grass that has not finished withering.
     float live;
 };
 
@@ -185,6 +213,7 @@ GhvrElem GhvrElems ()
     e.earth = _GhvrElemA.w * m;
     e.light = _GhvrElemB.x * m;
     e.dark  = _GhvrElemB.y * m;
+    e.grow  = _GhvrElemGrow * m;
     e.live  = _GhvrElemB.w * m;
     return e;
 }
@@ -195,7 +224,7 @@ GhvrElem GhvrElemsZero ()
 {
     GhvrElem e;
     e.fire = 0; e.ice = 0; e.air = 0; e.earth = 0;
-    e.light = 0; e.dark = 0; e.live = 0;
+    e.light = 0; e.dark = 0; e.grow = 0; e.live = 0;
     return e;
 }
 

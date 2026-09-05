@@ -376,11 +376,17 @@ Shader "GloomhavenVR/EnvRoomCutout"
                         // pixels use (0.55/m, ~1.8 m patches) — a clump is a
                         // clump, and a frontier finer than the clumps it moves
                         // would just look like flicker.
+                        //
+                        // e.grow, NOT e.earth: Earth's PRESENCE drives the fold,
+                        // its strength does not. A threshold swept by the waning
+                        // breath is a blade standing up and lying flat every
+                        // 2.4 s — ModBuild 445's defect, reported from hardware.
+                        // See IT TAKES NO TIME on GhvrGrowCard.
                         float g = 0.0;
-                        if (e.earth > 0.0)
+                        if (e.grow > 0.0)
                             g = GhvrGrowCard(GhvrGrowQ(v.vertex.xyz, _ElemCentre.xyz,
                                                        _ElemScl, 0.55),
-                                             e.earth * _ElemGrow, t);
+                                             e.grow * _ElemGrow);
                         // fold the card flat onto its base edge => zero area =>
                         // no fragments at all, which is what makes a mesh of
                         // grass that has not grown yet bit-identical to no mesh.
@@ -408,7 +414,13 @@ Shader "GloomhavenVR/EnvRoomCutout"
                     // 11.5k vertices that are folded to nothing in every
                     // scenario without Earth, and a permanent breeze must not
                     // charge them 35 ALU each for an offset of exactly zero.
-                    if (_ElemWind.x > 1e-5 && (_ElemGrow < 1e-5 || e.earth > 0.0))
+                    // ...and e.grow here for the same reason it is used above: the
+                    // question this branch asks is "does this growth mesh have any
+                    // area to move?", which is answered by the fold's own input and
+                    // by nothing else. With e.earth it would have gone quiet during
+                    // a wither, i.e. it would have frozen the standing grass for the
+                    // nine seconds it takes to go.
+                    if (_ElemWind.x > 1e-5 && (_ElemGrow < 1e-5 || e.grow > 0.0))
                     {
                         // NOT GATED ON AIR ANY MORE (user verdict, ModBuild 143:
                         // "so wie du es gemacht hast sollte der Normalzustand

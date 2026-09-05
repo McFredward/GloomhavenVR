@@ -883,7 +883,10 @@ float2 GhvrFrostSlope (GhvrFrostIce f, float3 T, float3 B)
 //     (fungus_alb, moss_01_alb) and their own _Tint. What Earth does to them is
 //     GhvrGrowCard below — a VERTEX fold that stands them up out of the ground —
 //     and that is untouched, because the grow-in is geometry appearing and is
-//     the one thing about Earth the user has never objected to.
+//     the one thing about Earth the user has never objected to. (He objected to
+//     it LOOPING two rounds later, which is a different complaint with a
+//     different cause and left the grow-in itself standing: see IT TAKES NO TIME
+//     on GhvrGrowCard.)
 //   * FROST. GhvrFrostOn, the frontier, the affinity, the creep and the whole
 //     of Ice are untouched: Ice was never the complaint, and frost genuinely IS
 //     a film on a surface, which is the one thing this mechanism can honestly
@@ -1190,10 +1193,50 @@ float3 GhvrWind (float3 p, float w, float t, float3 dir, float3 side, float amp,
 /// The threshold is the SAME frontier the pixels use, evaluated on the clump's
 /// own position — so the grass comes up in patches that spread, rather than the
 /// whole room rising like a lift.
-float GhvrGrowCard (float3 q, float cover, float t)
+///
+/// ---------------------------------------------------------------------------
+///  IT TAKES NO TIME, AND THAT IS THE WHOLE OF ModBuild 445's FIX.
+///
+///  USER, from hardware: "Das Gras im Wald, das wegen dem Element aufgetaucht
+///  ist, wächst und verschwindet in einem Loop statt einmal zu wachsen und dann
+///  konstant da zu sein! ... Es ist aufgefallen als das Element nur halb aktiv
+///  war."
+///
+///  THERE WERE TWO CLOCKS ON THIS FOLD and both had to go. Neither of them is
+///  the project's frequency-scrub class — every rate in this file and in
+///  GhvrWind is a literal, and it was re-checked when this was written — they
+///  are two correct PIXEL decisions applied to GEOMETRY, where the same numbers
+///  mean something else entirely:
+///
+///   1. THE ELEMENT'S OWN BREATH. `cover` used to be Earth's STRENGTH, which
+///      breathes 0.28..0.52 every 2.4 s while the element wanes. Through the
+///      ease and the threshold that is a coverage swing of about 4x. On frost
+///      that is a fringe advancing and retreating over a surface — the effect
+///      the plateau was tuned for. On a card it is the quad's AREA going to zero
+///      and back, i.e. a blade standing up and lying flat, twice every 2.4 s,
+///      for as long as the element wanes. `cover` is now Earth's PRESENCE
+///      (GhvrElem.grow), which is the same number for Strong and for Waning.
+///
+///   2. THE CREEP, which this function used to pass in and no longer takes at
+///      all. GhvrGrowCreep is +-0.062 of threshold on two waves ~20 s and ~37 s
+///      long, and its own doc says what it is for: "ice creaking outward and
+///      back", so that a frost frontier is not a still picture at Strong. A
+///      frontier that moves BOTH WAYS is a fine thing for a stain and an
+///      impossible one for a plant — it is a card that grows, ungrows and grows
+///      again on a 20 s cycle, which is the same complaint at a slower rate and
+///      would have survived fixing (1) alone. The user's requirement is four
+///      words long and rules on it directly: einmal wachsen, dann konstant.
+///
+///  So `g` here is now a pure function of POSITION and of a cover that only
+///  changes when the game's element board does. The grass rises once, holds
+///  exactly still, and comes down only when Earth is gone. THE FROST PATH IS
+///  UNTOUCHED — GhvrGrow, GhvrGrown and GhvrGrowCreep are exactly as they were,
+///  and the pixels still creep.
+/// ---------------------------------------------------------------------------
+float GhvrGrowCard (float3 q, float cover)
 {
     float A = GhvrGrowField(q);
-    float g = GhvrGrow(A, cover, GhvrGrowCreep(q, t));
+    float g = GhvrGrow(A, cover, 0.0);
     // A blade that reaches full height the instant it is over the threshold pops.
     // Squaring the ease-out is the settle: fast out of the ground, slow to full.
     return g * (2.0 - g);
