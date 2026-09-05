@@ -930,6 +930,16 @@ internal static partial class WallSegmentFade
             public float RoomFloorY;
             /// <summary><c>DoorRoot == null</c> AND <c>RoomDecisionValid(RoomIndex)</c>.</summary>
             public bool Electable;
+            /// <summary>ModBuild 440 — the ONE extra term the hanging-plant lane filters on
+            /// (<c>WallSegmentFade.Hanging.cs</c>: ivy rides a WALL, never a free-standing
+            /// formation, which has its own lane). A plain bool field on the row, so that lane
+            /// gets the same flat walk this one does.</summary>
+            public bool IsFreeStanding;
+            /// <summary>ModBuild 440 — the ONE extra term the union-overlap lane filters on
+            /// (<c>seg.Anchor != null</c>). It is a UnityEngine.Object null compare, i.e. a
+            /// native call, and it was being paid once per (dressing renderer, segment) pair.
+            /// </summary>
+            public bool AnchorAlive;
         }
 
         /// <summary>The election rows for THIS commit. Grown, never shrunk; only
@@ -955,9 +965,19 @@ internal static partial class WallSegmentFade
         /// SAME shape <see cref="_phaseTotalMillis"/> beside it already has, and the reset is a
         /// bulk clear of a buffer rather than a write to a field somebody reads.</para>
         /// </summary>
-        private readonly long[] _electWindow = new long[2];
+        private readonly long[] _electWindow = new long[6];
         private const int ElectWindowPairs = 0;
         private const int ElectWindowCandidates = 1;
+        // ModBuild 440 — the SAME product, in the two lanes that never got PERF S7's flattening.
+        // The ModBuild 439 stage slice put 40-54 ms in Riders and 19-20 ms in Union against 12 ms
+        // in the whole sweep, and both of those walk _live.Segments.Values ONCE PER CANDIDATE
+        // with a UnityEngine.Object null compare on the row. Their pair counts are printed for
+        // the reason the election's is: a flattening that does not reduce the COUNT and does not
+        // move the MILLISECOND either has been falsified by its own instrument.
+        private const int HangingWindowPairs = 2;
+        private const int HangingWindowCandidates = 3;
+        private const int UnionWindowPairs = 4;
+        private const int UnionWindowCandidates = 5;
         /// <summary>The row count of the LAST election index built in this window, i.e. the
         /// segment-table size the product is multiplied by. Deliberately a plain assignment and
         /// not a running max: a max would have to READ the field in the mechanism that writes it,
@@ -1733,6 +1753,16 @@ internal static partial class WallSegmentFade
         /// and segments without bounds are dropped, which is where the old inner loop's first
         /// <c>continue</c> stood — so every downstream first-wins tie sees the same sequence in
         /// the same order.</para>
+        ///
+        /// <para>ModBuild 440 — AND REBUILT, NOT REUSED, FOR THE TWO LATER LANES. The hanging
+        /// plants and the union map run AFTER the sweep, and
+        /// <c>PruneEmptyFreeStandingUnits</c> — the first act of
+        /// <c>CollectFreeStandingRiders</c>, which sits between them — calls
+        /// <c>_live.Segments.Remove(unit.Anchor)</c>. A row array carried across that would hold
+        /// a segment the table no longer contains and would keep it alive besides, so each of
+        /// those lanes rebuilds. One walk of the table costs 0.07 ms on the ModBuild 439
+        /// hardware (the ElectionIndex stage's own figure); the walk it replaces is measured in
+        /// tens of milliseconds.</para>
         /// </summary>
         private void BuildMountedElectionIndex()
         {
@@ -1759,6 +1789,8 @@ internal static partial class WallSegmentFade
                 // floor gate sits below the electable check in the loop).
                 e.RoomFloorY = electable ? _live.RoomFloorY[seg.RoomIndex] : 0f;
                 e.Electable = electable;
+                e.IsFreeStanding = seg.IsFreeStanding;
+                e.AnchorAlive = seg.Anchor != null;
             }
 
             // A shrinking table must not keep dead segments alive through a stale row. Only the
@@ -2839,12 +2871,13 @@ internal static partial class WallSegmentFade
             // formation's rock base is exactly that. HERE, after the election and BEFORE the
             // leavers loop, so a rider re-adopted this rescan is not restored one loop later.
             CollectFreeStandingRiders(minFloorY);
+            mstamp = MountedMark(MountedStage.FreeRiders, mstamp);
             // HANGING PLANTS (ModBuild 410, nonfading_plants.jpg — WallSegmentFade.Hanging.cs):
             // the ivy on a wall face is under the airborne bar and under no wall's subtree, so
             // neither the election above nor the foliage lane could take it. Same slot, same
             // reason: before the leavers loop.
             CollectHangingPlants(minFloorY);
-            mstamp = MountedMark(MountedStage.Riders, mstamp);
+            mstamp = MountedMark(MountedStage.HangingPlants, mstamp);
 
             // Leavers: restore anything this segment held that it no longer owns.
             foreach (Segment seg in _live.Segments.Values)
@@ -3321,6 +3354,10 @@ internal static partial class WallSegmentFade
                     _unionCornerExempt.Add(cp.Prop.Renderer);
             }
 
+            // ModBuild 440 — FLATTEN THE TABLE ONCE, NOT ONCE PER DRESSING RENDERER. See
+            // BuildMountedElectionIndex for why it is rebuilt here rather than reused: the
+            // free-standing rider lane between the sweep and this point can remove segments.
+            BuildMountedElectionIndex();
             foreach (Segment owner in _live.Segments.Values)
             {
                 foreach (MountedProp p in owner.Mounted)
@@ -3379,20 +3416,32 @@ internal static partial class WallSegmentFade
                 }
             }
             UnionEntry? entry = null;
-            foreach (Segment seg in _live.Segments.Values)
+            // ModBuild 440 — THE PROP'S OWN EXTENTS, READ ONCE. b.min/b.max are Bounds
+            // PROPERTIES and the overlap test asked for both on EVERY row of a 650-row table.
+            Vector3 pLo = b.min, pHi = b.max;
+            _electWindow[UnionWindowCandidates]++;
+            _electWindow[UnionWindowPairs] += _electCount;
+            for (int si = 0; si < _electCount; si++)
             {
-                if (ReferenceEquals(seg, owner) || !seg.HasBounds || seg.Anchor == null)
+                ref ElectSeg e = ref _electSegs[si];
+                // The row array already drops !HasBounds, which is where that continue stood.
+                // `AnchorAlive` and `Electable` are the same two facts, computed once per commit
+                // instead of once per pair — each was a native UnityEngine.Object null compare.
+                if (ReferenceEquals(e.Seg, owner) || !e.AnchorAlive)
                     continue;
                 // FADE-ELIGIBLE ONLY. A doorway never fades (user ruling 2026-08-02) and a
                 // segment without a trusted room plane makes no decision at all, so neither has
                 // a fade worth riding — and a doorway's arch must never drag dressing out with
                 // it (user ruling 2026-08-07).
-                if (seg.DoorRoot != null || !RoomDecisionValid(seg.RoomIndex))
+                if (!e.Electable)
                     continue;
-                if (!UnionOverlapDepth(seg.Bounds, b, out float depth))
+                if (!UnionOverlapDepth(e.MinX, e.MaxX, e.MinY, e.MaxY, e.MinZ, e.MaxZ,
+                                       pLo.x, pHi.x, pLo.y, pHi.y, pLo.z, pHi.z, out float depth))
+                {
                     continue;
+                }
                 entry ??= RentUnionEntry(owner, lane);
-                entry.Hits.Add(new UnionHit(seg, depth));
+                entry.Hits.Add(new UnionHit(e.Seg, depth));
             }
             if (entry == null)
             {
@@ -3418,6 +3467,32 @@ internal static partial class WallSegmentFade
         /// is the smallest signed per-axis overlap — how deep the prop reaches into the slab,
         /// negative when it is merely within the slack — which is the number the census prints so
         /// the tolerance can be argued with instead of trusted.</summary>
+        /// <summary>
+        /// ModBuild 440 — THE SAME TEST ON EXTENTS ALREADY READ, for the reason the second
+        /// <see cref="HorizontalGap"/> overload exists: <see cref="Bounds"/>.min and .max are
+        /// PROPERTIES (<c>center -/+ extents</c>, a fresh <see cref="Vector3"/> each), and this
+        /// test asked for FOUR of them per (dressing renderer, segment) pair over a table of 650
+        /// rows. The body is the pair overload below with <c>seg.max.x</c> spelled
+        /// <c>segMaxX</c>, so it returns the identical answer — and the identical
+        /// <paramref name="depth"/> — for identical inputs.
+        /// </summary>
+        private static bool UnionOverlapDepth(float segMinX, float segMaxX, float segMinY,
+                                              float segMaxY, float segMinZ, float segMaxZ,
+                                              float propMinX, float propMaxX, float propMinY,
+                                              float propMaxY, float propMinZ, float propMaxZ,
+                                              out float depth)
+        {
+            const float s = MountedUnionSlackWU;
+            float ox = Mathf.Min(segMaxX, propMaxX) - Mathf.Max(segMinX, propMinX);
+            if (ox <= -s) { depth = 0f; return false; }
+            float oy = Mathf.Min(segMaxY, propMaxY) - Mathf.Max(segMinY, propMinY);
+            if (oy <= -s) { depth = 0f; return false; }
+            float oz = Mathf.Min(segMaxZ, propMaxZ) - Mathf.Max(segMinZ, propMinZ);
+            if (oz <= -s) { depth = 0f; return false; }
+            depth = Mathf.Min(ox, Mathf.Min(oy, oz));
+            return true;
+        }
+
         private static bool UnionOverlapDepth(in Bounds seg, in Bounds prop, out float depth)
         {
             const float s = MountedUnionSlackWU;

@@ -151,6 +151,50 @@ internal static partial class WallSegmentFade
             reachMinX -= reach; reachMaxX += reach;
             reachMinZ -= reach; reachMaxZ += reach;
 
+            // ================================================================================
+            // ModBuild 440 — THE TABLE IS FLATTENED ONCE, NOT WALKED PER CANDIDATE.
+            // ================================================================================
+            //
+            // WHAT THE ModBuild 439 STAGE SLICE MEASURED. Commit.Mounted's eleven stages on the
+            // three expensive commits of that log put Riders (this lane plus the free-standing
+            // rider lane) at 40.40 / 52.77 / 53.55 ms and the WHOLE candidate sweep at 12 ms, of
+            // which the flattened nearest-wall election was 2.7-4.0. On the small board in the
+            // same session the identical stage reads 1.06 ms. The term that changed between them
+            // is the SEGMENT TABLE: ~10 rows before the doors opened, 650 after.
+            //
+            // AND THIS LOOP IS WHERE THAT TABLE IS WALKED. Its 439 form enumerated
+            // _live.Segments.Values for EVERY candidate, and the same log's own census says how
+            // many candidates that is: "1 hanging plant(s) adopted ... (80 in the ground band)
+            // ... refused by another term: 384" — 465 candidates reaching this loop, times 650
+            // rows, is ~302,000 pairs. Each pair paid `seg.DoorRoot != null`, which is a
+            // UnityEngine.Object null compare and therefore a NATIVE CALL, plus
+            // RoomDecisionValid, plus a Dictionary enumerator step, plus four Bounds PROPERTY
+            // reads inside HorizontalGap (min/max are center -/+ extents, a fresh Vector3 each).
+            // That is precisely the per-pair cost PERF S7 measured at 55-70 ns and removed from
+            // the mounted election in ModBuild 438 — in a lane written after it and never
+            // revisited.
+            //
+            // WHAT IS AND IS NOT CHANGED. Nothing about the RULE: the rows keep
+            // _live.Segments.Values order, segments without bounds are dropped exactly where
+            // this loop's first `continue` dropped them, the eligibility terms are the same
+            // three facts computed once per commit instead of once per pair, and
+            // HorizontalGap's extents overload is character-for-character the Bounds overload
+            // (see its own doc comment). So every band refusal, span refusal, nearest-wall
+            // choice and first-wins tie is the same segment in the same order. No plant that
+            // rode a wall stops riding it and none starts.
+            //
+            // WHY THE PICTURE CANNOT CHANGE, per the standing rulings: this lane only ever ADDS
+            // a floor-footed mesh to a wall's Mounted list, and the terms that keep floor cover,
+            // doorways, water, figures, non-occluders and architecture out of it are all below
+            // this loop and untouched. Floor tiles still never fade; light shafts and doorway
+            // content still never fade; ivy still fades WITH its wall.
+            //
+            // FALSIFIED BY: the HANGING/UNION PRODUCTS clause on the BUDGET line. The pair count
+            // is UNCHANGED by this (the loop still visits every row); if it is small while
+            // MOUNTED STAGES still reports tens of milliseconds for HangingPlants, the product
+            // is not the cost here either and the next round must look elsewhere.
+            BuildMountedElectionIndex();
+
             for (int fi = 0; fi < _factCount; fi++)
             {
                 ref RendererFact f = ref _facts[fi];
@@ -199,22 +243,31 @@ internal static partial class WallSegmentFade
                 bool spanRefused = false;
                 Segment? bandWall = null;                   // the wall the band refusal was judged against
                 float bandFloor = minFloorY;                // and that wall's room floor
-                foreach (Segment seg in _live.Segments.Values)
+                // ModBuild 440 — the candidate's own rect, read ONCE. b.min/b.max are Bounds
+                // properties and the gap test below asked for four of them on every row.
+                Vector3 bLo = b.min, bHi = b.max;
+                _electWindow[HangingWindowCandidates]++;
+                _electWindow[HangingWindowPairs] += _electCount;
+                for (int si = 0; si < _electCount; si++)
                 {
-                    if (!seg.HasBounds || seg.IsFreeStanding || seg.DoorRoot != null
-                        || !RoomDecisionValid(seg.RoomIndex))
-                    {
+                    ref ElectSeg e = ref _electSegs[si];
+                    // The row array already drops !HasBounds, which is where the first term of
+                    // this test stood. `Electable` IS `DoorRoot == null && RoomDecisionValid`
+                    // and `IsFreeStanding` is the third term — all computed once per commit in
+                    // BuildMountedElectionIndex, out of fields no later phase writes.
+                    if (e.IsFreeStanding || !e.Electable)
                         continue;
-                    }
-                    float gap = HorizontalGap(seg.Bounds, b);
+                    float gap = HorizontalGap(e.MinX, e.MaxX, e.MinZ, e.MaxZ,
+                                              bLo.x, bHi.x, bLo.z, bHi.z);
                     if (gap < nearestGap)
                     {
                         nearestGap = gap;
-                        nearestFloor = _live.RoomFloorY[seg.RoomIndex];
+                        nearestFloor = e.RoomFloorY;
                     }
                     if (gap > MountedLinkMaxXZ || gap >= bestGap)
                         continue;
-                    float floorY = _live.RoomFloorY[seg.RoomIndex];
+                    Segment seg = e.Seg;
+                    float floorY = e.RoomFloorY;
                     // ORDER OF TERMS (ModBuild 412). The ground band protects FLOOR COVER ON THE
                     // ROOM FLOOR: a plant that stands on that floor (foot at or above it, within
                     // a quarter band) and tops out inside the band. It does not protect a cliff
@@ -234,7 +287,7 @@ internal static partial class WallSegmentFade
                         continue;
                     }
                     bool tall = topY >= floorY + FreeStandingMinTopWU;
-                    bool onFace = topY >= seg.Bounds.min.y && anchorY <= seg.Bounds.max.y;
+                    bool onFace = topY >= e.MinY && anchorY <= e.MaxY;
                     if (!tall && !onFace)
                     {
                         spanRefused = true;

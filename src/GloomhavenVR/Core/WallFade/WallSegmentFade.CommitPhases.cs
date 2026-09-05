@@ -297,6 +297,24 @@ internal static partial class WallSegmentFade
               .Append("this count being SMALL while Mounted stays ~90ms falsifies the product as ")
               .Append("the cause and points at the per-candidate prologue instead.");
 
+            // ModBuild 440 — THE SAME PRODUCT IN THE TWO LANES THE 439 SLICE ACTUALLY INDICTED.
+            // Riders 40-54 ms and Union 19-20 ms against 12 ms for the whole sweep, and both of
+            // them walked _live.Segments.Values ONCE PER CANDIDATE with a UnityEngine.Object null
+            // compare on the row — the exact shape PERF S7 removed from the election in 438, in
+            // two lanes written after it. These counts are printed for the same reason that one
+            // is: they do NOT fall when the walk is flattened, so a count that stays put while
+            // the millisecond falls is the fix working, and a count that is small while the
+            // millisecond stays is this hypothesis falsified in its own words.
+            sb.Append(" HANGING/UNION PRODUCTS (ModBuild 440): the hanging-plant lane walked ")
+              .Append(_electWindow[HangingWindowPairs]).Append(" (candidate, segment) pair(s) ")
+              .Append("over ").Append(_electWindow[HangingWindowCandidates])
+              .Append(" candidate(s), and the union-overlap lane ")
+              .Append(_electWindow[UnionWindowPairs]).Append(" pair(s) over ")
+              .Append(_electWindow[UnionWindowCandidates])
+              .Append(" dressing renderer(s), over the same ").Append(_electRowsLast)
+              .Append("-row table. Read them against MOUNTED STAGES' HangingPlants and Union ")
+              .Append("figures below.");
+
             Array.Clear(_electWindow, 0, _electWindow.Length);
             _electRowsLast = 0;
         }
@@ -346,6 +364,12 @@ internal static partial class WallSegmentFade
             Leavers,
             Union,
             Census,
+            /// <summary>ModBuild 440 — split out of the 439 <c>Riders</c> stage, which lumped
+            /// <c>CollectFreeStandingRiders</c> and <c>CollectHangingPlants</c> into one number
+            /// and so could not say which of the two carried the 40-54 ms that stage reported.
+            /// Two lanes, two populations, two figures.</summary>
+            FreeRiders,
+            HangingPlants,
             /// <summary>A SUBSET of <see cref="Sweep"/>, not a sibling of it — the nearest-wall
             /// table walk alone, the term PERF S7 made cheap. It is a stage of its own so that
             /// SWEEP MINUS ELECTIONWALK is the per-candidate prologue, which is the number the
@@ -356,12 +380,13 @@ internal static partial class WallSegmentFade
             ElectionWalk,
         }
 
-        private const int MountedStageCount = (int)MountedStage.ElectionWalk + 1;
+        private const int MountedStageCount = (int)MountedStage.HangingPlants + 1;
 
         private static readonly string[] MountedStageNames =
         {
             "Ownership", "UnitHomes", "WallHomes", "Park", "Sticky", "ElectionIndex", "Sweep",
-            "Riders", "Leavers", "Union", "Census", "ElectionWalk(subset of Sweep)",
+            "Riders(RETIRED-always 0)", "Leavers", "Union", "Census",
+            "ElectionWalk(subset of Sweep)", "FreeRiders", "HangingPlants",
         };
 
         private readonly float[] _mountedStageCycle = new float[MountedStageCount];
@@ -431,7 +456,10 @@ internal static partial class WallSegmentFade
             }
             sb.Append(". ElectionWalk is a SUBSET of Sweep and is listed inside it, so ")
               .Append("SWEEP MINUS ELECTIONWALK IS THE PER-CANDIDATE PROLOGUE — the term the ")
-              .Append("438 round could not see. FUNNEL: ").Append(_mountedInReach)
+              .Append("438 round could not see. The 439 'Riders' stage is RETIRED and reads 0: ")
+              .Append("it lumped two lanes over two populations into one figure and could not ")
+              .Append("say which of them carried its 40-54 ms; FreeRiders and HangingPlants are ")
+              .Append("those two lanes, measured apart. FUNNEL: ").Append(_mountedInReach)
               .Append(" census row(s) survived the union-reach prefilter and ")
               .Append(_mountedPastStructural)
               .Append(" reached the geometric tests, against the candidate count in the ELECTION ")
