@@ -2785,9 +2785,18 @@ internal static partial class Loc
                 + "selbst ausgehen — die Aura eines Charakters, der Qualm eines Monsters, der "
                 + "Schwall eines Zaubers — werden "
                 + "von deinen Händen abgelenkt, solange sie darin stecken, und sind exakt "
-                + "wiederhergestellt, sobald du wieder heraus bist. Die Reaktion ist rein "
-                + "kinematisch: Partikel prallen ab, werden etwas langsamer und sterben ein wenig "
-                + "früher. Es entsteht dabei NICHTS: Effekte, deren Kollision das Spiel selbst "
+                + "wiederhergestellt, sobald du wieder heraus bist. Die Hand trägt dabei eine "
+                + "kleine Blase bewegter Luft auf der Handfläche und eine kleinere auf der "
+                + "Zeigefingerspitze: Der Effekt wird langsamer, während er dich erreicht, legt "
+                + "sich um deine Hand und deinen Finger und wird von deinem tatsächlichen Tempo "
+                + "mitgeweht — eine ruhige Hand stört also kaum etwas, ein Schwung wirbelt alles "
+                + "auf. Jede Art von Effekt wird bewusst anders behandelt: Rauch legt sich um "
+                + "dich und beruhigt sich wieder, eine Flamme wird aufgedrückt und richtet sich "
+                + "sofort wieder auf (nie seitlich weggeblasen, das sieht falsch aus), Funken "
+                + "stieben auseinander, Staub hängt in deinem Nachlauf, und die Aura einer Figur "
+                + "wird dort gestört, wo du sie berührst, bleibt aber bei ihrem Besitzer. Sieben "
+                + "Regler darunter (HandsVfxPushStrength und seine Nachbarn) bestimmen, wie stark "
+                + "das alles ausfällt. Es entsteht dabei NICHTS: Effekte, deren Kollision das Spiel selbst "
                 + "verwaltet, werden komplett ausgelassen, und die Kollisionsmeldungen bleiben "
                 + "aus — deine Hand kann also keinen Einschlagseffekt auslösen. Rein lokal und "
                 + "rein kosmetisch: Partikel waren noch nie im Netzwerk, jeder Spieler verwirbelt "
@@ -2801,6 +2810,56 @@ internal static partial class Loc
                 + "hineinfasst, waren vorher die, die weggelassen wurden. Aus: Effekte gehen "
                 + "durch deine Hände hindurch, wie bisher. (Hebst du eine Figur hoch, "
                 + "kommt ihre Aura mit — genau dorthin, wo deine andere Hand ist.)",
+            ["Hands/HandsVfxPushStrength"] =
+                "Wie kräftig eine BEWEGTE Hand einen Effekt vor sich her weht. 1 = wie "
+                + "ausgeliefert. Höher, wenn ein Wedeln durch den Rauch kaum etwas bewirkt; "
+                + "niedriger (oder 0), wenn Effekte von deiner Hand wegfliegen, statt sich um sie "
+                + "zu legen — bei 0 bremst und verwirbelt die Hand den Effekt weiterhin, sie "
+                + "bläst ihn nur nirgendwohin. Der Schub folgt immer dem tatsächlichen Tempo "
+                + "deiner Hand: eine ruhige Hand schiebt nichts, egal was hier steht. Jede Art "
+                + "von Effekt bekommt bewusst einen anderen Anteil davon: Funken am meisten, eine "
+                + "Flamme fast nichts (ein seitlich weggeblasenes Feuer sieht falsch aus). "
+                + "Live einstellbar.",
+            ["Hands/HandsVfxWakeSpeed"] =
+                "Wie schnell sich deine Hand bewegen muss, in Metern pro Sekunde, damit sie mit "
+                + "voller Kraft weht. Das ist die EMPFINDLICHKEIT, nicht die Stärke: niedriger, "
+                + "und schon eine sanfte Hand bewegt den Rauch; höher, und nur ein richtiger "
+                + "Schwung tut es. 0,6 entspricht etwa einem gemächlichen Winken. "
+                + "Live einstellbar.",
+            ["Hands/HandsVfxClingStrength"] =
+                "Wie sehr ein Effekt an deiner Hand HAFTET — wie stark er abbremst, während er "
+                + "dich erreicht, sodass er um deine Finger herum hängen bleibt, statt an ihnen "
+                + "vorbeizuziehen. 1 = wie ausgeliefert. Das ist der Regler, der Rauch auf einer "
+                + "Hand liegen und Staub in ihrem Nachlauf schweben lässt: höher, wenn Effekte an "
+                + "dir abzurutschen scheinen, niedriger, wenn sie in der Luft festzukleben "
+                + "wirken. Live einstellbar.",
+            ["Hands/HandsVfxCurlStrength"] =
+                "Wie sehr sich ein Effekt um deine Hand und deinen Finger LEGT — der Wirbel. "
+                + "1 = wie ausgeliefert. Das ist der Unterschied zwischen Rauch, der um dich "
+                + "herumgeht, und Rauch, der dir nur ausweicht; bei 0 gibt es gar keinen Wirbel, "
+                + "Effekte werden dann bloß langsamer und treiben ab. Die Aura einer Figur nutzt "
+                + "davon am meisten, dort ist ein Anheben also am deutlichsten zu sehen. "
+                + "Live einstellbar.",
+            ["Hands/HandsVfxSettleSeconds"] =
+                "Wie lange die Verwirbelung weiterläuft, nachdem deine Hand langsamer wird oder "
+                + "stehen bleibt, in Sekunden. 0 = die Luft steht in dem Moment still, in dem du "
+                + "es tust, was unnatürlich wirkt; höhere Werte lassen einen Nachlauf hinter "
+                + "einer Hand zurück, die längst vorbei ist. Der Schub setzt immer sofort ein, "
+                + "egal was hier steht — das hier regelt nur das Ausklingen. Live einstellbar.",
+            ["Hands/HandsVfxReachMeters"] =
+                "Wie groß die bewegte Luftblase um deine Handfläche ist, in ECHTEN Metern (eine "
+                + "zweite, kleinere sitzt auf deiner Zeigefingerspitze). 0,14 ist etwa "
+                + "anderthalb Handbreiten. Größer erfasst mehr von einem Effekt auf einmal und "
+                + "fühlt sich nach einem Ventilator an; kleiner hält die Reaktion eng an deinen "
+                + "Fingern. In echten Metern gemessen, also gleich groß auf einem tischgroßen "
+                + "Brett wie im Kartenraum. Live einstellbar.",
+            ["Hands/HandsVfxBounce"] =
+                "Wie stark ein Partikel, das deine Hand wirklich BERÜHRT, davon abprallt. Nahe 0 "
+                + "(wie ausgeliefert) gleitet es an dir entlang und wird vom Wirbel mitgenommen — "
+                + "so verhält sich Luft. Dreh es hoch, und Partikel prallen wie kleine Bälle von "
+                + "dir ab; genau das war vorher die ganze Reaktion, und genau so sah \"der Rauch "
+                + "weicht zurück\" aus. Bleibt als Regler, weil er der eine Begriff ist, der "
+                + "zwischen beidem entscheidet. Live einstellbar.",
             ["Hands/HandsDisturbScenery"] =
                 "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
                 + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "

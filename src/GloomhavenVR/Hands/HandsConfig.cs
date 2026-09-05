@@ -192,6 +192,86 @@ internal static class HandsConfig
     /// <summary>Above this the hand is a beach ball: a whole banner is swept aside from half a
     /// metre away and the reaction stops reading as a touch.</summary>
     internal const float SceneryClothHandRadiusMaxMm = 120f;
+    // ---- how the hands move an effect (the FEEL dials) --------------------------------------
+    //
+    // User, 2026-09-05, on the first build where the hands actually reached the effects: "Der
+    // Rauch reagiert nun auf die Hände aber überhaupt nicht immersiv — er weicht einfach super
+    // schnell unnatürlich zurück. Ich will das er sich um die Hand bzw dem Finger legt." Feel is
+    // a tuning problem and this user tunes on hardware, so every number that decides how an effect
+    // moves is a dial with a shipped default rather than a constant somebody has to rebuild to
+    // change. They are grouped by WHAT THEY CHANGE — how hard the hand pushes, how much the effect
+    // clings, how much it wraps, how long the wake lasts, how far it reaches, how much a touch
+    // bounces — never by which field of which Unity module they land on. The per-EFFECT character
+    // (smoke wraps, fire is carved, dust hangs) is designed in Hands/VfxFlow.cs and these seven
+    // scale it; that is deliberate, because five copies of seven dials is not a settings menu.
+
+    /// <summary>How hard a MOVING hand pushes an effect. 1 = the shipped feel, 0 = the hand only
+    /// clings and swirls without wafting.</summary>
+    public static ConfigEntry<float> HandsVfxPushStrength = null!;
+
+    /// <summary>Hand speed (real m/s) at which the push reaches full strength.</summary>
+    public static ConfigEntry<float> HandsVfxWakeSpeed = null!;
+
+    /// <summary>How much an effect SLOWS DOWN and lingers around a hand (force-field drag).</summary>
+    public static ConfigEntry<float> HandsVfxClingStrength = null!;
+
+    /// <summary>How much an effect WRAPS around the hand and the finger (the vortex).</summary>
+    public static ConfigEntry<float> HandsVfxCurlStrength = null!;
+
+    /// <summary>How long the wake keeps flowing after the hand slows or stops, in seconds.</summary>
+    public static ConfigEntry<float> HandsVfxSettleSeconds = null!;
+
+    /// <summary>Radius of the pocket of moving air around the palm, in REAL metres.</summary>
+    public static ConfigEntry<float> HandsVfxReachMeters = null!;
+
+    /// <summary>How much a particle that actually touches the hand bounces off it. 0 = it slides
+    /// along and is carried away by the swirl; high = the ModBuild 430 billiard ball.</summary>
+    public static ConfigEntry<float> HandsVfxBounce = null!;
+
+    /// <summary>Read a float dial with its clamp, its Defaults fallback and a total guard against
+    /// being called before Bind. The number passed in is ALWAYS the shipped default from
+    /// <c>Defaults</c>, never a second copy written down here — a fallback that disagrees with the
+    /// bind is a setting with two values.</summary>
+    private static float ClampedFloat(ConfigEntry<float>? entry, float fallback,
+                                      float min, float max)
+    {
+        try
+        {
+            return entry == null ? fallback : Mathf.Clamp(entry.Value, min, max);
+        }
+        catch
+        {
+            return fallback;
+        }
+    }
+
+    /// <summary>Push strength, 0..4 (see <see cref="HandsVfxPushStrength"/>).</summary>
+    public static float HandsVfxPushStrengthSafe()
+        => ClampedFloat(HandsVfxPushStrength, Defaults.HandsVfxPushStrength, 0f, 4f);
+
+    /// <summary>Hand speed at full push, 0.05..3 real m/s.</summary>
+    public static float HandsVfxWakeSpeedSafe()
+        => ClampedFloat(HandsVfxWakeSpeed, Defaults.HandsVfxWakeSpeed, 0.05f, 3f);
+
+    /// <summary>Cling strength, 0..4.</summary>
+    public static float HandsVfxClingStrengthSafe()
+        => ClampedFloat(HandsVfxClingStrength, Defaults.HandsVfxClingStrength, 0f, 4f);
+
+    /// <summary>Curl strength, 0..4.</summary>
+    public static float HandsVfxCurlStrengthSafe()
+        => ClampedFloat(HandsVfxCurlStrength, Defaults.HandsVfxCurlStrength, 0f, 4f);
+
+    /// <summary>Wake settle time, 0..3 s.</summary>
+    public static float HandsVfxSettleSecondsSafe()
+        => ClampedFloat(HandsVfxSettleSeconds, Defaults.HandsVfxSettleSeconds, 0f, 3f);
+
+    /// <summary>Field radius, 0.02..0.6 real metres.</summary>
+    public static float HandsVfxReachMetersSafe()
+        => ClampedFloat(HandsVfxReachMeters, Defaults.HandsVfxReachMeters, 0.02f, 0.6f);
+
+    /// <summary>Collision bounce, 0..1.</summary>
+    public static float HandsVfxBounceSafe()
+        => ClampedFloat(HandsVfxBounce, Defaults.HandsVfxBounce, 0f, 1f);
 
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
@@ -480,9 +560,16 @@ internal static class HandsConfig
             "character's aura, a monster's smoke, the wash of a cast - deflect off your hands " +
             "while they are inside, and are restored to the authored settings the moment you " +
             "leave. Pick a figure up and its aura comes with it, right where your other hand is. " +
-            "The " +
-            "reaction is purely kinematic: particles bounce, slow a little and die slightly " +
-            "early. Nothing is ever spawned - effects the game manages its own collision on are " +
+            "The hand carries a small pocket of moving air on the palm and a smaller one on the " +
+            "index fingertip: the effect slows down as it reaches you, curls around your hand and " +
+            "your finger, and is wafted along by however fast you are actually moving - so a " +
+            "still hand barely disturbs anything and a swipe sends it swirling. Each kind of " +
+            "effect is treated differently on purpose: smoke wraps around you and settles back, a " +
+            "flame is pushed open and springs straight back up (never blown sideways, which looks " +
+            "wrong), sparks scatter and drift, dust hangs in your wake, and a character's aura is " +
+            "disturbed where you touch it but stays with its owner. Seven dials underneath " +
+            "(HandsVfxPushStrength and its neighbours) decide how strong all that is. " +
+            "Nothing is ever spawned - effects the game manages its own collision on are " +
             "skipped entirely, and collision MESSAGES stay off, so no impact effect can be " +
             "triggered by your hand. Purely local and purely cosmetic: particles have never been " +
             "networked, so every player stirs their own copy of the room and nothing can desync. " +
@@ -493,6 +580,75 @@ internal static class HandsConfig
             "cached set of tests instead of testing every speck, so the effects most worth " +
             "reaching into are the ones that used to be dropped. Off: effects " +
             "pass through your hands, exactly as before.");
+
+        // THE SEVEN FEEL DIALS. Bound together, immediately after their own feature switch, so a
+        // fresh cfg file puts them where somebody looking for "why does the smoke do that" will
+        // find them. Every range here is the clamp the *Safe accessors above already apply.
+        HandsVfxPushStrength = config.Bind(
+            "Hands", "HandsVfxPushStrength", Defaults.HandsVfxPushStrength,
+            new ConfigDescription(
+                "How hard a MOVING hand wafts an effect. 1 = as shipped. Raise it if waving " +
+                "through smoke barely moves it; lower it (or set 0) if effects fly away from " +
+                "your hand instead of curling around it — at 0 the hand still slows the effect " +
+                "down and swirls it, it just stops blowing it anywhere. The push always follows " +
+                "your hand's actual speed, so a still hand pushes nothing whatever this says. " +
+                "Each kind of effect gets a different share of it by design: sparks take the " +
+                "most, a flame almost none (a fire blown sideways looks wrong). Live-tunable.",
+                new AcceptableValueRange<float>(0f, 4f)));
+        HandsVfxWakeSpeed = config.Bind(
+            "Hands", "HandsVfxWakeSpeed", Defaults.HandsVfxWakeSpeed,
+            new ConfigDescription(
+                "How fast your hand has to move, in metres per second, before it is wafting at " +
+                "full strength. This is the SENSITIVITY, not the strength: lower it and a gentle " +
+                "hand already stirs the smoke, raise it and only a real swipe does. 0.6 is about " +
+                "an unhurried wave. Live-tunable.",
+                new AcceptableValueRange<float>(0.05f, 3f)));
+        HandsVfxClingStrength = config.Bind(
+            "Hands", "HandsVfxClingStrength", Defaults.HandsVfxClingStrength,
+            new ConfigDescription(
+                "How much an effect CLINGS to your hand — how far it slows down as it reaches " +
+                "you, so it hangs around your fingers instead of streaming past them. 1 = as " +
+                "shipped. This is the dial that makes smoke sit on a hand and dust hang in its " +
+                "wake; raise it if effects feel like they slide off you, lower it if they look " +
+                "stuck in mid-air. Live-tunable.",
+                new AcceptableValueRange<float>(0f, 4f)));
+        HandsVfxCurlStrength = config.Bind(
+            "Hands", "HandsVfxCurlStrength", Defaults.HandsVfxCurlStrength,
+            new ConfigDescription(
+                "How much an effect WRAPS AROUND your hand and your finger — the swirl. 1 = as " +
+                "shipped. This is the difference between smoke that goes round you and smoke " +
+                "that only gets out of the way; at 0 there is no swirl at all and effects merely " +
+                "slow down and drift. A character's aura uses the most of it, so raising this is " +
+                "most visible there. Live-tunable.",
+                new AcceptableValueRange<float>(0f, 4f)));
+        HandsVfxSettleSeconds = config.Bind(
+            "Hands", "HandsVfxSettleSeconds", Defaults.HandsVfxSettleSeconds,
+            new ConfigDescription(
+                "How long the disturbance keeps flowing after your hand slows down or stops, in " +
+                "seconds. 0 = the air stops dead the moment you do, which reads as unnatural; " +
+                "higher values leave a wake trailing behind a hand that has already passed. The " +
+                "push starts instantly whatever this says — this only governs the fade-out. " +
+                "Live-tunable.",
+                new AcceptableValueRange<float>(0f, 3f)));
+        HandsVfxReachMeters = config.Bind(
+            "Hands", "HandsVfxReachMeters", Defaults.HandsVfxReachMeters,
+            new ConfigDescription(
+                "How big the pocket of moving air around your palm is, in REAL metres (a second, " +
+                "smaller one sits on your index fingertip). 0.14 is about a hand-and-a-half " +
+                "across. Bigger disturbs more of an effect at once and feels like a fan; smaller " +
+                "keeps the reaction tight to your fingers. Measured in real metres, so it means " +
+                "the same thing on a table-sized board and in the map room. Live-tunable.",
+                new AcceptableValueRange<float>(0.02f, 0.6f)));
+        HandsVfxBounce = config.Bind(
+            "Hands", "HandsVfxBounce", Defaults.HandsVfxBounce,
+            new ConfigDescription(
+                "How much a particle that actually TOUCHES your hand bounces off it. Near 0 (as " +
+                "shipped) it slides along your skin and is carried away by the swirl, which is " +
+                "what the air does. Turn it up and particles ping off you like little balls — " +
+                "that was the whole reaction before, and it is what 'the smoke snaps away' looked " +
+                "like. Left as a dial because it is the one term that decides between the two. " +
+                "Live-tunable.",
+                new AcceptableValueRange<float>(0f, 1f)));
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", Defaults.GhostHandStrength,
             new ConfigDescription(

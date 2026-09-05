@@ -20,6 +20,16 @@ internal static partial class Defaults
     internal const bool HandsDisturbScenery = true;         // => [Hands] HandsDisturbScenery
     internal const float SceneryClothHandRadiusMillimeters = 35f; // => [Hands] SceneryClothHandRadiusMillimeters
     internal const bool HandsDisturbVfx = true;             // => [Hands] HandsDisturbVfx
+    // How the hands MOVE an effect, not whether they do. Every one of these seven scales a
+    // designed per-effect feel (Hands/VfxFlow.cs) rather than setting a Unity field directly, so
+    // 1.0 means "the shipped feel" on all four strengths and a value is comparable across effects.
+    internal const float HandsVfxPushStrength = 1f;         // => [Hands] HandsVfxPushStrength
+    internal const float HandsVfxWakeSpeed = 0.6f;          // => [Hands] HandsVfxWakeSpeed
+    internal const float HandsVfxClingStrength = 1f;        // => [Hands] HandsVfxClingStrength
+    internal const float HandsVfxCurlStrength = 1f;         // => [Hands] HandsVfxCurlStrength
+    internal const float HandsVfxSettleSeconds = 0.35f;     // => [Hands] HandsVfxSettleSeconds
+    internal const float HandsVfxReachMeters = 0.14f;       // => [Hands] HandsVfxReachMeters
+    internal const float HandsVfxBounce = 0.05f;            // => [Hands] HandsVfxBounce
     internal const float GhostHandStrength = 0.55f;         // => [Hands] GhostHandStrength
     internal const bool TestFist = false;                   // => [Hands] TestFist
     internal const float CurlProximal = 75f;                // => [Hands] CurlProximal
