@@ -348,6 +348,55 @@ internal sealed class RemoteAvatar
         return n;
     }
 
+    /// <summary>
+    /// The ONE hand seat this peer's fist names right now, together with the LENGTH the sender
+    /// said that list had — false when no pose slot names a hand card, or when BOTH do.
+    ///
+    /// <para>WHY BOTH IS A REFUSAL and not two answers: the caller
+    /// (<c>RemoteHandFan.TrackFist</c>) uses this to say WHICH card was handed from a fist into a
+    /// round recess, and two cards in two fists against one recess that gained occupancy is a
+    /// pairing this client cannot make. The same belt discipline
+    /// <c>RemoteControlBoard.SeatSlots</c> applies to a length disagreement: refuse rather than
+    /// guess, because a confidently wrong face is the one failure a player cannot read.</para>
+    ///
+    /// <para>THE LENGTH IS NOT PADDING — it is the reason a positional seat may be trusted at all,
+    /// the identical term <see cref="RemoteHeldCardFace"/> checks before it draws that card's own
+    /// front. <see cref="HeldHandSeats"/> above does not need it (removing seat k from a list only
+    /// has to make two counts agree, and the count check IS the safety), but naming a card does.
+    /// </para>
+    /// </summary>
+    internal bool SingleHeldHandSeat(out int seat, out int listLength, out int poseSlot)
+    {
+        seat = -1;
+        listLength = 0;
+        poseSlot = 0;
+        bool a = NetProtocol.HeldFaceNamesCard(_heldFaceCode)
+                 && NetProtocol.HeldFaceList(_heldFaceCode) == NetProtocol.HeldFaceListHand;
+        bool b = NetProtocol.HeldFaceNamesCard(_secondHeldFaceCode)
+                 && NetProtocol.HeldFaceList(_secondHeldFaceCode) == NetProtocol.HeldFaceListHand;
+        if (a == b)
+            return false; // none, or two fists — no single card to hand off
+        seat = a ? NetProtocol.HeldFaceIndex(_heldFaceCode)
+                 : NetProtocol.HeldFaceIndex(_secondHeldFaceCode);
+        listLength = a ? _heldFaceCount : _secondHeldFaceCount;
+        poseSlot = a ? 1 : 2;
+        return true;
+    }
+
+    /// <summary>
+    /// The held-card SLAB for pose slot 1 or 2 — the mirrored card in this peer's fist, or null
+    /// before they have held anything. Handed out so <see cref="RemoteHandFan"/> can read the pose
+    /// the card was RELEASED at: <c>UpdateCardSlab</c> deactivates the holder when the wire says
+    /// the fist is empty but leaves its transform standing exactly where the card last was, and
+    /// that pose is the seed of the mirrored return flight (report item 2 — see
+    /// <c>RemoteHandFan.BeginReturnGlide</c>).
+    ///
+    /// <para>READ-ONLY BY CONTRACT. The slab is this avatar's own object and its pose is owned by
+    /// <c>UpdateCardSlab</c>; a caller that wrote to it would be fighting the interpolator.</para>
+    /// </summary>
+    internal Transform? HeldSlab(int poseSlot)
+        => poseSlot == 1 ? _heldCardHolder : poseSlot == 2 ? _secondCardHolder : null;
+
     /// <summary>The two front overlays, one per held-card POSE SLOT — built lazily on the first
     /// front, exactly like the slabs they sit on.</summary>
     private RemoteHeldCardFace? _heldFace1;

@@ -189,6 +189,14 @@ MIRRORS=(
   "item-use recess card fill : Cards/Piles/ItemsPile.cs:UseSlotFillFraction Net/Remote/RemoteItemFan.cs:UseSlotFillFraction"
   "item-use clip settle seconds : Cards/Piles/ItemsPile.cs:ClipSettleSeconds Net/Remote/RemoteItemFan.cs:ClipSettleSeconds"
   "item chip release glide seconds : Cards/Piles/ItemsPile.cs:ReleaseGlideSeconds Net/Remote/RemoteItemFan.cs:ReleaseGlideSeconds"
+  # THE ABILITY CARD'S RETURN FLIGHT (report item 2, 2026-09-05). "Ich sehe bei den remote Karten
+  # nicht die Animation wie die Karte in die Hand zurueckkehrt, wenn man die Karte in die Hand nimmt
+  # und irgendwo loslaesst." The owner's card is carried home by VRCard's standing home-lerp with
+  # _releaseGlide holding it on UNSCALED time for this window; the mirrored fan replays the same
+  # window on the same exponential. Retune one copy and a peer watches the card settle at a
+  # different speed from the player who let go of it — the 1:1 divergence, one surface over from the
+  # item chip's own entry directly above.
+  "ability card release glide seconds : Cards/VRCard.cs:ReleaseGlideSeconds Net/Remote/RemoteHandFan.cs:ReleaseGlideSeconds"
 
   # THE TWO "cluster" GROUPS ARE GONE (2026-08-25), and this is what deleting a group looks
   # like when the ORIGINAL is deleted rather than retuned. "cluster proud seat" paired

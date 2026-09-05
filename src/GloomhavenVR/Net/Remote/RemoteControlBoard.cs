@@ -1631,6 +1631,14 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
         int occupiedCount = CountBits(wire & ((1 << SlotCount) - 1));
         bool compact = modelCount == occupiedCount;
         LogCompactionIfChanged(compact, modelCount, occupiedCount);
+        // THE HAND-OFF IS A STAND-IN FOR A FACT THAT HAS NOT ARRIVED, so the moment it arrives it
+        // gets out of the way. `compact` IS that arrival: this client's own model can name the
+        // recesses again and the walk below is authoritative, so anything the fist handed over is
+        // now a second answer to a question that already has one. Dropped here rather than left to
+        // its own backstop because a latch whose normal exit is a timeout is a latch that outlives
+        // its edge.
+        if (compact)
+            _owner.HandFan.ClearHandoff();
 
         int next = 0;
         for (int i = 0; i < SlotCount; i++)
@@ -1683,6 +1691,22 @@ internal sealed class RemoteControlBoard : WorldUI.IFurnitureOrderAnchor
             // ever READ here under showFronts, and cleared above the moment the gate shuts.
             if (card == null && showFronts)
                 card = _latchedFaces[i];
+            // ─── THE FIST'S HAND-OFF, ASKED LAST (report item 5) ────────────────────────────────
+            // The walk has been refused and the latch has nothing — which is what a card ARRIVING
+            // in this recess looks like, because a recess the model has never named has no face to
+            // latch. RemoteHandFan watched this peer's fist empty into this very recess and
+            // resolved the card from record 36's seat in this client's OWN hand list, so this is a
+            // card that was OBSERVED being handed over rather than the next one off a positional
+            // zip. Asked LAST on purpose: the model and the latch are both stronger facts, and the
+            // hand-off may only fill a hole, never overrule one of them.
+            //
+            // IT CHANGES NO PERMISSION. The face goes up under `showFronts` exactly like every
+            // other one below — a recess filling during the secret selection phase still draws a
+            // back on every peer, which is RevealGate's ruling and not this method's to widen. The
+            // sacrifice carve-out above is the ONLY face that is drawn while the gate is shut, and
+            // it stays the only one.
+            if (card == null)
+                card = _owner.HandFan.HandoffFor(i);
             if (card == null)
             {
                 _slotAnonMask |= 1 << i;
