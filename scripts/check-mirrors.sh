@@ -56,7 +56,15 @@ MIRRORS=(
   "control board width (the 1:1 rule's own object) : Cards/Tray/PlayTray.6.Build.cs:BoardW Net/Remote/RemoteControlBoard.cs:BoardW Net/Remote/RemoteBoardFurniture.cs:BoardW"
   "control board height (the 1:1 rule's own object) : Cards/Tray/PlayTray.6.Build.cs:BoardH Net/Remote/RemoteControlBoard.cs:BoardH Net/Remote/RemoteBoardFurniture.cs:BoardH"
   "grab reach (INVARIANTS §15) : Hands/Interact/ProximityGrabber.cs:ReachMeters Board/FigureGrab/FigureGrabDriver.cs:ReachMeters Cards/FanSweep.cs:PalmReachMeters"
-  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/Tray/PlayTray.7.Nested.cs:FingertipRadius"
+  # FOURTH SITE added 2026-09-05 with the map table's depth-fire (R5): MapButtonRail's caps now
+  # measure their own travel from the fingertip, which they could only start doing by carrying this
+  # radius. It is a copy rather than a reference on PokeInteractor.FingertipRadius's own written
+  # ruling (exporting it "would either leak an interactor private onto the frozen P2 surface or
+  # hide the number in a Core file nobody opens when tuning"), which is exactly the trade this
+  # group is the price of. It must match: the interactor decides at this radius that the finger is
+  # touching the cap at all, and the rail measures the cap's travel from the same radius, so a
+  # mismatch is a cap that moves before it is hovered or one that can never reach its fire depth.
+  "fingertip contact radius (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:FingertipRadius Board/BoardClickDriver.cs:ContactDepth Cards/Tray/PlayTray.7.Nested.cs:FingertipRadius WorldUI/MapRoom/MapButtonRail.cs:FingertipRadius"
   "poke release range (INVARIANTS §3) : Hands/Interact/PokeInteractor.cs:ReleaseRange Board/BoardClickDriver.cs:ReleaseDepth"
   # ModBuild 200: the fixed-fit branch reports legibility in arc-minutes, which needs the reading
   # distance. ModalFallback owns the real one and keeps it private, so the fit carries a copy. The

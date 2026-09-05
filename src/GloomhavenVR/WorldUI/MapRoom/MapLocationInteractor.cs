@@ -362,7 +362,7 @@ internal sealed class MapLocationInteractor
                 how = otherHow;
             }
         }
-        SetHover(want, "laser", how);
+        SetHover(want, "laser", how, pointer: primaryHand);
         NoteRouteChange(primaryHand, primaryHasBeam, how);
 
         TickHoverVerdict();
@@ -381,7 +381,7 @@ internal sealed class MapLocationInteractor
         // Claim the trigger WITHOUT moving the beam: the far-click half alone (see
         // RayInteractor.SuppressFarClick's own doc on why the two duties are separate).
         clicking.Ray.SuppressFarClick();
-        Dispatch(_hover, $"{clicking.Side} trigger");
+        Dispatch(_hover, $"{clicking.Side} trigger", clicking);
     }
 
     /// <summary>Undo everything: unregister the poke adapters, hand the pick mask back, and drop a
@@ -955,10 +955,22 @@ internal sealed class MapLocationInteractor
     /// the game's own authored collider. Half of "why did this icon show no card" is "did the pick
     /// even land, and on what", so it travels WITH the verdict instead of in a second line somebody
     /// has to correlate. The default is the fingertip path, which has exactly one answer.</param>
-    internal void SetHover(MapLocation? want, string why, string how = "the fingertip")
+    /// <param name="pointer">The hand that moved the hover, when there is one, so the 0→1 edge can
+    /// TICK it — R21. Picking a place on the map used to be haptically silent by BOTH routes while
+    /// a table cap on the same rim ticked under either pointer, which is one affordance answering
+    /// the same question two ways. Null for a hover the player did not move (a teardown, a scene
+    /// with no locations), which must never buzz.</param>
+    internal void SetHover(MapLocation? want, string why, string how = "the fingertip",
+                           VRHand? pointer = null)
     {
         if (ReferenceEquals(want, _hover))
             return;
+
+        // THE HOVER TICK, on the edge and only when an icon is being ENTERED (leaving one is not an
+        // event the hand needs to feel, and VRHand.SendHaptic rate-limits HoverTick anyway, so a
+        // pointer sweeping a dense cluster of icons cannot buzz continuously).
+        if (want != null && pointer != null)
+            pointer.SendHaptic(HapticPreset.HoverTick);
 
         MapLocation? had = _hover;
         _hover = want;
@@ -1755,10 +1767,22 @@ internal sealed class MapLocationInteractor
     /// The click. One dispatch, through the game's own handler chain — see the class doc on why
     /// this and not <c>Select()</c> directly.
     /// </summary>
-    internal void Dispatch(MapLocation loc, string source)
+    internal void Dispatch(MapLocation loc, string source, VRHand? hand = null)
     {
         if (loc == null)
             return;
+
+        // ONE PRESS, ONE PULSE (R21/R22). Picking a place on the map fired NO haptic on ANY path —
+        // this class is absent from the mod-wide SendHaptic census — while pressing a cap on the
+        // same table rim pulses. It fires here, at the single dispatch point both the fingertip and
+        // the trigger reach, and before the branch below so that a route the game then refuses
+        // still confirms the GESTURE landed: the refusal is what the log line and the unmoved map
+        // say, and a click that feels like nothing at all is indistinguishable from a missed one.
+        //
+        // It is the interactor's job now rather than PokeInteractor's: that unconditional
+        // contact-time pulse was removed with R22 precisely because only the receiver knows a press
+        // happened. Null for a programmatic dispatch, which no hand made.
+        hand?.SendHaptic(HapticPreset.ClickPulse);
 
         // THE CAPITAL TAKES THE GAME'S OWN CLICK DELEGATE, NOT A SYNTHESISED CLICK. A
         // pointerClickHandler here would reach Select(), which gates on the same IsSelectable() that
@@ -2002,7 +2026,7 @@ internal sealed class MapLocationPoke : MonoBehaviour, IPokeable
     public void OnPokeEnter(VRHand hand)
     {
         if (_owner != null && _location != null)
-            _owner.SetHover(_location, $"{hand.Side} fingertip");
+            _owner.SetHover(_location, $"{hand.Side} fingertip", pointer: hand);
     }
 
     public void OnPokeExit(VRHand hand)
@@ -2017,6 +2041,6 @@ internal sealed class MapLocationPoke : MonoBehaviour, IPokeable
     public void OnPoke(VRHand hand)
     {
         if (_owner != null && _location != null)
-            _owner.Dispatch(_location, $"{hand.Side} fingertip");
+            _owner.Dispatch(_location, $"{hand.Side} fingertip", hand);
     }
 }

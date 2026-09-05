@@ -572,22 +572,21 @@ internal sealed partial class PlayTray
         /// </summary>
         private float Travel { get; set; } = CapTravel;
 
-        // Depth-fire press (user #6): fingertip contact no longer fires — the finger-follow
-        // machinery fires exactly when the cap reaches PressFireFraction (~90%) of its full
-        // travel, and re-arms only after the cap rose back past PressRearmFraction (~50%).
-        // Releasing before the bottom = no fire, the cap springs back. Laser presses
-        // (CardsDriver → Press(hand, "laser")) never pass through this and stay immediate.
-        private bool _depthArmed = true;
-
-        // Press DEBOUNCE (user: keycaps double-trigger like the pile stacks used to — port the
-        // exact PileStack.OnPoke fix here). After a press commits, no second press fires until
-        // the fingertip has both (a) retracted past PressRearmFraction so _depthArmed re-arms
-        // AND (b) waited out this shared cooldown — killing the retract/re-entry and the
-        // PokeInteractor hover-flicker (exit+enter inside one physical poke) re-fire the
-        // hysteresis alone could not. The laser path (Press "laser") is cooldown-debounced too
-        // (cross-path poke+laser double-fire), but never dwelled. Composes with the depth-fire:
-        // the depth-fire at ~90% travel is still the press event; this only blocks the re-fire.
-        private float _nextPressTime;
+        // THE PRESS VOCABULARY, AND IT IS SHARED NOW (2026-09-05). The depth-fire hysteresis
+        // (user #6: fingertip contact does not fire — the finger-follow machinery fires when the
+        // cap reaches PressFireFraction of its full travel and re-arms only after it rose back
+        // past PressRearmFraction) and the cross-path debounce cooldown (user: keycaps
+        // double-trigger like the pile stacks used to) used to be two fields and two hand-written
+        // tests here. They are one type now — WorldUI.KeycapPressGate — because the map table's
+        // caps are the same affordance and answered "did he press this?" with neither term: they
+        // fired on 8 mm of CONTACT. Brushing CONFIRM did nothing; brushing Händler opened the
+        // merchant. Nothing about THIS cap's behaviour moved: the gate is the board's own two
+        // rules, lifted verbatim, and the board is the reference precisely because it is the side
+        // that carries the reason.
+        //
+        // The gate's default value is the correct initial state (armed, cooldown expired), which
+        // is why there is no initialiser here where `_depthArmed = true` used to be one.
+        private WorldUI.KeycapPressGate _pressGate;
 
         // Dust-dissolve hide / materialize-from-dust show (user #7). The logical hide is INSTANT
         // (collider off, poke state dropped); only the visuals shrink out for
@@ -1122,6 +1121,9 @@ internal sealed partial class PlayTray
             // Native label (test #25 item 3): the game's HUD font (MarcellusSC) + its
             // parchment-gold button-text colour when the skin has been sampled; plain
             // white otherwise (procedural fallback).
+            // The live half of this expression is LabelColorNow(), which UpdateColor re-applies on
+            // every state change (R15). Written here too because the button component does not
+            // exist yet at this point in the build.
             tmp.color = WorldUI.NativeButtonSkin.HasFont ? WorldUI.NativeButtonSkin.LabelColor : Color.white;
             WorldUI.NativeButtonSkin.ApplyFont(tmp);
             WorldUI.NativeButtonSkin.StyleEngravedLabel(tmp); // T4: parchment glyphs carved into the cap
@@ -1514,7 +1516,7 @@ internal sealed partial class PlayTray
             }
             // LOGICAL hide is immediate (user #7 contract): input off now, visuals may linger.
             _hoverHand = null; // no poke events fire while hidden — drop stale follow
-            _depthArmed = true;
+            _pressGate.Rearm();
             if (_dwellHand != null)
                 CancelDwell();
             if (Collider != null)
@@ -1578,8 +1580,47 @@ internal sealed partial class PlayTray
             : (_confirmed || _accent) ? WorldUI.NativeButtonSkin.FaceState.Accent
             : WorldUI.NativeButtonSkin.FaceState.Idle;
 
+        /// <summary>
+        /// The label's LIVE colour — the identical expression <see cref="Create"/> writes at build
+        /// (the sampled HUD gold when the skin has a font, plain white on the procedural fallback),
+        /// dimmed by <see cref="WorldUI.NativeButtonSkin.DisabledLabelDim"/> when the key is dead.
+        /// </summary>
+        private Color LabelColorNow()
+        {
+            Color live = WorldUI.NativeButtonSkin.HasFont
+                ? WorldUI.NativeButtonSkin.LabelColor
+                : Color.white;
+            return _enabledState ? live : live * WorldUI.NativeButtonSkin.DisabledLabelDim;
+        }
+
+        /// <summary>
+        /// <b>R15 — A DEAD KEY'S CAPTION, which this cap never repainted.</b> <c>tmp.color</c> was
+        /// written ONCE in <see cref="Create"/> and never again: <see cref="UpdateColor"/> touched
+        /// the face, the bevel and the walls, so a disabled CONFIRM was a full-brightness gold word
+        /// on a dark plate — the one piece of the key that still said "press me". The map table's
+        /// caps have dimmed their captions since they were built; this is the board coming to that
+        /// answer, through the shared factor rather than through a second literal.
+        ///
+        /// <para>Safe to write from here: a grep of this file for <c>_label.color</c> returned
+        /// nothing before this method existed, so there is no other writer for it to fight — in
+        /// particular the appear/dissolve assembly ramp paints the cap's MATERIALS and never the
+        /// label, which is why a dimmed caption cannot flicker during an arrival.</para>
+        /// </summary>
+        private void UpdateLabelColor()
+        {
+            if (_label == null)
+                return;
+            Color want = LabelColorNow();
+            if (_label.color != want)
+                _label.color = want;
+        }
+
         private void UpdateColor()
         {
+            // The caption first and unconditionally: every early return below is a branch about the
+            // cap's BODY (a native sprite face, a missing material, a running assembly ramp), and a
+            // dead key's word must dim in all of them.
+            UpdateLabelColor();
             if (_capFace != null)
             {
                 WorldUI.NativeButtonSkin.Apply(_capFace, FaceState());
@@ -1907,7 +1948,7 @@ internal sealed partial class PlayTray
             // Press() still runs the full gate chain (enabled/ActivationGuard/logs).
             if (_hoverHand != null && _enabledState)
             {
-                if (follow >= WorldUI.ButtonTuning.PressFireFraction)
+                if (_pressGate.AtFireDepth(follow))
                 {
                     // GRIP CHORD (hardware MP test 2026-08, requirement (a): "Das physische
                     // Drücken der Tasten … darf nur möglich sein, während der Grip-Knopf
@@ -1935,20 +1976,18 @@ internal sealed partial class PlayTray
                     // hysteresis since the last press) AND the shared cooldown has elapsed —
                     // a retract-then-push or a hover flicker inside the same poke can no longer
                     // machine-gun a second press. Press() re-checks the cooldown and stamps it.
-                    else if (_depthArmed && Time.unscaledTime >= _nextPressTime)
+                    // Note the ORDER: the grip refusal above returns without consuming the arm,
+                    // so closing the grip with the finger already at the bottom still presses.
+                    else if (_pressGate.TryFireFromDepth())
                     {
-                        _depthArmed = false;
                         Press(_hoverHand, "poke-depth");
                     }
-                }
-                else if (follow <= WorldUI.ButtonTuning.PressRearmFraction)
-                {
-                    _depthArmed = true;
                 }
             }
             else
             {
-                _depthArmed = true;
+                // Nothing is touching this cap, so it has retracted by definition.
+                _pressGate.Rearm();
             }
 
             // THE TWO SOURCES COMBINE AS A MAX ONLY WHILE A FINGER IS ON THE CAP, so a quick
@@ -1969,26 +2008,18 @@ internal sealed partial class PlayTray
         }
 
         /// <summary>
-        /// Fingertip penetration for the finger-follow press, normalised to 0..1 of the
-        /// cap travel. Same tip/collider probe as <see cref="TickDwell"/> and the
-        /// PokeInteractor contact test: penetration = FingertipRadius·scale − distance
-        /// (tip → nearest surface point). Converted through the button's WORLD depth
-        /// scale so the puck follows the finger in real space (not local units), and
-        /// clamped to one full travel. Framerate-independent — it is a pure function of
-        /// where the fingertip is this frame, no accumulation.
+        /// Fingertip penetration for the finger-follow press, normalised to 0..1 of the cap travel
+        /// — <see cref="WorldUI.KeycapPress.FollowDepth01"/>, which is where the measurement lives
+        /// now that the map table's caps ride the same depth-fire. It is the same tip/collider
+        /// probe as <see cref="TickDwell"/> and the PokeInteractor contact test, converted through
+        /// the button's WORLD depth scale so the puck follows the finger in real space, and it is
+        /// unchanged line for line: this cap's own [BoardButtons]/[BoardDashboard]
+        /// <see cref="Travel"/> and this cap's own mirrored <see cref="FingertipRadius"/> still go
+        /// in, because a shared MEASUREMENT is not a shared number.
         /// </summary>
-        private float FollowDepth01(VRHand hand)
-        {
-            if (Collider == null || !hand.HasPose)
-                return 0f;
-            Vector3 tip = hand.Rig.IndexTip.position;
-            float dist = Vector3.Distance(tip, Collider.ClosestPoint(tip));
-            float penetration = FingertipRadius * hand.WorldScale - dist;
-            if (penetration <= 0f)
-                return 0f;
-            float capTravelWorld = Travel * Mathf.Abs(transform.lossyScale.z);
-            return capTravelWorld > 1e-6f ? Mathf.Clamp01(penetration / capTravelWorld) : 0f;
-        }
+        private float FollowDepth01(VRHand hand) =>
+            WorldUI.KeycapPress.FollowDepth01(Collider, hand, FingertipRadius, Travel,
+                                              transform.lossyScale.z);
 
         /// <summary>
         /// Poke path (P2 PokeInteractor — geometric fingertip test against this
@@ -2145,13 +2176,12 @@ internal sealed partial class PlayTray
             // window (so a valid poke-depth always passes here and re-stamps it); the laser path
             // arrives straight here and is cooldown-debounced too, so a retract/re-entry, a
             // hover flicker, or a poke+laser inside the same window cannot fire twice.
-            if (Time.unscaledTime < _nextPressTime)
+            if (!_pressGate.TryCommit())
             {
                 VRLog.Debug("Cards", $"Board: {name} press DEBOUNCED (source={source}, {hand.Side}) — " +
                                      $"within the {WorldUI.ButtonTuning.PokePressCooldownSeconds:F2}s press cooldown.");
                 return;
             }
-            _nextPressTime = Time.unscaledTime + WorldUI.ButtonTuning.PokePressCooldownSeconds;
             _pressPhase = 0f; // arm the stroke; Update rides ButtonStroke.Depth01 from here
             hand.SendHaptic(HapticPreset.ClickPulse);
             // MULTIPLAYER (1:1 ruling — "alle Interaktionen, ANIMATIONEN und Anzeigen des

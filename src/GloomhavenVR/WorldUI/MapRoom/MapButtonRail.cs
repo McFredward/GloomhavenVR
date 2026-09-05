@@ -214,6 +214,17 @@ namespace GloomhavenVR.WorldUI.MapRoom;
 /// <c>RayInteractor.Mask</c>: the map room keeps that mask narrow on purpose (see
 /// <see cref="MapLocationInteractor"/>), and widening it to reach these caps would re-arm the very
 /// occlusion refusal that made the window grab bars ungrabbable in ModBuild 178.</para>
+///
+/// <para><b>WHAT COUNTS AS A PRESS, AND IT IS NOT THIS FILE'S ANSWER ANY MORE (R5/R11,
+/// 2026-09-05).</b> These caps and <c>PlayTray.BoardButton</c> are the same affordance built twice
+/// — a physical keycap lying flat on a table — and they used to disagree about the only question
+/// that matters: a board keycap fired at 90 % of its travel with a shared cooldown, while a cap
+/// here fired on 8 mm of fingertip CONTACT with neither. Brushing CONFIRM did nothing; brushing
+/// <i>Händler</i> opened the merchant. The board's principle is the reference because it is the one
+/// that carries a reason, and it now lives in <see cref="KeycapPress"/> where both families read
+/// it: <see cref="TickPokeDepths"/> is the depth-fire, <see cref="Press"/> is the shared debounce
+/// and the commit pulse. The LOOK stays this room's own — sampled game art, the hold-and-spring
+/// travel, the table's generous 7 mm — because none of that is what a press IS.</para>
 /// </summary>
 internal sealed class MapButtonRail
 {
@@ -270,6 +281,23 @@ internal sealed class MapButtonRail
 
     /// <summary>Seconds the cap stays down after a press, before it springs back.</summary>
     private const float PressHoldSeconds = 0.07f;
+
+    /// <summary>
+    /// Fingertip contact radius — mirror of <c>PokeInteractor.FingertipRadius</c>, added 2026-09-05
+    /// with the depth-fire (R5). It is a COPY and not a reference on that constant's own written
+    /// ruling, quoted from its declaration: merging it "would either leak an interactor private
+    /// onto the frozen P2 surface or hide the number in a Core file nobody opens when tuning". The
+    /// price of that decision is that the copies must be tuned together, and
+    /// <c>scripts/check-mirrors.sh</c> is what collects that price — this rail is the fourth site
+    /// in the "fingertip contact radius (INVARIANTS §3)" group.
+    ///
+    /// <para>It has to be the same number as the interactor's, not merely a similar one: the
+    /// interactor decides at this radius that a finger is TOUCHING the cap (and therefore that the
+    /// enter has happened at all), and <see cref="TickPokeDepths"/> measures the cap's travel from
+    /// the same radius. A mismatch would mean a cap that starts moving before it is hovered, or one
+    /// that is hovered and cannot reach its own fire depth.</para>
+    /// </summary>
+    private const float FingertipRadius = 0.008f;
 
     /// <summary>Spring-back time constant. Down is fast (a press is instant), up is softer.</summary>
     private const float PressDownSeconds = 0.02f;
@@ -366,6 +394,29 @@ internal sealed class MapButtonRail
         internal float PressedUntil;
         internal float Depth;      // current travel, world units
         internal float TravelWorld;
+
+        /// <summary>
+        /// THE PRESS VOCABULARY (R5/R11, 2026-09-05) — the shared depth-fire hysteresis and the
+        /// shared cross-path debounce, the control board's own two rules, held here by value.
+        ///
+        /// <para>Until this landed, a table cap fired on 8 mm of fingertip CONTACT: no travel
+        /// requirement, no cooldown, and a 7 mm stroke that was a 70 ms animation STARTED BY the
+        /// press rather than the thing the press was measured from. Brushing CONFIRM on the
+        /// control board did nothing; brushing <i>Händler</i> on this table opened the merchant.
+        /// See <see cref="KeycapPress"/> for why the board's principle is the reference.</para>
+        /// </summary>
+        internal KeycapPressGate Gate;
+
+        /// <summary>This frame's fingertip travel on this cap, 0..1 of <see cref="TravelWorld"/>.
+        /// Written by <c>TickPokeDepths</c>, read by <c>TickTravel</c> in the next pass — it is a
+        /// field only so the two halves of one frame's work can stay two methods.</summary>
+        internal float FollowDepth;
+
+        /// <summary>Which hand's fingertip is currently driving this cap's travel, or null. Set on
+        /// the poke ENTER and cleared on the exit, so the finger-follow is armed on exactly the
+        /// hand PokeInteractor says is on the cap (it keeps one hovered target per hand and pairs
+        /// enter/exit strictly, which is what makes this safe to hold across frames).</summary>
+        internal VRHand? PokeHand;
     }
 
     private static FieldInfo? _toggleField;
@@ -377,6 +428,11 @@ internal sealed class MapButtonRail
 
     private readonly List<Cap> _caps = new(8);
     private readonly List<UIGuildmasterButton> _scratch = new(8);
+
+    /// <summary>Caps whose fingertip reached the fire depth this frame, held between the two phases
+    /// of <see cref="TickPokeDepths"/> so the commit happens outside the loop over
+    /// <see cref="_caps"/>. Reused, never reallocated; normally empty.</summary>
+    private readonly List<(UIGuildmasterButton Button, VRHand Hand)> _pendingPress = new(2);
     private GameObject? _root;
     private int _scanFrame = int.MinValue;
     private float _scale = 1f;
@@ -412,6 +468,12 @@ internal sealed class MapButtonRail
         if (_caps.Count == 0)
             return;
 
+        // THE DEPTH PASS RUNS FIRST AND ON ITS OWN (R5). SampleState reads FollowDepth to drive the
+        // travel, so the measurement has to be complete before it starts — and the commit has to
+        // happen OUTSIDE any loop over _caps, which is why it is a two-phase method rather than one
+        // more statement inside SampleState's loop: a press dispatches into the game, which can
+        // switch guildmaster mode, and this rail's own Release() clears _caps.
+        TickPokeDepths();
         SampleState();
         TickLaser();
 
@@ -850,21 +912,100 @@ internal sealed class MapButtonRail
     /// The hold keeps the cap seated for <see cref="PressHoldSeconds"/> so a press is visible even
     /// when the trigger is tapped in a single frame.</para>
     /// </summary>
-    private static void TickTravel(Cap c)
+    private static void TickTravel(Cap c, float follow01)
     {
         if (c.Body == null)
             return;
+        // THE FINGER OWNS THE CAP WHILE IT IS ON IT (R5, 2026-09-05). The travel used to be
+        // driven ONLY by the post-press hold below, i.e. the cap moved because a press had already
+        // been committed. It moves under the finger now, which is what makes the depth-fire
+        // legible: the player sees the key going down and feels it fire at the bottom, instead of
+        // seeing it flick after something already happened. The hold is unchanged and still owns
+        // the LASER press and the springback, so a press with no finger on it still shows.
+        //
+        // MAX, not sum: the two sources are two accounts of the same one cap, and a finger resting
+        // at the bottom during the 70 ms hold must not push it through the socket floor.
         bool down = Time.unscaledTime < c.PressedUntil;
-        float target = down ? c.TravelWorld : 0f;
+        float target = Mathf.Max(down ? c.TravelWorld : 0f, follow01 * c.TravelWorld);
         if (Mathf.Approximately(c.Depth, target))
             return;
-        float tau = down ? PressDownSeconds : PressUpSeconds;
-        c.Depth = Mathf.MoveTowards(c.Depth, target,
-                                    c.TravelWorld * Time.unscaledDeltaTime / Mathf.Max(tau, 1e-4f));
-        if (Mathf.Abs(c.Depth - target) < c.TravelWorld * 0.01f)
+        // The finger's own contribution is not eased — it IS the finger, and easing it would put
+        // the cap somewhere the fingertip is not. Only the hold's rise and fall are timed.
+        if (follow01 > 0f && target > c.Depth)
+        {
             c.Depth = target;
+        }
+        else
+        {
+            float tau = down ? PressDownSeconds : PressUpSeconds;
+            c.Depth = Mathf.MoveTowards(c.Depth, target,
+                                        c.TravelWorld * Time.unscaledDeltaTime / Mathf.Max(tau, 1e-4f));
+            if (Mathf.Abs(c.Depth - target) < c.TravelWorld * 0.01f)
+                c.Depth = target;
+        }
         // +Z is INTO the socket: the cap's -Z faces the player (see the frame note in Build).
         c.Body.localPosition = new Vector3(0f, 0f, c.Depth);
+    }
+
+    /// <summary>
+    /// <b>THE DEPTH-FIRE, ON THE MAP TABLE'S CAPS.</b> Measure how far each cap's own fingertip has
+    /// pushed it, step the shared gate, and commit at the bottom — the control board's rule
+    /// (<see cref="KeycapPress"/>) applied to the family that had no rule at all.
+    ///
+    /// <para><b>WHY THERE IS NO GRIP CHORD HERE, unlike the board's.</b> The board's fingertip
+    /// commit additionally requires the same hand's grip held and empty, because a tray keycap
+    /// calls a non-undoable game API (END TURN) and because dragging the CONTROL BOARD ITSELF puts
+    /// the dragging hand's fingertip inches from its own keycaps. Neither premise holds at the map
+    /// table: a cap here dispatches a pointerClick into the game's own guildmaster Toggle, every
+    /// destination it opens can be closed again by pressing the same cap (the ModBuild 200/226/230
+    /// ruling, quoted in <see cref="Press"/>), and the table is not a grabbable the player carries
+    /// past its own buttons. Adding the chord would mean a player has to hold grip to press a
+    /// button that lies flat on a table in front of him, which is not what the requirement asked
+    /// for — it asked that an ACCIDENTAL press be impossible, and the travel requirement is what
+    /// delivers that here.</para>
+    /// </summary>
+    /// <summary><b>PHASE 1 — measure every cap, commit nothing.</b> Kept separate from the
+    /// dispatch below because a press reaches into the game (a guildmaster mode switch, a window
+    /// open or close) and this rail's own <see cref="Release"/> clears <c>_caps</c>: firing from
+    /// inside a loop over that list is a mutation-during-iteration waiting for the one frame the
+    /// room tears down under a fingertip. The caps that fired are collected first and pressed
+    /// after the loop has closed, from a snapshot; <see cref="Press"/> re-resolves its own cap and
+    /// tolerates one that has since gone.</summary>
+    private void TickPokeDepths()
+    {
+        _pendingPress.Clear();
+        for (int i = 0; i < _caps.Count; i++)
+        {
+            Cap c = _caps[i];
+            if (c.Go == null || c.Button == null)
+                continue;
+
+            VRHand? hand = c.PokeHand;
+            if (hand == null || !Pressable(c))
+            {
+                // Nothing is pushing this cap, so it has retracted by definition.
+                c.Gate.Rearm();
+                c.FollowDepth = 0f;
+                continue;
+            }
+
+            // The board's own measurement (WorldUI.KeycapPress.FollowDepth01 — one implementation,
+            // both families) on this rail's own mirrored contact radius. The MEASUREMENT is shared;
+            // the NUMBERS going into it are each family's own, which is why the map table keeps its
+            // 7 mm travel and the board keeps its configurable 4 mm.
+            c.FollowDepth = KeycapPress.FollowDepth01(c.Collider, hand, FingertipRadius,
+                                                      c.TravelWorld, c.Go.transform.lossyScale.z);
+            if (c.Gate.AtFireDepth(c.FollowDepth) && c.Gate.TryFireFromDepth())
+                _pendingPress.Add((c.Button, hand));
+        }
+
+        // PHASE 2 — dispatch. Normally empty; at most one entry per hand.
+        for (int i = 0; i < _pendingPress.Count; i++)
+        {
+            (UIGuildmasterButton button, VRHand hand) = _pendingPress[i];
+            Press(button, $"{hand.Side} fingertip (depth-fire)", hand: hand);
+        }
+        _pendingPress.Clear();
     }
 
     private SpriteRenderer MakeSprite(Transform parent, string name, float localZ, float size, int order)
@@ -893,7 +1034,7 @@ internal sealed class MapButtonRail
             if (c.Go == null || c.Button == null)
                 continue;
 
-            TickTravel(c);
+            TickTravel(c, c.FollowDepth);
 
             float groupAlpha = c.Group != null ? c.Group.alpha : 1f;
             // ModBuild 200: THE ONE TERM THAT MOVED. Was
@@ -999,8 +1140,11 @@ internal sealed class MapButtonRail
             }
             if (c.Fallback != null)
             {
+                // R15: the dim factor is NativeButtonSkin.DisabledLabelDim now — the same number the
+                // control board's keycaps started dimming their captions by on 2026-09-05. This side
+                // is unchanged; it was the reference.
                 c.Fallback.color = live ? NativeButtonSkin.LabelColor
-                                        : NativeButtonSkin.LabelColor * 0.45f;
+                                        : NativeButtonSkin.LabelColor * NativeButtonSkin.DisabledLabelDim;
             }
         }
     }
@@ -1600,9 +1744,24 @@ internal sealed class MapButtonRail
         return null;
     }
 
-    /// <summary>Fingertip hover, routed from <see cref="MapButtonPoke"/> so the finger and the beam
-    /// share one refcount and one dispatch path.</summary>
-    internal void SetPokeHover(UIGuildmasterButton button, bool hovered, string source)
+    /// <summary>
+    /// Fingertip hover, routed from <see cref="MapButtonPoke"/> so the finger and the beam share
+    /// one refcount and one dispatch path.
+    ///
+    /// <para><b>IT ALSO ARMS AND DISARMS THE FINGER-FOLLOW</b> (R5): the hand recorded here is the
+    /// one <c>TickPokeDepth</c> measures the cap's travel against. PokeInteractor keeps ONE hovered
+    /// target per hand and pairs enter/exit strictly, so this reference cannot leak past the
+    /// fingertip that owns it.</para>
+    ///
+    /// <para><b>AND IT TICKS THE HAND</b> (R21). The LASER hover on these caps has fired
+    /// <c>HapticPreset.HoverTick</c> since the rail was written; the FINGERTIP hover fired nothing,
+    /// so hovering <i>Händler</i> with the beam ticked and hovering the same cap with your finger
+    /// did not. One cap, one hover vocabulary, whichever pointer arrives — the same rule
+    /// <c>PlayTray.BoardButton.OnPokeEnter</c> and <c>PileViewer.PileStack.OnPokeEnter</c> already
+    /// follow. Only on a cap the room would actually accept a press on: a tick on a dead cap is a
+    /// promise the press then refuses.</para>
+    /// </summary>
+    internal void SetPokeHover(UIGuildmasterButton button, VRHand hand, bool hovered, string source)
     {
         if (button == null)
             return;
@@ -1610,9 +1769,24 @@ internal sealed class MapButtonRail
         if (c == null)
             return;
         if (hovered)
+        {
+            c.PokeHand = hand;
             AddHover(c, source);
+            if (Pressable(c))
+                hand.SendHaptic(HapticPreset.HoverTick);
+        }
         else
+        {
+            // Only drop the follow this hand actually owns — the OTHER hand may have taken the cap
+            // over in the same frame, and an unconditional clear would stall its travel.
+            if (ReferenceEquals(c.PokeHand, hand))
+            {
+                c.PokeHand = null;
+                c.Gate.Rearm();
+                c.FollowDepth = 0f;
+            }
             RemoveHover(c, source);
+        }
     }
 
     // ---- laser -------------------------------------------------------------------------------
@@ -1734,7 +1908,7 @@ internal sealed class MapButtonRail
         if (hand.TriggerDown)
         {
             hand.Ray.SuppressFarClick();
-            Press(hit.Button, $"{hand.Side} trigger");
+            Press(hit.Button, $"{hand.Side} trigger", hand: hand);
         }
     }
 
@@ -1775,21 +1949,51 @@ internal sealed class MapButtonRail
     ///
     /// <para><c>Presses</c> keeps counting both kinds, because it is the double-dispatch detector
     /// and a programmatic dispatch IS a dispatch; the log line names which kind this was.</para></param>
-    internal void Press(UIGuildmasterButton button, string source, bool physical = true)
+    internal void Press(UIGuildmasterButton button, string source, bool physical = true,
+                        VRHand? hand = null)
     {
         if (button == null)
             return;
+        Cap? cap = CapOf(button);
+
+        // THE SHARED DEBOUNCE (R5, 2026-09-05) — the control board's PokePressCooldownSeconds,
+        // applied to this family for the first time. It covers BOTH physical paths from one clock
+        // (the depth-fire has already pre-checked the same window, so an honest push always passes
+        // here and re-stamps it), which is what kills the cross-path double a poke and a laser
+        // click inside the same window used to fire, and the PokeInteractor hover flicker the
+        // travel hysteresis structurally cannot see.
+        //
+        // A PROGRAMMATIC dispatch is NOT debounced and must not be: it is the game-side half of
+        // closing some other destination (PressMode -> GuildmasterDestinations.ReturnHome) and the
+        // multiplayer surface mirror. Those are consequences of a press somewhere else that already
+        // passed a gate, and refusing one would leave a mode half-exited.
+        if (physical && cap != null && !cap.Gate.TryCommit())
+        {
+            VRLog.Info(Scope, $"MAP TABLE BUTTON '{button.GuildmasterMode}' press DEBOUNCED "
+                              + $"({source}) — within the {ButtonTuning.PokePressCooldownSeconds:F2}s "
+                              + "press cooldown this family shares with the control board's keycaps. "
+                              + "One physical push is one press.");
+            return;
+        }
+
         // THE CAP GOES DOWN WHETHER OR NOT THE GAME ACCEPTS THE PRESS. A button that does not move
         // when you push it reads as broken input, not as a refusal — and the refusal is already
         // communicated by the cap being dimmed and inert in the first place. It does NOT go down for
         // a press nobody made: see the `physical` parameter.
-        Cap? cap = CapOf(button);
         if (cap != null)
         {
             if (physical)
                 cap.PressedUntil = Time.unscaledTime + PressHoldSeconds;
             cap.Presses++;
         }
+
+        // ONE PRESS, ONE PULSE (R11). A laser press on a table cap was SILENT to the hand — the
+        // rail's only SendHaptic was the hover tick — while the identical gesture on a control-board
+        // keycap has pulsed at its commit point since the board was built. It fires HERE, at the
+        // single commit both physical paths share and after the debounce, so a refused or debounced
+        // attempt never buzzes; and never for a programmatic dispatch, which no hand made.
+        if (physical && hand != null)
+            hand.SendHaptic(HapticPreset.ClickPulse);
         Toggle? toggle = ToggleOf(button);
         GameObject target = toggle != null ? toggle.gameObject : button.gameObject;
 
@@ -2050,18 +2254,29 @@ internal sealed class MapButtonPoke : MonoBehaviour, IPokeable
     public void OnPokeEnter(VRHand hand)
     {
         if (_rail != null && _button != null)
-            _rail.SetPokeHover(_button, hovered: true, $"{hand.Side} fingertip");
+            _rail.SetPokeHover(_button, hand, hovered: true, $"{hand.Side} fingertip");
     }
 
     public void OnPokeExit(VRHand hand)
     {
         if (_rail != null && _button != null)
-            _rail.SetPokeHover(_button, hovered: false, $"{hand.Side} fingertip left");
+            _rail.SetPokeHover(_button, hand, hovered: false, $"{hand.Side} fingertip left");
     }
 
+    /// <summary>
+    /// <b>CONTACT NO LONGER PRESSES (R5, 2026-09-05), and this empty body IS the fix.</b> This
+    /// method used to call <c>MapButtonRail.Press</c> outright, so a cap committed the moment a
+    /// fingertip came within the interactor's 8 mm contact radius: no travel requirement, no
+    /// cooldown, and therefore no way for the player to change his mind. Brushing <i>Händler</i>
+    /// opened the merchant.
+    ///
+    /// <para>The press is <c>MapButtonRail.TickPokeDepth</c>'s now — it fires when the cap has
+    /// actually been pushed to the bottom of its travel, which is the control board's rule and the
+    /// only one of the two that can tell a push from a brush. This is the exact shape
+    /// <c>PlayTray.BoardButton.OnPoke</c> takes for the same reason: the enter callback arms the
+    /// finger-follow, and the per-frame depth machinery owns the commit.</para>
+    /// </summary>
     public void OnPoke(VRHand hand)
     {
-        if (_rail != null && _button != null)
-            _rail.Press(_button, $"{hand.Side} fingertip");
     }
 }

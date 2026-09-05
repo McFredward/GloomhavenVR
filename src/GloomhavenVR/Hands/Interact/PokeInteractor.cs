@@ -353,8 +353,34 @@ internal sealed class PokeInteractor
                 else
                 {
                     _armed = false;
+                    // ONE PRESS, ONE PULSE — AND THE RECEIVER OWNS IT (R22, 2026-09-05).
+                    //
+                    // This line used to send HapticPreset.ClickPulse unconditionally, right here,
+                    // the instant the fingertip came within FingertipRadius. It was wrong in both
+                    // directions at once:
+                    //
+                    //   DOUBLE. Every receiver that actually commits something already pulses at
+                    //   its OWN commit point, after its own gates — VRCard.OnPoke, PileStack.OnPoke,
+                    //   HalfZone.OnPoke, BoardButton.Press, and now MapButtonRail.Press and
+                    //   MapLocationInteractor.Dispatch. A fingertip poke on the discard pile
+                    //   therefore fired TWO overlapping impulses while a laser click on the same
+                    //   stack (PileStack.LaserToggle) fired one.
+                    //
+                    //   PHANTOM. The receivers that deliberately do NOT commit on contact got a
+                    //   full click anyway. BoardButton.OnPoke does nothing for an ENABLED cap on
+                    //   purpose — its press is the depth-fire at ~90% of travel — so the buzz fired
+                    //   on exactly the 8 mm brush that user requirement #6 exists to make inert, and
+                    //   then fired AGAIN when the key actually bottomed out. BoardSurfaceTarget's
+                    //   OnPoke is empty by construction. A receiver that refuses (VRCard with poke
+                    //   select off) buzzed for a press that never happened.
+                    //
+                    // The decision is made HERE, at the sender, and it is to send nothing: only the
+                    // receiver knows whether the gesture became a press, and it is the receiver that
+                    // has the gates. This interactor's other three ClickPulse sends are untouched
+                    // and are NOT the same case — they are the uGUI canvas path, where the interactor
+                    // IS the committer (it drives the pointer down/up itself) and there is no mod
+                    // receiver to own anything.
                     _hovered.OnPoke(_hand);
-                    _hand.SendHaptic(HapticPreset.ClickPulse);
                 }
             }
             else if (!_armed && nearestDist > ReleaseRange * scale)

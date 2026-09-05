@@ -109,6 +109,25 @@ internal static class NativeButtonSkin
     internal static Color LabelColor => LabelColorFor(LabelOwner.ThisViewersOwnDial);
 
     /// <summary>
+    /// <b>WHAT A DEAD CONTROL'S CAPTION IS MULTIPLIED BY — R15, one answer where there were three.</b>
+    ///
+    /// <para>A disabled cap on the map table dimmed its caption by this factor; a disabled CONFIRM
+    /// key on the control board did not dim at all — its <c>tmp.color</c> was written once at build
+    /// and never again, so a dead key was a full-brightness gold word on a dark-wood plate, which
+    /// reads as a live button. (A harvested uGUI button is the third answer and stays the third
+    /// answer: it dims through the game's own <c>Selectable.disabledColor</c>, which is the game's
+    /// look and not ours to overwrite.)</para>
+    ///
+    /// <para>The map table's factor is the reference because it is the one that was actually seen
+    /// and accepted on hardware. It multiplies ALPHA as well as RGB, deliberately: a caption on a
+    /// dead key is meant to recede, and a carved gold word at full opacity does not recede however
+    /// dark you make it. Each family still supplies its OWN base colour — the board's is
+    /// <see cref="LabelColor"/> or plain white when the skin never sampled a font, the table's is
+    /// always <see cref="LabelColor"/> — because a shared DIM is not a shared colour.</para>
+    /// </summary>
+    internal const float DisabledLabelDim = 0.45f;
+
+    /// <summary>
     /// WHOSE label colour a call site is asking for — the question <see cref="LabelColor"/> on its
     /// own cannot express, and the one the mirrored DECISION row answered wrongly for its whole
     /// shipped life.
