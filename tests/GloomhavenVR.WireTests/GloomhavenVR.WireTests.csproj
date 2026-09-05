@@ -403,6 +403,23 @@
     <Compile Include="FigureHighlightGradeVectors.cs" />
   </ItemGroup>
 
+  <!-- WHICH QUESTION A MANDATORY-DECISION TERM ANSWERS (2026-09-05).
+
+       ModalFallback.IsMandatoryDecision is a union of four IDENTITY terms and one DERIVED NET
+       (escapeKeyAction == None). A caller that wanted the identities asked the union, and because
+       every ordinary map-room destination carries the net, the flat game's own single-window hide
+       — and a co-player's map switch — tore seventeen merchant and temple floats down in one
+       hardware session, under a commit message asserting the opposite.
+
+       The rule is now a TYPE plus a lint rather than a comment. MandatoryDecisionTerm.cs is free
+       of UnityEngine on purpose so the shipped classification can be LINKED here and driven
+       member by member; a sixth term fails the member pin until somebody states which of the two
+       questions it answers, and the source lint stops the union being asked again by name. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\WorldUI\Modal\MandatoryDecisionTerm.cs" Link="worldui\MandatoryDecisionTerm.cs" />
+    <Compile Include="MandatoryDecisionTermVectors.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <Reference Include="UnityEngine.CoreModule" HintPath="$(GameManaged)\UnityEngine.CoreModule.dll" Private="true" />
   </ItemGroup>

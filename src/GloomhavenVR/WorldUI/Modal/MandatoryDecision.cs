@@ -138,12 +138,31 @@ internal static partial class ModalFallback
     /// True when this window demands a decision the player may not walk away from, so the mod must
     /// NOT draw a close X on it. <paramref name="reason"/> receives the term that decided, phrased
     /// as what was matched — never as a mechanism this predicate cannot observe.
+    ///
+    /// <para><b>THIS IS THE UNION AND IT ANSWERS ONE QUESTION: MAY THE MOD OFFER A WAY OUT OF THIS
+    /// WINDOW?</b> The X gate (ModalFallback.8.Convert.cs) and the escape chord
+    /// (ModalFallback.7.Close.cs) are the two callers that ask it, and for both of them the derived
+    /// net below is a good answer — a window the GAME will not close on ESC is a window the mod
+    /// must not close either. A caller that instead wants to know WHAT this window is must use
+    /// <see cref="ClassifyMandatoryDecision"/> and
+    /// <see cref="MandatoryDecisionTerms.IdentifiesTheWindow"/>; see
+    /// <see cref="MandatoryDecisionTerm"/> for the seventeen map-room windows that were torn down
+    /// because those two questions shared one predicate.</para>
     /// </summary>
-    internal static bool IsMandatoryDecision(UIWindow? window, out string reason)
+    internal static bool IsMandatoryDecision(UIWindow? window, out string reason) =>
+        MandatoryDecisionTerms.IsMandatory(ClassifyMandatoryDecision(window, out reason));
+
+    /// <summary>
+    /// The same sweep as <see cref="IsMandatoryDecision"/>, answering WHICH TERM matched instead of
+    /// merely whether one did. Terms are tested in the order below and the FIRST match wins, so an
+    /// identity always beats the derived net — which matters, because the encounter window carries
+    /// both and the log line must name the identity.
+    /// </summary>
+    internal static MandatoryDecisionTerm ClassifyMandatoryDecision(UIWindow? window, out string reason)
     {
         reason = string.Empty;
         if (window == null)
-            return false;
+            return MandatoryDecisionTerm.None;
 
         // TERM 1 — IDENTITY, and IS-A rather than containment. UIEventPanel is
         // [RequireComponent(typeof(UIWindow))] (UIEventPanel.cs:26) and caches the window off its
@@ -171,7 +190,7 @@ internal static partial class ModalFallback
                    + "callback strands — myWindow.onHidden fires OnFinishedEvent (:139), so it "
                    + "usually does not; the OnDisable path (:815-818) fires nothing, but whether a "
                    + "Hide reaches it depends on the serialized m_DisableOnZeroAlpha";
-            return true;
+            return MandatoryDecisionTerm.EncounterPanel;
         }
 
         // TERM 1b — THE THREE OTHER UIWindow-BASED WINDOWS THE AUDIT FOUND, each verified the same
@@ -237,7 +256,7 @@ internal static partial class ModalFallback
                    + "and EndProcess is what calls myWindow.Hide rather than what a hide triggers; "
                    + "an outside Hide leaves processingRewards true and the `while (processingRewards)` "
                    + "coroutine at :188 spinning with the callback unfired";
-            return true;
+            return MandatoryDecisionTerm.RewardShowcase;
         }
         if (window.GetComponent<ItemCardPicker>() != null)
         {
@@ -251,7 +270,7 @@ internal static partial class ModalFallback
                    + "onHidden listener (:60) is OnHidden (:80-84), which only clears the content "
                    + "and destroys the controller area; onConfirmPressed (:39) fires only at :159 "
                    + "and onItemsSelected (:41) only from a selection, so a hide drops both";
-            return true;
+            return MandatoryDecisionTerm.ItemCardPicker;
         }
         if (window.GetComponent<TakeDamagePanel>() != null)
         {
@@ -265,7 +284,7 @@ internal static partial class ModalFallback
                    + "visuals; the phase is resolved by GameActionType.TakeDamage on "
                    + "ActionPhaseType.TakeDamageConfirmation, sent only at :774, so a hide sends "
                    + "nothing and leaves the confirmation phase unresolved";
-            return true;
+            return MandatoryDecisionTerm.TakeDamagePanel;
         }
 
         // TERM 2 — THE GAME'S OWN REFUSAL, as a net under every window nobody has classified yet.
@@ -274,6 +293,14 @@ internal static partial class ModalFallback
         // own allowHide=false dialogs (:235, :316). This is the term that makes the gate stop being
         // a bet on unknown windows: an unknown window is now only given an X if the game itself
         // would let ESC close it.
+        //
+        // AND IT IS A NET, NOT AN IDENTITY — which is now stated by the VALUE this returns and not
+        // only by the reason string. It is the last term on purpose: it fires for every window the
+        // four identity terms above did not name, and in the 3D map room that is nearly all of them
+        // (the merchant and the temple both carry escapeKeyAction None; the mod prints so itself in
+        // the reason below every time it floats one). A caller reading this as "the player owes this
+        // window an answer" would be reading the ESC key's policy as a fact about the window; see
+        // MandatoryDecisionTerm for the seventeen destinations that cost.
         if (window.escapeKeyAction == UIWindow.EscapeKeyAction.None)
         {
             // THE ONE EXEMPTION, and it is the mod's own pane rather than a game window. See the
@@ -281,17 +308,17 @@ internal static partial class ModalFallback
             // list, not to forbid closing, and its X is the compensation that method's own comment
             // promises. Keyed on the name MenuWindowFamily already uses as this pane's identity.
             if (window.name == MenuWindowFamily.VROptionsWindowName)
-                return false;
+                return MandatoryDecisionTerm.None;
 
             reason = "the GAME ITSELF refuses to close this window on ESC (escapeKeyAction None: "
                    + "UIWindow.Escape returns false without hiding, UIWindow.cs:713-716, and both "
                    + "HideOrShowWindows and ForceHideWindows skip it) — so the mod must not offer a "
                    + "cross that does what the ESC key will not. This is the derived net, not an "
                    + "identity: it says the game withheld the close, NOT what waits on this window";
-            return true;
+            return MandatoryDecisionTerm.GameRefusesEscape;
         }
 
-        return false;
+        return MandatoryDecisionTerm.None;
     }
 
     /// <summary>

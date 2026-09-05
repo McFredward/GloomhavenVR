@@ -138,6 +138,14 @@ internal static class Program
             // private to a nested class, and "share the machinery, not the look" is a failure this
             // project has already paid for. The drift is invisible from inside either headset.
             ItemUsableVectors.Run(t, repoRoot);
+            // WHICH QUESTION A MANDATORY-DECISION TERM ANSWERS. The narrowest change on this list
+            // and the one with the widest blast radius: a caller asked a UNION whose last term is
+            // a derived net every map-room destination carries, and the flat game's own
+            // single-window hide then closed seventeen merchants and temples in one two-player
+            // session — while the build that shipped it asserted in its own message that the
+            // merchant and the temple still stood open together. Nothing in this repository could
+            // have noticed. The member pin makes the next widening fail here instead.
+            MandatoryDecisionTermVectors.Run(t, repoRoot);
         }
         catch (Exception e)
         {

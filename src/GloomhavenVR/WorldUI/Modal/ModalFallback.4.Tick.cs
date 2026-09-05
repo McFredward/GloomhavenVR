@@ -294,12 +294,13 @@ internal static partial class ModalFallback
     ///
     /// <para>Stickiness (<c>MapRoomParallel</c>, ModBuild 180, and <c>IsGameOwnedMenu</c>) defends a
     /// float against a SIBLING taking the screen away from it — the flat game's single-window
-    /// discipline, which hides the merchant when the temple opens. A window enrolled in
-    /// <see cref="IsMandatoryDecision"/> is never in that relationship: it carries no close X
-    /// (ModBuild 381), the escape chord is redirected rather than allowed to close it (ModBuild
-    /// 384), and the game hides one only when the player has ANSWERED it. So a game-side hide of one
-    /// of these is the end of the window, and the float should go home through the ordinary release
-    /// — which is also the ONLY path that runs <c>WindowMaterialise.PlayOut</c>.</para>
+    /// discipline, which hides the merchant when the temple opens. A window matched by one of
+    /// <see cref="MandatoryDecisionTerm"/>'s four IDENTITY terms is never in that relationship: it
+    /// carries no close X (ModBuild 381), the escape chord is redirected rather than allowed to
+    /// close it (ModBuild 384), and the game hides one only when the player has ANSWERED it. So a
+    /// game-side hide of one of these is the end of the window, and the float should go home through
+    /// the ordinary release — which is also the ONLY path that runs
+    /// <c>WindowMaterialise.PlayOut</c>.</para>
     ///
     /// <para><b>ONE PREDICATE, TWO CALLERS, ON PURPOSE.</b> The release loop asks it to decide
     /// whether the float is still wanted; <c>TickWindowLiveness</c> asks it to decide whether to
@@ -308,31 +309,51 @@ internal static partial class ModalFallback
     /// <see cref="HasNothingToDissolve"/>'s DORMANT term already true and the vanish is skipped —
     /// so they are one method rather than two copies of a four-term condition.</para>
     ///
-    /// <para><b>THE ESC/OPTIONS CARVE-OUT IS THE NET UNDER THE DERIVED TERM.</b>
-    /// <see cref="IsMandatoryDecision"/>'s last term is <c>escapeKeyAction == None</c>, a derived
-    /// net rather than an identity, and inside the 3D map room EVERY non-confirmation window is
-    /// sticky. A menu of that family hidden by its own <c>ToggleGroup</c> sibling must keep its
-    /// stickiness, so the family is excluded here — the same exclusion the liveness rule makes, for
-    /// the same standing ruling: <i>"es MUSS immer möglich sein das Optionsmenu zu öffnen."</i></para>
+    /// <para><b>THE ESC/OPTIONS CARVE-OUT WAS A NET UNDER A NET, AND BOTH ARE GONE (2026-09-05).</b>
+    /// This method used to ask <see cref="IsMandatoryDecision"/> — the UNION — and then subtract the
+    /// ESC/options family again, because the union's last term is <c>escapeKeyAction == None</c>: a
+    /// derived net that reports the GAME'S ESC POLICY and not what waits on the window. The carve-out
+    /// was the visible half of that mistake and it was far too small. Inside the 3D map room every
+    /// ordinary destination carries <c>escapeKeyAction None</c> — the merchant and the temple both do,
+    /// and the mod prints so itself in the reason string every time it floats one — so the flat game's
+    /// perfectly ordinary single-window discipline (the temple opening over the merchant; a
+    /// guildmaster mode press, local or a peer's arriving as record 20, running
+    /// <c>UIGuildmasterHUD.UpdateCurrentMode</c> → <c>modes[current].Exit()</c>) matched the net,
+    /// declared the float's stickiness SPENT and tore it down. THE TWO USER REPORTS OF 2026-09-03 ARE
+    /// THE TWO HALVES OF THAT: windows must not close when the map is switched to Gloomhaven or the
+    /// world map, and several windows must be able to stand open in parallel again. The 2026-09-03
+    /// logs count <c>MANDATORY DECISION ANSWERED</c> 1 host / 7 remote for the shop and 1 host / 10
+    /// remote for the temple.</para>
+    ///
+    /// <para><b>SO THIS CALLER ASKS THE NARROWER QUESTION INSTEAD OF SUBTRACTING FROM THE WIDER
+    /// ONE.</b> <see cref="ClassifyMandatoryDecision"/> returns WHICH term matched and
+    /// <see cref="MandatoryDecisionTerms.IdentifiesTheWindow"/> keeps only the four IDENTITY terms —
+    /// the encounter panel, the reward showcase, the item-card picker and the take-damage panel, each
+    /// of which was enrolled by reading its decompiled class and finding a waiter with no hide
+    /// fallback. Those are the windows a game-side hide really does mean "answered" for. The ESC
+    /// carve-out is not replaced by a second carve-out; it is DELETED, because the term it was
+    /// defending against no longer reaches this method and a carve-out list grows one entry per
+    /// hardware report. <see cref="IsMandatoryDecision"/> itself is unchanged for its own two callers
+    /// (the X gate, ModBuild 381, and the redirected escape chord, ModBuild 384), where "the game
+    /// will not close this on ESC" is exactly the right answer.</para>
     ///
     /// <para><b>NOTHING IS WRITTEN TO THE GAME ON THIS PATH.</b> The window has already been hidden
     /// by the game itself; <c>UserClosing</c> stays false, so no <c>Hide</c>, no <c>Escape</c>, no
     /// <c>CanvasGroup</c> write and nothing on the wire.</para>
     ///
-    /// <para><paramref name="why"/> receives <see cref="IsMandatoryDecision"/>'s own reason, so a
-    /// log line can name WHICH term matched and an over-firing derived net is visible in the next
-    /// hardware log rather than inferred from a symptom.</para>
+    /// <para><paramref name="why"/> receives the matched term's own reason, so a log line can name
+    /// WHICH term matched and a future over-firing rule is visible in the next hardware log rather
+    /// than inferred from a symptom.</para>
     /// </summary>
     private static bool StickinessSpentByAnsweredDecision(WindowPanel wp, out string why)
     {
         why = string.Empty;
-        // The cheap terms first: IsMandatoryDecision does a GetComponent, and a sticky float whose
+        // The cheap terms first: the classification does a GetComponent, and a sticky float whose
         // game window is CLOSED is a rare state, so it is the gate in front of that lookup.
-        return wp.Window != null
-               && wp.Sticky
-               && !wp.Window.IsOpen
-               && !MenuWindowFamily.IsEscOptionsFamily(wp.Window)
-               && IsMandatoryDecision(wp.Window, out why);
+        if (wp.Window == null || !wp.Sticky || wp.Window.IsOpen)
+            return false;
+        return MandatoryDecisionTerms.IdentifiesTheWindow(
+            ClassifyMandatoryDecision(wp.Window, out why));
     }
 
     private static void OnWindow(WindowVisibilityEvent e)
@@ -2915,19 +2936,29 @@ internal static partial class ModalFallback
             // defend and the float goes home through the ordinary release — which is also the only
             // path that can give it the dissolve he is asking for.
             //
-            // WHAT THIS DOES NOT TOUCH. `Sticky` itself is unchanged (ModalFallback.8.Convert.cs),
-            // so the merchant and the temple still stand open together. `IsMandatoryDecision` is
-            // read, never edited, so the no-X enrolment (381) and the redirected escape chord (384)
-            // are exactly as they were. NOTHING IS WRITTEN TO THE GAME: `UserClosing` stays false,
-            // so the `wp.Window.Hide()` gap-close below cannot fire and nothing goes on the wire —
-            // this is a presentation release of a window the game has ALREADY closed.
+            // WHAT THIS DOES NOT TOUCH. `Sticky` itself is unchanged (ModalFallback.8.Convert.cs).
+            // `IsMandatoryDecision` is read, never edited, so the no-X enrolment (381) and the
+            // redirected escape chord (384) are exactly as they were. NOTHING IS WRITTEN TO THE
+            // GAME: `UserClosing` stays false, so the `wp.Window.Hide()` gap-close below cannot fire
+            // and nothing goes on the wire — this is a presentation release of a window the game has
+            // ALREADY closed.
             //
-            // THE ESC/OPTIONS CARVE-OUT IS THE NET UNDER THE DERIVED TERM. IsMandatoryDecision's
-            // last term is `escapeKeyAction == None`, which is a DERIVED net rather than an
-            // identity, and inside the map room every open window is MapRoomParallel-sticky. A menu
-            // of that family hidden by its own ToggleGroup sibling must keep its stickiness, so the
-            // family is excluded here — the same exclusion the liveness rule makes, for the same
-            // standing ruling ("es MUSS immer möglich sein das Optionsmenu zu öffnen").
+            // AND ITS 2026-09-03 CLAIM THAT "the merchant and the temple still stand open together"
+            // WAS FALSE, WHICH IS THIS BLOCK'S CORRECTION. Sticky was indeed unchanged, but the
+            // predicate above asked IsMandatoryDecision — the UNION — whose last term is the derived
+            // net `escapeKeyAction == None`, and the merchant and the temple both carry it (the mod
+            // says so in its own float lines: "the GAME ITSELF refuses to close this window on ESC").
+            // So the flat game's ordinary single-window hide — the temple opening over the merchant,
+            // or a guildmaster mode press running modes[current].Exit(), including a PEER's map
+            // switch arriving as record 20 — spent the float's stickiness and released it. The two
+            // reports of that session are the two halves of it: the merchant must not close when the
+            // map is switched to Gloomhaven or the world map, and several windows must be able to
+            // stand open in parallel at all. Counted in those logs: MANDATORY DECISION ANSWERED
+            // fired 1 host / 7 remote for the shop and 1 host / 10 remote for the temple.
+            //
+            // THE PREDICATE NOW ASKS THE IDENTITY TERMS ONLY, and the ESC/options carve-out that
+            // stood here is DELETED rather than joined by a second one — the term it was defending
+            // against no longer reaches this method. See StickinessSpentByAnsweredDecision.
             bool answeredMandatory = StickinessSpentByAnsweredDecision(wp, out string mandatoryWhy);
             bool stillOpen = alive && !wp.UserClosing && !wp.EmptyReleasePending && !refused
                              && (ContainsWindow(OpenWindows, wp.Window!)
@@ -2941,8 +2972,11 @@ internal static partial class ModalFallback
                                       + "ORDINARY release — the one path that runs the materialise "
                                       + "vanish, which is what it never reached before ModBuild 386 "
                                       + "(it went dormant instead and held its arc seat until the "
-                                      + "room stood down). THE TERM THAT MATCHED, so an over-firing "
-                                      + $"derived net is visible rather than inferred: {mandatoryWhy}. "
+                                      + "room stood down). THE TERM THAT MATCHED — and since "
+                                      + "2026-09-05 only the four IDENTITY terms can reach this "
+                                      + "line, never the derived escapeKeyAction net that closed "
+                                      + "seventeen merchants and temples in the 2026-09-03 session: "
+                                      + $"{mandatoryWhy}. "
                                       + "NOTHING WAS WRITTEN TO THE GAME: the window was already "
                                       + "hidden by the game itself, UserClosing is not set, no Hide, "
                                       + "no Escape, nothing on the wire. CAVEAT ON 'BY THE GAME': this "
