@@ -65,6 +65,44 @@ namespace GloomhavenVR.Hands;
 /// own evidence on the first hardware run. The reasoning, including why the material's blend mode
 /// was considered and deliberately left out, is at the top of <c>Hands/VfxFlow.cs</c>.</para>
 ///
+/// <para><b>=== AND ModBuild 432 IS THE ROUND THAT BOUNDED IT. ===</b> The user on 431: "Beim Rauch
+/// sieht man wie es immer noch super ruckartig zurückweicht — nicht sehr immersiv. Schlimmer ist es
+/// bei der Flamme beim Altar: Dort glitcht die Flamme in der Gegend rum." Two symptoms, three
+/// causes, all three readable in the ModBuild 431 log rather than guessed at:</para>
+/// <list type="number">
+///   <item><b>NOTHING EVER TOOK BACK THE SPEED A FIELD GAVE.</b> A force field is an acceleration.
+///   A particle that passes through one leaves carrying the velocity it picked up and coasts on it
+///   until it dies — no drag acts outside the field and most of these systems author none. The log
+///   makes the magnitude unarguable: 'PrimeAltar_FX', the altar effect itself, is a Sparks system
+///   with a 5.00 s lifetime, and Sparks' push of 2.2 m/s² against its drag of 0.18 has a terminal
+///   speed of 12 m/s. Twelve metres a second for five seconds is sixty metres. Meanwhile the pale
+///   wash the video drags across the room is 'GroundFogFar', ONE PARTICLE 17.1 REAL METRES ACROSS,
+///   whose centre only has to come within a palm's reach for the whole billboard to be moved. The
+///   remedy is a ceiling per system, derived from its own size and lifetime and capped absolutely
+///   in real metres — <see cref="VfxFlow.SpeedCapRealPerSecond"/> and HandsVfxDriftMeters — and
+///   enforced through the field's drag, because terminal speed IS acceleration over drag.</item>
+///   <item><b>THE WAKE WAS A STEP FUNCTION ON A NOISY INPUT.</b> <c>hand.PalmVelocity</c> was read
+///   raw once a frame and used for two things: the strength of the push (<c>_wake</c>, which rose
+///   INSTANTLY to whatever that frame's value was) and the AXIS the entire vortex turns about
+///   (<c>_wakeDirection</c>, rewritten every frame the hand moved faster than 1e-4 world units per
+///   second, which is every frame there is). A tracked hand's per-frame velocity is a difference of
+///   two poses over a frame time and it jitters; the first path turned that jitter into a stutter
+///   and the second turned it into the thin curved streaks the smoke video shows, because a vortex
+///   whose axis moves every frame drags each particle along a different arc. Both now come off one
+///   exponentially smoothed vector, the rise is ramped over HandsVfxWakeAttackSeconds, and the
+///   direction is held unless the hand is really going somewhere.</item>
+///   <item><b>THE SIX SLOTS WERE SPENT ON FOG.</b> "Eine Interaktion mit Rauch, Funken etc. von
+///   Fackeln in der Map gibt es bisher nicht" — and the premise behind it is INVERTED by the
+///   census, which reports 201 adoptable systems of 202 with 0 of them on figures. Every effect in
+///   that scenario is scenery and the torches were adopted. What the log then says is why they were
+///   never felt: <c>nearest refused: 'p_fire_torch (10)' by CapFull</c>, <c>'p_fire_torch (8)' by
+///   CapFull</c>, <c>'PrimeAltar_FX' by CapFull</c> — and the systems that WON those slots are
+///   'P_SewerFog', 'MeshEmitterFog', 'Fog (3)', 'Cloud (4)'. Selection ranks on distance to the
+///   drawn bounds, and a room fog's bounds CONTAIN the hand, so its distance is 0.0 and it wins
+///   every comparison against a torch ten centimetres away. See <see cref="EmitterTieWeight"/>: the
+///   cap of six is not the defect and is not raised.</item>
+/// </list>
+///
 /// <para>THE GROUNDWORK WAS ALREADY THERE. Unity's particle systems carry a COLLISION MODULE that
 /// the game leaves switched off on ordinary effects, so nothing needs to be simulated, cooked or
 /// added to a scene object: switching that module on with a mask that names the hand's own sphere
@@ -243,6 +281,42 @@ internal static class SceneVfxHands
     /// boundary cannot adopt and restore the same system every other frame.</summary>
     private const float ReleaseFactor = 1.5f;
 
+    /// <summary>Below this fraction of HandsVfxWakeSpeed, the hand is not going anywhere and the
+    /// wake keeps the direction it already had. A tenth of "full push" is a hand at about 6 cm/s,
+    /// which is slower than a hand a player believes is still. The term this replaces was a
+    /// 1e-4 world-unit epsilon, i.e. "not exactly frozen" — see the comment at its use site.
+    /// </summary>
+    private const float DirectionGateFraction = 0.1f;
+
+    /// <summary>HOW A LARGE EFFECT IS DEMOTED BEHIND A SMALL ONE THE HAND IS ACTUALLY AT, and it is
+    /// the whole answer to "eine Interaktion mit Rauch, Funken etc. von Fackeln in der Map gibt es
+    /// bisher nicht".
+    ///
+    /// <para>THE MEASUREMENT FIRST. The ModBuild 431 census refuses, by name and by term:
+    /// <c>nearest refused: 'p_fire_torch (10)' by CapFull</c>, <c>'p_fire_torch (8)' by CapFull</c>,
+    /// <c>'PrimeAltar_FX' by CapFull</c>, <c>'ElemEmbers' by CapFull</c>. The torches were adopted
+    /// by the sweep — the scan line says 201 adoptable of 202 and 0 of them on figures, so the
+    /// user's premise that only characters react is inverted — and then the six slots were spent
+    /// before the torch was reached. WHAT SPENT THEM is readable in the same lines: the systems
+    /// that survived selection are 'P_SewerFog', 'MeshEmitterFog', 'Fog (3)', 'Cloud (4)'. Room
+    /// fog. And a room fog's DRAWN BOUNDS CONTAIN THE HAND, so its palm-to-bounds distance is
+    /// exactly 0.0 — the smallest number there is. "Nearest first" handed all six slots to the
+    /// systems the hand happens to be standing inside before it ever considered a torch ten
+    /// centimetres away.</para>
+    ///
+    /// <para>SO DISTANCE-TO-BOUNDS CANNOT ORDER THE THINGS IT TIES. Once two candidates both read
+    /// zero, the term that separates them is how far the hand is from the EMITTER — where the
+    /// particles are actually born. This weight is small enough that it only ever breaks such a
+    /// tie (a fog whose emitter is five metres away is demoted by 0.25 real m; a torch whose
+    /// emitter is ten centimetres away by 0.005) and it is dimensionless, so it needs no rig
+    /// scale. It changes the ORDER only: eligibility is still the true palm-to-bounds distance
+    /// against the reach, so the fog is still adopted — after the fire.</para>
+    ///
+    /// <para>THE CAP OF SIX STAYS. A brazier is flame + smoke + embers + haze, which is four, and
+    /// six was already two of those. Raising it would buy the frame time to hold more fog.</para>
+    /// </summary>
+    private const float EmitterTieWeight = 0.05f;
+
     /// <summary>Systems one hand may hold at once.
     ///
     /// <para>SIX, NOT THREE. The user's subject is "viele Charactere die Effekte um sich herum
@@ -371,6 +445,15 @@ internal static class SceneVfxHands
     /// the rescan and reused every frame so the per-frame selection allocates nothing.</summary>
     private static float[] _distance = new float[32];
 
+    /// <summary>The SELECTION ORDER key per registry entry — palm-to-bounds distance plus a small
+    /// share of palm-to-emitter distance, see <see cref="EmitterTieWeight"/>. Kept apart from
+    /// <see cref="_distance"/> because that array answers "is this in reach", which is a question
+    /// about the drawn effect, and this one answers "which of the things in reach did the hand
+    /// come here for", which is a different question that the same number cannot answer once
+    /// several candidates read zero. Sized with its twin on the rescan; never allocated per frame.
+    /// </summary>
+    private static float[] _rank = new float[32];
+
     private static float _nextScanAt;
 
     /// <summary>The AUTHORED collision settings, captured once per system on the first adoption by
@@ -392,6 +475,17 @@ internal static class SceneVfxHands
     /// class). Same lifetime as <see cref="_original"/>: written on adoption, dropped on restore.
     /// </summary>
     private static readonly Dictionary<ParticleSystem, VfxFlowClass> _flowClass = new(8);
+
+    /// <summary>THE DISPLACEMENT BOUND FOR EACH ADOPTED SYSTEM, in real metres per second — the
+    /// fastest a hand field may ever get one of its particles moving, computed once at adoption
+    /// from that system's own measured particle size and lifetime (see
+    /// <see cref="VfxFlow.SpeedCapRealPerSecond"/>).
+    ///
+    /// <para>STORED RATHER THAN RECOMPUTED, for the same reason <see cref="_flowClass"/> is: a held
+    /// system that drops out of the registry for one scan must not silently lose its ceiling. Same
+    /// lifetime as <see cref="_original"/>: written on adoption, dropped on restore.</para>
+    /// </summary>
+    private static readonly Dictionary<ParticleSystem, float> _driftCap = new(8);
 
     /// <summary>Which hand fields a system's influence LIST currently names, as a small packed
     /// signature: bit 0 = the left hand's fields are listed, bit 1 = the right hand's, and the
@@ -657,6 +751,7 @@ internal static class SceneVfxHands
             _original.Remove(drop[i]);
             _applied.Remove(drop[i]);
             _flowClass.Remove(drop[i]);
+            _driftCap.Remove(drop[i]);
             _influence.Remove(drop[i]);
             _feelAt.Remove(drop[i]);
         }
@@ -686,6 +781,12 @@ internal static class SceneVfxHands
             _original[ps] = new Captured(capture, forces);
         }
         _flowClass[ps] = entry.Flow;
+        // THE CEILING IS COMPUTED HERE, FROM THIS SYSTEM'S OWN NUMBERS, AND ONCE. It cannot be a
+        // per-frame read: the traits come off the registry entry, and a held system is allowed to
+        // leave the registry. HandsVfxDriftMeters is live-tunable and this is the one place it is
+        // sampled, so a change reaches an effect the next time a hand takes hold of it.
+        _driftCap[ps] = VfxFlow.SpeedCapRealPerSecond(in entry.Traits, VfxFlowProfile.Of(entry.Flow),
+                                                      HandsConfig.HandsVfxDriftMetersSafe());
 
         ParticleSystem.CollisionModule c = ps.collision;
         c.type = ParticleSystemCollisionType.World;
@@ -920,6 +1021,15 @@ internal static class SceneVfxHands
         if (!_flowNamed.Add(ps.name + "|" + e.Flow))
             return;
         VfxFlowProfile p = VfxFlowProfile.Of(e.Flow);
+        float driftCap = HandsConfig.HandsVfxDriftMetersSafe();
+        float drift = VfxFlow.DriftMetres(in e.Traits, in p, driftCap);
+        float cap = VfxFlow.SpeedCapRealPerSecond(in e.Traits, in p, driftCap);
+        // The widths the budget was actually taken against: the measured diameter, unless that
+        // read zero (a size driven entirely by a curve) and the floor stood in for it. Naming
+        // which one was used is the difference between a number and a number somebody can check.
+        string widths = e.Traits.DiameterMetres >= 0.01f
+            ? $"{e.Traits.DiameterMetres:F3} m"
+            : "0.010 m (its measured size read 0, so the floor stood in)";
         // HW-VERIFY: a standing hardware question is waiting on this line — it must stay at a tier
         // the DEFAULT log level prints (Note/Alert/Error). scripts/check-hw-verify.py enforces it.
         VRLog.Note("Hands", $"Hands disturb VFX: '{ps.name}' is treated as {e.Flow} because "
@@ -946,7 +1056,26 @@ internal static class SceneVfxHands
             + "term's units, so the ratios between the five profiles are the designed part and "
             + "these absolute numbers are what the first hardware round is for. Too much drag "
             + "freezes an effect in mid-air, which is as wrong as the bounce it replaces and "
-            + "harder to name — HandsVfxClingStrength is the dial for it.");
+            + "harder to name — HandsVfxClingStrength is the dial for it. "
+            + $"SINCE ModBuild 432 IT ALSO GETS A CEILING, AND THIS EFFECT'S IS {drift:F3} REAL "
+            + $"METRES, i.e. no hand field may ever get one of its particles above "
+            + $"{cap:F3} real m/s. That is {p.Drift:0.##} of its own {widths} widths against the "
+            + $"{HandsConfig.HandsVfxDriftMetersSafe():0.##} m HandsVfxDriftMeters cap, divided by "
+            + $"its {e.Traits.LifeSeconds:F2} s lifetime, so a particle carried at the ceiling for "
+            + "its WHOLE remaining life still ends up inside that distance of where it would have "
+            + "been. THE CEILING EXISTS BECAUSE A FORCE FIELD NEVER TAKES BACK WHAT IT GAVE: a "
+            + "particle leaves the field with whatever speed it picked up and coasts on it until "
+            + "it dies, which on ModBuild 431's numbers was twelve metres per second for five "
+            + "seconds on 'PrimeAltar_FX'. The bound is enforced through the field's DRAG (terminal "
+            + "speed is acceleration divided by drag), which is why a class with almost none gets a "
+            + "floor of 1.2 whatever the drag column above says. If this effect now feels nailed "
+            + "in place, HandsVfxDriftMeters is the dial and this line is the arithmetic. "
+            + "THE SECOND OPEN QUESTION ON THAT CEILING IS THE SWIRL: the vortex is clamped to it "
+            + "directly and is now multiplied by the rig scale like the push and the outward term "
+            + "were already (it was the only force in the feature that was not, so the same "
+            + "authored swirl meant twenty times as much of a room at x9 as at x198). If effects "
+            + "now merely SLOW DOWN near a hand and never wrap around it, that clamp is what ate "
+            + "the wrap — HandsVfxCurlStrength cannot buy past it, HandsVfxDriftMeters can.");
     }
 
     /// <summary>A system whose EXTERNAL FORCES module the game already uses. Not a refusal — the
@@ -1106,7 +1235,10 @@ internal static class SceneVfxHands
                                  flow, term, in traits));
         }
         if (_distance.Length < _scene.Count)
+        {
             _distance = new float[Mathf.NextPowerOfTwo(_scene.Count)];
+            _rank = new float[_distance.Length];
+        }
 
         _lastScanMs = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000d
                       / System.Diagnostics.Stopwatch.Frequency;
@@ -1315,6 +1447,40 @@ internal static class SceneVfxHands
         /// which is the whole point of the settle time.</summary>
         private Vector3 _wakeDirection = Vector3.forward;
 
+        /// <summary>THE HAND'S VELOCITY, SMOOTHED, in world units per second — and it is the fix
+        /// for "man sieht wie es immer noch super ruckartig zurückweicht".
+        ///
+        /// <para>ModBuild 431 read <c>hand.PalmVelocity</c> RAW, once a frame, and used it for two
+        /// separate things: the strength of the push and the AXIS the whole vortex turns about. A
+        /// tracked hand's per-frame velocity is a noisy signal — it is a difference of two poses
+        /// divided by a frame time — so both of those jittered at frame rate. The strength jitter is
+        /// the snap; the axis jitter is worse, because a vortex whose axis reorients every frame
+        /// drags each particle along a different arc each frame, which is exactly the thin curved
+        /// white streaks the smoke video shows. One exponential filter, one time constant
+        /// (HandsVfxWakeAttackSeconds), and both terms come off the smoothed vector.</para></summary>
+        private Vector3 _velocity;
+
+        /// <summary>The ATTACK ENVELOPE per effect class, 0..1. Rises over
+        /// HandsVfxWakeAttackSeconds from the frame this hand first holds a system of that class,
+        /// so the air fades in rather than switching on between two frames.
+        ///
+        /// <para>IT RISES ONLY, AND THAT IS DELIBERATE RATHER THAN LAZY. A fall would leave a field
+        /// carrying force for a class no hand holds, which is the one safety property
+        /// <see cref="VfxFlowField.Idle"/> exists to guarantee — see the class doc. A release ramp
+        /// would also be invisible: the released system's influence list stops naming our fields on
+        /// the same frame, so nothing would feel the decay. The snap on the way IN is the one a
+        /// player can see, and it is the one that is ramped. Dropping to zero on release also means
+        /// a hand that leaves and immediately re-enters starts the ramp again from nothing, which is
+        /// the "never re-arm within one frame of releasing" rule for free.</para></summary>
+        private readonly float[] _gain = new float[VfxFlow.ClassCount];
+
+        /// <summary>The strictest displacement bound among the systems this hand holds of each
+        /// class, in real metres per second. A field is shared by every held system of its class,
+        /// so the bound it carries has to be the smallest of theirs — a fog and a torch flame in
+        /// one hand must not let the fog's ceiling be spent on the flame or the flame's on the fog.
+        /// Recomputed each frame from <see cref="_driftCap"/>; sized once, never allocated.</summary>
+        private readonly float[] _classCap = new float[VfxFlow.ClassCount];
+
         private static VfxFlowField[] NewFieldSet()
         {
             var set = new VfxFlowField[VfxFlow.ClassCount];
@@ -1412,6 +1578,7 @@ internal static class SceneVfxHands
                 if (e.Ps == null || !e.Ps.gameObject.activeInHierarchy)
                 {
                     _distance[i] = float.MaxValue;
+                    _rank[i] = float.MaxValue;
                     continue;
                 }
                 float d = Distance(in e, at);
@@ -1421,10 +1588,22 @@ internal static class SceneVfxHands
                     _nearestWorldUnits = d;
                     _nearest = e.Ps;
                 }
+                // THE RANK IS NOT THE DISTANCE, and see EmitterTieWeight for the census lines that
+                // forced the split. The emitter term is computed ONLY inside the reach, which is
+                // both where it can change an outcome and the only place its transform read is
+                // affordable: the in-reach population is a dozen systems, the registry is two
+                // hundred. Outside the reach the rank IS the distance, so nothing else moves.
+                _rank[i] = d;
                 if (d <= reach)
+                {
                     _inReach++;
+                    _rank[i] = d + Vector3.Distance(e.Ps.transform.position, at) * EmitterTieWeight;
+                }
                 if (_held.Contains(e.Ps))
+                {
                     _distance[i] = float.MaxValue;   // already ours: not a candidate, not a refusal
+                    _rank[i] = float.MaxValue;
+                }
             }
 
             // NEAREST FIRST, and this time actually. The old loop walked the registry in
@@ -1434,18 +1613,23 @@ internal static class SceneVfxHands
             while (_held.Count < MaxSystemsPerHand)
             {
                 int best = -1;
-                float bestDistance = float.MaxValue;
+                float bestRank = float.MaxValue;
                 for (int i = 0; i < n; i++)
                 {
-                    if (_distance[i] < bestDistance)
+                    // ELIGIBILITY IS THE TRUE DISTANCE, ORDER IS THE RANK. Keeping those two apart
+                    // is what lets the emitter tie-break demote a fog behind a torch without also
+                    // pushing the fog out of reach — a hand standing inside a fog is inside it, and
+                    // the reach test still says so.
+                    if (_distance[i] <= reach && _rank[i] < bestRank)
                     {
-                        bestDistance = _distance[i];
+                        bestRank = _rank[i];
                         best = i;
                     }
                 }
-                if (best < 0 || bestDistance > reach)
+                if (best < 0)
                     break;
                 _distance[best] = float.MaxValue;
+                _rank[best] = float.MaxValue;
                 Entry chosen = _scene[best];
                 ParticleSystem ps = chosen.Ps;
                 if (ps == null)
@@ -1473,12 +1657,27 @@ internal static class SceneVfxHands
             // nothing anywhere said so.
             if (_held.Count >= MaxSystemsPerHand)
             {
+                // "NEAREST REFUSED" USED TO BE THE FIRST IN REGISTRY ORDER. The claim on
+                // NoteRefusal was that selection runs nearest-first so the first refusal is the
+                // nearest one — true of the loop above, false of this one, which walks the registry
+                // in FindObjectsOfType order. The token stays; the mechanism is corrected to make
+                // it true, by carrying the best rank rather than taking whatever came first.
+                int nearest = -1;
+                float nearestRank = float.MaxValue;
                 for (int i = 0; i < n; i++)
                 {
                     if (_distance[i] > reach)
                         continue;
                     _refusedCapFull++;
-                    ParticleSystem? capped = _scene[i].Ps;
+                    if (_rank[i] < nearestRank)
+                    {
+                        nearestRank = _rank[i];
+                        nearest = i;
+                    }
+                }
+                if (nearest >= 0)
+                {
+                    ParticleSystem? capped = _scene[nearest].Ps;
                     if (capped != null)
                         NoteRefusal(capped, Refusal.CapFull);
                 }
@@ -1492,11 +1691,13 @@ internal static class SceneVfxHands
         ///
         /// <para>Three decisions live here and each is visible to the player:</para>
         /// <list type="number">
-        ///   <item>THE WAKE. The hand's own palm velocity, converted to real metres per second and
-        ///   divided by the speed dial, is how hard the hand is currently wafting. It rises the
-        ///   instant the hand moves and decays over HandsVfxSettleSeconds, and its DIRECTION is
-        ///   held through the decay — so a hand that sweeps past and stops leaves the smoke still
-        ///   travelling the way it was pushed, instead of stopping with the hand.</item>
+        ///   <item>THE WAKE. The hand's own palm velocity — SMOOTHED FIRST, see <see cref="_velocity"/>
+        ///   — converted to real metres per second and divided by the speed dial, is how hard the
+        ///   hand is currently wafting. It rises over HandsVfxWakeAttackSeconds and decays over the
+        ///   three times longer HandsVfxSettleSeconds, and its DIRECTION is held through the decay
+        ///   — so a hand that sweeps past and stops leaves the smoke still travelling the way it
+        ///   was pushed, instead of stopping with the hand. ModBuild 431 rose INSTANTLY here, from
+        ///   an unsmoothed velocity, and that pair is the "ruckartig" in the report.</item>
         ///   <item>THE PALM AXIS is the direction of travel. Unity turns particles about a force
         ///   field's own up direction, so putting Y along the motion makes the vortex a ring shed
         ///   BEHIND a moving palm — which is what a hand waved through smoke actually leaves.</item>
@@ -1508,7 +1709,14 @@ internal static class SceneVfxHands
         /// </list>
         /// <para>Every class this hand is NOT holding is zeroed rather than left carrying last
         /// frame's numbers — see <see cref="VfxFlowField.Idle"/> and the class doc's paragraph on
-        /// what a force field cannot be scoped against.</para></summary>
+        /// what a force field cannot be scoped against.</para>
+        ///
+        /// <para>A FOURTH DECISION IS THE DISPLACEMENT BOUND, and it is not a feel: <see
+        /// cref="_classCap"/> collects the strictest ceiling among the systems this hand holds of
+        /// each class and hands it to the field in world units, where
+        /// <see cref="VfxFlowField.Apply"/> spends an acceleration budget against it. Nothing here
+        /// decides how far an effect may be carried; that was decided from the effect's own numbers
+        /// on the frame it was adopted.</para></summary>
         private void UpdateFlow(VRHand hand, Transform palm, Transform tip, float scale)
         {
             float push = HandsConfig.HandsVfxPushStrengthSafe();
@@ -1516,36 +1724,67 @@ internal static class SceneVfxHands
             float curl = HandsConfig.HandsVfxCurlStrengthSafe();
             float settle = HandsConfig.HandsVfxSettleSecondsSafe();
             float radius = HandsConfig.HandsVfxReachMetersSafe() * scale;
+            float attack = HandsConfig.HandsVfxWakeAttackSecondsSafe();
+            float dt = Mathf.Max(Time.unscaledDeltaTime, 0f);
+
+            // SMOOTH THE VELOCITY VECTOR ITSELF, BEFORE ANYTHING IS DERIVED FROM IT. See _velocity:
+            // ModBuild 431 took the strength AND the vortex axis off a raw per-frame hand velocity,
+            // so both jittered at frame rate and the second of those is what stretched the wisps
+            // into arcs. One exponential filter with a time constant the player owns, frame-rate
+            // independent by construction (the exponent carries dt), which a raw Lerp factor is not.
+            _velocity = attack <= 1e-3f
+                ? hand.PalmVelocity
+                : Vector3.Lerp(_velocity, hand.PalmVelocity, 1f - Mathf.Exp(-dt / attack));
 
             // PalmVelocity is world units per second and the rig scale is world units per real
             // metre, so the quotient is real metres per second — the unit the dial is written in,
             // and the one that means the same thing at every rig scale.
-            Vector3 velocity = hand.PalmVelocity;
-            float speedWorld = velocity.magnitude;
+            float speedWorld = _velocity.magnitude;
             float speedReal = speedWorld / scale;
-            float target = Mathf.Clamp01(speedReal / HandsConfig.HandsVfxWakeSpeedSafe());
-            if (speedWorld > 1e-4f)
-                _wakeDirection = velocity / speedWorld;
+            float wakeSpeed = HandsConfig.HandsVfxWakeSpeedSafe();
+            float target = Mathf.Clamp01(speedReal / wakeSpeed);
+            // THE DIRECTION GATE IS A REAL SPEED, NOT AN EPSILON. The old test was `> 1e-4` world
+            // units per second, which at any rig scale is "the hand is not exactly frozen" — so a
+            // hand the player is holding still handed the vortex a new axis every frame, taken from
+            // pure tracking noise. A tenth of the speed that means "full push" is a hand that is
+            // actually going somewhere; below it the last real direction is kept.
+            if (speedReal > wakeSpeed * DirectionGateFraction)
+                _wakeDirection = _velocity / speedWorld;
             if (target >= _wake)
             {
-                _wake = target;
+                // RISING IS RAMPED NOW, AND THIS IS THE "RUCKARTIG" LINE. ModBuild 431 wrote
+                // `_wake = target` on the rise — a step function from a noisy input, applied to the
+                // whole effect at once. The old comment defended it ("a push that ramped in would
+                // feel like the hand was late"), and the answer to that is a SHORT constant rather
+                // than none: the attack is a fraction of the settle time, so the push still arrives
+                // with the hand and stops arriving in a single frame.
+                _wake = attack <= 1e-3f
+                    ? target
+                    : Mathf.Lerp(_wake, target, 1f - Mathf.Exp(-dt / attack));
             }
             else
             {
                 // An exponential fall with a time constant the player owns. Frame-rate independent
                 // by construction (the exponent carries dt), which a raw Lerp factor is not.
-                float dt = Mathf.Max(Time.unscaledDeltaTime, 0f);
                 _wake = settle <= 1e-3f
                     ? target
                     : Mathf.Lerp(_wake, target, 1f - Mathf.Exp(-dt / settle));
             }
 
             _liveClasses = 0;
+            for (int c = 0; c < VfxFlow.ClassCount; c++)
+                _classCap[c] = float.MaxValue;
             for (int i = 0; i < _held.Count; i++)
             {
                 ParticleSystem ps = _held[i];
-                if (ps != null && _flowClass.TryGetValue(ps, out VfxFlowClass held))
-                    _liveClasses |= 1 << (int)held;
+                if (ps == null || !_flowClass.TryGetValue(ps, out VfxFlowClass held))
+                    continue;
+                _liveClasses |= 1 << (int)held;
+                // The strictest ceiling in the class wins — see _classCap. A system adopted before
+                // this dictionary existed (there is no such path, but a null-safe read costs one
+                // branch) contributes nothing rather than an unbounded ceiling.
+                if (_driftCap.TryGetValue(ps, out float capReal) && capReal < _classCap[(int)held])
+                    _classCap[(int)held] = capReal;
             }
 
             Vector3 palmAt = palm.position;
@@ -1560,6 +1799,9 @@ internal static class SceneVfxHands
             {
                 if ((_liveClasses & (1 << c)) == 0)
                 {
+                    // The envelope drops to zero the frame a class stops being held — see _gain for
+                    // why this edge is a snap and the other one is a ramp.
+                    _gain[c] = 0f;
                     _palmFields[c].Idle();
                     _tipFields[c].Idle();
                     continue;
@@ -1567,12 +1809,21 @@ internal static class SceneVfxHands
                 VfxFlowProfile p = VfxFlowProfile.Of((VfxFlowClass)c);
                 if (!EnsureFields(c))
                     continue;
+                _gain[c] = attack <= 1e-3f
+                    ? 1f
+                    : Mathf.Lerp(_gain[c], 1f, 1f - Mathf.Exp(-dt / attack));
                 float r = radius * p.Radius;
+                // Real metres per second times world units per real metre. A ceiling of MaxValue
+                // means no held system of this class reported one, in which case the field is
+                // unbounded exactly as it was before ModBuild 432 rather than silently dead.
+                float capWorld = _classCap[c] >= float.MaxValue
+                    ? float.MaxValue
+                    : _classCap[c] * scale;
                 _palmFields[c].Apply(in p, palmAt, _wakeDirection, _wakeDirection, r, _wake, scale,
-                                     push, cling, curl, tip: false);
+                                     capWorld, _gain[c], push, cling, curl, tip: false);
                 _tipFields[c].Apply(in p, tip.position, fingerAxis, _wakeDirection,
                                     r * VfxFlowField.TipRadiusFraction, _wake, scale,
-                                    push, cling, curl, tip: true);
+                                    capWorld, _gain[c], push, cling, curl, tip: true);
             }
         }
 
@@ -1659,6 +1910,24 @@ internal static class SceneVfxHands
                     .Append(ReachRealMeters.ToString("0.##")).Append(" real m (rig scale ")
                     .Append(perMetre.ToString("F2")).Append(" wu per real metre)");
             }
+            // WHICH SIX, BY NAME. The ModBuild 431 census could say that six slots were full and
+            // that a torch had been refused, and could not say what was standing in the torch's
+            // place — so "the cap is spent on the wrong systems" was a hypothesis with no field to
+            // test it against. It is now one line: if these names are fogs while the refusal beside
+            // them is a fire, the ordering is still wrong and EmitterTieWeight is the term.
+            if (_held.Count > 0)
+            {
+                into.Append("; holding");
+                for (int i = 0; i < _held.Count; i++)
+                {
+                    ParticleSystem ps = _held[i];
+                    into.Append(i == 0 ? " '" : ", '").Append(ps == null ? "<destroyed>" : ps.name)
+                        .Append('\'');
+                    if (ps != null && _driftCap.TryGetValue(ps, out float capReal))
+                        into.Append(" (bound ").Append(capReal.ToString("F3"))
+                            .Append(" real m/s)");
+                }
+            }
             into.Append('.');
         }
 
@@ -1704,6 +1973,12 @@ internal static class SceneVfxHands
             }
             _liveClasses = 0;
             _wake = 0f;
+            _velocity = Vector3.zero;
+            for (int i = 0; i < VfxFlow.ClassCount; i++)
+            {
+                _gain[i] = 0f;
+                _classCap[i] = float.MaxValue;
+            }
             _inReach = 0;
             _refusedCapFull = 0;
             _refusedCeiling = 0;

@@ -202,8 +202,8 @@ internal static class HandsConfig
     // change. They are grouped by WHAT THEY CHANGE — how hard the hand pushes, how much the effect
     // clings, how much it wraps, how long the wake lasts, how far it reaches, how much a touch
     // bounces — never by which field of which Unity module they land on. The per-EFFECT character
-    // (smoke wraps, fire is carved, dust hangs) is designed in Hands/VfxFlow.cs and these seven
-    // scale it; that is deliberate, because five copies of seven dials is not a settings menu.
+    // (smoke wraps, fire is carved, dust hangs) is designed in Hands/VfxFlow.cs and these nine
+    // scale it; that is deliberate, because five copies of nine dials is not a settings menu.
 
     /// <summary>How hard a MOVING hand pushes an effect. 1 = the shipped feel, 0 = the hand only
     /// clings and swirls without wafting.</summary>
@@ -227,6 +227,16 @@ internal static class HandsConfig
     /// <summary>How much a particle that actually touches the hand bounces off it. 0 = it slides
     /// along and is carried away by the swirl; high = the ModBuild 430 billiard ball.</summary>
     public static ConfigEntry<float> HandsVfxBounce = null!;
+
+    /// <summary>THE FURTHEST a hand may ever carry one particle, in REAL metres, over that
+    /// particle's whole remaining life. The unconditional half of the displacement bound — see
+    /// <c>VfxFlow.SpeedCapRealPerSecond</c>.</summary>
+    public static ConfigEntry<float> HandsVfxDriftMeters = null!;
+
+    /// <summary>How long the air takes to answer the hand, in seconds: the rise of the wake and the
+    /// smoothing window on the hand's own velocity. The counterpart of
+    /// <see cref="HandsVfxSettleSeconds"/>, which is the fall.</summary>
+    public static ConfigEntry<float> HandsVfxWakeAttackSeconds = null!;
 
     /// <summary>Read a float dial with its clamp, its Defaults fallback and a total guard against
     /// being called before Bind. The number passed in is ALWAYS the shipped default from
@@ -272,6 +282,19 @@ internal static class HandsConfig
     /// <summary>Collision bounce, 0..1.</summary>
     public static float HandsVfxBounceSafe()
         => ClampedFloat(HandsVfxBounce, Defaults.HandsVfxBounce, 0f, 1f);
+
+    /// <summary>Drift ceiling, 0.01..2 real metres. The lower bound is not zero on purpose: at
+    /// exactly zero every force term in the feature is trimmed to nothing and the effects stop
+    /// reacting at all, which reads as the feature being broken rather than as a dial being down.
+    /// One centimetre is a bound nobody will see and is still a bound.</summary>
+    public static float HandsVfxDriftMetersSafe()
+        => ClampedFloat(HandsVfxDriftMeters, Defaults.HandsVfxDriftMeters, 0.01f, 2f);
+
+    /// <summary>Wake attack, 0..1 s. Zero is allowed and means the ModBuild 431 behaviour exactly —
+    /// an unsmoothed velocity and a step on the rise — so the change this dial makes can be A/B'd
+    /// against itself on hardware without a rebuild.</summary>
+    public static float HandsVfxWakeAttackSecondsSafe()
+        => ClampedFloat(HandsVfxWakeAttackSeconds, Defaults.HandsVfxWakeAttackSeconds, 0f, 1f);
 
     /// <summary>Ghost-hand transparency STRENGTH 0.05..0.95 (higher = more see-through).</summary>
     public static ConfigEntry<float> GhostHandStrength = null!;
@@ -648,6 +671,31 @@ internal static class HandsConfig
                 "that was the whole reaction before, and it is what 'the smoke snaps away' looked " +
                 "like. Left as a dial because it is the one term that decides between the two. " +
                 "Live-tunable.",
+                new AcceptableValueRange<float>(0f, 1f)));
+        HandsVfxDriftMeters = config.Bind(
+            "Hands", "HandsVfxDriftMeters", Defaults.HandsVfxDriftMeters,
+            new ConfigDescription(
+                "The FURTHEST your hand can ever carry a single particle, in real metres. This " +
+                "is the safety rail, not a strength: an effect stays where the room put it, so a " +
+                "brazier's flame leans out of your way and springs back instead of being dragged " +
+                "off across the room. Every effect also gets a share of this measured against " +
+                "its OWN size — a tiny spark may move much less than this, a wall of fog almost " +
+                "nothing — so turning it up loosens the rail for everything at once rather than " +
+                "making anything push harder. Turn it down if effects still travel too far with " +
+                "your hand; turn it up if they now feel nailed in place. Live-tunable, and it " +
+                "reaches an effect the next time a hand takes hold of it.",
+                new AcceptableValueRange<float>(0.01f, 2f)));
+        HandsVfxWakeAttackSeconds = config.Bind(
+            "Hands", "HandsVfxWakeAttackSeconds", Defaults.HandsVfxWakeAttackSeconds,
+            new ConfigDescription(
+                "How long the air takes to ANSWER your hand, in seconds — the counterpart of " +
+                "HandsVfxSettleSeconds, which is how long it takes to calm down again. It also " +
+                "smooths your hand's own measured speed and direction over the same window, " +
+                "which is what stops the reaction stuttering: a tracked hand's speed is a " +
+                "jittery number, and feeding it straight into the wind made effects jerk and " +
+                "flick from one frame to the next. 0 turns both off and restores exactly the " +
+                "old, snappier and twitchier behaviour. Higher feels like heavier air that takes " +
+                "a moment to get going. Live-tunable.",
                 new AcceptableValueRange<float>(0f, 1f)));
         GhostHandStrength = config.Bind(
             "Hands", "GhostHandStrength", Defaults.GhostHandStrength,

@@ -2794,7 +2794,7 @@ internal static partial class Loc
                 + "dich und beruhigt sich wieder, eine Flamme wird aufgedrückt und richtet sich "
                 + "sofort wieder auf (nie seitlich weggeblasen, das sieht falsch aus), Funken "
                 + "stieben auseinander, Staub hängt in deinem Nachlauf, und die Aura einer Figur "
-                + "wird dort gestört, wo du sie berührst, bleibt aber bei ihrem Besitzer. Sieben "
+                + "wird dort gestört, wo du sie berührst, bleibt aber bei ihrem Besitzer. Neun "
                 + "Regler darunter (HandsVfxPushStrength und seine Nachbarn) bestimmen, wie stark "
                 + "das alles ausfällt. Es entsteht dabei NICHTS: Effekte, deren Kollision das Spiel selbst "
                 + "verwaltet, werden komplett ausgelassen, und die Kollisionsmeldungen bleiben "
@@ -2860,6 +2860,27 @@ internal static partial class Loc
                 + "dir ab; genau das war vorher die ganze Reaktion, und genau so sah \"der Rauch "
                 + "weicht zurück\" aus. Bleibt als Regler, weil er der eine Begriff ist, der "
                 + "zwischen beidem entscheidet. Live einstellbar.",
+            ["Hands/HandsVfxDriftMeters"] =
+                "Wie WEIT deine Hand ein einzelnes Partikel höchstens mitnehmen kann, in echten "
+                + "Metern. Das ist die Leitplanke, keine Stärke: Ein Effekt bleibt dort, wo der "
+                + "Raum ihn hingestellt hat — die Flamme einer Feuerschale weicht deiner Hand "
+                + "aus und richtet sich wieder auf, statt quer durch den Raum gezogen zu werden. "
+                + "Jeder Effekt bekommt zusätzlich nur einen an seiner EIGENEN Größe gemessenen "
+                + "Anteil davon: ein winziger Funke darf sich viel weniger bewegen als das hier, "
+                + "eine Nebelwand fast gar nicht. Höhere Werte lockern also die Leitplanke für "
+                + "alles auf einmal, sie lassen nichts kräftiger schieben. Runter, wenn Effekte "
+                + "dir immer noch zu weit folgen; hoch, wenn sich alles festgenagelt anfühlt. "
+                + "Live einstellbar; wirkt auf einen Effekt, sobald ihn eine Hand wieder anfasst.",
+            ["Hands/HandsVfxWakeAttackSeconds"] =
+                "Wie lange die Luft braucht, um auf deine Hand zu ANTWORTEN, in Sekunden — das "
+                + "Gegenstück zu HandsVfxSettleSeconds, das regelt, wie lange sie danach "
+                + "nachläuft. Derselbe Wert glättet auch das gemessene Tempo und die Richtung "
+                + "deiner Hand, und genau das nimmt der Reaktion das Ruckeln: Das Tempo einer "
+                + "getrackten Hand ist ein zappeliger Wert, und ungeglättet in den Wind gegeben "
+                + "ließ er Effekte von einem Bild zum nächsten springen und zucken. 0 schaltet "
+                + "beides ab und stellt genau das alte, schnellere und unruhigere Verhalten "
+                + "wieder her. Höher fühlt sich nach schwererer Luft an, die erst in Bewegung "
+                + "kommen muss. Live einstellbar.",
             ["Hands/HandsDisturbScenery"] =
                 "Greif durch einen Vorhang und er BEWEGT sich. Jeder simulierte Stoff, den der Raum "
                 + "ohnehin hat — Vorhänge, Behänge —, wird von deiner Hand zur Seite geschoben, solange "

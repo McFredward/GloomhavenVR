@@ -20,7 +20,7 @@ internal static partial class Defaults
     internal const bool HandsDisturbScenery = true;         // => [Hands] HandsDisturbScenery
     internal const float SceneryClothHandRadiusMillimeters = 35f; // => [Hands] SceneryClothHandRadiusMillimeters
     internal const bool HandsDisturbVfx = true;             // => [Hands] HandsDisturbVfx
-    // How the hands MOVE an effect, not whether they do. Every one of these seven scales a
+    // How the hands MOVE an effect, not whether they do. Every one of these nine scales a
     // designed per-effect feel (Hands/VfxFlow.cs) rather than setting a Unity field directly, so
     // 1.0 means "the shipped feel" on all four strengths and a value is comparable across effects.
     internal const float HandsVfxPushStrength = 1f;         // => [Hands] HandsVfxPushStrength
@@ -30,6 +30,18 @@ internal static partial class Defaults
     internal const float HandsVfxSettleSeconds = 0.35f;     // => [Hands] HandsVfxSettleSeconds
     internal const float HandsVfxReachMeters = 0.14f;       // => [Hands] HandsVfxReachMeters
     internal const float HandsVfxBounce = 0.05f;            // => [Hands] HandsVfxBounce
+    // 0.25 m is a hand's sweep, and it is the number that answers "die Flamme glitcht in der
+    // Gegend rum": a quarter of a metre is far enough that a wafted plume is visibly wafted and
+    // near enough that nothing can leave the prop it belongs to. Every effect is also held to a
+    // share of it measured against its own particle size, so this is the ceiling and not the
+    // allowance — see VfxFlow.SpeedCapRealPerSecond.
+    internal const float HandsVfxDriftMeters = 0.25f;       // => [Hands] HandsVfxDriftMeters
+    // A third of the settle time: the air answers the hand about three times as fast as it calms
+    // down again, which is the asymmetry ModBuild 431 had right in principle and shipped as a step
+    // function on the rise. It is also the smoothing window on the hand's own velocity, and 0.12 s
+    // is roughly ten frames at 90 Hz — long enough to kill tracking jitter, short enough that the
+    // push still arrives with the hand rather than after it.
+    internal const float HandsVfxWakeAttackSeconds = 0.12f; // => [Hands] HandsVfxWakeAttackSeconds
     internal const float GhostHandStrength = 0.55f;         // => [Hands] GhostHandStrength
     internal const bool TestFist = false;                   // => [Hands] TestFist
     internal const float CurlProximal = 75f;                // => [Hands] CurlProximal

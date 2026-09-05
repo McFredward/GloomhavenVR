@@ -147,8 +147,19 @@ internal readonly struct VfxFlowProfile
     /// what makes the carved void read as a void rather than as a dent.</summary>
     internal readonly float LifetimeLoss;
 
+    /// <summary>HOW FAR A PARTICLE OF THIS CLASS MAY BE CARRIED, in its OWN particle widths, over
+    /// its whole remaining life. The anchor of the displacement bound — see
+    /// <see cref="VfxFlow.SpeedCapRealPerSecond"/> — and the term that decides whether an effect
+    /// stays where it was authored.
+    ///
+    /// <para>Read as five sentences again: a flame may lean less than one width and is therefore
+    /// still visibly attached to its brazier; an aura may move about one, because it is owned; a
+    /// smoke puff wafts a few; dust drifts a good many of its own tiny widths, which is what a
+    /// wake looks like; a spark is the only thing here that may be thrown.</para></summary>
+    internal readonly float Drift;
+
     private VfxFlowProfile(float drag, float vortex, float attract, float push, float repel,
-                           float radius, float dampen, float lifetimeLoss)
+                           float radius, float dampen, float lifetimeLoss, float drift)
     {
         Drag = drag;
         Vortex = vortex;
@@ -158,6 +169,7 @@ internal readonly struct VfxFlowProfile
         Radius = radius;
         Dampen = dampen;
         LifetimeLoss = lifetimeLoss;
+        Drift = drift;
     }
 
     /// <summary>The designed feel of each class, in one table.
@@ -182,23 +194,33 @@ internal readonly struct VfxFlowProfile
     ///   field swirls where the hand is and the rest of the halo does not care. It has to look
     ///   OWNED: you disturb it, you do not take it with you.</item>
     /// </list>
-    /// <para><b>THESE ARE STARTING POINTS AND THE FIRST HARDWARE ROUND IS A TUNING ROUND.</b> Two
-    /// of the four force terms have units no reading of the API settles — Unity documents "drag"
-    /// and "rotation speed" without saying against what — so the RATIOS between the five rows are
-    /// the designed part and the absolute magnitudes are a first guess with a dial on each of them.
-    /// The drag column in particular was chosen deliberately low: a drag that is too high freezes
-    /// an effect in mid-air, which looks every bit as wrong as the bounce this replaces, and it is
-    /// the harder failure to recognise from a description. HandsVfxClingStrength is the dial, and
-    /// each adopted effect prints the numbers it was given.</para>
+    /// <para><b>THESE WERE STARTING POINTS AND ModBuild 432 IS WHERE THE FIRST HARDWARE ROUND
+    /// LANDED ON THEM.</b> The previous revision of this paragraph said the absolute magnitudes
+    /// were a first guess because Unity documents neither "drag" nor "rotation speed" against
+    /// anything. That guess came back as: "Bei der Flamme beim Altar glitcht die Flamme in der
+    /// Gegend rum." The numbers are UNCHANGED — they were never the defect on their own — and what
+    /// is new is the <see cref="Drift"/> column and the bound built on it, which converts each of
+    /// them from an absolute into a ceiling measured against the effect's own size and lifetime.
+    /// The RATIOS are still the designed part; they are now the ratios in which a bounded budget
+    /// is spent rather than the ratios of an unbounded one.</para>
+    ///
+    /// <para><b>THE DRAG COLUMN NO LONGER MEANS WHAT IT SAYS ON THE SPARKS ROW</b>, and that is
+    /// worth saying here rather than only at the field. <see cref="VfxFlowField"/> imposes a drag
+    /// FLOOR, because the bound is enforced through drag — terminal speed under Unity's
+    /// velocity-multiplied drag is acceleration ÷ drag — so a class with almost no drag has no
+    /// terminal speed to bound. Sparks at 0.18 was exactly that class, and 'PrimeAltar_FX' in the
+    /// ModBuild 431 log is exactly that effect: a 5-second Sparks system whose push of
+    /// 2.2 m/s² against a drag of 0.18 has a terminal speed of twelve metres per second. Above the
+    /// floor the column reads as written.</para>
     /// </summary>
     internal static VfxFlowProfile Of(VfxFlowClass c) => c switch
     {
-        //                            drag  vortex attract push  repel radius dampen loss
-        VfxFlowClass.Smoke  => new(   1.50f, 2.40f,  0.60f, 1.00f, 0.12f, 1.35f, 0.90f, 0.00f),
-        VfxFlowClass.Flame  => new(   0.60f, 0.50f,  0.25f, 0.15f, 0.90f, 0.90f, 0.75f, 0.06f),
-        VfxFlowClass.Sparks => new(   0.18f, 0.90f,  0.15f, 2.20f, 0.30f, 1.10f, 0.35f, 0.00f),
-        VfxFlowClass.Motes  => new(   3.00f, 1.60f,  0.40f, 1.60f, 0.05f, 1.60f, 0.95f, 0.00f),
-        _                   => new(   1.10f, 3.00f,  1.40f, 0.25f, 0.10f, 0.80f, 0.80f, 0.00f),
+        //                            drag  vortex attract push  repel radius dampen loss  drift
+        VfxFlowClass.Smoke  => new(   1.50f, 2.40f,  0.60f, 1.00f, 0.12f, 1.35f, 0.90f, 0.00f, 3.0f),
+        VfxFlowClass.Flame  => new(   0.60f, 0.50f,  0.25f, 0.15f, 0.90f, 0.90f, 0.75f, 0.06f, 0.8f),
+        VfxFlowClass.Sparks => new(   0.18f, 0.90f,  0.15f, 2.20f, 0.30f, 1.10f, 0.35f, 0.00f,10.0f),
+        VfxFlowClass.Motes  => new(   3.00f, 1.60f,  0.40f, 1.60f, 0.05f, 1.60f, 0.95f, 0.00f, 6.0f),
+        _                   => new(   1.10f, 3.00f,  1.40f, 0.25f, 0.10f, 0.80f, 0.80f, 0.00f, 1.0f),
     };
 }
 
@@ -318,6 +340,58 @@ internal static class VfxFlow
         return VfxFlowClass.Motes;
     }
 
+    /// <summary>A particle whose authored size is driven entirely by a curve reads 0 metres across
+    /// (see <see cref="Measure"/>), and a bound anchored on 0 is a bound of zero — an effect that
+    /// can never be felt at all. One centimetre of real particle is the floor, which is about a
+    /// fingernail and is smaller than anything in the ModBuild 431 census (the smallest measured
+    /// was 'center' at 0.011 real m).</summary>
+    private const float MinDiameterMetres = 0.01f;
+
+    /// <summary>…and the same guard on the other term. A lifetime this short divides into the drift
+    /// budget to give a speed, so a system reporting a near-zero lifetime would otherwise be handed
+    /// an unbounded one. A quarter second is below every lifetime the census measured (the shortest
+    /// was 'fx_sparks_drop' at 0.70 s).</summary>
+    private const float MinLifeSeconds = 0.25f;
+
+    /// <summary>HOW FAR THE HAND MAY CARRY ONE PARTICLE, in real metres, over its whole remaining
+    /// life. THIS IS THE ANSWER TO "die Flamme glitcht in der Gegend rum".
+    ///
+    /// <para><b>THE ANCHOR THE REPORT ASKED FOR DOES NOT EXIST ON MOST OF THE POPULATION, and that
+    /// is the measurement this method is built around.</b> The obvious way to express a force as a
+    /// fraction of what an effect already does is its own travel budget — start speed × lifetime.
+    /// In the ModBuild 431 log that budget is <b>literally zero on 21 of the 33 classified
+    /// systems</b>: 'GroundFog', 'GroundFogFar', 'ElemSpores', 'ElemGust', 'ElemEmbers', 'center',
+    /// 'P_CastHealRadial (4)', 'fx_sparks_drop' and the 'Particle System' at the brazier all read
+    /// "travel 0.0 of its own widths per life", i.e. <c>startSpeedMultiplier</c> is 0 and every
+    /// pixel of their motion comes from a curve, a noise module or nothing at all. A fraction of
+    /// zero is zero, so a force scaled that way would make two thirds of the room inert.</para>
+    ///
+    /// <para><b>SO THE ANCHOR IS THE PARTICLE'S OWN SIZE, WHICH IS NEVER ZERO</b>, times the
+    /// class's <see cref="VfxFlowProfile.Drift"/> allowance — and then an ABSOLUTE cap in real
+    /// metres on top of it, which is the term that makes the guarantee unconditional. The absolute
+    /// cap is what stops 'GroundFogFar', whose single particle measures <b>17.1 real metres
+    /// across</b>, from being allowed seventeen metres of travel by a rule about its own widths.
+    /// That particle is the pale wash the altar video shows sliding across the room: one enormous
+    /// soft billboard whose centre came within a palm's reach of the hand, taking the whole quad
+    /// with it.</para>
+    ///
+    /// <para>Returned in real metres per second, because that is the unit a rig scale converts
+    /// cleanly and the unit the bound is enforced in. Allocation-free; four arithmetic ops.</para>
+    /// </summary>
+    /// <param name="t">The traits measured for this system.</param>
+    /// <param name="p">Its class profile, for the <see cref="VfxFlowProfile.Drift"/> allowance.</param>
+    /// <param name="absoluteCapMetres">HandsVfxDriftMeters: the unconditional ceiling.</param>
+    internal static float SpeedCapRealPerSecond(in VfxTraits t, in VfxFlowProfile p,
+                                                float absoluteCapMetres)
+        => DriftMetres(in t, in p, absoluteCapMetres) / Mathf.Max(t.LifeSeconds, MinLifeSeconds);
+
+    /// <summary>The drift budget itself, in real metres — the numerator of
+    /// <see cref="SpeedCapRealPerSecond"/>, split out so the log can print the distance as well as
+    /// the speed.</summary>
+    internal static float DriftMetres(in VfxTraits t, in VfxFlowProfile p, float absoluteCapMetres)
+        => Mathf.Min(p.Drift * Mathf.Max(t.DiameterMetres, MinDiameterMetres),
+                     Mathf.Max(absoluteCapMetres, 0f));
+
     /// <summary>The thresholds, for the log. One string, built once per named effect, so the
     /// numbers a verdict was measured against travel with the verdict.</summary>
     internal static string Thresholds()
@@ -344,6 +418,17 @@ internal static class VfxFlow
 /// lists only the fields for its own class. A field nothing lists costs nothing: Unity walks each
 /// system's influence list, not a global field list.</para>
 ///
+/// <para><b>AND SINCE ModBuild 432 EVERY FIELD CARRIES A CEILING IT CANNOT EXCEED.</b> The user,
+/// on 431: "Bei der Flamme beim Altar glitcht die Flamme in der Gegend rum." A force field is an
+/// ACCELERATION and nothing in Unity's model ever takes back the speed it gave — a particle
+/// leaves the field carrying whatever velocity it picked up and coasts on that for the rest of its
+/// life, which on a 22-second fog particle is a very long way. The remedy is a bound, not a smaller
+/// guess: <see cref="VfxFlow.SpeedCapRealPerSecond"/> turns each system's own measured size and
+/// lifetime into the fastest this field may ever get one of its particles moving, and
+/// <see cref="Apply"/> spends the resulting acceleration budget in the ratios
+/// <see cref="VfxFlowProfile"/> designed. The bound is expressed in REAL metres and converted at
+/// use time, so it means the same thing in a x4 scenario and a x198 map room.</para>
+///
 /// <para><b>A FIELD WITH NOTHING TO PUSH CARRIES ZERO FORCE</b> (<see cref="Idle"/>). That is a
 /// safety property, not tidiness. Unity's default influence filter is a LAYER MASK set to
 /// Everything, so any particle system in the game that has its own external forces switched on
@@ -369,6 +454,24 @@ internal sealed class VfxFlowField
     /// <summary>A trace of randomness in the vortex. Without it every particle in the field turns
     /// in lockstep and the swirl reads as a mechanism rather than as air.</summary>
     private static readonly Vector2 RotationRandomness = new(0.15f, 0.15f);
+
+    /// <summary>THE DRAG FLOOR, in reciprocal seconds, and it is what makes the displacement bound
+    /// enforceable rather than aspirational.
+    ///
+    /// <para>Unity's force-field drag with <c>multiplyDragByParticleVelocity</c> on decelerates a
+    /// particle at <c>drag × |v|</c>, so a particle under a constant acceleration <c>a</c> inside
+    /// the field asymptotes to <c>a ÷ drag</c> and never exceeds it, whatever the transit time. That
+    /// single identity is the whole bound: pick the speed the effect is allowed to reach, multiply
+    /// by the drag actually written to the field, and that product is the acceleration budget.</para>
+    ///
+    /// <para>WITHOUT A FLOOR THE IDENTITY IS USELESS ON EXACTLY THE CLASS THAT NEEDED IT. Sparks
+    /// carries drag 0.18, so its terminal speed is five and a half times its acceleration, and
+    /// 'PrimeAltar_FX' — the altar effect the user filmed — is a Sparks system with a 5-second
+    /// lifetime: 2.2 m/s² ÷ 0.18 = 12 m/s, carried for five seconds, is sixty metres. 1.2 is a
+    /// one-second-ish e-fold inside the field, mild enough that a particle is not frozen (the
+    /// failure mode the cling paragraph warns about, which needs a drag several times this) and
+    /// firm enough that the budget is a real number on every row of the table.</para></summary>
+    private const float MinDrag = 1.2f;
 
     private GameObject? _go;
     private Transform? _transform;
@@ -430,8 +533,14 @@ internal sealed class VfxFlowField
     /// <param name="radius">Field radius in WORLD units (a real length times the rig scale).</param>
     /// <param name="wake">0..1: how hard the hand is currently moving, already smoothed.</param>
     /// <param name="scale">World units per real metre, for the two accelerations.</param>
+    /// <param name="speedCapWorld">THE DISPLACEMENT BOUND, in WORLD units per second: the fastest
+    /// this field may ever get a particle moving. Comes from
+    /// <see cref="VfxFlow.SpeedCapRealPerSecond"/> for the strictest system this hand holds of this
+    /// class, times the rig scale.</param>
+    /// <param name="gain">0..1 attack envelope, so a class this hand has just started holding fades
+    /// its air in over a fraction of a second instead of switching it on between two frames.</param>
     internal void Apply(in VfxFlowProfile p, Vector3 position, Vector3 axis, Vector3 pushDirection,
-                        float radius, float wake, float scale,
+                        float radius, float wake, float scale, float speedCapWorld, float gain,
                         float push, float cling, float curl, bool tip)
     {
         if (_field == null || _transform == null)
@@ -440,10 +549,37 @@ internal sealed class VfxFlowField
         _transform.SetPositionAndRotation(position, Quaternion.FromToRotation(Vector3.up, axis));
         _field.endRange = Mathf.Max(radius, 1e-3f);
 
+        // THE DRAG IS WRITTEN FIRST BECAUSE EVERYTHING BELOW IS MEASURED AGAINST IT. See MinDrag:
+        // terminal speed inside this field is acceleration ÷ drag, so the drag actually written
+        // here is the number the budget on the next line is computed from. Writing a floored drag
+        // and then budgeting against the UNFLOORED one would be an instrument measuring the
+        // bookkeeping instead of the thing.
+        float drag = Mathf.Max(p.Drag * cling, MinDrag);
+        _field.drag = drag;
+
+        // THE ACCELERATION BUDGET. Everything this field is allowed to do, expressed as the one
+        // number that bounds it: a particle held at this acceleration reaches speedCapWorld and
+        // stops accelerating. The push and the outward term then SHARE it in the ratio
+        // VfxFlowProfile designed, so trimming preserves the character of the class and only its
+        // magnitude moves. The vortex is bounded separately and for a different reason — see the
+        // paragraph on it below.
+        float cap = Mathf.Max(speedCapWorld, 0f);
+        float budget = cap * drag;
+
         // THE DIRECTIONAL PUSH IS THE HAND'S OWN VELOCITY. A constant push would blow every effect
         // in one direction forever; a push proportional to how fast the hand is moving is what
         // makes a slow hand barely disturb and a swipe waft — which is the sentence in the report.
-        float accel = p.Push * push * wake * scale * (tip ? TipPushFactor : 1f);
+        float accel = p.Push * push * wake * gain * scale * (tip ? TipPushFactor : 1f);
+        float repel = p.Repel * gain * scale;
+        // The push and the outward term are both radial-ish and can point the same way, so they are
+        // trimmed against a SHARED budget rather than one each.
+        float wanted = accel + repel;
+        if (wanted > budget && wanted > 1e-6f)
+        {
+            float trim = budget / wanted;
+            accel *= trim;
+            repel *= trim;
+        }
         Vector3 force = pushDirection * accel;
         _field.directionX = force.x;
         _field.directionY = force.y;
@@ -456,15 +592,31 @@ internal sealed class VfxFlowField
         // carries the marked question. If effects visibly collapse into the palm instead of
         // parting around it, this line is the term to flip and nothing else here is implicated.
         _field.gravityFocus = 0f;
-        _field.gravity = -p.Repel * scale;
+        _field.gravity = -repel;
 
-        _field.drag = p.Drag * cling;
         // A STILL HAND STILL CURLS A LITTLE. Gating the vortex entirely on hand speed would make a
         // hand held motionless in a plume look like a hole cut out of it; a third of the swirl at
         // rest is the difference between "an object is in the smoke" and "an object is ignoring it".
-        _field.rotationSpeed = p.Vortex * curl * (0.35f + 0.65f * wake)
-                             * (tip ? TipVortexBoost : 1f);
-        _field.rotationAttraction = p.Attract * curl;
+        //
+        // TWO THINGS CHANGED HERE IN ModBuild 432 AND BOTH ARE ABOUT SCALE. The term is now
+        // multiplied by the rig scale like the other two — it is a world-unit quantity and it was
+        // the only force in this method that was not, so the same authored swirl meant twenty times
+        // as much of a room at x9 as at x198 — and it is then clamped to the cap DIRECTLY rather
+        // than through the budget. Unity's documentation does not settle whether rotationSpeed is a
+        // target tangential speed or a tangential acceleration; clamping the raw number at the cap
+        // is correct under the first reading and strictly conservative under the second (an
+        // acceleration of `cap` against a drag of at least 1.2 asymptotes below `cap`). The swirl
+        // is tangential and the push is along the field axis, so the two are orthogonal by
+        // construction and their bounds add in quadrature rather than linearly.
+        // WHETHER THE SWIRL STILL READS ONCE IT IS BOUNDED is the open question here, and it is
+        // asked where a hardware round can answer it rather than in a comment nobody prints:
+        // SceneVfxHands.NoteFlowClass carries it, with this effect's own ceiling beside it, on a
+        // line the default log level prints. If effects now merely slow down near a hand and never
+        // wrap around it, this clamp is the term that ate it and HandsVfxDriftMeters gives it back.
+        float vortex = p.Vortex * curl * gain * (0.35f + 0.65f * wake)
+                     * (tip ? TipVortexBoost : 1f) * scale;
+        _field.rotationSpeed = Mathf.Min(vortex, cap);
+        _field.rotationAttraction = p.Attract * curl * gain;
     }
 
     /// <summary>Zero every force. Called for a class this hand is not holding — see the class doc

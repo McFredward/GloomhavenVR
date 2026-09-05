@@ -179,7 +179,7 @@ internal static partial class Loc
                 Pair("Curtains: hand thickness (mm)", "Vorhänge: Handdicke (mm)"),
             ["Hands/HandsDisturbVfx"] = Pair("Hands disturb smoke and fire",
                                              "Hände verwirbeln Rauch und Feuer"),
-            // The seven feel dials. Named by WHAT THEY CHANGE — a person hunting "why does the
+            // The nine feel dials. Named by WHAT THEY CHANGE — a person hunting "why does the
             // smoke do that" is looking for push / cling / wrap / wake, not for a Unity module.
             ["Hands/HandsVfxPushStrength"] = Pair("Effects: push strength",
                                                   "Effekte: Schubstärke"),
@@ -195,6 +195,10 @@ internal static partial class Loc
                                                  "Effekte: bewegter Bereich (m)"),
             ["Hands/HandsVfxBounce"] = Pair("Effects: bounce off the hand",
                                             "Effekte: Abprall an der Hand"),
+            ["Hands/HandsVfxDriftMeters"] = Pair("Effects: furthest they are carried (m)",
+                                                 "Effekte: maximale Mitnahme (m)"),
+            ["Hands/HandsVfxWakeAttackSeconds"] = Pair("Effects: air answers in (s)",
+                                                       "Effekte: Luft reagiert in (s)"),
             ["FigureGrab/GrabProps"] = Pair("Pick up chests and traps", "Truhen und Fallen aufnehmen"),
             ["Hands/GhostHandStrength"] = Pair("Ghost hand strength", "Geisterhand-Stärke"),
             ["Hands/TestFist"] = Pair("Debug: force fist", "Debug: Faust erzwingen"),
