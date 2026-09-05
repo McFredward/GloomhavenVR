@@ -2252,6 +2252,27 @@ internal static partial class CanvasConversion
         internal float SeamBaseWidth;
         internal bool SeamClamped;
 
+        /// <summary>Set once if the captured seam was RE-DERIVED because the column later measured
+        /// materially NARROWER than the width the seam was taken from — see
+        /// <see cref="EnsureColumnSeam"/>. Carries the two widths so the log states the correction
+        /// rather than only its effect.</summary>
+        internal bool SeamReDerived;
+        internal float SeamWidthBeforeReDerive;
+
+        /// <summary>GRAPHICS THIS MOD PARKED INTO THE GAME'S WINDOW and the base measurement
+        /// therefore refused: this pass, and the running total over this window's life. Zero and
+        /// never-checked must not look alike, so both are printed on every line — the whole of the
+        /// ModBuild 445 fix is that these can no longer move the seam, and a rule that never fires
+        /// proves nothing [[gated-remedy-never-ran]].</summary>
+        internal int ParkedGuestsThisPass;
+        internal int ParkedGuestsRefused;
+
+        /// <summary>The furthest-right edge any refused parked graphic reached this pass, and the
+        /// name of the graphic that reached it — i.e. exactly how far the seam WOULD have been
+        /// pushed. Meaningless while <see cref="ParkedGuestsThisPass"/> is 0.</summary>
+        internal float ParkedGuestRightX;
+        internal string ParkedGuestWidest = string.Empty;
+
         // ---- live base reading, refilled by every measure pass (the proof line) ---------------
         internal bool BaseVisible;
         internal Vector2 BaseMin, BaseMax;
@@ -3141,6 +3162,67 @@ internal static partial class CanvasConversion
     }
 
     /// <summary>
+    /// <b>THE GUESTS: GAME OBJECTS THIS MOD HAS MOVED INTO A GAME WINDOW, WHICH THE FIT MUST NOT
+    /// MEASURE AS THAT WINDOW'S OWN CONTENT.</b>
+    ///
+    /// <para><b>WHY A LIST AND NOT A TEST.</b> Everything the mod BUILDS carries the
+    /// <c>GloomhavenVR.</c> name prefix (or, since ModBuild 420, a <see cref="ModOwnedContent"/>
+    /// marker), and the sweep in <see cref="MeasureFixedFitParts"/> already skips it. Neither answers
+    /// for a GAME widget the mod merely re-parented: the confirm button is the game's own
+    /// <c>UIReadyToggle</c> and the icon row is the game's own <c>UIReadyTrackerBar</c>. They are not
+    /// renamed — deliberately, because renaming a game object is a mutation of somebody else's scene
+    /// — so no ownership test that reads the object can see them, and the only honest answer is the
+    /// parker's own [[a-typed-collector-cannot-see-a-shape]].</para>
+    ///
+    /// <para><b>WHAT GOES WRONG WHEN THEY ARE COUNTED, from the 2026-09-05 hardware log.</b> The
+    /// COLUMN SEAM is the host-local x every sub-view the game opens is seated on, and it is
+    /// <see cref="EnsureColumnSeam"/>'s pin-plus-base-width. On the first life of 'New Party display'
+    /// in that log the base reads <c>328x1080 px</c> and the seam is <c>x=-654</c> on all 45 lines:
+    /// the ready row was hosted by the quest card, not by this window. On the second life the row is
+    /// adopted INTO this window (<c>MAP QUEST READY CARD … card='New Party display'</c>) 64 lines
+    /// BEFORE the first fit pass, and every number moves together:</para>
+    /// <list type="bullet">
+    /// <item>first pass: base <c>1065x1080</c>, seam <c>x=83</c> (provisional), and the battle-goal
+    /// picker is seated at <c>rect 83..648</c> — <b>737 px right of the character column</b>, which
+    /// is the user's <i>"Abstand Quests … wieder kaputt"</i> and his own attribution of it to the
+    /// ready bar, which is correct;</item>
+    /// <item>after <c>LOADOUT CONFIRM PARKED</c> the row moves onto the control and the base reads
+    /// <c>802x1080</c> = the real 328 px column + the 24 px gap + the 450 px confirm. With no
+    /// sub-view open that pass CAPTURES the seam at <c>x=-180</c> — <b>474 px wrong, once, for the
+    /// rest of the window's life</b>.</item>
+    /// </list>
+    ///
+    /// <para><b>THE LOOP IS THE POINT, NOT THE PIXELS.</b> Both guests are placed one gap right of
+    /// what this window paints. Measuring them as what this window paints makes the seam a function
+    /// of its own consequences [[a-claim-must-not-measure-itself]], and because the seam is captured
+    /// ONCE the error cannot heal. <c>LoadoutConfirmPark</c> reached the same conclusion for its own
+    /// solve and excluded the row from it; this is the other half — the fit had no such exclusion at
+    /// all, and the recon that sent this round looked at the seat solve rather than at the seam.</para>
+    ///
+    /// <para><b>NOTHING ELSE CHANGES.</b> The guests are still DRAWN, still interactive, and still
+    /// measured by everything whose job is to cover what is drawn: the hit rect, the grab bar, the
+    /// close-X seat and the supersample capture frame all union them exactly as before. The refusal
+    /// is scoped to the one measurement that decides where the GAME's content is placed.</para>
+    ///
+    /// <para><b>A PARKER ADDED LATER MUST BE ADDED HERE.</b> That is a convention, and this file's
+    /// own history says conventions fail silently — so the failure is made loud instead: every fit
+    /// line prints how many guest graphics were refused this pass and over the window's life, and
+    /// names the one that reached furthest right. A window whose seam is wrong with a refusal count
+    /// of 0 has a third parker nobody has listed, and the line says so on the spot.</para>
+    /// </summary>
+    private static Transform? ParkedGuestControl() => LoadoutConfirmPark.HeldControl;
+
+    /// <summary>The adopted ready-icon row. <see cref="ParkedGuestControl"/>'s twin; the doc there
+    /// carries the argument for both.</summary>
+    private static Transform? ParkedGuestReadyRow() => MapRoom.MapQuestReadyRoster.HeldRow;
+
+    /// <summary>Is <paramref name="t"/> inside either parked guest subtree? Two reference compares
+    /// and, at most, two parent walks per graphic, and only on the fit's own cadence.</summary>
+    private static bool IsParkedGuest(Transform t, Transform? guestA, Transform? guestB) =>
+        (guestA != null && (ReferenceEquals(t, guestA) || t.IsChildOf(guestA)))
+        || (guestB != null && (ReferenceEquals(t, guestB) || t.IsChildOf(guestB)));
+
+    /// <summary>
     /// THE SPLIT MEASURE — one walk over the window's visible graphics that fills THREE unions
     /// instead of one: the BASE (nothing that belongs to an open sub-view), each open SUB-VIEW, and
     /// each sub-view's content WITHOUT its full-frame backdrop plates.
@@ -3169,6 +3251,9 @@ internal static partial class CanvasConversion
         fx.TransientWidestSize = Vector2.zero;
         fx.ContentLeftName = string.Empty;
         fx.ContentRightName = string.Empty;
+        fx.ParkedGuestsThisPass = 0;
+        fx.ParkedGuestRightX = 0f;
+        fx.ParkedGuestWidest = string.Empty;
         Vector2 baseMin = new(float.MaxValue, float.MaxValue);
         Vector2 baseMax = new(float.MinValue, float.MinValue);
         Vector2 baseRawMin = new(float.MaxValue, float.MaxValue);
@@ -3218,6 +3303,10 @@ internal static partial class CanvasConversion
         TransientMemo.Clear();
         FixedFitGraphics.Clear();
         root.GetComponentsInChildren(includeInactive: false, FixedFitGraphics);
+        // The two subtrees this mod has moved INTO the game's window on this tick, read once per
+        // pass rather than once per graphic. See ParkedGuestControl for the whole argument.
+        Transform? guestA = ParkedGuestControl();
+        Transform? guestB = ParkedGuestReadyRow();
         for (int i = 0; i < FixedFitGraphics.Count; i++)
         {
             Graphic g = FixedFitGraphics[i];
@@ -3225,6 +3314,22 @@ internal static partial class CanvasConversion
                 continue;
             if (!TryGetVisibleHostRect(panel, g, out Vector2 gMin, out Vector2 gMax))
                 continue;
+
+            // THE MOD'S OWN GUESTS ARE NOT THE GAME'S COLUMN. Both of them are GAME objects that
+            // this mod re-parented into this window, so the name test above is blind to them, and
+            // both are SEATED AGAINST what this measurement produces. Refused from every union this
+            // method builds — clean, raw and sub-view — because the raw union is the fallback and a
+            // fallback that re-admits the contamination is not one. See ParkedGuestControl.
+            if (IsParkedGuest(g.transform, guestA, guestB))
+            {
+                fx.ParkedGuestsThisPass++;
+                if (gMax.x > fx.ParkedGuestRightX || fx.ParkedGuestWidest.Length == 0)
+                {
+                    fx.ParkedGuestRightX = gMax.x;
+                    fx.ParkedGuestWidest = g.gameObject.name;
+                }
+                continue;
+            }
 
             // ModBuild 201, report (5): a hover preview, an item hint or a modifier flyout is DRAWN
             // and is deliberately allowed to reach outside the frame — the hit rect and the capture
@@ -3331,6 +3436,7 @@ internal static partial class CanvasConversion
         }
         FixedFitGraphics.Clear();
         fx.TransientIgnored += fx.TransientThisPass;
+        fx.ParkedGuestsRefused += fx.ParkedGuestsThisPass;
 
         // THE SAFETY NET. An exclusion that empties a bucket is worse than the contamination it
         // removes, so both readings are kept and the raw one is used — loudly — when the clean one
@@ -3680,7 +3786,10 @@ internal static partial class CanvasConversion
     private static void EnsureColumnSeam(FixedFitState fx)
     {
         if (fx.SeamCaptured)
+        {
+            MaybeReDeriveSeamOnNarrowing(fx);
             return;
+        }
 
         float frameRight = fx.Size.x * 0.5f;
         float limit = frameRight - fx.Size.x * FixedFitMinSlotFraction;
@@ -3716,6 +3825,77 @@ internal static partial class CanvasConversion
         }
         if (!anyViewOpen)
             fx.SeamCaptured = true; // the column alone was measured: final, never re-derived
+    }
+
+    /// <summary>How much narrower the column has to measure than the width the seam was taken from
+    /// before the capture is treated as PROVEN CONTAMINATED. Well above the 1 px the shift epsilons
+    /// work in and far below the 474 px the 2026-09-05 log shows, so it can neither chase noise nor
+    /// miss the failure it exists for.</summary>
+    private const float FixedFitSeamShrinkPx = 32f;
+
+    /// <summary>
+    /// <b>A SEAM CAPTURED FROM A CONTAMINATED COLUMN IS RECOVERABLE, EXACTLY ONCE.</b>
+    ///
+    /// <para>"Captured once and never re-derived" is the standing ruling and it is kept: a seam that
+    /// tracks the live union is the jump ModBuild 200 removed, and a sub-view seated on a moving seam
+    /// is the "runter ploppen" ModBuild 434/435 spent two rounds on. This is not that. It fires on
+    /// ONE piece of positive evidence — the column later measuring MATERIALLY NARROWER than the width
+    /// the seam was taken from — which is a statement no correct capture can make, because the base
+    /// is pinned and never rescaled and the fit's own line asserts that on every pass. If the column
+    /// is 328 px now and the seam was taken from 802 px, the 802 was not the column.</para>
+    ///
+    /// <para><b>THE GUARDS ARE WHAT MAKE IT SAFE.</b> Once per window life (so it can never
+    /// oscillate); only while NO sub-view is open (so nothing is seated on the seam at the instant it
+    /// moves, and the next open re-seats from the corrected value rather than jumping under the
+    /// player's hand); and only ever NARROWER, through the same clamp the capture uses.</para>
+    ///
+    /// <para><b>IT IS ALSO THE FALSIFIER FOR THE ROUND ABOVE.</b> With <see cref="IsParkedGuest"/> in
+    /// place the two known contaminants can no longer reach the base, so this is expected to fire
+    /// ZERO times — and every fit line prints that it has not. A hardware log in which it DOES fire
+    /// names a third contaminant nobody has listed, and repairs the layout in the same breath instead
+    /// of leaving the window wrong until someone reads the log [[gated-remedy-never-ran]].</para>
+    /// </summary>
+    private static void MaybeReDeriveSeamOnNarrowing(FixedFitState fx)
+    {
+        if (fx.SeamReDerived || !fx.BaseVisible || !fx.BasePinned)
+            return;
+        for (int i = 0; i < fx.Views.Count; i++)
+        {
+            if (fx.Views[i].Visible)
+                return; // something is seated on the seam right now — never move it under a hand
+        }
+
+        float width = fx.BaseMax.x - fx.BaseMin.x;
+        if (fx.SeamBaseWidth - width < FixedFitSeamShrinkPx)
+            return;
+
+        float frameRight = fx.Size.x * 0.5f;
+        float limit = frameRight - fx.Size.x * FixedFitMinSlotFraction;
+        float before = fx.ColumnSeamX;
+        float raw = fx.BasePin.x + width;
+        fx.SeamClamped = raw > limit;
+        fx.ColumnSeamX = Mathf.Min(raw, limit);
+        fx.SeamWidthBeforeReDerive = fx.SeamBaseWidth;
+        fx.SeamBaseWidth = width;
+        fx.SeamReDerived = true;
+
+        // HW-VERIFY: this must never print. If it does, the fit's parked-guest list is short by one
+        // parker and this line names how far that cost the seam — which is the only way a hardware
+        // log can distinguish "the exclusion works" from "the exclusion was never asked".
+        VRLog.Alert("WorldUI",
+            "COLUMN SEAM RE-DERIVED: the character column measured "
+            + $"{width:F0} px this pass but the seam was captured from a {fx.SeamWidthBeforeReDerive:F0} px "
+            + $"base, so the capture counted {fx.SeamWidthBeforeReDerive - width:F0} px that are not the "
+            + $"column. The seam moves x={before:F0} → x={fx.ColumnSeamX:F0} px, ONCE for this window's "
+            + "life and only because no sub-view is open this pass, so nothing is seated on it as it "
+            + "moves. WHAT THIS MEANS: every sub-view the game opens is seated on this x, so a seam "
+            + "that is too far right draws the battle-goal cards that far right of the character "
+            + "column — the user's 'Abstand Quests' report. WHAT TO DO: the base is only supposed to "
+            + "contain the game's own column, and the two things this mod parks into this window (the "
+            + "confirm control and the ready-icon row) are already refused by CanvasConversion's "
+            + "parked-guest list. A THIRD PARKER EXISTS and is not on that list — the fit line's "
+            + "'PARKED GUESTS' clause says how many graphics the list did catch, and the difference "
+            + "is the one to find.");
     }
 
     /// <summary>Host-local units per parent-local unit for <paramref name="node"/> — what a wanted
@@ -3823,6 +4003,22 @@ internal static partial class CanvasConversion
             {
                 column += " (not pinned yet)";
             }
+            // PARKED GUESTS — printed unconditionally, because "the exclusion held" and "the
+            // exclusion was never asked" are the two readings that must not look alike, and only the
+            // count separates them.
+            column += $"; PARKED GUESTS refused from the column: {fx.ParkedGuestsThisPass} this pass, "
+                      + $"{fx.ParkedGuestsRefused} over this window's life"
+                      + (fx.ParkedGuestsThisPass > 0
+                          ? $" — the furthest right was '{fx.ParkedGuestWidest}' at "
+                            + $"x={fx.ParkedGuestRightX:F0} px, i.e. counting it would have put the "
+                            + $"seam {Mathf.Max(0f, fx.ParkedGuestRightX - fx.BaseMax.x):F0} px further "
+                            + "right and seated every sub-view the game opens there. These are GAME "
+                            + "widgets this mod re-parented into this window (the confirm control and "
+                            + "the ready-icon row); they are still drawn, still interactive and still "
+                            + "inside the hit rect, the grab bar's ink and the capture frame — they "
+                            + "are barred from the COLUMN alone, because they are seated against it"
+                          : " (nothing this mod parked into this window was drawn this pass, so the "
+                            + "column is the game's own content by construction)");
             ReportColumnOverspill(panel, fx, bs);
         }
 
@@ -3838,6 +4034,11 @@ internal static partial class CanvasConversion
               + (fx.SeamClamped
                   ? " and CLAMPED off a base reading that would have left less than "
                     + $"{FixedFitMinSlotFraction:P0} of the frame as slot"
+                  : string.Empty)
+              + (fx.SeamReDerived
+                  ? $" and RE-DERIVED ONCE off a {fx.SeamWidthBeforeReDerive:F0} px capture that the "
+                    + "column later contradicted by measuring narrower — see the COLUMN SEAM "
+                    + "RE-DERIVED line for what that says about the parked-guest list"
                   : string.Empty)
               + (fx.BaseVisible && fx.BaseMax.x - fx.ColumnSeamX > 1f
                   ? $"; the LIVE base union ends at x={fx.BaseMax.x:F0} px this pass, "

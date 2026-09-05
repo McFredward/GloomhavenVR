@@ -520,6 +520,26 @@ internal static class LoadoutConfirmPark
     /// withdrawn window would report NOT ACHIEVED for the state this round exists to produce.</summary>
     internal static UIWindow? CharacterUI => CharacterWindow();
 
+    /// <summary>
+    /// THE CONTROL THIS CLASS HAS PARKED INTO A GAME WINDOW, or null when it has parked nothing.
+    ///
+    /// <para>Published for ONE consumer and one question: <c>CanvasConversion</c>'s fixed fit measures
+    /// "the character column" as every graphic under the window root that no serialized sub-view owns,
+    /// and derives the COLUMN SEAM — the x every sub-view the game opens is seated on — from that
+    /// union's width. The control below is the game's own <c>UIReadyToggle</c>, moved here by this
+    /// class and NOT renamed, so the fit's only ownership test (a <c>GloomhavenVR.</c> name prefix)
+    /// cannot see it. Counted, it makes the column measure 802 px instead of 328 and pushes the seam
+    /// 474 px right, which is where the battle-goal cards then get seated
+    /// [[a-gate-narrower-than-its-choke-point]].</para>
+    ///
+    /// <para>THE ARGUMENT IS THE SAME ONE THE READY ROW ALREADY WON: this control is SEATED AGAINST
+    /// the window's own content, so measuring it AS that content is a term standing on its own
+    /// output. It is still fully DRAWN and fully interactive — the hit rect, the grab bar and the
+    /// supersample capture all still cover it, and none of them is touched here.</para>
+    /// </summary>
+    internal static Transform? HeldControl =>
+        _parked != null && _host != null ? _parked.transform : null;
+
     /// <summary>Where the confirm is being drawn right now, for another subsystem's log line. Never
     /// null.</summary>
     internal static string Where =>
@@ -1734,6 +1754,7 @@ internal static class LoadoutConfirmPark
             win.GetComponentsInChildren(includeInactive: false, PaintScratch);
             if (panel != null)
                 CanvasConversion.BeginContentQuery();
+            Transform? rowExclude = MapQuestReadyRoster.HeldRow;
 
             Vector3[] corners = Corners;
             for (int i = 0; i < PaintScratch.Count; i++)
@@ -1745,6 +1766,10 @@ internal static class LoadoutConfirmPark
                 if (rt == null)
                     continue;
                 if (ReferenceEquals(rt, exclude) || rt.IsChildOf(exclude))
+                    continue;
+                // THE ROW IS THE CONTROL'S OWN DECORATION AND CANNOT BE ALLOWED TO BLOCK IT — see
+                // IsTheReadyRow, whose doc carries the hardware evidence for this exact sweep.
+                if (IsTheReadyRow(rt, rowExclude))
                     continue;
                 if (panel != null)
                 {
@@ -2054,17 +2079,10 @@ internal static class LoadoutConfirmPark
                     continue;
                 if (exclude != null && (ReferenceEquals(rt, exclude) || rt.IsChildOf(exclude)))
                     continue;
-                // THE READY ROW IS NEVER CONTENT, AT ANY CALL SITE IN THIS FILE (ModBuild 436). It is
-                // the game's own UIReadyTrackerBar, adopted by MapQuestReadyRoster and parked ABOVE
-                // the control — which means it is parked to the RIGHT of everything else this window
-                // draws, and it FOLLOWS the control. A seat solved against the right edge of the
-                // painted content would therefore push the control right, which would pull the row
-                // right, which would push the control right again: a divergent loop wearing a
-                // measurement's clothes. The exclusion lives HERE rather than at the two call sites
-                // that need it today so that a call site added later cannot forget it, and it costs
-                // the sweeps that do not need it one null compare. Sweeps rooted at the control's own
-                // subtree are unaffected — the row is never a child of the control.
-                if (rowExclude != null && (ReferenceEquals(rt, rowExclude) || rt.IsChildOf(rowExclude)))
+                // THE READY ROW IS NEVER CONTENT — see IsTheReadyRow for the argument. Sweeps rooted
+                // at the control's own subtree are unaffected: the row is never a child of the
+                // control.
+                if (IsTheReadyRow(rt, rowExclude))
                     continue;
                 if (panel != null)
                 {
@@ -2102,6 +2120,36 @@ internal static class LoadoutConfirmPark
             return false;
         }
     }
+
+    /// <summary>
+    /// IS THIS GRAPHIC PART OF THE READY ROW THIS MOD PARKED BESIDE THE CONTROL? If so it is never
+    /// content and never a blocker, at ANY sweep in this file.
+    ///
+    /// <para>The row is the game's own <c>UIReadyTrackerBar</c>, adopted by
+    /// <c>MapQuestReadyRoster</c> and hung off the control's painted top edge — so it is parked to
+    /// the RIGHT of everything else this window draws and it FOLLOWS the control. Any solve that
+    /// counted it would be a term standing on its own output: a seat measured against the right edge
+    /// of the painted content pushes the control right, which pulls the row right, which pushes the
+    /// control right again; and a LANE search that treats it as an obstacle can have its own
+    /// decoration close the only gap the control fits in.</para>
+    ///
+    /// <para><b>THE SECOND FORM IS NOT HYPOTHETICAL — the 2026-09-05 hardware log has it.</b>
+    /// <c>LOADOUT CONFIRM SEAT LANE</c> for 'New Party display' reads LANE with 52 blocker(s) and
+    /// seat -632, then OVER with 58 blocker(s) ("the lane search found no gap … wide enough") and
+    /// seat 510, then LANE with 58 blocker(s) and seat -632 again, within a few log lines and across
+    /// the tick on which <c>LOADOUT CONFIRM PARKED</c> and <c>ICON ROW=YES</c> both landed. The seat
+    /// moved 1142 px and back, and the six graphics that appeared between the two readings did so on
+    /// the tick the row was adopted into this window — which is as far as a log that does not name
+    /// blockers individually can go, and far enough: the row was a candidate blocker and it is now
+    /// not one, so the next log's blocker count answers it outright. ModBuild 436 closed this loop
+    /// inside <see cref="TryPaintedBounds"/> and stated
+    /// that a call site added later could not forget it — but <see cref="TryFreeLane"/> is not a
+    /// <see cref="TryPaintedBounds"/> call site; it is a second sweep with its own loop, and it did
+    /// forget [[a-cascade-clears-only-what-it-lists]]. The test now lives in one method that BOTH
+    /// sweeps call, which is the only shape that makes the claim true.</para>
+    /// </summary>
+    private static bool IsTheReadyRow(RectTransform rt, Transform? row) =>
+        row != null && (ReferenceEquals(rt, row) || rt.IsChildOf(row));
 
     /// <summary>The minimal "is this drawn?" test, used ONLY when there is no converted panel to ask
     /// the fit's own verdict of. Deliberately weaker and deliberately stated as such —
