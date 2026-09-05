@@ -123,7 +123,26 @@ internal sealed class RemoteItemFan
 
     private const float MaxArcDegrees = 110f;            // ItemsPile.MaxArcDegrees
     private const float ZStagger = 0.004f;               // ItemsPile.ZStagger (draw order)
-    private const float HandPalmOffset = 0.16f;          // ItemsPile.HandPalmOffset
+    /// <summary>
+    /// THE HAND-HELD FAN'S PALM STANDOFF, and it is a FROZEN HISTORICAL NUMBER, not a mirror.
+    ///
+    /// <para>It used to cite <c>ItemsPile.HandPalmOffset</c>. THAT CONSTANT NO LONGER EXISTS: commit
+    /// 15286350 deleted it along with the whole-fan trigger grab (user rulings 2026-08-02 for the
+    /// item fan, 2026-08-06 for the browse fan), and the owner's fan has had exactly one anchoring
+    /// since — board-anchored, head-relative only when no board exists. So there is nothing left on
+    /// the owner's side for this to follow, and pointing it at the nearest surviving dial would be
+    /// worse than the dead citation: <c>[Cards] FanPalmOffset</c> (0.09 m shipped) is the HAND
+    /// fan's standoff, a different control at a different number, and adopting it is exactly the
+    /// "wrong entry" mistake <c>scripts/check-remote-defaults.py</c> exists to catch.</para>
+    ///
+    /// <para>WHY THE BRANCH SURVIVES AT ALL. <c>ItemsPile.IsHandHeld</c> is hardcoded <c>false</c> and
+    /// is kept as a property precisely because it is a WIRE SEAM — <c>NetAvatarDriver</c> fills the
+    /// extras field from it and the packet layout must not shift — so the bit is on the wire, always
+    /// clear, and this branch is the receiver's half of that seam. It is INERT today. Deleting the
+    /// number without deleting the branch is what would leave the trap: a reader "fixing" this by
+    /// re-syncing to a constant that is gone, or to the hand fan's.</para>
+    /// </summary>
+    private const float HandPalmOffset = 0.16f;         // FROZEN: the owner's constant is gone
     private const float BoardFloatHeight = 0.26f;        // ItemsPile.BoardFloatHeight
     private const float BoardFloatProudZ = -0.05f;       // ItemsPile.BoardFloatProudZ
     private const float Smoothing = 14f;

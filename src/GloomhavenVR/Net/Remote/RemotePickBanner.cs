@@ -121,11 +121,16 @@ internal sealed class RemotePickBanner
 
         // THE 2026-09-02 SCREENSHOT'S ACTUAL DEFECT, MADE AUDIBLE. The user reported a placard whose
         // sentence stops mid-word ("…eine Karte zum Tauschen zur"), and the recorded diagnosis read
-        // that as text overflowing its plate. It is not: the visible string is BYTE-EXACTLY what
-        // EncodePickBannerText produces from the full German line at the shipped
+        // that as text overflowing its plate. It is not: the visible string was BYTE-EXACTLY what
+        // EncodePickBannerText produced from the full German line at the cap SHIPPING AT THE TIME,
         // NetProtocol.PickBannerTextMaxBytes = 96 (107 B in, 96 B out, the tail "ücknehmen)" gone).
         // TMP's word wrapping cannot break a word that fits on a line, so a mid-word stop can only
         // come from the codec.
+        //
+        // THE CAP IS 160 NOW, and this comment said 96 for long enough to be quoted back as the
+        // shipped value. The 96 is the number the SCREENSHOT was taken at and it is kept for that
+        // reason only; the live figure is the constant itself, which is what the line below prints,
+        // so the diagnostic can never disagree with the codec the way this prose did.
         //
         // WHAT THIS SIDE CAN AND CANNOT KNOW: the receiver never sees the sender's original, so it
         // cannot report how much was lost. A line arriving AT the cap is the signature of a line

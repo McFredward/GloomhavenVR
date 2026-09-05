@@ -69,7 +69,21 @@ internal sealed class RemoteBrowserFan
 {
     // ---- geometry (mirror of PileBrowser's arc constants; local copies so this stays independent
     //      of the receiver's live [Cards] config being bound) ------------------------------------
-    private const int MaxCards = 16;                    // PileBrowser's own list capacity
+    /// <summary>
+    /// How many browse slabs this mirror draws — A REAL CAP, and NOT one the owner has.
+    ///
+    /// <para>It used to cite "PileBrowser's own list capacity". It never was one:
+    /// <c>PileBrowser.cs</c>'s <c>new List&lt;VRCard&gt;(16)</c> is a List INITIAL CAPACITY, an
+    /// allocation hint that grows silently, so the owner's browse fan has no cap at all. Nor is
+    /// this a WIRE bound — <c>PresenceState.PileBrowseCardCount</c> is a full byte and the sender
+    /// writes the owner's real count into it. It is purely this receiver's slab pool, and the two
+    /// clamps below (<c>Mathf.Clamp(_owner.PileBrowseCardCount, 1, MaxCards)</c>) are therefore a
+    /// SILENT TRUNCATION: a peer browsing a 20-card discard pile is drawn here with 16 slabs.
+    /// Recorded rather than raised because the pool feeds the emerge/collapse animation's
+    /// index-aligned buffers; it is the same shape as the active column's old
+    /// <c>MaxCards = 6</c>, which was lifted, and it wants the same treatment.</para>
+    /// </summary>
+    private const int MaxCards = 16;
     private const float CardW = RemoteHandFan.DefaultCardWidth;   // ability cards, 63.5 × 88
     private const float CardH = RemoteHandFan.DefaultCardHeight;
     private const float MaxArcDegrees = 110f;           // PileBrowser.MaxArcDegrees
@@ -81,7 +95,26 @@ internal sealed class RemoteBrowserFan
     private const float TiltFactor = RemotePileFronts.FanTiltFactor;
     private const float CardScale = 1.3f;               // PileBrowser.CardScale (browse cards are enlarged)
     private const float ZStagger = 0.004f;              // PileBrowser.ZStagger (draw order)
-    private const float HandPalmOffset = 0.16f;         // PileBrowser.HandPalmOffset
+    /// <summary>
+    /// THE HAND-HELD FAN'S PALM STANDOFF, and it is a FROZEN HISTORICAL NUMBER, not a mirror.
+    ///
+    /// <para>It used to cite <c>PileBrowser.HandPalmOffset</c>. THAT CONSTANT NO LONGER EXISTS: commit
+    /// 15286350 deleted it along with the whole-fan trigger grab (user rulings 2026-08-02 for the
+    /// item fan, 2026-08-06 for the browse fan), and the owner's fan has had exactly one anchoring
+    /// since — board-anchored, head-relative only when no board exists. So there is nothing left on
+    /// the owner's side for this to follow, and pointing it at the nearest surviving dial would be
+    /// worse than the dead citation: <c>[Cards] FanPalmOffset</c> (0.09 m shipped) is the HAND
+    /// fan's standoff, a different control at a different number, and adopting it is exactly the
+    /// "wrong entry" mistake <c>scripts/check-remote-defaults.py</c> exists to catch.</para>
+    ///
+    /// <para>WHY THE BRANCH SURVIVES AT ALL. <c>PileBrowser.IsHandHeld</c> is hardcoded <c>false</c> and
+    /// is kept as a property precisely because it is a WIRE SEAM — <c>NetAvatarDriver</c> fills the
+    /// extras field from it and the packet layout must not shift — so the bit is on the wire, always
+    /// clear, and this branch is the receiver's half of that seam. It is INERT today. Deleting the
+    /// number without deleting the branch is what would leave the trap: a reader "fixing" this by
+    /// re-syncing to a constant that is gone, or to the hand fan's.</para>
+    /// </summary>
+    private const float HandPalmOffset = 0.16f;         // FROZEN: the owner's constant is gone
     private const float BoardFloatHeight = 0.26f;       // PileBrowser.BoardFloatHeight
     private const float BoardFloatProudZ = -0.05f;      // PileBrowser.BoardFloatProudZ
 
