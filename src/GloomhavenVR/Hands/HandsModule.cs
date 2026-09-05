@@ -73,6 +73,9 @@ internal sealed class HandsModule : IVRModule
         Cards.HeldCardGrip.Shutdown();
         // …and every scenery cloth gets its authored colliders back, for the same reason.
         SceneClothHands.Shutdown();
+        // …and every scenery banner's bind bones go back to the authored local pose, for the same
+        // reason: nothing else in the game ever writes them back.
+        SceneHangingHands.Shutdown();
 
         // Hot-reload hygiene: registries and the asset bundle are static.
         VRInteractables.Clear();

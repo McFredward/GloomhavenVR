@@ -19,6 +19,10 @@ internal static partial class Defaults
     internal const bool GhostHandOnHeldCard = true;         // => [Hands] GhostHandOnHeldCard
     internal const bool HandsDisturbScenery = true;         // => [Hands] HandsDisturbScenery
     internal const float SceneryClothHandRadiusMillimeters = 35f; // => [Hands] SceneryClothHandRadiusMillimeters
+    // The banners carry no UnityEngine.Cloth (measured, ModBuild 431), so they are moved by
+    // driving their bind bones — Hands/SceneHangingHands.cs. These two are the feel.
+    internal const float SceneryHangingSwingDegrees = 30f;   // => [Hands] SceneryHangingSwingDegrees
+    internal const float SceneryHangingSettleSeconds = 0.7f; // => [Hands] SceneryHangingSettleSeconds
     internal const bool HandsDisturbVfx = true;             // => [Hands] HandsDisturbVfx
     // How the hands MOVE an effect, not whether they do. Every one of these nine scales a
     // designed per-effect feel (Hands/VfxFlow.cs) rather than setting a Unity field directly, so

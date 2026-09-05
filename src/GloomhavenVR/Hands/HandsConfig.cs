@@ -192,6 +192,58 @@ internal static class HandsConfig
     /// <summary>Above this the hand is a beach ball: a whole banner is swept aside from half a
     /// metre away and the reaction stops reading as a touch.</summary>
     internal const float SceneryClothHandRadiusMaxMm = 120f;
+
+    /// <summary>How far a hanging banner is pushed aside by a hand, as an angle at its own rail.
+    /// See <see cref="SceneHangingHands"/> — the banners in this game carry no
+    /// <c>UnityEngine.Cloth</c>, so they are moved by driving their bind bones instead, and this
+    /// is the one number that says how far.</summary>
+    public static ConfigEntry<float> SceneryHangingSwingDegrees = null!;
+
+    /// <summary>How long a hanging takes to come back to rest after the hand leaves.</summary>
+    public static ConfigEntry<float> SceneryHangingSettleSeconds = null!;
+
+    /// <summary>The hanging swing angle, clamped rather than trusted. The number inside
+    /// <c>Clamp</c> is the PRE-BIND fallback; the shipped default lives in
+    /// <c>Defaults.SceneryHangingSwingDegrees</c>.</summary>
+    internal static float SceneryHangingSwingDegreesClamped
+    {
+        get
+        {
+            float deg = SceneryHangingSwingDegrees != null
+                ? SceneryHangingSwingDegrees.Value
+                : Defaults.SceneryHangingSwingDegrees;
+            return Mathf.Clamp(deg, SceneryHangingSwingMinDeg, SceneryHangingSwingMaxDeg);
+        }
+    }
+
+    /// <summary>The hanging settle time, clamped rather than trusted. The number inside
+    /// <c>Clamp</c> is the PRE-BIND fallback; the shipped default lives in
+    /// <c>Defaults.SceneryHangingSettleSeconds</c>.</summary>
+    internal static float SceneryHangingSettleSecondsClamped
+    {
+        get
+        {
+            float s = SceneryHangingSettleSeconds != null
+                ? SceneryHangingSettleSeconds.Value
+                : Defaults.SceneryHangingSettleSeconds;
+            return Mathf.Clamp(s, SceneryHangingSettleMinSeconds, SceneryHangingSettleMaxSeconds);
+        }
+    }
+
+    /// <summary>Zero is a real setting and means the banners hang still while scenery CLOTH still
+    /// reacts — the two mechanisms are separable even though they share one switch.</summary>
+    internal const float SceneryHangingSwingMinDeg = 0f;
+
+    /// <summary>Past this a banner folds through the wall it hangs on.</summary>
+    internal const float SceneryHangingSwingMaxDeg = 80f;
+
+    /// <summary>Below this the return is a snap, which reads as a glitch rather than as
+    /// fabric.</summary>
+    internal const float SceneryHangingSettleMinSeconds = 0.05f;
+
+    /// <summary>Above this the banner is still visibly drifting long after you have walked
+    /// away.</summary>
+    internal const float SceneryHangingSettleMaxSeconds = 3f;
     // ---- how the hands move an effect (the FEEL dials) --------------------------------------
     //
     // User, 2026-09-05, on the first build where the hands actually reached the effects: "Der
@@ -576,6 +628,30 @@ internal static class HandsConfig
                 "the board never changes the feel. Ignored while HandsDisturbScenery is off.",
                 new AcceptableValueRange<float>(SceneryClothHandRadiusMinMm,
                                                 SceneryClothHandRadiusMaxMm)));
+        SceneryHangingSwingDegrees = config.Bind(
+            "Hands", "SceneryHangingSwingDegrees",
+            Defaults.SceneryHangingSwingDegrees,
+            new ConfigDescription(
+                "How far a hanging BANNER or FLAG swings out of your way, as an angle at the rail " +
+                "it hangs from. The room's flags are not simulated cloth - the art rigs them with " +
+                "bones instead - so reaching into one bends those bones away from your hand and " +
+                "lets them ease back. Bigger swings further and reads as lighter fabric; smaller " +
+                "is a heavy banner that barely stirs. 0 leaves the flags perfectly still while " +
+                "real curtains still react. Purely local and purely cosmetic: nothing here is " +
+                "networked, so every player stirs their own copy of the room. Ignored while " +
+                "HandsDisturbScenery is off.",
+                new AcceptableValueRange<float>(SceneryHangingSwingMinDeg,
+                                                SceneryHangingSwingMaxDeg)));
+        SceneryHangingSettleSeconds = config.Bind(
+            "Hands", "SceneryHangingSettleSeconds",
+            Defaults.SceneryHangingSettleSeconds,
+            new ConfigDescription(
+                "How long a banner takes to hang still again after your hand leaves it. Short is " +
+                "a stiff, starched flag that springs back; long is heavy fabric that keeps " +
+                "swaying. Only the RETURN is timed - the push itself is immediate. Ignored while " +
+                "HandsDisturbScenery is off.",
+                new AcceptableValueRange<float>(SceneryHangingSettleMinSeconds,
+                                                SceneryHangingSettleMaxSeconds)));
         HandsDisturbVfx = config.Bind(
             "Hands", "HandsDisturbVfx", Defaults.HandsDisturbVfx,
             "Put a hand in the smoke and the smoke goes ROUND it. The scenario's own effects - " +

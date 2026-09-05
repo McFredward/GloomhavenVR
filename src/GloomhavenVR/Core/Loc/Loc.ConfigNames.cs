@@ -177,6 +177,10 @@ internal static partial class Loc
             ["Hands/HandsDisturbScenery"] = Pair("Hands move curtains", "Hände bewegen Vorhänge"),
             ["Hands/SceneryClothHandRadiusMillimeters"] =
                 Pair("Curtains: hand thickness (mm)", "Vorhänge: Handdicke (mm)"),
+            ["Hands/SceneryHangingSwingDegrees"] =
+                Pair("Banners: swing (°)", "Fahnen: Ausschlag (°)"),
+            ["Hands/SceneryHangingSettleSeconds"] =
+                Pair("Banners: settle time (s)", "Fahnen: Beruhigungszeit (s)"),
             ["Hands/HandsDisturbVfx"] = Pair("Hands disturb smoke and fire",
                                              "Hände verwirbeln Rauch und Feuer"),
             // The nine feel dials. Named by WHAT THEY CHANGE — a person hunting "why does the

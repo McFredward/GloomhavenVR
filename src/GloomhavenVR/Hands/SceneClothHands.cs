@@ -18,11 +18,18 @@ namespace GloomhavenVR.Hands;
 /// THE ModBuild-430 READING below, because three separate things were wrong with the way this
 /// class reported on itself and one more with the way it CHOSE.</para>
 ///
-/// <para>THE ART IS ALREADY THERE. This adds no assets and authors no cloth: the game's own
-/// scenario scenery ships real <c>UnityEngine.Cloth</c> — <c>EN_CR_Curtain_Cloth</c> and
-/// <c>EN_CR_Hanging_01_Cloth_Post</c> both appear by name in the wall-fade census
-/// (<c>Core/WallFade/WallSegmentFade.*</c>), which is how this was confirmed without a headset.
-/// Whatever a room has, this finds; a room with none costs a dictionary lookup and a return.</para>
+/// <para>THIS ADDS NO ASSETS AND AUTHORS NO CLOTH: whatever <c>UnityEngine.Cloth</c> a room has,
+/// this finds; a room with none costs a dictionary lookup and a return.</para>
+///
+/// <para><b>AND THAT SET IS NOT THE BANNERS — MEASURED, ModBuild 431.</b> This class used to argue
+/// from the wall-fade census that <c>EN_CR_Curtain_Cloth</c> and
+/// <c>EN_CR_Hanging_01_Cloth_Post</c> "appear by name, so the scenery ships real Cloth". That was
+/// an inference from a NAME, and it was wrong: those names are the game's word for the prop, not
+/// evidence of a component. The 431 sweep found SIX cloths in a scenario full of banners and every
+/// one of the six is a figure's (Mindthief x3, Brute x2, Prime Demon). Scenery banners carry no
+/// <c>Cloth</c> at all, so no radius and no bounds fix in this file could ever have moved one.
+/// The banners are handled by <see cref="SceneHangingHands"/>, which drives their SKINNED BONES
+/// instead. This file keeps exactly the cloth that really is cloth.</para>
 ///
 /// <para>THE GAME NEVER TOUCHES THE ARRAY WE WRITE, and that is now established rather than
 /// assumed. A full sweep of <c>decompiled/</c> finds exactly two Cloth writes in the entire game:
@@ -57,14 +64,19 @@ namespace GloomhavenVR.Hands;
 /// <see cref="RescanSeconds"/>.</description></item>
 /// </list>
 ///
-/// <para>ACTOR CLOTH IS EXCLUDED, STRUCTURALLY. Any cloth with an <c>ActorBehaviour</c> above it
-/// belongs to a figure, and figures already have an owner for this
-/// (<see cref="Board.FigureGrab.FigureClothHands"/>). Both classes write the WHOLE
-/// <c>sphereColliders</c> array, so two owners on one cloth would clobber each other's capture and
-/// leave a stale probe in it forever. The exclusion is the fix, and it is also simply what the user
-/// asked for: this one is about the environment. It is the same set the game itself calls actor
-/// cloth: <c>ActorBehaviour.cs:122</c> collects <c>m_Clothes</c> with
-/// <c>GetComponentsInChildren&lt;Cloth&gt;()</c> from the actor's Animator object.</para>
+/// <para>ACTOR CLOTH IS EXCLUDED, STRUCTURALLY — AND UNTIL ModBuild 432 IT WAS NOT EXCLUDED AT
+/// ALL. A figure's cape already has an owner (<see cref="Board.FigureGrab.FigureClothHands"/>);
+/// both classes write the WHOLE <c>sphereColliders</c> array, so two owners on one cloth clobber
+/// each other's capture and leave a stale probe in it forever. The 431 log shows that hazard
+/// LIVE: <c>6 simulating scenery cloth(s) of 6 found (0 skipped as actor cloth)</c> with all six
+/// under <c>HE_Mindthief_PR(Clone)</c> / <c>HE_Brute_PR(Clone)</c> — this class was eligible to
+/// write every figure's cape. The test was <c>GetComponentInParent&lt;ActorBehaviour&gt;()</c> and
+/// it could never fire, because Choreographer parents the ActorBehaviour prefab UNDER the actor's
+/// animated object: the component is the cloth's SIBLING SUBTREE and never its ancestor. The
+/// derivation, the three terms that replace it, and the game's own definition
+/// (<c>ActorBehaviour.cs:122</c> collects <c>m_Clothes</c> with
+/// <c>GetComponentsInChildren&lt;Cloth&gt;()</c> from the actor's Animator object) live in
+/// <see cref="SceneryActors"/>. The census now prints the term each verdict was reached by.</para>
 ///
 /// <para>MULTIPLAYER — ZERO WIRE BYTES, and the same reasoning the figure version records: cloth
 /// vertex positions have never been a wire field, every client simulates its own scenery, and each
@@ -113,19 +125,18 @@ namespace GloomhavenVR.Hands;
 /// claimed "nearest first" all along. <c>Probe.Acquire</c> now selects by distance.</description></item>
 /// </list>
 ///
-/// <para><b>WHAT IS STILL OPEN, AND WHY NO SECOND MECHANISM IS BUILT HERE.</b> That the scenario
-/// contains real, non-actor, simulating <c>Cloth</c> and that a hand reached one is PROVEN by the
-/// 430 log: the first-contact line fired. WHICH object it was is NOT proven, and the banners the
-/// user is asking about may not be that object. The wall-fade census places
-/// <c>EN_CR_Hanging_01_Cloth_Post</c> under <c>Wall 1/Generated Content/PCG_CR_Banner_Grey/</c>
-/// with an AABB of <c>s(0.9, 0.1, 0.1)</c> at <c>y 2.5..2.5</c> — a flat slab at the hanging RAIL
-/// with no vertical extent, beside a sibling <c>EN_CR_Hanging_01_Mesh</c>. If that renderer bound
-/// is what this class's distance gate reads, then the gate's own stated justification ("the fabric
-/// is metres of it below, so an origin distance would arm the probe only when the hand was up at
-/// the rail") is defeated by the BOUNDS being at the rail too. The census now prints each cloth's
-/// renderer bounds and its hierarchy path so one hardware run settles it. These props come out of
-/// Apparance (<c>ProceduralProp</c>), whose prop names live in native data and not in managed code,
-/// so <c>decompiled/</c> cannot answer it and neither can this comment.</para>
+/// <para><b>THE ModBuild-431 READING — THE BANNER QUESTION IS CLOSED.</b> The 431 census works and
+/// answers it. Six cloths, all six on figures, palm distances 11-14 world units = 5.4-6.5 real
+/// metres: no hand was ever near one, and the "first contact" line in the 430 log had fired on a
+/// figure. Meanwhile the wall-fade census of the SAME scenario names
+/// <c>EN_CR_Hanging_01_Cloth_Post</c>[skinned] and <c>EN_CR_Hanging_01_Mesh</c>[skinned] under
+/// <c>Wall 1/Generated Content/PCG_CR_Banner_Grey/EN_CR_Hanging_01_Cloth (1)</c>, and none of them
+/// is in this registry. So the banners carry no <c>Cloth</c>, and the <c>s(0.9, 0.1, 0.1)</c> slab
+/// at <c>y 2.5</c> that looked like a stale bound is simply the RAIL: its sibling
+/// <c>EN_CR_Hanging_01_Mesh</c> measures foot 0.68 / top 2.52 over the room floor, a full 1.84 wu
+/// drop, which is the fabric and which has correct bounds. Nothing about this class's distance
+/// gate was wrong. The fabric is a SkinnedMeshRenderer, and driving its bones is
+/// <see cref="SceneHangingHands"/>.</para>
 ///
 /// <para>A CLOTH PINNED RIGID CANNOT MOVE HOWEVER CORRECT THE COLLIDER IS. That is why the census
 /// profiles each cloth once — vertex count, how many vertices have <c>maxDistance == 0</c>, the
@@ -192,6 +203,11 @@ internal static class SceneClothHands
     /// line always states the total it was drawn from.</summary>
     private const int CensusNamed = 6;
 
+    /// <summary>How many SKIPPED actor cloths the census names, with the term that skipped each.
+    /// A count alone is what let `0 skipped as actor cloth` stand for four builds as though it
+    /// meant "there are no figures here" when it meant "the test cannot see one".</summary>
+    private const int ActorSkipNamed = 4;
+
     /// <summary>Unity's built-in Ignore Raycast layer — invisible to
     /// <c>Physics.DefaultRaycastLayers</c>, so neither the mod's picking nor the game's can see the
     /// probe spheres.</summary>
@@ -219,6 +235,15 @@ internal static class SceneClothHands
     // The registry: every scenery cloth in the scene with its renderer. Rebuilt on a slow cadence;
     // entries whose cloth died are dropped on use.
     private static readonly List<Entry> _scene = new(16);
+
+    // WHY each accepted cloth was accepted, index-aligned with _scene for the first CensusNamed
+    // rows. The verdict is printed beside the cloth so a wrong exclusion is visible in the same
+    // line as the thing it wrongly included, instead of being a number nobody can check.
+    private static readonly List<string> _sceneWhy = new(CensusNamed);
+
+    // WHICH cloths were skipped as actor cloth, and by which term.
+    private static readonly List<string> _actorSkipped = new(ActorSkipNamed);
+
     private static float _nextScanAt;
 
     // LIVENESS. Incremented by EVERY sweep, whatever the sweep finds, and printed in every census
@@ -304,6 +329,8 @@ internal static class SceneClothHands
         Left.Destroy();
         Right.Destroy();
         _scene.Clear();
+        _sceneWhy.Clear();
+        _actorSkipped.Clear();
         _profile.Clear();
         _nextScanAt = 0f;
         _loggedFirstAttach = false;
@@ -337,6 +364,8 @@ internal static class SceneClothHands
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
         Cloth[] found = Object.FindObjectsOfType<Cloth>();
         _scene.Clear();
+        _sceneWhy.Clear();
+        _actorSkipped.Clear();
         int actorOwned = 0;
         int notSimulating = 0;
         for (int i = 0; i < found.Length; i++)
@@ -354,14 +383,24 @@ internal static class SceneClothHands
             }
             // ACTOR CLOTH IS SOMEBODY ELSE'S. See the class doc: FigureClothHands owns a held
             // figure's cape, both classes write the whole array, and two owners on one cloth
-            // corrupt each other's capture. "Is this cloth part of an actor?" is a RELATEDNESS
-            // question, which is the one thing GetComponentInParent actually answers.
-            if (c.GetComponentInParent<ActorBehaviour>() != null)
+            // corrupt each other's capture.
+            //
+            // THIS TEST USED TO BE `c.GetComponentInParent<ActorBehaviour>()` AND IT COULD NEVER
+            // FIRE. Choreographer parents the ActorBehaviour prefab UNDER the actor's animated
+            // object, so the component is the cloth's SIBLING SUBTREE and never its ancestor — the
+            // ModBuild-431 log says `6 of 6 found (0 skipped as actor cloth)` with all six cloths
+            // under `HE_Mindthief_PR(Clone)` and `HE_Brute_PR(Clone)`. The whole derivation, and
+            // the three terms that replace it, are in SceneryActors.
+            if (SceneryActors.IsActorOwned(c.transform, out string actorWhy))
             {
                 actorOwned++;
+                if (_actorSkipped.Count < ActorSkipNamed)
+                    _actorSkipped.Add($"'{c.name}' — {actorWhy}");
                 continue;
             }
             _scene.Add(new Entry(c, c.GetComponent<Renderer>()));
+            if (_sceneWhy.Count < CensusNamed)
+                _sceneWhy.Add(actorWhy);
         }
 
         _lastSweepMs = (float)((System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0
@@ -551,6 +590,18 @@ internal static class SceneClothHands
         _census.Append(" SWEEP ").Append(_sweeps)
                .Append(" (this counter moves on EVERY sweep whatever is found, so a frozen number "
                        + "means the sweep STOPPED and never means the room is empty).");
+        // APPENDED, ModBuild 432. The old line printed the actor-skip COUNT and nothing else, and
+        // that count was structurally always 0 — see SceneryActors for why. A verdict without the
+        // term that reached it is not checkable, so every verdict now names its term.
+        _census.Append(" ACTOR SPLIT (how the FigureClothHands/SceneClothHands ownership line was "
+                       + "drawn this sweep, term by term — SceneryActors): ")
+               .Append(_lastActorOwned).Append(" skipped");
+        for (int i = 0; i < _actorSkipped.Count; i++)
+            _census.Append(i == 0 ? ": " : "; ").Append(_actorSkipped[i]);
+        if (_lastActorOwned > _actorSkipped.Count)
+            _census.Append(" (+").Append(_lastActorOwned - _actorSkipped.Count)
+                   .Append(" more not named)");
+        _census.Append('.');
         _census.Append(" SCALE x").Append(scale.ToString("0.###"))
                .Append(" world units per real metre: reach ")
                .Append((reach * 1000f).ToString("0.#")).Append(" mm real = ")
@@ -597,6 +648,8 @@ internal static class SceneClothHands
                    .Append(" size").Append(Fmt(p.BoundsSize)).Append(" wu")
                    .Append(" | palm L ").Append(DistanceText(Left, c))
                    .Append(" R ").Append(DistanceText(Right, c));
+            if (i < _sceneWhy.Count)
+                _census.Append(" | OWNERSHIP ").Append(_sceneWhy[i]);
         }
         _census.Append(" READ IT LIKE THIS: 'found' 0 means the room has no UnityEngine.Cloth at "
                        + "all and no radius can help; 'found' non-zero with inReach 0 on both "
@@ -941,10 +994,11 @@ internal static class SceneClothHands
         /// of it below, so an origin distance would arm the probe only when the hand was up at the
         /// rail.
         ///
-        /// <para>WHETHER THAT ACTUALLY HELPS DEPENDS ON THE BOUNDS, and the ModBuild-430 wall-fade
-        /// census says it may not: <c>EN_CR_Hanging_01_Cloth_Post</c> measures
-        /// <c>s(0.9, 0.1, 0.1)</c> at <c>y 2.5..2.5</c>, a flat slab AT the rail. The census prints
-        /// these bounds per cloth so the next log settles it rather than this comment.</para></summary>
+        /// <para>SETTLED, ModBuild 431. The bound that looked like a rail slab
+        /// (<c>EN_CR_Hanging_01_Cloth_Post</c>, <c>s(0.9, 0.1, 0.1)</c> at <c>y 2.5..2.5</c>) is
+        /// not a cloth at all — it is the banner's rail, and it never entered this registry. Every
+        /// cloth this class has ever registered had bounds around its own fabric. The census still
+        /// prints them per cloth, because that is what proved it.</para></summary>
         private static float Distance(Entry e, Vector3 palm)
         {
             if (e.Renderer == null)

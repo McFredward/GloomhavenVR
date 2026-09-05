@@ -2900,6 +2900,21 @@ internal static partial class Loc
                 + "Entfernung, ab der die Hand überhaupt zu kollidieren beginnt, zieht mit. Echte "
                 + "Millimeter an deiner Hand, dieselbe Einheit wie der Greifradius, sodass Zoomen "
                 + "das Gefühl nie verändert. Wird ignoriert, solange HandsDisturbScenery aus ist.",
+            ["Hands/SceneryHangingSwingDegrees"] =
+                "Wie weit eine hängende FAHNE oder ein BANNER deiner Hand ausweicht, als Winkel an "
+                + "der Stange, an der sie hängt. Die Fahnen im Raum sind kein simulierter Stoff — "
+                + "die Kunst hat sie stattdessen mit Knochen versehen —, deshalb biegt ein Griff "
+                + "hinein genau diese Knochen von deiner Hand weg und lässt sie zurückpendeln. "
+                + "Größer schwingt weiter und wirkt wie leichter Stoff, kleiner wie ein schweres "
+                + "Banner, das sich kaum rührt. 0 lässt die Fahnen völlig still, während echte "
+                + "Vorhänge weiterhin reagieren. Rein lokal und rein kosmetisch: nichts davon "
+                + "läuft übers Netzwerk, jeder Spieler bewegt seine eigene Kopie des Raums. Wird "
+                + "ignoriert, solange HandsDisturbScenery aus ist.",
+            ["Hands/SceneryHangingSettleSeconds"] =
+                "Wie lange ein Banner braucht, bis es wieder still hängt, nachdem deine Hand es "
+                + "verlassen hat. Kurz ist eine steife, gestärkte Fahne, die zurückschnellt; lang "
+                + "ist schwerer Stoff, der noch nachschwingt. Nur die RÜCKKEHR ist getaktet — der "
+                + "Schub selbst wirkt sofort. Wird ignoriert, solange HandsDisturbScenery aus ist.",
             ["Hands/GhostHandOnHeldCard"] =
                 "Macht eine Hand AUCH dann halbtransparent, wenn sie eine KARTE hält — die Finger "
                 + "umschließen genau die Kartenkunst, für die man die Karte hochgenommen hat. "

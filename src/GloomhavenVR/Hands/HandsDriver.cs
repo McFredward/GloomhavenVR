@@ -43,6 +43,7 @@ internal sealed class HandsDriver : MonoBehaviour
     private System.Action? _tickSim;
     private System.Action? _tickGrip;
     private System.Action? _tickCloth;
+    private System.Action? _tickHang;
     private System.Action? _tickVfx;
     private System.Action? _tickGhost;
     private System.Action? _tickLesson;
@@ -53,6 +54,7 @@ internal sealed class HandsDriver : MonoBehaviour
         _tickSim = AnimateSimulation;
         _tickGrip = Cards.HeldCardGrip.Tick;
         _tickCloth = SceneClothHands.Tick;
+        _tickHang = SceneHangingHands.Tick;
         _tickVfx = SceneVfxHands.Tick;
         _tickGhost = HandGhosts.Tick;
         // The controls lesson lives here because it drives BOTH hands (their meshes step
@@ -132,6 +134,23 @@ internal sealed class HandsDriver : MonoBehaviour
         TickGuard.Run("Hands.Ghost", _tickGhost!);
         TickGuard.Run("Hands.ControlsLesson", _tickLesson!);
     }
+
+    /// <summary>
+    /// The one step that must run AFTER every Animator in the frame.
+    ///
+    /// <para><see cref="SceneHangingHands"/> writes a scenery banner's BIND BONES, which is the one
+    /// field in this module that something else could plausibly own: if a hanging ever ships with
+    /// an Animator driving its rig, an Update-phase write would be overwritten every frame and the
+    /// feature would look dead while behaving exactly as written. This project's standing rule for
+    /// that case is to concede the flag and own the final value in LateUpdate, so this one lives
+    /// here rather than beside its siblings in <see cref="Update"/>. It reads hand anchors the rig
+    /// step wrote earlier in the same frame; nothing else reads what it writes.</para>
+    ///
+    /// <para>Under its own <see cref="TickGuard"/> for the same reason as every step above: a
+    /// surprise inside a write into the GAME's transforms must not be able to abort hand
+    /// tracking.</para>
+    /// </summary>
+    private void LateUpdate() => TickGuard.Run("Hands.SceneHanging", _tickHang!);
 
     /// <summary>
     /// Per-frame rig-homing: resolve the parent (rig root in VR, main camera in desktop
@@ -291,6 +310,10 @@ internal sealed class HandsDriver : MonoBehaviour
         // left holding a destroyed collider never simulates correctly again, and a scene that is
         // merely being re-entered keeps its curtains.
         SceneClothHands.Shutdown();
+        // Scenery hangings: every driven bind bone back to its authored local pose BEFORE the
+        // hands die. A banner left mid-swing stays bent for the rest of the session, because
+        // nothing else in the game ever writes those bones back.
+        SceneHangingHands.Shutdown();
         // Scenery VFX: write the authored collision settings back BEFORE the probe colliders die.
         // A particle system left pointing at a destroyed collider collides against nothing for the
         // rest of its life, and a scene that is merely being re-entered keeps its effects.
