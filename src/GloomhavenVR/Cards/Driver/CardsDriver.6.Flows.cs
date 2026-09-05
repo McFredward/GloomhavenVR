@@ -2273,6 +2273,16 @@ internal sealed partial class CardsDriver
                     continue;
                 if (w.CardType != CardPileType.Hand)
                     continue;
+                // THE WATCHDOG MUST ASK THE EXECUTOR'S QUESTION, or it stops firing exactly when it
+                // matters (user 2026-09-04, the burned card that came back). `CardType` is a UI
+                // latch the game writes when it re-runs CardsHandUI.UpdateCards; the authoritative
+                // move (CCharacterClass.MoveAbilityCardToPile) happens FIRST. Hashing the latch
+                // alone leaves the signature unchanged for the whole widget-lags-model window — so
+                // nothing is marked dirty, no rebuild runs, and the belt that would have dropped the
+                // card (CardLeftTheHand, the same call) never gets to run at all. Asking the model
+                // here means the edge is the MOVE, not the game's later bookkeeping.
+                if (CardLeftTheHand(w))
+                    continue;
                 int id = w.CardID;
                 unchecked { sum += id; }
                 xor ^= id;
