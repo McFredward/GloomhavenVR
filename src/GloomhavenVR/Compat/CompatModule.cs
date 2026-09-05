@@ -82,6 +82,21 @@ internal sealed class CompatModule : IVRModule
         // whatever a future thrower amputates. Both are documented in their own headers.
         VRSession.Harmony?.PatchAll(typeof(LoadoutHostingGuard));
         HostingChainWatch.Install();
+
+        // PRIORITY (user report, 2026-09-05): "Mein Mitspieler konnte nicht erfolgreich in das
+        // Szenario laden. […] das Ladesymbol ist bei ihm nicht verschwunden und in flat sah man
+        // 'Waiting for other players' war stuck." Both players were embodied and could see each
+        // other; the client's loading screen never came down. The cause is a LOST MESSAGE in the
+        // game's own loading handshake and it is not ours — the mod does not name, read or write a
+        // single symbol of it. PlayerRegistry.StartWaitingForPlayers opens the wait window and
+        // CLEARS PlayersFinishedLoading one statement later, so a peer's NotifyLoadingFinished
+        // that arrives before the local window opens is discarded and never re-sent, and
+        // SceneController.WaitForPlayers then spins forever. Repairing it means writing game
+        // network state, which this project forbids, so this class only OBSERVES — from the game's
+        // own ordered log stream, because a per-frame probe cannot see two edges in one frame.
+        // The full mechanism, the 2026-09-05 timings and the escape route are in its header.
+        ScenarioEntryWatch.Install();
+
         // The GAME's own card particles are authored for its full-size 2D card and spray across
         // the diorama when a card is swept to a pile — pinned off through the game's own low-spec
         // switch (see CardParticlesOff; live-gated by [Cards] GameCardParticles).
@@ -230,6 +245,7 @@ internal sealed class CompatModule : IVRModule
         // Nothing to undo here for the patch; what this line DOES undo is the segment fade,
         // which clears every property block and destroys its textures.
         HostingChainWatch.Uninstall(); // drops the log hook and the driver GO — the Harmony guard goes with UnpatchSelf
+        ScenarioEntryWatch.Uninstall(); // same shape: a log hook and a driver GO, and it wrote nothing to undo
         // Restores every renderer it hid through the enable ledger AND every door animator's
         // authored cullingMode ([Compat] DoorAnimateOffscreen, ModBuild 428). Its other writes
         // — the replayed Open, the unlatched speed — are the game's own intended state.
