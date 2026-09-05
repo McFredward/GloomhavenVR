@@ -90,6 +90,29 @@ internal sealed class RemoteCardArt
     private int _shownSourceId = int.MinValue; // GetInstanceID of the source fullAbilityCard shown
     private float _nextMipRescan;   // unscaled time of the next cadenced mip-bake rescan
 
+    /// <summary>Is the slab's card body currently serving its FACE-HOSTED mesh — i.e. has this
+    /// overlay told <see cref="CardMesh.SetBodyFaceHosted"/> that its print covers the body's front
+    /// face? Held here so the per-frame dedup path costs nothing: the switch only ever moves on a
+    /// show/hide edge, and <c>CardMesh.AttachBody</c> carries it across an in-place re-cut.</summary>
+    private bool _bodyFaceHosted;
+
+    /// <summary>
+    /// How much of the body's front box the print has to cover before the front fan behind it may be
+    /// dropped (see <see cref="ApplyBodyFaceHosting"/>). Not 1.0 exactly, because the surfaces that
+    /// size a print to a slab reach the same rectangle through two independently rounded routes —
+    /// the item fan takes its slab aspect from the quantised Item FOOTPRINT grid while the print
+    /// takes it from the live widget's pixel rect — and a strict equality test would refuse a print
+    /// that is flush to within a twentieth of a millimetre. 0.1 % of a 63.5 mm card is 0.06 mm, well
+    /// under one texel of anything drawn on it.
+    /// </summary>
+    private const float RequiredBodyCoverage = 0.999f;
+
+    /// <summary>One-shot per VERDICT CLASS, not per card: the hosted reading and the refused reading
+    /// each print once per session with the numbers that produced them. A fan of twelve chips must
+    /// not write twelve identical lines, and an acceptance must not summarise a refusal away.</summary>
+    private static bool _loggedFaceHosted;
+    private static bool _loggedFaceHostRefused;
+
     /// <summary>
     /// The peer half of the local cards' zero-aliased-frame fix (see <see cref="Cards.CardArtWatch"/>).
     /// The clone runs the game's OWN widget, so its header art arrives through the same async
@@ -354,11 +377,19 @@ internal sealed class RemoteCardArt
             DestroyClone();
         if (_host != null && _host.activeSelf)
             _host.SetActive(false);
+        // No print in front of it any more, so the body owns its front face again — and it MUST get
+        // it back on this same path, or a peer's face-DOWN card would show a see-through hole where
+        // its card back belongs, which is the hidden-information leak this whole class exists to
+        // avoid. The release is on HideFront rather than on DestroyClone on purpose: ShowFront
+        // rebuilds a clone in place when the shown card changes, and the body should not flicker its
+        // front fan back for a frame in between.
+        ReleaseBodyFaceHosting();
     }
 
     public void Destroy()
     {
         DestroyClone();
+        ReleaseBodyFaceHosting();
         if (_host != null)
         {
             Object.Destroy(_host);
@@ -791,6 +822,12 @@ internal sealed class RemoteCardArt
         float fit = Mathf.Min(_cardWidth / faceSize.x, _cardHeight / faceSize.y) * (1f - BorderFraction);
         canvasRect.localScale = new Vector3(fit, fit, fit);
 
+        // The host is a direct child of the slab at unit scale, so the canvas's face pixels times the
+        // fit above ARE the printed rectangle in slab-local metres — the one frame in which it is
+        // comparable with the card body hanging off that same slab. This is the final pose write, so
+        // it is also the first moment that number is true.
+        ApplyBodyFaceHosting(faceSize * fit);
+
         // Centre the clone in the host canvas.
         var center = new Vector2(0.5f, 0.5f);
         cloneRect.anchorMin = center;
@@ -801,6 +838,110 @@ internal sealed class RemoteCardArt
         cloneRect.localScale = Vector3.one;
         if (!cloneRect.gameObject.activeSelf)
             cloneRect.gameObject.SetActive(true);
+    }
+
+    /// <summary>
+    /// THE FRONT/BACK BLEED CORRECTION (hardware report, 2026-09: a peer's ITEM card fronts read
+    /// correctly in the action phase, and carried the card BACK's orange/gold diamond lattice over
+    /// them as soon as that peer's board went see-through).
+    ///
+    /// <para>A remote card is TWO coincident surfaces. The slab's body is a MeshRenderer whose
+    /// submesh 0 is the front fan plus the rim wall and whose submesh 1 is the back fan, and every
+    /// remote surface deliberately gives BOTH slots the card-BACK material — no card identity is ever
+    /// on the wire, so a peer's slab shows the back on both faces. This class then paints the REAL
+    /// card face on a world-space canvas 0.6 mm in front of it. Opaque, that is free: the canvas is
+    /// opaque, it is in front, and it wins the depth test, so the front fan behind it is never seen.
+    /// <c>Net/Board/PeerBoardFade</c> then writes ONE uniform alpha to both surfaces — and alpha
+    /// blending is not occlusion. At alpha a the rear surface still contributes a(1−a) of the
+    /// composite, which peaks at 25 % halfway down the ramp, and what that rear surface is showing is
+    /// the card back's lattice.</para>
+    ///
+    /// <para>It is not the fade driver's bug to fix. That driver is a correct generic per-renderer
+    /// uniform-alpha writer, and it has no way to know that two of its surfaces are a front/back pair
+    /// sharing 0.6 mm. This class is the one thing in the process that knows a printed face is
+    /// standing in front of a card body, so the correction is made from here — by telling
+    /// <c>CardMesh</c> to serve that body a mesh with the front fan dropped for as long as the print
+    /// is up. <c>CardMesh.SetBodyFaceHosted</c> documents why that is a MESH swap and not a material
+    /// swap (a material write mid-fade would destroy the fade's own installed clones).</para>
+    ///
+    /// <para>WHY THE COVERAGE IS MEASURED AND NOT ASSUMED. Dropping the front fan is invisible while
+    /// opaque ONLY where the print really covers the body's front face; over an uncovered border it
+    /// would read as a see-through hole, because the back fan behind it is wound away from the viewer
+    /// and is back-face culled. Three of the four surfaces that host prints have already been tuned
+    /// until the print and the body ARE the same rectangle — the hand fan and the pile-browse fan
+    /// both squash their body to <c>CardFace.VisibleFaceRect</c>, which is the same
+    /// <c>facePixels × fit × (1 − BorderFraction)</c> product computed a few lines above, and the item
+    /// fan grows the box it hands us by 1/(1 − BorderFraction) so the print lands flush on the
+    /// punched-out outline. The fourth, <c>RemoteHeldCardFace</c>, cuts its body and sizes its art to
+    /// the SAME box, so its print sits a 6 % border inside its own slab; that surface is not a
+    /// <c>PeerBoardFade</c> follower and never fades today, so it has no bleed to correct yet, and it
+    /// is left with its front fan rather than with a hole. Measuring rather than listing is what makes
+    /// that a property of the geometry instead of a list somebody has to remember to update.</para>
+    /// </summary>
+    private void ApplyBodyFaceHosting(Vector2 printedLocalMeters)
+    {
+        // A slab with no REGISTERED card body under it — a board slot, a control-board panel, whose
+        // backing is a single quad with no front fan to drop — answers false here and drops out of
+        // everything below, including the log: there is no verdict to report about a surface this
+        // correction does not apply to.
+        if (printedLocalMeters.x <= 0f || printedLocalMeters.y <= 0f
+            || !CardMesh.TryMeasureBodyFrontBox(_slab, out Vector2 measured))
+            return;
+
+        bool covers = printedLocalMeters.x >= measured.x * RequiredBodyCoverage
+                      && printedLocalMeters.y >= measured.y * RequiredBodyCoverage;
+
+        // The MESH switch is change-gated; the VERDICT below is not gated on it. A refusal never
+        // moves the switch (the body already has its front fan), so gating the log on the switch
+        // would have made the refusal unreportable — the one reading that says a surface still
+        // carries the bleed would never have been printed.
+        if (covers != _bodyFaceHosted && CardMesh.SetBodyFaceHosted(_slab, covers) > 0)
+            _bodyFaceHosted = covers;
+        if (covers && !_loggedFaceHosted)
+        {
+            _loggedFaceHosted = true;
+            // HW-VERIFY
+            VRLog.Note("Net", "REMOTE CARD FACE HOSTING: the printed face on slab "
+                + $"'{_slab.name}' measures {printedLocalMeters.x * 1000f:F1}x{printedLocalMeters.y * 1000f:F1} mm "
+                + $"against a card body of {measured.x * 1000f:F1}x{measured.y * 1000f:F1} mm, so the print "
+                + "covers the body's front face and that body is now served the FACE-HOSTED mesh: same two "
+                + "submeshes, same material array, same bounds, but without the front fan that was sitting "
+                + "0.6 mm behind the print. That fan is why a peer's card front carried the card BACK's gold "
+                + "lattice the moment their board went see-through — two coincident surfaces at one uniform "
+                + "alpha COMPOSE, they do not occlude, and the rear one peaks at 25 % of the picture halfway "
+                + "down the ramp. On an opaque board this changes nothing you can see, because the print was "
+                + "already painting over that fan. If a peer's card front now shows a see-through RING around "
+                + "its edge, the print is less flush than this measurement says and the coverage bar is what "
+                + "to move.");
+        }
+        else if (!covers && !_loggedFaceHostRefused)
+        {
+            _loggedFaceHostRefused = true;
+            // HW-VERIFY
+            VRLog.Note("Net", "REMOTE CARD FACE HOSTING REFUSED: the printed face on slab "
+                + $"'{_slab.name}' measures {printedLocalMeters.x * 1000f:F1}x{printedLocalMeters.y * 1000f:F1} mm "
+                + $"but its card body is {measured.x * 1000f:F1}x{measured.y * 1000f:F1} mm, so the print does "
+                + "NOT cover the body's front face and the front fan behind it is being KEPT. That is the safe "
+                + "answer, not a failure: dropping the fan would leave the uncovered border see-through, "
+                + "because the back fan behind it is wound away from you and is culled. The cost is that IF "
+                + "this surface ever sits on a see-through peer board, its card front will still carry the "
+                + "card back's lattice. The known surface that lands here is the peer's HELD card, which cuts "
+                + "its body and sizes its art to the same box and so prints 6 % inside its own slab — and "
+                + "which does not follow the board fade today, so nothing is wrong on screen. The remedy, if "
+                + "it ever does follow it, is the one the item fan already ships: hand the art a box grown by "
+                + "1/(1 - 6 %).");
+        }
+    }
+
+    /// <summary>Give the body its front fan back. Idempotent and free when nothing was ever taken:
+    /// the switch can only be true if <see cref="ApplyBodyFaceHosting"/> found a real card body under
+    /// this slab and measured a print that covered it.</summary>
+    private void ReleaseBodyFaceHosting()
+    {
+        if (!_bodyFaceHosted)
+            return;
+        CardMesh.SetBodyFaceHosted(_slab, false);
+        _bodyFaceHosted = false;
     }
 
     private void DestroyClone()

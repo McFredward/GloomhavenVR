@@ -1036,6 +1036,12 @@ internal sealed class RemoteBrowserFan
             var mr = body.AddComponent<MeshRenderer>();
             // Two submeshes (front+rim | back), both wearing the shared back material: the arc
             // deliberately shows the BACK on both faces, exactly like the old two-quad slab.
+            // …and both slots keep it while the slab is showing a card BACK. When a front is up,
+            // Net/Remote/RemoteCardArt drops submesh 0's FRONT FAN from the MESH instead (see
+            // CardMesh.SetBodyFaceHosted): this fan follows the peer board's see-through ramp, and
+            // two coincident surfaces at one uniform alpha compose rather than occlude, so the fan
+            // behind the print used to paint the card back's gold lattice over a peer's card front.
+            // Nothing here changes — the material array stays exactly this, at length 2.
             mr.sharedMaterials = new[] { back, back };
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
