@@ -21688,6 +21688,87 @@ internal static class NetProtocol
     /// </summary>
     public const int MapRoomRecordBytesWithFan = MapRoomRecordBytesWithSelect + 4;
 
+    /// <summary>
+    /// Payload length of the FULL <see cref="ExtIdMapRoom"/> record INCLUDING the SHARED GAZE YAW:
+    /// <see cref="MapRoomRecordBytesWithFan"/> plus one byte, <c>[gazeYaw]</c>. ONE BYTE, and it is
+    /// the only byte this feature spends.
+    ///
+    /// <para><b>WHAT IT IS FOR.</b> USER REPORT (2026-09-03, verbatim): <i>"Das
+    /// Multiplayer-Dialogfenster ist nicht ideal gespawnt, es wäre trotzdem gut wenn es im
+    /// Sichtbereich der Spieler spawnt (eventuell Mittelwert der Blickfelder oder sowas?)."</i> A
+    /// shared window's spawn pose is anchored to the map table by a pure function of the parchment
+    /// bounds (<c>WorldUI.ArcSeats.TrySharedAnchorOnTable</c>), which makes it DETERMINISTIC — every
+    /// client computes the same place with nothing sent — but says nothing about whether that place
+    /// is in front of anybody. Where the players are looking is not a property of the room; it is a
+    /// fact about the humans, and no client can derive it.</para>
+    ///
+    /// <para><b>WHY IT IS PUBLISHED BY THE HOST AND NEVER COMPUTED PER CLIENT.</b> Every peer's head
+    /// pose is already on this wire (<c>AvatarState.Head</c>), so each client COULD average them.
+    /// It must not. Two clients average their own interpolated copies of those heads, sampled at
+    /// different ages, and get two slightly different means — which would place a SHARED window in
+    /// two different places, the one thing the shared-anchor design exists to prevent. So exactly
+    /// one machine decides. The host computes the mean, quantises it to this byte, and publishes it;
+    /// every client — the host included — anchors from the published byte and from nothing else.
+    /// A decision is 1:1 because it is a decision, not because two machines agreed.</para>
+    ///
+    /// <para><b>ABSENCE IS A DEFINED STATE AND IS TODAY'S BEHAVIOUR.</b> The value is meaningful only
+    /// with <see cref="MapRoomGazeValidBit"/> set. Bit clear, byte absent, or a host on an older
+    /// build, and every client falls back to the fixed table axis this record has always implied —
+    /// UNIFORMLY, because the presence of the value depends on the HOST's build alone and never on
+    /// the receiver's. That is the property that makes the fallback safe: a session either has the
+    /// value everywhere or has it nowhere.</para>
+    ///
+    /// <para><b>WHAT THE HOST PUBLISHES IS A CONSTANT OF ONE ROOM VISIT, NOT A LIVE MEAN.</b> A value
+    /// that tracked heads would change between two clients' spawns and place the same window twice.
+    /// The host therefore decides ONCE per map-room activation and holds that decision — see
+    /// <c>Net.Remote.RemoteSharedGaze</c> for the latch, its settle delay and the two refusals.</para>
+    /// </summary>
+    public const int MapRoomRecordBytesWithGaze = MapRoomRecordBytesWithFan + 1;
+
+    /// <summary>
+    /// Quantisation of <see cref="MapRoomRecordBytesWithGaze"/>'s yaw byte: the full turn in 256
+    /// steps, i.e. 360/256 = 1.40625° per step and a worst-case rounding error of 0.703°.
+    ///
+    /// <para>A byte is enough because of what the number DOES. It rotates a ring of at most three
+    /// windows about the table centre at a radius of 0.80 m, where 0.703° is 9.8 mm of arc — an
+    /// order of magnitude under the 0.12 m gap the separation rule already guarantees between two
+    /// windows, and far under any difference a reader could see. Sending a float to express a
+    /// direction a human's neck cannot hold that steadily would be four bytes of false
+    /// precision.</para>
+    /// </summary>
+    public const int MapRoomGazeYawSteps = 256;
+
+    /// <summary>
+    /// Quantise a world yaw in DEGREES to <see cref="MapRoomRecordBytesWithGaze"/>'s byte.
+    ///
+    /// <para>PURE AND TOTAL: any finite input maps into 0..255, and a non-finite one maps to 0
+    /// rather than throwing — the wire never carries a NaN, and a receiver never has to ask whether
+    /// the sender's trigonometry went wrong. The rounding is to NEAREST and the wrap is arithmetic,
+    /// so 359.9° and −0.1° both encode as step 0, which is the same direction.</para>
+    /// </summary>
+    public static byte EncodeMapRoomGazeYaw(float yawDeg)
+    {
+        if (float.IsNaN(yawDeg) || float.IsInfinity(yawDeg))
+            return 0;
+        // Wrap into [0,360) BEFORE quantising: a negative yaw is the same direction as its positive
+        // twin, and the modulo of a rounded step would fold −0.1° onto step 255 instead of step 0.
+        double wrapped = yawDeg % 360.0;
+        if (wrapped < 0.0)
+            wrapped += 360.0;
+        int step = (int)System.Math.Round(wrapped * MapRoomGazeYawSteps / 360.0,
+                                          System.MidpointRounding.AwayFromZero);
+        // Round-to-nearest can land exactly on the step count for a yaw just under a full turn; that
+        // IS step 0, one turn on.
+        return (byte)(step % MapRoomGazeYawSteps);
+    }
+
+    /// <summary>
+    /// The inverse of <see cref="EncodeMapRoomGazeYaw"/>: the step's world yaw in DEGREES, in
+    /// [0,360). PURE, TOTAL, and defined for all 256 values — there is no invalid byte here, which
+    /// is why validity is carried by <see cref="MapRoomGazeValidBit"/> and never by a magic value.
+    /// </summary>
+    public static float DecodeMapRoomGazeYaw(byte step) => step * (360f / MapRoomGazeYawSteps);
+
     /// <summary>Map-room flags bit 0: the sender's 3D map room is STANDING right now
     /// (<c>MapRoomDriver.Active</c>, never <c>Wanted</c> — publishing the predicate would announce
     /// a room that has not been built yet). Clear, or the record absent, means every other field
@@ -21730,11 +21811,28 @@ internal static class NetProtocol
     /// fact that the game carries nowhere.</para></summary>
     public const byte MapRoomPickStagedBit = 1 << 5;
 
+    /// <summary>
+    /// Map-room flags bit 6: the record's SHARED GAZE YAW byte is meaningful — this sender is the
+    /// host and it has DECIDED where the party is looking. Clear means "no decision", which is the
+    /// state every non-host sender is always in, the state the host is in before its latch settles
+    /// or after it refused, and the state a peer on an older build is in by construction.
+    ///
+    /// <para>THE BIT IS THE ONLY VALIDITY TEST, deliberately. Every one of the byte's 256 values is
+    /// a legal direction, so there is no spare value to mean "nothing" — reserving one would make
+    /// the direction it names unsendable and would be a magic number besides. See
+    /// <see cref="MapRoomRecordBytesWithGaze"/>.</para>
+    ///
+    /// <para>An older reader masks the flags byte with ITS OWN <see cref="MapRoomDefinedMask"/>,
+    /// which does not contain this bit, so this bit reads as clear there and the record's extra byte
+    /// is stepped over by the record's own length. That is the additive contract working exactly as
+    /// it was designed to.</para></summary>
+    public const byte MapRoomGazeValidBit = 1 << 6;
+
     /// <summary>Every bit <see cref="ExtIdMapRoom"/>'s flags byte defines today. Writer and reader
     /// both mask with it, so a future sender's extra bits can never light a meaning here.</summary>
     public const byte MapRoomDefinedMask =
         MapRoomInRoomBit | MapRoomHostBit | MapRoomSurfaceKnownBit | MapRoomSurfaceCityBit
-        | MapRoomPickValidBit | MapRoomPickStagedBit;
+        | MapRoomPickValidBit | MapRoomPickStagedBit | MapRoomGazeValidBit;
 
     /// <summary>
     /// FNV-1a over a shared-YML string id, folded so <c>0</c> stays reserved for "nothing".

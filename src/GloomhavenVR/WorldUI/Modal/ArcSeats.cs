@@ -5015,6 +5015,115 @@ internal static partial class ModalFallback
                               + "whether a FUTURE placement is allowed to use the anchor.");
     }
 
+    // =============================================================================================
+    //  THE SHARED GAZE YAW — THE HOST'S ONE DECISION ABOUT WHERE THE PARTY IS LOOKING.
+    //
+    //  USER REPORT (2026-09-03, verbatim): "Das Multiplayer-Dialogfenster ist nicht ideal gespawnt,
+    //  es wäre trotzdem gut wenn es im Sichtbereich der Spieler spawnt (eventuell Mittelwert der
+    //  Blickfelder oder sowas?)."
+    //
+    //  WHAT THE TABLE ANCHOR COULD AND COULD NOT DO. It is DETERMINISTIC — a pure function of the
+    //  parchment bounds, identical on every client with nothing sent — and that is exactly why it
+    //  was built that way. It is not VISIBLE: nothing in it has a term for a human, so "am Tisch"
+    //  was honoured and "im Sichtbereich" was never even asked. The block above says so in its own
+    //  words about the one case it already knew of: "a client seated at the other end gets the
+    //  window across the table facing away from him".
+    //
+    //  WHAT CHANGES, AND IT IS ONE THING. The half-ring's DEAD-AHEAD DIRECTION stops being a fixed
+    //  table axis and becomes the yaw the host published. Everything else is untouched: the ring is
+    //  still centred on the table, the radius is still SharedWindowArcRadiusMeters, the lateral step
+    //  is still own-half-width + half the gap, the height is still the room's one bar height, the
+    //  map-occlusion floor still applies, and the facing is still ONE yaw shared by every slot and
+    //  square to that direction. YAW ONLY — the anchor still writes an upright rotation and the
+    //  standing ruling ("no window is ever pitched or rolled") is untouched.
+    //
+    //  WHY IT IS STILL IDENTICAL ON EVERY CLIENT. The direction is not measured here. It is a
+    //  single quantised byte DECIDED by the host and published on record 20, and every client —
+    //  the host included — anchors from that one number. Nothing in this file reads a head to place
+    //  a shared window, which is the same guarantee the fixed axis gave, arrived at by a different
+    //  route: not "everyone computes the same thing" but "one machine decides and nobody else
+    //  computes anything". See Net/Remote/RemoteSharedGaze.cs for the decision, its settle delay,
+    //  its two refusals and the one ≤200 ms interval in which two clients can still disagree.
+    //
+    //  ABSENT MEANS TODAY, BIT FOR BIT. With no decision received the two direction vectors below
+    //  are the literal Vector3.right / Vector3.forward the previous build used, the extents are the
+    //  same numbers by construction (the box support along an axis IS that axis's half-extent), and
+    //  the pose is character-for-character what it was. A session with an older HOST therefore
+    //  behaves exactly as before — uniformly, because the value's presence depends on the host's
+    //  build alone.
+    //
+    //  AND THE ANCHOR IS STILL SPENT BY THE FIRST DRAG. Nothing here touches SharedAnchorSpent: the
+    //  gaze yaw decides the SPAWN direction and has no opinion about a window anybody has moved.
+    // =============================================================================================
+
+    private static bool _sharedGazeValid;
+    private static float _sharedGazeYawDeg;
+    private static int _sharedGazeFrom;
+    private static float _sharedGazeAt;
+    private static string _sharedGazeWhy = "no host decision has been seen in this session";
+
+    /// <summary>
+    /// THE MAILBOX. The host has decided where the party is looking (or has said it will not), and
+    /// <c>Net.Remote.RemoteSharedGaze</c> pushes that here.
+    ///
+    /// <para>Called at the extras cadence — 5 Hz, every packet from the host — so it logs on the
+    /// EDGE and never per packet. Same dependency direction and same shape as
+    /// <see cref="NoteSharedAnchorSpent"/>: <c>Net</c> writes, <c>WorldUI</c> reads, and this file
+    /// never reaches into <c>Net</c>.</para>
+    /// </summary>
+    internal static void NoteSharedGazeYaw(bool valid, float yawDeg, int fromPlayerId, string why)
+    {
+        bool changed = valid != _sharedGazeValid
+                       || fromPlayerId != _sharedGazeFrom
+                       || (valid && !Mathf.Approximately(yawDeg, _sharedGazeYawDeg));
+        _sharedGazeValid = valid;
+        _sharedGazeYawDeg = yawDeg;
+        _sharedGazeFrom = fromPlayerId;
+        _sharedGazeWhy = why;
+        if (valid)
+            _sharedGazeAt = Time.unscaledTime;
+        if (!changed)
+            return;
+        VRLog.Info("WorldUI", "SHARED WINDOW GAZE "
+                              + (valid
+                                  ? $"RECEIVED — the party's shared spawn direction is yaw "
+                                    + $"{yawDeg:F2}°, and every shared window that spawns from here "
+                                    + "on is seated on that side of the map table instead of on the "
+                                    + "fixed axis. "
+                                  : "CLEARED — there is no host decision, so every shared window "
+                                    + "spawns on the FIXED table axis, exactly as every build "
+                                    + "before this one did. ")
+                              + $"WHY: {why}. This number is never computed here: it is one byte "
+                              + "decided by the host and published on record 20, which is what "
+                              + "keeps a shared window in the same place for everybody. A client "
+                              + "that averaged the peer heads itself would be averaging its own "
+                              + "interpolated copies and would place the window somewhere nobody "
+                              + "else did.");
+    }
+
+    /// <summary>The direction a shared window is seated in, and whether it came from the host or
+    /// from the fixed table axis. <paramref name="yawDeg"/> is only meaningful when this returns
+    /// true.</summary>
+    private static bool TryGetSharedGazeYaw(out float yawDeg, out float ageSeconds)
+    {
+        yawDeg = _sharedGazeYawDeg;
+        ageSeconds = _sharedGazeValid ? Time.unscaledTime - _sharedGazeAt : 0f;
+        return _sharedGazeValid;
+    }
+
+    /// <summary>
+    /// The half-extent of an axis-aligned box along a horizontal direction — its exact SUPPORT
+    /// function, <c>|d.x|·halfX + |d.z|·halfZ</c>.
+    ///
+    /// <para>It exists so the table and map extents can be measured along a direction that is no
+    /// longer guaranteed to be a world axis. Along an axis it returns that axis's own half-extent
+    /// exactly, which is what makes the no-decision path identical to the previous build's rather
+    /// than merely close to it. <paramref name="dir"/> is assumed horizontal and unit-length; both
+    /// hold for every direction this file builds.</para>
+    /// </summary>
+    private static float ExtentAlong(Vector3 dir, float halfX, float halfZ)
+        => Mathf.Abs(dir.x) * halfX + Mathf.Abs(dir.z) * halfZ;
+
     /// <summary>Forget every spend. Called on the same teardown edges that release the floats: a
     /// latch that outlived the room would refuse the anchor on the next entry for a drag nobody in
     /// that session made.</summary>
@@ -5287,8 +5396,51 @@ internal static partial class ModalFallback
         // a CONSTANT (+) and not a measurement; see the block comment for why, and for what it costs
         // a player standing at the other end.
         bool shortAxisIsX = b.size.x <= b.size.z;
-        float farHalf = shortAxisIsX ? halfXm : halfZm;
-        float lateralHalf = shortAxisIsX ? halfZm : halfXm;
+
+        // ---- THE RING'S DEAD-AHEAD DIRECTION (the SHARED GAZE round) -----------------------------
+        //
+        // ABSENT ⇒ THE FIXED AXIS, BIT FOR BIT: the two vectors below are literally the ones the
+        // previous build used, and every extent computed from them reduces to the previous build's
+        // number by construction (see ExtentAlong). Present ⇒ the HOST's one published yaw, which
+        // this file does not compute and could not: see the SHARED GAZE block above.
+        //
+        // YAW ONLY. `ahead` and `lateralDir` are horizontal by construction, so the LookRotation
+        // below is a pure yaw and the "no window is ever pitched or rolled" ruling holds unchanged.
+        bool haveGaze = TryGetSharedGazeYaw(out float gazeYawDeg, out float gazeAgeSeconds);
+        Vector3 ahead;
+        Vector3 lateralDir;
+        if (haveGaze)
+        {
+            float rad = gazeYawDeg * Mathf.Deg2Rad;
+            ahead = new Vector3(Mathf.Sin(rad), 0f, Mathf.Cos(rad));
+            // The lateral axis is `ahead` turned a quarter turn; WHICH quarter turn only decides
+            // which of home 1 and home 2 stands on which side of the ring, and either answer is the
+            // same on every client because the yaw is. This one is chosen so the gaze path AGREES
+            // WITH THE FIXED-AXIS PATH on the shipped table: the surveyed map is 0.96 x 1.20 wu, so
+            // shortAxisIsX is true, and at yaw 90° this gives ahead = +X and lateral = +Z, which is
+            // the fixed branch's own pair exactly. So a host that decides "90°" reproduces the
+            // previous build's placement to the bit, which is what makes the two paths comparable
+            // in one hardware log instead of two.
+            lateralDir = new Vector3(Mathf.Sin(rad - Mathf.PI * 0.5f), 0f,
+                                     Mathf.Cos(rad - Mathf.PI * 0.5f));
+        }
+        else if (shortAxisIsX)
+        {
+            ahead = Vector3.right;
+            lateralDir = Vector3.forward;
+        }
+        else
+        {
+            ahead = Vector3.forward;
+            lateralDir = Vector3.right;
+        }
+
+        // The table's own half-extent along a horizontal direction. For an AABB that is the exact
+        // support function — |d.x|·halfX + |d.z|·halfZ — which is why an axis direction gives back
+        // precisely the half-extent the previous build read off that axis, and no fixed-axis number
+        // below moves by a bit.
+        float farHalf = ExtentAlong(ahead, halfXm, halfZm);
+        float lateralHalf = ExtentAlong(lateralDir, halfXm, halfZm);
 
         // THE WINDOW'S OWN SIZE, IN THE SHARED FRAME'S METRES (ModBuild 244). halfSize arrives in
         // WORLD units from ComputeHmdPose's caller, which measured it at PanelLayout.WorldScale x
@@ -5354,9 +5506,7 @@ internal static partial class ModalFallback
         //      the rule asks for 0.120 — the chord of an arc is shorter than the arc — i.e. it
         //      would have quietly broken the one invariant ModBuild 245 established. The rule is
         //      the rule; the arc only decides how far back each slot stands.
-        float mapFarHalf = shortAxisIsX
-            ? b.size.x * 0.5f / scale
-            : b.size.z * 0.5f / scale;
+        float mapFarHalf = ExtentAlong(ahead, b.size.x * 0.5f / scale, b.size.z * 0.5f / scale);
         float radius = Mathf.Max(WorldUIConfig.SharedWindowArcRadiusMeters.Value, 0.05f);
         float arcDepth = Mathf.Sqrt(Mathf.Max(radius * radius - lateral * lateral, 0f));
         // THE MAP-OCCLUSION GUARD. A slot whose lateral step swings it round the side of the circle
@@ -5369,17 +5519,18 @@ internal static partial class ModalFallback
         // the parchment, not over it, however shallow its depth, and pushing it back would cost
         // reading distance for nothing. `innerLateral` is the closest that span comes to the table's
         // centre line, and it is 0 for a window wide enough to straddle it.
-        float mapLateralHalf = shortAxisIsX
-            ? b.size.z * 0.5f / scale
-            : b.size.x * 0.5f / scale;
+        float mapLateralHalf = ExtentAlong(lateralDir, b.size.x * 0.5f / scale,
+                                           b.size.z * 0.5f / scale);
         float innerLateral = Mathf.Max(Mathf.Abs(lateral) - halfWinXm, 0f);
         bool overMapLaterally = innerLateral < mapLateralHalf;
         float depthFloor = mapFarHalf + SharedAnchorArcParchmentClearanceMeters;
         float depthHalf = overMapLaterally ? Mathf.Max(arcDepth, depthFloor) : arcDepth;
         float offArcMm = (depthHalf - arcDepth) * 1000f;
-        Vector3 localPos = shortAxisIsX
-            ? new Vector3(depthHalf, centreYm, lateral)
-            : new Vector3(lateral, centreYm, depthHalf);
+        // The ring point, built from the two direction vectors rather than from an axis pair. On the
+        // fixed axis this is character-for-character the previous build's expression:
+        // right*depth + up*centre + forward*lateral IS (depth, centre, lateral), and
+        // forward*depth + up*centre + right*lateral IS (lateral, centre, depth).
+        Vector3 localPos = ahead * depthHalf + Vector3.up * centreYm + lateralDir * lateral;
 
         // FACING IS 1:1 AND IT IS THE SAME FOR EVERY SLOT (ModBuild 250). The window is yawed square
         // to the READING AXIS — the short horizontal axis of the table, whose negative end is the
@@ -5399,8 +5550,11 @@ internal static partial class ModalFallback
         // there). It is still a CONSTANT of the shared frame, so it is bit-identical on every
         // client and the ModBuild 243 "never re-face a shared window on the player" ruling is
         // untouched: nothing here reads a head.
-        Vector3 facing = shortAxisIsX ? Vector3.right : Vector3.forward;
-        worldRot = Quaternion.LookRotation(facing, Vector3.up);
+        // …and since the SHARED GAZE round the reading axis may be the HOST'S published direction
+        // rather than the table's own. Nothing above changes: it is still ONE yaw for every slot,
+        // still square to the direction the ring is built about, still derived from a number that is
+        // the same on every client, and still yaw-only — `ahead` is horizontal by construction.
+        worldRot = Quaternion.LookRotation(ahead, Vector3.up);
         worldPos = centre + localPos * scale;
         // THE SIZE IS TAKEN FROM THE SHARED FRAME TOO, not from PanelLayout.WorldScale, because that
         // one carries this player's own pinch-zoom — the same reason MapRoomDriver derives the frame
@@ -5417,7 +5571,7 @@ internal static partial class ModalFallback
         if (headCam != null)
         {
             Vector3 fromCentre = headCam.transform.position - centre;
-            float along = shortAxisIsX ? fromCentre.x : fromCentre.z;
+            float along = Vector3.Dot(fromCentre, ahead);
             seatSide = $"{along / scale:F2} m along the short axis ⇒ this player stands at the "
                        + $"{(along >= 0f ? "POSITIVE (same as the home — he will see it edge-on or "
                                           + "from behind)" : "NEGATIVE (opposite the home — he reads "
@@ -5468,15 +5622,27 @@ internal static partial class ModalFallback
                + $"{depthHalf - farHalf:+0.000;-0.000} m past the table edge (positive = over the "
                + $"room, not over wood), and its outer edge reaches {Mathf.Abs(lateral) + halfWinXm:F3} m "
                + $"sideways against the table's own {lateralHalf:F3} m half-depth. "
-               + $"The short horizontal axis is {(shortAxisIsX ? "X" : "Z")} "
-               + "and the far end is its POSITIVE one, fixed; EVERY SLOT IS YAWED THE SAME "
-               + $"{worldRot.eulerAngles.y:F2}° square to that axis, which is the ModBuild 250 fix "
-               + "for two windows that pointed 68.4° apart. This client's own head sits at "
-               + $"{seatSide}. "
-               + "NO WIRE FIELD WAS NEEDED: both terms are pure functions of the parchment bounds, "
-               + "which is the same frame record 21 already sends a DRAGGED pose in. THE DRAG STILL "
-               + "WINS — this is the initial spawn pose only, and the first published or applied "
-               + "pose spends the anchor (grep SHARED WINDOW ANCHOR SPENT / REFUSED).";
+               + "DEAD AHEAD IS "
+               + (haveGaze
+                   ? $"THE SHARED GAZE: yaw {gazeYawDeg:F2}°, decided by the HOST and received "
+                     + $"{gazeAgeSeconds:F1} s ago ({_sharedGazeWhy}). This client did NOT compute "
+                     + "it — it is one quantised byte off record 20, so every client in the room "
+                     + "seats this window on the same side of the table. The user's request is "
+                     + "\"im Sichtbereich der Spieler\", and THIS clause is what says the window "
+                     + "was placed against the party's own facing rather than against a table axis"
+                   : $"THE FIXED TABLE AXIS: the short horizontal axis is {(shortAxisIsX ? "X" : "Z")} "
+                     + "and the far end is its POSITIVE one, a constant. No host decision has been "
+                     + $"received ({_sharedGazeWhy}), so this is bit for bit the placement every "
+                     + "build before the shared-gaze round produced")
+               + $". EVERY SLOT IS YAWED THE SAME {worldRot.eulerAngles.y:F2}° square to that "
+               + "direction, which is the ModBuild 250 fix for two windows that pointed 68.4° "
+               + $"apart. This client's own head sits at {seatSide}. "
+               + "ONE WIRE BYTE, AND ONLY FOR THE DIRECTION: every other term here is a pure "
+               + "function of the parchment bounds, which is the same frame record 21 already sends "
+               + "a DRAGGED pose in, and the direction is a DECISION rather than a measurement — "
+               + "which is what keeps it identical on every client. THE DRAG STILL WINS — this is "
+               + "the initial spawn pose only, and the first published or applied pose spends the "
+               + "anchor (grep SHARED WINDOW ANCHOR SPENT / REFUSED).";
         // THE ONE-LINE FALSIFIER FOR THE HEIGHT RULE, on the same event and never per frame. It is
         // separate from the line above because it is about the ROOM and not about this window: it
         // carries every map-room window's bar height side by side, so "sind alle gleich hoch?" is

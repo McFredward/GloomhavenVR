@@ -292,6 +292,8 @@ internal static class RemoteMapRoom
     internal static void Reset()
     {
         Peers.Clear();
+        // ---- shared-gaze hunk: the same teardown edge.
+        RemoteSharedGaze.Reset();
         ConsumedStamp.Clear();
         SeenStamp.Clear();
         ConsumedSelectStamp.Clear();
@@ -387,6 +389,11 @@ internal static class RemoteMapRoom
             _hasAdoptedSelect = false;
             _sentValid = false;
             _sentSelectKey = 0u;
+            // ---- shared-gaze hunk: THE ROOM-DOWN EDGE. The host's decision about where the party
+            // is looking is a constant of ONE room visit, so leaving forgets it — a decision that
+            // outlived the room would seat the next visit's windows from where somebody looked in
+            // the last one. Called for its edge, not for its answer.
+            RemoteSharedGaze.SampleHostYaw(out _);
             return;
         }
 
@@ -499,6 +506,15 @@ internal static class RemoteMapRoom
         // deducing the fan's owner from its card count, a deduction whose tie-break assumes you only
         // ever display characters you control. See MapRoomHand.LocalFanCharacterKey.
         extras.MapRoomFanCharacterKey = WorldUI.MapRoom.MapRoomHand.LocalFanCharacterKey;
+        // ---- THE SHARED GAZE YAW (its own hunk; everything it needs lives in RemoteSharedGaze) ---
+        // The HOST's one decision about where the party is looking, so a shared window spawns in
+        // front of the players and in the SAME place for all of them. A non-host answers "no
+        // decision" and the bit stays clear, which is today's fixed-axis behaviour. The flags byte
+        // is rewritten here rather than above so this stays one liftable block.
+        extras.MapRoomGazeYaw = RemoteSharedGaze.SampleHostYaw(out bool gazeValid);
+        if (gazeValid)
+            extras.MapRoomFlags |= NetProtocol.MapRoomGazeValidBit;
+        // ---- end of the shared-gaze hunk ---------------------------------------------------------
 
         // What SendDue compares the next frame's live state against.
         _sentValid = true;
@@ -523,6 +539,10 @@ internal static class RemoteMapRoom
         Peers[senderId] = new PeerRoom(p.MapRoomFlags, p.MapRoomSurfaceStamp, p.MapRoomPickKey,
                                        p.MapRoomSelectStamp, p.MapRoomSelectKey,
                                        p.MapRoomFanCharacterKey, Time.unscaledTime);
+        // ---- shared-gaze hunk: the same packet, read for the two facts that decision needs (is
+        // this peer in the room, and is it the host publishing a gaze yaw). Fed from HERE rather
+        // than from a second parse so the two views of "who is in the room" cannot drift apart.
+        RemoteSharedGaze.Observe(senderId, in p);
     }
 
     /// <summary>
@@ -543,6 +563,8 @@ internal static class RemoteMapRoom
     private static void Forget(int senderId)
     {
         Peers.Remove(senderId);
+        // ---- shared-gaze hunk: the same forget edge, so "who is in the room" cannot differ.
+        RemoteSharedGaze.Forget(senderId);
         ConsumedStamp.Remove(senderId);
         SeenStamp.Remove(senderId);
         // THE SELECTION HISTORY GOES WITH THEM, AND THAT IS THE SAFE DIRECTION: a peer who leaves

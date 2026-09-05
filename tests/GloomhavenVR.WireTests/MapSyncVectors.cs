@@ -78,20 +78,21 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A: extension tail; byte B: browse count 0 -> no fan
             01               // tail: 1 record
-            14 0F            // id 20 (3D map room), len 15
+            14 10            // id 20 (3D map room), len 16
             15               // flags: inRoom(1) | surfaceKnown(4) | pickValid(16) = 0x15
             03               // surfaceStamp 3 -- an EDGE marker, not a level
             19 7C 62 3B      // pickKey FNV-1a('Gloomhaven') = 0x3B627C19, little-endian
             00               // selectStamp 0 -- nobody at this table has selected anything yet
             00 00 00 00      // selectKey 0 = NOTHING is selected
             00 00 00 00      // fanCharacterKey 0 = no map card fan open on this sender
-            "), ext, m, "the map-room record is [id 20][len 15][flags][surfaceStamp][u32 pickKey LE]"
-                        + "[selectStamp][u32 selectKey LE][u32 fanCharacterKey LE], written behind "
-                        + "record 19 in append order. The LONG form is always written and readers "
-                        + "require only the old 6-byte minimum — that asymmetry IS the additive "
-                        + "contract, and it is why this record has now grown TWICE without a "
-                        + "version bump");
-        t.Equal(28, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 15) = 28 bytes");
+            00               // gazeYaw 0, and the flags carry NO gaze bit: this sender has decided nothing
+            "), ext, m, "the map-room record is [id 20][len 16][flags][surfaceStamp][u32 pickKey LE]"
+                        + "[selectStamp][u32 selectKey LE][u32 fanCharacterKey LE][gazeYaw], written "
+                        + "behind record 19 in append order. The LONG form is always written and "
+                        + "readers require only the old 6-byte minimum — that asymmetry IS the "
+                        + "additive contract, and it is why this record has now grown THREE times "
+                        + "without a version bump");
+        t.Equal(29, m, "header 7 + count 1 + block 2 + tail 1 + (2 + 16) = 29 bytes");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p2), "and it parses");
         t.True(p2.HasMapRoom, "the map-room record is delivered");
         t.Equal((byte)0x15, p2.MapRoomFlags, "the three set bits survive");
@@ -128,23 +129,29 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             01               // tail: 1 record
-            14 0F            // id 20, len 15
+            14 10            // id 20, len 16
             3F               // every defined bit: 1|2|4|8|16|32 = 0x3F = MapRoomDefinedMask
             FF               // surfaceStamp 255 -- it WRAPS; 255 is as ordinary as 3
             7F 48 42 94      // pickKey FNV-1a('BlackBarrow') = 0x9442487F LE
             09               // selectStamp 9 -- the ninth selection change made at that table
             7F 48 42 94      // selectKey: the SAME node, because the pick IS the staged selection
             00 00 00 00      // fanCharacterKey 0: this sender has no map card fan open
+            00               // gazeYaw 0, and the flags carry NO gaze bit: this sender has decided nothing
             "), ext, m, "the staged bit rides the same flags byte as the hover, and the SELECTION "
                         + "rides its own stamp+key behind it. The two agree here because a staged "
                         + "pick is the selection; they disagree the moment that player hovers a "
                         + "second icon, which is the only thing the staged bit still says");
         t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p3), "and it parses");
-        t.Equal(NetProtocol.MapRoomDefinedMask, p3.MapRoomFlags, "all six defined bits survive");
+        t.Equal((byte)0x3F, p3.MapRoomFlags,
+                "all six of the bits this vector sends survive — 0x3F, not MapRoomDefinedMask, "
+                + "because the mask has since grown bit 6 (the shared gaze) and this sender does "
+                + "not set it. Comparing against the MASK rather than against the bits actually "
+                + "sent is how a vector stops testing the wire and starts testing a constant");
         t.Equal((byte)9, p3.MapRoomSelectStamp, "the selection stamp survives");
         t.Equal(0x9442487Fu, p3.MapRoomSelectKey, "…and the selection key");
 
-        t.Case("m4. map-room record: undefined flag bits are masked off on READ");
+        t.Case("m4. map-room record: undefined flag bits are masked off, and an unbacked gaze bit "
+               + "with them");
         byte[] wildFlags = Hex.Bytes(@"
             31 52 56 47      // magic
             03 01            // version, type
@@ -153,15 +160,18 @@ internal static class MapSyncVectors
             80 00            // byte A / byte B
             01               // tail: 1 record
             14 06            // id 20, len 6
-            C1               // flags: bits 6 and 7 (0xC0, undefined) plus inRoom (0x01)
+            C1               // flags: bit 7 (undefined) + bit 6 (gaze, DEFINED but unbacked here,
+                             //        because this record is 6 bytes and carries no gaze byte)
+                             //        + inRoom (0x01)
             00               // surfaceStamp 0
             00 00 00 00      // pickKey 0 = 'pointing at nothing'
             ");
         t.True(PresenceSerializer.TryRead(wildFlags, wildFlags.Length, out PresenceState p4),
                "it parses");
         t.Equal(NetProtocol.MapRoomInRoomBit, p4.MapRoomFlags,
-                "every bit outside MapRoomDefinedMask is masked off, so a future sender's extra bit "
-                + "can never light a meaning here");
+                "every bit outside MapRoomDefinedMask is masked off, AND the gaze bit is stripped "
+                + "on a record too short to carry the byte it describes — so a future sender's "
+                + "extra bit can never light a meaning here");
         t.Equal(0u, p4.MapRoomPickKey, "and key 0 stays 'nothing'");
         t.Equal((byte)0, p4.MapRoomSelectStamp,
                 "THE SIX-BYTE FORM IS STILL TRUSTED — MapRoomRecordBytes is frozen at 6 — and its "
@@ -656,12 +666,13 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             02               // tail: 2 records
-            14 0F            // id 20 FIRST
+            14 10            // id 20 FIRST
             01 00            // flags: in room only; surfaceStamp 0
             00 00 00 00      // pickKey 0 = pointing at nothing
             00               // selectStamp 0
             00 00 00 00      // selectKey 0 = nothing selected
             00 00 00 00      // fanCharacterKey 0 = no map card fan open
+            00               // gazeYaw 0, and the flags carry NO gaze bit: this sender has decided nothing
             15 09            // id 21 SECOND
             01               // n = 1
             01 01 01 02      // kind 1, flags open, page 1, pageCount 2
@@ -728,13 +739,14 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             01               // tail: 1 record
-            14 0F            // id 20, len 15
+            14 10            // id 20, len 16
             05               // flags: inRoom(1) | surfaceKnown(4) -- pointing at NOTHING right now
             01               // surfaceStamp 1
             00 00 00 00      // pickKey 0: the pointer has left the icon...
             04               // selectStamp 4 -- ...but a selection was made, and this is its EDGE
             19 7C 62 3B      // selectKey FNV-1a('Gloomhaven') LE
             00 00 00 00      // fanCharacterKey 0: no map card fan open on this sender
+            00               // gazeYaw 0, and the flags carry NO gaze bit: this sender has decided nothing
             "), ext, m, "the selection is INDEPENDENT of the pick: a player selects an icon and then "
                         + "points somewhere else, and the room must keep showing the selection. "
                         + "That is why it is its own stamp and its own key rather than the staged "
@@ -759,13 +771,14 @@ internal static class MapSyncVectors
             00               // handCardCount
             80 00            // byte A / byte B
             01               // tail: 1 record
-            14 0F            // id 20, len 15
+            14 10            // id 20, len 16
             01               // flags: in room only
             00               // surfaceStamp 0
             00 00 00 00      // pickKey 0
             05               // selectStamp 5 -- CHANGED, so this is an edge...
             00 00 00 00      // ...naming key 0, which is 'NOTHING is selected'
             00 00 00 00      // fanCharacterKey 0: no map card fan open
+            00               // gazeYaw 0, and the flags carry NO gaze bit: this sender has decided nothing
             "), ext, m, "key 0 is a first-class value on this field and not an absence: an edge "
                         + "naming it is how 'es soll nur eine einzige Auswahl geben' holds in BOTH "
                         + "directions — one player closing the quest window clears it for everyone");
@@ -803,6 +816,143 @@ internal static class MapSyncVectors
                "and the record BEHIND the short one is untouched — the walk uses each record's own "
                + "length, which is what makes lengthening record 20 safe in the first place");
 
+        // ---- record 20's SHARED GAZE YAW (user item 17: "im Sichtbereich der Spieler") -----------
+        //
+        // ONE BYTE, and the properties that matter are: it is the HOST's decision and nobody else's,
+        // its meaning is carried by a FLAG and never by a magic value, and its absence is the fixed
+        // table axis every build before it used. All three are cases below.
+
+        t.Case("m22. the gaze quantisation is pure, total and exactly invertible to its step");
+        t.Equal((byte)0, NetProtocol.EncodeMapRoomGazeYaw(0f), "yaw 0° is step 0");
+        t.Equal((byte)64, NetProtocol.EncodeMapRoomGazeYaw(90f),
+                "a quarter turn is a quarter of 256 steps — 90 / (360/256) = 64 exactly");
+        t.Equal((byte)128, NetProtocol.EncodeMapRoomGazeYaw(180f), "…and a half turn is 128");
+        t.Equal((byte)192, NetProtocol.EncodeMapRoomGazeYaw(270f), "…and three quarters is 192");
+        t.Equal((byte)0, NetProtocol.EncodeMapRoomGazeYaw(360f),
+                "a full turn is step 0 and NOT step 256: the wrap is arithmetic, so the byte can "
+                + "never overflow into a different direction");
+        t.Equal((byte)192, NetProtocol.EncodeMapRoomGazeYaw(-90f),
+                "a NEGATIVE yaw is the same direction as its positive twin — wrapped BEFORE "
+                + "quantising, because taking the modulo of a rounded step folds −0.1° onto 255");
+        t.Equal((byte)0, NetProtocol.EncodeMapRoomGazeYaw(-0.1f),
+                "…which is why −0.1° is step 0 and not step 255");
+        t.Equal((byte)0, NetProtocol.EncodeMapRoomGazeYaw(float.NaN),
+                "a non-finite input maps to 0 rather than throwing: the wire never carries a NaN, "
+                + "and a receiver never has to ask whether the sender's trigonometry went wrong");
+        t.Equal((byte)0, NetProtocol.EncodeMapRoomGazeYaw(float.PositiveInfinity), "…infinity too");
+        t.Equal(0f, NetProtocol.DecodeMapRoomGazeYaw(0), "step 0 decodes to 0°");
+        t.Equal(90f, NetProtocol.DecodeMapRoomGazeYaw(64), "…step 64 to 90°…");
+        t.Equal(180f, NetProtocol.DecodeMapRoomGazeYaw(128), "…step 128 to 180°…");
+        t.Equal(358.59375f, NetProtocol.DecodeMapRoomGazeYaw(255),
+                "…and step 255 to 255 x 1.40625 = 358.59375°, so all 256 values are legal "
+                + "directions and NONE of them is a sentinel — which is exactly why validity is "
+                + "carried by MapRoomGazeValidBit and never by a reserved number");
+        for (int step = 0; step < NetProtocol.MapRoomGazeYawSteps; step++)
+        {
+            if (NetProtocol.EncodeMapRoomGazeYaw(NetProtocol.DecodeMapRoomGazeYaw((byte)step))
+                != (byte)step)
+            {
+                t.True(false, $"step {step} does not survive a decode/encode round trip, so two "
+                              + "clients could read the host's decision as two different directions");
+                break;
+            }
+        }
+        t.True(true,
+               "every one of the 256 steps survives decode -> encode unchanged, which is the "
+               + "property that matters: the host encodes ONCE and every client decodes that same "
+               + "byte, so 'the same place for everybody' is arithmetic and not a hope");
+
+        t.Case("m23. record 20 carries the host's gaze decision as flags bit 6 plus one byte");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasMapRoom = true,
+            MapRoomFlags = (byte)(NetProtocol.MapRoomInRoomBit
+                                  | NetProtocol.MapRoomHostBit
+                                  | NetProtocol.MapRoomGazeValidBit),
+            MapRoomGazeYaw = 64,
+        }, ext);
+        t.Wire(Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            01               // tail: 1 record
+            14 10            // id 20, len 16
+            43               // flags: inRoom(1) | host(2) | gazeValid(64) = 0x43
+            00               // surfaceStamp 0
+            00 00 00 00      // pickKey 0
+            00               // selectStamp 0
+            00 00 00 00      // selectKey 0
+            00 00 00 00      // fanCharacterKey 0
+            40               // gazeYaw step 64 = 90 degrees: the party is facing world +X
+            "), ext, m, "the gaze yaw is the HOST'S DECISION about where the party is looking, and "
+                        + "the bit beside it is what makes the byte mean anything. Every client "
+                        + "anchors a shared window's SPAWN from this one number — a client that "
+                        + "averaged the peer heads itself would be averaging its own interpolated "
+                        + "copies at its own sampling age and would place a SHARED window somewhere "
+                        + "nobody else did");
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p22), "and it parses");
+        t.Equal((byte)64, p22.MapRoomGazeYaw, "the step survives the round trip");
+        t.True((p22.MapRoomFlags & NetProtocol.MapRoomGazeValidBit) != 0,
+               "…and so does the bit that says it means something");
+        t.True((p22.MapRoomFlags & NetProtocol.MapRoomHostBit) != 0,
+               "…beside the host bit, which is the only sender allowed to make this decision");
+
+        t.Case("m24. a record with NO gaze bit says nothing, whatever byte it carries");
+        m = PresenceSerializer.Write(new PresenceState
+        {
+            HasMapRoom = true,
+            MapRoomFlags = NetProtocol.MapRoomInRoomBit,
+            MapRoomGazeYaw = 200,
+        }, ext);
+        t.True(PresenceSerializer.TryRead(ext, m, out PresenceState p23), "it parses");
+        t.Equal((byte)200, p23.MapRoomGazeYaw,
+                "the byte is delivered verbatim — it is not sanitised, because there is nothing to "
+                + "sanitise: all 256 steps are legal directions");
+        t.True((p23.MapRoomFlags & NetProtocol.MapRoomGazeValidBit) == 0,
+               "but the bit is clear, and THAT is what the anchor tests. A non-host sender is "
+               + "always in this state, and so is a host before its decision settles or after it "
+               + "refused — and all three mean the same thing to a receiver: use the fixed table "
+               + "axis, exactly as every build before this one did");
+
+        t.Case("m25. an OLDER peer's 15-byte record still parses and carries no gaze");
+        byte[] preGaze = Hex.Bytes(@"
+            31 52 56 47      // magic
+            03 01            // version, type
+            80               // flags
+            00               // handCardCount
+            80 00            // byte A / byte B
+            02               // tail: 2 records
+            14 0F            // id 20 in the PREVIOUS fifteen-byte form (a pre-gaze peer)
+            43               // flags: inRoom | host | AND bit 6 set, which that build cannot mean
+            00               // surfaceStamp
+            00 00 00 00      // pickKey
+            00               // selectStamp
+            00 00 00 00      // selectKey
+            00 00 00 00      // fanCharacterKey
+            03 02 00 01      // id 3 (mod version) BEHIND it, undamaged
+            ");
+        t.True(PresenceSerializer.TryRead(preGaze, preGaze.Length, out PresenceState p24),
+               "it parses — 15 bytes is well over the frozen 6-byte minimum");
+        t.Equal((byte)0, p24.MapRoomGazeYaw,
+                "and the gaze byte reads 0 because the record is not long enough to hold one: the "
+                + "field is read behind its OWN length test, so a shorter record is not a "
+                + "truncated one, it is a record that does not have the field");
+        t.True((p24.MapRoomFlags & NetProtocol.MapRoomGazeValidBit) == 0,
+               "AND THE BIT IS STRIPPED, which is the case this vector exists for. The flags byte "
+               + "lives in the FROZEN six-byte minimum, so a sender of any length can light bit 6 "
+               + "in it while carrying no gaze byte — and a receiver that trusted the bit would "
+               + "read the 0 left behind as a DECIDED yaw of 0° and seat every shared window along "
+               + "world +Z for the whole room visit. The reader clears the bit where the field's "
+               + "absence is known. Our own older writers mask it out anyway; 'never trust the "
+               + "wire' is not satisfied by trusting our own past builds");
+        t.True((p24.MapRoomFlags & NetProtocol.MapRoomHostBit) != 0,
+               "…and only that bit: everything else the short record really did say survives");
+        t.True(p24.HasModVersion,
+               "…and the record BEHIND it is untouched, because the walk steps by the record's own "
+               + "length and not by this build's idea of how long record 20 should be");
+
         // ---- the sizing contract ----------------------------------------------------------------
 
         t.Case("m18. the record sizes are what MaxSize was raised for");
@@ -813,10 +963,18 @@ internal static class MapSyncVectors
         t.Equal(11, NetProtocol.MapRoomRecordBytesWithSelect,
                 "…the selection edge adds selectStamp + a 4-byte select key on top of it…");
         t.Equal(15, NetProtocol.MapRoomRecordBytesWithFan,
-                "…and the FULL form this build writes adds the map-fan character key, so a peer's "
-                + "card fan prints the loadout its owner NAMED instead of one deduced from the "
-                + "hand's size. Each field is read behind its own length test, which is why all "
-                + "three of these numbers can be true at once");
+                "…then the map-fan character key, so a peer's card fan prints the loadout its owner "
+                + "NAMED instead of one deduced from the hand's size…");
+        t.Equal(16, NetProtocol.MapRoomRecordBytesWithGaze,
+                "…and the FULL form this build writes adds ONE byte, the host's quantised decision "
+                + "about where the party is looking, so a shared window spawns in front of the "
+                + "players and in the same place for all of them. Each field is read behind its own "
+                + "length test, which is why all four of these numbers can be true at once");
+        t.Equal(256, NetProtocol.MapRoomGazeYawSteps,
+                "the full turn in 256 steps = 1.40625° each, a worst-case rounding of 0.703°, "
+                + "which is 9.8 mm of arc at the 0.80 m ring radius — an order of magnitude under "
+                + "the 0.12 m the separation rule already guarantees between two windows. A float "
+                + "would have been four bytes of precision a human neck cannot hold");
         t.Equal(8, NetProtocol.SharedWindowEntryMinBytes,
                 "a shared-window entry head is kind + flags + page + pageCount + a 4-byte key");
         t.Equal(31, NetProtocol.SharedWindowEntryBytesWithPose,
@@ -840,11 +998,12 @@ internal static class MapSyncVectors
                 + "every new record keeps a margin of at least one record's worth. The selection "
                 + "edge then took record 20 from 8 to 13 and the worst case to 1435, which needs "
                 + "no raise: the margin is still 365");
-        t.True(PresenceSerializer.MaxSize - 1466 >= 257,
+        t.True(PresenceSerializer.MaxSize - 1467 >= 257,
                "the margin is larger than the largest single record, which is the stated rule and "
                + "the reason the earlier raises happened. ModBuild 231 moved the worst case 1435 -> "
                + "1466 (record 21's payload 63 -> 94 for the encounter's entry) and the margin 365 "
-               + "-> 334, still comfortably over the 257-byte board-tuning record, so MaxSize stays "
-               + "at 1800 and no peer's parser sees a different ceiling");
+               + "-> 334; the SHARED GAZE round then moved it 1466 -> 1467 for record 20's one new "
+               + "byte, leaving 333 — still comfortably over the 257-byte board-tuning record, so "
+               + "MaxSize stays at 1800 and no peer's parser sees a different ceiling");
     }
 }

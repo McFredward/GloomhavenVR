@@ -1058,6 +1058,18 @@ internal struct PresenceState
     /// answer.</para></summary>
     public uint MapRoomFanCharacterKey;
 
+    /// <summary>The HOST'S DECISION about where the party is looking, quantised to
+    /// <see cref="NetProtocol.MapRoomGazeYawSteps"/> steps of a full turn — meaningful only while
+    /// <see cref="NetProtocol.MapRoomGazeValidBit"/> is set in <see cref="MapRoomFlags"/>.
+    ///
+    /// <para>Every client anchors a SHARED window's spawn pose from this one published number, so
+    /// that the window stands in front of the players and stands in the SAME place for all of them.
+    /// A client that averaged the peer heads itself would be averaging its own interpolated copies
+    /// and would place the window somewhere nobody else did. See
+    /// <see cref="NetProtocol.MapRoomRecordBytesWithGaze"/> for the whole contract and
+    /// <c>Net.Remote.RemoteSharedGaze</c> for the host-side latch.</para></summary>
+    public byte MapRoomGazeYaw;
+
     // ---- THE MAP ROOM'S SHARED WINDOWS (extension record 21) -------------------------------
     // Sampled and consumed in Net/RemoteMapStory.cs; nothing else reads them.
 
@@ -1399,13 +1411,20 @@ internal static class PresenceSerializer
     /// + 8 (ENV CLOCK: 2 + <c>NetProtocol.EnvClockRecordBytesWithFrequency</c> 6)
     /// + 10 (TEST FORCE: 2 + <c>NetProtocol.TestForceRecordBytes</c> 8)
     /// + 31 (STORY SYNC: 2 + <c>NetProtocol.StoryRecordBytesWithPose</c> 29)
-    /// + 17 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytesWithFan</c> 15)
+    /// + 18 (3D MAP ROOM: 2 + <c>NetProtocol.MapRoomRecordBytesWithGaze</c> 16)
     /// + 65 (SHARED MAP WINDOWS: 2 + <c>NetProtocol.SharedWindowMaxRecordBytes</c> 63)
     /// + 257 (BOARD TUNING: 2 TLV + one PAGE, and a page is 255 by definition —
     /// <c>NetProtocol.BoardTunePageHeaderBytes</c> 7 + <c>BoardTunePageMaxFieldBytes</c> 248)
     /// + 4 (PER-ITEM USABLE MASK: 2 + <c>NetProtocol.ItemUsableRecordBytes</c> 2)
     /// + 6 (HELD-CARD FACE: 2 + its two-slot form, 2 x <c>NetProtocol.HeldCardFaceSlotBytes</c>)
-    /// = 1513.
+    /// = 1514.
+    ///
+    /// <para>1513 → 1514 on the SHARED GAZE round: record 20 grew ONE byte, the host's quantised
+    /// decision about where the party is looking, so a shared window spawns in front of the players
+    /// and in the SAME place for all of them (user item 17, 2026-09-03: "es wäre trotzdem gut wenn
+    /// es im Sichtbereich der Spieler spawnt"). <see cref="MaxSize"/> is UNCHANGED at 1800 — the
+    /// margin is 286 bytes, still more than the largest single record (257, board tuning), so the
+    /// rule below is satisfied without a raise.</para>
     ///
     /// <para>1449 → 1513 on 2026-09-03: the PICK BANNER cap went 96 → 160 B because 96 was
     /// silently deleting the end of the German placard sentence (user item 12 of the
@@ -2457,10 +2476,10 @@ internal static class PresenceSerializer
                     records++;
                 }
                 if (state.HasMapRoom
-                    && i + 2 + NetProtocol.MapRoomRecordBytesWithFan <= buffer.Length)
+                    && i + 2 + NetProtocol.MapRoomRecordBytesWithGaze <= buffer.Length)
                 {
                     // 3D MAP ROOM (20): [flags][surfaceStamp][u32 pickKey LE][selectStamp]
-                    // [u32 selectKey LE][u32 fanCharacterKey LE].
+                    // [u32 selectKey LE][u32 fanCharacterKey LE][gazeYaw].
                     // The full contract — above all WHY both stamps are EDGES
                     // and not levels, why the pick key may light an icon and may never select one,
                     // and why the SELECTION is a fact the game itself carries nowhere — is written
@@ -2481,13 +2500,18 @@ internal static class PresenceSerializer
                     // absent rather than guessing.
                     // Appended LAST, behind record 19, per the tail's append-order contract.
                     buffer[i++] = NetProtocol.ExtIdMapRoom;
-                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytesWithFan;
+                    buffer[i++] = (byte)NetProtocol.MapRoomRecordBytesWithGaze;
                     buffer[i++] = (byte)(state.MapRoomFlags & NetProtocol.MapRoomDefinedMask);
                     buffer[i++] = state.MapRoomSurfaceStamp;
                     AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomPickKey);
                     buffer[i++] = state.MapRoomSelectStamp;
                     AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomSelectKey);
                     AvatarSerializer.WriteU32(buffer, ref i, state.MapRoomFanCharacterKey);
+                    // THE SHARED GAZE YAW, one byte, written UNCONDITIONALLY like every field before
+                    // it — its meaning is carried by MapRoomGazeValidBit and not by its presence, so
+                    // a non-host (which never sets the bit) writes a 0 that says nothing rather than
+                    // a shorter record that two readers would have to agree about.
+                    buffer[i++] = state.MapRoomGazeYaw;
                     records++;
                 }
                 if (state.HasSharedWindow && state.SharedWindowCount > 0
@@ -4078,6 +4102,30 @@ internal static class PresenceSerializer
                                                                   | (buffer[i + 12] << 8)
                                                                   | (buffer[i + 13] << 16)
                                                                   | (buffer[i + 14] << 24));
+                        }
+                        // THE SHARED GAZE YAW, same discipline one field further out. NOT VALIDATED,
+                        // and there is nothing to validate: all 256 steps are legal directions, and
+                        // whether the number means anything at all is said by MapRoomGazeValidBit —
+                        // which an older sender cannot set, because its flags byte is masked by a
+                        // MapRoomDefinedMask that does not contain the bit. So a peer on an older
+                        // build leaves this 0 AND the bit clear, and every client falls back to the
+                        // fixed table axis, which is exactly what every build before this one did.
+                        if (len >= NetProtocol.MapRoomRecordBytesWithGaze)
+                        {
+                            state.MapRoomGazeYaw = buffer[i + 15];
+                        }
+                        else
+                        {
+                            // A RECORD TOO SHORT TO HOLD THE FIELD MUST NOT BE READ AS SETTING IT,
+                            // and the flags byte is where that could have gone wrong: it lives in
+                            // the FROZEN six-byte minimum, so a sender of ANY length can light bit 6
+                            // in it while carrying no gaze byte at all — and the anchor would then
+                            // take the 0 left here as a decided yaw of 0° and seat every shared
+                            // window along world +Z for the whole room visit. Our own older writers
+                            // mask the bit out, but "never trust the wire" is not satisfied by
+                            // trusting our own past builds. The bit is stripped where the absence is
+                            // KNOWN, which is here.
+                            state.MapRoomFlags &= unchecked((byte)~NetProtocol.MapRoomGazeValidBit);
                         }
                     }
                     else if (id == NetProtocol.ExtIdSharedWindow && len >= 1)
