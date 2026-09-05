@@ -416,7 +416,14 @@ internal static class NetProtocol
     /// block comment above — bump by +1 on every build handed to another player).
     /// Build 2: remote-board 1:1 parity round (board-UI record 4, fan-anchor record 5,
     /// 15 Hz board pose while moving).</summary>
-    public const ushort ModBuild = 442;
+    public const ushort ModBuild = 443;
+    // Build 443: the user-facing docs cut roughly in half and carried by pictures, the controls
+    // drawn as a button map whose LABELS are drawn by a committed script rather than generated, and
+    // five [Comfort] descriptions corrected: they named the GRIP for a control that has read the
+    // thumbstick CLICK since the P8 rebind, in both languages, so a player following the menu
+    // pressed the wrong button. Also the Standard environment tile, an art defect the picker was
+    // never part of. NO shipped VALUE moved.
+    // *** DLL-ONLY INSTALL. Bundle unchanged: 74,943,628 bytes. NO WIRE FIELD.
     // Build 442: REGRESSION FIX. 441 wrote an array length as "the member that was last when I
     // wrote this line" and a later build had appended past it, so MountedMark threw
     // IndexOutOfRangeException, the throw aborted RescanCore, the segment table was never rebuilt

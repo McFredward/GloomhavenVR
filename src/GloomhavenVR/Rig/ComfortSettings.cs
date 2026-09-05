@@ -299,22 +299,25 @@ internal static class ComfortSettings
         _file = Core.ModuleConfig.Create("comfort");
 
         WorldGrabEnabled = Bind("WorldGrabEnabled", Defaults.WorldGrabEnabled,
-            "Grip-based table manipulation: one grip (away from grabbable objects) drags the " +
-            "table, two grips rotate and pinch-scale it. Moves only the VR rig, never the game world.");
+            "Stick-click table manipulation: hold ONE thumbstick clicked in (away from grabbable " +
+            "objects) and drag to move the table; hold BOTH to rotate and pinch-scale it. Moves " +
+            "only the VR rig, never the game world. THE BUTTON IS THE STICK CLICK, not the grip: " +
+            "WorldGrab reads primary2DAxisClick (WorldGrab.cs:199) and has since the P8 rebind, " +
+            "which moved it off the grip so a grip could stay reserved for grabbing things.");
         FreeMovement = Bind("FreeMovement", Defaults.FreeMovement,
-            "Fully free diorama movement: the one-grip drag moves the table in ANY direction " +
+            "Fully free diorama movement: the one-stick drag moves the table in ANY direction " +
             "(including straight up/down, no head-above-table clamp, no positional limits at " +
             "all) and the pinch-scale range is at least 0.1x-12x of the base scale. Disable to " +
             "restore the old comfort clamps (horizontal drag unless VerticalDrag, head kept " +
             "above the table, configured ScaleMin/ScaleMax). Recenter (B+Y hold) always " +
             "returns to the table edge from anywhere.");
         VerticalDrag = Bind("VerticalDrag", Defaults.VerticalDrag,
-            "Allow the one-grip drag to also move the table vertically. Off = horizontal plane " +
+            "Allow the one-stick drag to also move the table vertically. Off = horizontal plane " +
             "only. Ignored (always on) while FreeMovement is enabled.");
         RotateEnabled = Bind("RotateEnabled", Defaults.RotateEnabled,
-            "Two-grip gesture rotates the table around the point between your hands (yaw only).");
+            "Both sticks clicked in: rotates the table around the point between your hands (yaw only).");
         ScaleEnabled = Bind("ScaleEnabled", Defaults.ScaleEnabled,
-            "Two-grip pinch scales the table (spread hands = board grows).");
+            "Both sticks clicked in: pinch scales the table (spread hands = board grows).");
         ScaleMin = Bind("ScaleMin", Defaults.ScaleMin,
             "Lower pinch-scale clamp as a multiplier of the base WorldScale. While FreeMovement " +
             "is on, the effective floor is at most 0.1x regardless of this value.",

@@ -823,23 +823,24 @@ internal static partial class Loc
                 + "unter ExitDwellMovedSeconds.",
             // ---- [Comfort] ----
             ["Comfort/WorldGrabEnabled"] =
-                "Tisch-Manipulation über den Griff: ein Griff (abseits greifbarer Objekte) zieht den Tisch, "
-                + "zwei Griffe drehen und skalieren ihn per Pinch-Griff. Bewegt nur das VR-Rig, nie die "
-                + "Spielwelt.",
+                "Tisch-Manipulation über den Stick-Klick: EINEN Thumbstick gedrückt halten (abseits greifbarer "
+                + "Objekte) und ziehen bewegt den Tisch, BEIDE gedrückt drehen und skalieren ihn. Bewegt "
+                + "nur das VR-Rig, nie die Spielwelt. DIE TASTE IST DER STICK-KLICK, nicht der Griff: der "
+                + "Griff bleibt fürs Greifen reserviert, seit die Bedienung umgelegt wurde.",
             ["Comfort/FreeMovement"] =
-                "Völlig freie Diorama-Bewegung: das Ziehen mit einem Griff bewegt den Tisch in JEDE Richtung "
+                "Völlig freie Diorama-Bewegung: das Ziehen mit einem Stick-Klick bewegt den Tisch in JEDE Richtung "
                 + "(auch senkrecht hoch/runter, ohne Kopf-über-Tisch-Begrenzung, ganz ohne Positionsgrenzen), "
                 + "und der Pinch-Skalierbereich beträgt mindestens 0.1x-12x der Grundskalierung. Ausschalten "
                 + "stellt die alten Komfort-Begrenzungen wieder her (nur waagerechtes Ziehen, sofern nicht "
                 + "VerticalDrag, Kopf bleibt über dem Tisch, eingestelltes ScaleMin/ScaleMax). Neu zentrieren "
                 + "(B+Y halten) bringt dich von überall an die Tischkante zurück.",
             ["Comfort/VerticalDrag"] =
-                "Erlaubt dem Ziehen mit einem Griff, den Tisch auch senkrecht zu bewegen. Aus = nur "
+                "Erlaubt dem Ziehen mit einem Stick-Klick, den Tisch auch senkrecht zu bewegen. Aus = nur "
                 + "waagerechte Ebene. Wird ignoriert (immer an), solange FreeMovement aktiv ist.",
             ["Comfort/RotateEnabled"] =
-                "Die Zwei-Griff-Geste dreht den Tisch um den Punkt zwischen deinen Händen (nur Gieren).",
+                "Beide Sticks gedrückt: dreht den Tisch um den Punkt zwischen deinen Händen (nur Gieren).",
             ["Comfort/ScaleEnabled"] =
-                "Der Zwei-Griff-Pinch skaliert den Tisch (Hände auseinander = Board wird größer).",
+                "Beide Sticks gedrückt: Auseinanderziehen skaliert den Tisch (Hände auseinander = Board wird größer).",
             ["Comfort/ScaleMin"] =
                 "Untere Grenze der Pinch-Skalierung als Vielfaches der Grund-WorldScale. Solange FreeMovement "
                 + "an ist, liegt die wirksame Untergrenze unabhängig von diesem Wert bei höchstens 0.1x.",
@@ -912,7 +913,7 @@ internal static partial class Loc
                 + "zentrieren. 0 schaltet die Tastenkombination ab.",
             ["Comfort/SavedScaleMultiplier"] =
                 "Letzter Pinch-Skalierungsfaktor relativ zur Grund-WorldScale (die \"Tischgröße\" in der "
-                + "VR-Einstellungstafel). Wird nach jeder Zwei-Griff-Skaliergeste automatisch geschrieben und "
+                + "VR-Einstellungstafel). Wird nach jeder Skaliergeste mit beiden Sticks automatisch geschrieben und "
                 + "beim Neuaufbau des Rigs wieder angewandt. Die automatische Grundskalierung wirkt wie ein "
                 + "riesiges Diorama; der Faktor schrumpft sie beim ersten Erscheinen auf eine angenehme "
                 + "Tischgröße (Nutzerwunsch: Standard-Tischgröße ~2.5). Der ausgelieferte Standard steht "
