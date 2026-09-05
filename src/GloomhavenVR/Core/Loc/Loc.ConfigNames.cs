@@ -569,11 +569,13 @@ internal static partial class Loc
             ["MixedReality/UnseenRimInset"] = Pair("MR: edge curtain inset", "MR: Randvorhang Versatz"),
             ["MixedReality/UnseenRimTopClearance"] =
                 Pair("MR: edge curtain top gap", "MR: Randvorhang Abstand oben"),
-            // THE ONE-DECISION ROW, first on the Bild page and therefore first here. Named for what
-            // it IS rather than for what it saves ("Grafik-Voreinstellung", not "Leistungsstufe"),
-            // because the top of its own list is the quality end: a player who picks "Qualität"
-            // must not feel they have opened a performance menu by mistake.
-            ["RenderQuality/QualityPreset"] = Pair("Graphics preset", "Grafik-Voreinstellung"),
+            // "RenderQuality/QualityPreset" ("Grafik-Voreinstellung") STOOD HERE, first on the Bild
+            // page and therefore first here, and is GONE — the graphics presets were removed on
+            // 2026-09-05 by user ruling ("Entferne die Graphik-Profile wieder in den
+            // VR-Einstellungen, die mag ich nicht."). The entry is retired at its bind
+            // (Rig/RenderQuality.cs) so no page can produce it, which makes a display name here
+            // unreachable text; and this table is exactly where a reader decides a setting EXISTS
+            // — see the twelve dead names deleted together in the 2026-08-22 sweep, two blocks up.
             ["RenderQuality/MsaaLevel"] = Pair("MSAA level", "MSAA-Stufe"),
             ["RenderQuality/ForceAnisotropic"] = Pair("Anisotropic filtering", "Anisotrope Filterung"),
             ["RenderQuality/EyeResolutionScale"] = Pair("Resolution per eye", "Auflösung pro Auge"),

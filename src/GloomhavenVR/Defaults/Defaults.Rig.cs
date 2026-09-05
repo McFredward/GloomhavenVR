@@ -97,20 +97,23 @@ internal static partial class Defaults
     // default — so an unmarked line would make scripts/rebase-defaults.py rebase the ruling straight
     // back out of the source at the next drop. The marker says "the cfg is the older statement here".
     internal const int PixelLightCount = 0;              // => [RenderQuality] PixelLightCount  (pinned: user ruling 2026-08-23 — 0 in every preset and as the shipped default; the cfg snapshot predates it)
-    // 4 = "Eigene", and that is not a regression — it is the honest reading of the three rows above
-    // after the 2026-08-23 cfg rebase took the user's own tuned values ("Übernehme bitte die in
-    // debug/default liegenden Default werte von mir"). They now spell MSAA 4x, eye 1.00x and a
-    // per-pixel light cap of 0, which matches NO entry in RenderQuality.Presets — "Ausgewogen" is
-    // 4x but at eye 0.90x — so the derived index is the custom one.
+    // THE VALUE IS UNCHANGED AND MUST STAY 4, and the reason it is 4 has outlived the thing it
+    // described. It meant "Eigene": the honest reading of the three rows above after the 2026-08-23
+    // cfg rebase took the user's own tuned values ("Übernehme bitte die in debug/default liegenden
+    // Default werte von mir"). They spell MSAA 4x, eye 1.00x and a per-pixel light cap of 0, which
+    // matched NO preset — "Ausgewogen" was 4x but at eye 0.90x — so the derived index was the
+    // custom one.
     //
-    // NOTHING HERE IS LOAD-BEARING. This value is a MIRROR of those three, never a master; see
-    // RenderQuality.QualityPreset, and MirrorPresetToConfig, which copies the derived index over
-    // whatever stands here within one tick. It is rebased with the rest of the cfg rather than
-    // pinned precisely BECAUSE it is derived: pinning it would freeze a number the first tick
-    // overwrites anyway, and shipping 0 while the rows spell "Eigene" would put a wrong preset name
-    // in front of the player for exactly one frame. The line the file wants is the one the rows
-    // already prove.
-    internal const int QualityPreset = 4;                // => [RenderQuality] QualityPreset
+    // THE PRESETS ARE GONE (2026-09-05, user ruling: "Entferne die Graphik-Profile wieder in den
+    // VR-Einstellungen, die mag ich nicht."). [RenderQuality] QualityPreset is RETIRED at its bind
+    // and INERT: the preset table, the derived index, the apply path and the per-tick mirror that
+    // used to overwrite this number are all deleted (Rig/RenderQuality.cs), and no code reads the
+    // entry. The key is still bound, so this default is still what a fresh cfg gets — which is the
+    // ONLY reason the number is still here, and why it must not be "tidied" to 0: changing it would
+    // rewrite a value in every new install's config file for a setting that does nothing, and this
+    // round moves rows, it does not tune. There is nothing left to derive it from either, so if the
+    // key is ever unbound, delete this line rather than re-deriving it.
+    internal const int QualityPreset = 4;                // => [RenderQuality] QualityPreset (RETIRED, inert)
 
     // ---- Rig/LightStabiliser.cs ----------------------------------------------------
     // ON by default, and SINCE 2026-08-23 IT IS ALSO ACTIVE BY DEFAULT: the whole class is gated on

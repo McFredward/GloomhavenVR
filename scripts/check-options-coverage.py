@@ -358,6 +358,14 @@ DUPLICATE_ALLOWED = {
 #
 # TO FIX ONE: curate the row, then delete its line here. Regenerate the whole set after a
 # deliberate restructure with `check-options-coverage.py --bless`, and say so in the commit.
+#
+# "THE LIST MAY ONLY SHRINK" HAS ONE SANCTIONED EXCEPTION AND 2026-09-05 IS IT: a DEMOTION ordered
+# by the user grows this set on purpose, because a row leaving the curated page while a sibling
+# stays is precisely a new orphan. Four entries were added that day (the three [Cards] Spawn*
+# arrival dials and [Comfort] LaserCarryReelSpeed), each carrying the ruling that moved it and the
+# Erweitert heading it lands on. What the rule still forbids — and still catches — is a NEW key
+# joining a curated family with no row and no line here. Added by hand rather than by --bless, so
+# that every addition had to be argued instead of blessed in a batch.
 KNOWN_ORPHANS = {
     ("Board", "TouchRange"),
     ("Cards", "BoardMaxWidthMeters"),
@@ -399,12 +407,31 @@ KNOWN_ORPHANS = {
     ("Cards", "SpawnDownMeters"),
     ("Cards", "SpawnForwardMeters"),
     ("Cards", "SpawnSideMeters"),
+    # ADDED 2026-09-05 — the three numeric ARRIVAL dials, demoted off the curated Brett & Karten
+    # page by user ruling (b): "In den Nicht-Erweitert Kategorien sind wieder viel zu viele
+    # detaillierte Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin - Denke immer
+    # daran das die einfachen Spieler die Zielgruppe sind." They join the three Spawn*Meters
+    # offsets directly above, which were never curated for exactly the same reason: all six are
+    # read once, at the moment the board arrives, so turning one while looking at the board does
+    # nothing. The curated 'Spawn' family is now [Cards] SpawnLeftOfHead alone — the decision, not
+    # its measurements. NOT a curation gap: all three are listed by hand on Erweitert ▸ Karten &
+    # Fächer ▸ Steuerbrett (VROptionsTab.7.TopicTrees.cs), beside these three.
+    ("Cards", "SpawnBoardWidthDegrees"),
+    ("Cards", "SpawnMaxBearingDegrees"),
+    ("Cards", "SpawnMaxReachMeters"),
     ("Cards", "TrayDown"),
     ("Cards", "TrayForward"),
     ("Cards", "TrayPitch"),
     ("Cards", "TrayRight"),
     ("Cards", "TrayTilt"),
     ("Cards", "TrayYaw"),
+    # ADDED 2026-09-05 by the same ruling — the reel's SPEED constant in m/s. The switch
+    # ([Comfort] LaserCarryReel) stays curated on Bild ▸ Fenster & Tafeln; its calibration does
+    # not, which is the pattern that section already applies to [WorldUI] PanelSupersampleFactor
+    # and PanelMipLodOffset further down this list. [Comfort] is under
+    # ConfigCatalog.SectionSplitThreshold, so it lands in the section's single group on
+    # Erweitert ▸ Bewegung, directly beside the switch.
+    ("Comfort", "LaserCarryReelSpeed"),
     ("FigureGrab", "GrabProps"),
     ("Hands", "ArcaneForwardOffset"),
     ("Hands", "ArcaneGripPitchDegrees"),

@@ -928,33 +928,14 @@ internal static partial class Loc
                 "Interne einmalige Migrationsmarke: Die 2.5x-Standard-Tischgröße wurde dieser "
                 + "Konfigurationsdatei angeboten. Nicht bearbeiten.",
             // ---- [RenderQuality] ----
-            // Nachgetragen 2026-08-23 mit der Voreinstellungs-Zeile. Der Text nennt zuerst, was die
-            // Voreinstellung setzt, dann was sie NICHT kann — der Bericht, aus dem sie entstand
-            // ("ich bin mir nicht sicher ob das überhaupt irgendwas gebracht hat"), ist genau die
-            // Enttäuschung, die entsteht, wenn ein Bild-Regler gegen eine Logik-Last antritt.
-            ["RenderQuality/QualityPreset"] =
-                "Ein benannter Punkt auf der Kurve aus MSAA und Augenauflösung — eine Entscheidung "
-                + "statt zwei Zahlen. Qualität = MSAA 8x, Auflösung 1.00x (Auslieferungszustand). "
-                + "Ausgewogen = 4x, 0.90x. Leistung = 2x, 0.80x. Schwache Hardware = MSAA aus, "
-                + "0.60x. DIE PIXELLICHT-GRENZE STEHT IN ALLEN VIEREN AUF 0 (Nutzer-Entscheid vom "
-                + "2026-08-23) — sie ist der stärkste einzelne Leistungshebel des Mods und der "
-                + "einzige, der nicht Schärfe, sondern das AUSSEHEN kostet, deshalb verteilt keine "
-                + "Voreinstellung sie stillschweigend; ihre Zeile steht in Erweitert. Sie wird hier "
-                + "aber weiterhin VERGLICHEN: Wer sie von Hand heraufsetzt, liest hier folgerichtig "
-                + "\"Eigene\" statt eines Namens, den die Einstellung nicht mehr verdient. "
-                + "Eigene = die Zeilen darunter ergeben keine Voreinstellung; das "
-                + "ist eine ANZEIGE, kein wählbarer Zustand — 'Eigene' auszuwählen tut nichts. "
-                + "NICHTS WIRD GESPERRT: Die beiden Zeilen darunter bleiben einstellbar (und die "
-                + "Pixellicht-Zeile in Erweitert ebenso), und sobald du eine davon veränderst, "
-                + "springt diese Zeile von selbst auf 'Eigene'. "
-                + "WAS SIE NICHT KANN, ehrlich gesagt: Alle drei Regler sind Bild- und "
-                + "Abgabe-Regler. Wenn das Bild langsam ist, weil VIEL IN DER SZENE STEHT — der "
-                + "typische Fall beim Herauszoomen auf alle Räume —, liegt die Last in der "
-                + "Spiellogik, und dorthin reicht keiner dieser drei. Aus dem Hardware-Log von "
-                + "ModBuild 226, bei UNVERÄNDERTER Auflösung und MSAA-Stufe: 23 sichtbare Objekte = "
-                + "10,97 ms pro Bild, 4841 sichtbare Objekte = 71,28 ms. Gleiche Pixel, 6,5-fache "
-                + "Bildzeit. Nach unten zu stellen hilft dort, wo die GPU wirklich an der Füllrate "
-                + "hängt — und kostet dort, wo sie es nicht tut, nur Schärfe.",
+            // "RenderQuality/QualityPreset" ("Grafik-Voreinstellung") STOOD HERE with a paragraph
+            // explaining the four presets and what they cannot reach. DELETED 2026-09-05 with the
+            // presets themselves (Nutzer-Entscheid, wörtlich: "Entferne die Graphik-Profile wieder
+            // in den VR-Einstellungen, die mag ich nicht."). The entry is retired at its bind, so
+            // no page can ever show this text; the honest half of it — that all three of these
+            // dials are picture dials and a logic-bound frame will barely notice them — is on
+            // "RenderQuality/MsaaLevel" and "RenderQuality/EyeResolutionScale" below, which is
+            // where a player now makes the trade.
             ["RenderQuality/MsaaLevel"] =
                 "Hardware-MSAA-Sampleanzahl für das VR-Augenrendering (0 = aus, 2/4/8). Die spieleigene "
                 + "Kantenglättung steckt im PostProcessLayer, den der Mod abschaltet, und die Qualitätsstufe "

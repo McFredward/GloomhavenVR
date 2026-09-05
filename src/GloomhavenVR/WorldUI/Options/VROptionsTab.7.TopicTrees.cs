@@ -519,6 +519,13 @@ internal static partial class VROptionsTab
                         new BoardRef("Cards", "Board", perBoard: false),
                         new BoardRef("Cards", "TrayScale", perBoard: false),
                         new BoardRef("Cards", "TrayFollow", perBoard: false),
+                        // The fingertip pad around the board's small default-action buttons
+                        // (ModBuild 403). Listed here by hand since the 2026-09-05 ruling (b) took
+                        // it off the curated Brett & Karten page — a hitbox padding in authored
+                        // pixels is a power-user row — so that it lands beside the board rows it
+                        // belongs to instead of dropping into the "Allgemein" catch-all at the
+                        // bottom of this page, which is where every unlisted [Cards] key goes.
+                        new BoardRef("Cards", "PokePadPixels", perBoard: false),
                         new BoardRef("Cards", "BoardMoveMode", perBoard: false),
                         new BoardRef("Cards", "TrayYaw", perBoard: false),
                         new BoardRef("Cards", "TrayPitch", perBoard: false),

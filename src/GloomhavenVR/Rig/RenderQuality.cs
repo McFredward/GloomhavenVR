@@ -70,7 +70,8 @@ namespace GloomhavenVR.Rig;
 /// NOT the same shape: resolution scales every per-pixel stage (shading, rasterization, the
 /// MSAA surfaces and their resolve) with scale², whereas MSAA multiplies the surface and
 /// resolve bandwidth but not the shading. So the cheap quality is bought by trimming MSAA
-/// first and resolution second — which is exactly the order <see cref="Presets"/> uses.
+/// first and resolution second — which was the order the (now removed) preset table used, and is
+/// still the order to trim by hand.
 /// NOT VERIFIED ON HARDWARE: the perceptual claim ("6.4 effective samples looks like 17.7").
 /// The sample arithmetic is verifiable; how it looks is what the A/B in the settings is for.
 ///
@@ -117,14 +118,17 @@ namespace GloomhavenVR.Rig;
 /// quality level sets antiAliasing 0, so the shipped default IS the anti-aliasing. A quiet default
 /// change would also be undiscoverable — the player would meet a softer image with no row having
 /// moved, which is precisely the shape of the report this round is answering. So the trade is
-/// OFFERED instead: <see cref="Presets"/> ▸ "Ausgewogen" is 4x, "Leistung" 2x, "Schwache Hardware"
-/// off, each one visible in a named dropdown the player picks and can pick back.
+/// OFFERED instead — as the MSAA row itself. From 2026-08-23 to 2026-09-05 it was ALSO offered as
+/// a four-point "Grafik-Voreinstellung" dropdown; that offering is REMOVED (user ruling: "Entferne
+/// die Graphik-Profile wieder in den VR-Einstellungen, die mag ich nicht."), so the trade is made
+/// on the individual rows, which is where it always applied. The tombstone above the config binds
+/// carries the argument and names every deleted member.
 ///
-/// THE THIRD DIAL IS NO LONGER A CHOICE THE PRESETS MAKE (2026-08-23, user ruling — the verbatim
-/// wording is on <see cref="Presets"/>). All four presets now carry a per-pixel light cap of 0, and
-/// the cap's own row left the curated Bild page for Erweitert. What separates the four is therefore
-/// MSAA and resolution only; the cap is still COMPARED by <see cref="CurrentPresetIndex"/>, so a
-/// hand-raised cap correctly reads back as "Eigene" instead of wearing a preset's name.
+/// THE PER-PIXEL LIGHT CAP IS NOT ON THE EVERYDAY PAGE AT ALL (2026-08-23, user ruling, verbatim:
+/// "Die Pixellichter option ist zu gefährlich für normale Nutzer, sie sollte in Erweitert
+/// verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein.").
+/// Both halves hold: Defaults.PixelLightCount is 0, and with the presets gone there is nothing
+/// left that could hand a player a light he did not ask for.
 /// NOT VERIFIED ON HARDWARE: the bandwidth arithmetic above is a model, and no GPU-time counter
 /// exists on this runtime ("gpu n/a" on every [Perf] FRAME line) to check it against. What IS
 /// measured is the ZOOM axis, and it is enough to say the samples are not this frame's wall.
@@ -162,97 +166,44 @@ internal static class RenderQuality
     /// </summary>
     private const int DiagDelayFrames = 30;
 
-    /// <summary>
-    /// One named point on the MSAA x resolution curve. The two levers below trade against the
-    /// SAME artefact and their sample counts multiply (class doc), so offering them as two
-    /// independent numbers asks the player to solve a two-variable problem blind. A preset is
-    /// one choice; the individual rows stay visible and adjustable afterwards, and any manual
-    /// edit simply reads back as "custom" — nothing is hidden or locked.
-    /// Ordered best-looking → cheapest; <see cref="CyclePreset"/> walks them in this order.
-    /// Values sit on the 0.1 stepper grid so the preset and the stepper never disagree.
-    /// </summary>
-    private readonly struct Preset
-    {
-        internal readonly string LocId;
-        internal readonly int Msaa;
-        internal readonly float Scale;
-
-        /// <summary>
-        /// The per-pixel light cap this preset asserts (-1 would mean "leave the game's own value
-        /// alone"; no preset does that any more). ADDED 2026-08-23 with the preset ROW: a preset is
-        /// one decision standing in for several dials, and leaving the third dial out of it would
-        /// have made "Leistung" a name for two thirds of a decision. It is also the only member of
-        /// the trio whose cost is a LOOK and not a sharpness.
-        ///
-        /// <para>ALL FOUR CARRY 0 SINCE THE SAME DAY (user ruling — see <see cref="Presets"/>). The
-        /// member stays a per-preset field rather than becoming a constant because the presets ARE
-        /// the place this decision is written down, and a future preset that wants a light back must
-        /// say so on its own row instead of editing a shared value out from under the other three.</para>
-        /// </summary>
-        internal readonly int PixelLights;
-
-        internal Preset(string locId, int msaa, float scale, int pixelLights)
-        {
-            LocId = locId;
-            Msaa = msaa;
-            Scale = scale;
-            PixelLights = pixelLights;
-        }
-    }
-
-    /// <summary>
-    /// MSAA is trimmed BEFORE resolution, deliberately: resolution below 1 also softens
-    /// TEXTURE detail (and the game's card atlases are mipless — see the Cards FACE TEXTURE
-    /// DIAG line), whereas MSAA only ever touched geometry edges, which the remaining
-    /// supersample still covers. Relative per-pixel cost is noted per entry as a MODEL, not a
-    /// measurement: shading ∝ scale², MSAA surface+resolve bandwidth ∝ msaa x scale².
-    ///
-    /// <para><b>THE PER-PIXEL LIGHT CAP IS 0 IN ALL FOUR SINCE 2026-08-23</b>, by user ruling,
-    /// verbatim: <i>"Die Pixellichter option ist zu gefährlich für normale Nutzer, sie sollte in
-    /// Erweitert verschwinden und per default auch in allen Graphik-Voreinstellungen auf 0
-    /// geschaltet sein."</i> It is the strongest single performance lever the mod has and the one
-    /// whose cost is a LOOK rather than a sharpness, so it is no longer something a player can walk
-    /// into by picking the nicest-sounding preset. <see cref="LightStabiliser"/> exists to make 0
-    /// livable and is on by default; the row itself is still reachable, one level deeper, on
-    /// Erweitert ▸ Bild &amp; Darstellung.</para>
-    ///
-    /// <para><b>THE CONSEQUENCE, WRITTEN DOWN RATHER THAN ENGINEERED AWAY:</b> with the same cap in
-    /// every row the cap no longer DISTINGUISHES the presets — the four are separated by MSAA and
-    /// resolution alone. <see cref="CurrentPresetIndex"/> still compares all three, deliberately, so
-    /// a player who raises the cap by hand in Erweitert reads back as "Eigene" rather than as a
-    /// preset that is quietly no longer what its label promises. Dropping the light term from that
-    /// comparison would make the readout lie in exactly the case the ruling above is about.</para>
-    /// </summary>
-    private static readonly Preset[] Presets =
-    {
-        new("preset_quality",     8, 1.0f, 0), // shading 100%, msaa bandwidth 100%, no per-pixel lights
-        new("preset_balanced",    4, 0.9f, 0), // shading  81%, msaa bandwidth  41%, no per-pixel lights
-        new("preset_performance", 2, 0.8f, 0), // shading  64%, msaa bandwidth  16%, no per-pixel lights
-        new("preset_minimum",     0, 0.6f, 0), // shading  36%, msaa bandwidth   5%, no per-pixel lights
-    };
-
-    /// <summary>
-    /// Dropdown index of "custom" — the hand-tuned combination that matches no preset. It sits
-    /// AFTER the four presets rather than before them so the preset order in the dropdown is the
-    /// quality order of <see cref="Presets"/>, and so adding a fifth preset does not renumber
-    /// anything a player has already picked.
-    /// </summary>
-    internal static int CustomPresetIndex => Presets.Length;
-
-    /// <summary>
-    /// The preset row's option list as <see cref="Core.Loc"/> keys, in dropdown order, with
-    /// "custom" last. Built from <see cref="Presets"/> rather than typed out at the row, so adding
-    /// a preset is one line in that table and the menu grows by itself — the same reason the head
-    /// mask's option list is built from HeadMaskLibrary instead of listed in the panel.
-    /// </summary>
-    internal static string[] PresetLocIds()
-    {
-        var ids = new string[Presets.Length + 1];
-        for (int i = 0; i < Presets.Length; i++)
-            ids[i] = Presets[i].LocId;
-        ids[Presets.Length] = "preset_custom";
-        return ids;
-    }
+    // ==========================================================================================
+    //  THE GRAPHICS PRESETS ARE GONE — the whole offering, not just its row
+    // ==========================================================================================
+    // WHAT STOOD HERE, from 2026-08-23 to 2026-09-05: a `Preset` struct, a four-entry `Presets`
+    // table (Qualität 8x/1.00x, Ausgewogen 4x/0.90x, Leistung 2x/0.80x, Schwache Hardware off/
+    // 0.60x, all four with a per-pixel light cap of 0), `CustomPresetIndex`, and `PresetLocIds()`
+    // — plus, further down this file, `CurrentPresetIndex`, `PresetRowIndex`, `ApplyPresetByIndex`,
+    // `MirrorPresetToConfig`, `PresetLabel` and `CyclePreset`.
+    //
+    // THE RULING, verbatim (2026-09-05): "Entferne die Graphik-Profile wieder in den
+    // VR-Einstellungen, die mag ich nicht." Deleting only the menu row would have left the same
+    // dropdown on Erweitert ▸ Bild & Darstellung — the catalog is a reflection walk over every
+    // bound entry, so a row that stops being curated is one navigation level away, not gone — which
+    // is not what "entferne" says. So [RenderQuality] QualityPreset is RETIRED at its bind (the
+    // "LEGACY — no effect" marker ConfigCatalog.IsRetired reads) and the machinery went with it.
+    //
+    // AND THE MACHINERY HAD TO GO, WHICH IS THE PART THAT MATTERS. `ApplyPresetByIndex` was the
+    // only code path in the mod that could overwrite MsaaLevel, EyeResolutionScale or
+    // PixelLightCount without the player touching those rows; its only live caller was the
+    // dropdown (VROptionsTab.4.Curated.TryBuildSpecialRow), and `CyclePreset` — the older cycle
+    // button — had had no caller at all since the dropdown replaced it. Leaving a callerless
+    // apply path standing next to three hand-tuned dials is how a tuned value gets moved by
+    // something that is not the player. The three dials have exactly one writer now, and it is him.
+    //
+    // NOTHING WAS EVER READ BACK OUT of the preset entry: it was a MIRROR, written once per tick
+    // from an index DERIVED off the three dials, and nothing consulted it to decide anything. That
+    // is why retiring it moves no shipped value — and the key stays bound at its old default (4 =
+    // "Eigene") so an existing dev.gloomhavenvr.rig.cfg is not rewritten under a player.
+    //
+    // THE HALF OF A USER RULING THAT LIVED ON THE `Presets` TABLE is preserved here, because the
+    // table it was written on is what disappeared (2026-08-23, verbatim): "Die Pixellichter option
+    // ist zu gefährlich für normale Nutzer, sie sollte in Erweitert verschwinden und per default
+    // auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein." Its first half is UNTOUCHED
+    // and is what the shipped install runs — Defaults.PixelLightCount is 0, and the row lives on
+    // Erweitert ▸ Bild & Darstellung. Its second half is now satisfied by there being no preset
+    // that could hand a pixel light out at all. DO NOT RE-CREATE A PRESET TABLE without re-reading
+    // both rulings: a preset is exactly the mechanism that gives a player a light he did not ask
+    // for, and it is exactly the mechanism this one asked to have removed.
 
     private static ConfigFile? _file;
     internal static ConfigEntry<int>? MsaaLevel;
@@ -270,13 +221,15 @@ internal static class RenderQuality
     internal static ConfigEntry<int>? PixelLightCount;
 
     /// <summary>
-    /// The preset ROW's config entry, and it is a MIRROR of a derived value rather than a fourth
-    /// piece of state. <see cref="CurrentPresetIndex"/> answers "which preset do the three dials
-    /// currently spell" by reading the dials themselves; <see cref="MirrorPresetToConfig"/> copies
-    /// that answer in here once whenever the two disagree. Nothing else ever writes it, so this is
-    /// NOT the write war the standing rule forbids — there is exactly one writer and it copies FROM
-    /// the truth, never back onto it. Moving the MSAA row by hand therefore drops this to
-    /// <see cref="CustomPresetIndex"/> on the next tick instead of fighting the change.
+    /// RETIRED and INERT — the graphics presets were removed on 2026-09-05 by user ruling
+    /// ("Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich nicht.").
+    ///
+    /// <para>It was never a master: it held a MIRROR of an index derived off MsaaLevel,
+    /// EyeResolutionScale and PixelLightCount, refreshed once per tick, and nothing ever read it
+    /// back to decide anything. Both halves of that traffic are gone — the derivation, the mirror
+    /// write, and every apply path — so the field is now only a handle on a bound key that keeps a
+    /// player's cfg file from being rewritten. See the tombstone where the preset table stood, and
+    /// the marker on its own bind below; DO NOT give it a reader.</para>
     /// </summary>
     internal static ConfigEntry<int>? QualityPreset;
 
@@ -381,9 +334,6 @@ internal static class RenderQuality
     /// sampled yet.
     /// </summary>
     private static double _baseMegaSamples;
-
-    /// <summary>Last preset index mirrored into <see cref="QualityPreset"/> (-1 = none yet).</summary>
-    private static int _lastMirroredPreset = -1;
 
     /// <summary>
     /// Bind-once against the rig's own module config (dev.gloomhavenvr.rig.cfg —
@@ -501,34 +451,36 @@ internal static class RenderQuality
             + "actually does is now counted and reported in the log.",
             new AcceptableValueRange<int>(-1, 8)));
 
-        // THE PRESET ROW (2026-08-23). Three rows above this one are three numbers a player is
-        // asked to solve as one problem — they trade against the same artefact, their sample counts
-        // multiply (class doc), and the third one buys frames with a LOOK rather than with
-        // sharpness. Picking a point on that curve is one decision, and it now reads as one.
-        //
-        // WHY THE VALUE IS A MIRROR AND NOT A MASTER, which is the whole reason this is safe to
-        // ship next to the individual dials: the dropdown SHOWS CurrentPresetIndex(), derived from
-        // the three dials every time it is drawn, and MirrorPresetToConfig copies that derived
-        // answer into this entry when the two disagree. Editing MSAA by hand therefore moves this
-        // row to "custom" — it does not get overwritten back to a preset, because nothing reads
-        // this entry to decide anything. That is the "no hidden write war against the individual
-        // dials" requirement, satisfied by there being exactly one writer copying FROM the truth.
+        // THE PRESET ROW (2026-08-23) IS RETIRED (2026-09-05, user ruling, verbatim: "Entferne die
+        // Graphik-Profile wieder in den VR-Einstellungen, die mag ich nicht."). It is bound and
+        // marked, not deleted, and the three reasons are worth writing down because "retire" and
+        // "unbind" are not the same act:
+        //   * The MARKER is what removes it from the menu. ConfigCatalog.Describe drops an entry
+        //     whose bound ENGLISH description starts "LEGACY — no effect" (IsRetired), so this key
+        //     leaves BOTH the curated Bild page and the Erweitert index in the same build. Deleting
+        //     only the curated row would have left the dropdown one navigation level down, which is
+        //     not what "entferne" says.
+        //   * The KEY STAYS so an existing dev.gloomhavenvr.rig.cfg is not rewritten under a
+        //     player, and the default and range are byte-for-byte the ones that shipped
+        //     (Defaults.QualityPreset = 4, range 0..4). The 4 is a LITERAL now because
+        //     CustomPresetIndex went with the preset table; it is the same number that expression
+        //     evaluated to, and it is written here rather than inferred.
+        //   * NOTHING WRITES OR READS IT any more. MirrorPresetToConfig is gone from Tick, and no
+        //     code ever consulted the value to decide anything — it was a per-tick mirror of an
+        //     index derived off the three dials, never a master. So retiring it moves no pixel.
         QualityPreset = _file.Bind("RenderQuality", "QualityPreset", Defaults.QualityPreset, new ConfigDescription(
-            "Named point on the MSAA x resolution curve, with the per-pixel light cap held at 0 in "
-            + "all four: 0 = Quality (MSAA 8x, eye 1.00x — what ships), 1 = Balanced (4x, 0.90x), "
-            + "2 = Performance (2x, 0.80x), 3 = Minimum (MSAA off, 0.60x), 4 = custom, i.e. the "
-            + "three rows spell no preset. THE LIGHT CAP IS 0 EVERYWHERE by user ruling "
-            + "(2026-08-23): it is the strongest single performance lever here and the only one "
-            + "whose cost is a LOOK, so no preset hands it out silently and its row lives one level "
-            + "deeper, in Erweitert. It is still COMPARED here, so raising it by hand reads back as "
-            + "custom rather than keeping a preset's name. "
-            + "READ-MOSTLY: this value is DERIVED from MsaaLevel, EyeResolutionScale and "
-            + "PixelLightCount and mirrored here once whenever they change, so hand-editing the "
-            + "three rows moves this one rather than being overwritten by it. Setting it applies "
-            + "all three at once; nothing is locked afterwards. HONEST ABOUT ITS REACH: every dial "
-            + "it moves is a PIXEL or a SUBMISSION dial, and a frame whose wall is game logic "
-            + "(the [Perf] SPLIT line's 'logic' share) will barely notice any of them.",
-            new AcceptableValueRange<int>(0, CustomPresetIndex)));
+            "LEGACY — no effect (the graphics presets were REMOVED 2026-09-05 by user ruling: "
+            + "\"Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich nicht.\"). "
+            + "This was a named point on the MSAA x resolution curve — 0 = Quality (MSAA 8x, eye "
+            + "1.00x), 1 = Balanced (4x, 0.90x), 2 = Performance (2x, 0.80x), 3 = Minimum (MSAA "
+            + "off, 0.60x), 4 = custom — mirrored here from the three dials once per tick and never "
+            + "read back. The preset table and every apply path are deleted, so this value is inert "
+            + "and no longer tracks anything; the key is kept only so a tuned file is not rewritten. "
+            + "THE THREE DIALS IT USED TO WRITE ARE THE AUTHORITY AND ARE UNCHANGED: "
+            + "[RenderQuality] MsaaLevel, EyeResolutionScale and ForceAnisotropic are curated rows "
+            + "on Bild, and [RenderQuality] PixelLightCount is on Erweitert with its shipped "
+            + "default of 0 (2026-08-23 ruling). Set them yourself; nothing else will.",
+            new AcceptableValueRange<int>(0, 4)));
 
         // The SKY dial ([Sky] Style) RIDES this module's file — the FlatScreenStereo-on-worldui
         // pattern: the catalog's force-bind of RenderQuality surfaces it, module "rig" files it
@@ -582,7 +534,10 @@ internal static class RenderQuality
         // just wrote, and that tail array is locked by name in .planning/refactor/FRAME-ORDER.lock.
         // Nesting expresses the real dependency and leaves the locked order alone.
         LightStabiliser.Tick(PixelLightCount!.Value);
-        MirrorPresetToConfig();
+        // MirrorPresetToConfig() WAS CALLED HERE, every frame, to copy the derived preset index
+        // into [RenderQuality] QualityPreset. It is gone with the preset offering (user ruling
+        // 2026-09-05) and had to be: a key marked "LEGACY — no effect" that this file kept
+        // rewriting on every tick would be a lie in the cfg file and a write nothing reads.
         if (_diagCountdown > 0 && --_diagCountdown == 0)
             LogEyeTargetDiagnostics(_diagReason);
     }
@@ -1542,8 +1497,7 @@ internal static class RenderQuality
     /// <summary>
     /// Step <c>[RenderQuality] EyeResolutionScale</c> by ±0.1, clamped to
     /// <see cref="MinEyeScale"/>–<see cref="MaxEyeScale"/> (rounded to one decimal so repeated
-    /// presses never drift off the 0.1 grid — the same grid <see cref="Presets"/> sits on, so
-    /// stepping onto a preset's value reads back as that preset). Applies live: Tick re-asserts
+    /// presses never drift off the 0.1 grid the shipped values sit on). Applies live: Tick re-asserts
     /// the scale, and the readback then decides whether the allocation or the viewport lever
     /// carries it. BepInEx persists on set.
     /// </summary>
@@ -1557,100 +1511,20 @@ internal static class RenderQuality
         EyeResolutionScale.Value = clamped;
     }
 
-    // ---- panel accessors: graphics-preset cycle row — no caller today (see the MSAA block) ----
-
-    /// <summary>
-    /// Index of the preset the CURRENT values match, or -1 for a hand-tuned combination. The
-    /// preset is DERIVED, never stored: there is no fourth piece of state to fall out of sync
-    /// with the two rows below it, and editing either row simply reads back as "custom".
-    /// </summary>
-    private static int CurrentPresetIndex()
-    {
-        int msaa = Sanitize(MsaaLevel!.Value);
-        float scale = Mathf.Clamp(EyeResolutionScale!.Value, MinEyeScale, MaxEyeScale);
-        int lights = PixelLightCount!.Value;
-        for (int i = 0; i < Presets.Length; i++)
-        {
-            if (Presets[i].Msaa == msaa && Mathf.Abs(Presets[i].Scale - scale) < 0.005f
-                && Presets[i].PixelLights == lights)
-                return i;
-        }
-        return -1;
-    }
-
-    /// <summary>
-    /// Dropdown index for the preset ROW: the matching preset, or <see cref="CustomPresetIndex"/>.
-    /// Derived on every read — see <see cref="QualityPreset"/> for why nothing is stored.
-    /// </summary>
-    internal static int PresetRowIndex()
-    {
-        Bind();
-        int idx = CurrentPresetIndex();
-        return idx < 0 ? CustomPresetIndex : idx;
-    }
-
-    /// <summary>
-    /// Apply the preset the row picked. Picking "custom" is a NO-OP on purpose: there is no such
-    /// combination to restore to, the label only ever describes a state the three rows are already
-    /// in, and writing anything for it would turn a readout into a fourth setting.
-    /// </summary>
-    internal static void ApplyPresetByIndex(int index)
-    {
-        Bind();
-        if (index < 0 || index >= Presets.Length)
-            return;
-        Preset p = Presets[index];
-        Core.PerfMonitor.MarkChange($"graphics preset → '{p.LocId}' (MSAA {p.Msaa}x, eye {p.Scale:F2}x, "
-                                    + $"pixel lights {p.PixelLights})");
-        MsaaLevel!.Value = p.Msaa;                 // BepInEx persists on set; Tick applies next frame
-        EyeResolutionScale!.Value = p.Scale;
-        PixelLightCount!.Value = p.PixelLights;
-        VRLog.Info("Rig", $"Graphics preset '{p.LocId}' applied — MSAA {p.Msaa}x, eye resolution "
-                          + $"{p.Scale:F2}x, per-pixel light cap {p.PixelLights}. Modelled per-pixel "
-                          + $"shading ∝ {p.Scale * p.Scale:F2}x and MSAA surface/resolve bandwidth ∝ "
-                          + $"{Mathf.Max(p.Msaa, 1) * p.Scale * p.Scale:F2}x relative to 1.0x/8x. "
-                          + "MODELLED, not measured: the honest readout is the [Perf] FRAME line "
-                          + "before and after, and if that line's 'logic' share is the wall none of "
-                          + "these three will move it. The three rows stay editable — changing any "
-                          + "one of them simply reads back here as 'custom'.");
-    }
-
-    /// <summary>
-    /// Copy the DERIVED preset index into <see cref="QualityPreset"/> when the two disagree, so the
-    /// cfg file on disk never claims a preset the dials do not spell. One writer, copying from the
-    /// truth, converging in one tick — see the entry's own doc for why this is not a write war.
-    /// </summary>
-    private static void MirrorPresetToConfig()
-    {
-        int derived = PresetRowIndex();
-        if (derived == _lastMirroredPreset && QualityPreset!.Value == derived)
-            return;
-        _lastMirroredPreset = derived;
-        if (QualityPreset!.Value != derived)
-            QualityPreset.Value = derived;
-    }
-
-    /// <summary>Cycle-button readout: the matching preset's name, or "custom".</summary>
-    internal static string PresetLabel()
-    {
-        Bind();
-        int idx = CurrentPresetIndex();
-        return Core.Loc.Mod(idx < 0 ? "preset_custom" : Presets[idx].LocId);
-    }
-
-    /// <summary>
-    /// Advance to the next preset (from "custom", start at the best-looking one) and write both
-    /// levers. Nothing is locked afterwards — the MSAA and resolution rows stay live, and moving
-    /// either one just drops the readout back to "custom".
-    /// </summary>
-    internal static void CyclePreset()
-    {
-        Bind();
-        // Delegates since 2026-08-23: the preset is a DROPDOWN row now (Bild ▸ Darstellung), and
-        // two copies of "write the three levers and say so" would be two places for the pixel-light
-        // member to be forgotten. The MarkChange that makes a [Perf] sweep readable — the 2026-07
-        // sweep cycled all four presets inside ONE 30 s summary window and produced four
-        // measurements that could not be attributed to anything — lives in ApplyPresetByIndex now.
-        ApplyPresetByIndex((CurrentPresetIndex() + 1) % Presets.Length);
-    }
+    // ---- the graphics-preset accessors STOOD HERE and are DELETED (user ruling 2026-09-05) ----
+    //
+    // Six members: CurrentPresetIndex (which preset the three dials spell), PresetRowIndex (the
+    // dropdown's derived index), ApplyPresetByIndex (write all three dials), MirrorPresetToConfig
+    // (copy the derived index into the cfg key, once per tick), PresetLabel and CyclePreset.
+    //
+    // "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich nicht." The
+    // argument for deleting rather than merely un-offering them is written out at the tombstone
+    // that replaced the Presets table near the top of this file; the short form is that
+    // ApplyPresetByIndex was the only writer in the mod that could move a hand-set MSAA or
+    // eye-resolution value, its only live caller was the dropdown, and CyclePreset had had no
+    // caller at all since the dropdown replaced it in 2026-08.
+    //
+    // The three rows they used to drive are unchanged and are now the only authority:
+    // StepEyeScale/StepMsaa above are the player's own edits, Tick asserts them, and the
+    // [Rig] EYE-TARGET DIAG line says which lever actually bound.
 }

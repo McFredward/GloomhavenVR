@@ -195,6 +195,38 @@ internal static partial class VROptionsTab
     /// behaviour). Each one names the reason at the place it left.</item>
     /// </list>
     ///
+    /// <para>2026-09-05 — THE SAME AUDIT, RUN AGAIN BECAUSE IT HAD DECAYED (user, verbatim):
+    /// <i>"b) In den Nicht-Erweitert Kategorien sind wieder viel zu viele detaillierte
+    /// Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin - Denke immer daran das
+    /// die einfachen Spieler die Zielgruppe sind. 'Power-User' können dann in 'Erweitert' gehen."</i>
+    /// and <i>"d) Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
+    /// nicht."</i> The word "wieder" is the finding: this list drifts back the same way every time,
+    /// by a row being curated at the moment somebody asks about the thing it tunes.</para>
+    /// <list type="bullet">
+    /// <item>FIFTEEN ROWS DEMOTED, and the shape they share is the one he named. Nine were the
+    /// whole <b>"Map-Items in der Hand"</b> heading (<c>[FigureGrab] PropHeld*</c> — three metre
+    /// offsets, three degree rotations, three pose booleans that only mean something beside them);
+    /// three were the control board's numeric ARRIVAL dials (<c>[Cards] SpawnMaxReachMeters</c>,
+    /// <c>SpawnMaxBearingDegrees</c>, <c>SpawnBoardWidthDegrees</c> — read once, at spawn, so
+    /// turning one while looking at the board does nothing); and three were single calibration
+    /// constants sitting beside the switch they calibrate (<c>[Cards] PokePadPixels</c> in authored
+    /// pixels, <c>[Comfort] LaserCarryReelSpeed</c> in m/s, <c>[WorldUI] GrabBarTweenMs</c> in ms).
+    /// Every one of the fifteen is on a NAMED Erweitert heading, not in an "Allgemein" grab-bag —
+    /// checked per key, and one new heading label was written for the nine
+    /// (<c>ConfigCatalog.GroupWordLabel</c> "Prop" → "Map-Items in der Hand").</item>
+    /// <item>THE GRAPHICS PRESET IS RETIRED OUTRIGHT, which is the one thing on this page that is
+    /// not merely a demotion: "entferne" is not satisfied by a row moving one level down, so
+    /// <c>[RenderQuality] QualityPreset</c> left the CATALOG as well (the <c>IsRetired</c>
+    /// description marker) and its apply path was deleted with it. The three dials it used to write
+    /// — <c>EyeResolutionScale</c>, <c>MsaaLevel</c>, <c>ForceAnisotropic</c> — stay curated and are
+    /// the authority; nothing but the player can move them now.</item>
+    /// <item>NOT DEMOTED, THOUGH THEY FAIL THE TEST ON THEIR FACE, because a verbatim ruling from
+    /// the same player put them here and one ruling does not get quietly overwritten by the next:
+    /// <c>[WorldUI] BarHeightOffset</c> (an offset by name — "Weiterhin finde ich den offset für
+    /// die healthbar nicht"), the two zoom limits beside the pinch gesture, and the wall
+    /// see-through's two doors. They are raised as questions instead.</item>
+    /// </list>
+    ///
     /// <para>A CURATED ROW IS AN EXTRA DOOR, NEVER A WALL — and that is what makes a demotion
     /// cheap. Nothing leaves the CATALOG when it leaves this list: Erweitert is the catalog's own
     /// index, so a key stops being named here and is on its topic page the same build, with the
@@ -393,26 +425,25 @@ internal static partial class VROptionsTab
                     LocKey = "sec_presentation",
                     Entries = new CuratedEntry[]
                     {
-                        // THE ONE-DECISION ROW, FIRST, because it is the row that means a player
-                        // never has to solve the three below as a system (2026-08-23, from the
-                        // report "Ich habe auch versucht die Auflösung umzustellen, ich bin mir
-                        // nicht sicher ob das überhaupt irgendwas gebracht hat"). Qualität /
-                        // Ausgewogen / Leistung / Schwache Hardware set MSAA, eye resolution and
-                        // the per-pixel light cap together; the three rows under it stay live and
-                        // moving any of them reads back here as "Eigene". A special row
-                        // (TryBuildSpecialRow) so the four points are a localized DROPDOWN rather
-                        // than the ◀/▶ cycle a bounded int would otherwise get — a small enumerated
-                        // choice is a dropdown, and the preset labels have been in Loc.cs since the
-                        // old settings panel offered this same cycle to nobody.
+                        // "Grafik-Voreinstellung" ([RenderQuality] QualityPreset) STOOD HERE, FIRST,
+                        // from 2026-08-23 to 2026-09-05 — Qualität / Ausgewogen / Leistung /
+                        // Schwache Hardware / Eigene, as a localized dropdown, writing MSAA, eye
+                        // resolution and the per-pixel light cap in one press.
                         //
-                        // EMPTY CAPTION KEY, the documented degradation this file already relies on
-                        // in eleven places: Caption(item, "") falls through to item.Display, i.e.
-                        // "Grafik-Voreinstellung" in Loc.ConfigNames, and HintKey "h_" misses so the
-                        // tooltip falls through to the German description. Both are written for a
-                        // player, and a hand-written caption here would only be a second copy to
-                        // keep in step. (The three rows below kept their vr_o_* captions — those
-                        // strings live in Loc.cs, which this lane does not own.)
-                        new("RenderQuality", "QualityPreset", ""),
+                        // THE WHOLE OFFERING IS RETIRED, by user ruling (2026-09-05, verbatim):
+                        // "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
+                        // nicht." THIS IS THE ONE DEMOTION IN THIS FILE THAT IS NOT ALSO A DOOR ONE
+                        // LEVEL DEEPER: deleting the row alone would have left the dropdown on
+                        // Erweitert ▸ Bild & Darstellung, which does not satisfy "entferne". So the
+                        // ENTRY left the catalog too, by the marker ConfigCatalog.IsRetired reads —
+                        // its bound description opens "LEGACY — no effect" now (Rig/RenderQuality.cs)
+                        // — and every apply path went with it, so nothing can write the three dials
+                        // below except the player.
+                        //
+                        // THE THREE DIALS ARE UNCHANGED AND ARE THE AUTHORITY, which is the half of
+                        // this that matters: no shipped value moved, Defaults.PixelLightCount stays
+                        // 0, and the preset's own key stays bound at its old default so an existing
+                        // dev.gloomhavenvr.rig.cfg is not rewritten. Do not re-create the row.
                         // The two dials every headset owner looks for first (audit 03: the
                         // Grafik tab had NO render-quality row at all since the old panel's
                         // preset cycle lost its caller) — plus the two pure quality raises.
@@ -437,9 +468,14 @@ internal static partial class VROptionsTab
                         // gefährlich für normale Nutzer, sie sollte in Erweitert verschwinden und
                         // per default auch in allen Graphik-Voreinstellungen auf 0 geschaltet sein."
                         // Both halves shipped together: Defaults.PixelLightCount is 0 now and all
-                        // four entries of RenderQuality.Presets carry 0, so the everyday player
+                        // four entries of RenderQuality.Presets carried 0, so the everyday player
                         // already HAS the cheap setting and never has to find this row — while
                         // raising it, which is the dangerous direction, costs one navigation level.
+                        // THE SECOND HALF IS NOW SATISFIED BY THERE BEING NO PRESETS AT ALL (user
+                        // ruling 2026-09-05, the tombstone at the top of this section): the preset
+                        // table is deleted, so nothing but the player can hand out a pixel light.
+                        // THE FIRST HALF IS UNTOUCHED AND MUST STAY SO — Defaults.PixelLightCount
+                        // is still 0 and that is what the shipped install runs.
                         //
                         // NOTHING IS LOST AND NOTHING HAD TO MOVE, and unlike the notes below this
                         // was VERIFIED rather than trusted: ConfigCatalog enumerates every BOUND
@@ -586,7 +622,18 @@ internal static partial class VROptionsTab
                         // has to stay reachable for a player who flies with neither stick.
                         // Same empty caption keys, same documented degradation as above.
                         new("Comfort", "LaserCarryReel", ""),
-                        new("Comfort", "LaserCarryReelSpeed", ""),
+                        // "Ziehgeschwindigkeit (m/s)" ([Comfort] LaserCarryReelSpeed) STOOD HERE
+                        // and is GONE from the curated page — 2026-09-05 ruling (b), verbatim:
+                        // "In den Nicht-Erweitert Kategorien sind wieder viel zu viele detaillierte
+                        // Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin."
+                        // It is the CALIBRATION of the switch on the line above it, in metres per
+                        // second, and this section already retired two dials for exactly that shape
+                        // (the two immediately below). The SWITCH stays; its speed constant does
+                        // not. NOTHING IS LOST AND NOTHING HAD TO MOVE: [Comfort] holds 22 keys,
+                        // under ConfigCatalog.SectionSplitThreshold, so the whole section is ONE
+                        // group under Erweitert ▸ Bewegung and the speed lands directly beside the
+                        // switch it belongs to, one navigation level deeper.
+                        //
                         // ITS TWO CALIBRATION DIALS ARE OFF THE CURATED PAGE (2026-08-22 settings
                         // audit, question (b): "Prüfe jede Einstellung ob du sie User zutrauen
                         // würdest, wenn nicht gehören sie in Erweitert."). Both fail that test in
@@ -919,8 +966,19 @@ internal static partial class VROptionsTab
                         new("Cards", "Board", "control_board"),
                         new("Cards", "TrayScale", "vr_o_trayscale"),
                         new("Cards", "TrayFollow", "vr_o_trayfollow"),
-                        // ModBuild 403: the fingertip pad under the small default-action buttons.
-                        new("Cards", "PokePadPixels", "vr_o_pokepad"),
+                        // "Finger-Druck: Zusatz-Hitbox …(px)" ([Cards] PokePadPixels, ModBuild 403)
+                        // STOOD HERE and is GONE from the curated page — 2026-09-05 ruling (b),
+                        // verbatim: "In den Nicht-Erweitert Kategorien sind wieder viel zu viele
+                        // detaillierte Einstellungen gelandet. Sowas wie Offsets etc. gehört da
+                        // nicht hin - Denke immer daran das die einfachen Spieler die Zielgruppe
+                        // sind." It is a hitbox padding measured in AUTHORED PIXELS around a
+                        // collider the player cannot see, and a player cannot see it change either:
+                        // the only visible effect is a press that used to miss now landing. Its own
+                        // caption has to say "Zusatz-Hitbox" to mean anything, which is the test
+                        // failing out loud. NOTHING IS LOST: it is listed by hand on Erweitert ▸
+                        // Karten & Fächer ▸ Steuerbrett (VROptionsTab.7.TopicTrees.cs) beside the
+                        // board rows it belongs to, rather than being left to fall into the
+                        // "Allgemein" grab-bag at the bottom of that page.
                         // Item 12: the board movement scheme (Frei / Begrenzt / Begrenzt mit
                         // Neigung) — a special row (TryBuildSpecialRow) so the dropdown shows
                         // localized labels instead of the raw enum member names.
@@ -941,27 +999,33 @@ internal static partial class VROptionsTab
                         // spawn-side choice (audit 01 NORMAL); its three fine-tune metre dials
                         // (Spawn*Meters) stay under Erweitert.
                         new("Cards", "SpawnLeftOfHead", "vr_o_spawnleft"),
-                        // …and the ARRIVAL GUARD's two bounds, which are a different KIND of dial
-                        // from the three metre offsets above and therefore do NOT stay under
-                        // Erweitert with them. Those three answer "where exactly does it start";
-                        // these two answer "what counts as too far away to accept", which is the
-                        // row a player goes looking for after the 2026-09-05 report ("mein
-                        // Controlboard ist hinter dem Spielfeld gespawnt und ich musste es erst
-                        // suchen"). A guard whose threshold cannot be found is a guard the player
-                        // cannot argue with. Empty caption keys — the config display names
-                        // ("Board at spawn: max reach (m)" / "max angle (°)") already say it.
-                        new("Cards", "SpawnMaxReachMeters", ""),
-                        new("Cards", "SpawnMaxBearingDegrees", ""),
-                        // …and, from the 2026-09-05 SIZE report ("Das Board spawnt jetzt viel zu
-                        // groß! Es soll eine normale angemessene Größe haben, die zum aktuellen
-                        // Zoomfaktor passt, mit dem man spawned."), how BIG it is when it is put
-                        // there. It belongs beside the two bounds above and not with the three
-                        // metre offsets under Erweitert for exactly their reason: those say where
-                        // the board starts, this says what it looks like when it gets there, and
-                        // a size the player has just called wrong is the first row he will look
-                        // for. Empty caption key — the config display name ("Board at spawn: size
-                        // (° wide)") already says it.
-                        new("Cards", "SpawnBoardWidthDegrees", ""),
+                        // THE THREE NUMERIC ARRIVAL DIALS STOOD HERE AND ARE GONE FROM THE CURATED
+                        // PAGE — [Cards] SpawnMaxReachMeters, SpawnMaxBearingDegrees and
+                        // SpawnBoardWidthDegrees, curated on 2026-09-05 off two hardware reports
+                        // and demoted the same day by the ruling those reports' round produced,
+                        // verbatim: "In den Nicht-Erweitert Kategorien sind wieder viel zu viele
+                        // detaillierte Einstellungen gelandet. Sowas wie Offsets etc. gehört da
+                        // nicht hin - Denke immer daran das die einfachen Spieler die Zielgruppe
+                        // sind. 'Power-User' können dann in 'Erweitert' gehen."
+                        //
+                        // ALL THREE FAIL THE SAME TWO TESTS. They are metres and degrees against a
+                        // guard the player cannot see (max reach / max angle) or an ANGULAR width
+                        // he cannot picture, AND they are read once, at the moment the board
+                        // arrives — so changing one while looking at the board does nothing at all,
+                        // which reads as a broken row. That is the exact reasoning that retired
+                        // [Compat] DisablePostProcessing and DisableVolumetricFog from the Bild
+                        // page, and it is why the three SpawnSide/Forward/DownMeters offsets were
+                        // never curated in the first place. What the player is left with is the
+                        // decision ("Brett startet links") and the LIVE size he can turn while
+                        // looking at it ("Brett: Größe", [Cards] TrayScale, three rows up) — which
+                        // is the row a "das Board ist zu groß" complaint actually wants.
+                        //
+                        // NOTHING IS LOST AND NOTHING HAD TO MOVE, and this was checked rather than
+                        // assumed: all three are already listed BY HAND on Erweitert ▸ Karten &
+                        // Fächer ▸ Steuerbrett (VROptionsTab.7.TopicTrees.cs, the vr_ct_board
+                        // block), adjacent and in this same reading order, beside the three
+                        // Spawn*Meters offsets they belong with. They are one navigation level
+                        // deeper, not gone.
                     },
                 },
                 new()
@@ -981,79 +1045,48 @@ internal static partial class VROptionsTab
                         new("FigureGrab", "GrabFigures", ""),
                     },
                 },
-                new()
-                {
-                    // ==================================================================
-                    //  MAP-ITEMS IN DER HAND  (ModBuild 350 user request)
-                    // ==================================================================
-                    // USER REPORT, verbatim: "Füge eigene offsets hinzu an welche Position die
-                    // Items zu sehen sein sollen in der Hand wenn man sie greift. Das selbe gibt
-                    // es schon für Figuren, ich will genau das selbe nun auch für Map-Items
-                    // (zerstörbare obstacles, Truhen, Goldhaufen,...) separat einstellen können."
-                    //
-                    // WHY ALL EIGHT ROWS ARE HERE AND NOT ONE OF THEM ONE LEVEL DEEPER. ModBuild
-                    // 348 exists because he asked for a dial, it was built, and he could not find
-                    // it — and scripts/check-options-coverage.py now fails a key that joins a
-                    // curated family without joining its heading. These eight ARE the family:
-                    // every [FigureGrab] key whose leading word is "Prop" is on this heading, so
-                    // there is no half of it left in the Erweitert index for him to hunt through.
-                    //
-                    // WHY THIS TAB AND THIS POSITION. It is the play surface these objects sit on,
-                    // and the heading directly above is "Figuren" — the dials he is copying the
-                    // behaviour of. Someone asking "how does a chest sit in my hand" opens the tab
-                    // about the board and reads down one heading.
-                    //
-                    // THE CAPTIONS ARE WRITTEN HERE, not as Loc keys, for the reason the health-bar
-                    // section below already gives: Core/Loc/Loc.cs is outside this lane's paths, and
-                    // an empty caption key would fall through to the catalog's camel-hump spacing
-                    // ("Prop Held Rot Pitch", in German too) on the eight rows this section exists
-                    // to make findable. Moving them to Loc keys later is a pure move.
-                    //
-                    // NO HINT KEYS, deliberately (same as BarHeightOffset below): an empty caption
-                    // key makes HintKey "h_", which misses, and the tooltip falls through to each
-                    // entry's own bound description — which already says the axis, the units, that
-                    // it is mirrored between the hands, and that the figures keep their own key.
-                    //
-                    // NO VALUE IS TUNED HERE. Every default is the figure value the mod already
-                    // ships (Defaults.Board.cs), so this section changes what is FINDABLE and
-                    // nothing about what is on screen.
-                    En = "Map items in your hand",
-                    De = "Map-Items in der Hand",
-                    Entries = new CuratedEntry[]
-                    {
-                        new("FigureGrab", "PropHeldOffsetSide", "",
-                            "Map item: sideways (m)", "Map-Item: seitlich (m)"),
-                        new("FigureGrab", "PropHeldOffsetUp", "",
-                            "Map item: height (m)", "Map-Item: Höhe (m)"),
-                        new("FigureGrab", "PropHeldOffsetForward", "",
-                            "Map item: forward (m)", "Map-Item: vor/zurück (m)"),
-                        new("FigureGrab", "PropHeldRotPitch", "",
-                            "Map item: pitch (°)", "Map-Item: Neigung (°)"),
-                        new("FigureGrab", "PropHeldRotYaw", "",
-                            "Map item: yaw (°)", "Map-Item: Drehung (°)"),
-                        new("FigureGrab", "PropHeldRotRoll", "",
-                            "Map item: roll (°)", "Map-Item: Rollen (°)"),
-                        new("FigureGrab", "PropHeldUpright", "",
-                            "Map item: hold upright", "Map-Item: aufrecht halten"),
-                        new("FigureGrab", "PropHeldUprightAtGrab", "",
-                            "Map item: upright on grab", "Map-Item: aufrecht greifen"),
-                        // The 2026-09-05 handedness round — the NINTH row, and the one the "linke
-                        // oder rechte Hand" report is about. It sits on THIS heading, beside the
-                        // eight pose dials the player was already turning when he hit the problem,
-                        // and not in the raw catalog: a dial he asked for that can only be found by
-                        // typing its key name is the standing complaint this menu exists to answer.
-                        // Not on the figures' heading either — it is the map items' answer alone,
-                        // and the figures deliberately keep the mirror.
-                        //
-                        // THIS ROUND: the key now ships ON. ModBuild 434 shipped it OFF and the hardware
-                        // log came back "PropHeldSameInBothHands = False" beside the unchanged
-                        // complaint — the row was here and he still did not turn it on, which is
-                        // the standing lesson about a remedy that costs the player a search. The
-                        // row stays so the OLD behaviour remains one click away.
-                        new("FigureGrab", "PropHeldSameInBothHands", "",
-                            "Map item: same in both hands", "Map-Item: in beiden Händen gleich"),
-                    },
-                },
+                // ==========================================================================
+                //  "MAP-ITEMS IN DER HAND" — THE WHOLE HEADING IS GONE FROM THE CURATED PAGE
+                // ==========================================================================
+                // NINE ROWS STOOD HERE from ModBuild 350: [FigureGrab] PropHeldOffsetSide/Up/
+                // Forward (metres), PropHeldRotPitch/Yaw/Roll (degrees), PropHeldUpright,
+                // PropHeldUprightAtGrab and PropHeldSameInBothHands.
+                //
+                // THE RULING THAT TOOK THEM, verbatim (2026-09-05): "In den Nicht-Erweitert
+                // Kategorien sind wieder viel zu viele detaillierte Einstellungen gelandet. Sowas
+                // wie Offsets etc. gehört da nicht hin - Denke immer daran das die einfachen
+                // Spieler die Zielgruppe sind. 'Power-User' können dann in 'Erweitert' gehen."
+                // Six of the nine are literally the named shape — a position nudge in metres and a
+                // rotation nudge in degrees, meaningful only relative to a grip the player cannot
+                // see — and this is the same player who set the precedent for exactly this family
+                // one feature over: "Geb mir dann IM DEBUG MENU die offsets um ihm zu verschieben -
+                // ich stell es selber ein." Erweitert is that menu.
+                //
+                // WHY THE THREE BOOLEANS WENT TOO, rather than being kept as a rump section. They
+                // are pose micro-behaviours OF the same six numbers (hold it upright, take upright
+                // at the moment of grab, use the left-hand pose in both hands) — a player who is
+                // not turning the offsets has no question they answer. Keeping them would have
+                // split one family across two navigation levels, which is the fault
+                // scripts/check-options-coverage.py check 4 exists to catch, and it would have
+                // left a heading named after items in your hand carrying three switches and none
+                // of the reason it was written. The section's own header said so: "WHY ALL EIGHT
+                // ROWS ARE HERE AND NOT ONE OF THEM ONE LEVEL DEEPER … These eight ARE the family."
+                // They still are; the family simply lives one level deeper now. The heading goes
+                // with them under the standing ruling that no section may ship empty.
+                //
+                // NOTHING IS LOST, AND THE DESTINATION WAS CHECKED RATHER THAN ASSUMED (see
+                // ConfigCatalog.GroupAll → GroupWord → GroupWordLabel): [FigureGrab] binds 27 keys,
+                // past ConfigCatalog.SectionSplitThreshold, so the section splits by leading key
+                // word and all nine — every [FigureGrab] key beginning "Prop" — form ONE cluster of
+                // their own, well past MinClusterSize, on Erweitert ▸ Hände & Figuren. That cluster
+                // had no localized heading (GroupWordLabel would have returned the raw English
+                // "Prop" into a German menu), so this round gave it one: "cfg_gw_prop" =
+                // "Map-Items in der Hand", the same words this section carried. The family arrives
+                // there whole, under the name it had here, one navigation level deeper.
+                //
+                // NO VALUE WAS TOUCHED. Every default is the figure value the mod already ships
+                // (Defaults.Board.cs), PropHeldSameInBothHands still ships ON, and its row
+                // still exists one level deeper — this round moves rows, it does not tune.
                 new()
                 {
                     // ==================================================================
@@ -1266,11 +1299,21 @@ internal static partial class VROptionsTab
                         // row (TryBuildSpecialRow) so the three-way choice reads as a localized
                         // dropdown instead of the raw enum members cycling in English.
                         new("WorldUI", "WindowFacing", ""),
-                        // 2026-09-03 ("es ploppt"): how long the grab bar under a window takes to
-                        // grow, shrink or slide when the window's content re-seats it. HERE, next
-                        // to the release-facing dial, because both are about what the bar the
-                        // player grabs does when the mod — not the hand — moves it. 0 = instant.
-                        new("WorldUI", "GrabBarTweenMs", "vr_o_grabbartween"),
+                        // "Greifbalken: Übergang (ms)" ([WorldUI] GrabBarTweenMs) STOOD HERE from
+                        // 2026-09-03 ("es ploppt") — how long the grab bar under a window takes to
+                        // grow, shrink or slide when the window's content re-seats it.
+                        //
+                        // IT IS GONE FROM THE CURATED PAGE — 2026-09-05 ruling (b), verbatim: "In
+                        // den Nicht-Erweitert Kategorien sind wieder viel zu viele detaillierte
+                        // Einstellungen gelandet. Sowas wie Offsets etc. gehört da nicht hin."
+                        // WHAT ANSWERED "es ploppt" WAS THE DEFAULT, NOT THE DIAL: a tween duration
+                        // in milliseconds is a smoothing constant, the row's own caption has to
+                        // name an internal part ("Greifbalken") to mean anything, and its effect
+                        // only ever appears in the half-second after the mod re-seats a bar the
+                        // player is not looking at. NOTHING IS LOST AND NOTHING HAD TO MOVE: it has
+                        // been listed by hand on Erweitert ▸ Menüs & Tafeln since the day it was
+                        // bound (VROptionsTab.7.TopicTrees.cs), so it keeps its named heading one
+                        // navigation level deeper. THE SHIPPED VALUE IS UNTOUCHED.
                         new("WorldUI", "HexHintFollowView", "vr_o_hexhintfollow"),
                         new("ButtonAnim", "Enable", "vr_o_buttonanim"),
                     },
@@ -1460,14 +1503,14 @@ internal static partial class VROptionsTab
         // is meant to choose from. It is a user-facing choice of three named behaviours, which is
         // exactly what this table is for.
         || (string.Equals(item.Section, "WorldUI", StringComparison.Ordinal)
-            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal))
-        // The SIXTH: the graphics preset. It is a bounded int, so the generic ladder would give it
-        // a SLIDER over 0..4 — five unnamed positions on a bar for five named looks, which is the
-        // "a small enumerated choice is a dropdown, not a drag bar" rule failing in the most
-        // literal way available. It also needs a derived current index (the preset is read off the
-        // three dials it sets, never off its own stored value), which only a hand-built row can do.
-        || (string.Equals(item.Section, "RenderQuality", StringComparison.Ordinal)
-            && string.Equals(item.Key, "QualityPreset", StringComparison.Ordinal));
+            && string.Equals(item.Key, "WindowFacing", StringComparison.Ordinal));
+    // A SIXTH STOOD HERE — the graphics preset ([RenderQuality] QualityPreset), a bounded int that
+    // needed a hand-built dropdown because the generic ladder would have drawn five named looks as
+    // five unnamed positions on a drag bar. IT IS GONE with the offering itself (user ruling
+    // 2026-09-05: "Entferne die Graphik-Profile wieder in den VR-Einstellungen, die mag ich
+    // nicht."), and the branch had to go with the row rather than being left behind: the entry is
+    // retired now, so no page can produce it and the branch could only ever be dead code holding a
+    // live reference to the apply path this ruling exists to remove.
 
     /// <summary>
     /// Bounded numbers that must be edited with the ◀ / ▶ STEPPER even though they have both ends
@@ -1545,30 +1588,15 @@ internal static partial class VROptionsTab
             return true;
         }
 
-        // THE GRAPHICS PRESET — one decision standing in for three dials (MSAA, eye resolution, the
-        // per-pixel light cap), in the order best-looking → cheapest, with "Eigene" as a fifth,
-        // READ-ONLY position at the end.
-        //
-        // THE CURRENT INDEX IS DERIVED, NEVER STORED (RenderQuality.PresetRowIndex reads the three
-        // dials), which is what makes this row safe beside the three rows it writes: editing MSAA by
-        // hand moves this dropdown to "Eigene" instead of the dropdown fighting the edit back. And
-        // picking "Eigene" itself does nothing on purpose — there is no such combination to restore
-        // to, it is a label for a state the other rows are already in.
-        //
-        // The five labels have been in Loc.cs since the old settings panel offered this same cycle
-        // to no caller at all ("Qualität / Ausgewogen / Leistung / Schwache Hardware / Eigene"), so
-        // no new string was needed to give it a home.
-        if (string.Equals(item.Section, "RenderQuality", StringComparison.Ordinal))
-        {
-            string[] presetIds = Rig.RenderQuality.PresetLocIds();
-            var presetNames = new string[presetIds.Length];
-            for (int i = 0; i < presetIds.Length; i++)
-                presetNames[i] = Loc.Mod(presetIds[i]);
-            BuildPresetRow(parent, item, caption, hintKey, presetNames,
-                           Rig.RenderQuality.PresetRowIndex(),
-                           Rig.RenderQuality.ApplyPresetByIndex);
-            return true;
-        }
+        // THE GRAPHICS PRESET BRANCH STOOD HERE — one dropdown standing in for three dials (MSAA,
+        // eye resolution, the per-pixel light cap), reading its current index off those three dials
+        // and writing all three on a pick. It is DELETED, not merely unreachable, with the offering
+        // it drew (user ruling 2026-09-05: "Entferne die Graphik-Profile wieder in den
+        // VR-Einstellungen, die mag ich nicht.") — and deleting it is what actually removes the
+        // hazard, because RenderQuality.ApplyPresetByIndex was the ONLY path in the mod that could
+        // overwrite a hand-set MSAA or eye-resolution value, and this call site was its only live
+        // caller. The three dials are the authority now, with exactly one writer: the player.
+        // Rig/RenderQuality.cs carries the same tombstone at the other end.
 
         // The ENVIRONMENT is a user-facing CHOICE like the board movement scheme above: the
         // dropdown must read in the player's language ("DnD-Keller"), not the raw enum members

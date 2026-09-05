@@ -1444,6 +1444,14 @@ internal static class ConfigCatalog
         "Bar" => Loc.Mod("cfg_gw_bar"),
         "Bars" => Loc.Mod("cfg_gw_bar"),
         "Hex" => Loc.Mod("cfg_gw_hex"),
+        // [FigureGrab] passed SectionSplitThreshold long ago, so its nine "Prop*" keys have always
+        // formed a cluster of their own on Erweitert ▸ Hände & Figuren — headed with the raw
+        // English word "Prop" in a German menu, because nothing here named it. It went unnoticed
+        // while those nine were ALSO a curated section; the 2026-09-05 ruling (b) sent them here
+        // for good ("Sowas wie Offsets etc. gehört da nicht hin"), so the heading they arrive under
+        // has to be the one they arrived with: "Map-Items in der Hand", the words the curated
+        // section used.
+        "Prop" => Loc.Mod("cfg_gw_prop"),
         "Flat" => Loc.Mod("cfg_gw_screen"),
         "Map" => Loc.Mod("cfg_gw_map"),
         "Net" => Loc.Mod("cfg_topic_network"),

@@ -1742,6 +1742,13 @@ internal static partial class Loc
         ["cfg_gw_bar"] = Pair("Health bars", "Lebensbalken"),
         ["cfg_gw_hex"] = Pair("Hex hint", "Feld-Hinweis"),
         ["cfg_gw_map"] = Pair("World map", "Weltkarte"),
+        // The [FigureGrab] "Prop*" cluster's heading — the nine held-pose keys for the destructible
+        // obstacles, chests and gold piles. New on 2026-09-05, when ruling (b) sent that family off
+        // the curated Brett & Karten page: it lands as an automatic prefix cluster on Erweitert ▸
+        // Hände & Figuren, and without this pair GroupWordLabel would head it "Prop". The German
+        // words are the ones the curated section carried, so the family reads the same in its new
+        // home as it did in its old one.
+        ["cfg_gw_prop"] = Pair("Map items in your hand", "Map-Items in der Hand"),
         ["cfg_topic_network"] = Pair("Multiplayer", "Mehrspieler"),
         ["cfg_topic_system"] = Pair("System & start-up", "System & Start"),
         ["cfg_topic_other"] = Pair("Other", "Sonstiges"),
@@ -1784,11 +1791,16 @@ internal static partial class Loc
         // v-sync, FPS cap, pixel lights, soft particles, reflection probes and desktop
         // resolution — but NO MSAA (QualitySettings.antiAliasing is never written by the game)
         // and nothing per-eye. Those two gaps are exactly what these rows fill.
-        ["preset_quality"] = Pair("Quality", "Qualität"),
-        ["preset_balanced"] = Pair("Balanced", "Ausgewogen"),
-        ["preset_performance"] = Pair("Performance", "Leistung"),
-        ["preset_minimum"] = Pair("Weak hardware", "Schwache Hardware"),
-        ["preset_custom"] = Pair("Custom", "Eigene"),
+        // "preset_quality" / "preset_balanced" / "preset_performance" / "preset_minimum" /
+        // "preset_custom" ("Qualität / Ausgewogen / Leistung / Schwache Hardware / Eigene") STOOD
+        // HERE and are DELETED (2026-09-05, user ruling: "Entferne die Graphik-Profile wieder in
+        // den VR-Einstellungen, die mag ich nicht."). They were the four-point graphics-preset
+        // dropdown's option list plus its read-only fifth position; the offering, its config entry
+        // and every apply path are gone (Rig/RenderQuality.cs), so these five had no reader left.
+        // A label kept for a control nobody can reach is how the next reader concludes the control
+        // still exists — the same reason Loc.ConfigNames deleted twelve dead names in the
+        // 2026-08-22 sweep. The two rows the presets used to write are still named here and on
+        // Bild: "vr_o_msaa" and "vr_o_eyeres".
         // 2026-07 (user: "Die Erklärtexte sind zu lang, sie da drin stehen zu lassen; mach ein
         // Mouseover-Hinweis oder so etwas stattdessen."): every "…_note" paragraph below is now
         // HOVER text, shown beside the row it explains and nowhere else. Two of them were not
