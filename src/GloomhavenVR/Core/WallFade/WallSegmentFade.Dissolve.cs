@@ -129,6 +129,13 @@ internal static partial class WallSegmentFade
             Renderer r = p.Renderer;
             if (r == null)
                 return;
+            // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg) — write primitive 4 of
+            // 4. A material SWAP is a fade write in disguise: it replaces the authored shader with
+            // a WallFade copy, and a piece carrying that copy is one MPB away from gone. Nothing
+            // is marked decided here either, so if the verdict ever changes the piece is still
+            // classified normally. See WallSegmentFade.Floor.cs.
+            if (FloorNeverFades(r))
+                return;
 
             // Channels that already animate: leave them alone (and mark them decided, so the
             // census can tell "animates by its own means" from "could not be given a channel").

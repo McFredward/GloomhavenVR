@@ -1059,6 +1059,16 @@ internal static partial class WallSegmentFade
             Renderer r = p.Renderer;
             if (r == null)
                 return;
+            // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg) — write primitive 2 of
+            // 4, and the one every dressing lane reaches: Mounted, Stacked, Body, prop-unit
+            // dressing, foliage, siblings and the corner pieces all deliver through here, and the
+            // native/masonry ramp DriveNativeProp is reached only from this method.
+            //
+            // ONLY A NON-ZERO FADE IS REFUSED. `DriveProp(p, 0f)` is the write that puts a piece
+            // BACK to its authored state, and refusing that would leave a floor tile stuck at
+            // whatever it was last driven to — the rule would then be the thing keeping it faded.
+            if (fade > 0f && FloorNeverFades(r))
+                return;
             if (p.NativeFade)
             {
                 // Round 15: the piece runs the game's own masonry fade branch — either on its

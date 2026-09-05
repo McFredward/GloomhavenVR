@@ -57,7 +57,11 @@ internal static partial class WallSegmentFade
         {
             bool was = r.enabled;
             _driver.HideByEnable(r);
-            return was;
+            // `was && !r.enabled`, not `was`: HideByEnable can now REFUSE (a floor tile is never
+            // hidden by anything in this subsystem — see WallSegmentFade.Floor.cs), and a caller
+            // told "I switched it off" for a renderer still drawing would restore a bit nobody
+            // wrote.
+            return was && !r.enabled;
         }
         if (!r.enabled)
             return false;
@@ -97,6 +101,12 @@ internal static partial class WallSegmentFade
         internal void HideByEnable(Renderer r)
         {
             if (r == null)
+                return;
+            // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg) — write primitive 3 of
+            // 4, and the only `Renderer.enabled = false` in the whole subsystem, so every
+            // enable-delivery lane is covered by this one line. Nothing is added to the ledger
+            // either: we did not hide it, so no restore path may ever claim we did.
+            if (FloorNeverFades(r))
                 return;
             if (r.enabled)
                 r.enabled = false;

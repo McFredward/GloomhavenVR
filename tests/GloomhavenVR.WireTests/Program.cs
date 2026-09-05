@@ -79,6 +79,12 @@ internal static class Program
             // directions in silence: too tight and the skull stays missing, too loose and masonry
             // becomes permanently solid — which reads as wall see-through being switched off.
             WallStandingPropVectors.Run(t);
+            // THE SAME SHAPE, ONE RULING LATER: whether a renderer is a FLOOR TILE, which by the
+            // user's ruling of 2026-09-05 may never be faded by anything. It fails in both
+            // directions in silence — too tight and the hexes the doors stand on keep vanishing
+            // (fehlende_boden_tiles.jpg), too loose and a pillar's foot or a low wall goes
+            // permanently solid (säulen.jpg, the report from the other side).
+            WallFloorTileVectors.Run(t);
             WallSignatureCulpritVectors.Run(t);
             // WHOSE GEOMETRY GETS THE HOVER GLOW — the miniature's body or the furniture hanging
             // off it. The report it answers ("der Boss-Drache hat immer noch KEIN Highlighting")

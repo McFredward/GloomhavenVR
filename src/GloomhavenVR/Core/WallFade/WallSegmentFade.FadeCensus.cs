@@ -477,13 +477,22 @@ internal static partial class WallSegmentFade
                   + "tear on this row is the GROUPING and not the fade]"
                 : " [AND IN NO UNIT'S WRITTEN LIST — no fade path wrote this renderer at all this "
                   + "census, so the tear is real]";
+            // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg) — APPENDED, never
+            // instead of the clauses above. A floor tile inside a torn unit is CORRECTLY solid,
+            // so without this clause the strongest evidence line in the subsystem would report
+            // this rule's intended behaviour as the defect it exists to fix.
+            string floorNote = FloorNeverFades(piece)
+                ? " [FLOOR — NEVER FADES BY RULE: this piece is a floor tile, a floor tile "
+                  + "occludes nothing, so it is CORRECTLY solid and this row is not a tear. The "
+                  + "FLOOR NEVER FADES line carries the term that identified it]"
+                : string.Empty;
             if (!_solidOwners.TryGetValue(piece, out SolidOwner o))
-                return piece.name + " ← NO WALL SEGMENT OWNS IT [UNOWNED]" + filed;
+                return piece.name + " ← NO WALL SEGMENT OWNS IT [UNOWNED]" + filed + floorNote;
             return piece.name + " ← " + o.SegPath + " of '" + o.SegOwner + "' fade "
                    + o.SegFade.ToString("0.00")
                    + (o.SegFade <= 0f ? " [OWNER SOLID]"
                                       : " [OWNER FADING, THIS PIECE UNWRITTEN]")
-                   + filed;
+                   + filed + floorNote;
         }
 
         /// <summary>Tally one still-solid renderer by its term. SEPARATE from
@@ -530,6 +539,9 @@ internal static partial class WallSegmentFade
             _nextFadeCensus = now + FadeCensusIntervalSeconds;
 
             _fadeWrites.Clear();
+            // FLOOR NEVER FADES: this window's count, owned by the write loop below and read by
+            // LogFloorGuardCensus one call later. See NoteFadeWrite.
+            _floorHeldInFadingSegments = 0;
             foreach (Segment seg in _live.Segments.Values)
             {
                 if (seg.Fade <= 0f)
@@ -613,6 +625,17 @@ internal static partial class WallSegmentFade
         {
             if (r == null || IsModObject(r))
                 return;
+            // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg). This census does not
+            // observe writes, it walks the fading segments' MEMBERSHIP lists — so a floor tile
+            // still listed under a wall at fade 1.00 would be counted as carrying a fade it does
+            // not carry, and then counted again as a TEAR when its unit's other pieces went. The
+            // rule's correct behaviour would be reported as the defect. Counted instead, and the
+            // count is printed on the FADE WRITE line below and on the FLOOR NEVER FADES line.
+            if (FloorNeverFades(r))
+            {
+                _floorHeldInFadingSegments++;
+                return;
+            }
             if (_propUnitTouched.Contains(r))
                 path += "[prop unit]";
             _fadeWrites.Add(new FadeWrite(r, path, owner, fade));
@@ -1172,7 +1195,14 @@ internal static partial class WallSegmentFade
                 + $"with no wall-fade channel that the prop-unit pass gave one to rather than "
                 + $"leaving it standing (the ModBuild-258 line's '106 left visible'). "
                 + $"Anchor = AABB min.y over the nearest anchored room floor, the same anchor the "
-                + $"mounted census prints. {rows}");
+                + $"mounted census prints. "
+                + $"FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg): "
+                + $"{_floorHeldInFadingSegments} renderer(s) sit in these fading segments' "
+                + $"membership lists and are NOT counted above, because they are floor tiles and "
+                + $"carry no fade by rule. THEY ARE THEREFORE EXPECTED IN THE LEFT SOLID LISTS, "
+                + $"where each one is marked [FLOOR — NEVER FADES BY RULE]; a tear whose only "
+                + $"solid pieces carry that marker is this rule working, not a defect. The term "
+                + $"that identified each is on the FLOOR NEVER FADES line. {rows}");
         }
 
         /// <summary>How many still-solid renderers the DEFAULT-tier line names. Four, not the
@@ -1303,7 +1333,12 @@ internal static partial class WallSegmentFade
                 + $"nameable "
                 + $"({solidPieces} solid in total; the FADE WRITE census one tier down names six "
                 + $"per unit and carries the same per-piece term for every one of them), "
-                + $"dropped {namedAvailable - shown}: {named}");
+                + $"dropped {namedAvailable - shown}: {named}. "
+                + $"FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg): a named piece "
+                + $"marked [FLOOR — NEVER FADES BY RULE] is a floor tile and is CORRECTLY solid — "
+                + $"a floor tile occludes nothing, so no lane may fade one; "
+                + $"{_floorHeldInFadingSegments} such renderer(s) were held this pass, and the "
+                + $"FLOOR NEVER FADES line names the term that identified each");
         }
 
         /// <summary>How this unit came to be one unit — printed on every row, because "1 of 2

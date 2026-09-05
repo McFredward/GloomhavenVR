@@ -309,6 +309,19 @@
     <Compile Include="WallStandingPropVectors.cs" />
   </ItemGroup>
 
+  <!-- The same argument one ruling later, and the mirror image of the one above. A FLOOR TILE CAN
+       NEVER OCCLUDE ANYTHING AND MUST THEREFORE NEVER BE FADED (user, 2026-09-05,
+       .planning/debug/fehlende_boden_tiles.jpg). Too tight and the hexes the doors stand on keep
+       vanishing — that is the photograph. Too loose and a pillar's foot, a step or a low wall goes
+       permanently solid, which is the defect the user reported from the other side in säulen.jpg
+       ("faden die Säulen nicht, obwohl sie die Sicht versperren"). Neither throws and neither is
+       visible from outside a headset, so the arithmetic is floats only and it is driven here
+       against the measurements printed in the ModBuild-429 hardware log. -->
+  <ItemGroup>
+    <Compile Include="$(RepoRoot)src\GloomhavenVR\Core\WallFade\WallFloorTile.cs" Link="core\WallFloorTile.cs" />
+    <Compile Include="WallFloorTileVectors.cs" />
+  </ItemGroup>
+
   <!-- Not a wire file, and here for the reason this project's ledger states most often: a NEW
        INSTRUMENT'S FIRST OUTPUT IS A HYPOTHESIS. This one names which renderers forced a ~90 ms
        wall-table rebuild — 28 of 33 such rebuilds in the ModBuild 277 log fired on that single

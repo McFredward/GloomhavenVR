@@ -1877,6 +1877,7 @@ internal static partial class WallSegmentFade
             _nextDiagTime = 0f;
             _shaderVerdict.Clear(); // scene shaders died with their bundles — no dead keys
             _shaderWaterVerdict.Clear(); // …and so did the water shaders (PERF S2)
+            ResetFloorSceneState(); // …and every floor verdict was measured in the OLD scene
             AbandonRescanCycle();   // a census of the OLD scene may never commit into the new one
             _live.SplitAnchors.Clear();
             _runs.Clear();          // …and so do the split-run verdicts keyed off those anchors
@@ -2458,6 +2459,10 @@ internal static partial class WallSegmentFade
             // expensive half only runs on a frame where the written set moved. See
             // WallSegmentFade.FadeCensus.cs.
             LogFadeWriteCensus(now);
+            // FLOOR NEVER FADES — immediately AFTER the fade-write census on purpose: that census
+            // is what sets _floorHeldInFadingSegments, and this line is the only place it is
+            // read, so the two must be in this order to speak about the same pass.
+            LogFloorGuardCensus(now);
             // Regenerated shell pieces (Apparance churn) must be re-hidden faster than the
             // 2s rescan — see the fast-reclaim doc in WallSegmentFade.Stacked.cs.
             FastReclaimRegeneratedShell(now);
@@ -4040,6 +4045,17 @@ internal static partial class WallSegmentFade
                     lostRenderer = true;
                     continue;
                 }
+                // FLOOR NEVER FADES (user 2026-09-05, fehlende_boden_tiles.jpg) — write primitive
+                // 1 of 4. The block is CLEARED rather than merely skipped: this loop runs every
+                // frame the segment is fading, so a floor renderer that entered seg.Renderers
+                // before this rule existed (or through any future gap) is handed back to solid on
+                // the very next frame instead of keeping whatever value it holds. Clearing a
+                // renderer that has no block is a no-op. See WallSegmentFade.Floor.cs.
+                if (FloorNeverFades(r))
+                {
+                    r.SetPropertyBlock(null);
+                    continue;
+                }
                 r.SetPropertyBlock(_mpb);
             }
             if (lostRenderer)
@@ -4852,8 +4868,18 @@ internal static partial class WallSegmentFade
             try
             {
                 // Figures first (round 7): nothing below may keep or re-take an actor renderer.
+                // FLOOR RESTITUTION rides the same phase and for the same reason — it is the other
+                // "restore what may never have been taken" sweep, it must run before any collector
+                // below can re-take a floor tile, and it opens the per-commit window of the floor
+                // memo every write of the next cycle reads. It is deliberately NOT a phase of its
+                // own: CommitPhase is a COST bucket for the BUDGET line, and splitting one out for
+                // a sweep that walks the same two ledgers this one already walks would buy a
+                // narrower number and a shifted enum for nothing. See WallSegmentFade.Floor.cs.
                 using (Phase(CommitPhase.Figures))
+                {
                     PurgeFigureRenderers();
+                    PurgeFloorRenderers();
+                }
                 using (Phase(CommitPhase.TileAnchors))
                     CommitTileAnchors();
                 using (Phase(CommitPhase.RoomRegistry))
