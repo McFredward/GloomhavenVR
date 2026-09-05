@@ -56,6 +56,12 @@ internal sealed partial class VRRigDriver
         // next SyncPinHolder cannot carry the board back by an offset measured before this.
         // Safe for every rig kind and with no board at all — the callee reports each case.
         Cards.PlayTray.RequestRecenterReset("the B+Y recenter chord (VRRigDriver.RequestRecenter)");
+        // AND THE COMBAT LOG, on the same rule and in the same frame. It shares the board's
+        // anchoring mechanism since ModBuild 438 (Core.FollowPinAnchor), so leaving it behind
+        // while the board comes along would be exactly the asymmetry the board ruling names.
+        // Inert when the log is not up — the callee refuses rather than summoning one.
+        WorldUI.Surfaces.CombatLogSurface.RequestRecenterReset(
+            "the B+Y recenter chord (VRRigDriver.RequestRecenter)");
     }
 
     /// <summary>

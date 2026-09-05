@@ -224,6 +224,41 @@ internal sealed class CombatLogSurface : WorldSurface, IPanelGrabOwner
     internal static void SpawnFromOptions() => SetUserVisible(true, "spawn button");
 
     /// <summary>
+    /// THE B+Y RECENTRE CHORD ALSO BRINGS THE COMBAT LOG BACK, for the same reason it brings the
+    /// control board back — user ruling 2026-09-05, about the board: <i>"Wenn man sich mit Y und B
+    /// Taste (gedrückt hält) wieder an den ursprünglichen Platz teleportiert soll das auch für das
+    /// Controllboard gelten, es soll mit resetted werden, so dass die Position und Größe wieder so
+    /// ist wie beim ersten Spawn."</i> The two panels now share their anchoring mechanism
+    /// (<see cref="Core.FollowPinAnchor"/>), so a chord that teleports the player and re-seats one
+    /// of them while leaving the other behind is the asymmetry that ruling was written against.
+    ///
+    /// <para>IT DOES NOTHING WHEN THE LOG IS NOT UP, and that is the whole guard: the reset only
+    /// arms the respawn primitive the show path already uses, and <c>Place()</c> consumes it on the
+    /// next tick only while the panel is actually converted. A player who never summoned the log
+    /// cannot be given one by pressing B+Y — the chord must not summon a window, only move one it
+    /// finds. Nothing is written to config here either; <see cref="PlaceInView"/> persists the
+    /// healed pose exactly as it does for the spawn button, so the reset is undoable by moving the
+    /// panel and is not a second, hidden way to re-answer the start-up preference.</para>
+    ///
+    /// <para>The grab guard is in <c>Place()</c> and not repeated here: a panel being carried when
+    /// the chord fires keeps the hand's pose, and the request simply stands until it is released.
+    /// </para>
+    /// </summary>
+    internal static void RequestRecenterReset(string reason)
+    {
+        if (!_sessionVisible)
+            return;                                        // never summon a window the chord did not find
+        _respawnRequested = true;
+        // HW-VERIFY
+        VRLog.Note("WorldUI", "COMBAT LOG RECENTER RESET armed by " + reason +
+                              " — the next tick re-seats the panel in front of the head at its "
+                              + "configured size and persists that pose, the same primitive the "
+                              + "spawn button uses. A log that is not up is left alone (this line "
+                              + "does not print then), and a panel in hand keeps the hand's pose "
+                              + "until it is released.");
+    }
+
+    /// <summary>
     /// Show/hide the combat log for THIS SESSION. Writes no ConfigEntry: the start-up preference
     /// <c>[WorldUI] CombatLog</c> is the player's answer to a different question ("should it be up
     /// when a scenario begins?") and a live show/hide may not silently re-answer it. SHOW requests
