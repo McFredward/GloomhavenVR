@@ -42,14 +42,17 @@ namespace GloomhavenVR.Hands;
 /// between bends like a sheet of cloth pushed from one side. It is presentation only: no physics,
 /// no colliders, no cook, no allocation per frame.</para>
 ///
-/// <para>THE OTHER TWO CANDIDATES WERE REJECTED FOR REASONS, not by preference. A whole-object
-/// swing (rotate the renderer's transform about its top edge) is INERT on a skinned mesh — a
+/// <para><b>AND THE SAME SOLVER SWINGS A PLAIN MESH.</b> A whole-object swing (rotate the
+/// renderer's transform about its top edge) is INERT on a skinned mesh — a
 /// <c>SkinnedMeshRenderer</c>'s vertices follow <c>bones[]</c> and ignore the renderer's own
-/// transform entirely — so it is not an alternative here, it is the degenerate case of this one
-/// and is handled as such: a hanging whose rig turns out to be a single bone gets that bone
-/// rotated about the pivot with full weight, which IS the whole-object swing. Adding a
+/// transform entirely. It is very much ALIVE on a <c>MeshRenderer</c>, whose vertices follow
+/// nothing else. So the two routes are not two mechanisms: they are one solver over a DRIVEN SET,
+/// which is the bind bones for a rigged hanging and the renderer's own transform for a plain one.
+/// Same spring, same dials, same pivot, same exact restore, same census. A rigged hanging with a
+/// single bone lands in the middle of that and is handled by the same line of code. Adding a
 /// <c>Cloth</c> at runtime was rejected outright: it cooks (linear in vertex count, on the frame
-/// the hand arrives), it fights the game's own skinning, and it would need the same bones anyway.</para>
+/// the hand arrives), it fights the game's own skinning, and it would need the same bones
+/// anyway.</para>
 ///
 /// <para><b>ROTATE ABOUT A PIVOT, NOT ALONG A CHAIN.</b> The obvious implementation walks the bone
 /// chain and hinges each bone in its parent's frame. It is wrong here for a reason worth writing
@@ -79,11 +82,12 @@ namespace GloomhavenVR.Hands;
 /// seen, how many qualified, and how many were rejected BY WHICH TERM with the first several
 /// named:</para>
 /// <list type="number">
-/// <item><description>a <c>SkinnedMeshRenderer</c> — the art's own declaration that this mesh was
-/// built to deform. In the whole ModBuild-431 log the non-actor skinned renderers are exactly the
-/// two banner parts and two door light meshes; every wall, pillar, floor, rock, torch, chain and
-/// crystal is a plain <c>MeshRenderer</c>. This one term does the work a pile of geometry could
-/// not: it cannot select a wall, because a wall is not rigged.</description></item>
+/// <item><description>a renderer this class can actually move: a <c>SkinnedMeshRenderer</c> with
+/// bones, or a <c>MeshRenderer</c> with a mesh. Skinned is the art's own declaration that a mesh
+/// was built to deform — in the whole ModBuild-431 log the non-actor skinned renderers are exactly
+/// the two banner parts and two door light meshes — and that single term is why the SKINNED lane
+/// needs no defence against selecting a wall: a wall is not rigged. The MESH lane has no such
+/// gift and pays for it with two extra terms (7 and 8).</description></item>
 /// <item><description>not actor-owned (<see cref="SceneryActors"/>) — a Brute's cloak and a
 /// demon's foliage are skinned too, and they belong to
 /// <c>Board.FigureGrab.FigureClothHands</c>.</description></item>
@@ -103,15 +107,50 @@ namespace GloomhavenVR.Hands;
 /// <see cref="DropShareOfSpan"/> of its own width, and no wider than
 /// <see cref="MaxSpanWu"/>. The banner's rail fails this on its first clause (0.1 wu tall) and
 /// therefore never swings on its own, which is correct — a rail is masonry.</description></item>
+/// <item><description>PLAIN MESH ONLY — AIRBORNE: the renderer's foot clears its room's floor by
+/// <see cref="HangFootClearanceWu"/>. This is the term that separates a hanging from a WALL FACE,
+/// and it is needed only in the mesh lane. It has to exist, because geometry alone cannot do it:
+/// the ModBuild-431 wall census measures wall faces at <c>s(2.0,3.3,0.1)</c> and
+/// <c>s(1.5,3.4,0.1)</c>, which pass every sheet-and-drop test that a curtain at
+/// <c>s(1.6,2.6,0.2)</c> passes. What differs is where their FEET are: a wall face reaches the
+/// floor, and a hanging does not — <c>EN_CR_Curtain_Mesh</c> has its foot 0.57 wu over the floor
+/// and <c>EN_CR_Hanging_01_Mesh</c> 0.68 wu. The floor height comes from the room's own central
+/// tile, which is where the wall fade gets its floors too.</description></item>
+/// <item><description>PLAIN MESH ONLY — A LEAF, AND A SINGLE SUBMESH. The mesh route rotates a
+/// TRANSFORM, so anything else parented under that transform is dragged with it; requiring that no
+/// descendant carries a renderer makes that unrepresentable. A single submesh refuses a combined
+/// or batched prop — several hangings welded into one renderer would all swing off one pivot. A
+/// hanging welded to its OWN rail is fine and is not refused: the pivot IS the top edge, so the
+/// rail end of such a mesh does not move.</description></item>
 /// </list>
 ///
-/// <para><b>WHAT THIS DELIBERATELY DOES NOT COVER, so the next round has the fact and not a
-/// mystery.</b> <c>EN_CR_Curtain_Mesh</c> and <c>CR_BT_BanditBanner_Wall</c> are hangings that the
-/// art shipped as plain <c>MeshRenderer</c>s. Reaching them means sweeping
-/// <c>FindObjectsOfType&lt;Renderer&gt;</c> — thousands of objects in a dungeon, against the tens
-/// a <c>SkinnedMeshRenderer</c> sweep returns — and this project has been burned three times by a
-/// per-frame or near-per-frame type sweep. It is not done here, on cost, and the reason is
-/// recorded rather than left as an omission.</para>
+/// <para><b>THE PLAIN-MESH POPULATION COSTS NO SWEEP, AND THAT IS THE WHOLE DESIGN OF IT.</b>
+/// <c>EN_CR_Curtain_Mesh</c> and <c>CR_BT_BanditBanner_Wall</c> are hangings the art shipped as
+/// plain <c>MeshRenderer</c>s. The obvious way to reach them is
+/// <c>FindObjectsOfType&lt;Renderer&gt;()</c>, and this build refuses it on a MEASUREMENT rather
+/// than on a feeling: the ModBuild-431 log carries the wall fade's own worst-case field for
+/// exactly that call, <c>FRESH FindObjectsOfType&lt;Renderer&gt; sweep (worst 0.60ms … 2.95ms)</c>.
+/// A 2.95 ms spike every 3 s is a quarter of an 11.11 ms frame, handed to a player who asked for a
+/// flag to move.</para>
+///
+/// <para>So the mesh lane reads a population the GAME already maintains and nobody has to sweep
+/// for: <c>SceneRegistry.Volumes</c> — the mod's self-maintaining registry of
+/// <c>TilesOcclusionVolume</c>, enrolled by a Harmony postfix on the volume's own <c>Start</c> —
+/// hands over each room's <c>Renderers</c> array AND its <c>CentralTile</c>, which is the floor
+/// height term 7 needs; and <c>TilesOcclusionGenerator.s_Instance.m_ObjectRenderers</c> is the
+/// game's own live list of prop renderers. Neither read costs a scan. The recurring cost of the
+/// whole lane is one walk of those lists with a memoized verdict lookup per entry — at the top of
+/// the range the wall fade logs (2540 renderers) that is a few thousand dictionary probes, in the
+/// same order as the 0.012-0.023 ms this project already measures for
+/// <c>FindObjectsOfType&lt;Cloth&gt;</c>, and 20-100x under the sweep it replaces.</para>
+///
+/// <para>THE LANE STANDS DOWN RATHER THAN FALLING BACK. <c>ComponentRegistry.Collect</c> fails
+/// OPEN — a disarmed registry does the very <c>FindObjectsOfType</c> it exists to replace — so
+/// calling it blind would smuggle that sweep in through the back door. The lane is therefore gated
+/// on <c>SceneRegistry.Volumes.Count &gt; 0</c>, which is reachable only through the enrolment
+/// postfix (<c>Arm(false)</c> returns before seeding), so a non-zero count PROVES the registry is
+/// armed. When it is zero the mesh lane does nothing at all and the census says which of the two
+/// reasons it was.</para>
 ///
 /// <para><b>MULTIPLAYER: ZERO WIRE BYTES.</b> Bone poses have never been a wire field and nothing
 /// here is authoritative. Each client's own hands stir their own copy of the room, exactly as with
@@ -142,6 +181,14 @@ internal static class SceneHangingHands
     /// <summary>A hanging drops at least this share of its own width. A banner is 1.84 wu over 0.9;
     /// a wide low strip is a pelmet.</summary>
     private const float DropShareOfSpan = 0.7f;
+
+    /// <summary>A plain-mesh hanging's foot must clear its room's floor by this much. THE term
+    /// that separates a hanging from a wall face, which geometry alone cannot: the 431 census
+    /// measures wall faces at s(2.0,3.3,0.1) with their feet ON the floor, and the curtain and the
+    /// banner at 0.57 and 0.68 wu over it. 0.35 sits between the two populations with margin on
+    /// both sides. (The wall fade's own "airborne bar" is 1.00 wu and answers a different question
+    /// — "is this thing floating?" — which both of these hangings fail.)</summary>
+    private const float HangFootClearanceWu = 0.35f;
 
     /// <summary>Widest a single hanging may be. Past this it is a wall of fabric and one pivot at
     /// its centre would swing the whole thing from a touch at one corner.</summary>
@@ -204,8 +251,17 @@ internal static class SceneHangingHands
     // re-judges nothing. Rejections are memoized WITH their reason and their line — the memo is
     // what the census counts from, so the term counts describe the WHOLE live population on every
     // sweep and not just whatever happened to be new on that one.
-    private static readonly Dictionary<SkinnedMeshRenderer, Judgement> _verdict = new(64);
-    private static readonly List<SkinnedMeshRenderer> _verdictDrop = new(8);
+    private static readonly Dictionary<Renderer, Judgement> _verdict = new(256);
+    private static readonly List<Renderer> _verdictDrop = new(8);
+
+    // THE PLAIN-MESH LANE'S SOURCES, both free. _volumeScratch is refilled from the mod's
+    // self-maintaining occlusion-volume registry (no sweep); _floors is each room's central-tile
+    // position, which is where the wall fade gets its floor heights too; _seen stops a renderer
+    // that appears in BOTH lists from being counted twice in one sweep's term totals.
+    private static readonly List<TilesOcclusionVolume> _volumeScratch = new(16);
+    private static readonly List<Vector3> _floors = new(16);
+    private static readonly HashSet<Renderer> _seen = new();
+    private static readonly List<Renderer> _rendererScratch = new(8);
 
     private static float _nextScanAt;
 
@@ -214,6 +270,10 @@ internal static class SceneHangingHands
     private static int _sweeps;
 
     private static int _lastCandidates;
+    private static int _lastSkinnedCandidates;
+    private static int _lastMeshCandidates;
+    private static int _lastVolumes;
+    private static string _meshLaneStandDown = "";
     private static float _lastSweepMs;
     private static readonly int[] _rejected = new int[(int)Reject.Count];
     private static readonly List<string> _rejectNamed = new(CensusNamed);
@@ -235,6 +295,8 @@ internal static class SceneHangingHands
         Transparent,
         NotASheet,
         NotADrop,
+        NotAirborne,
+        NotALeaf,
         Count,
     }
 
@@ -316,6 +378,11 @@ internal static class SceneHangingHands
         RestoreAll();
         _scene.Clear();
         _verdict.Clear();
+        _volumeScratch.Clear();
+        _floors.Clear();
+        _seen.Clear();
+        _rendererScratch.Clear();
+        _meshLaneStandDown = "";
         _nextScanAt = 0f;
         _loggedFirstTouch = false;
         // _sweeps is NOT reset. It is the liveness field, and a counter that restarts at zero
@@ -355,11 +422,11 @@ internal static class SceneHangingHands
         _sweeps++;
 
         long started = System.Diagnostics.Stopwatch.GetTimestamp();
-        SkinnedMeshRenderer[] found = Object.FindObjectsOfType<SkinnedMeshRenderer>();
-        _lastCandidates = found.Length;
         for (int i = 0; i < _rejected.Length; i++)
             _rejected[i] = 0;
         _rejectNamed.Clear();
+        _seen.Clear();
+        _floors.Clear();
 
         // Keep the hangings that are still alive; drop dead rows (their bones went with them).
         for (int i = _scene.Count - 1; i >= 0; i--)
@@ -368,27 +435,71 @@ internal static class SceneHangingHands
                 _scene.RemoveAt(i);
         }
 
+        // LANE 1 — RIGGED HANGINGS. FindObjectsOfType<SkinnedMeshRenderer>() is the one sweep this
+        // class takes, on this 3 s cadence and only while a hand is tracked. It is affordable
+        // because the type is rare: the sibling class measures the same call for Cloth at
+        // 0.012-0.023 ms on hardware, against 0.60-2.95 ms for the Renderer sweep the wall fade
+        // logs. There is no cheaper enumeration of skinned renderers in the mod, and the mesh lane
+        // below shows what one looks like when there is.
+        SkinnedMeshRenderer[] found = Object.FindObjectsOfType<SkinnedMeshRenderer>();
+        _lastSkinnedCandidates = found.Length;
         for (int i = 0; i < found.Length; i++)
+            Judge(found[i], false);
+
+        // LANE 2 — PLAIN-MESH HANGINGS, OFF A POPULATION SOMEBODY ELSE ALREADY MAINTAINS. No
+        // sweep: the mod's occlusion-volume registry enrolls every room through a Harmony postfix
+        // on the game's own TilesOcclusionVolume.Start, and each volume carries both the room's
+        // MeshRenderer array and the CentralTile whose height is the floor. The game's own
+        // m_ObjectRenderers list is added on top for props that enrol themselves that way.
+        _lastMeshCandidates = 0;
+        _lastVolumes = 0;
+        // GATED ON A NON-ZERO COUNT, NOT ON A TRY. ComponentRegistry.Collect FAILS OPEN — a
+        // disarmed registry runs the very FindObjectsOfType it exists to replace — so calling it
+        // blind would smuggle that sweep in through the back door. Count is reachable only through
+        // the enrolment postfix (Arm(false) returns before seeding), so non-zero PROVES armed.
+        if (SceneRegistry.Volumes.Count <= 0)
         {
-            SkinnedMeshRenderer r = found[i];
-            if (r == null)
-                continue;
-            if (!_verdict.TryGetValue(r, out Judgement judged))
-            {
-                // JUDGED ONCE, EVER. The component walks, the material reads and the string are
-                // paid for on the sweep that first sees a renderer and never again.
-                Hanging? built = Classify(r, out Reject why, out string note);
-                judged = built == null ? new Judgement((int)why, note) : new Judgement(-1, "");
-                _verdict[r] = judged;
-                if (built != null)
-                    _scene.Add(built);
-            }
-            if (judged.Reason < 0)
-                continue;
-            _rejected[judged.Reason]++;
-            if (_rejectNamed.Count < CensusNamed)
-                _rejectNamed.Add(judged.Note);
+            _meshLaneStandDown =
+                "STOOD DOWN: SceneRegistry.Volumes.Count is 0, which is either the menu (no room "
+                + "exists) or a disarmed registry. This lane READS that registry and never sweeps, "
+                + "so it does nothing rather than fall back to FindObjectsOfType<Renderer> — the "
+                + "call the wall fade measures at 0.60-2.95 ms.";
         }
+        else
+        {
+            _meshLaneStandDown = "";
+            SceneRegistry.Volumes.Collect(_volumeScratch);
+            _lastVolumes = _volumeScratch.Count;
+            for (int i = 0; i < _volumeScratch.Count; i++)
+            {
+                TilesOcclusionVolume v = _volumeScratch[i];
+                if (v != null && v.CentralTile != null)
+                    _floors.Add(v.CentralTile.transform.position);
+            }
+            for (int i = 0; i < _volumeScratch.Count; i++)
+            {
+                TilesOcclusionVolume v = _volumeScratch[i];
+                MeshRenderer[]? rs = v != null ? v.Renderers : null;
+                if (rs == null)
+                    continue;
+                for (int k = 0; k < rs.Length; k++)
+                {
+                    _lastMeshCandidates++;
+                    Judge(rs[k], true);
+                }
+            }
+            TilesOcclusionGenerator gen = TilesOcclusionGenerator.s_Instance;
+            List<MeshRenderer>? objects = gen != null ? gen.m_ObjectRenderers : null;
+            if (objects != null)
+            {
+                for (int i = 0; i < objects.Count; i++)
+                {
+                    _lastMeshCandidates++;
+                    Judge(objects[i], true);
+                }
+            }
+        }
+        _lastCandidates = _lastSkinnedCandidates + _lastMeshCandidates;
 
         // Re-anchor every hanging that is at rest: its world home pose, bounds and pivot are what
         // the deflection maths works from, and a prop that has been moved (a room re-entered, a
@@ -404,6 +515,55 @@ internal static class SceneHangingHands
         return true;
     }
 
+    /// <summary>Judge one candidate: memo hit, or classify once and remember. The seen-set is
+    /// what stops a renderer that appears in BOTH plain-mesh sources from being counted twice in
+    /// one sweep's term totals — a ratio with two populations in one buffer is a defect this
+    /// project has already paid for.</summary>
+    private static void Judge(Renderer? candidate, bool plainMesh)
+    {
+        if (candidate == null || !_seen.Add(candidate))
+            return;
+        if (!_verdict.TryGetValue(candidate, out Judgement judged))
+        {
+            // JUDGED ONCE, EVER. The component walks, the material reads and the string are paid
+            // for on the sweep that first sees a renderer and never again; from then on this is a
+            // dictionary probe, which is what makes the plain-mesh lane's thousands affordable.
+            Hanging? built = Classify(candidate, plainMesh, out Reject why, out string note);
+            judged = built == null ? new Judgement((int)why, note) : new Judgement(-1, "");
+            _verdict[candidate] = judged;
+            if (built != null)
+                _scene.Add(built);
+        }
+        if (judged.Reason < 0)
+            return;
+        _rejected[judged.Reason]++;
+        if (_rejectNamed.Count < CensusNamed)
+            _rejectNamed.Add(judged.Note);
+    }
+
+    /// <summary>The floor height under a point: the CentralTile of the nearest room volume in XZ,
+    /// which is exactly where <c>WallSegmentFade</c> gets its per-renderer floor. With no volumes
+    /// this returns the point's own height, so the airborne term below measures zero clearance and
+    /// REFUSES — a missing floor must never read as "it is off the ground".</summary>
+    private static float FloorUnder(Vector3 p)
+    {
+        float bestSq = float.PositiveInfinity;
+        float y = p.y;
+        for (int i = 0; i < _floors.Count; i++)
+        {
+            Vector3 f = _floors[i];
+            float dx = f.x - p.x;
+            float dz = f.z - p.z;
+            float d = dx * dx + dz * dz;
+            if (d < bestSq)
+            {
+                bestSq = d;
+                y = f.y;
+            }
+        }
+        return y;
+    }
+
     /// <summary>Forget memoized verdicts whose renderer has been destroyed. Bounded work: it runs
     /// on the sweep cadence and only when the memo has outgrown the live candidate count.</summary>
     private static void PruneVerdicts()
@@ -411,12 +571,12 @@ internal static class SceneHangingHands
         if (_verdict.Count <= _lastCandidates)
             return;
         _verdictDrop.Clear();
-        foreach (KeyValuePair<SkinnedMeshRenderer, Judgement> kv in _verdict)
+        foreach (KeyValuePair<Renderer, Judgement> kv in _verdict)
         {
             // The Unity-null test and the reference test disagree here on purpose, and that
             // disagreement IS the destroyed case: the key is still a live C# reference (so it can
             // still be removed) while the renderer behind it is gone.
-            SkinnedMeshRenderer key = kv.Key;
+            Renderer key = kv.Key;
             if (key == null)
                 _verdictDrop.Add(key!);
         }
@@ -432,7 +592,7 @@ internal static class SceneHangingHands
     /// <para>Runs ONCE per renderer, ever — the verdict is memoized — so it may afford the
     /// component walks and the string it produces. Nothing here runs per frame.</para>
     /// </summary>
-    private static Hanging? Classify(SkinnedMeshRenderer r, out Reject why, out string note)
+    private static Hanging? Classify(Renderer r, bool plainMesh, out Reject why, out string note)
     {
         why = Reject.Actor;
         string path = PathOf(r.transform);
@@ -467,41 +627,97 @@ internal static class SceneHangingHands
         // The frame whose transform of localBounds.center lands closer to r.bounds.center is the
         // frame Unity used. No doc is trusted; the residual is measured.
         Transform frame = r.transform;
-        try
-        {
-            Vector3 truth = r.bounds.center;
-            Vector3 localCentre = r.localBounds.center;
-            float own = (r.transform.TransformPoint(localCentre) - truth).sqrMagnitude;
-            if (r.rootBone != null
-                && (r.rootBone.TransformPoint(localCentre) - truth).sqrMagnitude < own)
-            {
-                frame = r.rootBone;
-            }
-        }
-        catch
-        {
-            // A renderer mid-teardown throws out of the bounds accessors. Fall back to the
-            // documented answer rather than dropping a candidate over an instrument.
-            frame = r.rootBone != null ? r.rootBone : r.transform;
-        }
-        Transform[]? bones = r.bones;
+        Transform[]? bones = null;
         int boneCount = 0;
-        if (bones != null)
+        Bounds local;
+        var skinned = r as SkinnedMeshRenderer;
+        if (skinned != null)
         {
-            for (int i = 0; i < bones.Length; i++)
+            try
             {
-                if (bones[i] != null)
-                    boneCount++;
+                Vector3 truth = r.bounds.center;
+                Vector3 localCentre = skinned.localBounds.center;
+                float own = (r.transform.TransformPoint(localCentre) - truth).sqrMagnitude;
+                if (skinned.rootBone != null
+                    && (skinned.rootBone.TransformPoint(localCentre) - truth).sqrMagnitude < own)
+                {
+                    frame = skinned.rootBone;
+                }
             }
+            catch
+            {
+                // A renderer mid-teardown throws out of the bounds accessors. Fall back to the
+                // documented answer rather than dropping a candidate over an instrument.
+                frame = skinned.rootBone != null ? skinned.rootBone : r.transform;
+            }
+            bones = skinned.bones;
+            if (bones != null)
+            {
+                for (int i = 0; i < bones.Length; i++)
+                {
+                    if (bones[i] != null)
+                        boneCount++;
+                }
+            }
+            if (boneCount == 0 && skinned.rootBone == null)
+            {
+                // A SkinnedMeshRenderer with neither bones nor a root bone has nothing whose
+                // motion the vertices follow, so there is no write that could move it. Counted,
+                // not silently dropped: "no rig" and "not a hanging" are different verdicts.
+                why = Reject.NoRig;
+                note = $"'{r.name}' at '{path}' — no bones and no root bone: nothing to drive";
+                return null;
+            }
+            local = skinned.localBounds;
         }
-        if (boneCount == 0 && r.rootBone == null)
+        else
         {
-            // A SkinnedMeshRenderer with neither bones nor a root bone has nothing whose motion
-            // the vertices follow, so there is no write that could move it. Counted, not silently
-            // dropped: "no rig" and "not a hanging" are different verdicts.
-            why = Reject.NoRig;
-            note = $"'{r.name}' at '{path}' — no bones and no root bone: nothing to drive";
-            return null;
+            // A PLAIN MESH'S RIG IS ITS TRANSFORM. Its vertices follow nothing else, which is
+            // exactly why the whole-object swing that is inert on a skinned mesh works here.
+            var filter = r.GetComponent<MeshFilter>();
+            Mesh? shared = filter != null ? filter.sharedMesh : null;
+            if (shared == null)
+            {
+                why = Reject.NoRig;
+                note = $"'{r.name}' at '{path}' — a MeshRenderer with no shared mesh: no bounds "
+                       + "to judge and nothing to drive";
+                return null;
+            }
+            local = shared.bounds;
+
+            // A LEAF, AND A SINGLE SUBMESH. The mesh route rotates a TRANSFORM, so any renderer
+            // parented under it would be dragged along; and a multi-submesh mesh is the shape a
+            // combined or batched prop takes, where one pivot would swing several props at once.
+            // A hanging welded to its OWN rail is NOT refused here and does not need to be: the
+            // pivot is the top edge, so the rail end of such a mesh does not move.
+            _rendererScratch.Clear();
+            r.GetComponentsInChildren(true, _rendererScratch);
+            if (_rendererScratch.Count > 1 || shared.subMeshCount > 1)
+            {
+                why = Reject.NotALeaf;
+                note = $"'{r.name}' at '{path}' — {_rendererScratch.Count} renderer(s) in its own "
+                       + $"subtree and {shared.subMeshCount} submesh(es): swinging this transform "
+                       + "would move things that are not this hanging";
+                _rendererScratch.Clear();
+                return null;
+            }
+            _rendererScratch.Clear();
+
+            // AIRBORNE. THE term that separates a hanging from a wall face, and the reason the
+            // plain-mesh lane needs the room registry rather than only a type filter: the 431
+            // census measures wall faces at s(2.0,3.3,0.1) with their feet ON the floor, and this
+            // scenario's curtain and banner at 0.57 and 0.68 wu over it.
+            Bounds world = r.bounds;
+            float floorY = FloorUnder(world.center);
+            float clearance = world.min.y - floorY;
+            if (clearance < HangFootClearanceWu)
+            {
+                why = Reject.NotAirborne;
+                note = $"'{r.name}' at '{path}' — foot {clearance:0.##} wu over its room floor, "
+                       + $"under the {HangFootClearanceWu:0.##} wu bar: it reaches the ground, so "
+                       + "it is masonry or floor dressing and not a hanging";
+                return null;
+            }
         }
 
         Material? mat = null;
@@ -526,7 +742,6 @@ internal static class SceneHangingHands
         // THE SHAPE, MEASURED IN THE RENDERER'S OWN FRAME. localBounds x lossyScale, never a world
         // AABB: a banner hung at 45 degrees to the world axes has a fat AABB in both horizontal
         // axes and would fail a world-space thickness test while being exactly as thin as it looks.
-        Bounds local = r.localBounds;
         Vector3 scale = frame.lossyScale;
         var extent = new Vector3(Mathf.Abs(local.size.x * scale.x),
                                  Mathf.Abs(local.size.y * scale.y),
@@ -566,8 +781,9 @@ internal static class SceneHangingHands
 
         why = Reject.Count;
         note = "";
-        return Hanging.Build(r, frame, bones, boneCount, local, thinAxis, dropAxis, dropSign,
-                             thickness, drop, span, path, mat, queue);
+        return Hanging.Build(r, plainMesh || skinned == null, frame, bones, boneCount, local,
+                             thinAxis, dropAxis, dropSign, thickness, drop, span, path, mat,
+                             queue);
     }
 
     /// <summary>Which of a transform's own axes points most steeply along world down, and with
@@ -658,7 +874,9 @@ internal static class SceneHangingHands
     /// </summary>
     private static void Census()
     {
-        int population = (_lastCandidates * 397) ^ (_scene.Count * 131);
+        int population = (_lastCandidates * 397) ^ (_scene.Count * 131)
+                         ^ (_lastSkinnedCandidates * 73) ^ (_lastMeshCandidates * 11)
+                         ^ (_lastVolumes * 7) ^ _meshLaneStandDown.Length;
         for (int i = 0; i < _rejected.Length; i++)
             population ^= _rejected[i] * (17 + i);
         float now = Time.unscaledTime;
@@ -678,6 +896,19 @@ internal static class SceneHangingHands
                .Append(" skinned candidate(s) in ").Append(_lastSweepMs.ToString("F3"))
                .Append(" ms. This runs every ").Append(RescanSeconds.ToString("0.#"))
                .Append(" s while a hand is tracked, never per frame.");
+        // APPENDED. The 'skinned candidate(s)' token above is kept word for word so a grep that
+        // found the first version of this line still finds it; the number behind it is now BOTH
+        // lanes, and this clause splits it.
+        _census.Append(" TWO LANES, ONE SOLVER: RIGGED ").Append(_lastSkinnedCandidates)
+               .Append(" candidate(s) from the one FindObjectsOfType<SkinnedMeshRenderer> this "
+                       + "class takes (a rare type — the sibling class measures the same call for "
+                       + "Cloth at 0.012-0.023 ms); PLAIN MESH ").Append(_lastMeshCandidates)
+               .Append(" candidate(s) from ").Append(_lastVolumes)
+               .Append(" occlusion volume(s) plus the game's own m_ObjectRenderers list, WITH NO "
+                       + "SWEEP AT ALL — the wall fade measures FindObjectsOfType<Renderer> at "
+                       + "0.60-2.95 ms and this lane refuses to pay it.");
+        if (_meshLaneStandDown.Length > 0)
+            _census.Append(" PLAIN-MESH LANE ").Append(_meshLaneStandDown);
         _census.Append(" SWEEP ").Append(_sweeps)
                .Append(" (this counter moves on EVERY sweep whatever is found, so a frozen number "
                        + "means the sweep STOPPED and never means the room has no banners).");
@@ -697,6 +928,10 @@ internal static class SceneHangingHands
                .Append(", transparent ").Append(_rejected[(int)Reject.Transparent])
                .Append(", not a sheet ").Append(_rejected[(int)Reject.NotASheet])
                .Append(", not a drop ").Append(_rejected[(int)Reject.NotADrop])
+               .Append(", not airborne ").Append(_rejected[(int)Reject.NotAirborne])
+               .Append(" (plain mesh only — a foot on the floor is a wall face, not a hanging)")
+               .Append(", not a leaf ").Append(_rejected[(int)Reject.NotALeaf])
+               .Append(" (plain mesh only — swinging that transform would move something else)")
                .Append('.');
         if (_rejectNamed.Count > 0)
         {
@@ -712,19 +947,23 @@ internal static class SceneHangingHands
                .Append(", and a truncated list is not absence)");
         if (_scene.Count == 0)
         {
-            _census.Append(": none. With SWEEP moving, this room really has no skinned hanging — "
-                           + "not a stalled instrument. Static MeshRenderer hangings "
-                           + "are OUT OF THE POPULATION on cost, by design; see the class doc.");
+            _census.Append(": none. With SWEEP moving and both lanes reporting candidates, this "
+                           + "room really has no hanging either lane can drive — not a stalled "
+                           + "instrument. If the PLAIN MESH candidate count is 0 as well, the "
+                           + "mesh lane never had anything to judge and the stand-down clause "
+                           + "above says why.");
         }
         for (int i = 0; i < _scene.Count && i < CensusNamed; i++)
             _census.Append(i == 0 ? ": " : "; ").Append(_scene[i].Describe());
 
-        _census.Append(" READ IT LIKE THIS: 'skinned candidate(s)' 0 means the sweep found no "
-                       + "SkinnedMeshRenderer at all and the room is not loaded; candidates "
-                       + "non-zero with 0 driven means every one was rejected and the term counts "
-                       + "above say which test to loosen; driven non-zero with nothing visibly "
-                       + "moving means the bones were written and the per-hanging numbers say why "
-                       + "— a one-bone rig turns the sheet rigidly, and a drop far larger than the "
+        _census.Append(" READ IT LIKE THIS: 'skinned candidate(s)' 0 means neither lane saw "
+                       + "anything and the room is not loaded; candidates non-zero with 0 driven "
+                       + "means every one was rejected and the term counts above say which test "
+                       + "to loosen — and read them PER LANE, because 'not airborne' and 'not a "
+                       + "leaf' can only ever come from the plain-mesh lane while a wall can only "
+                       + "ever reach the plain-mesh lane; driven non-zero with nothing visibly "
+                       + "moving means the rig was written and the per-hanging numbers say why — "
+                       + "a one-bone rig turns the sheet rigidly, and a drop far larger than the "
                        + "swing moves the hem by very little. Dials: [Hands] "
                        + "SceneryHangingSwingDegrees, SceneryHangingSettleSeconds, and the master "
                        + "switch [Hands] HandsDisturbScenery.");
@@ -745,7 +984,8 @@ internal static class SceneHangingHands
     /// </summary>
     private sealed class Hanging
     {
-        private SkinnedMeshRenderer _r = null!;
+        private Renderer _r = null!;
+        private bool _plainMesh;
         private Transform _frame = null!;
         private Transform[] _bones = null!;
 
@@ -759,6 +999,17 @@ internal static class SceneHangingHands
         private int _thinAxis;
         private Vector3 _pivot;               // world, the top rail
         private Vector3 _normal;              // world unit normal of the sheet
+
+        // THE HOME FRAME, FROZEN AS A MATRIX PAIR, and the reason it is not read live.
+        // _frame is very often a transform this class DRIVES — always so for a plain mesh, and for
+        // any rigged hanging whose rootBone is one of its own bones. Reading it live inside the
+        // reach gate would make the gate chase the object it is deflecting: a hand that pushes a
+        // banner away would find it out of reach next frame, the spring would return it, and the
+        // pair would oscillate. The gate asks "is the hand where this banner HANGS", which is a
+        // question about the authored pose, so it is answered against the authored pose. Re-taken
+        // by Anchor, i.e. only while the hanging is at rest.
+        private Matrix4x4 _homeToWorld = Matrix4x4.identity;
+        private Matrix4x4 _worldToHome = Matrix4x4.identity;
 
         private Vector3 _offset;
         private Vector3 _velocity;
@@ -778,14 +1029,15 @@ internal static class SceneHangingHands
 
         internal bool Alive => _r != null && _frame != null;
 
-        internal static Hanging Build(SkinnedMeshRenderer r, Transform frame, Transform[]? bones,
-                                      int boneCount, Bounds localBounds, int thinAxis, int dropAxis,
-                                      float dropSign, float thickness, float drop, float span,
-                                      string path, Material? mat, int queue)
+        internal static Hanging Build(Renderer r, bool plainMesh, Transform frame,
+                                      Transform[]? bones, int boneCount, Bounds localBounds,
+                                      int thinAxis, int dropAxis, float dropSign, float thickness,
+                                      float drop, float span, string path, Material? mat, int queue)
         {
             var h = new Hanging
             {
                 _r = r,
+                _plainMesh = plainMesh,
                 _frame = frame,
                 _localBounds = localBounds,
                 _thinAxis = thinAxis,
@@ -796,9 +1048,13 @@ internal static class SceneHangingHands
                 _queue = queue,
             };
 
-            // The driven set. A rig of one bone is not a failure case: rotating that single bone
-            // about the pivot with full weight IS the whole-object swing, and a SkinnedMeshRenderer
-            // ignores its own transform, so this is the only way to move such a sheet at all.
+            // THE DRIVEN SET — the one place the two routes differ, and they differ by one line.
+            // A rigged hanging is driven by its bind bones; a plain mesh is driven by its own
+            // transform, whose motion its vertices follow directly (bones is null for it, so the
+            // fallback below picks the frame, which for a plain mesh IS r.transform). A rig of ONE
+            // bone is not a failure case either: rotating that bone about the pivot with full
+            // weight IS the whole-object swing, and a SkinnedMeshRenderer ignores its own
+            // transform, so for a one-bone rig this is the only write that can move the sheet.
             var driven = new List<Transform>(Mathf.Max(boneCount, 1));
             if (bones != null)
             {
@@ -826,7 +1082,7 @@ internal static class SceneHangingHands
             h._blendShapes = 0;
             try
             {
-                Mesh? mesh = r.sharedMesh;
+                Mesh? mesh = (r as SkinnedMeshRenderer)?.sharedMesh;
                 h._blendShapes = mesh != null ? mesh.blendShapeCount : 0;
             }
             catch
@@ -860,7 +1116,10 @@ internal static class SceneHangingHands
             if (_normal.sqrMagnitude < 1e-6f)
                 _normal = Vector3.forward;
 
-            Vector3 centre = _frame.TransformPoint(_localBounds.center);
+            _homeToWorld = _frame.localToWorldMatrix;
+            _worldToHome = _frame.worldToLocalMatrix;
+
+            Vector3 centre = _homeToWorld.MultiplyPoint3x4(_localBounds.center);
             _pivot = centre + up * (Drop * 0.5f);
 
             float anchorAlong = Vector3.Dot(_pivot, up);
@@ -899,11 +1158,13 @@ internal static class SceneHangingHands
             if (reach <= 0f)
                 return Vector3.zero;
 
+            // AGAINST THE HOME FRAME, never the live one — see _homeToWorld for why a live read
+            // here is an oscillator rather than a gate.
             Vector3 palm = hand.Rig.PalmCenter.position;
-            Vector3 localPalm = _frame.InverseTransformPoint(palm);
+            Vector3 localPalm = _worldToHome.MultiplyPoint3x4(palm);
             Vector3 clamped = Vector3.Min(Vector3.Max(localPalm, _localBounds.min),
                                           _localBounds.max);
-            float d = Vector3.Distance(palm, _frame.TransformPoint(clamped));
+            float d = Vector3.Distance(palm, _homeToWorld.MultiplyPoint3x4(clamped));
             if (d >= reach)
                 return Vector3.zero;
 
@@ -1023,11 +1284,15 @@ internal static class SceneHangingHands
         {
             float swing = _offset.magnitude;
             float angle = Mathf.Atan2(swing, Drop) * Mathf.Rad2Deg;
-            string mech = _bones.Length >= 2
-                ? $"BONE CHAIN, {_bones.Length} bones rotated about the rail by depth"
-                : "SINGLE BONE — the whole sheet turns rigidly about the rail (a "
-                  + "SkinnedMeshRenderer ignores its own transform, so this is the only move "
-                  + "available to a one-bone rig)";
+            string mech = _plainMesh
+                ? "WHOLE-OBJECT SWING — a plain mesh's vertices follow its transform, so the "
+                  + "transform IS the rig; it turns about its own top edge and nothing else moves "
+                  + "with it, which the leaf term guarantees"
+                : _bones.Length >= 2
+                    ? $"BONE CHAIN, {_bones.Length} bones rotated about the rail by depth"
+                    : "SINGLE BONE — the whole sheet turns rigidly about the rail (a "
+                      + "SkinnedMeshRenderer ignores its own transform, so this is the only move "
+                      + "available to a one-bone rig)";
             // THE FRAME RESIDUAL. Zero (at rest) proves localBounds really is expressed in _frame,
             // which is what every distance gate in this class depends on. Non-zero at rest means
             // the reach is being measured in the wrong place and would be the first thing to fix.
@@ -1042,7 +1307,8 @@ internal static class SceneHangingHands
             {
                 residual = -1f;
             }
-            return $"'{(_r != null ? _r.name : "(destroyed)")}' at '{_path}' [skinned] "
+            return $"'{(_r != null ? _r.name : "(destroyed)")}' at '{_path}' "
+                   + (_plainMesh ? "[mesh] " : "[skinned] ")
                    + $"frame '{(_frame != null ? _frame.name : "(none)")}' residual "
                    + $"{residual:0.###} wu (0 at rest = localBounds read in the right frame) "
                    + $"{_bones.Length} bone(s), {_blendShapes} blend shape(s), "
